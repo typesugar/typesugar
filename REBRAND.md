@@ -1,6 +1,6 @@
 # Rebrand: typemacro → ttfx
 
-**"TypeScript that F*cks!"** - Compile-time macros for TypeScript.
+**"TypeScript that F\*cks!"** - Compile-time macros for TypeScript.
 
 > In good company: `thefuck` has 95k+ GitHub stars, `feh` = "Fucking Fast Image Viewer"
 
@@ -21,13 +21,16 @@
 ## Phase 3: Update Package Names (20 packages) ✅
 
 ### Root monorepo
+
 - [x] `typemacro-monorepo` → `ttfx-monorepo`
 
 ### Main package
+
 - [x] `typemacro` → `ttfx`
 - [x] Renamed folder `packages/typemacro` → `packages/ttfx`
 
-### Scoped packages (@typemacro/* → @ttfx/*)
+### Scoped packages (@typemacro/_ → @ttfx/_)
+
 - [x] `@typemacro/core` → `@ttfx/core`
 - [x] `@typemacro/transformer` → `@ttfx/transformer`
 - [x] `@typemacro/comptime` → `@ttfx/comptime`
@@ -49,16 +52,19 @@
 - [x] `@typemacro/effect-do` → `@ttfx/effect-do`
 
 ### Example
+
 - [x] `typemacro-example-basic` → `ttfx-example-basic`
 
 ## Phase 4: Update References ✅
 
 ### Config files
+
 - [x] Root `tsconfig.json` - plugin transform path (`typemacro/transformer` → `ttfx/transformer`)
 - [x] `examples/basic/tsconfig.json` - plugin references
 - [x] All internal `workspace:*` dependencies in package.json files
 
 ### VSCode extension
+
 - [x] Rename folder `packages/vscode-typemacro` → `packages/vscode-ttfx`
 - [x] Update `displayName`, `publisher` in package.json
 - [x] Update activation events (`typemacro.manifest.json` → `ttfx.manifest.json`)
@@ -67,11 +73,13 @@
 - [x] Rename syntax files (`typemacro.tmLanguage.json` → `ttfx.tmLanguage.json`)
 
 ### Documentation
+
 - [x] Update README.md with new name/branding
 - [x] Update import examples (`from "typemacro"` → `from "ttfx"`)
 - [x] Update tsconfig examples in docs
 
 ### Source code
+
 - [x] Search/replace all import paths referencing old package names
 - [x] Update any hardcoded package name references
 
@@ -80,7 +88,17 @@
 - [x] Add remote: `git remote add origin git@github.com:dpovey/ttfx.git`
 - [x] Push: `git push -u origin main`
 
-## Phase 6: Publish to npm (when ready)
+## Phase 6: Monorepo Reorganization ✅
+
+- [x] Create READMEs for all 21 packages with documentation
+- [x] Add examples/ directory to each package with self-contained demos
+- [x] Promote src/use-cases/react to @ttfx/react package
+- [x] Promote src/use-cases/testing to @ttfx/testing package
+- [x] Remove redundant src/use-cases/ directories
+- [x] Create docs/ directory with microsite skeleton
+- [x] Update root README.md with package index
+
+## Phase 7: Publish to npm (when ready)
 
 - [ ] Verify all packages build (`pnpm build`)
 - [ ] Run tests (`pnpm test`)

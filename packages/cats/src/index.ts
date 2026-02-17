@@ -128,6 +128,23 @@ export * as IOApp from "./io/io-app.js";
 export * from "./syntax/index.js";
 
 // ============================================================================
+// Zero-Cost Abstractions (compile-time-optimized versions)
+// ============================================================================
+
+export * as ZeroCost from "./zero-cost/index.js";
+export {
+  type ZeroCostOption,
+  ZeroCostOptionOps,
+  type ZeroCostResult,
+  type ZeroCostOk,
+  type ZeroCostErr,
+  ZeroCostResultOps,
+  match,
+  matchLiteral,
+  matchGuard,
+} from "./zero-cost/index.js";
+
+// ============================================================================
 // Re-export commonly used constructors directly for convenience
 // ============================================================================
 

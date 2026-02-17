@@ -35,16 +35,16 @@ importers:
       ts-patch:
         specifier: ^3.3.0
         version: 3.3.0
-      typemacro:
+      ttfx:
         specifier: workspace:*
-        version: link:../../packages/typemacro
+        version: link:../../packages/ttfx
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
 
   packages/adapter-effect:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -57,7 +57,7 @@ importers:
 
   packages/adapter-kysely:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -70,7 +70,10 @@ importers:
 
   packages/cats:
     dependencies:
-      '@typemacro/type-system':
+      '@ttfx/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ttfx/type-system':
         specifier: workspace:*
         version: link:../type-system
       typescript:
@@ -79,7 +82,7 @@ importers:
 
   packages/comptime:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -94,7 +97,7 @@ importers:
 
   packages/derive:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -103,7 +106,7 @@ importers:
 
   packages/effect-do:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -112,7 +115,7 @@ importers:
 
   packages/integrations:
     dependencies:
-      '@typemacro/transformer':
+      '@ttfx/transformer':
         specifier: workspace:*
         version: link:../transformer
       typescript:
@@ -124,16 +127,32 @@ importers:
 
   packages/operators:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
 
+  packages/react:
+    dependencies:
+      '@ttfx/core':
+        specifier: workspace:*
+        version: link:../core
+      react:
+        specifier: '>=18.0.0'
+        version: 19.2.4
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+    devDependencies:
+      '@types/react':
+        specifier: ^18.2.0
+        version: 18.3.28
+
   packages/reflect:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -142,7 +161,7 @@ importers:
 
   packages/specialize:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -151,7 +170,7 @@ importers:
 
   packages/sql:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -160,25 +179,70 @@ importers:
 
   packages/strings:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+
+  packages/testing:
+    dependencies:
+      '@ttfx/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ttfx/type-system':
+        specifier: workspace:*
+        version: link:../type-system
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
 
   packages/transformer:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
 
+  packages/ttfx:
+    dependencies:
+      '@ttfx/comptime':
+        specifier: workspace:*
+        version: link:../comptime
+      '@ttfx/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ttfx/derive':
+        specifier: workspace:*
+        version: link:../derive
+      '@ttfx/integrations':
+        specifier: workspace:*
+        version: link:../integrations
+      '@ttfx/operators':
+        specifier: workspace:*
+        version: link:../operators
+      '@ttfx/reflect':
+        specifier: workspace:*
+        version: link:../reflect
+      '@ttfx/specialize':
+        specifier: workspace:*
+        version: link:../specialize
+      '@ttfx/transformer':
+        specifier: workspace:*
+        version: link:../transformer
+      '@ttfx/typeclass':
+        specifier: workspace:*
+        version: link:../typeclass
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+
   packages/type-system:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -187,58 +251,25 @@ importers:
 
   packages/typeclass:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-
-  packages/typemacro:
-    dependencies:
-      '@typemacro/comptime':
-        specifier: workspace:*
-        version: link:../comptime
-      '@typemacro/core':
-        specifier: workspace:*
-        version: link:../core
-      '@typemacro/derive':
-        specifier: workspace:*
-        version: link:../derive
-      '@typemacro/integrations':
-        specifier: workspace:*
-        version: link:../integrations
-      '@typemacro/operators':
-        specifier: workspace:*
-        version: link:../operators
-      '@typemacro/reflect':
-        specifier: workspace:*
-        version: link:../reflect
-      '@typemacro/specialize':
-        specifier: workspace:*
-        version: link:../specialize
-      '@typemacro/transformer':
-        specifier: workspace:*
-        version: link:../transformer
-      '@typemacro/typeclass':
-        specifier: workspace:*
-        version: link:../typeclass
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
 
   packages/units:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
 
-  packages/vscode-typemacro:
+  packages/vscode-ttfx:
     dependencies:
-      '@typemacro/core':
+      '@ttfx/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -250,15 +281,6 @@ importers:
         version: 8.5.1(postcss@8.5.6)(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
-        version: 5.9.3
-
-  packages/zero-cost:
-    dependencies:
-      '@typemacro/core':
-        specifier: workspace:*
-        version: link:../core
-      typescript:
-        specifier: '>=5.0.0'
         version: 5.9.3
 
 packages:
@@ -574,6 +596,12 @@ packages:
 
   '@types/node@22.19.11':
     resolution: {integrity: sha512-BH7YwL6rA93ReqeQS1c4bsPpcfOmJasG+Fkr6Y59q83f9M1WcBRHR2vM+P9eOisYRcN3ujQoiZY8uk5W+1WL8w==}
+
+  '@types/prop-types@15.7.15':
+    resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
+
+  '@types/react@18.3.28':
+    resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
 
   '@types/react@19.2.14':
     resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
@@ -1270,6 +1298,13 @@ snapshots:
   '@types/node@22.19.11':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/prop-types@15.7.15': {}
+
+  '@types/react@18.3.28':
+    dependencies:
+      '@types/prop-types': 15.7.15
+      csstype: 3.2.3
 
   '@types/react@19.2.14':
     dependencies:

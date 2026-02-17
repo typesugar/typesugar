@@ -36,6 +36,11 @@
       "types": "./dist/effect/index.d.ts",
       "import": "./dist/effect/index.js",
       "require": "./dist/effect/index.cjs"
+    },
+    "./zero-cost": {
+      "types": "./dist/zero-cost/index.d.ts",
+      "import": "./dist/zero-cost/index.js",
+      "require": "./dist/zero-cost/index.cjs"
     }
   },
   "scripts": {
@@ -56,6 +61,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@ttfx/core": "workspace:*",
     "@ttfx/type-system": "workspace:*"
   },
   "peerDependencies": {

@@ -1,10 +1,24 @@
 /**
  * Core module exports for @ttfx/core
+ *
+ * This package provides:
+ * - Macro system infrastructure (types, registry, context)
+ * - Runtime safety primitives (invariant, unreachable, debugOnly)
  */
 
 export * from "./types.js";
 export * from "./registry.js";
 export * from "./context.js";
+
+// Runtime Safety Primitives
+export {
+  invariant,
+  unreachable,
+  debugOnly,
+  invariantMacro,
+  unreachableMacro,
+  debugOnlyMacro,
+} from "./safety.js";
 
 // Re-export commonly used types for convenience
 export type {

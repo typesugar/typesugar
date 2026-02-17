@@ -344,44 +344,126 @@ function getPrefixOperatorString(
 }
 
 // ============================================================================
-// pipe() and compose() - Functional composition macros
+// pipe(), flow(), compose() - Functional composition macros
 // ============================================================================
 
+/**
+ * Pipe a value through a series of functions (left-to-right).
+ *
+ * @example
+ * ```typescript
+ * // pipe(x, f, g, h) compiles to h(g(f(x)))
+ * const result = pipe(
+ *   rawInput,
+ *   trim,
+ *   toLowerCase,
+ *   x => x.split(","),
+ * );
+ * ```
+ */
 export const pipeMacro = defineExpressionMacro({
   name: "pipe",
   module: "@ttfx/operators",
-  description: "Pipe a value through a series of functions",
+  description:
+    "Zero-cost pipe — inlines function composition into nested calls",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
     args: readonly ts.Expression[],
   ): ts.Expression {
-    if (args.length < 2) {
-      ctx.reportError(
-        callExpr,
-        "pipe() requires at least an initial value and one function",
-      );
+    const factory = ctx.factory;
+
+    if (args.length === 0) {
+      ctx.reportError(callExpr, "pipe() requires at least one argument");
       return callExpr;
     }
 
-    const factory = ctx.factory;
+    if (args.length === 1) {
+      // pipe(x) => x
+      return args[0];
+    }
 
-    // pipe(x, f, g, h) => h(g(f(x)))
-    let result = args[0];
-
+    // pipe(value, f1, f2, f3) => f3(f2(f1(value)))
+    let result: ts.Expression = args[0];
     for (let i = 1; i < args.length; i++) {
       result = factory.createCallExpression(args[i], undefined, [result]);
     }
-
     return result;
   },
 });
 
+/**
+ * Compose functions left-to-right into a single function.
+ *
+ * @example
+ * ```typescript
+ * // flow(f, g, h) compiles to (x) => h(g(f(x)))
+ * const processUser = flow(
+ *   validateEmail,
+ *   normalizeCase,
+ *   addTimestamp,
+ * );
+ * ```
+ */
+export const flowMacro = defineExpressionMacro({
+  name: "flow",
+  module: "@ttfx/operators",
+  description:
+    "Zero-cost flow — composes functions left-to-right into a single inlined arrow function",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[],
+  ): ts.Expression {
+    const factory = ctx.factory;
+
+    if (args.length === 0) {
+      ctx.reportError(callExpr, "flow() requires at least one function");
+      return callExpr;
+    }
+
+    if (args.length === 1) {
+      // flow(f) => f
+      return args[0];
+    }
+
+    // flow(f1, f2, f3) => (__x) => f3(f2(f1(__x)))
+    const param = ctx.generateUniqueName("__x");
+    let body: ts.Expression = param;
+    for (const fn of args) {
+      body = factory.createCallExpression(fn, undefined, [body]);
+    }
+
+    return factory.createArrowFunction(
+      undefined,
+      undefined,
+      [factory.createParameterDeclaration(undefined, undefined, param)],
+      undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      body,
+    );
+  },
+});
+
+/**
+ * Compose functions right-to-left into a single function.
+ *
+ * @example
+ * ```typescript
+ * // compose(f, g, h) compiles to (x) => f(g(h(x)))
+ * const processUser = compose(
+ *   addTimestamp,
+ *   normalizeCase,
+ *   validateEmail,
+ * );
+ * ```
+ */
 export const composeMacro = defineExpressionMacro({
   name: "compose",
   module: "@ttfx/operators",
-  description: "Compose functions right-to-left",
+  description: "Compose functions right-to-left into a single function",
 
   expand(
     ctx: MacroContext,
@@ -395,9 +477,12 @@ export const composeMacro = defineExpressionMacro({
 
     const factory = ctx.factory;
 
-    // compose(f, g, h) => (x) => f(g(h(x)))
-    // Generate: (x) => f(g(h(x)))
+    if (args.length === 1) {
+      // compose(f) => f
+      return args[0];
+    }
 
+    // compose(f, g, h) => (x) => f(g(h(x)))
     const paramName = ctx.generateUniqueName("x");
 
     let body: ts.Expression = paramName;
@@ -416,6 +501,125 @@ export const composeMacro = defineExpressionMacro({
   },
 });
 
+// ============================================================================
+// Runtime Placeholder Functions
+// ============================================================================
+
+/** pipe: Apply a value through a chain of functions left-to-right */
+export function pipe<A>(value: A): A;
+export function pipe<A, B>(value: A, f1: (a: A) => B): B;
+export function pipe<A, B, C>(value: A, f1: (a: A) => B, f2: (b: B) => C): C;
+export function pipe<A, B, C, D>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+): D;
+export function pipe<A, B, C, D, E>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+): E;
+export function pipe<A, B, C, D, E, F>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+): F;
+export function pipe<A, B, C, D, E, F, G>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+): G;
+export function pipe<A, B, C, D, E, F, G, H>(
+  value: A,
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+  f7: (g: G) => H,
+): H;
+export function pipe(
+  value: unknown,
+  ...fns: Array<(x: unknown) => unknown>
+): unknown {
+  return fns.reduce((acc, fn) => fn(acc), value);
+}
+
+/** flow: Compose functions left-to-right into a single function */
+export function flow<A, B>(f1: (a: A) => B): (a: A) => B;
+export function flow<A, B, C>(f1: (a: A) => B, f2: (b: B) => C): (a: A) => C;
+export function flow<A, B, C, D>(
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+): (a: A) => D;
+export function flow<A, B, C, D, E>(
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+): (a: A) => E;
+export function flow<A, B, C, D, E, F>(
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+): (a: A) => F;
+export function flow<A, B, C, D, E, F, G>(
+  f1: (a: A) => B,
+  f2: (b: B) => C,
+  f3: (c: C) => D,
+  f4: (d: D) => E,
+  f5: (e: E) => F,
+  f6: (f: F) => G,
+): (a: A) => G;
+export function flow(
+  ...fns: Array<(x: unknown) => unknown>
+): (x: unknown) => unknown {
+  return (x) => fns.reduce((acc, fn) => fn(acc), x);
+}
+
+/** compose: Compose functions right-to-left into a single function */
+export function compose<A, B>(f1: (a: A) => B): (a: A) => B;
+export function compose<A, B, C>(f1: (b: B) => C, f2: (a: A) => B): (a: A) => C;
+export function compose<A, B, C, D>(
+  f1: (c: C) => D,
+  f2: (b: B) => C,
+  f3: (a: A) => B,
+): (a: A) => D;
+export function compose<A, B, C, D, E>(
+  f1: (d: D) => E,
+  f2: (c: C) => D,
+  f3: (b: B) => C,
+  f4: (a: A) => B,
+): (a: A) => E;
+export function compose(
+  ...fns: Array<(x: unknown) => unknown>
+): (x: unknown) => unknown {
+  return (x) => fns.reduceRight((acc, fn) => fn(acc), x);
+}
+
+/** ops: Transform operators to method calls. Runtime fallback passes through. */
+export function ops<T>(expr: T): T {
+  return expr;
+}
+
+// ============================================================================
+// Registration
+// ============================================================================
+
 /**
  * Register macros with the global registry.
  * Call this function to enable operator macros in your project.
@@ -424,6 +628,7 @@ export function register(): void {
   globalRegistry.register(operatorsAttribute);
   globalRegistry.register(opsMacro);
   globalRegistry.register(pipeMacro);
+  globalRegistry.register(flowMacro);
   globalRegistry.register(composeMacro);
 }
 

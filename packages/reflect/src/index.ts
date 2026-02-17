@@ -799,6 +799,61 @@ export const validatorMacro = defineExpressionMacro({
   },
 });
 
+// ============================================================================
+// sizeof<T>() - Get number of properties on a type
+// ============================================================================
+
+/**
+ * Compile-time sizeof — returns the number of properties on a type.
+ * Useful for compile-time assertions about type size.
+ *
+ * @example
+ * ```typescript
+ * interface User {
+ *   id: number;
+ *   name: string;
+ *   email: string;
+ * }
+ *
+ * const userFieldCount = sizeof<User>(); // 3
+ *
+ * // Use in assertions
+ * staticAssert(sizeof<User>() <= 10, "User has too many fields");
+ * ```
+ */
+export function sizeof<_T>(): number {
+  return 0; // Placeholder — replaced by macro
+}
+
+export const sizeofMacro = defineExpressionMacro({
+  name: "sizeof",
+  module: "@ttfx/reflect",
+  description:
+    "Compile-time sizeof — returns number of properties on a type as a literal",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    _args: readonly ts.Expression[],
+  ): ts.Expression {
+    // Get the type argument
+    const typeArgs = callExpr.typeArguments;
+    if (!typeArgs || typeArgs.length !== 1) {
+      ctx.reportError(
+        callExpr,
+        "sizeof<T>() requires exactly one type argument",
+      );
+      return callExpr;
+    }
+
+    const typeNode = typeArgs[0];
+    const type = ctx.typeChecker.getTypeFromTypeNode(typeNode);
+    const properties = type.getProperties();
+
+    return ctx.factory.createNumericLiteral(properties.length);
+  },
+});
+
 /**
  * Register macros with the global registry.
  * Call this function to enable reflection macros in your project.
@@ -808,6 +863,7 @@ export function register(): void {
   globalRegistry.register(typeInfoMacro);
   globalRegistry.register(fieldNamesMacro);
   globalRegistry.register(validatorMacro);
+  globalRegistry.register(sizeofMacro);
 }
 
 // Auto-register when this module is imported

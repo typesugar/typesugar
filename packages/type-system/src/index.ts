@@ -7,27 +7,54 @@
  *
  * ## Features
  *
- * 1. **Higher-Kinded Types (HKT)** — Type constructors as type parameters
+ * 1. **Type-Level Utilities** — Boolean algebra for types
+ *    (Equal, Extends, Not, And, Or, IsNever, IsAny, IsUnknown)
+ *
+ * 2. **Higher-Kinded Types (HKT)** — Type constructors as type parameters
  *    via indexed-access encoding (`$<F, A>`, zero-cost, no registry)
  *
- * 2. **Existential Types** — "There exists some type T" with CPS encoding
+ * 3. **Existential Types** — "There exists some type T" with CPS encoding
  *    (heterogeneous collections, type-safe plugins)
  *
- * 3. **Refinement Types** — Types with predicates (Byte, Port, NonEmpty, Email)
+ * 4. **Refinement Types** — Types with predicates (Byte, Port, NonEmpty, Email)
  *    with compile-time validation for literals
  *
- * 4. **Type-Level Arithmetic** — Compile-time numeric computation
- *    (Add, Sub, Mul, Div, Mod, Pow, comparisons)
+ * 5. **Newtype (Zero-Cost Branding)** — Branded types that compile away
+ *    (UserId, Meters, Seconds — type discrimination without runtime cost)
  *
- * 5. **Opaque Type Modules** — ML-style abstract types with controlled access
+ * 6. **Opaque Type Modules** — ML-style abstract types with controlled access
  *    (smart constructors, module-scoped operations)
  *
- * 6. **Phantom Type State Machines** — Encode state machines in the type system
+ * 7. **Type-Level Arithmetic** — Compile-time numeric computation
+ *    (Add, Sub, Mul, Div, Mod, Pow, comparisons)
+ *
+ * 8. **Phantom Type State Machines** — Encode state machines in the type system
  *    (type-safe builders, protocol types, session types)
  *
- * 7. **Effect System Annotations** — Compile-time side-effect tracking
+ * 9. **Effect System Annotations** — Compile-time side-effect tracking
  *    (@pure, @effect("io"), effect propagation checking)
+ *
+ * ## The Branding Spectrum
+ *
+ * This module provides three levels of type branding:
+ *
+ * - **Newtype** — Pure branding, zero runtime cost. Use for type discrimination.
+ * - **Opaque** — Module-scoped access. Use to hide representation details.
+ * - **Refined** — Runtime validation. Use when values must satisfy invariants.
  */
+
+// Type-Level Boolean Utilities (canonical definitions)
+export {
+  type Equal,
+  type Extends,
+  type Not,
+  type And,
+  type Or,
+  type IsNever,
+  type IsAny,
+  type IsUnknown,
+  type Equals, // deprecated alias
+} from "./type-utils.js";
 
 // Higher-Kinded Types (via indexed-access encoding)
 export {
@@ -124,6 +151,19 @@ export {
   isEvenTypeMacro,
   isOddTypeMacro,
 } from "./type-arithmetic.js";
+
+// Newtype (Zero-Cost Branding)
+export {
+  type Newtype,
+  type UnwrapNewtype,
+  wrap,
+  unwrap,
+  newtypeCtor,
+  validatedNewtype,
+  wrapMacro,
+  unwrapMacro,
+  newtypeCtorMacro,
+} from "./newtype.js";
 
 // Opaque Type Modules
 export {
