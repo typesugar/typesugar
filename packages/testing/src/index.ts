@@ -63,6 +63,9 @@
  * @packageDocumentation
  */
 
+// Declare global `expect` for runtime fallback (provided by vitest/jest)
+declare const expect: any;
+
 // Re-export type utilities from canonical location
 export {
   type Equal,

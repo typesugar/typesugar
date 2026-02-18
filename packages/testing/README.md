@@ -14,16 +14,37 @@ npm install @ttfx/testing
 pnpm add @ttfx/testing
 ```
 
+## Quick Start
+
+```typescript
+import {
+  assert, // Power assertions with sub-expression capture
+  staticAssert, // Compile-time assertions (fail BUILD, not test)
+  typeAssert, // Type-level assertions
+  type Equal, // Type equality check
+  type Extends, // Type extends check
+} from "@ttfx/testing";
+
+// Runtime assertion — captures sub-expression values on failure
+assert(users.length === expected.length);
+
+// Compile-time assertion — fails the BUILD if false
+staticAssert(CONFIG.TIMEOUT > 0, "timeout must be positive");
+
+// Type assertion — verifies types at compile time
+typeAssert<Equal<ReturnType<typeof parse>, AST>>();
+```
+
 ## Usage
 
-### powerAssert() — Sub-Expression Capture
+### assert() — Power Assertions
 
 On failure, shows the value of every sub-expression.
 
 ```typescript
-import { powerAssert } from "@ttfx/testing";
+import { assert } from "@ttfx/testing";
 
-powerAssert(users.length === filtered.length);
+assert(users.length === filtered.length);
 
 // On failure:
 //   Power Assert Failed
@@ -38,15 +59,15 @@ powerAssert(users.length === filtered.length);
 //     filtered → [{...}, {...}]
 ```
 
-### comptimeAssert() — Compile-Time Assertions
+### staticAssert() — Compile-Time Assertions
 
-Fail the BUILD, not the test.
+Fail the BUILD, not the test. Zero runtime cost.
 
 ```typescript
-import { comptimeAssert } from "@ttfx/testing";
+import { staticAssert } from "@ttfx/testing";
 
-comptimeAssert(3 + 4 === 7, "basic math must work");
-comptimeAssert(SUPPORTED_LOCALES.length > 0, "must have locales");
+staticAssert(3 + 4 === 7, "basic math must work");
+staticAssert(SUPPORTED_LOCALES.length > 0, "must have locales");
 
 // If false: BUILD FAILS with the message
 // If true: No runtime cost (expands to void 0)
@@ -154,14 +175,25 @@ typeAssert<Not<IsAny<T>>>();
 typeAssert<And<Extends<A, B>, Extends<B, C>>>();
 ```
 
+## Examples
+
+See the [`examples/`](./examples/) directory for real-world patterns:
+
+- **basic.ts** — Core testing patterns from dogfooding ttfx's own test suite
+
 ## API Reference
 
 ### Assertions
 
-- `powerAssert(condition, message?)` — Assert with sub-expression capture
-- `comptimeAssert(condition, message?)` — Compile-time assertion
+- `assert(condition, message?)` — Assert with sub-expression capture
+- `staticAssert(condition, message?)` — Compile-time assertion
 - `typeAssert<T extends true>()` — Type-level assertion
 - `assertSnapshot(value, name?)` — Snapshot with source capture
+
+### Deprecated Aliases
+
+- `powerAssert` — Use `assert()` instead
+- `comptimeAssert` — Use `staticAssert()` instead
 
 ### Parameterized Testing
 
@@ -182,6 +214,39 @@ typeAssert<And<Extends<A, B>, Extends<B, C>>>();
 - `IsNever<T>` — True if T is never
 - `IsAny<T>` — True if T is any
 - `IsUnknown<T>` — True if T is unknown
+
+## Vitest Integration
+
+To use `@ttfx/testing` macros in your vitest tests, add the ttfx transformer plugin to your `vitest.config.ts`:
+
+```typescript
+import { defineConfig } from "vitest/config";
+import typemacro from "@ttfx/integrations/vite";
+
+export default defineConfig({
+  plugins: [typemacro()],
+  test: {
+    // your test config
+  },
+});
+```
+
+Then import and use the macros in your test files:
+
+```typescript
+import { describe, it } from "vitest";
+import { assert, typeAssert, type Equal } from "@ttfx/testing";
+
+describe("my tests", () => {
+  it("uses power assertions", () => {
+    assert(result.status === "success");
+  });
+
+  it("verifies types", () => {
+    typeAssert<Equal<typeof result, MyType>>();
+  });
+});
+```
 
 ## License
 

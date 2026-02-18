@@ -23,13 +23,11 @@ import {
   defineDeriveMacro,
   defineAttributeMacro,
   globalRegistry,
-} from "../../core/registry.js";
-import {
-  MacroContext,
-  DeriveTypeInfo,
-  DeriveFieldInfo,
-  AttributeTarget,
-} from "../../core/types.js";
+  type MacroContext,
+  type DeriveTypeInfo,
+  type DeriveFieldInfo,
+  type AttributeTarget,
+} from "@ttfx/core";
 
 // ============================================================================
 // powerAssert() — Power Assertions with Sub-Expression Capture
@@ -669,7 +667,8 @@ export const typeAssertMacro = defineExpressionMacro({
     // If it resolves to `false` or anything else, the assertion fails.
     if (type.isLiteral()) {
       const literalValue = (type as ts.LiteralType).value;
-      if (literalValue === true || literalValue === "true") {
+      // Boolean literals have value as boolean, strings/numbers have their respective types
+      if ((literalValue as unknown) === true || literalValue === "true") {
         // Assertion passes — emit void 0
         return factory.createVoidExpression(factory.createNumericLiteral(0));
       }
@@ -884,7 +883,10 @@ export const forAllMacro = defineExpressionMacro({
 export const powerAssertMacro = { ...assertMacro, name: "powerAssert" };
 
 /** @deprecated Use `staticAssertMacro` instead */
-export const comptimeAssertMacro = { ...staticAssertMacro, name: "comptimeAssert" };
+export const comptimeAssertMacro = {
+  ...staticAssertMacro,
+  name: "comptimeAssert",
+};
 
 // ============================================================================
 // Registration
