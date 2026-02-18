@@ -328,21 +328,16 @@ class MacroTransformer {
 
     // Development mode: detect from source tree structure
     if (normalized.includes("/packages/units/")) return "@ttfx/units";
-    if (normalized.includes("/packages/effect-do/"))
-      return "@ttfx/effect-do";
+    if (normalized.includes("/packages/effect-do/")) return "@ttfx/effect-do";
     if (normalized.includes("/packages/sql/")) return "@ttfx/sql";
     if (normalized.includes("/packages/strings/")) return "@ttfx/strings";
     if (normalized.includes("/packages/cats/")) return "@ttfx/cats";
-    if (normalized.includes("/packages/comptime/"))
-      return "@ttfx/comptime";
+    if (normalized.includes("/packages/comptime/")) return "@ttfx/comptime";
     if (normalized.includes("/packages/reflect/")) return "@ttfx/reflect";
     if (normalized.includes("/packages/derive/")) return "@ttfx/derive";
-    if (normalized.includes("/packages/operators/"))
-      return "@ttfx/operators";
-    if (normalized.includes("/packages/typeclass/"))
-      return "@ttfx/typeclass";
-    if (normalized.includes("/packages/specialize/"))
-      return "@ttfx/specialize";
+    if (normalized.includes("/packages/operators/")) return "@ttfx/operators";
+    if (normalized.includes("/packages/typeclass/")) return "@ttfx/typeclass";
+    if (normalized.includes("/packages/specialize/")) return "@ttfx/specialize";
     if (normalized.includes("/packages/core/")) return "@ttfx/core";
     if (normalized.includes("/packages/typemacro/")) return "typemacro";
 
@@ -351,8 +346,7 @@ class MacroTransformer {
     if (normalized.includes("/src/use-cases/effect-do/"))
       return "@ttfx/effect-do";
     if (normalized.includes("/src/use-cases/sql/")) return "@ttfx/sql";
-    if (normalized.includes("/src/use-cases/strings/"))
-      return "@ttfx/strings";
+    if (normalized.includes("/src/use-cases/strings/")) return "@ttfx/strings";
     if (
       normalized.includes("/src/index.") ||
       normalized.includes("/src/macros/") ||
@@ -933,7 +927,10 @@ class MacroTransformer {
       });
     }
 
-    return { name, fields, typeParameters, type };
+    // Note: This simplified transformer defaults to "product" kind.
+    // The main transformer in src/transforms/macro-transformer.ts has
+    // full sum type detection via tryExtractSumType().
+    return { name, fields, typeParameters, type, kind: "product" };
   }
 
   private tryExpandTaggedTemplate(

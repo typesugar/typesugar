@@ -14,6 +14,7 @@ import {
   MacroDefinition,
   DeriveTypeInfo,
   DeriveFieldInfo,
+  DeriveVariantInfo,
   LabeledBlockMacro,
 } from "../core/types.js";
 import { HygieneContext } from "../core/hygiene.js";
@@ -27,6 +28,7 @@ import {
   createRestrictedContext,
 } from "../core/capabilities.js";
 import { setCfgConfig } from "../macros/cfg.js";
+import { setContractConfig } from "@ttfx/contracts";
 
 // Import built-in macros to register them
 import "../macros/index.js";
@@ -74,6 +76,23 @@ export interface MacroTransformerConfig {
 
   /** Enable expansion tracking for source maps and diagnostics */
   trackExpansions?: boolean;
+
+  /**
+   * Contract checking configuration.
+   * Controls how requires/ensures/invariant macros are compiled.
+   */
+  contracts?: {
+    /** "full" = all checks, "assertions" = invariants only, "none" = stripped */
+    mode?: "full" | "assertions" | "none";
+    /** Attempt compile-time proofs to eliminate runtime checks */
+    proveAtCompileTime?: boolean;
+    /** Fine-grained stripping per contract type */
+    strip?: {
+      preconditions?: boolean;
+      postconditions?: boolean;
+      invariants?: boolean;
+    };
+  };
 }
 
 /**
@@ -90,6 +109,16 @@ export default function macroTransformerFactory(
   // Apply conditional compilation config if provided
   if (config?.cfgConfig) {
     setCfgConfig(config.cfgConfig);
+  }
+
+  // Apply contract configuration if provided
+  if (config?.contracts) {
+    setContractConfig({
+      mode: config.contracts.mode ?? "full",
+      proveAtCompileTime: config.contracts.proveAtCompileTime ?? false,
+      strip: config.contracts.strip ?? {},
+      proverPlugins: [],
+    });
   }
 
   // Create a shared hygiene context for the entire compilation
@@ -1898,17 +1927,45 @@ class MacroTransformer {
         fields: [],
         typeParameters,
         type: undefined as unknown as ts.Type,
+        kind: "product",
       };
     }
 
+    // Check if this is a sum type (discriminated union)
+    if (ts.isTypeAliasDeclaration(node)) {
+      const sumInfo = tryExtractSumType(this.ctx, node);
+      if (sumInfo) {
+        return this.extractSumTypeInfo(
+          node,
+          name,
+          typeParameters,
+          type,
+          sumInfo,
+        );
+      }
+    }
+
+    // Check if this is a primitive type alias
+    if (ts.isTypeAliasDeclaration(node) && this.isPrimitiveType(type)) {
+      return {
+        name,
+        fields: [],
+        typeParameters,
+        type,
+        kind: "primitive",
+      };
+    }
+
+    // Product type (interface, class, or non-union type alias)
     const fields: DeriveFieldInfo[] = [];
     let properties: ts.Symbol[];
     try {
       properties = this.ctx.typeChecker.getPropertiesOfType(type);
     } catch {
-      return { name, fields: [], typeParameters, type };
+      return { name, fields: [], typeParameters, type, kind: "product" };
     }
 
+    let isRecursive = false;
     for (const prop of properties) {
       const declarations = prop.getDeclarations();
       if (!declarations || declarations.length === 0) continue;
@@ -1922,6 +1979,11 @@ class MacroTransformer {
       } catch {
         propType = type; // fallback
         propTypeString = "unknown";
+      }
+
+      // Check for recursive reference
+      if (propTypeString === name || propTypeString.includes(`${name}<`)) {
+        isRecursive = true;
       }
 
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
@@ -1941,7 +2003,129 @@ class MacroTransformer {
       });
     }
 
-    return { name, fields, typeParameters, type };
+    return { name, fields, typeParameters, type, kind: "product", isRecursive };
+  }
+
+  /**
+   * Extract type information for a sum type (discriminated union).
+   */
+  private extractSumTypeInfo(
+    node: ts.TypeAliasDeclaration,
+    name: string,
+    typeParameters: ts.TypeParameterDeclaration[],
+    type: ts.Type,
+    sumInfo: {
+      discriminant: string;
+      variants: Array<{ tag: string; typeName: string }>;
+    },
+  ): DeriveTypeInfo {
+    const variants: DeriveVariantInfo[] = [];
+    let isRecursive = false;
+
+    // For each variant, extract its fields (excluding the discriminant)
+    if (ts.isUnionTypeNode(node.type)) {
+      for (const member of node.type.types) {
+        if (!ts.isTypeReferenceNode(member)) continue;
+
+        const typeName = member.typeName.getText();
+        const variantInfo = sumInfo.variants.find(
+          (v) => v.typeName === typeName,
+        );
+        if (!variantInfo) continue;
+
+        const memberType = this.ctx.typeChecker.getTypeFromTypeNode(member);
+        const fields: DeriveFieldInfo[] = [];
+
+        try {
+          const props = this.ctx.typeChecker.getPropertiesOfType(memberType);
+          for (const prop of props) {
+            // Skip the discriminant field
+            if (prop.name === sumInfo.discriminant) continue;
+
+            const declarations = prop.getDeclarations();
+            if (!declarations || declarations.length === 0) continue;
+
+            const decl = declarations[0];
+            let propType: ts.Type;
+            let propTypeString: string;
+            try {
+              propType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(
+                prop,
+                decl,
+              );
+              propTypeString = this.ctx.typeChecker.typeToString(propType);
+            } catch {
+              propType = memberType;
+              propTypeString = "unknown";
+            }
+
+            // Check for recursive reference
+            if (
+              propTypeString === name ||
+              propTypeString.includes(`${name}<`)
+            ) {
+              isRecursive = true;
+            }
+
+            const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+            const readonly =
+              ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
+                ? (decl.modifiers?.some(
+                    (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
+                  ) ?? false)
+                : false;
+
+            fields.push({
+              name: prop.name,
+              typeString: propTypeString,
+              type: propType,
+              optional,
+              readonly,
+            });
+          }
+        } catch {
+          // Skip this variant if we can't get its properties
+        }
+
+        variants.push({
+          tag: variantInfo.tag,
+          typeName: variantInfo.typeName,
+          fields,
+        });
+      }
+    }
+
+    return {
+      name,
+      fields: [], // Sum types don't have top-level fields
+      typeParameters,
+      type,
+      kind: "sum",
+      variants,
+      discriminant: sumInfo.discriminant,
+      isRecursive,
+    };
+  }
+
+  /**
+   * Check if a type is a primitive type (number, string, boolean, etc.)
+   */
+  private isPrimitiveType(type: ts.Type): boolean {
+    const flags = type.flags;
+    return !!(
+      flags & ts.TypeFlags.Number ||
+      flags & ts.TypeFlags.String ||
+      flags & ts.TypeFlags.Boolean ||
+      flags & ts.TypeFlags.BigInt ||
+      flags & ts.TypeFlags.Null ||
+      flags & ts.TypeFlags.Undefined ||
+      flags & ts.TypeFlags.Void ||
+      flags & ts.TypeFlags.Never ||
+      flags & ts.TypeFlags.NumberLiteral ||
+      flags & ts.TypeFlags.StringLiteral ||
+      flags & ts.TypeFlags.BooleanLiteral ||
+      flags & ts.TypeFlags.BigIntLiteral
+    );
   }
 
   /**
