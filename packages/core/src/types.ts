@@ -235,7 +235,7 @@ export interface DeriveTypeInfo {
   /** Name of the type */
   name: string;
 
-  /** Fields/properties of the type */
+  /** Fields/properties of the type (for product types) */
   fields: DeriveFieldInfo[];
 
   /** Type parameters if generic */
@@ -243,6 +243,44 @@ export interface DeriveTypeInfo {
 
   /** The original type node */
   type: ts.Type;
+
+  /**
+   * The kind of type:
+   * - "product": Record/interface/class with fields
+   * - "sum": Discriminated union
+   * - "primitive": number, string, boolean, etc.
+   */
+  kind: "product" | "sum" | "primitive";
+
+  /**
+   * For sum types: the variants of the union.
+   * Each variant has a tag value and its associated fields.
+   */
+  variants?: DeriveVariantInfo[];
+
+  /**
+   * For sum types: the name of the discriminant field (e.g., "kind", "_tag", "type").
+   * Used to generate switch statements for exhaustive matching.
+   */
+  discriminant?: string;
+
+  /**
+   * Whether the type is recursive (references itself directly or indirectly).
+   * Useful for generating recursive traversals and avoiding infinite loops.
+   */
+  isRecursive?: boolean;
+}
+
+/** Information about a variant in a sum type */
+export interface DeriveVariantInfo {
+  /** The discriminant value (e.g., "circle", "rect") */
+  tag: string;
+
+  /** The type name for this variant (e.g., "Circle", "Rectangle") */
+  typeName: string;
+
+  /** The fields of this variant (excluding the discriminant) */
+  fields: DeriveFieldInfo[];
 }
 
 export interface DeriveFieldInfo {

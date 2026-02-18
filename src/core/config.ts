@@ -68,6 +68,15 @@ export interface ContractsConfig {
     postconditions?: boolean;
     invariants?: boolean;
   };
+  /** Warning configuration for decidability fallback (Coq-inspired) */
+  decidabilityWarnings?: {
+    /** Emit warning when compile-time predicates fall back to runtime */
+    warnOnFallback?: "error" | "warn" | "info" | "off";
+    /** Emit info when decidable predicates need SMT solver */
+    warnOnSMT?: "error" | "warn" | "info" | "off";
+    /** List of brands to ignore warnings for */
+    ignoreBrands?: string[];
+  };
 }
 
 /**
@@ -599,7 +608,12 @@ export const configWhenAttrMacro = defineAttributeMacro({
   name: "config.when",
   module: "ttfx",
   description: "Conditionally include a declaration based on configuration",
-  validTargets: ["class", "method", "property", "function"] as AttributeTarget[],
+  validTargets: [
+    "class",
+    "method",
+    "property",
+    "function",
+  ] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
