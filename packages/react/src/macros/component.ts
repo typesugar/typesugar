@@ -30,8 +30,11 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "../../../core/registry.js";
-import type { MacroContext } from "../../../core/types.js";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  type MacroContext,
+} from "@ttfx/core";
 import type { ReactMacroMode } from "../types.js";
 import {
   analyzeClosureCaptures,
@@ -66,12 +69,17 @@ export interface HoistedComponent {
 /**
  * Per-file tracking of hoisted components
  */
-export const hoistedComponentsMap = new WeakMap<ts.SourceFile, HoistedComponent[]>();
+export const hoistedComponentsMap = new WeakMap<
+  ts.SourceFile,
+  HoistedComponent[]
+>();
 
 /**
  * Get or create the hoisted components array for a source file
  */
-export function getHoistedComponents(sourceFile: ts.SourceFile): HoistedComponent[] {
+export function getHoistedComponents(
+  sourceFile: ts.SourceFile,
+): HoistedComponent[] {
   let arr = hoistedComponentsMap.get(sourceFile);
   if (!arr) {
     arr = [];
@@ -125,7 +133,8 @@ export const componentMacro = defineExpressionMacro({
 
     // Get the component name from the parent variable declaration
     const componentName = getComponentNameFromCall(callExpr);
-    const finalName = componentName ?? `__AnonymousComponent_${++componentCounter}`;
+    const finalName =
+      componentName ?? `__AnonymousComponent_${++componentCounter}`;
 
     // Get props type from type argument if provided
     let propsType: ts.TypeNode | undefined;
@@ -172,7 +181,7 @@ export const componentMacro = defineExpressionMacro({
     });
 
     // Get the current mode (default to 'react')
-    const mode: ReactMacroMode = "react"; // TODO: Get from config
+    const mode = "react" as ReactMacroMode; // TODO: Get from config
 
     // Return a marker object that will be processed by the transformer
     // The actual component definition will be hoisted to module level
@@ -255,9 +264,7 @@ export function generateHoistedComponent(
   const propsParam = factory.createParameterDeclaration(
     undefined,
     undefined,
-    factory.createObjectBindingPattern(
-      getPropsBindings(renderFn, factory),
-    ),
+    factory.createObjectBindingPattern(getPropsBindings(renderFn, factory)),
     undefined,
     component.propsType,
     undefined,

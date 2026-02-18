@@ -26,18 +26,18 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "../../../core/registry.js";
-import type { MacroContext } from "../../../core/types.js";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  type MacroContext,
+} from "@ttfx/core";
 import type { ReactMacroMode } from "../types.js";
 import {
   extractDependencies,
   generateDependencyArray,
   type StateVariableSet,
 } from "../analysis/deps.js";
-import {
-  shouldBeDerived,
-  checkEffectCleanup,
-} from "../analysis/purity.js";
+import { shouldBeDerived, checkEffectCleanup } from "../analysis/purity.js";
 import { getStateMetadata } from "./state.js";
 
 /**
@@ -114,7 +114,7 @@ export const effectMacro = defineExpressionMacro({
     }
 
     // Get the current mode (default to 'react')
-    const mode: ReactMacroMode = "react"; // TODO: Get from config
+    const mode = "react" as ReactMacroMode; // TODO: Get from config
 
     if (mode === "fine-grained") {
       // Fine-grained mode: createEffect(() => { ... })
@@ -218,7 +218,7 @@ export const watchMacro = defineExpressionMacro({
     }
 
     // Get the current mode (default to 'react')
-    const mode: ReactMacroMode = "react"; // TODO: Get from config
+    const mode = "react" as ReactMacroMode; // TODO: Get from config
 
     // Extract dependency names and create the dependency array
     const depNames: string[] = [];
@@ -237,10 +237,7 @@ export const watchMacro = defineExpressionMacro({
           depElements.push(factory.createIdentifier(name));
         }
       } else {
-        ctx.reportError(
-          elem,
-          "watch() dependency must be an identifier",
-        );
+        ctx.reportError(elem, "watch() dependency must be an identifier");
         depElements.push(elem);
       }
     }
@@ -291,7 +288,10 @@ export const watchMacro = defineExpressionMacro({
 function rewriteStateReferencesInEffect(
   ctx: MacroContext,
   effectFn: ts.ArrowFunction | ts.FunctionExpression,
-  stateMetadata: Map<string, { name: string; valueIdent: string; setterIdent: string }>,
+  stateMetadata: Map<
+    string,
+    { name: string; valueIdent: string; setterIdent: string }
+  >,
 ): ts.ArrowFunction | ts.FunctionExpression {
   const factory = ctx.factory;
 
@@ -325,8 +325,8 @@ function rewriteStateReferencesInEffect(
         const meta = stateMetadata.get(obj.text);
         if (meta) {
           // Transform args recursively first
-          const transformedArgs = node.arguments.map((arg) =>
-            ts.visitNode(arg, transformNode) as ts.Expression,
+          const transformedArgs = node.arguments.map(
+            (arg) => ts.visitNode(arg, transformNode) as ts.Expression,
           );
           return factory.createCallExpression(
             factory.createIdentifier(meta.setterIdent),

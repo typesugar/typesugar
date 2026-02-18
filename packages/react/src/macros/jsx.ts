@@ -9,8 +9,11 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "../../../core/registry.js";
-import type { MacroContext } from "../../../core/types.js";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  type MacroContext,
+} from "@ttfx/core";
 import type { ReactMacroMode } from "../types.js";
 
 /**
@@ -31,7 +34,8 @@ const MODULE_NAME = "typemacro/react";
 export const eachMacro = defineExpressionMacro({
   name: "each",
   module: MODULE_NAME,
-  description: "Keyed iteration with automatic key extraction (Svelte-inspired)",
+  description:
+    "Keyed iteration with automatic key extraction (Svelte-inspired)",
 
   expand(
     ctx: MacroContext,
@@ -70,7 +74,7 @@ export const eachMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const mode: ReactMacroMode = "react"; // TODO: Get from config
+    const mode = "react" as ReactMacroMode; // TODO: Get from config
 
     if (mode === "fine-grained" && keyFn) {
       // Fine-grained mode: use keyed reconciler
@@ -208,11 +212,7 @@ function injectKeyIntoJsx(
     jsx.openingElement.typeArguments,
     newAttrs,
   );
-  return factory.createJsxElement(
-    newOpening,
-    jsx.children,
-    jsx.closingElement,
-  );
+  return factory.createJsxElement(newOpening, jsx.children, jsx.closingElement);
 }
 
 // ============================================================================
@@ -385,11 +385,9 @@ export const matchMacro = defineExpressionMacro({
       );
 
       // handler(value)
-      const whenTrue = factory.createCallExpression(
-        entry.handler,
-        undefined,
-        [value],
-      );
+      const whenTrue = factory.createCallExpression(entry.handler, undefined, [
+        value,
+      ]);
 
       result = factory.createConditionalExpression(
         condition,

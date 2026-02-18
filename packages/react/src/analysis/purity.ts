@@ -14,7 +14,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext } from "../../../core/types.js";
+import type { MacroContext } from "@ttfx/core";
 import type { DependencyInfo, SideEffect } from "../types.js";
 import { extractDependencies, type StateVariableSet } from "./deps.js";
 
@@ -126,8 +126,7 @@ function sideEffectToViolation(
         kind: "fetch",
         message: `derived() computations must be pure. Found async operation: ${effect.description}`,
         node: closure,
-        suggestion:
-          "Use effect() for data fetching, store results in state()",
+        suggestion: "Use effect() for data fetching, store results in state()",
       };
 
     case "timer":
@@ -191,10 +190,7 @@ function checkStrictPurity(closure: ts.Node): PurityViolation[] {
     }
 
     // Check for increment/decrement operators (mutations)
-    if (
-      ts.isPrefixUnaryExpression(node) ||
-      ts.isPostfixUnaryExpression(node)
-    ) {
+    if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
       const op = node.operator;
       if (
         op === ts.SyntaxKind.PlusPlusToken ||

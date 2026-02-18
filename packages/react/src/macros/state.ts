@@ -18,8 +18,11 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "../../../core/registry.js";
-import type { MacroContext } from "../../../core/types.js";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  type MacroContext,
+} from "@ttfx/core";
 import type { ReactMacroMode } from "../types.js";
 
 /**
@@ -44,12 +47,17 @@ export interface StateMetadata {
 /**
  * Per-file state tracking (populated during transformation)
  */
-export const stateMetadataMap = new WeakMap<ts.SourceFile, Map<string, StateMetadata>>();
+export const stateMetadataMap = new WeakMap<
+  ts.SourceFile,
+  Map<string, StateMetadata>
+>();
 
 /**
  * Get or create the state metadata map for a source file
  */
-export function getStateMetadata(sourceFile: ts.SourceFile): Map<string, StateMetadata> {
+export function getStateMetadata(
+  sourceFile: ts.SourceFile,
+): Map<string, StateMetadata> {
   let map = stateMetadataMap.get(sourceFile);
   if (!map) {
     map = new Map();
@@ -111,7 +119,7 @@ export const stateMacro = defineExpressionMacro({
     getStateMetadata(ctx.sourceFile).set(varName, metadata);
 
     // Get the current mode from config (default to 'react')
-    const mode: ReactMacroMode = "react"; // TODO: Get from config
+    const mode = "react" as ReactMacroMode; // TODO: Get from config
 
     if (mode === "fine-grained") {
       // Fine-grained mode: createSignal(initialValue)
@@ -299,7 +307,12 @@ export function isStateMarker(expr: ts.Expression): boolean {
  */
 export function extractStateFromMarker(
   expr: ts.ObjectLiteralExpression,
-): { name: string; valueIdent: string; setterIdent: string; initExpr: ts.Expression } | null {
+): {
+  name: string;
+  valueIdent: string;
+  setterIdent: string;
+  initExpr: ts.Expression;
+} | null {
   let name: string | undefined;
   let valueIdent: string | undefined;
   let setterIdent: string | undefined;

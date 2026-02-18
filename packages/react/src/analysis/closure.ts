@@ -12,7 +12,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext } from "../../../core/types.js";
+import type { MacroContext } from "@ttfx/core";
 import type { ClosureCapture } from "../types.js";
 import { type StateVariableSet } from "./deps.js";
 
@@ -83,7 +83,10 @@ export function analyzeClosureCaptures(
     }
 
     // Handle destructuring in variable declarations
-    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name)) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name)
+    ) {
       for (const element of node.name.elements) {
         if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
           localVars.add(element.name.text);
@@ -338,11 +341,7 @@ export function rewriteCaptureReferences(
       return factory.createIdentifier(rewriteMap.get(node.text)!);
     }
 
-    return ts.visitEachChild(
-      node,
-      transformNode,
-      ctx.transformContext,
-    );
+    return ts.visitEachChild(node, transformNode, ctx.transformContext);
   }
 
   return transformNode(closure) as ts.ArrowFunction | ts.FunctionExpression;
@@ -362,7 +361,10 @@ export function findParentScopeVariables(
     }
 
     // Handle destructuring
-    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name)) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name)
+    ) {
       for (const element of node.name.elements) {
         if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
           vars.add(element.name.text);

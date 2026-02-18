@@ -10,7 +10,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext } from "../../../core/types.js";
+import type { MacroContext } from "@ttfx/core";
 
 /**
  * Result of safety checks
@@ -157,14 +157,20 @@ export function checkConditionalPrimitives(
     if (ts.isCallExpression(node)) {
       const callName = getCallExpressionName(node);
 
-      if (callName === "state" || callName === "derived" || callName === "effect" || callName === "watch") {
+      if (
+        callName === "state" ||
+        callName === "derived" ||
+        callName === "effect" ||
+        callName === "watch"
+      ) {
         if (context.inConditional) {
           violations.push({
-            kind: callName === "state"
-              ? "conditional-state"
-              : callName === "effect" || callName === "watch"
-                ? "conditional-effect"
-                : "conditional-derived",
+            kind:
+              callName === "state"
+                ? "conditional-state"
+                : callName === "effect" || callName === "watch"
+                  ? "conditional-effect"
+                  : "conditional-derived",
             message: `${callName}() cannot be called conditionally. React hooks (which this compiles to) must be called in the same order on every render.`,
             node,
             suggestion: `Move ${callName}() outside of the conditional, or use a different pattern.`,
@@ -247,10 +253,7 @@ export function checkDirectMutation(
     }
 
     // Check for increment/decrement of state
-    if (
-      ts.isPrefixUnaryExpression(node) ||
-      ts.isPostfixUnaryExpression(node)
-    ) {
+    if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
       const op = node.operator;
       if (
         op === ts.SyntaxKind.PlusPlusToken ||
@@ -375,7 +378,11 @@ function checkIfComponent(
  * Check if a function body contains a JSX return
  */
 function containsJsxReturn(body: ts.ConciseBody): boolean {
-  if (ts.isJsxElement(body) || ts.isJsxSelfClosingElement(body) || ts.isJsxFragment(body)) {
+  if (
+    ts.isJsxElement(body) ||
+    ts.isJsxSelfClosingElement(body) ||
+    ts.isJsxFragment(body)
+  ) {
     return true;
   }
 
