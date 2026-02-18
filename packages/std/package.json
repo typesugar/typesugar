@@ -1,0 +1,58 @@
+{
+  "name": "@ttfx/std",
+  "version": "0.1.0",
+  "description": "Standard typeclasses and extension methods for enriching basic TypeScript types",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./typeclasses": {
+      "types": "./dist/typeclasses/index.d.ts",
+      "import": "./dist/typeclasses/index.js",
+      "require": "./dist/typeclasses/index.cjs"
+    },
+    "./extensions": {
+      "types": "./dist/extensions/index.d.ts",
+      "import": "./dist/extensions/index.js",
+      "require": "./dist/extensions/index.cjs"
+    },
+    "./data": {
+      "types": "./dist/data/index.d.ts",
+      "import": "./dist/data/index.js",
+      "require": "./dist/data/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "typescript",
+    "macros",
+    "standard-library",
+    "typeclasses",
+    "extension-methods",
+    "ttfx"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ttfx/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
