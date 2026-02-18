@@ -20,6 +20,14 @@ export {
   debugOnlyMacro,
 } from "./safety.js";
 
+// Configuration System
+export {
+  config,
+  defineConfig,
+  type TtfxConfig,
+  type ContractsConfig,
+} from "./config.js";
+
 // Re-export commonly used types for convenience
 export type {
   MacroKind,

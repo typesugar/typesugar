@@ -93,6 +93,17 @@ export type { ExpansionRecord } from "./core/source-map.js";
 export { pipeline } from "./core/pipeline.js";
 
 // ============================================================================
+// Configuration System
+// ============================================================================
+
+export {
+  config,
+  defineConfig,
+  type TtfxConfig,
+  type ContractsConfig,
+} from "./core/config.js";
+
+// ============================================================================
 // Built-in Macros
 // ============================================================================
 
