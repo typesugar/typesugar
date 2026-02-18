@@ -147,7 +147,7 @@ export const componentMacro = defineExpressionMacro({
     let parentScopeVars = new Set<string>();
     let parentStateVars = new Set<string>();
 
-    if (parentFn && ts.isBlock(parentFn.body)) {
+    if (parentFn && parentFn.body && ts.isBlock(parentFn.body)) {
       parentScopeVars = findParentScopeVariables(parentFn.body);
       parentStateVars = findStateDeclarations(parentFn.body);
     }

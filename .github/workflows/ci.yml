@@ -29,7 +29,7 @@ jobs:
 
       - name: Install TypeScript ${{ matrix.typescript }}
         if: matrix.typescript != '5.8'
-        run: pnpm add -D typescript@~${{ matrix.typescript }}
+        run: pnpm add -Dw typescript@~${{ matrix.typescript }}
 
       - name: Build
         run: pnpm run build
