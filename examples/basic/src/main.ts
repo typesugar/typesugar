@@ -10,22 +10,18 @@
  */
 
 // Import from the typemacro umbrella package
-// All built-in macros are available as namespaced exports
+// Callable macros are exported directly, namespaces also available
 import {
-  comptime,
-  derive,
-  operators,
-  // Individual macros can also be accessed via namespace
-  // e.g., operators.ops, operators.pipe, operators.compose
+  comptimeEval as comptime,
+  ops,
+  pipe,
+  // Namespaces are also available:
+  // comptime, derive, operators, reflect, typeclass, specialize
 } from "ttfx";
 
 // Alternatively, you can import directly from specific packages:
 // import { comptime } from "@ttfx/comptime";
-// import { derive } from "@ttfx/derive";
 // import { ops, pipe, compose } from "@ttfx/operators";
-
-// For this example, we destructure from the namespaced imports
-const { ops, pipe } = operators;
 
 // ============================================================================
 // 1. Compile-Time Evaluation
