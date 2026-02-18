@@ -5,5 +5,5 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/effect"]
+  "exclude": ["src/effect", "src/examples"]
 }
