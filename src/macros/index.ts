@@ -22,6 +22,7 @@ import "./cfg.js";
 import "./include.js";
 import "./module-graph.js";
 import "./tailrec.js";
+import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
 
 // --- Contract macros ---
 import "@ttfx/contracts";
@@ -259,6 +260,28 @@ export {
 
 // --- Tail-call optimization ---
 export { tailrecAttribute } from "./tailrec.js";
+
+// --- Higher-Kinded Types (part of typeclass system) ---
+// HKT enables typeclasses parameterized by type constructors (F[_]).
+// Use @instance("Monad<Option>") for HKT typeclass instances.
+
+// From typeclass.ts - canonical HKT registration
+export {
+  registerHKTExpansion,
+  registerHKTTypeclass,
+  hktExpansionRegistry,
+  hktTypeclassNames,
+} from "./typeclass.js";
+
+// From hkt.ts - type-level utilities only
+export {
+  hktAttribute,
+  transformHKTDeclaration,
+  isKindAnnotation,
+  getKindArity,
+  kindParamRegistry,
+  type KindParamInfo,
+} from "./hkt.js";
 
 // --- Contract macros ---
 export {

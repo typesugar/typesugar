@@ -450,6 +450,11 @@ interface TypeclassInfo {
   canDeriveProduct: boolean;
   /** Whether this typeclass supports auto-derivation for sums */
   canDeriveSum: boolean;
+  /**
+   * Full interface body text for HKT expansion.
+   * Used to dynamically generate concrete types by substituting $<F, A> → ConcreteType<A>.
+   */
+  fullSignatureText?: string;
 }
 
 interface TypeclassMethod {
@@ -564,6 +569,12 @@ function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * Generate the variable name for a typeclass instance.
+ *
+ * INTENTIONALLY UNHYGIENIC: Instance names like `showPoint`, `eqNumber` are part of
+ * the public API. Users import and use these names directly.
+ */
 function instanceVarName(tcName: string, typeName: string): string {
   return `${uncapitalize(tcName)}${capitalize(typeName)}`;
 }
@@ -782,9 +793,18 @@ export const typeclassAttribute = defineAttributeMacro({
 
     const typeParam = typeParams[0].name.text;
 
-    // Extract methods from the interface
+    // Extract methods from the interface (handles both MethodSignature and PropertySignature)
     const methods: TypeclassMethod[] = [];
+    const memberTexts: string[] = [];
+
     for (const member of target.members) {
+      // Capture raw source text of each member for HKT expansion
+      const sourceFile = member.getSourceFile();
+      if (sourceFile) {
+        const memberText = member.getText(sourceFile);
+        memberTexts.push(memberText);
+      }
+
       if (ts.isMethodSignature(member) && member.name) {
         const methodName = ts.isIdentifier(member.name)
           ? member.name.text
@@ -816,8 +836,26 @@ export const typeclassAttribute = defineAttributeMacro({
           returnType,
           isSelfMethod,
         });
+      } else if (ts.isPropertySignature(member) && member.name) {
+        // Handle property signatures (readonly map: <A,B>(...) => ...)
+        const methodName = ts.isIdentifier(member.name)
+          ? member.name.text
+          : member.name.getText();
+
+        // For property signatures with function types, we extract params from the type
+        // For now, just record the method name - full type info is in fullSignatureText
+        methods.push({
+          name: methodName,
+          params: [],
+          returnType: member.type ? member.type.getText() : "unknown",
+          isSelfMethod: false,
+        });
       }
     }
+
+    // Build the full interface body text for HKT expansion
+    const fullSignatureText =
+      memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
 
     // Register the typeclass
     const tcInfo: TypeclassInfo = {
@@ -826,11 +864,12 @@ export const typeclassAttribute = defineAttributeMacro({
       methods,
       canDeriveProduct: true,
       canDeriveSum: true,
+      fullSignatureText,
     };
     typeclassRegistry.set(tcName, tcInfo);
 
     // Generate the companion namespace with utility functions
-    const companionCode = generateCompanionNamespace(tcInfo);
+    const companionCode = generateCompanionNamespace(ctx, tcInfo);
 
     // Generate extension method helpers
     const extensionCode = generateExtensionHelpers(tcInfo);
@@ -853,9 +892,9 @@ export const typeclassAttribute = defineAttributeMacro({
  *     def derived[A](using Mirror.ProductOf[A]): Show[A] = ...
  *   }
  */
-function generateCompanionNamespace(tc: TypeclassInfo): string {
+function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo): string {
   const { name } = tc;
-  const registryVar = `__${uncapitalize(name)}Instances__`;
+  const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
 
   return `
 // Typeclass instance registry for ${name}
@@ -936,17 +975,32 @@ function ${uncapitalize(name)}${capitalize(method.name)}<A>(${paramList}): ${met
 // ============================================================================
 // Registers a typeclass instance for a specific type.
 //
-// Input:
-//   @instance("number")
-//   const showNumber: Show<number> = {
-//     show: (a) => String(a),
-//   };
+// Supports multiple syntaxes:
 //
-// Output:
-//   const showNumber: Show<number> = {
-//     show: (a) => String(a),
-//   };
-//   Show.registerInstance<number>("number", showNumber);
+// 1. Simple type (original):
+//    @instance("number")
+//    const showNumber: Show<number> = { show: (a) => String(a) };
+//
+// 2. Typeclass<Type> string (RECOMMENDED for HKT):
+//    @instance("Monad<Option>")
+//    const optionMonad = { pure: ..., flatMap: ... };
+//
+// 3. Two identifiers (Scala-like):
+//    @instance(Monad, Option)
+//    const optionMonad = { pure: ..., flatMap: ... };
+//
+//    CAVEAT: The identifier form requires `Monad` and `Option` to be
+//    runtime values in scope (e.g., namespace names or string constants).
+//    The string form @instance("Monad<Option>") is recommended as it
+//    works purely at compile-time without runtime dependencies.
+//
+// For HKT typeclasses (Functor, Monad, etc.), the macro automatically
+// generates the concrete expanded type annotation to avoid TypeScript's
+// "Type instantiation is excessively deep" error.
+//
+// HKT (Higher-Kinded Types) is a feature of the typeclass system that
+// enables typeclasses parameterized by type constructors (F[_]) rather
+// than simple types. Examples: Functor<F>, Monad<F>, Traverse<F>.
 // ============================================================================
 
 export const instanceAttribute = defineAttributeMacro({
@@ -961,59 +1015,127 @@ export const instanceAttribute = defineAttributeMacro({
     target: ts.Declaration,
     args: readonly ts.Expression[],
   ): ts.Node | ts.Node[] {
-    // Get the type name from the first argument
+    const factory = ctx.factory;
+
     if (args.length === 0) {
       ctx.reportError(
         target,
-        '@instance requires a type name argument, e.g., @instance("number")',
+        '@instance requires arguments: @instance("Type"), @instance("Typeclass<Type>"), or @instance(Typeclass, Type)',
       );
       return target;
     }
 
-    const typeNameArg = args[0];
-    let typeName: string;
-    if (ts.isStringLiteral(typeNameArg)) {
-      typeName = typeNameArg.text;
+    // Parse the arguments to extract typeclass name and type name
+    let tcName: string | undefined;
+    let typeName: string | undefined;
+    let isHKTInstance = false;
+
+    const firstArg = args[0];
+
+    if (ts.isStringLiteral(firstArg)) {
+      const text = firstArg.text;
+
+      // Check for "Typeclass<Type>" format
+      const hktMatch = text.match(/^(\w+)<(\w+)>$/);
+      if (hktMatch) {
+        tcName = hktMatch[1];
+        typeName = hktMatch[2];
+        isHKTInstance = isHKTTypeclass(tcName);
+      } else {
+        // Simple type name - typeclass comes from type annotation
+        typeName = text;
+      }
+    } else if (ts.isIdentifier(firstArg)) {
+      // @instance(Typeclass, Type) format
+      if (args.length < 2) {
+        ctx.reportError(
+          firstArg,
+          "@instance with identifier requires two arguments: @instance(Typeclass, Type)",
+        );
+        return target;
+      }
+
+      tcName = firstArg.text;
+
+      const secondArg = args[1];
+      if (ts.isIdentifier(secondArg)) {
+        typeName = secondArg.text;
+      } else if (ts.isStringLiteral(secondArg)) {
+        typeName = secondArg.text;
+      } else {
+        ctx.reportError(
+          secondArg,
+          "Second argument must be an identifier or string",
+        );
+        return target;
+      }
+
+      isHKTInstance = isHKTTypeclass(tcName);
     } else {
       ctx.reportError(
-        typeNameArg,
-        "@instance argument must be a string literal",
+        firstArg,
+        "@instance argument must be a string or identifier",
       );
       return target;
     }
 
-    // Extract the typeclass name from the type annotation
-    let tcName: string | undefined;
+    // Get variable name from the declaration
     let varName: string | undefined;
+    let decl: ts.VariableDeclaration | undefined;
 
     if (ts.isVariableStatement(target)) {
-      const decl = target.declarationList.declarations[0];
+      decl = target.declarationList.declarations[0];
       if (decl && ts.isIdentifier(decl.name)) {
         varName = decl.name.text;
       }
-      if (decl && decl.type && ts.isTypeReferenceNode(decl.type)) {
-        tcName = decl.type.typeName.getText();
-      }
     } else if (ts.isVariableDeclaration(target)) {
+      decl = target;
       if (ts.isIdentifier(target.name)) {
         varName = target.name.text;
       }
-      if (target.type && ts.isTypeReferenceNode(target.type)) {
-        tcName = target.type.typeName.getText();
-      }
     }
 
-    // Fallback: try to infer from the second argument
-    if (!tcName && args.length > 1 && ts.isStringLiteral(args[1])) {
-      tcName = args[1].text;
+    // If typeclass wasn't in args, try to get from type annotation
+    if (!tcName && decl?.type && ts.isTypeReferenceNode(decl.type)) {
+      tcName = decl.type.typeName.getText();
     }
 
-    if (!tcName || !varName) {
+    if (!tcName || !typeName || !varName) {
       ctx.reportError(
         target,
-        "@instance: could not determine typeclass name. Ensure the variable has a type annotation like Show<number>",
+        '@instance: could not determine typeclass and type. Use @instance("Typeclass<Type>") or @instance(Typeclass, Type)',
       );
       return target;
+    }
+
+    // For HKT typeclasses, generate expanded type annotation
+    let updatedTarget = target;
+    if (isHKTInstance && decl) {
+      const expandedType = generateHKTExpandedType(ctx, tcName, typeName);
+      if (expandedType) {
+        // Update the variable declaration with the expanded type
+        const newDecl = factory.updateVariableDeclaration(
+          decl,
+          decl.name,
+          decl.exclamationToken,
+          expandedType,
+          decl.initializer,
+        );
+
+        if (ts.isVariableStatement(target)) {
+          const newDeclList = factory.updateVariableDeclarationList(
+            target.declarationList,
+            [newDecl],
+          );
+          updatedTarget = factory.updateVariableStatement(
+            target,
+            target.modifiers,
+            newDeclList,
+          );
+        } else {
+          updatedTarget = newDecl;
+        }
+      }
     }
 
     // Register in our compile-time registry
@@ -1033,22 +1155,26 @@ export const instanceAttribute = defineAttributeMacro({
     // Bridge to specialization registry: extract methods from the object literal
     // and register them for zero-cost specialization
     let objLiteral: ts.ObjectLiteralExpression | undefined;
-    if (ts.isVariableStatement(target)) {
-      const decl = target.declarationList.declarations[0];
-      if (decl?.initializer && ts.isObjectLiteralExpression(decl.initializer)) {
-        objLiteral = decl.initializer;
+    if (ts.isVariableStatement(updatedTarget)) {
+      const d = (updatedTarget as ts.VariableStatement).declarationList
+        .declarations[0];
+      if (d?.initializer && ts.isObjectLiteralExpression(d.initializer)) {
+        objLiteral = d.initializer;
       }
-    } else if (ts.isVariableDeclaration(target)) {
+    } else if (ts.isVariableDeclaration(updatedTarget)) {
       if (
-        target.initializer &&
-        ts.isObjectLiteralExpression(target.initializer)
+        (updatedTarget as ts.VariableDeclaration).initializer &&
+        ts.isObjectLiteralExpression(
+          (updatedTarget as ts.VariableDeclaration).initializer!,
+        )
       ) {
-        objLiteral = target.initializer;
+        objLiteral = (updatedTarget as ts.VariableDeclaration)
+          .initializer as ts.ObjectLiteralExpression;
       }
     }
 
     if (objLiteral) {
-      const methods = extractMethodsFromObjectLiteral(objLiteral);
+      const methods = extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene);
       if (methods.size > 0) {
         registerInstanceMethodsFromAST(varName, typeName, methods);
       }
@@ -1058,9 +1184,248 @@ export const instanceAttribute = defineAttributeMacro({
     const registrationCode = `${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
     const registrationStatements = ctx.parseStatements(registrationCode);
 
-    return [target, ...registrationStatements];
+    return [updatedTarget, ...registrationStatements];
   },
 });
+
+// ============================================================================
+// HKT Support for Typeclass Instances
+// ============================================================================
+// Higher-Kinded Types (HKT) allow typeclasses to be parameterized by type
+// constructors (like Option, Array, Promise) rather than concrete types.
+//
+// This is essential for typeclasses like Functor, Monad, Traverse that
+// abstract over container types.
+//
+// The challenge: TypeScript's type system can't directly express HKT, so we
+// use an encoding ($<F, A>) that triggers "Type instantiation is excessively
+// deep" errors. The solution is to expand HKT types to concrete forms at
+// compile time.
+// ============================================================================
+
+/**
+ * Set of typeclass names that use Higher-Kinded Types.
+ * These require special handling to avoid TypeScript's recursion limits.
+ */
+export const hktTypeclassNames = new Set<string>([
+  "Functor",
+  "Apply",
+  "Applicative",
+  "FlatMap",
+  "Monad",
+  "MonadError",
+  "Foldable",
+  "Traverse",
+  "SemigroupK",
+  "MonoidK",
+  "Alternative",
+  "Contravariant",
+  "Invariant",
+  "Bifunctor",
+  "Profunctor",
+]);
+
+/**
+ * Registry mapping HKT type constructor names to their concrete expansions.
+ * E.g., "OptionF" → "Option", "ArrayF" → "Array"
+ */
+export const hktExpansionRegistry = new Map<string, string>([
+  // Standard mappings - users can register more
+  ["Option", "Option"],
+  ["OptionF", "Option"],
+  ["Array", "Array"],
+  ["ArrayF", "Array"],
+  ["Promise", "Promise"],
+  ["PromiseF", "Promise"],
+  ["List", "List"],
+  ["ListF", "List"],
+  ["IO", "IO"],
+  ["IOF", "IO"],
+  ["Id", "Id"],
+  ["IdF", "Id"],
+]);
+
+/**
+ * Check if a typeclass uses HKT.
+ */
+function isHKTTypeclass(name: string): boolean {
+  return hktTypeclassNames.has(name);
+}
+
+/**
+ * Register a typeclass as using HKT.
+ */
+export function registerHKTTypeclass(name: string): void {
+  hktTypeclassNames.add(name);
+}
+
+/**
+ * Register an HKT type constructor expansion.
+ * @param hktName - The type constructor name (e.g., "OptionF" or "Option")
+ * @param concreteName - The concrete type name (e.g., "Option")
+ */
+export function registerHKTExpansion(
+  hktName: string,
+  concreteName: string,
+): void {
+  hktExpansionRegistry.set(hktName, concreteName);
+}
+
+/**
+ * Get the concrete type for an HKT type constructor.
+ */
+function getHKTExpansion(hktName: string): string {
+  return hktExpansionRegistry.get(hktName) ?? hktName;
+}
+
+/**
+ * Generate an expanded concrete type for an HKT typeclass instance.
+ *
+ * For example, Monad<Option> expands to:
+ * {
+ *   readonly map: <A, B>(fa: Option<A>, f: (a: A) => B) => Option<B>;
+ *   readonly flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>) => Option<B>;
+ *   readonly pure: <A>(a: A) => Option<A>;
+ *   readonly ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>) => Option<B>;
+ * }
+ *
+ * Uses dynamic textual substitution if the typeclass was registered via @typeclass
+ * (i.e., has fullSignatureText). Falls back to hardcoded templates for typeclasses
+ * like cats that are plain interfaces.
+ */
+function generateHKTExpandedType(
+  ctx: MacroContext,
+  typeclassName: string,
+  hktParam: string,
+): ts.TypeNode | undefined {
+  const expansion = getHKTExpansion(hktParam);
+
+  // First, try dynamic expansion from registered typeclass
+  const tcInfo = typeclassRegistry.get(typeclassName);
+  let signature: string | undefined;
+
+  if (tcInfo?.fullSignatureText) {
+    // Dynamic substitution: replace $<F, A> with ConcreteType<A>
+    // where F is the type parameter from the typeclass (e.g., "F" in Monad<F>)
+    signature = expandHKTInSignature(
+      tcInfo.fullSignatureText,
+      tcInfo.typeParam,
+      expansion,
+    );
+  } else {
+    // Fall back to hardcoded templates for unregistered typeclasses (e.g., cats)
+    signature = getTypeclassSignatureTemplate(typeclassName, expansion);
+  }
+
+  if (!signature) return undefined;
+
+  // Parse the signature into a TypeNode
+  try {
+    // SAFE: __T is only used for parsing, never emitted into generated code.
+    const tempSource = `type __T = ${signature};`;
+    const tempFile = ts.createSourceFile(
+      "__temp.ts",
+      tempSource,
+      ts.ScriptTarget.Latest,
+      true,
+    );
+
+    for (const stmt of tempFile.statements) {
+      if (ts.isTypeAliasDeclaration(stmt)) {
+        return stmt.type;
+      }
+    }
+  } catch {
+    // Fall back to no type annotation
+  }
+
+  return undefined;
+}
+
+/**
+ * Expand HKT patterns in a type signature string.
+ * Replaces $<F, X> with ConcreteType<X> throughout.
+ */
+function expandHKTInSignature(
+  signatureText: string,
+  typeParam: string,
+  expansion: string,
+): string {
+  // Match $<TypeParam, ...> and replace with Expansion<...>
+  // Handle nested type parameters gracefully
+  const pattern = new RegExp(`\\$<${typeParam},\\s*([^<>]+(?:<[^>]+>)?)>`, "g");
+
+  let result = signatureText;
+  let prevResult = "";
+
+  // Keep replacing until no more changes (handles nested cases)
+  while (result !== prevResult) {
+    prevResult = result;
+    result = result.replace(pattern, `${expansion}<$1>`);
+  }
+
+  return result;
+}
+
+/**
+ * Get the concrete type signature template for a typeclass.
+ * Returns a string representation of the expanded type.
+ */
+function getTypeclassSignatureTemplate(
+  typeclassName: string,
+  concreteType: string,
+): string | undefined {
+  const exp = concreteType;
+
+  // Templates for common HKT typeclasses
+  // These expand $<F, A> to ConcreteType<A>
+  const templates: Record<string, string> = {
+    Functor: `{ readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B> }`,
+
+    Applicative: `{
+      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
+      readonly pure: <A>(a: A) => ${exp}<A>;
+      readonly ap: <A, B>(fab: ${exp}<(a: A) => B>, fa: ${exp}<A>) => ${exp}<B>
+    }`,
+
+    Monad: `{
+      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
+      readonly flatMap: <A, B>(fa: ${exp}<A>, f: (a: A) => ${exp}<B>) => ${exp}<B>;
+      readonly pure: <A>(a: A) => ${exp}<A>;
+      readonly ap: <A, B>(fab: ${exp}<(a: A) => B>, fa: ${exp}<A>) => ${exp}<B>
+    }`,
+
+    Foldable: `{
+      readonly foldLeft: <A, B>(fa: ${exp}<A>, b: B, f: (b: B, a: A) => B) => B;
+      readonly foldRight: <A, B>(fa: ${exp}<A>, b: B, f: (a: A, b: B) => B) => B
+    }`,
+
+    Traverse: `{
+      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
+      readonly foldLeft: <A, B>(fa: ${exp}<A>, b: B, f: (b: B, a: A) => B) => B;
+      readonly foldRight: <A, B>(fa: ${exp}<A>, b: B, f: (a: A, b: B) => B) => B;
+      readonly traverse: <G>(G: any) => <A, B>(fa: ${exp}<A>, f: (a: A) => any) => any
+    }`,
+
+    SemigroupK: `{ readonly combineK: <A>(x: ${exp}<A>, y: ${exp}<A>) => ${exp}<A> }`,
+
+    MonoidK: `{
+      readonly combineK: <A>(x: ${exp}<A>, y: ${exp}<A>) => ${exp}<A>;
+      readonly emptyK: <A>() => ${exp}<A>
+    }`,
+
+    Alternative: `{
+      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
+      readonly flatMap: <A, B>(fa: ${exp}<A>, f: (a: A) => ${exp}<B>) => ${exp}<B>;
+      readonly pure: <A>(a: A) => ${exp}<A>;
+      readonly ap: <A, B>(fab: ${exp}<(a: A) => B>, fa: ${exp}<A>) => ${exp}<B>;
+      readonly combineK: <A>(x: ${exp}<A>, y: ${exp}<A>) => ${exp}<A>;
+      readonly emptyK: <A>() => ${exp}<A>
+    }`,
+  };
+
+  return templates[typeclassName];
+}
 
 // ============================================================================
 // @deriving - Derive Macro for Auto-Derivation

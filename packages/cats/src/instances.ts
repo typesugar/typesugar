@@ -11,6 +11,19 @@
  * - None → null
  * - No wrapper objects, no tags, truly zero-cost
  *
+ * ## HKT and Type Safety
+ *
+ * TypeScript has a recursive type instantiation limit that triggers when
+ * evaluating `Monad<OptionF>`. To work around this while keeping instances
+ * type-safe, we use concrete type annotations instead of HKT-parameterized
+ * types.
+ *
+ * The types are manually expanded:
+ * - `$<OptionF, A>` → `Option<A>`
+ * - `$<ArrayF, A>` → `Array<A>`
+ *
+ * This gives us full type safety without hitting TypeScript's limits.
+ *
  * ## Usage
  *
  * ```typescript
@@ -49,6 +62,198 @@ import type { Option } from "./data/option.js";
 import type { Either } from "./data/either.js";
 import { Left, Right, isLeft, isRight } from "./data/either.js";
 
+// ============================================================================
+// Expanded Type Aliases (to avoid HKT recursion)
+// ============================================================================
+
+/**
+ * Concrete Functor type for Option (expanded from Functor<OptionF>)
+ */
+type OptionFunctor = {
+  readonly map: <A, B>(fa: Option<A>, f: (a: A) => B) => Option<B>;
+};
+
+/**
+ * Concrete Monad type for Option (expanded from Monad<OptionF>)
+ */
+type OptionMonad = {
+  readonly map: <A, B>(fa: Option<A>, f: (a: A) => B) => Option<B>;
+  readonly flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>) => Option<B>;
+  readonly pure: <A>(a: A) => Option<A>;
+  readonly ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>) => Option<B>;
+};
+
+/**
+ * Concrete Foldable type for Option (expanded from Foldable<OptionF>)
+ */
+type OptionFoldable = {
+  readonly foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B) => B;
+  readonly foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B) => B;
+};
+
+/**
+ * Concrete Traverse type for Option (expanded from Traverse<OptionF>)
+ */
+type OptionTraverse = OptionFunctor &
+  OptionFoldable & {
+    readonly traverse: <G>(
+      G: Applicative<G>,
+    ) => <A, B>(fa: Option<A>, f: (a: A) => $<G, B>) => $<G, Option<B>>;
+  };
+
+/**
+ * Concrete SemigroupK type for Option
+ */
+type OptionSemigroupK = {
+  readonly combineK: <A>(x: Option<A>, y: Option<A>) => Option<A>;
+};
+
+/**
+ * Concrete MonoidK type for Option
+ */
+type OptionMonoidK = OptionSemigroupK & {
+  readonly emptyK: <A>() => Option<A>;
+};
+
+/**
+ * Concrete Alternative type for Option
+ */
+type OptionAlternative = OptionMonad & OptionMonoidK;
+
+/**
+ * Concrete Functor type for Array (expanded from Functor<ArrayF>)
+ */
+type ArrayFunctor = {
+  readonly map: <A, B>(fa: A[], f: (a: A) => B) => B[];
+};
+
+/**
+ * Concrete Monad type for Array (expanded from Monad<ArrayF>)
+ */
+type ArrayMonad = {
+  readonly map: <A, B>(fa: A[], f: (a: A) => B) => B[];
+  readonly flatMap: <A, B>(fa: A[], f: (a: A) => B[]) => B[];
+  readonly pure: <A>(a: A) => A[];
+  readonly ap: <A, B>(fab: ((a: A) => B)[], fa: A[]) => B[];
+};
+
+/**
+ * Concrete Foldable type for Array
+ */
+type ArrayFoldable = {
+  readonly foldLeft: <A, B>(fa: A[], b: B, f: (b: B, a: A) => B) => B;
+  readonly foldRight: <A, B>(fa: A[], b: B, f: (a: A, b: B) => B) => B;
+};
+
+/**
+ * Concrete Traverse type for Array
+ */
+type ArrayTraverse = ArrayFunctor &
+  ArrayFoldable & {
+    readonly traverse: <G>(
+      G: Applicative<G>,
+    ) => <A, B>(fa: A[], f: (a: A) => $<G, B>) => $<G, B[]>;
+  };
+
+/**
+ * Concrete SemigroupK type for Array
+ */
+type ArraySemigroupK = {
+  readonly combineK: <A>(x: A[], y: A[]) => A[];
+};
+
+/**
+ * Concrete MonoidK type for Array
+ */
+type ArrayMonoidK = ArraySemigroupK & {
+  readonly emptyK: <A>() => A[];
+};
+
+/**
+ * Concrete Alternative type for Array
+ */
+type ArrayAlternative = ArrayMonad & ArrayMonoidK;
+
+/**
+ * Concrete Functor type for Promise (expanded from Functor<PromiseF>)
+ */
+type PromiseFunctor = {
+  readonly map: <A, B>(fa: Promise<A>, f: (a: A) => B) => Promise<B>;
+};
+
+/**
+ * Concrete Monad type for Promise (expanded from Monad<PromiseF>)
+ */
+type PromiseMonad = {
+  readonly map: <A, B>(fa: Promise<A>, f: (a: A) => B) => Promise<B>;
+  readonly flatMap: <A, B>(
+    fa: Promise<A>,
+    f: (a: A) => Promise<B>,
+  ) => Promise<B>;
+  readonly pure: <A>(a: A) => Promise<A>;
+  readonly ap: <A, B>(fab: Promise<(a: A) => B>, fa: Promise<A>) => Promise<B>;
+};
+
+/**
+ * Concrete Functor type for Either<E, _> (expanded from Functor<EitherF<E>>)
+ * Parameterized by error type E.
+ */
+type EitherFunctor<E> = {
+  readonly map: <A, B>(fa: Either<E, A>, f: (a: A) => B) => Either<E, B>;
+};
+
+/**
+ * Concrete Monad type for Either<E, _> (expanded from Monad<EitherF<E>>)
+ */
+type EitherMonad<E> = {
+  readonly map: <A, B>(fa: Either<E, A>, f: (a: A) => B) => Either<E, B>;
+  readonly flatMap: <A, B>(
+    fa: Either<E, A>,
+    f: (a: A) => Either<E, B>,
+  ) => Either<E, B>;
+  readonly pure: <A>(a: A) => Either<E, A>;
+  readonly ap: <A, B>(
+    fab: Either<E, (a: A) => B>,
+    fa: Either<E, A>,
+  ) => Either<E, B>;
+};
+
+/**
+ * Concrete MonadError type for Either<E, _> (expanded from MonadError<EitherF<E>, E>)
+ */
+type EitherMonadError<E> = EitherMonad<E> & {
+  readonly raiseError: <A>(e: E) => Either<E, A>;
+  readonly handleErrorWith: <A>(
+    fa: Either<E, A>,
+    f: (e: E) => Either<E, A>,
+  ) => Either<E, A>;
+};
+
+/**
+ * Concrete Foldable type for Either<E, _>
+ */
+type EitherFoldable<E> = {
+  readonly foldLeft: <A, B>(fa: Either<E, A>, b: B, f: (b: B, a: A) => B) => B;
+  readonly foldRight: <A, B>(fa: Either<E, A>, b: B, f: (a: A, b: B) => B) => B;
+};
+
+/**
+ * Concrete Traverse type for Either<E, _>
+ */
+type EitherTraverse<E> = EitherFunctor<E> &
+  EitherFoldable<E> & {
+    readonly traverse: <G>(
+      G: Applicative<G>,
+    ) => <A, B>(fa: Either<E, A>, f: (a: A) => $<G, B>) => $<G, Either<E, B>>;
+  };
+
+/**
+ * Concrete SemigroupK type for Either<E, _>
+ */
+type EitherSemigroupK<E> = {
+  readonly combineK: <A>(x: Either<E, A>, y: Either<E, A>) => Either<E, A>;
+};
+
 // Note: registerInstanceMethods is from @ttfx/specialize package
 // For now, registration is done separately in the macro package
 // import { registerInstanceMethods } from "@ttfx/specialize";
@@ -61,88 +266,73 @@ import { Left, Right, isLeft, isRight } from "./data/either.js";
  * Functor instance for Option
  *
  * With null-based Option, Some(x) is just x and None is null.
- * Uses `unknown` casts to completely break TypeScript's HKT recursion.
+ * Uses concrete expanded types to avoid TypeScript's HKT recursion.
  */
-export const optionFunctor: Functor<OptionF> = {
-  map: ((fa: unknown, f: unknown) => {
-    const opt = fa as Option<unknown>;
-    const fn = f as (a: unknown) => unknown;
-    // Zero-cost: opt !== null ? fn(opt) : null
-    return opt !== null ? fn(opt) : null;
-  }) as Functor<OptionF>["map"],
+export const optionFunctor: OptionFunctor = {
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
+    fa !== null ? f(fa) : null,
 };
 
 /**
  * Monad instance for Option
+ *
+ * Uses concrete expanded types (OptionMonad) instead of Monad<OptionF>
+ * to avoid TypeScript's recursive type instantiation limit.
  */
-export const optionMonad: Monad<OptionF> = makeMonad<OptionF>(
-  optionFunctor.map,
-  ((fa: unknown, f: unknown) => {
-    const opt = fa as Option<unknown>;
-    const fn = f as (a: unknown) => Option<unknown>;
-    // Zero-cost: opt !== null ? fn(opt) : null
-    return opt !== null ? fn(opt) : null;
-  }) as <A, B>(fa: Option<A>, f: (a: A) => Option<B>) => Option<B>,
-  // Zero-cost pure: just return the value (Some(a) = a)
-  ((a: unknown) => a) as <A>(a: A) => Option<A>,
-);
+export const optionMonad: OptionMonad = {
+  map: optionFunctor.map,
+  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
+    fa !== null ? f(fa) : null,
+  pure: <A>(a: A): Option<A> => a,
+  ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>): Option<B> =>
+    fab !== null && fa !== null ? fab(fa) : null,
+};
 
 /**
  * Foldable instance for Option
  */
-export const optionFoldable: Foldable<OptionF> = {
-  foldLeft: ((fa: unknown, b: unknown, f: unknown) => {
-    const opt = fa as Option<unknown>;
-    const fn = f as (b: unknown, a: unknown) => unknown;
-    return opt !== null ? fn(b, opt) : b;
-  }) as Foldable<OptionF>["foldLeft"],
-  foldRight: ((fa: unknown, b: unknown, f: unknown) => {
-    const opt = fa as Option<unknown>;
-    const fn = f as (a: unknown, b: unknown) => unknown;
-    return opt !== null ? fn(opt, b) : b;
-  }) as Foldable<OptionF>["foldRight"],
+export const optionFoldable: OptionFoldable = {
+  foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B): B =>
+    fa !== null ? f(b, fa) : b,
+  foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B): B =>
+    fa !== null ? f(fa, b) : b,
 };
 
 /**
  * Traverse instance for Option
  */
-export const optionTraverse: Traverse<OptionF> = {
+export const optionTraverse: OptionTraverse = {
   ...optionFunctor,
   ...optionFoldable,
-  traverse: ((G: Applicative<unknown>) => (fa: unknown, f: unknown) => {
-    const opt = fa as Option<unknown>;
-    const fn = f as (a: unknown) => unknown;
-    if (opt !== null) {
-      // G.map(fn(opt), identity) since Some(b) = b
-      return G.map(fn(opt), (b: unknown) => b);
-    }
-    // G.pure(null) since None = null
-    return G.pure(null);
-  }) as Traverse<OptionF>["traverse"],
+  traverse:
+    <G>(G: Applicative<G>) =>
+    <A, B>(fa: Option<A>, f: (a: A) => $<G, B>): $<G, Option<B>> => {
+      if (fa !== null) {
+        return G.map(f(fa), (b: B) => b as Option<B>);
+      }
+      return G.pure(null as Option<B>);
+    },
 };
 
 /**
  * SemigroupK instance for Option (first Some wins)
  */
-export const optionSemigroupK: SemigroupK<OptionF> = {
-  combineK: ((x: unknown, y: unknown) => {
-    return x !== null ? x : y;
-  }) as SemigroupK<OptionF>["combineK"],
+export const optionSemigroupK: OptionSemigroupK = {
+  combineK: <A>(x: Option<A>, y: Option<A>): Option<A> => (x !== null ? x : y),
 };
 
 /**
  * MonoidK instance for Option
  */
-export const optionMonoidK: MonoidK<OptionF> = {
+export const optionMonoidK: OptionMonoidK = {
   ...optionSemigroupK,
-  // emptyK returns null (None)
-  emptyK: (() => null) as MonoidK<OptionF>["emptyK"],
+  emptyK: <A>(): Option<A> => null,
 };
 
 /**
  * Alternative instance for Option
  */
-export const optionAlternative: Alternative<OptionF> = {
+export const optionAlternative: OptionAlternative = {
   ...optionMonad,
   ...optionMonoidK,
 };
@@ -154,87 +344,68 @@ export const optionAlternative: Alternative<OptionF> = {
 /**
  * Functor instance for Array
  */
-export const arrayFunctor: Functor<ArrayF> = {
-  map: ((fa: unknown, f: unknown) => {
-    const arr = fa as unknown[];
-    const fn = f as (a: unknown) => unknown;
-    return arr.map(fn);
-  }) as Functor<ArrayF>["map"],
+export const arrayFunctor: ArrayFunctor = {
+  map: <A, B>(fa: A[], f: (a: A) => B): B[] => fa.map(f),
 };
 
 /**
  * Monad instance for Array
  */
-export const arrayMonad: Monad<ArrayF> = makeMonad<ArrayF>(
-  arrayFunctor.map,
-  ((fa: unknown, f: unknown) => {
-    const arr = fa as unknown[];
-    const fn = f as (a: unknown) => unknown[];
-    return arr.flatMap(fn);
-  }) as <A, B>(fa: A[], f: (a: A) => B[]) => B[],
-  ((a: unknown) => [a]) as <A>(a: A) => A[],
-);
+export const arrayMonad: ArrayMonad = {
+  map: arrayFunctor.map,
+  flatMap: <A, B>(fa: A[], f: (a: A) => B[]): B[] => fa.flatMap(f),
+  pure: <A>(a: A): A[] => [a],
+  ap: <A, B>(fab: ((a: A) => B)[], fa: A[]): B[] =>
+    fab.flatMap((f) => fa.map(f)),
+};
 
 /**
  * Foldable instance for Array
  */
-export const arrayFoldable: Foldable<ArrayF> = {
-  foldLeft: ((fa: unknown, b: unknown, f: unknown) => {
-    const arr = fa as unknown[];
-    const fn = f as (b: unknown, a: unknown) => unknown;
-    return arr.reduce(fn, b);
-  }) as Foldable<ArrayF>["foldLeft"],
-  foldRight: ((fa: unknown, b: unknown, f: unknown) => {
-    const arr = fa as unknown[];
-    const fn = f as (a: unknown, b: unknown) => unknown;
-    return arr.reduceRight((acc, a) => fn(a, acc), b);
-  }) as Foldable<ArrayF>["foldRight"],
+export const arrayFoldable: ArrayFoldable = {
+  foldLeft: <A, B>(fa: A[], b: B, f: (b: B, a: A) => B): B => fa.reduce(f, b),
+  foldRight: <A, B>(fa: A[], b: B, f: (a: A, b: B) => B): B =>
+    fa.reduceRight((acc, a) => f(a, acc), b),
 };
 
 /**
  * Traverse instance for Array
  */
-export const arrayTraverse: Traverse<ArrayF> = {
+export const arrayTraverse: ArrayTraverse = {
   ...arrayFunctor,
   ...arrayFoldable,
-  traverse: ((G: Applicative<unknown>) => (fa: unknown, f: unknown) => {
-    const arr = fa as unknown[];
-    const fn = f as (a: unknown) => unknown;
-    return arr.reduce(
-      (acc: unknown, a: unknown) =>
-        G.ap(
-          G.map(acc, (bs: unknown) => (b: unknown) => [
-            ...(bs as unknown[]),
-            b,
-          ]),
-          fn(a),
-        ),
-      G.pure([] as unknown[]),
-    );
-  }) as Traverse<ArrayF>["traverse"],
+  traverse:
+    <G>(G: Applicative<G>) =>
+    <A, B>(fa: A[], f: (a: A) => $<G, B>): $<G, B[]> =>
+      fa.reduce(
+        (acc: $<G, B[]>, a: A) =>
+          G.ap(
+            G.map(acc, (bs: B[]) => (b: B) => [...bs, b]),
+            f(a),
+          ),
+        G.pure([] as B[]),
+      ),
 };
 
 /**
  * SemigroupK instance for Array
  */
-export const arraySemigroupK: SemigroupK<ArrayF> = {
-  combineK: ((x: unknown, y: unknown) => {
-    return [...(x as unknown[]), ...(y as unknown[])];
-  }) as SemigroupK<ArrayF>["combineK"],
+export const arraySemigroupK: ArraySemigroupK = {
+  combineK: <A>(x: A[], y: A[]): A[] => [...x, ...y],
 };
 
 /**
  * MonoidK instance for Array
  */
-export const arrayMonoidK: MonoidK<ArrayF> = {
+export const arrayMonoidK: ArrayMonoidK = {
   ...arraySemigroupK,
-  emptyK: (() => []) as MonoidK<ArrayF>["emptyK"],
+  emptyK: <A>(): A[] => [],
 };
 
 /**
  * Alternative instance for Array
  */
-export const arrayAlternative: Alternative<ArrayF> = {
+export const arrayAlternative: ArrayAlternative = {
   ...arrayMonad,
   ...arrayMonoidK,
 };
@@ -246,26 +417,21 @@ export const arrayAlternative: Alternative<ArrayF> = {
 /**
  * Functor instance for Promise
  */
-export const promiseFunctor: Functor<PromiseF> = {
-  map: ((fa: unknown, f: unknown) => {
-    const p = fa as Promise<unknown>;
-    const fn = f as (a: unknown) => unknown;
-    return p.then(fn);
-  }) as Functor<PromiseF>["map"],
+export const promiseFunctor: PromiseFunctor = {
+  map: <A, B>(fa: Promise<A>, f: (a: A) => B): Promise<B> => fa.then(f),
 };
 
 /**
  * Monad instance for Promise
  */
-export const promiseMonad: Monad<PromiseF> = makeMonad<PromiseF>(
-  promiseFunctor.map,
-  ((fa: unknown, f: unknown) => {
-    const p = fa as Promise<unknown>;
-    const fn = f as (a: unknown) => Promise<unknown>;
-    return p.then(fn);
-  }) as <A, B>(fa: Promise<A>, f: (a: A) => Promise<B>) => Promise<B>,
-  ((a: unknown) => Promise.resolve(a)) as <A>(a: A) => Promise<A>,
-);
+export const promiseMonad: PromiseMonad = {
+  map: promiseFunctor.map,
+  flatMap: <A, B>(fa: Promise<A>, f: (a: A) => Promise<B>): Promise<B> =>
+    fa.then(f),
+  pure: <A>(a: A): Promise<A> => Promise.resolve(a),
+  ap: <A, B>(fab: Promise<(a: A) => B>, fa: Promise<A>): Promise<B> =>
+    fab.then((f) => fa.then((a) => f(a))),
+};
 
 // ============================================================================
 // Either Instances
@@ -273,101 +439,89 @@ export const promiseMonad: Monad<PromiseF> = makeMonad<PromiseF>(
 
 /**
  * Create a Functor for Either with a fixed error type E.
- *
- * Note: Uses `unknown` casts to completely break TypeScript's HKT recursion.
+ * Uses concrete expanded types to avoid TypeScript's HKT recursion.
  */
-export function eitherFunctor<E>(): Functor<EitherF<E>> {
+export function eitherFunctor<E>(): EitherFunctor<E> {
   return {
-    map: ((fa: unknown, f: unknown) => {
-      const eth = fa as Either<E, unknown>;
-      const fn = f as (a: unknown) => unknown;
-      return isRight(eth) ? Right(fn(eth.right)) : eth;
-    }) as Functor<EitherF<E>>["map"],
+    map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> =>
+      isRight(fa) ? Right(f(fa.right)) : fa,
   };
 }
 
 /**
  * Create a Monad for Either with a fixed error type E.
  */
-export function eitherMonad<E>(): Monad<EitherF<E>> {
+export function eitherMonad<E>(): EitherMonad<E> {
   const functor = eitherFunctor<E>();
-  return makeMonad<EitherF<E>>(
-    functor.map,
-    ((fa: unknown, f: unknown) => {
-      const eth = fa as Either<E, unknown>;
-      const fn = f as (a: unknown) => Either<E, unknown>;
-      return isRight(eth) ? fn(eth.right) : eth;
-    }) as <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>) => Either<E, B>,
-    ((a: unknown) => Right(a)) as <A>(a: A) => Either<E, A>,
-  );
+  return {
+    map: functor.map,
+    flatMap: <A, B>(
+      fa: Either<E, A>,
+      f: (a: A) => Either<E, B>,
+    ): Either<E, B> => (isRight(fa) ? f(fa.right) : fa),
+    pure: <A>(a: A): Either<E, A> => Right(a),
+    ap: <A, B>(fab: Either<E, (a: A) => B>, fa: Either<E, A>): Either<E, B> => {
+      if (isLeft(fab)) return fab;
+      if (isLeft(fa)) return fa;
+      return Right(fab.right(fa.right));
+    },
+  };
 }
 
 /**
  * Create a MonadError for Either with a fixed error type E.
  */
-export function eitherMonadError<E>(): MonadError<EitherF<E>, E> {
+export function eitherMonadError<E>(): EitherMonadError<E> {
   const monad = eitherMonad<E>();
   return {
     ...monad,
-    raiseError: ((e: unknown) => Left(e)) as MonadError<
-      EitherF<E>,
-      E
-    >["raiseError"],
-    handleErrorWith: ((fa: unknown, f: unknown) => {
-      const eth = fa as Either<E, unknown>;
-      const fn = f as (e: E) => Either<E, unknown>;
-      return isLeft(eth) ? fn(eth.left) : eth;
-    }) as MonadError<EitherF<E>, E>["handleErrorWith"],
+    raiseError: <A>(e: E): Either<E, A> => Left(e),
+    handleErrorWith: <A>(
+      fa: Either<E, A>,
+      f: (e: E) => Either<E, A>,
+    ): Either<E, A> => (isLeft(fa) ? f(fa.left) : fa),
   };
 }
 
 /**
  * Create a Foldable for Either with a fixed error type E.
  */
-export function eitherFoldable<E>(): Foldable<EitherF<E>> {
+export function eitherFoldable<E>(): EitherFoldable<E> {
   return {
-    foldLeft: ((fa: unknown, b: unknown, f: unknown) => {
-      const eth = fa as Either<E, unknown>;
-      const fn = f as (b: unknown, a: unknown) => unknown;
-      return isRight(eth) ? fn(b, eth.right) : b;
-    }) as Foldable<EitherF<E>>["foldLeft"],
-    foldRight: ((fa: unknown, b: unknown, f: unknown) => {
-      const eth = fa as Either<E, unknown>;
-      const fn = f as (a: unknown, b: unknown) => unknown;
-      return isRight(eth) ? fn(eth.right, b) : b;
-    }) as Foldable<EitherF<E>>["foldRight"],
+    foldLeft: <A, B>(fa: Either<E, A>, b: B, f: (b: B, a: A) => B): B =>
+      isRight(fa) ? f(b, fa.right) : b,
+    foldRight: <A, B>(fa: Either<E, A>, b: B, f: (a: A, b: B) => B): B =>
+      isRight(fa) ? f(fa.right, b) : b,
   };
 }
 
 /**
  * Create a Traverse for Either with a fixed error type E.
  */
-export function eitherTraverse<E>(): Traverse<EitherF<E>> {
+export function eitherTraverse<E>(): EitherTraverse<E> {
   const functor = eitherFunctor<E>();
   const foldable = eitherFoldable<E>();
   return {
     ...functor,
     ...foldable,
-    traverse: ((G: Applicative<unknown>) => (fa: unknown, f: unknown) => {
-      const eth = fa as Either<E, unknown>;
-      const fn = f as (a: unknown) => unknown;
-      if (isRight(eth)) {
-        return G.map(fn(eth.right), (b: unknown) => Right(b));
-      }
-      return G.pure(Left(eth.left));
-    }) as Traverse<EitherF<E>>["traverse"],
+    traverse:
+      <G>(G: Applicative<G>) =>
+      <A, B>(fa: Either<E, A>, f: (a: A) => $<G, B>): $<G, Either<E, B>> => {
+        if (isRight(fa)) {
+          return G.map(f(fa.right), (b: B) => Right(b));
+        }
+        return G.pure(fa as Either<E, B>);
+      },
   };
 }
 
 /**
  * Create a SemigroupK for Either with a fixed error type E.
  */
-export function eitherSemigroupK<E>(): SemigroupK<EitherF<E>> {
+export function eitherSemigroupK<E>(): EitherSemigroupK<E> {
   return {
-    combineK: ((x: unknown, y: unknown) => {
-      const eth = x as Either<E, unknown>;
-      return isRight(eth) ? x : y;
-    }) as SemigroupK<EitherF<E>>["combineK"],
+    combineK: <A>(x: Either<E, A>, y: Either<E, A>): Either<E, A> =>
+      isRight(x) ? x : y,
   };
 }
 

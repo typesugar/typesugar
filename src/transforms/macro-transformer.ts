@@ -61,6 +61,9 @@ import {
   type DictMethod,
 } from "../macros/specialize.js";
 
+// Import HKT transformation for F<_> syntax
+import { isKindAnnotation, transformHKTDeclaration } from "../macros/hkt.js";
+
 /**
  * Configuration for the transformer
  */
@@ -806,7 +809,9 @@ class MacroTransformer {
           }
 
           try {
-            const result = macro.expand(this.ctx, stmt, continuation);
+            const result = this.ctx.hygiene.withScope(() =>
+              macro.expand(this.ctx, stmt, continuation),
+            );
             const expanded = Array.isArray(result) ? result : [result];
 
             // Visit the expanded statements for nested macros
@@ -1057,6 +1062,13 @@ class MacroTransformer {
           return this.tryExpandAttributeMacros(node as ts.HasDecorators);
         }
         return undefined;
+
+      case ts.SyntaxKind.InterfaceDeclaration:
+      case ts.SyntaxKind.TypeAliasDeclaration:
+        // Auto-detect and transform HKT F<_> syntax
+        return this.tryTransformHKTDeclaration(
+          node as ts.InterfaceDeclaration | ts.TypeAliasDeclaration,
+        );
 
       default:
         return undefined;
@@ -1652,11 +1664,13 @@ class MacroTransformer {
         }
 
         try {
-          const result = macro.expand(
-            this.ctx,
-            decorator,
-            currentNode as ts.Declaration,
-            args,
+          const result = this.ctx.hygiene.withScope(() =>
+            macro.expand(
+              this.ctx,
+              decorator,
+              currentNode as ts.Declaration,
+              args,
+            ),
           );
 
           if (Array.isArray(result)) {
@@ -1807,7 +1821,9 @@ class MacroTransformer {
           console.log(`[typemacro] Expanding derive macro: ${deriveName}`);
         }
         try {
-          const result = deriveMacro.expand(this.ctx, node, typeInfo);
+          const result = this.ctx.hygiene.withScope(() =>
+            deriveMacro.expand(this.ctx, node, typeInfo),
+          );
           statements.push(...result);
         } catch (error) {
           this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
@@ -1877,7 +1893,9 @@ class MacroTransformer {
           );
         }
         try {
-          const result = tcDeriveMacro.expand(this.ctx, node, typeInfo);
+          const result = this.ctx.hygiene.withScope(() =>
+            tcDeriveMacro.expand(this.ctx, node, typeInfo),
+          );
           statements.push(...result);
         } catch (error) {
           this.ctx.reportError(
@@ -2161,7 +2179,9 @@ class MacroTransformer {
           );
         }
 
-        const result = taggedMacro.expand(this.ctx, node);
+        const result = this.ctx.hygiene.withScope(() =>
+          taggedMacro.expand(this.ctx, node),
+        );
         return ts.visitNode(result, this.boundVisit) as ts.Expression;
       } catch (error) {
         this.ctx.reportError(
@@ -2189,10 +2209,12 @@ class MacroTransformer {
     }
 
     try {
-      const result = exprMacro.expand(
-        this.ctx,
-        node as unknown as ts.CallExpression,
-        [node.template as unknown as ts.Expression],
+      const result = this.ctx.hygiene.withScope(() =>
+        exprMacro.expand(
+          this.ctx,
+          node as unknown as ts.CallExpression,
+          [node.template as unknown as ts.Expression],
+        ),
       );
       return ts.visitNode(result, this.boundVisit) as ts.Expression;
     } catch (error) {
@@ -2242,12 +2264,56 @@ class MacroTransformer {
 
     try {
       const typeArgs = node.typeArguments ? Array.from(node.typeArguments) : [];
-      const result = macro.expand(this.ctx, node, typeArgs);
+      const result = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, node, typeArgs),
+      );
       return ts.visitNode(result, this.boundVisit) as ts.TypeNode;
     } catch (error) {
       this.ctx.reportError(node, `Type macro expansion failed: ${error}`);
       // Return the original node unchanged on failure
       return node;
+    }
+  }
+
+  /**
+   * Try to transform HKT declarations with F<_> kind syntax.
+   *
+   * Auto-detects interface/type declarations that use F<_> to denote
+   * type constructor parameters, and transforms F<A> usages to $<F, A>.
+   */
+  private tryTransformHKTDeclaration(
+    node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration,
+  ): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | undefined {
+    // Check if any type parameter has kind annotation (F<_>)
+    const typeParams = node.typeParameters;
+    if (!typeParams) return undefined;
+
+    let hasKindAnnotation = false;
+    for (const param of typeParams) {
+      if (isKindAnnotation(param)) {
+        hasKindAnnotation = true;
+        break;
+      }
+    }
+
+    if (!hasKindAnnotation) return undefined;
+
+    if (this.verbose) {
+      const name = node.name?.text ?? "Anonymous";
+      console.log(`[typemacro] Transforming HKT declaration: ${name}`);
+    }
+
+    try {
+      const transformed = transformHKTDeclaration(this.ctx, node);
+      // Visit the result to handle nested transformations
+      return ts.visitEachChild(
+        transformed,
+        this.boundVisit,
+        this.ctx.transformContext,
+      ) as ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+    } catch (error) {
+      this.ctx.reportError(node, `HKT transformation failed: ${error}`);
+      return undefined;
     }
   }
 
