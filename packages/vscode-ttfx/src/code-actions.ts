@@ -51,7 +51,9 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     const templateNames = this.manifest.taggedTemplateMacroNames;
 
     // --- "Expand macro" for expression macros ---
-    const callExpr = findAncestor(node, ts.isCallExpression);
+    const callExpr = findAncestor(node, ts.isCallExpression) as
+      | ts.CallExpression
+      | undefined;
     if (
       callExpr &&
       ts.isIdentifier(callExpr.expression) &&
