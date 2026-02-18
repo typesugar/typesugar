@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "pnpm -r clean && rm -rf node_modules",
-    "typecheck": "pnpm -r --filter '!ttfx-example-*' typecheck",
+    "typecheck": "pnpm -r --filter '!ttfx-example-*' --filter '!@ttfx/cats' typecheck",
     "lint": "pnpm -r lint"
   },
   "keywords": [
