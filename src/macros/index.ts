@@ -23,8 +23,11 @@ import "./include.js";
 import "./module-graph.js";
 import "./tailrec.js";
 
+// --- Contract macros ---
+import "@ttfx/contracts";
+
 // --- Testing macros ---
-import "../use-cases/testing/macro.js";
+import "@ttfx/testing/macros";
 
 // Re-export for programmatic use
 export { comptimeMacro } from "./comptime.js";
@@ -257,6 +260,23 @@ export {
 // --- Tail-call optimization ---
 export { tailrecAttribute } from "./tailrec.js";
 
+// --- Contract macros ---
+export {
+  requiresMacro,
+  ensuresMacro,
+  oldMacro,
+  contractAttribute,
+  invariantAttribute,
+  type ContractConfig,
+  setContractConfig,
+  getContractConfig,
+  shouldEmitCheck,
+  type ProofResult,
+  type ProverPlugin,
+  tryProve,
+  registerProverPlugin,
+} from "@ttfx/contracts";
+
 // --- Testing macros ---
 export {
   powerAssertMacro,
@@ -266,4 +286,4 @@ export {
   typeAssertMacro,
   forAllMacro,
   ArbitraryDerive,
-} from "../use-cases/testing/macro.js";
+} from "@ttfx/testing/macros";

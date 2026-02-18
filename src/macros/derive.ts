@@ -18,6 +18,7 @@ import {
   MacroContext,
   DeriveTypeInfo,
   DeriveFieldInfo,
+  DeriveVariantInfo,
 } from "../core/types.js";
 
 // ============================================================================
@@ -36,25 +37,75 @@ export const EqDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `${uncapitalize(name)}Eq`;
 
-    // Generate: (a: Type, b: Type) => boolean
-    const comparisons = fields.map(
-      (field) => `a.${field.name} === b.${field.name}`,
-    );
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandEqForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
 
-    const body = comparisons.length > 0 ? comparisons.join(" && ") : "true";
+    // Product type (default)
+    return expandEqForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
 
-    const code = `
-export function ${fnName}(a: ${name}, b: ${name}): boolean {
+function expandEqForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const comparisons = fields.map(
+    (field) => `a.${field.name} === b.${field.name}`,
+  );
+
+  const body = comparisons.length > 0 ? comparisons.join(" && ") : "true";
+
+  const code = `
+export function ${fnName}(a: ${typeName}, b: ${typeName}): boolean {
   return ${body};
 }
 `;
 
-    return ctx.parseStatements(code);
-  },
-});
+  return ctx.parseStatements(code);
+}
+
+function expandEqForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  const cases = variants
+    .map((variant) => {
+      const fieldComparisons = variant.fields.map(
+        (field) => `(a as any).${field.name} === (b as any).${field.name}`,
+      );
+      const body =
+        fieldComparisons.length > 0 ? fieldComparisons.join(" && ") : "true";
+      return `    case "${variant.tag}": return ${body};`;
+    })
+    .join("\n");
+
+  const code = `
+export function ${fnName}(a: ${typeName}, b: ${typeName}): boolean {
+  if (a.${discriminant} !== b.${discriminant}) return false;
+  switch (a.${discriminant}) {
+${cases}
+    default: return false;
+  }
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 // ============================================================================
 // Ord - Generate comparison/ordering function
@@ -72,28 +123,89 @@ export const OrdDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `${uncapitalize(name)}Compare`;
 
-    // Generate field comparisons
-    const comparisons = fields
-      .map((field) => {
-        return `
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandOrdForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
+
+    // Product type (default)
+    return expandOrdForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
+
+function expandOrdForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const comparisons = fields
+    .map((field) => {
+      return `
   if (a.${field.name} < b.${field.name}) return -1;
   if (a.${field.name} > b.${field.name}) return 1;`;
-      })
-      .join("\n");
+    })
+    .join("\n");
 
-    const code = `
-export function ${fnName}(a: ${name}, b: ${name}): -1 | 0 | 1 {
+  const code = `
+export function ${fnName}(a: ${typeName}, b: ${typeName}): -1 | 0 | 1 {
 ${comparisons}
   return 0;
 }
 `;
 
-    return ctx.parseStatements(code);
-  },
-});
+  return ctx.parseStatements(code);
+}
+
+function expandOrdForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  // First compare by variant order, then by fields within each variant
+  const variantOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
+
+  const cases = variants
+    .map((variant) => {
+      const fieldComparisons = variant.fields
+        .map(
+          (field) => `
+      if ((a as any).${field.name} < (b as any).${field.name}) return -1;
+      if ((a as any).${field.name} > (b as any).${field.name}) return 1;`,
+        )
+        .join("");
+      return `    case "${variant.tag}":${fieldComparisons}
+      return 0;`;
+    })
+    .join("\n");
+
+  const code = `
+export function ${fnName}(a: ${typeName}, b: ${typeName}): -1 | 0 | 1 {
+  const variantOrder: Record<string, number> = { ${variantOrder} };
+  const orderA = variantOrder[a.${discriminant}] ?? 999;
+  const orderB = variantOrder[b.${discriminant}] ?? 999;
+  if (orderA < orderB) return -1;
+  if (orderA > orderB) return 1;
+
+  switch (a.${discriminant}) {
+${cases}
+    default: return 0;
+  }
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 // ============================================================================
 // Clone - Generate a deep clone function
@@ -111,26 +223,75 @@ export const CloneDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `clone${name}`;
 
-    // Generate field copying
-    const copies = fields.map((field) => {
-      // For now, simple copy. Could be enhanced for nested objects
-      return `    ${field.name}: value.${field.name}`;
-    });
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandCloneForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
 
-    const code = `
-export function ${fnName}(value: ${name}): ${name} {
+    // Product type (default)
+    return expandCloneForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
+
+function expandCloneForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const copies = fields.map((field) => {
+    return `    ${field.name}: value.${field.name}`;
+  });
+
+  const code = `
+export function ${fnName}(value: ${typeName}): ${typeName} {
   return {
 ${copies.join(",\n")}
   };
 }
 `;
 
-    return ctx.parseStatements(code);
-  },
-});
+  return ctx.parseStatements(code);
+}
+
+function expandCloneForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  const cases = variants
+    .map((variant) => {
+      const copies = [
+        `${discriminant}: value.${discriminant}`,
+        ...variant.fields.map(
+          (field) => `${field.name}: (value as any).${field.name}`,
+        ),
+      ];
+      return `    case "${variant.tag}": return { ${copies.join(", ")} } as ${typeName};`;
+    })
+    .join("\n");
+
+  const code = `
+export function ${fnName}(value: ${typeName}): ${typeName} {
+  switch (value.${discriminant}) {
+${cases}
+    default: return { ...value } as ${typeName};
+  }
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 // ============================================================================
 // Debug - Generate a debug string representation
@@ -148,26 +309,75 @@ export const DebugDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `debug${name}`;
 
-    // Generate field string representations
-    const fieldStrs = fields.map(
-      (field) => `\${JSON.stringify(value.${field.name})}`,
-    );
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandDebugForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
 
-    const fieldNames = fields.map((f) => f.name);
-    const pairs = fieldNames.map((n, i) => `${n}: ${fieldStrs[i]}`);
+    // Product type (default)
+    return expandDebugForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
 
-    const code = `
-export function ${fnName}(value: ${name}): string {
-  return \`${name} { ${pairs.join(", ")} }\`;
+function expandDebugForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const fieldStrs = fields.map(
+    (field) => `\${JSON.stringify(value.${field.name})}`,
+  );
+
+  const fieldNames = fields.map((f) => f.name);
+  const pairs = fieldNames.map((n, i) => `${n}: ${fieldStrs[i]}`);
+
+  const code = `
+export function ${fnName}(value: ${typeName}): string {
+  return \`${typeName} { ${pairs.join(", ")} }\`;
 }
 `;
 
-    return ctx.parseStatements(code);
-  },
-});
+  return ctx.parseStatements(code);
+}
+
+function expandDebugForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  const cases = variants
+    .map((variant) => {
+      const fieldStrs = variant.fields.map(
+        (field) => `\${JSON.stringify((value as any).${field.name})}`,
+      );
+      const pairs = variant.fields.map((f, i) => `${f.name}: ${fieldStrs[i]}`);
+      const body = pairs.length > 0 ? ` { ${pairs.join(", ")} }` : "";
+      return `    case "${variant.tag}": return \`${variant.typeName}${body}\`;`;
+    })
+    .join("\n");
+
+  const code = `
+export function ${fnName}(value: ${typeName}): string {
+  switch (value.${discriminant}) {
+${cases}
+    default: return \`${typeName}(\${value.${discriminant}})\`;
+  }
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 // ============================================================================
 // Hash - Generate a hash function
@@ -185,37 +395,100 @@ export const HashDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `hash${name}`;
 
-    // Simple djb2-style hash
-    const hashCode = fields
-      .map((field) => {
-        const fieldType = getBaseType(field);
-        if (fieldType === "number") {
-          return `  hash = ((hash << 5) + hash) + (value.${field.name} | 0);`;
-        } else if (fieldType === "string") {
-          return `  for (let i = 0; i < value.${field.name}.length; i++) {
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandHashForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
+
+    // Product type (default)
+    return expandHashForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
+
+function expandHashForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const hashCode = fields
+    .map((field) => {
+      const fieldType = getBaseType(field);
+      if (fieldType === "number") {
+        return `  hash = ((hash << 5) + hash) + (value.${field.name} | 0);`;
+      } else if (fieldType === "string") {
+        return `  for (let i = 0; i < value.${field.name}.length; i++) {
     hash = ((hash << 5) + hash) + value.${field.name}.charCodeAt(i);
   }`;
-        } else if (fieldType === "boolean") {
-          return `  hash = ((hash << 5) + hash) + (value.${field.name} ? 1 : 0);`;
-        }
-        return `  hash = ((hash << 5) + hash) + String(value.${field.name}).length;`;
-      })
-      .join("\n");
+      } else if (fieldType === "boolean") {
+        return `  hash = ((hash << 5) + hash) + (value.${field.name} ? 1 : 0);`;
+      }
+      return `  hash = ((hash << 5) + hash) + String(value.${field.name}).length;`;
+    })
+    .join("\n");
 
-    const code = `
-export function ${fnName}(value: ${name}): number {
+  const code = `
+export function ${fnName}(value: ${typeName}): number {
   let hash = 5381;
 ${hashCode}
   return hash >>> 0;
 }
 `;
 
-    return ctx.parseStatements(code);
-  },
-});
+  return ctx.parseStatements(code);
+}
+
+function expandHashForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  const cases = variants
+    .map((variant, variantIdx) => {
+      const hashCode = variant.fields
+        .map((field) => {
+          const fieldType = getBaseType(field);
+          if (fieldType === "number") {
+            return `      hash = ((hash << 5) + hash) + ((value as any).${field.name} | 0);`;
+          } else if (fieldType === "string") {
+            return `      for (let i = 0; i < (value as any).${field.name}.length; i++) {
+        hash = ((hash << 5) + hash) + (value as any).${field.name}.charCodeAt(i);
+      }`;
+          } else if (fieldType === "boolean") {
+            return `      hash = ((hash << 5) + hash) + ((value as any).${field.name} ? 1 : 0);`;
+          }
+          return `      hash = ((hash << 5) + hash) + String((value as any).${field.name}).length;`;
+        })
+        .join("\n");
+      return `    case "${variant.tag}":
+      hash = ((hash << 5) + hash) + ${variantIdx};
+${hashCode}
+      return hash >>> 0;`;
+    })
+    .join("\n");
+
+  const code = `
+export function ${fnName}(value: ${typeName}): number {
+  let hash = 5381;
+  switch (value.${discriminant}) {
+${cases}
+    default: return hash >>> 0;
+  }
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 // ============================================================================
 // Default - Generate a default value factory
@@ -233,26 +506,80 @@ export const DefaultDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `default${name}`;
 
-    // Generate default values based on type
-    const defaults = fields.map((field) => {
-      const defaultValue = getDefaultForType(field);
-      return `    ${field.name}: ${defaultValue}`;
-    });
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandDefaultForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
 
-    const code = `
-export function ${fnName}(): ${name} {
+    // Product type (default)
+    return expandDefaultForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
+
+function expandDefaultForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const defaults = fields.map((field) => {
+    const defaultValue = getDefaultForType(field);
+    return `    ${field.name}: ${defaultValue}`;
+  });
+
+  const code = `
+export function ${fnName}(): ${typeName} {
   return {
 ${defaults.join(",\n")}
   };
 }
 `;
 
+  return ctx.parseStatements(code);
+}
+
+function expandDefaultForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  // For sum types, default to the first variant
+  if (variants.length === 0) {
+    const code = `
+export function ${fnName}(): ${typeName} {
+  throw new Error("No variants defined for ${typeName}");
+}
+`;
     return ctx.parseStatements(code);
-  },
-});
+  }
+
+  const firstVariant = variants[0];
+  const defaults = [
+    `${discriminant}: "${firstVariant.tag}" as const`,
+    ...firstVariant.fields.map((field) => {
+      const defaultValue = getDefaultForType(field);
+      return `${field.name}: ${defaultValue}`;
+    }),
+  ];
+
+  const code = `
+export function ${fnName}(): ${typeName} {
+  return { ${defaults.join(", ")} } as ${typeName};
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 // ============================================================================
 // JSON - Generate JSON serialization/deserialization
@@ -270,47 +597,123 @@ export const JsonDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
 
-    // Serialize function
-    const serializeCode = `
-export function ${uncapitalize(name)}ToJson(value: ${name}): string {
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandJsonForSumType(
+        ctx,
+        name,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
+
+    // Product type (default)
+    return expandJsonForProductType(ctx, name, typeInfo.fields);
+  },
+});
+
+function expandJsonForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  const serializeCode = `
+export function ${uncapitalize(typeName)}ToJson(value: ${typeName}): string {
   return JSON.stringify(value);
 }
 `;
 
-    // Deserialize with validation
-    const validations = fields
-      .map((field) => {
-        const baseType = getBaseType(field);
-        const optionalCheck = field.optional
-          ? ""
-          : `
+  const validations = fields
+    .map((field) => {
+      const baseType = getBaseType(field);
+      const optionalCheck = field.optional
+        ? ""
+        : `
     if (obj.${field.name} === undefined) {
       throw new Error("Missing required field: ${field.name}");
     }`;
-        const typeCheck = `
+      const typeCheck = `
     if (obj.${field.name} !== undefined && typeof obj.${field.name} !== "${baseType}") {
       throw new Error("Field ${field.name} must be ${baseType}");
     }`;
-        return optionalCheck + typeCheck;
-      })
-      .join("\n");
+      return optionalCheck + typeCheck;
+    })
+    .join("\n");
 
-    const deserializeCode = `
-export function ${uncapitalize(name)}FromJson(json: string): ${name} {
+  const deserializeCode = `
+export function ${uncapitalize(typeName)}FromJson(json: string): ${typeName} {
   const obj = JSON.parse(json);
 ${validations}
-  return obj as ${name};
+  return obj as ${typeName};
 }
 `;
 
-    return [
-      ...ctx.parseStatements(serializeCode),
-      ...ctx.parseStatements(deserializeCode),
-    ];
-  },
-});
+  return [
+    ...ctx.parseStatements(serializeCode),
+    ...ctx.parseStatements(deserializeCode),
+  ];
+}
+
+function expandJsonForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  const serializeCode = `
+export function ${uncapitalize(typeName)}ToJson(value: ${typeName}): string {
+  return JSON.stringify(value);
+}
+`;
+
+  const variantValidations = variants
+    .map((variant) => {
+      const fieldValidations = variant.fields
+        .map((field) => {
+          const baseType = getBaseType(field);
+          const optionalCheck = field.optional
+            ? ""
+            : `
+        if (obj.${field.name} === undefined) {
+          throw new Error("Missing required field: ${field.name}");
+        }`;
+          const typeCheck = `
+        if (obj.${field.name} !== undefined && typeof obj.${field.name} !== "${baseType}") {
+          throw new Error("Field ${field.name} must be ${baseType}");
+        }`;
+          return optionalCheck + typeCheck;
+        })
+        .join("");
+      return `    case "${variant.tag}":${fieldValidations}
+      break;`;
+    })
+    .join("\n");
+
+  const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
+
+  const deserializeCode = `
+export function ${uncapitalize(typeName)}FromJson(json: string): ${typeName} {
+  const obj = JSON.parse(json);
+  if (obj.${discriminant} === undefined) {
+    throw new Error("Missing discriminant field: ${discriminant}");
+  }
+  const validTags = [${validTags}];
+  if (!validTags.includes(obj.${discriminant})) {
+    throw new Error(\`Invalid ${discriminant} value: \${obj.${discriminant}}\`);
+  }
+  switch (obj.${discriminant}) {
+${variantValidations}
+  }
+  return obj as ${typeName};
+}
+`;
+
+  return [
+    ...ctx.parseStatements(serializeCode),
+    ...ctx.parseStatements(deserializeCode),
+  ];
+}
 
 // ============================================================================
 // Builder - Generate a builder pattern
@@ -322,16 +725,27 @@ export const BuilderDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
+    target:
       | ts.InterfaceDeclaration
       | ts.ClassDeclaration
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const builderName = `${name}Builder`;
 
-    // Generate setter methods
+    // Builder doesn't make sense for sum types - generate a warning
+    if (kind === "sum") {
+      ctx.reportWarning(
+        target,
+        `@derive(Builder) is not applicable to sum types. Skipping Builder for ${name}.`,
+      );
+      return [];
+    }
+
+    // Product type - standard builder pattern
+    const { fields } = typeInfo;
+
     const setters = fields
       .map((field) => {
         const methodName = `with${capitalize(field.name)}`;
@@ -343,7 +757,6 @@ export const BuilderDerive = defineDeriveMacro({
       })
       .join("\n");
 
-    // Generate private fields
     const privateFields = fields
       .map((field) => {
         const defaultValue = getDefaultForType(field);
@@ -351,7 +764,6 @@ export const BuilderDerive = defineDeriveMacro({
       })
       .join("\n");
 
-    // Generate build method
     const buildProps = fields
       .map((field) => `      ${field.name}: this._${field.name}`)
       .join(",\n");
@@ -390,40 +802,101 @@ export const TypeGuardDerive = defineDeriveMacro({
       | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo,
   ): ts.Statement[] {
-    const { name, fields } = typeInfo;
+    const { name, kind } = typeInfo;
     const fnName = `is${name}`;
 
-    if (fields.length === 0) {
-      // For types with no fields, just check it's a non-null object
-      const code = `
-export function ${fnName}(value: unknown): value is ${name} {
+    if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
+      return expandTypeGuardForSumType(
+        ctx,
+        name,
+        fnName,
+        typeInfo.discriminant,
+        typeInfo.variants,
+      );
+    }
+
+    // Product type (default)
+    return expandTypeGuardForProductType(ctx, name, fnName, typeInfo.fields);
+  },
+});
+
+function expandTypeGuardForProductType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  fields: DeriveFieldInfo[],
+): ts.Statement[] {
+  if (fields.length === 0) {
+    const code = `
+export function ${fnName}(value: unknown): value is ${typeName} {
   return typeof value === "object" && value !== null;
 }
 `;
-      return ctx.parseStatements(code);
+    return ctx.parseStatements(code);
+  }
+
+  const checks = fields.map((field) => {
+    const check = generateTypeCheck(field, "value");
+    if (field.optional) {
+      return `(!("${field.name}" in obj) || ${check})`;
     }
+    return check;
+  });
 
-    // Generate per-field type checks
-    const checks = fields.map((field) => {
-      const check = generateTypeCheck(field, "value");
-      if (field.optional) {
-        // Optional fields: valid if absent or correct type
-        return `(!("${field.name}" in obj) || ${check})`;
-      }
-      return check;
-    });
-
-    const code = `
-export function ${fnName}(value: unknown): value is ${name} {
+  const code = `
+export function ${fnName}(value: unknown): value is ${typeName} {
   if (typeof value !== "object" || value === null) return false;
   const obj = value as Record<string, unknown>;
   return ${checks.join("\n    && ")};
 }
 `;
 
-    return ctx.parseStatements(code);
-  },
-});
+  return ctx.parseStatements(code);
+}
+
+function expandTypeGuardForSumType(
+  ctx: MacroContext,
+  typeName: string,
+  fnName: string,
+  discriminant: string,
+  variants: DeriveVariantInfo[],
+): ts.Statement[] {
+  const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
+
+  const variantChecks = variants
+    .map((variant) => {
+      if (variant.fields.length === 0) {
+        return `    case "${variant.tag}": return true;`;
+      }
+
+      const fieldChecks = variant.fields.map((field) => {
+        const check = generateTypeCheck(field, "value");
+        if (field.optional) {
+          return `(!("${field.name}" in obj) || ${check})`;
+        }
+        return check;
+      });
+
+      return `    case "${variant.tag}": return ${fieldChecks.join(" && ")};`;
+    })
+    .join("\n");
+
+  const code = `
+export function ${fnName}(value: unknown): value is ${typeName} {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.${discriminant} !== "string") return false;
+  const validTags = [${validTags}];
+  if (!validTags.includes(obj.${discriminant} as string)) return false;
+  switch (obj.${discriminant}) {
+${variantChecks}
+    default: return false;
+  }
+}
+`;
+
+  return ctx.parseStatements(code);
+}
 
 /**
  * Generate a runtime type check expression for a single field.

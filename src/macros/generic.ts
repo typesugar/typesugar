@@ -36,8 +36,16 @@
 
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "../core/registry.js";
-import { MacroContext } from "../core/types.js";
-import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
+import {
+  MacroContext,
+  DeriveFieldInfo,
+  DeriveVariantInfo,
+} from "../core/types.js";
+import {
+  instanceRegistry,
+  typeclassRegistry,
+  tryExtractSumType,
+} from "./typeclass.js";
 
 // ============================================================================
 // Structural Representation Types
@@ -279,6 +287,28 @@ registerGeneric("boolean", genericBoolean);
 // @derive(Generic) - Auto-derive Generic instance for a type
 // ============================================================================
 
+/**
+ * Metadata stored for each type with a Generic instance.
+ * Used by derive macros to generate specialized code without runtime cost.
+ */
+export interface GenericMeta {
+  readonly kind: "product" | "sum" | "primitive";
+  readonly discriminant?: string;
+  readonly variants?: Array<{ tag: string; typeName: string }>;
+  readonly fieldNames?: string[];
+  readonly fieldTypes?: string[];
+}
+
+const genericMetaRegistry = new Map<string, GenericMeta>();
+
+export function getGenericMeta(typeName: string): GenericMeta | undefined {
+  return genericMetaRegistry.get(typeName);
+}
+
+export function registerGenericMeta(typeName: string, meta: GenericMeta): void {
+  genericMetaRegistry.set(typeName, meta);
+}
+
 export const genericDerive = defineAttributeMacro({
   name: "Generic",
   module: "typemacro",
@@ -304,63 +334,195 @@ export const genericDerive = defineAttributeMacro({
     }
 
     const typeName = target.name?.text ?? "Anonymous";
-    const type = ctx.typeChecker.getTypeAtLocation(target);
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
 
-    // Build the to/from conversion functions
-    const fieldNames: string[] = [];
-    const fieldTypes: string[] = [];
-
-    for (const prop of properties) {
-      fieldNames.push(prop.name);
-      const decls = prop.getDeclarations();
-      if (decls && decls.length > 0) {
-        const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-          prop,
-          decls[0],
-        );
-        fieldTypes.push(ctx.typeChecker.typeToString(propType));
-      } else {
-        fieldTypes.push("unknown");
+    // Check if this is a sum type (discriminated union)
+    if (ts.isTypeAliasDeclaration(target)) {
+      const sumInfo = tryExtractSumType(ctx, target);
+      if (sumInfo) {
+        return expandGenericForSumType(ctx, target, typeName, sumInfo);
       }
     }
 
-    // Generate the Generic instance
-    const toFields = fieldNames.map((name) => `value.${name}`).join(", ");
-    const fromFields = fieldNames
-      .map((name, i) => `${name}: rep.fields[${i}]`)
-      .join(", ");
+    // Product type (interface, class, or non-union type alias)
+    return expandGenericForProductType(ctx, target, typeName);
+  },
+});
 
-    const code = `
-// Generic instance for ${typeName}
-const generic${typeName}: Generic<${typeName}, Product<[${fieldNames.map((n, i) => `["${n}", ${fieldTypes[i]}]`).join(", ")}]>> = {
-  to: (value: ${typeName}) => ({
-    _tag: "Product" as const,
-    fields: [${toFields}] as const,
-    names: [${fieldNames.map((n) => `"${n}"`).join(", ")}] as const,
-  }),
-  from: (rep) => ({
-    ${fromFields}
-  }) as ${typeName},
+/**
+ * Expand @derive(Generic) for a product type (interface, class, record).
+ * Generates zero-cost identity conversion with metadata registration.
+ */
+function expandGenericForProductType(
+  ctx: MacroContext,
+  target:
+    | ts.InterfaceDeclaration
+    | ts.ClassDeclaration
+    | ts.TypeAliasDeclaration,
+  typeName: string,
+): ts.Node[] {
+  const type = ctx.typeChecker.getTypeAtLocation(target);
+  const properties = ctx.typeChecker.getPropertiesOfType(type);
+
+  const fieldNames: string[] = [];
+  const fieldTypes: string[] = [];
+
+  for (const prop of properties) {
+    fieldNames.push(prop.name);
+    const decls = prop.getDeclarations();
+    if (decls && decls.length > 0) {
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+        prop,
+        decls[0],
+      );
+      fieldTypes.push(ctx.typeChecker.typeToString(propType));
+    } else {
+      fieldTypes.push("unknown");
+    }
+  }
+
+  // Generate zero-cost Generic instance with identity to/from
+  // The metadata is what drives derivation, not runtime conversion
+  const code = `
+// Zero-cost Generic instance for ${typeName} (product type)
+const generic${typeName}: Generic<${typeName}, ${typeName}> = {
+  to: (value) => value,
+  from: (rep) => rep,
 };
 
-// Register at compile time
+// Register type metadata for derivation
+registerGenericMeta("${typeName}", {
+  kind: "product",
+  fieldNames: ${JSON.stringify(fieldNames)},
+  fieldTypes: ${JSON.stringify(fieldTypes)},
+});
+
 registerGeneric("${typeName}", generic${typeName});
 `;
 
-    const statements = ctx.parseStatements(code);
+  const statements = ctx.parseStatements(code);
 
-    // Register in compile-time registry
-    instanceRegistry.push({
-      typeclassName: "Generic",
-      forType: typeName,
-      instanceName: `generic${typeName}`,
-      derived: true,
-    });
+  // Register in compile-time instance registry
+  instanceRegistry.push({
+    typeclassName: "Generic",
+    forType: typeName,
+    instanceName: `generic${typeName}`,
+    derived: true,
+  });
 
-    return [target, ...statements];
+  // Also register metadata at compile time for immediate use
+  genericMetaRegistry.set(typeName, {
+    kind: "product",
+    fieldNames,
+    fieldTypes,
+  });
+
+  return [target, ...statements];
+}
+
+/**
+ * Expand @derive(Generic) for a sum type (discriminated union).
+ * Generates zero-cost identity conversion - native union stays native.
+ */
+function expandGenericForSumType(
+  ctx: MacroContext,
+  target: ts.TypeAliasDeclaration,
+  typeName: string,
+  sumInfo: {
+    discriminant: string;
+    variants: Array<{ tag: string; typeName: string }>;
   },
+): ts.Node[] {
+  // Get variant field information for each variant
+  const variantMeta: Array<{
+    tag: string;
+    typeName: string;
+    fieldNames: string[];
+    fieldTypes: string[];
+  }> = [];
+
+  if (ts.isUnionTypeNode(target.type)) {
+    for (const member of target.type.types) {
+      if (!ts.isTypeReferenceNode(member)) continue;
+
+      const variantTypeName = member.typeName.getText();
+      const variantInfo = sumInfo.variants.find(
+        (v) => v.typeName === variantTypeName,
+      );
+      if (!variantInfo) continue;
+
+      const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
+      const fieldNames: string[] = [];
+      const fieldTypes: string[] = [];
+
+      try {
+        const props = ctx.typeChecker.getPropertiesOfType(memberType);
+        for (const prop of props) {
+          // Skip the discriminant field
+          if (prop.name === sumInfo.discriminant) continue;
+
+          fieldNames.push(prop.name);
+          const decls = prop.getDeclarations();
+          if (decls && decls.length > 0) {
+            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+              prop,
+              decls[0],
+            );
+            fieldTypes.push(ctx.typeChecker.typeToString(propType));
+          } else {
+            fieldTypes.push("unknown");
+          }
+        }
+      } catch {
+        // Skip if we can't get properties
+      }
+
+      variantMeta.push({
+        tag: variantInfo.tag,
+        typeName: variantTypeName,
+        fieldNames,
+        fieldTypes,
+      });
+    }
+  }
+
+  // Generate zero-cost Generic instance with identity to/from
+  // Sum types keep their native discriminated union form
+  const code = `
+// Zero-cost Generic instance for ${typeName} (sum type)
+const generic${typeName}: Generic<${typeName}, ${typeName}> = {
+  to: (value) => value,
+  from: (rep) => rep,
+};
+
+// Register type metadata for derivation
+registerGenericMeta("${typeName}", {
+  kind: "sum",
+  discriminant: "${sumInfo.discriminant}",
+  variants: ${JSON.stringify(sumInfo.variants)},
 });
+
+registerGeneric("${typeName}", generic${typeName});
+`;
+
+  const statements = ctx.parseStatements(code);
+
+  // Register in compile-time instance registry
+  instanceRegistry.push({
+    typeclassName: "Generic",
+    forType: typeName,
+    instanceName: `generic${typeName}`,
+    derived: true,
+  });
+
+  // Also register metadata at compile time for immediate use
+  genericMetaRegistry.set(typeName, {
+    kind: "sum",
+    discriminant: sumInfo.discriminant,
+    variants: sumInfo.variants,
+  });
+
+  return [target, ...statements];
+}
 
 // ============================================================================
 // Generic-based Show/Eq/etc derivation

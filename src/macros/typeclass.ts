@@ -69,6 +69,7 @@ import {
   MacroContext,
   DeriveTypeInfo,
   DeriveFieldInfo,
+  DeriveVariantInfo,
 } from "../core/types.js";
 import {
   registerInstanceMethodsFromAST,
@@ -1383,36 +1384,22 @@ function createTypeclassDeriveMacro(tcName: string) {
         return [];
       }
 
-      const { name: typeName, fields } = typeInfo;
+      const { name: typeName, fields, kind, discriminant, variants } = typeInfo;
+      let code: string;
 
-      // Check if this is a sum type (discriminated union)
-      if (ts.isTypeAliasDeclaration(target) && target.type) {
-        const sumInfo = tryExtractSumType(ctx, target);
-        if (sumInfo) {
-          const code = derivation.deriveSum(
-            typeName,
-            sumInfo.discriminant,
-            sumInfo.variants,
-          );
-          const stmts = ctx.parseStatements(code);
-
-          // Register in compile-time registry
-          instanceRegistry.push({
-            typeclassName: tcName,
-            forType: typeName,
-            instanceName: instanceVarName(uncapitalize(tcName), typeName),
-            derived: true,
-          });
-
-          // Register extension methods
-          registerExtensionMethods(typeName, tcName);
-
-          return stmts;
-        }
+      // Use typeInfo.kind to determine derivation method (zero-cost: metadata-driven)
+      if (kind === "sum" && discriminant && variants) {
+        // Convert DeriveVariantInfo[] to the format expected by deriveSum
+        const variantInfos = variants.map((v) => ({
+          tag: v.tag,
+          typeName: v.typeName,
+        }));
+        code = derivation.deriveSum(typeName, discriminant, variantInfos);
+      } else {
+        // Product type derivation (default)
+        code = derivation.deriveProduct(typeName, fields);
       }
 
-      // Product type derivation
-      const code = derivation.deriveProduct(typeName, fields);
       const stmts = ctx.parseStatements(code);
 
       // Register in compile-time registry
@@ -1437,7 +1424,7 @@ function createTypeclassDeriveMacro(tcName: string) {
  *   type Shape = Circle | Rectangle
  * where each variant has a common discriminant field (e.g., "kind" or "_tag").
  */
-function tryExtractSumType(
+export function tryExtractSumType(
   ctx: MacroContext,
   target: ts.TypeAliasDeclaration,
 ):
@@ -1570,11 +1557,70 @@ export const derivingAttribute = defineAttributeMacro({
       });
     }
 
+    // Detect if this is a sum type and populate metadata
+    let sumInfo:
+      | {
+          discriminant: string;
+          variants: Array<{ tag: string; typeName: string }>;
+        }
+      | undefined;
+    if (ts.isTypeAliasDeclaration(target)) {
+      sumInfo = tryExtractSumType(ctx, target);
+    }
+
+    // Extract variant fields for sum types
+    const variants: DeriveVariantInfo[] = [];
+    if (sumInfo && ts.isTypeAliasDeclaration(target)) {
+      for (const variant of sumInfo.variants) {
+        const variantFields: DeriveFieldInfo[] = [];
+        // Find the variant type and extract its fields
+        if (ts.isUnionTypeNode(target.type)) {
+          for (const member of target.type.types) {
+            if (
+              ts.isTypeReferenceNode(member) &&
+              member.typeName.getText() === variant.typeName
+            ) {
+              const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
+              const props = ctx.typeChecker.getPropertiesOfType(variantType);
+              for (const prop of props) {
+                if (prop.name === sumInfo.discriminant) continue;
+                const decl = prop.getDeclarations()?.[0];
+                if (!decl) continue;
+                const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+                  prop,
+                  decl,
+                );
+                variantFields.push({
+                  name: prop.name,
+                  typeString: ctx.typeChecker.typeToString(propType),
+                  type: propType,
+                  optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
+                  readonly: false,
+                });
+              }
+              break;
+            }
+          }
+        }
+        variants.push({
+          tag: variant.tag,
+          typeName: variant.typeName,
+          fields: variantFields,
+        });
+      }
+    }
+
+    // Construct complete DeriveTypeInfo with sum type metadata
     const typeInfo: DeriveTypeInfo = {
       name: typeName,
       fields,
       typeParameters,
       type,
+      kind: sumInfo ? "sum" : "product",
+      ...(sumInfo && {
+        discriminant: sumInfo.discriminant,
+        variants,
+      }),
     };
 
     const allStatements: ts.Statement[] = [];
@@ -1633,18 +1679,13 @@ export const derivingAttribute = defineAttributeMacro({
         let code: string;
         const varName = instanceVarName(uncapitalize(tcName), typeName);
 
-        // Check for sum type
-        if (ts.isTypeAliasDeclaration(target)) {
-          const sumInfo = tryExtractSumType(ctx, target);
-          if (sumInfo) {
-            code = derivation.deriveSum(
-              typeName,
-              sumInfo.discriminant,
-              sumInfo.variants,
-            );
-          } else {
-            code = derivation.deriveProduct(typeName, fields);
-          }
+        // Use typeInfo.kind to determine derivation method
+        if (typeInfo.kind === "sum" && typeInfo.discriminant && sumInfo) {
+          code = derivation.deriveSum(
+            typeName,
+            typeInfo.discriminant,
+            sumInfo.variants,
+          );
         } else {
           code = derivation.deriveProduct(typeName, fields);
         }
@@ -2108,5 +2149,4 @@ export {
   registerExtensionMethods,
   instanceVarName,
   createTypeclassDeriveMacro,
-  tryExtractSumType,
 };

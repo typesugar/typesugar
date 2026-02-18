@@ -7,8 +7,8 @@
  *
  * Conditions are evaluated against a configuration object that can be set via:
  * - Transformer config in tsconfig.json: `{ "cfg": { "debug": true } }`
- * - Environment variables: `TYPEMACRO_CFG_DEBUG=1`
- * - `typemacro.config.ts` / `typemacro.config.json`
+ * - Environment variables: `TTFX_CFG_DEBUG=1`
+ * - `ttfx.config.ts` / `ttfx.config.json`
  *
  * Inspired by: Rust `#[cfg(...)]`, C `#ifdef`, Zig `@import("builtin")`
  *
@@ -66,16 +66,16 @@ export function getCfgConfig(): Record<string, unknown> {
 
 /**
  * Initialize cfg configuration from environment variables.
- * Environment variables prefixed with TYPEMACRO_CFG_ are included.
- * E.g., TYPEMACRO_CFG_DEBUG=1 → { debug: true }
+ * Environment variables prefixed with TTFX_CFG_ are included.
+ * E.g., TTFX_CFG_DEBUG=1 → { debug: true }
  */
 function initializeFromEnvironment(): void {
   cfgInitialized = true;
 
   for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith("TYPEMACRO_CFG_")) {
+    if (key.startsWith("TTFX_CFG_")) {
       const cfgKey = key
-        .slice("TYPEMACRO_CFG_".length)
+        .slice("TTFX_CFG_".length)
         .toLowerCase()
         .replace(/__/g, ".");
 
