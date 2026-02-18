@@ -78,4 +78,4 @@ jobs:
         run: pnpm run build
 
       - name: Publish (dry run)
-        run: pnpm -r publish --dry-run --no-git-checks
+        run: pnpm -r --filter '!@ttfx/vscode' publish --dry-run --no-git-checks
