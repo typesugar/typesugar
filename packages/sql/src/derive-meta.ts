@@ -67,7 +67,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, type MacroContext } from "../../../src/core/registry.js";
+import { defineAttributeMacro, type MacroContext } from "@ttfx/core";
 import type { Meta, Read, Write, SqlRow } from "./meta.js";
 
 // ============================================================================
@@ -164,10 +164,13 @@ function getFields(
     const meta = getMetaForType(typeChecker, propType);
 
     if (!meta) {
-      ctx.reportDiagnostic(
-        `Cannot derive Meta for field '${prop.name}': unsupported type '${typeChecker.typeToString(propType)}'`,
-        prop.declarations?.[0],
-      );
+      const decl = prop.declarations?.[0];
+      if (decl) {
+        ctx.reportError(
+          decl,
+          `Cannot derive Meta for field '${prop.name}': unsupported type '${typeChecker.typeToString(propType)}'`,
+        );
+      }
       return null;
     }
 
@@ -269,23 +272,26 @@ function generateWriteBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Exp
  */
 export const deriveMetaMacro = defineAttributeMacro({
   name: "derive",
-  target: "type",
+  validTargets: ["interface", "type"],
   expand(
     ctx: MacroContext,
-    node: ts.Node,
+    _decorator: ts.Decorator,
+    target: ts.Declaration,
     args: readonly ts.Expression[],
   ): ts.Node[] {
     // Check argument is "Meta"
     const arg = args[0];
     if (!arg || !ts.isIdentifier(arg) || arg.text !== "Meta") {
-      return [node];
+      return [target];
     }
+
+    const node = target;
 
     // Must be an interface or type alias
     if (!ts.isInterfaceDeclaration(node) && !ts.isTypeAliasDeclaration(node)) {
-      ctx.reportDiagnostic(
-        "@derive(Meta) can only be applied to interfaces and type aliases",
+      ctx.reportError(
         node,
+        "@derive(Meta) can only be applied to interfaces and type aliases",
       );
       return [node];
     }
@@ -297,7 +303,7 @@ export const deriveMetaMacro = defineAttributeMacro({
     // Get the type
     const symbol = typeChecker.getSymbolAtLocation(node.name);
     if (!symbol) {
-      ctx.reportDiagnostic(`Cannot resolve type '${typeName}'`, node);
+      ctx.reportError(node, `Cannot resolve type '${typeName}'`);
       return [node];
     }
 

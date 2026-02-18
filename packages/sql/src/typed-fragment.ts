@@ -60,23 +60,45 @@ export type Unit = void;
 /**
  * A SQL fragment with compile-time type information.
  *
+ * Uses composition to wrap Fragment rather than inheritance,
+ * providing a clean type-safe API without inheritance conflicts.
+ *
  * @typeParam P - Tuple of parameter types in order
  * @typeParam R - Result row type (void for non-SELECT fragments)
  */
-export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> extends Fragment {
+export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
   /** Type brand for parameter types */
   readonly __params!: P;
   /** Type brand for result type */
   readonly __result!: R;
 
+  /** The underlying untyped fragment */
+  readonly segments: readonly string[];
+  readonly params: readonly SqlParam[];
+
   /**
    * Create a new typed fragment.
    */
   constructor(
-    segments: string[],
-    params: SqlParam[],
+    segments: readonly string[],
+    params: readonly SqlParam[],
   ) {
-    super(segments, params);
+    this.segments = segments;
+    this.params = params;
+  }
+
+  /**
+   * Get the underlying Fragment (for interop with untyped APIs).
+   */
+  toFragment(): Fragment {
+    return new Fragment([...this.segments], [...this.params]);
+  }
+
+  /**
+   * Get the rendered query with positional placeholders.
+   */
+  get query(): { text: string; params: readonly SqlParam[] } {
+    return this.toFragment().query;
   }
 
   /**
@@ -85,8 +107,8 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> exten
   append<P2 extends readonly unknown[], R2>(
     other: TypedFragment<P2, R2>,
   ): TypedFragment<Concat<P, P2>, R extends Unit ? R2 : R> {
-    const result = super.append(other);
-    return new TypedFragment(result.segments, result.params) as TypedFragment<
+    const result = this.toFragment().append(other.toFragment());
+    return new TypedFragment([...result.segments], [...result.params]) as TypedFragment<
       Concat<P, P2>,
       R extends Unit ? R2 : R
     >;
@@ -98,8 +120,8 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> exten
   prepend<P2 extends readonly unknown[], R2>(
     other: TypedFragment<P2, R2>,
   ): TypedFragment<Concat<P2, P>, R2 extends Unit ? R : R2> {
-    const result = super.prepend(other);
-    return new TypedFragment(result.segments, result.params) as TypedFragment<
+    const result = this.toFragment().prepend(other.toFragment());
+    return new TypedFragment([...result.segments], [...result.params]) as TypedFragment<
       Concat<P2, P>,
       R2 extends Unit ? R : R2
     >;
@@ -109,22 +131,22 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> exten
    * Wrap in parentheses.
    */
   parens(): TypedFragment<P, R> {
-    const result = super.parens();
-    return new TypedFragment(result.segments, result.params);
+    const result = this.toFragment().parens();
+    return new TypedFragment([...result.segments], [...result.params]);
   }
 
   /**
    * Create a typed query from this fragment.
    */
-  query(): TypedQuery<P, R> {
+  toQuery(): TypedQuery<P, R> {
     return new TypedQuery(this);
   }
 
   /**
    * Create a typed update from this fragment.
    */
-  update(): TypedUpdate<P> {
-    return new TypedUpdate(this);
+  toUpdate(): TypedUpdate<P> {
+    return new TypedUpdate(this as TypedFragment<P, Unit>);
   }
 }
 
@@ -150,7 +172,7 @@ export class TypedQuery<P extends readonly unknown[], R> {
   /**
    * Get the SQL string and parameters.
    */
-  toSql(): { sql: string; params: SqlParam[] } {
+  toSql(): { sql: string; params: readonly SqlParam[] } {
     return {
       sql: this.fragment.segments.join("?"),
       params: this.fragment.params,
@@ -196,14 +218,14 @@ export class TypedQuery<P extends readonly unknown[], R> {
  * @typeParam P - Parameter types
  */
 export class TypedUpdate<P extends readonly unknown[]> {
-  constructor(readonly fragment: TypedFragment<P, Unit>) {}
+  constructor(readonly fragment: TypedFragment<P, unknown>) {}
 
   readonly __params!: P;
 
   /**
    * Get the SQL string and parameters.
    */
-  toSql(): { sql: string; params: SqlParam[] } {
+  toSql(): { sql: string; params: readonly SqlParam[] } {
     return {
       sql: this.fragment.segments.join("?"),
       params: this.fragment.params,
@@ -244,7 +266,7 @@ export function intercalateTyped<P extends readonly unknown[], R>(
   fragments: readonly TypedFragment<P, R>[],
 ): TypedFragment<P[], R> {
   if (fragments.length === 0) {
-    return emptyTyped as TypedFragment<P[], R>;
+    return emptyTyped as unknown as TypedFragment<P[], R>;
   }
 
   const allSegments: string[] = [];
@@ -338,7 +360,7 @@ export function inListTyped<T>(
   const placeholders = values.map(() => "?").join(", ");
   return new TypedFragment(
     [`${column} IN (${placeholders})`],
-    values.map((v) => ({ value: v as unknown })),
+    values as unknown as readonly SqlParam[],
   );
 }
 
@@ -365,7 +387,7 @@ export function valuesTyped<A>(
   const placeholders = params.map(() => "?").join(", ");
   return new TypedFragment(
     [`(${placeholders})`],
-    params.map((p) => ({ value: p })),
+    params as readonly SqlParam[],
   );
 }
 
@@ -377,7 +399,7 @@ export function valuesManyTyped<A>(
   values: readonly A[],
 ): TypedFragment<unknown[], Unit> {
   if (values.length === 0) {
-    return emptyTyped as TypedFragment<unknown[], Unit>;
+    return emptyTyped as unknown as TypedFragment<unknown[], Unit>;
   }
 
   const allParams: SqlParam[] = [];
@@ -387,7 +409,7 @@ export function valuesManyTyped<A>(
     const params = meta.write(value);
     const placeholders = params.map(() => "?").join(", ");
     rows.push(`(${placeholders})`);
-    allParams.push(...params.map((p) => ({ value: p })));
+    allParams.push(...(params as SqlParam[]));
   }
 
   return new TypedFragment([rows.join(", ")], allParams);
@@ -423,7 +445,7 @@ export function setTyped<A>(
     // Only include non-undefined values
     if (val !== undefined) {
       setClauses.push(`${col} = ?`);
-      params.push({ value: val });
+      params.push(val as SqlParam);
     }
   }
 
@@ -455,12 +477,12 @@ export function whereAndTyped<P extends readonly unknown[]>(
   );
 
   if (validConditions.length === 0) {
-    return emptyTyped as TypedFragment<P[], Unit>;
+    return emptyTyped as unknown as TypedFragment<P[], Unit>;
   }
 
   const combined = andTyped(...validConditions);
   return new TypedFragment(
     ["WHERE " + combined.segments[0], ...combined.segments.slice(1)],
-    combined.params,
+    [...combined.params],
   ) as TypedFragment<P[], Unit>;
 }

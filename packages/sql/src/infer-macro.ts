@@ -58,7 +58,7 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, type MacroContext } from "../../../src/core/registry.js";
+import { defineExpressionMacro, type MacroContext } from "@ttfx/core";
 
 // ============================================================================
 // SQL Statement Types
@@ -218,7 +218,7 @@ export const sql$Macro = defineExpressionMacro({
     // Must be called with a tagged template literal
     const template = args[0];
     if (!template) {
-      ctx.reportDiagnostic("sql$ requires a template literal argument", callExpr);
+      ctx.reportError(callExpr, "sql$ requires a template literal argument");
       return callExpr;
     }
 
@@ -236,9 +236,9 @@ export const sql$Macro = defineExpressionMacro({
       return expandTemplate(ctx, template, explicitResultType);
     }
 
-    ctx.reportDiagnostic(
-      "sql$ must be used with a template literal: sql$`...` or sql$(`...`)",
+    ctx.reportError(
       callExpr,
+      "sql$ must be used with a template literal: sql$`...` or sql$(`...`)",
     );
     return callExpr;
   },

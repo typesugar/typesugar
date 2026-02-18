@@ -291,8 +291,8 @@ export const Right = <E, A>(right: A): Either<E, A> => ({ _tag: "Right", right }
  * Implemented by various database drivers (pg, mysql2, better-sqlite3, etc.)
  */
 export interface DbConnection {
-  query(sql: string, params: unknown[]): Promise<SqlRow[]>;
-  execute(sql: string, params: unknown[]): Promise<number>;
+  query(sql: string, params: readonly unknown[]): Promise<SqlRow[]>;
+  execute(sql: string, params: readonly unknown[]): Promise<number>;
   begin(): Promise<void>;
   commit(): Promise<void>;
   rollback(): Promise<void>;

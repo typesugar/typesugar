@@ -169,8 +169,18 @@ export function makePut<A>(
  * Most types will use Meta for both reading and writing. Use separate
  * Get/Put instances when the read and write representations differ.
  */
-export interface Meta<A> extends Get<A>, Put<A> {
+export interface Meta<A> {
   readonly _tag: "Meta";
+  /** Read a value from a column, returning null if the value is null */
+  readonly get: (value: unknown) => A | null;
+  /** Read a value, throwing if null */
+  readonly unsafeGet: (value: unknown) => A;
+  /** The SQL types this Meta can read from */
+  readonly sqlTypes: readonly SqlTypeName[];
+  /** Convert a value to its SQL representation */
+  readonly put: (value: A) => unknown;
+  /** The SQL type this Meta writes to */
+  readonly sqlType: SqlTypeName;
 }
 
 /**
@@ -345,9 +355,9 @@ export const bufferMeta: Meta<Buffer> = makeMeta(
  * Wraps an existing Meta to handle SQL NULLs.
  */
 export function nullable<A>(meta: Meta<A>): Meta<A | null> {
-  return makeMeta(
+  return makeMeta<A | null>(
     (v) => (v === null ? null : meta.get(v)),
-    (v) => (v === null ? null : meta.put(v)),
+    (v) => (v === null ? null : meta.put(v as A)),
     meta.sqlType,
     meta.sqlTypes,
   );
@@ -381,9 +391,9 @@ export function arrayMeta<A>(elementMeta: Meta<A>): Meta<A[]> {
  * Maps undefined to SQL NULL.
  */
 export function optional<A>(meta: Meta<A>): Meta<A | undefined> {
-  return makeMeta(
+  return makeMeta<A | undefined>(
     (v) => (v === null || v === undefined ? undefined : meta.get(v) ?? undefined),
-    (v) => (v === undefined ? null : meta.put(v)),
+    (v) => (v === undefined ? null : meta.put(v as A)),
     meta.sqlType,
     meta.sqlTypes,
   );
