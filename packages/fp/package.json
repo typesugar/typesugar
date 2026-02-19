@@ -61,6 +61,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@ttfx/contracts": "workspace:*",
     "@ttfx/core": "workspace:*",
     "@ttfx/type-system": "workspace:*"
   },

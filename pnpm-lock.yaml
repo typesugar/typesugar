@@ -161,6 +161,9 @@ importers:
 
   packages/fp:
     dependencies:
+      '@ttfx/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@ttfx/core':
         specifier: workspace:*
         version: link:../core
