@@ -1,0 +1,45 @@
+{
+  "name": "@ttfx/eslint-plugin",
+  "version": "0.1.0",
+  "description": "ESLint plugin for ttfx macro system - lints transformed output",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "ttfx",
+    "typescript",
+    "macros"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "eslint": ">=8.0.0",
+    "typescript": ">=5.0.0"
+  },
+  "dependencies": {
+    "@ttfx/core": "workspace:*",
+    "@ttfx/transformer": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/eslint": "^8.56.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "scopeName": "source.ts.ttfx",
+  "injectionSelector": "L:source.ts, L:source.tsx",
+  "patterns": [
+    { "$comment": "Labeled block comprehensions: let: { ... }, yield: { ... }, pure: { ... }" },
+    {
+      "name": "meta.comprehension.let.ttfx",
+      "begin": "(?<=^|;|\\{|\\})\\s*\\b(let)\\s*(:)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.comprehension.let.ttfx" },
+        "2": { "name": "punctuation.separator.comprehension.ttfx" },
+        "3": { "name": "punctuation.section.block.begin.ttfx" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.block.end.ttfx" }
+      },
+      "patterns": [
+        { "include": "#comprehension-body" },
+        { "include": "source.ts" }
+      ]
+    },
+    {
+      "name": "meta.comprehension.yield.ttfx",
+      "begin": "(?<=\\})\\s*\\b(yield|pure)\\s*(:)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.comprehension.yield.ttfx" },
+        "2": { "name": "punctuation.separator.comprehension.ttfx" },
+        "3": { "name": "punctuation.section.block.begin.ttfx" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.block.end.ttfx" }
+      },
+      "patterns": [
+        { "include": "source.ts" }
+      ]
+    },
+    { "$comment": "Monadic bind operator: name << expr" },
+    {
+      "match": "\\b(\\w+)\\s*(<<)(?!=)",
+      "captures": {
+        "1": { "name": "variable.other.bind.ttfx" },
+        "2": { "name": "keyword.operator.bind.ttfx" }
+      }
+    },
+    { "$comment": "Discard bind: _ << expr" },
+    {
+      "match": "\\b(_)\\s*(<<)(?!=)",
+      "captures": {
+        "1": { "name": "variable.language.discard.ttfx" },
+        "2": { "name": "keyword.operator.bind.ttfx" }
+      }
+    },
+    { "$comment": "Compile-time macro calls — matched by name for base coloring" },
+    {
+      "match": "\\b(comptime)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.macro.comptime.ttfx" }
+      }
+    },
+    { "$comment": "Expression macros — common built-ins" },
+    {
+      "match": "\\b(ops|pipe|compose|summon|extend|typeInfo|fieldNames|validator|Do|forYield|asyncDo|specialize)\\s*(?=\\(|<)",
+      "captures": {
+        "1": { "name": "entity.name.function.macro.ttfx" }
+      }
+    },
+    { "$comment": "Decorator macros" },
+    {
+      "match": "(@)(derive|operators|reflect|typeclass|instance|deriving|inline)\\b",
+      "captures": {
+        "1": { "name": "punctuation.decorator.ttfx" },
+        "2": { "name": "entity.name.function.decorator.macro.ttfx" }
+      }
+    },
+    { "$comment": "Tagged template macros — the tag name before a backtick" },
+    {
+      "match": "\\b(sql|regex|html|fmt|json|raw|units)(?=\\s*`)",
+      "captures": {
+        "1": { "name": "entity.name.tag.macro.ttfx" }
+      }
+    }
+  ],
+  "repository": {
+    "comprehension-body": {
+      "patterns": [
+        {
+          "match": "\\b(\\w+)\\s*(<<)\\s*(.+?)\\s*(\\|\\||\\?\\?)\\s*",
+          "captures": {
+            "1": { "name": "variable.other.bind.ttfx" },
+            "2": { "name": "keyword.operator.bind.ttfx" },
+            "4": { "name": "keyword.operator.orelse.ttfx" }
+          }
+        },
+        {
+          "match": "\\b(_)\\s*(<<)(?!=)",
+          "captures": {
+            "1": { "name": "variable.language.discard.ttfx" },
+            "2": { "name": "keyword.operator.bind.ttfx" }
+          }
+        },
+        {
+          "match": "\\b(\\w+)\\s*(<<)(?!=)",
+          "captures": {
+            "1": { "name": "variable.other.bind.ttfx" },
+            "2": { "name": "keyword.operator.bind.ttfx" }
+          }
+        }
+      ]
+    }
+  }
+}

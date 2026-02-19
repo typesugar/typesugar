@@ -1,0 +1,53 @@
+{
+  "name": "@ttfx/kysely",
+  "version": "0.1.0",
+  "description": "Kysely adapter for ttfx - type-safe SQL tagged templates that compile to Kysely's RawBuilder",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "typescript",
+    "macros",
+    "kysely",
+    "sql",
+    "database",
+    "type-safe",
+    "query-builder"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ttfx/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0",
+    "kysely": ">=0.27.0"
+  },
+  "peerDependenciesMeta": {
+    "kysely": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "kysely": "^0.27.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

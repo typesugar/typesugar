@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "scopeName": "source.ts.ttfx.units",
+  "injectionSelector": "L:source.ts, L:source.tsx",
+  "patterns": [
+    {
+      "$comment": "units`<number> <unit>` — highlight the number and unit name inside units tagged templates",
+      "name": "meta.units.ttfx",
+      "begin": "\\b(units)\\s*(`)",
+      "beginCaptures": {
+        "1": { "name": "entity.name.tag.macro.ttfx" },
+        "2": { "name": "punctuation.definition.string.template.begin.ts" }
+      },
+      "end": "(`)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.template.end.ts" }
+      },
+      "patterns": [
+        {
+          "match": "(-?\\d+(?:\\.\\d+)?)\\s+(\\w+(?:/\\w+)?)",
+          "captures": {
+            "1": { "name": "constant.numeric.ttfx" },
+            "2": { "name": "support.type.unit.ttfx" }
+          }
+        },
+        {
+          "match": "(-?\\d+(?:\\.\\d+)?)",
+          "name": "constant.numeric.ttfx"
+        },
+        {
+          "match": "\\b(m|meter|meters|km|kilometer|kilometers|cm|centimeters|mm|millimeters|ft|feet|in|inch|inches|mi|miles|kg|kilograms|g|grams|mg|milligrams|lb|lbs|pounds|s|sec|seconds|min|minutes|h|hr|hours|ms|milliseconds|N|Pa|J|W|Hz|A|V|ohm|F|C|K|mol|cd|rad|sr|km/h|m/s|mph)\\b",
+          "name": "support.type.unit.ttfx"
+        }
+      ]
+    }
+  ]
+}

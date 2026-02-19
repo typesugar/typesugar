@@ -1,0 +1,189 @@
+{
+  "name": "@ttfx/vscode",
+  "displayName": "ttfx",
+  "description": "IDE support for ttfx — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
+  "version": "0.1.0",
+  "publisher": "ttfx",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/ttfx.manifest.json",
+    "workspaceContains:**/node_modules/ttfx"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "grammars": [
+      {
+        "scopeName": "source.ts.ttfx",
+        "path": "./syntaxes/ttfx.tmLanguage.json",
+        "injectTo": [
+          "source.ts",
+          "source.tsx"
+        ]
+      },
+      {
+        "scopeName": "source.ts.ttfx.units",
+        "path": "./syntaxes/ttfx-units.tmLanguage.json",
+        "injectTo": [
+          "source.ts",
+          "source.tsx"
+        ]
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "macro",
+        "superType": "function",
+        "description": "A compile-time macro invocation"
+      },
+      {
+        "id": "macroDecorator",
+        "superType": "decorator",
+        "description": "A compile-time macro decorator"
+      },
+      {
+        "id": "macroTemplate",
+        "superType": "function",
+        "description": "A tagged template macro tag"
+      },
+      {
+        "id": "extensionMethod",
+        "superType": "method",
+        "description": "An implicit typeclass extension method"
+      },
+      {
+        "id": "deriveArg",
+        "superType": "type",
+        "description": "A derive macro argument (e.g., Eq, Ord)"
+      },
+      {
+        "id": "bindVariable",
+        "superType": "variable",
+        "description": "A monadic bind variable in a comprehension"
+      },
+      {
+        "id": "comptimeBlock",
+        "superType": "function",
+        "description": "A compile-time evaluation block"
+      }
+    ],
+    "semanticTokenModifiers": [
+      {
+        "id": "macro",
+        "description": "Indicates a macro-related token"
+      },
+      {
+        "id": "comptime",
+        "description": "Indicates compile-time evaluation"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "typescript",
+        "scopes": {
+          "macro": ["entity.name.function.macro.ttfx"],
+          "macroDecorator": ["entity.name.function.decorator.macro.ttfx"],
+          "macroTemplate": ["entity.name.tag.macro.ttfx"],
+          "extensionMethod": ["entity.name.function.extension.ttfx"],
+          "deriveArg": ["entity.name.type.derive.ttfx"],
+          "bindVariable": ["variable.other.bind.ttfx"],
+          "comptimeBlock": ["entity.name.function.comptime.ttfx"]
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "editor.semanticTokenColorCustomizations": {
+        "rules": {
+          "macro": {
+            "foreground": "#C586C0",
+            "bold": true
+          },
+          "macroDecorator": {
+            "foreground": "#DCDCAA",
+            "bold": true
+          },
+          "macroTemplate": {
+            "foreground": "#CE9178",
+            "italic": true
+          },
+          "extensionMethod": {
+            "foreground": "#4EC9B0",
+            "italic": true
+          },
+          "deriveArg": {
+            "foreground": "#4FC1FF"
+          },
+          "bindVariable": {
+            "foreground": "#9CDCFE",
+            "bold": true
+          },
+          "comptimeBlock": {
+            "fontStyle": "italic"
+          }
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "ttfx.expandMacro",
+        "title": "ttfx: Expand Macro at Cursor"
+      },
+      {
+        "command": "ttfx.refreshManifest",
+        "title": "ttfx: Refresh Macro Manifest"
+      },
+      {
+        "command": "ttfx.generateManifest",
+        "title": "ttfx: Generate Macro Manifest"
+      }
+    ],
+    "configuration": {
+      "title": "ttfx",
+      "properties": {
+        "ttfx.enableCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show CodeLens with macro expansion previews"
+        },
+        "ttfx.enableInlayHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inlay hints for bind types and comptime results"
+        },
+        "ttfx.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run background macro expansion for diagnostics"
+        },
+        "ttfx.manifestPath": {
+          "type": "string",
+          "default": "ttfx.manifest.json",
+          "description": "Path to the macro manifest file (relative to workspace root)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@ttfx/core": "workspace:*"
+  }
+}
