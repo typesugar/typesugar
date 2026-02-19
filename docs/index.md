@@ -49,12 +49,12 @@ See the [Getting Started Guide](./getting-started.md) for detailed setup instruc
 
 ### Core
 
-| Package                                       | Description                  |
-| --------------------------------------------- | ---------------------------- |
-| [@ttfx/transformer](./packages/transformer)   | Core TypeScript transformer  |
-| [@ttfx/core](./packages/core)                 | Macro registration and types |
-| [@ttfx/ttfx](./packages/ttfx)                 | Umbrella package             |
-| [unplugin-ttfx](./packages/unplugin-ttfx)     | Bundler plugins              |
+| Package                                     | Description                  |
+| ------------------------------------------- | ---------------------------- |
+| [@ttfx/transformer](./packages/transformer) | Core TypeScript transformer  |
+| [@ttfx/core](./packages/core)               | Macro registration and types |
+| [@ttfx/ttfx](./packages/ttfx)               | Umbrella package             |
+| [unplugin-ttfx](./packages/unplugin-ttfx)   | Bundler plugins              |
 
 ### Macros
 
@@ -79,17 +79,18 @@ See the [Getting Started Guide](./getting-started.md) for detailed setup instruc
 
 ### Adapters
 
-| Package                                           | Description           |
-| ------------------------------------------------- | --------------------- |
-| [@ttfx/effect](./packages/effect) | Effect-TS integration |
-| [@ttfx/kysely](./packages/kysely) | Kysely integration    |
-| [@ttfx/react](./packages/react)                   | React macros          |
-| [@ttfx/testing](./packages/testing)               | Testing macros        |
+| Package                             | Description           |
+| ----------------------------------- | --------------------- |
+| [@ttfx/effect](./packages/effect)   | Effect-TS integration |
+| [@ttfx/kysely](./packages/kysely)   | Kysely integration    |
+| [@ttfx/react](./packages/react)     | React macros          |
+| [@ttfx/testing](./packages/testing) | Testing macros        |
 
 ## Documentation
 
 - [Getting Started](./getting-started.md)
 - [Macro Types](./macro-types.md)
+- [Macro Trigger Patterns](./macro-triggers.md) — all the ways macros can be invoked
 - [Writing Macros](./writing-macros.md)
 - [Architecture](./architecture.md)
 - [FAQ](./faq.md)
