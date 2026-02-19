@@ -17,12 +17,14 @@ import "./implicits.js"; // @implicits decorator with automatic propagation
 import "./coverage.js"; // Coverage checking - must load before primitives
 import "./primitives.js"; // Primitive typeclass instances for derivation
 import "./generic.js"; // Generic programming (Product/Sum) for structural derivation
+import "./auto-derive.js"; // Scala 3-style typeclass derivation via Mirror/Generic
 import "./static-assert.js";
 import "./cfg.js";
 import "./include.js";
 import "./module-graph.js";
 import "./tailrec.js";
 import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
+import "./verify-laws.js"; // Typeclass law verification
 
 // --- Contract macros ---
 import "@ttfx/contracts";
@@ -134,9 +136,12 @@ export {
   type Variant,
   type Generic,
   type Rep,
+  type GenericMeta,
   genericDerive,
   registerGeneric,
   getGeneric,
+  getGenericMeta,
+  registerGenericMeta,
   showProduct,
   showSum,
   eqProduct,
@@ -146,6 +151,18 @@ export {
   deriveShowViaGeneric,
   deriveEqViaGeneric,
 } from "./generic.js";
+
+// --- Scala 3-style typeclass derivation via Mirror/Generic ---
+export {
+  type GenericDerivation,
+  registerGenericDerivation,
+  getGenericDerivation,
+  hasGenericDerivation,
+  tryDeriveViaGeneric,
+  canDeriveViaGeneric,
+  clearDerivationCaches,
+  makePrimitiveChecker,
+} from "./auto-derive.js";
 
 // --- Primitive typeclass instances ---
 export {
@@ -260,6 +277,9 @@ export {
 
 // --- Tail-call optimization ---
 export { tailrecAttribute } from "./tailrec.js";
+
+// --- Typeclass law verification ---
+export { verifyLawsAttribute, getVerifyLawsConfig } from "./verify-laws.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
 // HKT enables typeclasses parameterized by type constructors (F[_]).

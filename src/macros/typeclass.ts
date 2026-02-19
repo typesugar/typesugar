@@ -892,7 +892,10 @@ export const typeclassAttribute = defineAttributeMacro({
  *     def derived[A](using Mirror.ProductOf[A]): Show[A] = ...
  *   }
  */
-function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo): string {
+function generateCompanionNamespace(
+  ctx: MacroContext,
+  tc: TypeclassInfo,
+): string {
   const { name } = tc;
   const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
 
@@ -2103,17 +2106,19 @@ export const derivingAttribute = defineAttributeMacro({
 // ============================================================================
 // summon<TC<A>>() - Expression Macro
 // ============================================================================
-// Scala 3-like implicit resolution at compile time.
+// Scala 3-style implicit resolution at compile time.
 //
-// const showPoint = summon<Show<Point>>();
-// // Resolves to: Show.summon<Point>("Point")
+// Resolution order:
+// 1. Explicit instance (@instance or @deriving) → inline reference
+// 2. Auto-derivation via TypeChecker → inspect A's fields, derive if possible
+// 3. Compile error — no silent runtime fallback
 // ============================================================================
 
 export const summonMacro = defineExpressionMacro({
   name: "summon",
   module: "typemacro",
   description:
-    "Resolve a typeclass instance at compile time (Scala 3-like summon)",
+    "Resolve a typeclass instance at compile time with Scala 3-style auto-derivation via Mirror",
 
   expand(
     ctx: MacroContext,
@@ -2165,9 +2170,44 @@ export const summonMacro = defineExpressionMacro({
       typeName = innerType.getText();
     }
 
-    // Generate: TC.summon<Type>("Type")
-    const code = `${tcName}.summon<${typeName}>("${typeName}")`;
-    return ctx.parseExpression(code);
+    // 1. Check for explicit instance in the compile-time registry
+    const explicitInstance = findInstance(tcName, typeName);
+    if (explicitInstance) {
+      return ctx.parseExpression(instanceVarName(tcName, typeName));
+    }
+
+    // 2. Try Scala 3-style derivation via Mirror (GenericMeta)
+    const { tryDeriveViaGeneric } =
+      require("./auto-derive.js") as typeof import("./auto-derive.js");
+    const derived = tryDeriveViaGeneric(ctx, tcName, typeName);
+    if (derived) {
+      return derived;
+    }
+
+    // 3. No instance found — compile error with actionable guidance
+    ctx.reportError(
+      callExpr,
+      `No instance of ${tcName}<${typeName}> found.\n` +
+        `\n` +
+        `summon resolves instances at compile time in order:\n` +
+        `\n` +
+        `  1. Explicit instance — register one with @instance:\n` +
+        `       @instance("${tcName}<${typeName}>")\n` +
+        `       const ${tcName.toLowerCase()}${typeName}: ${tcName}<${typeName}> = { ... };\n` +
+        `\n` +
+        `  2. Explicit derivation — use @deriving on the type definition:\n` +
+        `       @deriving(${tcName})\n` +
+        `       interface ${typeName} { ... }\n` +
+        `\n` +
+        `  3. Auto-derivation — summon inspects ${typeName} via the TypeChecker and\n` +
+        `     derives ${tcName}<${typeName}> automatically if a derivation strategy is\n` +
+        `     registered for ${tcName} (via registerGenericDerivation) and every field\n` +
+        `     of ${typeName} has the required element-level instance.\n` +
+        `\n` +
+        `Auto-derivation failed because either no derivation strategy is registered\n` +
+        `for ${tcName}, or ${typeName} has fields whose types lack the required instances.`,
+    );
+    return callExpr;
   },
 });
 

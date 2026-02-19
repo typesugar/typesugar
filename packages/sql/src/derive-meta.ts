@@ -96,7 +96,10 @@ function toSnakeCase(str: string): string {
 /**
  * Get the Meta instance name for a TypeScript type.
  */
-function getMetaForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
+function getMetaForType(
+  typeChecker: ts.TypeChecker,
+  type: ts.Type,
+): string | null {
   // Handle primitives
   if (type.flags & ts.TypeFlags.String) return "stringMeta";
   if (type.flags & ts.TypeFlags.Number) return "numberMeta";
@@ -117,7 +120,9 @@ function getMetaForType(typeChecker: ts.TypeChecker, type: ts.Type): string | nu
       const innerMeta = getMetaForType(typeChecker, nonNullTypes[0]);
       if (innerMeta) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
-        const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
+        const hasUndefined = type.types.some(
+          (t) => t.flags & ts.TypeFlags.Undefined,
+        );
         if (hasNull) return `nullable(${innerMeta})`;
         if (hasUndefined) return `optional(${innerMeta})`;
       }
@@ -187,9 +192,11 @@ function getFields(
     }
 
     // Check nullability
-    const isNullable = propType.isUnion() &&
+    const isNullable =
+      propType.isUnion() &&
       propType.types.some((t) => t.flags & ts.TypeFlags.Null);
-    const isOptional = propType.isUnion() &&
+    const isOptional =
+      propType.isUnion() &&
       propType.types.some((t) => t.flags & ts.TypeFlags.Undefined);
 
     fields.push({
@@ -211,7 +218,10 @@ function getFields(
 /**
  * Generate the read function body.
  */
-function generateReadBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Expression {
+function generateReadBody(
+  fields: FieldInfo[],
+  factory: ts.NodeFactory,
+): ts.Expression {
   const properties = fields.map((field) => {
     // row.columnName
     const rowAccess = factory.createPropertyAccessExpression(
@@ -223,7 +233,9 @@ function generateReadBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Expr
     const metaCall = factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier(field.typeMeta),
-        factory.createIdentifier(field.isNullable || field.isOptional ? "get" : "unsafeGet"),
+        factory.createIdentifier(
+          field.isNullable || field.isOptional ? "get" : "unsafeGet",
+        ),
       ),
       undefined,
       [rowAccess],
@@ -241,7 +253,10 @@ function generateReadBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Expr
 /**
  * Generate the write function body.
  */
-function generateWriteBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Expression {
+function generateWriteBody(
+  fields: FieldInfo[],
+  factory: ts.NodeFactory,
+): ts.Expression {
   const elements = fields.map((field) => {
     // value.fieldName
     const valueAccess = factory.createPropertyAccessExpression(
@@ -324,13 +339,15 @@ export const deriveMetaMacro = defineAttributeMacro({
     const readFunction = factory.createArrowFunction(
       undefined,
       undefined,
-      [factory.createParameterDeclaration(
-        undefined,
-        undefined,
-        factory.createIdentifier("row"),
-        undefined,
-        factory.createTypeReferenceNode("SqlRow"),
-      )],
+      [
+        factory.createParameterDeclaration(
+          undefined,
+          undefined,
+          factory.createIdentifier("row"),
+          undefined,
+          factory.createTypeReferenceNode("SqlRow"),
+        ),
+      ],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       readBody,
@@ -341,13 +358,15 @@ export const deriveMetaMacro = defineAttributeMacro({
     const writeFunction = factory.createArrowFunction(
       undefined,
       undefined,
-      [factory.createParameterDeclaration(
-        undefined,
-        undefined,
-        factory.createIdentifier("value"),
-        undefined,
-        factory.createTypeReferenceNode(typeName),
-      )],
+      [
+        factory.createParameterDeclaration(
+          undefined,
+          undefined,
+          factory.createIdentifier("value"),
+          undefined,
+          factory.createTypeReferenceNode(typeName),
+        ),
+      ],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       writeBody,
@@ -382,13 +401,15 @@ export const deriveMetaMacro = defineAttributeMacro({
                   factory.createArrowFunction(
                     undefined,
                     undefined,
-                    [factory.createParameterDeclaration(
-                      undefined,
-                      undefined,
-                      factory.createIdentifier("row"),
-                      undefined,
-                      factory.createTypeReferenceNode("SqlRow"),
-                    )],
+                    [
+                      factory.createParameterDeclaration(
+                        undefined,
+                        undefined,
+                        factory.createIdentifier("row"),
+                        undefined,
+                        factory.createTypeReferenceNode("SqlRow"),
+                      ),
+                    ],
                     undefined,
                     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                     factory.createNonNullExpression(

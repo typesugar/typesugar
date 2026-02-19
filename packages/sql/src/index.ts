@@ -60,22 +60,73 @@ export {
 export type { DbConnection as SimpleDbConnection } from "./types.js";
 
 // ============================================================================
-// Meta/Get/Put Typeclasses — Doobie-style type mapping
+// SQL Typeclasses — Doobie-style type mapping with auto-derivation
 // ============================================================================
 
+// Core typeclass interfaces
 export type {
   Get,
   Put,
   Meta,
   Read,
   Write,
+  Codec,
   SqlRow,
   SqlTypeName,
-  MetaType,
   GetType,
   PutType,
+  MetaType,
   ReadType,
   WriteType,
+  CodecType,
+  ColumnMapping,
+  DeriveColumn,
+} from "./typeclasses.js";
+
+// Typeclass companions with instances and combinators
+export {
+  Get,
+  Put,
+  Meta,
+  Read,
+  Write,
+  Codec,
+  toSnakeCase,
+  deriveRead,
+  deriveWrite,
+  deriveCodec,
+  // Instance registries for implicit resolution
+  getRegistry,
+  putRegistry,
+  metaRegistry,
+  readRegistry,
+  writeRegistry,
+  codecRegistry,
+} from "./typeclasses.js";
+
+// Shapeless-style auto-derivation strategies (registers with core infrastructure)
+export {
+  readDerivation,
+  writeDerivation,
+  codecDerivation,
+} from "./auto-derive-strategies.js";
+
+// Derive macros for @deriving(Read), @deriving(Write), @deriving(Codec)
+export {
+  deriveReadMacro,
+  deriveWriteMacro,
+  deriveCodecMacro,
+} from "./derive-typeclasses.js";
+
+// Legacy Meta exports (deprecated - use typeclasses.ts)
+export type {
+  Get as LegacyGet,
+  Put as LegacyPut,
+  Meta as LegacyMeta,
+  Read as LegacyRead,
+  Write as LegacyWrite,
+  SqlRow as LegacySqlRow,
+  SqlTypeName as LegacySqlTypeName,
 } from "./meta.js";
 
 export {
@@ -145,7 +196,12 @@ export {
 // ============================================================================
 
 export { sqlMacro, register } from "./macro.js";
-export { sql$Macro, schemaMacro, select, registerSchema } from "./infer-macro.js";
+export {
+  sql$Macro,
+  schemaMacro,
+  select,
+  registerSchema,
+} from "./infer-macro.js";
 export { deriveMetaMacro } from "./derive-meta.js";
 
 // ============================================================================

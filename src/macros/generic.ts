@@ -288,8 +288,12 @@ registerGeneric("boolean", genericBoolean);
 // ============================================================================
 
 /**
- * Metadata stored for each type with a Generic instance.
- * Used by derive macros to generate specialized code without runtime cost.
+ * Structural type mirror — analogous to Scala 3's Mirror.ProductOf / Mirror.SumOf.
+ *
+ * Stores the structural representation of a type for use by typeclass derivation.
+ * - `fieldNames` ≈ `MirroredElemLabels`
+ * - `fieldTypes` ≈ `MirroredElemTypes`
+ * - `kind` ≈ `Mirror.Product` vs `Mirror.Sum`
  */
 export interface GenericMeta {
   readonly kind: "product" | "sum" | "primitive";

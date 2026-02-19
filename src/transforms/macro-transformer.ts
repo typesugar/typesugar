@@ -29,6 +29,7 @@ import {
 } from "../core/capabilities.js";
 import { setCfgConfig } from "../macros/cfg.js";
 import { setContractConfig } from "@ttfx/contracts";
+import { clearDerivationCaches } from "../macros/auto-derive.js";
 
 // Import built-in macros to register them
 import "../macros/index.js";
@@ -123,6 +124,9 @@ export default function macroTransformerFactory(
       proverPlugins: [],
     });
   }
+
+  // Clear per-compilation caches (stale mirrors/derivations from watch-mode rebuilds)
+  clearDerivationCaches();
 
   // Create a shared hygiene context for the entire compilation
   const hygiene = new HygieneContext();
