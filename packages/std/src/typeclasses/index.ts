@@ -14,6 +14,9 @@
  * - Zero-cost specialization via inlining
  */
 
+// Re-export FlatMap typeclass (HKT-based, for let:/yield: macro)
+export * from "./flatmap.js";
+
 // ============================================================================
 // Bounded — Haskell Bounded, Rust: implicit via type, Scala: not built-in
 // Types with a minimum and maximum value.
@@ -156,7 +159,7 @@ export const integralNumber: Integral<number> = {
 export const integralBigInt: Integral<bigint> = {
   div: (a, b) => {
     const d = a / b;
-    return (a < 0n) !== (b < 0n) && a % b !== 0n ? d - 1n : d;
+    return a < 0n !== b < 0n && a % b !== 0n ? d - 1n : d;
   },
   mod: (a, b) => ((a % b) + b) % b,
   divMod: (a, b) => {

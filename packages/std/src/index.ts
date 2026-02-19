@@ -57,3 +57,6 @@ export * from "./extensions";
 
 // Data types
 export * from "./data";
+
+// Macros (let:/yield:)
+export * from "./macros";
