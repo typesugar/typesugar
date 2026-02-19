@@ -1,0 +1,54 @@
+{
+  "name": "@ttfx/effect",
+  "version": "0.1.0",
+  "description": "Effect-TS adapter for ttfx - do-notation and comprehension syntax",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "typescript",
+    "macros",
+    "effect",
+    "effect-ts",
+    "do-notation",
+    "comprehension",
+    "monads"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ttfx/core": "workspace:*",
+    "@ttfx/std": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0",
+    "effect": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "effect": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "effect": "^3.14.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
