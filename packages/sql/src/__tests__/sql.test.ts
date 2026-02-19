@@ -7,13 +7,13 @@ import {
   Fragment,
   Query,
   Update,
-  ConnectionIO,
-  Transactor,
+  SimpleConnectionIO as ConnectionIO,
+  SimpleTransactor as Transactor,
   sql,
   __sql_build,
   type SqlParam,
-  type DbConnection,
-} from "../src/use-cases/sql/index.js";
+  type SimpleDbConnection as DbConnection,
+} from "../index.js";
 
 // ============================================================================
 // Fragment — core building block

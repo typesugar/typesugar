@@ -22,7 +22,7 @@ import {
   type Force,
   type Energy,
   type Mass,
-} from "../src/use-cases/units/index.js";
+} from "../index.js";
 
 describe("Unit class", () => {
   describe("basic operations", () => {

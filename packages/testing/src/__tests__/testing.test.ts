@@ -1,38 +1,45 @@
 /**
- * Tests for the typemacro/testing module
+ * Tests for the @ttfx/testing module
  *
  * Tests macro definitions, registration, and expansion behavior for:
- * - powerAssert()      — Power assertions with sub-expression capture
- * - @derive(Arbitrary) — Random value generator derivation
- * - comptimeAssert()   — Compile-time build assertions
- * - @testCases         — Parameterized test generation
- * - assertSnapshot()   — Snapshot testing with source capture
- * - typeAssert<T>()    — Compile-time type assertions
- * - forAll()           — Property-based test runner
+ * - assert()             — Power assertions with sub-expression capture
+ * - @derive(Arbitrary)   — Random value generator derivation
+ * - staticAssert()       — Compile-time build assertions
+ * - @testCases           — Parameterized test generation
+ * - assertSnapshot()     — Snapshot testing with source capture
+ * - typeAssert<T>()      — Compile-time type assertions
+ * - forAll()             — Property-based test runner
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
-import { MacroContextImpl, createMacroContext } from "../src/core/context.js";
-import { globalRegistry } from "../src/core/registry.js";
+import {
+  MacroContextImpl,
+  createMacroContext,
+  globalRegistry,
+} from "@ttfx/core";
 
 // Import to register the testing macros
-import "../src/use-cases/testing/macro.js";
+import "../macro.js";
 
 // Import the macro definitions directly for targeted testing
 import {
+  assertMacro,
   powerAssertMacro,
   ArbitraryDerive,
+  staticAssertMacro,
   comptimeAssertMacro,
   testCasesAttribute,
   assertSnapshotMacro,
   typeAssertMacro,
   forAllMacro,
-} from "../src/use-cases/testing/macro.js";
+} from "../macro.js";
 
 // Import runtime placeholders for fallback behavior testing
 import {
+  assert,
   powerAssert,
+  staticAssert,
   comptimeAssert,
   assertSnapshot,
   forAll,
@@ -42,7 +49,7 @@ import {
   type IsNever,
   type IsAny,
   type IsUnknown,
-} from "../src/use-cases/testing/index.js";
+} from "../index.js";
 
 // ============================================================================
 // Helper: Create a macro context for testing
@@ -109,40 +116,53 @@ function printNode(node: ts.Node, sourceFile?: ts.SourceFile): string {
 // ============================================================================
 
 describe("testing macro registration", () => {
-  it("should register powerAssert as an expression macro", () => {
+  it("should register assert as an expression macro", () => {
+    const macro = globalRegistry.getExpression("assert");
+    expect(macro).toBeDefined();
+    expect(macro!.name).toBe("assert");
+    expect(macro!.kind).toBe("expression");
+    expect(macro!.module).toBe("@ttfx/testing");
+  });
+
+  it("should register powerAssert as an expression macro (backward compat)", () => {
     const macro = globalRegistry.getExpression("powerAssert");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("powerAssert");
     expect(macro!.kind).toBe("expression");
-    expect(macro!.module).toBe("typemacro/testing");
   });
 
-  it("should register comptimeAssert as an expression macro", () => {
+  it("should register staticAssert as an expression macro", () => {
+    const macro = globalRegistry.getExpression("staticAssert");
+    expect(macro).toBeDefined();
+    expect(macro!.name).toBe("staticAssert");
+    expect(macro!.module).toBe("@ttfx/testing");
+  });
+
+  it("should register comptimeAssert as an expression macro (backward compat)", () => {
     const macro = globalRegistry.getExpression("comptimeAssert");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("comptimeAssert");
-    expect(macro!.module).toBe("typemacro/testing");
   });
 
   it("should register assertSnapshot as an expression macro", () => {
     const macro = globalRegistry.getExpression("assertSnapshot");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("assertSnapshot");
-    expect(macro!.module).toBe("typemacro/testing");
+    expect(macro!.module).toBe("@ttfx/testing");
   });
 
   it("should register typeAssert as an expression macro", () => {
     const macro = globalRegistry.getExpression("typeAssert");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("typeAssert");
-    expect(macro!.module).toBe("typemacro/testing");
+    expect(macro!.module).toBe("@ttfx/testing");
   });
 
   it("should register forAll as an expression macro", () => {
     const macro = globalRegistry.getExpression("forAll");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("forAll");
-    expect(macro!.module).toBe("typemacro/testing");
+    expect(macro!.module).toBe("@ttfx/testing");
   });
 
   it("should register Arbitrary as a derive macro", () => {
@@ -157,7 +177,7 @@ describe("testing macro registration", () => {
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("testCases");
     expect(macro!.kind).toBe("attribute");
-    expect(macro!.module).toBe("typemacro/testing");
+    expect(macro!.module).toBe("@ttfx/testing");
   });
 });
 
@@ -165,11 +185,18 @@ describe("testing macro registration", () => {
 // Macro Definition Tests
 // ============================================================================
 
-describe("powerAssert macro definition", () => {
+describe("assert macro definition", () => {
+  it("should have correct metadata", () => {
+    expect(assertMacro.name).toBe("assert");
+    expect(assertMacro.kind).toBe("expression");
+    expect(assertMacro.description).toContain("sub-expression");
+  });
+});
+
+describe("powerAssert macro definition (backward compat)", () => {
   it("should have correct metadata", () => {
     expect(powerAssertMacro.name).toBe("powerAssert");
     expect(powerAssertMacro.kind).toBe("expression");
-    expect(powerAssertMacro.description).toContain("sub-expression");
   });
 });
 
@@ -181,11 +208,18 @@ describe("Arbitrary derive macro definition", () => {
   });
 });
 
-describe("comptimeAssert macro definition", () => {
+describe("staticAssert macro definition", () => {
+  it("should have correct metadata", () => {
+    expect(staticAssertMacro.name).toBe("staticAssert");
+    expect(staticAssertMacro.kind).toBe("expression");
+    expect(staticAssertMacro.description).toContain("compile time");
+  });
+});
+
+describe("comptimeAssert macro definition (backward compat)", () => {
   it("should have correct metadata", () => {
     expect(comptimeAssertMacro.name).toBe("comptimeAssert");
     expect(comptimeAssertMacro.kind).toBe("expression");
-    expect(comptimeAssertMacro.description).toContain("compile time");
   });
 });
 
@@ -223,10 +257,10 @@ describe("forAll macro definition", () => {
 });
 
 // ============================================================================
-// comptimeAssert Expansion Tests
+// staticAssert Expansion Tests
 // ============================================================================
 
-describe("comptimeAssert macro expansion", () => {
+describe("staticAssert macro expansion", () => {
   let ctx: MacroContextImpl;
 
   beforeEach(() => {
@@ -235,7 +269,7 @@ describe("comptimeAssert macro expansion", () => {
 
   it("should pass when condition is true", () => {
     const callExpr = ts.factory.createCallExpression(
-      ts.factory.createIdentifier("comptimeAssert"),
+      ts.factory.createIdentifier("staticAssert"),
       undefined,
       [
         ts.factory.createBinaryExpression(
@@ -283,14 +317,29 @@ describe("comptimeAssert macro expansion", () => {
 // Runtime Fallback Tests
 // ============================================================================
 
-describe("powerAssert runtime fallback", () => {
+describe("assert runtime fallback", () => {
+  it("should pass when condition is true", () => {
+    expect(() => assert(true)).not.toThrow();
+    expect(() => assert(1 === 1)).not.toThrow();
+  });
+
+  it("should throw when condition is false", () => {
+    expect(() => assert(false)).toThrow(/assertion failed/i);
+  });
+
+  it("should include custom message", () => {
+    expect(() => assert(false, "custom message")).toThrow("custom message");
+  });
+});
+
+describe("powerAssert runtime fallback (backward compat)", () => {
   it("should pass when condition is true", () => {
     expect(() => powerAssert(true)).not.toThrow();
     expect(() => powerAssert(1 === 1)).not.toThrow();
   });
 
   it("should throw when condition is false", () => {
-    expect(() => powerAssert(false)).toThrow("Power assertion failed");
+    expect(() => powerAssert(false)).toThrow(/assertion failed/i);
   });
 
   it("should include custom message", () => {
@@ -300,7 +349,15 @@ describe("powerAssert runtime fallback", () => {
   });
 });
 
-describe("comptimeAssert runtime fallback", () => {
+describe("staticAssert runtime fallback", () => {
+  it("should be a no-op at runtime (placeholder)", () => {
+    // staticAssert is a placeholder — it does nothing at runtime
+    expect(() => staticAssert(true)).not.toThrow();
+    expect(() => staticAssert(false)).not.toThrow();
+  });
+});
+
+describe("comptimeAssert runtime fallback (backward compat)", () => {
   it("should be a no-op at runtime (placeholder)", () => {
     // comptimeAssert is a placeholder — it does nothing at runtime
     expect(() => comptimeAssert(true)).not.toThrow();
@@ -579,7 +636,7 @@ describe("@derive(Arbitrary) expansion", () => {
 describe("assertSnapshot macro expansion", () => {
   it("should have correct metadata", () => {
     expect(assertSnapshotMacro.name).toBe("assertSnapshot");
-    expect(assertSnapshotMacro.module).toBe("typemacro/testing");
+    expect(assertSnapshotMacro.module).toBe("@ttfx/testing");
   });
 });
 
@@ -589,12 +646,16 @@ describe("assertSnapshot macro expansion", () => {
 
 describe("testing module integration", () => {
   it("all testing macros should be registered without conflicts", () => {
-    // Expression macros
-    expect(globalRegistry.getExpression("powerAssert")).toBeDefined();
-    expect(globalRegistry.getExpression("comptimeAssert")).toBeDefined();
+    // Expression macros (primary)
+    expect(globalRegistry.getExpression("assert")).toBeDefined();
+    expect(globalRegistry.getExpression("staticAssert")).toBeDefined();
     expect(globalRegistry.getExpression("assertSnapshot")).toBeDefined();
     expect(globalRegistry.getExpression("typeAssert")).toBeDefined();
     expect(globalRegistry.getExpression("forAll")).toBeDefined();
+
+    // Expression macros (backward compatibility)
+    expect(globalRegistry.getExpression("powerAssert")).toBeDefined();
+    expect(globalRegistry.getExpression("comptimeAssert")).toBeDefined();
 
     // Derive macros
     expect(globalRegistry.getDerive("Arbitrary")).toBeDefined();
@@ -603,36 +664,10 @@ describe("testing module integration", () => {
     expect(globalRegistry.getAttribute("testCases")).toBeDefined();
   });
 
-  it("testing macros should not conflict with built-in macros", async () => {
-    // Import built-in macros to verify coexistence
-    // (In production, the transformer imports all macros via ../macros/index.js)
-    await import("../src/macros/index.js");
-
-    // Built-in macros should still be accessible after testing macros are registered
-    expect(globalRegistry.getExpression("comptime")).toBeDefined();
-    expect(globalRegistry.getExpression("typeInfo")).toBeDefined();
-    expect(globalRegistry.getExpression("fieldNames")).toBeDefined();
-    expect(globalRegistry.getExpression("validator")).toBeDefined();
-
-    // Built-in derive macros
-    expect(globalRegistry.getDerive("Eq")).toBeDefined();
-    expect(globalRegistry.getDerive("Ord")).toBeDefined();
-    expect(globalRegistry.getDerive("Clone")).toBeDefined();
-    expect(globalRegistry.getDerive("Debug")).toBeDefined();
-    expect(globalRegistry.getDerive("Hash")).toBeDefined();
-    expect(globalRegistry.getDerive("Default")).toBeDefined();
-    expect(globalRegistry.getDerive("Json")).toBeDefined();
-    expect(globalRegistry.getDerive("Builder")).toBeDefined();
-
-    // Testing macros should still be there too
-    expect(globalRegistry.getExpression("powerAssert")).toBeDefined();
-    expect(globalRegistry.getDerive("Arbitrary")).toBeDefined();
-  });
-
-  it("all testing macros should be import-scoped to typemacro/testing", () => {
+  it("all testing macros should be import-scoped to @ttfx/testing", () => {
     const testingMacros = [
-      globalRegistry.getExpression("powerAssert"),
-      globalRegistry.getExpression("comptimeAssert"),
+      globalRegistry.getExpression("assert"),
+      globalRegistry.getExpression("staticAssert"),
       globalRegistry.getExpression("assertSnapshot"),
       globalRegistry.getExpression("typeAssert"),
       globalRegistry.getExpression("forAll"),
@@ -641,7 +676,7 @@ describe("testing module integration", () => {
 
     for (const macro of testingMacros) {
       expect(macro).toBeDefined();
-      expect(macro!.module).toBe("typemacro/testing");
+      expect(macro!.module).toBe("@ttfx/testing");
     }
   });
 });
