@@ -171,3 +171,42 @@ export {
   extractOldCaptures,
   generateOldCaptureStatements,
 } from "./macros/old.js";
+
+// --- Laws Verification System ---
+// Re-export law types and verification utilities
+export {
+  // Core types
+  type Law,
+  type LawSet,
+  type LawGenerator,
+  type ProofHint,
+  type Arbitrary,
+  // Verification types
+  type VerificationMode,
+  type UndecidableAction,
+  type VerifyOptions,
+  type LawVerificationResult,
+  type VerificationSummary,
+  // Builder utilities
+  defineLaw,
+  combineLaws,
+  filterLaws,
+  filterByHint,
+  // Configuration
+  type LawsConfig,
+  setLawsConfig,
+  getLawsConfig,
+  resetLawsConfig,
+  // Verification functions
+  verifyLaw,
+  verifyLaws,
+  verifyLawsAsync,
+  // Utilities
+  proofHintToFacts,
+  generatePropertyTest,
+  formatVerificationSummary,
+  // Macro
+  lawsAttribute,
+  laws,
+  type LawsDecoratorOptions,
+} from "./laws/index.js";

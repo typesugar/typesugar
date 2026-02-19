@@ -49,7 +49,13 @@ interface CacheEntry {
 // =============================================================================
 
 /** Current cache format version — bump to invalidate all caches */
-const CACHE_VERSION = "1";
+const CACHE_VERSION = "2";
+
+/**
+ * Separator used to join multiple node code strings in a single cache entry.
+ * Chosen to be unlikely to appear in generated TypeScript code.
+ */
+const MULTI_NODE_SEPARATOR = "\n/* __TTFX_CACHE_SEP__ */\n";
 
 /**
  * On-disk cache for macro expansion results.
@@ -213,6 +219,45 @@ export class MacroExpansionCache {
       `(${hitRate}% hit rate), ${this.stats.evictions} evictions, ` +
       `${this.entries.size} entries`
     );
+  }
+
+  /**
+   * Store multiple code strings (e.g., from attribute/derive macros that
+   * return `Node[]`) as a single cache entry.
+   */
+  setMulti(key: string, codeStrings: string[]): void {
+    this.set(key, codeStrings.join(MULTI_NODE_SEPARATOR));
+  }
+
+  /**
+   * Retrieve a multi-node cache entry, splitting it back into individual
+   * code strings. Returns undefined on cache miss.
+   */
+  getMulti(key: string): string[] | undefined {
+    const raw = this.get(key);
+    if (raw === undefined) return undefined;
+    return raw.split(MULTI_NODE_SEPARATOR);
+  }
+
+  /**
+   * Compute a structural cache key for auto-derivation.
+   *
+   * Unlike call-site caching (which hashes the source text of the call),
+   * derivation depends on the type's structure. This hashes the typeclass
+   * name together with a JSON representation of the type metadata so that
+   * any field change invalidates the entry.
+   */
+  computeStructuralKey(
+    typeclassName: string,
+    structuralJson: string,
+  ): string {
+    const input = `derive\0${typeclassName}\0${structuralJson}`;
+    return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
+  }
+
+  /** Number of entries currently held in memory */
+  get size(): number {
+    return this.entries.size;
   }
 }
 

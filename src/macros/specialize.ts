@@ -48,6 +48,7 @@ import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext } from "../core/types.js";
 import { MacroContextImpl } from "../core/context.js";
+import { HygieneContext } from "../core/hygiene.js";
 
 // ============================================================================
 // Specialization Registry
@@ -116,12 +117,18 @@ export function registerInstanceMethodsFromAST(
  * Used by @instance and @deriving to register instances for specialization.
  *
  * @param objLiteral - The object literal containing method implementations
+ * @param hygiene - Optional hygiene context for generating safe placeholder names
  * @returns A map of method names to their DictMethod info
  */
 export function extractMethodsFromObjectLiteral(
   objLiteral: ts.ObjectLiteralExpression,
+  hygiene?: HygieneContext,
 ): Map<string, DictMethod> {
   const methods = new Map<string, DictMethod>();
+
+  const makeParamPlaceholder = (index: number): string => {
+    return hygiene ? hygiene.mangleName(`param_${index}`) : `__param${index}`;
+  };
 
   for (const prop of objLiteral.properties) {
     // Handle property assignments: { methodName: (a, b) => ... }
@@ -136,12 +143,12 @@ export function extractMethodsFromObjectLiteral(
         ts.isArrowFunction(initializer) ||
         ts.isFunctionExpression(initializer)
       ) {
-        const params = initializer.parameters.map((p) => {
+        const params = initializer.parameters.map((p, i) => {
           if (ts.isIdentifier(p.name)) {
             return p.name.text;
           }
           // Handle destructuring patterns by using a placeholder
-          return `__param${initializer.parameters.indexOf(p)}`;
+          return makeParamPlaceholder(i);
         });
 
         methods.set(methodName, {
@@ -158,11 +165,11 @@ export function extractMethodsFromObjectLiteral(
       // Skip non-method properties
       if (methodName === "URI") continue;
 
-      const params = prop.parameters.map((p) => {
+      const params = prop.parameters.map((p, i) => {
         if (ts.isIdentifier(p.name)) {
           return p.name.text;
         }
-        return `__param${prop.parameters.indexOf(p)}`;
+        return makeParamPlaceholder(i);
       });
 
       // Convert method declaration to arrow function expression for storage
@@ -1326,10 +1333,11 @@ function createPartialApplicationMulti(
   dictExprs: readonly ts.Expression[],
   _callExpr: ts.CallExpression,
 ): ts.Expression {
+  const argsIdent = ctx.generateUniqueName("args");
   const argsParam = ctx.factory.createParameterDeclaration(
     undefined,
     ctx.factory.createToken(ts.SyntaxKind.DotDotDotToken),
-    ctx.factory.createIdentifier("__args"),
+    argsIdent,
     undefined,
     undefined,
     undefined,
@@ -1343,7 +1351,9 @@ function createPartialApplicationMulti(
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     ctx.factory.createCallExpression(fnExpr, undefined, [
       ...dictExprs,
-      ctx.factory.createSpreadElement(ctx.factory.createIdentifier("__args")),
+      ctx.factory.createSpreadElement(
+        ctx.factory.createIdentifier(argsIdent.text),
+      ),
     ]),
   );
 }
@@ -1478,10 +1488,11 @@ function createPartialApplication(
   dictExpr: ts.Expression,
   _callExpr: ts.CallExpression,
 ): ts.Expression {
+  const argsIdent = ctx.generateUniqueName("args");
   const argsParam = ctx.factory.createParameterDeclaration(
     undefined,
     ctx.factory.createToken(ts.SyntaxKind.DotDotDotToken),
-    ctx.factory.createIdentifier("__args"),
+    argsIdent,
     undefined,
     undefined,
     undefined,
@@ -1495,7 +1506,9 @@ function createPartialApplication(
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     ctx.factory.createCallExpression(fnExpr, undefined, [
       dictExpr,
-      ctx.factory.createSpreadElement(ctx.factory.createIdentifier("__args")),
+      ctx.factory.createSpreadElement(
+        ctx.factory.createIdentifier(argsIdent.text),
+      ),
     ]),
   );
 }

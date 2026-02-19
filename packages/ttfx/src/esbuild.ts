@@ -4,4 +4,4 @@
 export {
   default,
   type TypeMacroPluginOptions,
-} from "@ttfx/integrations/esbuild";
+} from "unplugin-ttfx/esbuild";

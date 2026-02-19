@@ -376,8 +376,8 @@ export function comptime<T>(expr: T): T;
 export function comptime<T>(expr: T | (() => T)): T {
   throw new Error(
     "comptime() was called at runtime. " +
-    "This indicates the ttfx transformer is not configured correctly. " +
-    "Please ensure your build tool is configured to use the ttfx transformer.",
+      "This indicates the ttfx transformer is not configured correctly. " +
+      "Please ensure your build tool is configured to use the ttfx transformer.",
   );
 }
 

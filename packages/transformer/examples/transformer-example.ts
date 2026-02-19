@@ -25,7 +25,7 @@
 
 /*
 import { defineConfig } from "vite";
-import { ttfxPlugin } from "@ttfx/integrations/vite";
+import { ttfxPlugin } from "unplugin-ttfx/vite";
 
 export default defineConfig({
   plugins: [
@@ -41,7 +41,7 @@ export default defineConfig({
 
 /*
 import { build } from "esbuild";
-import { ttfxPlugin } from "@ttfx/integrations/esbuild";
+import { ttfxPlugin } from "unplugin-ttfx/esbuild";
 
 build({
   entryPoints: ["src/index.ts"],
@@ -58,7 +58,7 @@ build({
 // --- Webpack Configuration (webpack.config.js) ---
 
 /*
-const { ttfxPlugin } = require("@ttfx/integrations/webpack");
+const { ttfxPlugin } = require("unplugin-ttfx/webpack");
 
 module.exports = {
   module: {

@@ -128,7 +128,9 @@ export const reflectAttribute = defineAttributeMacro({
     const typeInfo = extractTypeInfo(ctx, target);
 
     if (typeInfo) {
-      // Generate metadata as an exported const alongside the original declaration
+      // Generate metadata as an exported const alongside the original declaration.
+      // INTENTIONALLY UNHYGIENIC: The meta variable name is part of the public reflect API.
+      // Users may reference this name directly (e.g., `__User_meta__`).
       const metaName = `__${typeInfo.name}_meta__`;
       const metaDecl = generateTypeInfoDeclaration(ctx, metaName, typeInfo);
 

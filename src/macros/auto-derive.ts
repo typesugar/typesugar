@@ -228,8 +228,10 @@ export function clearDerivationCaches(): void {
  * 2. Check all MirroredElemTypes have the required given instances
  * 3. Invoke the `derived` strategy to generate the instance code
  *
- * Results are cached: the same `TC<T>` derivation is computed at most once
- * per compilation. Subsequent calls return the cached code string.
+ * Results are cached at two levels:
+ * - L1: in-memory `derivationCache` (fast, per-compilation)
+ * - L2: disk-backed `ctx.expansionCache` (cross-compilation, keyed by
+ *   structural fingerprint of the type so field changes invalidate)
  *
  * @param ctx - The macro context
  * @param typeclassName - The typeclass to derive (e.g., "Show", "Read")
@@ -244,11 +246,11 @@ export function tryDeriveViaGeneric(
   const strategy = genericDerivations.get(typeclassName);
   if (!strategy) return null;
 
-  // Fast path: return cached derivation
-  const cacheKey = `${typeclassName}<${typeName}>`;
-  const cached = derivationCache.get(cacheKey);
-  if (cached !== undefined) {
-    return ctx.parseExpression(cached);
+  // L1 fast path: return in-memory cached derivation
+  const memKey = `${typeclassName}<${typeName}>`;
+  const memCached = derivationCache.get(memKey);
+  if (memCached !== undefined) {
+    return ctx.parseExpression(memCached);
   }
 
   // Obtain Mirror: check pre-cached registry, then mirror cache, then synthesize
@@ -276,21 +278,62 @@ export function tryDeriveViaGeneric(
     }
   }
 
-  // Generate the derivation code
-  let code: string | null = null;
+  // L2: check disk cache using structural key (field names + types)
+  const diskCache = ctx.expansionCache;
+  if (diskCache) {
+    const structuralJson = JSON.stringify({
+      kind: meta.kind,
+      fieldNames: meta.fieldNames,
+      fieldTypes: meta.fieldTypes,
+      discriminant: meta.discriminant,
+      variants: meta.variants?.map((v) => ({
+        tag: v.tag,
+        typeName: v.typeName,
+      })),
+    });
+    const diskKey = diskCache.computeStructuralKey(typeclassName, structuralJson);
+    const diskCached = diskCache.get(diskKey);
+    if (diskCached !== undefined) {
+      // Populate L1 cache so subsequent calls in this compilation are fast
+      derivationCache.set(memKey, diskCached);
+      return ctx.parseExpression(diskCached);
+    }
 
-  if (meta.kind === "product") {
-    code = strategy.deriveProduct(ctx, typeName, meta);
-  } else if (meta.kind === "sum" && strategy.deriveSum) {
-    code = strategy.deriveSum(ctx, typeName, meta);
+    // Generate the derivation code
+    const code = generateDerivationCode(strategy, ctx, typeName, meta);
+    if (!code) return null;
+
+    // Store in both L1 and L2
+    derivationCache.set(memKey, code);
+    diskCache.set(diskKey, code);
+
+    return ctx.parseExpression(code);
   }
 
+  // No disk cache available — generate and store in L1 only
+  const code = generateDerivationCode(strategy, ctx, typeName, meta);
   if (!code) return null;
 
-  // Cache the result for subsequent summon calls
-  derivationCache.set(cacheKey, code);
-
+  derivationCache.set(memKey, code);
   return ctx.parseExpression(code);
+}
+
+/**
+ * Generate derivation code using the strategy, dispatching on product/sum kind.
+ */
+function generateDerivationCode(
+  strategy: GenericDerivation,
+  ctx: MacroContext,
+  typeName: string,
+  meta: GenericMeta,
+): string | null {
+  if (meta.kind === "product") {
+    return strategy.deriveProduct(ctx, typeName, meta);
+  }
+  if (meta.kind === "sum" && strategy.deriveSum) {
+    return strategy.deriveSum(ctx, typeName, meta);
+  }
+  return null;
 }
 
 /**

@@ -332,6 +332,7 @@ function isNode(value: unknown): value is ts.Node {
  * Parse a type annotation string into a ts.TypeNode.
  */
 function parseTypeNode(code: string): ts.TypeNode {
+  // SAFE: __T__ is only used for parsing, never emitted into generated code.
   const wrapper = `type __T__ = ${code};`;
   const tempSource = ts.createSourceFile(
     "__quote_type_temp__.ts",

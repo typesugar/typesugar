@@ -50,7 +50,13 @@
  * @module
  */
 
-import { TypedQuery, TypedUpdate, TypedFragment, Empty, Unit } from "./typed-fragment.js";
+import {
+  TypedQuery,
+  TypedUpdate,
+  TypedFragment,
+  Empty,
+  Unit,
+} from "./typed-fragment.js";
 import { Read, Write, SqlRow } from "./meta.js";
 
 // ============================================================================
@@ -63,14 +69,30 @@ import { Read, Write, SqlRow } from "./meta.js";
  */
 export type ConnectionOp<A> =
   | { readonly _tag: "Pure"; readonly value: A }
-  | { readonly _tag: "Query"; readonly query: TypedQuery<unknown[], A>; readonly read: Read<A> }
-  | { readonly _tag: "QueryMany"; readonly query: TypedQuery<unknown[], A>; readonly read: Read<A> }
+  | {
+      readonly _tag: "Query";
+      readonly query: TypedQuery<unknown[], A>;
+      readonly read: Read<A>;
+    }
+  | {
+      readonly _tag: "QueryMany";
+      readonly query: TypedQuery<unknown[], A>;
+      readonly read: Read<A>;
+    }
   | { readonly _tag: "Execute"; readonly update: TypedUpdate<unknown[]> }
-  | { readonly _tag: "ExecuteWithKeys"; readonly update: TypedUpdate<unknown[]>; readonly columns: string[] }
+  | {
+      readonly _tag: "ExecuteWithKeys";
+      readonly update: TypedUpdate<unknown[]>;
+      readonly columns: string[];
+    }
   | { readonly _tag: "Raw"; readonly sql: string; readonly params: unknown[] }
   | { readonly _tag: "Delay"; readonly thunk: () => A }
   | { readonly _tag: "Attempt"; readonly cio: ConnectionIO<A> }
-  | { readonly _tag: "HandleError"; readonly cio: ConnectionIO<A>; readonly handler: (e: Error) => ConnectionIO<A> }
+  | {
+      readonly _tag: "HandleError";
+      readonly cio: ConnectionIO<A>;
+      readonly handler: (e: Error) => ConnectionIO<A>;
+    }
   | { readonly _tag: "Transact"; readonly cio: ConnectionIO<A> };
 
 // ============================================================================
@@ -169,7 +191,9 @@ export class ConnectionIO<A> {
    * Attempt this operation, catching errors as Left.
    */
   attempt(): ConnectionIO<Either<Error, A>> {
-    return new ConnectionIO({ _tag: "Attempt", cio: this }) as ConnectionIO<Either<Error, A>>;
+    return new ConnectionIO({ _tag: "Attempt", cio: this }) as ConnectionIO<
+      Either<Error, A>
+    >;
   }
 
   /**
@@ -231,22 +255,37 @@ export class ConnectionIO<A> {
   /**
    * Execute a query returning a single result.
    */
-  static query<A>(query: TypedQuery<unknown[], A>, read: Read<A>): ConnectionIO<A | null> {
-    return new ConnectionIO({ _tag: "Query", query, read }) as ConnectionIO<A | null>;
+  static query<A>(
+    query: TypedQuery<unknown[], A>,
+    read: Read<A>,
+  ): ConnectionIO<A | null> {
+    return new ConnectionIO({
+      _tag: "Query",
+      query,
+      read,
+    }) as ConnectionIO<A | null>;
   }
 
   /**
    * Execute a query returning multiple results.
    */
-  static queryMany<A>(query: TypedQuery<unknown[], A>, read: Read<A>): ConnectionIO<A[]> {
-    return new ConnectionIO({ _tag: "QueryMany", query, read }) as ConnectionIO<A[]>;
+  static queryMany<A>(
+    query: TypedQuery<unknown[], A>,
+    read: Read<A>,
+  ): ConnectionIO<A[]> {
+    return new ConnectionIO({ _tag: "QueryMany", query, read }) as ConnectionIO<
+      A[]
+    >;
   }
 
   /**
    * Execute an update statement.
    */
   static execute(update: TypedUpdate<unknown[]>): ConnectionIO<number> {
-    return new ConnectionIO({ _tag: "Execute", update }) as ConnectionIO<number>;
+    return new ConnectionIO({
+      _tag: "Execute",
+      update,
+    }) as ConnectionIO<number>;
   }
 
   /**
@@ -267,7 +306,9 @@ export class ConnectionIO<A> {
    * Execute raw SQL.
    */
   static raw(sql: string, params: unknown[] = []): ConnectionIO<SqlRow[]> {
-    return new ConnectionIO({ _tag: "Raw", sql, params }) as ConnectionIO<SqlRow[]>;
+    return new ConnectionIO({ _tag: "Raw", sql, params }) as ConnectionIO<
+      SqlRow[]
+    >;
   }
 }
 
@@ -280,7 +321,10 @@ export type Either<E, A> =
   | { readonly _tag: "Right"; readonly right: A };
 
 export const Left = <E, A>(left: E): Either<E, A> => ({ _tag: "Left", left });
-export const Right = <E, A>(right: A): Either<E, A> => ({ _tag: "Right", right });
+export const Right = <E, A>(right: A): Either<E, A> => ({
+  _tag: "Right",
+  right,
+});
 
 // ============================================================================
 // Transactor — Interprets ConnectionIO
@@ -360,7 +404,10 @@ export class Transactor {
   /**
    * Interpret a ConnectionIO operation.
    */
-  private async interpret<A>(cio: ConnectionIO<A>, conn: DbConnection): Promise<A> {
+  private async interpret<A>(
+    cio: ConnectionIO<A>,
+    conn: DbConnection,
+  ): Promise<A> {
     const op = cio.op;
 
     switch (op._tag) {
@@ -380,7 +427,9 @@ export class Transactor {
       case "QueryMany": {
         const { sql, params } = op.query.toSql();
         const rows = await conn.query(sql, params);
-        return rows.map((row) => op.read.read(row)).filter((r) => r !== null) as A;
+        return rows
+          .map((row) => op.read.read(row))
+          .filter((r) => r !== null) as A;
       }
 
       case "Execute": {
@@ -409,7 +458,9 @@ export class Transactor {
           const result = await this.interpret(op.cio, conn);
           return Right(result) as A;
         } catch (error) {
-          return Left(error instanceof Error ? error : new Error(String(error))) as A;
+          return Left(
+            error instanceof Error ? error : new Error(String(error)),
+          ) as A;
         }
       }
 
@@ -467,7 +518,9 @@ export class Transactor {
 /**
  * Sequence multiple ConnectionIO operations, collecting results.
  */
-export function sequence<A>(cios: readonly ConnectionIO<A>[]): ConnectionIO<A[]> {
+export function sequence<A>(
+  cios: readonly ConnectionIO<A>[],
+): ConnectionIO<A[]> {
   return cios.reduce(
     (acc, cio) => acc.flatMap((results) => cio.map((a) => [...results, a])),
     ConnectionIO.pure<A[]>([]),
@@ -499,7 +552,9 @@ export function parZip<A, B>(
 /**
  * Run multiple ConnectionIO operations in parallel.
  */
-export function parSequence<A>(cios: readonly ConnectionIO<A>[]): ConnectionIO<A[]> {
+export function parSequence<A>(
+  cios: readonly ConnectionIO<A>[],
+): ConnectionIO<A[]> {
   return sequence(cios);
 }
 

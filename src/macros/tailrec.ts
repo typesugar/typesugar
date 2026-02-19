@@ -313,7 +313,7 @@ function transformTailRecursion(
   for (const param of params) {
     if (ts.isIdentifier(param.name)) {
       const original = param.name.text;
-      const mutable = `_tr_${original}`;
+      const mutable = ctx.hygiene.mangleName(`tr_${original}`);
       paramMap.set(original, mutable);
       paramNames.push(original);
     }
@@ -465,7 +465,7 @@ function transformTailRecursion(
 
     // First, evaluate all arguments into temporaries (to handle interdependencies)
     for (let i = 0; i < paramNames.length && i < args.length; i++) {
-      const tempName = `_tr_next_${paramNames[i]}`;
+      const tempName = ctx.hygiene.mangleName(`tr_next_${paramNames[i]}`);
       tempNames.push(tempName);
       stmts.push(
         factory.createVariableStatement(

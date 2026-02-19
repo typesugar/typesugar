@@ -114,7 +114,7 @@ export * from "./macros/index.js";
 // ============================================================================
 
 // Note: These are imported separately to avoid circular dependencies
-// Users should import from "typemacro/units", "typemacro/effect-do", etc.
+// Users should import from "typemacro/units", etc.
 
 // ============================================================================
 // Runtime Types (for use in source code)

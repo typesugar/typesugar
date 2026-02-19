@@ -18,9 +18,6 @@ importers:
       '@ttfx/contracts-refined':
         specifier: workspace:*
         version: link:packages/contracts-refined
-      '@ttfx/integrations':
-        specifier: workspace:*
-        version: link:packages/integrations
       '@ttfx/testing':
         specifier: workspace:*
         version: link:packages/testing
@@ -45,6 +42,9 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      unplugin-ttfx:
+        specifier: workspace:*
+        version: link:packages/unplugin-ttfx
       vitest:
         specifier: ^3.2.2
         version: 3.2.4(@types/node@22.19.11)
@@ -59,44 +59,6 @@ importers:
         version: link:../../packages/ttfx
       typescript:
         specifier: ^5.8.3
-        version: 5.9.3
-
-  packages/adapter-effect:
-    dependencies:
-      '@ttfx/core':
-        specifier: workspace:*
-        version: link:../core
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      effect:
-        specifier: ^3.14.0
-        version: 3.19.17
-
-  packages/adapter-kysely:
-    dependencies:
-      '@ttfx/core':
-        specifier: workspace:*
-        version: link:../core
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      kysely:
-        specifier: ^0.27.0
-        version: 0.27.6
-
-  packages/cats:
-    dependencies:
-      '@ttfx/core':
-        specifier: workspace:*
-        version: link:../core
-      '@ttfx/type-system':
-        specifier: workspace:*
-        version: link:../type-system
-      typescript:
-        specifier: '>=5.0.0'
         version: 5.9.3
 
   packages/comptime:
@@ -159,16 +121,23 @@ importers:
         specifier: '>=5.0.0'
         version: 5.9.3
 
-  packages/effect-do:
+  packages/effect:
     dependencies:
       '@ttfx/core':
         specifier: workspace:*
         version: link:../core
+      '@ttfx/std':
+        specifier: workspace:*
+        version: link:../std
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
+    devDependencies:
+      effect:
+        specifier: ^3.14.0
+        version: 3.19.17
 
-  packages/eslint-plugin-ttfx:
+  packages/eslint-plugin:
     dependencies:
       '@ttfx/core':
         specifier: workspace:*
@@ -190,17 +159,30 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  packages/integrations:
+  packages/fp:
     dependencies:
-      '@ttfx/transformer':
+      '@ttfx/core':
         specifier: workspace:*
-        version: link:../transformer
+        version: link:../core
+      '@ttfx/type-system':
+        specifier: workspace:*
+        version: link:../type-system
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
-      unplugin:
-        specifier: ^2.0.0
-        version: 2.3.11
+
+  packages/kysely:
+    dependencies:
+      '@ttfx/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+    devDependencies:
+      kysely:
+        specifier: ^0.27.0
+        version: 0.27.6
 
   packages/operators:
     dependencies:
@@ -259,6 +241,12 @@ importers:
       '@ttfx/core':
         specifier: workspace:*
         version: link:../core
+      '@ttfx/type-system':
+        specifier: workspace:*
+        version: link:../type-system
+      '@ttfx/typeclass':
+        specifier: workspace:*
+        version: link:../typeclass
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
@@ -304,9 +292,6 @@ importers:
       '@ttfx/derive':
         specifier: workspace:*
         version: link:../derive
-      '@ttfx/integrations':
-        specifier: workspace:*
-        version: link:../integrations
       '@ttfx/operators':
         specifier: workspace:*
         version: link:../operators
@@ -325,6 +310,9 @@ importers:
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
+      unplugin-ttfx:
+        specifier: workspace:*
+        version: link:../unplugin-ttfx
 
   packages/type-system:
     dependencies:
@@ -353,7 +341,19 @@ importers:
         specifier: '>=5.0.0'
         version: 5.9.3
 
-  packages/vscode-ttfx:
+  packages/unplugin-ttfx:
+    dependencies:
+      '@ttfx/transformer':
+        specifier: workspace:*
+        version: link:../transformer
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+      unplugin:
+        specifier: ^2.0.0
+        version: 2.3.11
+
+  packages/vscode:
     dependencies:
       '@ttfx/core':
         specifier: workspace:*

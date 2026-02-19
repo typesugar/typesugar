@@ -328,10 +328,9 @@ class MacroTransformer {
 
     // Development mode: detect from source tree structure
     if (normalized.includes("/packages/units/")) return "@ttfx/units";
-    if (normalized.includes("/packages/effect-do/")) return "@ttfx/effect-do";
     if (normalized.includes("/packages/sql/")) return "@ttfx/sql";
     if (normalized.includes("/packages/strings/")) return "@ttfx/strings";
-    if (normalized.includes("/packages/cats/")) return "@ttfx/cats";
+    if (normalized.includes("/packages/fp/")) return "@ttfx/fp";
     if (normalized.includes("/packages/comptime/")) return "@ttfx/comptime";
     if (normalized.includes("/packages/reflect/")) return "@ttfx/reflect";
     if (normalized.includes("/packages/derive/")) return "@ttfx/derive";
@@ -343,8 +342,6 @@ class MacroTransformer {
 
     // Legacy source tree paths (for backwards compatibility during migration)
     if (normalized.includes("/src/use-cases/units/")) return "@ttfx/units";
-    if (normalized.includes("/src/use-cases/effect-do/"))
-      return "@ttfx/effect-do";
     if (normalized.includes("/src/use-cases/sql/")) return "@ttfx/sql";
     if (normalized.includes("/src/use-cases/strings/")) return "@ttfx/strings";
     if (

@@ -64,7 +64,13 @@ import { defineExpressionMacro, type MacroContext } from "@ttfx/core";
 // SQL Statement Types
 // ============================================================================
 
-type SqlStatementType = "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "WITH" | "UNKNOWN";
+type SqlStatementType =
+  | "SELECT"
+  | "INSERT"
+  | "UPDATE"
+  | "DELETE"
+  | "WITH"
+  | "UNKNOWN";
 
 interface ParsedSql {
   type: SqlStatementType;
@@ -84,7 +90,7 @@ interface ParsedSql {
  */
 function parseSql(sql: string): ParsedSql {
   const normalized = sql.trim().toUpperCase();
-  
+
   let type: SqlStatementType = "UNKNOWN";
   if (normalized.startsWith("SELECT")) type = "SELECT";
   else if (normalized.startsWith("INSERT")) type = "INSERT";
@@ -96,10 +102,10 @@ function parseSql(sql: string): ParsedSql {
   const tables: string[] = [];
   const fromMatch = sql.match(/\bFROM\s+(\w+)/i);
   if (fromMatch) tables.push(fromMatch[1].toLowerCase());
-  
+
   const intoMatch = sql.match(/\bINTO\s+(\w+)/i);
   if (intoMatch) tables.push(intoMatch[1].toLowerCase());
-  
+
   const updateMatch = sql.match(/\bUPDATE\s+(\w+)/i);
   if (updateMatch) tables.push(updateMatch[1].toLowerCase());
 
@@ -210,7 +216,7 @@ export const sql$Macro = defineExpressionMacro({
     // Get type arguments if provided: sql$<User>`...`
     const typeArgs = callExpr.typeArguments;
     let explicitResultType: ts.TypeNode | undefined;
-    
+
     if (typeArgs && typeArgs.length > 0) {
       explicitResultType = typeArgs[0];
     }
@@ -224,15 +230,14 @@ export const sql$Macro = defineExpressionMacro({
 
     // Handle tagged template: sql$`...`
     if (ts.isTaggedTemplateExpression(callExpr.parent)) {
-      return expandTaggedTemplate(
-        ctx,
-        callExpr.parent,
-        explicitResultType,
-      );
+      return expandTaggedTemplate(ctx, callExpr.parent, explicitResultType);
     }
 
     // Handle call with template: sql$(`...`)
-    if (ts.isTemplateExpression(template) || ts.isNoSubstitutionTemplateLiteral(template)) {
+    if (
+      ts.isTemplateExpression(template) ||
+      ts.isNoSubstitutionTemplateLiteral(template)
+    ) {
       return expandTemplate(ctx, template, explicitResultType);
     }
 
@@ -260,7 +265,13 @@ function expandTaggedTemplate(
     const sqlText = template.text;
     const parsed = parseSql(sqlText);
 
-    return createTypedFragmentCall(ctx, [sqlText], [], parsed, explicitResultType);
+    return createTypedFragmentCall(
+      ctx,
+      [sqlText],
+      [],
+      parsed,
+      explicitResultType,
+    );
   }
 
   if (ts.isTemplateExpression(template)) {
@@ -284,7 +295,13 @@ function expandTemplate(
   if (ts.isNoSubstitutionTemplateLiteral(template)) {
     const sqlText = template.text;
     const parsed = parseSql(sqlText);
-    return createTypedFragmentCall(ctx, [sqlText], [], parsed, explicitResultType);
+    return createTypedFragmentCall(
+      ctx,
+      [sqlText],
+      [],
+      parsed,
+      explicitResultType,
+    );
   }
 
   // Extract segments and expressions
@@ -295,7 +312,7 @@ function expandTemplate(
   for (const span of template.templateSpans) {
     segments.push(span.literal.text);
     expressions.push(span.expression);
-    
+
     // Get the type of each interpolated expression
     const type = typeChecker.getTypeAtLocation(span.expression);
     paramTypes.push(type);
@@ -337,11 +354,10 @@ function createTypedFragmentCall(
   let paramTypeTuple: ts.TypeNode;
   if (paramTypes && paramTypes.length > 0) {
     paramTypeTuple = factory.createTupleTypeNode(
-      paramTypes.map((t) => typeChecker.typeToTypeNode(
-        t,
-        undefined,
-        ts.NodeBuilderFlags.None,
-      )!),
+      paramTypes.map(
+        (t) =>
+          typeChecker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.None)!,
+      ),
     );
   } else {
     paramTypeTuple = factory.createTupleTypeNode([]);
@@ -400,9 +416,9 @@ function tryInferResultType(
 
   // Return Pick<TableType, columns>
   const columnUnion = factory.createUnionTypeNode(
-    parsed.columns.map((col) => factory.createLiteralTypeNode(
-      factory.createStringLiteral(col),
-    )),
+    parsed.columns.map((col) =>
+      factory.createLiteralTypeNode(factory.createStringLiteral(col)),
+    ),
   );
 
   return factory.createTypeReferenceNode("Pick", [
@@ -480,7 +496,10 @@ class SelectBuilder<R> {
     return this;
   }
 
-  andWhere(fragment: { segments: string[]; params: { value: unknown }[] }): this {
+  andWhere(fragment: {
+    segments: string[];
+    params: { value: unknown }[];
+  }): this {
     return this.where(fragment);
   }
 
@@ -511,23 +530,23 @@ class SelectBuilder<R> {
 
   build(): { sql: string; params: unknown[] } {
     let sql = `SELECT ${this._columns.join(", ")} FROM ${this._from}`;
-    
+
     if (this._joins.length > 0) {
       sql += " " + this._joins.join(" ");
     }
-    
+
     if (this._where.length > 0) {
       sql += " WHERE " + this._where.join(" AND ");
     }
-    
+
     if (this._orderBy.length > 0) {
       sql += " ORDER BY " + this._orderBy.join(", ");
     }
-    
+
     if (this._limit !== null) {
       sql += ` LIMIT ${this._limit}`;
     }
-    
+
     if (this._offset !== null) {
       sql += ` OFFSET ${this._offset}`;
     }

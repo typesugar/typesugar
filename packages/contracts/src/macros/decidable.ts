@@ -158,6 +158,8 @@ export const decidableAttribute = defineAttributeMacro({
     });
 
     // Generate runtime registration call (for when the module loads)
+    // INTENTIONALLY UNHYGIENIC: __ttfx_contracts is expected to be a runtime namespace
+    // containing contract utilities. Users must import or set this up appropriately.
     const registrationCall = ctx.factory.createExpressionStatement(
       ctx.factory.createCallExpression(
         ctx.factory.createPropertyAccessExpression(

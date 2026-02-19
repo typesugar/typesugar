@@ -5,6 +5,7 @@
 import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene } from "./hygiene.js";
+import type { MacroExpansionCache } from "./cache.js";
 
 // Pre-allocated sentinel values for common comptime results.
 // Avoids allocating a new object on every boolean/null/undefined evaluation.
@@ -36,6 +37,9 @@ export class MacroContextImpl implements MacroContext {
   /** Hygiene context for scoped identifier generation */
   public readonly hygiene: HygieneContext;
 
+  /** Optional disk-backed expansion cache for cross-compilation caching */
+  public readonly expansionCache?: MacroExpansionCache;
+
   constructor(
     public readonly program: ts.Program,
     public readonly typeChecker: ts.TypeChecker,
@@ -43,8 +47,10 @@ export class MacroContextImpl implements MacroContext {
     public readonly factory: ts.NodeFactory,
     public readonly transformContext: ts.TransformationContext,
     hygiene?: HygieneContext,
+    expansionCache?: MacroExpansionCache,
   ) {
     this.hygiene = hygiene ?? globalHygiene;
+    this.expansionCache = expansionCache;
   }
 
   /** Lazily-created shared printer instance */
@@ -686,6 +692,7 @@ export function createMacroContext(
   sourceFile: ts.SourceFile,
   transformContext: ts.TransformationContext,
   hygiene?: HygieneContext,
+  expansionCache?: MacroExpansionCache,
 ): MacroContextImpl {
   return new MacroContextImpl(
     program,
@@ -694,6 +701,7 @@ export function createMacroContext(
     transformContext.factory,
     transformContext,
     hygiene,
+    expansionCache,
   );
 }
 

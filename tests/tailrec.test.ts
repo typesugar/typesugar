@@ -479,9 +479,9 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    // Should have let declarations for mutable copies
-    expect(output).toContain("let _tr_n = n");
-    expect(output).toContain("let _tr_acc = acc");
+    // Should have let declarations for mutable copies (hygienic names)
+    expect(output).toMatch(/let __typemacro_tr_n_\d+__ = n/);
+    expect(output).toMatch(/let __typemacro_tr_acc_\d+__ = acc/);
   });
 
   it("should use temporaries for argument evaluation", () => {
@@ -493,9 +493,9 @@ describe("tailrec transformation", () => {
     `);
 
     // Should use temporaries to avoid order-of-evaluation issues
-    // when parameters reference each other (swap pattern)
-    expect(output).toContain("_tr_next_a");
-    expect(output).toContain("_tr_next_b");
+    // when parameters reference each other (swap pattern) - hygienic names
+    expect(output).toMatch(/__typemacro_tr_next_a_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_next_b_\d+__/);
   });
 
   it("should replace parameter references in the body", () => {
@@ -506,10 +506,10 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    // The body should reference _tr_n and _tr_acc, not bare n and acc
-    expect(output).toContain("_tr_n");
-    expect(output).toContain("_tr_acc");
-    expect(output).toContain("return _tr_acc");
+    // The body should reference hygienic variable names
+    expect(output).toMatch(/__typemacro_tr_n_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_acc_\d+__/);
+    expect(output).toMatch(/return __typemacro_tr_acc_\d+__/);
   });
 
   it("should end trampoline block with continue", () => {
@@ -600,7 +600,7 @@ describe("tailrec edge cases", () => {
 
     expect(diagnostics).toHaveLength(0);
     expect(output).toContain("while (true)");
-    expect(output).toContain("_tr_n");
+    expect(output).toMatch(/__typemacro_tr_n_\d+__/);
   });
 
   it("should handle many parameters", () => {
@@ -612,10 +612,10 @@ describe("tailrec edge cases", () => {
     `);
 
     expect(diagnostics).toHaveLength(0);
-    expect(output).toContain("_tr_a");
-    expect(output).toContain("_tr_b");
-    expect(output).toContain("_tr_c");
-    expect(output).toContain("_tr_d");
+    expect(output).toMatch(/__typemacro_tr_a_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_b_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_c_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_d_\d+__/);
   });
 
   it("should handle multiple return points with tail calls", () => {
@@ -645,9 +645,9 @@ describe("tailrec edge cases", () => {
     `);
 
     expect(diagnostics).toHaveLength(0);
-    // Must use temporaries for correct swap semantics
-    expect(output).toContain("_tr_next_a");
-    expect(output).toContain("_tr_next_b");
+    // Must use temporaries for correct swap semantics (hygienic names)
+    expect(output).toMatch(/__typemacro_tr_next_a_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_next_b_\d+__/);
   });
 
   it("should accept recursive call in RHS of logical && (tail position)", () => {
@@ -737,17 +737,20 @@ describe("tailrec functional correctness", () => {
       }
     `);
 
-    // The output should:
-    // 1. Initialize _tr_n = n, _tr_acc = acc
-    // 2. Check _tr_n <= ..., return _tr_acc if so
-    // 3. Compute new values with _tr_next_n and _tr_next_acc
+    // The output should use hygienic variable names:
+    // 1. Initialize mutable vars = original params
+    // 2. Check condition, return if so
+    // 3. Compute new values with _tr_next_* temporaries
     // 4. Assign and continue
-    expect(output).toContain("let _tr_n = n");
-    expect(output).toContain("let _tr_acc = acc");
-    expect(output).toContain("return _tr_acc");
-    expect(output).toContain("_tr_next_n");
-    expect(output).toContain("_tr_next_acc");
-    expect(output).toContain("_tr_n * _tr_acc");
+    // Names are now hygienic: __typemacro_tr_<name>_<counter>__
+    expect(output).toMatch(/let __typemacro_tr_n_\d+__ = n/);
+    expect(output).toMatch(/let __typemacro_tr_acc_\d+__ = acc/);
+    expect(output).toMatch(/return __typemacro_tr_acc_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_next_n_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_next_acc_\d+__/);
+    expect(output).toMatch(
+      /__typemacro_tr_n_\d+__ \* __typemacro_tr_acc_\d+__/,
+    );
     expect(output).toContain("continue");
   });
 
@@ -759,12 +762,13 @@ describe("tailrec functional correctness", () => {
       }
     `);
 
-    expect(output).toContain("let _tr_a = a");
-    expect(output).toContain("let _tr_b = b");
-    expect(output).toContain("return _tr_a");
+    // Names are now hygienic: __typemacro_tr_<name>_<counter>__
+    expect(output).toMatch(/let __typemacro_tr_a_\d+__ = a/);
+    expect(output).toMatch(/let __typemacro_tr_b_\d+__ = b/);
+    expect(output).toMatch(/return __typemacro_tr_a_\d+__/);
     // New values for the recursive step
-    expect(output).toContain("_tr_next_a");
-    expect(output).toContain("_tr_next_b");
-    expect(output).toContain("_tr_a % _tr_b"); // new b = old a % old b
+    expect(output).toMatch(/__typemacro_tr_next_a_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_next_b_\d+__/);
+    expect(output).toMatch(/__typemacro_tr_a_\d+__ % __typemacro_tr_b_\d+__/); // new b = old a % old b
   });
 });

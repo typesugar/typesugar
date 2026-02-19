@@ -30,6 +30,7 @@ import {
 import { setCfgConfig } from "../macros/cfg.js";
 import { setContractConfig } from "@ttfx/contracts";
 import { clearDerivationCaches } from "../macros/auto-derive.js";
+import { MacroExpansionCache } from "../core/cache.js";
 
 // Import built-in macros to register them
 import "../macros/index.js";
@@ -80,6 +81,13 @@ export interface MacroTransformerConfig {
 
   /** Enable expansion tracking for source maps and diagnostics */
   trackExpansions?: boolean;
+
+  /**
+   * Directory for the disk-backed macro expansion cache.
+   * Set to `false` to disable caching entirely.
+   * Defaults to `.typemacro-cache`.
+   */
+  cacheDir?: string | false;
 
   /**
    * Contract checking configuration.
@@ -134,6 +142,13 @@ export default function macroTransformerFactory(
   // Use the global expansion tracker (or a fresh one per compilation)
   const expansionTracker = trackExpansions ? globalExpansionTracker : undefined;
 
+  // Instantiate the disk-backed expansion cache (one per compilation)
+  const cacheDir = config?.cacheDir;
+  const expansionCache =
+    cacheDir !== false
+      ? new MacroExpansionCache(cacheDir ?? ".typemacro-cache")
+      : undefined;
+
   if (verbose) {
     console.log("[typemacro] Initializing transformer");
     console.log(
@@ -142,6 +157,11 @@ export default function macroTransformerFactory(
         .map((m) => m.name)
         .join(", ")}`,
     );
+    if (expansionCache) {
+      console.log(
+        `[typemacro] Expansion cache loaded: ${expansionCache.size} entries`,
+      );
+    }
   }
 
   return (context: ts.TransformationContext) => {
@@ -150,8 +170,19 @@ export default function macroTransformerFactory(
         console.log(`[typemacro] Processing: ${sourceFile.fileName}`);
       }
 
-      const ctx = createMacroContext(program, sourceFile, context, hygiene);
-      const transformer = new MacroTransformer(ctx, verbose, expansionTracker);
+      const ctx = createMacroContext(
+        program,
+        sourceFile,
+        context,
+        hygiene,
+        expansionCache,
+      );
+      const transformer = new MacroTransformer(
+        ctx,
+        verbose,
+        expansionTracker,
+        expansionCache,
+      );
 
       const result = ts.visitNode(
         sourceFile,
@@ -193,6 +224,18 @@ export default function macroTransformerFactory(
             : "";
           console.log(`[typemacro ${prefix}]${loc} ${diag.message}`);
         }
+      }
+
+      // Persist the expansion cache after each file.
+      // save() is a no-op if nothing changed, so this is cheap for cache hits.
+      // Saving per-file rather than at the end of the compilation ensures
+      // partial results are preserved if the build is interrupted.
+      if (expansionCache) {
+        expansionCache.save();
+      }
+
+      if (verbose && expansionCache) {
+        console.log(`[typemacro] ${expansionCache.getStatsString()}`);
       }
 
       return result as ts.SourceFile;
@@ -258,8 +301,133 @@ class MacroTransformer {
     private ctx: MacroContextImpl,
     private verbose: boolean,
     private expansionTracker?: ExpansionTracker,
+    private expansionCache?: MacroExpansionCache,
   ) {
     this.boundVisit = this.visit.bind(this);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Expansion cache helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Check whether a macro definition opts into caching.
+   * Defaults to true unless explicitly set to false.
+   */
+  private isMacroCacheable(macro: MacroDefinition): boolean {
+    return macro.cacheable !== false;
+  }
+
+  /**
+   * Try to retrieve a cached single-expression expansion.
+   * Returns the parsed expression on hit, undefined on miss.
+   */
+  private getCachedExpression(cacheKey: string): ts.Expression | undefined {
+    if (!this.expansionCache) return undefined;
+    const cached = this.expansionCache.get(cacheKey);
+    if (cached === undefined) return undefined;
+    try {
+      return this.ctx.parseExpression(cached);
+    } catch {
+      this.expansionCache.invalidate(cacheKey);
+      return undefined;
+    }
+  }
+
+  /**
+   * Try to retrieve a cached type node expansion (type macros).
+   * Parses the cached string as a type reference in a synthetic source file.
+   */
+  private getCachedTypeNode(cacheKey: string): ts.TypeNode | undefined {
+    if (!this.expansionCache) return undefined;
+    const cached = this.expansionCache.get(cacheKey);
+    if (cached === undefined) return undefined;
+    try {
+      const tempSource = ts.createSourceFile(
+        "__cache_type__.ts",
+        `type __T = ${cached};`,
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const typeAlias = tempSource.statements[0];
+      if (ts.isTypeAliasDeclaration(typeAlias) && typeAlias.type) {
+        return typeAlias.type;
+      }
+      this.expansionCache.invalidate(cacheKey);
+      return undefined;
+    } catch {
+      this.expansionCache.invalidate(cacheKey);
+      return undefined;
+    }
+  }
+
+  /**
+   * Try to retrieve a cached multi-statement expansion (attribute/derive macros).
+   * Returns parsed statements on hit, undefined on miss.
+   */
+  private getCachedStatements(cacheKey: string): ts.Statement[] | undefined {
+    if (!this.expansionCache) return undefined;
+    const cached = this.expansionCache.getMulti(cacheKey);
+    if (cached === undefined) return undefined;
+    try {
+      const stmts: ts.Statement[] = [];
+      for (const code of cached) {
+        stmts.push(...this.ctx.parseStatements(code));
+      }
+      return stmts;
+    } catch {
+      this.expansionCache.invalidate(cacheKey);
+      return undefined;
+    }
+  }
+
+  /**
+   * Store a single-expression expansion result in the cache.
+   */
+  private cacheExpression(cacheKey: string, result: ts.Node): void {
+    if (!this.expansionCache) return;
+    try {
+      const text = this.printNodeSafe(result);
+      if (text !== "<unprintable node>") {
+        this.expansionCache.set(cacheKey, text);
+      }
+    } catch {
+      // Non-fatal: expansion just won't be cached
+    }
+  }
+
+  /**
+   * Store a multi-node expansion result in the cache.
+   */
+  private cacheStatements(cacheKey: string, nodes: ts.Node[]): void {
+    if (!this.expansionCache) return;
+    try {
+      const codeStrings = nodes.map((n) => this.printNodeSafe(n));
+      if (codeStrings.every((s) => s !== "<unprintable node>")) {
+        this.expansionCache.setMulti(cacheKey, codeStrings);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Compute a cache key for a call-site macro invocation.
+   * Uses the macro name + source text of the call + argument texts.
+   */
+  private computeCallSiteCacheKey(
+    macroName: string,
+    node: ts.Node,
+    args: readonly ts.Node[],
+  ): string | undefined {
+    if (!this.expansionCache) return undefined;
+    try {
+      const sourceText = node.getText(this.ctx.sourceFile);
+      const argTexts = args.map((a) => a.getText(this.ctx.sourceFile));
+      return this.expansionCache.computeKey(macroName, sourceText, argTexts);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -547,8 +715,6 @@ class MacroTransformer {
    */
   private resolveTypemacroSubpath(afterPkg: string): string {
     if (afterPkg.includes("/use-cases/units/")) return "typemacro/units";
-    if (afterPkg.includes("/use-cases/effect-do/"))
-      return "typemacro/effect-do";
     if (afterPkg.includes("/use-cases/comprehensions/"))
       return "typemacro/comprehensions";
     if (afterPkg.includes("/use-cases/sql/")) return "typemacro/sql";
@@ -563,7 +729,6 @@ class MacroTransformer {
   private resolveDevModuleSpecifier(normalized: string): string | undefined {
     if (normalized.includes("/src/use-cases/")) {
       if (normalized.includes("/units/")) return "typemacro/units";
-      if (normalized.includes("/effect-do/")) return "typemacro/effect-do";
       if (normalized.includes("/comprehensions/"))
         return "typemacro/comprehensions";
       if (normalized.includes("/sql/")) return "typemacro/sql";
@@ -812,11 +977,49 @@ class MacroTransformer {
             }
           }
 
+          // Check disk cache for cacheable labeled block macros
+          const lblCacheable = this.isMacroCacheable(macro);
+          const lblCacheNodes: ts.Node[] = continuation
+            ? [stmt, continuation]
+            : [stmt];
+          const lblCacheKey = lblCacheable
+            ? this.computeCallSiteCacheKey(labelName, stmt, lblCacheNodes)
+            : undefined;
+
+          if (lblCacheKey) {
+            const cachedStmts = this.getCachedStatements(lblCacheKey);
+            if (cachedStmts) {
+              if (this.verbose) {
+                console.log(
+                  `[typemacro] Cache hit for labeled block: ${labelName}`,
+                );
+              }
+              for (const s of cachedStmts) {
+                const visited = ts.visitNode(s, this.boundVisit);
+                if (visited) {
+                  if (Array.isArray(visited)) {
+                    newStatements.push(
+                      ...(visited as ts.Node[]).filter(ts.isStatement),
+                    );
+                  } else {
+                    newStatements.push(visited as ts.Statement);
+                  }
+                }
+              }
+              modified = true;
+              continue;
+            }
+          }
+
           try {
             const result = this.ctx.hygiene.withScope(() =>
               macro.expand(this.ctx, stmt, continuation),
             );
             const expanded = Array.isArray(result) ? result : [result];
+
+            if (lblCacheKey) {
+              this.cacheStatements(lblCacheKey, expanded);
+            }
 
             // Visit the expanded statements for nested macros
             for (const s of expanded) {
@@ -1128,11 +1331,38 @@ class MacroTransformer {
       console.log(`[typemacro] Expanding expression macro: ${macroName}`);
     }
 
+    // Check disk cache for cacheable macros
+    const cacheable = this.isMacroCacheable(macro);
+    const cacheKey = cacheable
+      ? this.computeCallSiteCacheKey(
+          macroName,
+          node,
+          Array.from(node.arguments),
+        )
+      : undefined;
+
+    if (cacheKey) {
+      const cached = this.getCachedExpression(cacheKey);
+      if (cached) {
+        if (this.verbose) {
+          console.log(
+            `[typemacro] Cache hit for expression macro: ${macroName}`,
+          );
+        }
+        return ts.visitNode(cached, this.boundVisit) as ts.Expression;
+      }
+    }
+
     try {
       // Wrap expansion in a hygiene scope so generated names are isolated
       const result = this.ctx.hygiene.withScope(() =>
         macro.expand(this.ctx, node, node.arguments),
       );
+
+      // Store in disk cache
+      if (cacheKey) {
+        this.cacheExpression(cacheKey, result);
+      }
 
       // Record the expansion for source map / diagnostics
       if (this.expansionTracker) {
@@ -1667,6 +1897,27 @@ class MacroTransformer {
           console.log(`[typemacro] Expanding attribute macro: ${macroName}`);
         }
 
+        // Check disk cache for cacheable attribute macros
+        const attrCacheable = this.isMacroCacheable(macro);
+        const attrCacheKey = attrCacheable
+          ? this.computeCallSiteCacheKey(macroName, decorator, args)
+          : undefined;
+
+        if (attrCacheKey) {
+          const cachedStmts = this.getCachedStatements(attrCacheKey);
+          if (cachedStmts && cachedStmts.length > 0) {
+            if (this.verbose) {
+              console.log(
+                `[typemacro] Cache hit for attribute macro: ${macroName}`,
+              );
+            }
+            currentNode = cachedStmts[0];
+            extraStatements.push(...cachedStmts.slice(1));
+            wasTransformed = true;
+            continue;
+          }
+        }
+
         try {
           const result = this.ctx.hygiene.withScope(() =>
             macro.expand(
@@ -1682,8 +1933,14 @@ class MacroTransformer {
               currentNode = result[0];
               extraStatements.push(...result.slice(1).filter(ts.isStatement));
             }
+            if (attrCacheKey) {
+              this.cacheStatements(attrCacheKey, result);
+            }
           } else {
             currentNode = result;
+            if (attrCacheKey) {
+              this.cacheStatements(attrCacheKey, [result]);
+            }
           }
           wasTransformed = true;
         } catch (error) {
@@ -1691,7 +1948,6 @@ class MacroTransformer {
             decorator,
             `Attribute macro expansion failed: ${error}`,
           );
-          // Emit a diagnostic statement alongside the original node
           extraStatements.push(
             this.createMacroErrorStatement(
               `typemacro: attribute macro '${macroName}' failed: ${error}`,
@@ -1824,11 +2080,35 @@ class MacroTransformer {
         if (this.verbose) {
           console.log(`[typemacro] Expanding derive macro: ${deriveName}`);
         }
+
+        // Check disk cache for cacheable derive macros
+        const deriveCacheable = this.isMacroCacheable(deriveMacro);
+        const deriveCacheKey = deriveCacheable
+          ? this.computeCallSiteCacheKey(deriveName, arg, [])
+          : undefined;
+
+        if (deriveCacheKey) {
+          const cachedStmts = this.getCachedStatements(deriveCacheKey);
+          if (cachedStmts) {
+            if (this.verbose) {
+              console.log(
+                `[typemacro] Cache hit for derive macro: ${deriveName}`,
+              );
+            }
+            statements.push(...cachedStmts);
+            continue;
+          }
+        }
+
         try {
           const result = this.ctx.hygiene.withScope(() =>
             deriveMacro.expand(this.ctx, node, typeInfo),
           );
           statements.push(...result);
+
+          if (deriveCacheKey) {
+            this.cacheStatements(deriveCacheKey, result);
+          }
         } catch (error) {
           this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
         }
@@ -2171,6 +2451,24 @@ class MacroTransformer {
         console.log(`[typemacro] Expanding tagged template macro: ${tagName}`);
       }
 
+      // Check disk cache
+      const cacheable = this.isMacroCacheable(taggedMacro);
+      const cacheKey = cacheable
+        ? this.computeCallSiteCacheKey(tagName, node, [node.template])
+        : undefined;
+
+      if (cacheKey) {
+        const cached = this.getCachedExpression(cacheKey);
+        if (cached) {
+          if (this.verbose) {
+            console.log(
+              `[typemacro] Cache hit for tagged template: ${tagName}`,
+            );
+          }
+          return ts.visitNode(cached, this.boundVisit) as ts.Expression;
+        }
+      }
+
       try {
         // Run validation if provided
         if (taggedMacro.validate && !taggedMacro.validate(this.ctx, node)) {
@@ -2186,6 +2484,11 @@ class MacroTransformer {
         const result = this.ctx.hygiene.withScope(() =>
           taggedMacro.expand(this.ctx, node),
         );
+
+        if (cacheKey) {
+          this.cacheExpression(cacheKey, result);
+        }
+
         return ts.visitNode(result, this.boundVisit) as ts.Expression;
       } catch (error) {
         this.ctx.reportError(
@@ -2214,11 +2517,9 @@ class MacroTransformer {
 
     try {
       const result = this.ctx.hygiene.withScope(() =>
-        exprMacro.expand(
-          this.ctx,
-          node as unknown as ts.CallExpression,
-          [node.template as unknown as ts.Expression],
-        ),
+        exprMacro.expand(this.ctx, node as unknown as ts.CallExpression, [
+          node.template as unknown as ts.Expression,
+        ]),
       );
       return ts.visitNode(result, this.boundVisit) as ts.Expression;
     } catch (error) {
@@ -2266,15 +2567,36 @@ class MacroTransformer {
       console.log(`[typemacro] Expanding type macro: ${macroName}`);
     }
 
+    const typeArgs = node.typeArguments ? Array.from(node.typeArguments) : [];
+
+    // Check disk cache
+    const cacheable = this.isMacroCacheable(macro);
+    const cacheKey = cacheable
+      ? this.computeCallSiteCacheKey(macroName, node, typeArgs)
+      : undefined;
+
+    if (cacheKey) {
+      const cached = this.getCachedTypeNode(cacheKey);
+      if (cached) {
+        if (this.verbose) {
+          console.log(`[typemacro] Cache hit for type macro: ${macroName}`);
+        }
+        return ts.visitNode(cached, this.boundVisit) as ts.TypeNode;
+      }
+    }
+
     try {
-      const typeArgs = node.typeArguments ? Array.from(node.typeArguments) : [];
       const result = this.ctx.hygiene.withScope(() =>
         macro.expand(this.ctx, node, typeArgs),
       );
+
+      if (cacheKey) {
+        this.cacheExpression(cacheKey, result);
+      }
+
       return ts.visitNode(result, this.boundVisit) as ts.TypeNode;
     } catch (error) {
       this.ctx.reportError(node, `Type macro expansion failed: ${error}`);
-      // Return the original node unchanged on failure
       return node;
     }
   }

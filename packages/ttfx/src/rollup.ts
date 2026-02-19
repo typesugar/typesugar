@@ -4,4 +4,4 @@
 export {
   default,
   type TypeMacroPluginOptions,
-} from "@ttfx/integrations/rollup";
+} from "unplugin-ttfx/rollup";

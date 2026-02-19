@@ -6,7 +6,7 @@
 
 `@ttfx/transformer` is the core transformation engine of ttfx. It integrates with the TypeScript compiler (via ts-patch or bundler plugins) to process macro invocations during compilation, expanding them into optimized JavaScript code.
 
-**You need this package if you're configuring the build pipeline directly.** Most users should use `@ttfx/integrations` for bundler-specific plugins or configure via `ttfx`.
+**You need this package if you're configuring the build pipeline directly.** Most users should use `unplugin-ttfx` for bundler-specific plugins or configure via `ttfx`.
 
 ## Installation
 

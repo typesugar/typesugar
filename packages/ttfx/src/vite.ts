@@ -4,4 +4,4 @@
 export {
   default,
   type TypeMacroPluginOptions,
-} from "@ttfx/integrations/vite";
+} from "unplugin-ttfx/vite";

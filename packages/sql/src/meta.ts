@@ -225,7 +225,16 @@ export const numberMeta: Meta<number> = makeMeta(
   (v) => (typeof v === "number" ? v : v === null ? null : Number(v)),
   (v) => v,
   "NUMERIC",
-  ["INTEGER", "INT", "BIGINT", "SMALLINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"],
+  [
+    "INTEGER",
+    "INT",
+    "BIGINT",
+    "SMALLINT",
+    "REAL",
+    "DOUBLE PRECISION",
+    "NUMERIC",
+    "DECIMAL",
+  ],
 );
 
 /** Meta instance for integers specifically */
@@ -304,7 +313,8 @@ export const uuidMeta: Meta<string> = makeMeta(
     if (v === null) return null;
     if (typeof v === "string") {
       // Basic UUID format validation
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       return uuidRegex.test(v) ? v : null;
     }
     return null;
@@ -392,7 +402,8 @@ export function arrayMeta<A>(elementMeta: Meta<A>): Meta<A[]> {
  */
 export function optional<A>(meta: Meta<A>): Meta<A | undefined> {
   return makeMeta<A | undefined>(
-    (v) => (v === null || v === undefined ? undefined : meta.get(v) ?? undefined),
+    (v) =>
+      v === null || v === undefined ? undefined : (meta.get(v) ?? undefined),
     (v) => (v === undefined ? null : meta.put(v as A)),
     meta.sqlType,
     meta.sqlTypes,
@@ -440,11 +451,13 @@ export interface Write<A> {
 
 registerInstanceMethods("stringMeta", "Meta", {
   get: {
-    source: '(v) => (typeof v === "string" ? v : v === null ? null : String(v))',
+    source:
+      '(v) => (typeof v === "string" ? v : v === null ? null : String(v))',
     params: ["v"],
   },
   unsafeGet: {
-    source: '(v) => { const r = typeof v === "string" ? v : v === null ? null : String(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
+    source:
+      '(v) => { const r = typeof v === "string" ? v : v === null ? null : String(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
     params: ["v"],
   },
   put: {
@@ -455,11 +468,13 @@ registerInstanceMethods("stringMeta", "Meta", {
 
 registerInstanceMethods("numberMeta", "Meta", {
   get: {
-    source: '(v) => (typeof v === "number" ? v : v === null ? null : Number(v))',
+    source:
+      '(v) => (typeof v === "number" ? v : v === null ? null : Number(v))',
     params: ["v"],
   },
   unsafeGet: {
-    source: '(v) => { const r = typeof v === "number" ? v : v === null ? null : Number(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
+    source:
+      '(v) => { const r = typeof v === "number" ? v : v === null ? null : Number(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
     params: ["v"],
   },
   put: {
@@ -470,11 +485,13 @@ registerInstanceMethods("numberMeta", "Meta", {
 
 registerInstanceMethods("booleanMeta", "Meta", {
   get: {
-    source: '(v) => { if (v === null) return null; if (typeof v === "boolean") return v; if (v === "t" || v === "true" || v === 1) return true; if (v === "f" || v === "false" || v === 0) return false; return Boolean(v); }',
+    source:
+      '(v) => { if (v === null) return null; if (typeof v === "boolean") return v; if (v === "t" || v === "true" || v === 1) return true; if (v === "f" || v === "false" || v === 0) return false; return Boolean(v); }',
     params: ["v"],
   },
   unsafeGet: {
-    source: '(v) => { const r = booleanMeta.get(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
+    source:
+      '(v) => { const r = booleanMeta.get(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
     params: ["v"],
   },
   put: {
@@ -485,11 +502,13 @@ registerInstanceMethods("booleanMeta", "Meta", {
 
 registerInstanceMethods("dateMeta", "Meta", {
   get: {
-    source: '(v) => { if (v === null) return null; if (v instanceof Date) return v; if (typeof v === "string" || typeof v === "number") { const d = new Date(v); return isNaN(d.getTime()) ? null : d; } return null; }',
+    source:
+      '(v) => { if (v === null) return null; if (v instanceof Date) return v; if (typeof v === "string" || typeof v === "number") { const d = new Date(v); return isNaN(d.getTime()) ? null : d; } return null; }',
     params: ["v"],
   },
   unsafeGet: {
-    source: '(v) => { const r = dateMeta.get(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
+    source:
+      '(v) => { const r = dateMeta.get(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
     params: ["v"],
   },
   put: {

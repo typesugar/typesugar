@@ -56,7 +56,11 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@ttfx/core";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  MacroContext,
+} from "@ttfx/core";
 
 // ============================================================================
 // Type-Level API
@@ -186,10 +190,11 @@ export const newtypeCtorMacro = defineExpressionMacro({
     // newtypeCtor<UserId>() => (v) => v
     // Which further inlines at call sites
     const factory = ctx.factory;
+    const vIdent = ctx.generateUniqueName("v");
     const param = factory.createParameterDeclaration(
       undefined,
       undefined,
-      factory.createIdentifier("__v"),
+      vIdent,
     );
     return factory.createArrowFunction(
       undefined,
@@ -197,7 +202,7 @@ export const newtypeCtorMacro = defineExpressionMacro({
       [param],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      factory.createIdentifier("__v"),
+      factory.createIdentifier(vIdent.text),
     );
   },
 });

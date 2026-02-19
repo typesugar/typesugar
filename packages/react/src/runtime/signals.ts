@@ -300,7 +300,10 @@ export function createSignal<T>(
   initialValue: T,
 ): [read: () => T, write: (value: T | ((prev: T) => T)) => void] {
   const signal = new SignalImpl(initialValue);
-  return [() => signal.get(), (value: T | ((prev: T) => T)) => signal.set(value)];
+  return [
+    () => signal.get(),
+    (value: T | ((prev: T) => T)) => signal.set(value),
+  ];
 }
 
 /**

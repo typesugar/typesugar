@@ -3,6 +3,7 @@
  */
 
 import * as ts from "typescript";
+import type { MacroExpansionCache } from "./cache.js";
 
 // ============================================================================
 // Macro Kinds
@@ -105,6 +106,18 @@ export interface MacroContext {
 
   /** Generate a unique identifier to avoid name collisions */
   generateUniqueName(prefix: string): ts.Identifier;
+
+  // -------------------------------------------------------------------------
+  // Expansion Cache
+  // -------------------------------------------------------------------------
+
+  /**
+   * Optional disk-backed expansion cache for cross-compilation caching.
+   * When present, macros and derivation strategies can use this to persist
+   * expansion results across builds. Populated by the transformer factory
+   * when a `cacheDir` is configured.
+   */
+  expansionCache?: MacroExpansionCache;
 }
 
 // ============================================================================
@@ -168,6 +181,16 @@ export interface MacroDefinitionBase {
    * to ensure the typeclass companion namespace exists before derivation runs.
    */
   expandAfter?: string[];
+
+  /**
+   * Whether this macro's expansion results can be cached across compilations.
+   *
+   * Defaults to `true`. Set to `false` for macros that have side effects
+   * beyond producing AST output — e.g., macros that register instances in
+   * global registries, populate caches, or emit files. Such macros must
+   * re-run on every compilation to ensure their side effects occur.
+   */
+  cacheable?: boolean;
 }
 
 /** Expression macro - transforms expressions */

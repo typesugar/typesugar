@@ -11,14 +11,12 @@
 import { describe, it, expect } from "vitest";
 import {
   Option,
-  some,
-  none,
   Either,
-  left,
-  right,
   IO,
-  io,
-} from "../src/use-cases/effect-do/index.js";
+} from "@ttfx/fp";
+const { some, none } = Option;
+const { left, right } = Either;
+const { io } = IO;
 
 // Verify the macro module loads without errors
 import "../src/use-cases/comprehensions/index.js";
@@ -374,7 +372,7 @@ describe("let:/yield: Promise support", () => {
 
 describe("let:/yield: orElse (||) semantics", () => {
   // For these tests we need a type with .orElse()
-  // Option from effect-do doesn't have orElse, so let's test the shape
+  // Option from @ttfx/fp doesn't have orElse, so let's test the shape
 
   it("should wrap expression with .orElse() call", () => {
     // The macro generates: expr.orElse(() => fallback)

@@ -105,9 +105,9 @@ export const stateMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    // Generate unique identifiers for value and setter
-    const valueIdent = `__${varName}_val`;
-    const setterIdent = `__${varName}_set`;
+    // Generate hygienic identifiers for value and setter
+    const valueIdent = ctx.hygiene.mangleName(`${varName}_val`);
+    const setterIdent = ctx.hygiene.mangleName(`${varName}_set`);
 
     // Store metadata for use by other macros
     const metadata: StateMetadata = {
@@ -305,9 +305,7 @@ export function isStateMarker(expr: ts.Expression): boolean {
 /**
  * Extract state metadata from a marker object
  */
-export function extractStateFromMarker(
-  expr: ts.ObjectLiteralExpression,
-): {
+export function extractStateFromMarker(expr: ts.ObjectLiteralExpression): {
   name: string;
   valueIdent: string;
   setterIdent: string;

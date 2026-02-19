@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "pnpm -r clean && rm -rf node_modules",
-    "typecheck": "pnpm -r --filter '!ttfx-example-*' --filter '!@ttfx/cats' typecheck",
+    "typecheck": "pnpm -r --filter '!ttfx-example-*' typecheck",
     "lint": "pnpm -r lint"
   },
   "keywords": [
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@ttfx/contracts": "workspace:*",
     "@ttfx/contracts-refined": "workspace:*",
-    "@ttfx/integrations": "workspace:*",
+    "unplugin-ttfx": "workspace:*",
     "@ttfx/testing": "workspace:*",
     "@ttfx/type-system": "workspace:*",
     "@types/node": "^22.15.30",

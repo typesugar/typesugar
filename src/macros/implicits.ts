@@ -228,7 +228,7 @@ export const implicitsAttribute = defineAttributeMacro({
       const param = target.parameters[i];
       const paramName = ts.isIdentifier(param.name)
         ? param.name.text
-        : `__p${i}`;
+        : ctx.hygiene.mangleName(`p${i}`);
 
       // If explicit names provided, only those are implicit
       if (explicitParamNames.length > 0) {

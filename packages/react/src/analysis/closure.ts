@@ -215,12 +215,17 @@ export function generateCaptureProps(
       continue;
     }
 
-    // Generate prop name (prefix internal props with __)
-    const propName = capture.isState
-      ? `__${capture.name}_val`
-      : capture.isSetter
-        ? `__${capture.stateFor}_set`
-        : `__${capture.name}`;
+    // Generate prop name using mangled identifiers from state metadata when available.
+    // Falls back to prefixed names for non-state captures.
+    let propName: string;
+    if (capture.isState) {
+      propName = stateValueMap.get(capture.name) ?? `__${capture.name}_val`;
+    } else if (capture.isSetter && capture.stateFor) {
+      propName =
+        stateSetterMap.get(capture.stateFor) ?? `__${capture.stateFor}_set`;
+    } else {
+      propName = `__${capture.name}`;
+    }
 
     // Create property signature
     // Type will be inferred or specified as `any` for simplicity
@@ -262,12 +267,16 @@ export function generateCapturePropAssignments(
     let propName: string;
     let valueIdent: string;
 
+    // Use mangled identifiers from state metadata when available.
+    // The prop name and value identifier use the same mangled name for consistency.
     if (capture.isState) {
-      propName = `__${capture.name}_val`;
-      valueIdent = stateValueMap.get(capture.name) ?? capture.name;
+      const mangled = stateValueMap.get(capture.name);
+      propName = mangled ?? `__${capture.name}_val`;
+      valueIdent = mangled ?? capture.name;
     } else if (capture.isSetter && capture.stateFor) {
-      propName = `__${capture.stateFor}_set`;
-      valueIdent = stateSetterMap.get(capture.stateFor) ?? capture.name;
+      const mangled = stateSetterMap.get(capture.stateFor);
+      propName = mangled ?? `__${capture.stateFor}_set`;
+      valueIdent = mangled ?? capture.name;
     } else {
       propName = `__${capture.name}`;
       valueIdent = capture.name;
@@ -299,17 +308,22 @@ export function rewriteCaptureReferences(
   ctx: MacroContext,
   closure: ts.ArrowFunction | ts.FunctionExpression,
   captures: ClosureCapture[],
+  stateValueMap: Map<string, string> = new Map(),
+  stateSetterMap: Map<string, string> = new Map(),
 ): ts.ArrowFunction | ts.FunctionExpression {
   const factory = ctx.factory;
 
   // Build a map of original name -> prop name
+  // Uses mangled identifiers from state metadata when available
   const rewriteMap = new Map<string, string>();
   for (const capture of captures) {
     if (capture.needsProp) {
       if (capture.isState) {
-        rewriteMap.set(capture.name, `__${capture.name}_val`);
+        const mangled = stateValueMap.get(capture.name);
+        rewriteMap.set(capture.name, mangled ?? `__${capture.name}_val`);
       } else if (capture.isSetter && capture.stateFor) {
-        rewriteMap.set(capture.name, `__${capture.stateFor}_set`);
+        const mangled = stateSetterMap.get(capture.stateFor);
+        rewriteMap.set(capture.name, mangled ?? `__${capture.stateFor}_set`);
       } else {
         rewriteMap.set(capture.name, `__${capture.name}`);
       }

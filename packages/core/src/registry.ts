@@ -34,57 +34,93 @@ class MacroRegistryImpl implements MacroRegistry {
    */
   private moduleScopedMacros = new Map<string, MacroDefinition>();
 
+  /**
+   * Check if two macros are semantically the same (same name and module).
+   * Used to allow idempotent registration in ESM environments where
+   * module re-imports can create new object instances.
+   */
+  private isSameMacro(
+    existing: MacroDefinition,
+    incoming: MacroDefinition,
+  ): boolean {
+    // Same object reference
+    if (existing === incoming) return true;
+    // Same name and same module (or both have no module)
+    const key = "label" in existing ? existing.label : existing.name;
+    const incomingKey = "label" in incoming ? incoming.label : incoming.name;
+    return key === incomingKey && existing.module === incoming.module;
+  }
+
   register(macro: MacroDefinition): void {
     switch (macro.kind) {
-      case "expression":
-        if (this.expressionMacros.has(macro.name)) {
+      case "expression": {
+        const existing = this.expressionMacros.get(macro.name);
+        if (existing) {
+          // Idempotent: skip if semantically same macro
+          if (this.isSameMacro(existing, macro)) return;
           throw new Error(
             `Expression macro '${macro.name}' is already registered`,
           );
         }
         this.expressionMacros.set(macro.name, macro);
         break;
+      }
 
-      case "attribute":
-        if (this.attributeMacros.has(macro.name)) {
+      case "attribute": {
+        const existing = this.attributeMacros.get(macro.name);
+        if (existing) {
+          if (this.isSameMacro(existing, macro)) return;
           throw new Error(
             `Attribute macro '${macro.name}' is already registered`,
           );
         }
         this.attributeMacros.set(macro.name, macro);
         break;
+      }
 
-      case "derive":
-        if (this.deriveMacros.has(macro.name)) {
+      case "derive": {
+        const existing = this.deriveMacros.get(macro.name);
+        if (existing) {
+          if (this.isSameMacro(existing, macro)) return;
           throw new Error(`Derive macro '${macro.name}' is already registered`);
         }
         this.deriveMacros.set(macro.name, macro);
         break;
+      }
 
-      case "tagged-template":
-        if (this.taggedTemplateMacros.has(macro.name)) {
+      case "tagged-template": {
+        const existing = this.taggedTemplateMacros.get(macro.name);
+        if (existing) {
+          if (this.isSameMacro(existing, macro)) return;
           throw new Error(
             `Tagged template macro '${macro.name}' is already registered`,
           );
         }
         this.taggedTemplateMacros.set(macro.name, macro);
         break;
+      }
 
-      case "type":
-        if (this.typeMacros.has(macro.name)) {
+      case "type": {
+        const existing = this.typeMacros.get(macro.name);
+        if (existing) {
+          if (this.isSameMacro(existing, macro)) return;
           throw new Error(`Type macro '${macro.name}' is already registered`);
         }
         this.typeMacros.set(macro.name, macro);
         break;
+      }
 
-      case "labeled-block":
-        if (this.labeledBlockMacros.has(macro.label)) {
+      case "labeled-block": {
+        const existing = this.labeledBlockMacros.get(macro.label);
+        if (existing) {
+          if (this.isSameMacro(existing, macro)) return;
           throw new Error(
             `Labeled block macro for label '${macro.label}' is already registered`,
           );
         }
         this.labeledBlockMacros.set(macro.label, macro);
         break;
+      }
 
       default:
         throw new Error(

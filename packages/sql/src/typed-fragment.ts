@@ -44,8 +44,10 @@ import { Read, Write, SqlRow } from "./meta.js";
 // ============================================================================
 
 /** Concatenate two tuples at the type level */
-export type Concat<A extends readonly unknown[], B extends readonly unknown[]> =
-  [...A, ...B];
+export type Concat<
+  A extends readonly unknown[],
+  B extends readonly unknown[],
+> = [...A, ...B];
 
 /** Empty tuple type */
 export type Empty = readonly [];
@@ -79,10 +81,7 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
   /**
    * Create a new typed fragment.
    */
-  constructor(
-    segments: readonly string[],
-    params: readonly SqlParam[],
-  ) {
+  constructor(segments: readonly string[], params: readonly SqlParam[]) {
     this.segments = segments;
     this.params = params;
   }
@@ -108,10 +107,10 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
     other: TypedFragment<P2, R2>,
   ): TypedFragment<Concat<P, P2>, R extends Unit ? R2 : R> {
     const result = this.toFragment().append(other.toFragment());
-    return new TypedFragment([...result.segments], [...result.params]) as TypedFragment<
-      Concat<P, P2>,
-      R extends Unit ? R2 : R
-    >;
+    return new TypedFragment(
+      [...result.segments],
+      [...result.params],
+    ) as TypedFragment<Concat<P, P2>, R extends Unit ? R2 : R>;
   }
 
   /**
@@ -121,10 +120,10 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
     other: TypedFragment<P2, R2>,
   ): TypedFragment<Concat<P2, P>, R2 extends Unit ? R : R2> {
     const result = this.toFragment().prepend(other.toFragment());
-    return new TypedFragment([...result.segments], [...result.params]) as TypedFragment<
-      Concat<P2, P>,
-      R2 extends Unit ? R : R2
-    >;
+    return new TypedFragment(
+      [...result.segments],
+      [...result.params],
+    ) as TypedFragment<Concat<P2, P>, R2 extends Unit ? R : R2>;
   }
 
   /**
@@ -204,7 +203,9 @@ export class TypedQuery<P extends readonly unknown[], R> {
    * Optional result (expects zero or one row).
    */
   option(): TypedQuery<P, R | null> {
-    return new TypedQuery(this.fragment as unknown as TypedFragment<P, R | null>);
+    return new TypedQuery(
+      this.fragment as unknown as TypedFragment<P, R | null>,
+    );
   }
 }
 
@@ -256,7 +257,10 @@ export class TypedUpdate<P extends readonly unknown[]> {
 // ============================================================================
 
 /** Empty typed fragment */
-export const emptyTyped: TypedFragment<Empty, Unit> = new TypedFragment([""], []);
+export const emptyTyped: TypedFragment<Empty, Unit> = new TypedFragment(
+  [""],
+  [],
+);
 
 /**
  * Join fragments with a separator (AND, OR, comma, etc.).
@@ -303,10 +307,7 @@ export function intercalateTyped<P extends readonly unknown[], R>(
 export function andTyped<P extends readonly unknown[]>(
   ...fragments: TypedFragment<P, Unit>[]
 ): TypedFragment<P[], Unit> {
-  return intercalateTyped(
-    new TypedFragment([" AND "], []),
-    fragments,
-  );
+  return intercalateTyped(new TypedFragment([" AND "], []), fragments);
 }
 
 /**
@@ -315,10 +316,7 @@ export function andTyped<P extends readonly unknown[]>(
 export function orTyped<P extends readonly unknown[]>(
   ...fragments: TypedFragment<P, Unit>[]
 ): TypedFragment<P[], Unit> {
-  return intercalateTyped(
-    new TypedFragment([" OR "], []),
-    fragments,
-  );
+  return intercalateTyped(new TypedFragment([" OR "], []), fragments);
 }
 
 /**
@@ -327,10 +325,7 @@ export function orTyped<P extends readonly unknown[]>(
 export function commasTyped<P extends readonly unknown[], R>(
   ...fragments: TypedFragment<P, R>[]
 ): TypedFragment<P[], R> {
-  return intercalateTyped(
-    new TypedFragment([", "], []),
-    fragments,
-  );
+  return intercalateTyped(new TypedFragment([", "], []), fragments);
 }
 
 // ============================================================================
@@ -435,7 +430,7 @@ export function setTyped<A>(
 ): TypedFragment<unknown[], Unit> {
   const columns = meta.columns;
   const allValues = meta.write(value as A);
-  
+
   const setClauses: string[] = [];
   const params: SqlParam[] = [];
 

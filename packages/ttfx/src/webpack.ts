@@ -4,4 +4,4 @@
 export {
   default,
   type TypeMacroPluginOptions,
-} from "@ttfx/integrations/webpack";
+} from "unplugin-ttfx/webpack";

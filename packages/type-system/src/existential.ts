@@ -425,6 +425,7 @@ export const packExistsMacro = defineExpressionMacro({
 
     // Generate: { use: (f) => f(witness) }
     const factory = _ctx.factory;
+    const fIdent = _ctx.generateUniqueName("f");
     return factory.createObjectLiteralExpression(
       [
         factory.createPropertyAssignment(
@@ -432,17 +433,11 @@ export const packExistsMacro = defineExpressionMacro({
           factory.createArrowFunction(
             undefined,
             undefined,
-            [
-              factory.createParameterDeclaration(
-                undefined,
-                undefined,
-                factory.createIdentifier("__f"),
-              ),
-            ],
+            [factory.createParameterDeclaration(undefined, undefined, fIdent)],
             undefined,
             factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
             factory.createCallExpression(
-              factory.createIdentifier("__f"),
+              factory.createIdentifier(fIdent.text),
               undefined,
               [args[0]],
             ),

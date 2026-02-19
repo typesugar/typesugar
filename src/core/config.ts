@@ -80,6 +80,34 @@ export interface ContractsConfig {
 }
 
 /**
+ * Cats module configuration options.
+ */
+export interface CatsConfig {
+  /**
+   * Typeclass law verification mode:
+   * - false (default): Laws not checked, @verifyLaws erases completely
+   * - "compile-time": Use @ttfx/contracts prover for static verification
+   * - "property-test": Generate forAll() property tests via @ttfx/testing
+   */
+  verifyLaws?: false | "compile-time" | "property-test";
+
+  /**
+   * What to do when a law cannot be proven at compile time.
+   * - "error": Fail compilation
+   * - "warn": Emit warning and continue (default)
+   * - "fallback": Silently fall back to property test
+   * - "ignore": Skip undecidable laws entirely
+   */
+  onUndecidable?: "error" | "warn" | "fallback" | "ignore";
+
+  /**
+   * Minimum number of test cases for property-test mode.
+   * Default: 100
+   */
+  propertyTestIterations?: number;
+}
+
+/**
  * Full ttfx configuration schema.
  */
 export interface TtfxConfig {
@@ -87,6 +115,8 @@ export interface TtfxConfig {
   debug?: boolean;
   /** Contract system configuration */
   contracts?: ContractsConfig;
+  /** Cats module configuration (law verification) */
+  cats?: CatsConfig;
   /** Feature flags */
   features?: Record<string, boolean>;
   /** Custom user configuration */
@@ -285,6 +315,11 @@ function initializeConfig(): void {
       mode: "full",
       proveAtCompileTime: false,
       strip: {},
+    },
+    cats: {
+      verifyLaws: false,
+      onUndecidable: "warn",
+      propertyTestIterations: 100,
     },
     features: {},
   };

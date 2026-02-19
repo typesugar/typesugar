@@ -105,7 +105,7 @@ Eliminate typeclass dictionary passing at compile time for true zero-cost abstra
 | `@ttfx/operators`    | Operator overloading                |
 | `@ttfx/typeclass`    | Typeclass system                    |
 | `@ttfx/specialize`   | Zero-cost specialization            |
-| `@ttfx/integrations` | Bundler plugins                     |
+| `unplugin-ttfx`      | Bundler plugins                     |
 | `@ttfx/vscode`       | IDE extension                       |
 
 ## Bundler Integration

@@ -747,34 +747,40 @@ export const forAllMacro = defineExpressionMacro({
       args.length === 3 ? args[1] : factory.createNumericLiteral(100);
     const property = args.length === 3 ? args[2] : args[1];
 
+    // Generate hygienic variable names
+    const iName = ctx.hygiene.mangleName("fa_i");
+    const valueName = ctx.hygiene.mangleName("fa_value");
+    const eName = ctx.hygiene.mangleName("fa_e");
+    const errName = ctx.hygiene.mangleName("fa_err");
+
     // Generate:
     // (() => {
-    //   for (let __fa_i__ = 0; __fa_i__ < <count>; __fa_i__++) {
-    //     const __fa_value__ = <generator>(__fa_i__);
+    //   for (let <i> = 0; <i> < <count>; <i>++) {
+    //     const <value> = <generator>(<i>);
     //     try {
-    //       (<property>)(__fa_value__);
-    //     } catch (__fa_e__) {
-    //       const __fa_err__ = __fa_e__ instanceof Error ? __fa_e__.message : String(__fa_e__);
+    //       (<property>)(<value>);
+    //     } catch (<e>) {
+    //       const <err> = <e> instanceof Error ? <e>.message : String(<e>);
     //       throw new Error(
-    //         `Property failed after ${__fa_i__ + 1} tests.\n` +
-    //         `Failing input: ${JSON.stringify(__fa_value__)}\n` +
-    //         `Error: ${__fa_err__}`
+    //         `Property failed after ${<i> + 1} tests.\n` +
+    //         `Failing input: ${JSON.stringify(<value>)}\n` +
+    //         `Error: ${<err>}`
     //       );
     //     }
     //   }
     // })()
 
     const code = `(() => {
-  for (let __fa_i__ = 0; __fa_i__ < 100; __fa_i__++) {
-    const __fa_value__ = undefined;
+  for (let ${iName} = 0; ${iName} < 100; ${iName}++) {
+    const ${valueName} = undefined;
     try {
       undefined;
-    } catch (__fa_e__) {
-      const __fa_err__ = __fa_e__ instanceof Error ? __fa_e__.message : String(__fa_e__);
+    } catch (${eName}) {
+      const ${errName} = ${eName} instanceof Error ? ${eName}.message : String(${eName});
       throw new Error(
-        "Property failed after " + (__fa_i__ + 1) + " tests.\\n" +
-        "Failing input: " + JSON.stringify(__fa_value__) + "\\n" +
-        "Error: " + __fa_err__
+        "Property failed after " + (${iName} + 1) + " tests.\\n" +
+        "Failing input: " + JSON.stringify(${valueName}) + "\\n" +
+        "Error: " + ${errName}
       );
     }
   }
@@ -794,7 +800,7 @@ export const forAllMacro = defineExpressionMacro({
       forStmt,
       forStmt.initializer,
       factory.createBinaryExpression(
-        factory.createIdentifier("__fa_i__"),
+        factory.createIdentifier(iName),
         factory.createToken(ts.SyntaxKind.LessThanToken),
         count,
       ),
@@ -802,7 +808,7 @@ export const forAllMacro = defineExpressionMacro({
       forStmt.statement,
     );
 
-    // Patch __fa_value__ = <generator>(__fa_i__)
+    // Patch <value> = <generator>(<i>)
     const valueDecl = forBlock.statements[0] as ts.VariableStatement;
     const valueVarDecl = valueDecl.declarationList.declarations[0];
     const newValueDecl = factory.updateVariableDeclaration(
@@ -811,7 +817,7 @@ export const forAllMacro = defineExpressionMacro({
       undefined,
       undefined,
       factory.createCallExpression(generator, undefined, [
-        factory.createIdentifier("__fa_i__"),
+        factory.createIdentifier(iName),
       ]),
     );
     const newValueStmt = factory.updateVariableStatement(
@@ -822,7 +828,7 @@ export const forAllMacro = defineExpressionMacro({
       ]),
     );
 
-    // Patch try body: (<property>)(__fa_value__)
+    // Patch try body: (<property>)(<value>)
     const tryStmt = forBlock.statements[1] as ts.TryStatement;
     const tryBlock = tryStmt.tryBlock;
     const newTryBlock = factory.updateBlock(tryBlock, [
@@ -830,7 +836,7 @@ export const forAllMacro = defineExpressionMacro({
         factory.createCallExpression(
           factory.createParenthesizedExpression(property),
           undefined,
-          [factory.createIdentifier("__fa_value__")],
+          [factory.createIdentifier(valueName)],
         ),
       ),
     ]);

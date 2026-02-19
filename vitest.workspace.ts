@@ -12,7 +12,6 @@ export default defineWorkspace([
         "tests/react/**",
         "tests/cats.test.ts",
         "tests/comprehensions.test.ts",
-        "tests/effect-do.test.ts",
         "tests/specialize.test.ts",
         "tests/sql.test.ts",
         "tests/testing.test.ts",

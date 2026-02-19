@@ -141,6 +141,9 @@ function createFragmentConstructor(
 /**
  * Generate: __sql_build(["seg0", "seg1", ...], [expr0, expr1, ...])
  *
+ * INTENTIONALLY UNHYGIENIC: __sql_build is a runtime helper exported from @ttfx/sql.
+ * Users must import it for the generated code to work.
+ *
  * The runtime helper inspects each interpolation at runtime:
  * - If it's a Fragment, it inlines its SQL and params
  * - Otherwise, it treats it as a bound parameter

@@ -765,6 +765,7 @@ function getTypeclass(name: string): TypeclassInfo | undefined {
 export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
   module: "typemacro",
+  cacheable: false,
   description:
     "Define a typeclass from an interface, enabling derivation and extension methods",
   validTargets: ["interface"],
@@ -1009,6 +1010,7 @@ function ${uncapitalize(name)}${capitalize(method.name)}<A>(${paramList}): ${met
 export const instanceAttribute = defineAttributeMacro({
   name: "instance",
   module: "typemacro",
+  cacheable: false,
   description: "Register a typeclass instance for a specific type",
   validTargets: ["property", "class"],
 
@@ -1732,6 +1734,7 @@ Functor.registerInstance<${typeName}>("${typeName}", ${varName});
 function createTypeclassDeriveMacro(tcName: string) {
   return defineDeriveMacro({
     name: `${tcName}TC`,
+    cacheable: false,
     description: `Auto-derive ${tcName} typeclass instance`,
 
     expand(
@@ -1871,6 +1874,7 @@ const functorTCDerive = createTypeclassDeriveMacro("Functor");
 export const derivingAttribute = defineAttributeMacro({
   name: "deriving",
   module: "typemacro",
+  cacheable: false,
   description:
     "Auto-derive typeclass instances for a type (Scala 3-like derives clause)",
   validTargets: ["interface", "class", "type"],

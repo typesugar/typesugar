@@ -25,6 +25,6 @@ export default defineConfig({
     "@ttfx/operators",
     "@ttfx/typeclass",
     "@ttfx/specialize",
-    "@ttfx/integrations",
+    "unplugin-ttfx",
   ],
 });

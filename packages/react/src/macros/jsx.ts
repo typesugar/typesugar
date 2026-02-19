@@ -119,7 +119,7 @@ export const eachMacro = defineExpressionMacro({
       const indexParam = factory.createParameterDeclaration(
         undefined,
         undefined,
-        factory.createIdentifier("__index"),
+        ctx.generateUniqueName("index"),
       );
 
       const wrappedRenderFn = factory.createArrowFunction(
