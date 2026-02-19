@@ -46,9 +46,9 @@
 - [x] `@typemacro/sql` → `@ttfx/sql`
 - [x] `@typemacro/zero-cost` → `@ttfx/zero-cost`
 - [x] `@typemacro/type-system` → `@ttfx/type-system`
-- [x] `@typemacro/cats` → `@ttfx/cats`
-- [x] `@typemacro/adapter-kysely` → `@ttfx/adapter-kysely`
-- [x] `@typemacro/adapter-effect` → `@ttfx/adapter-effect`
+- [x] `@typemacro/cats` → `@ttfx/fp`
+- [x] `@typemacro/adapter-kysely` → `@ttfx/kysely`
+- [x] `@typemacro/adapter-effect` → `@ttfx/effect`
 - [x] `@typemacro/effect-do` → `@ttfx/effect-do`
 
 ### Example

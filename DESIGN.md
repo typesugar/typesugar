@@ -1,8 +1,8 @@
-# typemacro - Compile-time Macros for TypeScript
+# ttfx - Compile-time Macros for TypeScript
 
 ## Overview
 
-typemacro is a compile-time metaprogramming system for TypeScript, inspired by:
+ttfx is a compile-time metaprogramming system for TypeScript, inspired by:
 
 - **Rust's proc_macro**: Token-based transformations, derive macros, attribute macros
 - **Scala 3's inline/transparent**: Guaranteed inlining, compile-time evaluation, quoted expressions
@@ -12,7 +12,7 @@ typemacro is a compile-time metaprogramming system for TypeScript, inspired by:
 
 ### 0. Zero-Cost Abstractions
 
-The foundational philosophy of typemacro: **you should never pay at runtime for
+The foundational philosophy of ttfx: **you should never pay at runtime for
 abstractions that can be resolved at compile time.**
 
 This is the same principle that drives Rust's zero-cost abstractions and C++
@@ -24,7 +24,7 @@ templates. In TypeScript, the traditional approach to generic programming
 - **Closure allocation**: Derived operations create new function objects
 - **Compound overhead**: Derived `map`/`ap` implementations chain through multiple indirections
 
-typemacro eliminates all of this at compile time via the `specialize` macro:
+ttfx eliminates all of this at compile time via the `specialize` macro:
 
 ```typescript
 // Generic code — write once, works with any Monad
@@ -66,7 +66,7 @@ methods at their call sites, eliminating the last source of overhead.
 
 ### 1. Syntax Compatibility
 
-typemacro uses syntax that doesn't break TypeScript's tokenizer:
+ttfx uses syntax that doesn't break TypeScript's tokenizer:
 
 - **Decorator-style macros**: `@derive(Eq, Ord)`, `@operators({...})` (classes only — TS decorators cannot be applied to interfaces or type aliases)
 - **Function call macros**: `comptime(expr)`, `ops(a + b)`, `pipe(x, f, g)`
@@ -152,7 +152,7 @@ const c = ops(a + b); // Becomes: a.add(b)
 
 ### 3. Compile-Time Evaluation
 
-typemacro uses Node's `vm` module for compile-time evaluation, giving you full
+ttfx uses Node's `vm` module for compile-time evaluation, giving you full
 JavaScript semantics without maintaining a custom interpreter:
 
 - Full language support: closures, recursion, all operators, built-in methods
@@ -193,7 +193,7 @@ class User {
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   typemacro Transformer                       │
+│                      ttfx Transformer                         │
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │  1. Identify macro invocations (calls, decorators,      ││
 │  │     tagged templates)                                   ││
@@ -350,7 +350,7 @@ const c = ops(a + b); // Becomes: a.add(b)
   "compilerOptions": {
     "plugins": [
       {
-        "transform": "typemacro/transformer",
+        "transform": "ttfx/transformer",
         "type": "program"
       }
     ]
@@ -362,13 +362,13 @@ const c = ops(a + b); // Becomes: a.add(b)
 
 ```bash
 # Compile with macros
-npx typemacro build
+npx ttfx build
 
 # Watch mode
-npx typemacro watch
+npx ttfx watch
 
 # Check macros without emit
-npx typemacro check
+npx ttfx check
 ```
 
 ## Safety Guarantees

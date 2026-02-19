@@ -21,7 +21,7 @@ pnpm add @ttfx/ttfx @ttfx/transformer
 ```typescript
 // vite.config.ts
 import { defineConfig } from "vite";
-import ttfx from "@ttfx/integrations/vite";
+import ttfx from "unplugin-ttfx/vite";
 
 export default defineConfig({
   plugins: [ttfx()],
@@ -33,7 +33,7 @@ export default defineConfig({
 ```javascript
 // build.js
 import { build } from "esbuild";
-import ttfx from "@ttfx/integrations/esbuild";
+import ttfx from "unplugin-ttfx/esbuild";
 
 build({
   entryPoints: ["src/index.ts"],
@@ -47,7 +47,7 @@ build({
 
 ```javascript
 // webpack.config.js
-const ttfx = require("@ttfx/integrations/webpack");
+const ttfx = require("unplugin-ttfx/webpack");
 
 module.exports = {
   plugins: [ttfx.default()],
@@ -153,7 +153,7 @@ npm install @ttfx/sql
 
 ```typescript
 // vite.config.ts
-import ttfx from "@ttfx/integrations/vite";
+import ttfx from "unplugin-ttfx/vite";
 
 export default defineConfig({
   plugins: [

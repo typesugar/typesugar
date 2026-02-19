@@ -240,7 +240,7 @@ The transformer supports TypeScript's incremental compilation:
 ttfx uses [unplugin](https://github.com/unjs/unplugin) for bundler support:
 
 ```
-@ttfx/integrations
+unplugin-ttfx
 ├── vite.ts      → unplugin/vite
 ├── webpack.ts   → unplugin/webpack
 ├── esbuild.ts   → unplugin/esbuild

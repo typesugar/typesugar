@@ -48,44 +48,58 @@ const query = sql`SELECT * FROM users WHERE id = ${userId}`;
 
 ### Core
 
-| Package                                     | Description                                      |
-| ------------------------------------------- | ------------------------------------------------ |
-| [@ttfx/transformer](packages/transformer)   | Core TypeScript transformer                      |
-| [@ttfx/core](packages/core)                 | Macro registration and types                     |
-| [@ttfx/comptime](packages/comptime)         | Compile-time evaluation                          |
-| [@ttfx/derive](packages/derive)             | Auto-derive implementations                      |
-| [@ttfx/reflect](packages/reflect)           | Type reflection                                  |
-| [@ttfx/operators](packages/operators)       | Operator overloading                             |
-| [@ttfx/integrations](packages/integrations) | Bundler plugins (Vite, Webpack, esbuild, Rollup) |
-| [@ttfx/ttfx](packages/ttfx)                 | Umbrella package                                 |
-| [@ttfx/vscode-ttfx](packages/vscode-ttfx)   | VSCode/Cursor extension                          |
+| Package                                   | Description                  |
+| ----------------------------------------- | ---------------------------- |
+| [ttfx](packages/ttfx)                     | Umbrella package             |
+| [@ttfx/transformer](packages/transformer) | Core TypeScript transformer  |
+| [@ttfx/core](packages/core)               | Macro registration and types |
+| [@ttfx/comptime](packages/comptime)       | Compile-time evaluation      |
+| [@ttfx/derive](packages/derive)           | Auto-derive implementations  |
+| [@ttfx/reflect](packages/reflect)         | Type reflection              |
+| [@ttfx/operators](packages/operators)     | Operator overloading         |
 
 ### Typeclasses & FP
 
-| Package                                 | Description                    |
-| --------------------------------------- | ------------------------------ |
-| [@ttfx/typeclass](packages/typeclass)   | Scala 3-style typeclasses      |
-| [@ttfx/specialize](packages/specialize) | Zero-cost specialization       |
-| [@ttfx/cats](packages/cats)             | Functional programming library |
-| [@ttfx/effect-do](packages/effect-do)   | Do-notation macros             |
+| Package                                 | Description                          |
+| --------------------------------------- | ------------------------------------ |
+| [@ttfx/typeclass](packages/typeclass)   | Scala 3-style typeclasses            |
+| [@ttfx/specialize](packages/specialize) | Zero-cost specialization             |
+| [@ttfx/fp](packages/fp)                 | Functional programming library       |
+| [@ttfx/std](packages/std)               | Standard typeclasses and extensions  |
+
+### Contracts
+
+| Package                                             | Description             |
+| --------------------------------------------------- | ----------------------- |
+| [@ttfx/contracts](packages/contracts)               | Design by contract      |
+| [@ttfx/contracts-refined](packages/contracts-refined) | Refinement types        |
+| [@ttfx/contracts-z3](packages/contracts-z3)         | Z3 SMT solver integration |
 
 ### Domain-Specific
 
 | Package                                   | Description                         |
 | ----------------------------------------- | ----------------------------------- |
 | [@ttfx/sql](packages/sql)                 | Type-safe SQL                       |
+| [@ttfx/react](packages/react)             | React macros                        |
 | [@ttfx/strings](packages/strings)         | String validation macros            |
 | [@ttfx/units](packages/units)             | Physical units                      |
 | [@ttfx/type-system](packages/type-system) | Advanced types (HKT, Newtype, etc.) |
 
-### Adapters
+### Integrations
 
-| Package                                         | Description           |
-| ----------------------------------------------- | --------------------- |
-| [@ttfx/adapter-effect](packages/adapter-effect) | Effect-TS integration |
-| [@ttfx/adapter-kysely](packages/adapter-kysely) | Kysely integration    |
-| [@ttfx/react](packages/react)                   | React macros          |
-| [@ttfx/testing](packages/testing)               | Testing macros        |
+| Package                           | Description           |
+| --------------------------------- | --------------------- |
+| [@ttfx/effect](packages/effect)   | Effect-TS integration |
+| [@ttfx/kysely](packages/kysely)   | Kysely integration    |
+
+### Tooling
+
+| Package                                     | Description                                      |
+| ------------------------------------------- | ------------------------------------------------ |
+| [unplugin-ttfx](packages/unplugin-ttfx)     | Bundler plugins (Vite, Webpack, esbuild, Rollup) |
+| [@ttfx/eslint-plugin](packages/eslint-plugin) | ESLint plugin                                    |
+| [@ttfx/vscode](packages/vscode)             | VSCode/Cursor extension                          |
+| [@ttfx/testing](packages/testing)           | Testing macros                                   |
 
 ## Getting Started
 
@@ -98,7 +112,7 @@ npm install @ttfx/ttfx @ttfx/transformer
 ```typescript
 // vite.config.ts
 import { defineConfig } from "vite";
-import ttfx from "@ttfx/integrations/vite";
+import ttfx from "unplugin-ttfx/vite";
 
 export default defineConfig({
   plugins: [ttfx()],

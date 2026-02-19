@@ -54,7 +54,7 @@ See the [Getting Started Guide](./getting-started.md) for detailed setup instruc
 | [@ttfx/transformer](./packages/transformer)   | Core TypeScript transformer  |
 | [@ttfx/core](./packages/core)                 | Macro registration and types |
 | [@ttfx/ttfx](./packages/ttfx)                 | Umbrella package             |
-| [@ttfx/integrations](./packages/integrations) | Bundler plugins              |
+| [unplugin-ttfx](./packages/unplugin-ttfx)     | Bundler plugins              |
 
 ### Macros
 
@@ -75,15 +75,14 @@ See the [Getting Started Guide](./getting-started.md) for detailed setup instruc
 | [@ttfx/strings](./packages/strings)         | String validation macros            |
 | [@ttfx/units](./packages/units)             | Physical units                      |
 | [@ttfx/type-system](./packages/type-system) | Advanced types (HKT, Newtype, etc.) |
-| [@ttfx/cats](./packages/cats)               | Functional programming              |
-| [@ttfx/effect-do](./packages/effect-do)     | Do-notation                         |
+| [@ttfx/fp](./packages/fp)                   | Functional programming              |
 
 ### Adapters
 
 | Package                                           | Description           |
 | ------------------------------------------------- | --------------------- |
-| [@ttfx/adapter-effect](./packages/adapter-effect) | Effect-TS integration |
-| [@ttfx/adapter-kysely](./packages/adapter-kysely) | Kysely integration    |
+| [@ttfx/effect](./packages/effect) | Effect-TS integration |
+| [@ttfx/kysely](./packages/kysely) | Kysely integration    |
 | [@ttfx/react](./packages/react)                   | React macros          |
 | [@ttfx/testing](./packages/testing)               | Testing macros        |
 

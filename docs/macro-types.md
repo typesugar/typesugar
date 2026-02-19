@@ -165,8 +165,7 @@ continuation: {
 ### Examples
 
 ```typescript
-import "@ttfx/effect-do";
-import "@ttfx/adapter-effect";
+import "@ttfx/effect";
 
 // let: yield: — monadic do-notation
 let: {

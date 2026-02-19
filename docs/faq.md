@@ -23,7 +23,7 @@ No, ttfx is TypeScript-only. It uses TypeScript's compiler API and type informat
 
 ### Is there runtime overhead?
 
-No. Macros expand at compile time. The output is plain JavaScript with no ttfx runtime dependencies (unless you're using packages like `@ttfx/cats` that provide runtime types).
+No. Macros expand at compile time. The output is plain JavaScript with no ttfx runtime dependencies (unless you're using packages like `@ttfx/fp` that provide runtime types).
 
 ## Setup
 
@@ -51,7 +51,7 @@ npx ts-patch install
 Yes, configure the Webpack plugin in `next.config.js`:
 
 ```javascript
-const ttfx = require("@ttfx/integrations/webpack");
+const ttfx = require("unplugin-ttfx/webpack");
 
 module.exports = {
   webpack: (config) => {
@@ -129,12 +129,7 @@ Yes. Macros have access to TypeScript's type checker and can use type informatio
 
 Usually not directly. It's a dependency of other packages and provides the macro registration system. You only need it if you're writing custom macros.
 
-### What's the difference between @ttfx/cats and @ttfx/effect-do?
-
-- `@ttfx/cats` — Full functional programming library (Option, Either, IO, etc.)
-- `@ttfx/effect-do` — Just do-notation macros, works with any monadic type
-
-### Can I use @ttfx/adapter-effect with Effect-TS?
+### Can I use @ttfx/effect with Effect-TS?
 
 Yes, that's exactly what it's for. It provides cleaner syntax for Effect-TS operations.
 
