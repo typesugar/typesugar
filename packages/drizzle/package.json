@@ -1,7 +1,7 @@
 {
-  "name": "@typesugar/kysely",
+  "name": "@typesugar/drizzle",
   "version": "0.1.0",
-  "description": "Kysely adapter for typesugar - type-safe SQL tagged templates that compile to Kysely's RawBuilder",
+  "description": "Drizzle adapter for typesugar - type-safe SQL tagged templates that compile to Drizzle's sql template",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -23,7 +23,8 @@
   "keywords": [
     "typescript",
     "macros",
-    "kysely",
+    "drizzle",
+    "drizzle-orm",
     "sql",
     "database",
     "type-safe",
@@ -37,15 +38,15 @@
   },
   "peerDependencies": {
     "typescript": ">=5.0.0",
-    "kysely": ">=0.27.0"
+    "drizzle-orm": ">=0.30.0"
   },
   "peerDependenciesMeta": {
-    "kysely": {
+    "drizzle-orm": {
       "optional": true
     }
   },
   "devDependencies": {
-    "kysely": "^0.27.0"
+    "drizzle-orm": "^0.30.0"
   },
   "files": [
     "dist",

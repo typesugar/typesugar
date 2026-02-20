@@ -197,6 +197,19 @@ export {
 export { deriveMetaMacro } from "./derive-meta.js";
 
 // ============================================================================
+// Typeclasses for ORM Integration
+// ============================================================================
+
+export type { Queryable } from "./queryable.js";
+export { Queryable as QueryableCompanion } from "./queryable.js";
+
+// ============================================================================
+// Macro Utilities
+// ============================================================================
+
+export { validateSqlSyntax } from "./macro-utils.js";
+
+// ============================================================================
 // Runtime Helper (used by the sql macro)
 // ============================================================================
 

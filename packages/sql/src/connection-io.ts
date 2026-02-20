@@ -58,6 +58,7 @@ import {
   Unit,
 } from "./typed-fragment.js";
 import { Read, Write, SqlRow } from "./meta.js";
+import { Queryable } from "./queryable.js";
 
 // ============================================================================
 // ConnectionIO Algebra (Operations)
@@ -92,6 +93,11 @@ export type ConnectionOp<A> =
       readonly _tag: "HandleError";
       readonly cio: ConnectionIO<A>;
       readonly handler: (e: Error) => ConnectionIO<A>;
+    }
+  | {
+      readonly _tag: "ExecuteQueryable";
+      readonly query: unknown;
+      readonly queryable: Queryable<unknown>;
     }
   | { readonly _tag: "Transact"; readonly cio: ConnectionIO<A> };
 
@@ -225,6 +231,18 @@ export class ConnectionIO<A> {
   // --------------------------------------------------------------------------
   // Static Constructors
   // --------------------------------------------------------------------------
+
+  /**
+   * Lift an ORM-specific query (like Kysely or Drizzle query builder) 
+   * into a ConnectionIO operation.
+   */
+  static fromQueryable<Q, A = unknown>(query: Q, queryable: Queryable<Q>): ConnectionIO<A> {
+    return new ConnectionIO({
+      _tag: "ExecuteQueryable",
+      query,
+      queryable: queryable as Queryable<unknown>
+    }) as ConnectionIO<A>;
+  }
 
   /**
    * Lift a pure value into ConnectionIO.
@@ -471,6 +489,10 @@ export class Transactor {
           const e = error instanceof Error ? error : new Error(String(error));
           return await this.interpret(op.handler(e), conn);
         }
+      }
+
+      case "ExecuteQueryable": {
+        return (await op.queryable.execute(op.query, conn)) as A;
       }
 
       case "Transact": {

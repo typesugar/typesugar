@@ -413,82 +413,13 @@ export const rawMacro: ExpressionMacro = defineExpressionMacro({
   },
 });
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Basic SQL syntax validation
- */
-function validateSqlSyntax(
-  sql: string,
-  ctx: MacroContext,
-  node: ts.Node,
-): boolean {
-  const trimmed = sql.trim().toUpperCase();
-
-  // Check for common SQL injection patterns
-  const dangerousPatterns = [
-    /;\s*DROP\s+TABLE/i,
-    /;\s*DELETE\s+FROM/i,
-    /;\s*TRUNCATE/i,
-    /--.*$/m,
-    /\/\*.*\*\//s,
-  ];
-
-  for (const pattern of dangerousPatterns) {
-    if (pattern.test(sql)) {
-      ctx.reportWarning(
-        node,
-        "SQL contains potentially dangerous patterns. Review carefully.",
-      );
-      break;
-    }
-  }
-
-  // Basic keyword validation
-  const validStarters = [
-    "SELECT",
-    "INSERT",
-    "UPDATE",
-    "DELETE",
-    "WITH",
-    "CREATE",
-    "ALTER",
-    "DROP",
-    "TRUNCATE",
-  ];
-  const startsValid = validStarters.some((kw) => trimmed.startsWith(kw));
-
-  if (!startsValid && trimmed.length > 0) {
-    // Allow fragments that don't start with keywords
-    // (they might be subqueries or conditions)
-    return true;
-  }
-
-  // Check for unbalanced parentheses
-  let parenCount = 0;
-  for (const char of sql) {
-    if (char === "(") parenCount++;
-    if (char === ")") parenCount--;
-    if (parenCount < 0) {
-      ctx.reportError(
-        node,
-        "SQL has unbalanced parentheses: too many closing parentheses",
-      );
-      return false;
-    }
-  }
-  if (parenCount !== 0) {
-    ctx.reportError(
-      node,
-      "SQL has unbalanced parentheses: missing closing parentheses",
-    );
-    return false;
-  }
-
-  return true;
-}
+import {
+  validateSqlSyntax,
+  QueryableCompanion,
+  DbConnection,
+  Queryable,
+} from "@typesugar/sql";
+import type { Compilable } from "kysely";
 
 // ============================================================================
 // Registration
@@ -589,6 +520,23 @@ export function raw$(_sql: string): never {
       "Make sure @typesugar/kysely is registered with the transformer.",
   );
 }
+
+// ============================================================================
+// Doobie-style ConnectionIO Integration
+// ============================================================================
+
+/**
+ * KyselyQueryable — A Queryable instance for executing Kysely queries in ConnectionIO.
+ *
+ * It allows lifting any Kysely `Compilable` (e.g. SelectQueryBuilder, UpdateQueryBuilder, RawBuilder)
+ * directly into Doobie-style programs via `ConnectionIO.fromQueryable(query, KyselyQueryable)`.
+ */
+export const KyselyQueryable: Queryable<Compilable<unknown>> = QueryableCompanion.make(
+  async (query: Compilable<unknown>, conn: DbConnection) => {
+    const { sql, parameters } = query.compile();
+    return await conn.query(sql, parameters as unknown[]);
+  },
+);
 
 // ============================================================================
 // Kysely Integration Types
