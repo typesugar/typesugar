@@ -3,12 +3,10 @@
  *
  * A unified match() macro providing Scala-quality pattern matching that compiles
  * to optimized decision trees. Supports discriminated unions with destructuring,
- * literal dispatch, and guard predicates — all with compile-time exhaustiveness
- * checking and zero runtime overhead.
+ * literal dispatch, guard predicates, OR patterns, type patterns, and array
+ * helpers — all with compile-time exhaustiveness checking and zero runtime overhead.
  *
  * ## Compilation Strategies
- *
- * The macro selects the optimal code generation strategy based on pattern analysis:
  *
  * | Pattern Kind          | Arms ≤ 6           | Arms > 6                 |
  * |-----------------------|---------------------|--------------------------|
@@ -23,7 +21,7 @@
  *
  * @example
  * ```typescript
- * import { match, when, otherwise } from "@typesugar/fp/zero-cost";
+ * import { match, when, otherwise, isType, P } from "@typesugar/fp/zero-cost";
  *
  * // Discriminated union with destructuring
  * type Shape =
@@ -36,25 +34,42 @@
  *   square: ({ side }) => side ** 2,
  *   triangle: ({ base, height }) => 0.5 * base * height,
  * });
- * // Compiles to: shape.kind === "circle" ? (({radius}) => ...)(shape) : ...
+ *
+ * // OR patterns — pipe-separated keys share a handler
+ * const flat = match(shape, {
+ *   "circle|square": (s) => "flat shape",
+ *   triangle: (s) => "angled shape",
+ * });
+ * // Compiles to: (kind === "circle" || kind === "square") ? handler : ...
  *
  * // Literal dispatch with compile-time exhaustiveness
  * const msg = match(statusCode, {
  *   200: () => "OK",
  *   404: () => "Not Found",
- *   500: () => "Server Error",
  *   _: (code) => `Unknown: ${code}`,
  * });
- * // With >6 integer arms: compiles to binary search tree (O(log n))
+ *
+ * // Type patterns — isType<T>() generates optimal type guards
+ * const desc = match(value, [
+ *   when(isType("string"), s => `str: ${s}`),
+ *   when(isType("number"), n => n.toFixed(2)),
+ *   otherwise(() => "other"),
+ * ]);
+ *
+ * // Array pattern helpers
+ * const result = match(list, [
+ *   when(P.empty, () => "empty"),
+ *   when(P.length(1), ([x]) => `one: ${x}`),
+ *   when(P.minLength(2), ([a, b]) => `starts: ${a}, ${b}`),
+ *   otherwise(() => "default"),
+ * ]);
  *
  * // Guard-based matching
  * const category = match(age, [
  *   when(n => n < 13, () => "child"),
  *   when(n => n < 18, () => "teen"),
- *   when(n => n >= 65, () => "senior"),
  *   otherwise(() => "adult"),
  * ]);
- * // Compiles to: ((n) => n < 13)(age) ? (() => "child")(age) : ...
  * ```
  */
 
@@ -105,6 +120,119 @@ export function when<T, R>(
 export function otherwise<T, R>(handler: (value: T) => R): GuardArm<T, R> {
   return { predicate: () => true, handler };
 }
+
+// ============================================================================
+// Type Patterns — isType() generates optimal runtime type guards
+// ============================================================================
+
+type PrimitiveTypeName = "string" | "number" | "boolean" | "bigint" | "symbol" | "undefined" | "function";
+
+/**
+ * Create a type guard predicate for use in match() guard arms.
+ *
+ * For primitives: generates `typeof x === "..."` checks.
+ * For classes: pass the constructor directly for `instanceof` checks.
+ * For null: use `isType("null")`.
+ *
+ * @example
+ * ```typescript
+ * match(value, [
+ *   when(isType("string"), s => s.length),
+ *   when(isType("number"), n => n.toFixed(2)),
+ *   when(isType("null"), () => "nothing"),
+ *   when(isType(Date), d => d.toISOString()),
+ *   otherwise(() => "unknown"),
+ * ]);
+ * ```
+ */
+export function isType(typeName: PrimitiveTypeName | "null" | "object"): (value: unknown) => boolean;
+export function isType<T>(ctor: new (...args: any[]) => T): (value: unknown) => value is T;
+export function isType(typeOrCtor: string | (new (...args: any[]) => any)): (value: unknown) => boolean {
+  if (typeof typeOrCtor === "string") {
+    if (typeOrCtor === "null") return (v) => v === null;
+    return (v) => typeof v === typeOrCtor;
+  }
+  return (v) => v instanceof typeOrCtor;
+}
+
+// ============================================================================
+// Array Pattern Helpers — compile-time optimized array predicates
+// ============================================================================
+
+/**
+ * Pattern helpers for array/tuple matching in guard arms.
+ *
+ * These are recognized by the match macro and compiled to optimal checks.
+ * At runtime they work as regular predicates.
+ *
+ * @example
+ * ```typescript
+ * match(list, [
+ *   when(P.empty, () => "empty list"),
+ *   when(P.length(1), ([x]) => `singleton: ${x}`),
+ *   when(P.length(2), ([a, b]) => `pair: ${a}, ${b}`),
+ *   when(P.minLength(3), ([a, b, c, ...rest]) => `3+`),
+ *   when(P.head(x => x > 0), ([pos, ...rest]) => `starts positive`),
+ *   otherwise(() => "default"),
+ * ]);
+ * ```
+ */
+export const P = {
+  /** Matches empty arrays: `arr.length === 0` */
+  empty: (arr: readonly unknown[]): boolean => arr.length === 0,
+
+  /** Matches null or undefined */
+  nil: (value: unknown): value is null | undefined => value == null,
+
+  /** Matches non-null, non-undefined */
+  defined: (value: unknown): boolean => value != null,
+
+  /** Matches arrays of exactly n elements */
+  length(n: number): (arr: readonly unknown[]) => boolean {
+    return (arr) => arr.length === n;
+  },
+
+  /** Matches arrays with at least n elements */
+  minLength(n: number): (arr: readonly unknown[]) => boolean {
+    return (arr) => arr.length >= n;
+  },
+
+  /** Matches arrays whose first element satisfies a predicate */
+  head<T>(pred: (value: T) => boolean): (arr: readonly T[]) => boolean {
+    return (arr) => arr.length > 0 && pred(arr[0]);
+  },
+
+  /** Matches values in a set of allowed values */
+  oneOf<T>(...values: T[]): (value: T) => boolean {
+    const set = new Set<unknown>(values);
+    return (v) => set.has(v);
+  },
+
+  /** Matches values within a numeric range [lo, hi] inclusive */
+  between(lo: number, hi: number): (value: number) => boolean {
+    return (v) => v >= lo && v <= hi;
+  },
+
+  /** Matches values satisfying all predicates */
+  allOf<T>(...preds: Array<(value: T) => boolean>): (value: T) => boolean {
+    return (v) => preds.every((p) => p(v));
+  },
+
+  /** Matches values satisfying any predicate (OR combinator for guards) */
+  anyOf<T>(...preds: Array<(value: T) => boolean>): (value: T) => boolean {
+    return (v) => preds.some((p) => p(v));
+  },
+
+  /** Matches objects that have a given property */
+  has<K extends string>(key: K): (value: unknown) => boolean {
+    return (v) => typeof v === "object" && v !== null && key in v;
+  },
+
+  /** Matches strings against a regex */
+  regex(pattern: RegExp): (value: string) => boolean {
+    return (v) => pattern.test(v);
+  },
+} as const;
 
 // ============================================================================
 // Runtime Fallbacks
@@ -378,7 +506,7 @@ function generateSwitchIIFE(
     paramId,
   );
 
-  const clauseList = cases.map((c) =>
+  const clauseList: ts.CaseOrDefaultClause[] = cases.map((c) =>
     factory.createCaseClause(c.test, [factory.createReturnStatement(c.body)]),
   );
   clauseList.push(
@@ -529,13 +657,15 @@ const enum MatchForm {
 }
 
 interface HandlerEntry {
-  name: string;
+  /** For OR patterns, names contains multiple variants (e.g., ["circle", "square"]) */
+  names: string[];
   handler: ts.Expression;
 }
 
 interface MatchAnalysis {
   form: MatchForm;
   discriminant?: string;
+  /** All individual variant keys (OR patterns expanded) */
   keys: string[];
   handlers: HandlerEntry[];
   wildcardHandler?: ts.Expression;
@@ -552,14 +682,14 @@ function extractHandlers(
   for (const prop of obj.properties) {
     if (!ts.isPropertyAssignment(prop) && !ts.isMethodDeclaration(prop))
       continue;
-    const name = ts.isIdentifier(prop.name)
+    const rawName = ts.isIdentifier(prop.name)
       ? prop.name.text
       : ts.isStringLiteral(prop.name)
         ? prop.name.text
         : ts.isNumericLiteral(prop.name)
           ? prop.name.text
           : null;
-    if (!name) continue;
+    if (!rawName) continue;
 
     let handler: ts.Expression;
     if (ts.isPropertyAssignment(prop)) {
@@ -575,10 +705,14 @@ function extractHandlers(
       );
     }
 
-    if (name === "_") {
+    if (rawName === "_") {
       wildcardHandler = handler;
     } else {
-      entries.push({ name, handler });
+      // OR patterns: split "circle|square" into ["circle", "square"]
+      const names = rawName.includes("|")
+        ? rawName.split("|").map((s) => s.trim()).filter(Boolean)
+        : [rawName];
+      entries.push({ names, handler });
     }
   }
   return { entries, wildcardHandler };
@@ -594,7 +728,7 @@ function analyzeMatchForm(
   const checker = ctx.typeChecker;
   const valueType = ctx.getTypeOf(value);
   const { entries, wildcardHandler } = extractHandlers(factory, handlers);
-  const keys = entries.map((e) => e.name);
+  const keys = entries.flatMap((e) => e.names);
   const hasWildcard = wildcardHandler !== undefined;
 
   if (explicitDiscriminant) {
@@ -657,6 +791,36 @@ function analyzeMatchForm(
 // Per-Form Expansion
 // ============================================================================
 
+/**
+ * Build a condition testing whether disc matches any of the given names.
+ * Single name: `v.kind === "circle"`
+ * OR pattern: `(v.kind === "circle" || v.kind === "square")`
+ */
+function buildDiscriminantCondition(
+  factory: ts.NodeFactory,
+  scrutinee: ts.Expression,
+  disc: string,
+  names: string[],
+): ts.Expression {
+  const conditions = names.map((name) =>
+    factory.createBinaryExpression(
+      factory.createPropertyAccessExpression(scrutinee, disc),
+      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+      factory.createStringLiteral(name),
+    ),
+  );
+  if (conditions.length === 1) return conditions[0];
+  return factory.createParenthesizedExpression(
+    conditions.reduce((left, right) =>
+      factory.createBinaryExpression(
+        left,
+        factory.createToken(ts.SyntaxKind.BarBarToken),
+        right,
+      ),
+    ),
+  );
+}
+
 function expandDiscriminantMatch(
   ctx: MacroContext,
   value: ts.Expression,
@@ -668,33 +832,57 @@ function expandDiscriminantMatch(
     ? factory.createCallExpression(analysis.wildcardHandler, undefined, [value])
     : generateThrowIIFE(factory, "Non-exhaustive match");
 
-  if (analysis.handlers.length > SWITCH_THRESHOLD) {
-    const paramId = factory.createIdentifier("__v");
-    const cases = analysis.handlers.map((h) => ({
-      test: factory.createStringLiteral(h.name) as ts.Expression,
-      body: factory.createCallExpression(h.handler, undefined, [paramId]),
-    }));
-    const defaultBody = analysis.wildcardHandler
-      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [
-          paramId,
-        ])
-      : generateThrowIIFE(factory, "Non-exhaustive match");
+  const totalKeys = analysis.keys.length;
 
-    return generateSwitchIIFE(
-      factory,
-      value,
-      (param) => factory.createPropertyAccessExpression(param, disc),
-      cases,
-      defaultBody,
+  if (totalKeys > SWITCH_THRESHOLD) {
+    const paramId = factory.createIdentifier("__v");
+    // For switch form, OR patterns become multiple case labels falling through
+    const switchCases: ts.CaseOrDefaultClause[] = [];
+    for (const h of analysis.handlers) {
+      for (let i = 0; i < h.names.length; i++) {
+        if (i < h.names.length - 1) {
+          // Fall-through case (empty statement list)
+          switchCases.push(
+            factory.createCaseClause(factory.createStringLiteral(h.names[i]), []),
+          );
+        } else {
+          // Last name in the OR group gets the handler
+          switchCases.push(
+            factory.createCaseClause(
+              factory.createStringLiteral(h.names[i]),
+              [factory.createReturnStatement(
+                factory.createCallExpression(h.handler, undefined, [paramId]),
+              )],
+            ),
+          );
+        }
+      }
+    }
+    const defaultBody = analysis.wildcardHandler
+      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [paramId])
+      : generateThrowIIFE(factory, "Non-exhaustive match");
+    switchCases.push(
+      factory.createDefaultClause([factory.createReturnStatement(defaultBody)]),
+    );
+
+    const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+    const switchStmt = factory.createSwitchStatement(
+      factory.createPropertyAccessExpression(paramId, disc),
+      factory.createCaseBlock(switchCases),
+    );
+    const fn = factory.createArrowFunction(
+      undefined, undefined, [param], undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      factory.createBlock([switchStmt], true),
+    );
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(fn),
+      undefined, [value],
     );
   }
 
   const entries = analysis.handlers.map((h) => ({
-    condition: factory.createBinaryExpression(
-      factory.createPropertyAccessExpression(value, disc),
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createStringLiteral(h.name),
-    ),
+    condition: buildDiscriminantCondition(factory, value, disc, h.names),
     result: factory.createCallExpression(h.handler, undefined, [value]),
   }));
 
