@@ -1,399 +1,312 @@
-# Plan: Typeclass-Based Operator Overloading (Revised)
+# Plan: Typeclass-Based Operator Overloading — `Op<>` Design
+
+## Status: IMPLEMENTED
+
+The core infrastructure is implemented. This document describes the design and implementation.
 
 ## The Cats/Scala Model
 
-After studying Cats, here's how it actually works:
+In Scala's Cats library, operators are provided by "syntax" extension methods that
+require a typeclass instance:
 
 ```scala
-// 1. Typeclass - JUST the interface, no operators
+// Typeclass — just the interface
 trait Semigroup[A] {
   def combine(a: A, b: A): A
 }
 
-// 2. Syntax - SEPARATELY defines operators as extensions that REQUIRE a typeclass
-// (in cats/syntax/semigroup.scala)
-final class SemigroupOps[A: Semigroup](lhs: A) {  // Note: requires Semigroup[A]
+// Syntax — separately defines operators that REQUIRE a typeclass
+final class SemigroupOps[A: Semigroup](lhs: A) {
   def |+|(rhs: A): A = Semigroup[A].combine(lhs, rhs)
 }
 
-// 3. Instance - implementation for a specific type
+// Instance — implementation for a specific type
 given Semigroup[List[Int]] with
   def combine(a: List[Int], b: List[Int]) = a ++ b
 
-// 4. Usage - operator works because instance exists
-List(1, 2) |+| List(3, 4)  // Works! Semigroup[List[Int]] exists
+// Usage — operator works because instance exists
+List(1, 2) |+| List(3, 4)
 ```
 
-**The key**: Syntax is an extension method that REQUIRES a typeclass instance. The operator doesn't "belong" to the typeclass - it's a syntactic convenience that calls the typeclass method IF an instance can be summoned.
+## ttfx Approach: `Op<S>` Branded Type
+
+Instead of separate syntax declarations, ttfx uses a branded intersection type
+`Op<S>` on method return types to declare operator mappings inline:
+
+```typescript
+import { Op } from "ttfx";
+
+@typeclass
+interface Semigroup<A> {
+  concat(a: A, b: A): A & Op<"+">;
+}
+
+@instance("Array")
+const arraySemigroup: Semigroup<Array<unknown>> = {
+  concat: (a, b) => [...a, ...b],
+};
+
+// Usage — + works because:
+// 1. Op<"+"> on concat declares: + → Semigroup.concat
+// 2. Semigroup instance exists for Array
+[1, 2] + [3, 4]  // Compiles to: [...[1, 2], ...[3, 4]]
+```
+
+`Op<S>` is:
+
+- A compile-time-only branded type (`type Op<_S extends OperatorSymbol> = {}`)
+- Stripped from emitted code by the transformer
+- Restricted to valid `OperatorSymbol` values for compile-time safety
+
+### Supported Operators
+
+Defined in `src/core/types.ts` as `OPERATOR_SYMBOLS`:
+
+```
++  -  *  /  %  **
+<  <=  >  >=
+==  ===  !=  !==
+&  |  ^  <<  >>
+```
 
 ## Zero-Cost Abstraction
 
-The key insight: at compile time we KNOW everything:
+At compile time we know everything:
 
-1. Which operator is being used
+1. Which operator is used
 2. The type of the operands
-3. Which typeclass provides the syntax for that operator
+3. Which typeclass provides the syntax via `Op<>`
 4. Which instance exists for that type
-5. The body of the instance's method
+5. The body of the instance method
 
-So instead of generating runtime lookups, we **inline directly**:
+So instead of runtime lookups, we **inline directly**:
 
 ```typescript
 // Source:
 [1, 2] + [3, 4]
 
-// BAD (runtime cost): Map lookup + indirect call
-Semigroup.summon<Array>("Array").concat([1,2], [3,4])
+// BEST (zero-cost): Inline the method body
+[...[1, 2], ...[3, 4]]
 
 // GOOD (one indirection): Direct instance reference
-arraySemigroup.concat([1,2], [3,4])
-
-// BEST (zero-cost): Inline the method body
-[...[1,2], ...[3,4]]
+arraySemigroup.concat([1, 2], [3, 4])
 ```
 
-The existing `specialize` macro already does this for functions. We reuse `inlineMethod()` from `specialize.ts` for operators.
+## Implementation
 
-## ttfx Model
-
-### Option A: Syntax Declared in Typeclass (Simpler)
+### Core Types (`src/core/types.ts`)
 
 ```typescript
-// Typeclass declares which operators map to which methods
-// This is metadata, not part of the interface contract
-@typeclass
-interface Semigroup<A> {
-  concat(a: A, b: A): A;
+export const OPERATOR_SYMBOLS = [
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "**",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "==",
+  "===",
+  "!=",
+  "!==",
+  "&",
+  "|",
+  "^",
+  "<<",
+  ">>",
+] as const;
 
-  // Syntax declaration - says "+" can be used to call concat
-  static syntax = { "+": "concat" };
-}
-
-// Instance - just implements the methods
-@instance
-const arraySemigroup: Semigroup<Array<unknown>> = {
-  concat: (a, b) => [...a, ...b],
-};
-
-// Usage - + works because:
-// 1. Syntax says + → Semigroup.concat
-// 2. Semigroup instance exists for Array
-[1, 2] + [3, 4]  // → Semigroup.summon<Array>("Array").concat([1,2], [3,4])
+export type OperatorSymbol = (typeof OPERATOR_SYMBOLS)[number];
+export type Op<_S extends OperatorSymbol> = {};
 ```
 
-### Option B: Syntax Declared Separately (More Like Cats)
+### TypeclassMethod Extension (`src/macros/typeclass.ts`)
 
 ```typescript
-// Typeclass - pure interface
-@typeclass
-interface Semigroup<A> {
-  concat(a: A, b: A): A;
-}
-
-// Syntax - separately declares operator mappings
-// Only active when imported
-@syntax(Semigroup, { "+": "concat" })
-
-// Or as a function:
-declareSyntax(Semigroup, "+", "concat");
-
-// Instance
-@instance
-const arraySemigroup: Semigroup<Array<unknown>> = {
-  concat: (a, b) => [...a, ...b],
-};
-
-// Usage
-import { semigroupSyntax } from "@ttfx/syntax";  // Must import syntax!
-[1, 2] + [3, 4]
-```
-
-### Option C: Extension Methods with Typeclass Constraint
-
-This is closest to Scala 3:
-
-```typescript
-// Typeclass
-@typeclass
-interface Semigroup<A> {
-  concat(a: A, b: A): A;
-}
-
-// Extension method that requires Semigroup instance
-// The "+" is just the extension method name (but we can't use symbols in TS)
-@extension(Semigroup)
-function concat<A>(self: A, other: A): A {
-  return summon<Semigroup<A>>().concat(self, other);
-}
-
-// Operator mapping is separate
-@operatorSyntax({ "+": { typeclass: Semigroup, method: "concat" } })
-
-// Usage
-[1, 2] + [3, 4]
-// Transformer sees: + operator, Array type
-// Checks: is there syntax for + that requires a typeclass?
-// Yes: + requires Semigroup with method concat
-// Checks: is there a Semigroup instance for Array?
-// Yes!
-// Rewrites to: Semigroup.summon<Array>("Array").concat([1,2], [3,4])
-```
-
-## Which Comes First?
-
-**Question**: When we see `a + b`, how do we know what to do?
-
-**Answer** (Cats model):
-
-1. Look up: is there syntax that maps `+` to some typeclass method?
-2. If yes: which typeclass and method?
-3. Check: does an instance of that typeclass exist for `typeof a`?
-4. If yes: rewrite to `TC.summon<T>("T").method(a, b)`
-
-So the lookup is:
-
-```
-Operator → Syntax mapping → Typeclass + Method → Instance check → Rewrite
-```
-
-## Proposed Design (Option A - Simpler)
-
-Keep it simple: syntax is declared in the typeclass, but it's just metadata about how operators map to methods.
-
-### TypeclassInfo Extension
-
-```typescript
-interface TypeclassInfo {
+interface TypeclassMethod {
   name: string;
-  typeParam: string;
-  methods: TypeclassMethod[];
-  canDeriveProduct: boolean;
-  canDeriveSum: boolean;
-  syntax?: Map<string, string>; // operator → method name
+  params: Array<{ name: string; typeString: string }>;
+  returnType: string;
+  isSelfMethod: boolean;
+  operatorSymbol?: string; // From Op<> annotation
 }
 ```
 
-### Global Syntax Registry
+### Op<> Parsing (`src/macros/typeclass.ts`)
+
+`extractOpFromReturnType(typeNode)` walks intersection types looking for
+`Op<S>` members. Returns `{ operatorSymbol, cleanReturnType }`.
+
+Called during `@typeclass` expansion when extracting method metadata from
+the interface. Populates `TypeclassMethod.operatorSymbol` and builds the
+`TypeclassInfo.syntax` map.
+
+### Interface Stripping (`src/macros/typeclass.ts`)
+
+`stripOpFromInterface(ctx, iface)` produces a clean interface for emitted
+code with `Op<>` removed from all return types.
+
+### Syntax Registry (`src/macros/typeclass.ts`)
 
 ```typescript
 // Maps: operator → array of { typeclass, method }
-// Multiple typeclasses might use the same operator
-const syntaxRegistry = new Map<
-  string,
-  Array<{ typeclass: string; method: string }>
->();
+const syntaxRegistry = new Map<string, SyntaxEntry[]>();
 
-// When a typeclass with syntax is registered:
-function registerTypeclassSyntax(tcName: string, syntax: Map<string, string>) {
-  for (const [op, method] of syntax) {
-    let entries = syntaxRegistry.get(op);
-    if (!entries) {
-      entries = [];
-      syntaxRegistry.set(op, entries);
-    }
-    entries.push({ typeclass: tcName, method });
-  }
-}
+function registerTypeclassSyntax(
+  tcName: string,
+  syntax: Map<string, string>,
+): void;
+function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined;
 ```
 
-### Transformer Logic (Zero-Cost via Inlining)
+### Transformer (`src/transforms/macro-transformer.ts`)
+
+`tryRewriteTypeclassOperator(node: ts.BinaryExpression)`:
+
+1. Convert `operatorToken.kind` → string via `getOperatorString()`
+2. Look up `syntaxRegistry` for that operator
+3. Determine left operand type via type checker
+4. Check each registered typeclass for an instance matching that type
+5. If found: try zero-cost inlining via `inlineMethodForAutoSpec()`
+6. Fallback: emit `instanceVar.method(left, right)`
+7. Ambiguity: if multiple typeclasses match → compile error
+
+## Standard Typeclasses with Op<>
 
 ```typescript
-private tryRewriteTypeclassOperator(node: ts.BinaryExpression): ts.Expression | undefined {
-  const operator = getOperatorString(node.operatorToken.kind);
-  if (!operator) return undefined;
-
-  // Skip primitives
-  const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-  if (this.isPrimitiveType(leftType)) return undefined;
-
-  const typeName = this.ctx.typeChecker.typeToString(leftType);
-  const baseTypeName = typeName.replace(/<.*>$/, "");
-
-  // Find syntax mappings for this operator
-  const syntaxEntries = syntaxRegistry.get(operator);
-  if (!syntaxEntries || syntaxEntries.length === 0) return undefined;
-
-  // Check each typeclass that uses this operator
-  for (const { typeclass, method } of syntaxEntries) {
-    // Does an instance exist for this type?
-    const instance = findInstance(typeclass, baseTypeName)
-                  || findInstance(typeclass, typeName);
-
-    if (instance) {
-      // Get the method's implementation from the registered instance
-      const methodInfo = getInstanceMethods(instance.name);  // From specialize.ts
-      const methodImpl = methodInfo?.methods.get(method);
-
-      const left = ts.visitNode(node.left, this.boundVisit) as ts.Expression;
-      const right = ts.visitNode(node.right, this.boundVisit) as ts.Expression;
-
-      if (methodImpl) {
-        // ZERO-COST: Inline the method body directly
-        // a + b → [...a, ...b]  (if concat = (a, b) => [...a, ...b])
-        return inlineMethod(this.ctx, methodImpl, [left, right]);
-      } else {
-        // Fallback: Direct instance reference (one indirection, still fast)
-        // a + b → arraySemigroup.concat(a, b)
-        return this.ctx.factory.createCallExpression(
-          this.ctx.factory.createPropertyAccessExpression(
-            this.ctx.factory.createIdentifier(instance.name),
-            method
-          ),
-          undefined,
-          [left, right]
-        );
-      }
-    }
-  }
-
-  return undefined;
-}
-```
-
-## Standard Typeclasses with Syntax
-
-```typescript
-@typeclass
-interface Semigroup<A> {
-  concat(a: A, b: A): A;
-  static syntax = { "+": "concat" };
-}
-
-@typeclass
-interface Num<A> {
-  add(a: A, b: A): A;
-  sub(a: A, b: A): A;
-  mul(a: A, b: A): A;
-  static syntax = { "+": "add", "-": "sub", "*": "mul" };
-}
-
 @typeclass
 interface Eq<A> {
-  eq(a: A, b: A): boolean;
-  neq(a: A, b: A): boolean;
-  static syntax = { "==": "eq", "!=": "neq" };
+  eq(a: A, b: A): boolean & Op<"===">;
+  neq(a: A, b: A): boolean & Op<"!==">;
 }
 
 @typeclass
-interface Ord<A> extends Eq<A> {
-  compare(a: A, b: A): -1 | 0 | 1;
-  lt(a: A, b: A): boolean;
-  gt(a: A, b: A): boolean;
-  static syntax = { "<": "lt", ">": "gt", "<=": "lte", ">=": "gte" };
+interface Ord<A> {
+  compare(a: A, b: A): (-1 | 0 | 1) & Op<"<">;
 }
 
-@typeclass
-interface Bind<F> {
-  bind<A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>): Kind<F, B>;
-  static syntax = { ">>": "bind" };  // Repurpose right-shift for monadic bind
-}
-```
-
-## Example: Multiple Typeclasses for Same Operator
-
-What if both `Num` and `Semigroup` define `+`?
-
-```typescript
-// Num uses + for numeric addition
-@typeclass
-interface Num<A> {
-  add(a: A, b: A): A;
-  static syntax = { "+": "add" };
-}
-
-// Semigroup uses + for concatenation
 @typeclass
 interface Semigroup<A> {
-  concat(a: A, b: A): A;
-  static syntax = { "+": "concat" };
+  combine(a: A, b: A): A & Op<"+">;
 }
 
-// Vec2 has Num instance
-@instance const vec2Num: Num<Vec2> = { add: ... };
-
-// Array has Semigroup instance
-@instance const arraySemigroup: Semigroup<Array<unknown>> = { concat: ... };
-
-// Usage:
-vec1 + vec2  // → Num.summon<Vec2>("Vec2").add(vec1, vec2)
-[1,2] + [3,4]  // → Semigroup.summon<Array>("Array").concat([1,2], [3,4])
+@typeclass
+interface Monoid<A> {
+  empty(): A;
+  combine(a: A, b: A): A & Op<"+">;
+}
 ```
-
-The transformer tries each typeclass that defines `+` until one has a matching instance.
 
 ## Conflict Resolution
 
-What if a type has BOTH `Num` and `Semigroup` instances?
+When multiple typeclasses provide the same operator for the same type,
+the transformer reports a compile error:
 
-```typescript
-// Both define +
-@instance const fooNum: Num<Foo> = { add: ... };
-@instance const fooSemigroup: Semigroup<Foo> = { concat: ... };
-
-foo1 + foo2  // Which one wins?
 ```
-
-**Options**:
-
-1. First registered wins (order-dependent - bad)
-2. Compile error: ambiguous operator (safe)
-3. Explicit precedence: `Num` > `Semigroup` (opinionated)
-4. User must disambiguate: `summon<Num<Foo>>().add(foo1, foo2)`
-
-**Recommendation**: Option 2 - compile error with helpful message.
+Ambiguous operator '+' for type 'Foo':
+both Semigroup.concat and Num.add apply.
+Use explicit method calls to disambiguate.
+```
 
 ## Migration from `@operators`
 
-The existing `@operators` decorator becomes syntactic sugar:
-
-```typescript
-// This:
-@operators({ "+": "add" })
-class Vec2 { add(other: Vec2): Vec2 { ... } }
-
-// Becomes equivalent to:
-@typeclass
-interface Vec2Ops<A> {
-  add(a: A, b: A): A;
-  static syntax = { "+": "add" };
-}
-
-@instance
-const vec2Ops: Vec2Ops<Vec2> = {
-  add: (a, b) => a.add(b),  // Delegates to instance method
-};
-```
-
-## Tasks
-
-- [ ] Add `syntax?: Map<string, string>` to `TypeclassInfo`
-- [ ] Create `syntaxRegistry` for operator→typeclass lookups
-- [ ] Parse `static syntax = { ... }` in `@typeclass` decorator
-- [ ] Register syntax when typeclass is defined
-- [ ] Implement `tryRewriteTypeclassOperator()` in transformer
-- [ ] Handle operator precedence / conflict detection
-- [ ] Define standard typeclasses: `Semigroup`, `Num`, `Eq`, `Ord`, `Bind`
-- [ ] Update `@operators` to be sugar for typeclass+instance
-- [ ] Add tests for all scenarios
-- [ ] Update documentation
+The existing `@operators` decorator continues to work for class-level
+operator overloading within `ops()` expressions. The new typeclass-based
+system works globally without `ops()` wrapping.
 
 ## Zero-Cost Levels
 
-| Level           | Output                               | Runtime Cost      | When Used                         |
-| --------------- | ------------------------------------ | ----------------- | --------------------------------- |
-| **Full inline** | `[...a, ...b]`                       | None              | Method body is simple expression  |
-| **Direct call** | `arraySemigroup.concat(a, b)`        | 1 function call   | Method body too complex to inline |
-| **Summon call** | `Semigroup.summon(...).concat(a, b)` | Map lookup + call | Fallback if instance not known    |
+| Level           | Output                        | Runtime Cost    | When Used                         |
+| --------------- | ----------------------------- | --------------- | --------------------------------- |
+| **Full inline** | `[...a, ...b]`                | None            | Method body is simple expression  |
+| **Direct call** | `arraySemigroup.concat(a, b)` | 1 function call | Method body too complex to inline |
 
-The transformer prefers higher levels. Most simple methods (like array concat, vector add) will fully inline.
+## Files Changed
+
+- `src/core/types.ts` — `OPERATOR_SYMBOLS`, `OperatorSymbol`, `Op<>`
+- `src/index.ts` — Re-exports
+- `src/macros/typeclass.ts` — `extractOpFromReturnType()`, `stripOpFromInterface()`, syntax registry, `TypeclassMethod.operatorSymbol`
+- `src/macros/operators.ts` — `getOperatorString()` exported
+- `src/transforms/macro-transformer.ts` — `tryRewriteTypeclassOperator()`
+- `tests/typeclass-operators.test.ts` — 26 tests
 
 ## Open Questions
 
-1. **Conflict resolution**: Error on ambiguity, or defined precedence?
+1. **Import-gating**: Should operator overloading only activate when the typeclass
+   is imported? (More explicit, more like Cats)
 
-2. **Import-gating**: Should syntax only work when the typeclass is imported? (More like Cats, more explicit)
+2. **Right-operand fallback**: If `3 * vec` doesn't match (left is primitive),
+   should we check the right operand?
 
-3. **Right-operand fallback**: If `3 * vec` doesn't match (left is primitive), should we check right operand?
+3. **Unary operators**: Support for prefix `-` and `!` via separate annotation?
 
-4. **Method vs function signature**: Should `add(a, b)` or `add(other)` style methods be preferred? Cats uses `(a, b)` style.
+---
+
+## Future: unplugin Type-Aware Transformation Fix
+
+**Status: PLANNED**
+
+### Problem
+
+Currently `unplugin-ttfx` creates the TypeScript Program at `buildStart` with
+original source files, then preprocessing happens later in the `load` hook.
+This means the type checker sees original content (`F<_>`), not preprocessed
+content (`$<F, A>`), breaking type-aware macro transformations.
+
+### Solution
+
+Preprocess files **before** creating the Program using a custom CompilerHost:
+
+```typescript
+buildStart() {
+  const host = ts.createCompilerHost(config.options);
+  const originalReadFile = host.readFile;
+  
+  // Intercept file reads to return preprocessed content
+  host.readFile = (fileName) => {
+    const original = originalReadFile(fileName);
+    if (!original || !shouldPreprocess(fileName)) return original;
+    
+    // Check disk cache first
+    const cached = cache.get(fileName, original);
+    if (cached) return cached.code;
+    
+    // Preprocess and cache
+    const result = preprocess(original, { fileName });
+    cache.set(fileName, original, result);
+    return result.code;
+  };
+  
+  // Program now built with preprocessed content
+  program = ts.createProgram(config.fileNames, config.options, host);
+}
+```
+
+### Memory-Efficient Caching
+
+To avoid loading all preprocessed files into memory:
+
+1. **Disk-based cache**: Store in `.ttfx-cache/` or `node_modules/.cache/ttfx/`
+2. **Content-addressed**: Key = hash of (file content + preprocessor version)
+3. **Lazy loading**: Only preprocess when CompilerHost requests the file
+4. **Store source maps**: Alongside preprocessed content for accurate error locations
+5. **LRU eviction**: Limit cache size, evict least-recently-used entries
+
+Can reuse infrastructure from `src/core/cache.ts` (`MacroExpansionCache`).
+
+### Watch Mode
+
+- Invalidate cache entry when source file's mtime changes
+- Re-preprocess on next CompilerHost.readFile() call
+- Consider using file watcher to proactively invalidate
+
+### Implementation Steps
+
+1. Add `PreprocessCache` class with disk-backed storage
+2. Modify `buildStart()` to create custom CompilerHost
+3. Remove preprocessing from `load` hook (now happens in CompilerHost)
+4. Update `transform` hook to use Program's preprocessed SourceFiles directly
+5. Add cache invalidation for watch mode

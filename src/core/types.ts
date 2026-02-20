@@ -486,3 +486,79 @@ export interface TypeMacro extends MacroDefinitionBase {
     args: readonly ts.TypeNode[],
   ): ts.TypeNode;
 }
+
+// ============================================================================
+// Operator Overloading via Typeclasses
+// ============================================================================
+
+/**
+ * All operator symbols supported for typeclass-based operator overloading.
+ * Single source of truth — OperatorSymbol and getOperatorString() both derive from this.
+ */
+export const OPERATOR_SYMBOLS = [
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "**",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "==",
+  "===",
+  "!=",
+  "!==",
+  "&",
+  "|",
+  "^",
+  "<<",
+  ">>",
+] as const;
+
+/** Union type of all supported operator strings. */
+export type OperatorSymbol = (typeof OPERATOR_SYMBOLS)[number];
+
+/**
+ * Branded intersection type used as a compile-time marker on typeclass method
+ * return types to declare operator mappings.
+ *
+ * The transformer strips `Op<>` from emitted code — it has zero runtime cost.
+ *
+ * @example
+ * ```typescript
+ * @typeclass
+ * interface Semigroup<A> {
+ *   concat(a: A, b: A): A & Op<"+">;
+ * }
+ * ```
+ */
+export type Op<_S extends OperatorSymbol> = {};
+
+// ============================================================================
+// Standalone Extension Methods (Scala 3-style concrete type enrichment)
+// ============================================================================
+
+/**
+ * Information about a standalone extension method for a concrete type.
+ *
+ * Unlike typeclass-derived extensions (which go through instance resolution),
+ * standalone extensions are direct enrichments on concrete types, similar to
+ * Scala 3's `extension (n: Int) def isEven = ...`.
+ *
+ * The rewrite is simpler: no summon/instance lookup, just a direct call to
+ * the registered function.
+ */
+export interface StandaloneExtensionInfo {
+  /** The method name (e.g., "clamp") */
+  methodName: string;
+  /** The type this extension is for (e.g., "number", "string", "Array") */
+  forType: string;
+  /**
+   * How to reference the function at the call site.
+   * If qualifier is set: `qualifier.methodName(receiver, args)`
+   * If not: `methodName(receiver, args)`
+   */
+  qualifier?: string;
+}

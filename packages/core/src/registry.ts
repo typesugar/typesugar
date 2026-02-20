@@ -368,3 +368,93 @@ export const globalExtensionRegistry: ExtensionMethodRegistry =
 export function createExtensionRegistry(): ExtensionMethodRegistry {
   return new ExtensionMethodRegistryImpl();
 }
+
+// ============================================================================
+// Standalone Extension Registry (Scala 3-style concrete type enrichment)
+// ============================================================================
+
+import type { StandaloneExtensionInfo } from "./types.js";
+import * as ts from "typescript";
+
+/**
+ * Global registry for standalone extension methods.
+ * These are direct enrichments on concrete types, not typeclass-derived.
+ */
+export const standaloneExtensionRegistry: StandaloneExtensionInfo[] = [];
+
+/**
+ * Register a standalone extension entry.
+ * Idempotent: skips if an identical entry already exists.
+ */
+export function registerStandaloneExtensionEntry(
+  info: StandaloneExtensionInfo,
+): void {
+  const exists = standaloneExtensionRegistry.some(
+    (e) =>
+      e.methodName === info.methodName &&
+      e.forType === info.forType &&
+      e.qualifier === info.qualifier,
+  );
+  if (!exists) {
+    standaloneExtensionRegistry.push(info);
+  }
+}
+
+/**
+ * Find a standalone extension method for a given method name and type.
+ * Returns undefined if no standalone extension is registered.
+ */
+export function findStandaloneExtension(
+  methodName: string,
+  typeName: string,
+): StandaloneExtensionInfo | undefined {
+  return standaloneExtensionRegistry.find(
+    (e) => e.methodName === methodName && e.forType === typeName,
+  );
+}
+
+/**
+ * Get all standalone extensions registered for a type.
+ */
+export function getStandaloneExtensionsForType(
+  typeName: string,
+): StandaloneExtensionInfo[] {
+  return standaloneExtensionRegistry.filter((e) => e.forType === typeName);
+}
+
+/**
+ * Get all registered standalone extensions.
+ */
+export function getAllStandaloneExtensions(): StandaloneExtensionInfo[] {
+  return [...standaloneExtensionRegistry];
+}
+
+/**
+ * Build the AST for a standalone extension method call.
+ *
+ * Given `extend(receiver).method(args)` and a resolved StandaloneExtensionInfo,
+ * generates either:
+ *   - `Qualifier.method(receiver, args)` (if qualifier is set)
+ *   - `method(receiver, args)` (if no qualifier — bare function)
+ */
+export function buildStandaloneExtensionCall(
+  factory: ts.NodeFactory,
+  ext: StandaloneExtensionInfo,
+  receiver: ts.Expression,
+  extraArgs: readonly ts.Expression[],
+): ts.CallExpression {
+  let callee: ts.Expression;
+  if (ext.qualifier) {
+    callee = factory.createPropertyAccessExpression(
+      factory.createIdentifier(ext.qualifier),
+      ext.methodName,
+    );
+  } else {
+    callee = factory.createIdentifier(ext.methodName);
+  }
+
+  return factory.createCallExpression(callee, undefined, [
+    receiver,
+    ...extraArgs,
+  ]);
+}

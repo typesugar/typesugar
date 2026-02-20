@@ -20,71 +20,32 @@
  */
 
 import ts from "typescript";
-import type { MacroContext, ExpressionMacro } from "../core/types.js";
+import type {
+  MacroContext,
+  ExpressionMacro,
+  StandaloneExtensionInfo,
+} from "../core/types.js";
 import { defineExpressionMacro } from "../core/registry.js";
 import { globalRegistry } from "../core/registry.js";
+import {
+  standaloneExtensionRegistry,
+  registerStandaloneExtensionEntry,
+  findStandaloneExtension,
+  getStandaloneExtensionsForType,
+  getAllStandaloneExtensions,
+  buildStandaloneExtensionCall,
+} from "../core/registry.js";
 
-// ============================================================================
-// Registry
-// ============================================================================
-
-export interface StandaloneExtensionInfo {
-  /** The method name (e.g., "clamp") */
-  methodName: string;
-  /** The type this extension is for (e.g., "number", "string", "Array") */
-  forType: string;
-  /**
-   * How to reference the function at the call site.
-   * If qualifier is set: `qualifier.methodName(receiver, args)`
-   * If not: `methodName(receiver, args)`
-   */
-  qualifier?: string;
-}
-
-const standaloneExtensionRegistry: StandaloneExtensionInfo[] = [];
-
-export function registerStandaloneExtensionEntry(
-  info: StandaloneExtensionInfo,
-): void {
-  const exists = standaloneExtensionRegistry.some(
-    (e) =>
-      e.methodName === info.methodName &&
-      e.forType === info.forType &&
-      e.qualifier === info.qualifier,
-  );
-  if (!exists) {
-    standaloneExtensionRegistry.push(info);
-  }
-}
-
-/**
- * Find a standalone extension method for a given method name and type.
- * Returns undefined if no standalone extension is registered.
- */
-export function findStandaloneExtension(
-  methodName: string,
-  typeName: string,
-): StandaloneExtensionInfo | undefined {
-  return standaloneExtensionRegistry.find(
-    (e) => e.methodName === methodName && e.forType === typeName,
-  );
-}
-
-/**
- * Get all standalone extensions registered for a type.
- */
-export function getStandaloneExtensionsForType(
-  typeName: string,
-): StandaloneExtensionInfo[] {
-  return standaloneExtensionRegistry.filter((e) => e.forType === typeName);
-}
-
-/**
- * Get all registered standalone extensions.
- */
-export function getAllStandaloneExtensions(): StandaloneExtensionInfo[] {
-  return [...standaloneExtensionRegistry];
-}
+// Re-export from core for backwards compatibility
+export type { StandaloneExtensionInfo } from "../core/types.js";
+export {
+  standaloneExtensionRegistry,
+  registerStandaloneExtensionEntry,
+  findStandaloneExtension,
+  getStandaloneExtensionsForType,
+  getAllStandaloneExtensions,
+  buildStandaloneExtensionCall,
+} from "../core/registry.js";
 
 // ============================================================================
 // registerExtensions — batch registration from a namespace object
@@ -212,48 +173,8 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
 });
 
 // ============================================================================
-// AST generation helpers for call-site rewriting
-// ============================================================================
-
-/**
- * Build the AST for a standalone extension method call.
- *
- * Given `extend(receiver).method(args)` and a resolved StandaloneExtensionInfo,
- * generates either:
- *   - `Qualifier.method(receiver, args)` (if qualifier is set)
- *   - `method(receiver, args)` (if no qualifier — bare function)
- */
-export function buildStandaloneExtensionCall(
-  factory: ts.NodeFactory,
-  ext: StandaloneExtensionInfo,
-  receiver: ts.Expression,
-  extraArgs: readonly ts.Expression[],
-): ts.CallExpression {
-  let callee: ts.Expression;
-  if (ext.qualifier) {
-    callee = factory.createPropertyAccessExpression(
-      factory.createIdentifier(ext.qualifier),
-      ext.methodName,
-    );
-  } else {
-    callee = factory.createIdentifier(ext.methodName);
-  }
-
-  return factory.createCallExpression(callee, undefined, [
-    receiver,
-    ...extraArgs,
-  ]);
-}
-
-// ============================================================================
 // Registration
 // ============================================================================
 
 globalRegistry.register(registerExtensionsMacro);
 globalRegistry.register(registerExtensionMacro);
-
-// ============================================================================
-// Exports
-// ============================================================================
-
-export { standaloneExtensionRegistry };

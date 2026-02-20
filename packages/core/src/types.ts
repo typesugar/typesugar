@@ -480,6 +480,33 @@ export interface ExtensionMethodRegistry {
 }
 
 // ============================================================================
+// Standalone Extension Methods (Scala 3-style concrete type enrichment)
+// ============================================================================
+
+/**
+ * Information about a standalone extension method for a concrete type.
+ *
+ * Unlike typeclass-derived extensions (which go through instance resolution),
+ * standalone extensions are direct enrichments on concrete types, similar to
+ * Scala 3's `extension (n: Int) def isEven = ...`.
+ *
+ * The rewrite is simpler: no summon/instance lookup, just a direct call to
+ * the registered function.
+ */
+export interface StandaloneExtensionInfo {
+  /** The method name (e.g., "clamp") */
+  methodName: string;
+  /** The type this extension is for (e.g., "number", "string", "Array") */
+  forType: string;
+  /**
+   * How to reference the function at the call site.
+   * If qualifier is set: `qualifier.methodName(receiver, args)`
+   * If not: `methodName(receiver, args)`
+   */
+  qualifier?: string;
+}
+
+// ============================================================================
 // Type-Level Macros (for type transformations)
 // ============================================================================
 

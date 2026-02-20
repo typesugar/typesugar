@@ -45,4 +45,15 @@ export type {
   DeriveFieldInfo,
   ExtensionMethodInfo,
   ExtensionMethodRegistry,
+  StandaloneExtensionInfo,
 } from "./types.js";
+
+// Standalone extension utilities
+export {
+  standaloneExtensionRegistry,
+  registerStandaloneExtensionEntry,
+  findStandaloneExtension,
+  getStandaloneExtensionsForType,
+  getAllStandaloneExtensions,
+  buildStandaloneExtensionCall,
+} from "./registry.js";
