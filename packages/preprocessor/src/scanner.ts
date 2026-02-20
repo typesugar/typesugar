@@ -86,8 +86,33 @@ export function tokenize(
 }
 
 /**
+ * Check if a token is inside a template literal string part (not an expression).
+ * Template literals are tokenized as:
+ * - TemplateHead: `text${  (starts template, ends at expression start)
+ * - TemplateMiddle: }text${  (between expressions)
+ * - TemplateTail: }text`  (ends template, starts after expression end)
+ * - NoSubstitutionTemplateLiteral: `text`  (no expressions)
+ *
+ * The text between } and ${ in TemplateMiddle is part of the template string,
+ * not code. We need to track when we're between a TemplateHead/TemplateMiddle
+ * and the next CloseBraceToken to know we're in an expression context.
+ */
+function isTemplateStringToken(kind: ts.SyntaxKind): boolean {
+  return (
+    kind === ts.SyntaxKind.TemplateHead ||
+    kind === ts.SyntaxKind.TemplateMiddle ||
+    kind === ts.SyntaxKind.TemplateTail ||
+    kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral
+  );
+}
+
+/**
  * Merge adjacent tokens that form custom operators.
  * Uses source-position adjacency: t2.start === t1.end
+ *
+ * IMPORTANT: Does not merge operators that appear immediately after a template
+ * string part (TemplateHead, TemplateMiddle) because those are inside the
+ * template literal's text, not in code.
  */
 function mergeCustomOperators(
   tokens: Token[],
@@ -96,41 +121,106 @@ function mergeCustomOperators(
   const result: Token[] = [];
   let i = 0;
 
+  // Track template literal depth to avoid merging operators inside template strings
+  let templateDepth = 0;
+
   while (i < tokens.length) {
+    const currentToken = tokens[i];
+
+    // Track template literal context
+    if (
+      currentToken.kind === ts.SyntaxKind.TemplateHead ||
+      currentToken.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral
+    ) {
+      // Starting a new template literal
+      if (currentToken.kind === ts.SyntaxKind.TemplateHead) {
+        templateDepth++;
+      }
+      result.push(currentToken);
+      i++;
+      continue;
+    }
+
+    if (currentToken.kind === ts.SyntaxKind.TemplateTail) {
+      // Ending a template literal
+      templateDepth = Math.max(0, templateDepth - 1);
+      result.push(currentToken);
+      i++;
+      continue;
+    }
+
+    // TemplateMiddle continues the template (doesn't change depth)
+    if (currentToken.kind === ts.SyntaxKind.TemplateMiddle) {
+      result.push(currentToken);
+      i++;
+      continue;
+    }
+
+    // Check if previous token was a template part that ends with }
+    // If so, we're inside a template expression and should allow operator merging
+    // But if the previous token was TemplateHead or TemplateMiddle, the next tokens
+    // are inside the template expression (code), so we CAN merge operators there.
+    //
+    // The issue is when the scanner produces tokens like:
+    // TemplateHead(`${), Identifier(mod), CloseBrace(}), Colon(:), Colon(:), ...
+    // The :: after the } is actually part of the template string text, not code.
+    //
+    // However, TypeScript's scanner handles this correctly - after a CloseBrace
+    // that ends a template expression, it rescans as template content and produces
+    // TemplateMiddle or TemplateTail. So if we see adjacent : : tokens, they're
+    // in code context, not template string context.
+    //
+    // Wait, let me reconsider. Looking at the test output:
+    // TemplateHead(`${), Identifier(mod), CloseBrace(}), ::, ...
+    // The :: is being created from adjacent : : tokens. But those : : tokens
+    // should be part of the TemplateMiddle token, not separate tokens.
+    //
+    // The issue is that TypeScript's scanner in "scan" mode doesn't automatically
+    // rescan template content after a }. We need to check if we're right after
+    // a CloseBrace that follows a TemplateHead/TemplateMiddle context.
+
+    // Skip merging if we're inside a template literal and just saw a CloseBrace
+    // that could end a template expression (the next content should be template string)
+    const prevToken = result.length > 0 ? result[result.length - 1] : null;
+    const skipMerge =
+      templateDepth > 0 && prevToken?.kind === ts.SyntaxKind.CloseBraceToken;
+
     let merged = false;
 
-    for (const op of customOperators) {
-      if (i + op.chars.length > tokens.length) continue;
+    if (!skipMerge) {
+      for (const op of customOperators) {
+        if (i + op.chars.length > tokens.length) continue;
 
-      let matches = true;
-      for (let j = 0; j < op.chars.length; j++) {
-        const token = tokens[i + j];
-        if (token.text !== op.chars[j]) {
-          matches = false;
-          break;
-        }
-        if (j > 0) {
-          const prevToken = tokens[i + j - 1];
-          if (token.start !== prevToken.end) {
+        let matches = true;
+        for (let j = 0; j < op.chars.length; j++) {
+          const token = tokens[i + j];
+          if (token.text !== op.chars[j]) {
             matches = false;
             break;
           }
+          if (j > 0) {
+            const prevToken = tokens[i + j - 1];
+            if (token.start !== prevToken.end) {
+              matches = false;
+              break;
+            }
+          }
         }
-      }
 
-      if (matches) {
-        const firstToken = tokens[i];
-        const lastToken = tokens[i + op.chars.length - 1];
-        result.push({
-          kind: ts.SyntaxKind.Unknown,
-          text: op.symbol,
-          start: firstToken.start,
-          end: lastToken.end,
-          isCustomOperator: true,
-        });
-        i += op.chars.length;
-        merged = true;
-        break;
+        if (matches) {
+          const firstToken = tokens[i];
+          const lastToken = tokens[i + op.chars.length - 1];
+          result.push({
+            kind: ts.SyntaxKind.Unknown,
+            text: op.symbol,
+            start: firstToken.start,
+            end: lastToken.end,
+            isCustomOperator: true,
+          });
+          i += op.chars.length;
+          merged = true;
+          break;
+        }
       }
     }
 
