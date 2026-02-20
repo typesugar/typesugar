@@ -51,6 +51,7 @@ import {
   requires,
   ensures,
   old,
+  comptime,
   registerAlgebraicRule,
 } from "@typesugar/contracts";
 import { Positive, NonNegative, Port, Byte, NonEmpty } from "@typesugar/type-system";
@@ -203,6 +204,113 @@ function multiplyPositives(a: Positive, b: Positive): number {
 
 console.log("Sum:", sumPositives(Positive.refine(3), Positive.refine(4))); // 7
 console.log("Product:", multiplyPositives(Positive.refine(3), Positive.refine(4))); // 12
+
+// =============================================================================
+// SECTION 1.5: Compile-Time Evaluation with comptime()
+// =============================================================================
+
+console.log("\n=== Section 1.5: Compile-Time Evaluation ===\n");
+
+/**
+ * The comptime() macro evaluates expressions at build time and integrates
+ * with the prover's constant evaluation layer. Use it for:
+ *
+ * - Complex constant computations (loops, recursion, array methods)
+ * - Precomputed lookup tables
+ * - Configuration values that should be inlined
+ */
+
+// -----------------------------------------------------------------------------
+// 1.5.1 Basic Compile-Time Constants
+// -----------------------------------------------------------------------------
+
+/**
+ * Simple compile-time computation.
+ * After build: const BUFFER_SIZE = 16384;
+ */
+const BUFFER_SIZE = comptime(() => 1024 * 16);
+
+/**
+ * Factorial computed at build time.
+ * After build: const FACTORIAL_10 = 3628800;
+ */
+const FACTORIAL_10 = comptime(() => {
+  let result = 1;
+  for (let i = 1; i <= 10; i++) result *= i;
+  return result;
+});
+
+console.log("BUFFER_SIZE:", BUFFER_SIZE); // 16384
+console.log("FACTORIAL_10:", FACTORIAL_10); // 3628800
+
+// -----------------------------------------------------------------------------
+// 1.5.2 Precomputed Lookup Tables
+// -----------------------------------------------------------------------------
+
+/**
+ * Prime numbers up to 100, computed at build time.
+ * After build: const PRIMES = [2, 3, 5, 7, 11, ...]
+ */
+const PRIMES = comptime(() => {
+  const sieve = (n: number): number[] => {
+    const isPrime = Array(n + 1).fill(true);
+    isPrime[0] = isPrime[1] = false;
+    for (let i = 2; i * i <= n; i++) {
+      if (isPrime[i]) {
+        for (let j = i * i; j <= n; j += i) {
+          isPrime[j] = false;
+        }
+      }
+    }
+    return isPrime.map((p, i) => (p ? i : -1)).filter((x) => x > 0);
+  };
+  return sieve(100);
+});
+
+console.log("Primes up to 100:", PRIMES.length, "primes");
+
+// -----------------------------------------------------------------------------
+// 1.5.3 Contracts with Compile-Time Constants
+// -----------------------------------------------------------------------------
+
+/**
+ * Using comptime() values in contracts allows the prover to reason
+ * about the constant values at compile time.
+ */
+function allocateBuffer(size: number): ArrayBuffer {
+  // The prover knows BUFFER_SIZE = 16384 from comptime evaluation
+  requires(size > 0, "size must be positive");
+  requires(size <= BUFFER_SIZE, "size exceeds maximum buffer size");
+  return new ArrayBuffer(size);
+}
+
+function isPrime(n: number): boolean {
+  requires(n > 0, "n must be positive");
+  return PRIMES.includes(n);
+}
+
+console.log("allocateBuffer(1024):", allocateBuffer(1024).byteLength);
+console.log("isPrime(17):", isPrime(17)); // true
+console.log("isPrime(18):", isPrime(18)); // false
+
+// -----------------------------------------------------------------------------
+// 1.5.4 Configuration Constants
+// -----------------------------------------------------------------------------
+
+/**
+ * Compile-time configuration values.
+ * These become literal values in the output, enabling dead code elimination.
+ */
+const CONFIG = comptime(() => ({
+  maxRetries: Math.min(10, 3 + 2),
+  timeout: 30 * 1000,
+  features: {
+    logging: true,
+    metrics: process?.env?.NODE_ENV !== "production",
+  },
+}));
+
+console.log("CONFIG:", CONFIG);
 
 // =============================================================================
 // SECTION 2: Data Structure Invariants

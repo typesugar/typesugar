@@ -372,6 +372,10 @@ function parseTypeclassType(
 
 /**
  * Extract typeclass information from a function type's first parameter.
+ * Uses semantic type inspection instead of string/regex parsing where possible.
+ *
+ * @example
+ * function double<F>(M: Monad<F>): ... → { name: "Monad", paramName: "M" }
  */
 function extractTypeclassFromFunction(
   ctx: MacroContext,
@@ -390,19 +394,34 @@ function extractTypeclassFromFunction(
     firstParam.valueDeclaration!,
   );
 
-  // Get the type name (e.g., "Monad" from Monad<F>)
-  const typeStr = ctx.typeChecker.typeToString(paramType);
+  // Try to get the typeclass name using semantic type APIs
 
-  // Parse "Monad<F>" or similar
-  const match = typeStr.match(/^(\w+)<(\w+)>$/);
-  if (match) {
-    return { name: match[1], paramName: firstParam.name };
+  // 1. Check for alias symbol (type aliases like `type M = Monad<F>`)
+  if (paramType.aliasSymbol) {
+    return { name: paramType.aliasSymbol.getName(), paramName: firstParam.name };
   }
 
-  // Try getting from symbol
+  // 2. Check for direct symbol (interfaces/classes like `interface Monad<F>`)
   const symbol = paramType.getSymbol();
   if (symbol) {
-    return { name: symbol.name, paramName: firstParam.name };
+    return { name: symbol.getName(), paramName: firstParam.name };
+  }
+
+  // 3. For type references, try to get the target type's symbol
+  // This handles cases like `Monad<F>` where we want "Monad"
+  const typeRef = paramType as ts.TypeReference;
+  if (typeRef.target?.getSymbol()) {
+    return {
+      name: typeRef.target.getSymbol()!.getName(),
+      paramName: firstParam.name,
+    };
+  }
+
+  // 4. Fallback: Parse the type string (for edge cases the above doesn't cover)
+  const typeStr = ctx.typeChecker.typeToString(paramType);
+  const match = typeStr.match(/^(\w+)<[^>]+>$/);
+  if (match) {
+    return { name: match[1], paramName: firstParam.name };
   }
 
   return undefined;

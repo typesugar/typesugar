@@ -50,6 +50,7 @@ import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "../core/registry.js";
 import type { MacroContext } from "../core/types.js";
 import { config } from "../core/config.js";
+import { stripDecorator } from "../core/ast-utils.js";
 import type { VerificationMode, UndecidableAction } from "@typesugar/contracts";
 
 // ============================================================================
@@ -455,73 +456,6 @@ describe("${typeclassName}<${forType}> laws", () => {
 
 function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-function stripDecorator(
-  ctx: MacroContext,
-  target: ts.Declaration,
-  decoratorToRemove: ts.Decorator,
-): ts.Node {
-  if (!ts.canHaveDecorators(target)) return target;
-
-  const existingDecorators = ts.getDecorators(target);
-  if (!existingDecorators) return target;
-
-  const remainingDecorators = existingDecorators.filter(
-    (d) => d !== decoratorToRemove,
-  );
-
-  const existingModifiers = ts.canHaveModifiers(target)
-    ? ts.getModifiers(target)
-    : undefined;
-
-  const newModifiers = [...remainingDecorators, ...(existingModifiers ?? [])];
-
-  if (ts.isVariableStatement(target)) {
-    return ctx.factory.updateVariableStatement(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.declarationList,
-    );
-  }
-
-  if (ts.isClassDeclaration(target)) {
-    return ctx.factory.updateClassDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.name,
-      target.typeParameters,
-      target.heritageClauses,
-      target.members,
-    );
-  }
-
-  if (ts.isMethodDeclaration(target)) {
-    return ctx.factory.updateMethodDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.asteriskToken,
-      target.name,
-      target.questionToken,
-      target.typeParameters,
-      target.parameters,
-      target.type,
-      target.body,
-    );
-  }
-
-  if (ts.isPropertyDeclaration(target)) {
-    return ctx.factory.updatePropertyDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.name,
-      target.questionToken ?? target.exclamationToken,
-      target.type,
-      target.initializer,
-    );
-  }
-
-  return target;
 }
 
 // ============================================================================

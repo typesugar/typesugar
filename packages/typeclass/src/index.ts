@@ -31,13 +31,19 @@ import {
   globalExtensionRegistry,
   MacroContext,
   AttributeTarget,
+  createGenericRegistry,
+  type GenericRegistry,
 } from "@typesugar/core";
 
 // ============================================================================
 // Registry for typeclasses and instances (compile-time)
 // ============================================================================
 
-interface TypeclassInfo {
+/**
+ * Information about a typeclass definition.
+ * Captured from @typeclass decorated interfaces.
+ */
+export interface TypeclassInfo {
   name: string;
   methods: Array<{
     name: string;
@@ -47,21 +53,35 @@ interface TypeclassInfo {
   }>;
 }
 
-interface InstanceInfo {
+/**
+ * Information about a typeclass instance.
+ * Captured from @instance decorated values.
+ */
+export interface InstanceInfo {
   typeclass: string;
   forType: string;
   expression: ts.Expression;
 }
 
 /**
- * Registry of all typeclasses defined with @typeclass
+ * Registry of all typeclasses defined with @typeclass.
+ * Uses the generic Registry<K,V> abstraction from @typesugar/core.
  */
-const typeclassRegistry = new Map<string, TypeclassInfo>();
+const typeclassRegistry: GenericRegistry<string, TypeclassInfo> = createGenericRegistry({
+  name: "TypeclassRegistry",
+  duplicateStrategy: "skip",
+  valueEquals: (a, b) => a.name === b.name,
+});
 
 /**
- * Registry of all instances defined with @instance
+ * Registry of all instances defined with @instance.
+ * Uses the generic Registry<K,V> abstraction from @typesugar/core.
  */
-const instanceRegistry = new Map<string, InstanceInfo>();
+const instanceRegistry: GenericRegistry<string, InstanceInfo> = createGenericRegistry({
+  name: "InstanceRegistry",
+  duplicateStrategy: "skip",
+  valueEquals: (a, b) => a.typeclass === b.typeclass && a.forType === b.forType,
+});
 
 /**
  * Get the key for an instance: "Show<number>"
@@ -82,14 +102,14 @@ export function clearRegistries(): void {
  * Get all registered typeclasses
  */
 export function getTypeclasses(): Map<string, TypeclassInfo> {
-  return new Map(typeclassRegistry);
+  return new Map(typeclassRegistry.entries());
 }
 
 /**
  * Get all registered instances
  */
 export function getInstances(): Map<string, InstanceInfo> {
-  return new Map(instanceRegistry);
+  return new Map(instanceRegistry.entries());
 }
 
 // ============================================================================
@@ -579,3 +599,99 @@ export function register(): void {
 
 // Auto-register when this module is imported
 register();
+
+// ============================================================================
+// Runtime Stubs (replaced by transformer at compile time)
+// ============================================================================
+
+/**
+ * Decorator to define a typeclass interface.
+ * Processed at compile time by the typesugar transformer.
+ *
+ * @example
+ * ```typescript
+ * @typeclass
+ * interface Show<A> {
+ *   show(a: A): string;
+ * }
+ * ```
+ */
+export function typeclass(target: any, _context?: ClassDecoratorContext): any {
+  // Placeholder - processed by transformer
+  return target;
+}
+
+/**
+ * Decorator to register a typeclass instance for a specific type.
+ * Supports multiple syntaxes:
+ * - @instance(Typeclass, Type) - identifier form
+ * - @instance("Typeclass<Type>") - string form for HKT
+ *
+ * @example
+ * ```typescript
+ * @instance(Show, Number)
+ * const numberShow: Show<number> = {
+ *   show: (n) => String(n),
+ * };
+ *
+ * // For HKT typeclasses:
+ * @instance("FlatMap<Array>")
+ * const flatMapArray: FlatMap<ArrayTag> = { ... };
+ * ```
+ */
+export function instance(
+  ..._args: unknown[]
+): PropertyDecorator & ClassDecorator & MethodDecorator {
+  // Placeholder - processed by transformer
+  return () => {};
+}
+
+/**
+ * Decorator to auto-derive typeclass instances for a type.
+ *
+ * @example
+ * ```typescript
+ * @deriving(Show, Eq)
+ * interface Point {
+ *   x: number;
+ *   y: number;
+ * }
+ * ```
+ */
+export function deriving(
+  ..._typeclasses: unknown[]
+): ClassDecorator & PropertyDecorator {
+  // Placeholder - processed by transformer
+  return () => {};
+}
+
+/**
+ * Resolve a typeclass instance at compile time (Scala 3-like summon).
+ *
+ * @example
+ * ```typescript
+ * const showPoint = summon<Show<Point>>();
+ * showPoint.show({ x: 1, y: 2 }); // "Point(x = 1, y = 2)"
+ * ```
+ */
+export function summon<T>(): T {
+  // Placeholder - processed by transformer
+  throw new Error(
+    "summon() must be processed by the typemacro transformer at compile time",
+  );
+}
+
+/**
+ * Call extension methods on a value via typeclass instances.
+ *
+ * @example
+ * ```typescript
+ * extend(myValue).show(); // Calls Show<typeof myValue>.show
+ * ```
+ */
+export function extend<T>(_value: T): T & Record<string, (...args: any[]) => any> {
+  // Placeholder - processed by transformer
+  throw new Error(
+    "extend() must be processed by the typemacro transformer at compile time",
+  );
+}

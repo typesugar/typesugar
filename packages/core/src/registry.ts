@@ -1,6 +1,230 @@
 /**
  * Macro Registry - Stores and retrieves macro definitions
+ *
+ * This module also provides a generic Registry<K, V> abstraction that can be
+ * used across packages to replace ad-hoc Map-based registries with a consistent,
+ * type-safe API.
  */
+
+// ============================================================================
+// Generic Registry<K, V> Abstraction
+// ============================================================================
+
+/**
+ * Duplicate handling strategy for registry entries.
+ */
+export type DuplicateStrategy =
+  | "error" // Throw error on duplicate (default)
+  | "skip" // Silently skip if same entry exists
+  | "replace" // Replace existing entry
+  | "merge"; // Merge with existing entry (requires custom merge function)
+
+/**
+ * Options for creating a Registry instance.
+ */
+export interface RegistryOptions<K, V> {
+  /** How to handle duplicate entries (default: "error") */
+  duplicateStrategy?: DuplicateStrategy;
+
+  /** Custom equality check for values (used with "skip" strategy) */
+  valueEquals?: (a: V, b: V) => boolean;
+
+  /** Merge function (required when duplicateStrategy is "merge") */
+  merge?: (existing: V, incoming: V, key: K) => V;
+
+  /** Name for error messages */
+  name?: string;
+}
+
+/**
+ * A generic, type-safe registry for key-value pairs.
+ *
+ * Provides a consistent API for storing and retrieving entries with
+ * configurable duplicate handling strategies.
+ *
+ * @example
+ * ```typescript
+ * // Simple registry with error on duplicates (default)
+ * const typeRegistry = createGenericRegistry<string, TypeInfo>();
+ *
+ * // Registry that skips duplicates
+ * const instanceRegistry = createGenericRegistry<string, Instance>({
+ *   duplicateStrategy: "skip",
+ *   valueEquals: (a, b) => a.id === b.id,
+ * });
+ *
+ * // Registry that merges duplicates
+ * const annotationRegistry = createGenericRegistry<string, string[]>({
+ *   duplicateStrategy: "merge",
+ *   merge: (existing, incoming) => [...existing, ...incoming],
+ * });
+ * ```
+ */
+export interface GenericRegistry<K, V> extends Iterable<[K, V]> {
+  /** Register a new entry */
+  set(key: K, value: V): void;
+
+  /** Get an entry by key */
+  get(key: K): V | undefined;
+
+  /** Check if a key exists */
+  has(key: K): boolean;
+
+  /** Delete an entry */
+  delete(key: K): boolean;
+
+  /** Get all entries */
+  entries(): IterableIterator<[K, V]>;
+
+  /** Get all keys */
+  keys(): IterableIterator<K>;
+
+  /** Get all values */
+  values(): IterableIterator<V>;
+
+  /** Number of entries */
+  readonly size: number;
+
+  /** Clear all entries */
+  clear(): void;
+
+  /** Iterate with forEach */
+  forEach(fn: (value: V, key: K, registry: GenericRegistry<K, V>) => void): void;
+
+  /** Make registry iterable (for...of support) */
+  [Symbol.iterator](): IterableIterator<[K, V]>;
+}
+
+class GenericRegistryImpl<K, V> implements GenericRegistry<K, V> {
+  private store = new Map<K, V>();
+  private options: Required<Pick<RegistryOptions<K, V>, "duplicateStrategy" | "name">> &
+    Pick<RegistryOptions<K, V>, "valueEquals" | "merge">;
+
+  constructor(options: RegistryOptions<K, V> = {}) {
+    this.options = {
+      duplicateStrategy: options.duplicateStrategy ?? "error",
+      name: options.name ?? "Registry",
+      valueEquals: options.valueEquals,
+      merge: options.merge,
+    };
+
+    if (this.options.duplicateStrategy === "merge" && !this.options.merge) {
+      throw new Error(
+        `${this.options.name}: merge function is required when duplicateStrategy is "merge"`,
+      );
+    }
+  }
+
+  set(key: K, value: V): void {
+    const existing = this.store.get(key);
+
+    if (existing !== undefined) {
+      switch (this.options.duplicateStrategy) {
+        case "error":
+          throw new Error(
+            `${this.options.name}: entry for key '${String(key)}' already exists`,
+          );
+
+        case "skip":
+          if (this.options.valueEquals) {
+            if (this.options.valueEquals(existing, value)) return;
+            throw new Error(
+              `${this.options.name}: different value for key '${String(key)}' already exists`,
+            );
+          }
+          return;
+
+        case "replace":
+          this.store.set(key, value);
+          return;
+
+        case "merge":
+          this.store.set(key, this.options.merge!(existing, value, key));
+          return;
+      }
+    }
+
+    this.store.set(key, value);
+  }
+
+  get(key: K): V | undefined {
+    return this.store.get(key);
+  }
+
+  has(key: K): boolean {
+    return this.store.has(key);
+  }
+
+  delete(key: K): boolean {
+    return this.store.delete(key);
+  }
+
+  entries(): IterableIterator<[K, V]> {
+    return this.store.entries();
+  }
+
+  keys(): IterableIterator<K> {
+    return this.store.keys();
+  }
+
+  values(): IterableIterator<V> {
+    return this.store.values();
+  }
+
+  get size(): number {
+    return this.store.size;
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+
+  forEach(fn: (value: V, key: K, registry: GenericRegistry<K, V>) => void): void {
+    for (const [k, v] of this.store) {
+      fn(v, k, this);
+    }
+  }
+
+  [Symbol.iterator](): IterableIterator<[K, V]> {
+    return this.store[Symbol.iterator]();
+  }
+}
+
+/**
+ * Create a new generic registry instance.
+ *
+ * @param options - Configuration options
+ * @returns A new GenericRegistry instance
+ *
+ * @example
+ * ```typescript
+ * // Type-safe typeclass registry
+ * interface TypeclassInfo {
+ *   name: string;
+ *   methods: string[];
+ * }
+ *
+ * const typeclassRegistry = createGenericRegistry<string, TypeclassInfo>({
+ *   name: "TypeclassRegistry",
+ *   duplicateStrategy: "skip",
+ *   valueEquals: (a, b) => a.name === b.name,
+ * });
+ *
+ * typeclassRegistry.set("Show", { name: "Show", methods: ["show"] });
+ * typeclassRegistry.set("Eq", { name: "Eq", methods: ["equals"] });
+ *
+ * const showInfo = typeclassRegistry.get("Show");
+ * ```
+ */
+export function createGenericRegistry<K, V>(
+  options?: RegistryOptions<K, V>,
+): GenericRegistry<K, V> {
+  return new GenericRegistryImpl(options);
+}
+
+// ============================================================================
+// Macro Registry Implementation
+// ============================================================================
 
 import {
   MacroDefinition,

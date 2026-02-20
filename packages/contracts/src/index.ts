@@ -8,19 +8,43 @@
  * - `old(expr)` — Capture pre-call value (inside ensures)
  * - `@contract` — Decorator enabling requires:/ensures: labeled blocks
  * - `@invariant(predicate, message?)` — Class invariant
+ * - `comptime(() => expr)` — Compile-time constant evaluation
  *
  * Contracts are strippable in production via configuration:
  * - `contracts.mode: "full"` — All checks (default)
  * - `contracts.mode: "assertions"` — Only invariants
  * - `contracts.mode: "none"` — All stripped
  *
- * The proof engine attempts to verify conditions at compile time:
- * 1. Constant evaluation
- * 2. Type deduction from Refined<T, Brand> types
- * 3. Algebraic rules
- * 4. Prover plugins (e.g., Z3 via @typesugar/contracts-z3)
+ * ## Proof Engine
  *
- * @example
+ * The proof engine attempts to verify conditions at compile time:
+ * 1. **Constant evaluation** — Static values (`true`, `5 > 3`, `comptime()` results)
+ * 2. **Type deduction** — From Refined<T, Brand> types (e.g., Positive implies > 0)
+ * 3. **Algebraic rules** — Mathematical identities and transitivity
+ * 4. **Linear arithmetic** — Fourier-Motzkin elimination for linear constraints
+ * 5. **Prover plugins** — External solvers (e.g., Z3 via @typesugar/contracts-z3)
+ *
+ * ## Compile-Time Evaluation with comptime()
+ *
+ * The `comptime()` macro evaluates expressions at build time and replaces
+ * them with their computed values. This integrates with the prover's
+ * constant evaluation layer:
+ *
+ * ```typescript
+ * import { requires, comptime } from "@typesugar/contracts";
+ *
+ * // Compile-time constants are automatically proven
+ * const BUFFER_SIZE = comptime(() => 1024 * 16);  // Becomes: 16384
+ * const MAX_RETRIES = comptime(() => Math.min(10, 3 + 2));  // Becomes: 5
+ *
+ * function allocateBuffer(size: number) {
+ *   // Prover can statically verify this when size is BUFFER_SIZE
+ *   requires(size > 0 && size <= BUFFER_SIZE);
+ *   return new ArrayBuffer(size);
+ * }
+ * ```
+ *
+ * @example Basic contracts
  * ```typescript
  * import { requires, ensures, old, contract, invariant } from "@typesugar/contracts";
  *
@@ -47,6 +71,30 @@
  *   withdraw(amount: Positive): void { this.balance -= amount; }
  * }
  * ```
+ *
+ * @example Compile-time evaluation
+ * ```typescript
+ * import { requires, comptime } from "@typesugar/contracts";
+ *
+ * // Complex computation done at build time
+ * const PRIMES = comptime(() => {
+ *   const sieve = (n: number) => {
+ *     const isPrime = Array(n + 1).fill(true);
+ *     isPrime[0] = isPrime[1] = false;
+ *     for (let i = 2; i * i <= n; i++) {
+ *       if (isPrime[i]) for (let j = i * i; j <= n; j += i) isPrime[j] = false;
+ *     }
+ *     return isPrime.map((p, i) => p ? i : -1).filter(x => x > 0);
+ *   };
+ *   return sieve(100);
+ * });
+ * // PRIMES becomes: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, ...]
+ *
+ * function isPrime(n: number): boolean {
+ *   requires(n > 0);
+ *   return PRIMES.includes(n);
+ * }
+ * ```
  */
 
 // --- Macros (import to register) ---
@@ -56,6 +104,12 @@ import "./macros/old.js";
 import "./macros/contract.js";
 import "./macros/invariant.js";
 import "./macros/decidable.js";
+
+// --- Compile-Time Evaluation ---
+// Re-export comptime for convenient use with contracts.
+// comptime() evaluates expressions at build time and integrates with
+// the prover's constant evaluation layer.
+export { comptime, comptimeMacro } from "@typesugar/comptime";
 
 // --- Runtime API ---
 export { requires } from "./macros/requires.js";

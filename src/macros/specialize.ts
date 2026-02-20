@@ -407,6 +407,116 @@ registerInstanceMethods("eitherBifunctor", "Either", {
 });
 
 // ============================================================================
+// Std FlatMap Instances - For @typesugar/std let:/yield: macro
+// ============================================================================
+
+/**
+ * FlatMap instances from @typesugar/std, registered for specialize() support.
+ * These are the same implementations used by the let:/yield: macro.
+ *
+ * stdFlatMapArray and stdFlatMapPromise mirror the arrayMonad/promiseMonad
+ * implementations but are named distinctly for clarity when working with
+ * the FlatMap typeclass specifically.
+ */
+
+// FlatMap instance for Array — uses native Array methods
+registerInstanceMethods("stdFlatMapArray", "Array", {
+  map: {
+    source: "(fa, f) => fa.map(f)",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => fa.flatMap(f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Also register under the canonical names used in @typesugar/std
+registerInstanceMethods("flatMapArray", "Array", {
+  map: {
+    source: "(fa, f) => fa.map(f)",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => fa.flatMap(f)",
+    params: ["fa", "f"],
+  },
+});
+
+// FlatMap instance for Promise — uses Promise.then for both operations
+registerInstanceMethods("stdFlatMapPromise", "Promise", {
+  map: {
+    source: "(fa, f) => fa.then(f)",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => fa.then(f)",
+    params: ["fa", "f"],
+  },
+});
+
+registerInstanceMethods("flatMapPromise", "Promise", {
+  map: {
+    source: "(fa, f) => fa.then(f)",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => fa.then(f)",
+    params: ["fa", "f"],
+  },
+});
+
+// FlatMap instance for Iterable — uses generator functions for lazy evaluation
+registerInstanceMethods("stdFlatMapIterable", "Iterable", {
+  map: {
+    source: "(fa, f) => (function* () { for (const a of fa) yield f(a); })()",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => (function* () { for (const a of fa) yield* f(a); })()",
+    params: ["fa", "f"],
+  },
+});
+
+registerInstanceMethods("flatMapIterable", "Iterable", {
+  map: {
+    source: "(fa, f) => (function* () { for (const a of fa) yield f(a); })()",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => (function* () { for (const a of fa) yield* f(a); })()",
+    params: ["fa", "f"],
+  },
+});
+
+// FlatMap instance for AsyncIterable — uses async generator functions
+registerInstanceMethods("stdFlatMapAsyncIterable", "AsyncIterable", {
+  map: {
+    source:
+      "(fa, f) => (async function* () { for await (const a of fa) yield f(a); })()",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source:
+      "(fa, f) => (async function* () { for await (const a of fa) yield* f(a); })()",
+    params: ["fa", "f"],
+  },
+});
+
+registerInstanceMethods("flatMapAsyncIterable", "AsyncIterable", {
+  map: {
+    source:
+      "(fa, f) => (async function* () { for await (const a of fa) yield f(a); })()",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source:
+      "(fa, f) => (async function* () { for await (const a of fa) yield* f(a); })()",
+    params: ["fa", "f"],
+  },
+});
+
+// ============================================================================
 // specialize expression macro
 // ============================================================================
 

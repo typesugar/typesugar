@@ -32,6 +32,11 @@
 import * as ts from "typescript";
 import { MacroContext } from "../core/types.js";
 import { MacroContextImpl } from "../core/context.js";
+import {
+  stripPositions,
+  getPrinter,
+  getDummySourceFile,
+} from "../core/ast-utils.js";
 
 // =============================================================================
 // Splice Types
@@ -197,31 +202,6 @@ export function quoteBlock(
 // =============================================================================
 
 /**
- * Shared printer for converting AST nodes to source text.
- * Created lazily, reused across all quote calls.
- */
-let sharedPrinter: ts.Printer | undefined;
-
-function getPrinter(): ts.Printer {
-  return (sharedPrinter ??= ts.createPrinter({
-    newLine: ts.NewLineKind.LineFeed,
-  }));
-}
-
-/** Dummy source file for printing synthetic nodes */
-let dummySourceFile: ts.SourceFile | undefined;
-
-function getDummySourceFile(): ts.SourceFile {
-  return (dummySourceFile ??= ts.createSourceFile(
-    "__quote_temp__.ts",
-    "",
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.TS,
-  ));
-}
-
-/**
  * Assemble a template string with spliced AST nodes.
  *
  * Each splice value is converted to its source text representation:
@@ -359,20 +339,6 @@ function parseTypeNode(code: string): ts.TypeNode {
   }
 
   throw new Error(`Failed to parse type: ${code}`);
-}
-
-/**
- * Recursively strip source-file positions from a parsed AST node,
- * making it "synthetic" so ts.Printer can emit it against any source file.
- */
-function stripPositions<T extends ts.Node>(node: T): T {
-  // Set positions to -1 to mark as synthetic
-  ts.setTextRange(node, { pos: -1, end: -1 });
-  return ts.visitEachChild(
-    node,
-    (child) => stripPositions(child),
-    undefined as unknown as ts.TransformationContext,
-  ) as T;
 }
 
 // =============================================================================

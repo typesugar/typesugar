@@ -901,19 +901,65 @@ ${variantChecks}
 /**
  * Generate a runtime type check expression for a single field.
  * Uses "obj" as the variable name for the record being checked.
+ *
+ * Uses semantic type information from field.type when available,
+ * falling back to string parsing for edge cases.
  */
 function generateTypeCheck(field: DeriveFieldInfo, _rootVar: string): string {
-  const typeStr = field.typeString.trim();
   const accessor = `obj["${field.name}"]`;
+  const fieldType = field.type;
 
-  // Handle union types (e.g., "string | number")
-  if (typeStr.includes("|")) {
-    const members = typeStr.split("|").map((t) => t.trim());
-    const memberChecks = members.map((m) => typeCheckForPrimitive(accessor, m));
+  // Use semantic type checking for unions
+  if (fieldType.isUnion()) {
+    const memberChecks = fieldType.types.map((memberType) =>
+      typeCheckForSemanticType(accessor, memberType, field.typeString),
+    );
     return `(${memberChecks.join(" || ")})`;
   }
 
-  return typeCheckForPrimitive(accessor, typeStr);
+  return typeCheckForSemanticType(accessor, fieldType, field.typeString);
+}
+
+/**
+ * Generate a typeof / instanceof check using semantic type information.
+ * Falls back to string representation for complex types.
+ */
+function typeCheckForSemanticType(
+  accessor: string,
+  type: ts.Type,
+  fallbackTypeStr: string,
+): string {
+  const flags = type.getFlags();
+
+  // Primitive types via TypeFlags
+  if (flags & ts.TypeFlags.String) return `typeof ${accessor} === "string"`;
+  if (flags & ts.TypeFlags.Number) return `typeof ${accessor} === "number"`;
+  if (flags & ts.TypeFlags.Boolean || flags & ts.TypeFlags.BooleanLiteral)
+    return `typeof ${accessor} === "boolean"`;
+  if (flags & ts.TypeFlags.BigInt) return `typeof ${accessor} === "bigint"`;
+  if (flags & ts.TypeFlags.ESSymbol) return `typeof ${accessor} === "symbol"`;
+  if (flags & ts.TypeFlags.Null) return `${accessor} === null`;
+  if (flags & ts.TypeFlags.Undefined) return `${accessor} === undefined`;
+  if (flags & ts.TypeFlags.Any || flags & ts.TypeFlags.Unknown) return "true";
+  if (flags & ts.TypeFlags.Never) return "false";
+  if (flags & ts.TypeFlags.Void)
+    return `${accessor} === undefined || ${accessor} === null`;
+
+  // Check for array types via symbol
+  const symbol = type.getSymbol();
+  if (symbol?.getName() === "Array") return `Array.isArray(${accessor})`;
+
+  // Check for known built-in types
+  const symbolName = symbol?.getName();
+  if (
+    symbolName &&
+    ["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(symbolName)
+  ) {
+    return `${accessor} instanceof ${symbolName}`;
+  }
+
+  // Fallback to string-based check for complex types
+  return typeCheckForPrimitive(accessor, fallbackTypeStr.trim());
 }
 
 /**
@@ -967,12 +1013,39 @@ function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * Get the base type category for a field using semantic type information.
+ * Falls back to string parsing for edge cases.
+ */
 function getBaseType(field: DeriveFieldInfo): string {
-  const typeStr = field.typeString.toLowerCase();
-  if (typeStr === "number" || typeStr.includes("number")) return "number";
-  if (typeStr === "string" || typeStr.includes("string")) return "string";
-  if (typeStr === "boolean" || typeStr.includes("boolean")) return "boolean";
-  if (typeStr.startsWith("array") || typeStr.includes("[]")) return "object";
+  const type = field.type;
+  const flags = type.getFlags();
+
+  // Check for primitive types via TypeFlags
+  if (flags & ts.TypeFlags.Number || flags & ts.TypeFlags.NumberLiteral)
+    return "number";
+  if (flags & ts.TypeFlags.String || flags & ts.TypeFlags.StringLiteral)
+    return "string";
+  if (flags & ts.TypeFlags.Boolean || flags & ts.TypeFlags.BooleanLiteral)
+    return "boolean";
+  if (flags & ts.TypeFlags.BigInt || flags & ts.TypeFlags.BigIntLiteral)
+    return "bigint";
+
+  // Handle union types - check if any constituent is a primitive
+  if (type.isUnion()) {
+    for (const memberType of type.types) {
+      const memberFlags = memberType.getFlags();
+      if (memberFlags & ts.TypeFlags.Number) return "number";
+      if (memberFlags & ts.TypeFlags.String) return "string";
+      if (memberFlags & ts.TypeFlags.Boolean) return "boolean";
+    }
+  }
+
+  // Array types
+  const symbol = type.getSymbol();
+  if (symbol?.getName() === "Array") return "object";
+
+  // Default fallback
   return "object";
 }
 

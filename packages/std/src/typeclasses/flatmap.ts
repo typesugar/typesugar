@@ -37,6 +37,8 @@
  * ```
  */
 
+import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
+
 // ============================================================================
 // FlatMap Typeclass
 // ============================================================================
@@ -58,6 +60,7 @@
  * - Associativity: flatMap(flatMap(fa, f), g) = flatMap(fa, a => flatMap(f(a), g))
  * - Consistency: map(fa, f) = flatMap(fa, a => pure(f(a))) [when pure exists]
  *
+ * Use `registerStdInstances()` macro to enable summon<FlatMap<F>>() resolution.
  * @internal
  */
 export interface FlatMap<F> {
@@ -222,14 +225,21 @@ async function* asyncIterableFlatMap<A, B>(
  * Registry of FlatMap instances by type constructor name.
  * Used by the let:/yield: macro to resolve instances at compile time.
  *
+ * Uses the generic Registry<K,V> abstraction from @typesugar/core with "replace"
+ * duplicate strategy for backward compatibility (previously used warn + override).
+ *
  * Module-private — use {@link registerFlatMap} and {@link getFlatMap} to access.
  */
-const flatMapInstances: Map<string, FlatMap<unknown>> = new Map([
-  ["Array", flatMapArray as FlatMap<unknown>],
-  ["Promise", flatMapPromise as FlatMap<unknown>],
-  ["Iterable", flatMapIterable as FlatMap<unknown>],
-  ["AsyncIterable", flatMapAsyncIterable as FlatMap<unknown>],
-]);
+const flatMapInstances: GenericRegistry<string, FlatMap<unknown>> = createGenericRegistry({
+  name: "FlatMapRegistry",
+  duplicateStrategy: "replace",
+});
+
+// Initialize built-in instances
+flatMapInstances.set("Array", flatMapArray as FlatMap<unknown>);
+flatMapInstances.set("Promise", flatMapPromise as FlatMap<unknown>);
+flatMapInstances.set("Iterable", flatMapIterable as FlatMap<unknown>);
+flatMapInstances.set("AsyncIterable", flatMapAsyncIterable as FlatMap<unknown>);
 
 /**
  * Register a FlatMap instance for a type constructor.

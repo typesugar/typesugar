@@ -11,6 +11,8 @@
  *   staticAssert,
  *   assertSnapshot,
  *   typeAssert,
+ *   assertType,
+ *   typeInfo,
  *   forAll,
  *   type Equal,
  *   type Extends,
@@ -27,6 +29,12 @@
  *
  * // Type-level assertions
  * typeAssert<Equal<ReturnType<typeof parse>, AST>>();
+ *
+ * // Runtime type assertions with detailed field-level diagnostics
+ * assertType<User>(data);  // Throws with field-by-field error details
+ *
+ * // Compile-time type reflection
+ * const info = typeInfo<User>();  // { name: "User", fields: [...] }
  *
  * // Property-based testing with @derive(Arbitrary)
  * forAll(arbitraryUser, (user) => {
@@ -78,6 +86,73 @@ export {
   type IsUnknown,
   type Equals, // deprecated alias
 } from "@typesugar/type-system";
+
+// ============================================================================
+// Type-Aware Assertion Diagnostics
+// ============================================================================
+
+/**
+ * Type information structure used for enhanced assertion diagnostics.
+ * Populated at compile time via the `typeInfo<T>()` macro.
+ */
+export interface TypeInfo {
+  name: string;
+  kind: "interface" | "class" | "type" | "enum" | "primitive" | "union" | "intersection" | "array" | "tuple" | "function";
+  fields?: FieldInfo[];
+  methods?: MethodInfo[];
+  typeParameters?: string[];
+}
+
+export interface FieldInfo {
+  name: string;
+  type: string;
+  optional: boolean;
+  readonly: boolean;
+}
+
+export interface MethodInfo {
+  name: string;
+  parameters: ParameterInfo[];
+  returnType: string;
+  isAsync: boolean;
+  isStatic: boolean;
+}
+
+export interface ParameterInfo {
+  name: string;
+  type: string;
+  optional: boolean;
+}
+
+/**
+ * Get compile-time type information for a type.
+ *
+ * This macro extracts structural type information at compile time,
+ * enabling runtime validation with detailed field-level diagnostics.
+ *
+ * @example
+ * ```typescript
+ * interface User {
+ *   id: number;
+ *   name: string;
+ *   email?: string;
+ * }
+ *
+ * const info = typeInfo<User>();
+ * // { name: "User", kind: "interface", fields: [
+ * //   { name: "id", type: "number", optional: false, readonly: false },
+ * //   { name: "name", type: "string", optional: false, readonly: false },
+ * //   { name: "email", type: "string", optional: true, readonly: false }
+ * // ]}
+ * ```
+ */
+export function typeInfo<T>(): TypeInfo {
+  // Placeholder — transformer replaces with actual type info
+  throw new Error(
+    "typeInfo() was called at runtime. " +
+      "This indicates the typesugar transformer is not configured correctly."
+  );
+}
 
 // ============================================================================
 // Power Assertions
@@ -240,6 +315,51 @@ export function typeAssert<_T extends true>(): void {
 }
 
 // ============================================================================
+// Runtime Type Assertions with Detailed Diagnostics
+// ============================================================================
+
+/**
+ * Assert that a value matches a type at runtime with detailed diagnostics.
+ *
+ * Uses compile-time type information from `typeInfo<T>()` to validate
+ * the value's structure. On failure, provides field-level diagnostics
+ * showing exactly what's wrong.
+ *
+ * @param value - The value to validate
+ * @param message - Optional custom error message prefix
+ *
+ * @example
+ * ```typescript
+ * interface User {
+ *   id: number;
+ *   name: string;
+ *   email?: string;
+ * }
+ *
+ * // Passes silently if value matches User
+ * assertType<User>({ id: 1, name: "Alice" });
+ *
+ * // Fails with detailed diagnostics:
+ * // "Type assertion failed for 'User':
+ * //   - Field 'id': expected number, got string
+ * //   - Field 'name': missing (required)"
+ * assertType<User>({ id: "not-a-number" });
+ * ```
+ */
+export function assertType<T>(value: unknown, message?: string): asserts value is T {
+  // Runtime fallback — transformer replaces with instrumented code
+  // This basic implementation validates primitive types only
+  if (typeof value !== "object" || value === null) {
+    const msg = message
+      ? `${message}: expected object, got ${value === null ? "null" : typeof value}`
+      : `Type assertion failed: expected object, got ${value === null ? "null" : typeof value}`;
+    throw new Error(msg);
+  }
+  // Note: Full field-level validation requires the transformer.
+  // This fallback only checks that the value is a non-null object.
+}
+
+// ============================================================================
 // Property-Based Testing
 // ============================================================================
 
@@ -290,3 +410,21 @@ export function forAll<T>(
     }
   }
 }
+
+// ============================================================================
+// Macro Definitions (for tooling)
+// ============================================================================
+
+export {
+  assertMacro,
+  staticAssertMacro,
+  comptimeAssertMacro,
+  assertSnapshotMacro,
+  typeAssertMacro,
+  assertTypeMacro,
+  typeInfoMacro,
+  forAllMacro,
+  testCasesAttribute,
+  ArbitraryDerive,
+  powerAssertMacro,
+} from "./macro.js";

@@ -65,6 +65,9 @@
     "@typesugar/core": "workspace:*",
     "@typesugar/type-system": "workspace:*"
   },
+  "devDependencies": {
+    "unplugin-typesugar": "workspace:*"
+  },
   "peerDependencies": {
     "typescript": ">=5.0.0"
   },

@@ -882,6 +882,395 @@ export const forAllMacro = defineExpressionMacro({
 });
 
 // ============================================================================
+// assertType<T>(value) — Runtime Type Assertion with Detailed Diagnostics
+// ============================================================================
+
+/**
+ * `assertType<T>(value)` uses compile-time type information (via `typeInfo<T>()`)
+ * to validate that a runtime value matches the expected structure. On failure,
+ * it produces rich diagnostics showing exactly which fields are missing, have
+ * wrong types, or have unexpected values.
+ *
+ * @example
+ * ```typescript
+ * interface User {
+ *   id: number;
+ *   name: string;
+ *   email?: string;
+ * }
+ *
+ * // Passes if valid
+ * assertType<User>({ id: 1, name: "Alice" });
+ *
+ * // Fails with detailed diagnostics:
+ * // "Type assertion failed for 'User':
+ * //   - Field 'id': expected number, got string
+ * //   - Field 'name': missing (required)"
+ * assertType<User>({ id: "not-a-number" });
+ * ```
+ */
+export const assertTypeMacro = defineExpressionMacro({
+  name: "assertType",
+  module: "@typesugar/testing",
+  description:
+    "Assert that a value matches a type at runtime with detailed field-level diagnostics",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[],
+  ): ts.Expression {
+    const factory = ctx.factory;
+    const typeArgs = callExpr.typeArguments;
+
+    if (!typeArgs || typeArgs.length !== 1) {
+      ctx.reportError(
+        callExpr,
+        "assertType requires exactly one type argument: assertType<T>(value)",
+      );
+      return callExpr;
+    }
+
+    if (args.length < 1 || args.length > 2) {
+      ctx.reportError(
+        callExpr,
+        "assertType expects 1 or 2 arguments: assertType<T>(value) or assertType<T>(value, message)",
+      );
+      return callExpr;
+    }
+
+    const valueExpr = args[0];
+    const customMessage = args.length === 2 ? args[1] : undefined;
+    const typeArg = typeArgs[0];
+
+    // Get type information at compile time
+    const type = ctx.typeChecker.getTypeFromTypeNode(typeArg);
+    const typeName = ctx.typeChecker.typeToString(type);
+    const properties = ctx.typeChecker.getPropertiesOfType(type);
+
+    // Build field metadata array at compile time
+    const fieldInfos: Array<{
+      name: string;
+      type: string;
+      optional: boolean;
+    }> = properties.map((prop) => {
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+        prop,
+        callExpr,
+      );
+      return {
+        name: prop.name,
+        type: ctx.typeChecker.typeToString(propType),
+        optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
+      };
+    });
+
+    // Generate unique variable names
+    const valueName = ctx.generateUniqueName("at_value").text;
+    const errorsName = ctx.generateUniqueName("at_errors").text;
+    const fieldName = ctx.generateUniqueName("at_field").text;
+    const actualName = ctx.generateUniqueName("at_actual").text;
+
+    // Build the field metadata as an array literal
+    const fieldMetaElements = fieldInfos.map((f) =>
+      factory.createObjectLiteralExpression([
+        factory.createPropertyAssignment("name", factory.createStringLiteral(f.name)),
+        factory.createPropertyAssignment("type", factory.createStringLiteral(f.type)),
+        factory.createPropertyAssignment(
+          "optional",
+          f.optional ? factory.createTrue() : factory.createFalse(),
+        ),
+      ]),
+    );
+
+    // Generate the runtime validation code
+    // This IIFE checks each field and collects detailed errors
+    const code = `(() => {
+  const ${valueName} = undefined;
+  const ${errorsName}: string[] = [];
+
+  // Check that value is an object
+  if (typeof ${valueName} !== "object" || ${valueName} === null) {
+    throw new Error(
+      "Type assertion failed for '${typeName}': expected object, got " +
+      (${valueName} === null ? "null" : typeof ${valueName})
+    );
+  }
+
+  // Field metadata from compile-time type info
+  const __at_fields__ = [];
+
+  for (const ${fieldName} of __at_fields__) {
+    const ${actualName} = (${valueName} as any)[${fieldName}.name];
+
+    // Check if field exists
+    if (${actualName} === undefined) {
+      if (!${fieldName}.optional) {
+        ${errorsName}.push(\`Field '\${${fieldName}.name}': missing (required, expected \${${fieldName}.type})\`);
+      }
+      continue;
+    }
+
+    // Type validation based on expected type
+    const actualType = typeof ${actualName};
+    const expectedType = ${fieldName}.type;
+
+    // Handle primitive type checks
+    if (expectedType === "string" && actualType !== "string") {
+      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected string, got \${actualType}\`);
+    } else if (expectedType === "number" && actualType !== "number") {
+      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected number, got \${actualType}\`);
+    } else if (expectedType === "boolean" && actualType !== "boolean") {
+      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected boolean, got \${actualType}\`);
+    } else if (expectedType.endsWith("[]") && !Array.isArray(${actualName})) {
+      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected array, got \${actualType}\`);
+    }
+  }
+
+  if (${errorsName}.length > 0) {
+    let msg = "Type assertion failed for '${typeName}'";
+    if (undefined !== undefined) {
+      msg += ": " + undefined;
+    }
+    msg += "\\n  - " + ${errorsName}.join("\\n  - ");
+    throw new Error(msg);
+  }
+})()`;
+
+    const stmts = ctx.parseStatements(code);
+    const iifeStmt = stmts[0] as ts.ExpressionStatement;
+    const iifeCall = iifeStmt.expression as ts.CallExpression;
+    const arrowFn = (iifeCall.expression as ts.ParenthesizedExpression)
+      .expression as ts.ArrowFunction;
+    const block = arrowFn.body as ts.Block;
+
+    // Patch: const <valueName> = <valueExpr>
+    const valueDecl = block.statements[0] as ts.VariableStatement;
+    const valueVarDecl = valueDecl.declarationList.declarations[0];
+    const newValueDecl = factory.updateVariableDeclaration(
+      valueVarDecl,
+      valueVarDecl.name,
+      undefined,
+      undefined,
+      valueExpr,
+    );
+    const newValueStmt = factory.updateVariableStatement(
+      valueDecl,
+      valueDecl.modifiers,
+      factory.updateVariableDeclarationList(valueDecl.declarationList, [
+        newValueDecl,
+      ]),
+    );
+
+    // Patch: const __at_fields__ = [<field metadata>]
+    const fieldsDecl = block.statements[3] as ts.VariableStatement;
+    const fieldsVarDecl = fieldsDecl.declarationList.declarations[0];
+    const newFieldsDecl = factory.updateVariableDeclaration(
+      fieldsVarDecl,
+      fieldsVarDecl.name,
+      undefined,
+      undefined,
+      factory.createArrayLiteralExpression(fieldMetaElements, true),
+    );
+    const newFieldsStmt = factory.updateVariableStatement(
+      fieldsDecl,
+      fieldsDecl.modifiers,
+      factory.updateVariableDeclarationList(fieldsDecl.declarationList, [
+        newFieldsDecl,
+      ]),
+    );
+
+    // Find and patch the custom message in the final if block
+    const ifStmt = block.statements[5] as ts.IfStatement;
+    const ifBlock = ifStmt.thenStatement as ts.Block;
+
+    // The message variable is in statement index 1 of the if block
+    // We need to patch: if (undefined !== undefined) to use customMessage
+    const msgIfStmt = ifBlock.statements[1] as ts.IfStatement;
+    let newMsgIfStmt: ts.IfStatement;
+
+    if (customMessage) {
+      newMsgIfStmt = factory.updateIfStatement(
+        msgIfStmt,
+        factory.createBinaryExpression(
+          customMessage,
+          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
+          factory.createIdentifier("undefined"),
+        ),
+        factory.createBlock([
+          factory.createExpressionStatement(
+            factory.createBinaryExpression(
+              factory.createIdentifier("msg"),
+              factory.createToken(ts.SyntaxKind.PlusEqualsToken),
+              factory.createBinaryExpression(
+                factory.createStringLiteral(": "),
+                factory.createToken(ts.SyntaxKind.PlusToken),
+                customMessage,
+              ),
+            ),
+          ),
+        ]),
+        undefined,
+      );
+    } else {
+      // Remove the if statement entirely by replacing with empty block
+      newMsgIfStmt = factory.updateIfStatement(
+        msgIfStmt,
+        factory.createFalse(),
+        factory.createBlock([]),
+        undefined,
+      );
+    }
+
+    const newIfBlock = factory.updateBlock(ifBlock, [
+      ifBlock.statements[0],
+      newMsgIfStmt,
+      ifBlock.statements[2],
+      ifBlock.statements[3],
+    ]);
+
+    const newIfStmt = factory.updateIfStatement(
+      ifStmt,
+      ifStmt.expression,
+      newIfBlock,
+      ifStmt.elseStatement,
+    );
+
+    // Rebuild the block with patched statements
+    const newBlock = factory.updateBlock(block, [
+      newValueStmt,
+      block.statements[1], // const errors
+      block.statements[2], // if (typeof value !== "object")
+      newFieldsStmt,
+      block.statements[4], // for loop
+      newIfStmt,
+    ]);
+
+    const newArrow = factory.updateArrowFunction(
+      arrowFn,
+      arrowFn.modifiers,
+      arrowFn.typeParameters,
+      arrowFn.parameters,
+      arrowFn.type,
+      arrowFn.equalsGreaterThanToken,
+      newBlock,
+    );
+
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(newArrow),
+      undefined,
+      [],
+    );
+  },
+});
+
+// ============================================================================
+// typeInfo<T>() — Compile-Time Type Reflection
+// ============================================================================
+
+/**
+ * Expression macro that extracts compile-time type information.
+ * This is re-exported from the core reflect macros and registered
+ * here for convenience in testing scenarios.
+ */
+export const typeInfoMacro = defineExpressionMacro({
+  name: "typeInfo",
+  module: "@typesugar/testing",
+  description:
+    "Get compile-time type information for enhanced assertion diagnostics",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    _args: readonly ts.Expression[],
+  ): ts.Expression {
+    const factory = ctx.factory;
+    const typeArgs = callExpr.typeArguments;
+
+    if (!typeArgs || typeArgs.length !== 1) {
+      ctx.reportError(callExpr, "typeInfo requires exactly one type argument");
+      return callExpr;
+    }
+
+    const typeArg = typeArgs[0];
+    const type = ctx.typeChecker.getTypeFromTypeNode(typeArg);
+    const typeName = ctx.typeChecker.typeToString(type);
+    const properties = ctx.typeChecker.getPropertiesOfType(type);
+
+    // Determine the kind
+    let kind = "type";
+    const symbol = type.getSymbol();
+    if (symbol) {
+      const decls = symbol.getDeclarations();
+      if (decls && decls.length > 0) {
+        const decl = decls[0];
+        if (ts.isInterfaceDeclaration(decl)) kind = "interface";
+        else if (ts.isClassDeclaration(decl)) kind = "class";
+        else if (ts.isEnumDeclaration(decl)) kind = "enum";
+      }
+    }
+
+    // Build fields array
+    const fieldsArray = properties.map((prop) => {
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+        prop,
+        callExpr,
+      );
+      const decls = prop.getDeclarations();
+      const decl = decls?.[0];
+      const isReadonly =
+        decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
+          ? (decl.modifiers?.some(
+              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
+            ) ?? false)
+          : false;
+
+      return factory.createObjectLiteralExpression(
+        [
+          factory.createPropertyAssignment(
+            "name",
+            factory.createStringLiteral(prop.name),
+          ),
+          factory.createPropertyAssignment(
+            "type",
+            factory.createStringLiteral(ctx.typeChecker.typeToString(propType)),
+          ),
+          factory.createPropertyAssignment(
+            "optional",
+            (prop.flags & ts.SymbolFlags.Optional) !== 0
+              ? factory.createTrue()
+              : factory.createFalse(),
+          ),
+          factory.createPropertyAssignment(
+            "readonly",
+            isReadonly ? factory.createTrue() : factory.createFalse(),
+          ),
+        ],
+        true,
+      );
+    });
+
+    return factory.createObjectLiteralExpression(
+      [
+        factory.createPropertyAssignment(
+          "name",
+          factory.createStringLiteral(typeName),
+        ),
+        factory.createPropertyAssignment(
+          "kind",
+          factory.createStringLiteral(kind),
+        ),
+        factory.createPropertyAssignment(
+          "fields",
+          factory.createArrayLiteralExpression(fieldsArray, true),
+        ),
+      ],
+      true,
+    );
+  },
+});
+
+// ============================================================================
 // Backward Compatibility Aliases
 // ============================================================================
 
@@ -906,6 +1295,8 @@ globalRegistry.register(testCasesAttribute);
 globalRegistry.register(assertSnapshotMacro);
 globalRegistry.register(typeAssertMacro);
 globalRegistry.register(forAllMacro);
+globalRegistry.register(assertTypeMacro);
+globalRegistry.register(typeInfoMacro);
 
 // Backward compatibility aliases
 globalRegistry.register(powerAssertMacro);

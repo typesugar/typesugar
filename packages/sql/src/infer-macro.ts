@@ -58,7 +58,12 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, type MacroContext } from "@typesugar/core";
+import {
+  defineExpressionMacro,
+  type MacroContext,
+  createGenericRegistry,
+  type GenericRegistry,
+} from "@typesugar/core";
 
 // ============================================================================
 // SQL Statement Types
@@ -190,7 +195,10 @@ function extractColumnName(expr: string): string | null {
  * Global registry mapping table names to their TypeScript types.
  * Populated by @schema decorator at compile time.
  */
-const schemaRegistry = new Map<string, string>();
+const schemaRegistry: GenericRegistry<string, string> = createGenericRegistry({
+  name: "SchemaRegistry",
+  duplicateStrategy: "replace",
+});
 
 /**
  * Register a table schema for type inference.

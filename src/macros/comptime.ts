@@ -22,6 +22,7 @@ import * as vm from "node:vm";
 import { defineExpressionMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext, ComptimeValue } from "../core/types.js";
 import { MacroContextImpl } from "../core/context.js";
+import { jsValueToExpression } from "../core/ast-utils.js";
 
 /** Maximum execution time for comptime evaluation (ms) */
 const COMPTIME_TIMEOUT_MS = 5000;
@@ -250,89 +251,6 @@ function createComptimeSandbox(): Record<string, unknown> {
       error: (...args: unknown[]) => console.error("[comptime]", ...args),
     },
   };
-}
-
-/**
- * Convert a JavaScript runtime value to a TypeScript AST expression.
- */
-function jsValueToExpression(
-  ctx: MacroContextImpl,
-  value: unknown,
-  errorNode: ts.Node,
-): ts.Expression {
-  if (value === null) {
-    return ctx.factory.createNull();
-  }
-
-  if (value === undefined) {
-    return ctx.factory.createIdentifier("undefined");
-  }
-
-  if (typeof value === "number") {
-    if (value < 0) {
-      return ctx.factory.createPrefixUnaryExpression(
-        ts.SyntaxKind.MinusToken,
-        ctx.factory.createNumericLiteral(Math.abs(value)),
-      );
-    }
-    if (!isFinite(value)) {
-      return ctx.factory.createIdentifier(value > 0 ? "Infinity" : "-Infinity");
-    }
-    if (isNaN(value)) {
-      return ctx.factory.createIdentifier("NaN");
-    }
-    return ctx.factory.createNumericLiteral(value);
-  }
-
-  if (typeof value === "string") {
-    return ctx.factory.createStringLiteral(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? ctx.factory.createTrue() : ctx.factory.createFalse();
-  }
-
-  if (typeof value === "bigint") {
-    return ctx.factory.createBigIntLiteral(value.toString());
-  }
-
-  if (Array.isArray(value)) {
-    const elements = value.map((el) => jsValueToExpression(ctx, el, errorNode));
-    return ctx.factory.createArrayLiteralExpression(elements);
-  }
-
-  if (value instanceof RegExp) {
-    return ctx.factory.createCallExpression(
-      ctx.factory.createIdentifier("RegExp"),
-      undefined,
-      [
-        ctx.factory.createStringLiteral(value.source),
-        ctx.factory.createStringLiteral(value.flags),
-      ],
-    );
-  }
-
-  if (typeof value === "object") {
-    const properties: ts.PropertyAssignment[] = [];
-    for (const [key, val] of Object.entries(value)) {
-      properties.push(
-        ctx.factory.createPropertyAssignment(
-          /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
-            ? ctx.factory.createIdentifier(key)
-            : ctx.factory.createStringLiteral(key),
-          jsValueToExpression(ctx, val, errorNode),
-        ),
-      );
-    }
-    return ctx.factory.createObjectLiteralExpression(properties, true);
-  }
-
-  // Functions, symbols, etc. cannot be serialized to AST
-  ctx.reportError(
-    errorNode,
-    `Cannot serialize comptime result of type ${typeof value} to AST`,
-  );
-  return ctx.factory.createIdentifier("undefined");
 }
 
 /**

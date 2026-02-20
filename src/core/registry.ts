@@ -1,5 +1,7 @@
 /**
  * Macro Registry - Stores and retrieves macro definitions
+ *
+ * Uses a table-driven approach to minimize boilerplate across macro kinds.
  */
 
 import {
@@ -20,13 +22,35 @@ function moduleKey(mod: string, exportName: string): string {
   return `${mod}::${exportName}`;
 }
 
+/**
+ * Get the registry key for a macro (name for most, label for labeled-block).
+ */
+function getMacroKey(macro: MacroDefinition): string {
+  return macro.kind === "labeled-block" ? macro.label : macro.name;
+}
+
+/**
+ * Human-readable name for error messages.
+ */
+const kindDisplayNames: Record<MacroDefinition["kind"], string> = {
+  expression: "Expression macro",
+  attribute: "Attribute macro",
+  derive: "Derive macro",
+  "tagged-template": "Tagged template macro",
+  type: "Type macro",
+  "labeled-block": "Labeled block macro",
+};
+
 class MacroRegistryImpl implements MacroRegistry {
-  private expressionMacros = new Map<string, ExpressionMacro>();
-  private attributeMacros = new Map<string, AttributeMacro>();
-  private deriveMacros = new Map<string, DeriveMacro>();
-  private taggedTemplateMacros = new Map<string, TaggedTemplateMacroDef>();
-  private typeMacros = new Map<string, TypeMacro>();
-  private labeledBlockMacros = new Map<string, LabeledBlockMacro>();
+  /**
+   * All macros stored by kind, then by key (name or label).
+   * Using a nested map provides O(1) lookup per kind while keeping
+   * the data structure unified.
+   */
+  private macrosByKind = new Map<
+    MacroDefinition["kind"],
+    Map<string, MacroDefinition>
+  >();
 
   /**
    * Secondary index: module-scoped lookup for macros that declare a `module`.
@@ -34,94 +58,73 @@ class MacroRegistryImpl implements MacroRegistry {
    */
   private moduleScopedMacros = new Map<string, MacroDefinition>();
 
-  register(macro: MacroDefinition): void {
-    switch (macro.kind) {
-      case "expression":
-        if (this.expressionMacros.has(macro.name)) {
-          throw new Error(
-            `Expression macro '${macro.name}' is already registered`,
-          );
-        }
-        this.expressionMacros.set(macro.name, macro);
-        break;
-
-      case "attribute":
-        if (this.attributeMacros.has(macro.name)) {
-          throw new Error(
-            `Attribute macro '${macro.name}' is already registered`,
-          );
-        }
-        this.attributeMacros.set(macro.name, macro);
-        break;
-
-      case "derive":
-        if (this.deriveMacros.has(macro.name)) {
-          throw new Error(`Derive macro '${macro.name}' is already registered`);
-        }
-        this.deriveMacros.set(macro.name, macro);
-        break;
-
-      case "tagged-template":
-        if (this.taggedTemplateMacros.has(macro.name)) {
-          throw new Error(
-            `Tagged template macro '${macro.name}' is already registered`,
-          );
-        }
-        this.taggedTemplateMacros.set(macro.name, macro);
-        break;
-
-      case "type":
-        if (this.typeMacros.has(macro.name)) {
-          throw new Error(`Type macro '${macro.name}' is already registered`);
-        }
-        this.typeMacros.set(macro.name, macro);
-        break;
-
-      case "labeled-block":
-        if (this.labeledBlockMacros.has(macro.label)) {
-          throw new Error(
-            `Labeled block macro for label '${macro.label}' is already registered`,
-          );
-        }
-        this.labeledBlockMacros.set(macro.label, macro);
-        break;
-
-      default:
-        throw new Error(
-          `Unknown macro kind: ${(macro as MacroDefinition).kind}`,
-        );
+  constructor() {
+    // Initialize maps for each kind
+    for (const kind of [
+      "expression",
+      "attribute",
+      "derive",
+      "tagged-template",
+      "type",
+      "labeled-block",
+    ] as const) {
+      this.macrosByKind.set(kind, new Map());
     }
+  }
+
+  register(macro: MacroDefinition): void {
+    const kindMap = this.macrosByKind.get(macro.kind);
+    if (!kindMap) {
+      throw new Error(`Unknown macro kind: ${macro.kind}`);
+    }
+
+    const key = getMacroKey(macro);
+    if (kindMap.has(key)) {
+      const keyType = macro.kind === "labeled-block" ? "label" : "name";
+      throw new Error(
+        `${kindDisplayNames[macro.kind]} with ${keyType} '${key}' is already registered`,
+      );
+    }
+
+    kindMap.set(key, macro);
 
     // Index by module if the macro declares one
     if (macro.module) {
       const exportName = macro.exportName ?? macro.name;
-      const key = moduleKey(macro.module, exportName);
-      this.moduleScopedMacros.set(key, macro);
+      const modKey = moduleKey(macro.module, exportName);
+      this.moduleScopedMacros.set(modKey, macro);
     }
   }
 
+  private getByKind<T extends MacroDefinition>(
+    kind: MacroDefinition["kind"],
+    key: string,
+  ): T | undefined {
+    return this.macrosByKind.get(kind)?.get(key) as T | undefined;
+  }
+
   getExpression(name: string): ExpressionMacro | undefined {
-    return this.expressionMacros.get(name);
+    return this.getByKind<ExpressionMacro>("expression", name);
   }
 
   getAttribute(name: string): AttributeMacro | undefined {
-    return this.attributeMacros.get(name);
+    return this.getByKind<AttributeMacro>("attribute", name);
   }
 
   getDerive(name: string): DeriveMacro | undefined {
-    return this.deriveMacros.get(name);
+    return this.getByKind<DeriveMacro>("derive", name);
   }
 
   getTaggedTemplate(name: string): TaggedTemplateMacroDef | undefined {
-    return this.taggedTemplateMacros.get(name);
+    return this.getByKind<TaggedTemplateMacroDef>("tagged-template", name);
   }
 
   getType(name: string): TypeMacro | undefined {
-    return this.typeMacros.get(name);
+    return this.getByKind<TypeMacro>("type", name);
   }
 
   getLabeledBlock(label: string): LabeledBlockMacro | undefined {
-    return this.labeledBlockMacros.get(label);
+    return this.getByKind<LabeledBlockMacro>("labeled-block", label);
   }
 
   /**
@@ -140,49 +143,23 @@ class MacroRegistryImpl implements MacroRegistry {
    * Returns true if the macro has a `module` field set.
    */
   isImportScoped(name: string, kind: MacroDefinition["kind"]): boolean {
-    let macro: MacroDefinition | undefined;
-    switch (kind) {
-      case "expression":
-        macro = this.expressionMacros.get(name);
-        break;
-      case "attribute":
-        macro = this.attributeMacros.get(name);
-        break;
-      case "derive":
-        macro = this.deriveMacros.get(name);
-        break;
-      case "tagged-template":
-        macro = this.taggedTemplateMacros.get(name);
-        break;
-      case "type":
-        macro = this.typeMacros.get(name);
-        break;
-      case "labeled-block":
-        macro = this.labeledBlockMacros.get(name);
-        break;
-    }
+    const macro = this.macrosByKind.get(kind)?.get(name);
     return macro?.module !== undefined;
   }
 
   getAll(): MacroDefinition[] {
-    return [
-      ...this.expressionMacros.values(),
-      ...this.attributeMacros.values(),
-      ...this.deriveMacros.values(),
-      ...this.taggedTemplateMacros.values(),
-      ...this.typeMacros.values(),
-      ...this.labeledBlockMacros.values(),
-    ];
+    const all: MacroDefinition[] = [];
+    for (const kindMap of this.macrosByKind.values()) {
+      all.push(...kindMap.values());
+    }
+    return all;
   }
 
   /** Clear all registered macros (useful for testing) */
   clear(): void {
-    this.expressionMacros.clear();
-    this.attributeMacros.clear();
-    this.deriveMacros.clear();
-    this.taggedTemplateMacros.clear();
-    this.typeMacros.clear();
-    this.labeledBlockMacros.clear();
+    for (const kindMap of this.macrosByKind.values()) {
+      kindMap.clear();
+    }
     this.moduleScopedMacros.clear();
   }
 }
@@ -200,76 +177,37 @@ export function createRegistry(): MacroRegistry {
 // ============================================================================
 
 /**
- * Define an expression macro with type inference
+ * Generic macro definition factory. Adds the `kind` discriminant field.
  */
-export function defineExpressionMacro(
-  definition: Omit<ExpressionMacro, "kind">,
-): ExpressionMacro {
-  return {
-    ...definition,
-    kind: "expression",
-  };
+function defineMacro<K extends MacroDefinition["kind"]>(
+  kind: K,
+): <T extends Extract<MacroDefinition, { kind: K }>>(
+  definition: Omit<T, "kind">,
+) => T {
+  return (definition) => ({ ...definition, kind }) as any;
 }
 
-/**
- * Define an attribute macro with type inference
- */
-export function defineAttributeMacro(
-  definition: Omit<AttributeMacro, "kind">,
-): AttributeMacro {
-  return {
-    ...definition,
-    kind: "attribute",
-  };
-}
+/** Define an expression macro with type inference */
+export const defineExpressionMacro =
+  defineMacro<"expression">("expression")<ExpressionMacro>;
 
-/**
- * Define a derive macro with type inference
- */
-export function defineDeriveMacro(
-  definition: Omit<DeriveMacro, "kind">,
-): DeriveMacro {
-  return {
-    ...definition,
-    kind: "derive",
-  };
-}
+/** Define an attribute macro with type inference */
+export const defineAttributeMacro =
+  defineMacro<"attribute">("attribute")<AttributeMacro>;
 
-/**
- * Define a tagged template macro with type inference
- */
-export function defineTaggedTemplateMacro(
-  definition: Omit<TaggedTemplateMacroDef, "kind">,
-): TaggedTemplateMacroDef {
-  return {
-    ...definition,
-    kind: "tagged-template",
-  };
-}
+/** Define a derive macro with type inference */
+export const defineDeriveMacro = defineMacro<"derive">("derive")<DeriveMacro>;
 
-/**
- * Define a type macro with type inference
- */
-export function defineTypeMacro(
-  definition: Omit<TypeMacro, "kind">,
-): TypeMacro {
-  return {
-    ...definition,
-    kind: "type",
-  };
-}
+/** Define a tagged template macro with type inference */
+export const defineTaggedTemplateMacro =
+  defineMacro<"tagged-template">("tagged-template")<TaggedTemplateMacroDef>;
 
-/**
- * Define a labeled block macro with type inference
- */
-export function defineLabeledBlockMacro(
-  definition: Omit<LabeledBlockMacro, "kind">,
-): LabeledBlockMacro {
-  return {
-    ...definition,
-    kind: "labeled-block",
-  };
-}
+/** Define a type macro with type inference */
+export const defineTypeMacro = defineMacro<"type">("type")<TypeMacro>;
+
+/** Define a labeled block macro with type inference */
+export const defineLabeledBlockMacro =
+  defineMacro<"labeled-block">("labeled-block")<LabeledBlockMacro>;
 
 /**
  * Register multiple macros at once

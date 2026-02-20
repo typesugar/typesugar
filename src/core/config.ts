@@ -49,6 +49,7 @@ import {
   globalRegistry,
 } from "./registry.js";
 import type { MacroContext, AttributeTarget } from "./types.js";
+import { stripDecorator } from "./ast-utils.js";
 
 // ============================================================================
 // Types
@@ -686,81 +687,6 @@ export const configWhenAttrMacro = defineAttributeMacro({
     }
   },
 });
-
-/**
- * Strip a decorator from a declaration.
- */
-function stripDecorator(
-  ctx: MacroContext,
-  target: ts.Declaration,
-  decoratorToRemove: ts.Decorator,
-): ts.Node {
-  if (!ts.canHaveDecorators(target)) return target;
-
-  const existingDecorators = ts.getDecorators(target);
-  if (!existingDecorators) return target;
-
-  const remainingDecorators = existingDecorators.filter(
-    (d) => d !== decoratorToRemove,
-  );
-
-  const existingModifiers = ts.canHaveModifiers(target)
-    ? ts.getModifiers(target)
-    : undefined;
-
-  const newModifiers = [...remainingDecorators, ...(existingModifiers ?? [])];
-
-  if (ts.isMethodDeclaration(target)) {
-    return ctx.factory.updateMethodDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.asteriskToken,
-      target.name,
-      target.questionToken,
-      target.typeParameters,
-      target.parameters,
-      target.type,
-      target.body,
-    );
-  }
-
-  if (ts.isPropertyDeclaration(target)) {
-    return ctx.factory.updatePropertyDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.name,
-      target.questionToken ?? target.exclamationToken,
-      target.type,
-      target.initializer,
-    );
-  }
-
-  if (ts.isClassDeclaration(target)) {
-    return ctx.factory.updateClassDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.name,
-      target.typeParameters,
-      target.heritageClauses,
-      target.members,
-    );
-  }
-
-  if (ts.isFunctionDeclaration(target)) {
-    return ctx.factory.updateFunctionDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.asteriskToken,
-      target.name,
-      target.typeParameters,
-      target.parameters,
-      target.type,
-      target.body,
-    );
-  }
-
-  return target;
-}
 
 // ============================================================================
 // Register Macros

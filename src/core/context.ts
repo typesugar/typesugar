@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene } from "./hygiene.js";
 import type { MacroExpansionCache } from "./cache.js";
+import { stripPositions } from "./ast-utils.js";
 
 // Pre-allocated sentinel values for common comptime results.
 // Avoids allocating a new object on every boolean/null/undefined evaluation.
@@ -703,22 +704,4 @@ export function createMacroContext(
     hygiene,
     expansionCache,
   );
-}
-
-/**
- * Recursively strip source-file positions from a parsed AST node,
- * making it "synthetic" so ts.Printer can emit it against any source file.
- *
- * Without this, nodes parsed from a temporary source file carry positions
- * that refer to that temp file's text. If the printer is given a different
- * source file, it reads garbage from the wrong buffer.
- */
-function stripPositions<T extends ts.Node>(node: T): T {
-  // Set positions to -1 to mark as synthetic
-  ts.setTextRange(node, { pos: -1, end: -1 });
-  return ts.visitEachChild(
-    node,
-    (child) => stripPositions(child),
-    undefined as unknown as ts.TransformationContext,
-  ) as T;
 }

@@ -57,3 +57,11 @@ export {
   getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
 } from "./registry.js";
+
+// Generic Registry<K, V> abstraction
+export {
+  createGenericRegistry,
+  type GenericRegistry,
+  type RegistryOptions,
+  type DuplicateStrategy,
+} from "./registry.js";

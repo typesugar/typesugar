@@ -26,6 +26,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { defineExpressionMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext } from "../core/types.js";
+import { jsValueToExpression } from "../core/ast-utils.js";
 
 // =============================================================================
 // Dependency Tracking
@@ -266,68 +267,6 @@ export const includeTextMacro = defineExpressionMacro({
 // =============================================================================
 // JS Value → AST Expression Conversion
 // =============================================================================
-
-/**
- * Convert a JavaScript value to a TypeScript AST expression.
- * Handles all JSON-representable types.
- */
-function jsValueToExpression(
-  ctx: MacroContext,
-  value: unknown,
-  errorNode: ts.Node,
-): ts.Expression {
-  if (value === null) {
-    return ctx.factory.createNull();
-  }
-
-  if (value === undefined) {
-    return ctx.factory.createIdentifier("undefined");
-  }
-
-  if (typeof value === "number") {
-    if (value < 0) {
-      return ctx.factory.createPrefixUnaryExpression(
-        ts.SyntaxKind.MinusToken,
-        ctx.factory.createNumericLiteral(Math.abs(value)),
-      );
-    }
-    return ctx.factory.createNumericLiteral(value);
-  }
-
-  if (typeof value === "string") {
-    return ctx.factory.createStringLiteral(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? ctx.factory.createTrue() : ctx.factory.createFalse();
-  }
-
-  if (Array.isArray(value)) {
-    const elements = value.map((el) => jsValueToExpression(ctx, el, errorNode));
-    return ctx.factory.createArrayLiteralExpression(elements, true);
-  }
-
-  if (typeof value === "object") {
-    const properties: ts.PropertyAssignment[] = [];
-    for (const [key, val] of Object.entries(value)) {
-      properties.push(
-        ctx.factory.createPropertyAssignment(
-          /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
-            ? ctx.factory.createIdentifier(key)
-            : ctx.factory.createStringLiteral(key),
-          jsValueToExpression(ctx, val, errorNode),
-        ),
-      );
-    }
-    return ctx.factory.createObjectLiteralExpression(properties, true);
-  }
-
-  ctx.reportError(
-    errorNode,
-    `includeJson: Cannot serialize value of type ${typeof value} to AST`,
-  );
-  return ctx.factory.createIdentifier("undefined");
-}
 
 // =============================================================================
 // Register macros

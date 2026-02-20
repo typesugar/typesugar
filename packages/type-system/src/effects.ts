@@ -62,6 +62,8 @@ import {
   defineAttributeMacro,
   defineExpressionMacro,
   globalRegistry,
+  createGenericRegistry,
+  type GenericRegistry,
 } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 
@@ -86,6 +88,19 @@ export type EffectKind =
 
 /**
  * Effect annotation for a function.
+ *
+ * This is a plain data interface. Consumers who want Show/Eq instances
+ * can use `@deriving(Show, Eq)` from `@typesugar/typeclass` on their own types.
+ *
+ * @example
+ * ```typescript
+ * import { deriving } from "@typesugar/typeclass";
+ * import type { EffectAnnotation } from "@typesugar/type-system";
+ *
+ * // Create a type alias and derive instances
+ * @deriving(Show, Eq)
+ * interface MyEffectAnnotation extends EffectAnnotation {}
+ * ```
  */
 export interface EffectAnnotation {
   /** The function name */
@@ -108,8 +123,14 @@ export interface EffectAnnotation {
 /**
  * Global registry of effect annotations.
  * Populated by @pure and @effect decorators during compilation.
+ *
+ * Uses the generic Registry<K,V> abstraction from @typesugar/core with "replace"
+ * duplicate strategy for idempotent registration.
  */
-export const effectRegistry = new Map<string, EffectAnnotation>();
+export const effectRegistry: GenericRegistry<string, EffectAnnotation> = createGenericRegistry({
+  name: "EffectRegistry",
+  duplicateStrategy: "replace",
+});
 
 /**
  * Register a pure function.

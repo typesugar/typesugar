@@ -27,6 +27,177 @@ The framework is the compiler. At runtime, there is no framework.
 
 ---
 
+## Two Syntax Layers
+
+typesugar offers two syntax layers for every feature. The **TS-compatible**
+layer is the default — it works with every IDE, linter, formatter, and AI
+tool out of the box. The **extended syntax** layer is an opt-in
+preprocessor upgrade for teams that want the cleanest possible DX.
+
+### Why Two Layers?
+
+Custom syntax is a tradeoff:
+
+| | TS-compatible (default) | Extended syntax (opt-in) |
+|---|---|---|
+| IDE autocomplete | Full — native TypeScript | Requires language service plugin |
+| Type checking | Full — built in | After preprocessing |
+| ESLint / Prettier | Works | Needs custom parser/printer |
+| AI tools (Copilot, Cursor) | Works | May not understand syntax |
+| GitHub diff rendering | Works | Needs syntax grammar |
+| Source maps | N/A | Must be generated correctly |
+| Readability | Good | Excellent |
+| Signal-to-noise ratio | Good | Excellent |
+| Learning curve | TypeScript only | New syntax to learn |
+
+The TS-compatible layer has a higher floor (everything works). The extended
+syntax has a higher ceiling (everything is cleaner). Teams choose based on
+their tooling investment tolerance.
+
+### Side-by-Side Comparison
+
+**Do-notation for effects:**
+
+```typescript
+// TS-compatible (generators — like Effect-TS):
+const fetchUser = (id: string) => fx(function*() {
+  const token = yield* auth.getToken();
+  const user = yield* http.fetch<User>(`/api/users/${id}`, authHeader(token));
+  return user;
+});
+
+// Extended syntax (preprocessor):
+const fetchUser = (id: string) => fx {
+  token <- auth.getToken()
+  user  <- http.fetch<User>(`/api/users/${id}`, authHeader(token))
+  return user
+}
+
+// Both compile to:
+const fetchUser = async (id: string) => {
+  const token = await getToken();
+  const user = await fetch(`/api/users/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  }).then(r => r.json());
+  return user;
+};
+```
+
+Difference: `yield*` vs `<-`. The generator version has full type inference
+out of the box. The extended syntax is slightly cleaner but requires
+preprocessing.
+
+**Pattern matching:**
+
+```typescript
+// TS-compatible (function call):
+return match(user, {
+  Loading: () => html`<Spinner />`,
+  Err:     (e) => html`<ErrorBanner error=${e} />`,
+  Ok:      (u) => html`<UserCard user=${u} />`,
+});
+
+// Extended syntax (preprocessor):
+return match user {
+  Loading -> html`<Spinner />`
+  Err(e)  -> html`<ErrorBanner error=${e} />`
+  Ok(u)   -> html`<UserCard user=${u} />`
+}
+```
+
+Difference: Minimal. The function call version is barely more verbose and
+has full IDE support. Match is the weakest case for extended syntax.
+
+**Component definitions:**
+
+```typescript
+// TS-compatible (builder pattern):
+const TodoItem = component($ => {
+  $.props<{ todo: Todo; onToggle: (id: string) => void }>();
+  $.style = css`.item { padding: 8px; } .done { text-decoration: line-through; }`;
+  $.view = ({ todo, onToggle }) => html`
+    <li class=${todo.done ? 'done' : 'item'}
+        onClick=${() => onToggle(todo.id)}>
+      ${todo.text}
+    </li>
+  `;
+});
+
+// Extended syntax (preprocessor):
+component TodoItem {
+  props {
+    todo: Todo
+    onToggle: (id: string) => void
+  }
+
+  style {
+    .item { padding: 8px; }
+    .done { text-decoration: line-through; }
+  }
+
+  view {
+    <li class={todo.done ? 'done' : 'item'}
+        onClick={() => onToggle(todo.id)}>
+      {todo.text}
+    </li>
+  }
+}
+```
+
+Difference: **Significant.** Component definitions benefit the most from
+extended syntax. The declarative sections (`props`, `style`, `view`) are
+cleaner without builder ceremony. This is where the preprocessor earns its
+keep.
+
+### Recommendation
+
+Start with TS-compatible syntax. It works everywhere, from day one, with
+zero tooling investment. Adopt extended syntax when:
+
+- Your team is committed to typesugar long-term
+- You've installed the language service plugin
+- You want the cleanest possible DX for large component files
+
+Both layers compile to identical output. You can mix them in the same
+project — some files use extended syntax, others use TS-compatible.
+
+### Extended Syntax: The Preprocessor
+
+For teams that opt in, the preprocessor is a core capability. It runs before
+TypeScript parsing, transforming custom syntax blocks into valid TypeScript.
+
+A **syntax block** has the form:
+
+```
+keyword name? {
+  content
+}
+```
+
+Built-in blocks: `fx { }`, `component Name { }`, `match expr { }`.
+
+Users can register custom syntax blocks:
+
+```typescript
+defineSyntaxBlock({
+  keyword: 'query',
+  transform: (name, content) => {
+    return `const ${name} = sql\`${content}\``;
+  }
+});
+
+// Usage:
+query GetUsers {
+  SELECT * FROM users WHERE active = true
+}
+```
+
+The VSCode extension provides syntax highlighting, autocomplete, and error
+reporting inside syntax blocks — but this requires the language service
+plugin, which is why extended syntax is opt-in rather than default.
+
+---
+
 ## Part 0: Why Not Hooks? (State Model Design)
 
 This section justifies the core state model. Getting this wrong poisons
@@ -237,17 +408,17 @@ export function useAuth() {
     isLoggedIn,// Computed<boolean>
 
     login: (creds: Credentials) => fx {
-      result << http.fetch<AuthResponse>("/api/login", {
-                   method: "POST", body: JSON.stringify(creds)
-                 });
-      token.value = result.token;  // all subscribers update
-      yield result.user;
+      result <- http.fetch<AuthResponse>("/api/login", {
+                    method: "POST", body: JSON.stringify(creds)
+                })
+      token.value = result.token  // all subscribers update
+      return result.user
     },
 
     logout: () => {
-      token.value = null;
+      token.value = null
     },
-  };
+  }
 }
 ```
 
@@ -293,6 +464,344 @@ const Counter = component(() => {
 The rule: `let` inside `component()` becomes a signal. `const` never does.
 This gives you Svelte-level ergonomics for the common case, while `ref()` /
 `computed()` are available for anything more complex.
+
+---
+
+## Part 0.5: Component Definitions
+
+typesugar supports multiple components per file with co-located styles — like
+Vue/Svelte SFCs but in standard TypeScript files.
+
+### TS-Compatible: Builder Pattern (Default)
+
+The builder pattern uses `component($ => { ... })`. Every character is valid
+TypeScript with full IDE support.
+
+**Simple component:**
+
+```typescript
+const Avatar = component($ => {
+  $.props<{ src: string; size?: number }>();
+
+  $.style = css`
+    .avatar { border-radius: 50%; object-fit: cover; }
+  `;
+
+  $.view = ({ src, size = 40 }) => html`
+    <img class="avatar" src=${src} width=${size} height=${size} />
+  `;
+});
+```
+
+**MVU component:**
+
+```typescript
+const Counter = component($ => {
+  $.model<{ count: number }>({ count: 0 });
+
+  $.msg<{
+    Increment: {};
+    Decrement: {};
+    Set: { value: number };
+  }>();
+
+  $.update = (model, msg) => match(msg, {
+    Increment: () => [{ count: model.count + 1 }],
+    Decrement: () => [{ count: model.count - 1 }],
+    Set: ({ value }) => [{ count: value }],
+  });
+
+  $.style = css`
+    .counter { display: flex; gap: 8px; align-items: center; }
+    .btn { width: 32px; height: 32px; font-size: 18px; }
+  `;
+
+  $.view = (model, { Increment, Decrement }) => html`
+    <div class="counter">
+      <button class="btn" onClick=${Decrement}>-</button>
+      <span>${model.count}</span>
+      <button class="btn" onClick=${Increment}>+</button>
+    </div>
+  `;
+});
+```
+
+### Extended Syntax: `component Name { }` (Opt-In Preprocessor)
+
+For teams that opt into the extended syntax layer, the preprocessor enables
+a cleaner declarative form:
+
+**Simple component:**
+
+```typescript
+component Avatar {
+  props {
+    src: string
+    size: number = 40
+  }
+
+  style {
+    .avatar { border-radius: 50%; object-fit: cover; }
+  }
+
+  view {
+    <img class="avatar" src={src} width={size} height={size} />
+  }
+}
+```
+
+**MVU component:**
+
+```typescript
+component Counter {
+  model {
+    count: number = 0
+  }
+
+  msg {
+    Increment
+    Decrement
+    Set { value: number }
+  }
+
+  update {
+    Increment -> [{ count: model.count + 1 }]
+    Decrement -> [{ count: model.count - 1 }]
+    Set { value } -> [{ count: value }]
+  }
+
+  style {
+    .counter { display: flex; gap: 8px; align-items: center; }
+    .btn { width: 32px; height: 32px; font-size: 18px; }
+  }
+
+  view {
+    <div class="counter">
+      <button class="btn" onClick={Decrement}>-</button>
+      <span>{model.count}</span>
+      <button class="btn" onClick={Increment}>+</button>
+    </div>
+  }
+}
+```
+
+The extended syntax is cleaner — `props` as a declaration block instead of a
+generic type parameter, `update` with `->` pattern matching, raw CSS/JSX
+without tagged template wrappers. But it requires the preprocessor and
+language service plugin.
+
+### Multiple Components Per File
+
+Both syntax layers support multiple components per file. Private helpers
+stay unexported. This is the key advantage over Vue/Svelte (one component
+per file):
+
+**TS-compatible:**
+
+```typescript
+// components/todo.ts
+import { component, css, html, each } from '@typesugar/web';
+import type { Todo, Filter } from '../domain/types';
+
+// Private — not exported
+const TodoItem = component($ => {
+  $.props<{ todo: Todo; onToggle: (id: string) => void }>();
+
+  $.style = css`
+    .item { padding: 12px; border-bottom: 1px solid #eee; }
+    .done { text-decoration: line-through; opacity: 0.5; }
+  `;
+
+  $.view = ({ todo, onToggle }) => html`
+    <li class=${todo.done ? 'done item' : 'item'}
+        onClick=${() => onToggle(todo.id)}>
+      ${todo.text}
+    </li>
+  `;
+});
+
+// Private
+const FilterButtons = component($ => {
+  $.props<{ current: Filter; onSelect: (f: Filter) => void }>();
+
+  $.style = css`
+    .filters { display: flex; gap: 8px; }
+    .active { background: var(--primary); color: white; }
+  `;
+
+  $.view = ({ current, onSelect }) => html`
+    <div class="filters">
+      ${each(['all', 'active', 'done'] as Filter[], f => html`
+        <button class=${f === current ? 'active' : ''}
+                onClick=${() => onSelect(f)}>${f}</button>
+      `)}
+    </div>
+  `;
+});
+
+// Public — uses siblings directly
+export const TodoList = component($ => {
+  $.model<{
+    todos: Todo[];
+    filter: Filter;
+    saving: boolean;
+  }>({ todos: [], filter: 'all', saving: false });
+
+  $.msg<{
+    Toggle: { id: string };
+    Add: { text: string };
+    Added: { todo: Todo };
+    SetFilter: { filter: Filter };
+  }>();
+
+  $.update = (model, msg) => match(msg, {
+    Toggle:    ({ id }) => [{ ...model, todos: toggleTodo(model.todos, id) }],
+    Add:       ({ text }) => [
+      { ...model, saving: true },
+      api.createTodo(text).map(todo => $.msg.Added({ todo })),
+    ],
+    Added:     ({ todo }) => [
+      { ...model, saving: false, todos: [...model.todos, todo] },
+    ],
+    SetFilter: ({ filter }) => [{ ...model, filter }],
+  });
+
+  $.style = css`
+    .app { max-width: 500px; margin: 0 auto; padding: 20px; }
+    .list { list-style: none; padding: 0; }
+  `;
+
+  $.view = (model, { Toggle, Add, SetFilter }) => {
+    const visible = filterTodos(model.todos, model.filter);
+
+    return html`
+      <section class="app">
+        <input placeholder="What needs to be done?"
+               disabled=${model.saving}
+               onKeyDown=${(e) => e.key === 'Enter' && Add({ text: e.target.value })} />
+        <ul class="list">
+          ${each(visible, todo => html`
+            <TodoItem todo=${todo} onToggle=${(id) => Toggle({ id })} />
+          `)}
+        </ul>
+        <FilterButtons current=${model.filter} onSelect=${(f) => SetFilter({ filter: f })} />
+      </section>
+    `;
+  };
+});
+```
+
+**Extended syntax (same example, opt-in preprocessor):**
+
+```typescript
+// components/todo.ts
+import { each } from '@typesugar/web'
+import type { Todo, Filter } from '../domain/types'
+
+component TodoItem {
+  props {
+    todo: Todo
+    onToggle: (id: string) => void
+  }
+
+  style {
+    .item { padding: 12px; border-bottom: 1px solid #eee; }
+    .done { text-decoration: line-through; opacity: 0.5; }
+  }
+
+  view {
+    <li class={todo.done ? 'done item' : 'item'}
+        onClick={() => onToggle(todo.id)}>
+      {todo.text}
+    </li>
+  }
+}
+
+component FilterButtons {
+  props {
+    current: Filter
+    onSelect: (f: Filter) => void
+  }
+
+  style {
+    .filters { display: flex; gap: 8px; }
+    .active { background: var(--primary); color: white; }
+  }
+
+  view {
+    <div class="filters">
+      {each(['all', 'active', 'done'], f =>
+        <button class={f === current ? 'active' : ''}
+                onClick={() => onSelect(f)}>{f}</button>
+      )}
+    </div>
+  }
+}
+
+export component TodoList {
+  model {
+    todos: Todo[] = []
+    filter: Filter = 'all'
+    saving: boolean = false
+  }
+
+  msg {
+    Toggle { id: string }
+    Add { text: string }
+    Added { todo: Todo }
+    SetFilter { filter: Filter }
+  }
+
+  update {
+    Toggle { id } -> [{ ...model, todos: toggleTodo(model.todos, id) }]
+    Add { text } -> [
+      { ...model, saving: true },
+      api.createTodo(text).map(todo => Added { todo })
+    ]
+    Added { todo } -> [
+      { ...model, saving: false, todos: [...model.todos, todo] }
+    ]
+    SetFilter { filter } -> [{ ...model, filter }]
+  }
+
+  style {
+    .app { max-width: 500px; margin: 0 auto; padding: 20px; }
+    .list { list-style: none; padding: 0; }
+  }
+
+  view {
+    let visible = filterTodos(model.todos, model.filter)
+
+    <section class="app">
+      <input placeholder="What needs to be done?"
+             disabled={model.saving}
+             onKeyDown={(e) => e.key === 'Enter' && Add { text: e.target.value }} />
+      <ul class="list">
+        {each(visible, todo =>
+          <TodoItem todo={todo} onToggle={(id) => Toggle { id }} />
+        )}
+      </ul>
+      <FilterButtons current={model.filter}
+                     onSelect={(f) => SetFilter { filter: f }} />
+    </section>
+  }
+}
+```
+
+Both compile to identical output.
+
+### Section Reference
+
+Both syntax layers support the same sections:
+
+| Section | Builder (`$.`) | Extended keyword | Required? |
+|---|---|---|---|
+| Props | `$.props<T>()` | `props { }` | For simple components |
+| Model | `$.model<T>(init)` | `model { }` | For MVU components |
+| Messages | `$.msg<T>()` | `msg { }` | For MVU components |
+| Update | `$.update = ...` | `update { }` | For MVU components |
+| Styles | `$.style = css\`\`` | `style { }` | Optional |
+| View | `$.view = ...` | `view { }` | Required |
 
 ---
 
@@ -618,21 +1127,30 @@ interface Storage<T> {
 
 ### Composing Effects with Do-Notation
 
-The `fx` block uses the existing `let:/yield:` labeled block infrastructure.
-Every `<<` binding chains effects, and the type system accumulates the error
-and requirement types automatically.
+Every `yield*` binding chains effects, and the type system accumulates the
+error and requirement types automatically.
 
 ```typescript
+// TS-compatible (generators):
 // Type: Fx<User, HttpError | AuthError, HttpClient & AuthService>
-// The compiler INFERS the full error and requirement types.
+const fetchUser = (id: string) => fx(function*() {
+  const token = yield* auth.getToken();
+  const user = yield* http.fetch<User>(`/api/users/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  yield* analytics.track("user.viewed", { id });
+  return user;
+});
+
+// Extended syntax (opt-in preprocessor):
 const fetchUser = (id: string) => fx {
-  token  << auth.getToken();
-  user   << http.fetch<User>(`/api/users/${id}`, {
+  token <- auth.getToken()
+  user  <- http.fetch<User>(`/api/users/${id}`, {
                headers: { Authorization: `Bearer ${token}` }
-             });
-  _      << analytics.track("user.viewed", { id });
-  yield user;
-};
+           })
+  _     <- analytics.track("user.viewed", { id })
+  return user
+}
 ```
 
 **What the macro compiles this to:**
@@ -711,10 +1229,10 @@ cancellation. Inspired by Cats Effect's `Resource` and Python's `with`.
 ```typescript
 const processFile = fx {
   // 'use' guarantees cleanup — compiles to try/finally
-  handle << use(openFile(path), file => file.close());
-  data   << handle.readAll();
-  yield parse(data);
-};
+  handle <- use(openFile(path), file => file.close())
+  data   <- handle.readAll()
+  return parse(data)
+}
 ```
 
 **Compiles to:**
@@ -740,22 +1258,22 @@ Promise patterns.
 ```typescript
 const searchResults = fx {
   // Automatically cancels previous search when query changes
-  query   << watch(searchInput);
+  query   <- watch(searchInput)
 
   // Run in parallel, cancel all if any fails
-  results << Fx.all(
+  results <- Fx.all(
                http.fetch<Results>(`/search?q=${query}`),
                http.fetch<Suggestions>(`/suggest?q=${query}`)
-             );
+             )
 
   // Timeout with fallback
-  fresh   << Fx.race(
+  fresh   <- Fx.race(
                results,
                Fx.delay(3000).map(() => cachedResults)
-             );
+             )
 
-  yield fresh;
-};
+  return fresh
+}
 ```
 
 **Compiles to:**
@@ -811,10 +1329,10 @@ doesn't run, doesn't touch any signal, and is testable in isolation.
 ```typescript
 // effects/users.ts
 export const fetchUser = (id: string) => fx {
-  token << auth.getToken();
-  user  << http.fetch<User>(`/api/users/${id}`, authHeader(token));
-  yield user;
-};
+  token <- auth.getToken()
+  user  <- http.fetch<User>(`/api/users/${id}`, authHeader(token))
+  return user
+}
 // Type: (id: string) => Fx<User, HttpError | AuthError, HttpClient & AuthService>
 ```
 
@@ -893,14 +1411,14 @@ reads.
 ```typescript
 // effects/users.ts
 export const updateUser = (id: string, data: Partial<User>) => fx {
-  token   << auth.getToken();
-  updated << http.fetch<User>(`/api/users/${id}`, {
+  token   <- auth.getToken()
+  updated <- http.fetch<User>(`/api/users/${id}`, {
                 method: 'PATCH',
                 headers: authHeader(token),
-                body: JSON.stringify(data),
-              });
-  yield updated;
-};
+                body: JSON.stringify(data)
+             })
+  return updated
+}
 ```
 
 **Step 2 — Wire it via `action()`:**
@@ -1018,12 +1536,12 @@ const authStore = store({
 
   // Effects for hydration — run once on mount
   hydrate: fx {
-    token << storage.get<string>("auth_token");
-    user  << token.match({
-               Some: (t) => http.fetch<User>("/api/me", authHeader(t)),
-               None: () => Fx.pure(None)
-             });
-    yield { user, token };
+    token <- storage.get<string>("auth_token")
+    user  <- match token {
+               Some(t) -> http.fetch<User>("/api/me", authHeader(t))
+               None    -> Fx.pure(None)
+             }
+    return { user, token }
   },
 
   // Derived state — compile-time dependency tracking
@@ -1035,17 +1553,17 @@ const authStore = store({
   // Actions — each returns an Fx, giving typed errors
   actions: {
     login: (creds: Credentials) => fx {
-      result << http.fetch<AuthResponse>("/api/login", {
-                   method: "POST",
-                   body: JSON.stringify(creds)
-                 });
-      _      << storage.set("auth_token", result.token);
-      yield { user: Some(result.user), token: Some(result.token) };
+      result <- http.fetch<AuthResponse>("/api/login", {
+                    method: "POST",
+                    body: JSON.stringify(creds)
+                })
+      _      <- storage.set("auth_token", result.token)
+      return { user: Some(result.user), token: Some(result.token) }
     },
 
     logout: () => fx {
-      _ << storage.remove("auth_token");
-      yield { user: None, token: None };
+      _ <- storage.remove("auth_token")
+      return { user: None, token: None }
     },
   }
 });
@@ -1096,12 +1614,12 @@ client, so the `resource` that consumes the API knows every possible failure.
 ```typescript
 // server/routes/users.ts
 export const getUser = route("GET", "/users/:id", (params) => fx {
-  user << db.query(sql`SELECT * FROM users WHERE id = ${params.id}`);
-  yield match(user) {
-    Some: (u) => Response.json(u),
-    None: ()  => Response.error(404, "User not found")
-  };
-});
+  user <- db.query(sql`SELECT * FROM users WHERE id = ${params.id}`)
+  return match user {
+    Some(u) -> Response.json(u)
+    None    -> Response.error(404, "User not found")
+  }
+})
 
 // client/pages/user.ts — errors are typed!
 const user = resource(() => api.getUser({ id: props.id }));
@@ -1114,10 +1632,10 @@ const user = resource(() => api.getUser({ id: props.id }));
 export const createPost = formAction(
   PostSchema,  // Zod/ArkType schema for validation
   (data) => fx {
-    post << db.insert(sql`INSERT INTO posts ${values(data)}`);
-    yield redirect(`/posts/${post.id}`);
+    post <- db.insert(sql`INSERT INTO posts ${values(data)}`)
+    return redirect(`/posts/${post.id}`)
   }
-);
+)
 
 // In the component — progressive enhancement, works without JS
 const NewPost = component(() => {
@@ -1137,17 +1655,17 @@ const NewPost = component(() => {
 
 ### Compiles away entirely (zero-cost)
 
-| Abstraction                | Compiled output                                |
-| -------------------------- | ---------------------------------------------- |
-| `Fx<A, E, R>` type         | `Promise<A>` or sync code                      |
-| `fx { x << ...; yield x }` | `async/await` chain                            |
-| `summon<HttpClient>()`     | Direct function reference                      |
-| `specialize(fn)`           | Inlined method body                            |
-| `match(x) { ... }`         | `if/else` chain                                |
-| `html\`...\``              | `document.createElement` calls                 |
-| `css\`...\``               | Static CSS file + string literal               |
-| `cfg("server", a, b)`      | `a` or `b` (other branch dead-code eliminated) |
-| `comptime(() => expr)`     | Literal value                                  |
+| Abstraction                 | Compiled output                                |
+| --------------------------- | ---------------------------------------------- |
+| `Fx<A, E, R>` type          | `Promise<A>` or sync code                      |
+| `fx { x <- ...; return x }` | `async/await` chain                            |
+| `summon<HttpClient>()`      | Direct function reference                      |
+| `specialize(fn)`            | Inlined method body                            |
+| `match(x) { ... }`          | `if/else` chain                                |
+| `html\`...\``               | `document.createElement` calls                 |
+| `css\`...\``                | Static CSS file + string literal               |
+| `cfg("server", a, b)`       | `a` or `b` (other branch dead-code eliminated) |
+| `comptime(() => expr)`      | Literal value                                  |
 
 ### Minimal runtime (~2KB gzipped)
 
@@ -1235,10 +1753,14 @@ The existing VSCode extension (`packages/vscode/`) provides:
 
 ### Phase 1: Foundation (Template + Reactivity)
 
+- [ ] `component($ => { })` builder pattern (TS-compatible):
+  - `$.props<T>()`, `$.style`, `$.view` for simple components
+  - `$.model<T>(init)`, `$.msg<T>()`, `$.update` for MVU components
+- [ ] Auto-derive action handlers from `$.msg` type for use in `$.view`
+- [ ] Effect runner — execute `Fx` values returned from `$.update`, dispatch results
 - [ ] `html` tagged template macro — parse HTML, emit DOM creation code
 - [ ] Reactive rewriting — detect signals in templates, emit fine-grained effects
-- [ ] `component()` macro — lifecycle, props, unmount cleanup
-- [ ] `when()`, `each()`, `match()` control flow in templates
+- [ ] `each()`, `match` control flow in templates
 - [ ] `bind:` two-way binding with type-aware event selection
 - [ ] `css` tagged template macro with `CssProcessor` typeclass
 - [ ] Default CSS instance — nesting, scoping, hash + extract at compile time
@@ -1250,7 +1772,8 @@ The existing VSCode extension (`packages/vscode/`) provides:
 ### Phase 2: Effect System
 
 - [ ] `Fx<A, E, R>` type with error and requirement tracking
-- [ ] `fx { }` block macro using existing `let:/yield:` infrastructure
+- [ ] `fx(function*() { })` generator-based do-notation (TS-compatible)
+- [ ] `match(expr, { })` function call pattern matching (TS-compatible)
 - [ ] Service resolution via `summon<>()` with `specialize()` inlining
 - [ ] `resource()` bridge between Fx and reactive system
 - [ ] `action()` for mutations with optimistic updates
@@ -1258,7 +1781,18 @@ The existing VSCode extension (`packages/vscode/`) provides:
 - [ ] Structured concurrency: `Fx.all`, `Fx.race` with AbortController
 - [ ] Error recovery: `.recover()`, `.match()` with exhaustive checking
 
-### Phase 3: Server Integration
+### Phase 3: Extended Syntax Layer (Opt-In)
+
+- [ ] Preprocessor syntax block registration API (`defineSyntaxBlock`)
+- [ ] Block parsing — `keyword name? { content }` pattern
+- [ ] `fx { }` — `<-` bindings + `return` (do-notation sugar)
+- [ ] `match expr { }` — `->` arms (pattern matching sugar)
+- [ ] `component Name { }` — `props`, `model`, `msg`, `update`, `style`, `view` sections
+- [ ] Source map preservation through transformations
+- [ ] VSCode language service plugin for syntax blocks
+- [ ] Custom syntax block API for user-defined blocks
+
+### Phase 4: Server Integration
 
 - [ ] `@cfgAttr("server")` / `@cfgAttr("client")` code splitting
 - [ ] Auto-generated RPC stubs for server functions
@@ -1267,7 +1801,7 @@ The existing VSCode extension (`packages/vscode/`) provides:
 - [ ] SSR: compile templates to string concatenation on server
 - [ ] Streaming SSR with `Fx` for async data
 
-### Phase 4: Ecosystem
+### Phase 5: Ecosystem
 
 - [ ] `store()` — shared reactive state with effect-based persistence
 - [ ] Router macro — compile-time route tree from `collectTypes()`
@@ -1275,7 +1809,7 @@ The existing VSCode extension (`packages/vscode/`) provides:
 - [ ] ESLint rules for common mistakes
 - [ ] Migration guide from React / Svelte / Vue
 
-### Phase 5: Advanced
+### Phase 6: Advanced
 
 - [ ] Islands architecture — partial hydration via `@cfgAttr`
 - [ ] View transitions API integration

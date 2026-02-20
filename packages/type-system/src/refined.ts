@@ -58,6 +58,8 @@ import {
   defineExpressionMacro,
   globalRegistry,
   MacroContext,
+  createGenericRegistry,
+  type GenericRegistry,
 } from "@typesugar/core";
 
 // ============================================================================
@@ -194,6 +196,19 @@ export function composeRefinements<Base, B1 extends string, B2 extends string>(
 /**
  * A subtyping relationship between two refined types.
  * Used to enable safe widening without runtime checks.
+ *
+ * This is a plain data interface. Consumers who want Show/Eq instances
+ * can use `@deriving(Show, Eq)` from `@typesugar/typeclass` on their own types.
+ *
+ * @example
+ * ```typescript
+ * import { deriving } from "@typesugar/typeclass";
+ * import type { SubtypingDeclaration } from "@typesugar/type-system";
+ *
+ * // Create a type alias and derive instances
+ * @deriving(Show, Eq)
+ * interface MySubtypingDeclaration extends SubtypingDeclaration {}
+ * ```
  */
 export interface SubtypingDeclaration {
   /** The source brand */
@@ -209,8 +224,14 @@ export interface SubtypingDeclaration {
 /**
  * Registry of subtyping declarations.
  * Key is "from:to", value is the declaration.
+ *
+ * Uses the generic Registry<K,V> abstraction from @typesugar/core with "replace"
+ * duplicate strategy for idempotent registration.
  */
-const SUBTYPING_DECLARATIONS: Map<string, SubtypingDeclaration> = new Map();
+const SUBTYPING_DECLARATIONS: GenericRegistry<string, SubtypingDeclaration> = createGenericRegistry({
+  name: "SubtypingDeclarations",
+  duplicateStrategy: "replace",
+});
 
 /**
  * Declare a subtyping relationship between two refined types.
@@ -607,6 +628,19 @@ export type ProofStrategy =
 /**
  * Predicate definition for contracts integration.
  * The predicate string uses `$` as a placeholder for the variable name.
+ *
+ * This is a plain data interface. Consumers who want Show/Eq instances
+ * can use `@deriving(Show, Eq)` from `@typesugar/typeclass` on their own types.
+ *
+ * @example
+ * ```typescript
+ * import { deriving } from "@typesugar/typeclass";
+ * import type { RefinementPredicate } from "@typesugar/type-system";
+ *
+ * // Create a type alias and derive instances
+ * @deriving(Show, Eq)
+ * interface MyRefinementPredicate extends RefinementPredicate {}
+ * ```
  */
 export interface RefinementPredicate {
   /** The brand name (e.g., "Positive", "Byte") */

@@ -82,6 +82,7 @@ import {
   extractMethodsFromObjectLiteral,
   registerInstanceMethods,
 } from "./specialize.js";
+import { quoteStatements } from "./quote.js";
 
 // ============================================================================
 // Primitive Registration Hook
@@ -1379,9 +1380,8 @@ export const instanceAttribute = defineAttributeMacro({
       }
     }
 
-    // Generate registration call
-    const registrationCode = `${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
-    const registrationStatements = ctx.parseStatements(registrationCode);
+    // Generate registration call using quoteStatements
+    const registrationStatements = quoteStatements(ctx)`${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
 
     return [updatedTarget, ...registrationStatements];
   },
@@ -1667,6 +1667,10 @@ function getTypeclassSignatureTemplate(
  * - methods: The typeclass methods to generate
  * - productDerive: How to combine field instances for product types
  * - sumDerive: How to dispatch on variants for sum types
+ *
+ * For generic types (with type parameters), we generate factory functions
+ * instead of constants:
+ * - `getEq<A>(E: Eq<A>): Eq<Option<A>>` instead of `const eqOption: Eq<Option>`
  */
 interface BuiltinTypeclassDerivation {
   /** Generate instance code for a product type */
@@ -1677,6 +1681,84 @@ interface BuiltinTypeclassDerivation {
     discriminant: string,
     variants: Array<{ tag: string; typeName: string }>,
   ): string;
+  /**
+   * Generate factory function for a generic sum type.
+   * Returns undefined if not supported, falling back to non-generic derivation.
+   */
+  deriveGenericSum?(
+    typeName: string,
+    discriminant: string,
+    variants: DeriveVariantInfo[],
+    typeParams: ts.TypeParameterDeclaration[],
+  ): string | undefined;
+}
+
+// ============================================================================
+// Generic Type Derivation Helpers
+// ============================================================================
+
+/**
+ * Get the instance parameter name for a type parameter.
+ * E.g., "E" with typeclass "Eq" becomes "EE" (EqE would be confusing)
+ *       "A" with typeclass "Eq" becomes "EA"
+ */
+function getInstanceParamName(
+  tcName: string,
+  typeParamName: string,
+): string {
+  // Use first letter of typeclass + type param name for clarity
+  // Eq<E> param = EE, Eq<A> param = EA
+  return `${tcName.charAt(0)}${typeParamName}`;
+}
+
+/**
+ * Build the function signature for a generic instance factory.
+ * E.g., for Either<E, A> with Eq:
+ *   "getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>>"
+ */
+function buildGenericFactorySignature(
+  tcName: string,
+  typeName: string,
+  typeParams: ts.TypeParameterDeclaration[],
+): { signature: string; paramMap: Map<string, string> } {
+  const paramNames = typeParams.map((tp) => tp.name.text);
+  const typeParamsStr = paramNames.join(", ");
+
+  // Build instance parameters: EE: Eq<E>, EA: Eq<A>
+  const instanceParams: string[] = [];
+  const paramMap = new Map<string, string>();
+
+  for (const paramName of paramNames) {
+    const instParam = getInstanceParamName(tcName, paramName);
+    instanceParams.push(`${instParam}: ${tcName}<${paramName}>`);
+    paramMap.set(paramName, instParam);
+  }
+
+  const signature = `get${tcName}<${typeParamsStr}>(${instanceParams.join(", ")}): ${tcName}<${typeName}<${typeParamsStr}>>`;
+
+  return { signature, paramMap };
+}
+
+/**
+ * Get the instance reference for a field in a generic type.
+ * If the field type matches a type parameter, use the corresponding instance param.
+ * Otherwise, use the standard instance lookup.
+ */
+function getFieldInstanceRef(
+  tcName: string,
+  field: DeriveFieldInfo,
+  paramMap: Map<string, string>,
+): string {
+  const fieldType = field.typeString.trim();
+
+  // Check if the field type is a type parameter
+  const instanceParam = paramMap.get(fieldType);
+  if (instanceParam) {
+    return instanceParam;
+  }
+
+  // Fall back to standard instance lookup
+  return instanceVarName(tcName.toLowerCase(), getBaseType(field));
 }
 
 const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
@@ -1721,6 +1803,59 @@ ${cases}
   },
 };
 Show.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+    },
+
+    deriveGenericSum(
+      typeName: string,
+      discriminant: string,
+      variants: DeriveVariantInfo[],
+      typeParams: ts.TypeParameterDeclaration[],
+    ): string | undefined {
+      if (typeParams.length === 0) return undefined;
+
+      const { signature, paramMap } = buildGenericFactorySignature(
+        "Show",
+        typeName,
+        typeParams,
+      );
+      const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
+      const fullTypeName = `${typeName}<${typeParamsStr}>`;
+
+      // Build cases for each variant - show the variant name with its field values
+      const cases = variants
+        .map((v) => {
+          const fields = v.fields.filter((f) => f.name !== discriminant);
+          if (fields.length === 0) {
+            return `      case "${v.tag}": return "${v.tag}";`;
+          }
+          if (fields.length === 1) {
+            const f = fields[0];
+            const inst = getFieldInstanceRef("Show", f, paramMap);
+            return `      case "${v.tag}": return \`${v.tag}(\${${inst}.show((a as any).${f.name})})\`;`;
+          }
+          // Multiple fields: show as "Tag(field1 = val1, field2 = val2)"
+          const fieldShows = fields
+            .map((f) => {
+              const inst = getFieldInstanceRef("Show", f, paramMap);
+              return `${f.name} = \${${inst}.show((a as any).${f.name})}`;
+            })
+            .join(", ");
+          return `      case "${v.tag}": return \`${v.tag}(${fieldShows})\`;`;
+        })
+        .join("\n");
+
+      return `
+export function ${signature} {
+  return {
+    show: (a: ${fullTypeName}): string => {
+      switch ((a as any).${discriminant}) {
+${cases}
+        default: return String(a);
+      }
+    },
+  };
+}
 `;
     },
   },
@@ -1768,6 +1903,52 @@ ${cases}
   neq: (a: ${typeName}, b: ${typeName}): boolean => !${varName}.eq(a, b),
 };
 Eq.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+    },
+
+    deriveGenericSum(
+      typeName: string,
+      discriminant: string,
+      variants: DeriveVariantInfo[],
+      typeParams: ts.TypeParameterDeclaration[],
+    ): string | undefined {
+      if (typeParams.length === 0) return undefined;
+
+      const { signature, paramMap } = buildGenericFactorySignature(
+        "Eq",
+        typeName,
+        typeParams,
+      );
+      const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
+      const fullTypeName = `${typeName}<${typeParamsStr}>`;
+
+      // Build cases for each variant
+      const cases = variants
+        .map((v) => {
+          // For each variant, compare its fields using the appropriate instance
+          const fieldEqs = v.fields
+            .filter((f) => f.name !== discriminant)
+            .map((f) => {
+              const inst = getFieldInstanceRef("Eq", f, paramMap);
+              return `${inst}.eqv((x as any).${f.name}, (y as any).${f.name})`;
+            });
+          const body = fieldEqs.length > 0 ? fieldEqs.join(" && ") : "true";
+          return `      case "${v.tag}": return ${body};`;
+        })
+        .join("\n");
+
+      return `
+export function ${signature} {
+  return {
+    eqv: (x: ${fullTypeName}, y: ${fullTypeName}): boolean => {
+      if ((x as any).${discriminant} !== (y as any).${discriminant}) return false;
+      switch ((x as any).${discriminant}) {
+${cases}
+        default: return false;
+      }
+    },
+  };
+}
 `;
     },
   },
@@ -1821,6 +2002,65 @@ ${cases}
   },
 };
 Ord.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+    },
+
+    deriveGenericSum(
+      typeName: string,
+      discriminant: string,
+      variants: DeriveVariantInfo[],
+      typeParams: ts.TypeParameterDeclaration[],
+    ): string | undefined {
+      if (typeParams.length === 0) return undefined;
+
+      const { signature, paramMap } = buildGenericFactorySignature(
+        "Ord",
+        typeName,
+        typeParams,
+      );
+      const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
+      const fullTypeName = `${typeName}<${typeParamsStr}>`;
+
+      // Build Eq signature for eqv method (needed by Ord)
+      const eqParams = typeParams
+        .map((tp) => getInstanceParamName("Ord", tp.name.text))
+        .join(", ");
+
+      // Build cases for each variant
+      const cases = variants
+        .map((v) => {
+          // For each variant, compare its fields using the appropriate instance
+          const fieldComps = v.fields
+            .filter((f) => f.name !== discriminant)
+            .map((f) => {
+              const inst = getFieldInstanceRef("Ord", f, paramMap);
+              return `      { const c = ${inst}.compare((x as any).${f.name}, (y as any).${f.name}); if (c !== 0) return c; }`;
+            });
+          const body =
+            fieldComps.length > 0 ? fieldComps.join("\n") + "\n      return 0;" : "return 0;";
+          return `      case "${v.tag}":\n${body}`;
+        })
+        .join("\n");
+
+      // Tag ordering (first variant < second variant < ...)
+      const tagOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
+
+      return `
+export function ${signature} {
+  const tagOrder: Record<string, number> = { ${tagOrder} };
+  return {
+    eqv: getEq(${eqParams}).eqv,
+    compare: (x: ${fullTypeName}, y: ${fullTypeName}): Ordering => {
+      const xTag = (x as any).${discriminant};
+      const yTag = (y as any).${discriminant};
+      if (xTag !== yTag) return (tagOrder[xTag] < tagOrder[yTag] ? -1 : 1) as Ordering;
+      switch (xTag) {
+${cases}
+        default: return 0 as Ordering;
+      }
+    },
+  };
+}
 `;
     },
   },
@@ -1949,17 +2189,39 @@ function createTypeclassDeriveMacro(tcName: string) {
         return [];
       }
 
-      const { name: typeName, fields, kind, discriminant, variants } = typeInfo;
-      let code: string;
+      const {
+        name: typeName,
+        fields,
+        kind,
+        discriminant,
+        variants,
+        typeParameters,
+      } = typeInfo;
+      let code: string | undefined;
 
       // Use typeInfo.kind to determine derivation method (zero-cost: metadata-driven)
       if (kind === "sum" && discriminant && variants) {
-        // Convert DeriveVariantInfo[] to the format expected by deriveSum
-        const variantInfos = variants.map((v) => ({
-          tag: v.tag,
-          typeName: v.typeName,
-        }));
-        code = derivation.deriveSum(typeName, discriminant, variantInfos);
+        // For generic types with type parameters, try factory function derivation
+        if (
+          typeParameters.length > 0 &&
+          derivation.deriveGenericSum
+        ) {
+          code = derivation.deriveGenericSum(
+            typeName,
+            discriminant,
+            variants,
+            typeParameters,
+          );
+        }
+
+        // Fall back to non-generic derivation if generic not supported
+        if (!code) {
+          const variantInfos = variants.map((v) => ({
+            tag: v.tag,
+            typeName: v.typeName,
+          }));
+          code = derivation.deriveSum(typeName, discriminant, variantInfos);
+        }
       } else {
         // Product type derivation (default)
         code = derivation.deriveProduct(typeName, fields);
@@ -1967,16 +2229,19 @@ function createTypeclassDeriveMacro(tcName: string) {
 
       const stmts = ctx.parseStatements(code);
 
-      // Register in compile-time registry
-      instanceRegistry.push({
-        typeclassName: tcName,
-        forType: typeName,
-        instanceName: instanceVarName(uncapitalize(tcName), typeName),
-        derived: true,
-      });
+      // Only register instance if not a generic factory function
+      // (generic factories are called at use site, not registered globally)
+      if (typeParameters.length === 0) {
+        instanceRegistry.push({
+          typeclassName: tcName,
+          forType: typeName,
+          instanceName: instanceVarName(uncapitalize(tcName), typeName),
+          derived: true,
+        });
 
-      // Register extension methods
-      registerExtensionMethods(typeName, tcName);
+        // Register extension methods
+        registerExtensionMethods(typeName, tcName);
+      }
 
       return stmts;
     },
@@ -2242,44 +2507,65 @@ export const derivingAttribute = defineAttributeMacro({
         }
 
         // === DERIVE ROOT TYPE ===
-        let code: string;
+        let code: string | undefined;
         const varName = instanceVarName(uncapitalize(tcName), typeName);
+        const { typeParameters } = typeInfo;
 
         // Use typeInfo.kind to determine derivation method
         if (typeInfo.kind === "sum" && typeInfo.discriminant && sumInfo) {
-          code = derivation.deriveSum(
-            typeName,
-            typeInfo.discriminant,
-            sumInfo.variants,
-          );
+          // For generic types with type parameters, try factory function derivation
+          if (
+            typeParameters.length > 0 &&
+            derivation.deriveGenericSum
+          ) {
+            code = derivation.deriveGenericSum(
+              typeName,
+              typeInfo.discriminant,
+              sumInfo.variants,
+              typeParameters,
+            );
+          }
+
+          // Fall back to non-generic derivation if generic not supported
+          if (!code) {
+            code = derivation.deriveSum(
+              typeName,
+              typeInfo.discriminant,
+              sumInfo.variants,
+            );
+          }
         } else {
           code = derivation.deriveProduct(typeName, fields);
         }
 
         allStatements.push(...ctx.parseStatements(code));
 
-        instanceRegistry.push({
-          typeclassName: tcName,
-          forType: typeName,
-          instanceName: varName,
-          derived: true,
-        });
+        // Only register instance if not a generic factory function
+        // (generic factories are called at use site, not registered globally)
+        if (typeParameters.length === 0) {
+          instanceRegistry.push({
+            typeclassName: tcName,
+            forType: typeName,
+            instanceName: varName,
+            derived: true,
+          });
 
-        // Register extension methods for this type+typeclass
-        registerExtensionMethods(typeName, tcName);
+          // Register extension methods for this type+typeclass
+          registerExtensionMethods(typeName, tcName);
 
-        // Notify coverage system
-        notifyPrimitiveRegistered(typeName, tcName);
+          // Notify coverage system
+          notifyPrimitiveRegistered(typeName, tcName);
 
-        // Bridge to specialization registry: register derived instance methods
-        // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
-        const specMethods = getSpecializationMethodsForDerivation(
-          tcName,
-          typeName,
-          fields,
-        );
-        if (specMethods && Object.keys(specMethods).length > 0) {
-          registerInstanceMethods(varName, typeName, specMethods);
+          // Bridge to specialization registry: register derived instance methods
+          // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
+          const specMethods = getSpecializationMethodsForDerivation(
+            tcName,
+            typeName,
+            fields,
+          );
+          if (specMethods && Object.keys(specMethods).length > 0) {
+            registerInstanceMethods(varName, typeName, specMethods);
+          }
         }
       } else {
         // Try the derive macro registry

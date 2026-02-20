@@ -22,6 +22,10 @@ export * from "./flatmap.js";
 // Types with a minimum and maximum value.
 // ============================================================================
 
+/**
+ * Bounded typeclass - types with minimum and maximum values.
+ * Use `registerStdInstances()` macro to enable summon<Bounded<T>>() resolution.
+ */
 export interface Bounded<A> {
   minBound(): A;
   maxBound(): A;
@@ -52,6 +56,10 @@ export const boundedString: Bounded<string> = {
 // Types with successors and predecessors, convertible to/from integers.
 // ============================================================================
 
+/**
+ * Enum typeclass - types with successors/predecessors, convertible to/from integers.
+ * Use `registerStdInstances()` macro to enable summon<Enum<T>>() resolution.
+ */
 export interface Enum<A> {
   succ(a: A): A;
   pred(a: A): A;
@@ -91,6 +99,10 @@ export const enumString: Enum<string> = {
 // Types supporting basic arithmetic.
 // ============================================================================
 
+/**
+ * Numeric typeclass - types supporting basic arithmetic operations.
+ * Use `registerStdInstances()` macro to enable summon<Numeric<T>>() resolution.
+ */
 export interface Numeric<A> {
   add(a: A, b: A): A;
   sub(a: A, b: A): A;

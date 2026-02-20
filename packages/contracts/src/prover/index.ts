@@ -4,14 +4,27 @@
  * Attempts to prove contract conditions at compile time, eliminating
  * the need for runtime checks. Runs proof layers in order:
  *
- * 1. Constant evaluation (ctx.evaluate)
- * 2. Type-based deduction (Refined type facts)
- * 3. Algebraic rules (pattern matching)
- * 4. Linear arithmetic solver (Fourier-Motzkin)
- * 5. Prover plugins (e.g., Z3)
+ * 1. **Constant evaluation** — `ctx.evaluate()` and `comptime()` results
+ * 2. **Type-based deduction** — Refined type facts (e.g., Positive implies > 0)
+ * 3. **Algebraic rules** — Pattern matching (transitivity, arithmetic identities)
+ * 4. **Linear arithmetic** — Fourier-Motzkin variable elimination
+ * 5. **Prover plugins** — External solvers (e.g., Z3 via @typesugar/contracts-z3)
  *
  * If any layer proves the condition, no runtime check is emitted.
  * If all layers fail, a runtime check is generated.
+ *
+ * ## Integration with comptime()
+ *
+ * The `comptime()` macro from `@typesugar/comptime` evaluates expressions at build
+ * time. Values produced by `comptime()` are treated as constants by the prover:
+ *
+ * ```typescript
+ * const MAX = comptime(() => 1024 * 16);  // Becomes: 16384
+ * requires(size <= MAX);  // Prover knows MAX = 16384
+ * ```
+ *
+ * This enables complex compile-time computations (loops, recursion, array
+ * methods) while still benefiting from proof elimination.
  *
  * ## Proof Certificates (Coq-inspired)
  *

@@ -43,11 +43,37 @@ npm install @typesugar/contracts-refined @typesugar/type-system
 
 The prover runs layers in order, stopping at first success:
 
-1. **Constant evaluation** — Static values (`true`, `5 > 3`)
+1. **Constant evaluation** — Static values, `comptime()` results
 2. **Type deduction** — Facts from `Refined<T, Brand>` types
 3. **Algebraic rules** — Pattern matching (`a > 0 ∧ b > 0 → a + b > 0`)
 4. **Linear arithmetic** — Fourier-Motzkin elimination
 5. **Prover plugins** — External solvers (Z3)
+
+### Compile-Time Evaluation
+
+The `comptime()` macro evaluates expressions at build time:
+
+```typescript
+import { requires, comptime } from "@ttfx/contracts";
+
+// Complex computations at build time
+const BUFFER_SIZE = comptime(() => 1024 * 16);  // Becomes: 16384
+const FACTORIALS = comptime(() => {
+  const result = [1];
+  for (let i = 1; i <= 10; i++) result.push(result[i - 1] * i);
+  return result;
+});  // Becomes: [1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800]
+
+function allocate(size: number) {
+  // Prover can verify this when size is BUFFER_SIZE
+  requires(size > 0 && size <= BUFFER_SIZE);
+  return new ArrayBuffer(size);
+}
+```
+
+`comptime()` integrates with the prover's constant evaluation layer, enabling
+complex computations (loops, recursion, array methods) while benefiting from
+proof elimination.
 
 ### Coq-Inspired Extensions
 
@@ -281,6 +307,7 @@ TYPESUGAR_CONTRACTS_MODE=none npm run build  # Production: strip all checks
 - `requires(condition, message?)` — Precondition check
 - `ensures(condition, message?)` — Postcondition check
 - `old(expression)` — Capture pre-call value
+- `comptime(() => expr)` — Compile-time expression evaluation
 
 ### Prover API
 

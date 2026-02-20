@@ -214,3 +214,206 @@ describe("defineDeriveMacro", () => {
     expect(macro.name).toBe("MyDerive");
   });
 });
+
+// ============================================================================
+// GenericRegistry Tests
+// ============================================================================
+
+import {
+  createGenericRegistry,
+  type GenericRegistry,
+} from "@typesugar/core";
+
+describe("GenericRegistry", () => {
+  describe("basic operations", () => {
+    it("should set and get values", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      
+      registry.set("a", 1);
+      registry.set("b", 2);
+      
+      expect(registry.get("a")).toBe(1);
+      expect(registry.get("b")).toBe(2);
+    });
+
+    it("should return undefined for missing keys", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      
+      expect(registry.get("missing")).toBeUndefined();
+    });
+
+    it("should track size correctly", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      
+      expect(registry.size).toBe(0);
+      registry.set("a", 1);
+      expect(registry.size).toBe(1);
+      registry.set("b", 2);
+      expect(registry.size).toBe(2);
+    });
+
+    it("should support has() check", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      
+      registry.set("a", 1);
+      expect(registry.has("a")).toBe(true);
+      expect(registry.has("b")).toBe(false);
+    });
+
+    it("should support delete()", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      
+      registry.set("a", 1);
+      expect(registry.has("a")).toBe(true);
+      
+      const deleted = registry.delete("a");
+      expect(deleted).toBe(true);
+      expect(registry.has("a")).toBe(false);
+      expect(registry.delete("a")).toBe(false);
+    });
+
+    it("should support clear()", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      
+      registry.set("a", 1);
+      registry.set("b", 2);
+      registry.clear();
+      
+      expect(registry.size).toBe(0);
+      expect(registry.has("a")).toBe(false);
+    });
+  });
+
+  describe("iteration", () => {
+    it("should support for...of iteration", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      registry.set("a", 1);
+      registry.set("b", 2);
+      
+      const entries: [string, number][] = [];
+      for (const entry of registry) {
+        entries.push(entry);
+      }
+      
+      expect(entries).toHaveLength(2);
+      expect(entries).toContainEqual(["a", 1]);
+      expect(entries).toContainEqual(["b", 2]);
+    });
+
+    it("should support entries()", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      registry.set("a", 1);
+      
+      const entries = [...registry.entries()];
+      expect(entries).toEqual([["a", 1]]);
+    });
+
+    it("should support keys()", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      registry.set("a", 1);
+      registry.set("b", 2);
+      
+      const keys = [...registry.keys()];
+      expect(keys).toContain("a");
+      expect(keys).toContain("b");
+    });
+
+    it("should support values()", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      registry.set("a", 1);
+      registry.set("b", 2);
+      
+      const values = [...registry.values()];
+      expect(values).toContain(1);
+      expect(values).toContain(2);
+    });
+
+    it("should support forEach()", () => {
+      const registry = createGenericRegistry<string, number>({ name: "Test" });
+      registry.set("a", 1);
+      registry.set("b", 2);
+      
+      const seen: [string, number][] = [];
+      registry.forEach((value, key) => {
+        seen.push([key, value]);
+      });
+      
+      expect(seen).toHaveLength(2);
+      expect(seen).toContainEqual(["a", 1]);
+      expect(seen).toContainEqual(["b", 2]);
+    });
+  });
+
+  describe("duplicate strategies", () => {
+    it("should error on duplicates with 'error' strategy", () => {
+      const registry = createGenericRegistry<string, number>({
+        name: "Test",
+        duplicateStrategy: "error",
+      });
+      
+      registry.set("a", 1);
+      expect(() => registry.set("a", 2)).toThrow(/already exists/);
+    });
+
+    it("should skip duplicates with 'skip' strategy", () => {
+      const registry = createGenericRegistry<string, number>({
+        name: "Test",
+        duplicateStrategy: "skip",
+      });
+      
+      registry.set("a", 1);
+      registry.set("a", 2);
+      
+      expect(registry.get("a")).toBe(1);
+    });
+
+    it("should replace duplicates with 'replace' strategy", () => {
+      const registry = createGenericRegistry<string, number>({
+        name: "Test",
+        duplicateStrategy: "replace",
+      });
+      
+      registry.set("a", 1);
+      registry.set("a", 2);
+      
+      expect(registry.get("a")).toBe(2);
+    });
+
+    it("should merge duplicates with 'merge' strategy and custom merger", () => {
+      const registry = createGenericRegistry<string, number[]>({
+        name: "Test",
+        duplicateStrategy: "merge",
+        merge: (existing, incoming) => [...existing, ...incoming],
+      });
+      
+      registry.set("a", [1, 2]);
+      registry.set("a", [3, 4]);
+      
+      expect(registry.get("a")).toEqual([1, 2, 3, 4]);
+    });
+
+    it("should require merge function for merge strategy", () => {
+      expect(() => createGenericRegistry<string, number>({
+        name: "Test",
+        duplicateStrategy: "merge",
+      })).toThrow(/merge function is required/);
+    });
+  });
+
+  describe("valueEquals option", () => {
+    it("should use valueEquals to detect true duplicates in skip mode", () => {
+      interface Item { id: number; name: string }
+      
+      const registry = createGenericRegistry<string, Item>({
+        name: "Test",
+        duplicateStrategy: "skip",
+        valueEquals: (a, b) => a.id === b.id,
+      });
+      
+      registry.set("a", { id: 1, name: "first" });
+      registry.set("a", { id: 1, name: "second" });
+      
+      expect(registry.get("a")?.name).toBe("first");
+    });
+  });
+});

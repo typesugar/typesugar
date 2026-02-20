@@ -33,6 +33,13 @@ import {
   globalRegistry,
 } from "../core/registry.js";
 import { MacroContext, AttributeTarget } from "../core/types.js";
+import {
+  stripDecorator,
+  evaluateConditionExpr,
+  splitTopLevel,
+  findMatchingParen,
+  getNestedValue,
+} from "../core/ast-utils.js";
 
 // =============================================================================
 // Configuration Store
@@ -134,114 +141,6 @@ function setNestedValue(
 export function evaluateCfgCondition(condition: string): boolean {
   const config = getCfgConfig();
   return evaluateConditionExpr(condition.trim(), config);
-}
-
-/**
- * Recursive condition expression evaluator.
- * Handles operator precedence: () > ! > && > ||
- */
-function evaluateConditionExpr(
-  expr: string,
-  config: Record<string, unknown>,
-): boolean {
-  expr = expr.trim();
-
-  // Handle OR (lowest precedence)
-  const orParts = splitTopLevel(expr, "||");
-  if (orParts.length > 1) {
-    return orParts.some((part) => evaluateConditionExpr(part, config));
-  }
-
-  // Handle AND
-  const andParts = splitTopLevel(expr, "&&");
-  if (andParts.length > 1) {
-    return andParts.every((part) => evaluateConditionExpr(part, config));
-  }
-
-  // Handle parentheses
-  if (expr.startsWith("(") && findMatchingParen(expr, 0) === expr.length - 1) {
-    return evaluateConditionExpr(expr.slice(1, -1), config);
-  }
-
-  // Handle negation
-  if (expr.startsWith("!")) {
-    return !evaluateConditionExpr(expr.slice(1), config);
-  }
-
-  // Handle equality: key == 'value' or key == "value"
-  const eqMatch = expr.match(/^([\w.]+)\s*==\s*['"](.+)['"]\s*$/);
-  if (eqMatch) {
-    const value = getNestedValue(config, eqMatch[1]);
-    return String(value) === eqMatch[2];
-  }
-
-  // Handle inequality: key != 'value'
-  const neqMatch = expr.match(/^([\w.]+)\s*!=\s*['"](.+)['"]\s*$/);
-  if (neqMatch) {
-    const value = getNestedValue(config, neqMatch[1]);
-    return String(value) !== neqMatch[2];
-  }
-
-  // Simple key — truthy check
-  const value = getNestedValue(config, expr);
-  return !!value;
-}
-
-/**
- * Split an expression on a top-level operator (not inside parentheses).
- */
-function splitTopLevel(expr: string, op: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let current = "";
-
-  for (let i = 0; i < expr.length; i++) {
-    if (expr[i] === "(") depth++;
-    else if (expr[i] === ")") depth--;
-
-    if (depth === 0 && expr.slice(i, i + op.length) === op) {
-      parts.push(current);
-      current = "";
-      i += op.length - 1;
-    } else {
-      current += expr[i];
-    }
-  }
-
-  parts.push(current);
-  return parts;
-}
-
-/**
- * Find the index of the matching closing parenthesis.
- */
-function findMatchingParen(expr: string, start: number): number {
-  let depth = 0;
-  for (let i = start; i < expr.length; i++) {
-    if (expr[i] === "(") depth++;
-    else if (expr[i] === ")") {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-/**
- * Get a nested value from a config object using dot notation.
- */
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.trim().split(".");
-  let current: unknown = obj;
-
-  for (const part of parts) {
-    if (typeof current !== "object" || current === null) {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-
-  return current;
 }
 
 // =============================================================================
@@ -374,88 +273,6 @@ export const cfgAttrMacro = defineAttributeMacro({
     }
   },
 });
-
-/**
- * Strip a specific decorator from a declaration, returning the declaration
- * with all other decorators intact.
- */
-function stripDecorator(
-  ctx: MacroContext,
-  target: ts.Declaration,
-  decoratorToRemove: ts.Decorator,
-): ts.Node {
-  if (!ts.canHaveDecorators(target)) {
-    return target;
-  }
-
-  const existingDecorators = ts.getDecorators(target);
-  if (!existingDecorators) return target;
-
-  const remainingDecorators = existingDecorators.filter(
-    (d) => d !== decoratorToRemove,
-  );
-
-  const existingModifiers = ts.canHaveModifiers(target)
-    ? ts.getModifiers(target)
-    : undefined;
-
-  const newModifiers = [...remainingDecorators, ...(existingModifiers ?? [])];
-
-  // Reconstruct the declaration with updated modifiers
-  if (ts.isMethodDeclaration(target)) {
-    return ctx.factory.updateMethodDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.asteriskToken,
-      target.name,
-      target.questionToken,
-      target.typeParameters,
-      target.parameters,
-      target.type,
-      target.body,
-    );
-  }
-
-  if (ts.isPropertyDeclaration(target)) {
-    return ctx.factory.updatePropertyDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.name,
-      target.questionToken ?? target.exclamationToken,
-      target.type,
-      target.initializer,
-    );
-  }
-
-  if (ts.isClassDeclaration(target)) {
-    return ctx.factory.updateClassDeclaration(
-      target,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      target.name,
-      target.typeParameters,
-      target.heritageClauses,
-      target.members,
-    );
-  }
-
-  // Cast to avoid TypeScript's overly-aggressive narrowing to `never`
-  // (ts.Declaration includes more types than we explicitly handle)
-  const maybeFunc = target as ts.Declaration;
-  if (ts.isFunctionDeclaration(maybeFunc)) {
-    return ctx.factory.updateFunctionDeclaration(
-      maybeFunc,
-      newModifiers.length > 0 ? newModifiers : undefined,
-      maybeFunc.asteriskToken,
-      maybeFunc.name,
-      maybeFunc.typeParameters,
-      maybeFunc.parameters,
-      maybeFunc.type,
-      maybeFunc.body,
-    );
-  }
-
-  return target;
-}
 
 // =============================================================================
 // Register macros

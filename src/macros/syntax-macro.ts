@@ -31,6 +31,7 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext, ExpressionMacro } from "../core/types.js";
+import { getDummySourceFile, getPrinter } from "../core/ast-utils.js";
 
 // =============================================================================
 // Pattern Types
@@ -189,21 +190,6 @@ function extractCaptures(
 }
 
 /**
- * Shared dummy source file for printing synthetic nodes.
- */
-let dummySourceFile: ts.SourceFile | undefined;
-
-function getDummySourceFile(): ts.SourceFile {
-  return (dummySourceFile ??= ts.createSourceFile(
-    "__syntax_macro_temp__.ts",
-    "",
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.TS,
-  ));
-}
-
-/**
  * Expand a template by substituting captures.
  *
  * Replaces `$name` references in the template with the printed source text
@@ -214,7 +200,7 @@ function expandTemplate(
   captures: Map<string, ts.Node>,
   ctx: MacroContext,
 ): string {
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const printer = getPrinter();
 
   return template.replace(CAPTURE_RE, (match, name) => {
     const node = captures.get(name);

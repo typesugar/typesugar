@@ -1,3 +1,8 @@
+import {
+  createGenericRegistry,
+  type GenericRegistry,
+} from "@typesugar/core";
+
 /**
  * Doobie-Style SQL Typeclasses
  *
@@ -958,22 +963,40 @@ export function deriveCodec<A extends Record<string, unknown>>(config: {
  */
 
 /** Registry of Get instances by type name */
-const getRegistry = new Map<string, Get<unknown>>();
+const getRegistry: GenericRegistry<string, Get<unknown>> = createGenericRegistry({
+  name: "GetRegistry",
+  duplicateStrategy: "replace",
+});
 
 /** Registry of Put instances by type name */
-const putRegistry = new Map<string, Put<unknown>>();
+const putRegistry: GenericRegistry<string, Put<unknown>> = createGenericRegistry({
+  name: "PutRegistry",
+  duplicateStrategy: "replace",
+});
 
 /** Registry of Meta instances by type name */
-const metaRegistry = new Map<string, Meta<unknown>>();
+const metaRegistry: GenericRegistry<string, Meta<unknown>> = createGenericRegistry({
+  name: "MetaRegistry",
+  duplicateStrategy: "replace",
+});
 
 /** Registry of Read instances by type name */
-const readRegistry = new Map<string, Read<unknown>>();
+const readRegistry: GenericRegistry<string, Read<unknown>> = createGenericRegistry({
+  name: "ReadRegistry",
+  duplicateStrategy: "replace",
+});
 
 /** Registry of Write instances by type name */
-const writeRegistry = new Map<string, Write<unknown>>();
+const writeRegistry: GenericRegistry<string, Write<unknown>> = createGenericRegistry({
+  name: "WriteRegistry",
+  duplicateStrategy: "replace",
+});
 
 /** Registry of Codec instances by type name */
-const codecRegistry = new Map<string, Codec<unknown>>();
+const codecRegistry: GenericRegistry<string, Codec<unknown>> = createGenericRegistry({
+  name: "CodecRegistry",
+  duplicateStrategy: "replace",
+});
 
 // Initialize primitive instances in registries
 getRegistry.set("string", Get.string);

@@ -361,6 +361,114 @@ describe("derive macro code generation for sum types", () => {
 });
 
 // ============================================================================
+// Generic Sum Type Derivation (for parameterized types like Either<E, A>)
+// ============================================================================
+
+describe("deriveGenericSum for parameterized sum types", () => {
+  // Mock type parameters like [E, A] in Either<E, A>
+  const mockTypeParams = [
+    { name: { text: "E" } } as any,
+    { name: { text: "A" } } as any,
+  ];
+
+  // Variants matching Either<E, A> structure
+  const eitherVariants: DeriveVariantInfo[] = [
+    {
+      tag: "Left",
+      typeName: "Left",
+      fields: [{ name: "left", typeString: "E" }],
+    },
+    {
+      tag: "Right",
+      typeName: "Right",
+      fields: [{ name: "right", typeString: "A" }],
+    },
+  ];
+
+  it("Show.deriveGenericSum generates factory function for generic sum type", () => {
+    const derivation = builtinDerivations["Show"];
+    assert(derivation.deriveGenericSum !== undefined);
+
+    const code = derivation.deriveGenericSum!(
+      "Either",
+      "_tag",
+      eitherVariants,
+      mockTypeParams,
+    );
+
+    assert(code !== undefined);
+    // Should generate a factory function signature
+    assert(code!.includes("export function getShow<E, A>"));
+    assert(code!.includes("SE: Show<E>"));
+    assert(code!.includes("SA: Show<A>"));
+    assert(code!.includes("Show<Either<E, A>>"));
+    // Should reference the provided instances for each variant field
+    assert(code!.includes("SE.show"));
+    assert(code!.includes("SA.show"));
+  });
+
+  it("Eq.deriveGenericSum generates factory function for generic sum type", () => {
+    const derivation = builtinDerivations["Eq"];
+    assert(derivation.deriveGenericSum !== undefined);
+
+    const code = derivation.deriveGenericSum!(
+      "Either",
+      "_tag",
+      eitherVariants,
+      mockTypeParams,
+    );
+
+    assert(code !== undefined);
+    // Should generate a factory function signature
+    assert(code!.includes("export function getEq<E, A>"));
+    assert(code!.includes("EE: Eq<E>"));
+    assert(code!.includes("EA: Eq<A>"));
+    assert(code!.includes("Eq<Either<E, A>>"));
+    // Should use provided instances
+    assert(code!.includes("EE.eqv"));
+    assert(code!.includes("EA.eqv"));
+    // Should have tag check
+    assert(code!.includes("_tag"));
+  });
+
+  it("Ord.deriveGenericSum generates factory function for generic sum type", () => {
+    const derivation = builtinDerivations["Ord"];
+    assert(derivation.deriveGenericSum !== undefined);
+
+    const code = derivation.deriveGenericSum!(
+      "Either",
+      "_tag",
+      eitherVariants,
+      mockTypeParams,
+    );
+
+    assert(code !== undefined);
+    // Should generate a factory function signature
+    assert(code!.includes("export function getOrd<E, A>"));
+    assert(code!.includes("OE: Ord<E>"));
+    assert(code!.includes("OA: Ord<A>"));
+    assert(code!.includes("Ord<Either<E, A>>"));
+    // Should use provided instances for compare
+    assert(code!.includes("OE.compare"));
+    assert(code!.includes("OA.compare"));
+    // Should include tag ordering logic
+    assert(code!.includes("tagOrder"));
+  });
+
+  it("deriveGenericSum returns undefined for empty type params", () => {
+    const derivation = builtinDerivations["Show"];
+    const code = derivation.deriveGenericSum!(
+      "Status",
+      "_tag",
+      [{ tag: "Active", typeName: "Active", fields: [] }],
+      [], // No type parameters - should fall back to regular derivation
+    );
+    // Should return undefined when there are no type parameters
+    assert(code === undefined);
+  });
+});
+
+// ============================================================================
 // Derive Macros Support Kind Field
 // ============================================================================
 

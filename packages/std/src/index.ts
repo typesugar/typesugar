@@ -60,3 +60,6 @@ export * from "./data";
 
 // Macros (let:/yield:)
 export * from "./macros";
+
+// Specialization support (FlatMap instances registered for specialize() macro)
+export * from "./specialize";
