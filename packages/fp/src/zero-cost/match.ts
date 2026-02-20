@@ -899,50 +899,99 @@ function expandIntegerMatch(
     ? factory.createCallExpression(analysis.wildcardHandler, undefined, [value])
     : generateThrowIIFE(factory, "Non-exhaustive match");
 
-  const numericEntries = analysis.handlers.map((h) => ({
-    value: Number(h.name),
-    handler: h.handler,
-  }));
+  // Flatten OR patterns: each handler may cover multiple numeric values
+  const flatEntries: Array<{ value: number; handler: ts.Expression }> = [];
+  for (const h of analysis.handlers) {
+    for (const name of h.names) {
+      flatEntries.push({ value: Number(name), handler: h.handler });
+    }
+  }
 
-  const values = numericEntries.map((e) => e.value);
+  const values = flatEntries.map((e) => e.value);
 
-  if (numericEntries.length > SWITCH_THRESHOLD && isDenseIntegerRange(values)) {
+  if (flatEntries.length > SWITCH_THRESHOLD && isDenseIntegerRange(values)) {
     const paramId = factory.createIdentifier("__v");
-    const cases = numericEntries.map((e) => ({
-      test: factory.createNumericLiteral(e.value) as ts.Expression,
-      body: factory.createCallExpression(e.handler, undefined, [paramId]),
-    }));
+    // For switch form, OR patterns on the same handler get fall-through cases
+    const switchCases: ts.CaseOrDefaultClause[] = [];
+    for (const h of analysis.handlers) {
+      const nums = h.names.map(Number);
+      for (let i = 0; i < nums.length; i++) {
+        if (i < nums.length - 1) {
+          switchCases.push(
+            factory.createCaseClause(factory.createNumericLiteral(nums[i]), []),
+          );
+        } else {
+          switchCases.push(
+            factory.createCaseClause(
+              factory.createNumericLiteral(nums[i]),
+              [factory.createReturnStatement(
+                factory.createCallExpression(h.handler, undefined, [paramId]),
+              )],
+            ),
+          );
+        }
+      }
+    }
     const defaultBody = analysis.wildcardHandler
-      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [
-          paramId,
-        ])
+      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [paramId])
       : generateThrowIIFE(factory, "Non-exhaustive match");
+    switchCases.push(
+      factory.createDefaultClause([factory.createReturnStatement(defaultBody)]),
+    );
 
-    return generateSwitchIIFE(
-      factory,
-      value,
-      (param) => param,
-      cases,
-      defaultBody,
+    const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+    const switchStmt = factory.createSwitchStatement(
+      paramId,
+      factory.createCaseBlock(switchCases),
+    );
+    const fn = factory.createArrowFunction(
+      undefined, undefined, [param], undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      factory.createBlock([switchStmt], true),
+    );
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(fn),
+      undefined, [value],
     );
   }
 
-  if (numericEntries.length > SWITCH_THRESHOLD) {
-    const bsEntries = numericEntries.map((e) => ({
+  if (flatEntries.length > SWITCH_THRESHOLD) {
+    const bsEntries = flatEntries.map((e) => ({
       value: e.value,
       result: factory.createCallExpression(e.handler, undefined, [value]),
     }));
     return generateBinarySearch(factory, value, bsEntries, fallback);
   }
 
-  const entries = numericEntries.map((e) => ({
-    condition: factory.createBinaryExpression(
-      value,
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createNumericLiteral(e.value),
-    ),
-    result: factory.createCallExpression(e.handler, undefined, [value]),
-  }));
+  // For ternary form, group OR'd integers into || conditions
+  const entries = analysis.handlers.map((h) => {
+    const nums = h.names.map(Number);
+    const condition = nums.length === 1
+      ? factory.createBinaryExpression(
+          value,
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          factory.createNumericLiteral(nums[0]),
+        )
+      : factory.createParenthesizedExpression(
+          nums.map((n) =>
+            factory.createBinaryExpression(
+              value,
+              factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+              factory.createNumericLiteral(n),
+            ),
+          ).reduce((left, right) =>
+            factory.createBinaryExpression(
+              left,
+              factory.createToken(ts.SyntaxKind.BarBarToken),
+              right,
+            ),
+          ),
+        );
+    return {
+      condition,
+      result: factory.createCallExpression(h.handler, undefined, [value]),
+    };
+  });
 
   return generateTernaryChain(factory, entries, fallback);
 }
@@ -957,37 +1006,301 @@ function expandLiteralMatch(
     ? factory.createCallExpression(analysis.wildcardHandler, undefined, [value])
     : generateThrowIIFE(factory, "Non-exhaustive match");
 
-  if (analysis.handlers.length > SWITCH_THRESHOLD) {
-    const paramId = factory.createIdentifier("__v");
-    const cases = analysis.handlers.map((h) => ({
-      test: factory.createStringLiteral(h.name) as ts.Expression,
-      body: factory.createCallExpression(h.handler, undefined, [paramId]),
-    }));
-    const defaultBody = analysis.wildcardHandler
-      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [
-          paramId,
-        ])
-      : generateThrowIIFE(factory, "Non-exhaustive match");
+  const totalKeys = analysis.keys.length;
 
-    return generateSwitchIIFE(
-      factory,
-      value,
-      (param) => param,
-      cases,
-      defaultBody,
+  if (totalKeys > SWITCH_THRESHOLD) {
+    const paramId = factory.createIdentifier("__v");
+    const switchCases: ts.CaseOrDefaultClause[] = [];
+    for (const h of analysis.handlers) {
+      for (let i = 0; i < h.names.length; i++) {
+        if (i < h.names.length - 1) {
+          switchCases.push(
+            factory.createCaseClause(factory.createStringLiteral(h.names[i]), []),
+          );
+        } else {
+          switchCases.push(
+            factory.createCaseClause(
+              factory.createStringLiteral(h.names[i]),
+              [factory.createReturnStatement(
+                factory.createCallExpression(h.handler, undefined, [paramId]),
+              )],
+            ),
+          );
+        }
+      }
+    }
+    const defaultBody = analysis.wildcardHandler
+      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [paramId])
+      : generateThrowIIFE(factory, "Non-exhaustive match");
+    switchCases.push(
+      factory.createDefaultClause([factory.createReturnStatement(defaultBody)]),
+    );
+
+    const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+    const switchStmt = factory.createSwitchStatement(
+      paramId,
+      factory.createCaseBlock(switchCases),
+    );
+    const fn = factory.createArrowFunction(
+      undefined, undefined, [param], undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      factory.createBlock([switchStmt], true),
+    );
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(fn),
+      undefined, [value],
     );
   }
 
-  const entries = analysis.handlers.map((h) => ({
-    condition: factory.createBinaryExpression(
-      value,
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createStringLiteral(h.name),
-    ),
-    result: factory.createCallExpression(h.handler, undefined, [value]),
-  }));
+  // Build ternary chain with OR conditions for multi-name handlers
+  const entries = analysis.handlers.map((h) => {
+    const condition = h.names.length === 1
+      ? factory.createBinaryExpression(
+          value,
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          factory.createStringLiteral(h.names[0]),
+        )
+      : factory.createParenthesizedExpression(
+          h.names.map((name) =>
+            factory.createBinaryExpression(
+              value,
+              factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+              factory.createStringLiteral(name),
+            ),
+          ).reduce((left, right) =>
+            factory.createBinaryExpression(
+              left,
+              factory.createToken(ts.SyntaxKind.BarBarToken),
+              right,
+            ),
+          ),
+        );
+    return {
+      condition,
+      result: factory.createCallExpression(h.handler, undefined, [value]),
+    };
+  });
 
   return generateTernaryChain(factory, entries, fallback);
+}
+
+/**
+ * Recognizes known pattern helpers (isType, P.empty, P.length, etc.) and
+ * replaces them with inlined arrow functions for zero-cost dispatch.
+ *
+ * isType("string") → (__x) => typeof __x === "string"
+ * isType("null")   → (__x) => __x === null
+ * P.empty          → (__x) => __x.length === 0
+ * P.nil            → (__x) => __x == null
+ * P.defined        → (__x) => __x != null
+ * P.length(n)      → (__x) => __x.length === n
+ * P.minLength(n)   → (__x) => __x.length >= n
+ * P.between(a, b)  → (__x) => __x >= a && __x <= b
+ * P.oneOf(a, b, c) → (__x) => __x === a || __x === b || __x === c
+ */
+function tryOptimizeGuardPredicate(
+  factory: ts.NodeFactory,
+  node: ts.Expression,
+): ts.Expression | undefined {
+  const paramId = factory.createIdentifier("__x");
+  const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+  const makeArrow = (body: ts.Expression) =>
+    factory.createArrowFunction(
+      undefined, undefined, [param], undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      body,
+    );
+
+  // isType("string"), isType("number"), isType("null"), isType(SomeClass)
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "isType" &&
+    node.arguments.length === 1
+  ) {
+    const arg = node.arguments[0];
+    if (ts.isStringLiteral(arg)) {
+      const typeName = arg.text;
+      if (typeName === "null") {
+        return makeArrow(
+          factory.createBinaryExpression(
+            paramId,
+            factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            factory.createNull(),
+          ),
+        );
+      }
+      // typeof check for primitive type names
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createTypeOfExpression(paramId),
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          factory.createStringLiteral(typeName),
+        ),
+      );
+    }
+    // isType(SomeClass) → instanceof check
+    return makeArrow(
+      factory.createBinaryExpression(
+        paramId,
+        factory.createToken(ts.SyntaxKind.InstanceOfKeyword),
+        arg,
+      ),
+    );
+  }
+
+  // P.empty, P.nil, P.defined (property access, not call)
+  if (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "P"
+  ) {
+    const prop = node.name.text;
+    if (prop === "empty") {
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createPropertyAccessExpression(paramId, "length"),
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          factory.createNumericLiteral(0),
+        ),
+      );
+    }
+    if (prop === "nil") {
+      return makeArrow(
+        factory.createBinaryExpression(
+          paramId,
+          factory.createToken(ts.SyntaxKind.EqualsEqualsToken),
+          factory.createNull(),
+        ),
+      );
+    }
+    if (prop === "defined") {
+      return makeArrow(
+        factory.createBinaryExpression(
+          paramId,
+          factory.createToken(ts.SyntaxKind.ExclamationEqualsToken),
+          factory.createNull(),
+        ),
+      );
+    }
+  }
+
+  // P.length(n), P.minLength(n), P.between(a, b), P.oneOf(...)
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "P"
+  ) {
+    const method = node.expression.name.text;
+    const args = node.arguments;
+
+    if (method === "length" && args.length === 1) {
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createPropertyAccessExpression(paramId, "length"),
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          args[0],
+        ),
+      );
+    }
+    if (method === "minLength" && args.length === 1) {
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createPropertyAccessExpression(paramId, "length"),
+          factory.createToken(ts.SyntaxKind.GreaterThanEqualsToken),
+          args[0],
+        ),
+      );
+    }
+    if (method === "between" && args.length === 2) {
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createBinaryExpression(
+            paramId,
+            factory.createToken(ts.SyntaxKind.GreaterThanEqualsToken),
+            args[0],
+          ),
+          factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+          factory.createBinaryExpression(
+            paramId,
+            factory.createToken(ts.SyntaxKind.LessThanEqualsToken),
+            args[1],
+          ),
+        ),
+      );
+    }
+    if (method === "oneOf" && args.length > 0) {
+      const checks = Array.from(args).map((arg) =>
+        factory.createBinaryExpression(
+          paramId,
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          arg,
+        ),
+      );
+      const combined = checks.reduce((left, right) =>
+        factory.createBinaryExpression(
+          left,
+          factory.createToken(ts.SyntaxKind.BarBarToken),
+          right,
+        ),
+      );
+      return makeArrow(
+        args.length > 1 ? factory.createParenthesizedExpression(combined) : combined,
+      );
+    }
+    if (method === "head" && args.length === 1) {
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createBinaryExpression(
+            factory.createPropertyAccessExpression(paramId, "length"),
+            factory.createToken(ts.SyntaxKind.GreaterThanToken),
+            factory.createNumericLiteral(0),
+          ),
+          factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+          factory.createCallExpression(args[0], undefined, [
+            factory.createElementAccessExpression(paramId, factory.createNumericLiteral(0)),
+          ]),
+        ),
+      );
+    }
+    if (method === "has" && args.length === 1) {
+      return makeArrow(
+        factory.createBinaryExpression(
+          factory.createBinaryExpression(
+            factory.createTypeOfExpression(paramId),
+            factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            factory.createStringLiteral("object"),
+          ),
+          factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+          factory.createBinaryExpression(
+            factory.createBinaryExpression(
+              paramId,
+              factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
+              factory.createNull(),
+            ),
+            factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+            factory.createBinaryExpression(
+              args[0],
+              factory.createToken(ts.SyntaxKind.InKeyword),
+              paramId,
+            ),
+          ),
+        ),
+      );
+    }
+    if (method === "regex" && args.length === 1) {
+      return makeArrow(
+        factory.createCallExpression(
+          factory.createPropertyAccessExpression(args[0], "test"),
+          undefined,
+          [paramId],
+        ),
+      );
+    }
+  }
+
+  return undefined;
 }
 
 function expandGuardMatch(
@@ -1004,8 +1317,10 @@ function expandGuardMatch(
     if (ts.isCallExpression(element) && ts.isIdentifier(element.expression)) {
       const fnName = element.expression.text;
       if (fnName === "when" && element.arguments.length === 2) {
+        const rawPred = element.arguments[0];
+        const predicate = tryOptimizeGuardPredicate(factory, rawPred) ?? rawPred;
         guardArms.push({
-          predicate: element.arguments[0],
+          predicate,
           handler: element.arguments[1],
         });
         continue;

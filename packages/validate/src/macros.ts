@@ -283,7 +283,7 @@ export const validateMacro = defineExpressionMacro({
 
     const typeNode = typeArgs[0];
     const type = ctx.typeChecker.getTypeFromTypeNode(typeNode);
-    const clonedTypeNode = ts.factory.cloneNode(typeNode);
+    const clonedTypeNode = typeNode;
 
     const checks = generateValidationChecks(
       ctx,
@@ -389,7 +389,7 @@ export const isMacro = defineExpressionMacro({
 
     const typeNode = typeArgs[0];
     // Create a clone of the type node to avoid sharing parent references
-    const clonedTypeNode = ts.factory.cloneNode(typeNode);
+    const clonedTypeNode = typeNode;
     const type = ctx.typeChecker.getTypeFromTypeNode(typeNode);
 
     // We reuse the validate macro logic, but we just check if errors length is 0
@@ -488,7 +488,7 @@ export const assertMacro = defineExpressionMacro({
 
     const typeNode = typeArgs[0];
     const type = ctx.typeChecker.getTypeFromTypeNode(typeNode);
-    const clonedTypeNode = ts.factory.cloneNode(typeNode);
+    const clonedTypeNode = typeNode;
 
     const checks = generateValidationChecks(
       ctx,

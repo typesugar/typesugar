@@ -703,4 +703,444 @@ describe("match() macro", () => {
       expect(result).toBe("small");
     });
   });
+
+  describe("OR patterns (pipe-separated keys)", () => {
+    it("should compile OR pattern to || condition in ternary chain", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("shape");
+
+      const props = [
+        ts.factory.createPropertyAssignment(
+          ts.factory.createStringLiteral("circle|square"),
+          makeArrowWithParam("s", ts.factory.createStringLiteral("flat")),
+        ),
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier("triangle"),
+          makeArrowWithParam("s", ts.factory.createStringLiteral("angled")),
+        ),
+      ];
+      const handlers = ts.factory.createObjectLiteralExpression(props);
+      const disc = ts.factory.createStringLiteral("kind");
+
+      const callExpr = makeCall("match", [value, handlers, disc]);
+      const result = matchMacro.expand(ctx, callExpr, [value, handlers, disc]);
+      const text = printExpr(result);
+
+      expect(text).toContain('shape.kind === "circle"');
+      expect(text).toContain('shape.kind === "square"');
+      expect(text).toContain("||");
+      expect(text).toContain('"flat"');
+      expect(text).toContain('"angled"');
+    });
+
+    it("should compile OR pattern to fall-through cases in switch IIFE", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("node");
+      const props = [
+        ts.factory.createPropertyAssignment(
+          ts.factory.createStringLiteral("a|b|c"),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("group1")),
+        ),
+        ts.factory.createPropertyAssignment(
+          ts.factory.createStringLiteral("d|e"),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("group2")),
+        ),
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier("f"),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("f")),
+        ),
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier("g"),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("g")),
+        ),
+      ];
+      const handlers = ts.factory.createObjectLiteralExpression(props);
+      const disc = ts.factory.createStringLiteral("kind");
+
+      const callExpr = makeCall("match", [value, handlers, disc]);
+      const result = matchMacro.expand(ctx, callExpr, [value, handlers, disc]);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain('case "a"');
+      expect(text).toContain('case "b"');
+      expect(text).toContain('case "c"');
+      expect(text).toContain('"group1"');
+      expect(text).toContain('"group2"');
+    });
+
+    it("OR pattern runtime fallback should work", async () => {
+      const { match } =
+        await import("../packages/fp/src/zero-cost/match.js");
+      type Shape =
+        | { kind: "circle" }
+        | { kind: "square" }
+        | { kind: "triangle" };
+      const shape: Shape = { kind: "circle" };
+      const result = match(
+        shape,
+        {
+          circle: () => "round",
+          square: () => "box",
+          triangle: () => "tri",
+        } as any,
+        "kind" as any,
+      );
+      expect(result).toBe("round");
+    });
+  });
+
+  describe("type pattern helpers (isType)", () => {
+    it("isType('string') should generate typeof check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("v");
+
+      const isTypeCall = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("isType"),
+        undefined,
+        [ts.factory.createStringLiteral("string")],
+      );
+      const handler = makeArrowWithParam(
+        "s",
+        ts.factory.createStringLiteral("str"),
+      );
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [isTypeCall, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"string"');
+    });
+
+    it("isType('null') should generate === null check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("v");
+
+      const isTypeCall = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("isType"),
+        undefined,
+        [ts.factory.createStringLiteral("null")],
+      );
+      const handler = makeArrow(ts.factory.createStringLiteral("nil"));
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [isTypeCall, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain("=== null");
+      expect(text).not.toContain("typeof");
+    });
+
+    it("isType(SomeClass) should generate instanceof check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("v");
+
+      const isTypeCall = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("isType"),
+        undefined,
+        [ts.factory.createIdentifier("Date")],
+      );
+      const handler = makeArrowWithParam(
+        "d",
+        ts.factory.createStringLiteral("date"),
+      );
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [isTypeCall, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain("instanceof");
+      expect(text).toContain("Date");
+    });
+
+    it("isType() runtime should work for primitives", async () => {
+      const { isType } =
+        await import("../packages/fp/src/zero-cost/match.js");
+
+      expect(isType("string")("hello")).toBe(true);
+      expect(isType("string")(42)).toBe(false);
+      expect(isType("number")(42)).toBe(true);
+      expect(isType("number")("hi")).toBe(false);
+      expect(isType("boolean")(true)).toBe(true);
+      expect(isType("null")(null)).toBe(true);
+      expect(isType("null")(undefined)).toBe(false);
+    });
+
+    it("isType() runtime should work for classes", async () => {
+      const { isType } =
+        await import("../packages/fp/src/zero-cost/match.js");
+
+      expect(isType(Date)(new Date())).toBe(true);
+      expect(isType(Date)("not a date")).toBe(false);
+      expect(isType(Array)([1, 2, 3])).toBe(true);
+    });
+  });
+
+  describe("array pattern helpers (P)", () => {
+    it("P.empty should generate length === 0 check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("arr");
+
+      const pEmpty = ts.factory.createPropertyAccessExpression(
+        ts.factory.createIdentifier("P"),
+        "empty",
+      );
+      const handler = makeArrow(ts.factory.createStringLiteral("empty"));
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [pEmpty, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain(".length === 0");
+    });
+
+    it("P.length(n) should generate length === n check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("arr");
+
+      const pLength = ts.factory.createCallExpression(
+        ts.factory.createPropertyAccessExpression(
+          ts.factory.createIdentifier("P"),
+          "length",
+        ),
+        undefined,
+        [ts.factory.createNumericLiteral(3)],
+      );
+      const handler = makeArrow(ts.factory.createStringLiteral("triple"));
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [pLength, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain(".length === 3");
+    });
+
+    it("P.minLength(n) should generate length >= n check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("arr");
+
+      const pMin = ts.factory.createCallExpression(
+        ts.factory.createPropertyAccessExpression(
+          ts.factory.createIdentifier("P"),
+          "minLength",
+        ),
+        undefined,
+        [ts.factory.createNumericLiteral(2)],
+      );
+      const handler = makeArrow(ts.factory.createStringLiteral("multi"));
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [pMin, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain(".length >= 2");
+    });
+
+    it("P.between(lo, hi) should generate range check", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("n");
+
+      const pBetween = ts.factory.createCallExpression(
+        ts.factory.createPropertyAccessExpression(
+          ts.factory.createIdentifier("P"),
+          "between",
+        ),
+        undefined,
+        [
+          ts.factory.createNumericLiteral(1),
+          ts.factory.createNumericLiteral(10),
+        ],
+      );
+      const handler = makeArrow(ts.factory.createStringLiteral("in range"));
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [pBetween, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("out")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain(">= 1");
+      expect(text).toContain("<= 10");
+      expect(text).toContain("&&");
+    });
+
+    it("P.oneOf(...) should generate || chain", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("v");
+
+      const pOneOf = ts.factory.createCallExpression(
+        ts.factory.createPropertyAccessExpression(
+          ts.factory.createIdentifier("P"),
+          "oneOf",
+        ),
+        undefined,
+        [
+          ts.factory.createStringLiteral("a"),
+          ts.factory.createStringLiteral("b"),
+          ts.factory.createStringLiteral("c"),
+        ],
+      );
+      const handler = makeArrow(ts.factory.createStringLiteral("found"));
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [pOneOf, handler]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("nope")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain('"a"');
+      expect(text).toContain('"b"');
+      expect(text).toContain('"c"');
+      expect(text).toContain("||");
+    });
+
+    it("P runtime helpers should work correctly", async () => {
+      const { P } =
+        await import("../packages/fp/src/zero-cost/match.js");
+
+      expect(P.empty([])).toBe(true);
+      expect(P.empty([1])).toBe(false);
+      expect(P.nil(null)).toBe(true);
+      expect(P.nil(undefined)).toBe(true);
+      expect(P.nil(0)).toBe(false);
+      expect(P.defined(0)).toBe(true);
+      expect(P.defined(null)).toBe(false);
+      expect(P.length(3)([1, 2, 3])).toBe(true);
+      expect(P.length(3)([1, 2])).toBe(false);
+      expect(P.minLength(2)([1, 2])).toBe(true);
+      expect(P.minLength(2)([1])).toBe(false);
+      expect(P.between(1, 10)(5)).toBe(true);
+      expect(P.between(1, 10)(15)).toBe(false);
+      expect(P.oneOf("a", "b", "c")("b")).toBe(true);
+      expect(P.oneOf("a", "b", "c")("d")).toBe(false);
+      expect(
+        P.head((x: number) => x > 0)([5, -1]),
+      ).toBe(true);
+      expect(
+        P.head((x: number) => x > 0)([-1, 5]),
+      ).toBe(false);
+      expect(P.head((x: number) => x > 0)([])).toBe(false);
+      expect(P.has("name")({ name: "test" })).toBe(true);
+      expect(P.has("name")({ age: 5 })).toBe(false);
+      expect(P.has("name")(null)).toBe(false);
+      expect(P.regex(/^\d+$/)("123")).toBe(true);
+      expect(P.regex(/^\d+$/)("abc")).toBe(false);
+    });
+  });
+
+  describe("combined patterns", () => {
+    it("should handle isType + P patterns together in guard arms", () => {
+      const { ctx, printExpr } = createTestContext("const x = 1;");
+      const value = ts.factory.createIdentifier("v");
+
+      const isTypeStr = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("isType"),
+        undefined,
+        [ts.factory.createStringLiteral("string")],
+      );
+      const pNil = ts.factory.createPropertyAccessExpression(
+        ts.factory.createIdentifier("P"),
+        "nil",
+      );
+
+      const arms = ts.factory.createArrayLiteralExpression([
+        makeCall("when", [
+          pNil,
+          makeArrow(ts.factory.createStringLiteral("nil")),
+        ]),
+        makeCall("when", [
+          isTypeStr,
+          makeArrow(ts.factory.createStringLiteral("str")),
+        ]),
+        makeCall("otherwise", [
+          makeArrow(ts.factory.createStringLiteral("other")),
+        ]),
+      ]);
+
+      const callExpr = makeCall("match", [value, arms]);
+      const result = matchMacro.expand(ctx, callExpr, [value, arms]);
+      const text = printExpr(result);
+
+      expect(text).toContain("== null");
+      expect(text).toContain("typeof");
+      expect(text).toContain('"string"');
+    });
+
+    it("full pipeline: runtime match with when + P + isType", async () => {
+      const { match, when, otherwise, isType, P } =
+        await import("../packages/fp/src/zero-cost/match.js");
+      const values = [null, "hello", 42, [1, 2, 3], true];
+
+      const results = values.map((v) =>
+        (match as any)(v, [
+          when(P.nil, () => "nil"),
+          when(isType("string"), () => "string"),
+          when(isType("number"), () => "number"),
+          when(isType(Array), () => "array"),
+          otherwise(() => "other"),
+        ]),
+      );
+
+      expect(results).toEqual([
+        "nil",
+        "string",
+        "number",
+        "array",
+        "other",
+      ]);
+    });
+  });
 });

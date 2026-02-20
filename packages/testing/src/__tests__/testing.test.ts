@@ -96,7 +96,6 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
     isEmitNotificationEnabled: () => false,
     onSubstituteNode: (_hint, node) => node,
     onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-    addDiagnostic: () => {},
   };
 
   return createMacroContext(program, sourceFile, transformContext);
@@ -502,6 +501,7 @@ describe("@derive(Arbitrary) expansion", () => {
     const ctx = createTestContext();
     const typeInfo = {
       name: "User",
+      kind: "product" as const,
       fields: [
         {
           name: "name",
@@ -552,6 +552,7 @@ describe("@derive(Arbitrary) expansion", () => {
     const ctx = createTestContext();
     const typeInfo = {
       name: "Config",
+      kind: "product" as const,
       fields: [
         {
           name: "debug",
@@ -592,6 +593,7 @@ describe("@derive(Arbitrary) expansion", () => {
     const ctx = createTestContext();
     const typeInfo = {
       name: "Point",
+      kind: "product" as const,
       fields: [
         {
           name: "x",

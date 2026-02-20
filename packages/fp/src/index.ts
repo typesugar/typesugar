@@ -158,6 +158,8 @@ export {
   match,
   when,
   otherwise,
+  isType,
+  P,
   type GuardArm,
   matchLiteral,
   matchGuard,
