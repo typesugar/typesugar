@@ -25,3 +25,7 @@
 6. **Keyword / Named Arguments**
    - **What:** A preprocessor feature that allows calling functions with named arguments (e.g., `fn(a=1, b=2)`).
    - **Why:** The macro rewrites them into positional arguments at compile time based on the function signature, bringing Python/C#-style named arguments to TS with zero runtime cost.
+
+7. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
+   - **What:** Add recursive deep-type compatibility checking to the `transformInto` macro.
+   - **Why:** To ensure nested objects and complex mappings strictly adhere to the target type without runtime mapping errors.
