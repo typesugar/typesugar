@@ -28,12 +28,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-  TS9204,
-} from "@typesugar/core";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
@@ -111,7 +106,7 @@ export interface ParameterInfo {
 
 export const reflectAttribute = defineAttributeMacro({
   name: "reflect",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Enable compile-time reflection for a type",
   validTargets: ["interface", "class", "type"] as AttributeTarget[],
 
@@ -458,7 +453,7 @@ function generateTypeInfoDeclaration(
 
 export const typeInfoMacro = defineExpressionMacro({
   name: "typeInfo",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Get compile-time type information",
 
   expand(
@@ -471,7 +466,7 @@ export const typeInfoMacro = defineExpressionMacro({
     // Get the type argument
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length !== 1) {
-      ctx.diagnostic(TS9204).at(callExpr).withArgs({ macro: "typeInfo" }).emit();
+      ctx.reportError(callExpr, "typeInfo requires exactly one type argument");
       return callExpr;
     }
 
@@ -548,7 +543,7 @@ export const typeInfoMacro = defineExpressionMacro({
 
 export const fieldNamesMacro = defineExpressionMacro({
   name: "fieldNames",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Get field names of a type as an array",
 
   expand(
@@ -560,7 +555,7 @@ export const fieldNamesMacro = defineExpressionMacro({
     const typeArgs = callExpr.typeArguments;
 
     if (!typeArgs || typeArgs.length !== 1) {
-      ctx.diagnostic(TS9204).at(callExpr).withArgs({ macro: "fieldNames" }).emit();
+      ctx.reportError(callExpr, "fieldNames requires exactly one type argument");
       return callExpr;
     }
 
@@ -579,7 +574,7 @@ export const fieldNamesMacro = defineExpressionMacro({
 
 export const validatorMacro = defineExpressionMacro({
   name: "validator",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Generate a runtime validator for a type",
 
   expand(
@@ -591,7 +586,7 @@ export const validatorMacro = defineExpressionMacro({
     const typeArgs = callExpr.typeArguments;
 
     if (!typeArgs || typeArgs.length !== 1) {
-      ctx.diagnostic(TS9204).at(callExpr).withArgs({ macro: "validator" }).emit();
+      ctx.reportError(callExpr, "validator requires exactly one type argument");
       return callExpr;
     }
 

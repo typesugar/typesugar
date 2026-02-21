@@ -31,7 +31,7 @@
  */
 
 import * as ts from "typescript";
-import { globalRegistry, defineDeriveMacro, TS9501 } from "@typesugar/core";
+import { globalRegistry, defineDeriveMacro } from "@typesugar/core";
 import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveMacro } from "@typesugar/core";
 
 // =============================================================================
@@ -182,13 +182,12 @@ export function defineCustomDerive(
 
         return ctx.parseStatements(code);
       } catch (error) {
-        ctx
-          .diagnostic(TS9501)
-          .at(target)
-          .withArgs({
-            error: `Custom derive '${name}' failed: ${error instanceof Error ? error.message : String(error)}`,
-          })
-          .emit();
+        ctx.reportError(
+          target,
+          `Custom derive '${name}' failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
         return [];
       }
     },
@@ -236,13 +235,12 @@ export function defineCustomDeriveAst(
       try {
         return callback(ctx, simpleInfo, typeInfo);
       } catch (error) {
-        ctx
-          .diagnostic(TS9501)
-          .at(target)
-          .withArgs({
-            error: `Custom derive '${name}' (AST) failed: ${error instanceof Error ? error.message : String(error)}`,
-          })
-          .emit();
+        ctx.reportError(
+          target,
+          `Custom derive '${name}' (AST) failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
         return [];
       }
     },

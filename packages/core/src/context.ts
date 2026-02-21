@@ -10,6 +10,12 @@ export class MacroContextImpl implements MacroContext {
   private uniqueNameCounter = 0;
   private scope: Map<string, ComptimeValue> = new Map();
 
+  /**
+   * Shared printer instance for node-to-string conversion.
+   * Creating a printer is expensive; reuse across the lifetime of the context.
+   */
+  private _printer: ts.Printer | undefined;
+
   constructor(
     public readonly program: ts.Program,
     public readonly typeChecker: ts.TypeChecker,
@@ -17,6 +23,13 @@ export class MacroContextImpl implements MacroContext {
     public readonly factory: ts.NodeFactory,
     public readonly transformContext: ts.TransformationContext
   ) {}
+
+  /** Lazily-created shared printer instance */
+  get printer(): ts.Printer {
+    return (this._printer ??= ts.createPrinter({
+      newLine: ts.NewLineKind.LineFeed,
+    }));
+  }
 
   // -------------------------------------------------------------------------
   // Node Creation Utilities

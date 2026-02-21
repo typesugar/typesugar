@@ -29,7 +29,7 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, TS9209, TS9210, TS9501 } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, ExpressionMacro } from "@typesugar/core";
 import { getDummySourceFile, getPrinter } from "@typesugar/core";
 
@@ -293,25 +293,22 @@ export function defineSyntaxMacro(
         try {
           return ctx.parseExpression(expanded);
         } catch (e) {
-          ctx
-            .diagnostic(TS9501)
-            .at(callExpr)
-            .withArgs({
-              error: `Syntax macro '${name}' parse failed: ${e instanceof Error ? e.message : String(e)}`,
-            })
-            .note(`Expanded to: ${expanded}`)
-            .emit();
+          ctx.reportError(
+            callExpr,
+            `Syntax macro '${name}': Failed to parse expansion: ${expanded}\n  ${
+              e instanceof Error ? e.message : String(e)
+            }`
+          );
           return callExpr;
         }
       }
 
       // No arm matched
-      ctx
-        .diagnostic(TS9210)
-        .at(callExpr)
-        .withArgs({ name })
-        .note(`Available patterns:\n${arms.map((a) => `  - ${a.patternSource}`).join("\n")}`)
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `Syntax macro '${name}': No pattern arm matched the arguments. ` +
+          `Expected one of:\n${arms.map((a) => `  - ${a.patternSource}`).join("\n")}`
+      );
       return callExpr;
     },
   });

@@ -27,13 +27,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-  TS9201,
-  TS9205,
-} from "@typesugar/core";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 import {
   stripDecorator,
@@ -144,7 +138,7 @@ export function evaluateCfgCondition(condition: string): boolean {
 
 export const cfgMacro = defineExpressionMacro({
   name: "cfg",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Conditional compilation: include an expression only when a condition is true at compile time.",
 
@@ -154,15 +148,7 @@ export const cfgMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2 || args.length > 3) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "cfg",
-          expected: "2-3",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(callExpr, "cfg expects 2-3 arguments: cfg(condition, thenValue, elseValue?)");
       return callExpr;
     }
 
@@ -177,7 +163,7 @@ export const cfgMacro = defineExpressionMacro({
     } else if (ts.isNoSubstitutionTemplateLiteral(conditionArg)) {
       condition = conditionArg.text;
     } else {
-      ctx.diagnostic(TS9205).at(callExpr).withArgs({ macro: "cfg" }).emit();
+      ctx.reportError(callExpr, "cfg: first argument must be a string literal condition");
       return callExpr;
     }
 
@@ -218,7 +204,7 @@ export const cfgMacro = defineExpressionMacro({
 
 export const cfgAttrMacro = defineAttributeMacro({
   name: "cfgAttr",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Conditionally include a declaration based on a compile-time condition.",
   validTargets: ["class", "method", "property", "function"] as AttributeTarget[],
 
@@ -229,15 +215,7 @@ export const cfgAttrMacro = defineAttributeMacro({
     args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(decorator)
-        .withArgs({
-          macro: "@cfgAttr",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(decorator, "@cfgAttr expects exactly one argument: @cfgAttr(condition)");
       return target;
     }
 
@@ -250,7 +228,7 @@ export const cfgAttrMacro = defineAttributeMacro({
     } else if (ts.isNoSubstitutionTemplateLiteral(conditionArg)) {
       condition = conditionArg.text;
     } else {
-      ctx.diagnostic(TS9205).at(decorator).withArgs({ macro: "@cfgAttr" }).emit();
+      ctx.reportError(decorator, "@cfgAttr: argument must be a string literal condition");
       return target;
     }
 

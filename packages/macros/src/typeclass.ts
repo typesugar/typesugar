@@ -68,24 +68,6 @@ import {
 import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
 import { OPERATOR_SYMBOLS } from "@typesugar/core";
 import {
-  TS9001,
-  TS9002,
-  TS9003,
-  TS9004,
-  TS9007,
-  TS9008,
-  TS9102,
-  TS9103,
-  TS9104,
-  TS9201,
-} from "@typesugar/core";
-import {
-  formatResolutionTrace,
-  generateHelpFromTrace,
-  type ResolutionAttempt,
-  type ResolutionTrace,
-} from "@typesugar/core";
-import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
   buildStandaloneExtensionCall,
 } from "./extension.js";
@@ -96,6 +78,12 @@ import {
   registerInstanceMethods,
 } from "./specialize.js";
 import { quoteStatements } from "./quote.js";
+import {
+  formatResolutionTrace,
+  generateHelpFromTrace,
+  type ResolutionAttempt,
+  type ResolutionTrace,
+} from "@typesugar/core";
 
 // ============================================================================
 // Primitive Registration Hook
@@ -890,7 +878,7 @@ function getTypeclass(name: string): TypeclassInfo | undefined {
 
 export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
-  module: "@typesugar/macros",
+  module: "typemacro",
   cacheable: false,
   description: "Define a typeclass from an interface, enabling derivation and extension methods",
   validTargets: ["interface"],
@@ -902,7 +890,7 @@ export const typeclassAttribute = defineAttributeMacro({
     _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isInterfaceDeclaration(target)) {
-      ctx.diagnostic(TS9003).at(target).emit();
+      ctx.reportError(target, "@typeclass can only be applied to interfaces");
       return target;
     }
 
@@ -910,7 +898,10 @@ export const typeclassAttribute = defineAttributeMacro({
     const typeParams = target.typeParameters;
 
     if (!typeParams || typeParams.length === 0) {
-      ctx.diagnostic(TS9004).at(target).emit();
+      ctx.reportError(
+        target,
+        "@typeclass interface must have at least one type parameter (e.g., interface Show<A>)"
+      );
       return target;
     }
 
@@ -1029,7 +1020,7 @@ function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo): strin
 
   return `
 // Typeclass instance registry for ${name}
-const ${registryVar}: Map<string, ${name}<any>> = new Map();
+const ${registryVar}: Map<string, ${name}<any>> = /*#__PURE__*/ new Map();
 
 namespace ${name} {
   /** Register an instance of ${name} for type T */
@@ -1134,7 +1125,7 @@ function ${uncapitalize(name)}${capitalize(method.name)}<A>(${paramList}): ${met
 
 export const instanceAttribute = defineAttributeMacro({
   name: "instance",
-  module: "@typesugar/macros",
+  module: "typemacro",
   cacheable: false,
   description: "Register a typeclass instance for a specific type",
   validTargets: ["property", "class"],
@@ -1148,7 +1139,10 @@ export const instanceAttribute = defineAttributeMacro({
     const factory = ctx.factory;
 
     if (args.length === 0) {
-      ctx.diagnostic(TS9002).at(target).emit();
+      ctx.reportError(
+        target,
+        '@instance requires arguments: @instance("Type"), @instance("Typeclass<Type>"), or @instance(Typeclass, Type)'
+      );
       return target;
     }
 
@@ -1175,12 +1169,10 @@ export const instanceAttribute = defineAttributeMacro({
     } else if (ts.isIdentifier(firstArg)) {
       // @instance(Typeclass, Type) format
       if (args.length < 2) {
-        ctx
-          .diagnostic(TS9201)
-          .at(firstArg)
-          .withArgs({ macro: "@instance", expected: "2", actual: "1" })
-          .help("Use @instance(Typeclass, Type) with two arguments")
-          .emit();
+        ctx.reportError(
+          firstArg,
+          "@instance with identifier requires two arguments: @instance(Typeclass, Type)"
+        );
         return target;
       }
 
@@ -1192,29 +1184,13 @@ export const instanceAttribute = defineAttributeMacro({
       } else if (ts.isStringLiteral(secondArg)) {
         typeName = secondArg.text;
       } else {
-        ctx
-          .diagnostic(TS9201)
-          .at(secondArg)
-          .withArgs({
-            macro: "@instance",
-            expected: "identifier or string",
-            actual: "expression",
-          })
-          .emit();
+        ctx.reportError(secondArg, "Second argument must be an identifier or string");
         return target;
       }
 
       isHKTInstance = isHKTTypeclass(tcName);
     } else {
-      ctx
-        .diagnostic(TS9201)
-        .at(firstArg)
-        .withArgs({
-          macro: "@instance",
-          expected: "string or identifier",
-          actual: "expression",
-        })
-        .emit();
+      ctx.reportError(firstArg, "@instance argument must be a string or identifier");
       return target;
     }
 
@@ -1240,16 +1216,15 @@ export const instanceAttribute = defineAttributeMacro({
     }
 
     if (!tcName || !typeName || !varName) {
-      ctx
-        .diagnostic(TS9002)
-        .at(target)
-        .help('Use @instance("Typeclass<Type>") or @instance(Typeclass, Type)')
-        .emit();
+      ctx.reportError(
+        target,
+        '@instance: could not determine typeclass and type. Use @instance("Typeclass<Type>") or @instance(Typeclass, Type)'
+      );
       return target;
     }
 
     // For HKT typeclasses, generate expanded type annotation
-    let updatedTarget: ts.Node = target;
+    let updatedTarget = target;
     if (isHKTInstance && decl) {
       const expandedType = generateHKTExpandedType(ctx, tcName, typeName);
       if (expandedType) {
@@ -1315,7 +1290,7 @@ export const instanceAttribute = defineAttributeMacro({
     // Generate registration call using quoteStatements
     const registrationStatements = quoteStatements(
       ctx
-    )`${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
+    )`/*#__PURE__*/ ${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
 
     return [updatedTarget, ...registrationStatements];
   },
@@ -1691,7 +1666,7 @@ const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
 const ${varName}: Show<${typeName}> = {
   show: (a: ${typeName}): string => \`${typeName}(${fieldShows})\`,
 };
-Show.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -1717,7 +1692,7 @@ ${cases}
     }
   },
 };
-Show.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -1785,7 +1760,7 @@ const ${varName}: Eq<${typeName}> = {
   eq: (a: ${typeName}, b: ${typeName}): boolean => ${body},
   neq: (a: ${typeName}, b: ${typeName}): boolean => !(${body}),
 };
-Eq.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -1813,7 +1788,7 @@ ${cases}
   },
   neq: (a: ${typeName}, b: ${typeName}): boolean => !${varName}.eq(a, b),
 };
-Eq.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -1877,7 +1852,7 @@ ${fieldComparisons}
     return 0;
   },
 };
-Ord.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -1908,7 +1883,7 @@ ${cases}
     }
   },
 };
-Ord.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -1984,7 +1959,7 @@ ${fieldHashes}
     return hash >>> 0;
   },
 };
-Hash.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Hash.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2010,7 +1985,7 @@ ${cases}
     }
   },
 };
-Hash.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Hash.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2027,7 +2002,7 @@ const ${varName}: Functor<${typeName}> = {
     return { ...fa } as any;
   },
 };
-Functor.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Functor.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2053,7 +2028,7 @@ ${cases}
     }
   },
 };
-Functor.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Functor.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2079,7 +2054,11 @@ function createTypeclassDeriveMacro(tcName: string) {
     ): ts.Statement[] {
       const derivation = builtinDerivations[tcName];
       if (!derivation) {
-        ctx.diagnostic(TS9103).at(target).withArgs({ typeclass: tcName }).emit();
+        ctx.reportError(
+          target,
+          `No built-in derivation strategy for typeclass '${tcName}'. ` +
+            `Register a custom derivation or provide a manual instance.`
+        );
         return [];
       }
 
@@ -2201,7 +2180,7 @@ const functorTCDerive = createTypeclassDeriveMacro("Functor");
 
 export const derivingAttribute = defineAttributeMacro({
   name: "deriving",
-  module: "@typesugar/macros",
+  module: "typemacro",
   cacheable: false,
   description: "Auto-derive typeclass instances for a type (Scala 3-like derives clause)",
   validTargets: ["interface", "class", "type"],
@@ -2217,7 +2196,10 @@ export const derivingAttribute = defineAttributeMacro({
       !ts.isClassDeclaration(target) &&
       !ts.isTypeAliasDeclaration(target)
     ) {
-      ctx.diagnostic(TS9102).at(target).emit();
+      ctx.reportError(
+        target,
+        "@deriving can only be applied to interfaces, classes, or type aliases"
+      );
       return target;
     }
 
@@ -2321,15 +2303,7 @@ export const derivingAttribute = defineAttributeMacro({
       }
 
       if (!ts.isIdentifier(arg)) {
-        ctx
-          .diagnostic(TS9201)
-          .at(arg)
-          .withArgs({
-            macro: "@deriving",
-            expected: "typeclass name",
-            actual: "expression",
-          })
-          .emit();
+        ctx.reportError(arg, "@deriving arguments must be typeclass names");
         continue;
       }
 
@@ -2343,15 +2317,14 @@ export const derivingAttribute = defineAttributeMacro({
 
         // Report any errors
         for (const err of plan.errors) {
-          ctx.diagnostic(TS9103).at(target).withArgs({ typeclass: tcName }).note(err).emit();
+          ctx.reportError(target, err);
         }
         for (const cycle of plan.cycles) {
-          ctx
-            .diagnostic(TS9104)
-            .at(target)
-            .withArgs({ cycle: cycle.join(" → ") })
-            .help(`Add explicit @derive(${tcName}) to break the cycle.`)
-            .emit();
+          ctx.reportError(
+            target,
+            `Circular reference in transitive derivation: ${cycle.join(" → ")}. ` +
+              `Add explicit @derive(${tcName}) to break the cycle.`
+          );
         }
 
         // Execute transitive derivation for nested types (dependencies first)
@@ -2371,20 +2344,20 @@ export const derivingAttribute = defineAttributeMacro({
         const { typeParameters } = typeInfo;
 
         // Use typeInfo.kind to determine derivation method
-        if (typeInfo.kind === "sum" && typeInfo.discriminant && variants.length > 0) {
+        if (typeInfo.kind === "sum" && typeInfo.discriminant && sumInfo) {
           // For generic types with type parameters, try factory function derivation
           if (typeParameters.length > 0 && derivation.deriveGenericSum) {
             code = derivation.deriveGenericSum(
               typeName,
               typeInfo.discriminant,
-              variants,
+              sumInfo.variants,
               typeParameters
             );
           }
 
           // Fall back to non-generic derivation if generic not supported
           if (!code) {
-            code = derivation.deriveSum(typeName, typeInfo.discriminant, variants);
+            code = derivation.deriveSum(typeName, typeInfo.discriminant, sumInfo.variants);
           }
         } else {
           code = derivation.deriveProduct(typeName, fields);
@@ -2422,7 +2395,11 @@ export const derivingAttribute = defineAttributeMacro({
           const stmts = deriveMacro.expand(ctx, target, typeInfo);
           allStatements.push(...stmts);
         } else {
-          ctx.diagnostic(TS9103).at(arg).withArgs({ typeclass: tcName }).emit();
+          ctx.reportError(
+            arg,
+            `No derivation strategy found for typeclass '${tcName}'. ` +
+              `Define a custom derivation or provide a manual instance.`
+          );
         }
       }
     }
@@ -2444,7 +2421,7 @@ export const derivingAttribute = defineAttributeMacro({
 
 export const summonMacro = defineExpressionMacro({
   name: "summon",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Resolve a typeclass instance at compile time with Scala 3-style auto-derivation via Mirror",
 
@@ -2456,13 +2433,13 @@ export const summonMacro = defineExpressionMacro({
     // Get the type argument: summon<Show<Point>>()
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
-      ctx.diagnostic(TS9007).at(callExpr).emit();
+      ctx.reportError(callExpr, "summon requires a type argument, e.g., summon<Show<Point>>()");
       return callExpr;
     }
 
     const typeArg = typeArgs[0];
     if (!ts.isTypeReferenceNode(typeArg)) {
-      ctx.diagnostic(TS9008).at(callExpr).emit();
+      ctx.reportError(callExpr, "summon type argument must be a type reference like Show<Point>");
       return callExpr;
     }
 
@@ -2470,11 +2447,10 @@ export const summonMacro = defineExpressionMacro({
     const innerTypeArgs = typeArg.typeArguments;
 
     if (!innerTypeArgs || innerTypeArgs.length === 0) {
-      ctx
-        .diagnostic(TS9008)
-        .at(callExpr)
-        .note(`summon<${tcName}<...>>() requires the typeclass to have a type argument`)
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `summon<${tcName}<...>>() requires the typeclass to have a type argument`
+      );
       return callExpr;
     }
 
@@ -2538,25 +2514,15 @@ export const summonMacro = defineExpressionMacro({
     const traceNotes = formatResolutionTrace(trace);
     const helpMessage = generateHelpFromTrace(trace, tcName, typeName);
 
-    const diagnostic = ctx
-      .diagnostic(TS9001)
-      .at(callExpr)
-      .withArgs({ typeclass: tcName, type: typeName });
+    // Build a rich error message with the trace
+    const errorLines = [
+      `No instance found for \`${tcName}<${typeName}>\``,
+      "",
+      ...traceNotes.map((note) => `  = note: ${note}`),
+      `  = help: ${helpMessage}`,
+    ];
 
-    // Add all trace notes to the diagnostic
-    for (const note of traceNotes) {
-      diagnostic.note(note);
-    }
-
-    diagnostic
-      .help(helpMessage)
-      .suggestion(
-        callExpr,
-        "add-deriving",
-        `@deriving(${tcName})\ninterface ${typeName} { /* ... */ }`,
-        `Add @deriving(${tcName}) to ${typeName}`
-      )
-      .emit();
+    ctx.reportError(callExpr, errorLines.join("\n"));
     return callExpr;
   },
 });
@@ -2575,7 +2541,7 @@ export const summonMacro = defineExpressionMacro({
 
 export const extendMacro = defineExpressionMacro({
   name: "extend",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Call extension methods on a value via typeclass instances",
 
   expand(
@@ -2584,11 +2550,7 @@ export const extendMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length === 0) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({ macro: "extend", expected: "1", actual: "0" })
-        .emit();
+      ctx.reportError(callExpr, "extend() requires a value argument");
       return callExpr;
     }
 
@@ -2596,16 +2558,10 @@ export const extendMacro = defineExpressionMacro({
     // extend(value).method(args...)
     const parent = callExpr.parent;
     if (!parent || !ts.isPropertyAccessExpression(parent)) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "extend",
-          expected: "method call chain",
-          actual: "standalone call",
-        })
-        .help("extend() must be followed by a method call, e.g., extend(value).show()")
-        .emit();
+      ctx.reportError(
+        callExpr,
+        "extend() must be followed by a method call, e.g., extend(value).show()"
+      );
       return callExpr;
     }
 
@@ -2732,52 +2688,52 @@ const eqNumber: Eq<number> = {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
-Eq.registerInstance<number>("number", eqNumber);
+/*#__PURE__*/ Eq.registerInstance<number>("number", eqNumber);
 
 const eqString: Eq<string> = {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
-Eq.registerInstance<string>("string", eqString);
+/*#__PURE__*/ Eq.registerInstance<string>("string", eqString);
 
 const eqBoolean: Eq<boolean> = {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
-Eq.registerInstance<boolean>("boolean", eqBoolean);
+/*#__PURE__*/ Eq.registerInstance<boolean>("boolean", eqBoolean);
 
 // Show instances for primitives
 const showNumber: Show<number> = {
   show: (a) => String(a),
 };
-Show.registerInstance<number>("number", showNumber);
+/*#__PURE__*/ Show.registerInstance<number>("number", showNumber);
 
 const showString: Show<string> = {
   show: (a) => JSON.stringify(a),
 };
-Show.registerInstance<string>("string", showString);
+/*#__PURE__*/ Show.registerInstance<string>("string", showString);
 
 const showBoolean: Show<boolean> = {
   show: (a) => String(a),
 };
-Show.registerInstance<boolean>("boolean", showBoolean);
+/*#__PURE__*/ Show.registerInstance<boolean>("boolean", showBoolean);
 
 // Ord instances for primitives
 const ordNumber: Ord<number> = {
   compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
 };
-Ord.registerInstance<number>("number", ordNumber);
+/*#__PURE__*/ Ord.registerInstance<number>("number", ordNumber);
 
 const ordString: Ord<string> = {
   compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
 };
-Ord.registerInstance<string>("string", ordString);
+/*#__PURE__*/ Ord.registerInstance<string>("string", ordString);
 
 // Hash instances for primitives
 const hashNumber: Hash<number> = {
   hash: (a) => a | 0,
 };
-Hash.registerInstance<number>("number", hashNumber);
+/*#__PURE__*/ Hash.registerInstance<number>("number", hashNumber);
 
 const hashString: Hash<string> = {
   hash: (a) => {
@@ -2788,36 +2744,36 @@ const hashString: Hash<string> = {
     return h >>> 0;
   },
 };
-Hash.registerInstance<string>("string", hashString);
+/*#__PURE__*/ Hash.registerInstance<string>("string", hashString);
 
 const hashBoolean: Hash<boolean> = {
   hash: (a) => a ? 1 : 0,
 };
-Hash.registerInstance<boolean>("boolean", hashBoolean);
+/*#__PURE__*/ Hash.registerInstance<boolean>("boolean", hashBoolean);
 
 // Semigroup instances for primitives
 const semigroupNumber: Semigroup<number> = {
   combine: (a, b) => a + b,
 };
-Semigroup.registerInstance<number>("number", semigroupNumber);
+/*#__PURE__*/ Semigroup.registerInstance<number>("number", semigroupNumber);
 
 const semigroupString: Semigroup<string> = {
   combine: (a, b) => a + b,
 };
-Semigroup.registerInstance<string>("string", semigroupString);
+/*#__PURE__*/ Semigroup.registerInstance<string>("string", semigroupString);
 
 // Monoid instances for primitives
 const monoidNumber: Monoid<number> = {
   empty: () => 0,
   combine: (a, b) => a + b,
 };
-Monoid.registerInstance<number>("number", monoidNumber);
+/*#__PURE__*/ Monoid.registerInstance<number>("number", monoidNumber);
 
 const monoidString: Monoid<string> = {
   empty: () => "",
   combine: (a, b) => a + b,
 };
-Monoid.registerInstance<string>("string", monoidString);
+/*#__PURE__*/ Monoid.registerInstance<string>("string", monoidString);
 `;
 }
 
@@ -2841,7 +2797,7 @@ const ${varName}: Semigroup<${typeName}> = {
 ${fieldCombines}
   }),
 };
-Semigroup.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Semigroup.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -2880,7 +2836,7 @@ ${fieldEmpties}
 ${fieldCombines}
   }),
 };
-Monoid.registerInstance<${typeName}>("${typeName}", ${varName});
+/*#__PURE__*/ Monoid.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -2917,6 +2873,12 @@ export {
   instanceRegistry,
   extensionMethodRegistry,
   builtinDerivations,
+  TypeclassInfo,
+  TypeclassMethod,
+  InstanceInfo,
+  ExtensionMethodInfo,
+  BuiltinTypeclassDerivation,
+  SyntaxEntry,
   findInstance,
   getTypeclass,
   findExtensionMethod,
@@ -2930,13 +2892,4 @@ export {
   registerTypeclassSyntax,
   clearSyntaxRegistry,
   extractOpFromReturnType,
-};
-
-export type {
-  TypeclassInfo,
-  TypeclassMethod,
-  InstanceInfo,
-  ExtensionMethodInfo,
-  BuiltinTypeclassDerivation,
-  SyntaxEntry,
 };

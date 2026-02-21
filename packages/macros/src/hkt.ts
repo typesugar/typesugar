@@ -52,7 +52,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, TS9302 } from "@typesugar/core";
+import { defineAttributeMacro } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 
 // Import HKT registries from typeclass.ts (single source of truth)
@@ -269,7 +269,7 @@ function transformMemberHKT(
       member.name,
       member.questionToken,
       member.typeParameters,
-      factory.createNodeArray(newParams),
+      newParams,
       member.type ? transformTypeHKT(ctx, member.type, kindParams) : undefined
     );
   }
@@ -332,7 +332,7 @@ function transformTypeHKT(
     return factory.updateFunctionTypeNode(
       type,
       type.typeParameters,
-      factory.createNodeArray(newParams),
+      newParams,
       type.type ? transformTypeHKT(ctx, type.type, kindParams) : type.type
     );
   }
@@ -382,7 +382,7 @@ function transformTypeHKT(
   if (ts.isTypeLiteralNode(type)) {
     return factory.updateTypeLiteralNode(
       type,
-      factory.createNodeArray(type.members.map((m) => transformMemberHKT(ctx, m, kindParams)))
+      type.members.map((m) => transformMemberHKT(ctx, m, kindParams))
     );
   }
 
@@ -402,12 +402,11 @@ function transformTypeHKT(
 export const hktAttribute = defineAttributeMacro({
   name: "hkt",
   description: "Enable HKT syntax (F<_> kind annotations) in an interface or type alias",
-  validTargets: ["interface", "type"],
   expand(ctx, decorator, node) {
     if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
       return transformHKTDeclaration(ctx, node);
     }
-    ctx.diagnostic(TS9302).at(decorator).emit();
+    ctx.reportError(decorator, "@hkt can only be applied to interfaces or type aliases");
     return node;
   },
 });

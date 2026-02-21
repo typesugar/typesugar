@@ -51,14 +51,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineAttributeMacro,
-  globalRegistry,
-  TS9203,
-  TS9206,
-  TS9207,
-  TS9220,
-} from "@typesugar/core";
+import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 
 // ============================================================================
@@ -654,7 +647,7 @@ function liftTernaryTailCalls(
 
 export const tailrecAttribute = defineAttributeMacro({
   name: "tailrec",
-  module: "@typesugar/macros",
+  module: "typemacro",
   exportName: "tailrec",
   description:
     "Verify and optimize tail-recursive functions into stack-safe while loops (following Scala's @tailrec rules)",
@@ -668,14 +661,7 @@ export const tailrecAttribute = defineAttributeMacro({
   ): ts.Node | ts.Node[] {
     // --- Validation: must be a function declaration ---
     if (!ts.isFunctionDeclaration(target)) {
-      ctx
-        .diagnostic(TS9203)
-        .at(target)
-        .withArgs({
-          decorator: "tailrec",
-          validTargets: "function declarations",
-        })
-        .emit();
+      ctx.reportError(target, "@tailrec can only be applied to function declarations");
       return target;
     }
 
@@ -683,12 +669,12 @@ export const tailrecAttribute = defineAttributeMacro({
     const fnName = fn.name?.text;
 
     if (!fnName) {
-      ctx.diagnostic(TS9206).at(fn).withArgs({ macro: "tailrec", target: "function" }).emit();
+      ctx.reportError(fn, "@tailrec: function must have a name");
       return target;
     }
 
     if (!fn.body) {
-      ctx.diagnostic(TS9207).at(fn).withArgs({ macro: "@tailrec", target: "function" }).emit();
+      ctx.reportError(fn, "@tailrec: function must have a body");
       return target;
     }
 
@@ -696,12 +682,11 @@ export const tailrecAttribute = defineAttributeMacro({
     const calls = findRecursiveCalls(fn.body, fnName, ctx.sourceFile);
 
     if (calls.length === 0) {
-      ctx
-        .diagnostic(TS9220)
-        .at(fn)
-        .withArgs({ issue: `function '${fnName}' contains no recursive calls` })
-        .note("@tailrec requires at least one self-recursive call in tail position")
-        .emit();
+      ctx.reportError(
+        fn,
+        `@tailrec: function '${fnName}' contains no recursive calls — ` +
+          `@tailrec requires at least one self-recursive call in tail position`
+      );
       return target;
     }
 
@@ -711,14 +696,10 @@ export const tailrecAttribute = defineAttributeMacro({
       for (const ntc of nonTailCalls) {
         const pos = ntc.call.getStart(ctx.sourceFile);
         const { line } = ctx.sourceFile.getLineAndCharacterOfPosition(pos);
-        ctx
-          .diagnostic(TS9220)
-          .at(ntc.call)
-          .withArgs({
-            issue: ntc.reason ?? "recursive call not in tail position",
-          })
-          .note(`Function: ${fnName}, line ${line + 1}`)
-          .emit();
+        ctx.reportError(
+          ntc.call,
+          `@tailrec: could not optimize '${fnName}' — ${ntc.reason ?? "recursive call not in tail position"} (line ${line + 1})`
+        );
       }
       return target;
     }

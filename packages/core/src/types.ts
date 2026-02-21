@@ -209,6 +209,13 @@ export interface MacroDefinitionBase {
    * Useful when the macro name differs from the export name.
    */
   exportName?: string;
+
+  /**
+   * Whether the macro's result can be cached based on input text.
+   * Set to false for macros that depend on external state (files, env, etc.).
+   * Defaults to true.
+   */
+  cacheable?: boolean;
 }
 
 /** Expression macro - transforms expressions */

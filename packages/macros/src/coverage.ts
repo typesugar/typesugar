@@ -39,7 +39,7 @@
  */
 
 import * as ts from "typescript";
-import { MacroContext, TS9101 } from "@typesugar/core";
+import { MacroContext } from "@typesugar/core";
 import { setCoverageHooks } from "./typeclass.js";
 
 // ============================================================================
@@ -221,28 +221,16 @@ export function validateCoverageOrError(
   const result = checkCoverage(typeclassName, fields);
 
   if (!result.valid) {
-    // Report one structured error with all missing fields as labels
-    const builder = ctx
-      .diagnostic(TS9101)
-      .at(node)
-      .withArgs({
-        typeclass: typeclassName,
-        type: typeName,
-        field: result.missingFields[0]?.fieldName ?? "unknown",
-        fieldType: result.missingFields[0]?.fieldType ?? "unknown",
-      });
-
-    // Add all missing fields as notes
     for (const missing of result.missingFields) {
-      builder.note(
-        `Field '${missing.fieldName}' has type '${missing.fieldType}' which lacks ${typeclassName}`
-      );
+      ctx.reportError(node, missing.message);
     }
 
-    builder.help(
-      `Add @derive(${typeclassName}) to the missing types, or provide @instance declarations`
+    // Also provide a summary
+    const missingTypes = Array.from(new Set(result.missingFields.map((f) => f.fieldType)));
+    ctx.reportError(
+      node,
+      `@derive(${typeclassName}) on '${typeName}' failed: missing instances for types: ${missingTypes.join(", ")}`
     );
-    builder.emit();
   }
 
   return result.valid;
@@ -346,5 +334,4 @@ setCoverageHooks(registerPrimitive, validateCoverageOrError);
 // Exports
 // ============================================================================
 
-export { primitiveRegistry };
-export type { CoverageConfig, CoverageResult, FieldInfo };
+export { primitiveRegistry, CoverageConfig, CoverageResult, FieldInfo };

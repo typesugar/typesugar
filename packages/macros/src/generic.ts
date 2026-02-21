@@ -35,7 +35,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry, TS9102 } from "@typesugar/core";
+import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry, tryExtractSumType } from "./typeclass.js";
 
@@ -298,7 +298,7 @@ export function registerGenericMeta(typeName: string, meta: GenericMeta): void {
 
 export const genericDerive = defineAttributeMacro({
   name: "Generic",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Derive Generic instance for structural programming",
   validTargets: ["interface", "class", "type"],
 
@@ -313,7 +313,7 @@ export const genericDerive = defineAttributeMacro({
       !ts.isClassDeclaration(target) &&
       !ts.isTypeAliasDeclaration(target)
     ) {
-      ctx.diagnostic(TS9102).at(target).emit();
+      ctx.reportError(target, "@derive(Generic) requires interface, class, or type alias");
       return target;
     }
 

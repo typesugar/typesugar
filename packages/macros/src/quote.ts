@@ -1,5 +1,5 @@
 /**
- * Quasiquoting System for typesugar
+ * Quasiquoting System for typemacro
  *
  * Provides a `quote` tagged-template expression macro that lets macro authors
  * write AST construction as template code with splice holes, instead of
@@ -9,7 +9,7 @@
  *
  * @example
  * ```typescript
- * import { quote } from "@typesugar/macros";
+ * import { quote } from "typemacro/quote";
  *
  * // Expression quasiquote — returns ts.Expression
  * const expr = quote(ctx)`${left} + ${right}`;
@@ -30,7 +30,9 @@
  */
 
 import * as ts from "typescript";
-import { MacroContext, MacroContextImpl, stripPositions, getPrinter, getDummySourceFile } from "@typesugar/core";
+import { MacroContext } from "@typesugar/core";
+import { MacroContextImpl } from "@typesugar/core";
+import { stripPositions, getPrinter, getDummySourceFile } from "@typesugar/core";
 
 // =============================================================================
 // Splice Types

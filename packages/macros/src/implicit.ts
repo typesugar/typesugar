@@ -36,19 +36,15 @@
  */
 
 import * as ts from "typescript";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { MacroContext } from "@typesugar/core";
+import { getInstanceMethods } from "./specialize.js";
 import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9001,
-  TS9201,
-  TS9204,
-  TS9501,
   formatResolutionTrace,
+  generateHelpFromTrace,
   type ResolutionAttempt,
   type ResolutionTrace,
 } from "@typesugar/core";
-import { MacroContext } from "@typesugar/core";
-import { getInstanceMethods } from "./specialize.js";
 
 // ============================================================================
 // Instance Registry
@@ -137,7 +133,7 @@ registerInstance("Monad", "PromiseF", "promiseMonad");
  */
 export const summonHKTMacro = defineExpressionMacro({
   name: "summonHKT",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Summon an HKT-based typeclass instance at compile time based on type argument",
 
   expand(
@@ -148,12 +144,7 @@ export const summonHKTMacro = defineExpressionMacro({
     // Get the type arguments: summon<Monad<OptionF>>()
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
-      ctx
-        .diagnostic(TS9204)
-        .at(callExpr)
-        .withArgs({ macro: "summonHKT", expected: "1" })
-        .help("Usage: summonHKT<Typeclass<F>>()")
-        .emit();
+      ctx.reportError(callExpr, "summon requires a type argument: summon<Typeclass<F>>()");
       return callExpr;
     }
 
@@ -163,13 +154,10 @@ export const summonHKTMacro = defineExpressionMacro({
     const { typeclass, typeConstructor } = parseTypeclassType(ctx, typeArg);
 
     if (!typeclass || !typeConstructor) {
-      ctx
-        .diagnostic(TS9501)
-        .at(callExpr)
-        .withArgs({
-          error: `Could not parse typeclass from type argument: ${typeArg.getText()}`,
-        })
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `Could not parse typeclass from type argument: ${typeArg.getText()}`
+      );
       return callExpr;
     }
 
@@ -193,21 +181,17 @@ export const summonHKTMacro = defineExpressionMacro({
       };
 
       const traceNotes = formatResolutionTrace(trace);
+      const helpMessage = `Register with registerInstance("${typeclass}", "${typeConstructor}", "instanceName")`;
 
-      const diagnostic = ctx
-        .diagnostic(TS9001)
-        .at(callExpr)
-        .withArgs({ typeclass, type: typeConstructor });
+      // Build a rich error message with the trace
+      const errorLines = [
+        `No HKT instance found for \`${typeclass}<${typeConstructor}>\``,
+        "",
+        ...traceNotes.map((note) => `  = note: ${note}`),
+        `  = help: ${helpMessage}`,
+      ];
 
-      for (const note of traceNotes) {
-        diagnostic.note(note);
-      }
-
-      diagnostic
-        .help(
-          `Register with registerInstance("${typeclass}", "${typeConstructor}", "instanceName")`
-        )
-        .emit();
+      ctx.reportError(callExpr, errorLines.join("\n"));
       return callExpr;
     }
 
@@ -245,7 +229,7 @@ export const summonHKTMacro = defineExpressionMacro({
  */
 export const deriveMacro = defineExpressionMacro({
   name: "derive",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Create a wrapper that auto-summons and specializes a generic function",
 
   expand(
@@ -254,11 +238,7 @@ export const deriveMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({ macro: "derive", expected: 1, received: args.length })
-        .emit();
+      ctx.reportError(callExpr, "derive expects 1 argument: derive(fn)");
       return callExpr;
     }
 
@@ -270,14 +250,11 @@ export const deriveMacro = defineExpressionMacro({
     // Extract the typeclass constraint from the first parameter
     const typeclassInfo = extractTypeclassFromFunction(ctx, fnType);
     if (!typeclassInfo) {
-      ctx
-        .diagnostic(TS9501)
-        .at(callExpr)
-        .withArgs({
-          error: "Could not determine typeclass from function signature",
-        })
-        .help("Ensure the first parameter is a typeclass dictionary (e.g., F: Monad<F>)")
-        .emit();
+      ctx.reportError(
+        callExpr,
+        "Could not determine typeclass from function signature. " +
+          "Ensure the first parameter is a typeclass dictionary (e.g., F: Monad<F>)"
+      );
       return callExpr;
     }
 
@@ -305,7 +282,7 @@ export const deriveMacro = defineExpressionMacro({
  */
 export const implicitMacro = defineExpressionMacro({
   name: "implicit",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Implicit instance resolution and specialization for a call",
 
   expand(
@@ -314,16 +291,10 @@ export const implicitMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "implicit",
-          expected: "at least 2",
-          received: args.length,
-        })
-        .help("Usage: implicit(fn, arg, ...args)")
-        .emit();
+      ctx.reportError(
+        callExpr,
+        "implicit expects at least 2 arguments: implicit(fn, arg, ...args)"
+      );
       return callExpr;
     }
 
@@ -334,13 +305,10 @@ export const implicitMacro = defineExpressionMacro({
     const typeConstructor = inferTypeConstructor(ctx, argType);
 
     if (!typeConstructor) {
-      ctx
-        .diagnostic(TS9501)
-        .at(callExpr)
-        .withArgs({
-          error: `Could not infer type constructor from argument type: ${ctx.typeChecker.typeToString(argType)}`,
-        })
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `Could not infer type constructor from argument type: ${ctx.typeChecker.typeToString(argType)}`
+      );
       return callExpr;
     }
 
@@ -349,50 +317,17 @@ export const implicitMacro = defineExpressionMacro({
     const typeclassInfo = extractTypeclassFromFunction(ctx, fnType);
 
     if (!typeclassInfo) {
-      ctx
-        .diagnostic(TS9501)
-        .at(callExpr)
-        .withArgs({
-          error: "Could not determine typeclass from function signature",
-        })
-        .emit();
+      ctx.reportError(callExpr, "Could not determine typeclass from function signature");
       return callExpr;
     }
 
     // Look up the instance
     const instanceName = lookupInstance(typeclassInfo.name, typeConstructor);
     if (!instanceName) {
-      // Build resolution trace for detailed error
-      const tcName = typeclassInfo.name;
-      const attempts: ResolutionAttempt[] = [
-        {
-          step: "hkt-instance-registry",
-          target: `${tcName}<${typeConstructor}>`,
-          result: "not-found",
-          reason: "not registered via registerInstance()",
-        },
-      ];
-
-      const trace: ResolutionTrace = {
-        sought: `${tcName}<${typeConstructor}>`,
-        attempts,
-        finalResult: "failed",
-      };
-
-      const traceNotes = formatResolutionTrace(trace);
-
-      const diagnostic = ctx
-        .diagnostic(TS9001)
-        .at(callExpr)
-        .withArgs({ typeclass: tcName, type: typeConstructor });
-
-      for (const note of traceNotes) {
-        diagnostic.note(note);
-      }
-
-      diagnostic
-        .help(`Register with registerInstance("${tcName}", "${typeConstructor}", "instanceName")`)
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `No instance registered for ${typeclassInfo.name}<${typeConstructor}>`
+      );
       return callExpr;
     }
 
@@ -479,10 +414,7 @@ function extractTypeclassFromFunction(
 
   // 1. Check for alias symbol (type aliases like `type M = Monad<F>`)
   if (paramType.aliasSymbol) {
-    return {
-      name: paramType.aliasSymbol.getName(),
-      paramName: firstParam.name,
-    };
+    return { name: paramType.aliasSymbol.getName(), paramName: firstParam.name };
   }
 
   // 2. Check for direct symbol (interfaces/classes like `interface Monad<F>`)

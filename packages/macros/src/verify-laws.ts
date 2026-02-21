@@ -47,7 +47,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry, TS9501 } from "@typesugar/core";
+import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 import { config } from "@typesugar/core";
 import { stripDecorator } from "@typesugar/core";
@@ -103,14 +103,11 @@ export const verifyLawsAttribute = defineAttributeMacro({
     // Get the instance name and type information
     const instanceInfo = extractInstanceInfo(ctx, target);
     if (!instanceInfo) {
-      ctx
-        .diagnostic(TS9501)
-        .at(decorator)
-        .withArgs({
-          error: "@verifyLaws could not determine the instance type",
-        })
-        .help("Apply to a const declaration with a typeclass type annotation")
-        .emit();
+      ctx.reportError(
+        decorator,
+        "@verifyLaws could not determine the instance type. " +
+          "Apply to a const declaration with a typeclass type annotation."
+      );
       return stripDecorator(ctx, target, decorator);
     }
 
@@ -122,14 +119,11 @@ export const verifyLawsAttribute = defineAttributeMacro({
     // Determine which law generator to use
     const lawGenName = macroArgs.lawGenerator ?? inferLawGenerator(typeclassName);
     if (!lawGenName) {
-      ctx
-        .diagnostic(TS9501)
-        .at(decorator)
-        .withArgs({
-          error: `No law generator found for typeclass '${typeclassName}'`,
-        })
-        .help(`Pass one explicitly: @verifyLaws(myLawGenerator, {...})`)
-        .emit();
+      ctx.reportError(
+        decorator,
+        `@verifyLaws: no law generator found for typeclass '${typeclassName}'. ` +
+          `Pass one explicitly: @verifyLaws(myLawGenerator, {...})`
+      );
       return stripDecorator(ctx, target, decorator);
     }
 

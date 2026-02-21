@@ -7,7 +7,7 @@
  * ## Usage
  *
  * ```typescript
- * import "@typesugar/macros/primitives";  // Or import specific instances
+ * import "typemacro/primitives";  // Or import specific instances
  *
  * @derive(Show, Eq, Ord, Hash)
  * interface Point {

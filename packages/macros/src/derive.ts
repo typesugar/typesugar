@@ -13,7 +13,7 @@
  */
 
 import * as ts from "typescript";
-import { defineDeriveMacro, globalRegistry, TS9105 } from "@typesugar/core";
+import { defineDeriveMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
 
 // ============================================================================
@@ -653,7 +653,10 @@ export const BuilderDerive = defineDeriveMacro({
 
     // Builder doesn't make sense for sum types - generate a warning
     if (kind === "sum") {
-      ctx.diagnostic(TS9105).at(target).emit();
+      ctx.reportWarning(
+        target,
+        `@derive(Builder) is not applicable to sum types. Skipping Builder for ${name}.`
+      );
       return [];
     }
 
@@ -978,6 +981,32 @@ export const deriveMacros = {
   TypeGuard: TypeGuardDerive,
 };
 
+// ============================================================================
+// Derive Name Symbols
+// ============================================================================
+// These are placeholder symbols for use in @derive() decorators.
+// The transformer recognizes these by name and invokes the corresponding macro.
+// They exist to satisfy the LSP and enable autocomplete.
+
+/** Derive equality comparison (equals method) */
+export const Eq: unique symbol = Symbol("Eq");
+/** Derive ordering/comparison (compare method) */
+export const Ord: unique symbol = Symbol("Ord");
+/** Derive deep cloning (clone method) */
+export const Clone: unique symbol = Symbol("Clone");
+/** Derive debug string representation (debug method) */
+export const Debug: unique symbol = Symbol("Debug");
+/** Derive hash code generation (hash method) */
+export const Hash: unique symbol = Symbol("Hash");
+/** Derive default value factory (default static method) */
+export const Default: unique symbol = Symbol("Default");
+/** Derive JSON serialization (toJson/fromJson methods) */
+export const Json: unique symbol = Symbol("Json");
+/** Derive builder pattern (builder static method) */
+export const Builder: unique symbol = Symbol("Builder");
+/** Derive type guard function (isTypeName static method) */
+export const TypeGuard: unique symbol = Symbol("TypeGuard");
+
 /**
  * Create a derived function name based on convention
  */
@@ -1019,23 +1048,3 @@ globalRegistry.register(DefaultDerive);
 globalRegistry.register(JsonDerive);
 globalRegistry.register(BuilderDerive);
 globalRegistry.register(TypeGuardDerive);
-
-// Derive name symbols for use in @derive() decorators
-// These are used like: @derive(Eq, Ord)
-export const Eq: unique symbol = Symbol("Eq");
-
-export const Ord: unique symbol = Symbol("Ord");
-
-export const Clone: unique symbol = Symbol("Clone");
-
-export const Debug: unique symbol = Symbol("Debug");
-
-export const Hash: unique symbol = Symbol("Hash");
-
-export const Default: unique symbol = Symbol("Default");
-
-export const Json: unique symbol = Symbol("Json");
-
-export const Builder: unique symbol = Symbol("Builder");
-
-export const TypeGuard: unique symbol = Symbol("TypeGuard");

@@ -66,22 +66,15 @@
  */
 
 import * as ts from "typescript";
+import { defineAttributeMacro, defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { MacroContext } from "@typesugar/core";
+import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
 import {
-  defineAttributeMacro,
-  defineExpressionMacro,
-  globalRegistry,
-  TS9001,
-  TS9009,
-  TS9203,
-  TS9204,
-  TS9208,
   formatResolutionTrace,
   generateHelpFromTrace,
   type ResolutionAttempt,
   type ResolutionTrace,
 } from "@typesugar/core";
-import { MacroContext } from "@typesugar/core";
-import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
 
 // ============================================================================
 // Types
@@ -193,7 +186,7 @@ export function resolveImplicit(
 
 export const implicitsAttribute = defineAttributeMacro({
   name: "implicits",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Mark a function as having implicit parameters that are auto-resolved",
   validTargets: ["function"],
 
@@ -204,14 +197,7 @@ export const implicitsAttribute = defineAttributeMacro({
     args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target) || !target.name) {
-      ctx
-        .diagnostic(TS9203)
-        .at(decorator)
-        .withArgs({
-          macro: "@implicits",
-          expected: "named function declaration",
-        })
-        .emit();
+      ctx.reportError(decorator, "@implicits can only be applied to named function declarations");
       return target;
     }
 
@@ -290,12 +276,11 @@ export const implicitsAttribute = defineAttributeMacro({
     }
 
     if (implicitParams.length === 0) {
-      ctx
-        .diagnostic(TS9009)
-        .at(decorator)
-        .withArgs({ function: functionName })
-        .help("Implicit params must be typed as Typeclass<T> where Typeclass is registered")
-        .emit();
+      ctx.reportWarning(
+        decorator,
+        `@implicits on '${functionName}' found no implicit parameters. ` +
+          `Implicit params must be typed as Typeclass<T> where Typeclass is registered.`
+      );
     }
 
     // Register the function
@@ -452,16 +437,16 @@ export function transformImplicitsCall(
       const traceNotes = formatResolutionTrace(trace);
       const helpMessage = generateHelpFromTrace(trace, tcName, concreteType);
 
-      const diagnostic = ctx
-        .diagnostic(TS9001)
-        .at(callExpr)
-        .withArgs({ typeclass: tcName, type: concreteType });
+      // Build a rich error message with the trace
+      const errorLines = [
+        `No instance found for \`${tcName}<${concreteType}>\``,
+        "",
+        ...traceNotes.map((note) => `  = note: ${note}`),
+        `  = note: implicit parameter: ${implicitParam.paramName}`,
+        `  = help: ${helpMessage}`,
+      ];
 
-      for (const note of traceNotes) {
-        diagnostic.note(note);
-      }
-
-      diagnostic.note(`implicit parameter: ${implicitParam.paramName}`).help(helpMessage).emit();
+      ctx.reportError(callExpr, errorLines.join("\n"));
       return undefined;
     }
   }
@@ -521,7 +506,7 @@ export function processImplicitsFunctionBody(
 
 export const summonAllMacro = defineExpressionMacro({
   name: "summonAll",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Summon multiple typeclass instances as a tuple",
 
   expand(
@@ -531,12 +516,10 @@ export const summonAllMacro = defineExpressionMacro({
   ): ts.Expression {
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
-      ctx
-        .diagnostic(TS9204)
-        .at(callExpr)
-        .withArgs({ macro: "summonAll", expected: "at least 1" })
-        .help("Usage: summonAll<Show<Point>, Eq<Point>>()")
-        .emit();
+      ctx.reportError(
+        callExpr,
+        "summonAll requires type arguments, e.g., summonAll<Show<Point>, Eq<Point>>()"
+      );
       return callExpr;
     }
 
@@ -545,11 +528,10 @@ export const summonAllMacro = defineExpressionMacro({
 
     for (const typeArg of typeArgs) {
       if (!ts.isTypeReferenceNode(typeArg)) {
-        ctx
-          .diagnostic(TS9208)
-          .at(typeArg)
-          .withArgs({ expected: "type reference like Show<Point>" })
-          .emit();
+        ctx.reportError(
+          typeArg,
+          "summonAll type arguments must be type references like Show<Point>"
+        );
         continue;
       }
 
@@ -557,7 +539,7 @@ export const summonAllMacro = defineExpressionMacro({
       const innerTypeArgs = typeArg.typeArguments;
 
       if (!innerTypeArgs || innerTypeArgs.length === 0) {
-        ctx.diagnostic(TS9204).at(typeArg).withArgs({ macro: tcName, expected: "1" }).emit();
+        ctx.reportError(typeArg, `Type ${tcName} requires a type argument`);
         continue;
       }
 
@@ -587,5 +569,4 @@ globalRegistry.register(summonAllMacro);
 // Exports
 // ============================================================================
 
-export { implicitsFunctions };
-export type { ImplicitParamInfo, ImplicitsFunctionInfo, ImplicitScope };
+export { ImplicitParamInfo, ImplicitsFunctionInfo, ImplicitScope, implicitsFunctions };

@@ -22,14 +22,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9201,
-  TS9217,
-  TS9218,
-  TS9219,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
 
@@ -39,7 +32,7 @@ import { MacroContextImpl } from "@typesugar/core";
 
 export const staticAssertMacro = defineExpressionMacro({
   name: "staticAssert",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Assert a condition at compile time. Fails compilation with a message if the condition is false.",
 
@@ -49,15 +42,10 @@ export const staticAssertMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "staticAssert",
-          expected: "1-2",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(
+        callExpr,
+        "staticAssert expects 1-2 arguments: staticAssert(condition, message?)"
+      );
       return ctx.factory.createIdentifier("undefined");
     }
 
@@ -86,11 +74,16 @@ export const staticAssertMacro = defineExpressionMacro({
     if (result.kind === "error") {
       // Can't evaluate at compile time — try checking if it's a boolean literal
       if (conditionArg.kind === ts.SyntaxKind.FalseKeyword) {
-        ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
+        ctx.reportError(callExpr, `staticAssert: ${message}`);
       } else if (conditionArg.kind === ts.SyntaxKind.TrueKeyword) {
         // Assertion passes — remove the call
       } else {
-        ctx.diagnostic(TS9219).at(callExpr).note(`Original assertion message: ${message}`).emit();
+        ctx.reportError(
+          callExpr,
+          `staticAssert: Cannot evaluate condition at compile time. ` +
+            `The condition must be a compile-time constant. ` +
+            `Original message: ${message}`
+        );
       }
       return ctx.factory.createIdentifier("undefined");
     }
@@ -99,14 +92,13 @@ export const staticAssertMacro = defineExpressionMacro({
     const boolValue = comptimeToBoolean(result);
 
     if (boolValue === false) {
-      ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
+      ctx.reportError(callExpr, `staticAssert: ${message}`);
     } else if (boolValue === null) {
-      ctx
-        .diagnostic(TS9219)
-        .at(callExpr)
-        .note(`Cannot convert ${result.kind} to boolean`)
-        .note(`Original assertion message: ${message}`)
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `staticAssert: Cannot convert ${result.kind} to boolean for assertion. ` +
+          `Original message: ${message}`
+      );
     }
 
     // Assertion passes (or error reported) — remove the call entirely
@@ -120,7 +112,7 @@ export const staticAssertMacro = defineExpressionMacro({
 
 export const compileErrorMacro = defineExpressionMacro({
   name: "compileError",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Unconditionally emit a compile-time error. Useful for marking unreachable code or deprecated APIs.",
 
@@ -130,20 +122,12 @@ export const compileErrorMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "compileError",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(callExpr, "compileError expects exactly one argument: compileError(message)");
       return ctx.factory.createIdentifier("undefined");
     }
 
     const message = extractStringArg(ctx, args[0], "compileError");
-    ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
+    ctx.reportError(callExpr, message);
 
     return ctx.factory.createIdentifier("undefined");
   },
@@ -155,7 +139,7 @@ export const compileErrorMacro = defineExpressionMacro({
 
 export const compileWarningMacro = defineExpressionMacro({
   name: "compileWarning",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Unconditionally emit a compile-time warning. Useful for deprecation notices or performance hints.",
 
@@ -165,20 +149,15 @@ export const compileWarningMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "compileWarning",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(
+        callExpr,
+        "compileWarning expects exactly one argument: compileWarning(message)"
+      );
       return ctx.factory.createIdentifier("undefined");
     }
 
     const message = extractStringArg(ctx, args[0], "compileWarning");
-    ctx.diagnostic(TS9218).at(callExpr).withArgs({ message }).emit();
+    ctx.reportWarning(callExpr, message);
 
     // Remove the call — warnings don't produce runtime code
     return ctx.factory.createIdentifier("undefined");
@@ -214,7 +193,7 @@ function extractStringArg(ctx: MacroContext, arg: ts.Expression, macroName: stri
 /**
  * Convert a ComptimeValue to a boolean (mirrors context.ts logic).
  */
-function comptimeToBoolean(value: import("@typesugar/core").ComptimeValue): boolean | null {
+function comptimeToBoolean(value: import("../core/types.js").ComptimeValue): boolean | null {
   switch (value.kind) {
     case "boolean":
       return value.value;

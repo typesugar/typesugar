@@ -21,7 +21,8 @@
 
 import ts from "typescript";
 import type { MacroContext, ExpressionMacro, StandaloneExtensionInfo } from "@typesugar/core";
-import { defineExpressionMacro, globalRegistry, TS9402, TS9403, TS9208 } from "@typesugar/core";
+import { defineExpressionMacro } from "@typesugar/core";
+import { globalRegistry } from "@typesugar/core";
 import {
   standaloneExtensionRegistry,
   registerStandaloneExtensionEntry,
@@ -57,7 +58,10 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.diagnostic(TS9402).at(callExpr).emit();
+      ctx.reportError(
+        callExpr,
+        "registerExtensions() requires two arguments: a type name string and a namespace object"
+      );
       return ctx.factory.createVoidZero();
     }
 
@@ -66,11 +70,10 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
 
     // Extract type name from string literal
     if (!ts.isStringLiteral(typeNameArg)) {
-      ctx
-        .diagnostic(TS9208)
-        .at(typeNameArg)
-        .withArgs({ macro: "registerExtensions", expected: "string literal" })
-        .emit();
+      ctx.reportError(
+        typeNameArg,
+        "First argument to registerExtensions() must be a string literal"
+      );
       return ctx.factory.createVoidZero();
     }
     const forType = typeNameArg.text;
@@ -118,7 +121,10 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.diagnostic(TS9403).at(callExpr).emit();
+      ctx.reportError(
+        callExpr,
+        "registerExtension() requires two arguments: a type name string and a function"
+      );
       return ctx.factory.createVoidZero();
     }
 
@@ -126,11 +132,10 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     const fnArg = args[1];
 
     if (!ts.isStringLiteral(typeNameArg)) {
-      ctx
-        .diagnostic(TS9208)
-        .at(typeNameArg)
-        .withArgs({ macro: "registerExtension", expected: "string literal" })
-        .emit();
+      ctx.reportError(
+        typeNameArg,
+        "First argument to registerExtension() must be a string literal"
+      );
       return ctx.factory.createVoidZero();
     }
     const forType = typeNameArg.text;
@@ -142,14 +147,10 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     }
 
     if (!methodName) {
-      ctx
-        .diagnostic(TS9208)
-        .at(fnArg)
-        .withArgs({
-          macro: "registerExtension",
-          expected: "function identifier",
-        })
-        .emit();
+      ctx.reportError(
+        fnArg,
+        "Second argument to registerExtension() must be a function identifier"
+      );
       return ctx.factory.createVoidZero();
     }
 

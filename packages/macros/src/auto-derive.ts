@@ -67,8 +67,9 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext, ResolutionAttempt } from "@typesugar/core";
+import type { MacroContext } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
+import type { ResolutionAttempt } from "@typesugar/core";
 
 // ============================================================================
 // Derivation Result (with resolution trace for error diagnostics)

@@ -24,15 +24,7 @@
 import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9201,
-  TS9205,
-  TS9211,
-  TS9212,
-  TS9213,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { jsValueToExpression } from "@typesugar/core";
 
@@ -56,8 +48,8 @@ export function clearFileDependencies(): void {
   fileDependencies.clear();
 }
 
-/** Record a file dependency (exported for use by comptime sandbox) */
-export function recordDependency(absolutePath: string): void {
+/** Record a file dependency */
+function recordDependency(absolutePath: string): void {
   fileDependencies.add(absolutePath);
 }
 
@@ -66,18 +58,35 @@ export function recordDependency(absolutePath: string): void {
 // =============================================================================
 
 /**
- * Resolve a relative path against a base directory or the source file's directory.
- * Exported for use by comptime sandbox.
+ * Resolve a path against the source file's directory, ensuring the result
+ * stays within the project root to prevent path traversal attacks (F2).
+ *
+ * Blocks:
+ * - Absolute paths: `/etc/passwd`
+ * - Traversal: `../../../.env`
+ * - Symlink escapes: resolved path is checked, not the raw input
  */
-export function resolveRelativePath(
-  ctxOrBaseDir: MacroContext | string,
-  relativePath: string
-): string {
-  const baseDir =
-    typeof ctxOrBaseDir === "string"
-      ? ctxOrBaseDir
-      : path.dirname(ctxOrBaseDir.sourceFile.fileName);
-  return path.resolve(baseDir, relativePath);
+function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
+  if (path.isAbsolute(relativePath)) {
+    throw new Error(
+      `Security: absolute paths are not allowed in include macros. ` +
+        `Use a path relative to the source file instead: "${relativePath}"`
+    );
+  }
+
+  const sourceDir = path.dirname(ctx.sourceFile.fileName);
+  const resolved = path.normalize(path.resolve(sourceDir, relativePath));
+  const projectRoot = path.normalize(ctx.program.getCurrentDirectory());
+
+  if (!resolved.startsWith(projectRoot + path.sep) && resolved !== projectRoot) {
+    throw new Error(
+      `Security: path "${relativePath}" resolves to "${resolved}" which is ` +
+        `outside the project root "${projectRoot}". ` +
+        `File access is restricted to the project directory.`
+    );
+  }
+
+  return resolved;
 }
 
 /**
@@ -103,7 +112,10 @@ function extractPathArg(
     return result.value;
   }
 
-  ctx.diagnostic(TS9205).at(callExpr).withArgs({ macro: macroName }).emit();
+  ctx.reportError(
+    callExpr,
+    `${macroName}: path argument must be a string literal or compile-time constant`
+  );
   return undefined;
 }
 
@@ -113,7 +125,7 @@ function extractPathArg(
 
 export const includeStrMacro = defineExpressionMacro({
   name: "includeStr",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Read a file at compile time and embed its contents as a string literal.",
 
   expand(
@@ -122,15 +134,7 @@ export const includeStrMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "includeStr",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(callExpr, "includeStr expects exactly one argument: includeStr(path)");
       return callExpr;
     }
 
@@ -144,15 +148,12 @@ export const includeStrMacro = defineExpressionMacro({
       const contents = fs.readFileSync(absolutePath, "utf-8");
       return ctx.factory.createStringLiteral(contents);
     } catch (error) {
-      ctx
-        .diagnostic(TS9212)
-        .at(callExpr)
-        .withArgs({
-          path: relativePath,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        .note(`Resolved to: ${absolutePath}`)
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `includeStr: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
       return callExpr;
     }
   },
@@ -164,7 +165,7 @@ export const includeStrMacro = defineExpressionMacro({
 
 export const includeBytesMacro = defineExpressionMacro({
   name: "includeBytes",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Read a file at compile time and embed its contents as a Uint8Array literal.",
 
   expand(
@@ -173,15 +174,7 @@ export const includeBytesMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "includeBytes",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(callExpr, "includeBytes expects exactly one argument: includeBytes(path)");
       return callExpr;
     }
 
@@ -204,15 +197,12 @@ export const includeBytesMacro = defineExpressionMacro({
         [ctx.factory.createArrayLiteralExpression(elements)]
       );
     } catch (error) {
-      ctx
-        .diagnostic(TS9212)
-        .at(callExpr)
-        .withArgs({
-          path: relativePath,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        .note(`Resolved to: ${absolutePath}`)
-        .emit();
+      ctx.reportError(
+        callExpr,
+        `includeBytes: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
       return callExpr;
     }
   },
@@ -224,7 +214,7 @@ export const includeBytesMacro = defineExpressionMacro({
 
 export const includeJsonMacro = defineExpressionMacro({
   name: "includeJson",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Read and parse a JSON file at compile time, embedding the result as an object literal.",
 
@@ -234,15 +224,7 @@ export const includeJsonMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "includeJson",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(callExpr, "includeJson expects exactly one argument: includeJson(path)");
       return callExpr;
     }
 
@@ -258,22 +240,17 @@ export const includeJsonMacro = defineExpressionMacro({
       return jsValueToExpression(ctx, parsed, callExpr);
     } catch (error) {
       if (error instanceof SyntaxError) {
-        ctx
-          .diagnostic(TS9213)
-          .at(callExpr)
-          .withArgs({ path: relativePath })
-          .note(error.message)
-          .emit();
+        ctx.reportError(
+          callExpr,
+          `includeJson: Invalid JSON in '${relativePath}': ${error.message}`
+        );
       } else {
-        ctx
-          .diagnostic(TS9212)
-          .at(callExpr)
-          .withArgs({
-            path: relativePath,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          .note(`Resolved to: ${absolutePath}`)
-          .emit();
+        ctx.reportError(
+          callExpr,
+          `includeJson: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
       return callExpr;
     }
@@ -286,7 +263,7 @@ export const includeJsonMacro = defineExpressionMacro({
 
 export const includeTextMacro = defineExpressionMacro({
   name: "includeText",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Read a text file at compile time with optional encoding. Alias for includeStr.",
 
   expand(

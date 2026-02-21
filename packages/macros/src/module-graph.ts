@@ -24,7 +24,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { defineExpressionMacro, globalRegistry, TS9201, TS9205 } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 
 // =============================================================================
@@ -44,7 +44,7 @@ interface CollectedType {
 
 export const collectTypesMacro = defineExpressionMacro({
   name: "collectTypes",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description:
     "Collect all exported types matching a glob pattern across the project at compile time.",
 
@@ -54,15 +54,7 @@ export const collectTypesMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx
-        .diagnostic(TS9201)
-        .at(callExpr)
-        .withArgs({
-          macro: "collectTypes",
-          expected: "1",
-          actual: String(args.length),
-        })
-        .emit();
+      ctx.reportError(callExpr, "collectTypes expects exactly one argument: collectTypes(pattern)");
       return callExpr;
     }
 
@@ -73,7 +65,7 @@ export const collectTypesMacro = defineExpressionMacro({
     } else if (ts.isNoSubstitutionTemplateLiteral(args[0])) {
       pattern = args[0].text;
     } else {
-      ctx.diagnostic(TS9205).at(callExpr).withArgs({ macro: "collectTypes" }).emit();
+      ctx.reportError(callExpr, "collectTypes: pattern must be a string literal");
       return callExpr;
     }
 
@@ -298,7 +290,7 @@ function hasExportModifier(node: ts.Node): boolean {
 
 export const moduleIndexMacro = defineExpressionMacro({
   name: "moduleIndex",
-  module: "@typesugar/macros",
+  module: "typemacro",
   description: "Get a compile-time index of all modules and their exported symbols in the project.",
 
   expand(
