@@ -585,10 +585,8 @@ class MacroTransformer {
   ): MacroDefinition | undefined {
     const symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
     if (!symbol) {
-      console.log(`[DEBUG] No symbol for ${macroName}`);
       return this.fallbackNameLookup(macroName, kind);
     }
-    console.log(`[DEBUG] Symbol found for ${macroName}: ${symbol.name}`);
 
     const symbolId = (symbol as unknown as { id?: number }).id;
     if (symbolId !== undefined && this.symbolMacroCache.has(symbolId)) {
@@ -748,7 +746,6 @@ class MacroTransformer {
    * Resolve module specifier from development source tree paths.
    */
   private resolveDevModuleSpecifier(normalized: string): string | undefined {
-    console.log("[DEBUG] resolveDevModuleSpecifier:", normalized);
     // Check for monorepo packages
     const packagesMatch = normalized.match(
       /\/packages\/([^/]+)\/(?:src|dist)\//,
@@ -1418,16 +1415,8 @@ class MacroTransformer {
         );
       }
 
-      try {
-        const visited = ts.visitNode(result, this.boundVisit);
-        return visited as ts.Expression;
-      } catch (visitErr: any) {
-        console.error(
-          `[DEBUG] Error visiting generated AST for ${macroName}:`,
-          visitErr.stack,
-        );
-        throw visitErr;
-      }
+      const visited = ts.visitNode(result, this.boundVisit);
+      return visited as ts.Expression;
     } catch (error) {
       this.ctx.reportError(node, `Macro expansion failed: ${error}`);
       return this.createMacroErrorExpression(

@@ -1023,6 +1023,40 @@ When unplugin preprocesses a file, it creates a fresh `ts.SourceFile` disconnect
 
 Document this limitation in code comments and the preprocessor README.
 
+---
+
+## Workflow
+
+### Completing Tasks
+
+When you finish implementing a feature or fix, **you are not done until you commit**.
+
+A commit is your guarantee that:
+
+1. **Build passes** — `pnpm build` succeeds
+2. **Tests pass** — `pnpm test` (or relevant subset) succeeds
+3. **Lints pass** — no new lint errors introduced
+4. **Documentation updated** — if the change affects user-facing behavior
+5. **CI passes** — after pushing, verify the CI run succeeds
+
+Do not stop at "tests pass locally" and wait for the user to ask about committing. The full workflow is:
+
+```
+Implement → Build → Test → Lint → Document → Commit → Push → Verify CI
+```
+
+If any step fails after commit, fix it and amend or create a follow-up commit.
+
+### What "Done" Means
+
+When you say a task is complete:
+
+- All verification steps above have passed
+- Changes are committed with a clear message
+- CI is green (or you're actively watching it)
+
+If you cannot complete a step (e.g., CI is slow, needs user input), explicitly say so rather than marking the task done.
+
 ## GitHub Account
 
 Use `dpovey` (personal account) for this repo.

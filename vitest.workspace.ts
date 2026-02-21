@@ -11,7 +11,6 @@ export default defineWorkspace([
         // Pre-existing failures
         "tests/contracts.test.ts",
         "tests/contracts-z3.test.ts",
-        "tests/comptime-permissions.test.ts",
         // References deleted src/use-cases/comprehensions/
         "tests/comprehensions.test.ts",
       ],

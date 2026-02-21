@@ -15,14 +15,55 @@
  *     for (let i = 1; i <= 5; i++) result *= i;
  *     return result;
  *   });                                         // becomes: const factorial5 = 120;
+ *
+ * With permissions (for file/env access):
+ *   const data = comptime({ fs: 'read' }, () => {
+ *     return fs.readFileSync('./data.json', 'utf8');
+ *   });
+ *   const env = comptime({ env: 'read' }, () => process.env.NODE_ENV);
  */
 
 import * as ts from "typescript";
 import * as vm from "node:vm";
+import * as nodeFs from "node:fs";
+import * as nodePath from "node:path";
 import { defineExpressionMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext, ComptimeValue } from "../core/types.js";
 import { MacroContextImpl } from "../core/context.js";
 import { jsValueToExpression } from "../core/ast-utils.js";
+
+/**
+ * Permissions that can be granted to comptime blocks.
+ *
+ * By default, comptime blocks run in a restricted sandbox with no I/O access.
+ * Permissions must be explicitly granted:
+ *
+ * - fs: 'read' | 'write' | true - File system access
+ * - env: 'read' | true - Environment variable access
+ * - net: boolean | string[] - Network access (not yet implemented)
+ * - time: boolean - Real time access (not yet implemented)
+ */
+export interface ComptimePermissions {
+  fs?: boolean | "read" | "write";
+  env?: boolean | "read";
+  net?: boolean | string[];
+  time?: boolean;
+}
+
+/**
+ * Error thrown when a comptime operation is blocked due to missing permissions.
+ */
+class ComptimePermissionError extends Error {
+  constructor(
+    public readonly permission: keyof ComptimePermissions,
+    public readonly action: string,
+  ) {
+    super(
+      `comptime permission denied: ${action} requires { ${permission}: 'read' | true }`,
+    );
+    this.name = "ComptimePermissionError";
+  }
+}
 
 /** Maximum execution time for comptime evaluation (ms) */
 const COMPTIME_TIMEOUT_MS = 5000;
@@ -31,12 +72,171 @@ const COMPTIME_TIMEOUT_MS = 5000;
 const MAX_ITERATIONS = 100_000;
 
 /**
- * Shared sandbox object. The sandbox is stateless (no mutable globals leak
- * between evaluations) so we can reuse it across all comptime calls,
- * avoiding the cost of re-creating the sandbox + vm.createContext() per call.
+ * Create a permission-checked fs module for the sandbox.
+ * Permissions are passed directly and checked at each operation.
  */
-let sharedSandbox: Record<string, unknown> | undefined;
-let sharedContext: vm.Context | undefined;
+function createSandboxFs(
+  baseDir: string,
+  permissions: ComptimePermissions,
+): Record<string, unknown> {
+  const checkRead = () => {
+    const fsPermission = permissions.fs;
+    if (!fsPermission || fsPermission === false) {
+      throw new ComptimePermissionError("fs", "File read");
+    }
+  };
+
+  const checkWrite = () => {
+    const fsPermission = permissions.fs;
+    if (fsPermission !== true && fsPermission !== "write") {
+      throw new ComptimePermissionError("fs", "File write");
+    }
+  };
+
+  const resolvePath = (relativePath: string): string => {
+    if (nodePath.isAbsolute(relativePath)) {
+      return relativePath;
+    }
+    return nodePath.resolve(baseDir, relativePath);
+  };
+
+  return {
+    readFileSync: (
+      filePath: string,
+      encoding?: BufferEncoding | { encoding?: BufferEncoding },
+    ): string | Buffer => {
+      checkRead();
+      const absolutePath = resolvePath(filePath);
+      const enc = typeof encoding === "string" ? encoding : encoding?.encoding;
+      return nodeFs.readFileSync(absolutePath, enc as BufferEncoding);
+    },
+
+    existsSync: (filePath: string): boolean => {
+      checkRead();
+      const absolutePath = resolvePath(filePath);
+      return nodeFs.existsSync(absolutePath);
+    },
+
+    readdirSync: (
+      dirPath: string,
+      options?: { withFileTypes?: boolean },
+    ): string[] | nodeFs.Dirent[] => {
+      checkRead();
+      const absolutePath = resolvePath(dirPath);
+      return nodeFs.readdirSync(absolutePath, options) as
+        | string[]
+        | nodeFs.Dirent[];
+    },
+
+    statSync: (filePath: string): nodeFs.Stats => {
+      checkRead();
+      const absolutePath = resolvePath(filePath);
+      return nodeFs.statSync(absolutePath);
+    },
+
+    writeFileSync: (
+      filePath: string,
+      data: string | Buffer,
+      options?: { encoding?: BufferEncoding },
+    ): void => {
+      checkWrite();
+      const absolutePath = resolvePath(filePath);
+      nodeFs.writeFileSync(absolutePath, data, options);
+    },
+
+    mkdirSync: (
+      dirPath: string,
+      options?: { recursive?: boolean },
+    ): string | undefined => {
+      checkWrite();
+      const absolutePath = resolvePath(dirPath);
+      return nodeFs.mkdirSync(absolutePath, options);
+    },
+  };
+}
+
+/**
+ * Create a permission-checked process module for the sandbox.
+ */
+function createSandboxProcess(
+  baseDir: string,
+  permissions: ComptimePermissions,
+): Record<string, unknown> {
+  const checkEnvRead = () => {
+    const envPermission = permissions.env;
+    if (!envPermission || envPermission === false) {
+      throw new ComptimePermissionError("env", "Environment variable read");
+    }
+  };
+
+  return {
+    env: new Proxy(
+      {},
+      {
+        get(_target, prop: string) {
+          checkEnvRead();
+          return process.env[prop];
+        },
+        has(_target, prop: string) {
+          checkEnvRead();
+          return prop in process.env;
+        },
+        ownKeys() {
+          checkEnvRead();
+          return Object.keys(process.env);
+        },
+        getOwnPropertyDescriptor(_target, prop: string) {
+          checkEnvRead();
+          if (prop in process.env) {
+            return {
+              value: process.env[prop],
+              writable: false,
+              enumerable: true,
+              configurable: true,
+            };
+          }
+          return undefined;
+        },
+      },
+    ),
+    cwd: () => baseDir,
+    platform: process.platform,
+    arch: process.arch,
+  };
+}
+
+/**
+ * Create a sandboxed require function that only allows specific modules.
+ */
+function createSandboxRequire(
+  baseDir: string,
+  permissions: ComptimePermissions,
+): (moduleName: string) => unknown {
+  const sandboxFs = createSandboxFs(baseDir, permissions);
+  const sandboxProcess = createSandboxProcess(baseDir, permissions);
+
+  return (moduleName: string): unknown => {
+    switch (moduleName) {
+      case "fs":
+      case "node:fs": {
+        if (!permissions.fs) {
+          throw new ComptimePermissionError("fs", "require('fs')");
+        }
+        return sandboxFs;
+      }
+      case "path":
+      case "node:path":
+        return nodePath;
+      case "process":
+        return sandboxProcess;
+      default:
+        throw new Error(
+          `comptime: require('${moduleName}') is not supported. ` +
+            `Only 'fs', 'path', and 'process' are available.`,
+        );
+    }
+  };
+}
 
 /**
  * Compiled regex for cleaning transpiled output. Created once, reused.
@@ -58,37 +258,134 @@ const TRANSPILE_OPTIONS: ts.TranspileOptions = {
   reportDiagnostics: true,
 };
 
+/**
+ * Parse a permissions object literal from the AST.
+ */
+function parsePermissions(
+  ctx: MacroContextImpl,
+  expr: ts.Expression,
+): ComptimePermissions {
+  const permissions: ComptimePermissions = {};
+
+  if (!ts.isObjectLiteralExpression(expr)) {
+    ctx.reportWarning(expr, "comptime permissions should be an object literal");
+    return permissions;
+  }
+
+  for (const prop of expr.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+
+    const name = ts.isIdentifier(prop.name)
+      ? prop.name.text
+      : ts.isStringLiteral(prop.name)
+        ? prop.name.text
+        : undefined;
+
+    if (!name) continue;
+
+    const value = prop.initializer;
+
+    switch (name) {
+      case "fs": {
+        if (value.kind === ts.SyntaxKind.TrueKeyword) {
+          permissions.fs = true;
+        } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+          permissions.fs = false;
+        } else if (ts.isStringLiteral(value)) {
+          const text = value.text;
+          if (text === "read" || text === "write") {
+            permissions.fs = text;
+          }
+        }
+        break;
+      }
+      case "env": {
+        if (value.kind === ts.SyntaxKind.TrueKeyword) {
+          permissions.env = true;
+        } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+          permissions.env = false;
+        } else if (ts.isStringLiteral(value) && value.text === "read") {
+          permissions.env = "read";
+        }
+        break;
+      }
+      case "net": {
+        if (value.kind === ts.SyntaxKind.TrueKeyword) {
+          permissions.net = true;
+        } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+          permissions.net = false;
+        } else if (ts.isArrayLiteralExpression(value)) {
+          permissions.net = value.elements
+            .filter(ts.isStringLiteral)
+            .map((e) => e.text);
+        }
+        break;
+      }
+      case "time": {
+        if (value.kind === ts.SyntaxKind.TrueKeyword) {
+          permissions.time = true;
+        } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+          permissions.time = false;
+        }
+        break;
+      }
+    }
+  }
+
+  return permissions;
+}
+
 export const comptimeMacro = defineExpressionMacro({
   name: "comptime",
   module: "typemacro",
   description: "Evaluate an expression at compile time",
+  cacheable: false, // Can read files/env, results depend on execution context
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
     args: readonly ts.Expression[],
   ): ts.Expression {
-    if (args.length !== 1) {
-      ctx.reportError(callExpr, "comptime expects exactly one argument");
+    if (args.length < 1 || args.length > 2) {
+      ctx.reportError(
+        callExpr,
+        "comptime expects 1 or 2 arguments: comptime(fn) or comptime(permissions, fn)",
+      );
       return callExpr;
     }
 
-    const arg = args[0];
+    let permissions: ComptimePermissions = {};
+    let fnArg: ts.Expression;
+
+    if (args.length === 2) {
+      // comptime({ fs: 'read' }, () => { ... })
+      permissions = parsePermissions(ctx as MacroContextImpl, args[0]);
+      fnArg = args[1];
+    } else {
+      // comptime(() => { ... })
+      fnArg = args[0];
+    }
 
     // If it's an arrow function or function expression, evaluate via vm
-    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
-      return evaluateViaVm(ctx as MacroContextImpl, arg, callExpr);
+    if (ts.isArrowFunction(fnArg) || ts.isFunctionExpression(fnArg)) {
+      return evaluateViaVm(
+        ctx as MacroContextImpl,
+        fnArg,
+        callExpr,
+        permissions,
+      );
     }
 
-    // For simple expressions, try the lightweight AST evaluator first
-    const result = ctx.evaluate(arg);
-
-    if (result.kind === "error") {
-      // Fall back to vm-based evaluation for complex expressions
-      return evaluateViaVm(ctx as MacroContextImpl, arg, callExpr);
+    // For simple expressions without permissions, try the lightweight AST evaluator first
+    if (args.length === 1) {
+      const result = ctx.evaluate(fnArg);
+      if (result.kind !== "error") {
+        return (ctx as MacroContextImpl).comptimeValueToExpression(result);
+      }
     }
 
-    return (ctx as MacroContextImpl).comptimeValueToExpression(result);
+    // Fall back to vm-based evaluation for complex expressions
+    return evaluateViaVm(ctx as MacroContextImpl, fnArg, callExpr, permissions);
   },
 });
 
@@ -102,6 +399,7 @@ function evaluateViaVm(
   ctx: MacroContextImpl,
   node: ts.Node,
   callExpr: ts.CallExpression,
+  permissions: ComptimePermissions = {},
 ): ts.Expression {
   const sourceText = node.getText ? node.getText() : nodeToString(node, ctx);
 
@@ -132,27 +430,56 @@ function evaluateViaVm(
     .replace(RE_DEFINE_PROPERTY, "")
     .replace(RE_EXPORTS_VOID, "");
 
-  try {
-    // Reuse shared sandbox + context across all comptime calls.
-    // The sandbox contains only pure functions (Math, JSON, etc.) so
-    // there's no state leakage between evaluations.
-    if (!sharedContext) {
-      sharedSandbox = createComptimeSandbox();
-      sharedContext = vm.createContext(sharedSandbox);
-    }
+  // Get the base directory for relative path resolution
+  const baseDir = nodePath.dirname(ctx.sourceFile.fileName);
 
-    const result = vm.runInContext(cleanedJs, sharedContext, {
+  try {
+    // Create sandbox with permissions baked in
+    // Note: We create a new sandbox for each call because permissions vary
+    const sandbox = createComptimeSandbox(baseDir, permissions);
+    const context = vm.createContext(sandbox);
+
+    const result = vm.runInContext(cleanedJs, context, {
       timeout: COMPTIME_TIMEOUT_MS,
       filename: "comptime-eval.js",
     });
 
     return jsValueToExpression(ctx, result, callExpr);
   } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
     ctx.reportError(
       callExpr,
       formatComptimeError(error, sourceText, ctx, callExpr),
     );
-    return callExpr;
+    // Return an IIFE that throws the error at runtime
+    // This prevents the transformer from trying to re-expand the call
+    const factory = ctx.factory;
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(
+        factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          factory.createBlock([
+            factory.createThrowStatement(
+              factory.createNewExpression(
+                factory.createIdentifier("Error"),
+                undefined,
+                [
+                  factory.createStringLiteral(
+                    `comptime evaluation failed: ${errMsg}`,
+                  ),
+                ],
+              ),
+            ),
+          ]),
+        ),
+      ),
+      undefined,
+      [],
+    );
   }
 }
 
@@ -185,7 +512,11 @@ function formatComptimeError(
 
   // Detect common error patterns and provide helpful messages
   let hint = "";
-  if (rawMessage.includes("Script execution timed out")) {
+  if (error instanceof ComptimePermissionError) {
+    hint =
+      `\n  Hint: Add { ${error.permission}: 'read' } as the first argument to comptime(). ` +
+      `Example: comptime({ ${error.permission}: 'read' }, () => { ... })`;
+  } else if (rawMessage.includes("Script execution timed out")) {
     hint =
       `\n  Hint: The expression took longer than ${COMPTIME_TIMEOUT_MS}ms to evaluate. ` +
       `Check for infinite loops or very expensive computations.`;
@@ -198,11 +529,19 @@ function formatComptimeError(
     hint =
       `\n  Hint: '${name}' is not available in the comptime sandbox. ` +
       `Only safe built-ins (Math, JSON, Array, etc.) are accessible. ` +
-      `File I/O, network, and process access are intentionally blocked.`;
+      `Use comptime({ fs: 'read' }, ...) for file access or ` +
+      `comptime({ env: 'read' }, ...) for environment variables.`;
   } else if (rawMessage.includes("Cannot read properties of")) {
     hint =
       "\n  Hint: A null/undefined value was accessed. " +
       "Check that all variables are properly initialized.";
+  } else if (
+    rawMessage.includes("require") &&
+    rawMessage.includes("not supported")
+  ) {
+    hint =
+      "\n  Hint: Only 'fs', 'path', and 'process' modules are available in comptime. " +
+      "For fs access, add { fs: 'read' } permission.";
   }
 
   return (
@@ -214,9 +553,17 @@ function formatComptimeError(
 
 /**
  * Create a sandboxed environment for comptime evaluation.
- * Only safe, side-effect-free globals are exposed.
+ * Only safe, side-effect-free globals are exposed, plus permission-checked
+ * modules for fs, path, and process.
  */
-function createComptimeSandbox(): Record<string, unknown> {
+function createComptimeSandbox(
+  baseDir: string,
+  permissions: ComptimePermissions,
+): Record<string, unknown> {
+  const sandboxFs = createSandboxFs(baseDir, permissions);
+  const sandboxProcess = createSandboxProcess(baseDir, permissions);
+  const sandboxRequire = createSandboxRequire(baseDir, permissions);
+
   return {
     // Safe built-ins
     Math,
@@ -250,6 +597,14 @@ function createComptimeSandbox(): Record<string, unknown> {
       warn: (...args: unknown[]) => console.warn("[comptime]", ...args),
       error: (...args: unknown[]) => console.error("[comptime]", ...args),
     },
+
+    // Permission-checked modules (available as globals)
+    fs: sandboxFs,
+    path: nodePath,
+    process: sandboxProcess,
+
+    // require() for CommonJS-style imports
+    require: sandboxRequire,
   };
 }
 
