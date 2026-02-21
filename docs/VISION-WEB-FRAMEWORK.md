@@ -1328,11 +1328,11 @@ doesn't run, doesn't touch any signal, and is testable in isolation.
 
 ```typescript
 // effects/users.ts
-export const fetchUser = (id: string) => fx {
-  token <- auth.getToken()
-  user  <- http.fetch<User>(`/api/users/${id}`, authHeader(token))
-  return user
-}
+export const fetchUser = (id: string) => fx(function*() {
+  const token = yield* auth.getToken();
+  const user = yield* http.fetch<User>(`/api/users/${id}`, authHeader(token));
+  return user;
+});
 // Type: (id: string) => Fx<User, HttpError | AuthError, HttpClient & AuthService>
 ```
 
@@ -1410,15 +1410,15 @@ reads.
 
 ```typescript
 // effects/users.ts
-export const updateUser = (id: string, data: Partial<User>) => fx {
-  token   <- auth.getToken()
-  updated <- http.fetch<User>(`/api/users/${id}`, {
-                method: 'PATCH',
-                headers: authHeader(token),
-                body: JSON.stringify(data)
-             })
-  return updated
-}
+export const updateUser = (id: string, data: Partial<User>) => fx(function*() {
+  const token = yield* auth.getToken();
+  const updated = yield* http.fetch<User>(`/api/users/${id}`, {
+    method: 'PATCH',
+    headers: authHeader(token),
+    body: JSON.stringify(data),
+  });
+  return updated;
+});
 ```
 
 **Step 2 — Wire it via `action()`:**
