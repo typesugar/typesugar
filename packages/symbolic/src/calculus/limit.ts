@@ -156,7 +156,7 @@ function computeLimitInternal(
 
     if (leftInfinite && rightInfinite) {
       // Both infinite — check if same sign (both +∞ or both -∞)
-      if ((leftValue > 0) === (rightValue > 0)) {
+      if (leftValue > 0 === rightValue > 0) {
         return const_(leftValue > 0 ? Infinity : -Infinity);
       }
       throw new Error(
