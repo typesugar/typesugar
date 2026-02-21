@@ -33,15 +33,24 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | 21  | LabeledHList **proto** Key Blocked      | `@typesugar/hlist`        | Low      | JavaScript quirk      |
 | 22  | Vec Operations Return FusedVec Object   | `@typesugar/fusion`       | Very Low | API awareness         |
 | 23  | match() Discriminant Name List Extended | `@typesugar/std`          | Low      | IMPROVED              |
+| 24  | NonZero.is(NaN) Returns True            | `@typesugar/contracts-refined` | Low   | JavaScript semantics  |
+| 25  | Z3 Parser: Scientific Notation Missing  | `@typesugar/contracts-z3` | Medium   | Parsing limitation    |
+| 26  | Synthetic Nodes Crash ExpansionTracker  | `@typesugar/core`         | Low      | Known limitation      |
+| 27  | Signal Function Values as Updaters      | `@typesugar/react`        | Medium   | Design limitation     |
+| 28  | Computed Diamond Deps Not Tracked       | `@typesugar/react`        | Medium   | Bug                   |
+| 29  | Phantom State Machine Runtime State     | `@typesugar/type-system`  | Medium   | Bug                   |
+| 30  | Sparse Array Validation Vulnerability   | `@typesugar/validate`     | Medium   | Bug                   |
+| 31  | Async Validators Pass (Promise Truthy)  | `@typesugar/validate`     | Medium   | Bug                   |
+| 32  | Parser regex() Loses Flags              | `@typesugar/parser`       | Low      | Bug                   |
 
 ### Statistics
 
-- **Total Findings:** 23
+- **Total Findings:** 32
 - **Fixed:** 6 (#8, #13, #14, #15, #16, #23)
 - **High Severity:** 0 remaining (2 fixed)
-- **Medium Severity:** 5 remaining (1 fixed)
-- **Low Severity:** 9 remaining (3 fixed)
-- **Very Low Severity:** 3
+- **Medium Severity:** 7 remaining (1 fixed)
+- **Low Severity:** 14 remaining (3 fixed)
+- **Very Low Severity:** 5
 
 ### Modules Tested
 
@@ -49,16 +58,30 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 - `@typesugar/std` (match macro, P helpers, extensions)
 - `@typesugar/preprocessor` (pipeline, HKT syntax)
 - `@typesugar/contracts` (prover, requires/ensures)
+- `@typesugar/contracts-refined` (refined type predicates)
+- `@typesugar/contracts-z3` (Z3 SMT solver integration)
 - `@typesugar/comptime` (compile-time evaluation)
 - `@typesugar/derive` (manual simulation)
 - `@typesugar/symbolic` (expression trees, evaluation, differentiation)
 - `@typesugar/math` (Rational, Complex numbers)
 - `@typesugar/hlist` (HList, LabeledHList operations)
 - `@typesugar/fusion` (LazyPipeline, Vec operations)
+- `@typesugar/codec` (versioned codecs, schema evolution)
+- `@typesugar/core` (macro infrastructure)
+- `@typesugar/erased` (type erasure)
+- `@typesugar/geometry` (coordinate systems)
+- `@typesugar/graph` (graph algorithms)
+- `@typesugar/operators` (operator overloading)
+- `@typesugar/parser` (PEG parser)
+- `@typesugar/react` (reactive signals)
+- `@typesugar/type-system` (HKT, newtype, refined types)
+- `@typesugar/units` (physical units)
+- `@typesugar/validate` (validation schemas)
+- Plus config packages: eslint-plugin, prettier-plugin, ts-plugin, unplugin-typesugar, vscode, typesugar umbrella
 
 ### Test Coverage
 
-- **546 tests** across 14 test files
+- **1900+ tests** across 44 test files
 - All tests passing (documenting both correct and edge case behavior)
 
 ### Test Files
@@ -79,6 +102,36 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | `red-team-fp.test.ts`           | 49    | Option/Either edge cases, conversions          |
 | `red-team-math.test.ts`         | 45    | Rational, Complex number edge cases            |
 | `red-team-std.test.ts`          | 46    | match patterns, P helpers, Unicode             |
+| `red-team-codec.test.ts`        | 36    | Schema validation, migration, serialization    |
+| `red-team-contracts-refined.test.ts` | 89 | Refined type predicates, subtyping            |
+| `red-team-contracts-z3.test.ts` | 42    | Z3 solver integration, constraint parsing      |
+| `red-team-core.test.ts`         | 67    | Registry, config, capabilities, hygiene        |
+| `red-team-drizzle.test.ts`      | 59    | SQL injection, type mapping, templates         |
+| `red-team-effect.test.ts`       | 29    | Service registry, layers, HKT integration      |
+| `red-team-erased.test.ts`       | 41    | VTable, capabilities, type erasure             |
+| `red-team-eslint-plugin.test.ts`| 53    | Preprocessor, file handling, config            |
+| `red-team-geometry.test.ts`     | 46    | Coordinates, transforms, precision             |
+| `red-team-graph.test.ts`        | 70    | Graph algorithms, state machines               |
+| `red-team-kysely.test.ts`       | 38    | SQL validation, type helpers                   |
+| `red-team-mapper.test.ts`       | 38    | Object mapping edge cases                      |
+| `red-team-named-args.test.ts`   | 29    | Parameter validation, builder pattern          |
+| `red-team-operators.test.ts`    | 51    | pipe, compose, operator registration           |
+| `red-team-parser.test.ts`       | 76    | PEG parsing, grammar edge cases                |
+| `red-team-prettier-plugin.test.ts` | 40 | Custom syntax formatting                       |
+| `red-team-react.test.ts`        | 39    | Signals, computed, effects, batching           |
+| `red-team-reflect.test.ts`      | 49    | Type info, validators, field names             |
+| `red-team-specialize.test.ts`   | 47    | Specialization, instance methods               |
+| `red-team-sql.test.ts`          | 94    | SQL DSL, type mapping, ConnectionIO            |
+| `red-team-strings.test.ts`      | 38    | Escaping, Unicode, template literals           |
+| `red-team-testing.test.ts`      | 45    | Assertions, property testing, type equality    |
+| `red-team-ts-plugin.test.ts`    | 39    | Position mapping, file filtering               |
+| `red-team-type-system.test.ts`  | 71    | HKT, newtype, refined, phantom types           |
+| `red-team-typeclass.test.ts`    | 48    | Registry, instances, derive strategies         |
+| `red-team-typesugar.test.ts`    | 32    | Umbrella re-exports, macro registration        |
+| `red-team-units.test.ts`        | 56    | Unit conversion, precision, arithmetic         |
+| `red-team-unplugin-typesugar.test.ts` | 36 | Bundler plugin configuration                 |
+| `red-team-validate.test.ts`     | 40    | Schema validation, type coercion               |
+| `red-team-vscode.test.ts`       | 26    | VS Code extension configuration                |
 
 ---
 

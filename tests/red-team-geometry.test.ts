@@ -321,9 +321,10 @@ describe("Geometry Edge Cases", () => {
       const v1 = vec3(1, 0, 0);
       const v2 = vec3(-1, 0, 0);
       const result = cross(v1, v2);
-      expect(result[0]).toBe(0);
-      expect(result[1]).toBe(0);
-      expect(result[2]).toBe(0);
+      // Use toBeCloseTo to handle -0 vs +0 distinction
+      expect(result[0]).toBeCloseTo(0, 10);
+      expect(result[1]).toBeCloseTo(0, 10);
+      expect(result[2]).toBeCloseTo(0, 10);
     });
 
     it("cross product of perpendicular unit vectors has magnitude 1", () => {
