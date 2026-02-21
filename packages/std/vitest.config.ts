@@ -2,10 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    globals: true,
-    environment: "node",
-    // Skip for now - fails with "Unknown Error: undefined"
-    // Needs investigation
+    name: "@typesugar/std",
+    include: ["src/__tests__/**/*.test.ts", "tests/**/*.test.ts"],
     exclude: ["src/__tests__/extensions.test.ts"],
   },
 });

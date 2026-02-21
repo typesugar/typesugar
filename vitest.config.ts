@@ -37,8 +37,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["src/**/*.ts"],
-      exclude: ["src/**/*.d.ts", "src/**/*.test.ts"],
+      include: ["src/**/*.ts", "packages/*/src/**/*.ts"],
+      exclude: ["**/*.d.ts", "**/*.test.ts"],
     },
 
     // Timeout for individual tests (ms) — generous to avoid flakiness on CI

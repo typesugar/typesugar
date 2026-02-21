@@ -721,7 +721,7 @@ class MacroTransformer {
         pkgName = firstSlash === -1 ? afterNm : afterNm.slice(0, firstSlash);
       }
 
-      if (pkgName === "typemacro") {
+      if (pkgName === "typemacro" || pkgName === "typesugar") {
         return this.resolveTypemacroSubpath(afterNm.slice(pkgName.length));
       }
       return pkgName;
