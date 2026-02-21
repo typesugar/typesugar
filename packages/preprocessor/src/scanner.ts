@@ -49,6 +49,56 @@ function getLanguageVariant(fileName?: string): ts.LanguageVariant {
 }
 
 /**
+ * Tokens after which a `/` should be rescanned as a regex literal.
+ * If the previous token could not have been the end of an expression,
+ * then `/` starts a regex, not division.
+ */
+const REGEX_PRECEDING_TOKENS = new Set<ts.SyntaxKind>([
+  // Assignment and punctuation
+  ts.SyntaxKind.EqualsToken,
+  ts.SyntaxKind.OpenParenToken,
+  ts.SyntaxKind.OpenBracketToken,
+  ts.SyntaxKind.OpenBraceToken,
+  ts.SyntaxKind.CommaToken,
+  ts.SyntaxKind.SemicolonToken,
+  ts.SyntaxKind.ColonToken,
+  ts.SyntaxKind.QuestionToken,
+  // Binary operators
+  ts.SyntaxKind.PlusToken,
+  ts.SyntaxKind.MinusToken,
+  ts.SyntaxKind.AsteriskToken,
+  ts.SyntaxKind.SlashToken,
+  ts.SyntaxKind.PercentToken,
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.ExclamationToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.CaretToken,
+  // Keywords that start expressions
+  ts.SyntaxKind.ReturnKeyword,
+  ts.SyntaxKind.CaseKeyword,
+  ts.SyntaxKind.TypeOfKeyword,
+  ts.SyntaxKind.VoidKeyword,
+  ts.SyntaxKind.DeleteKeyword,
+  ts.SyntaxKind.ThrowKeyword,
+  ts.SyntaxKind.NewKeyword,
+  ts.SyntaxKind.InKeyword,
+  ts.SyntaxKind.OfKeyword,
+  ts.SyntaxKind.AwaitKeyword,
+  ts.SyntaxKind.YieldKeyword,
+]);
+
+/**
  * Tokenize source code using TypeScript's scanner, then merge adjacent tokens
  * that form custom operators.
  */
@@ -59,15 +109,27 @@ export function tokenize(source: string, options: ScannerOptions = {}): Token[] 
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, languageVariant, source);
 
   const rawTokens: Token[] = [];
+  let lastNonTriviaKind: ts.SyntaxKind | null = null;
 
   while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) {
-    const kind = scanner.getToken();
+    let kind = scanner.getToken();
+
+    // Handle regex detection: TypeScript's scanner can't distinguish between
+    // `/` (division) and `/regex/` without context. If we see a SlashToken
+    // after a token that can't end an expression, rescan as regex.
+    if (kind === ts.SyntaxKind.SlashToken || kind === ts.SyntaxKind.SlashEqualsToken) {
+      if (lastNonTriviaKind === null || REGEX_PRECEDING_TOKENS.has(lastNonTriviaKind)) {
+        kind = scanner.reScanSlashToken();
+      }
+    }
+
     const start = scanner.getTokenStart();
     const text = scanner.getTokenText();
     const end = start + text.length;
 
     if (kind !== ts.SyntaxKind.WhitespaceTrivia && kind !== ts.SyntaxKind.NewLineTrivia) {
       rawTokens.push({ kind, text, start, end });
+      lastNonTriviaKind = kind;
     }
   }
 
