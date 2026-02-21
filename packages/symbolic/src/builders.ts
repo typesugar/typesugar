@@ -112,53 +112,32 @@ function toExpr<T>(e: ExprLike<T>): Expression<T> {
  * Addition: a + b
  * Accepts raw numbers which are auto-wrapped as constants.
  */
-export function add<A, B>(
-  left: ExprLike<A>,
-  right: ExprLike<B>
-): BinaryOp<A, B, Add<A, B>> & Op<"+"> {
-  return { kind: "binary", op: "+", left: toExpr(left), right: toExpr(right) } as BinaryOp<
-    A,
-    B,
-    Add<A, B>
-  > &
-    Op<"+">;
+export function add<A, B>(left: ExprLike<A>, right: ExprLike<B>): BinaryOp<A, B, Add<A, B>> {
+  return { kind: "binary", op: "+", left: toExpr(left), right: toExpr(right) };
 }
 
 /**
  * Subtraction: a - b
  * Accepts raw numbers which are auto-wrapped as constants.
  */
-export function sub<A, B>(
-  left: ExprLike<A>,
-  right: ExprLike<B>
-): BinaryOp<A, B, Sub<A, B>> & Op<"-"> {
-  return { kind: "binary", op: "-", left: toExpr(left), right: toExpr(right) } as BinaryOp<
-    A,
-    B,
-    Sub<A, B>
-  > &
-    Op<"-">;
+export function sub<A, B>(left: ExprLike<A>, right: ExprLike<B>): BinaryOp<A, B, Sub<A, B>> {
+  return { kind: "binary", op: "-", left: toExpr(left), right: toExpr(right) };
 }
 
 /**
  * Multiplication: a * b
  * Accepts raw numbers which are auto-wrapped as constants.
  */
-export function mul<A, B>(
-  left: ExprLike<A>,
-  right: ExprLike<B>
-): BinaryOp<A, B, Mul<A, B>> & Op<"*"> {
-  return { kind: "binary", op: "*", left: toExpr(left), right: toExpr(right) } as BinaryOp<
-    A,
-    B,
-    Mul<A, B>
-  > &
-    Op<"*">;
+export function mul<A, B>(left: ExprLike<A>, right: ExprLike<B>): BinaryOp<A, B, Mul<A, B>> {
+  return { kind: "binary", op: "*", left: toExpr(left), right: toExpr(right) };
 }
 
 /**
  * Division: a / b
  * Accepts raw numbers which are auto-wrapped as constants.
+ *
+ * A valid divisor must be non-zero and not NaN. See `ValidDivisor` in
+ * `@typesugar/type-system` for the refinement type that captures this.
  *
  * **Type-level guard:** Passing `ZERO` (the branded constant) as denominator
  * resolves to the `never` overload, making the result unusable at compile time.
@@ -170,14 +149,12 @@ export function mul<A, B>(
  *
  * **Runtime protection:** As a safety net, this function throws at runtime if
  * the denominator is a constant with value 0 or if the raw number 0 is passed.
+ * NaN is also blocked since `const_()` rejects NaN values.
  *
  * @throws {Error} If the denominator is zero (constant or raw number)
  */
 export function div<A>(left: ExprLike<A>, right: Refined<any, "Zero">): never;
-export function div<A, B>(
-  left: ExprLike<A>,
-  right: ExprLike<B>
-): BinaryOp<A, B, Div<A, B>> & Op<"/">;
+export function div<A, B>(left: ExprLike<A>, right: ExprLike<B>): BinaryOp<A, B, Div<A, B>>;
 export function div(left: ExprLike<any>, right: ExprLike<any>): any {
   if (typeof right === "number" && right === 0) {
     throw new Error("Division by zero: cannot divide by literal 0");
@@ -196,13 +173,8 @@ export function div(left: ExprLike<any>, right: ExprLike<any>): any {
 export function pow<A>(
   base: ExprLike<A>,
   exponent: ExprLike<number>
-): BinaryOp<A, number, Pow<A, number>> & Op<"**"> {
-  return { kind: "binary", op: "^", left: toExpr(base), right: toExpr(exponent) } as BinaryOp<
-    A,
-    number,
-    Pow<A, number>
-  > &
-    Op<"**">;
+): BinaryOp<A, number, Pow<A, number>> {
+  return { kind: "binary", op: "^", left: toExpr(base), right: toExpr(exponent) };
 }
 
 // ============================================================================

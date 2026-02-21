@@ -256,23 +256,61 @@ export function isIntegerConstant<T>(expr: Expression<T>): boolean {
   return isConstant(expr) && Number.isInteger(expr.value);
 }
 
+// ============================================================================
+// Shared Variable Traversal
+// ============================================================================
+
 /**
- * Get all free variable names in an expression.
- * Bound variables (e.g., index variable in sum/product) are excluded.
- *
- * Uses reference counting for bound variables to correctly handle
- * nested scopes that bind the same variable name.
+ * Options for variable traversal.
  */
-export function getVariables<T>(expr: Expression<T>): Set<string> {
+interface TraverseVariablesOptions {
+  /** If true, include bound variables (e.g., sum/product index variables). Default: false */
+  includeBound?: boolean;
+}
+
+/**
+ * Shared traversal helper for collecting variables from an expression.
+ * Handles bound variable tracking with reference counting when excludeBound is true.
+ *
+ * @param expr - The expression to traverse
+ * @param options - Configuration for what variables to include
+ * @returns Set of variable names found
+ */
+function traverseVariables<T>(
+  expr: Expression<T>,
+  options: TraverseVariablesOptions = {}
+): Set<string> {
   const vars = new Set<string>();
-  const bound = new Map<string, number>();
+  const { includeBound = false } = options;
+  const bound = includeBound ? null : new Map<string, number>();
+
+  function isBound(name: string): boolean {
+    return bound !== null && bound.has(name) && bound.get(name)! > 0;
+  }
+
+  function enterScope(variable: string): void {
+    if (bound) {
+      bound.set(variable, (bound.get(variable) ?? 0) + 1);
+    }
+  }
+
+  function exitScope(variable: string): void {
+    if (bound) {
+      const count = bound.get(variable)! - 1;
+      if (count === 0) {
+        bound.delete(variable);
+      } else {
+        bound.set(variable, count);
+      }
+    }
+  }
 
   function collect(e: Expression<unknown>): void {
     switch (e.kind) {
       case "constant":
         break;
       case "variable":
-        if (!bound.has(e.name) || bound.get(e.name) === 0) {
+        if (!isBound(e.name)) {
           vars.add(e.name);
         }
         break;
@@ -286,21 +324,18 @@ export function getVariables<T>(expr: Expression<T>): Set<string> {
         break;
       case "derivative":
       case "integral":
+        if (includeBound) {
+          vars.add(e.variable);
+        }
         collect(e.expr);
         break;
       case "limit":
-        // Increment reference count on entry (variable is bound in limit)
-        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
-        collect(e.expr);
-        // Decrement reference count on exit
-        {
-          const limitCount = bound.get(e.variable)! - 1;
-          if (limitCount === 0) {
-            bound.delete(e.variable);
-          } else {
-            bound.set(e.variable, limitCount);
-          }
+        if (includeBound) {
+          vars.add(e.variable);
         }
+        enterScope(e.variable);
+        collect(e.expr);
+        exitScope(e.variable);
         break;
       case "equation":
         collect(e.left);
@@ -308,18 +343,14 @@ export function getVariables<T>(expr: Expression<T>): Set<string> {
         break;
       case "sum":
       case "product":
-        // Increment reference count on entry
-        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
-        collect(e.expr);
-        // Decrement reference count on exit
-        const count = bound.get(e.variable)! - 1;
-        if (count === 0) {
-          bound.delete(e.variable);
-        } else {
-          bound.set(e.variable, count);
+        if (includeBound) {
+          vars.add(e.variable);
         }
         collect(e.from);
         collect(e.to);
+        enterScope(e.variable);
+        collect(e.expr);
+        exitScope(e.variable);
         break;
     }
   }
@@ -329,49 +360,22 @@ export function getVariables<T>(expr: Expression<T>): Set<string> {
 }
 
 /**
+ * Get all free variable names in an expression.
+ * Bound variables (e.g., index variable in sum/product) are excluded.
+ *
+ * Uses reference counting for bound variables to correctly handle
+ * nested scopes that bind the same variable name.
+ */
+export function getVariables<T>(expr: Expression<T>): Set<string> {
+  return traverseVariables(expr);
+}
+
+/**
  * Get ALL variable names including bound index variables.
  * Use getVariables() for free variables only (the common case).
  */
 export function getAllVariables<T>(expr: Expression<T>): Set<string> {
-  const vars = new Set<string>();
-
-  function collect(e: Expression<unknown>): void {
-    switch (e.kind) {
-      case "constant":
-        break;
-      case "variable":
-        vars.add(e.name);
-        break;
-      case "binary":
-        collect(e.left);
-        collect(e.right);
-        break;
-      case "unary":
-      case "function":
-        collect(e.arg);
-        break;
-      case "derivative":
-      case "integral":
-        collect(e.expr);
-        break;
-      case "limit":
-        collect(e.expr);
-        break;
-      case "equation":
-        collect(e.left);
-        collect(e.right);
-        break;
-      case "sum":
-      case "product":
-        collect(e.expr);
-        collect(e.from);
-        collect(e.to);
-        break;
-    }
-  }
-
-  collect(expr);
-  return vars;
+  return traverseVariables(expr, { includeBound: true });
 }
 
 /**
@@ -404,6 +408,9 @@ export function hasVariable<T>(expr: Expression<T>, varName: string): boolean {
         return search(e.left) || search(e.right);
       case "sum":
       case "product": {
+        // from/to are evaluated in the outer scope (before variable is bound)
+        if (search(e.from) || search(e.to)) return true;
+        // Variable is bound in the body
         bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
         const found = search(e.expr);
         const count = bound.get(e.variable)! - 1;
@@ -412,8 +419,7 @@ export function hasVariable<T>(expr: Expression<T>, varName: string): boolean {
         } else {
           bound.set(e.variable, count);
         }
-        if (found) return true;
-        return search(e.from) || search(e.to);
+        return found;
       }
     }
   }
@@ -448,6 +454,9 @@ export function isPureConstant<T>(expr: Expression<T>): boolean {
         return hasAnyVariable(e.left) || hasAnyVariable(e.right);
       case "sum":
       case "product": {
+        // from/to are evaluated in the outer scope (before variable is bound)
+        if (hasAnyVariable(e.from) || hasAnyVariable(e.to)) return true;
+        // Variable is bound in the body
         bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
         const found = hasAnyVariable(e.expr);
         const count = bound.get(e.variable)! - 1;
@@ -456,8 +465,7 @@ export function isPureConstant<T>(expr: Expression<T>): boolean {
         } else {
           bound.set(e.variable, count);
         }
-        if (found) return true;
-        return hasAnyVariable(e.from) || hasAnyVariable(e.to);
+        return found;
       }
     }
   }

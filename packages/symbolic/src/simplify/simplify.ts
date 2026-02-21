@@ -132,7 +132,8 @@ function simplifyChildren<T>(expr: Expression<T>, rules: SimplificationRule[]): 
 }
 
 /**
- * Apply all rules to an expression until none apply.
+ * Apply each rule once to an expression, in order.
+ * Convergence (repeatedly applying until no rule matches) is handled by the outer simplify() loop.
  */
 function applyRules<T>(expr: Expression<T>, rules: SimplificationRule[]): Expression<T> {
   let current = expr as Expression<unknown>;
@@ -140,7 +141,6 @@ function applyRules<T>(expr: Expression<T>, rules: SimplificationRule[]): Expres
   for (const rule of rules) {
     const result = rule(current);
     if (result !== null) {
-      // Rule applied, restart from beginning of rules
       current = result;
     }
   }
@@ -211,7 +211,54 @@ function expandBinary(expr: Expression<unknown> & { kind: "binary" }): Expressio
 }
 
 /**
- * Collect like terms in a polynomial expression.
+ * Collect like terms in a polynomial expression with respect to a single variable.
+ *
+ * Extracts coefficients for each power of the specified variable and reconstructs
+ * a canonical polynomial form (terms ordered by descending power).
+ *
+ * @param expr - The expression to collect terms from
+ * @param variable - The variable to collect terms for
+ * @returns A polynomial expression with like terms combined
+ *
+ * @example
+ * ```typescript
+ * // 2x + 3x + 1 → 5x + 1
+ * collectTerms(add(mul(const_(2), x), add(mul(const_(3), x), ONE)), "x");
+ *
+ * // x² + 2x + x² → 2x² + 2x
+ * collectTerms(add(pow(x, TWO), add(mul(TWO, x), pow(x, TWO))), "x");
+ * ```
+ *
+ * ## Design Limitation: Single-Variable Numeric Coefficients
+ *
+ * This function treats the expression as a **univariate polynomial** with **numeric
+ * coefficients**. Variables other than the target are treated as numeric constants
+ * with value 1, not as algebraic expressions.
+ *
+ * @example
+ * ```typescript
+ * // x + y, collecting for "x":
+ * // - x contributes coefficient 1 at power 1
+ * // - y is treated as numeric 1 at power 0 (NOT preserved as algebraic "y")
+ * // Result: x + 1  (loses the symbolic "y")
+ * collectTerms(add(var_("x"), var_("y")), "x");
+ * ```
+ *
+ * This is a reasonable simplification because:
+ * 1. **Univariate focus**: Most polynomial operations (root finding, factoring) work
+ *    on one variable at a time. Multivariate polynomial handling requires more complex
+ *    data structures (e.g., sparse polynomial rings).
+ * 2. **Numeric coefficient model**: The internal representation uses `Map<power, number>`
+ *    which cannot represent symbolic coefficients like "y" or "2y+1".
+ * 3. **Predictable behavior**: Users can chain `collectTerms` for different variables
+ *    or use `expand()` + `simplify()` for multivariate expressions.
+ *
+ * For multivariate polynomial manipulation, consider using `expand()` followed by
+ * `simplify()`, or implement a dedicated multivariate polynomial type.
+ *
+ * @throws Error if the expression contains non-polynomial elements involving the
+ *         target variable (e.g., variable in denominator, in function arguments,
+ *         or in non-constant exponents).
  */
 export function collectTerms<T>(expr: Expression<T>, variable: string): Expression<T> {
   // This is a simplified implementation that works for basic cases

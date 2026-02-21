@@ -583,12 +583,10 @@ describe("Simplification Soundness", () => {
   // Attack 16: Simplification of 0/0 and 0^0
   // ==========================================================================
   describe("Zero-related simplification rules", () => {
-    it("0/0 is NOT simplified to 1 (would be unsound)", () => {
-      const expr = div(const_(0), const_(0));
-      const result = simplify(expr);
-
-      // divSameRule should NOT fire when both sides are zero
-      expect(isOne(result)).toBe(false);
+    it("0/0 is rejected at construction (never reaches simplifier)", () => {
+      // div() validates at construction time - zero constant divisor is rejected
+      // So 0/0 can never reach the simplifier
+      expect(() => div(const_(0), const_(0))).toThrow("Division by zero");
     });
 
     it("0^0 is NOT simplified to 1 (indeterminate)", () => {
@@ -642,13 +640,10 @@ describe("Simplification Soundness", () => {
       }
     });
 
-    it("Division by zero is NOT constant-folded", () => {
-      const expr = div(const_(1), const_(0));
-      const result = simplify(expr);
-
-      // Should remain as 1/0, not fold (since it would throw)
-      expect(isConstant(result)).toBe(false);
-      expect(isBinaryOp(result)).toBe(true);
+    it("Division by zero constant is rejected at construction", () => {
+      // div() validates at construction time - zero constant divisor is rejected
+      // So 1/0 can never be created for the simplifier to process
+      expect(() => div(const_(1), const_(0))).toThrow("Division by zero");
     });
 
     it("Double negation cancels", () => {

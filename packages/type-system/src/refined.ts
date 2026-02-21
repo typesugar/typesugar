@@ -408,6 +408,27 @@ declareSubtyping({
   description: "Negative numbers are finite",
 });
 
+declareSubtyping({
+  from: "ValidDivisor",
+  to: "NonZero",
+  proof: "valid_divisor_is_non_zero",
+  description: "A valid divisor is non-zero (and also not NaN)",
+});
+
+declareSubtyping({
+  from: "Positive",
+  to: "ValidDivisor",
+  proof: "positive_is_valid_divisor",
+  description: "Positive (finite, > 0) numbers are valid divisors",
+});
+
+declareSubtyping({
+  from: "Negative",
+  to: "ValidDivisor",
+  proof: "negative_is_valid_divisor",
+  description: "Negative (finite, < 0) numbers are valid divisors",
+});
+
 // ============================================================================
 // Built-in Refinements
 // ============================================================================
@@ -421,7 +442,19 @@ export const Positive = refinement<number, "Positive">(
 );
 
 export type NonZero = Refined<number, "NonZero">;
-export const NonZero = refinement<number, "NonZero">((n) => n !== 0 && !Number.isNaN(n), "NonZero");
+export const NonZero = refinement<number, "NonZero">((n) => n !== 0, "NonZero");
+
+/**
+ * A number that is valid as a divisor: non-zero and not NaN.
+ *
+ * Use this instead of NonZero when the value will be used for division,
+ * since NaN !== 0 is true but dividing by NaN produces NaN.
+ */
+export type ValidDivisor = Refined<number, "ValidDivisor">;
+export const ValidDivisor = refinement<number, "ValidDivisor">(
+  (n) => n !== 0 && !Number.isNaN(n),
+  "ValidDivisor"
+);
 
 export type NonNegative = Refined<number, "NonNegative">;
 export const NonNegative = refinement<number, "NonNegative">(

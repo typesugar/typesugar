@@ -3,7 +3,6 @@ import {
   var_,
   const_,
   add,
-  sub,
   mul,
   div,
   pow,
@@ -11,10 +10,6 @@ import {
   cos,
   exp,
   ln,
-  sqrt,
-  ZERO,
-  ONE,
-  TWO,
 } from "../builders.js";
 import { diff, nthDiff } from "../calculus/diff.js";
 import { integrate, tryIntegrate } from "../calculus/integrate.js";

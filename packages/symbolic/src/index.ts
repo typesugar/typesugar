@@ -17,6 +17,10 @@
  * ```
  */
 
+// Re-export Refined type and ValidDivisor used in public signatures (ZERO, div)
+export type { Refined } from "@typesugar/type-system";
+export { ValidDivisor } from "@typesugar/type-system";
+
 // Core types
 export * from "./types.js";
 export * from "./expression.js";

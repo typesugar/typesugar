@@ -3,16 +3,20 @@ import {
   var_,
   const_,
   add,
-  sub,
   mul,
-  div,
   pow,
   neg,
   sin,
-  cos,
-  exp,
-  ln,
-  sqrt,
+  abs,
+  asin,
+  acos,
+  floor,
+  ceil,
+  log,
+  log2,
+  square,
+  cube,
+  recip,
   ZERO,
   ONE,
   PI,
@@ -30,6 +34,8 @@ import {
   depth,
   nodeCount,
 } from "../expression.js";
+import { expressionsEqual, type SimplificationRule } from "../simplify/rules.js";
+import { simplify } from "../simplify/simplify.js";
 
 describe("Expression AST", () => {
   describe("builders", () => {
@@ -71,6 +77,59 @@ describe("Expression AST", () => {
       const expr = sin(x);
       expect(expr.kind).toBe("function");
       expect(expr.fn).toBe("sin");
+    });
+
+    it("creates abs (unary)", () => {
+      const x = var_("x");
+      const expr = abs(x);
+      expect(expr.kind).toBe("unary");
+      expect(expr.op).toBe("abs");
+    });
+
+    it("creates inverse trig functions", () => {
+      const x = var_("x");
+      expect(asin(x).fn).toBe("asin");
+      expect(acos(x).fn).toBe("acos");
+    });
+
+    it("creates floor and ceil", () => {
+      const x = var_("x");
+      expect(floor(x).fn).toBe("floor");
+      expect(ceil(x).fn).toBe("ceil");
+    });
+
+    it("creates log and log2", () => {
+      const x = var_("x");
+      expect(log(x).fn).toBe("log");
+      expect(log2(x).fn).toBe("log2");
+    });
+
+    it("creates square and cube (convenience builders)", () => {
+      const x = var_("x");
+      const sq = square(x);
+      const cb = cube(x);
+
+      expect(sq.kind).toBe("binary");
+      expect(sq.op).toBe("^");
+      if (sq.kind === "binary" && sq.right.kind === "constant") {
+        expect(sq.right.value).toBe(2);
+      }
+
+      expect(cb.kind).toBe("binary");
+      expect(cb.op).toBe("^");
+      if (cb.kind === "binary" && cb.right.kind === "constant") {
+        expect(cb.right.value).toBe(3);
+      }
+    });
+
+    it("creates recip (1/x)", () => {
+      const x = var_("x");
+      const r = recip(x);
+      expect(r.kind).toBe("binary");
+      expect(r.op).toBe("/");
+      if (r.kind === "binary" && r.left.kind === "constant") {
+        expect(r.left.value).toBe(1);
+      }
     });
   });
 
@@ -137,6 +196,82 @@ describe("Expression AST", () => {
       const x = var_("x");
       expect(nodeCount(x)).toBe(1);
       expect(nodeCount(add(x, const_(1)))).toBe(3);
+    });
+  });
+
+  describe("expressionsEqual", () => {
+    it("compares constants", () => {
+      expect(expressionsEqual(const_(5), const_(5))).toBe(true);
+      expect(expressionsEqual(const_(5), const_(6))).toBe(false);
+    });
+
+    it("compares variables", () => {
+      expect(expressionsEqual(var_("x"), var_("x"))).toBe(true);
+      expect(expressionsEqual(var_("x"), var_("y"))).toBe(false);
+    });
+
+    it("compares binary operations", () => {
+      const x = var_("x");
+      expect(expressionsEqual(add(x, const_(1)), add(x, const_(1)))).toBe(true);
+      expect(expressionsEqual(add(x, const_(1)), add(x, const_(2)))).toBe(false);
+      expect(expressionsEqual(add(x, const_(1)), mul(x, const_(1)))).toBe(false);
+    });
+
+    it("compares unary operations", () => {
+      const x = var_("x");
+      expect(expressionsEqual(neg(x), neg(x))).toBe(true);
+      expect(expressionsEqual(neg(x), neg(var_("y")))).toBe(false);
+      expect(expressionsEqual(abs(x), abs(x))).toBe(true);
+    });
+
+    it("compares function calls", () => {
+      const x = var_("x");
+      expect(expressionsEqual(sin(x), sin(x))).toBe(true);
+      expect(expressionsEqual(sin(x), asin(x))).toBe(false);
+    });
+
+    it("returns false for different kinds", () => {
+      expect(expressionsEqual(const_(1), var_("x"))).toBe(false);
+    });
+  });
+
+  describe("SimplifyOptions", () => {
+    it("respects maxIterations option", () => {
+      const x = var_("x");
+      const expr = add(x, ZERO);
+      const result = simplify(expr, { maxIterations: 1 });
+      expect(result.kind).toBe("variable");
+    });
+
+    it("accepts custom rules", () => {
+      const x = var_("x");
+      const expr = mul(x, const_(2));
+
+      const customRule: SimplificationRule = (e) => {
+        if (e.kind === "binary" && e.op === "*") {
+          if (e.right.kind === "constant" && e.right.value === 2) {
+            return add(e.left, e.left);
+          }
+        }
+        return null;
+      };
+
+      const result = simplify(expr, { customRules: [customRule] });
+      expect(result.kind).toBe("binary");
+      if (result.kind === "binary") {
+        expect(result.op).toBe("+");
+      }
+    });
+
+    it("respects customOnly option", () => {
+      const x = var_("x");
+      const expr = add(x, ZERO);
+
+      const result = simplify(expr, { customOnly: true, customRules: [] });
+      expect(result.kind).toBe("binary");
+
+      const resultWithBuiltin = simplify(expr, { customOnly: false });
+      expect(resultWithBuiltin.kind).toBe("variable");
     });
   });
 });

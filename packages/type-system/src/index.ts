@@ -104,6 +104,7 @@ export {
   composeRefinements,
   Positive,
   NonZero,
+  ValidDivisor,
   NonNegative,
   Negative,
   Int,
