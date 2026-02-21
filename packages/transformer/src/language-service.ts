@@ -6,9 +6,10 @@
  * macro-generated code.
  *
  * Architecture:
- * 1. Intercept getScriptSnapshot to serve transformed code
- * 2. Map incoming positions (editor → transformed)
- * 3. Map outgoing positions (transformed → editor)
+ * 1. Intercept the original LanguageServiceHost methods
+ * 2. Serve transformed code through getScriptSnapshot
+ * 3. Use modified script versions to trigger TS re-analysis
+ * 4. Map diagnostic positions back to original coordinates
  *
  * Configure in tsconfig.json:
  * {
@@ -21,7 +22,7 @@
 import type * as ts from "typescript";
 import * as path from "path";
 import { TransformationPipeline, type TransformResult } from "./pipeline.js";
-import { IdentityPositionMapper, type PositionMapper, type TextRange } from "./position-mapper.js";
+import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 
 /**
  * Cache entry for transformed files
@@ -53,6 +54,22 @@ function init(modules: { typescript: typeof ts }) {
     const transformCache = new Map<string, TransformCacheEntry>();
     let pipeline: TransformationPipeline | null = null;
 
+    // Store original host methods BEFORE we modify them
+    const originalHost = info.languageServiceHost;
+    const boundGetScriptSnapshot = originalHost.getScriptSnapshot.bind(originalHost);
+    const boundGetScriptVersion = originalHost.getScriptVersion.bind(originalHost);
+
+    /**
+     * Read file content from original host (bypass our interception)
+     */
+    function readOriginalFile(fileName: string): string | undefined {
+      const snapshot = boundGetScriptSnapshot(fileName);
+      if (snapshot) {
+        return snapshot.getText(0, snapshot.getLength());
+      }
+      return undefined;
+    }
+
     /**
      * Get or create the transformation pipeline
      */
@@ -64,28 +81,16 @@ function init(modules: { typescript: typeof ts }) {
         log(`Initializing pipeline with ${fileNames.length} files`);
 
         pipeline = new TransformationPipeline(compilerOptions, fileNames, {
-          verbose: false,
+          verbose: true,
           readFile: (fileName: string): string | undefined => {
-            // Read from the original host to avoid cyclic interception
-            const snapshot = originalGetScriptSnapshot(fileName);
-            if (snapshot) {
-              return snapshot.getText(0, snapshot.getLength());
-            }
-            return undefined;
+            return readOriginalFile(fileName) ?? tsModule.sys?.readFile(fileName);
           },
           fileExists: (fileName: string): boolean => {
-            return info.languageServiceHost.fileExists?.(fileName) ?? false;
+            return originalHost.fileExists?.(fileName) ?? tsModule.sys.fileExists(fileName);
           },
         });
       }
       return pipeline;
-    }
-
-    /**
-     * Get the script version for cache invalidation
-     */
-    function getScriptVersion(fileName: string): string {
-      return info.languageServiceHost.getScriptVersion(fileName);
     }
 
     /**
@@ -100,8 +105,8 @@ function init(modules: { typescript: typeof ts }) {
         return null;
       }
 
-      // Check cache validity
-      const currentVersion = getScriptVersion(normalizedFileName);
+      // Check cache validity using original version
+      const currentVersion = boundGetScriptVersion(normalizedFileName);
       const cached = transformCache.get(normalizedFileName);
 
       if (cached && cached.version === currentVersion) {
@@ -116,13 +121,19 @@ function init(modules: { typescript: typeof ts }) {
       try {
         const result = p.transform(normalizedFileName);
 
-        // Only cache if transformation actually changed the file
+        if (result.diagnostics.length > 0) {
+          log(`Pipeline diagnostics for ${normalizedFileName}: ${result.diagnostics.length}`);
+          for (const d of result.diagnostics) {
+            log(`  [${d.severity}] ${d.message} (at ${d.start})`);
+          }
+        }
+
         if (result.changed) {
           transformCache.set(normalizedFileName, {
             result,
             version: currentVersion,
           });
-          log(`Transformed ${normalizedFileName} (${result.code.length} chars)`);
+          log(`Transformed ${normalizedFileName} (changed, ${result.code.length} chars)`);
         }
 
         return result;
@@ -141,33 +152,43 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     // ---------------------------------------------------------------------------
-    // Intercept LanguageServiceHost.getScriptSnapshot
+    // Intercept the original host to serve transformed content.
+    // oldLS re-reads from the host when the version string changes.
     // ---------------------------------------------------------------------------
-    const originalGetScriptSnapshot = info.languageServiceHost.getScriptSnapshot.bind(
-      info.languageServiceHost
-    );
 
-    info.languageServiceHost.getScriptSnapshot = (
-      fileName: string
-    ): ts.IScriptSnapshot | undefined => {
+    const wrappedGetScriptSnapshot = (fileName: string): ts.IScriptSnapshot | undefined => {
       const result = getTransformResult(fileName);
 
       if (result && result.changed) {
-        // Return transformed code as a script snapshot
         return tsModule.ScriptSnapshot.fromString(result.code);
       }
 
-      // Fall back to original snapshot
-      return originalGetScriptSnapshot(fileName);
+      return boundGetScriptSnapshot(fileName);
     };
 
+    const wrappedGetScriptVersion = (fileName: string): string => {
+      const baseVersion = boundGetScriptVersion(fileName);
+      const result = getTransformResult(fileName);
+      if (result?.changed) {
+        return `${baseVersion}-ts-${result.code.length}`;
+      }
+      return baseVersion;
+    };
+
+    // Modify the original host (for the existing LS)
+    originalHost.getScriptSnapshot = wrappedGetScriptSnapshot;
+    originalHost.getScriptVersion = wrappedGetScriptVersion;
+
     // ---------------------------------------------------------------------------
-    // Create proxy for LanguageService methods
+    // Create proxy for the LanguageService
+    // The original host is already modified above, so oldLS will re-read
+    // transformed content when the version string changes.
     // ---------------------------------------------------------------------------
     const proxy = Object.create(null) as ts.LanguageService;
     const oldLS = info.languageService;
 
     // Copy all methods from the original language service
+    // These are fallbacks for operations we don't explicitly handle
     for (const k of Object.keys(oldLS)) {
       const prop = (oldLS as unknown as Record<string, unknown>)[k];
       if (typeof prop === "function") {
@@ -232,7 +253,11 @@ function init(modules: { typescript: typeof ts }) {
 
     proxy.getSemanticDiagnostics = (fileName: string): ts.Diagnostic[] => {
       const diagnostics = oldLS.getSemanticDiagnostics(fileName);
-      return mapDiagnostics(diagnostics, fileName);
+      const mapped = mapDiagnostics(diagnostics, fileName);
+      if (mapped.length > 0) {
+        log(`Semantic diagnostics for ${path.basename(fileName)}: ${diagnostics.length} raw → ${mapped.length} mapped`);
+      }
+      return mapped;
     };
 
     proxy.getSyntacticDiagnostics = (fileName: string): ts.DiagnosticWithLocation[] => {
@@ -252,13 +277,17 @@ function init(modules: { typescript: typeof ts }) {
     /**
      * Map a TextSpan back to original coordinates
      */
-    function mapTextSpanToOriginal(span: ts.TextSpan, mapper: PositionMapper): ts.TextSpan | null {
+    function mapTextSpanToOriginal(
+      span: ts.TextSpan,
+      mapper: PositionMapper
+    ): ts.TextSpan | null {
       const originalStart = mapper.toOriginal(span.start);
       if (originalStart === null) return null;
 
       const originalEnd = mapper.toOriginal(span.start + span.length);
-      const originalLength =
-        originalEnd !== null ? Math.max(1, originalEnd - originalStart) : span.length;
+      const originalLength = originalEnd !== null
+        ? Math.max(1, originalEnd - originalStart)
+        : span.length;
 
       return { start: originalStart, length: originalLength };
     }
@@ -339,14 +368,11 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!definitions) return definitions;
 
-      // Map each definition's textSpan back to original coordinates
-      // Note: definitions may point to different files, so we need per-file mappers
       return definitions.map((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
         if (!mappedSpan) {
-          // Can't map — return original (best effort)
           return def;
         }
 
@@ -380,11 +406,9 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!result) return result;
 
-      // Map the textSpan (the "bound span" that gets highlighted)
       const mappedTextSpan = mapTextSpanToOriginal(result.textSpan, mapper);
       if (!mappedTextSpan) return undefined;
 
-      // Map each definition's spans
       const mappedDefinitions = result.definitions?.map((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedDefSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
@@ -499,7 +523,6 @@ function init(modules: { typescript: typeof ts }) {
       if (!symbols) return symbols;
 
       return symbols.map((symbol) => {
-        // Map the definition span
         const defMapper = getMapper(symbol.definition.fileName);
         const mappedDefSpan = mapTextSpanToOriginal(symbol.definition.textSpan, defMapper);
 
@@ -514,7 +537,6 @@ function init(modules: { typescript: typeof ts }) {
             symbol.definition.contextSpan;
         }
 
-        // Map all references
         const mappedReferences: ts.ReferencedSymbolEntry[] = [];
         for (const ref of symbol.references) {
           const refMapper = getMapper(ref.fileName);
@@ -558,7 +580,6 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!result) return result;
 
-      // Map the applicableSpan back to original coordinates
       const mappedApplicableSpan = mapTextSpanToOriginal(result.applicableSpan, mapper);
 
       return {
@@ -586,7 +607,6 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!result.canRename) return result;
 
-      // Map the triggerSpan back to original coordinates
       const mappedTriggerSpan = mapTextSpanToOriginal(result.triggerSpan, mapper);
 
       if (!mappedTriggerSpan) {
@@ -616,7 +636,6 @@ function init(modules: { typescript: typeof ts }) {
         return undefined;
       }
 
-      // Handle both overload forms of the API
       const locations =
         typeof preferences === "object"
           ? oldLS.findRenameLocations(
@@ -704,6 +723,31 @@ function init(modules: { typescript: typeof ts }) {
     };
 
     log("Language service proxy created with transform-first architecture");
+
+    // ---------------------------------------------------------------------------
+    // CRITICAL: Force the TS server to re-read files through our modified host
+    // The tsserver may have cached file content before our plugin loaded.
+    // We need to trigger a re-sync of all project files.
+    // ---------------------------------------------------------------------------
+
+    // Mark the project as needing a program update
+    // This is a workaround for the fact that the TS server caches content
+    // before plugins have a chance to modify the host.
+    try {
+      const project = info.project as unknown as Record<string, unknown>;
+      if (project && typeof project.markAsDirty === "function") {
+        log("Marking project as dirty to force re-read of files");
+        (project.markAsDirty as () => void)();
+      }
+
+      // Also try to update the project graph if available
+      if (project && typeof project.updateGraph === "function") {
+        log("Requesting project graph update");
+        (project.updateGraph as () => void)();
+      }
+    } catch (error) {
+      log(`Error forcing project refresh: ${error}`);
+    }
 
     return proxy;
   }

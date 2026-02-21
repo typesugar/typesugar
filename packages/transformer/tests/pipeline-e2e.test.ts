@@ -289,10 +289,7 @@ const x: Expr<number> = { tag: "num" };
 
   it("detects dependencies between files", () => {
     const files = new Map<string, string>();
-    files.set(
-      "/test/util.ts",
-      `export function double(n: number) { return n * 2; }`
-    );
+    files.set("/test/util.ts", `export function double(n: number) { return n * 2; }`);
     files.set(
       "/test/main.ts",
       `
@@ -315,10 +312,7 @@ export const result = double(21);
 
   it("handles mixed transformed and untransformed files", () => {
     const files = new Map<string, string>();
-    files.set(
-      "/test/plain.ts",
-      `export const x = 42;`
-    );
+    files.set("/test/plain.ts", `export const x = 42;`);
     files.set(
       "/test/piped.ts",
       `
@@ -453,21 +447,17 @@ describe("Pipeline E2E: edge cases", () => {
 
   it("skips declaration files", () => {
     expect(
-      new TransformationPipeline(
-        { target: ts.ScriptTarget.Latest },
-        [],
-        {}
-      ).shouldTransform("/test/foo.d.ts")
+      new TransformationPipeline({ target: ts.ScriptTarget.Latest }, [], {}).shouldTransform(
+        "/test/foo.d.ts"
+      )
     ).toBe(false);
   });
 
   it("skips node_modules", () => {
     expect(
-      new TransformationPipeline(
-        { target: ts.ScriptTarget.Latest },
-        [],
-        {}
-      ).shouldTransform("/test/node_modules/foo/index.ts")
+      new TransformationPipeline({ target: ts.ScriptTarget.Latest }, [], {}).shouldTransform(
+        "/test/node_modules/foo/index.ts"
+      )
     ).toBe(false);
   });
 

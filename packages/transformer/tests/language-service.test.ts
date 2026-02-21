@@ -47,9 +47,7 @@ function createMockHost(files: Map<string, string>): ts.LanguageServiceHost {
 /**
  * Creates a mock PluginCreateInfo for testing
  */
-function createMockPluginInfo(
-  files: Map<string, string>
-): ts.server.PluginCreateInfo {
+function createMockPluginInfo(files: Map<string, string>): ts.server.PluginCreateInfo {
   const host = createMockHost(files);
   const ls = ts.createLanguageService(host);
 
@@ -125,9 +123,7 @@ describe("Language Service Plugin", () => {
       plugin.create(info);
 
       // The host method should have been replaced
-      expect(info.languageServiceHost.getScriptSnapshot).not.toBe(
-        originalGetSnapshot
-      );
+      expect(info.languageServiceHost.getScriptSnapshot).not.toBe(originalGetSnapshot);
     });
 
     it("modifies the original host getScriptVersion", () => {
@@ -142,9 +138,7 @@ describe("Language Service Plugin", () => {
       plugin.create(info);
 
       // The host method should have been replaced
-      expect(info.languageServiceHost.getScriptVersion).not.toBe(
-        originalGetVersion
-      );
+      expect(info.languageServiceHost.getScriptVersion).not.toBe(originalGetVersion);
     });
 
     it("returns transformed content for files that need transformation", () => {
@@ -158,9 +152,7 @@ describe("Language Service Plugin", () => {
       plugin.create(info);
 
       // Get the script snapshot through the modified host
-      const snapshot = info.languageServiceHost.getScriptSnapshot(
-        "/test/index.ts"
-      );
+      const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
       const content = snapshot?.getText(0, snapshot.getLength());
 
       // Should contain transformed code with __binop__ call
@@ -178,9 +170,7 @@ describe("Language Service Plugin", () => {
 
       plugin.create(info);
 
-      const snapshot = info.languageServiceHost.getScriptSnapshot(
-        "/test/index.ts"
-      );
+      const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
       const content = snapshot?.getText(0, snapshot.getLength());
 
       // Should be essentially the original content (printer may add trailing newline)
@@ -221,10 +211,7 @@ describe("Language Service Plugin", () => {
     it("maps diagnostic positions back to original for transformed files", () => {
       // File with pipe operator where the error is in the original position
       const files = new Map<string, string>();
-      files.set(
-        "/test/index.ts",
-        `const result = 1 |> ((x: string) => x + 1);`
-      );
+      files.set("/test/index.ts", `const result = 1 |> ((x: string) => x + 1);`);
 
       const plugin = init({ typescript: ts });
       const info = createMockPluginInfo(files);
@@ -260,11 +247,7 @@ obj.
 
       // Position after "obj."
       const position = files.get("/test/index.ts")!.indexOf(".") + 1;
-      const completions = proxy.getCompletionsAtPosition(
-        "/test/index.ts",
-        position,
-        undefined
-      );
+      const completions = proxy.getCompletionsAtPosition("/test/index.ts", position, undefined);
 
       expect(completions).toBeDefined();
       if (completions) {
@@ -310,10 +293,7 @@ const bar = foo;
 
       // Position at "foo" in the second line
       const position = files.get("/test/index.ts")!.lastIndexOf("foo");
-      const definitions = proxy.getDefinitionAtPosition(
-        "/test/index.ts",
-        position
-      );
+      const definitions = proxy.getDefinitionAtPosition("/test/index.ts", position);
 
       expect(definitions).toBeDefined();
       if (definitions && definitions.length > 0) {
@@ -370,9 +350,7 @@ describe("TransformationPipeline integration", () => {
         }
       );
 
-      expect(pipeline.shouldTransform("/test/node_modules/foo/index.ts")).toBe(
-        false
-      );
+      expect(pipeline.shouldTransform("/test/node_modules/foo/index.ts")).toBe(false);
     });
   });
 
@@ -448,10 +426,7 @@ describe("Error Suppression", () => {
   describe("diagnostics in generated code", () => {
     it("suppresses diagnostics that cannot be mapped", () => {
       const files = new Map<string, string>();
-      files.set(
-        "/test/index.ts",
-        `const result = 1 |> ((x: string) => x);`
-      );
+      files.set("/test/index.ts", `const result = 1 |> ((x: string) => x);`);
 
       const plugin = init({ typescript: ts });
       const info = createMockPluginInfo(files);
@@ -685,9 +660,7 @@ const x: string = 42;
 const y = 1 |> ((n: number) => n + 1);
     `.trim();
 
-    const files = new Map<string, string>([
-      ["/test/index.ts", originalSource],
-    ]);
+    const files = new Map<string, string>([["/test/index.ts", originalSource]]);
 
     const plugin = init({ typescript: ts });
     const info = createMockPluginInfo(files);
@@ -706,12 +679,7 @@ const y = 1 |> ((n: number) => n + 1);
   });
 
   it("preserves diagnostic for type error on first line", () => {
-    const files = new Map<string, string>([
-      [
-        "/test/index.ts",
-        `const x: string = 42;`,
-      ],
-    ]);
+    const files = new Map<string, string>([["/test/index.ts", `const x: string = 42;`]]);
 
     const plugin = init({ typescript: ts });
     const info = createMockPluginInfo(files);
@@ -737,9 +705,7 @@ const obj = { name: "test", value: 42 };
 obj.
     `.trim();
 
-    const files = new Map<string, string>([
-      ["/test/index.ts", source],
-    ]);
+    const files = new Map<string, string>([["/test/index.ts", source]]);
 
     const plugin = init({ typescript: ts });
     const info = createMockPluginInfo(files);
@@ -747,11 +713,7 @@ obj.
 
     // Position after "obj." in the original source
     const dotPos = source.indexOf("obj.") + 4;
-    const completions = proxy.getCompletionsAtPosition(
-      "/test/index.ts",
-      dotPos,
-      undefined
-    );
+    const completions = proxy.getCompletionsAtPosition("/test/index.ts", dotPos, undefined);
 
     expect(completions).toBeDefined();
     if (completions) {
@@ -769,9 +731,7 @@ const piped = 1 |> ((x: number) => x + 1);
 obj.
     `.trim();
 
-    const files = new Map<string, string>([
-      ["/test/index.ts", source],
-    ]);
+    const files = new Map<string, string>([["/test/index.ts", source]]);
 
     const plugin = init({ typescript: ts });
     const info = createMockPluginInfo(files);
@@ -779,11 +739,7 @@ obj.
 
     // Position after the last "obj." in the original source
     const dotPos = source.lastIndexOf("obj.") + 4;
-    const completions = proxy.getCompletionsAtPosition(
-      "/test/index.ts",
-      dotPos,
-      undefined
-    );
+    const completions = proxy.getCompletionsAtPosition("/test/index.ts", dotPos, undefined);
 
     // Completions may be undefined if the position mapper can't map through
     // the pipe-operator transformation. This is a known limitation when the
