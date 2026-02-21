@@ -188,6 +188,12 @@ assert(evaluate(expr, { x: -1 }) === -1); // 1 - 2 = -1
 // Trigonometric evaluation
 assert(Math.abs(evaluate(sin(PI), {})) < 1e-10); // sin(π) ≈ 0
 assert(Math.abs(evaluate(cos(ZERO), {}) - 1) < 1e-10); // cos(0) = 1
+assert(Math.abs(evaluate(tan(ZERO), {})) < 1e-10); // tan(0) = 0
+
+// Absolute value and logarithms
+assert(evaluate(abs(neg(const_(5))), {}) === 5); // |-5| = 5
+assert(Math.abs(evaluate(log(E), {}) - 1) < 1e-10); // log(e) = 1
+assert(Math.abs(evaluate(exp(ONE), {}) - Math.E) < 1e-10); // e¹ = e
 
 // Partial evaluation: substitute known values, keep unknowns symbolic
 const partial = partialEvaluate(add(x, add(const_(1), const_(2))), {});
@@ -204,6 +210,16 @@ assert(evaluate(sumExpr, {}) === 15); // 1+2+3+4+5
 
 const prodExpr = product(var_("i"), "i", const_(1), const_(4)); // Π i from 1 to 4
 assert(evaluate(prodExpr, {}) === 24); // 4!
+
+// Symbolic calculus constructs (AST nodes for rendering, not computation)
+const derivativeNode = derivative(pow(x, TWO), "x"); // d/dx(x²) - symbolic form
+const integralNode = integral(x, "x"); // ∫x dx - symbolic form
+const limitNode = limit(div(sin(x), x), "x", 0); // lim[x→0] sin(x)/x - symbolic form
+
+// These render nicely but are distinct from the computational functions
+assert(toLatex(derivativeNode).includes("frac"));
+assert(toText(integralNode).includes("∫"));
+assert(toText(limitNode).includes("lim"));
 
 // ============================================================================
 // 4. DIFFERENTIATION - Symbolic Calculus
