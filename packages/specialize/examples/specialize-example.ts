@@ -64,25 +64,51 @@ console.log("showAll(numbers):", showAll(numbers, numberShow));
 console.log("sortWith(numbers):", sortWith(numbers, numberOrd));
 console.log("maxWith(numbers):", maxWith(numbers, numberOrd));
 
-// --- With specialize() ---
+// ==========================================================================
+// NEW: Extension Method Syntax (Preferred)
+// ==========================================================================
 
-console.log("\n--- With specialize() ---");
+console.log("\n--- Extension Method Syntax (Preferred) ---");
 
-// Create specialized versions — instance baked in at compile time
-const showNumbers = specialize(showAll, [numberShow]);
-const sortNumbers = specialize(sortWith, [numberOrd]);
-const maxNumber = specialize(maxWith, [numberOrd]);
+// Create specialized versions using .specialize() on the function itself
+// Instance is baked in at compile time — zero runtime cost
+const showNumbersExt = showAll.specialize(numberShow);
+const sortNumbersExt = sortWith.specialize(numberOrd);
+const maxNumberExt = maxWith.specialize(numberOrd);
 
-const showStrings = specialize(showAll, [stringShow]);
-const sortStrings = specialize(sortWith, [stringOrd]);
+const showStringsExt = showAll.specialize(stringShow);
+const sortStringsExt = sortWith.specialize(stringOrd);
 
 // No more passing instances!
-console.log("showNumbers(numbers):", showNumbers(numbers));
-console.log("sortNumbers(numbers):", sortNumbers(numbers));
-console.log("maxNumber(numbers):", maxNumber(numbers));
+console.log("showNumbersExt(numbers):", showNumbersExt(numbers));
+console.log("sortNumbersExt(numbers):", sortNumbersExt(numbers));
+console.log("maxNumberExt(numbers):", maxNumberExt(numbers));
 
-console.log("showStrings(strings):", showStrings(strings));
-console.log("sortStrings(strings):", sortStrings(strings));
+console.log("showStringsExt(strings):", showStringsExt(strings));
+console.log("sortStringsExt(strings):", sortStringsExt(strings));
+
+// Multiple dictionaries
+function sortAndShow<A>(items: A[], ord: Ord<A>, show: Show<A>): string {
+  const sorted = items.slice().sort((a, b) => ord.compare(a, b));
+  return "[" + sorted.map((item) => show.show(item)).join(", ") + "]";
+}
+
+// Specialize with multiple instances in one call
+const sortAndShowNumbers = sortAndShow.specialize(numberOrd, numberShow);
+console.log("sortAndShowNumbers(numbers):", sortAndShowNumbers(numbers));
+
+// ==========================================================================
+// Legacy: specialize() Function (Still Supported)
+// ==========================================================================
+
+console.log("\n--- Legacy specialize() Function ---");
+
+// Still works for backwards compatibility
+const showNumbersLegacy = specialize(showAll, [numberShow]);
+const sortNumbersLegacy = specialize(sortWith, [numberOrd]);
+
+console.log("showNumbersLegacy(numbers):", showNumbersLegacy(numbers));
+console.log("sortNumbersLegacy(numbers):", sortNumbersLegacy(numbers));
 
 // --- specialize$() for single calls ---
 
@@ -118,14 +144,16 @@ const inlined = inlineCall(double(inlineCall(addOne(20))));
 console.log("inlineCall(double(inlineCall(addOne(20)))):", inlined);
 // Compiles to: (20 + 1) * 2 = 42
 
-// --- Performance Comparison ---
+// ==========================================================================
+// Summary
+// ==========================================================================
 
-console.log("\n--- Performance Note ---");
-console.log("With specialization:");
+console.log("\n--- Summary ---");
+console.log("Three ways to specialize:");
+console.log("  1. fn.specialize(dict)     — Extension method (preferred)");
+console.log("  2. specialize(fn, [dict])  — Legacy function wrapper");
+console.log("  3. @implicits + auto-spec  — Fully automatic (best for most cases)");
+console.log("\nAll produce zero-cost code:");
 console.log("  - No runtime dictionary lookup");
-console.log("  - Instance methods can be inlined");
-console.log("  - Zero-cost abstraction");
-console.log("\nWithout specialization:");
-console.log("  - Instance passed at every call");
-console.log("  - Indirect method dispatch");
-console.log("  - Small but measurable overhead");
+console.log("  - Instance methods inlined at call sites");
+console.log("  - Same performance as hand-written specialized code");

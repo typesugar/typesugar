@@ -209,6 +209,112 @@ export function getRegisteredInstanceNames(): string[] {
 }
 
 // ============================================================================
+// Core Specialization Logic (shared by macro and extension method)
+// ============================================================================
+
+/**
+ * Options for creating a specialized function.
+ */
+export interface SpecializeOptions {
+  /** The function expression to specialize */
+  fnExpr: ts.Expression;
+  /** Dictionary expressions (the typeclass instances) */
+  dictExprs: readonly ts.Expression[];
+  /** Original call expression (for error reporting) */
+  callExpr: ts.CallExpression;
+  /** Whether to suppress warning diagnostics */
+  suppressWarnings?: boolean;
+}
+
+/**
+ * Create a specialized function by removing dictionary parameters and inlining
+ * dictionary method calls. This is the core logic shared by both the specialize()
+ * macro and the fn.specialize() extension method.
+ *
+ * @returns The specialized function expression, or a fallback partial application
+ */
+export function createSpecializedFunction(
+  ctx: MacroContext,
+  options: SpecializeOptions
+): ts.Expression {
+  const { fnExpr, dictExprs, callExpr, suppressWarnings = false } = options;
+  const fnName = getFunctionDisplayName(fnExpr);
+
+  // Resolve all dictionaries
+  const resolvedDicts: ResolvedDict[] = [];
+  const unresolvedDicts: string[] = [];
+
+  for (const dictArg of dictExprs) {
+    const dictName = getDictName(dictArg);
+    const dictMethods = dictName ? instanceMethodRegistry.get(dictName) : undefined;
+
+    if (dictMethods) {
+      resolvedDicts.push({
+        name: dictName!,
+        methods: dictMethods,
+        argExpr: dictArg,
+      });
+    } else if (dictName) {
+      unresolvedDicts.push(dictName);
+    } else {
+      unresolvedDicts.push("<unknown>");
+    }
+  }
+
+  // If no dictionaries were resolved, fall back to partial application with the first dict
+  if (resolvedDicts.length === 0) {
+    if (!suppressWarnings) {
+      const dictNames = unresolvedDicts.join(", ");
+      ctx.reportWarning(
+        callExpr,
+        `[TS9601] specialize(${fnName}): falling back to dictionary passing — ` +
+          `dictionary '${dictNames}' not registered. ` +
+          `Help: Register with @instance or registerInstanceMethods()`
+      );
+    }
+    return createPartialApplication(ctx, fnExpr, dictExprs[0], callExpr);
+  }
+
+  // Try to resolve the function body for full inlining
+  const fnBody = resolveFunctionBody(ctx, fnExpr);
+  if (fnBody) {
+    // Check if the function body can be inlined
+    const body = ts.isFunctionDeclaration(fnBody) ? fnBody.body : fnBody.body;
+
+    if (body && ts.isBlock(body)) {
+      const failureReason = classifyInlineFailure(body);
+      if (failureReason && !suppressWarnings) {
+        const help = getInlineFailureHelp(failureReason);
+        ctx.reportWarning(
+          callExpr,
+          `[TS9601] specialize(${fnName}): falling back to dictionary passing — ` +
+            `${failureReason}. Help: ${help}`
+        );
+      }
+    }
+
+    if (resolvedDicts.length === 1) {
+      // Single dictionary - use the simpler path
+      return specializeFunction(ctx, fnBody, resolvedDicts[0].methods, resolvedDicts[0].name);
+    } else {
+      // Multiple dictionaries
+      return specializeFunctionMulti(ctx, fnBody, resolvedDicts);
+    }
+  }
+
+  // Fallback: partial application with all known dicts
+  if (!suppressWarnings) {
+    ctx.reportWarning(
+      callExpr,
+      `[TS9601] specialize(${fnName}): falling back to dictionary passing — ` +
+        `function body not resolvable. ` +
+        `Help: Declare as 'const fn = (...) => ...' or named 'function'`
+    );
+  }
+  return createPartialApplicationMulti(ctx, fnExpr, dictExprs, callExpr);
+}
+
+// ============================================================================
 // Built-in instance registrations
 // ============================================================================
 
@@ -580,83 +686,17 @@ export const specializeMacro = defineExpressionMacro({
 
     const fnArg = args[0];
     const dictArgs = args.slice(1);
-    const fnName = getFunctionDisplayName(fnArg);
 
     // Check for opt-out comment
     const suppressWarnings = hasSpecializeWarnOptOut(callExpr, ctx.sourceFile);
 
-    // Resolve all dictionaries
-    const resolvedDicts: ResolvedDict[] = [];
-    const unresolvedDicts: string[] = [];
-
-    for (const dictArg of dictArgs) {
-      const dictName = getDictName(dictArg);
-      const dictMethods = dictName ? instanceMethodRegistry.get(dictName) : undefined;
-
-      if (dictMethods) {
-        resolvedDicts.push({
-          name: dictName!,
-          methods: dictMethods,
-          argExpr: dictArg,
-        });
-      } else if (dictName) {
-        unresolvedDicts.push(dictName);
-      } else {
-        unresolvedDicts.push("<unknown>");
-      }
-    }
-
-    // If no dictionaries were resolved, fall back to partial application with the first dict
-    if (resolvedDicts.length === 0) {
-      if (!suppressWarnings) {
-        const dictNames = unresolvedDicts.join(", ");
-        ctx.reportWarning(
-          callExpr,
-          `[TS9601] specialize(${fnName}): falling back to dictionary passing — ` +
-            `dictionary '${dictNames}' not registered. ` +
-            `Help: Register with @instance or registerInstanceMethods()`
-        );
-      }
-      return createPartialApplication(ctx, fnArg, dictArgs[0], callExpr);
-    }
-
-    // Try to resolve the function body for full inlining
-    const fnBody = resolveFunctionBody(ctx, fnArg);
-    if (fnBody) {
-      // Check if the function body can be inlined
-      const body = ts.isFunctionDeclaration(fnBody) ? fnBody.body : fnBody.body;
-
-      if (body && ts.isBlock(body)) {
-        const failureReason = classifyInlineFailure(body);
-        if (failureReason && !suppressWarnings) {
-          const help = getInlineFailureHelp(failureReason);
-          ctx.reportWarning(
-            callExpr,
-            `[TS9601] specialize(${fnName}): falling back to dictionary passing — ` +
-              `${failureReason}. Help: ${help}`
-          );
-        }
-      }
-
-      if (resolvedDicts.length === 1) {
-        // Single dictionary - use the simpler path
-        return specializeFunction(ctx, fnBody, resolvedDicts[0].methods, resolvedDicts[0].name);
-      } else {
-        // Multiple dictionaries
-        return specializeFunctionMulti(ctx, fnBody, resolvedDicts);
-      }
-    }
-
-    // Fallback: partial application with all known dicts
-    if (!suppressWarnings) {
-      ctx.reportWarning(
-        callExpr,
-        `[TS9601] specialize(${fnName}): falling back to dictionary passing — ` +
-          `function body not resolvable. ` +
-          `Help: Declare as 'const fn = (...) => ...' or named 'function'`
-      );
-    }
-    return createPartialApplicationMulti(ctx, fnArg, dictArgs, callExpr);
+    // Use the shared core logic
+    return createSpecializedFunction(ctx, {
+      fnExpr: fnArg,
+      dictExprs: dictArgs,
+      callExpr,
+      suppressWarnings,
+    });
   },
 });
 

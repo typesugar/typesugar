@@ -5,20 +5,143 @@
  * runtime typeclass dictionary passing overhead. Similar to GHC's specialization
  * pragmas or Rust's monomorphization.
  *
- * Usage:
- *   // Define a generic function using typeclass constraints
- *   function sortWith<T>(items: T[], ord: Ord<T>): T[] { ... }
+ * ## Usage
  *
- *   // Create a specialized version for numbers at compile time
- *   const sortNumbers = specialize(sortWith, [numberOrd]);
- *   // sortNumbers is: (items: number[]) => number[]
+ * ### Extension method syntax (preferred)
  *
- *   // Or use specialize$ for inline specialization
- *   const sorted = specialize$(sortWith(items, numberOrd));
+ * ```typescript
+ * // Define a generic function using typeclass constraints
+ * function sortWith<T>(items: T[], ord: Ord<T>): T[] { ... }
+ *
+ * // Create a specialized version using the extension method
+ * const sortNumbers = sortWith.specialize(numberOrd);
+ * // sortNumbers is: (items: number[]) => number[]
+ *
+ * // Multiple dictionaries
+ * const sortAndShow = combined.specialize(numberOrd, numberShow);
+ * ```
+ *
+ * ### Legacy function syntax
+ *
+ * ```typescript
+ * // Still supported for backwards compatibility
+ * const sortNumbers = specialize(sortWith, [numberOrd]);
+ *
+ * // Or use specialize$ for inline specialization
+ * const sorted = specialize$(sortWith(items, numberOrd));
+ * ```
+ *
+ * ### Implicit specialization
+ *
+ * With `@implicits`, specialization happens automatically:
+ *
+ * ```typescript
+ * @implicits
+ * function sortWith<T>(items: T[], ord: Ord<T>): T[] { ... }
+ *
+ * // Call site - instance is filled in AND specialized automatically
+ * sortWith([3, 1, 2]); // → inlined sorting logic, no dictionary passing
+ * ```
+ *
+ * @packageDocumentation
  */
 
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
+
+// ============================================================================
+// Type Declarations for .specialize() Extension Method
+// ============================================================================
+
+/**
+ * Remove the last N parameters from a function type.
+ * Used to compute the specialized function signature.
+ */
+type RemoveLastN<T extends readonly unknown[], N extends number> = T extends [
+  ...infer Rest,
+  infer _Last,
+]
+  ? N extends 1
+    ? Rest
+    : RemoveLastN<Rest, Prev<N>>
+  : [];
+
+type Prev<N extends number> = N extends 2
+  ? 1
+  : N extends 3
+  ? 2
+  : N extends 4
+  ? 3
+  : N extends 5
+  ? 4
+  : N extends 6
+  ? 5
+  : N extends 7
+  ? 6
+  : N extends 8
+  ? 7
+  : N extends 9
+  ? 8
+  : 0;
+
+/**
+ * Specialized function type - removes dictionary parameters from the signature.
+ *
+ * For a function `(items: T[], ord: Ord<T>) => T[]` specialized with 1 dictionary,
+ * produces `(items: T[]) => T[]`.
+ */
+export type Specialized<
+  F extends (...args: readonly unknown[]) => unknown,
+  N extends number,
+> = F extends (...args: infer Args) => infer R
+  ? (...args: RemoveLastN<Args, N>) => R
+  : never;
+
+declare global {
+  interface Function {
+    /**
+     * Create a specialized version of this function by pre-applying typeclass
+     * instance dictionaries at compile time.
+     *
+     * The transformer inlines dictionary method calls, eliminating runtime
+     * dictionary passing overhead (zero-cost specialization).
+     *
+     * @example
+     * ```typescript
+     * function sortWith<T>(items: T[], ord: Ord<T>): T[] {
+     *   return items.slice().sort((a, b) => ord.compare(a, b));
+     * }
+     *
+     * // Specialize with one dictionary
+     * const sortNumbers = sortWith.specialize(numberOrd);
+     * // sortNumbers: (items: number[]) => number[]
+     *
+     * // Specialize with multiple dictionaries
+     * const combined = combineWith.specialize(ordNumber, showNumber);
+     * ```
+     *
+     * @param instances - Typeclass instance dictionaries to pre-apply
+     * @returns A specialized function without the dictionary parameters
+     */
+    specialize<I1>(instance1: I1): Specialized<this & ((...args: readonly unknown[]) => unknown), 1>;
+    specialize<I1, I2>(
+      instance1: I1,
+      instance2: I2
+    ): Specialized<this & ((...args: readonly unknown[]) => unknown), 2>;
+    specialize<I1, I2, I3>(
+      instance1: I1,
+      instance2: I2,
+      instance3: I3
+    ): Specialized<this & ((...args: readonly unknown[]) => unknown), 3>;
+    specialize<I1, I2, I3, I4>(
+      instance1: I1,
+      instance2: I2,
+      instance3: I3,
+      instance4: I4
+    ): Specialized<this & ((...args: readonly unknown[]) => unknown), 4>;
+    specialize(...instances: readonly unknown[]): (...args: readonly unknown[]) => unknown;
+  }
+}
 
 // ============================================================================
 // specialize() - Create specialized function at compile time

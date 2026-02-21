@@ -70,6 +70,7 @@ import {
   getInstanceMethods,
   classifyInlineFailure,
   getInlineFailureHelp,
+  createSpecializedFunction,
   type DictMethodMap,
   type DictMethod,
 } from "../macros/specialize.js";
@@ -1203,6 +1204,13 @@ class MacroTransformer {
         const implicitsResult = this.tryTransformImplicitsCall(callNode);
         if (implicitsResult !== undefined) return implicitsResult;
 
+        // Check for .specialize() extension method: fn.specialize(dict1, dict2, ...)
+        // This is the preferred syntax for explicit specialization
+        if (callNode.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
+          const specializeResult = this.tryRewriteSpecializeExtension(callNode);
+          if (specializeResult !== undefined) return specializeResult;
+        }
+
         // Check for implicit extension method calls: x.show() where .show()
         // doesn't exist on x's type but is provided by a typeclass extension
         if (callNode.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
@@ -1378,20 +1386,29 @@ class MacroTransformer {
    *   double(optionMonad, myOpt)  // compiler sees optionMonad → inlines F.map
    */
   private tryAutoSpecialize(node: ts.CallExpression): ts.Expression | undefined {
-    // Synthetic nodes cannot be checked for source text comments
-    if (node.pos === -1 || node.end === -1) return undefined;
+    // Check for opt-out comments (only for non-synthetic nodes)
+    let suppressWarnings = false;
+    const isSyntheticNode = node.pos === -1 || node.end === -1;
 
-    // Check if caller has opted out with // @no-specialize comment
-    const sourceText = node.getSourceFile().text;
-    const nodeStart = node.getStart();
-    const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
-    const lineText = sourceText.slice(lineStart, nodeStart);
-    if (lineText.includes("@no-specialize")) {
-      return undefined;
+    if (!isSyntheticNode) {
+      try {
+        const sourceText = node.getSourceFile().text;
+        const nodeStart = node.getStart();
+        const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
+        const lineText = sourceText.slice(lineStart, nodeStart);
+
+        // Check if caller has opted out with // @no-specialize comment
+        if (lineText.includes("@no-specialize")) {
+          return undefined;
+        }
+        // Check if warnings are suppressed with // @no-specialize-warn
+        suppressWarnings = lineText.includes("@no-specialize-warn");
+      } catch {
+        // If we can't read comments, proceed with auto-specialization
+      }
     }
-
-    // Check if warnings are suppressed with // @no-specialize-warn
-    const suppressWarnings = lineText.includes("@no-specialize-warn");
+    // For synthetic nodes (e.g., from @implicits transformation), we proceed
+    // with auto-specialization since the user can't opt out of generated code
 
     // Find which arguments (if any) are registered instance dictionaries
     const instanceArgs: {
@@ -1500,6 +1517,11 @@ class MacroTransformer {
 
   /**
    * Get the instance dictionary name from an expression.
+   * Handles:
+   * - Direct identifiers: `optionMonad`
+   * - Property accesses: `instances.numberOrd`
+   * - Type assertions: `expr as any`
+   * - Summon calls: `TC.summon<Type>("Type")` -> derives instance name
    */
   private getInstanceName(expr: ts.Expression): string | undefined {
     if (ts.isIdentifier(expr)) {
@@ -1513,7 +1535,71 @@ class MacroTransformer {
       // Handle instanceArg as any
       return this.getInstanceName(expr.expression);
     }
+    // Handle TC.summon<Type>("Type") pattern
+    if (ts.isCallExpression(expr)) {
+      const summonInfo = this.tryParseSummonCall(expr);
+      if (summonInfo) {
+        // Compute the expected instance variable name: tcName + TypeName
+        // e.g., Show.summon<Point>("Point") -> "showPoint"
+        const instanceName = this.computeInstanceName(
+          summonInfo.typeclassName,
+          summonInfo.forType
+        );
+        return instanceName;
+      }
+    }
     return undefined;
+  }
+
+  /**
+   * Try to parse a TC.summon<Type>("Type") call expression.
+   * Returns the typeclass name and the concrete type if this is a summon call.
+   */
+  private tryParseSummonCall(
+    expr: ts.CallExpression
+  ): { typeclassName: string; forType: string } | undefined {
+    // Must be a property access: TC.summon(...)
+    if (!ts.isPropertyAccessExpression(expr.expression)) {
+      return undefined;
+    }
+    const propAccess = expr.expression;
+
+    // Property must be "summon"
+    if (propAccess.name.text !== "summon") {
+      return undefined;
+    }
+
+    // The receiver must be an identifier (the typeclass name)
+    if (!ts.isIdentifier(propAccess.expression)) {
+      return undefined;
+    }
+    const typeclassName = propAccess.expression.text;
+
+    // Must have exactly one string argument (the type name)
+    if (expr.arguments.length !== 1) {
+      return undefined;
+    }
+    const arg = expr.arguments[0];
+    if (!ts.isStringLiteral(arg)) {
+      return undefined;
+    }
+    const forType = arg.text;
+
+    return { typeclassName, forType };
+  }
+
+  /**
+   * Compute the expected instance variable name from typeclass + type.
+   * Follows the convention: uncapitalize(tcName) + capitalize(typeName)
+   * e.g., ("Show", "Point") -> "showPoint"
+   *       ("Monad", "Option") -> "monadOption"
+   */
+  private computeInstanceName(typeclassName: string, typeName: string): string {
+    const tcLower =
+      typeclassName.charAt(0).toLowerCase() + typeclassName.slice(1);
+    const typeCapitalized =
+      typeName.charAt(0).toUpperCase() + typeName.slice(1);
+    return `${tcLower}${typeCapitalized}`;
   }
 
   /**
@@ -2519,6 +2605,84 @@ class MacroTransformer {
         | ts.TypeAliasDeclaration;
     } catch (error) {
       this.ctx.reportError(node, `HKT transformation failed: ${error}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Try to rewrite fn.specialize(dict1, dict2, ...) calls.
+   *
+   * This is the extension method syntax for explicit specialization:
+   *   sortWith.specialize(numberOrd)  → specialized function
+   *   showAndSort.specialize(showNumber, ordNumber)  → specialized function
+   *
+   * Checks if:
+   * 1. The method name is "specialize"
+   * 2. The receiver is a callable expression (function)
+   * 3. Arguments are typeclass instance dictionaries
+   */
+  private tryRewriteSpecializeExtension(node: ts.CallExpression): ts.Expression | undefined {
+    const propAccess = node.expression as ts.PropertyAccessExpression;
+    const methodName = propAccess.name.text;
+
+    // Only handle .specialize() calls
+    if (methodName !== "specialize") {
+      return undefined;
+    }
+
+    const fnExpr = propAccess.expression;
+
+    // Check if the receiver is callable (has call signatures)
+    const fnType = this.ctx.typeChecker.getTypeAtLocation(fnExpr);
+    const callSignatures = fnType.getCallSignatures();
+
+    if (callSignatures.length === 0) {
+      // Not callable - let normal extension method handling deal with it
+      return undefined;
+    }
+
+    // Must have at least one argument (the dictionary)
+    if (node.arguments.length === 0) {
+      this.ctx.reportError(
+        node,
+        "fn.specialize() requires at least one typeclass instance argument"
+      );
+      return node;
+    }
+
+    const dictArgs = Array.from(node.arguments);
+
+    // Check for opt-out comment
+    let suppressWarnings = false;
+    if (node.pos !== -1 && node.end !== -1) {
+      const sourceText = node.getSourceFile().text;
+      const nodeStart = node.getStart();
+      const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
+      const lineText = sourceText.slice(lineStart, nodeStart);
+      suppressWarnings = lineText.includes("@no-specialize-warn");
+    }
+
+    if (this.verbose) {
+      const fnName = ts.isIdentifier(fnExpr) ? fnExpr.text : "<expr>";
+      const dictNames = dictArgs
+        .map((d) => (ts.isIdentifier(d) ? d.text : "<expr>"))
+        .join(", ");
+      console.log(`[typemacro] Rewriting ${fnName}.specialize(${dictNames})`);
+    }
+
+    // Use the shared specialization logic
+    const specialized = createSpecializedFunction(this.ctx, {
+      fnExpr,
+      dictExprs: dictArgs,
+      callExpr: node,
+      suppressWarnings,
+    });
+
+    // Visit the result to handle any nested macros/specializations
+    try {
+      return ts.visitNode(specialized, this.boundVisit) as ts.Expression;
+    } catch (error) {
+      this.ctx.reportError(node, `specialize() extension method failed: ${error}`);
       return undefined;
     }
   }

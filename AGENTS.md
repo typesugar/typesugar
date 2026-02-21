@@ -347,6 +347,12 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 5. **Auto-derives via Mirror** — extracts type structure from TypeChecker, synthesizes instance
 6. **Auto-specializes** — inlines method body at call site (zero-cost)
 
+**Specialization (from implicit to explicit):**
+
+1. `@implicits` + auto-specialize — Fully automatic, user writes `sortWith(items)`, compiler fills in instances AND inlines them
+2. `fn.specialize(dict)` — Extension method syntax for creating named specialized functions
+3. `specialize(fn, [dict])` — Legacy function wrapper (still supported)
+
 **Explicit patterns (progressive disclosure):**
 
 | Pattern                             | Use Case                                        |
@@ -364,8 +370,9 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 | `@instance`          | Attribute  | Provides custom typeclass instance, overrides auto-derivation   |
 | `@derive(...)`       | Attribute  | Documents capabilities (optional, same operations work without) |
 | `summon<TC<T>>()`    | Expression | Explicit resolution for generic code                            |
-| `specialize(fn)`     | Expression | Manual inlining (usually automatic via auto-specialization)     |
-| `@implicits`         | Attribute  | Auto-fills typeclass instance parameters at call sites          |
+| `fn.specialize(dict)`| Extension  | Create specialized function (preferred explicit syntax)         |
+| `specialize(fn,dict)`| Expression | Legacy explicit specialization (array syntax)                   |
+| `@implicits`         | Attribute  | Auto-fills instance params + auto-specializes at call sites     |
 | `@hkt`               | Attribute  | Higher-kinded type parameter support (`F<_>` → `$<F, A>`)       |
 | `summonHKT<TC<F>>()` | Expression | Resolves HKT typeclass instances                                |
 
@@ -810,6 +817,7 @@ The export index is pre-populated with known typesugar exports and can be extend
 | Need                            | Use                                                                  | Location                     |
 | ------------------------------- | -------------------------------------------------------------------- | ---------------------------- |
 | Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                | `specialize.ts`              |
+| Create specialized function     | `createSpecializedFunction(ctx, options)`                            | `specialize.ts`              |
 | Register a new expression macro | `defineExpressionMacro(name, macro)`                                 | `core/registry.ts`           |
 | Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `core/registry.ts`           |
 | Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `core/registry.ts`           |
