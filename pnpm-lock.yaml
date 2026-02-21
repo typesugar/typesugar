@@ -27,6 +27,9 @@ importers:
       '@typesugar/contracts-refined':
         specifier: workspace:*
         version: link:packages/contracts-refined
+      '@typesugar/mapper':
+        specifier: workspace:*
+        version: link:packages/mapper
       '@typesugar/prettier-plugin':
         specifier: workspace:*
         version: link:packages/prettier-plugin
@@ -62,7 +65,7 @@ importers:
         version: 5.9.3
       typesugar:
         specifier: workspace:*
-        version: link:packages/vscode
+        version: link:packages/typesugar
       unplugin-typesugar:
         specifier: workspace:*
         version: link:packages/unplugin-typesugar
@@ -83,7 +86,7 @@ importers:
         version: 5.9.3
       typesugar:
         specifier: workspace:*
-        version: link:../../packages/vscode
+        version: link:../../packages/typesugar
 
   packages/codec:
     dependencies:
@@ -564,6 +567,9 @@ importers:
       '@typesugar/derive':
         specifier: workspace:*
         version: link:../derive
+      '@typesugar/mapper':
+        specifier: workspace:*
+        version: link:../mapper
       '@typesugar/operators':
         specifier: workspace:*
         version: link:../operators
