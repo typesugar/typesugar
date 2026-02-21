@@ -38,17 +38,17 @@ preprocessor upgrade for teams that want the cleanest possible DX.
 
 Custom syntax is a tradeoff:
 
-| | TS-compatible (default) | Extended syntax (opt-in) |
-|---|---|---|
-| IDE autocomplete | Full — native TypeScript | Requires language service plugin |
-| Type checking | Full — built in | After preprocessing |
-| ESLint / Prettier | Works | Needs custom parser/printer |
-| AI tools (Copilot, Cursor) | Works | May not understand syntax |
-| GitHub diff rendering | Works | Needs syntax grammar |
-| Source maps | N/A | Must be generated correctly |
-| Readability | Good | Excellent |
-| Signal-to-noise ratio | Good | Excellent |
-| Learning curve | TypeScript only | New syntax to learn |
+|                            | TS-compatible (default)  | Extended syntax (opt-in)         |
+| -------------------------- | ------------------------ | -------------------------------- |
+| IDE autocomplete           | Full — native TypeScript | Requires language service plugin |
+| Type checking              | Full — built in          | After preprocessing              |
+| ESLint / Prettier          | Works                    | Needs custom parser/printer      |
+| AI tools (Copilot, Cursor) | Works                    | May not understand syntax        |
+| GitHub diff rendering      | Works                    | Needs syntax grammar             |
+| Source maps                | N/A                      | Must be generated correctly      |
+| Readability                | Good                     | Excellent                        |
+| Signal-to-noise ratio      | Good                     | Excellent                        |
+| Learning curve             | TypeScript only          | New syntax to learn              |
 
 The TS-compatible layer has a higher floor (everything works). The extended
 syntax has a higher ceiling (everything is cleaner). Teams choose based on
@@ -395,25 +395,27 @@ from a module. No Context, no Provider, no store library ceremony:
 
 ```typescript
 // stores/auth.ts
-import { ref, computed, type Signal } from '@typesugar/web';
+import { ref, computed, type Signal } from "@typesugar/web";
 
 const token = ref<string | null>(null);
-const user = computed(() => token.value ? decodeJwt(token.value) : null);
+const user = computed(() => (token.value ? decodeJwt(token.value) : null));
 const isLoggedIn = computed(() => token.value !== null);
 
 export function useAuth() {
   return {
-    token,     // Signal<string | null>
-    user,      // Computed<User | null>
-    isLoggedIn,// Computed<boolean>
+    token, // Signal<string | null>
+    user, // Computed<User | null>
+    isLoggedIn, // Computed<boolean>
 
-    login: (creds: Credentials) => fx(function*() {
-      const result = yield* http.fetch<AuthResponse>("/api/login", {
-        method: "POST", body: JSON.stringify(creds),
-      });
-      token.value = result.token;
-      return result.user;
-    }),
+    login: (creds: Credentials) =>
+      fx(function* () {
+        const result = yield* http.fetch<AuthResponse>("/api/login", {
+          method: "POST",
+          body: JSON.stringify(creds),
+        });
+        token.value = result.token;
+        return result.user;
+      }),
 
     logout: () => {
       token.value = null;
@@ -480,11 +482,14 @@ TypeScript with full IDE support.
 **Simple component:**
 
 ```typescript
-const Avatar = component($ => {
+const Avatar = component(($) => {
   $.props<{ src: string; size?: number }>();
 
   $.style = css`
-    .avatar { border-radius: 50%; object-fit: cover; }
+    .avatar {
+      border-radius: 50%;
+      object-fit: cover;
+    }
   `;
 
   $.view = ({ src, size = 40 }) => html`
@@ -496,7 +501,7 @@ const Avatar = component($ => {
 **MVU component:**
 
 ```typescript
-const Counter = component($ => {
+const Counter = component(($) => {
   $.model<{ count: number }>({ count: 0 });
 
   $.msg<{
@@ -505,15 +510,24 @@ const Counter = component($ => {
     Set: { value: number };
   }>();
 
-  $.update = (model, msg) => match(msg, {
-    Increment: () => [{ count: model.count + 1 }],
-    Decrement: () => [{ count: model.count - 1 }],
-    Set: ({ value }) => [{ count: value }],
-  });
+  $.update = (model, msg) =>
+    match(msg, {
+      Increment: () => [{ count: model.count + 1 }],
+      Decrement: () => [{ count: model.count - 1 }],
+      Set: ({ value }) => [{ count: value }],
+    });
 
   $.style = css`
-    .counter { display: flex; gap: 8px; align-items: center; }
-    .btn { width: 32px; height: 32px; font-size: 18px; }
+    .counter {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .btn {
+      width: 32px;
+      height: 32px;
+      font-size: 18px;
+    }
   `;
 
   $.view = (model, { Increment, Decrement }) => html`
@@ -600,52 +614,73 @@ per file):
 
 ```typescript
 // components/todo.ts
-import { component, css, html, each } from '@typesugar/web';
-import type { Todo, Filter } from '../domain/types';
+import { component, css, html, each } from "@typesugar/web";
+import type { Todo, Filter } from "../domain/types";
 
 // Private — not exported
-const TodoItem = component($ => {
+const TodoItem = component(($) => {
   $.props<{ todo: Todo; onToggle: (id: string) => void }>();
 
   $.style = css`
-    .item { padding: 12px; border-bottom: 1px solid #eee; }
-    .done { text-decoration: line-through; opacity: 0.5; }
+    .item {
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+    }
+    .done {
+      text-decoration: line-through;
+      opacity: 0.5;
+    }
   `;
 
   $.view = ({ todo, onToggle }) => html`
-    <li class=${todo.done ? 'done item' : 'item'}
-        onClick=${() => onToggle(todo.id)}>
+    <li
+      class=${todo.done ? "done item" : "item"}
+      onClick=${() => onToggle(todo.id)}
+    >
       ${todo.text}
     </li>
   `;
 });
 
 // Private
-const FilterButtons = component($ => {
+const FilterButtons = component(($) => {
   $.props<{ current: Filter; onSelect: (f: Filter) => void }>();
 
   $.style = css`
-    .filters { display: flex; gap: 8px; }
-    .active { background: var(--primary); color: white; }
+    .filters {
+      display: flex;
+      gap: 8px;
+    }
+    .active {
+      background: var(--primary);
+      color: white;
+    }
   `;
 
   $.view = ({ current, onSelect }) => html`
     <div class="filters">
-      ${each(['all', 'active', 'done'] as Filter[], f => html`
-        <button class=${f === current ? 'active' : ''}
-                onClick=${() => onSelect(f)}>${f}</button>
-      `)}
+      ${each(
+        ["all", "active", "done"] as Filter[],
+        (f) => html`
+          <button
+            class=${f === current ? "active" : ""}
+            onClick=${() => onSelect(f)}
+          >
+            ${f}
+          </button>
+        `,
+      )}
     </div>
   `;
 });
 
 // Public — uses siblings directly
-export const TodoList = component($ => {
+export const TodoList = component(($) => {
   $.model<{
     todos: Todo[];
     filter: Filter;
     saving: boolean;
-  }>({ todos: [], filter: 'all', saving: false });
+  }>({ todos: [], filter: "all", saving: false });
 
   $.msg<{
     Toggle: { id: string };
@@ -654,21 +689,29 @@ export const TodoList = component($ => {
     SetFilter: { filter: Filter };
   }>();
 
-  $.update = (model, msg) => match(msg, {
-    Toggle:    ({ id }) => [{ ...model, todos: toggleTodo(model.todos, id) }],
-    Add:       ({ text }) => [
-      { ...model, saving: true },
-      api.createTodo(text).map(todo => $.msg.Added({ todo })),
-    ],
-    Added:     ({ todo }) => [
-      { ...model, saving: false, todos: [...model.todos, todo] },
-    ],
-    SetFilter: ({ filter }) => [{ ...model, filter }],
-  });
+  $.update = (model, msg) =>
+    match(msg, {
+      Toggle: ({ id }) => [{ ...model, todos: toggleTodo(model.todos, id) }],
+      Add: ({ text }) => [
+        { ...model, saving: true },
+        api.createTodo(text).map((todo) => $.msg.Added({ todo })),
+      ],
+      Added: ({ todo }) => [
+        { ...model, saving: false, todos: [...model.todos, todo] },
+      ],
+      SetFilter: ({ filter }) => [{ ...model, filter }],
+    });
 
   $.style = css`
-    .app { max-width: 500px; margin: 0 auto; padding: 20px; }
-    .list { list-style: none; padding: 0; }
+    .app {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .list {
+      list-style: none;
+      padding: 0;
+    }
   `;
 
   $.view = (model, { Toggle, Add, SetFilter }) => {
@@ -676,15 +719,23 @@ export const TodoList = component($ => {
 
     return html`
       <section class="app">
-        <input placeholder="What needs to be done?"
-               disabled=${model.saving}
-               onKeyDown=${(e) => e.key === 'Enter' && Add({ text: e.target.value })} />
+        <input
+          placeholder="What needs to be done?"
+          disabled=${model.saving}
+          onKeyDown=${(e) => e.key === "Enter" && Add({ text: e.target.value })}
+        />
         <ul class="list">
-          ${each(visible, todo => html`
-            <TodoItem todo=${todo} onToggle=${(id) => Toggle({ id })} />
-          `)}
+          ${each(
+            visible,
+            (todo) => html`
+              <TodoItem todo=${todo} onToggle=${(id) => Toggle({ id })} />
+            `,
+          )}
         </ul>
-        <FilterButtons current=${model.filter} onSelect=${(f) => SetFilter({ filter: f })} />
+        <FilterButtons
+          current=${model.filter}
+          onSelect=${(f) => SetFilter({ filter: f })}
+        />
       </section>
     `;
   };
@@ -794,14 +845,14 @@ Both compile to identical output.
 
 Both syntax layers support the same sections:
 
-| Section | Builder (`$.`) | Extended keyword | Required? |
-|---|---|---|---|
-| Props | `$.props<T>()` | `props { }` | For simple components |
-| Model | `$.model<T>(init)` | `model { }` | For MVU components |
-| Messages | `$.msg<T>()` | `msg { }` | For MVU components |
-| Update | `$.update = ...` | `update { }` | For MVU components |
-| Styles | `$.style = css\`\`` | `style { }` | Optional |
-| View | `$.view = ...` | `view { }` | Required |
+| Section  | Builder (`$.`)      | Extended keyword | Required?             |
+| -------- | ------------------- | ---------------- | --------------------- |
+| Props    | `$.props<T>()`      | `props { }`      | For simple components |
+| Model    | `$.model<T>(init)`  | `model { }`      | For MVU components    |
+| Messages | `$.msg<T>()`        | `msg { }`        | For MVU components    |
+| Update   | `$.update = ...`    | `update { }`     | For MVU components    |
+| Styles   | `$.style = css\`\`` | `style { }`      | Optional              |
+| View     | `$.view = ...`      | `view { }`       | Required              |
 
 ---
 
@@ -1227,8 +1278,8 @@ The `use` block compiles to try/finally, ensuring cleanup even on errors or
 cancellation. Inspired by Cats Effect's `Resource` and Python's `with`.
 
 ```typescript
-const processFile = fx(function*() {
-  const handle = yield* use(openFile(path), file => file.close());
+const processFile = fx(function* () {
+  const handle = yield* use(openFile(path), (file) => file.close());
   const data = yield* handle.readAll();
   return parse(data);
 });
@@ -1255,24 +1306,21 @@ provides structured concurrency primitives that compile to well-behaved
 Promise patterns.
 
 ```typescript
-const searchResults = fx {
-  // Automatically cancels previous search when query changes
-  query   <- watch(searchInput)
+const searchResults = fx(function* () {
+  const query = yield* watch(searchInput);
 
-  // Run in parallel, cancel all if any fails
-  results <- Fx.all(
-               http.fetch<Results>(`/search?q=${query}`),
-               http.fetch<Suggestions>(`/suggest?q=${query}`)
-             )
+  const results = yield* Fx.all(
+    http.fetch<Results>(`/search?q=${query}`),
+    http.fetch<Suggestions>(`/suggest?q=${query}`),
+  );
 
-  // Timeout with fallback
-  fresh   <- Fx.race(
-               results,
-               Fx.delay(3000).map(() => cachedResults)
-             )
+  const fresh = yield* Fx.race(
+    results,
+    Fx.delay(3000).map(() => cachedResults),
+  );
 
-  return fresh
-}
+  return fresh;
+});
 ```
 
 **Compiles to:**
@@ -1327,11 +1375,12 @@ doesn't run, doesn't touch any signal, and is testable in isolation.
 
 ```typescript
 // effects/users.ts
-export const fetchUser = (id: string) => fx(function*() {
-  const token = yield* auth.getToken();
-  const user = yield* http.fetch<User>(`/api/users/${id}`, authHeader(token));
-  return user;
-});
+export const fetchUser = (id: string) =>
+  fx(function* () {
+    const token = yield* auth.getToken();
+    const user = yield* http.fetch<User>(`/api/users/${id}`, authHeader(token));
+    return user;
+  });
 // Type: (id: string) => Fx<User, HttpError | AuthError, HttpClient & AuthService>
 ```
 
@@ -1409,15 +1458,16 @@ reads.
 
 ```typescript
 // effects/users.ts
-export const updateUser = (id: string, data: Partial<User>) => fx(function*() {
-  const token = yield* auth.getToken();
-  const updated = yield* http.fetch<User>(`/api/users/${id}`, {
-    method: 'PATCH',
-    headers: authHeader(token),
-    body: JSON.stringify(data),
+export const updateUser = (id: string, data: Partial<User>) =>
+  fx(function* () {
+    const token = yield* auth.getToken();
+    const updated = yield* http.fetch<User>(`/api/users/${id}`, {
+      method: "PATCH",
+      headers: authHeader(token),
+      body: JSON.stringify(data),
+    });
+    return updated;
   });
-  return updated;
-});
 ```
 
 **Step 2 — Wire it via `action()`:**
@@ -1533,38 +1583,36 @@ persistence layer compiles away based on the chosen backend.
 const authStore = store({
   initial: { user: None, token: None },
 
-  // Effects for hydration — run once on mount
-  hydrate: fx {
-    token <- storage.get<string>("auth_token")
-    user  <- match token {
-               Some(t) -> http.fetch<User>("/api/me", authHeader(t))
-               None    -> Fx.pure(None)
-             }
-    return { user, token }
-  },
-
-  // Derived state — compile-time dependency tracking
-  derived: (state) => ({
-    isLoggedIn: state.token.isSome(),
-    displayName: state.user.map(u => u.name).getOrElse("Guest"),
+  hydrate: fx(function* () {
+    const token = yield* storage.get<string>("auth_token");
+    const user = token.isSome()
+      ? yield* http.fetch<User>("/api/me", authHeader(token.get()))
+      : None;
+    return { user, token };
   }),
 
-  // Actions — each returns an Fx, giving typed errors
-  actions: {
-    login: (creds: Credentials) => fx {
-      result <- http.fetch<AuthResponse>("/api/login", {
-                    method: "POST",
-                    body: JSON.stringify(creds)
-                })
-      _      <- storage.set("auth_token", result.token)
-      return { user: Some(result.user), token: Some(result.token) }
-    },
+  derived: (state) => ({
+    isLoggedIn: state.token.isSome(),
+    displayName: state.user.map((u) => u.name).getOrElse("Guest"),
+  }),
 
-    logout: () => fx {
-      _ <- storage.remove("auth_token")
-      return { user: None, token: None }
-    },
-  }
+  actions: {
+    login: (creds: Credentials) =>
+      fx(function* () {
+        const result = yield* http.fetch<AuthResponse>("/api/login", {
+          method: "POST",
+          body: JSON.stringify(creds),
+        });
+        yield* storage.set("auth_token", result.token);
+        return { user: Some(result.user), token: Some(result.token) };
+      }),
+
+    logout: () =>
+      fx(function* () {
+        yield* storage.remove("auth_token");
+        return { user: None, token: None };
+      }),
+  },
 });
 
 // Using it in a component — the macro auto-subscribes to accessed fields
@@ -1573,10 +1621,11 @@ const Navbar = component(() => {
 
   return html`
     <nav>
-      ${when(isLoggedIn,
+      ${when(
+        isLoggedIn,
         html`<span>Welcome, ${displayName}</span>
-             <button onClick=${authStore.logout}>Log out</button>`,
-        html`<a href="/login">Sign in</a>`
+          <button onClick=${authStore.logout}>Log out</button>`,
+        html`<a href="/login">Sign in</a>`,
       )}
     </nav>
   `;
@@ -1612,13 +1661,17 @@ client, so the `resource` that consumes the API knows every possible failure.
 
 ```typescript
 // server/routes/users.ts
-export const getUser = route("GET", "/users/:id", (params) => fx {
-  user <- db.query(sql`SELECT * FROM users WHERE id = ${params.id}`)
-  return match user {
-    Some(u) -> Response.json(u)
-    None    -> Response.error(404, "User not found")
-  }
-})
+export const getUser = route("GET", "/users/:id", (params) =>
+  fx(function* () {
+    const user = yield* db.query(
+      sql`SELECT * FROM users WHERE id = ${params.id}`,
+    );
+    return match(user, {
+      Some: (u) => Response.json(u),
+      None: () => Response.error(404, "User not found"),
+    });
+  }),
+);
 
 // client/pages/user.ts — errors are typed!
 const user = resource(() => api.getUser({ id: props.id }));
@@ -1628,13 +1681,12 @@ const user = resource(() => api.getUser({ id: props.id }));
 ### Form Actions (Remix-Style, But Typed)
 
 ```typescript
-export const createPost = formAction(
-  PostSchema,  // Zod/ArkType schema for validation
-  (data) => fx {
-    post <- db.insert(sql`INSERT INTO posts ${values(data)}`)
-    return redirect(`/posts/${post.id}`)
-  }
-)
+export const createPost = formAction(PostSchema, (data) =>
+  fx(function* () {
+    const post = yield* db.insert(sql`INSERT INTO posts ${values(data)}`);
+    return redirect(`/posts/${post.id}`);
+  }),
+);
 
 // In the component — progressive enhancement, works without JS
 const NewPost = component(() => {
@@ -1654,17 +1706,17 @@ const NewPost = component(() => {
 
 ### Compiles away entirely (zero-cost)
 
-| Abstraction                 | Compiled output                                |
-| --------------------------- | ---------------------------------------------- |
-| `Fx<A, E, R>` type          | `Promise<A>` or sync code                      |
-| `fx { x <- ...; return x }` | `async/await` chain                            |
-| `summon<HttpClient>()`      | Direct function reference                      |
-| `specialize(fn)`            | Inlined method body                            |
-| `match(x) { ... }`          | `if/else` chain                                |
-| `html\`...\``               | `document.createElement` calls                 |
-| `css\`...\``                | Static CSS file + string literal               |
-| `cfg("server", a, b)`       | `a` or `b` (other branch dead-code eliminated) |
-| `comptime(() => expr)`      | Literal value                                  |
+| Abstraction               | Compiled output                                |
+| ------------------------- | ---------------------------------------------- |
+| `Fx<A, E, R>` type        | `Promise<A>` or sync code                      |
+| `fx(function*() { ... })` | `async/await` chain                            |
+| `summon<HttpClient>()`    | Direct function reference                      |
+| `specialize(fn)`          | Inlined method body                            |
+| `match(x) { ... }`        | `if/else` chain                                |
+| `html\`...\``             | `document.createElement` calls                 |
+| `css\`...\``              | Static CSS file + string literal               |
+| `cfg("server", a, b)`     | `a` or `b` (other branch dead-code eliminated) |
+| `comptime(() => expr)`    | Literal value                                  |
 
 ### Minimal runtime (~2KB gzipped)
 
