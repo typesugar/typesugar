@@ -223,6 +223,10 @@ function diffUnary(expr: Expression<unknown> & { kind: "unary" }, v: string): Ex
 
     case "sqrt":
       return simplifyDiv(dArg, simplifyMul(TWO, { kind: "unary", op: "sqrt", arg }));
+
+    case "signum":
+      // signum has derivative 0 almost everywhere (discontinuous at 0)
+      return { kind: "constant", value: 0 } as Expression<unknown>;
   }
 }
 

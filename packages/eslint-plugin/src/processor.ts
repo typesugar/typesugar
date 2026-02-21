@@ -1,13 +1,16 @@
 /**
- * ESLint Processor for typesugar
+ * ESLint Processor for typesugar (Lightweight)
  *
- * This processor runs the typesugar macro transformer on source files before ESLint
- * lints them. ESLint sees the transformed output, which is standard TypeScript
- * with all macro syntax expanded.
+ * This processor runs the typesugar preprocessor (HKT, operators) and
+ * ESLint-specific regex heuristics (commenting out decorators and labeled blocks)
+ * before ESLint lints the file.
+ *
+ * It uses the preprocessor's source map for accurate position mapping via
+ * PositionMapper from @typesugar/transformer.
  *
  * How it works:
- * 1. preprocess(): Receives source code, runs typesugar preprocessor (HKT, operators) then
- *    pattern-based transforms, returns transformed code
+ * 1. preprocess(): Runs preprocessor for custom syntax, then regex heuristics
+ *    for ESLint-specific concerns (decorators, labeled blocks)
  * 2. ESLint lints the transformed code (no false positives from macro syntax)
  * 3. postprocess(): Maps lint messages back to original source locations
  *
@@ -15,179 +18,8 @@
  */
 
 import type { Linter } from "eslint";
-import * as ts from "typescript";
 import { preprocess as preprocessCustomSyntax } from "@typesugar/preprocessor";
-
-interface SourceMapping {
-  originalFile: string;
-  originalLine: number;
-  originalColumn: number;
-  generatedLine: number;
-  generatedColumn: number;
-}
-
-interface ProcessorState {
-  originalSource: string;
-  transformedSource: string;
-  sourceMappings: SourceMapping[];
-  fileName: string;
-}
-
-// Per-file state for source mapping
-const fileStates = new Map<string, ProcessorState>();
-
-/**
- * Create a TypeScript program for a single file
- */
-function createSingleFileProgram(fileName: string, source: string): ts.Program {
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    esModuleInterop: true,
-    skipLibCheck: true,
-    declaration: false,
-    noEmit: true,
-    // Enable experimental decorators for typesugar syntax
-    experimentalDecorators: true,
-  };
-
-  // Create a virtual file system with just this file
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.ESNext,
-    true,
-    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
-
-  // Create a minimal compiler host
-  const host: ts.CompilerHost = {
-    getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-    getDefaultLibFileName: () => "lib.d.ts",
-    writeFile: () => {},
-    getCurrentDirectory: () => "",
-    getDirectories: () => [],
-    fileExists: (name) => name === fileName,
-    readFile: (name) => (name === fileName ? source : undefined),
-    getCanonicalFileName: (name) => name,
-    useCaseSensitiveFileNames: () => true,
-    getNewLine: () => "\n",
-  };
-
-  return ts.createProgram([fileName], compilerOptions, host);
-}
-
-/**
- * Run the typesugar transformer on source code
- */
-function transformSource(
-  fileName: string,
-  source: string
-): {
-  transformed: string;
-  mappings: SourceMapping[];
-} {
-  const mappings: SourceMapping[] = [];
-
-  try {
-    // First: Run the preprocessor to handle custom syntax (F<_> HKT, |>, ::)
-    // This converts non-standard TypeScript to valid TypeScript
-    const preprocessResult = preprocessCustomSyntax(source, { fileName });
-    let transformed = preprocessResult.code;
-
-    // Import the transformer dynamically to avoid circular deps at load time
-    // For now, we'll use a simpler approach: just run the TS compiler
-    // with the transformer loaded
-
-    const program = createSingleFileProgram(fileName, transformed);
-    const sourceFile = program.getSourceFile(fileName);
-
-    if (!sourceFile) {
-      return { transformed, mappings };
-    }
-
-    // For the initial implementation, we'll create a lightweight transform
-    // that handles the most common patterns. A full implementation would
-    // integrate with the actual typesugar transformer.
-
-    // Transform patterns that cause ESLint false positives:
-    // 1. @derive(Eq, Clone) -> remove decorator (ESLint doesn't need to see it)
-    // 2. requires: { ... } -> /* requires: { ... } */ (comment out)
-    // 3. comptime(...) -> /* comptime(...) */ (the value is inlined)
-
-    // Simple pattern-based transformation for the most common cases
-    // This is a heuristic approach - the full solution would use the actual transformer
-
-    // Pattern 1: Remove @derive, @typeclass, @instance, etc. decorators with undefined args
-    const decoratorPattern =
-      /@(derive|deriving|typeclass|instance|operators|contract|invariant|reflect)\s*\([^)]*\)/g;
-    transformed = transformed.replace(decoratorPattern, (match) => {
-      // Keep the decorator but wrap undefined identifiers
-      // For now, just comment it out - ESLint will see the class/function without decorators
-      return `/* ${match} */`;
-    });
-
-    // Pattern 2: Comment out labeled blocks (requires:/ensures:)
-    // These are valid JS but ESLint warns about unused labels
-    const labeledBlockPattern = /(requires|ensures)\s*:\s*\{[\s\S]*?\n\s*\}/g;
-    transformed = transformed.replace(labeledBlockPattern, (match) => {
-      return `/* ${match.replace(/\*\//g, "* /")} */`;
-    });
-
-    // Pattern 3: Handle comptime() - these expand to literals at compile time
-    // For linting purposes, we can replace with a placeholder
-    const comptimePattern = /comptime\s*\(\s*(?:[\s\S]*?)\s*\)/g;
-    // Keep comptime for now - it's typed properly and shouldn't cause issues
-
-    // Build basic line-to-line mappings (1:1 for unchanged lines)
-    // TODO: Compose with preprocessor source map for accurate position tracking
-    const originalLines = source.split("\n");
-    const transformedLines = transformed.split("\n");
-
-    for (let i = 0; i < Math.min(originalLines.length, transformedLines.length); i++) {
-      mappings.push({
-        originalFile: fileName,
-        originalLine: i + 1,
-        originalColumn: 0,
-        generatedLine: i + 1,
-        generatedColumn: 0,
-      });
-    }
-
-    return { transformed, mappings };
-  } catch (error) {
-    // If transformation fails, return original source
-    console.warn(`[typesugar-eslint] Transform failed for ${fileName}:`, error);
-    return { transformed: source, mappings };
-  }
-}
-
-/**
- * Map a position in transformed code back to original source
- */
-function mapToOriginal(
-  state: ProcessorState,
-  line: number,
-  column: number
-): { line: number; column: number } {
-  // Find the closest mapping
-  for (let i = state.sourceMappings.length - 1; i >= 0; i--) {
-    const mapping = state.sourceMappings[i];
-    if (mapping.generatedLine <= line) {
-      // Simple line-based mapping for now
-      const lineDelta = line - mapping.generatedLine;
-      return {
-        line: mapping.originalLine + lineDelta,
-        column: column, // TODO: More precise column mapping
-      };
-    }
-  }
-
-  // Fallback: return as-is
-  return { line, column };
-}
+import { createPositionMapper, type PositionMapper } from "@typesugar/transformer/position-mapper";
 
 /** typesugar package prefixes for import detection */
 const TYPESUGAR_PACKAGE_PREFIXES = [
@@ -203,7 +35,6 @@ const TYPESUGAR_PACKAGE_PREFIXES = [
  * Check if a lint message is about an unused import from a typesugar package.
  */
 function isTypesugarUnusedImportError(message: Linter.LintMessage, source: string): boolean {
-  // Rules that report unused imports
   const unusedImportRules = [
     "no-unused-vars",
     "@typescript-eslint/no-unused-vars",
@@ -216,7 +47,6 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
     return false;
   }
 
-  // Find the line with the error
   if (message.line === undefined) {
     return false;
   }
@@ -224,7 +54,6 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
   const lines = source.split("\n");
   const errorLine = lines[message.line - 1] ?? "";
 
-  // Check if this line is an import from a typesugar package
   const importMatch = errorLine.match(/from\s+["']([^"']+)["']/);
   if (!importMatch) {
     return false;
@@ -236,6 +65,95 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
   );
 }
 
+// ---------------------------------------------------------------------------
+// Line/column <-> offset helpers (ESLint uses 1-based line, 1-based column)
+// ---------------------------------------------------------------------------
+
+function lineColToOffset(source: string, line: number, column: number): number {
+  let currentLine = 1;
+  let offset = 0;
+
+  while (currentLine < line && offset < source.length) {
+    if (source[offset] === "\n") {
+      currentLine++;
+    }
+    offset++;
+  }
+
+  return offset + (column - 1);
+}
+
+function offsetToLineCol(source: string, offset: number): { line: number; column: number } {
+  let line = 1;
+  let lastLineStart = 0;
+
+  for (let i = 0; i < offset && i < source.length; i++) {
+    if (source[i] === "\n") {
+      line++;
+      lastLineStart = i + 1;
+    }
+  }
+
+  return { line, column: offset - lastLineStart + 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Source transformation
+// ---------------------------------------------------------------------------
+
+interface TransformResult {
+  code: string;
+  mapper: PositionMapper;
+}
+
+/**
+ * Run preprocessing and ESLint-specific heuristics on source code.
+ *
+ * 1. Preprocessor handles custom syntax (F<_> HKT, |>, ::)
+ * 2. Regex heuristics comment out decorators and labeled blocks that would
+ *    cause ESLint false positives
+ */
+function transformSource(fileName: string, source: string): TransformResult {
+  try {
+    const preprocessResult = preprocessCustomSyntax(source, { fileName });
+    let transformed = preprocessResult.code;
+    const sourceMap = preprocessResult.map;
+
+    // ESLint-specific heuristics: comment out macro decorators
+    const decoratorPattern =
+      /@(derive|deriving|typeclass|instance|operators|contract|invariant|reflect)\s*\([^)]*\)/g;
+    transformed = transformed.replace(decoratorPattern, (match) => {
+      return `/* ${match} */`;
+    });
+
+    // ESLint-specific heuristics: comment out labeled blocks (requires:/ensures:)
+    const labeledBlockPattern = /(requires|ensures)\s*:\s*\{[\s\S]*?\n\s*\}/g;
+    transformed = transformed.replace(labeledBlockPattern, (match) => {
+      return `/* ${match.replace(/\*\//g, "* /")} */`;
+    });
+
+    const mapper = createPositionMapper(sourceMap, source, transformed);
+    return { code: transformed, mapper };
+  } catch (error) {
+    console.warn(`[typesugar-eslint] Transform failed for ${fileName}:`, error);
+    return {
+      code: source,
+      mapper: createPositionMapper(null, source, source),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-file state for postprocess
+// ---------------------------------------------------------------------------
+
+interface FileState {
+  originalSource: string;
+  mapper: PositionMapper;
+}
+
+const fileStates = new Map<string, FileState>();
+
 /**
  * Create the ESLint processor
  */
@@ -246,21 +164,13 @@ export function createProcessor(): Linter.Processor {
       version: "0.1.0",
     },
 
-    // Only process .ts and .tsx files
     supportsAutofix: true,
 
-    /**
-     * Preprocess: Transform the source before linting
-     */
     preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
-      // Skip non-TypeScript files
       if (!filename.endsWith(".ts") && !filename.endsWith(".tsx")) {
         return [text];
       }
 
-      // Quick check: does this file even use typesugar patterns?
-      // For :: we use a regex to avoid false positives with TypeScript's :: in labels
-      // (e.g., `foo::bar` vs `foo: { label: ... }`)
       const usesTypesugar =
         text.includes("@derive") ||
         text.includes("@typeclass") ||
@@ -274,60 +184,60 @@ export function createProcessor(): Linter.Processor {
         text.includes("@reflect") ||
         text.includes("<_>") || // HKT syntax
         text.includes("|>") || // Pipeline operator
-        /[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/.test(text); // Cons operator (value :: value context)
+        /[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/.test(text); // Cons operator
 
       if (!usesTypesugar) {
-        // No typesugar patterns - pass through unchanged
         fileStates.set(filename, {
           originalSource: text,
-          transformedSource: text,
-          sourceMappings: [],
-          fileName: filename,
+          mapper: createPositionMapper(null, text, text),
         });
         return [text];
       }
 
-      // Transform the source
-      const { transformed, mappings } = transformSource(filename, text);
+      const { code, mapper } = transformSource(filename, text);
 
-      // Store state for postprocess
       fileStates.set(filename, {
         originalSource: text,
-        transformedSource: transformed,
-        sourceMappings: mappings,
-        fileName: filename,
+        mapper,
       });
 
-      return [transformed];
+      return [code];
     },
 
-    /**
-     * Postprocess: Map lint messages back to original source locations
-     * and filter out false positives for typesugar imports
-     */
     postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
       const state = fileStates.get(filename);
-      if (!state || state.sourceMappings.length === 0) {
-        // No transformation was done, but still filter typesugar import errors
-        return messages
-          .flat()
-          .filter((message) => !isTypesugarUnusedImportError(message, state?.originalSource ?? ""));
+      if (!state) {
+        return messages.flat();
       }
 
-      // Map each message's location back to the original source
-      // and filter out false positives for typesugar imports
       return messages
         .flat()
         .filter((message) => !isTypesugarUnusedImportError(message, state.originalSource))
         .map((message) => {
-          if (message.line !== undefined) {
-            const mapped = mapToOriginal(state, message.line, message.column ?? 0);
-            return {
-              ...message,
-              line: mapped.line,
-              column: mapped.column,
-              endLine: message.endLine ? mapToOriginal(state, message.endLine, 0).line : undefined,
-            };
+          if (message.line !== undefined && message.column !== undefined) {
+            const offset = lineColToOffset(state.originalSource, message.line, message.column);
+            const originalOffset = state.mapper.toOriginal(offset);
+
+            if (originalOffset !== null) {
+              const mapped = offsetToLineCol(state.originalSource, originalOffset);
+              const result = { ...message, line: mapped.line, column: mapped.column };
+
+              if (message.endLine !== undefined && message.endColumn !== undefined) {
+                const endOffset = lineColToOffset(
+                  state.originalSource,
+                  message.endLine,
+                  message.endColumn
+                );
+                const originalEndOffset = state.mapper.toOriginal(endOffset);
+                if (originalEndOffset !== null) {
+                  const mappedEnd = offsetToLineCol(state.originalSource, originalEndOffset);
+                  result.endLine = mappedEnd.line;
+                  result.endColumn = mappedEnd.column;
+                }
+              }
+
+              return result;
+            }
           }
           return message;
         });

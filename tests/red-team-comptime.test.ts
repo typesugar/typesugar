@@ -1,7 +1,7 @@
 /**
  * Red Team Tests for @typesugar/comptime
  *
- * Focus areas:
+ * Attack surfaces:
  * - Sandbox security
  * - Value serialization edge cases
  * - Timeout handling

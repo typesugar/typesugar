@@ -14,6 +14,7 @@
 
 import type { Numeric } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
+import type { Refined } from "@typesugar/type-system";
 import type {
   Expression,
   Constant,
@@ -41,15 +42,22 @@ import type { Mul, Div, Add, Sub, Pow, Sqrt, FunctionName } from "./types.js";
  * @param name - Optional display name (e.g., "π", "e")
  */
 export function const_<T = number>(value: number, name?: string): Constant<T> {
+  if (Number.isNaN(value)) {
+    throw new Error("Cannot create a constant from NaN");
+  }
   return { kind: "constant", value, name };
 }
 
 /**
  * Create a symbolic variable.
  *
- * @param name - The variable name
+ * @param name - The variable name (must be non-empty, validated at runtime)
+ * @throws {Error} If name is empty
  */
 export function var_<T = number>(name: string): Variable<T> {
+  if (name.length === 0) {
+    throw new Error("Variable name must be non-empty");
+  }
   return { kind: "variable", name };
 }
 
@@ -66,8 +74,11 @@ export const E: Constant<number> = const_(Math.E, "e");
 /** Golden ratio φ ≈ 1.61803... */
 export const PHI: Constant<number> = const_((1 + Math.sqrt(5)) / 2, "φ");
 
-/** Zero constant */
-export const ZERO: Constant<number> = const_(0);
+/** Zero constant, branded so `div(x, ZERO)` is a compile error. */
+export const ZERO: Refined<Constant<number>, "Zero"> = const_(0) as Refined<
+  Constant<number>,
+  "Zero"
+>;
 
 /** One constant */
 export const ONE: Constant<number> = const_(1);
@@ -148,17 +159,34 @@ export function mul<A, B>(
 /**
  * Division: a / b
  * Accepts raw numbers which are auto-wrapped as constants.
+ *
+ * **Type-level guard:** Passing `ZERO` (the branded constant) as denominator
+ * resolves to the `never` overload, making the result unusable at compile time.
+ *
+ * **Widening limitation:** TypeScript's structural typing allows the brand to
+ * be stripped via widening (e.g., `const zero: Constant<number> = ZERO`).
+ * The type guard is a "pit of success" — it catches direct uses of `ZERO`
+ * but cannot prevent all zero-denominator constructions at the type level.
+ *
+ * **Runtime protection:** As a safety net, this function throws at runtime if
+ * the denominator is a constant with value 0 or if the raw number 0 is passed.
+ *
+ * @throws {Error} If the denominator is zero (constant or raw number)
  */
+export function div<A>(left: ExprLike<A>, right: Refined<any, "Zero">): never;
 export function div<A, B>(
   left: ExprLike<A>,
   right: ExprLike<B>
-): BinaryOp<A, B, Div<A, B>> & Op<"/"> {
-  return { kind: "binary", op: "/", left: toExpr(left), right: toExpr(right) } as BinaryOp<
-    A,
-    B,
-    Div<A, B>
-  > &
-    Op<"/">;
+): BinaryOp<A, B, Div<A, B>> & Op<"/">;
+export function div(left: ExprLike<any>, right: ExprLike<any>): any {
+  if (typeof right === "number" && right === 0) {
+    throw new Error("Division by zero: cannot divide by literal 0");
+  }
+  const rightExpr = toExpr(right);
+  if (rightExpr.kind === "constant" && rightExpr.value === 0) {
+    throw new Error("Division by zero: cannot divide by zero constant");
+  }
+  return { kind: "binary", op: "/", left: toExpr(left), right: rightExpr };
 }
 
 /**
@@ -193,6 +221,13 @@ export function neg<A>(arg: Expression<A>): UnaryOp<A, A> {
  */
 export function abs<A>(arg: Expression<A>): UnaryOp<A, A> {
   return { kind: "unary", op: "abs", arg };
+}
+
+/**
+ * Signum (sign) function: returns 1 for positive, 0 for zero, -1 for negative.
+ */
+export function signum<A>(arg: Expression<A>): UnaryOp<A, number> {
+  return { kind: "unary", op: "signum", arg };
 }
 
 /**
@@ -439,7 +474,7 @@ export function numericExpression<T>(): Numeric<Expression<T>> {
     mul: (a, b) => mul(a, b) as Expression<T> & Op<"*">,
     negate: (a) => neg(a),
     abs: (a) => abs(a),
-    signum: (_a) => const_(1) as Expression<T>,
+    signum: (a) => signum(a) as Expression<T>,
     fromNumber: (n) => const_(n) as Expression<T>,
     toNumber: (a) => {
       if (a.kind === "constant") return a.value;

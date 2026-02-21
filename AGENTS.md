@@ -83,6 +83,7 @@ packages/
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin
 ├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
+├── ts-plugin/          # @typesugar/ts-plugin — TypeScript language service plugin
 │
 │   ## Developer Experience
 ├── vscode/             # @typesugar/vscode — VS Code/Cursor extension
@@ -124,6 +125,7 @@ packages/
 ├── geometry/           # @typesugar/geometry — coordinate system safety (Boost.Geometry)
 ├── math/               # @typesugar/math — math types and typeclasses
 ├── mapper/             # @typesugar/mapper — zero-cost object mapping
+├── symbolic/           # @typesugar/symbolic — symbolic math, calculus, simplification
 │
 │   ## Ecosystem Integrations
 ├── effect/             # @typesugar/effect — Effect TS integration (@service, @layer, resolveLayer, derives)

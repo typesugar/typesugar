@@ -12,6 +12,7 @@
  */
 
 import type { Expression } from "../expression.js";
+import { hasVariable } from "../expression.js";
 import { simplificationRules, expressionsEqual, type SimplificationRule } from "./rules.js";
 
 /**
@@ -241,7 +242,6 @@ function extractTerms(expr: Expression<unknown>, v: string): Map<number, number>
         if (e.name === v) {
           addTerm(multiplier, 1);
         } else {
-          // Treat other variables as constants for now
           addTerm(multiplier, 0);
         }
         break;
@@ -254,12 +254,24 @@ function extractTerms(expr: Expression<unknown>, v: string): Map<number, number>
           extract(e.left, multiplier);
           extract(e.right, -multiplier);
         } else if (e.op === "*") {
-          // Simple case: constant * variable^n
           extractProduct(e.left, e.right, multiplier);
         } else if (e.op === "^") {
-          // x^n
           if (e.left.kind === "variable" && e.left.name === v && e.right.kind === "constant") {
             addTerm(multiplier, e.right.value);
+          } else if (!hasVariable(e, v)) {
+            addTerm(multiplier, 0);
+          } else {
+            throw new Error(
+              `Cannot collect terms: non-polynomial power expression in variable '${v}'`
+            );
+          }
+        } else if (e.op === "/") {
+          if (e.right.kind === "constant") {
+            extract(e.left, multiplier / e.right.value);
+          } else if (!hasVariable(e.right, v)) {
+            extract(e.left, multiplier);
+          } else {
+            throw new Error(`Cannot collect terms: variable '${v}' appears in denominator`);
           }
         }
         break;
@@ -267,12 +279,25 @@ function extractTerms(expr: Expression<unknown>, v: string): Map<number, number>
       case "unary":
         if (e.op === "-") {
           extract(e.arg, -multiplier);
+        } else {
+          throw new Error(
+            `Cannot collect terms: unsupported unary '${e.op}' in polynomial for '${v}'`
+          );
+        }
+        break;
+
+      case "function":
+        if (!hasVariable(e, v)) {
+          addTerm(multiplier, 0);
+        } else {
+          throw new Error(
+            `Cannot collect terms: function '${e.fn}' contains variable '${v}' (not a polynomial)`
+          );
         }
         break;
 
       default:
-        // Can't extract terms from complex expressions
-        break;
+        throw new Error(`Cannot collect terms: unsupported expression kind '${e.kind}'`);
     }
   }
 

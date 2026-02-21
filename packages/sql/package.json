@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/sql",
   "version": "0.1.0",
-  "description": "Doobie-like type-safe SQL DSL with compile-time query building for typesugar",
+  "description": "🧊 Doobie-like type-safe SQL DSL with compile-time query building for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

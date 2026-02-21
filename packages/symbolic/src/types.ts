@@ -54,7 +54,7 @@ export type BinaryOpSymbol = "+" | "-" | "*" | "/" | "^";
 /**
  * Unary operator symbols supported in the AST.
  */
-export type UnaryOpSymbol = "-" | "abs" | "sqrt";
+export type UnaryOpSymbol = "-" | "abs" | "sqrt" | "signum";
 
 /**
  * Mathematical function names supported in the AST.

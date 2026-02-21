@@ -66,6 +66,7 @@ Powerful abstractions with zero runtime cost:
 | [Geometry](./geometry.md)         | Type-safe geometry (Boost.Geometry)     |
 | [Math](./math.md)                 | Rational, complex, matrix, interval     |
 | [Object Mapping](./mapper.md)     | Zero-cost struct transformation         |
+| [Symbolic Math](./symbolic.md)    | Calculus, simplification, rendering     |
 
 ## Ecosystem Integrations
 

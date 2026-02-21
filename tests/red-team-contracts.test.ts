@@ -1,7 +1,7 @@
 /**
  * Red Team Tests for @typesugar/contracts
  *
- * Focus areas:
+ * Attack surfaces:
  * - Prover edge cases (linear arithmetic, algebraic rules)
  * - Floating point precision
  * - Malformed inputs

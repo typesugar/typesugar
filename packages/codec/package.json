@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/codec",
   "version": "0.1.0",
-  "description": "Versioned codec generation with schema evolution — serde + protobuf for TypeScript",
+  "description": "🧊 Versioned codec generation with schema evolution — serde + protobuf for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

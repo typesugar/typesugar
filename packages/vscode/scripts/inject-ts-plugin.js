@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Injects @typesugar/ts-plugin into the vsix after vsce packages it.
+ * Injects @typesugar/ts-plugin and @typesugar/transformer into the vsix after vsce packages it.
  * vsce with --no-dependencies doesn't include node_modules, so we add it manually.
  */
 
@@ -32,30 +32,39 @@ try {
   // Extract vsix (it's a zip file)
   execSync(`unzip -q "${vsixFile}" -d "${tempDir}"`);
 
-  // Create node_modules/@typesugar/ts-plugin in the extension folder
-  const pluginDest = join(tempDir, "extension", "node_modules", "@typesugar", "ts-plugin");
-  mkdirSync(pluginDest, { recursive: true });
+  // Helper to copy package files
+  function copyPackage(packageName, files) {
+    const dest = join(tempDir, "extension", "node_modules", "@typesugar", packageName);
+    mkdirSync(dest, { recursive: true });
 
-  // Copy ts-plugin files from the workspace
-  const pluginSrc = join(vscodeDir, "node_modules", "@typesugar", "ts-plugin");
-  const files = ["index.js", "index.d.ts", "language-service.cjs", "package.json"];
-
-  for (const file of files) {
-    const src = join(pluginSrc, file);
-    const dest = join(pluginDest, file);
-    if (existsSync(src)) {
-      cpSync(src, dest);
-      console.log(`  Added ${file}`);
-    } else {
-      console.warn(`  Warning: ${file} not found`);
+    const src = join(vscodeDir, "node_modules", "@typesugar", packageName);
+    for (const file of files) {
+      const srcFile = join(src, file);
+      const destFile = join(dest, file);
+      if (existsSync(srcFile)) {
+        cpSync(srcFile, destFile);
+        console.log(`  Added ${packageName}/${file}`);
+      } else {
+        console.warn(`  Warning: ${packageName}/${file} not found`);
+      }
     }
   }
+
+  // Copy ts-plugin files
+  copyPackage("ts-plugin", ["index.js", "index.d.ts", "package.json"]);
+
+  // Copy transformer files (needed for language-service) - using fully-bundled version
+  copyPackage("transformer", [
+    "language-service-bundled.cjs",
+    "language-service-bundled.cjs.map",
+    "package.json",
+  ]);
 
   // Remove old vsix and create new one
   rmSync(vsixFile);
   execSync(`cd "${tempDir}" && zip -rq "${vsixFile}" .`);
 
-  console.log(`✓ Injected @typesugar/ts-plugin into ${vsixFiles[0]}`);
+  console.log(`✓ Injected @typesugar packages into ${vsixFiles[0]}`);
 } finally {
   // Cleanup
   rmSync(tempDir, { recursive: true });

@@ -139,6 +139,8 @@ function evalUnary(op: string, arg: number): number {
         throw new Error("Square root of negative number");
       }
       return Math.sqrt(arg);
+    case "signum":
+      return arg > 0 ? 1 : arg < 0 ? -1 : 0;
     default:
       throw new Error(`Unknown unary operator: ${op}`);
   }

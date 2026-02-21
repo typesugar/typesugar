@@ -255,7 +255,9 @@ function init(modules: { typescript: typeof ts }) {
       const diagnostics = oldLS.getSemanticDiagnostics(fileName);
       const mapped = mapDiagnostics(diagnostics, fileName);
       if (mapped.length > 0) {
-        log(`Semantic diagnostics for ${path.basename(fileName)}: ${diagnostics.length} raw → ${mapped.length} mapped`);
+        log(
+          `Semantic diagnostics for ${path.basename(fileName)}: ${diagnostics.length} raw → ${mapped.length} mapped`
+        );
       }
       return mapped;
     };
@@ -277,17 +279,13 @@ function init(modules: { typescript: typeof ts }) {
     /**
      * Map a TextSpan back to original coordinates
      */
-    function mapTextSpanToOriginal(
-      span: ts.TextSpan,
-      mapper: PositionMapper
-    ): ts.TextSpan | null {
+    function mapTextSpanToOriginal(span: ts.TextSpan, mapper: PositionMapper): ts.TextSpan | null {
       const originalStart = mapper.toOriginal(span.start);
       if (originalStart === null) return null;
 
       const originalEnd = mapper.toOriginal(span.start + span.length);
-      const originalLength = originalEnd !== null
-        ? Math.max(1, originalEnd - originalStart)
-        : span.length;
+      const originalLength =
+        originalEnd !== null ? Math.max(1, originalEnd - originalStart) : span.length;
 
       return { start: originalStart, length: originalLength };
     }

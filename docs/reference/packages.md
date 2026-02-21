@@ -107,6 +107,16 @@ import typesugar from "unplugin-typesugar/esbuild";
 import typesugar from "unplugin-typesugar/rollup";
 ```
 
+### @typesugar/ts-plugin {#ts-plugin}
+
+TypeScript language service plugin for IDE integration.
+
+```bash
+npm install --save-dev @typesugar/ts-plugin
+```
+
+Enables type-aware transformation, diagnostics, go-to-definition, completions, and hover info for typesugar syntax in any TypeScript editor.
+
 ---
 
 ## Developer Experience
@@ -748,6 +758,44 @@ transformInto<S, T>();
 **Inspired by:** Scala Chimney
 
 [Guide](/guides/mapper)
+
+### @typesugar/symbolic {#symbolic}
+
+Type-safe symbolic mathematics with AST, rendering, evaluation, calculus, and simplification.
+
+```bash
+npm install @typesugar/symbolic
+```
+
+**Exports:**
+
+```typescript
+// AST construction
+var_;
+const_;
+add;
+mul;
+pow;
+sin;
+cos;
+ln;
+
+// Calculus
+diff;
+integrate;
+limit;
+
+// Evaluation & rendering
+evaluate;
+toLatex;
+toMathML;
+simplify;
+solve;
+```
+
+**Inspired by:** SymPy, Mathematica
+
+[Guide](/guides/symbolic)
 
 ---
 

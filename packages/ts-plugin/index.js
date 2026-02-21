@@ -1,4 +1,5 @@
-// Self-contained language service plugin for typesugar
+// Language service plugin for typesugar
+// Delegates to @typesugar/transformer's language service implementation
 // TypeScript expects the factory function directly, not wrapped in { default }
-const plugin = require("./language-service.cjs");
+const plugin = require("@typesugar/transformer/language-service");
 module.exports = plugin.default || plugin;

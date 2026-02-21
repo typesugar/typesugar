@@ -8,7 +8,15 @@
 
 import type { Expression } from "../expression.js";
 import { const_, add, mul, pow, neg, ZERO, ONE, TWO } from "../builders.js";
-import { isConstant, isZero, isOne, isNegativeOne, isBinaryOp, isUnaryOp } from "../expression.js";
+import {
+  isConstant,
+  isZero,
+  isOne,
+  isNegativeOne,
+  isBinaryOp,
+  isUnaryOp,
+  isIntegerConstant,
+} from "../expression.js";
 
 // Helper type for casting
 type Expr = Expression<number>;
@@ -90,15 +98,31 @@ export function mulOneRule(expr: Expression<unknown>): Expression<unknown> | nul
 }
 
 /**
- * x * 0 = 0, 0 * x = 0
+ * x * 0 = 0, 0 * x = 0 (for finite x)
+ * Skips when either operand could be infinity to avoid ∞ * 0 → 0 unsoundness.
  */
 export function mulZeroRule(expr: Expression<unknown>): Expression<unknown> | null {
   if (!isBinaryOp(expr) || expr.op !== "*") return null;
 
-  if (isZero(expr.left)) return ZERO;
-  if (isZero(expr.right)) return ZERO;
+  if (isZero(expr.left)) {
+    if (isPotentialInfinity(expr.right)) return null;
+    return ZERO;
+  }
+  if (isZero(expr.right)) {
+    if (isPotentialInfinity(expr.left)) return null;
+    return ZERO;
+  }
 
   return null;
+}
+
+/**
+ * Check if an expression could evaluate to infinity.
+ * Detects division-by-zero patterns (x/0 where x ≠ 0).
+ */
+function isPotentialInfinity(expr: Expression<unknown>): boolean {
+  if (!isBinaryOp(expr) || expr.op !== "/") return false;
+  return isZero(expr.right) && !isZero(expr.left);
 }
 
 /**
@@ -124,12 +148,17 @@ export function powOneRule(expr: Expression<unknown>): Expression<unknown> | nul
 }
 
 /**
- * x^0 = 1 (for x ≠ 0)
+ * x^0 = 1 (assumes x ≠ 0 for symbolic variables)
+ * Only skips when base is a LITERAL zero constant to avoid 0^0 → 1 unsoundness.
+ * For symbolic variables, assumes non-zero (standard CAS behavior).
  */
 export function powZeroRule(expr: Expression<unknown>): Expression<unknown> | null {
   if (!isBinaryOp(expr) || expr.op !== "^") return null;
 
-  if (isZero(expr.right)) return ONE;
+  if (isZero(expr.right)) {
+    if (isZero(expr.left)) return null;
+    return ONE;
+  }
 
   return null;
 }
@@ -140,6 +169,10 @@ export function powZeroRule(expr: Expression<unknown>): Expression<unknown> | nu
 
 /**
  * Evaluate operations on constants.
+ *
+ * Guards against:
+ * - NaN inputs (NaN^0 = 1 per IEEE 754, but symbolically indeterminate)
+ * - Non-finite results (0^(-n) = Infinity, shouldn't create infinity constants)
  */
 export function constantFoldingRule(expr: Expression<unknown>): Expression<unknown> | null {
   if (!isBinaryOp(expr)) return null;
@@ -149,19 +182,36 @@ export function constantFoldingRule(expr: Expression<unknown>): Expression<unkno
   const a = expr.left.value;
   const b = expr.right.value;
 
+  // Guard: don't fold if either operand is NaN
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+
+  let result: number;
   switch (expr.op) {
     case "+":
-      return const_(a + b);
+      result = a + b;
+      break;
     case "-":
-      return const_(a - b);
+      result = a - b;
+      break;
     case "*":
-      return const_(a * b);
+      result = a * b;
+      break;
     case "/":
       if (b === 0) return null; // Don't fold division by zero
-      return const_(a / b);
+      result = a / b;
+      break;
     case "^":
-      return const_(Math.pow(a, b));
+      if (a === 0 && b === 0) return null; // 0^0 is indeterminate, don't fold
+      result = Math.pow(a, b);
+      break;
+    default:
+      return null;
   }
+
+  // Guard: don't fold if result is non-finite (Infinity, -Infinity, NaN)
+  if (!Number.isFinite(result)) return null;
+
+  return const_(result);
 }
 
 // ============================================================================
@@ -195,12 +245,15 @@ export function subSameRule(expr: Expression<unknown>): Expression<unknown> | nu
 }
 
 /**
- * x / x = 1 (for x ≠ 0)
+ * x / x = 1 (assumes x ≠ 0 for symbolic variables)
+ * Only skips when both sides are LITERAL zero constants to avoid 0/0 → 1 unsoundness.
+ * For symbolic variables, assumes non-zero (standard CAS behavior).
  */
 export function divSameRule(expr: Expression<unknown>): Expression<unknown> | null {
   if (!isBinaryOp(expr) || expr.op !== "/") return null;
 
   if (expressionsEqual(expr.left, expr.right)) {
+    if (isZero(expr.left)) return null;
     return ONE;
   }
 
@@ -297,15 +350,25 @@ export function combineConstantsMulRule(expr: Expression<unknown>): Expression<u
 
 /**
  * (x^a)^b = x^(a*b)
+ *
+ * Only fires when both exponents are known integers.
+ * For non-integer exponents, this identity is invalid for negative bases:
+ * e.g., ((-1)^2)^0.5 = 1, but (-1)^(2*0.5) = (-1)^1 = -1
  */
 export function powerOfPowerRule(expr: Expression<unknown>): Expression<unknown> | null {
   if (!isBinaryOp(expr) || expr.op !== "^") return null;
 
   if (isBinaryOp(expr.left) && expr.left.op === "^") {
-    // (x^a)^b = x^(a*b)
-    const base = expr.left.left;
     const innerExp = expr.left.right;
     const outerExp = expr.right;
+
+    // Guard: only apply when both exponents are integers (safe for all bases)
+    if (!isIntegerConstant(innerExp) || !isIntegerConstant(outerExp)) {
+      return null;
+    }
+
+    // (x^a)^b = x^(a*b)
+    const base = expr.left.left;
     return pow(base as Expr, mul(innerExp as Expr, outerExp as Expr));
   }
 

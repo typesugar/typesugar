@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/math",
   "version": "0.1.0",
-  "description": "Comprehensive math types and typeclasses for TypeScript",
+  "description": "🧊 Comprehensive math types and typeclasses for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "license": "MIT",
   "type": "module",

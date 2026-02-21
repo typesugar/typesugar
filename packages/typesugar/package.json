@@ -1,7 +1,7 @@
 {
   "name": "typesugar",
   "version": "0.1.0",
-  "description": "TypeScript compile-time macros - Scala 3-style metaprogramming for TypeScript",
+  "description": "🧊 TypeScript compile-time macros - Scala 3-style metaprogramming for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",
@@ -61,7 +61,8 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "keywords": [
     "typescript",

@@ -141,6 +141,9 @@ function renderUnary<T>(
 
     case "sqrt":
       return `<msqrt>${render(expr.arg, opts)}</msqrt>`;
+
+    case "signum":
+      return `<mrow><mi>sgn</mi><mo>(</mo>${render(expr.arg, opts)}<mo>)</mo></mrow>`;
   }
 }
 

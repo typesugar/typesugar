@@ -1,7 +1,7 @@
 {
   "name": "unplugin-typesugar",
   "version": "0.1.0",
-  "description": "Bundler integrations for typesugar (Vite, Webpack, esbuild, Rollup)",
+  "description": "🧊 Bundler integrations for typesugar (Vite, Webpack, esbuild, Rollup)",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

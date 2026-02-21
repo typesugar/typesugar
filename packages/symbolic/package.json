@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/symbolic",
   "version": "0.1.0",
-  "description": "Type-safe symbolic mathematics with AST, rendering, evaluation, calculus, and simplification",
+  "description": "🧊 Type-safe symbolic mathematics with AST, rendering, evaluation, calculus, and simplification",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "license": "MIT",
   "type": "module",
@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@typesugar/core": "workspace:*",
-    "@typesugar/std": "workspace:*"
+    "@typesugar/std": "workspace:*",
+    "@typesugar/type-system": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

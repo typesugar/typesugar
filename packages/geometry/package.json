@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/geometry",
   "version": "0.1.0",
-  "description": "Type-safe geometry with compile-time coordinate system and dimension checking",
+  "description": "🧊 Type-safe geometry with compile-time coordinate system and dimension checking",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

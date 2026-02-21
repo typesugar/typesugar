@@ -5,6 +5,7 @@
  */
 
 import * as ts from "typescript";
+import { preprocess } from "@typesugar/preprocessor";
 import {
   MacroContextImpl,
   createMacroContext,
@@ -47,6 +48,75 @@ export interface MacroTransformerConfig {
 }
 
 /**
+ * Quick heuristic check for custom syntax that requires preprocessing.
+ *
+ * Checks for:
+ * - `|>` (pipeline operator) outside string literals
+ * - `<_>` (HKT declaration syntax) in type context
+ * - `::` (cons operator) in value context (rough heuristic)
+ *
+ * This is intentionally fast and loose — false positives are fine (the
+ * preprocessor will just return the code unchanged), but false negatives
+ * mean custom syntax won't be handled.
+ */
+const NEEDS_PREPROCESS_RE = /\|>|<_>|[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/;
+
+/**
+ * Detect whether a source file needs preprocessing and, if so, create a
+ * new SourceFile from the preprocessed text.
+ *
+ * CAVEATS:
+ * - The type checker was built against the original (non-preprocessed) program,
+ *   so type resolution may be incomplete for preprocessed constructs. Macros
+ *   that rely on the type checker (e.g. @implicits, extension methods) may
+ *   not resolve correctly in preprocessed regions.
+ * - For full type-aware transformation of files with custom syntax, use
+ *   `unplugin-typesugar` or the `TransformationPipeline` which creates a
+ *   fresh program from preprocessed content.
+ * - This inline preprocessing is a best-effort fallback for `tsc` + ts-patch
+ *   users who have files with custom syntax mixed with macros.
+ */
+function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.SourceFile {
+  const text = sourceFile.text;
+
+  if (!NEEDS_PREPROCESS_RE.test(text)) {
+    return sourceFile;
+  }
+
+  try {
+    const result = preprocess(text, { fileName: sourceFile.fileName });
+
+    if (!result.changed) {
+      return sourceFile;
+    }
+
+    if (verbose) {
+      console.log(`[typesugar] Preprocessing: ${sourceFile.fileName}`);
+    }
+
+    const scriptKind =
+      sourceFile.fileName.endsWith(".tsx") || sourceFile.fileName.endsWith(".jsx")
+        ? ts.ScriptKind.TSX
+        : sourceFile.fileName.endsWith(".mts") || sourceFile.fileName.endsWith(".cts")
+          ? ts.ScriptKind.TS
+          : ts.ScriptKind.TS;
+
+    return ts.createSourceFile(
+      sourceFile.fileName,
+      result.code,
+      sourceFile.languageVersion,
+      /* setParentNodes */ true,
+      scriptKind
+    );
+  } catch (e) {
+    if (verbose) {
+      console.log(`[typesugar] Preprocessing failed for ${sourceFile.fileName}: ${e}`);
+    }
+    return sourceFile;
+  }
+}
+
+/**
  * Create the TypeScript transformer factory
  * This is the entry point called by ts-patch
  */
@@ -57,9 +127,9 @@ export default function macroTransformerFactory(
   const verbose = config?.verbose ?? false;
 
   if (verbose) {
-    console.log("[typemacro] Initializing transformer");
+    console.log("[typesugar] Initializing transformer");
     console.log(
-      `[typemacro] Registered macros: ${globalRegistry
+      `[typesugar] Registered macros: ${globalRegistry
         .getAll()
         .map((m) => m.name)
         .join(", ")}`
@@ -69,8 +139,13 @@ export default function macroTransformerFactory(
   return (context: ts.TransformationContext) => {
     return (sourceFile: ts.SourceFile) => {
       if (verbose) {
-        console.log(`[typemacro] Processing: ${sourceFile.fileName}`);
+        console.log(`[typesugar] Processing: ${sourceFile.fileName}`);
       }
+
+      // Phase 1: Preprocess custom syntax (|>, ::, F<_>) into valid TypeScript.
+      // This must happen before macro expansion because the original source may
+      // contain syntax that TypeScript couldn't parse correctly.
+      sourceFile = maybePreprocess(sourceFile, verbose);
 
       const ctx = createMacroContext(program, sourceFile, context);
 
@@ -81,7 +156,7 @@ export default function macroTransformerFactory(
       const fileScope = globalResolutionScope.getScope(sourceFile.fileName);
       if (fileScope.optedOut) {
         if (verbose) {
-          console.log(`[typemacro] Skipping: ${sourceFile.fileName} (opted out)`);
+          console.log(`[typesugar] Skipping: ${sourceFile.fileName} (opted out)`);
         }
         return sourceFile;
       }
@@ -100,11 +175,11 @@ export default function macroTransformerFactory(
           file: sourceFile,
           start,
           length,
-          messageText: `[typemacro] ${diag.message}`,
+          messageText: `[typesugar] ${diag.message}`,
           category:
             diag.severity === "error" ? ts.DiagnosticCategory.Error : ts.DiagnosticCategory.Warning,
-          code: 90000, // Custom diagnostic code range for typemacro
-          source: "typemacro",
+          code: 90000,
+          source: "typesugar",
         };
 
         // Use the transformation context's addDiagnostic if available (TS 5.x+)
@@ -121,7 +196,7 @@ export default function macroTransformerFactory(
           const loc = diag.node
             ? ` at ${sourceFile.fileName}:${sourceFile.getLineAndCharacterOfPosition(start).line + 1}`
             : "";
-          console.log(`[typemacro ${prefix}]${loc} ${diag.message}`);
+          console.log(`[typesugar ${prefix}]${loc} ${diag.message}`);
         }
       }
 
@@ -602,7 +677,7 @@ class MacroTransformer {
           }
 
           if (this.verbose) {
-            console.log(`[typemacro] Expanding labeled block macro: ${labelName}:`);
+            console.log(`[typesugar] Expanding labeled block macro: ${labelName}:`);
           }
 
           let continuation: ts.LabeledStatement | undefined;
@@ -632,7 +707,7 @@ class MacroTransformer {
             this.ctx.reportError(stmt, `Labeled block macro expansion failed: ${error}`);
             newStatements.push(
               this.createMacroErrorStatement(
-                `typemacro: labeled block '${labelName}:' expansion failed: ${error}`
+                `typesugar: labeled block '${labelName}:' expansion failed: ${error}`
               )
             );
           }
@@ -743,7 +818,7 @@ class MacroTransformer {
           const moduleSpec = ts.isStringLiteral(stmt.moduleSpecifier)
             ? stmt.moduleSpecifier.text
             : "<unknown>";
-          console.log(`[typemacro] Removing macro-only import: import ... from "${moduleSpec}"`);
+          console.log(`[typesugar] Removing macro-only import: import ... from "${moduleSpec}"`);
         }
         continue;
       }
@@ -767,7 +842,7 @@ class MacroTransformer {
         const moduleSpec = ts.isStringLiteral(stmt.moduleSpecifier)
           ? stmt.moduleSpecifier.text
           : "<unknown>";
-        console.log(`[typemacro] Trimmed macro specifiers from import: "${moduleSpec}"`);
+        console.log(`[typesugar] Trimmed macro specifiers from import: "${moduleSpec}"`);
       }
 
       result.push(newImport);
@@ -858,7 +933,7 @@ class MacroTransformer {
     if (!macro) return undefined;
 
     if (this.verbose) {
-      console.log(`[typemacro] Expanding expression macro: ${macroName}`);
+      console.log(`[typesugar] Expanding expression macro: ${macroName}`);
     }
 
     try {
@@ -868,7 +943,7 @@ class MacroTransformer {
     } catch (error) {
       this.ctx.reportError(node, `Macro expansion failed: ${error}`);
       return this.createMacroErrorExpression(
-        `typemacro: expansion of '${macroName}' failed: ${error}`
+        `typesugar: expansion of '${macroName}' failed: ${error}`
       );
     }
   }
@@ -917,7 +992,7 @@ class MacroTransformer {
       ) as AttributeMacro | undefined;
       if (macro) {
         if (this.verbose) {
-          console.log(`[typemacro] Expanding attribute macro: ${macroName}`);
+          console.log(`[typesugar] Expanding attribute macro: ${macroName}`);
         }
 
         try {
@@ -936,7 +1011,7 @@ class MacroTransformer {
           this.ctx.reportError(decorator, `Attribute macro expansion failed: ${error}`);
           extraStatements.push(
             this.createMacroErrorStatement(
-              `typemacro: attribute macro '${macroName}' failed: ${error}`
+              `typesugar: attribute macro '${macroName}' failed: ${error}`
             )
           );
           remainingDecorators.push(decorator);
@@ -1028,7 +1103,7 @@ class MacroTransformer {
       }
 
       if (this.verbose) {
-        console.log(`[typemacro] Expanding derive macro: ${deriveName}`);
+        console.log(`[typesugar] Expanding derive macro: ${deriveName}`);
       }
 
       try {
@@ -1096,14 +1171,14 @@ class MacroTransformer {
       | undefined;
     if (taggedMacro) {
       if (this.verbose) {
-        console.log(`[typemacro] Expanding tagged template macro: ${tagName}`);
+        console.log(`[typesugar] Expanding tagged template macro: ${tagName}`);
       }
 
       try {
         if (taggedMacro.validate && !taggedMacro.validate(this.ctx, node)) {
           this.ctx.reportError(node, `Tagged template validation failed for '${tagName}'`);
           return this.createMacroErrorExpression(
-            `typemacro: tagged template '${tagName}' validation failed`
+            `typesugar: tagged template '${tagName}' validation failed`
           );
         }
 
@@ -1113,7 +1188,7 @@ class MacroTransformer {
       } catch (error) {
         this.ctx.reportError(node, `Tagged template macro expansion failed: ${error}`);
         return this.createMacroErrorExpression(
-          `typemacro: tagged template '${tagName}' expansion failed: ${error}`
+          `typesugar: tagged template '${tagName}' expansion failed: ${error}`
         );
       }
     }
@@ -1124,7 +1199,7 @@ class MacroTransformer {
     if (!exprMacro) return undefined;
 
     if (this.verbose) {
-      console.log(`[typemacro] Expanding tagged template via expression macro: ${tagName}`);
+      console.log(`[typesugar] Expanding tagged template via expression macro: ${tagName}`);
     }
 
     try {
@@ -1136,7 +1211,7 @@ class MacroTransformer {
     } catch (error) {
       this.ctx.reportError(node, `Tagged template macro expansion failed: ${error}`);
       return this.createMacroErrorExpression(
-        `typemacro: tagged template '${tagName}' expansion failed: ${error}`
+        `typesugar: tagged template '${tagName}' expansion failed: ${error}`
       );
     }
   }
@@ -1168,7 +1243,7 @@ class MacroTransformer {
     if (!macro) return undefined;
 
     if (this.verbose) {
-      console.log(`[typemacro] Expanding type macro: ${macroName}`);
+      console.log(`[typesugar] Expanding type macro: ${macroName}`);
     }
 
     try {
@@ -1267,7 +1342,7 @@ class MacroTransformer {
           ? `${standaloneExt.qualifier}.${standaloneExt.methodName}`
           : standaloneExt.methodName;
         console.log(
-          `[typemacro] Rewriting standalone extension: ${typeName}.${methodName}() → ${qual}(...)`
+          `[typesugar] Rewriting standalone extension: ${typeName}.${methodName}() → ${qual}(...)`
         );
       }
 
@@ -1293,7 +1368,7 @@ class MacroTransformer {
 
     if (this.verbose) {
       console.log(
-        `[typemacro] Rewriting implicit extension: ${typeName}.${methodName}() → ${extension.typeclassName}.summon<${typeName}>("${typeName}").${methodName}(...)`
+        `[typesugar] Rewriting implicit extension: ${typeName}.${methodName}() → ${extension.typeclassName}.summon<${typeName}>("${typeName}").${methodName}(...)`
       );
     }
 

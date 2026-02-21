@@ -224,6 +224,7 @@ function integrateUnary(
 
     case "abs":
     case "sqrt":
+    case "signum":
       throw new Error(`Cannot directly integrate ${expr.op}(). Substitution may be required.`);
   }
 }

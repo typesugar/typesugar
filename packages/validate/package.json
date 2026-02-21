@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/validate",
   "version": "0.1.0",
-  "description": "Zero-cost validation and schema macros for typesugar",
+  "description": "🧊 Zero-cost validation and schema macros for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

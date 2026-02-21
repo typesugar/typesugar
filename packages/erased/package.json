@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/erased",
   "version": "0.1.0",
-  "description": "Typeclass-based type erasure for heterogeneous collections — dyn Trait for TypeScript",
+  "description": "🧊 Typeclass-based type erasure for heterogeneous collections — dyn Trait for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

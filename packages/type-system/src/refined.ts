@@ -360,10 +360,31 @@ declareSubtyping({
 });
 
 declareSubtyping({
+  from: "Port",
+  to: "NonZero",
+  proof: "port_is_non_zero",
+  description: "Port (1-65535) implies x ≠ 0",
+});
+
+declareSubtyping({
   from: "Percentage",
   to: "NonNegative",
   proof: "percentage_lower_bound",
   description: "Percentage (0-100) implies x >= 0",
+});
+
+declareSubtyping({
+  from: "Positive",
+  to: "NonZero",
+  proof: "positive_implies_non_zero",
+  description: "x > 0 implies x ≠ 0",
+});
+
+declareSubtyping({
+  from: "Negative",
+  to: "NonZero",
+  proof: "negative_implies_non_zero",
+  description: "x < 0 implies x ≠ 0",
 });
 
 declareSubtyping({
@@ -394,13 +415,25 @@ declareSubtyping({
 // --- Number refinements ---
 
 export type Positive = Refined<number, "Positive">;
-export const Positive = refinement<number, "Positive">((n) => n > 0, "Positive");
+export const Positive = refinement<number, "Positive">(
+  (n) => n > 0 && Number.isFinite(n),
+  "Positive"
+);
+
+export type NonZero = Refined<number, "NonZero">;
+export const NonZero = refinement<number, "NonZero">((n) => n !== 0 && !Number.isNaN(n), "NonZero");
 
 export type NonNegative = Refined<number, "NonNegative">;
-export const NonNegative = refinement<number, "NonNegative">((n) => n >= 0, "NonNegative");
+export const NonNegative = refinement<number, "NonNegative">(
+  (n) => n >= 0 && Number.isFinite(n),
+  "NonNegative"
+);
 
 export type Negative = Refined<number, "Negative">;
-export const Negative = refinement<number, "Negative">((n) => n < 0, "Negative");
+export const Negative = refinement<number, "Negative">(
+  (n) => n < 0 && Number.isFinite(n),
+  "Negative"
+);
 
 export type Int = Refined<number, "Int">;
 export const Int = refinement<number, "Int">((n) => Number.isInteger(n), "Int");
@@ -624,22 +657,29 @@ export const REFINEMENT_PREDICATES: RefinementPredicate[] = [
   // --- Number refinements ---
   {
     brand: "Positive",
-    predicate: "$ > 0",
-    description: "Positive number (> 0)",
+    predicate: "$ > 0 && Number.isFinite($)",
+    description: "Positive finite number (> 0)",
+    decidability: "compile-time",
+    preferredStrategy: "algebra",
+  },
+  {
+    brand: "NonZero",
+    predicate: "$ !== 0",
+    description: "Non-zero number (≠ 0)",
     decidability: "compile-time",
     preferredStrategy: "algebra",
   },
   {
     brand: "NonNegative",
-    predicate: "$ >= 0",
-    description: "Non-negative number (>= 0)",
+    predicate: "$ >= 0 && Number.isFinite($)",
+    description: "Non-negative finite number (>= 0)",
     decidability: "compile-time",
     preferredStrategy: "algebra",
   },
   {
     brand: "Negative",
-    predicate: "$ < 0",
-    description: "Negative number (< 0)",
+    predicate: "$ < 0 && Number.isFinite($)",
+    description: "Negative finite number (< 0)",
     decidability: "compile-time",
     preferredStrategy: "algebra",
   },

@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/parser",
   "version": "0.1.0",
-  "description": "Compile-time parser generation from PEG grammars — Boost.Spirit for TypeScript",
+  "description": "🧊 Compile-time parser generation from PEG grammars — Boost.Spirit for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

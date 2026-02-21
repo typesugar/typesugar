@@ -1,0 +1,359 @@
+---
+description: Checklist for creating and reviewing typesugar packages
+alwaysApply: true
+---
+
+# Module Lifecycle
+
+Authoritative checklist for creating and reviewing typesugar packages. Use this rule when:
+- Creating a new package
+- Updating an existing package significantly
+- Reviewing a package for completeness
+
+## Related Rules
+
+This rule works with other rules in a specific order:
+
+1. **check-existing-first** — Before creating a module, verify it doesn't already exist
+2. **design-before-building** — Confirm the approach with the user before proceeding
+3. **module-lifecycle** — (This rule) Checklist for the actual creation/update
+4. **code-quality-checklist** — Code patterns to follow during implementation
+5. **zero-cost-guidelines** — Ensure abstractions compile to optimal code
+
+If you're about to create a new package, run through check-existing-first and design-before-building FIRST.
+
+## 1. Naming Conventions
+
+| Element | Convention | Example |
+| ------- | ---------- | ------- |
+| Package name | `@typesugar/<kebab-case>` | `@typesugar/math`, `@typesugar/contracts-z3` |
+| Directory | `packages/<kebab-case>/` | `packages/math/`, `packages/contracts-z3/` |
+| Vitest project | Matches package name | `name: "@typesugar/math"` in `vitest.config.ts` |
+| Description | Includes emoji prefix | `"🧊 Math types and typeclasses"` |
+
+**Exceptions:** `typesugar` (umbrella), `unplugin-typesugar` (bundler plugin)
+
+**Category requirement:** Every package belongs to exactly one category:
+1. Build Infrastructure
+2. Standard Library
+3. Typeclasses & Derivation
+4. Syntax Sugar
+5. Type Safety & Contracts
+6. Data Structures & Algorithms
+7. Ecosystem Integrations
+8. Developer Experience
+
+## 2. Dependency Analysis
+
+Before creating or updating a module, analyze dependencies in both directions:
+
+### Outbound (what you depend on)
+
+- Use `workspace:*` for all internal dependencies
+- Respect the layering:
+  ```
+  core → typeclass/derive/specialize → std → domain packages → integration packages
+  ```
+- Check `AGENTS.md` package boundary table to avoid responsibility overlap
+
+### Inbound (what depends on you)
+
+- Identify existing modules that could consume your new module
+- If your module provides typeclasses, instances, or utilities that others need, document the integration path
+- Consider whether existing packages should add your module as a dependency
+
+### Checklist
+
+- [ ] Listed outbound dependencies in `package.json`
+- [ ] Verified no circular dependencies
+- [ ] Checked package boundary table in `AGENTS.md`
+- [ ] Documented "Integration with other packages" section in README
+
+## 3. Documentation Requirements
+
+### Package README (`packages/<name>/README.md`)
+
+Required sections in order:
+1. **Title** — `# @typesugar/<name>`
+2. **Tagline** — One-line description
+3. **Installation** — `npm install @typesugar/<name>`
+4. **Quick Start** — Minimal working example
+5. **Feature sections** — One per major capability
+6. **Integration** — How it works with other packages
+7. **Zero-cost guarantee** — How this embodies zero-cost abstractions
+8. **API Quick Reference** — Tables of types, constructors, instances
+9. **License** — MIT
+
+**Template:** Follow `packages/math/README.md`
+
+### Feature Guide (`docs/guides/<name>.md`)
+
+- Place under the correct category in `docs/guides/index.md`
+- Include:
+  - Motivation and use cases
+  - Step-by-step examples
+  - Advanced patterns
+  - Gotchas and edge cases
+
+### Reference Entry (`docs/reference/packages.md`)
+
+Add an entry with:
+```markdown
+### @typesugar/<name> {#name}
+
+<description>
+
+\`\`\`bash
+npm install @typesugar/<name>
+\`\`\`
+
+**Exports:**
+\`\`\`typescript
+// List all public exports
+\`\`\`
+
+**Inspired by:** <prior art>
+```
+
+### JSDoc
+
+Every exported type, interface, and function must have JSDoc:
+- One-line summary
+- `@param` for each parameter
+- `@returns` description
+- `@example` with working code
+
+**Standard:** Follow `@typesugar/fp` JSDoc conventions
+
+## 4. Runnable Showcase
+
+Every module must have `packages/<name>/examples/showcase.ts` with full feature coverage.
+
+### Required Structure
+
+```typescript
+/**
+ * @typesugar/<name> Showcase
+ *
+ * Self-documenting examples of <what this module provides>.
+ *
+ * Type assertions used:
+ *   typeAssert<Equal<A, B>>()        - A and B are the same type
+ *   typeAssert<Extends<A, B>>()      - A is assignable to B
+ *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
+ *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ *
+ * Run:   typesugar run examples/showcase.ts
+ * Build: npx tspc && node dist/examples/showcase.js
+ */
+
+import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+
+// ============================================================================
+// 1. FEATURE NAME - Brief Description
+// ============================================================================
+
+// <examples with assert() and typeAssert<>() verification>
+
+// ============================================================================
+// 2. NEXT FEATURE - Brief Description
+// ============================================================================
+
+// ... continue for all features
+```
+
+### Checklist
+
+- [ ] Header comment with run instructions
+- [ ] Documents type assertion patterns used
+- [ ] Numbered sections with separator comments
+- [ ] Covers every major exported feature
+- [ ] Uses `assert()` for runtime verification
+- [ ] Uses `typeAssert<>()` for type-level verification
+- [ ] Progresses from simple to advanced
+- [ ] Includes real-world motivating examples (not just unit-test assertions)
+
+**Template:** Follow `packages/math/examples/showcase.ts`
+
+## 5. Central Documentation Linkage
+
+When creating or updating a module, ensure it appears in **all 4 locations**:
+
+| Location | What to add |
+| -------- | ----------- |
+| `README.md` | Package table entry under correct category |
+| `docs/guides/index.md` | Guide link under correct category |
+| `docs/reference/packages.md` | Full reference entry with exports |
+| `AGENTS.md` | Package listing in architecture tree; boundary table entry if needed |
+
+### Verification
+
+After adding a new module, search for its name across all docs to ensure consistent linkage:
+```bash
+rg "@typesugar/<name>" README.md docs/ AGENTS.md
+```
+
+All 4 files should have matches.
+
+## 6. Red Team Testing
+
+Every module must have adversarial tests at `tests/red-team-<name>.test.ts`.
+
+### Required Structure
+
+```typescript
+/**
+ * Red Team Tests for <Module>
+ *
+ * Attack surfaces:
+ * - <List areas being tested>
+ */
+import { describe, it, expect } from "vitest";
+
+describe("<Module> Edge Cases", () => {
+  // ==========================================================================
+  // Attack 1: <Description>
+  // ==========================================================================
+  describe("<Specific attack>", () => {
+    it("<Test case>", () => {
+      // Test code with comments explaining the issue
+      expect(result).toBe(expected);
+    });
+  });
+
+  // ==========================================================================
+  // Attack 2: <Next category>
+  // ==========================================================================
+  // ...
+});
+```
+
+### Attack Categories to Cover
+
+| Category | Examples |
+| -------- | -------- |
+| Type safety bypasses | Phantom types, null collapse, coercion holes |
+| Edge case values | NaN, Infinity, -0, empty strings, special chars |
+| Runtime vs compile-time | Boolean discriminants, async predicates |
+| Malformed inputs | Empty predicates, invalid Unicode, injection strings |
+| Precision issues | Float edge cases, scientific notation, overflow |
+| Circular references | Self-referential types, recursive objects |
+| Parser edge cases | Special syntax in strings/comments |
+
+### Findings Tracking
+
+1. Add findings to `sandbox/red-team/FINDINGS.md` summary table
+2. Create TODO entries in `sandbox/red-team/` for unresolved issues
+3. Reference findings in test comments: `// See FINDINGS.md #N`
+
+**Template:** Follow `tests/red-team-macros.test.ts`
+
+## 7. Standard File Checklist
+
+Every package directory must contain:
+
+```
+packages/<name>/
+├── package.json          # Required fields below
+├── tsconfig.json         # extends ../../tsconfig.base.json
+├── tsup.config.ts        # Dual CJS/ESM build
+├── vitest.config.ts      # Project name matches package name
+├── README.md             # Full documentation (section 3)
+├── src/
+│   └── index.ts          # Re-exports everything public
+├── tests/
+│   └── *.test.ts         # Unit tests
+└── examples/
+    └── showcase.ts       # Runnable showcase (section 4)
+```
+
+### package.json Required Fields
+
+```json
+{
+  "name": "@typesugar/<name>",
+  "version": "0.1.0",
+  "description": "🧊 <description>",
+  "type": "module",
+  "license": "MIT",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "src"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
+  }
+}
+```
+
+### Verification Commands
+
+```bash
+# Check all required files exist
+ls packages/<name>/{package.json,tsconfig.json,tsup.config.ts,vitest.config.ts,README.md,src/index.ts}
+
+# Build the package
+pnpm --filter @typesugar/<name> build
+
+# Run tests
+pnpm --filter @typesugar/<name> test
+
+# Type check
+pnpm --filter @typesugar/<name> typecheck
+```
+
+## Module Review Checklist
+
+Use this checklist when reviewing a new or updated module:
+
+### Creation/Update
+
+- [ ] Package name follows `@typesugar/<kebab-case>` convention
+- [ ] Category assigned from the 8 valid categories
+- [ ] Outbound dependencies analyzed and documented
+- [ ] Inbound integration opportunities identified
+- [ ] No package boundary overlap with existing modules
+
+### Documentation
+
+- [ ] Package README follows template with all required sections
+- [ ] Feature guide exists in `docs/guides/<name>.md`
+- [ ] Reference entry in `docs/reference/packages.md`
+- [ ] JSDoc on every exported symbol
+- [ ] Zero-cost guarantee documented
+
+### Central Linkage
+
+- [ ] Listed in root `README.md` under correct category
+- [ ] Linked in `docs/guides/index.md`
+- [ ] Entry in `docs/reference/packages.md`
+- [ ] Listed in `AGENTS.md` architecture tree
+
+### Quality
+
+- [ ] Runnable showcase with full feature coverage
+- [ ] Red team tests covering applicable attack categories
+- [ ] Findings documented in `sandbox/red-team/FINDINGS.md`
+- [ ] All standard files present
+- [ ] Build, test, and typecheck pass

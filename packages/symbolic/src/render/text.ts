@@ -148,6 +148,8 @@ function renderUnary<T>(
       return opts.unicode
         ? `√(${render(expr.arg, opts, 0)})`
         : `sqrt(${render(expr.arg, opts, 0)})`;
+    case "signum":
+      return `sgn(${render(expr.arg, opts, 0)})`;
   }
 }
 

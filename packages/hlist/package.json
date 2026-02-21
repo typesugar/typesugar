@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/hlist",
   "version": "0.1.0",
-  "description": "Heterogeneous lists with compile-time type tracking — Boost.Fusion for TypeScript",
+  "description": "🧊 Heterogeneous lists with compile-time type tracking — Boost.Fusion for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

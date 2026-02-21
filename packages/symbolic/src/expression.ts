@@ -250,9 +250,89 @@ export function isNegativeOne<T>(expr: Expression<T>): boolean {
 }
 
 /**
- * Get all variable names used in an expression.
+ * Check if an expression is a constant with an integer value.
+ */
+export function isIntegerConstant<T>(expr: Expression<T>): boolean {
+  return isConstant(expr) && Number.isInteger(expr.value);
+}
+
+/**
+ * Get all free variable names in an expression.
+ * Bound variables (e.g., index variable in sum/product) are excluded.
+ *
+ * Uses reference counting for bound variables to correctly handle
+ * nested scopes that bind the same variable name.
  */
 export function getVariables<T>(expr: Expression<T>): Set<string> {
+  const vars = new Set<string>();
+  const bound = new Map<string, number>();
+
+  function collect(e: Expression<unknown>): void {
+    switch (e.kind) {
+      case "constant":
+        break;
+      case "variable":
+        if (!bound.has(e.name) || bound.get(e.name) === 0) {
+          vars.add(e.name);
+        }
+        break;
+      case "binary":
+        collect(e.left);
+        collect(e.right);
+        break;
+      case "unary":
+      case "function":
+        collect(e.arg);
+        break;
+      case "derivative":
+      case "integral":
+        collect(e.expr);
+        break;
+      case "limit":
+        // Increment reference count on entry (variable is bound in limit)
+        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
+        collect(e.expr);
+        // Decrement reference count on exit
+        {
+          const limitCount = bound.get(e.variable)! - 1;
+          if (limitCount === 0) {
+            bound.delete(e.variable);
+          } else {
+            bound.set(e.variable, limitCount);
+          }
+        }
+        break;
+      case "equation":
+        collect(e.left);
+        collect(e.right);
+        break;
+      case "sum":
+      case "product":
+        // Increment reference count on entry
+        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
+        collect(e.expr);
+        // Decrement reference count on exit
+        const count = bound.get(e.variable)! - 1;
+        if (count === 0) {
+          bound.delete(e.variable);
+        } else {
+          bound.set(e.variable, count);
+        }
+        collect(e.from);
+        collect(e.to);
+        break;
+    }
+  }
+
+  collect(expr);
+  return vars;
+}
+
+/**
+ * Get ALL variable names including bound index variables.
+ * Use getVariables() for free variables only (the common case).
+ */
+export function getAllVariables<T>(expr: Expression<T>): Set<string> {
   const vars = new Set<string>();
 
   function collect(e: Expression<unknown>): void {
@@ -295,17 +375,94 @@ export function getVariables<T>(expr: Expression<T>): Set<string> {
 }
 
 /**
- * Check if an expression contains a specific variable.
+ * Check if an expression contains a specific free variable.
+ * Short-circuits on first match for O(1) best case.
  */
 export function hasVariable<T>(expr: Expression<T>, varName: string): boolean {
-  return getVariables(expr).has(varName);
+  const bound = new Map<string, number>();
+
+  function search(e: Expression<unknown>): boolean {
+    switch (e.kind) {
+      case "constant":
+        return false;
+      case "variable":
+        if (e.name === varName && (!bound.has(e.name) || bound.get(e.name) === 0)) {
+          return true;
+        }
+        return false;
+      case "binary":
+        return search(e.left) || search(e.right);
+      case "unary":
+      case "function":
+        return search(e.arg);
+      case "derivative":
+      case "integral":
+        return search(e.expr);
+      case "limit":
+        return search(e.expr);
+      case "equation":
+        return search(e.left) || search(e.right);
+      case "sum":
+      case "product": {
+        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
+        const found = search(e.expr);
+        const count = bound.get(e.variable)! - 1;
+        if (count === 0) {
+          bound.delete(e.variable);
+        } else {
+          bound.set(e.variable, count);
+        }
+        if (found) return true;
+        return search(e.from) || search(e.to);
+      }
+    }
+  }
+
+  return search(expr);
 }
 
 /**
- * Check if an expression is purely constant (contains no variables).
+ * Check if an expression is purely constant (contains no free variables).
+ * Short-circuits on first variable found for O(1) best case.
  */
 export function isPureConstant<T>(expr: Expression<T>): boolean {
-  return getVariables(expr).size === 0;
+  const bound = new Map<string, number>();
+
+  function hasAnyVariable(e: Expression<unknown>): boolean {
+    switch (e.kind) {
+      case "constant":
+        return false;
+      case "variable":
+        return !bound.has(e.name) || bound.get(e.name) === 0;
+      case "binary":
+        return hasAnyVariable(e.left) || hasAnyVariable(e.right);
+      case "unary":
+      case "function":
+        return hasAnyVariable(e.arg);
+      case "derivative":
+      case "integral":
+        return hasAnyVariable(e.expr);
+      case "limit":
+        return hasAnyVariable(e.expr);
+      case "equation":
+        return hasAnyVariable(e.left) || hasAnyVariable(e.right);
+      case "sum":
+      case "product": {
+        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
+        const found = hasAnyVariable(e.expr);
+        const count = bound.get(e.variable)! - 1;
+        if (count === 0) {
+          bound.delete(e.variable);
+        } else {
+          bound.set(e.variable, count);
+        }
+        if (found) return true;
+        return hasAnyVariable(e.from) || hasAnyVariable(e.to);
+      }
+    }
+  }
+
+  return !hasAnyVariable(expr);
 }
 
 /**

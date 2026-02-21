@@ -49,11 +49,13 @@ interface Functor<F<_>> {
     const result = transformCode(input, { fileName: "hkt.ts" });
 
     expect(result.code).toBeDefined();
-    // The preprocessor rewrites F<_> / F<A> syntax to valid TS
     expect(result.changed).toBe(true);
-    // The macro transformer may emit a diagnostic for the interface-level HKT
-    // pattern (e.g. unresolved $<F, A>), but the preprocessing itself succeeds.
-    // Diagnostics here are from the AST-level transformer, not syntax errors.
+
+    // F<_> is rewritten to plain F, and F<A>/F<B> become $<F, A>/$<F, B>
+    expect(result.code).toContain("$<F, A>");
+    expect(result.code).toContain("$<F, B>");
+    // The HKT parameter sugar F<_> should be gone
+    expect(result.code).not.toContain("F<_>");
   });
 
   it("transforms HKT in type aliases", () => {
@@ -415,13 +417,13 @@ describe("Pipeline E2E: cache invalidation", () => {
 // =============================================================================
 
 describe("Pipeline E2E: edge cases", () => {
-  // TODO: createEmptyResult() uses require() which fails in ESM test context.
-  // Fix: replace require("./position-mapper.js") with a static import in pipeline.ts.
-  it.skip("handles empty files", () => {
+  it("handles empty files", () => {
     const result = transformCode("", { fileName: "empty.ts" });
 
     expect(result.code).toBeDefined();
-    expect(result.diagnostics).toHaveLength(0);
+    // Empty string is falsy, so pipeline treats it as "file not found"
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toContain("not found");
   });
 
   it("handles files with only comments", () => {
@@ -433,9 +435,7 @@ describe("Pipeline E2E: edge cases", () => {
     expect(result.diagnostics).toHaveLength(0);
   });
 
-  // TODO: createEmptyResult() uses require() which fails in ESM test context.
-  // Fix: replace require("./position-mapper.js") with a static import in pipeline.ts.
-  it.skip("returns error diagnostic for missing files", () => {
+  it("returns error diagnostic for missing files", () => {
     const files = new Map<string, string>();
     const pipeline = createPipelineFromFiles(files);
 

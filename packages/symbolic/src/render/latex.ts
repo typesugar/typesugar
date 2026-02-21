@@ -268,6 +268,8 @@ function renderUnary<T>(
       return `\\left|${render(expr.arg, opts, 0)}\\right|`;
     case "sqrt":
       return `\\sqrt{${render(expr.arg, opts, 0)}}`;
+    case "signum":
+      return `\\operatorname{sgn}\\left(${render(expr.arg, opts, 0)}\\right)`;
   }
 }
 

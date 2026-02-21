@@ -103,6 +103,7 @@ export {
   refinement,
   composeRefinements,
   Positive,
+  NonZero,
   NonNegative,
   Negative,
   Int,

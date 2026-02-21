@@ -1,0 +1,457 @@
+/**
+ * @typesugar/std Showcase
+ *
+ * Self-documenting examples of the typesugar standard library: typeclasses,
+ * extension methods, data types, pattern matching, and do-notation.
+ *
+ * Type assertions used:
+ *   typeAssert<Equal<A, B>>()        - A and B are the same type
+ *   typeAssert<Extends<A, B>>()      - A is assignable to B
+ *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
+ *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ *
+ * Run:   typesugar run examples/showcase.ts
+ * Build: npx tspc && node dist/examples/showcase.js
+ */
+
+import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+
+import {
+  // Typeclasses
+  type Bounded,
+  type Enum,
+  type Numeric,
+  type Integral,
+  type Fractional,
+  type Floating,
+  type Parseable,
+  type ParseResult,
+  type Printable,
+  type Coercible,
+  type Defaultable,
+  type Copyable,
+  type Sized,
+  type Group,
+  boundedNumber,
+  enumNumber,
+  numericNumber,
+  integralNumber,
+  fractionalNumber,
+  floatingNumber,
+  parseableNumber,
+  parseableBoolean,
+  printableNumber,
+  printableString,
+  numberToString,
+  stringToNumber,
+  defaultNumber,
+  defaultString,
+  defaultBoolean,
+  copyableNumber,
+  copyableDate,
+  copyableArray,
+  sizedString,
+  sizedArray,
+  groupNumber,
+
+  // Extension methods
+  NumberExt,
+  StringExt,
+  ArrayExt,
+  BooleanExt,
+  DateExt,
+  ObjectExt,
+
+  // Standalone extension functions
+  clamp,
+  lerp,
+  roundTo,
+  isEven,
+  isOdd,
+  isPrime,
+  gcd,
+  lcm,
+  capitalize,
+  camelCase,
+  snakeCase,
+  kebabCase,
+  truncate,
+  words,
+  isBlank,
+  head,
+  tail,
+  last,
+  chunk,
+  unique,
+  zip,
+  partition,
+  groupBy as arrayGroupBy,
+  sortBy,
+  intersperse,
+  takeWhile,
+  dropWhile,
+  flatten,
+  compact,
+  pick,
+  omit,
+  deepMerge,
+
+  // Data types
+  pair,
+  fst,
+  snd,
+  swap,
+  bimap,
+  triple,
+  range,
+  rangeInclusive,
+  rangeToArray,
+  rangeBy,
+  rangeContains,
+  rangeMap,
+
+  // Macros
+  match,
+  when,
+  otherwise,
+  isType,
+  P,
+
+  // FlatMap & do-notation
+  type FlatMap,
+  registerFlatMap,
+} from "@typesugar/std";
+
+// ============================================================================
+// 1. NUMERIC TYPECLASSES — Bounded, Enum, Numeric, Integral, Fractional
+// ============================================================================
+
+// Bounded: types with min/max values
+assert(boundedNumber.minBound() === Number.MIN_SAFE_INTEGER);
+assert(boundedNumber.maxBound() === Number.MAX_SAFE_INTEGER);
+
+// Enum: successor, predecessor, ordinal conversion
+assert(enumNumber.succ(5) === 6);
+assert(enumNumber.pred(5) === 4);
+assert(enumNumber.toEnum(65) === 65);
+
+// Numeric: ring arithmetic (add, sub, mul) with identity elements
+assert(numericNumber.add(3, 4) === 7);
+assert(numericNumber.mul(3, 4) === 12);
+assert(numericNumber.negate(5) === -5);
+assert(numericNumber.abs(-42) === 42);
+assert(numericNumber.zero() === 0);
+assert(numericNumber.one() === 1);
+
+// Integral: integer division and modulo
+assert(integralNumber.div(7, 2) === 3);
+assert(integralNumber.mod(7, 2) === 1);
+const [quot, rem] = integralNumber.divMod(17, 5);
+assert(quot === 3);
+assert(rem === 2);
+
+// Fractional: real division
+assert(fractionalNumber.div(1, 3) === 1 / 3);
+assert(fractionalNumber.recip(4) === 0.25);
+
+// Floating: transcendental functions
+assert(floatingNumber.pi() === Math.PI);
+assert(floatingNumber.sqrt(16) === 4);
+assert(Math.abs(floatingNumber.sin(Math.PI / 2) - 1) < 1e-10);
+
+// ============================================================================
+// 2. CONVERSION TYPECLASSES — Parseable, Printable, Coercible, Defaultable
+// ============================================================================
+
+// Parseable: safe string-to-value parsing
+const parsed = parseableNumber.parse("42");
+assert(parsed.ok === true);
+if (parsed.ok) assert(parsed.value === 42);
+
+const bad = parseableNumber.parse("not a number");
+assert(bad.ok === false);
+
+const boolParsed = parseableBoolean.parse("yes");
+assert(boolParsed.ok === true);
+if (boolParsed.ok) assert(boolParsed.value === true);
+
+// Printable: human-readable display
+assert(printableNumber.display(1234) === "1234");
+assert(printableString.display("hello") === "hello");
+
+// Coercible: safe type conversions (Rust From/Into)
+assert(numberToString.coerce(42) === "42");
+assert(stringToNumber.coerce("3.14") === 3.14);
+
+// Defaultable: sensible default values (Rust Default)
+assert(defaultNumber.defaultValue() === 0);
+assert(defaultString.defaultValue() === "");
+assert(defaultBoolean.defaultValue() === false);
+
+// ============================================================================
+// 3. STRUCTURAL TYPECLASSES — Copyable, Sized, Group
+// ============================================================================
+
+// Copyable: deep copying (primitives are trivially copied)
+assert(copyableNumber.copy(42) === 42);
+
+const now = new Date();
+const copied = copyableDate.copy(now);
+assert(copied.getTime() === now.getTime());
+assert(copied !== now); // different object
+
+const arrCopier = copyableArray(copyableNumber);
+const original = [1, 2, 3];
+const cloned = arrCopier.copy(original);
+assert(cloned[0] === 1 && cloned[1] === 2 && cloned[2] === 3);
+assert(cloned !== original);
+
+// Sized: length/empty checks
+assert(sizedString.size("hello") === 5);
+assert(sizedString.isEmpty("") === true);
+assert(sizedString.isEmpty("x") === false);
+
+const numSized = sizedArray<number>();
+assert(numSized.size([1, 2, 3]) === 3);
+assert(numSized.isEmpty([]) === true);
+
+// Group: monoid with inverse (Semigroup -> Monoid -> Group)
+assert(groupNumber.empty() === 0);
+assert(groupNumber.combine(3, 4) === 7);
+assert(groupNumber.invert(5) === -5);
+assert(groupNumber.combine(groupNumber.invert(5), 5) === groupNumber.empty());
+
+// ============================================================================
+// 4. NUMBER EXTENSIONS — Arithmetic, predicates, formatting
+// ============================================================================
+
+assert(clamp(150, 0, 100) === 100);
+assert(clamp(-5, 0, 100) === 0);
+assert(lerp(0, 100, 0.5) === 50);
+assert(roundTo(3.14159, 2) === 3.14);
+
+assert(isEven(4) === true);
+assert(isOdd(7) === true);
+assert(isPrime(17) === true);
+assert(isPrime(15) === false);
+assert(gcd(12, 8) === 4);
+assert(lcm(4, 6) === 12);
+
+// ============================================================================
+// 5. STRING EXTENSIONS — Case transforms, parsing, predicates
+// ============================================================================
+
+assert(capitalize("hello") === "Hello");
+assert(camelCase("hello world") === "helloWorld");
+assert(snakeCase("helloWorld") === "hello_world");
+assert(kebabCase("HelloWorld") === "hello-world");
+assert(truncate("a long string that should be cut", 15) === "a long strin...");
+assert(isBlank("") === true);
+assert(isBlank("  ") === true);
+assert(isBlank("x") === false);
+
+const w = words("camelCaseString");
+assert(w.length > 0);
+
+// ============================================================================
+// 6. ARRAY EXTENSIONS — Functional collection operations
+// ============================================================================
+
+assert(head([1, 2, 3]) === 1);
+assert(last([1, 2, 3]) === 3);
+
+const tl = tail([1, 2, 3]);
+assert(tl[0] === 2 && tl[1] === 3);
+
+const chunks = chunk([1, 2, 3, 4, 5], 2);
+assert(chunks.length === 3);
+assert(chunks[0][0] === 1 && chunks[0][1] === 2);
+assert(chunks[2][0] === 5);
+
+assert(unique([1, 2, 2, 3, 3, 3])[2] === 3);
+assert(unique([1, 2, 2, 3]).length === 3);
+
+const zipped = zip([1, 2, 3], ["a", "b", "c"]);
+assert(zipped[0][0] === 1 && zipped[0][1] === "a");
+
+const [evens, odds] = partition([1, 2, 3, 4, 5, 6], (n) => n % 2 === 0);
+assert(evens[0] === 2);
+assert(odds[0] === 1);
+
+const grouped = arrayGroupBy(["ant", "apple", "bee", "bat"], (s) => s[0]);
+assert(grouped.get("a")!.length === 2);
+assert(grouped.get("b")!.length === 2);
+
+const sorted = sortBy([{ n: 3 }, { n: 1 }, { n: 2 }], (x) => x.n);
+assert(sorted[0].n === 1);
+
+const inter = intersperse([1, 2, 3], 0);
+assert(inter.length === 5);
+assert(inter[1] === 0);
+
+const taken = takeWhile([1, 2, 3, 4, 5], (n) => n < 4);
+assert(taken.length === 3);
+
+const dropped = dropWhile([1, 2, 3, 4, 5], (n) => n < 3);
+assert(dropped[0] === 3);
+
+assert(flatten([[1, 2], [3], [4, 5]]).length === 5);
+assert(compact([1, null, 2, undefined, 3]).length === 3);
+
+// ============================================================================
+// 7. OBJECT EXTENSIONS — pick, omit, deep merge
+// ============================================================================
+
+const obj = { a: 1, b: 2, c: 3, d: 4 };
+
+const picked = pick(obj, ["a", "c"]);
+assert(picked.a === 1);
+assert(picked.c === 3);
+assert(!("b" in picked));
+
+const omitted = omit(obj, ["a", "d"]);
+assert(omitted.b === 2);
+assert(!("a" in omitted));
+
+const merged = deepMerge(
+  { theme: { color: "blue", size: 12 } },
+  { theme: { color: "red", font: "mono" } }
+);
+assert((merged as any).theme.color === "red");
+assert((merged as any).theme.size === 12);
+assert((merged as any).theme.font === "mono");
+
+// ============================================================================
+// 8. DATA TYPES — Pair, Triple, Range
+// ============================================================================
+
+// Pair: typed 2-tuples with combinators
+const p = pair(1, "hello");
+assert(fst(p) === 1);
+assert(snd(p) === "hello");
+typeAssert<Equal<typeof p, readonly [1, "hello"]>>();
+
+const swapped = swap(p);
+assert(fst(swapped) === "hello");
+assert(snd(swapped) === 1);
+
+const mapped = bimap(pair(3, "hi"), (n) => n * 2, (s) => s.toUpperCase());
+assert(fst(mapped) === 6);
+assert(snd(mapped) === "HI");
+
+// Triple: typed 3-tuples
+const t = triple(1, "two", true);
+assert(t[0] === 1 && t[1] === "two" && t[2] === true);
+
+// Range: Scala/Kotlin-style numeric ranges
+const r = range(0, 5);
+const arr = rangeToArray(r);
+assert(arr.length === 5);
+assert(arr[0] === 0 && arr[4] === 4);
+
+const inclusive = rangeInclusive(1, 5);
+const inclArr = rangeToArray(inclusive);
+assert(inclArr.length === 5);
+assert(inclArr[4] === 5);
+
+const stepped = rangeBy(range(0, 10), 2);
+const steppedArr = rangeToArray(stepped);
+assert(steppedArr[0] === 0 && steppedArr[1] === 2 && steppedArr[2] === 4);
+
+assert(rangeContains(range(0, 10), 5) === true);
+assert(rangeContains(range(0, 10), 10) === false);
+
+const doubled = rangeMap(range(1, 4), (n) => n * 2);
+assert(doubled[0] === 2 && doubled[1] === 4 && doubled[2] === 6);
+
+// ============================================================================
+// 9. PATTERN MATCHING — match(), when(), otherwise(), isType(), P
+// ============================================================================
+
+// Discriminated union matching (Scala-style)
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number }
+  | { kind: "triangle"; base: number; height: number };
+
+const circle: Shape = { kind: "circle", radius: 5 };
+const area = match(circle, {
+  circle: ({ radius }) => Math.PI * radius ** 2,
+  square: ({ side }) => side ** 2,
+  triangle: ({ base, height }) => 0.5 * base * height,
+});
+assert(Math.abs(area - Math.PI * 25) < 1e-10);
+
+// Literal dispatch
+const httpMsg = match(200 as 200 | 404 | 500, {
+  200: () => "OK",
+  404: () => "Not Found",
+  500: () => "Server Error",
+});
+assert(httpMsg === "OK");
+
+// Guard-based matching with when/otherwise
+const category = match(25, [
+  when((n: number) => n < 13, () => "child"),
+  when((n: number) => n < 18, () => "teen"),
+  when((n: number) => n < 65, () => "adult"),
+  otherwise(() => "senior"),
+]);
+assert(category === "adult");
+
+// Type-based matching with isType()
+const describe = match("hello" as string | number | boolean, [
+  when(isType("string"), (s) => `string(${s})`),
+  when(isType("number"), (n) => `number(${n})`),
+  otherwise(() => "other"),
+]);
+assert(describe === "string(hello)");
+
+// Array pattern helpers
+const listResult = match([1, 2, 3] as number[], [
+  when(P.empty, () => "empty"),
+  when(P.length(1), ([x]: number[]) => `single: ${x}`),
+  when(P.minLength(2), ([a, b]: number[]) => `starts with ${a}, ${b}`),
+  otherwise(() => "fallback"),
+]);
+assert(listResult === "starts with 1, 2");
+
+// ============================================================================
+// 10. DO-NOTATION — let:/yield: for monadic sequencing
+// ============================================================================
+
+// FlatMap is pre-registered for Array and Promise.
+// The let:/yield: macro desugars to flatMap chains at compile time.
+//
+// Example (requires transformer — shown here as pseudocode):
+//
+//   let: {
+//     x << [1, 2, 3]
+//     y << [x * 10, x * 20]
+//   }
+//   yield: ({ x, y })
+//
+// Compiles to:
+//   [1,2,3].flatMap(x => [x*10, x*20].map(y => ({ x, y })))
+//
+// Custom types can be registered:
+//   registerFlatMap("MyMonad", { map: ..., flatMap: ... });
+//
+// This is demonstrated as comments because let:/yield: requires the
+// typesugar transformer to expand the labeled block macros.
+
+// ============================================================================
+// 11. TYPE-LEVEL ASSERTIONS — verifying typeclass shapes
+// ============================================================================
+
+typeAssert<Extends<typeof numericNumber, Numeric<number>>>();
+typeAssert<Extends<typeof integralNumber, Integral<number>>>();
+typeAssert<Extends<typeof floatingNumber, Floating<number>>>();
+typeAssert<Extends<typeof groupNumber, Group<number>>>();
+
+// ParseResult is a tagged union
+type NumParsed = ParseResult<number>;
+typeAssert<Equal<NumParsed, { ok: true; value: number; rest: string } | { ok: false; error: string }>>();
+
+// Pair is a readonly tuple
+typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, string]>>();

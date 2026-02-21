@@ -69,8 +69,15 @@ import {
   isRegisteredInstance,
   getInstanceMethods,
   classifyInlineFailure,
+  classifyInlineFailureDetailed,
   getInlineFailureHelp,
   createSpecializedFunction,
+  flattenReturnsToExpression,
+  analyzeForFlattening,
+  SpecializationCache,
+  createHoistedSpecialization,
+  getResultAlgebra,
+  type ResultAlgebra,
   type DictMethodMap,
   type DictMethod,
 } from "../macros/specialize.js";
@@ -247,6 +254,13 @@ export default function macroTransformerFactory(
  */
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
+
+  /**
+   * Cache for specialization deduplication.
+   * When the same function is specialized with the same dictionaries at multiple call sites,
+   * we generate one hoisted declaration and reuse the identifier.
+   */
+  private specCache = new SpecializationCache();
 
   /**
    * Cache of resolved macro symbols for this source file.
@@ -873,7 +887,13 @@ class MacroTransformer {
     // For nodes that contain statement lists, scan for labeled-block macros
     // before visiting children. This lets us consume sibling pairs like
     // `let: { ... } yield: { ... }` as a single macro expansion.
-    if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
+    if (
+      ts.isSourceFile(node) ||
+      ts.isBlock(node) ||
+      ts.isModuleBlock(node) ||
+      ts.isCaseClause(node) ||
+      ts.isDefaultClause(node)
+    ) {
       return this.visitStatementContainer(node);
     }
 
@@ -935,11 +955,15 @@ class MacroTransformer {
    * Scans for labeled-block macro pairs and replaces them, then visits the rest.
    */
   private visitStatementContainer(
-    node: ts.SourceFile | ts.Block | ts.ModuleBlock
-  ): ts.SourceFile | ts.Block | ts.ModuleBlock {
+    node: ts.SourceFile | ts.Block | ts.ModuleBlock | ts.CaseClause | ts.DefaultClause
+  ): ts.SourceFile | ts.Block | ts.ModuleBlock | ts.CaseClause | ts.DefaultClause {
     const statements = node.statements;
     const newStatements: ts.Statement[] = [];
     let modified = false;
+
+    // Scope SpecializationCache to the current block to preserve closures
+    const prevSpecCache = this.specCache;
+    this.specCache = new SpecializationCache();
 
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i];
@@ -1049,17 +1073,53 @@ class MacroTransformer {
     }
 
     // Clean up macro imports (only for source files — imports live at top level)
-    const cleanedStatements = ts.isSourceFile(node)
+    let cleanedStatements = ts.isSourceFile(node)
       ? this.cleanupMacroImports(newStatements)
       : newStatements;
+
+    // Prepend hoisted specialization declarations to the current block/file
+    const hoistedDecls = this.specCache.getHoistedDeclarations();
+    if (hoistedDecls.length > 0) {
+      // Find the index after the last import statement (only relevant for SourceFile)
+      let insertIndex = 0;
+      if (ts.isSourceFile(node)) {
+        for (let i = 0; i < cleanedStatements.length; i++) {
+          if (ts.isImportDeclaration(cleanedStatements[i])) {
+            insertIndex = i + 1;
+          } else {
+            break;
+          }
+        }
+      }
+
+      // Insert hoisted declarations
+      cleanedStatements = [
+        ...cleanedStatements.slice(0, insertIndex),
+        ...hoistedDecls,
+        ...cleanedStatements.slice(insertIndex),
+      ];
+
+      if (this.verbose) {
+        console.log(
+          `[typemacro] Hoisted ${hoistedDecls.length} specialized function(s) to local scope`
+        );
+      }
+    }
+
+    // Restore previous scope's specialization cache
+    this.specCache = prevSpecCache;
 
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
       return factory.updateSourceFile(node, cleanedStatements);
     } else if (ts.isBlock(node)) {
       return factory.updateBlock(node, cleanedStatements);
-    } else {
+    } else if (ts.isModuleBlock(node)) {
       return factory.updateModuleBlock(node, cleanedStatements);
+    } else if (ts.isCaseClause(node)) {
+      return factory.updateCaseClause(node, node.expression, cleanedStatements);
+    } else {
+      return factory.updateDefaultClause(node, cleanedStatements);
     }
   }
 
@@ -1224,15 +1284,11 @@ class MacroTransformer {
         const autoSpecResult = this.tryAutoSpecialize(callNode);
         if (autoSpecResult !== undefined) return autoSpecResult;
 
-        // TODO(result): Return-type-driven auto-specialization.
-        // When a function returning Result<E, T> is called in a context expecting
-        // Option<T>, Either<E, T>, or bare T, automatically specialize the function
-        // body by replacing ok()/err() with the target type's constructors.
-        // This requires:
-        //   1. Detecting the expected type from the assignment/variable declaration
-        //   2. Looking up the Result algebra instance for that target type
-        //   3. Cloning + specializing the function body (with dedup/hoisting)
-        // See TODO.md "Polymorphic Result" → "Return-type-driven auto-specialization".
+        // Return-type-driven auto-specialization: when a function returning
+        // Result<E, T> is called in a context expecting Option<T>, Either<E, T>,
+        // or bare T, automatically specialize the function body.
+        const returnTypeResult = this.tryReturnTypeDrivenSpecialize(callNode);
+        if (returnTypeResult !== undefined) return returnTypeResult;
 
         return undefined;
       }
@@ -1468,13 +1524,15 @@ class MacroTransformer {
     // Check if the function body has patterns that prevent inlining
     const body = ts.isFunctionDeclaration(fnBody) ? fnBody.body : fnBody.body;
     if (body && ts.isBlock(body)) {
-      const failureReason = classifyInlineFailure(body);
-      if (failureReason) {
+      const classification = classifyInlineFailureDetailed(body);
+      // Only skip if there's a failure reason AND it's not flattenable
+      if (classification.reason && !classification.canFlatten) {
         if (!suppressWarnings) {
-          const help = getInlineFailureHelp(failureReason);
+          const help = getInlineFailureHelp(classification.reason);
           this.ctx.reportWarning(
             node,
-            `[TS9602] Auto-specialization of ${fnName} skipped — ` + `${failureReason}. ${help}`
+            `[TS9602] Auto-specialization of ${fnName} skipped — ` +
+              `${classification.reason}. ${help}`
           );
         }
         return undefined;
@@ -1487,19 +1545,65 @@ class MacroTransformer {
       );
     }
 
+    // Compute cache key for deduplication
+    // Use function symbol ID if available, otherwise fall back to function name
+    const fnSymbol = this.ctx.typeChecker.getSymbolAtLocation(node.expression);
+    const fnSymbolId = fnSymbol
+      ? ((fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName)
+      : fnName;
+    const dictBrands = instanceArgs.map((a) => a.methods.brand);
+    const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictBrands);
+
+    // Check if this specialization is already cached
+    const cachedEntry = this.specCache.get(cacheKey);
+    if (cachedEntry) {
+      if (this.verbose) {
+        console.log(`[typemacro] Reusing cached specialization: ${cachedEntry.ident.text}`);
+      }
+      // Call the cached specialized function with remaining (non-dict) arguments
+      const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
+      const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
+      return this.ctx.factory.createCallExpression(
+        cachedEntry.ident,
+        node.typeArguments,
+        remainingArgs
+      );
+    }
+
     // Specialize the function body by inlining dictionary method calls
     try {
-      const specialized = this.inlineAutoSpecialize(
-        fnBody,
-        instanceArgs,
-        Array.from(node.arguments)
-      );
+      const specialized = this.inlineAutoSpecializeForHoisting(fnBody, instanceArgs, fnName);
 
       if (specialized) {
-        // Visit the result to handle any nested macros/specializations
-        return ts.visitNode(specialized, this.boundVisit) as ts.Expression;
+        // Generate a hoisted name and create the declaration
+        const hoistedIdent = SpecializationCache.generateHoistedName(
+          fnName,
+          dictBrands,
+          this.ctx.hygiene
+        );
+        const hoistedDecl = createHoistedSpecialization(
+          this.ctx.factory,
+          hoistedIdent,
+          specialized
+        );
+
+        // Cache it for reuse
+        this.specCache.set(cacheKey, hoistedIdent, hoistedDecl);
+
+        if (this.verbose) {
+          console.log(`[typemacro] Created hoisted specialization: ${hoistedIdent.text}`);
+        }
+
+        // Call the hoisted specialized function with remaining (non-dict) arguments
+        const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
+        const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
+        return this.ctx.factory.createCallExpression(
+          hoistedIdent,
+          node.typeArguments,
+          remainingArgs
+        );
       } else {
-        // inlineAutoSpecialize returned undefined without throwing
+        // inlineAutoSpecializeForHoisting returned undefined without throwing
         if (!suppressWarnings) {
           this.ctx.reportWarning(
             node,
@@ -1523,6 +1627,323 @@ class MacroTransformer {
     }
 
     return undefined;
+  }
+
+  /**
+   * Try to specialize a function call based on the expected return type.
+   *
+   * When a function returning Result<E, T> is called in a context expecting
+   * Option<T>, Either<E, T>, or bare T, this method automatically specializes
+   * the function body by replacing ok()/err() with the target type's constructors.
+   *
+   * Example:
+   *   const opt: Option<number> = parseAge("42");  // parseAge returns Result<string, number>
+   *   // Auto-specializes to: ok(v) -> v, err(e) -> null
+   */
+  private tryReturnTypeDrivenSpecialize(node: ts.CallExpression): ts.Expression | undefined {
+    // 1. Get the return type of the called function
+    const fnType = this.ctx.typeChecker.getTypeAtLocation(node.expression);
+    const callSigs = fnType.getCallSignatures();
+    if (!callSigs.length) return undefined;
+
+    const returnType = callSigs[0].getReturnType();
+
+    // 2. Check if return type is Result<E, T> (or similar polymorphic type)
+    if (!this.isResultType(returnType)) {
+      return undefined;
+    }
+
+    // 3. Get the contextual (expected) type
+    const contextualType = this.getContextualTypeForCall(node);
+    if (!contextualType) {
+      return undefined;
+    }
+
+    // 4. Get the target type name from contextual type
+    const targetTypeName = this.getTypeName(contextualType);
+    if (!targetTypeName) {
+      return undefined;
+    }
+
+    // 5. Check if the target type is different from Result and has an algebra
+    const returnTypeName = this.getTypeName(returnType);
+    if (returnTypeName === targetTypeName) {
+      // Same type, no specialization needed
+      return undefined;
+    }
+
+    // 6. Look up the Result algebra for the target type
+    const algebra = getResultAlgebra(targetTypeName);
+    if (!algebra) {
+      // No algebra registered for this target type
+      return undefined;
+    }
+
+    // 7. Get function name for diagnostics and caching
+    const fnName = ts.isIdentifier(node.expression)
+      ? node.expression.text
+      : ts.isPropertyAccessExpression(node.expression)
+        ? node.expression.name.text
+        : "<anonymous>";
+
+    if (this.verbose) {
+      console.log(
+        `[typemacro] Return-type-driven specialization: ${fnName} from ${returnTypeName ?? "Result"} to ${targetTypeName}`
+      );
+    }
+
+    // 8. Try to resolve the function body
+    const fnBody = this.resolveAutoSpecFunctionBody(node.expression);
+    if (!fnBody) {
+      return undefined;
+    }
+
+    // 9. Compute cache key for deduplication
+    const fnSymbol = this.ctx.typeChecker.getSymbolAtLocation(node.expression);
+    const fnSymbolId = fnSymbol
+      ? ((fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName)
+      : fnName;
+    const cacheKey = SpecializationCache.computeKey(fnSymbolId, [algebra.name]);
+
+    // 10. Check if this specialization is already cached
+    const cachedEntry = this.specCache.get(cacheKey);
+    if (cachedEntry) {
+      if (this.verbose) {
+        console.log(
+          `[typemacro] Reusing cached result-type specialization: ${cachedEntry.ident.text}`
+        );
+      }
+      // Call the cached specialized function with all original arguments
+      return this.ctx.factory.createCallExpression(
+        cachedEntry.ident,
+        node.typeArguments,
+        Array.from(node.arguments)
+      );
+    }
+
+    // 11. Specialize the function body by rewriting ok()/err() calls
+    const specialized = this.specializeForResultAlgebra(fnBody, algebra, fnName);
+    if (!specialized) {
+      return undefined;
+    }
+
+    // 12. Generate a hoisted name and create the declaration
+    const hoistedIdent = SpecializationCache.generateHoistedName(
+      fnName,
+      [algebra.name],
+      this.ctx.hygiene
+    );
+    const hoistedDecl = createHoistedSpecialization(this.ctx.factory, hoistedIdent, specialized);
+
+    // 13. Cache it for reuse
+    this.specCache.set(cacheKey, hoistedIdent, hoistedDecl);
+
+    if (this.verbose) {
+      console.log(`[typemacro] Created hoisted result-type specialization: ${hoistedIdent.text}`);
+    }
+
+    // 14. Call the hoisted specialized function
+    return this.ctx.factory.createCallExpression(
+      hoistedIdent,
+      node.typeArguments,
+      Array.from(node.arguments)
+    );
+  }
+
+  /**
+   * Check if a type is a Result-like type (has ok/err constructors).
+   */
+  private isResultType(type: ts.Type): boolean {
+    const typeName = this.getTypeName(type);
+    return typeName === "Result" || typeName === "Either" || typeName === "Validation";
+  }
+
+  /**
+   * Get the contextual type for a call expression.
+   * Checks:
+   * - Variable declaration with type annotation: const x: Type = call()
+   * - Return statement in typed function
+   * - Argument position in typed parameter
+   */
+  private getContextualTypeForCall(node: ts.CallExpression): ts.Type | undefined {
+    // Try TypeScript's built-in contextual type
+    const contextual = this.ctx.typeChecker.getContextualType(node);
+    if (contextual) {
+      return contextual;
+    }
+
+    // Check if parent is a variable declaration with explicit type
+    const parent = node.parent;
+    if (ts.isVariableDeclaration(parent) && parent.type) {
+      return this.ctx.typeChecker.getTypeFromTypeNode(parent.type);
+    }
+
+    // Check if parent is a return statement in a function with explicit return type
+    if (ts.isReturnStatement(parent)) {
+      const fnParent = this.findEnclosingFunction(parent);
+      if (fnParent && fnParent.type) {
+        return this.ctx.typeChecker.getTypeFromTypeNode(fnParent.type);
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Find the enclosing function declaration with a return type annotation.
+   */
+  private findEnclosingFunction(
+    node: ts.Node
+  ):
+    | ((
+        | ts.FunctionDeclaration
+        | ts.ArrowFunction
+        | ts.FunctionExpression
+        | ts.MethodDeclaration
+      ) & { type: ts.TypeNode })
+    | undefined {
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (
+        (ts.isFunctionDeclaration(current) ||
+          ts.isArrowFunction(current) ||
+          ts.isFunctionExpression(current) ||
+          ts.isMethodDeclaration(current)) &&
+        current.type
+      ) {
+        return current as (
+          | ts.FunctionDeclaration
+          | ts.ArrowFunction
+          | ts.FunctionExpression
+          | ts.MethodDeclaration
+        ) & { type: ts.TypeNode };
+      }
+      current = current.parent;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get the name of a type (e.g., "Option", "Either", "Result").
+   */
+  private getTypeName(type: ts.Type): string | undefined {
+    if (type.isUnion()) {
+      for (const t of type.types) {
+        // Skip null and undefined
+        if (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) continue;
+        const name = this.getTypeName(t);
+        if (name) return name;
+      }
+    }
+    const symbol = type.getSymbol() ?? type.aliasSymbol;
+    if (symbol) {
+      return symbol.getName();
+    }
+    // For anonymous/structural types, try to get from the type string
+    const typeStr = this.ctx.typeChecker.typeToString(type);
+    const match = typeStr.match(/^(\w+)(?:<|$)/);
+    return match ? match[1] : undefined;
+  }
+
+  /**
+   * Specialize a function for a Result algebra by rewriting ok()/err() calls.
+   */
+  private specializeForResultAlgebra(
+    fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+    algebra: ResultAlgebra,
+    _fnName: string
+  ): ts.Expression | undefined {
+    const params = Array.from(fn.parameters);
+    const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
+    if (!body) return undefined;
+
+    // Rewrite ok()/err() calls in the body
+    const rewrittenBody = this.rewriteResultCalls(body, algebra);
+
+    let finalBody: ts.ConciseBody = rewrittenBody as ts.ConciseBody;
+
+    if (ts.isBlock(rewrittenBody)) {
+      const analysis = analyzeForFlattening(rewrittenBody);
+      if (analysis.canFlatten) {
+        finalBody = flattenReturnsToExpression(this.ctx, rewrittenBody);
+      }
+    }
+
+    // Return the specialized function
+    return this.ctx.factory.createArrowFunction(
+      undefined,
+      undefined,
+      params,
+      undefined,
+      this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      finalBody
+    );
+  }
+
+  /**
+   * Rewrite ok() and err() calls in a function body using the target algebra.
+   *
+   * Transforms:
+   *   ok(value) -> algebra.rewriteOk(ctx, value)
+   *   err(error) -> algebra.rewriteErr(ctx, error)
+   *
+   * This is the core transformation for Result polymorphism.
+   */
+  private rewriteResultCalls(node: ts.Node, algebra: ResultAlgebra): ts.Node {
+    const self = this;
+
+    function visit(n: ts.Node): ts.Node {
+      // Match: ok(value) or err(error) calls
+      if (ts.isCallExpression(n)) {
+        // Check for ok(value)
+        if (ts.isIdentifier(n.expression) && n.expression.text === "ok") {
+          if (n.arguments.length >= 1) {
+            const value = n.arguments[0];
+            // Visit the value first to handle nested ok/err calls
+            const visitedValue = ts.visitNode(value, visit) as ts.Expression;
+            return algebra.rewriteOk(self.ctx, visitedValue);
+          }
+          // ok() with no arguments -> ok(undefined)
+          return algebra.rewriteOk(self.ctx, self.ctx.factory.createIdentifier("undefined"));
+        }
+
+        // Check for err(error)
+        if (ts.isIdentifier(n.expression) && n.expression.text === "err") {
+          if (n.arguments.length >= 1) {
+            const error = n.arguments[0];
+            // Visit the error first to handle nested ok/err calls
+            const visitedError = ts.visitNode(error, visit) as ts.Expression;
+            return algebra.rewriteErr(self.ctx, visitedError);
+          }
+          // err() with no arguments -> err(undefined)
+          return algebra.rewriteErr(self.ctx, self.ctx.factory.createIdentifier("undefined"));
+        }
+
+        // Also handle qualified calls: Result.ok(value), Result.err(error)
+        if (ts.isPropertyAccessExpression(n.expression)) {
+          const obj = n.expression.expression;
+          const method = n.expression.name.text;
+
+          // Check for Result.ok or similar patterns
+          if (ts.isIdentifier(obj) && (obj.text === "Result" || obj.text === "R")) {
+            if (method === "ok" && n.arguments.length >= 1) {
+              const value = n.arguments[0];
+              const visitedValue = ts.visitNode(value, visit) as ts.Expression;
+              return algebra.rewriteOk(self.ctx, visitedValue);
+            }
+            if (method === "err" && n.arguments.length >= 1) {
+              const error = n.arguments[0];
+              const visitedError = ts.visitNode(error, visit) as ts.Expression;
+              return algebra.rewriteErr(self.ctx, visitedError);
+            }
+          }
+        }
+      }
+
+      return ts.visitEachChild(n, visit, self.ctx.transformContext);
+    }
+
+    return ts.visitNode(node, visit) as ts.Node;
   }
 
   /**
@@ -1747,6 +2168,85 @@ class MacroTransformer {
   }
 
   /**
+   * Inline dictionary method calls for hoisting - returns the specialized function
+   * expression (not a call), which can be hoisted to module scope.
+   *
+   * Unlike inlineAutoSpecialize which returns an IIFE, this returns just the
+   * arrow function that can be assigned to a hoisted const.
+   */
+  private inlineAutoSpecializeForHoisting(
+    fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+    instanceArgs: { index: number; name: string; methods: DictMethodMap }[],
+    fnName: string
+  ): ts.Expression | undefined {
+    const params = Array.from(fn.parameters);
+    if (params.length === 0) return undefined;
+
+    // Build a map of dictionary param name -> methods
+    const dictParamMap = new Map<string, DictMethodMap>();
+    const dictParamIndices = new Set<number>();
+
+    for (const instArg of instanceArgs) {
+      if (instArg.index < params.length) {
+        const param = params[instArg.index];
+        const paramName = ts.isIdentifier(param.name) ? param.name.text : undefined;
+        if (paramName) {
+          dictParamMap.set(paramName, instArg.methods);
+          dictParamIndices.add(instArg.index);
+        }
+      }
+    }
+
+    if (dictParamMap.size === 0) return undefined;
+
+    // Get the function body
+    const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
+    if (!body) return undefined;
+
+    // Get remaining parameters (non-dictionary)
+    const remainingParams = params.filter((_, i) => !dictParamIndices.has(i));
+
+    // Rewrite dictionary calls in the body
+    const specializedBody = this.rewriteDictCallsForAutoSpec(body, dictParamMap);
+
+    // If no remaining params, return a thunk
+    if (remainingParams.length === 0) {
+      if (ts.isExpression(specializedBody)) {
+        // Return a nullary arrow function
+        return this.ctx.factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          specializedBody
+        );
+      }
+      // For block bodies, return arrow with block
+      if (ts.isBlock(specializedBody)) {
+        return this.ctx.factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          specializedBody
+        );
+      }
+    }
+
+    // Return the specialized function (to be hoisted)
+    return this.ctx.factory.createArrowFunction(
+      undefined,
+      undefined,
+      remainingParams,
+      undefined,
+      this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      specializedBody as ts.ConciseBody
+    );
+  }
+
+  /**
    * Rewrite dictionary method calls (D.method(args)) with inlined implementations.
    */
   private rewriteDictCallsForAutoSpec(
@@ -1855,13 +2355,62 @@ class MacroTransformer {
       }
     }
 
-    // For block bodies, extract the return expression
+    // For block bodies, handle inlining with potential flattening
     if (ts.isBlock(body)) {
-      for (const stmt of body.statements) {
-        if (ts.isReturnStatement(stmt) && stmt.expression) {
-          return this.substituteParamsForAutoSpec(stmt.expression, substitutions);
+      // First, substitute parameters in the entire block
+      const substitutedBody = this.substituteParamsForAutoSpec(body, substitutions);
+      if (!ts.isBlock(substitutedBody)) {
+        return undefined;
+      }
+      const substitutedBlock = substitutedBody as ts.Block;
+
+      // Check if the block has a single return statement
+      const statements = substitutedBlock.statements;
+      const firstStmt = statements[0];
+      if (statements.length === 1 && ts.isReturnStatement(firstStmt) && firstStmt.expression) {
+        return firstStmt.expression;
+      }
+
+      // Check for simple single-return pattern (may have bindings before)
+      const classification = classifyInlineFailureDetailed(substitutedBlock);
+
+      if (classification.reason === null) {
+        // Single return at end - extract it
+        for (let i = statements.length - 1; i >= 0; i--) {
+          const stmt = statements[i];
+          if (ts.isReturnStatement(stmt) && stmt.expression) {
+            // If there are bindings, wrap in IIFE
+            if (i > 0) {
+              const blockStmts: ts.Statement[] = [...statements.slice(0, i), stmt];
+              const block = this.ctx.factory.createBlock(blockStmts, true);
+              const arrowFn = this.ctx.factory.createArrowFunction(
+                undefined,
+                undefined,
+                [],
+                undefined,
+                this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+                block
+              );
+              return this.ctx.factory.createCallExpression(
+                this.ctx.factory.createParenthesizedExpression(arrowFn),
+                undefined,
+                []
+              );
+            }
+            return stmt.expression;
+          }
         }
       }
+
+      // Check if we can flatten early returns to a ternary expression
+      if (classification.canFlatten) {
+        const flattened = flattenReturnsToExpression(this.ctx, substitutedBlock);
+        if (flattened) {
+          return flattened;
+        }
+      }
+
+      // Can't inline block body
       return undefined;
     }
 

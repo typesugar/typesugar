@@ -53,6 +53,7 @@ alice.toJson(); // JSON serialization
 | [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch)                |
 | [@typesugar/preprocessor](packages/preprocessor)  | Lexical preprocessor for custom syntax           |
 | [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack) |
+| [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin               |
 
 ### Standard Library
 
@@ -103,6 +104,7 @@ alice.toJson(); // JSON serialization
 | [@typesugar/geometry](packages/geometry) | Type-safe geometry (Boost.Geometry)             |
 | [@typesugar/math](packages/math)         | Math types and typeclasses                      |
 | [@typesugar/mapper](packages/mapper)     | Zero-cost object mapping                        |
+| [@typesugar/symbolic](packages/symbolic) | Symbolic math, calculus, simplification         |
 
 ### Ecosystem Integrations
 

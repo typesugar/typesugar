@@ -62,7 +62,7 @@ importers:
         version: 5.9.3
       typesugar:
         specifier: workspace:*
-        version: link:packages/typesugar
+        version: link:packages/vscode
       unplugin-typesugar:
         specifier: workspace:*
         version: link:packages/unplugin-typesugar
@@ -83,7 +83,7 @@ importers:
         version: 5.9.3
       typesugar:
         specifier: workspace:*
-        version: link:../../packages/typesugar
+        version: link:../../packages/vscode
 
   packages/codec:
     dependencies:
@@ -217,9 +217,6 @@ importers:
 
   packages/eslint-plugin:
     dependencies:
-      '@typesugar/core':
-        specifier: workspace:*
-        version: link:../core
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
@@ -527,6 +524,9 @@ importers:
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std
+      '@typesugar/type-system':
+        specifier: workspace:*
+        version: link:../type-system
     devDependencies:
       tsup:
         specifier: ^8.0.0

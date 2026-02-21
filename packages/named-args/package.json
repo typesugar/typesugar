@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/named-args",
   "version": "0.1.0",
-  "description": "Named function arguments with compile-time validation — Kotlin-style kwargs for TypeScript",
+  "description": "🧊 Named function arguments with compile-time validation — Kotlin-style kwargs for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

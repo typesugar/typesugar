@@ -11,7 +11,11 @@ import { globalExpansionTracker } from "@typesugar/core";
 import { type RawSourceMap } from "@typesugar/preprocessor";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps } from "./source-map-utils.js";
-import { createPositionMapper, type PositionMapper } from "./position-mapper.js";
+import {
+  createPositionMapper,
+  IdentityPositionMapper,
+  type PositionMapper,
+} from "./position-mapper.js";
 import { TransformCache, hashContent } from "./cache.js";
 import macroTransformerFactory, { type MacroTransformerConfig } from "./index.js";
 
@@ -508,7 +512,6 @@ export class TransformationPipeline {
   }
 
   private createEmptyResult(fileName: string): TransformResult {
-    const { IdentityPositionMapper } = require("./position-mapper.js");
     return {
       original: "",
       code: "",

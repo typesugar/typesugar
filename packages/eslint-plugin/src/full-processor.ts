@@ -1,27 +1,25 @@
 /**
  * Full ESLint Processor for typesugar
  *
- * This processor runs the ACTUAL typesugar macro transformer, not just pattern matching.
- * It produces properly transformed output with accurate source mappings.
+ * This processor runs the ACTUAL typesugar macro transformer via the unified
+ * TransformationPipeline. It produces properly transformed output with
+ * accurate source mappings via PositionMapper.
  *
  * Requirements:
  * - TypeScript must be available
  * - typesugar transformer must be built
- * - Uses more memory (creates TS programs per file)
  *
  * Trade-offs vs the lightweight processor:
  * - More accurate (real macro expansion)
- * - Better source mapping
+ * - Better source mapping (offset-based via PositionMapper)
  * - Slower (full TS compilation)
  * - Higher memory usage
  */
 
 import type { Linter } from "eslint";
 import * as ts from "typescript";
-import { preprocess as preprocessCustomSyntax } from "@typesugar/preprocessor";
-
-// Dynamically import the transformer to avoid circular dependencies
-let transformerFactory: typeof import("@typesugar/transformer").default | undefined;
+import { createPipeline, type TransformationPipeline } from "@typesugar/transformer/pipeline";
+import type { PositionMapper } from "@typesugar/transformer/position-mapper";
 
 /** typesugar package prefixes for import detection */
 const TYPESUGAR_PACKAGE_PREFIXES = [
@@ -37,7 +35,6 @@ const TYPESUGAR_PACKAGE_PREFIXES = [
  * Check if a lint message is about an unused import from a typesugar package.
  */
 function isTypesugarUnusedImportError(message: Linter.LintMessage, source: string): boolean {
-  // Rules that report unused imports
   const unusedImportRules = [
     "no-unused-vars",
     "@typescript-eslint/no-unused-vars",
@@ -50,7 +47,6 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
     return false;
   }
 
-  // Find the line with the error
   if (message.line === undefined) {
     return false;
   }
@@ -58,7 +54,6 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
   const lines = source.split("\n");
   const errorLine = lines[message.line - 1] ?? "";
 
-  // Check if this line is an import from a typesugar package
   const importMatch = errorLine.match(/from\s+["']([^"']+)["']/);
   if (!importMatch) {
     return false;
@@ -70,156 +65,75 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
   );
 }
 
-async function loadTransformer() {
-  if (!transformerFactory) {
+// ---------------------------------------------------------------------------
+// Pipeline management
+// ---------------------------------------------------------------------------
+
+let pipeline: TransformationPipeline | null = null;
+
+function getPipeline(): TransformationPipeline | null {
+  if (!pipeline) {
     try {
-      const mod = await import("@typesugar/transformer");
-      transformerFactory = mod.default;
+      const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
+      if (configPath) {
+        pipeline = createPipeline(configPath, { verbose: false });
+      }
     } catch (e) {
-      console.warn("[typesugar-eslint] Could not load transformer:", e);
+      console.warn("[typesugar-eslint] Could not create pipeline:", e);
     }
   }
-  return transformerFactory;
+  return pipeline;
 }
 
-interface TransformResult {
-  transformed: string;
-  sourceMap: Map<number, number>; // transformed line -> original line
-}
+// ---------------------------------------------------------------------------
+// Line/column <-> offset helpers (ESLint uses 1-based line, 1-based column)
+// ---------------------------------------------------------------------------
 
-// Cache for transformed files (avoids re-transforming unchanged files)
-const transformCache = new Map<string, { source: string; result: TransformResult }>();
+function lineColToOffset(source: string, line: number, column: number): number {
+  let currentLine = 1;
+  let offset = 0;
 
-/**
- * Create a TypeScript program and run the typesugar transformer
- */
-function transformWithTypesugar(fileName: string, source: string): TransformResult {
-  // Check cache
-  const cached = transformCache.get(fileName);
-  if (cached && cached.source === source) {
-    return cached.result;
-  }
-
-  const sourceMap = new Map<number, number>();
-
-  // First: Run the preprocessor to handle custom syntax (F<_> HKT, |>, ::)
-  // This converts non-standard TypeScript to valid TypeScript before the TS compiler sees it
-  const preprocessResult = preprocessCustomSyntax(source, { fileName });
-  const preprocessedSource = preprocessResult.code;
-
-  // Create compiler options
-  const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    esModuleInterop: true,
-    skipLibCheck: true,
-    experimentalDecorators: true,
-    noEmit: false,
-    declaration: false,
-  };
-
-  // Create a virtual file system
-  const files = new Map<string, string>();
-  files.set(fileName, preprocessedSource);
-
-  // Create compiler host
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile;
-  const originalReadFile = host.readFile;
-  const originalFileExists = host.fileExists;
-
-  host.getSourceFile = (name, languageVersion) => {
-    const content = files.get(name);
-    if (content !== undefined) {
-      return ts.createSourceFile(name, content, languageVersion, true);
+  while (currentLine < line && offset < source.length) {
+    if (source[offset] === "\n") {
+      currentLine++;
     }
-    return originalGetSourceFile.call(host, name, languageVersion);
-  };
-
-  host.readFile = (name) => {
-    const content = files.get(name);
-    if (content !== undefined) return content;
-    return originalReadFile.call(host, name);
-  };
-
-  host.fileExists = (name) => {
-    if (files.has(name)) return true;
-    return originalFileExists.call(host, name);
-  };
-
-  // Capture output
-  let transformedOutput = "";
-  host.writeFile = (name, text) => {
-    if (name.endsWith(".js") || name.endsWith(".ts")) {
-      transformedOutput = text;
-    }
-  };
-
-  // Create program
-  const program = ts.createProgram([fileName], compilerOptions, host);
-
-  // Get the transformer factory
-  if (!transformerFactory) {
-    // Transformer not loaded yet - return original
-    const result = { transformed: source, sourceMap };
-    transformCache.set(fileName, { source, result });
-    return result;
+    offset++;
   }
 
-  // Run transformation
-  const transformer = transformerFactory(program, { verbose: false });
-  const sourceFile = program.getSourceFile(fileName);
-
-  if (!sourceFile) {
-    const result = { transformed: source, sourceMap };
-    transformCache.set(fileName, { source, result });
-    return result;
-  }
-
-  // Transform
-  const transformationResult = ts.transform(sourceFile, [transformer], compilerOptions);
-  const transformedSourceFile = transformationResult.transformed[0];
-
-  // Print the transformed AST back to text
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  transformedOutput = printer.printFile(transformedSourceFile);
-
-  // Build source map (line-based)
-  // TODO: More sophisticated source mapping using AST node positions
-  const originalLines = source.split("\n");
-  const transformedLines = transformedOutput.split("\n");
-
-  // For now, simple 1:1 mapping for unchanged lines
-  // Real implementation would track AST node origins
-  for (let i = 0; i < Math.max(originalLines.length, transformedLines.length); i++) {
-    sourceMap.set(i + 1, Math.min(i + 1, originalLines.length));
-  }
-
-  transformationResult.dispose();
-
-  const result = { transformed: transformedOutput, sourceMap };
-  transformCache.set(fileName, { source, result });
-  return result;
+  // column is 1-based in ESLint
+  return offset + (column - 1);
 }
 
-// Store state for postprocess
-const fileStates = new Map<
-  string,
-  {
-    originalSource: string;
-    sourceMap: Map<number, number>;
+function offsetToLineCol(source: string, offset: number): { line: number; column: number } {
+  let line = 1;
+  let lastLineStart = 0;
+
+  for (let i = 0; i < offset && i < source.length; i++) {
+    if (source[i] === "\n") {
+      line++;
+      lastLineStart = i + 1;
+    }
   }
->();
+
+  return { line, column: offset - lastLineStart + 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Per-file state for postprocess
+// ---------------------------------------------------------------------------
+
+interface FileState {
+  originalSource: string;
+  transformedSource: string;
+  mapper: PositionMapper;
+}
+
+const fileStates = new Map<string, FileState>();
 
 /**
  * Create the full processor that uses the actual typesugar transformer
  */
 export function createFullProcessor(): Linter.Processor {
-  // Eagerly load transformer
-  loadTransformer().catch(() => {});
-
   return {
     meta: {
       name: "typesugar-full",
@@ -229,20 +143,29 @@ export function createFullProcessor(): Linter.Processor {
     supportsAutofix: true,
 
     preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
-      // Skip non-TypeScript files
       if (!filename.endsWith(".ts") && !filename.endsWith(".tsx")) {
         return [text];
       }
 
-      // Transform using the full typesugar transformer
-      const { transformed, sourceMap } = transformWithTypesugar(filename, text);
+      const p = getPipeline();
+      if (p) {
+        try {
+          const result = p.transform(filename);
 
-      fileStates.set(filename, {
-        originalSource: text,
-        sourceMap,
-      });
+          fileStates.set(filename, {
+            originalSource: text,
+            transformedSource: result.code,
+            mapper: result.mapper,
+          });
 
-      return [transformed];
+          return [result.code];
+        } catch (e) {
+          console.warn(`[typesugar-eslint] Transform failed for ${filename}:`, e);
+        }
+      }
+
+      // Fallback: return original
+      return [text];
     },
 
     postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
@@ -255,15 +178,30 @@ export function createFullProcessor(): Linter.Processor {
         .flat()
         .filter((message) => !isTypesugarUnusedImportError(message, state.originalSource))
         .map((message) => {
-          if (message.line !== undefined) {
-            const originalLine = state.sourceMap.get(message.line) ?? message.line;
-            return {
-              ...message,
-              line: originalLine,
-              endLine: message.endLine
-                ? (state.sourceMap.get(message.endLine) ?? message.endLine)
-                : undefined,
-            };
+          if (message.line !== undefined && message.column !== undefined) {
+            const offset = lineColToOffset(state.transformedSource, message.line, message.column);
+            const originalOffset = state.mapper.toOriginal(offset);
+
+            if (originalOffset !== null) {
+              const mapped = offsetToLineCol(state.originalSource, originalOffset);
+              const result = { ...message, line: mapped.line, column: mapped.column };
+
+              if (message.endLine !== undefined && message.endColumn !== undefined) {
+                const endOffset = lineColToOffset(
+                  state.transformedSource,
+                  message.endLine,
+                  message.endColumn
+                );
+                const originalEndOffset = state.mapper.toOriginal(endOffset);
+                if (originalEndOffset !== null) {
+                  const mappedEnd = offsetToLineCol(state.originalSource, originalEndOffset);
+                  result.endLine = mappedEnd.line;
+                  result.endColumn = mappedEnd.column;
+                }
+              }
+
+              return result;
+            }
           }
           return message;
         });
@@ -272,8 +210,11 @@ export function createFullProcessor(): Linter.Processor {
 }
 
 /**
- * Clear the transform cache (useful for watch mode)
+ * Clear the transform cache (delegates to pipeline.invalidateAll())
  */
 export function clearTransformCache(): void {
-  transformCache.clear();
+  fileStates.clear();
+  if (pipeline) {
+    pipeline.invalidateAll();
+  }
 }
