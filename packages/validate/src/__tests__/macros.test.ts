@@ -1,11 +1,16 @@
-import { is, assert, validate, ValidationError } from "@typesugar/validate";
+import { describe, it, expect } from "vitest";
+import { is, assert, validate } from "@typesugar/validate";
 
-interface User {
-  id: number;
-  name: string;
-  active?: boolean;
-}
+describe("@typesugar/validate runtime stubs", () => {
+  it("is<T>() should throw without transformer", () => {
+    expect(() => is()).toThrow("compile-time macro");
+  });
 
-const isUser = is<User>();
-const assertUser = assert<User>();
-const validateUser = validate<User>();
+  it("assert<T>() should throw without transformer", () => {
+    expect(() => assert()).toThrow("compile-time macro");
+  });
+
+  it("validate<T>() should throw without transformer", () => {
+    expect(() => validate()).toThrow("compile-time macro");
+  });
+});

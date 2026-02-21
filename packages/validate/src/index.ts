@@ -3,11 +3,26 @@
  * Zero-cost validation and schema macros for typesugar.
  */
 
-export declare function is<T>(): (value: unknown) => value is T;
-export declare function assert<T>(): (value: unknown) => T;
-export declare function validate<T>(): (
+export function is<T>(): (value: unknown) => value is T {
+  throw new Error(
+    "is<T>() is a compile-time macro and requires the typesugar transformer. " +
+      "See https://github.com/dpovey/ttfx for setup instructions.",
+  );
+}
+
+export function assert<T>(): (value: unknown) => T {
+  throw new Error(
+    "assert<T>() is a compile-time macro and requires the typesugar transformer.",
+  );
+}
+
+export function validate<T>(): (
   value: unknown,
-) => import("@typesugar/fp").ValidatedNel<import("./types").ValidationError, T>;
+) => import("@typesugar/fp").ValidatedNel<import("./types").ValidationError, T> {
+  throw new Error(
+    "validate<T>() is a compile-time macro and requires the typesugar transformer.",
+  );
+}
 
 export * from "./types";
 
