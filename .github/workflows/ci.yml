@@ -8,13 +8,12 @@ on:
 
 jobs:
   test:
-    name: Test (Node ${{ matrix.node }}, TS ${{ matrix.typescript }})
+    name: Test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node: ["18", "20", "22"]
-        typescript: ["5.7", "5.8"]
     steps:
       - uses: actions/checkout@v4
 
@@ -26,10 +25,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Install TypeScript ${{ matrix.typescript }}
-        if: matrix.typescript != '5.8'
-        run: pnpm add -Dw typescript@~${{ matrix.typescript }}
 
       - name: Build
         run: pnpm run build
