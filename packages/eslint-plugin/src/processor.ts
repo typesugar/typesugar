@@ -193,6 +193,57 @@ function mapToOriginal(
   return { line, column };
 }
 
+/** typesugar package prefixes for import detection */
+const TYPESUGAR_PACKAGE_PREFIXES = [
+  "typesugar",
+  "@typesugar/",
+  "typemacro", // legacy name
+  "@typemacro/", // legacy name
+  "ttfx", // legacy name
+  "@ttfx/", // legacy name
+];
+
+/**
+ * Check if a lint message is about an unused import from a typesugar package.
+ */
+function isTypesugarUnusedImportError(
+  message: Linter.LintMessage,
+  source: string,
+): boolean {
+  // Rules that report unused imports
+  const unusedImportRules = [
+    "no-unused-vars",
+    "@typescript-eslint/no-unused-vars",
+    "import/no-unused-modules",
+    "unused-imports/no-unused-imports",
+    "unused-imports/no-unused-vars",
+  ];
+
+  if (!unusedImportRules.includes(message.ruleId ?? "")) {
+    return false;
+  }
+
+  // Find the line with the error
+  if (message.line === undefined) {
+    return false;
+  }
+
+  const lines = source.split("\n");
+  const errorLine = lines[message.line - 1] ?? "";
+
+  // Check if this line is an import from a typesugar package
+  const importMatch = errorLine.match(/from\s+["']([^"']+)["']/);
+  if (!importMatch) {
+    return false;
+  }
+
+  const modulePath = importMatch[1];
+  return TYPESUGAR_PACKAGE_PREFIXES.some(
+    (prefix) =>
+      modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix),
+  );
+}
+
 /**
  * Create the ESLint processor
  */
@@ -263,6 +314,7 @@ export function createProcessor(): Linter.Processor {
 
     /**
      * Postprocess: Map lint messages back to original source locations
+     * and filter out false positives for typesugar imports
      */
     postprocess(
       messages: Linter.LintMessage[][],
@@ -270,29 +322,44 @@ export function createProcessor(): Linter.Processor {
     ): Linter.LintMessage[] {
       const state = fileStates.get(filename);
       if (!state || state.sourceMappings.length === 0) {
-        // No transformation was done - return messages as-is
-        return messages.flat();
+        // No transformation was done, but still filter typesugar import errors
+        return messages
+          .flat()
+          .filter(
+            (message) =>
+              !isTypesugarUnusedImportError(
+                message,
+                state?.originalSource ?? "",
+              ),
+          );
       }
 
       // Map each message's location back to the original source
-      return messages.flat().map((message) => {
-        if (message.line !== undefined) {
-          const mapped = mapToOriginal(
-            state,
-            message.line,
-            message.column ?? 0,
-          );
-          return {
-            ...message,
-            line: mapped.line,
-            column: mapped.column,
-            endLine: message.endLine
-              ? mapToOriginal(state, message.endLine, 0).line
-              : undefined,
-          };
-        }
-        return message;
-      });
+      // and filter out false positives for typesugar imports
+      return messages
+        .flat()
+        .filter(
+          (message) =>
+            !isTypesugarUnusedImportError(message, state.originalSource),
+        )
+        .map((message) => {
+          if (message.line !== undefined) {
+            const mapped = mapToOriginal(
+              state,
+              message.line,
+              message.column ?? 0,
+            );
+            return {
+              ...message,
+              line: mapped.line,
+              column: mapped.column,
+              endLine: message.endLine
+                ? mapToOriginal(state, message.endLine, 0).line
+                : undefined,
+            };
+          }
+          return message;
+        });
     },
   };
 }

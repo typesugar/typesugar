@@ -22,6 +22,15 @@ import {
   LabeledBlockMacro,
   TaggedTemplateMacroDef,
   TypeMacro,
+  // Opt-out system
+  globalResolutionScope,
+  scanImportsForScope,
+  isInOptedOutScope,
+  // Import suggestions
+  getSuggestionsForSymbol,
+  getSuggestionsForMethod,
+  getSuggestionsForMacro,
+  formatSuggestionsMessage,
 } from "@typesugar/core";
 
 /**
@@ -62,6 +71,21 @@ export default function macroTransformerFactory(
       }
 
       const ctx = createMacroContext(program, sourceFile, context);
+
+      // Scan for imports and opt-out directives
+      scanImportsForScope(sourceFile, globalResolutionScope);
+
+      // Check for file-level opt-out
+      const fileScope = globalResolutionScope.getScope(sourceFile.fileName);
+      if (fileScope.optedOut) {
+        if (verbose) {
+          console.log(
+            `[typemacro] Skipping: ${sourceFile.fileName} (opted out)`,
+          );
+        }
+        return sourceFile;
+      }
+
       const transformer = new MacroTransformer(ctx, verbose);
 
       const result = ts.visitNode(
@@ -509,20 +533,25 @@ class MacroTransformer {
     if (normalized.includes("/packages/sql/")) return "@typesugar/sql";
     if (normalized.includes("/packages/strings/")) return "@typesugar/strings";
     if (normalized.includes("/packages/fp/")) return "@typesugar/fp";
-    if (normalized.includes("/packages/comptime/")) return "@typesugar/comptime";
+    if (normalized.includes("/packages/comptime/"))
+      return "@typesugar/comptime";
     if (normalized.includes("/packages/reflect/")) return "@typesugar/reflect";
     if (normalized.includes("/packages/derive/")) return "@typesugar/derive";
     if (normalized.includes("/packages/mapper/")) return "@typesugar/mapper";
-    if (normalized.includes("/packages/operators/")) return "@typesugar/operators";
-    if (normalized.includes("/packages/typeclass/")) return "@typesugar/typeclass";
-    if (normalized.includes("/packages/specialize/")) return "@typesugar/specialize";
+    if (normalized.includes("/packages/operators/"))
+      return "@typesugar/operators";
+    if (normalized.includes("/packages/typeclass/"))
+      return "@typesugar/typeclass";
+    if (normalized.includes("/packages/specialize/"))
+      return "@typesugar/specialize";
     if (normalized.includes("/packages/core/")) return "@typesugar/core";
     if (normalized.includes("/packages/typemacro/")) return "typemacro";
 
     // Legacy source tree paths (for backwards compatibility during migration)
     if (normalized.includes("/src/use-cases/units/")) return "@typesugar/units";
     if (normalized.includes("/src/use-cases/sql/")) return "@typesugar/sql";
-    if (normalized.includes("/src/use-cases/strings/")) return "@typesugar/strings";
+    if (normalized.includes("/src/use-cases/strings/"))
+      return "@typesugar/strings";
     if (
       normalized.includes("/src/index.") ||
       normalized.includes("/src/macros/") ||
@@ -609,6 +638,22 @@ class MacroTransformer {
         const macro = globalRegistry.getLabeledBlock(labelName);
 
         if (macro) {
+          // Check for inline opt-out of macros
+          if (
+            isInOptedOutScope(
+              this.ctx.sourceFile,
+              stmt,
+              globalResolutionScope,
+              "macros",
+            )
+          ) {
+            const visited = ts.visitNode(stmt, this.visit.bind(this));
+            if (visited && ts.isStatement(visited)) {
+              newStatements.push(visited);
+            }
+            continue;
+          }
+
           if (this.verbose) {
             console.log(
               `[typemacro] Expanding labeled block macro: ${labelName}:`,
@@ -857,6 +902,18 @@ class MacroTransformer {
   private tryExpandExpressionMacro(
     node: ts.CallExpression,
   ): ts.Expression | undefined {
+    // Check for inline opt-out
+    if (
+      isInOptedOutScope(
+        this.ctx.sourceFile,
+        node,
+        globalResolutionScope,
+        "macros",
+      )
+    ) {
+      return undefined;
+    }
+
     let macroName: string | undefined;
     let identNode: ts.Node | undefined;
 
@@ -905,6 +962,18 @@ class MacroTransformer {
     const decorators = ts.getDecorators(node);
     if (!decorators || decorators.length === 0) return undefined;
 
+    // Check for inline opt-out (using the first decorator as the anchor)
+    if (
+      isInOptedOutScope(
+        this.ctx.sourceFile,
+        decorators[0],
+        globalResolutionScope,
+        "macros",
+      )
+    ) {
+      return undefined;
+    }
+
     let currentNode: ts.Node = node;
     const extraStatements: ts.Statement[] = [];
     const remainingDecorators: ts.Decorator[] = [];
@@ -912,6 +981,20 @@ class MacroTransformer {
 
     for (const decorator of decorators) {
       const { macroName, args, identNode } = this.parseDecorator(decorator);
+
+      // Check for derive-specific opt-out
+      if (
+        macroName === "derive" &&
+        isInOptedOutScope(
+          this.ctx.sourceFile,
+          decorator,
+          globalResolutionScope,
+          "derive",
+        )
+      ) {
+        remainingDecorators.push(decorator);
+        continue;
+      }
 
       if (macroName === "derive") {
         const deriveMacroResolved = identNode
@@ -1041,7 +1124,13 @@ class MacroTransformer {
       const macro = globalRegistry.getDerive(deriveName);
 
       if (!macro) {
-        this.ctx.reportError(arg, `Unknown derive macro: ${deriveName}`);
+        // Provide import suggestions
+        const suggestions = getSuggestionsForSymbol(deriveName);
+        const suggestionMsg = formatSuggestionsMessage(suggestions);
+        const message = suggestionMsg
+          ? `Unknown derive macro: ${deriveName}\n\n${suggestionMsg}`
+          : `Unknown derive macro: ${deriveName}`;
+        this.ctx.reportError(arg, message);
         continue;
       }
 
@@ -1112,6 +1201,18 @@ class MacroTransformer {
   private tryExpandTaggedTemplate(
     node: ts.TaggedTemplateExpression,
   ): ts.Expression | undefined {
+    // Check for inline opt-out
+    if (
+      isInOptedOutScope(
+        this.ctx.sourceFile,
+        node,
+        globalResolutionScope,
+        "macros",
+      )
+    ) {
+      return undefined;
+    }
+
     if (!ts.isIdentifier(node.tag)) return undefined;
 
     const tagName = node.tag.text;
@@ -1184,6 +1285,18 @@ class MacroTransformer {
   private tryExpandTypeMacro(
     node: ts.TypeReferenceNode,
   ): ts.TypeNode | undefined {
+    // Check for inline opt-out
+    if (
+      isInOptedOutScope(
+        this.ctx.sourceFile,
+        node,
+        globalResolutionScope,
+        "macros",
+      )
+    ) {
+      return undefined;
+    }
+
     let macroName: string | undefined;
     let identNode: ts.Node | undefined;
 
@@ -1227,6 +1340,18 @@ class MacroTransformer {
   private tryRewriteExtensionMethod(
     node: ts.CallExpression,
   ): ts.Expression | undefined {
+    // Check for inline opt-out of extensions
+    if (
+      isInOptedOutScope(
+        this.ctx.sourceFile,
+        node,
+        globalResolutionScope,
+        "extensions",
+      )
+    ) {
+      return undefined;
+    }
+
     const propAccess = node.expression as ts.PropertyAccessExpression;
     const methodName = propAccess.name.text;
     const receiver = propAccess.expression;

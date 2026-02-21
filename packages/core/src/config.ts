@@ -43,6 +43,25 @@ export interface ContractsConfig {
 }
 
 /**
+ * Resolution mode for typeclass and operator lookup.
+ */
+export type ResolutionMode = "automatic" | "import-scoped" | "explicit";
+
+/**
+ * Resolution configuration.
+ */
+export interface ResolutionConfig {
+  /** Global resolution mode */
+  mode?: ResolutionMode;
+  /** Per-file overrides (glob patterns) */
+  fileOverrides?: Record<string, ResolutionMode>;
+  /** Typeclasses available without import in automatic mode */
+  prelude?: string[];
+  /** Enable resolution tracing */
+  trace?: boolean;
+}
+
+/**
  * Full typesugar configuration schema.
  */
 export interface TypesugarConfig {
@@ -50,6 +69,8 @@ export interface TypesugarConfig {
   debug?: boolean;
   /** Contract system configuration */
   contracts?: ContractsConfig;
+  /** Resolution configuration */
+  resolution?: ResolutionConfig;
   /** Feature flags */
   features?: Record<string, boolean>;
   /** Custom user configuration */
@@ -361,6 +382,70 @@ function when<T, U = undefined>(
 }
 
 // ============================================================================
+// Resolution Mode Helpers
+// ============================================================================
+
+/**
+ * Get the resolution mode for a specific file.
+ * Checks file overrides first, then falls back to global mode.
+ */
+function getResolutionModeForFile(fileName: string): ResolutionMode {
+  const resolution = get<ResolutionConfig>("resolution");
+  if (!resolution) return "automatic";
+
+  // Check file overrides
+  if (resolution.fileOverrides) {
+    for (const [pattern, mode] of Object.entries(resolution.fileOverrides)) {
+      if (matchGlob(fileName, pattern)) {
+        return mode;
+      }
+    }
+  }
+
+  return resolution.mode ?? "automatic";
+}
+
+/**
+ * Simple glob matching for file overrides.
+ */
+function matchGlob(fileName: string, pattern: string): boolean {
+  // Convert glob pattern to regex
+  const regexStr = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
+  const regex = new RegExp(`^${regexStr}$`);
+  return regex.test(fileName);
+}
+
+/**
+ * Check if a typeclass is in the prelude.
+ */
+function isInPrelude(typeclassName: string): boolean {
+  const resolution = get<ResolutionConfig>("resolution");
+  const prelude = resolution?.prelude ?? [
+    "Eq",
+    "Ord",
+    "Show",
+    "Clone",
+    "Debug",
+    "Hash",
+    "Default",
+    "Semigroup",
+    "Monoid",
+  ];
+  return prelude.includes(typeclassName);
+}
+
+/**
+ * Check if resolution tracing is enabled.
+ */
+function isTracingEnabled(): boolean {
+  const resolution = get<ResolutionConfig>("resolution");
+  return resolution?.trace ?? false;
+}
+
+// ============================================================================
 // Export: config object
 // ============================================================================
 
@@ -375,6 +460,9 @@ export const config = {
   reset,
   evaluate,
   when,
+  getResolutionModeForFile,
+  isInPrelude,
+  isTracingEnabled,
 } as const;
 
 /**

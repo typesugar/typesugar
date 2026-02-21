@@ -21,7 +21,60 @@ import * as ts from "typescript";
 import { preprocess as preprocessCustomSyntax } from "@typesugar/preprocessor";
 
 // Dynamically import the transformer to avoid circular dependencies
-let transformerFactory: typeof import("@typesugar/transformer").default | undefined;
+let transformerFactory:
+  | typeof import("@typesugar/transformer").default
+  | undefined;
+
+/** typesugar package prefixes for import detection */
+const TYPESUGAR_PACKAGE_PREFIXES = [
+  "typesugar",
+  "@typesugar/",
+  "typemacro", // legacy name
+  "@typemacro/", // legacy name
+  "ttfx", // legacy name
+  "@ttfx/", // legacy name
+];
+
+/**
+ * Check if a lint message is about an unused import from a typesugar package.
+ */
+function isTypesugarUnusedImportError(
+  message: Linter.LintMessage,
+  source: string,
+): boolean {
+  // Rules that report unused imports
+  const unusedImportRules = [
+    "no-unused-vars",
+    "@typescript-eslint/no-unused-vars",
+    "import/no-unused-modules",
+    "unused-imports/no-unused-imports",
+    "unused-imports/no-unused-vars",
+  ];
+
+  if (!unusedImportRules.includes(message.ruleId ?? "")) {
+    return false;
+  }
+
+  // Find the line with the error
+  if (message.line === undefined) {
+    return false;
+  }
+
+  const lines = source.split("\n");
+  const errorLine = lines[message.line - 1] ?? "";
+
+  // Check if this line is an import from a typesugar package
+  const importMatch = errorLine.match(/from\s+["']([^"']+)["']/);
+  if (!importMatch) {
+    return false;
+  }
+
+  const modulePath = importMatch[1];
+  return TYPESUGAR_PACKAGE_PREFIXES.some(
+    (prefix) =>
+      modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix),
+  );
+}
 
 async function loadTransformer() {
   if (!transformerFactory) {
@@ -49,7 +102,10 @@ const transformCache = new Map<
 /**
  * Create a TypeScript program and run the typesugar transformer
  */
-function transformWithTypesugar(fileName: string, source: string): TransformResult {
+function transformWithTypesugar(
+  fileName: string,
+  source: string,
+): TransformResult {
   // Check cache
   const cached = transformCache.get(fileName);
   if (cached && cached.source === source) {
@@ -221,20 +277,26 @@ export function createFullProcessor(): Linter.Processor {
         return messages.flat();
       }
 
-      return messages.flat().map((message) => {
-        if (message.line !== undefined) {
-          const originalLine =
-            state.sourceMap.get(message.line) ?? message.line;
-          return {
-            ...message,
-            line: originalLine,
-            endLine: message.endLine
-              ? (state.sourceMap.get(message.endLine) ?? message.endLine)
-              : undefined,
-          };
-        }
-        return message;
-      });
+      return messages
+        .flat()
+        .filter(
+          (message) =>
+            !isTypesugarUnusedImportError(message, state.originalSource),
+        )
+        .map((message) => {
+          if (message.line !== undefined) {
+            const originalLine =
+              state.sourceMap.get(message.line) ?? message.line;
+            return {
+              ...message,
+              line: originalLine,
+              endLine: message.endLine
+                ? (state.sourceMap.get(message.endLine) ?? message.endLine)
+                : undefined,
+            };
+          }
+          return message;
+        });
     },
   };
 }

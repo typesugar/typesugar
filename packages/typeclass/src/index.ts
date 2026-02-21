@@ -67,21 +67,24 @@ export interface InstanceInfo {
  * Registry of all typeclasses defined with @typeclass.
  * Uses the generic Registry<K,V> abstraction from @typesugar/core.
  */
-const typeclassRegistry: GenericRegistry<string, TypeclassInfo> = createGenericRegistry({
-  name: "TypeclassRegistry",
-  duplicateStrategy: "skip",
-  valueEquals: (a, b) => a.name === b.name,
-});
+const typeclassRegistry: GenericRegistry<string, TypeclassInfo> =
+  createGenericRegistry({
+    name: "TypeclassRegistry",
+    duplicateStrategy: "skip",
+    valueEquals: (a, b) => a.name === b.name,
+  });
 
 /**
  * Registry of all instances defined with @instance.
  * Uses the generic Registry<K,V> abstraction from @typesugar/core.
  */
-const instanceRegistry: GenericRegistry<string, InstanceInfo> = createGenericRegistry({
-  name: "InstanceRegistry",
-  duplicateStrategy: "skip",
-  valueEquals: (a, b) => a.typeclass === b.typeclass && a.forType === b.forType,
-});
+const instanceRegistry: GenericRegistry<string, InstanceInfo> =
+  createGenericRegistry({
+    name: "InstanceRegistry",
+    duplicateStrategy: "skip",
+    valueEquals: (a, b) =>
+      a.typeclass === b.typeclass && a.forType === b.forType,
+  });
 
 /**
  * Get the key for an instance: "Show<number>"
@@ -689,7 +692,9 @@ export function summon<T>(): T {
  * extend(myValue).show(); // Calls Show<typeof myValue>.show
  * ```
  */
-export function extend<T>(_value: T): T & Record<string, (...args: any[]) => any> {
+export function extend<T>(
+  _value: T,
+): T & Record<string, (...args: any[]) => any> {
   // Placeholder - processed by transformer
   throw new Error(
     "extend() must be processed by the typemacro transformer at compile time",

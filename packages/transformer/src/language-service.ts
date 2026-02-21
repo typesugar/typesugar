@@ -114,14 +114,26 @@ const TAGGED_TEMPLATE_MACROS = new Set([
   "units",
 ]);
 
-/** Semantic diagnostic codes to suppress */
+/** Semantic diagnostic codes to suppress unconditionally */
 const SUPPRESSED_SEMANTIC_CODES = new Set([
   1206, // Decorators are not valid here
   1345, // Expression of type void cannot be tested
-  6133, // Declared but never read
   2304, // Cannot find name
   2339, // Property does not exist
 ]);
+
+/** Code 6133 is handled specially - only suppress for typesugar imports */
+const UNUSED_IMPORT_CODE = 6133;
+
+/** typesugar package prefixes for import detection */
+const TYPESUGAR_PACKAGE_PREFIXES = [
+  "typesugar",
+  "@typesugar/",
+  "typemacro", // legacy name
+  "@typemacro/", // legacy name
+  "ttfx", // legacy name
+  "@ttfx/", // legacy name
+];
 
 /** Syntactic (parse) error codes that may occur from HKT syntax like F<_> */
 const HKT_PARSE_ERROR_CODES = new Set([
@@ -212,6 +224,22 @@ function init(modules: { typescript: typeof ts }) {
       if (!sourceFile) return diagnostics;
 
       return diagnostics.filter((diag) => {
+        // Handle 6133 (unused variable) specially - only suppress for typesugar imports
+        if (diag.code === UNUSED_IMPORT_CODE) {
+          if (diag.start === undefined) return true;
+
+          const node = findNodeAtPosition(tsModule, sourceFile, diag.start);
+          if (!node) return true;
+
+          // Check if this is an import specifier from a typesugar package
+          if (isTypesugarImport(tsModule, node, sourceFile)) {
+            log(`Suppressed diagnostic ${diag.code} for typesugar import`);
+            return false;
+          }
+
+          return true;
+        }
+
         if (!SUPPRESSED_SEMANTIC_CODES.has(diag.code)) return true;
         if (diag.start === undefined) return true;
 
@@ -441,6 +469,35 @@ function init(modules: { typescript: typeof ts }) {
   }
 
   return { create };
+}
+
+/**
+ * Check if a node is an import (or part of an import) from a typesugar package.
+ * Used to selectively suppress 6133 "unused variable" only for typesugar imports.
+ */
+function isTypesugarImport(
+  ts: typeof import("typescript"),
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+): boolean {
+  // Walk up to find the import declaration
+  let current: ts.Node | undefined = node;
+  while (current) {
+    if (ts.isImportDeclaration(current)) {
+      const moduleSpecifier = current.moduleSpecifier;
+      if (ts.isStringLiteral(moduleSpecifier)) {
+        const modulePath = moduleSpecifier.text;
+        return TYPESUGAR_PACKAGE_PREFIXES.some(
+          (prefix) =>
+            modulePath === prefix.replace(/\/$/, "") ||
+            modulePath.startsWith(prefix),
+        );
+      }
+      return false;
+    }
+    current = current.parent;
+  }
+  return false;
 }
 
 function findNodeAtPosition(
