@@ -21,9 +21,7 @@ describe("Pipeline operator extension", () => {
     it("should transform triple chained pipeline", () => {
       const source = `x |> f |> g |> h`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(
-        `__binop__(__binop__(__binop__(x, "|>", f), "|>", g), "|>", h)`,
-      );
+      expect(code).toBe(`__binop__(__binop__(__binop__(x, "|>", f), "|>", g), "|>", h)`);
     });
   });
 

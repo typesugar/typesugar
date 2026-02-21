@@ -120,10 +120,7 @@ ctx.createArrayLiteral(elements: ts.Expression[]): ts.ArrayLiteralExpression
 Create an array literal.
 
 ```typescript
-const arr = ctx.createArrayLiteral([
-  ctx.createNumericLiteral(1),
-  ctx.createNumericLiteral(2),
-]);
+const arr = ctx.createArrayLiteral([ctx.createNumericLiteral(1), ctx.createNumericLiteral(2)]);
 ```
 
 ### createObjectLiteral

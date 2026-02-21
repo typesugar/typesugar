@@ -124,9 +124,7 @@ describe("IO", () => {
 
   describe("monad", () => {
     it("flatMap should sequence computations", async () => {
-      const result = await runIO(
-        IO.flatMap(IO.pure(21), (x) => IO.pure(x * 2)),
-      );
+      const result = await runIO(IO.flatMap(IO.pure(21), (x) => IO.pure(x * 2)));
       expect(result).toBe(42);
     });
 
@@ -179,15 +177,13 @@ describe("IO", () => {
     });
 
     it("map2 should combine two IOs", async () => {
-      const result = await runIO(
-        IO.map2(IO.pure(20), IO.pure(22), (a, b) => a + b),
-      );
+      const result = await runIO(IO.map2(IO.pure(20), IO.pure(22), (a, b) => a + b));
       expect(result).toBe(42);
     });
 
     it("map3 should combine three IOs", async () => {
       const result = await runIO(
-        IO.map3(IO.pure(10), IO.pure(20), IO.pure(12), (a, b, c) => a + b + c),
+        IO.map3(IO.pure(10), IO.pure(20), IO.pure(12), (a, b, c) => a + b + c)
       );
       expect(result).toBe(42);
     });
@@ -208,8 +204,8 @@ describe("IO", () => {
           IO.delay(() => {
             log.push("second");
             return "ignored";
-          }),
-        ),
+          })
+        )
       );
       expect(result).toBe(42);
       expect(log).toEqual(["first", "second"]);
@@ -242,18 +238,13 @@ describe("IO", () => {
     });
 
     it("handleError should recover from errors", async () => {
-      const io = IO.handleError(IO.raiseError<number>(new Error("oops")), () =>
-        IO.pure(42),
-      );
+      const io = IO.handleError(IO.raiseError<number>(new Error("oops")), () => IO.pure(42));
       const result = await runIO(io);
       expect(result).toBe(42);
     });
 
     it("handleErrorWith should recover with pure function", async () => {
-      const io = IO.handleErrorWith(
-        IO.raiseError<number>(new Error("oops")),
-        () => 42,
-      );
+      const io = IO.handleErrorWith(IO.raiseError<number>(new Error("oops")), () => 42);
       const result = await runIO(io);
       expect(result).toBe(42);
     });
@@ -263,8 +254,8 @@ describe("IO", () => {
         IO.redeem(
           IO.pure(21),
           () => 0,
-          (x) => x * 2,
-        ),
+          (x) => x * 2
+        )
       );
       expect(success).toBe(42);
 
@@ -272,8 +263,8 @@ describe("IO", () => {
         IO.redeem(
           IO.raiseError<number>(new Error("oops")),
           () => -1,
-          (x) => x * 2,
-        ),
+          (x) => x * 2
+        )
       );
       expect(failure).toBe(-1);
     });
@@ -287,8 +278,8 @@ describe("IO", () => {
           IO.pure(42),
           IO.delay(() => {
             finalizerRan = true;
-          }),
-        ),
+          })
+        )
       );
       expect(finalizerRan).toBe(true);
 
@@ -300,8 +291,8 @@ describe("IO", () => {
             IO.raiseError(new Error("oops")),
             IO.delay(() => {
               finalizerRan = true;
-            }),
-          ),
+            })
+          )
         );
       } catch {}
       expect(finalizerRan).toBe(true);
@@ -315,8 +306,8 @@ describe("IO", () => {
         IO.onError(IO.pure(42), (_e: Error) =>
           IO.delay(() => {
             handlerRan = true;
-          }),
-        ),
+          })
+        )
       );
       expect(handlerRan).toBe(false);
 
@@ -326,8 +317,8 @@ describe("IO", () => {
           IO.onError(IO.raiseError(new Error("oops")), (_e: Error) =>
             IO.delay(() => {
               handlerRan = true;
-            }),
-          ),
+            })
+          )
         );
       } catch {}
       expect(handlerRan).toBe(true);
@@ -356,8 +347,8 @@ describe("IO", () => {
           () =>
             IO.delay(() => {
               log.push("release");
-            }),
-        ),
+            })
+        )
       );
 
       expect(result).toBe("DATA");
@@ -375,8 +366,8 @@ describe("IO", () => {
             () =>
               IO.delay(() => {
                 released = true;
-              }),
-          ),
+              })
+          )
         );
       } catch {}
 
@@ -395,9 +386,7 @@ describe("IO", () => {
     });
 
     it("sequence should sequence array of IOs", async () => {
-      const result = await runIO(
-        IO.sequence([IO.pure(1), IO.pure(2), IO.pure(3)]),
-      );
+      const result = await runIO(IO.sequence([IO.pure(1), IO.pure(2), IO.pure(3)]));
       expect(result).toEqual([1, 2, 3]);
     });
 
@@ -406,8 +395,8 @@ describe("IO", () => {
       const result = await runIO(
         IO.replicateA(
           3,
-          IO.delay(() => ++count),
-        ),
+          IO.delay(() => ++count)
+        )
       );
       expect(result).toEqual([1, 2, 3]);
     });
@@ -419,14 +408,10 @@ describe("IO", () => {
 
   describe("control flow", () => {
     it("ifM should branch based on condition", async () => {
-      const resultTrue = await runIO(
-        IO.ifM(IO.pure(true), IO.pure("yes"), IO.pure("no")),
-      );
+      const resultTrue = await runIO(IO.ifM(IO.pure(true), IO.pure("yes"), IO.pure("no")));
       expect(resultTrue).toBe("yes");
 
-      const resultFalse = await runIO(
-        IO.ifM(IO.pure(false), IO.pure("yes"), IO.pure("no")),
-      );
+      const resultFalse = await runIO(IO.ifM(IO.pure(false), IO.pure("yes"), IO.pure("no")));
       expect(resultFalse).toBe("no");
     });
 
@@ -437,8 +422,8 @@ describe("IO", () => {
           true,
           IO.delay(() => {
             executed = true;
-          }),
-        ),
+          })
+        )
       );
       expect(executed).toBe(true);
 
@@ -448,8 +433,8 @@ describe("IO", () => {
           false,
           IO.delay(() => {
             executed = true;
-          }),
-        ),
+          })
+        )
       );
       expect(executed).toBe(false);
     });
@@ -460,8 +445,8 @@ describe("IO", () => {
         IO.tap(IO.pure(42), (x) =>
           IO.delay(() => {
             sideEffect = x;
-          }),
-        ),
+          })
+        )
       );
       expect(result).toBe(42);
       expect(sideEffect).toBe(42);
@@ -517,18 +502,14 @@ describe("IO", () => {
 
     it("should handle flatMap chain", () => {
       const result = runIOSync(
-        IO.flatMap(IO.pure(10), (x) =>
-          IO.flatMap(IO.pure(20), (y) => IO.pure(x + y)),
-        ),
+        IO.flatMap(IO.pure(10), (x) => IO.flatMap(IO.pure(20), (y) => IO.pure(x + y)))
       );
       expect(result).toBe(30);
     });
 
     it("should throw on async IO", () => {
       const asyncIO = IO.fromPromise(() => Promise.resolve(42));
-      expect(() => runIOSync(asyncIO)).toThrow(
-        "Cannot run async IO synchronously",
-      );
+      expect(() => runIOSync(asyncIO)).toThrow("Cannot run async IO synchronously");
     });
   });
 
@@ -540,26 +521,17 @@ describe("IO", () => {
     it("should support do-notation style", async () => {
       // Do-notation: bind x first, then y
       const withX = IODo.bind("x", () => IO.pure(10))(IODo.Do);
-      const program = IODo.bind("y", (ctx: { x: number }) =>
-        IO.pure(ctx.x * 2),
-      )(withX);
+      const program = IODo.bind("y", (ctx: { x: number }) => IO.pure(ctx.x * 2))(withX);
 
-      const result = await runIO(
-        IO.map(program, (ctx: { x: number; y: number }) => ctx.x + ctx.y),
-      );
+      const result = await runIO(IO.map(program, (ctx: { x: number; y: number }) => ctx.x + ctx.y));
       expect(result).toBe(30);
     });
 
     it("let_ should bind non-effectful values", async () => {
       const withX = IODo.bind("x", () => IO.pure(21))(IODo.Do);
-      const program = IODo.let_(
-        "doubled",
-        (ctx: { x: number }) => ctx.x * 2,
-      )(withX);
+      const program = IODo.let_("doubled", (ctx: { x: number }) => ctx.x * 2)(withX);
 
-      const result = await runIO(
-        IO.map(program, (ctx: { doubled: number }) => ctx.doubled),
-      );
+      const result = await runIO(IO.map(program, (ctx: { doubled: number }) => ctx.doubled));
       expect(result).toBe(42);
     });
   });
@@ -585,7 +557,7 @@ describe("IO", () => {
         .tap((x) =>
           IO.delay(() => {
             sideEffect = x;
-          }),
+          })
         )
         .run();
 

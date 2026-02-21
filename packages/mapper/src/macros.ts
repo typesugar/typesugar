@@ -1,9 +1,5 @@
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 export const transformIntoMacro = defineExpressionMacro({
   name: "transformInto",
@@ -13,7 +9,7 @@ export const transformIntoMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1) {
       ctx.reportError(callExpr, "transformInto expects at least 1 argument");
@@ -56,9 +52,7 @@ export const transformIntoMacro = defineExpressionMacro({
 
       // Is it a constant?
       if (config.const.has(name)) {
-        resultProperties.push(
-          ctx.factory.createPropertyAssignment(name, config.const.get(name)!),
-        );
+        resultProperties.push(ctx.factory.createPropertyAssignment(name, config.const.get(name)!));
         continue;
       }
 
@@ -66,14 +60,10 @@ export const transformIntoMacro = defineExpressionMacro({
       if (config.compute.has(name)) {
         const computeLambda = config.compute.get(name)!;
         // Inline it via IIFE for the lambda, or direct call
-        const inlineCall = ctx.factory.createCallExpression(
-          computeLambda,
-          undefined,
-          [sourceIdent],
-        );
-        resultProperties.push(
-          ctx.factory.createPropertyAssignment(name, inlineCall),
-        );
+        const inlineCall = ctx.factory.createCallExpression(computeLambda, undefined, [
+          sourceIdent,
+        ]);
+        resultProperties.push(ctx.factory.createPropertyAssignment(name, inlineCall));
         continue;
       }
 
@@ -91,7 +81,7 @@ export const transformIntoMacro = defineExpressionMacro({
           ? ctx.factory.createPropertyAccessExpression(sourceIdent, sourceName)
           : ctx.factory.createElementAccessExpression(
               sourceIdent,
-              ctx.factory.createStringLiteral(sourceName),
+              ctx.factory.createStringLiteral(sourceName)
             );
 
         // TODO: Deep type compatibility check using ctx.isAssignableTo
@@ -103,23 +93,18 @@ export const transformIntoMacro = defineExpressionMacro({
           ? ctx.factory.createIdentifier(name)
           : ctx.factory.createStringLiteral(name);
 
-        resultProperties.push(
-          ctx.factory.createPropertyAssignment(propName, propAccess),
-        );
+        resultProperties.push(ctx.factory.createPropertyAssignment(propName, propAccess));
         continue;
       }
 
       // Missing mapping
       ctx.reportError(
         callExpr,
-        `Cannot map field '${name}': No matching field '${sourceName}' in source type and no constant/compute rule provided.`,
+        `Cannot map field '${name}': No matching field '${sourceName}' in source type and no constant/compute rule provided.`
       );
     }
 
-    const objLit = ctx.factory.createObjectLiteralExpression(
-      resultProperties,
-      true,
-    );
+    const objLit = ctx.factory.createObjectLiteralExpression(resultProperties, true);
 
     // If we needed a temp variable, wrap in an IIFE
     if (needsTempVar && tempName) {
@@ -140,19 +125,19 @@ export const transformIntoMacro = defineExpressionMacro({
                       tempName,
                       undefined,
                       undefined,
-                      sourceExpr,
+                      sourceExpr
                     ),
                   ],
-                  ts.NodeFlags.Const,
-                ),
+                  ts.NodeFlags.Const
+                )
               ),
               ctx.factory.createReturnStatement(objLit),
             ],
-            true,
-          ),
+            true
+          )
         ),
         undefined,
-        [],
+        []
       );
     }
 
@@ -196,10 +181,7 @@ function parseConfig(ctx: MacroContext, configExpr?: ts.Expression) {
               }
 
               if (targetKey) {
-                if (
-                  key === "rename" &&
-                  ts.isStringLiteral(subProp.initializer)
-                ) {
+                if (key === "rename" && ts.isStringLiteral(subProp.initializer)) {
                   config.rename.set(targetKey, subProp.initializer.text);
                 } else if (key === "compute") {
                   config.compute.set(targetKey, subProp.initializer);

@@ -29,7 +29,7 @@ function createTestContext(sourceText: string): {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -42,9 +42,7 @@ function createTestContext(sourceText: string): {
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "test.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   const transformContext: ts.TransformationContext = {
@@ -79,23 +77,15 @@ function createTestContext(sourceText: string): {
 }
 
 function makeCall(name: string, args: ts.Expression[]): ts.CallExpression {
-  return ts.factory.createCallExpression(
-    ts.factory.createIdentifier(name),
-    undefined,
-    args,
-  );
+  return ts.factory.createCallExpression(ts.factory.createIdentifier(name), undefined, args);
 }
 
-function makeObjectLiteral(
-  entries: Record<string, ts.Expression>,
-): ts.ObjectLiteralExpression {
+function makeObjectLiteral(entries: Record<string, ts.Expression>): ts.ObjectLiteralExpression {
   const props = Object.entries(entries).map(([key, value]) =>
     ts.factory.createPropertyAssignment(
-      isNaN(Number(key))
-        ? ts.factory.createIdentifier(key)
-        : ts.factory.createNumericLiteral(key),
-      value,
-    ),
+      isNaN(Number(key)) ? ts.factory.createIdentifier(key) : ts.factory.createNumericLiteral(key),
+      value
+    )
   );
   return ts.factory.createObjectLiteralExpression(props);
 }
@@ -107,14 +97,11 @@ function makeArrow(body: ts.Expression): ts.ArrowFunction {
     [],
     undefined,
     ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    body,
+    body
   );
 }
 
-function makeArrowWithParam(
-  paramName: string,
-  body: ts.Expression,
-): ts.ArrowFunction {
+function makeArrowWithParam(paramName: string, body: ts.Expression): ts.ArrowFunction {
   return ts.factory.createArrowFunction(
     undefined,
     undefined,
@@ -122,12 +109,12 @@ function makeArrowWithParam(
       ts.factory.createParameterDeclaration(
         undefined,
         undefined,
-        ts.factory.createIdentifier(paramName),
+        ts.factory.createIdentifier(paramName)
       ),
     ],
     undefined,
     ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    body,
+    body
   );
 }
 
@@ -141,21 +128,11 @@ describe("match() macro", () => {
       const { ctx, printExpr } = createTestContext("const x = 1;");
       const value = ts.factory.createIdentifier("shape");
       const handlers = makeObjectLiteral({
-        circle: makeArrowWithParam(
-          "s",
-          ts.factory.createStringLiteral("circle"),
-        ),
-        square: makeArrowWithParam(
-          "s",
-          ts.factory.createStringLiteral("square"),
-        ),
+        circle: makeArrowWithParam("s", ts.factory.createStringLiteral("circle")),
+        square: makeArrowWithParam("s", ts.factory.createStringLiteral("square")),
       });
 
-      const callExpr = makeCall("match", [
-        value,
-        handlers,
-        ts.factory.createStringLiteral("kind"),
-      ]);
+      const callExpr = makeCall("match", [value, handlers, ts.factory.createStringLiteral("kind")]);
       const result = matchMacro.expand(ctx, callExpr, [
         value,
         handlers,
@@ -172,18 +149,11 @@ describe("match() macro", () => {
       const { ctx, printExpr } = createTestContext("const x = 1;");
       const value = ts.factory.createIdentifier("shape");
       const handlers = makeObjectLiteral({
-        circle: makeArrowWithParam(
-          "s",
-          ts.factory.createStringLiteral("circle"),
-        ),
+        circle: makeArrowWithParam("s", ts.factory.createStringLiteral("circle")),
         _: makeArrowWithParam("s", ts.factory.createStringLiteral("other")),
       });
 
-      const callExpr = makeCall("match", [
-        value,
-        handlers,
-        ts.factory.createStringLiteral("kind"),
-      ]);
+      const callExpr = makeCall("match", [value, handlers, ts.factory.createStringLiteral("kind")]);
       const result = matchMacro.expand(ctx, callExpr, [
         value,
         handlers,
@@ -217,10 +187,7 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("node");
       const entries: Record<string, ts.Expression> = {};
       for (const tag of ["a", "b", "c", "d", "e", "f", "g"]) {
-        entries[tag] = makeArrowWithParam(
-          "n",
-          ts.factory.createStringLiteral(tag),
-        );
+        entries[tag] = makeArrowWithParam("n", ts.factory.createStringLiteral(tag));
       }
       const handlers = makeObjectLiteral(entries);
       const disc = ts.factory.createStringLiteral("type");
@@ -260,9 +227,7 @@ describe("match() macro", () => {
       const entries: Record<string, ts.Expression> = {};
       // Sparse values to trigger binary search (not dense)
       for (const n of [100, 200, 301, 404, 500, 503, 1000]) {
-        entries[String(n)] = makeArrow(
-          ts.factory.createStringLiteral(`status_${n}`),
-        );
+        entries[String(n)] = makeArrow(ts.factory.createStringLiteral(`status_${n}`));
       }
       const handlers = makeObjectLiteral(entries);
 
@@ -282,9 +247,7 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("day");
       const entries: Record<string, ts.Expression> = {};
       for (let i = 0; i <= 6; i++) {
-        entries[String(i)] = makeArrow(
-          ts.factory.createStringLiteral(`day_${i}`),
-        );
+        entries[String(i)] = makeArrow(ts.factory.createStringLiteral(`day_${i}`));
       }
       const handlers = makeObjectLiteral(entries);
 
@@ -309,8 +272,8 @@ describe("match() macro", () => {
         "x",
         ts.factory.createPrefixUnaryExpression(
           ts.SyntaxKind.MinusToken,
-          ts.factory.createNumericLiteral(1),
-        ),
+          ts.factory.createNumericLiteral(1)
+        )
       );
       const handlers = makeObjectLiteral(entries);
 
@@ -372,8 +335,8 @@ describe("match() macro", () => {
         ts.factory.createBinaryExpression(
           ts.factory.createIdentifier("n"),
           ts.factory.createToken(ts.SyntaxKind.LessThanToken),
-          ts.factory.createNumericLiteral(18),
-        ),
+          ts.factory.createNumericLiteral(18)
+        )
       );
       const handler1 = makeArrow(ts.factory.createStringLiteral("minor"));
 
@@ -382,14 +345,12 @@ describe("match() macro", () => {
         ts.factory.createBinaryExpression(
           ts.factory.createIdentifier("n"),
           ts.factory.createToken(ts.SyntaxKind.GreaterThanEqualsToken),
-          ts.factory.createNumericLiteral(65),
-        ),
+          ts.factory.createNumericLiteral(65)
+        )
       );
       const handler2 = makeArrow(ts.factory.createStringLiteral("senior"));
 
-      const catchAllHandler = makeArrow(
-        ts.factory.createStringLiteral("adult"),
-      );
+      const catchAllHandler = makeArrow(ts.factory.createStringLiteral("adult"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [pred1, handler1]),
@@ -412,10 +373,7 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("x");
 
       const pred = makeArrowWithParam("v", ts.factory.createTrue());
-      const handler = makeArrowWithParam(
-        "v",
-        ts.factory.createStringLiteral("matched"),
-      );
+      const handler = makeArrowWithParam("v", ts.factory.createStringLiteral("matched"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         ts.factory.createArrayLiteralExpression([pred, handler]),
@@ -450,10 +408,7 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("x");
 
       const pred = makeArrowWithParam("v", ts.factory.createTrue());
-      const handler = makeArrowWithParam(
-        "v",
-        ts.factory.createStringLiteral("yes"),
-      );
+      const handler = makeArrowWithParam("v", ts.factory.createStringLiteral("yes"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         ts.factory.createArrayLiteralExpression([pred, handler]),
@@ -497,9 +452,7 @@ describe("match() macro", () => {
       const callExpr = makeCall("match", [value, bad]);
       matchMacro.expand(ctx, callExpr, [value, bad]);
 
-      expect(errors.some((e) => e.includes("object literal or array"))).toBe(
-        true,
-      );
+      expect(errors.some((e) => e.includes("object literal or array"))).toBe(true);
     });
 
     it("should report error for invalid guard arm", () => {
@@ -569,14 +522,11 @@ describe("match() macro", () => {
       const value = ts.factory.createCallExpression(
         ts.factory.createIdentifier("getExpensiveValue"),
         undefined,
-        [],
+        []
       );
       const entries: Record<string, ts.Expression> = {};
       for (const tag of ["a", "b", "c", "d", "e", "f", "g"]) {
-        entries[tag] = makeArrowWithParam(
-          "n",
-          ts.factory.createStringLiteral(tag),
-        );
+        entries[tag] = makeArrowWithParam("n", ts.factory.createStringLiteral(tag));
       }
       const handlers = makeObjectLiteral(entries);
       const disc = ts.factory.createStringLiteral("kind");
@@ -614,9 +564,7 @@ describe("match() macro", () => {
   describe("runtime fallbacks", () => {
     it("match() runtime should handle discriminated unions", async () => {
       const { match } = await import("../packages/std/src/macros/match.js");
-      type Shape =
-        | { kind: "circle"; r: number }
-        | { kind: "square"; s: number };
+      type Shape = { kind: "circle"; r: number } | { kind: "square"; s: number };
       const shape: Shape = { kind: "circle", r: 5 };
       const result = match(
         shape,
@@ -624,7 +572,7 @@ describe("match() macro", () => {
           circle: (s) => s.r * 2,
           square: (s) => s.s * 2,
         } as any,
-        "kind" as any,
+        "kind" as any
       );
       expect(result).toBe(10);
     });
@@ -639,16 +587,15 @@ describe("match() macro", () => {
     });
 
     it("match() runtime should handle guard arms", async () => {
-      const { match, when, otherwise } =
-        await import("../packages/std/src/macros/match.js");
+      const { match, when, otherwise } = await import("../packages/std/src/macros/match.js");
       const result = (match as any)(25, [
         when(
           (n: number) => n < 18,
-          () => "minor",
+          () => "minor"
         ),
         when(
           (n: number) => n >= 65,
-          () => "senior",
+          () => "senior"
         ),
         otherwise(() => "adult"),
       ]);
@@ -659,17 +606,14 @@ describe("match() macro", () => {
       const { match } = await import("../packages/std/src/macros/match.js");
       type T = { kind: "a" } | { kind: "b" };
       const v: T = { kind: "b" };
-      expect(() => match(v, { a: () => 1 } as any, "kind" as any)).toThrow(
-        "Non-exhaustive",
-      );
+      expect(() => match(v, { a: () => 1 } as any, "kind" as any)).toThrow("Non-exhaustive");
     });
 
     it("when() and otherwise() should create proper guard arms", async () => {
-      const { when, otherwise } =
-        await import("../packages/std/src/macros/match.js");
+      const { when, otherwise } = await import("../packages/std/src/macros/match.js");
       const arm = when(
         (x: number) => x > 0,
-        (x: number) => x * 2,
+        (x: number) => x * 2
       );
       expect(arm.predicate(5)).toBe(true);
       expect(arm.predicate(-1)).toBe(false);
@@ -681,21 +625,19 @@ describe("match() macro", () => {
     });
 
     it("matchLiteral() runtime should be backwards compatible", async () => {
-      const { matchLiteral } =
-        await import("../packages/std/src/macros/match.js");
+      const { matchLiteral } = await import("../packages/std/src/macros/match.js");
       const result = matchLiteral(
         404 as 200 | 404,
         {
           200: ((v: any) => "OK") as any,
           404: ((v: any) => "Not Found") as any,
-        } as any,
+        } as any
       );
       expect(result).toBe("Not Found");
     });
 
     it("matchGuard() runtime should be backwards compatible", async () => {
-      const { matchGuard } =
-        await import("../packages/std/src/macros/match.js");
+      const { matchGuard } = await import("../packages/std/src/macros/match.js");
       const result = matchGuard(42, [
         [(v: number) => v > 100, () => "big"],
         [() => true, () => "small"],
@@ -712,11 +654,11 @@ describe("match() macro", () => {
       const props = [
         ts.factory.createPropertyAssignment(
           ts.factory.createStringLiteral("circle|square"),
-          makeArrowWithParam("s", ts.factory.createStringLiteral("flat")),
+          makeArrowWithParam("s", ts.factory.createStringLiteral("flat"))
         ),
         ts.factory.createPropertyAssignment(
           ts.factory.createIdentifier("triangle"),
-          makeArrowWithParam("s", ts.factory.createStringLiteral("angled")),
+          makeArrowWithParam("s", ts.factory.createStringLiteral("angled"))
         ),
       ];
       const handlers = ts.factory.createObjectLiteralExpression(props);
@@ -739,19 +681,19 @@ describe("match() macro", () => {
       const props = [
         ts.factory.createPropertyAssignment(
           ts.factory.createStringLiteral("a|b|c"),
-          makeArrowWithParam("n", ts.factory.createStringLiteral("group1")),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("group1"))
         ),
         ts.factory.createPropertyAssignment(
           ts.factory.createStringLiteral("d|e"),
-          makeArrowWithParam("n", ts.factory.createStringLiteral("group2")),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("group2"))
         ),
         ts.factory.createPropertyAssignment(
           ts.factory.createIdentifier("f"),
-          makeArrowWithParam("n", ts.factory.createStringLiteral("f")),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("f"))
         ),
         ts.factory.createPropertyAssignment(
           ts.factory.createIdentifier("g"),
-          makeArrowWithParam("n", ts.factory.createStringLiteral("g")),
+          makeArrowWithParam("n", ts.factory.createStringLiteral("g"))
         ),
       ];
       const handlers = ts.factory.createObjectLiteralExpression(props);
@@ -771,10 +713,7 @@ describe("match() macro", () => {
 
     it("OR pattern runtime fallback should work", async () => {
       const { match } = await import("../packages/std/src/macros/match.js");
-      type Shape =
-        | { kind: "circle" }
-        | { kind: "square" }
-        | { kind: "triangle" };
+      type Shape = { kind: "circle" } | { kind: "square" } | { kind: "triangle" };
       const shape: Shape = { kind: "circle" };
       const result = match(
         shape,
@@ -783,7 +722,7 @@ describe("match() macro", () => {
           square: () => "box",
           triangle: () => "tri",
         } as any,
-        "kind" as any,
+        "kind" as any
       );
       expect(result).toBe("round");
     });
@@ -797,18 +736,13 @@ describe("match() macro", () => {
       const isTypeCall = ts.factory.createCallExpression(
         ts.factory.createIdentifier("isType"),
         undefined,
-        [ts.factory.createStringLiteral("string")],
+        [ts.factory.createStringLiteral("string")]
       );
-      const handler = makeArrowWithParam(
-        "s",
-        ts.factory.createStringLiteral("str"),
-      );
+      const handler = makeArrowWithParam("s", ts.factory.createStringLiteral("str"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [isTypeCall, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -826,15 +760,13 @@ describe("match() macro", () => {
       const isTypeCall = ts.factory.createCallExpression(
         ts.factory.createIdentifier("isType"),
         undefined,
-        [ts.factory.createStringLiteral("null")],
+        [ts.factory.createStringLiteral("null")]
       );
       const handler = makeArrow(ts.factory.createStringLiteral("nil"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [isTypeCall, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -852,18 +784,13 @@ describe("match() macro", () => {
       const isTypeCall = ts.factory.createCallExpression(
         ts.factory.createIdentifier("isType"),
         undefined,
-        [ts.factory.createIdentifier("Date")],
+        [ts.factory.createIdentifier("Date")]
       );
-      const handler = makeArrowWithParam(
-        "d",
-        ts.factory.createStringLiteral("date"),
-      );
+      const handler = makeArrowWithParam("d", ts.factory.createStringLiteral("date"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [isTypeCall, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -902,15 +829,13 @@ describe("match() macro", () => {
 
       const pEmpty = ts.factory.createPropertyAccessExpression(
         ts.factory.createIdentifier("P"),
-        "empty",
+        "empty"
       );
       const handler = makeArrow(ts.factory.createStringLiteral("empty"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [pEmpty, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -925,20 +850,15 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("arr");
 
       const pLength = ts.factory.createCallExpression(
-        ts.factory.createPropertyAccessExpression(
-          ts.factory.createIdentifier("P"),
-          "length",
-        ),
+        ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("P"), "length"),
         undefined,
-        [ts.factory.createNumericLiteral(3)],
+        [ts.factory.createNumericLiteral(3)]
       );
       const handler = makeArrow(ts.factory.createStringLiteral("triple"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [pLength, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -953,20 +873,15 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("arr");
 
       const pMin = ts.factory.createCallExpression(
-        ts.factory.createPropertyAccessExpression(
-          ts.factory.createIdentifier("P"),
-          "minLength",
-        ),
+        ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("P"), "minLength"),
         undefined,
-        [ts.factory.createNumericLiteral(2)],
+        [ts.factory.createNumericLiteral(2)]
       );
       const handler = makeArrow(ts.factory.createStringLiteral("multi"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [pMin, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -981,23 +896,15 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("n");
 
       const pBetween = ts.factory.createCallExpression(
-        ts.factory.createPropertyAccessExpression(
-          ts.factory.createIdentifier("P"),
-          "between",
-        ),
+        ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("P"), "between"),
         undefined,
-        [
-          ts.factory.createNumericLiteral(1),
-          ts.factory.createNumericLiteral(10),
-        ],
+        [ts.factory.createNumericLiteral(1), ts.factory.createNumericLiteral(10)]
       );
       const handler = makeArrow(ts.factory.createStringLiteral("in range"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [pBetween, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("out")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("out"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -1014,24 +921,19 @@ describe("match() macro", () => {
       const value = ts.factory.createIdentifier("v");
 
       const pOneOf = ts.factory.createCallExpression(
-        ts.factory.createPropertyAccessExpression(
-          ts.factory.createIdentifier("P"),
-          "oneOf",
-        ),
+        ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("P"), "oneOf"),
         undefined,
         [
           ts.factory.createStringLiteral("a"),
           ts.factory.createStringLiteral("b"),
           ts.factory.createStringLiteral("c"),
-        ],
+        ]
       );
       const handler = makeArrow(ts.factory.createStringLiteral("found"));
 
       const arms = ts.factory.createArrayLiteralExpression([
         makeCall("when", [pOneOf, handler]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("nope")),
-        ]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("nope"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -1081,25 +983,17 @@ describe("match() macro", () => {
       const isTypeStr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("isType"),
         undefined,
-        [ts.factory.createStringLiteral("string")],
+        [ts.factory.createStringLiteral("string")]
       );
       const pNil = ts.factory.createPropertyAccessExpression(
         ts.factory.createIdentifier("P"),
-        "nil",
+        "nil"
       );
 
       const arms = ts.factory.createArrayLiteralExpression([
-        makeCall("when", [
-          pNil,
-          makeArrow(ts.factory.createStringLiteral("nil")),
-        ]),
-        makeCall("when", [
-          isTypeStr,
-          makeArrow(ts.factory.createStringLiteral("str")),
-        ]),
-        makeCall("otherwise", [
-          makeArrow(ts.factory.createStringLiteral("other")),
-        ]),
+        makeCall("when", [pNil, makeArrow(ts.factory.createStringLiteral("nil"))]),
+        makeCall("when", [isTypeStr, makeArrow(ts.factory.createStringLiteral("str"))]),
+        makeCall("otherwise", [makeArrow(ts.factory.createStringLiteral("other"))]),
       ]);
 
       const callExpr = makeCall("match", [value, arms]);
@@ -1123,7 +1017,7 @@ describe("match() macro", () => {
           when(isType("number"), () => "number"),
           when(isType(Array), () => "array"),
           otherwise(() => "other"),
-        ]),
+        ])
       );
 
       expect(results).toEqual(["nil", "string", "number", "array", "other"]);

@@ -31,7 +31,7 @@ export type StateVariableSet = Set<string>;
 export function extractDependencies(
   ctx: MacroContext,
   closure: ts.ArrowFunction | ts.FunctionExpression,
-  knownStateVars: StateVariableSet,
+  knownStateVars: StateVariableSet
 ): DependencyInfo {
   const reads = new Set<string>();
   const writes = new Set<string>();
@@ -62,20 +62,12 @@ export function extractDependencies(
       }
 
       // Skip property access names (the identifier after the dot)
-      if (
-        node.parent &&
-        ts.isPropertyAccessExpression(node.parent) &&
-        node.parent.name === node
-      ) {
+      if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
         return;
       }
 
       // Skip if it's being declared
-      if (
-        node.parent &&
-        ts.isVariableDeclaration(node.parent) &&
-        node.parent.name === node
-      ) {
+      if (node.parent && ts.isVariableDeclaration(node.parent) && node.parent.name === node) {
         return;
       }
 
@@ -111,10 +103,7 @@ export function extractDependencies(
         }
 
         // Check for DOM mutations
-        if (
-          ts.isIdentifier(object) &&
-          (object.text === "document" || object.text === "window")
-        ) {
+        if (ts.isIdentifier(object) && (object.text === "document" || object.text === "window")) {
           sideEffects.push({
             kind: "dom-mutation",
             description: `${object.text}.${methodName}()`,
@@ -142,10 +131,7 @@ export function extractDependencies(
       }
 
       // Check for timer calls
-      if (
-        ts.isIdentifier(expr) &&
-        (expr.text === "setTimeout" || expr.text === "setInterval")
-      ) {
+      if (ts.isIdentifier(expr) && (expr.text === "setTimeout" || expr.text === "setInterval")) {
         sideEffects.push({
           kind: "timer",
           description: `${expr.text}()`,
@@ -175,13 +161,8 @@ export function extractDependencies(
 /**
  * Get source location for a node
  */
-function getLocation(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-): { line?: number; column?: number } {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(
-    node.getStart(sourceFile),
-  );
+function getLocation(node: ts.Node, sourceFile: ts.SourceFile): { line?: number; column?: number } {
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
   return { line: line + 1, column: character + 1 };
 }
 
@@ -196,7 +177,7 @@ function getLocation(
 export function generateDependencyArray(
   factory: ts.NodeFactory,
   deps: Set<string>,
-  stateValueMap: Map<string, string>,
+  stateValueMap: Map<string, string>
 ): ts.ArrayLiteralExpression {
   const elements: ts.Identifier[] = [];
 
@@ -214,7 +195,7 @@ export function generateDependencyArray(
  */
 export function isStateGetter(
   node: ts.Node,
-  knownStateVars: StateVariableSet,
+  knownStateVars: StateVariableSet
 ): { varName: string } | null {
   // Direct identifier reference (in JSX expressions)
   if (ts.isIdentifier(node) && knownStateVars.has(node.text)) {
@@ -242,7 +223,7 @@ export function isStateGetter(
  */
 export function isStateSetter(
   node: ts.Node,
-  knownStateVars: StateVariableSet,
+  knownStateVars: StateVariableSet
 ): { varName: string; method: "set" | "update" } | null {
   if (ts.isCallExpression(node)) {
     const expr = node.expression;
@@ -270,9 +251,7 @@ export function isStateSetter(
  * @param body - Function body to search
  * @returns Set of state variable names
  */
-export function findStateDeclarations(
-  body: ts.Block | ts.ConciseBody,
-): StateVariableSet {
+export function findStateDeclarations(body: ts.Block | ts.ConciseBody): StateVariableSet {
   const stateVars = new Set<string>();
 
   function visit(node: ts.Node): void {

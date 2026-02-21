@@ -31,14 +31,7 @@
 // ============================================================================
 
 /** Values that can be bound as SQL parameters */
-export type SqlParam =
-  | string
-  | number
-  | boolean
-  | null
-  | Date
-  | Buffer
-  | SqlParam[];
+export type SqlParam = string | number | boolean | null | Date | Buffer | SqlParam[];
 
 // ============================================================================
 // Fragment — the core composable SQL building block
@@ -60,7 +53,7 @@ export class Fragment {
    */
   constructor(
     readonly segments: readonly string[],
-    readonly params: readonly SqlParam[],
+    readonly params: readonly SqlParam[]
   ) {}
 
   // --------------------------------------------------------------------------
@@ -81,10 +74,7 @@ export class Fragment {
           const nested = param.query;
           // Re-number the nested placeholders
           const offset = allParams.length;
-          const renumbered = nested.text.replace(
-            /\$(\d+)/g,
-            (_, n) => `$${parseInt(n) + offset}`,
-          );
+          const renumbered = nested.text.replace(/\$(\d+)/g, (_, n) => `$${parseInt(n) + offset}`);
           parts.push(renumbered);
           allParams.push(...nested.params);
         } else {
@@ -123,9 +113,7 @@ export class Fragment {
 
   /** Wrap with parentheses */
   parens(): Fragment {
-    return Fragment.raw("(")
-      .appendNoSpace(this)
-      .appendNoSpace(Fragment.raw(")"));
+    return Fragment.raw("(").appendNoSpace(this).appendNoSpace(Fragment.raw(")"));
   }
 
   /** Concatenate without adding a space */
@@ -225,7 +213,7 @@ export class Fragment {
       return inner.parens();
     });
     return Fragment.raw("VALUES ").appendNoSpace(
-      Fragment.intercalate(Fragment.raw(", "), rowFragments),
+      Fragment.intercalate(Fragment.raw(", "), rowFragments)
     );
   }
 
@@ -234,7 +222,7 @@ export class Fragment {
    */
   static set(assignments: Record<string, SqlParam>): Fragment {
     const frags = Object.entries(assignments).map(
-      ([col, val]) => new Fragment([`${col} = `, ""], [val]),
+      ([col, val]) => new Fragment([`${col} = `, ""], [val])
     );
     return Fragment.raw("SET ").appendNoSpace(Fragment.commas(frags));
   }
@@ -360,10 +348,7 @@ export const ConnectionIO = {
   },
 
   /** Create a query operation */
-  query<A>(
-    q: Query<A>,
-    decoder: (row: Record<string, unknown>) => A,
-  ): ConnectionIO<A[]> {
+  query<A>(q: Query<A>, decoder: (row: Record<string, unknown>) => A): ConnectionIO<A[]> {
     return {
       _tag: "QueryIO",
       query: q as unknown as Query<A[]>,
@@ -377,10 +362,7 @@ export const ConnectionIO = {
   },
 
   /** Sequence: run one operation, then use its result to decide the next */
-  flatMap<A, B>(
-    source: ConnectionIO<A>,
-    f: (a: A) => ConnectionIO<B>,
-  ): ConnectionIO<B> {
+  flatMap<A, B>(source: ConnectionIO<A>, f: (a: A) => ConnectionIO<B>): ConnectionIO<B> {
     return {
       _tag: "FlatMap",
       source: source as ConnectionIO<unknown>,
@@ -403,10 +385,7 @@ export const ConnectionIO = {
  * Compatible with node-postgres (pg), mysql2, better-sqlite3, etc.
  */
 export interface DbConnection {
-  query(
-    text: string,
-    params: readonly SqlParam[],
-  ): Promise<{ rows: Record<string, unknown>[] }>;
+  query(text: string, params: readonly SqlParam[]): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
 /**

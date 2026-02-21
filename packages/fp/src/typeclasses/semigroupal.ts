@@ -38,7 +38,7 @@ export interface Semigroupal<F> {
  * For a properly flat tuple, use an Apply/Applicative instance with mapN instead.
  */
 export function product3<F>(
-  F: Semigroupal<F>,
+  F: Semigroupal<F>
 ): <A, B, C>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>) => $<F, [A, B, C]> {
   return <A, B, C>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>): $<F, [A, B, C]> => {
     const ab = F.product(fa, fb);
@@ -53,19 +53,9 @@ export function product3<F>(
  * See product3 for details.
  */
 export function product4<F>(
-  F: Semigroupal<F>,
-): <A, B, C, D>(
-  fa: $<F, A>,
-  fb: $<F, B>,
-  fc: $<F, C>,
-  fd: $<F, D>,
-) => $<F, [A, B, C, D]> {
-  return <A, B, C, D>(
-    fa: $<F, A>,
-    fb: $<F, B>,
-    fc: $<F, C>,
-    fd: $<F, D>,
-  ): $<F, [A, B, C, D]> => {
+  F: Semigroupal<F>
+): <A, B, C, D>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>, fd: $<F, D>) => $<F, [A, B, C, D]> {
+  return <A, B, C, D>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>, fd: $<F, D>): $<F, [A, B, C, D]> => {
     const ab = F.product(fa, fb);
     const cd = F.product(fc, fd);
     return F.product(ab, cd) as unknown as $<F, [A, B, C, D]>;
@@ -79,20 +69,20 @@ export function product4<F>(
  * See product3 for details.
  */
 export function product5<F>(
-  F: Semigroupal<F>,
+  F: Semigroupal<F>
 ): <A, B, C, D, E>(
   fa: $<F, A>,
   fb: $<F, B>,
   fc: $<F, C>,
   fd: $<F, D>,
-  fe: $<F, E>,
+  fe: $<F, E>
 ) => $<F, [A, B, C, D, E]> {
   return <A, B, C, D, E>(
     fa: $<F, A>,
     fb: $<F, B>,
     fc: $<F, C>,
     fd: $<F, D>,
-    fe: $<F, E>,
+    fe: $<F, E>
   ): $<F, [A, B, C, D, E]> => {
     const abcd = product4(F)(fa, fb, fc, fd);
     return F.product(abcd, fe) as unknown as $<F, [A, B, C, D, E]>;
@@ -107,7 +97,7 @@ export function product5<F>(
  * Create a Semigroupal instance
  */
 export function makeSemigroupal<F>(
-  product: <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, [A, B]>,
+  product: <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, [A, B]>
 ): Semigroupal<F> {
   return { product };
 }

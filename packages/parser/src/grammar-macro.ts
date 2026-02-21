@@ -62,7 +62,7 @@ export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
       ctx.reportWarning(
         node,
         "grammar template interpolation is not yet supported; " +
-          "interpolated values are replaced with '???'",
+          "interpolated values are replaced with '???'"
       );
     }
 
@@ -87,10 +87,10 @@ export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("__typesugar_parser"),
-        factory.createIdentifier("grammar"),
+        factory.createIdentifier("grammar")
       ),
       undefined,
-      [factory.createNoSubstitutionTemplateLiteral(grammarText, grammarText)],
+      [factory.createNoSubstitutionTemplateLiteral(grammarText, grammarText)]
     );
   },
   validate(ctx: MacroContext, node: ts.TaggedTemplateExpression): boolean {
@@ -142,10 +142,7 @@ register();
  * @param exprs - Template literal interpolated expressions (currently unused)
  * @returns A Grammar that can parse input strings
  */
-export function grammar(
-  strings: TemplateStringsArray,
-  ...exprs: unknown[]
-): Grammar<unknown> {
+export function grammar(strings: TemplateStringsArray, ...exprs: unknown[]): Grammar<unknown> {
   const source = strings.join("");
   const rules = parseGrammarDef(source);
   return buildParser(rules);

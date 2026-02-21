@@ -47,10 +47,7 @@ class MacroRegistryImpl implements MacroRegistry {
    * Using a nested map provides O(1) lookup per kind while keeping
    * the data structure unified.
    */
-  private macrosByKind = new Map<
-    MacroDefinition["kind"],
-    Map<string, MacroDefinition>
-  >();
+  private macrosByKind = new Map<MacroDefinition["kind"], Map<string, MacroDefinition>>();
 
   /**
    * Secondary index: module-scoped lookup for macros that declare a `module`.
@@ -82,7 +79,7 @@ class MacroRegistryImpl implements MacroRegistry {
     if (kindMap.has(key)) {
       const keyType = macro.kind === "labeled-block" ? "label" : "name";
       throw new Error(
-        `${kindDisplayNames[macro.kind]} with ${keyType} '${key}' is already registered`,
+        `${kindDisplayNames[macro.kind]} with ${keyType} '${key}' is already registered`
       );
     }
 
@@ -98,7 +95,7 @@ class MacroRegistryImpl implements MacroRegistry {
 
   private getByKind<T extends MacroDefinition>(
     kind: MacroDefinition["kind"],
-    key: string,
+    key: string
   ): T | undefined {
     return this.macrosByKind.get(kind)?.get(key) as T | undefined;
   }
@@ -131,10 +128,7 @@ class MacroRegistryImpl implements MacroRegistry {
    * Look up a macro by its source module and export name.
    * Returns the macro if it was registered with a matching module+exportName.
    */
-  getByModuleExport(
-    mod: string,
-    exportName: string,
-  ): MacroDefinition | undefined {
+  getByModuleExport(mod: string, exportName: string): MacroDefinition | undefined {
     return this.moduleScopedMacros.get(moduleKey(mod, exportName));
   }
 
@@ -180,42 +174,37 @@ export function createRegistry(): MacroRegistry {
  * Generic macro definition factory. Adds the `kind` discriminant field.
  */
 function defineMacro<K extends MacroDefinition["kind"]>(
-  kind: K,
-): <T extends Extract<MacroDefinition, { kind: K }>>(
-  definition: Omit<T, "kind">,
-) => T {
+  kind: K
+): <T extends Extract<MacroDefinition, { kind: K }>>(definition: Omit<T, "kind">) => T {
   return (definition) => ({ ...definition, kind }) as any;
 }
 
 /** Define an expression macro with type inference */
-export const defineExpressionMacro =
-  defineMacro<"expression">("expression")<ExpressionMacro>;
+export const defineExpressionMacro = defineMacro<"expression">("expression")<ExpressionMacro>;
 
 /** Define an attribute macro with type inference */
-export const defineAttributeMacro =
-  defineMacro<"attribute">("attribute")<AttributeMacro>;
+export const defineAttributeMacro = defineMacro<"attribute">("attribute")<AttributeMacro>;
 
 /** Define a derive macro with type inference */
 export const defineDeriveMacro = defineMacro<"derive">("derive")<DeriveMacro>;
 
 /** Define a tagged template macro with type inference */
-export const defineTaggedTemplateMacro =
-  defineMacro<"tagged-template">("tagged-template")<TaggedTemplateMacroDef>;
+export const defineTaggedTemplateMacro = defineMacro<"tagged-template">(
+  "tagged-template"
+)<TaggedTemplateMacroDef>;
 
 /** Define a type macro with type inference */
 export const defineTypeMacro = defineMacro<"type">("type")<TypeMacro>;
 
 /** Define a labeled block macro with type inference */
-export const defineLabeledBlockMacro =
-  defineMacro<"labeled-block">("labeled-block")<LabeledBlockMacro>;
+export const defineLabeledBlockMacro = defineMacro<"labeled-block">(
+  "labeled-block"
+)<LabeledBlockMacro>;
 
 /**
  * Register multiple macros at once
  */
-export function registerMacros(
-  registry: MacroRegistry,
-  ...macros: MacroDefinition[]
-): void {
+export function registerMacros(registry: MacroRegistry, ...macros: MacroDefinition[]): void {
   for (const macro of macros) {
     registry.register(macro);
   }
@@ -238,14 +227,12 @@ export const standaloneExtensionRegistry: StandaloneExtensionInfo[] = [];
  * Register a standalone extension entry.
  * Idempotent: skips if an identical entry already exists.
  */
-export function registerStandaloneExtensionEntry(
-  info: StandaloneExtensionInfo,
-): void {
+export function registerStandaloneExtensionEntry(info: StandaloneExtensionInfo): void {
   const exists = standaloneExtensionRegistry.some(
     (e) =>
       e.methodName === info.methodName &&
       e.forType === info.forType &&
-      e.qualifier === info.qualifier,
+      e.qualifier === info.qualifier
   );
   if (!exists) {
     standaloneExtensionRegistry.push(info);
@@ -258,19 +245,17 @@ export function registerStandaloneExtensionEntry(
  */
 export function findStandaloneExtension(
   methodName: string,
-  typeName: string,
+  typeName: string
 ): StandaloneExtensionInfo | undefined {
   return standaloneExtensionRegistry.find(
-    (e) => e.methodName === methodName && e.forType === typeName,
+    (e) => e.methodName === methodName && e.forType === typeName
   );
 }
 
 /**
  * Get all standalone extensions registered for a type.
  */
-export function getStandaloneExtensionsForType(
-  typeName: string,
-): StandaloneExtensionInfo[] {
+export function getStandaloneExtensionsForType(typeName: string): StandaloneExtensionInfo[] {
   return standaloneExtensionRegistry.filter((e) => e.forType === typeName);
 }
 
@@ -293,20 +278,17 @@ export function buildStandaloneExtensionCall(
   factory: ts.NodeFactory,
   ext: StandaloneExtensionInfo,
   receiver: ts.Expression,
-  extraArgs: readonly ts.Expression[],
+  extraArgs: readonly ts.Expression[]
 ): ts.CallExpression {
   let callee: ts.Expression;
   if (ext.qualifier) {
     callee = factory.createPropertyAccessExpression(
       factory.createIdentifier(ext.qualifier),
-      ext.methodName,
+      ext.methodName
     );
   } else {
     callee = factory.createIdentifier(ext.methodName);
   }
 
-  return factory.createCallExpression(callee, undefined, [
-    receiver,
-    ...extraArgs,
-  ]);
+  return factory.createCallExpression(callee, undefined, [receiver, ...extraArgs]);
 }

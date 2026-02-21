@@ -74,7 +74,7 @@ export function runExpand(options: ExpandOptions): void {
       const parsed = ts.parseJsonConfigFileContent(
         configFile.config,
         ts.sys,
-        path.dirname(configPath),
+        path.dirname(configPath)
       );
       compilerOptions = parsed.options;
     }
@@ -175,7 +175,7 @@ function printDiff(original: string, expanded: string, filePath: string): void {
 
   for (const hunk of hunks) {
     console.log(
-      `@@ -${hunk.origStart + 1},${hunk.origLines.length} +${hunk.origStart + 1},${hunk.expLines.length} @@`,
+      `@@ -${hunk.origStart + 1},${hunk.origLines.length} +${hunk.origStart + 1},${hunk.expLines.length} @@`
     );
     for (const line of hunk.origLines) {
       console.log(`\x1b[31m- ${line}\x1b[0m`);
@@ -190,11 +190,7 @@ function printDiff(original: string, expanded: string, filePath: string): void {
 /**
  * Print the expansion focused around a specific line number.
  */
-function printFocusedExpansion(
-  original: string,
-  expanded: string,
-  line: number,
-): void {
+function printFocusedExpansion(original: string, expanded: string, line: number): void {
   const origLines = original.split("\n");
   const expLines = expanded.split("\n");
 

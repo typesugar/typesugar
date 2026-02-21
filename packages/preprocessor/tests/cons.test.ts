@@ -33,9 +33,7 @@ describe("Cons operator extension", () => {
     it("should handle triple cons", () => {
       const source = `1 :: 2 :: 3 :: []`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(
-        `__binop__(1, "::", __binop__(2, "::", __binop__(3, "::", [])))`,
-      );
+      expect(code).toBe(`__binop__(1, "::", __binop__(2, "::", __binop__(3, "::", [])))`);
     });
   });
 

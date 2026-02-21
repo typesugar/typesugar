@@ -8,8 +8,7 @@ import { defineAttributeMacro } from "@typesugar/core";
 export const codecMacro = defineAttributeMacro({
   name: "codec",
   module: "@typesugar/codec",
-  description:
-    "Generate versioned codec for a type with schema evolution",
+  description: "Generate versioned codec for a type with schema evolution",
   validTargets: ["interface", "class"],
   expand(_ctx, _decorator, target, _args) {
     return target;

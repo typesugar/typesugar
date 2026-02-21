@@ -18,11 +18,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  type MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 import type { ReactMacroMode } from "../types.js";
 
 /**
@@ -47,17 +43,12 @@ export interface StateMetadata {
 /**
  * Per-file state tracking (populated during transformation)
  */
-export const stateMetadataMap = new WeakMap<
-  ts.SourceFile,
-  Map<string, StateMetadata>
->();
+export const stateMetadataMap = new WeakMap<ts.SourceFile, Map<string, StateMetadata>>();
 
 /**
  * Get or create the state metadata map for a source file
  */
-export function getStateMetadata(
-  sourceFile: ts.SourceFile,
-): Map<string, StateMetadata> {
+export function getStateMetadata(sourceFile: ts.SourceFile): Map<string, StateMetadata> {
   let map = stateMetadataMap.get(sourceFile);
   if (!map) {
     map = new Map();
@@ -80,7 +71,7 @@ export const stateMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -88,7 +79,7 @@ export const stateMacro = defineExpressionMacro({
     if (args.length !== 1) {
       ctx.reportError(
         callExpr,
-        `state() requires exactly one argument (initial value), got ${args.length}`,
+        `state() requires exactly one argument (initial value), got ${args.length}`
       );
       return callExpr;
     }
@@ -100,7 +91,7 @@ export const stateMacro = defineExpressionMacro({
     if (!varName) {
       ctx.reportError(
         callExpr,
-        "state() must be used in a variable declaration: const x = state(value)",
+        "state() must be used in a variable declaration: const x = state(value)"
       );
       return callExpr;
     }
@@ -123,11 +114,9 @@ export const stateMacro = defineExpressionMacro({
 
     if (mode === "fine-grained") {
       // Fine-grained mode: createSignal(initialValue)
-      return factory.createCallExpression(
-        factory.createIdentifier("createSignal"),
-        undefined,
-        [initialValue],
-      );
+      return factory.createCallExpression(factory.createIdentifier("createSignal"), undefined, [
+        initialValue,
+      ]);
     }
 
     // Standard React mode:
@@ -147,22 +136,22 @@ export const stateMacro = defineExpressionMacro({
       // __typemacro_state marker
       factory.createPropertyAssignment(
         factory.createIdentifier("__typemacro_state"),
-        factory.createTrue(),
+        factory.createTrue()
       ),
       // Original variable name
       factory.createPropertyAssignment(
         factory.createIdentifier("__name"),
-        factory.createStringLiteral(varName),
+        factory.createStringLiteral(varName)
       ),
       // Value identifier
       factory.createPropertyAssignment(
         factory.createIdentifier("__valueIdent"),
-        factory.createStringLiteral(valueIdent),
+        factory.createStringLiteral(valueIdent)
       ),
       // Setter identifier
       factory.createPropertyAssignment(
         factory.createIdentifier("__setterIdent"),
-        factory.createStringLiteral(setterIdent),
+        factory.createStringLiteral(setterIdent)
       ),
       // Initial value (wrapped in a function to preserve the expression)
       factory.createPropertyAssignment(
@@ -173,8 +162,8 @@ export const stateMacro = defineExpressionMacro({
           [],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          initialValue,
-        ),
+          initialValue
+        )
       ),
     ]);
   },
@@ -203,10 +192,7 @@ function getVariableNameFromCall(callExpr: ts.CallExpression): string | null {
 /**
  * Check if a node is a state variable reference
  */
-export function isStateVariable(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-): StateMetadata | null {
+export function isStateVariable(node: ts.Node, sourceFile: ts.SourceFile): StateMetadata | null {
   if (!ts.isIdentifier(node)) {
     return null;
   }
@@ -220,10 +206,7 @@ export function isStateVariable(
  *
  * In JSX: {count} -> {__count_val}
  */
-export function rewriteStateRead(
-  factory: ts.NodeFactory,
-  metadata: StateMetadata,
-): ts.Identifier {
+export function rewriteStateRead(factory: ts.NodeFactory, metadata: StateMetadata): ts.Identifier {
   return factory.createIdentifier(metadata.valueIdent);
 }
 
@@ -237,13 +220,11 @@ export function rewriteStateRead(
 export function rewriteStateSetter(
   factory: ts.NodeFactory,
   metadata: StateMetadata,
-  args: readonly ts.Expression[],
+  args: readonly ts.Expression[]
 ): ts.CallExpression {
-  return factory.createCallExpression(
-    factory.createIdentifier(metadata.setterIdent),
-    undefined,
-    [...args],
-  );
+  return factory.createCallExpression(factory.createIdentifier(metadata.setterIdent), undefined, [
+    ...args,
+  ]);
 }
 
 /**
@@ -253,7 +234,7 @@ export function rewriteStateSetter(
  */
 export function generateUseStateDeclaration(
   factory: ts.NodeFactory,
-  metadata: StateMetadata,
+  metadata: StateMetadata
 ): ts.VariableStatement {
   return factory.createVariableStatement(
     undefined,
@@ -264,25 +245,23 @@ export function generateUseStateDeclaration(
             factory.createBindingElement(
               undefined,
               undefined,
-              factory.createIdentifier(metadata.valueIdent),
+              factory.createIdentifier(metadata.valueIdent)
             ),
             factory.createBindingElement(
               undefined,
               undefined,
-              factory.createIdentifier(metadata.setterIdent),
+              factory.createIdentifier(metadata.setterIdent)
             ),
           ]),
           undefined,
           undefined,
-          factory.createCallExpression(
-            factory.createIdentifier("useState"),
-            undefined,
-            [metadata.initialValue],
-          ),
+          factory.createCallExpression(factory.createIdentifier("useState"), undefined, [
+            metadata.initialValue,
+          ])
         ),
       ],
-      ts.NodeFlags.Const,
-    ),
+      ts.NodeFlags.Const
+    )
   );
 }
 
@@ -298,7 +277,7 @@ export function isStateMarker(expr: ts.Expression): boolean {
     (prop) =>
       ts.isPropertyAssignment(prop) &&
       ts.isIdentifier(prop.name) &&
-      prop.name.text === "__typemacro_state",
+      prop.name.text === "__typemacro_state"
   );
 }
 

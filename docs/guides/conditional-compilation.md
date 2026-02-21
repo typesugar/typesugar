@@ -12,7 +12,7 @@ import { cfg } from "@typesugar/core";
 const logger = cfg(
   "debug",
   { log: (msg: string) => console.log(`[DEBUG] ${msg}`) },
-  { log: () => {} }, // No-op in production
+  { log: () => {} } // No-op in production
 );
 
 logger.log("Application started");
@@ -102,7 +102,7 @@ config.evaluate("debug && !production");
 const debug = cfg(
   "debug",
   (...args: unknown[]) => console.log("[DEBUG]", ...args),
-  () => {},
+  () => {}
 );
 
 debug("Processing", data); // Removed in production

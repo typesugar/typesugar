@@ -11,8 +11,8 @@ Standard array method chains allocate intermediate arrays at every step:
 ```typescript
 // 3 passes over the data, 2 intermediate arrays allocated
 const result = users
-  .filter(u => u.active)     // pass 1 → intermediate array
-  .map(u => u.score * 2)     // pass 2 → intermediate array
+  .filter((u) => u.active) // pass 1 → intermediate array
+  .map((u) => u.score * 2) // pass 2 → intermediate array
   .reduce((a, b) => a + b, 0); // pass 3
 ```
 
@@ -25,8 +25,8 @@ import { lazy } from "@typesugar/fusion";
 
 // 1 pass, 0 intermediate arrays
 const result = lazy(users)
-  .filter(u => u.active)
-  .map(u => u.score * 2)
+  .filter((u) => u.active)
+  .map((u) => u.score * 2)
   .reduce((a, b) => a + b, 0);
 ```
 
@@ -38,47 +38,47 @@ Wraps any `Iterable` (arrays, Sets, Maps, generators) and returns a `LazyPipelin
 
 #### Intermediate operations (chainable)
 
-| Method | Description |
-| --- | --- |
-| `.map(f)` | Transform each element |
-| `.filter(pred)` | Keep elements matching predicate |
-| `.flatMap(f)` | Map to iterable and flatten |
-| `.take(n)` | Take first N elements |
-| `.drop(n)` | Skip first N elements |
-| `.takeWhile(pred)` | Take while predicate holds |
-| `.dropWhile(pred)` | Skip while predicate holds |
+| Method             | Description                      |
+| ------------------ | -------------------------------- |
+| `.map(f)`          | Transform each element           |
+| `.filter(pred)`    | Keep elements matching predicate |
+| `.flatMap(f)`      | Map to iterable and flatten      |
+| `.take(n)`         | Take first N elements            |
+| `.drop(n)`         | Skip first N elements            |
+| `.takeWhile(pred)` | Take while predicate holds       |
+| `.dropWhile(pred)` | Skip while predicate holds       |
 
 #### Terminal operations (execute the pipeline)
 
-| Method | Returns | Description |
-| --- | --- | --- |
-| `.toArray()` | `T[]` | Collect into array |
-| `.reduce(f, init)` | `Acc` | Fold left |
-| `.find(pred)` | `T \| null` | First match |
-| `.some(pred)` | `boolean` | Any match? |
-| `.every(pred)` | `boolean` | All match? |
-| `.count()` | `number` | Count elements |
-| `.forEach(f)` | `void` | Side effect per element |
-| `.first()` | `T \| null` | First element |
-| `.last()` | `T \| null` | Last element |
-| `.sum()` | `number` | Sum (number pipelines) |
-| `.min(cmp?)` | `T \| null` | Minimum element |
-| `.max(cmp?)` | `T \| null` | Maximum element |
-| `.join(sep?)` | `string` | Join strings |
-| `.toMap(keyFn, valFn)` | `Map<K,V>` | Collect into Map |
-| `.groupBy(keyFn)` | `Map<K,T[]>` | Group by key |
+| Method                 | Returns      | Description             |
+| ---------------------- | ------------ | ----------------------- |
+| `.toArray()`           | `T[]`        | Collect into array      |
+| `.reduce(f, init)`     | `Acc`        | Fold left               |
+| `.find(pred)`          | `T \| null`  | First match             |
+| `.some(pred)`          | `boolean`    | Any match?              |
+| `.every(pred)`         | `boolean`    | All match?              |
+| `.count()`             | `number`     | Count elements          |
+| `.forEach(f)`          | `void`       | Side effect per element |
+| `.first()`             | `T \| null`  | First element           |
+| `.last()`              | `T \| null`  | Last element            |
+| `.sum()`               | `number`     | Sum (number pipelines)  |
+| `.min(cmp?)`           | `T \| null`  | Minimum element         |
+| `.max(cmp?)`           | `T \| null`  | Maximum element         |
+| `.join(sep?)`          | `string`     | Join strings            |
+| `.toMap(keyFn, valFn)` | `Map<K,V>`   | Collect into Map        |
+| `.groupBy(keyFn)`      | `Map<K,T[]>` | Group by key            |
 
 ### Source Factories
 
 ```typescript
 import { range, iterate, repeat, generate } from "@typesugar/fusion";
 
-range(0, 10)          // [0, 1, 2, ..., 9]
-range(0, 10, 2)       // [0, 2, 4, 6, 8]
+range(0, 10); // [0, 1, 2, ..., 9]
+range(0, 10, 2); // [0, 2, 4, 6, 8]
 
-iterate(1, x => x * 2).take(5)  // [1, 2, 4, 8, 16]
-repeat("x").take(3)              // ["x", "x", "x"]
-generate(Math.random).take(4)    // [0.12, 0.87, 0.34, 0.56]
+iterate(1, (x) => x * 2).take(5); // [1, 2, 4, 8, 16]
+repeat("x").take(3); // ["x", "x", "x"]
+generate(Math.random).take(4); // [0.12, 0.87, 0.34, 0.56]
 ```
 
 ### `vec()` — Element-wise Vector Operations
@@ -91,11 +91,11 @@ import { vec, add, sub, mul, scale, dot, magnitude, normalize } from "@typesugar
 const a = vec([1, 2, 3]);
 const b = vec([4, 5, 6]);
 
-add(a, b)        // vec([5, 7, 9])
-scale(a, 10)     // vec([10, 20, 30])
-dot(a, b)        // 32
-magnitude(a)     // 3.741...
-normalize(a)     // unit vector in same direction
+add(a, b); // vec([5, 7, 9])
+scale(a, 10); // vec([10, 20, 30])
+dot(a, b); // 32
+magnitude(a); // 3.741...
+normalize(a); // unit vector in same direction
 ```
 
 ## Performance: Single-Pass vs Multi-Pass
@@ -122,8 +122,8 @@ Phase 2 will add compile-time analysis via the typesugar macro system. The `lazy
 ```typescript
 // Phase 2 (future): macro rewrites this to a single for-loop
 const result = lazy(users)
-  .filter(u => u.active)
-  .map(u => u.score)
+  .filter((u) => u.active)
+  .map((u) => u.score)
   .sum();
 
 // Compiles to:

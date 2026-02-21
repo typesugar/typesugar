@@ -20,11 +20,7 @@
  */
 
 import ts from "typescript";
-import type {
-  MacroContext,
-  ExpressionMacro,
-  StandaloneExtensionInfo,
-} from "../core/types.js";
+import type { MacroContext, ExpressionMacro, StandaloneExtensionInfo } from "../core/types.js";
 import { defineExpressionMacro } from "../core/registry.js";
 import { globalRegistry } from "../core/registry.js";
 import {
@@ -59,12 +55,12 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       ctx.reportError(
         callExpr,
-        "registerExtensions() requires two arguments: a type name string and a namespace object",
+        "registerExtensions() requires two arguments: a type name string and a namespace object"
       );
       return ctx.factory.createVoidZero();
     }
@@ -76,7 +72,7 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
     if (!ts.isStringLiteral(typeNameArg)) {
       ctx.reportError(
         typeNameArg,
-        "First argument to registerExtensions() must be a string literal",
+        "First argument to registerExtensions() must be a string literal"
       );
       return ctx.factory.createVoidZero();
     }
@@ -93,10 +89,7 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
     const properties = namespaceType.getProperties();
 
     for (const prop of properties) {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        namespaceArg,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, namespaceArg);
 
       // Only register callable properties (functions)
       const callSignatures = propType.getCallSignatures();
@@ -120,18 +113,17 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
 
 export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
   name: "registerExtension",
-  description:
-    "Register a single function as an extension method for a concrete type",
+  description: "Register a single function as an extension method for a concrete type",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       ctx.reportError(
         callExpr,
-        "registerExtension() requires two arguments: a type name string and a function",
+        "registerExtension() requires two arguments: a type name string and a function"
       );
       return ctx.factory.createVoidZero();
     }
@@ -142,7 +134,7 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     if (!ts.isStringLiteral(typeNameArg)) {
       ctx.reportError(
         typeNameArg,
-        "First argument to registerExtension() must be a string literal",
+        "First argument to registerExtension() must be a string literal"
       );
       return ctx.factory.createVoidZero();
     }
@@ -157,7 +149,7 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     if (!methodName) {
       ctx.reportError(
         fnArg,
-        "Second argument to registerExtension() must be a function identifier",
+        "Second argument to registerExtension() must be a function identifier"
       );
       return ctx.factory.createVoidZero();
     }

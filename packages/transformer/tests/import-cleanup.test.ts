@@ -49,10 +49,7 @@ afterAll(() => {
  * Helper: compile a source string through the macro transformer and return
  * the printed output.
  */
-function transformSource(
-  source: string,
-  extraFiles: Record<string, string> = {},
-): string {
+function transformSource(source: string, extraFiles: Record<string, string> = {}): string {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typemacro-test-"));
   const mainFile = path.join(tmpDir, "input.ts");
 
@@ -101,7 +98,7 @@ function hasImportFrom(output: string, moduleSpecifier: string): boolean {
 
 function getNamedImports(output: string, moduleSpecifier: string): string[] {
   const regex = new RegExp(
-    `import\\s*\\{([^}]*)\\}\\s*from\\s*["']${moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
+    `import\\s*\\{([^}]*)\\}\\s*from\\s*["']${moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`
   );
   const match = output.match(regex);
   if (!match) return [];

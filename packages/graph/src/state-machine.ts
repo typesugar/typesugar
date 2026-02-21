@@ -6,10 +6,7 @@ import type {
   VerificationResult,
 } from "./types.js";
 import { createDigraph } from "./graph.js";
-import {
-  reachable as graphReachable,
-  detectCycles,
-} from "./algorithms.js";
+import { reachable as graphReachable, detectCycles } from "./algorithms.js";
 
 /**
  * Build a state machine definition from a list of transitions.
@@ -17,7 +14,7 @@ import {
  */
 export function defineStateMachine(
   transitions: Array<{ from: string; event: string; to: string }>,
-  options?: { initial?: string; terminal?: string[] },
+  options?: { initial?: string; terminal?: string[] }
 ): StateMachineDefinition {
   const stateSet = new Set<string>();
   for (const t of transitions) {
@@ -50,10 +47,7 @@ export function verify(sm: StateMachineDefinition): VerificationResult {
   const cycles = detectCycles(graph);
 
   return {
-    valid:
-      unreachable.length === 0 &&
-      deadEnds.length === 0 &&
-      nondet.length === 0,
+    valid: unreachable.length === 0 && deadEnds.length === 0 && nondet.length === 0,
     unreachableStates: unreachable,
     deadEndStates: deadEnds,
     nondeterministic: nondet,
@@ -64,7 +58,7 @@ export function verify(sm: StateMachineDefinition): VerificationResult {
 /** Create an immutable state machine instance. */
 export function createInstance<S extends string, E extends string>(
   sm: StateMachineDefinition,
-  initialState?: S,
+  initialState?: S
 ): StateMachineInstance<S, E> {
   const current = (initialState ?? sm.initial) as S;
 
@@ -81,9 +75,7 @@ export function createInstance<S extends string, E extends string>(
         const ts = transitionMap.get(state) ?? [];
         const match = ts.find((t) => t.event === (event as string));
         if (!match) {
-          throw new Error(
-            `No transition from state "${state}" on event "${event as string}"`,
-          );
+          throw new Error(`No transition from state "${state}" on event "${event as string}"`);
         }
         return buildInstance(match.to as S);
       },
@@ -105,7 +97,7 @@ export function createInstance<S extends string, E extends string>(
 export function toGraph(sm: StateMachineDefinition): Graph {
   return createDigraph(
     [...sm.states],
-    sm.transitions.map((t) => [t.from, t.to, t.event]),
+    sm.transitions.map((t) => [t.from, t.to, t.event])
   );
 }
 
@@ -122,7 +114,7 @@ export function deadEndStates(sm: StateMachineDefinition): string[] {
 
 /** Check for nondeterminism: same state + same event leading to different targets. */
 export function isNondeterministic(
-  sm: StateMachineDefinition,
+  sm: StateMachineDefinition
 ): Array<{ state: string; event: string; targets: string[] }> {
   return isNondeterministicInternal(sm);
 }
@@ -135,13 +127,11 @@ function unreachableStatesInternal(sm: StateMachineDefinition): string[] {
 function deadEndStatesInternal(sm: StateMachineDefinition): string[] {
   const terminal = new Set(sm.terminal ?? []);
   const hasOutgoing = new Set(sm.transitions.map((t) => t.from));
-  return sm.states.filter(
-    (s) => !hasOutgoing.has(s) && !terminal.has(s),
-  );
+  return sm.states.filter((s) => !hasOutgoing.has(s) && !terminal.has(s));
 }
 
 function isNondeterministicInternal(
-  sm: StateMachineDefinition,
+  sm: StateMachineDefinition
 ): Array<{ state: string; event: string; targets: string[] }> {
   const grouped = new Map<string, Map<string, Set<string>>>();
   for (const t of sm.transitions) {
@@ -151,8 +141,7 @@ function isNondeterministicInternal(
     eventMap.get(t.event)!.add(t.to);
   }
 
-  const results: Array<{ state: string; event: string; targets: string[] }> =
-    [];
+  const results: Array<{ state: string; event: string; targets: string[] }> = [];
   for (const [state, eventMap] of grouped) {
     for (const [event, targets] of eventMap) {
       if (targets.size > 1) {

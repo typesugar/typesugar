@@ -15,7 +15,7 @@ export class MacroContextImpl implements MacroContext {
     public readonly typeChecker: ts.TypeChecker,
     public readonly sourceFile: ts.SourceFile,
     public readonly factory: ts.NodeFactory,
-    public readonly transformContext: ts.TransformationContext,
+    public readonly transformContext: ts.TransformationContext
   ) {}
 
   // -------------------------------------------------------------------------
@@ -43,13 +43,10 @@ export class MacroContextImpl implements MacroContext {
   }
 
   createObjectLiteral(
-    properties: Array<{ name: string; value: ts.Expression }>,
+    properties: Array<{ name: string; value: ts.Expression }>
   ): ts.ObjectLiteralExpression {
     const propAssignments = properties.map(({ name, value }) =>
-      this.factory.createPropertyAssignment(
-        this.factory.createIdentifier(name),
-        value,
-      ),
+      this.factory.createPropertyAssignment(this.factory.createIdentifier(name), value)
     );
     return this.factory.createObjectLiteralExpression(propAssignments, true);
   }
@@ -61,7 +58,7 @@ export class MacroContextImpl implements MacroContext {
       `const __expr__ = ${code};`,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     // Extract the expression from the variable declaration
@@ -82,7 +79,7 @@ export class MacroContextImpl implements MacroContext {
       code,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
     return Array.from(tempSource.statements);
   }
@@ -198,9 +195,7 @@ export class MacroContextImpl implements MacroContext {
             const parent = decl.parent;
             if (ts.isVariableDeclarationList(parent)) {
               if (parent.flags & ts.NodeFlags.Const) {
-                return decl.initializer
-                  ? this.isComptime(decl.initializer)
-                  : false;
+                return decl.initializer ? this.isComptime(decl.initializer) : false;
               }
             }
           }
@@ -289,9 +284,7 @@ export class MacroContextImpl implements MacroContext {
       if (condValue === null) {
         return { kind: "error", message: "Cannot convert to boolean" };
       }
-      return condValue
-        ? this.evaluateNode(node.whenTrue)
-        : this.evaluateNode(node.whenFalse);
+      return condValue ? this.evaluateNode(node.whenTrue) : this.evaluateNode(node.whenFalse);
     }
 
     // Template literals (simple case)
@@ -320,7 +313,7 @@ export class MacroContextImpl implements MacroContext {
             if (ts.isIdentifier(param.name)) {
               this.scope.set(
                 param.name.text,
-                i < args.length ? args[i] : { kind: "undefined" as const },
+                i < args.length ? args[i] : { kind: "undefined" as const }
               );
             }
           });
@@ -622,7 +615,7 @@ export class MacroContextImpl implements MacroContext {
         return this.factory.createIdentifier("undefined");
       case "array":
         return this.createArrayLiteral(
-          value.elements.map((e) => this.comptimeValueToExpression(e)),
+          value.elements.map((e) => this.comptimeValueToExpression(e))
         );
       case "object":
         const props: Array<{ name: string; value: ts.Expression }> = [];
@@ -631,9 +624,7 @@ export class MacroContextImpl implements MacroContext {
         });
         return this.createObjectLiteral(props);
       case "error":
-        throw new Error(
-          `Cannot convert error value to expression: ${value.message}`,
-        );
+        throw new Error(`Cannot convert error value to expression: ${value.message}`);
       default:
         throw new Error(`Cannot convert ${value.kind} to expression`);
     }
@@ -646,13 +637,13 @@ export class MacroContextImpl implements MacroContext {
 export function createMacroContext(
   program: ts.Program,
   sourceFile: ts.SourceFile,
-  transformContext: ts.TransformationContext,
+  transformContext: ts.TransformationContext
 ): MacroContextImpl {
   return new MacroContextImpl(
     program,
     program.getTypeChecker(),
     sourceFile,
     transformContext.factory,
-    transformContext,
+    transformContext
   );
 }

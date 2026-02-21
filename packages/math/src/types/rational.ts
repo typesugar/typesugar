@@ -75,10 +75,7 @@ function normalize(num: bigint, den: bigint): Rational {
  * @returns Normalized rational in lowest terms
  * @throws RangeError if denominator is zero
  */
-export function rational(
-  num: bigint | number,
-  den: bigint | number = 1n,
-): Rational {
+export function rational(num: bigint | number, den: bigint | number = 1n): Rational {
   const n = typeof num === "number" ? BigInt(Math.trunc(num)) : num;
   const d = typeof den === "number" ? BigInt(Math.trunc(den)) : den;
   return normalize(n, d);
@@ -203,31 +200,18 @@ export function toString(r: Rational): string {
  * Supports add, sub, mul with exact arithmetic.
  */
 export const numericRational: Numeric<Rational> = {
-  add: (a, b) =>
-    normalize(
-      a.num * b.den + b.num * a.den,
-      a.den * b.den,
-    ) as Rational & Op<"+">,
+  add: (a, b) => normalize(a.num * b.den + b.num * a.den, a.den * b.den) as Rational & Op<"+">,
 
-  sub: (a, b) =>
-    normalize(
-      a.num * b.den - b.num * a.den,
-      a.den * b.den,
-    ) as Rational & Op<"-">,
+  sub: (a, b) => normalize(a.num * b.den - b.num * a.den, a.den * b.den) as Rational & Op<"-">,
 
-  mul: (a, b) =>
-    normalize(a.num * b.num, a.den * b.den) as Rational & Op<"*">,
+  mul: (a, b) => normalize(a.num * b.num, a.den * b.den) as Rational & Op<"*">,
 
   negate: (a) => ({ num: -a.num, den: a.den }),
 
   abs: (a) => ({ num: a.num < 0n ? -a.num : a.num, den: a.den }),
 
   signum: (a) =>
-    a.num < 0n
-      ? { num: -1n, den: 1n }
-      : a.num > 0n
-        ? { num: 1n, den: 1n }
-        : { num: 0n, den: 1n },
+    a.num < 0n ? { num: -1n, den: 1n } : a.num > 0n ? { num: 1n, den: 1n } : { num: 0n, den: 1n },
 
   fromNumber: (n) => fromNumber(n),
 

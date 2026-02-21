@@ -11,10 +11,7 @@
 export class ContractError extends Error {
   constructor(
     message: string,
-    public readonly contractType:
-      | "precondition"
-      | "postcondition"
-      | "invariant",
+    public readonly contractType: "precondition" | "postcondition" | "invariant"
   ) {
     super(message);
     this.name = "ContractError";

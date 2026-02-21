@@ -100,12 +100,7 @@ export { pipeline } from "./core/pipeline.js";
 // Configuration System
 // ============================================================================
 
-export {
-  config,
-  defineConfig,
-  type TypesugarConfig,
-  type ContractsConfig,
-} from "./core/config.js";
+export { config, defineConfig, type TypesugarConfig, type ContractsConfig } from "./core/config.js";
 
 // ============================================================================
 // Built-in Macros
@@ -157,9 +152,7 @@ export function comptime<T>(fn: () => T): T {
  * // Generates: pointEq(), clonePoint(), debugPoint()
  * ```
  */
-export function derive(
-  ..._derives: string[]
-): ClassDecorator & PropertyDecorator {
+export function derive(..._derives: string[]): ClassDecorator & PropertyDecorator {
   // Placeholder decorator - processed by transformer
   return () => {};
 }
@@ -278,10 +271,7 @@ export function ops<T>(expr: T): T {
  * // Becomes: toString(addOne(double(5)))
  * ```
  */
-export function pipe<T, R>(
-  value: T,
-  ...fns: Array<(arg: unknown) => unknown>
-): R {
+export function pipe<T, R>(value: T, ...fns: Array<(arg: unknown) => unknown>): R {
   // Placeholder - processed by transformer
   return fns.reduce((acc, fn) => fn(acc), value as unknown) as R;
 }
@@ -298,12 +288,9 @@ export function pipe<T, R>(
  * // Becomes: (x) => toString(addOne(double(x)))
  * ```
  */
-export function compose<T, R>(
-  ...fns: Array<(arg: unknown) => unknown>
-): (value: T) => R {
+export function compose<T, R>(...fns: Array<(arg: unknown) => unknown>): (value: T) => R {
   // Placeholder - processed by transformer
-  return (value: T) =>
-    fns.reduceRight((acc, fn) => fn(acc), value as unknown) as R;
+  return (value: T) => fns.reduceRight((acc, fn) => fn(acc), value as unknown) as R;
 }
 
 // ============================================================================
@@ -340,9 +327,7 @@ export function typeclass(target: any, _context?: ClassDecoratorContext): any {
  * };
  * ```
  */
-export function instance(
-  _typeName: string,
-): PropertyDecorator & ClassDecorator {
+export function instance(_typeName: string): PropertyDecorator & ClassDecorator {
   // Placeholder - processed by transformer
   return () => {};
 }
@@ -365,9 +350,7 @@ export function instance(
  * // Generates: showPoint, eqPoint, ordPoint instances
  * ```
  */
-export function deriving(
-  ..._typeclasses: string[]
-): ClassDecorator & PropertyDecorator {
+export function deriving(..._typeclasses: string[]): ClassDecorator & PropertyDecorator {
   // Placeholder - processed by transformer
   return () => {};
 }
@@ -383,9 +366,7 @@ export function deriving(
  */
 export function summon<T>(): T {
   // Placeholder - processed by transformer
-  throw new Error(
-    "summon() must be processed by the typemacro transformer at compile time",
-  );
+  throw new Error("summon() must be processed by the typemacro transformer at compile time");
 }
 
 /**
@@ -431,7 +412,7 @@ export function extend<T>(value: T): any {
  */
 export function registerExtensions<T extends Record<string, Function>>(
   _typeName: string,
-  _namespace: T,
+  _namespace: T
 ): void {
   // Placeholder - processed by transformer at compile time
 }
@@ -494,10 +475,7 @@ export function registerExtension(_typeName: string, _fn: Function): void {
  * }
  * ```
  */
-export function tailrec(
-  target: any,
-  _context?: ClassMethodDecoratorContext,
-): any {
+export function tailrec(target: any, _context?: ClassMethodDecoratorContext): any {
   // Placeholder decorator — the transformer replaces the entire function
   return target;
 }
@@ -523,9 +501,7 @@ export function static_assert<_T extends true>(): void {
  * Type-level equality check
  */
 export type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-    ? true
-    : false;
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 /**
  * Type-level extends check

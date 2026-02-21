@@ -113,8 +113,7 @@ describe("decidability annotations", () => {
   });
 
   it("should register decidability info", async () => {
-    const { registerDecidability, getDecidability } =
-      await import("@typesugar/contracts");
+    const { registerDecidability, getDecidability } = await import("@typesugar/contracts");
 
     const info: DecidabilityInfo = {
       brand: "TestBrand",
@@ -139,8 +138,7 @@ describe("decidability annotations", () => {
   });
 
   it("should check if compile-time decidable", async () => {
-    const { registerDecidability, isCompileTimeDecidable } =
-      await import("@typesugar/contracts");
+    const { registerDecidability, isCompileTimeDecidable } = await import("@typesugar/contracts");
 
     registerDecidability({
       brand: "CompileTimeTest",
@@ -159,8 +157,7 @@ describe("decidability annotations", () => {
   });
 
   it("should check if requires runtime check", async () => {
-    const { registerDecidability, requiresRuntimeCheck } =
-      await import("@typesugar/contracts");
+    const { registerDecidability, requiresRuntimeCheck } = await import("@typesugar/contracts");
 
     registerDecidability({
       brand: "RuntimeRequiredTest",
@@ -232,8 +229,7 @@ describe("decidability annotations", () => {
   });
 
   it("should get all decidability info", async () => {
-    const { registerDecidability, getAllDecidabilityInfo } =
-      await import("@typesugar/contracts");
+    const { registerDecidability, getAllDecidabilityInfo } = await import("@typesugar/contracts");
 
     registerDecidability({
       brand: "InfoTest1",
@@ -481,7 +477,7 @@ describe("dynamic predicate generators", () => {
     // Register a custom pattern for Matrix<R,C>
     registerDynamicPredicateGenerator(
       /^Matrix<(\d+),(\d+)>$/,
-      (match) => `$.rows === ${match[1]} && $.cols === ${match[2]}`,
+      (match) => `$.rows === ${match[1]} && $.cols === ${match[2]}`
     );
 
     const matrixPred = getRefinementPredicate("Matrix<3,4>");
@@ -528,8 +524,7 @@ describe("subtyping coercions", () => {
   });
 
   it("should get all widen targets", async () => {
-    const { registerSubtypingRule, getWidenTargets } =
-      await import("@typesugar/contracts");
+    const { registerSubtypingRule, getWidenTargets } = await import("@typesugar/contracts");
 
     registerSubtypingRule({
       from: "WidenSource",
@@ -584,8 +579,7 @@ describe("proof certificates", () => {
   });
 
   it("should create a failed certificate", async () => {
-    const { createCertificate, failCertificate } =
-      await import("@typesugar/contracts");
+    const { createCertificate, failCertificate } = await import("@typesugar/contracts");
 
     let cert = createCertificate("impossible > 0", []);
     cert = failCertificate(cert, "No proof found");
@@ -595,12 +589,8 @@ describe("proof certificates", () => {
   });
 
   it("should format certificate as string", async () => {
-    const {
-      createCertificate,
-      succeedCertificate,
-      formatCertificate,
-      createStep,
-    } = await import("@typesugar/contracts");
+    const { createCertificate, succeedCertificate, formatCertificate, createStep } =
+      await import("@typesugar/contracts");
 
     let cert = createCertificate("x > 0", []);
     const step = createStep("constant", "Evaluated at compile time");
@@ -613,12 +603,8 @@ describe("proof certificates", () => {
   });
 
   it("should convert certificate to proof result", async () => {
-    const {
-      createCertificate,
-      succeedCertificate,
-      certificateToResult,
-      createStep,
-    } = await import("@typesugar/contracts");
+    const { createCertificate, succeedCertificate, certificateToResult, createStep } =
+      await import("@typesugar/contracts");
 
     let cert = createCertificate("test", []);
     const step = createStep("algebra", "Sum of positives");
@@ -643,10 +629,7 @@ describe("proof certificates", () => {
 
     // Manually add steps to demonstrate the certificate building process
     // Step 1: Note that the goal matches a known assumption
-    const identityStep = createStep(
-      "identity",
-      "Goal 'x > 0' matches assumption",
-    );
+    const identityStep = createStep("identity", "Goal 'x > 0' matches assumption");
     cert = addStep(cert, identityStep);
     expect(cert.steps.length).toBe(1);
 
@@ -736,25 +719,18 @@ describe("check elision with decidability", () => {
   });
 
   it("should use linear solver for numerical bounds", async () => {
-    const { tryLinearArithmetic, trySimpleLinearProof } =
-      await import("@typesugar/contracts");
+    const { tryLinearArithmetic, trySimpleLinearProof } = await import("@typesugar/contracts");
 
     // Test simple linear proof: x > 0 implies x >= 0
-    const result = trySimpleLinearProof("x >= 0", [
-      { variable: "x", predicate: "x > 0" },
-    ]);
+    const result = trySimpleLinearProof("x >= 0", [{ variable: "x", predicate: "x > 0" }]);
 
     expect(result.proven).toBe(true);
     expect(result.method).toBe("linear");
   });
 
   it("should track decidability for check elision decisions", async () => {
-    const {
-      getDecidability,
-      canProveAtCompileTime,
-      mustCheckAtRuntime,
-      registerDecidability,
-    } = await import("@typesugar/contracts");
+    const { getDecidability, canProveAtCompileTime, mustCheckAtRuntime, registerDecidability } =
+      await import("@typesugar/contracts");
 
     // Register types with different decidability
     registerDecidability({
@@ -789,8 +765,7 @@ describe("check elision with decidability", () => {
   });
 
   it("should elide checks when proof succeeds for compound expressions", async () => {
-    const { tryAlgebraicProof, trySimpleLinearProof } =
-      await import("@typesugar/contracts");
+    const { tryAlgebraicProof, trySimpleLinearProof } = await import("@typesugar/contracts");
 
     // Compound facts from multiple type facts
     const facts: TypeFact[] = [

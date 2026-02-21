@@ -36,16 +36,8 @@
 
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "../core/registry.js";
-import {
-  MacroContext,
-  DeriveFieldInfo,
-  DeriveVariantInfo,
-} from "../core/types.js";
-import {
-  instanceRegistry,
-  typeclassRegistry,
-  tryExtractSumType,
-} from "./typeclass.js";
+import { MacroContext, DeriveFieldInfo, DeriveVariantInfo } from "../core/types.js";
+import { instanceRegistry, typeclassRegistry, tryExtractSumType } from "./typeclass.js";
 
 // ============================================================================
 // Structural Representation Types
@@ -115,10 +107,7 @@ export interface Generic<T, R> {
 // Registry for Generic instances
 const genericRegistry = new Map<string, Generic<unknown, unknown>>();
 
-export function registerGeneric<T, R>(
-  typeName: string,
-  instance: Generic<T, R>,
-): void {
+export function registerGeneric<T, R>(typeName: string, instance: Generic<T, R>): void {
   genericRegistry.set(typeName, instance as Generic<unknown, unknown>);
 }
 
@@ -135,7 +124,7 @@ export function getGeneric<T, R>(typeName: string): Generic<T, R> | undefined {
  */
 export function showProduct<Fields extends readonly Field<string, unknown>[]>(
   fieldShows: { [K in keyof Fields]: { show: (a: Fields[K][1]) => string } },
-  fieldNames: { [K in keyof Fields]: Fields[K][0] },
+  fieldNames: { [K in keyof Fields]: Fields[K][0] }
 ): { show: (p: Product<Fields>) => string } {
   return {
     show: (p: Product<Fields>): string => {
@@ -158,7 +147,7 @@ export function showSum<Variants extends readonly Variant<string, unknown>[]>(
   variantShows: {
     [K in keyof Variants]: { show: (a: Variants[K][1]) => string };
   },
-  variantTags: { [K in keyof Variants]: Variants[K][0] },
+  variantTags: { [K in keyof Variants]: Variants[K][0] }
 ): { show: (s: Sum<Variants>) => string } {
   return {
     show: (s: Sum<Variants>): string => {
@@ -176,9 +165,7 @@ export function showSum<Variants extends readonly Variant<string, unknown>[]>(
 /**
  * Eq for Product types
  */
-export function eqProduct<
-  Fields extends readonly Field<string, unknown>[],
->(fieldEqs: {
+export function eqProduct<Fields extends readonly Field<string, unknown>[]>(fieldEqs: {
   [K in keyof Fields]: { eq: (a: Fields[K][1], b: Fields[K][1]) => boolean };
 }): { eq: (a: Product<Fields>, b: Product<Fields>) => boolean } {
   return {
@@ -202,7 +189,7 @@ export function eqSum<Variants extends readonly Variant<string, unknown>[]>(
       eq: (a: Variants[K][1], b: Variants[K][1]) => boolean;
     };
   },
-  variantTags: { [K in keyof Variants]: Variants[K][0] },
+  variantTags: { [K in keyof Variants]: Variants[K][0] }
 ): { eq: (a: Sum<Variants>, b: Sum<Variants>) => boolean } {
   return {
     eq: (a: Sum<Variants>, b: Sum<Variants>): boolean => {
@@ -221,9 +208,7 @@ export function eqSum<Variants extends readonly Variant<string, unknown>[]>(
 /**
  * Ord for Product types (lexicographic)
  */
-export function ordProduct<
-  Fields extends readonly Field<string, unknown>[],
->(fieldOrds: {
+export function ordProduct<Fields extends readonly Field<string, unknown>[]>(fieldOrds: {
   [K in keyof Fields]: {
     compare: (a: Fields[K][1], b: Fields[K][1]) => number;
   };
@@ -242,9 +227,7 @@ export function ordProduct<
 /**
  * Hash for Product types
  */
-export function hashProduct<
-  Fields extends readonly Field<string, unknown>[],
->(fieldHashes: {
+export function hashProduct<Fields extends readonly Field<string, unknown>[]>(fieldHashes: {
   [K in keyof Fields]: { hash: (a: Fields[K][1]) => number };
 }): { hash: (a: Product<Fields>) => number } {
   return {
@@ -323,17 +306,14 @@ export const genericDerive = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (
       !ts.isInterfaceDeclaration(target) &&
       !ts.isClassDeclaration(target) &&
       !ts.isTypeAliasDeclaration(target)
     ) {
-      ctx.reportError(
-        target,
-        "@derive(Generic) requires interface, class, or type alias",
-      );
+      ctx.reportError(target, "@derive(Generic) requires interface, class, or type alias");
       return target;
     }
 
@@ -358,11 +338,8 @@ export const genericDerive = defineAttributeMacro({
  */
 function expandGenericForProductType(
   ctx: MacroContext,
-  target:
-    | ts.InterfaceDeclaration
-    | ts.ClassDeclaration
-    | ts.TypeAliasDeclaration,
-  typeName: string,
+  target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+  typeName: string
 ): ts.Node[] {
   const type = ctx.typeChecker.getTypeAtLocation(target);
   const properties = ctx.typeChecker.getPropertiesOfType(type);
@@ -374,10 +351,7 @@ function expandGenericForProductType(
     fieldNames.push(prop.name);
     const decls = prop.getDeclarations();
     if (decls && decls.length > 0) {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        decls[0],
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decls[0]);
       fieldTypes.push(ctx.typeChecker.typeToString(propType));
     } else {
       fieldTypes.push("unknown");
@@ -434,7 +408,7 @@ function expandGenericForSumType(
   sumInfo: {
     discriminant: string;
     variants: Array<{ tag: string; typeName: string }>;
-  },
+  }
 ): ts.Node[] {
   // Get variant field information for each variant
   const variantMeta: Array<{
@@ -449,9 +423,7 @@ function expandGenericForSumType(
       if (!ts.isTypeReferenceNode(member)) continue;
 
       const variantTypeName = member.typeName.getText();
-      const variantInfo = sumInfo.variants.find(
-        (v) => v.typeName === variantTypeName,
-      );
+      const variantInfo = sumInfo.variants.find((v) => v.typeName === variantTypeName);
       if (!variantInfo) continue;
 
       const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
@@ -467,10 +439,7 @@ function expandGenericForSumType(
           fieldNames.push(prop.name);
           const decls = prop.getDeclarations();
           if (decls && decls.length > 0) {
-            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-              prop,
-              decls[0],
-            );
+            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decls[0]);
             fieldTypes.push(ctx.typeChecker.typeToString(propType));
           } else {
             fieldTypes.push("unknown");
@@ -540,7 +509,7 @@ registerGeneric("${typeName}", generic${typeName});
 export function deriveShowViaGeneric<T>(
   typeName: string,
   fieldShows: { show: (a: unknown) => string }[],
-  fieldNames: string[],
+  fieldNames: string[]
 ): { show: (a: T) => string } {
   const gen = getGeneric<T, Product<Field<string, unknown>[]>>(typeName);
   if (!gen) {
@@ -550,9 +519,7 @@ export function deriveShowViaGeneric<T>(
   return {
     show: (a: T): string => {
       const rep = gen.to(a);
-      const parts = fieldNames.map(
-        (name, i) => `${name} = ${fieldShows[i].show(rep.fields[i])}`,
-      );
+      const parts = fieldNames.map((name, i) => `${name} = ${fieldShows[i].show(rep.fields[i])}`);
       return `${typeName}(${parts.join(", ")})`;
     },
   };
@@ -563,7 +530,7 @@ export function deriveShowViaGeneric<T>(
  */
 export function deriveEqViaGeneric<T>(
   typeName: string,
-  fieldEqs: { eq: (a: unknown, b: unknown) => boolean }[],
+  fieldEqs: { eq: (a: unknown, b: unknown) => boolean }[]
 ): { eq: (a: T, b: T) => boolean } {
   const gen = getGeneric<T, Product<Field<string, unknown>[]>>(typeName);
   if (!gen) {

@@ -43,11 +43,7 @@
 
 import * as ts from "typescript";
 import { cosmiconfig, cosmiconfigSync } from "cosmiconfig";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-} from "./registry.js";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "./registry.js";
 import type { MacroContext, AttributeTarget } from "./types.js";
 import { stripDecorator } from "./ast-utils.js";
 
@@ -230,11 +226,7 @@ function loadConfigFromEnv(): TypesugarConfig {
 /**
  * Set a nested value using dot notation.
  */
-function setNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split(".");
   let current: Record<string, unknown> = obj;
 
@@ -271,7 +263,7 @@ function getNestedValue(obj: unknown, path: string): unknown {
  */
 function deepMerge(
   target: Record<string, unknown>,
-  source: Record<string, unknown>,
+  source: Record<string, unknown>
 ): Record<string, unknown> {
   const result = { ...target };
 
@@ -289,7 +281,7 @@ function deepMerge(
     ) {
       result[key] = deepMerge(
         targetValue as Record<string, unknown>,
-        sourceValue as Record<string, unknown>,
+        sourceValue as Record<string, unknown>
       );
     } else {
       result[key] = sourceValue;
@@ -329,10 +321,7 @@ function initializeConfig(): void {
   const envConfig = loadConfigFromEnv();
 
   // Merge: defaults < fileConfig < envConfig
-  configStore = deepMerge(
-    deepMerge(defaults, fileConfig),
-    envConfig,
-  ) as TypesugarConfig;
+  configStore = deepMerge(deepMerge(defaults, fileConfig), envConfig) as TypesugarConfig;
 
   configLoaded = true;
 }
@@ -523,18 +512,14 @@ function findMatchingParen(expr: string, start: number): number {
 function when<T, U = undefined>(
   condition: string,
   thenValue: T | (() => T),
-  elseValue?: U | (() => U),
+  elseValue?: U | (() => U)
 ): T | U | undefined {
   const isActive = evaluate(condition);
 
   if (isActive) {
-    return typeof thenValue === "function"
-      ? (thenValue as () => T)()
-      : thenValue;
+    return typeof thenValue === "function" ? (thenValue as () => T)() : thenValue;
   } else if (elseValue !== undefined) {
-    return typeof elseValue === "function"
-      ? (elseValue as () => U)()
-      : elseValue;
+    return typeof elseValue === "function" ? (elseValue as () => U)() : elseValue;
   }
 
   return undefined;
@@ -561,7 +546,7 @@ function when<T, U = undefined>(
 when.decorator = function whenDecorator(condition: string) {
   return function <T>(
     target: T,
-    _context?: ClassDecoratorContext | ClassMethodDecoratorContext,
+    _context?: ClassDecoratorContext | ClassMethodDecoratorContext
   ): T {
     // At runtime without transformer, always return target
     // The transformer handles actual removal
@@ -584,12 +569,12 @@ export const configWhenMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2 || args.length > 3) {
       ctx.reportError(
         callExpr,
-        "config.when expects 2-3 arguments: config.when(condition, thenValue, elseValue?)",
+        "config.when expects 2-3 arguments: config.when(condition, thenValue, elseValue?)"
       );
       return callExpr;
     }
@@ -603,10 +588,7 @@ export const configWhenMacro = defineExpressionMacro({
     if (ts.isStringLiteral(conditionArg)) {
       condition = conditionArg.text;
     } else {
-      ctx.reportError(
-        callExpr,
-        "config.when: first argument must be a string literal",
-      );
+      ctx.reportError(callExpr, "config.when: first argument must be a string literal");
       return callExpr;
     }
 
@@ -617,7 +599,7 @@ export const configWhenMacro = defineExpressionMacro({
         return ctx.factory.createCallExpression(
           ctx.factory.createParenthesizedExpression(thenArg),
           undefined,
-          [],
+          []
         );
       }
       return thenArg;
@@ -627,7 +609,7 @@ export const configWhenMacro = defineExpressionMacro({
           return ctx.factory.createCallExpression(
             ctx.factory.createParenthesizedExpression(elseArg),
             undefined,
-            [],
+            []
           );
         }
         return elseArg;
@@ -644,24 +626,16 @@ export const configWhenAttrMacro = defineAttributeMacro({
   name: "config.when",
   module: "typesugar",
   description: "Conditionally include a declaration based on configuration",
-  validTargets: [
-    "class",
-    "method",
-    "property",
-    "function",
-  ] as AttributeTarget[],
+  validTargets: ["class", "method", "property", "function"] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (args.length !== 1) {
-      ctx.reportError(
-        decorator,
-        "@config.when expects one argument: @config.when(condition)",
-      );
+      ctx.reportError(decorator, "@config.when expects one argument: @config.when(condition)");
       return target;
     }
 
@@ -671,10 +645,7 @@ export const configWhenAttrMacro = defineAttributeMacro({
     if (ts.isStringLiteral(conditionArg)) {
       condition = conditionArg.text;
     } else {
-      ctx.reportError(
-        decorator,
-        "@config.when: argument must be a string literal",
-      );
+      ctx.reportError(decorator, "@config.when: argument must be a string literal");
       return target;
     }
 

@@ -29,20 +29,20 @@ At runtime, points and vectors are plain `number[]`. The coordinate system and d
 ```typescript
 const p = point2d(3, 4);
 console.log(Array.isArray(p)); // true
-console.log(p.length);         // 2
-console.log(p[0], p[1]);       // 3 4
+console.log(p.length); // 2
+console.log(p[0], p[1]); // 3 4
 ```
 
 ## Coordinate Systems
 
 Four coordinate systems are supported, each as a type-level brand:
 
-| System | Components | Constructor |
-| ----------- | ---------- | -------------- |
-| Cartesian | x, y [, z] | `point2d`, `point3d` |
-| Polar | r, theta | `polar` |
-| Spherical | r, theta, phi | `spherical` |
-| Cylindrical | r, theta, z | `cylindrical` |
+| System      | Components    | Constructor          |
+| ----------- | ------------- | -------------------- |
+| Cartesian   | x, y [, z]    | `point2d`, `point3d` |
+| Polar       | r, theta      | `polar`              |
+| Spherical   | r, theta, phi | `spherical`          |
+| Cylindrical | r, theta, z   | `cylindrical`        |
 
 ## Operations
 
@@ -51,12 +51,12 @@ Four coordinate systems are supported, each as a type-level brand:
 ```typescript
 import { translate, displacement, addVec, scale, negate } from "@typesugar/geometry";
 
-translate(p, v);           // Point + Vector -> Point
-displacement(a, b);        // Point - Point -> Vector
-addVec(v1, v2);            // Vector + Vector -> Vector
-subVec(v1, v2);            // Vector - Vector -> Vector
-scale(v, 2.5);             // scalar * Vector -> Vector
-negate(v);                 // -Vector -> Vector
+translate(p, v); // Point + Vector -> Point
+displacement(a, b); // Point - Point -> Vector
+addVec(v1, v2); // Vector + Vector -> Vector
+subVec(v1, v2); // Vector - Vector -> Vector
+scale(v, 2.5); // scalar * Vector -> Vector
+negate(v); // -Vector -> Vector
 ```
 
 ### Measurements
@@ -64,11 +64,11 @@ negate(v);                 // -Vector -> Vector
 ```typescript
 import { dot, cross, magnitude, distance, angle } from "@typesugar/geometry";
 
-dot(v1, v2);               // dot product
-cross(v1, v2);             // cross product (3D only)
-magnitude(v);              // vector length
-distance(p1, p2);          // Euclidean distance
-angle(v1, v2);             // angle in radians
+dot(v1, v2); // dot product
+cross(v1, v2); // cross product (3D only)
+magnitude(v); // vector length
+distance(p1, p2); // Euclidean distance
+angle(v1, v2); // angle in radians
 ```
 
 ### Utilities
@@ -76,28 +76,33 @@ angle(v1, v2);             // angle in radians
 ```typescript
 import { normalize, midpoint, lerp, x, y, z } from "@typesugar/geometry";
 
-normalize(v);              // unit vector
-midpoint(p1, p2);          // midpoint
-lerp(p1, p2, 0.5);         // linear interpolation
-x(p); y(p); z(p);          // component access
+normalize(v); // unit vector
+midpoint(p1, p2); // midpoint
+lerp(p1, p2, 0.5); // linear interpolation
+x(p);
+y(p);
+z(p); // component access
 ```
 
 ## Coordinate Conversions
 
 ```typescript
 import {
-  cartesianToPolar, polarToCartesian,
-  cartesianToSpherical, sphericalToCartesian,
-  cartesianToCylindrical, cylindricalToCartesian,
+  cartesianToPolar,
+  polarToCartesian,
+  cartesianToSpherical,
+  sphericalToCartesian,
+  cartesianToCylindrical,
+  cylindricalToCartesian,
 } from "@typesugar/geometry";
 
 const p = point2d(1, 1);
-const pol = cartesianToPolar(p);     // PolarPoint
-const back = polarToCartesian(pol);  // Point2D
+const pol = cartesianToPolar(p); // PolarPoint
+const back = polarToCartesian(pol); // Point2D
 
 const q = point3d(1, 1, 1);
-const sph = cartesianToSpherical(q);       // SphericalPoint
-const cyl = cartesianToCylindrical(q);     // CylindricalPoint
+const sph = cartesianToSpherical(q); // SphericalPoint
+const cyl = cartesianToCylindrical(q); // CylindricalPoint
 ```
 
 ## Transform Matrices
@@ -106,19 +111,28 @@ const cyl = cartesianToCylindrical(q);     // CylindricalPoint
 
 ```typescript
 import {
-  rotation2d, translation2d, scale2d,
-  rotationX, rotationY, rotationZ, translation3d, scale3d,
-  applyToPoint, applyToVector, compose, inverse,
+  rotation2d,
+  translation2d,
+  scale2d,
+  rotationX,
+  rotationY,
+  rotationZ,
+  translation3d,
+  scale3d,
+  applyToPoint,
+  applyToVector,
+  compose,
+  inverse,
 } from "@typesugar/geometry";
 
 const r = rotation2d(Math.PI / 2);
 const t = translation2d(5, 0);
 
-applyToPoint(r, point2d(1, 0));   // [0, 1]
-applyToVector(t, vec2(1, 0));     // [1, 0] — translation doesn't affect vectors
+applyToPoint(r, point2d(1, 0)); // [0, 1]
+applyToVector(t, vec2(1, 0)); // [1, 0] — translation doesn't affect vectors
 
-const combined = compose(r, t);   // rotate, then translate
-const undone = inverse(r);        // reverse the rotation
+const combined = compose(r, t); // rotate, then translate
+const undone = inverse(r); // reverse the rotation
 ```
 
 ## Type Safety Examples

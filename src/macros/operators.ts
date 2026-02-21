@@ -15,11 +15,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-} from "../core/registry.js";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext, AttributeTarget } from "../core/types.js";
 import { getSyntaxForOperator, findInstance } from "./typeclass.js";
 
@@ -60,10 +56,7 @@ export function clearOperatorMappings(): void {
 /**
  * Register operator mappings for a type
  */
-export function registerOperators(
-  typeName: string,
-  mappings: Record<string, string>,
-): void {
+export function registerOperators(typeName: string, mappings: Record<string, string>): void {
   const typeMap = operatorMappings.get(typeName) ?? new Map();
   for (const [op, method] of Object.entries(mappings)) {
     typeMap.set(op, method);
@@ -78,7 +71,7 @@ export function registerOperators(
 export function registerMethodOperator(
   typeName: string,
   operator: string,
-  methodName: string,
+  methodName: string
 ): void {
   const typeMap = methodOperatorMappings.get(typeName) ?? new Map();
   typeMap.set(operator, methodName);
@@ -90,10 +83,7 @@ export function registerMethodOperator(
  * Falls back to checking well-known method names by convention
  * if no explicit mapping is registered.
  */
-export function getOperatorMethod(
-  typeName: string,
-  operator: string,
-): string | undefined {
+export function getOperatorMethod(typeName: string, operator: string): string | undefined {
   // Check method-level operators first (@operator decorator)
   const methodOp = methodOperatorMappings.get(typeName)?.get(operator);
   if (methodOp) return methodOp;
@@ -122,13 +112,10 @@ export const operatorsAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isClassDeclaration(target) || !target.name) {
-      ctx.reportError(
-        decorator,
-        "@operators can only be applied to named classes",
-      );
+      ctx.reportError(decorator, "@operators can only be applied to named classes");
       return target;
     }
 
@@ -136,10 +123,7 @@ export const operatorsAttribute = defineAttributeMacro({
 
     // Parse the operator mappings from the decorator argument
     if (args.length !== 1 || !ts.isObjectLiteralExpression(args[0])) {
-      ctx.reportError(
-        decorator,
-        "@operators requires an object literal argument",
-      );
+      ctx.reportError(decorator, "@operators requires an object literal argument");
       return target;
     }
 
@@ -183,22 +167,16 @@ export const operatorMethodAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isMethodDeclaration(target) || !target.name) {
-      ctx.reportError(
-        decorator,
-        "@operator can only be applied to named methods",
-      );
+      ctx.reportError(decorator, "@operator can only be applied to named methods");
       return target;
     }
 
     // Get the operator symbol from the decorator argument
     if (args.length !== 1 || !ts.isStringLiteral(args[0])) {
-      ctx.reportError(
-        decorator,
-        '@operator requires a string argument (e.g., @operator("==="))',
-      );
+      ctx.reportError(decorator, '@operator requires a string argument (e.g., @operator("==="))');
       return target;
     }
 
@@ -210,14 +188,12 @@ export const operatorMethodAttribute = defineAttributeMacro({
         decorator,
         `Operator "${operatorSymbol}" is handled by the preprocessor and cannot be registered with @operator. ` +
           `Custom operators like |> and :: are transformed to __binop__ calls at the lexical level. ` +
-          `Use @instance to define typeclass behavior or implement a method that __binop__ can dispatch to.`,
+          `Use @instance to define typeclass behavior or implement a method that __binop__ can dispatch to.`
       );
       return target;
     }
 
-    const methodName = ts.isIdentifier(target.name)
-      ? target.name.text
-      : target.name.getText();
+    const methodName = ts.isIdentifier(target.name) ? target.name.text : target.name.getText();
 
     // Find the containing class
     const parent = target.parent;
@@ -263,13 +239,10 @@ export const binopMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 3) {
-      ctx.reportError(
-        callExpr,
-        "__binop__ expects exactly 3 arguments: (left, operator, right)",
-      );
+      ctx.reportError(callExpr, "__binop__ expects exactly 3 arguments: (left, operator, right)");
       return callExpr;
     }
 
@@ -296,7 +269,7 @@ export const binopMacro = defineExpressionMacro({
       return ctx.factory.createCallExpression(
         ctx.factory.createPropertyAccessExpression(left, method),
         undefined,
-        [right],
+        [right]
       );
     }
 
@@ -311,10 +284,10 @@ export const binopMacro = defineExpressionMacro({
           return ctx.factory.createCallExpression(
             ctx.factory.createPropertyAccessExpression(
               ctx.factory.createIdentifier(instance.instanceName),
-              entry.method,
+              entry.method
             ),
             undefined,
-            [left, right],
+            [left, right]
           );
         }
       }
@@ -330,10 +303,7 @@ export const binopMacro = defineExpressionMacro({
 
       case "::":
         // Cons: [head, ...tail]
-        return factory.createArrayLiteralExpression([
-          left,
-          factory.createSpreadElement(right),
-        ]);
+        return factory.createArrayLiteralExpression([left, factory.createSpreadElement(right)]);
 
       case "<|":
         // Reverse pipeline: f(a) but arguments flipped
@@ -343,7 +313,7 @@ export const binopMacro = defineExpressionMacro({
         // Unknown operator - leave as is (will fail at runtime)
         ctx.reportWarning(
           callExpr,
-          `Unknown custom operator "${operator}" with no registered method`,
+          `Unknown custom operator "${operator}" with no registered method`
         );
         return callExpr;
     }
@@ -362,13 +332,10 @@ export const opsMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "ops() expects exactly one expression argument",
-      );
+      ctx.reportError(callExpr, "ops() expects exactly one expression argument");
       return callExpr;
     }
 
@@ -380,10 +347,7 @@ export const opsMacro = defineExpressionMacro({
 /**
  * Recursively transform an expression, converting operators to method calls
  */
-function transformExpression(
-  ctx: MacroContext,
-  expr: ts.Expression,
-): ts.Expression {
+function transformExpression(ctx: MacroContext, expr: ts.Expression): ts.Expression {
   const factory = ctx.factory;
 
   // Handle binary expressions
@@ -395,7 +359,7 @@ function transformExpression(
         expr,
         transformExpression(ctx, expr.left),
         expr.operatorToken,
-        transformExpression(ctx, expr.right),
+        transformExpression(ctx, expr.right)
       );
     }
 
@@ -417,7 +381,7 @@ function transformExpression(
       return factory.createCallExpression(
         factory.createPropertyAccessExpression(left, method),
         undefined,
-        [right],
+        [right]
       );
     }
 
@@ -426,7 +390,7 @@ function transformExpression(
       expr,
       transformExpression(ctx, expr.left),
       expr.operatorToken,
-      transformExpression(ctx, expr.right),
+      transformExpression(ctx, expr.right)
     );
   }
 
@@ -435,10 +399,7 @@ function transformExpression(
     const operator = getPrefixOperatorString(expr.operator);
     if (operator) {
       const operandType = ctx.getTypeOf(expr.operand);
-      const typeName = ctx.typeChecker
-        .typeToString(operandType)
-        .split("<")[0]
-        .trim();
+      const typeName = ctx.typeChecker.typeToString(operandType).split("<")[0].trim();
       const method = getOperatorMethod(typeName, operator);
 
       if (method) {
@@ -447,23 +408,17 @@ function transformExpression(
         return factory.createCallExpression(
           factory.createPropertyAccessExpression(operand, method),
           undefined,
-          [],
+          []
         );
       }
     }
 
-    return factory.updatePrefixUnaryExpression(
-      expr,
-      transformExpression(ctx, expr.operand),
-    );
+    return factory.updatePrefixUnaryExpression(expr, transformExpression(ctx, expr.operand));
   }
 
   // Handle parenthesized expressions
   if (ts.isParenthesizedExpression(expr)) {
-    return factory.updateParenthesizedExpression(
-      expr,
-      transformExpression(ctx, expr.expression),
-    );
+    return factory.updateParenthesizedExpression(expr, transformExpression(ctx, expr.expression));
   }
 
   // Handle call expressions (recurse into arguments)
@@ -472,7 +427,7 @@ function transformExpression(
       expr,
       transformExpression(ctx, expr.expression),
       expr.typeArguments,
-      expr.arguments.map((arg) => transformExpression(ctx, arg)),
+      expr.arguments.map((arg) => transformExpression(ctx, arg))
     );
   }
 
@@ -481,7 +436,7 @@ function transformExpression(
     return factory.updatePropertyAccessExpression(
       expr,
       transformExpression(ctx, expr.expression),
-      expr.name,
+      expr.name
     );
   }
 
@@ -541,9 +496,7 @@ export function getOperatorString(kind: ts.SyntaxKind): string | undefined {
 /**
  * Convert a prefix unary operator to a string representation
  */
-function getPrefixOperatorString(
-  kind: ts.PrefixUnaryOperator,
-): string | undefined {
+function getPrefixOperatorString(kind: ts.PrefixUnaryOperator): string | undefined {
   switch (kind) {
     case ts.SyntaxKind.MinusToken:
       return "-unary";
@@ -570,13 +523,10 @@ export const pipeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.reportError(
-        callExpr,
-        "pipe() requires at least an initial value and one function",
-      );
+      ctx.reportError(callExpr, "pipe() requires at least an initial value and one function");
       return callExpr;
     }
 
@@ -601,7 +551,7 @@ export const composeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1) {
       ctx.reportError(callExpr, "compose() requires at least one function");
@@ -626,7 +576,7 @@ export const composeMacro = defineExpressionMacro({
       [factory.createParameterDeclaration(undefined, undefined, paramName)],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      body,
+      body
     );
   },
 });

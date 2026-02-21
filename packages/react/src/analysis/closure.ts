@@ -52,7 +52,7 @@ export function analyzeClosureCaptures(
   ctx: MacroContext,
   closure: ts.ArrowFunction | ts.FunctionExpression,
   knownStateVars: StateVariableSet,
-  parentScopeVars: Set<string>,
+  parentScopeVars: Set<string>
 ): ClosureAnalysisResult {
   const captures: ClosureCapture[] = [];
   const capturedNames = new Set<string>();
@@ -83,10 +83,7 @@ export function analyzeClosureCaptures(
     }
 
     // Handle destructuring in variable declarations
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isObjectBindingPattern(node.name)
-    ) {
+    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name)) {
       for (const element of node.name.elements) {
         if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
           localVars.add(element.name.text);
@@ -110,20 +107,12 @@ export function analyzeClosureCaptures(
       }
 
       // Skip if it's a property name in property access
-      if (
-        node.parent &&
-        ts.isPropertyAccessExpression(node.parent) &&
-        node.parent.name === node
-      ) {
+      if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
         return;
       }
 
       // Skip if it's being declared
-      if (
-        node.parent &&
-        ts.isVariableDeclaration(node.parent) &&
-        node.parent.name === node
-      ) {
+      if (node.parent && ts.isVariableDeclaration(node.parent) && node.parent.name === node) {
         return;
       }
 
@@ -147,9 +136,7 @@ export function analyzeClosureCaptures(
         const isSetter =
           name.startsWith("set") &&
           knownStateVars.has(name.charAt(3).toLowerCase() + name.slice(4));
-        const stateFor = isSetter
-          ? name.charAt(3).toLowerCase() + name.slice(4)
-          : undefined;
+        const stateFor = isSetter ? name.charAt(3).toLowerCase() + name.slice(4) : undefined;
 
         captures.push({
           name,
@@ -167,13 +154,9 @@ export function analyzeClosureCaptures(
   findCaptures(closure);
 
   // Categorize captures
-  const stateReads = captures
-    .filter((c) => c.isState && !c.isSetter)
-    .map((c) => c.name);
+  const stateReads = captures.filter((c) => c.isState && !c.isSetter).map((c) => c.name);
   const stateSetters = captures.filter((c) => c.isSetter).map((c) => c.name);
-  const otherCaptures = captures
-    .filter((c) => !c.isState && !c.isSetter)
-    .map((c) => c.name);
+  const otherCaptures = captures.filter((c) => !c.isState && !c.isSetter).map((c) => c.name);
 
   // Determine if we can hoist
   let canHoist = true;
@@ -206,7 +189,7 @@ export function generateCaptureProps(
   factory: ts.NodeFactory,
   captures: ClosureCapture[],
   stateValueMap: Map<string, string>,
-  stateSetterMap: Map<string, string>,
+  stateSetterMap: Map<string, string>
 ): ts.PropertySignature[] {
   const props: ts.PropertySignature[] = [];
 
@@ -221,8 +204,7 @@ export function generateCaptureProps(
     if (capture.isState) {
       propName = stateValueMap.get(capture.name) ?? `__${capture.name}_val`;
     } else if (capture.isSetter && capture.stateFor) {
-      propName =
-        stateSetterMap.get(capture.stateFor) ?? `__${capture.stateFor}_set`;
+      propName = stateSetterMap.get(capture.stateFor) ?? `__${capture.stateFor}_set`;
     } else {
       propName = `__${capture.name}`;
     }
@@ -233,7 +215,7 @@ export function generateCaptureProps(
       undefined,
       factory.createIdentifier(propName),
       undefined,
-      factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+      factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
     );
 
     props.push(prop);
@@ -255,7 +237,7 @@ export function generateCapturePropAssignments(
   factory: ts.NodeFactory,
   captures: ClosureCapture[],
   stateValueMap: Map<string, string>,
-  stateSetterMap: Map<string, string>,
+  stateSetterMap: Map<string, string>
 ): ts.JsxAttribute[] {
   const attrs: ts.JsxAttribute[] = [];
 
@@ -284,10 +266,7 @@ export function generateCapturePropAssignments(
 
     const attr = factory.createJsxAttribute(
       factory.createIdentifier(propName),
-      factory.createJsxExpression(
-        undefined,
-        factory.createIdentifier(valueIdent),
-      ),
+      factory.createJsxExpression(undefined, factory.createIdentifier(valueIdent))
     );
 
     attrs.push(attr);
@@ -309,7 +288,7 @@ export function rewriteCaptureReferences(
   closure: ts.ArrowFunction | ts.FunctionExpression,
   captures: ClosureCapture[],
   stateValueMap: Map<string, string> = new Map(),
-  stateSetterMap: Map<string, string> = new Map(),
+  stateSetterMap: Map<string, string> = new Map()
 ): ts.ArrowFunction | ts.FunctionExpression {
   const factory = ctx.factory;
 
@@ -335,20 +314,12 @@ export function rewriteCaptureReferences(
     // Rewrite identifier references
     if (ts.isIdentifier(node) && rewriteMap.has(node.text)) {
       // Skip property names
-      if (
-        node.parent &&
-        ts.isPropertyAccessExpression(node.parent) &&
-        node.parent.name === node
-      ) {
+      if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
         return node;
       }
 
       // Skip declarations
-      if (
-        node.parent &&
-        ts.isVariableDeclaration(node.parent) &&
-        node.parent.name === node
-      ) {
+      if (node.parent && ts.isVariableDeclaration(node.parent) && node.parent.name === node) {
         return node;
       }
 
@@ -364,9 +335,7 @@ export function rewriteCaptureReferences(
 /**
  * Find all variables declared in a function body (parent scope).
  */
-export function findParentScopeVariables(
-  body: ts.Block | ts.ConciseBody,
-): Set<string> {
+export function findParentScopeVariables(body: ts.Block | ts.ConciseBody): Set<string> {
   const vars = new Set<string>();
 
   function visit(node: ts.Node): void {
@@ -375,10 +344,7 @@ export function findParentScopeVariables(
     }
 
     // Handle destructuring
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isObjectBindingPattern(node.name)
-    ) {
+    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name)) {
       for (const element of node.name.elements) {
         if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
           vars.add(element.name.text);

@@ -108,11 +108,5 @@ const strictConfig: Linter.Config = {
 export default plugin;
 
 // Named exports for ESM
-export {
-  plugin,
-  recommendedConfig,
-  fullConfig,
-  strictConfig,
-  clearTransformCache,
-};
+export { plugin, recommendedConfig, fullConfig, strictConfig, clearTransformCache };
 export type { Linter, ESLint };

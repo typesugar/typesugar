@@ -69,7 +69,7 @@ defineAttributeMacro("logged", {
       target.typeParameters,
       target.parameters,
       target.type,
-      newBody as ts.Block,
+      newBody as ts.Block
     );
   },
 });
@@ -179,10 +179,8 @@ defineAttributeMacro("addToString", {
       [],
       ctx.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
       ctx.factory.createBlock([
-        ctx.factory.createReturnStatement(
-          ctx.factory.createStringLiteral(`[${className}]`),
-        ),
-      ]),
+        ctx.factory.createReturnStatement(ctx.factory.createStringLiteral(`[${className}]`)),
+      ])
     );
 
     members.push(toStringMethod);
@@ -193,7 +191,7 @@ defineAttributeMacro("addToString", {
       target.name,
       target.typeParameters,
       target.heritageClauses,
-      members,
+      members
     );
   },
 });
@@ -236,7 +234,7 @@ defineAttributeMacro("typeInfo", {
 
       console.log(
         "Properties:",
-        props.map((p) => p.getName()),
+        props.map((p) => p.getName())
       );
     }
     return target;

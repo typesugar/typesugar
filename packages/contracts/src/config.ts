@@ -165,32 +165,20 @@ export function getContractConfig(): ContractConfig {
   const cfg = getCoreConfigSync();
 
   if (cfg) {
-    const mode = cfg.get("contracts.mode") as
-      | "full"
-      | "assertions"
-      | "none"
+    const mode = cfg.get("contracts.mode") as "full" | "assertions" | "none" | undefined;
+    const proveAtCompileTime = cfg.get("contracts.proveAtCompileTime") as boolean | undefined;
+    const stripPre = cfg.get("contracts.strip.preconditions") as boolean | undefined;
+    const stripPost = cfg.get("contracts.strip.postconditions") as boolean | undefined;
+    const stripInv = cfg.get("contracts.strip.invariants") as boolean | undefined;
+    const warnOnFallback = cfg.get("contracts.decidabilityWarnings.warnOnFallback") as
+      | DecidabilityWarningLevel
       | undefined;
-    const proveAtCompileTime = cfg.get("contracts.proveAtCompileTime") as
-      | boolean
-      | undefined;
-    const stripPre = cfg.get("contracts.strip.preconditions") as
-      | boolean
-      | undefined;
-    const stripPost = cfg.get("contracts.strip.postconditions") as
-      | boolean
-      | undefined;
-    const stripInv = cfg.get("contracts.strip.invariants") as
-      | boolean
-      | undefined;
-    const warnOnFallback = cfg.get(
-      "contracts.decidabilityWarnings.warnOnFallback",
-    ) as DecidabilityWarningLevel | undefined;
     const warnOnSMT = cfg.get("contracts.decidabilityWarnings.warnOnSMT") as
       | DecidabilityWarningLevel
       | undefined;
-    const ignoreBrands = cfg.get(
-      "contracts.decidabilityWarnings.ignoreBrands",
-    ) as string[] | undefined;
+    const ignoreBrands = cfg.get("contracts.decidabilityWarnings.ignoreBrands") as
+      | string[]
+      | undefined;
 
     return {
       mode: mode ?? "full",
@@ -212,12 +200,8 @@ export function getContractConfig(): ContractConfig {
   // Fallback to local cache (set by setContractConfig) or environment variables
   const envMode = process.env.TYPESUGAR_CONTRACTS_MODE;
   const defaultConfig: ContractConfig = {
-    mode:
-      envMode === "none" || envMode === "assertions" || envMode === "full"
-        ? envMode
-        : "full",
-    proveAtCompileTime:
-      process.env.TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME === "1",
+    mode: envMode === "none" || envMode === "assertions" || envMode === "full" ? envMode : "full",
+    proveAtCompileTime: process.env.TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME === "1",
     strip: {},
     proverPlugins,
     decidabilityWarnings: {
@@ -249,9 +233,7 @@ export function getContractConfig(): ContractConfig {
  *
  * @deprecated Use `config.set({ contracts: { ... } })` from typesugar instead
  */
-export function setContractConfig(
-  contractConfig: Partial<ContractConfig>,
-): void {
+export function setContractConfig(contractConfig: Partial<ContractConfig>): void {
   const cfg = getCoreConfigSync();
 
   if (cfg) {
@@ -285,9 +267,7 @@ export function registerProverPlugin(plugin: ProverPlugin): void {
 /**
  * Should a runtime check be emitted for the given contract type?
  */
-export function shouldEmitCheck(
-  type: "precondition" | "postcondition" | "invariant",
-): boolean {
+export function shouldEmitCheck(type: "precondition" | "postcondition" | "invariant"): boolean {
   const config = getContractConfig();
 
   if (config.mode === "none") return false;
@@ -372,7 +352,7 @@ export function emitDecidabilityWarning(info: DecidabilityFallbackInfo): void {
  * Check if a predicate's decidability allows compile-time proving.
  */
 export function canProveAtCompileTime(
-  decidability: "compile-time" | "decidable" | "runtime" | "undecidable",
+  decidability: "compile-time" | "decidable" | "runtime" | "undecidable"
 ): boolean {
   return decidability === "compile-time" || decidability === "decidable";
 }
@@ -381,7 +361,7 @@ export function canProveAtCompileTime(
  * Check if a predicate must always be checked at runtime.
  */
 export function mustCheckAtRuntime(
-  decidability: "compile-time" | "decidable" | "runtime" | "undecidable",
+  decidability: "compile-time" | "decidable" | "runtime" | "undecidable"
 ): boolean {
   return decidability === "runtime" || decidability === "undecidable";
 }

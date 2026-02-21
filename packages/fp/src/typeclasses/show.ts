@@ -102,11 +102,7 @@ export function showTuple<A, B>(SA: Show<A>, SB: Show<B>): Show<[A, B]> {
 /**
  * Show for tuples (3 elements)
  */
-export function showTuple3<A, B, C>(
-  SA: Show<A>,
-  SB: Show<B>,
-  SC: Show<C>,
-): Show<[A, B, C]> {
+export function showTuple3<A, B, C>(SA: Show<A>, SB: Show<B>, SC: Show<C>): Show<[A, B, C]> {
   return {
     show: ([a, b, c]) => `(${SA.show(a)}, ${SB.show(b)}, ${SC.show(c)})`,
   };
@@ -140,9 +136,7 @@ export function showViaToString<A extends { toString(): string }>(): Show<A> {
 /**
  * Show for records
  */
-export function showRecord<K extends string, V>(
-  S: Show<V>,
-): Show<Record<K, V>> {
+export function showRecord<K extends string, V>(S: Show<V>): Show<Record<K, V>> {
   return {
     show: (record) => {
       const entries = Object.entries(record)
@@ -208,11 +202,7 @@ export function showStruct<A extends Record<string, unknown>>(shows: {
 /**
  * Interpolate values into a string template
  */
-export function interpolate<A>(
-  S: Show<A>,
-  strings: TemplateStringsArray,
-  ...values: A[]
-): string {
+export function interpolate<A>(S: Show<A>, strings: TemplateStringsArray, ...values: A[]): string {
   return strings.reduce((acc, str, i) => {
     const value = values[i];
     return acc + str + (value !== undefined ? S.show(value) : "");
@@ -242,10 +232,7 @@ export const defaultPrettyOptions: PrettyOptions = {
 /**
  * Show with pretty printing for nested structures
  */
-export function showPretty<A>(
-  S: Show<A>,
-  options: Partial<PrettyOptions> = {},
-): Show<A> {
+export function showPretty<A>(S: Show<A>, options: Partial<PrettyOptions> = {}): Show<A> {
   const opts = { ...defaultPrettyOptions, ...options };
   return {
     show: (a) => {

@@ -50,13 +50,7 @@
  * @module
  */
 
-import {
-  TypedQuery,
-  TypedUpdate,
-  TypedFragment,
-  Empty,
-  Unit,
-} from "./typed-fragment.js";
+import { TypedQuery, TypedUpdate, TypedFragment, Empty, Unit } from "./typed-fragment.js";
 import { Read, Write, SqlRow } from "./meta.js";
 import { Queryable } from "./queryable.js";
 
@@ -197,9 +191,7 @@ export class ConnectionIO<A> {
    * Attempt this operation, catching errors as Left.
    */
   attempt(): ConnectionIO<Either<Error, A>> {
-    return new ConnectionIO({ _tag: "Attempt", cio: this }) as ConnectionIO<
-      Either<Error, A>
-    >;
+    return new ConnectionIO({ _tag: "Attempt", cio: this }) as ConnectionIO<Either<Error, A>>;
   }
 
   /**
@@ -233,14 +225,14 @@ export class ConnectionIO<A> {
   // --------------------------------------------------------------------------
 
   /**
-   * Lift an ORM-specific query (like Kysely or Drizzle query builder) 
+   * Lift an ORM-specific query (like Kysely or Drizzle query builder)
    * into a ConnectionIO operation.
    */
   static fromQueryable<Q, A = unknown>(query: Q, queryable: Queryable<Q>): ConnectionIO<A> {
     return new ConnectionIO({
       _tag: "ExecuteQueryable",
       query,
-      queryable: queryable as Queryable<unknown>
+      queryable: queryable as Queryable<unknown>,
     }) as ConnectionIO<A>;
   }
 
@@ -273,10 +265,7 @@ export class ConnectionIO<A> {
   /**
    * Execute a query returning a single result.
    */
-  static query<A>(
-    query: TypedQuery<unknown[], A>,
-    read: Read<A>,
-  ): ConnectionIO<A | null> {
+  static query<A>(query: TypedQuery<unknown[], A>, read: Read<A>): ConnectionIO<A | null> {
     return new ConnectionIO({
       _tag: "Query",
       query,
@@ -287,13 +276,8 @@ export class ConnectionIO<A> {
   /**
    * Execute a query returning multiple results.
    */
-  static queryMany<A>(
-    query: TypedQuery<unknown[], A>,
-    read: Read<A>,
-  ): ConnectionIO<A[]> {
-    return new ConnectionIO({ _tag: "QueryMany", query, read }) as ConnectionIO<
-      A[]
-    >;
+  static queryMany<A>(query: TypedQuery<unknown[], A>, read: Read<A>): ConnectionIO<A[]> {
+    return new ConnectionIO({ _tag: "QueryMany", query, read }) as ConnectionIO<A[]>;
   }
 
   /**
@@ -311,7 +295,7 @@ export class ConnectionIO<A> {
    */
   static executeWithKeys<K extends string>(
     update: TypedUpdate<unknown[]>,
-    columns: K[],
+    columns: K[]
   ): ConnectionIO<Record<K, unknown>[]> {
     return new ConnectionIO({
       _tag: "ExecuteWithKeys",
@@ -324,9 +308,7 @@ export class ConnectionIO<A> {
    * Execute raw SQL.
    */
   static raw(sql: string, params: unknown[] = []): ConnectionIO<SqlRow[]> {
-    return new ConnectionIO({ _tag: "Raw", sql, params }) as ConnectionIO<
-      SqlRow[]
-    >;
+    return new ConnectionIO({ _tag: "Raw", sql, params }) as ConnectionIO<SqlRow[]>;
   }
 }
 
@@ -386,7 +368,7 @@ export interface DbConnection {
 export class Transactor {
   constructor(
     private readonly getConnection: () => Promise<DbConnection>,
-    private readonly releaseConnection: (conn: DbConnection) => Promise<void>,
+    private readonly releaseConnection: (conn: DbConnection) => Promise<void>
   ) {}
 
   /**
@@ -422,10 +404,7 @@ export class Transactor {
   /**
    * Interpret a ConnectionIO operation.
    */
-  private async interpret<A>(
-    cio: ConnectionIO<A>,
-    conn: DbConnection,
-  ): Promise<A> {
+  private async interpret<A>(cio: ConnectionIO<A>, conn: DbConnection): Promise<A> {
     const op = cio.op;
 
     switch (op._tag) {
@@ -445,9 +424,7 @@ export class Transactor {
       case "QueryMany": {
         const { sql, params } = op.query.toSql();
         const rows = await conn.query(sql, params);
-        return rows
-          .map((row) => op.read.read(row))
-          .filter((r) => r !== null) as A;
+        return rows.map((row) => op.read.read(row)).filter((r) => r !== null) as A;
       }
 
       case "Execute": {
@@ -459,9 +436,7 @@ export class Transactor {
         const { sql, params } = op.update.toSql();
         // Append RETURNING clause if not present
         const returningClause = op.columns.map((c) => c).join(", ");
-        const fullSql = sql.includes("RETURNING")
-          ? sql
-          : `${sql} RETURNING ${returningClause}`;
+        const fullSql = sql.includes("RETURNING") ? sql : `${sql} RETURNING ${returningClause}`;
         const rows = await conn.query(fullSql, params);
         return rows as A;
       }
@@ -476,9 +451,7 @@ export class Transactor {
           const result = await this.interpret(op.cio, conn);
           return Right(result) as A;
         } catch (error) {
-          return Left(
-            error instanceof Error ? error : new Error(String(error)),
-          ) as A;
+          return Left(error instanceof Error ? error : new Error(String(error))) as A;
         }
       }
 
@@ -518,7 +491,7 @@ export class Transactor {
   }): Transactor {
     return new Transactor(
       () => pool.connect(),
-      (conn) => pool.release(conn),
+      (conn) => pool.release(conn)
     );
   }
 
@@ -528,7 +501,7 @@ export class Transactor {
   static fromConnection(conn: DbConnection): Transactor {
     return new Transactor(
       async () => conn,
-      async () => {},
+      async () => {}
     );
   }
 }
@@ -540,32 +513,24 @@ export class Transactor {
 /**
  * Sequence multiple ConnectionIO operations, collecting results.
  */
-export function sequence<A>(
-  cios: readonly ConnectionIO<A>[],
-): ConnectionIO<A[]> {
+export function sequence<A>(cios: readonly ConnectionIO<A>[]): ConnectionIO<A[]> {
   return cios.reduce(
     (acc, cio) => acc.flatMap((results) => cio.map((a) => [...results, a])),
-    ConnectionIO.pure<A[]>([]),
+    ConnectionIO.pure<A[]>([])
   );
 }
 
 /**
  * Traverse a list with a ConnectionIO-producing function.
  */
-export function traverse<A, B>(
-  as: readonly A[],
-  f: (a: A) => ConnectionIO<B>,
-): ConnectionIO<B[]> {
+export function traverse<A, B>(as: readonly A[], f: (a: A) => ConnectionIO<B>): ConnectionIO<B[]> {
   return sequence(as.map(f));
 }
 
 /**
  * Run two ConnectionIO operations in parallel.
  */
-export function parZip<A, B>(
-  cioA: ConnectionIO<A>,
-  cioB: ConnectionIO<B>,
-): ConnectionIO<[A, B]> {
+export function parZip<A, B>(cioA: ConnectionIO<A>, cioB: ConnectionIO<B>): ConnectionIO<[A, B]> {
   // Note: True parallelism requires the interpreter to support it
   // This is a sequential fallback
   return cioA.zip(cioB);
@@ -574,29 +539,21 @@ export function parZip<A, B>(
 /**
  * Run multiple ConnectionIO operations in parallel.
  */
-export function parSequence<A>(
-  cios: readonly ConnectionIO<A>[],
-): ConnectionIO<A[]> {
+export function parSequence<A>(cios: readonly ConnectionIO<A>[]): ConnectionIO<A[]> {
   return sequence(cios);
 }
 
 /**
  * Conditionally execute a ConnectionIO.
  */
-export function when(
-  condition: boolean,
-  cio: ConnectionIO<void>,
-): ConnectionIO<void> {
+export function when(condition: boolean, cio: ConnectionIO<void>): ConnectionIO<void> {
   return condition ? cio : ConnectionIO.unit;
 }
 
 /**
  * Conditionally execute with a result.
  */
-export function whenA<A>(
-  condition: boolean,
-  cio: ConnectionIO<A>,
-): ConnectionIO<A | null> {
+export function whenA<A>(condition: boolean, cio: ConnectionIO<A>): ConnectionIO<A | null> {
   return condition ? cio : ConnectionIO.pure(null);
 }
 
@@ -605,13 +562,11 @@ export function whenA<A>(
  */
 export function unfold<A, B>(
   initial: A,
-  f: (a: A) => ConnectionIO<[A, B] | null>,
+  f: (a: A) => ConnectionIO<[A, B] | null>
 ): ConnectionIO<B[]> {
   const go = (acc: A, results: B[]): ConnectionIO<B[]> =>
     f(acc).flatMap((next) =>
-      next === null
-        ? ConnectionIO.pure(results)
-        : go(next[0], [...results, next[1]]),
+      next === null ? ConnectionIO.pure(results) : go(next[0], [...results, next[1]])
     );
   return go(initial, []);
 }

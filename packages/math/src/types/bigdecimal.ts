@@ -35,10 +35,7 @@ export interface BigDecimal {
  * @param value - bigint, number, or string representation
  * @param scale - decimal places (for bigint input); ignored for string/number
  */
-export function bigDecimal(
-  value: bigint | number | string,
-  scale?: number,
-): BigDecimal {
+export function bigDecimal(value: bigint | number | string, scale?: number): BigDecimal {
   if (typeof value === "string") {
     return fromString(value);
   }
@@ -210,11 +207,7 @@ function alignScales(a: BigDecimal, b: BigDecimal): [BigDecimal, BigDecimal] {
  * @param b - Divisor
  * @param scale - Number of decimal places in result
  */
-export function divWithScale(
-  a: BigDecimal,
-  b: BigDecimal,
-  scale: number,
-): BigDecimal {
+export function divWithScale(a: BigDecimal, b: BigDecimal, scale: number): BigDecimal {
   if (b.unscaled === 0n) {
     throw new RangeError("BigDecimal division by zero");
   }
@@ -243,7 +236,7 @@ export function divWithScale(
 export function round(
   bd: BigDecimal,
   places: number,
-  mode: "floor" | "ceil" | "round" = "round",
+  mode: "floor" | "ceil" | "round" = "round"
 ): BigDecimal {
   if (places >= bd.scale) {
     return bd;

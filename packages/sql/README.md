@@ -72,20 +72,17 @@ import { ConnectionIO, Transactor } from "@typesugar/sql";
 
 // Describe database operations purely
 const getUser = (id: number): ConnectionIO<User | null> =>
-  ConnectionIO.query(
-    sql`SELECT * FROM users WHERE id = ${id}`.toQuery<User>(),
-  ).map((rows) => rows[0] ?? null);
+  ConnectionIO.query(sql`SELECT * FROM users WHERE id = ${id}`.toQuery<User>()).map(
+    (rows) => rows[0] ?? null
+  );
 
 const createUser = (name: string, email: string): ConnectionIO<number> =>
   ConnectionIO.update(
-    sql`INSERT INTO users (name, email) VALUES (${name}, ${email}) RETURNING id`.toUpdate(),
+    sql`INSERT INTO users (name, email) VALUES (${name}, ${email}) RETURNING id`.toUpdate()
   );
 
 // Compose operations
-const program = ConnectionIO.flatMap(
-  createUser("Alice", "alice@example.com"),
-  (id) => getUser(id),
-);
+const program = ConnectionIO.flatMap(createUser("Alice", "alice@example.com"), (id) => getUser(id));
 
 // Execute with a transactor
 const transactor = new Transactor(dbConnection);

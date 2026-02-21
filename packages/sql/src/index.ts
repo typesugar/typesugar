@@ -53,10 +53,7 @@ export type { SqlParam } from "./types.js";
 export { Fragment, Query, Update } from "./types.js";
 
 // Legacy ConnectionIO/Transactor (simple, lightweight)
-export {
-  ConnectionIO as SimpleConnectionIO,
-  Transactor as SimpleTransactor,
-} from "./types.js";
+export { ConnectionIO as SimpleConnectionIO, Transactor as SimpleTransactor } from "./types.js";
 export type { DbConnection as SimpleDbConnection } from "./types.js";
 
 // ============================================================================
@@ -104,11 +101,7 @@ export type {
 // Use @deriving(Read), @deriving(Write), @deriving(Codec) decorators instead.
 
 // Derive macros for @deriving(Read), @deriving(Write), @deriving(Codec)
-export {
-  deriveReadMacro,
-  deriveWriteMacro,
-  deriveCodecMacro,
-} from "./derive-typeclasses.js";
+export { deriveReadMacro, deriveWriteMacro, deriveCodecMacro } from "./derive-typeclasses.js";
 
 // Legacy Meta exports (deprecated - use typeclasses.ts)
 export type {
@@ -188,12 +181,7 @@ export {
 // ============================================================================
 
 export { sqlMacro, register } from "./macro.js";
-export {
-  sql$Macro,
-  schemaMacro,
-  select,
-  registerSchema,
-} from "./infer-macro.js";
+export { sql$Macro, schemaMacro, select, registerSchema } from "./infer-macro.js";
 export { deriveMetaMacro } from "./derive-meta.js";
 
 // ============================================================================
@@ -221,10 +209,7 @@ import { Fragment, SqlParam } from "./types.js";
  * Handles both Fragment interpolations (which get inlined) and
  * plain values (which become bound parameters).
  */
-export function __sql_build(
-  segments: string[],
-  interpolations: unknown[],
-): Fragment {
+export function __sql_build(segments: string[], interpolations: unknown[]): Fragment {
   const resultSegments: string[] = [];
   const resultParams: SqlParam[] = [];
 
@@ -288,9 +273,6 @@ Fragment.prototype.toUpdate = function (): Update {
  * This allows the same code to work even without the macro transformer,
  * though you lose compile-time validation.
  */
-export function sql(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): Fragment {
+export function sql(strings: TemplateStringsArray, ...values: unknown[]): Fragment {
   return __sql_build([...strings], values);
 }

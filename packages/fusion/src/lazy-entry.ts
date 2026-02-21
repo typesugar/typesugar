@@ -13,11 +13,7 @@ export function lazy<T>(source: Iterable<T>): LazyPipeline<T> {
 }
 
 /** Create a lazy pipeline over a numeric range [start, end) with optional step */
-export function range(
-  start: number,
-  end: number,
-  step: number = 1,
-): LazyPipeline<number> {
+export function range(start: number, end: number, step: number = 1): LazyPipeline<number> {
   return new LazyPipeline(rangeIterable(start, end, step));
 }
 
@@ -40,11 +36,7 @@ export function generate<T>(f: () => T): LazyPipeline<T> {
 // Internal iterable factories
 // ---------------------------------------------------------------------------
 
-function* rangeIterable(
-  start: number,
-  end: number,
-  step: number,
-): Generator<number> {
+function* rangeIterable(start: number, end: number, step: number): Generator<number> {
   if (step === 0) throw new RangeError("range() step must not be zero");
   if (step > 0) {
     for (let i = start; i < end; i += step) yield i;

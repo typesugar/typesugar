@@ -46,7 +46,7 @@ interface ItemState<T, K> {
 function reconcileItems<T, K>(
   oldItems: ItemState<T, K>[],
   newItems: T[],
-  keyFn: KeyFn<T, K>,
+  keyFn: KeyFn<T, K>
 ): {
   keep: Map<K, { oldIndex: number; newIndex: number }>;
   add: Array<{ key: K; item: T; index: number }>;
@@ -131,12 +131,8 @@ export function KeyedList<T, K>({
     React.Fragment,
     null,
     newStates.map(({ key, item, index }) =>
-      React.createElement(
-        React.Fragment,
-        { key: String(key) },
-        render(item, index),
-      ),
-    ),
+      React.createElement(React.Fragment, { key: String(key) }, render(item, index))
+    )
   );
 }
 
@@ -158,7 +154,7 @@ export class ImperativeReconciler<T, K> {
   constructor(
     container: HTMLElement,
     keyFn: KeyFn<T, K>,
-    renderFn: (item: T, index: number) => HTMLElement,
+    renderFn: (item: T, index: number) => HTMLElement
   ) {
     this.container = container;
     this.keyFn = keyFn;
@@ -169,11 +165,7 @@ export class ImperativeReconciler<T, K> {
    * Update the list with new items
    */
   update(items: readonly T[]): void {
-    const { keep, add, remove, reorder } = reconcileItems(
-      this.itemStates,
-      [...items],
-      this.keyFn,
-    );
+    const { keep, add, remove, reorder } = reconcileItems(this.itemStates, [...items], this.keyFn);
 
     // Remove old nodes
     for (const key of remove) {
@@ -246,7 +238,7 @@ export class ImperativeReconciler<T, K> {
 export function keyedList<T, K>(
   items: readonly T[],
   render: ListRenderFn<T>,
-  keyFn: KeyFn<T, K>,
+  keyFn: KeyFn<T, K>
 ): React.ReactElement {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return React.createElement(KeyedList as any, { items, keyFn, render });

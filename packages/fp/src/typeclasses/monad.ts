@@ -47,9 +47,7 @@ export function flatten<F>(F: FlatMap<F>): <A>(ffa: $<F, $<F, A>>) => $<F, A> {
 /**
  * Map then flatten
  */
-export function flatTap<F>(
-  F: FlatMap<F>,
-): <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, A> {
+export function flatTap<F>(F: FlatMap<F>): <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, A> {
   return (fa, f) => F.flatMap(fa, (a) => F.map(f(a), () => a));
 }
 
@@ -57,14 +55,9 @@ export function flatTap<F>(
  * Conditional flatMap - apply f only if predicate holds
  */
 export function ifM<F>(
-  F: FlatMap<F>,
-): <A>(
-  fb: $<F, boolean>,
-  ifTrue: () => $<F, A>,
-  ifFalse: () => $<F, A>,
-) => $<F, A> {
-  return (fb, ifTrue, ifFalse) =>
-    F.flatMap(fb, (b) => (b ? ifTrue() : ifFalse()));
+  F: FlatMap<F>
+): <A>(fb: $<F, boolean>, ifTrue: () => $<F, A>, ifFalse: () => $<F, A>) => $<F, A> {
+  return (fb, ifTrue, ifFalse) => F.flatMap(fb, (b) => (b ? ifTrue() : ifFalse()));
 }
 
 /**
@@ -72,7 +65,7 @@ export function ifM<F>(
  */
 export function mfilter<F extends FlatMap<F>>(
   F: FlatMap<F>,
-  empty: $<F, never>,
+  empty: $<F, never>
 ): <A>(fa: $<F, A>, p: (a: A) => boolean) => $<F, A> {
   return (fa, p) => F.flatMap(fa, (a) => (p(a) ? F.map(fa, () => a) : empty));
 }
@@ -81,7 +74,7 @@ export function mfilter<F extends FlatMap<F>>(
  * Kleisli composition (>=>) - compose two monadic functions
  */
 export function andThen<F>(
-  F: FlatMap<F>,
+  F: FlatMap<F>
 ): <A, B, C>(f: (a: A) => $<F, B>, g: (b: B) => $<F, C>) => (a: A) => $<F, C> {
   return (f, g) => (a) => F.flatMap(f(a), g);
 }
@@ -90,7 +83,7 @@ export function andThen<F>(
  * Kleisli composition (<=<) - compose two monadic functions (reversed)
  */
 export function compose<F>(
-  F: FlatMap<F>,
+  F: FlatMap<F>
 ): <B, C, A>(g: (b: B) => $<F, C>, f: (a: A) => $<F, B>) => (a: A) => $<F, C> {
   return (g, f) => (a) => F.flatMap(f(a), g);
 }
@@ -102,9 +95,7 @@ export function compose<F>(
 /**
  * Perform an action repeatedly, collecting results while predicate holds
  */
-export function whileM<F>(
-  F: Monad<F>,
-): <A>(p: $<F, boolean>, body: $<F, A>) => $<F, A[]> {
+export function whileM<F>(F: Monad<F>): <A>(p: $<F, boolean>, body: $<F, A>) => $<F, A[]> {
   return <A>(p: $<F, boolean>, body: $<F, A>): $<F, A[]> => {
     const loop = (acc: A[]): $<F, A[]> =>
       F.flatMap(p, (continue_) => {
@@ -118,9 +109,7 @@ export function whileM<F>(
 /**
  * Perform an action repeatedly until predicate holds
  */
-export function untilM<F>(
-  F: Monad<F>,
-): <A>(body: $<F, A>, p: $<F, boolean>) => $<F, A[]> {
+export function untilM<F>(F: Monad<F>): <A>(body: $<F, A>, p: $<F, boolean>) => $<F, A[]> {
   return <A>(body: $<F, A>, p: $<F, boolean>): $<F, A[]> => {
     const loop = (acc: A[]): $<F, A[]> =>
       F.flatMap(body, (a: A) => {
@@ -151,7 +140,7 @@ export function forever<F>(F: FlatMap<F>): <A>(fa: $<F, A>) => $<F, never> {
 export function makeMonad<F>(
   map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>,
   flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>,
-  pure: <A>(a: A) => $<F, A>,
+  pure: <A>(a: A) => $<F, A>
 ): Monad<F> {
   return {
     map,

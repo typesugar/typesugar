@@ -53,20 +53,16 @@ describe("basic encode/decode", () => {
 describe("version detection", () => {
   it("detects version from __v field", () => {
     const codec = createJsonCodec<{ name: string }>(
-      defineSchema("Foo", { version: 2, fields: [{ name: "name", type: "string" }] }),
+      defineSchema("Foo", { version: 2, fields: [{ name: "name", type: "string" }] })
     );
-    expect(() => codec.decode('{"__v": 1, "name": "Alice"}')).toThrow(
-      "Version mismatch",
-    );
+    expect(() => codec.decode('{"__v": 1, "name": "Alice"}')).toThrow("Version mismatch");
   });
 
   it("defaults to v1 when __v is missing", () => {
     const codec = createJsonCodec<{ name: string }>(
-      defineSchema("Foo", { version: 2, fields: [{ name: "name", type: "string" }] }),
+      defineSchema("Foo", { version: 2, fields: [{ name: "name", type: "string" }] })
     );
-    expect(() => codec.decode('{"name": "Alice"}')).toThrow(
-      "Version mismatch",
-    );
+    expect(() => codec.decode('{"name": "Alice"}')).toThrow("Version mismatch");
   });
 });
 
@@ -146,9 +142,7 @@ describe("default values", () => {
       ],
     });
     const codec = createJsonCodec<{ host: string; port: number }>(s);
-    const json = JSON.parse(
-      codec.encode({ host: "localhost" } as any) as string,
-    );
+    const json = JSON.parse(codec.encode({ host: "localhost" } as any) as string);
     expect(json.port).toBe(3000);
   });
 });
@@ -222,7 +216,7 @@ describe("future version rejection", () => {
       defineSchema("Foo", {
         version: 2,
         fields: [{ name: "name", type: "string" }],
-      }),
+      })
     );
     const futureData = JSON.stringify({ __v: 5, name: "Alice" });
     expect(() => codec.decodeAny(futureData)).toThrow(/v5.*v2/);
@@ -233,7 +227,7 @@ describe("future version rejection", () => {
       defineSchema("Foo", {
         version: 2,
         fields: [{ name: "name", type: "string" }],
-      }),
+      })
     );
     const currentData = JSON.stringify({ __v: 2, name: "Bob" });
     expect(codec.decodeAny(currentData)).toEqual({ name: "Bob" });

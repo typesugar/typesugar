@@ -71,25 +71,18 @@ export function combineN<A>(S: Semigroup<A>): (a: A, n: number) => A {
 /**
  * Intercalate - combine with a separator between elements
  */
-export function intercalate<A>(
-  S: Semigroup<A>,
-): (sep: A, as: A[]) => A | undefined {
+export function intercalate<A>(S: Semigroup<A>): (sep: A, as: A[]) => A | undefined {
   return (sep, as) => {
     if (as.length === 0) return undefined;
     if (as.length === 1) return as[0];
-    return as
-      .slice(1)
-      .reduce((acc, a) => S.combine(S.combine(acc, sep), a), as[0]);
+    return as.slice(1).reduce((acc, a) => S.combine(S.combine(acc, sep), a), as[0]);
   };
 }
 
 /**
  * Returns true if the value equals the monoid's empty
  */
-export function isEmpty<A>(
-  M: Monoid<A>,
-  eq: (x: A, y: A) => boolean,
-): (a: A) => boolean {
+export function isEmpty<A>(M: Monoid<A>, eq: (x: A, y: A) => boolean): (a: A) => boolean {
   return (a) => eq(a, M.empty);
 }
 
@@ -262,10 +255,7 @@ export function monoidFunction<A>(): Monoid<(a: A) => A> {
 /**
  * Semigroup for tuples (combines component-wise)
  */
-export function semigroupTuple<A, B>(
-  SA: Semigroup<A>,
-  SB: Semigroup<B>,
-): Semigroup<[A, B]> {
+export function semigroupTuple<A, B>(SA: Semigroup<A>, SB: Semigroup<B>): Semigroup<[A, B]> {
   return {
     combine: ([a1, b1], [a2, b2]) => [SA.combine(a1, a2), SB.combine(b1, b2)],
   };
@@ -274,10 +264,7 @@ export function semigroupTuple<A, B>(
 /**
  * Monoid for tuples
  */
-export function monoidTuple<A, B>(
-  MA: Monoid<A>,
-  MB: Monoid<B>,
-): Monoid<[A, B]> {
+export function monoidTuple<A, B>(MA: Monoid<A>, MB: Monoid<B>): Monoid<[A, B]> {
   return {
     ...semigroupTuple(MA, MB),
     empty: [MA.empty, MB.empty],
@@ -287,9 +274,7 @@ export function monoidTuple<A, B>(
 /**
  * Semigroup for records (combines values with the same key)
  */
-export function semigroupRecord<K extends string, V>(
-  S: Semigroup<V>,
-): Semigroup<Record<K, V>> {
+export function semigroupRecord<K extends string, V>(S: Semigroup<V>): Semigroup<Record<K, V>> {
   return {
     combine: (x, y) => {
       const result = { ...x } as Record<K, V>;

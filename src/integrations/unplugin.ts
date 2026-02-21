@@ -42,7 +42,7 @@ function findTsConfig(cwd: string, explicit?: string): string {
   if (!found) {
     throw new Error(
       `[typemacro] Could not find tsconfig.json from ${cwd}. ` +
-        `Pass the tsconfig option to specify the path explicitly.`,
+        `Pass the tsconfig option to specify the path explicitly.`
     );
   }
   return found;
@@ -52,15 +52,11 @@ function createProgram(configPath: string): ProgramCache {
   const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
   if (configFile.error) {
     throw new Error(
-      `[typemacro] Error reading ${configPath}: ${ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n")}`,
+      `[typemacro] Error reading ${configPath}: ${ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n")}`
     );
   }
 
-  const config = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(configPath),
-  );
+  const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath));
 
   const host = ts.createCompilerHost(config.options);
   const program = ts.createProgram(config.fileNames, config.options, host);
@@ -71,7 +67,7 @@ function createProgram(configPath: string): ProgramCache {
 function shouldTransform(
   id: string,
   include?: RegExp | string[],
-  exclude?: RegExp | string[],
+  exclude?: RegExp | string[]
 ): boolean {
   const normalizedId = id.replace(/\\/g, "/");
 
@@ -80,8 +76,7 @@ function shouldTransform(
     if (exclude instanceof RegExp) {
       if (exclude.test(normalizedId)) return false;
     } else {
-      if (exclude.some((pattern) => normalizedId.includes(pattern)))
-        return false;
+      if (exclude.some((pattern) => normalizedId.includes(pattern))) return false;
     }
   } else {
     if (/node_modules/.test(normalizedId)) return false;
@@ -98,9 +93,9 @@ function shouldTransform(
   return /\.[jt]sx?$/.test(normalizedId);
 }
 
-export const unpluginFactory: UnpluginFactory<
-  TypeMacroPluginOptions | undefined
-> = (options = {}) => {
+export const unpluginFactory: UnpluginFactory<TypeMacroPluginOptions | undefined> = (
+  options = {}
+) => {
   let cache: ProgramCache | undefined;
   const verbose = options?.verbose ?? false;
 
@@ -114,9 +109,7 @@ export const unpluginFactory: UnpluginFactory<
         cache = createProgram(configPath);
         if (verbose) {
           console.log(`[typemacro] Loaded config from ${configPath}`);
-          console.log(
-            `[typemacro] Program has ${cache.config.fileNames.length} files`,
-          );
+          console.log(`[typemacro] Program has ${cache.config.fileNames.length} files`);
         }
       } catch (error) {
         console.error(String(error));

@@ -52,7 +52,7 @@ export interface Alternative<F> extends Applicative<F>, MonoidK<F> {}
  * Combine multiple values
  */
 export function combineAllK<F>(
-  F: SemigroupK<F>,
+  F: SemigroupK<F>
 ): <A>(head: $<F, A>, ...tail: $<F, A>[]) => $<F, A> {
   return (head, ...tail) => tail.reduce((acc, fa) => F.combineK(acc, fa), head);
 }
@@ -60,9 +60,7 @@ export function combineAllK<F>(
 /**
  * Try first, if "empty" use second
  */
-export function orElseK<F>(
-  F: SemigroupK<F>,
-): <A>(fa: $<F, A>, fb: () => $<F, A>) => $<F, A> {
+export function orElseK<F>(F: SemigroupK<F>): <A>(fa: $<F, A>, fb: () => $<F, A>) => $<F, A> {
   return (fa, fb) => F.combineK(fa, fb());
 }
 
@@ -73,13 +71,9 @@ export function orElseK<F>(
 /**
  * Combine all values, using emptyK for empty array
  */
-export function combineAllOptionK<F>(
-  F: MonoidK<F>,
-): <A>(fas: $<F, A>[]) => $<F, A> {
+export function combineAllOptionK<F>(F: MonoidK<F>): <A>(fas: $<F, A>[]) => $<F, A> {
   return <A>(fas: $<F, A>[]): $<F, A> =>
-    fas.length === 0
-      ? F.emptyK<A>()
-      : fas.reduce((acc, fa) => F.combineK(acc, fa));
+    fas.length === 0 ? F.emptyK<A>() : fas.reduce((acc, fa) => F.combineK(acc, fa));
 }
 
 /**
@@ -110,14 +104,14 @@ export function guard<F>(F: Alternative<F>): (b: boolean) => $<F, void> {
 export function filterA<F>(
   F: Alternative<F> & {
     flatMap?: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
-  },
+  }
 ): <A>(fa: $<F, A>, p: (a: A) => boolean) => $<F, A> {
   return (fa, p) => {
     if (F.flatMap) {
       return F.flatMap(fa, (a: any) => (p(a) ? F.pure(a) : F.emptyK()));
     }
     throw new Error(
-      "filterA requires flatMap (Monad) support. The provided Alternative does not have flatMap.",
+      "filterA requires flatMap (Monad) support. The provided Alternative does not have flatMap."
     );
   };
 }
@@ -135,7 +129,7 @@ export function many<F>(F: Alternative<F>): <A>(fa: $<F, A>) => $<F, A[]> {
   return (_fa) => {
     throw new Error(
       "many() requires lazy evaluation and will infinite-loop in TypeScript's strict evaluation. " +
-        "Use an explicit loop or recursion with a termination condition instead.",
+        "Use an explicit loop or recursion with a termination condition instead."
     );
   };
 }
@@ -153,7 +147,7 @@ export function some<F>(F: Alternative<F>): <A>(fa: $<F, A>) => $<F, A[]> {
   return (_fa) => {
     throw new Error(
       "some() requires lazy evaluation and will infinite-loop in TypeScript's strict evaluation. " +
-        "Use an explicit loop or recursion with a termination condition instead.",
+        "Use an explicit loop or recursion with a termination condition instead."
     );
   };
 }
@@ -178,7 +172,7 @@ export function manyBounded<F>(
   F: Alternative<F> & {
     flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
   },
-  maxTimes: number,
+  maxTimes: number
 ): <A>(fa: $<F, A>) => $<F, A[]> {
   return <A>(fa: $<F, A>): $<F, A[]> => {
     if (maxTimes <= 0) {
@@ -192,7 +186,7 @@ export function manyBounded<F>(
     // Combine: if we get one, prepend to rest; otherwise return empty
     return F.combineK(
       F.flatMap(one, (first) => F.map(rest, (others) => [...first, ...others])),
-      F.pure([]),
+      F.pure([])
     );
   };
 }
@@ -213,7 +207,7 @@ export function someBounded<F>(
   F: Alternative<F> & {
     flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
   },
-  maxTimes: number,
+  maxTimes: number
 ): <A>(fa: $<F, A>) => $<F, A[]> {
   return <A>(fa: $<F, A>): $<F, A[]> => {
     if (maxTimes <= 0) {
@@ -222,7 +216,7 @@ export function someBounded<F>(
 
     // Must get at least one, then can have up to maxTimes - 1 more
     return F.flatMap(fa, (first) =>
-      F.map(manyBounded(F, maxTimes - 1)(fa), (rest) => [first, ...rest]),
+      F.map(manyBounded(F, maxTimes - 1)(fa), (rest) => [first, ...rest])
     );
   };
 }
@@ -243,15 +237,13 @@ export function replicateA<F>(
   F: Alternative<F> & {
     flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
   },
-  n: number,
+  n: number
 ): <A>(fa: $<F, A>) => $<F, A[]> {
   return <A>(fa: $<F, A>): $<F, A[]> => {
     if (n <= 0) {
       return F.pure([]);
     }
-    return F.flatMap(fa, (first) =>
-      F.map(replicateA(F, n - 1)(fa), (rest) => [first, ...rest]),
-    );
+    return F.flatMap(fa, (first) => F.map(replicateA(F, n - 1)(fa), (rest) => [first, ...rest]));
   };
 }
 
@@ -262,22 +254,22 @@ export function replicateA<F>(
 export function separate<F>(
   F: Alternative<F> & {
     flatMap?: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
-  },
+  }
 ): <A, B>(
-  fab: $<F, { _tag: "Left"; value: A } | { _tag: "Right"; value: B }>,
+  fab: $<F, { _tag: "Left"; value: A } | { _tag: "Right"; value: B }>
 ) => { left: $<F, A>; right: $<F, B> } {
   return (fab) => {
     if (!F.flatMap) {
       throw new Error(
-        "separate requires flatMap (Monad) support. The provided Alternative does not have flatMap.",
+        "separate requires flatMap (Monad) support. The provided Alternative does not have flatMap."
       );
     }
     return {
       left: F.flatMap(fab, (either: any) =>
-        either._tag === "Left" ? F.pure(either.value) : F.emptyK(),
+        either._tag === "Left" ? F.pure(either.value) : F.emptyK()
       ) as $<F, any>,
       right: F.flatMap(fab, (either: any) =>
-        either._tag === "Right" ? F.pure(either.value) : F.emptyK(),
+        either._tag === "Right" ? F.pure(either.value) : F.emptyK()
       ) as $<F, any>,
     };
   };
@@ -290,9 +282,7 @@ export function separate<F>(
 /**
  * Create a SemigroupK instance
  */
-export function makeSemigroupK<F>(
-  combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>,
-): SemigroupK<F> {
+export function makeSemigroupK<F>(combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>): SemigroupK<F> {
   return { combineK };
 }
 
@@ -301,7 +291,7 @@ export function makeSemigroupK<F>(
  */
 export function makeMonoidK<F>(
   combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>,
-  emptyK: <A>() => $<F, A>,
+  emptyK: <A>() => $<F, A>
 ): MonoidK<F> {
   return { combineK, emptyK };
 }
@@ -314,7 +304,7 @@ export function makeAlternative<F>(
   ap: <A, B>(fab: $<F, (a: A) => B>, fa: $<F, A>) => $<F, B>,
   pure: <A>(a: A) => $<F, A>,
   combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>,
-  emptyK: <A>() => $<F, A>,
+  emptyK: <A>() => $<F, A>
 ): Alternative<F> {
   return { map, ap, pure, combineK, emptyK };
 }

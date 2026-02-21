@@ -9,11 +9,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  type MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 
 /**
  * `hlist` macro — rewrites `hlist(a, b, c)` to the array literal `[a, b, c]`.
@@ -28,12 +24,9 @@ export const hlistMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
-    return ctx.factory.createArrayLiteralExpression(
-      args as ts.Expression[],
-      false,
-    );
+    return ctx.factory.createArrayLiteralExpression(args as ts.Expression[], false);
   },
 });
 
@@ -47,13 +40,12 @@ export const hlistMacro = defineExpressionMacro({
  */
 export const labeledMacro = defineExpressionMacro({
   name: "labeled",
-  description:
-    "Zero-cost LabeledHList construction — strips labels, emits value array",
+  description: "Zero-cost LabeledHList construction — strips labels, emits value array",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -65,10 +57,7 @@ export const labeledMacro = defineExpressionMacro({
     const arg = args[0];
 
     if (!ts.isObjectLiteralExpression(arg)) {
-      ctx.reportError(
-        callExpr,
-        "labeled() expects an object literal argument",
-      );
+      ctx.reportError(callExpr, "labeled() expects an object literal argument");
       return callExpr;
     }
 
@@ -97,20 +86,15 @@ export const labeledMacro = defineExpressionMacro({
     const keysArr = factory.createArrayLiteralExpression(keys, false);
 
     return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Object"),
-        "assign",
-      ),
+      factory.createPropertyAccessExpression(factory.createIdentifier("Object"), "assign"),
       undefined,
       [
         arrLiteral,
         factory.createObjectLiteralExpression(
-          [
-            factory.createPropertyAssignment("__keys", keysArr),
-          ],
-          false,
+          [factory.createPropertyAssignment("__keys", keysArr)],
+          false
         ),
-      ],
+      ]
     );
   },
 });
@@ -128,7 +112,7 @@ export const mapWithMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 2) {
       ctx.reportError(callExpr, "mapWith() expects (hlist, fn) arguments");
@@ -139,7 +123,7 @@ export const mapWithMacro = defineExpressionMacro({
     return ctx.factory.createCallExpression(
       ctx.factory.createPropertyAccessExpression(list, "map"),
       undefined,
-      [fn],
+      [fn]
     );
   },
 });

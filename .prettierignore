@@ -1,0 +1,43 @@
+# Cursor backup/project folders
+.cursor/
+
+# Build outputs
+dist/
+build/
+*.d.ts
+*.d.cts
+*.d.mts
+
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+
+# Cache and temp files
+.cache/
+.temp/
+*.log
+
+# Documentation build output
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# Test fixtures (may contain intentionally unformatted code)
+**/fixtures/**
+
+# Example and template files (may use typesugar syntax that Prettier can't parse)
+examples/
+templates/
+
+# Generated files
+*.generated.ts
+*.transformed.js
+
+# VitePress theme components (external)
+docs/.vitepress/theme/
+
+# Lock files
+package-lock.json
+yarn.lock
+
+# Config files that shouldn't be reformatted
+tsconfig*.json

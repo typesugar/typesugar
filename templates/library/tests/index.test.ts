@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  Point,
-  printAll,
-  printPoint,
-  PrintableNumber,
-  PrintableString,
-} from "../src/index.js";
+import { Point, printAll, printPoint, PrintableNumber, PrintableString } from "../src/index.js";
 
 describe("Printable typeclass", () => {
   it("prints numbers", () => {

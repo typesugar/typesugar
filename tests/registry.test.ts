@@ -147,11 +147,7 @@ describe("defineExpressionMacro", () => {
     const macro = defineExpressionMacro({
       name: "myMacro",
       description: "My macro",
-      expand(
-        ctx: MacroContext,
-        _callExpr: ts.CallExpression,
-        args: readonly ts.Expression[],
-      ) {
+      expand(ctx: MacroContext, _callExpr: ts.CallExpression, args: readonly ts.Expression[]) {
         if (args.length > 0) {
           return ctx.createNumericLiteral(42);
         }
@@ -187,9 +183,7 @@ describe("defineDeriveMacro", () => {
     const macro = defineDeriveMacro({
       name: "MyDerive",
       expand(ctx) {
-        return [
-          ...ctx.parseStatements(`export function derived() { return 42; }`),
-        ];
+        return [...ctx.parseStatements(`export function derived() { return 42; }`)];
       },
     });
 

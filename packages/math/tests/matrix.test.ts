@@ -194,12 +194,7 @@ describe("Matrix", () => {
     });
 
     it("computes larger determinant", () => {
-      const m = matrix(4, 4, [
-        1, 0, 2, -1,
-        3, 0, 0, 5,
-        2, 1, 4, -3,
-        1, 0, 5, 0,
-      ]);
+      const m = matrix(4, 4, [1, 0, 2, -1, 3, 0, 0, 5, 2, 1, 4, -3, 1, 0, 5, 0]);
       expect(det(m)).toBeCloseTo(30, 10);
     });
 

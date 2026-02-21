@@ -92,7 +92,7 @@ export function tripleMap<A, B, C, D, E, F>(
   t: Triple<A, B, C>,
   f: (a: A) => D,
   g: (b: B) => E,
-  h: (c: C) => F,
+  h: (c: C) => F
 ): Triple<D, E, F> {
   return [f(t[0]), g(t[1]), h(t[2])] as const;
 }

@@ -67,24 +67,21 @@ export interface InstanceInfo {
  * Registry of all typeclasses defined with @typeclass.
  * Uses the generic Registry<K,V> abstraction from @typesugar/core.
  */
-const typeclassRegistry: GenericRegistry<string, TypeclassInfo> =
-  createGenericRegistry({
-    name: "TypeclassRegistry",
-    duplicateStrategy: "skip",
-    valueEquals: (a, b) => a.name === b.name,
-  });
+const typeclassRegistry: GenericRegistry<string, TypeclassInfo> = createGenericRegistry({
+  name: "TypeclassRegistry",
+  duplicateStrategy: "skip",
+  valueEquals: (a, b) => a.name === b.name,
+});
 
 /**
  * Registry of all instances defined with @instance.
  * Uses the generic Registry<K,V> abstraction from @typesugar/core.
  */
-const instanceRegistry: GenericRegistry<string, InstanceInfo> =
-  createGenericRegistry({
-    name: "InstanceRegistry",
-    duplicateStrategy: "skip",
-    valueEquals: (a, b) =>
-      a.typeclass === b.typeclass && a.forType === b.forType,
-  });
+const instanceRegistry: GenericRegistry<string, InstanceInfo> = createGenericRegistry({
+  name: "InstanceRegistry",
+  duplicateStrategy: "skip",
+  valueEquals: (a, b) => a.typeclass === b.typeclass && a.forType === b.forType,
+});
 
 /**
  * Get the key for an instance: "Show<number>"
@@ -129,13 +126,10 @@ export const typeclassAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isInterfaceDeclaration(target) || !target.name) {
-      ctx.reportError(
-        decorator,
-        "@typeclass can only be applied to named interfaces",
-      );
+      ctx.reportError(decorator, "@typeclass can only be applied to named interfaces");
       return target;
     }
 
@@ -146,12 +140,9 @@ export const typeclassAttribute = defineAttributeMacro({
 
     for (const member of target.members) {
       if (ts.isMethodSignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : String(member.name);
+        const methodName = ts.isIdentifier(member.name) ? member.name.text : String(member.name);
 
-        const typeParams =
-          member.typeParameters?.map((tp) => tp.name.text) ?? [];
+        const typeParams = member.typeParameters?.map((tp) => tp.name.text) ?? [];
 
         const params: Array<{ name: string; type: string }> = [];
         for (const param of member.parameters) {
@@ -159,18 +150,14 @@ export const typeclassAttribute = defineAttributeMacro({
             params.push({
               name: param.name.text,
               type: param.type
-                ? ctx.typeChecker.typeToString(
-                    ctx.typeChecker.getTypeAtLocation(param.type),
-                  )
+                ? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(param.type))
                 : "unknown",
             });
           }
         }
 
         const returnType = member.type
-          ? ctx.typeChecker.typeToString(
-              ctx.typeChecker.getTypeAtLocation(member.type),
-            )
+          ? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(member.type))
           : "void";
 
         methods.push({
@@ -214,22 +201,16 @@ export const instanceAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isVariableDeclaration(target)) {
-      ctx.reportError(
-        decorator,
-        "@instance can only be applied to variable declarations",
-      );
+      ctx.reportError(decorator, "@instance can only be applied to variable declarations");
       return target;
     }
 
     // Expect: @instance(TypeclassName, TypeArg)
     if (args.length < 2) {
-      ctx.reportError(
-        decorator,
-        "@instance requires typeclass name and type argument",
-      );
+      ctx.reportError(decorator, "@instance requires typeclass name and type argument");
       return target;
     }
 
@@ -237,16 +218,14 @@ export const instanceAttribute = defineAttributeMacro({
     const typeExpr = args[1];
 
     // Extract names
-    const typeclassName = ts.isIdentifier(typeclassExpr)
-      ? typeclassExpr.text
-      : undefined;
+    const typeclassName = ts.isIdentifier(typeclassExpr) ? typeclassExpr.text : undefined;
 
     const forType = ts.isIdentifier(typeExpr) ? typeExpr.text : undefined;
 
     if (!typeclassName || !forType) {
       ctx.reportError(
         decorator,
-        "@instance requires identifier arguments: @instance(Typeclass, Type)",
+        "@instance requires identifier arguments: @instance(Typeclass, Type)"
       );
       return target;
     }
@@ -291,7 +270,7 @@ export const derivingAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     let typeName: string | undefined;
 
@@ -304,10 +283,7 @@ export const derivingAttribute = defineAttributeMacro({
     }
 
     if (!typeName) {
-      ctx.reportError(
-        decorator,
-        "@deriving can only be applied to named types",
-      );
+      ctx.reportError(decorator, "@deriving can only be applied to named types");
       return target;
     }
 
@@ -323,7 +299,7 @@ export const derivingAttribute = defineAttributeMacro({
       if (!typeclass) {
         ctx.reportError(
           decorator,
-          `Unknown typeclass: ${typeclassName}. Make sure it's defined with @typeclass`,
+          `Unknown typeclass: ${typeclassName}. Make sure it's defined with @typeclass`
         );
         continue;
       }
@@ -338,9 +314,7 @@ export const derivingAttribute = defineAttributeMacro({
         instanceRegistry.set(key, {
           typeclass: typeclassName,
           forType: typeName,
-          expression: ctx.factory.createIdentifier(
-            `${uncapitalize(typeName)}${typeclassName}`,
-          ),
+          expression: ctx.factory.createIdentifier(`${uncapitalize(typeName)}${typeclassName}`),
         });
       }
     }
@@ -356,7 +330,7 @@ export const derivingAttribute = defineAttributeMacro({
 function generateDerivedInstance(
   _ctx: MacroContext,
   typeclass: TypeclassInfo,
-  typeName: string,
+  typeName: string
 ): string | null {
   const instanceName = `${uncapitalize(typeName)}${typeclass.name}`;
 
@@ -419,30 +393,24 @@ export const summonMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     // The type argument tells us which instance to summon
     // summon<Show<number>>() -> numberShow
 
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "summon<T>() requires exactly one type argument",
-      );
+      ctx.reportError(callExpr, "summon<T>() requires exactly one type argument");
       return callExpr;
     }
 
     const typeArg = typeArgs[0];
 
     // Parse the type reference to extract typeclass and type
-    if (
-      !ts.isTypeReferenceNode(typeArg) ||
-      !ts.isIdentifier(typeArg.typeName)
-    ) {
+    if (!ts.isTypeReferenceNode(typeArg) || !ts.isIdentifier(typeArg.typeName)) {
       ctx.reportError(
         callExpr,
-        "summon<T>() type argument must be a typeclass application like Show<number>",
+        "summon<T>() type argument must be a typeclass application like Show<number>"
       );
       return callExpr;
     }
@@ -453,13 +421,13 @@ export const summonMacro = defineExpressionMacro({
     if (!typeArgsOfTypeclass || typeArgsOfTypeclass.length === 0) {
       ctx.reportError(
         callExpr,
-        `summon<${typeclassName}>() requires a type argument, e.g., summon<${typeclassName}<number>>()`,
+        `summon<${typeclassName}>() requires a type argument, e.g., summon<${typeclassName}<number>>()`
       );
       return callExpr;
     }
 
     const forType = ctx.typeChecker.typeToString(
-      ctx.typeChecker.getTypeAtLocation(typeArgsOfTypeclass[0]),
+      ctx.typeChecker.getTypeAtLocation(typeArgsOfTypeclass[0])
     );
 
     // Look up the instance
@@ -469,7 +437,7 @@ export const summonMacro = defineExpressionMacro({
     if (!instance) {
       ctx.reportError(
         callExpr,
-        `No instance found for ${typeclassName}<${forType}>. Define one with @instance`,
+        `No instance found for ${typeclassName}<${forType}>. Define one with @instance`
       );
       return callExpr;
     }
@@ -486,13 +454,12 @@ export const summonMacro = defineExpressionMacro({
 export const extendMacro = defineExpressionMacro({
   name: "extend",
   module: "@typesugar/typeclass",
-  description:
-    "Extend a value with typeclass methods (compile-time resolution)",
+  description: "Extend a value with typeclass methods (compile-time resolution)",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.reportError(callExpr, "extend() requires exactly one argument");
@@ -501,10 +468,7 @@ export const extendMacro = defineExpressionMacro({
 
     const value = args[0];
     const valueType = ctx.getTypeOf(value);
-    const typeName = ctx.typeChecker
-      .typeToString(valueType)
-      .split("<")[0]
-      .trim();
+    const typeName = ctx.typeChecker.typeToString(valueType).split("<")[0].trim();
 
     // Find all instances for this type
     const methods: Array<{ name: string; instance: InstanceInfo }> = [];
@@ -522,10 +486,7 @@ export const extendMacro = defineExpressionMacro({
 
     if (methods.length === 0) {
       // No instances found, return the value as-is with a warning
-      ctx.reportWarning?.(
-        callExpr,
-        `No typeclass instances found for type ${typeName}`,
-      );
+      ctx.reportWarning?.(callExpr, `No typeclass instances found for type ${typeName}`);
       return value;
     }
 
@@ -545,9 +506,9 @@ export const extendMacro = defineExpressionMacro({
           factory.createCallExpression(
             factory.createPropertyAccessExpression(instance.expression, name),
             undefined,
-            [value],
-          ),
-        ),
+            [value]
+          )
+        )
       );
     });
 
@@ -572,7 +533,7 @@ function uncapitalize(str: string): string {
  */
 export function findExtensionMethod(
   typeName: string,
-  methodName: string,
+  methodName: string
 ): { instance: InstanceInfo; typeclass: TypeclassInfo } | undefined {
   for (const [, instance] of instanceRegistry) {
     if (instance.forType === typeName) {
@@ -661,9 +622,7 @@ export function instance(
  * }
  * ```
  */
-export function deriving(
-  ..._typeclasses: unknown[]
-): ClassDecorator & PropertyDecorator {
+export function deriving(..._typeclasses: unknown[]): ClassDecorator & PropertyDecorator {
   // Placeholder - processed by transformer
   return () => {};
 }
@@ -679,9 +638,7 @@ export function deriving(
  */
 export function summon<T>(): T {
   // Placeholder - processed by transformer
-  throw new Error(
-    "summon() must be processed by the typemacro transformer at compile time",
-  );
+  throw new Error("summon() must be processed by the typemacro transformer at compile time");
 }
 
 /**
@@ -692,11 +649,7 @@ export function summon<T>(): T {
  * extend(myValue).show(); // Calls Show<typeof myValue>.show
  * ```
  */
-export function extend<T>(
-  _value: T,
-): T & Record<string, (...args: any[]) => any> {
+export function extend<T>(_value: T): T & Record<string, (...args: any[]) => any> {
   // Placeholder - processed by transformer
-  throw new Error(
-    "extend() must be processed by the typemacro transformer at compile time",
-  );
+  throw new Error("extend() must be processed by the typemacro transformer at compile time");
 }

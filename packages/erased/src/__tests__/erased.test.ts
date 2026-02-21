@@ -80,8 +80,7 @@ const numVtable = {
 const strVtable = {
   show: (v: unknown) => `"${v}"`,
   equals: (a: unknown, b: unknown) => a === b,
-  compare: (a: unknown, b: unknown) =>
-    (a as string).localeCompare(b as string),
+  compare: (a: unknown, b: unknown) => (a as string).localeCompare(b as string),
   hash: (v: unknown) => {
     let h = 0;
     const s = v as string;
@@ -93,13 +92,7 @@ const strVtable = {
   clone: (v: unknown) => v,
 };
 
-type FullCaps = [
-  ShowCapability,
-  EqCapability,
-  OrdCapability,
-  HashCapability,
-  CloneCapability,
-];
+type FullCaps = [ShowCapability, EqCapability, OrdCapability, HashCapability, CloneCapability];
 
 function erasePoint(p: Point): Erased<FullCaps> {
   return eraseWith<Point, FullCaps>(p, pointVtable);
@@ -140,8 +133,16 @@ describe("Construction", () => {
   });
 
   it("showableEq creates an Erased<[ShowCapability, EqCapability]>", () => {
-    const a = showableEq("hello", (s) => s.toUpperCase(), (x, y) => x === y);
-    const b = showableEq("hello", (s) => s.toUpperCase(), (x, y) => x === y);
+    const a = showableEq(
+      "hello",
+      (s) => s.toUpperCase(),
+      (x, y) => x === y
+    );
+    const b = showableEq(
+      "hello",
+      (s) => s.toUpperCase(),
+      (x, y) => x === y
+    );
     expect(show(a)).toBe("HELLO");
     expect(equals(a, b)).toBe(true);
   });
@@ -159,12 +160,8 @@ describe("Method dispatch", () => {
   });
 
   it("equals() compares two erased values", () => {
-    expect(
-      equals(erasePoint({ x: 1, y: 2 }), erasePoint({ x: 1, y: 2 })),
-    ).toBe(true);
-    expect(
-      equals(erasePoint({ x: 1, y: 2 }), erasePoint({ x: 3, y: 4 })),
-    ).toBe(false);
+    expect(equals(erasePoint({ x: 1, y: 2 }), erasePoint({ x: 1, y: 2 }))).toBe(true);
+    expect(equals(erasePoint({ x: 1, y: 2 }), erasePoint({ x: 3, y: 4 }))).toBe(false);
     expect(equals(eraseNum(5), eraseNum(5))).toBe(true);
     expect(equals(eraseNum(5), eraseNum(6))).toBe(false);
   });
@@ -185,9 +182,7 @@ describe("Method dispatch", () => {
     const original = erasePoint({ x: 1, y: 2 });
     const cloned = clone(original);
     expect(unwrapErased<Point>(cloned)).toEqual({ x: 1, y: 2 });
-    expect(unwrapErased<Point>(cloned)).not.toBe(
-      unwrapErased<Point>(original),
-    );
+    expect(unwrapErased<Point>(cloned)).not.toBe(unwrapErased<Point>(original));
   });
 
   it("callMethod dispatches by string name", () => {
@@ -207,11 +202,7 @@ describe("Method dispatch", () => {
 
 describe("Heterogeneous collections", () => {
   it("stores mixed types in one array and shows them", () => {
-    const items = [
-      eraseNum(42),
-      eraseStr("hello"),
-      erasePoint({ x: 0, y: 0 }),
-    ];
+    const items = [eraseNum(42), eraseStr("hello"), erasePoint({ x: 0, y: 0 })];
     const shown = items.map((e) => show(e));
     expect(shown).toEqual(["42", '"hello"', "Point(0, 0)"]);
   });
@@ -243,13 +234,7 @@ describe("Collection operations", () => {
   });
 
   it("dedup removes consecutive duplicates", () => {
-    const list = [
-      eraseNum(1),
-      eraseNum(1),
-      eraseNum(2),
-      eraseNum(2),
-      eraseNum(3),
-    ];
+    const list = [eraseNum(1), eraseNum(1), eraseNum(2), eraseNum(2), eraseNum(3)];
     const result = dedup(list);
     expect(result.map((e) => unwrapErased<number>(e))).toEqual([1, 2, 3]);
   });
@@ -276,10 +261,7 @@ describe("Collection operations", () => {
 
   it("filterErased filters elements", () => {
     const list = [eraseNum(1), eraseNum(2), eraseNum(3), eraseNum(4)];
-    const evens = filterErased(
-      list,
-      (e) => unwrapErased<number>(e) % 2 === 0,
-    );
+    const evens = filterErased(list, (e) => unwrapErased<number>(e) % 2 === 0);
     expect(evens.map((e) => unwrapErased<number>(e))).toEqual([2, 4]);
   });
 });
@@ -300,40 +282,34 @@ describe("Widen / Narrow", () => {
   it("narrow succeeds when methods exist", () => {
     const full = erasePoint({ x: 1, y: 2 });
     const showOnly = widen<FullCaps, [ShowCapability]>(full);
-    const narrowed = narrow<[ShowCapability], [ShowCapability, EqCapability]>(
-      showOnly,
-      ["equals"],
-    );
+    const narrowed = narrow<[ShowCapability], [ShowCapability, EqCapability]>(showOnly, ["equals"]);
     expect(narrowed).not.toBeNull();
     expect(narrowed!.__erased__).toBe(true);
   });
 
   it("narrow returns null when methods are missing", () => {
     const showOnly = showable("hi", String);
-    const result = narrow<[ShowCapability], [ShowCapability, EqCapability]>(
-      showOnly,
-      ["equals"],
-    );
+    const result = narrow<[ShowCapability], [ShowCapability, EqCapability]>(showOnly, ["equals"]);
     expect(result).toBeNull();
   });
 
   it("extendCapabilities adds methods to the vtable", () => {
     const showOnly = showable(42, (n) => `num:${n}`);
-    const extended = extendCapabilities<
-      [ShowCapability],
-      [ShowCapability, EqCapability]
-    >(showOnly, {
-      equals: (a, b) => a === b,
-    });
+    const extended = extendCapabilities<[ShowCapability], [ShowCapability, EqCapability]>(
+      showOnly,
+      {
+        equals: (a, b) => a === b,
+      }
+    );
     expect(show(extended)).toBe("num:42");
     expect(
       equals(
         extended,
         extendCapabilities<[ShowCapability], [ShowCapability, EqCapability]>(
           showable(42, (n) => `num:${n}`),
-          { equals: (a, b) => a === b },
-        ),
-      ),
+          { equals: (a, b) => a === b }
+        )
+      )
     ).toBe(true);
   });
 
@@ -363,7 +339,7 @@ describe("Edge cases", () => {
   it("callMethod throws descriptive error for missing method", () => {
     const e = eraseWith(1, { show: () => "1" });
     expect(() => callMethod(e, "missing")).toThrow(
-      /Method "missing" not found.*Available: \[show\]/,
+      /Method "missing" not found.*Available: \[show\]/
     );
   });
 
@@ -405,33 +381,22 @@ describe("Real-world patterns", () => {
 
     const logs: string[] = [];
 
-    const loggerPlugin = eraseWith<
-      { label: string },
-      [PluginCapability, ShowCapability]
-    >(
+    const loggerPlugin = eraseWith<{ label: string }, [PluginCapability, ShowCapability]>(
       { label: "Logger" },
       {
         init: (v) => logs.push(`init:${(v as { label: string }).label}`),
         name: (v) => (v as { label: string }).label,
         show: (v) => `Plugin(${(v as { label: string }).label})`,
-      },
+      }
     );
 
-    const metricsPlugin = eraseWith<
-      { endpoint: string },
-      [PluginCapability, ShowCapability]
-    >(
+    const metricsPlugin = eraseWith<{ endpoint: string }, [PluginCapability, ShowCapability]>(
       { endpoint: "/metrics" },
       {
-        init: (v) =>
-          logs.push(
-            `init:metrics@${(v as { endpoint: string }).endpoint}`,
-          ),
-        name: (v) =>
-          `Metrics(${(v as { endpoint: string }).endpoint})`,
-        show: (v) =>
-          `Plugin(Metrics@${(v as { endpoint: string }).endpoint})`,
-      },
+        init: (v) => logs.push(`init:metrics@${(v as { endpoint: string }).endpoint}`),
+        name: (v) => `Metrics(${(v as { endpoint: string }).endpoint})`,
+        show: (v) => `Plugin(Metrics@${(v as { endpoint: string }).endpoint})`,
+      }
     );
 
     const plugins = [loggerPlugin, metricsPlugin];
@@ -441,10 +406,7 @@ describe("Real-world patterns", () => {
     }
     expect(logs).toEqual(["init:Logger", "init:metrics@/metrics"]);
 
-    expect(showAll(plugins)).toEqual([
-      "Plugin(Logger)",
-      "Plugin(Metrics@/metrics)",
-    ]);
+    expect(showAll(plugins)).toEqual(["Plugin(Logger)", "Plugin(Metrics@/metrics)"]);
   });
 
   it("event handlers — mixed handler types in one list", () => {
@@ -458,7 +420,7 @@ describe("Real-world patterns", () => {
         handler: () => results.push("clicked"),
       },
       () => `ClickHandler`,
-      (a, b) => a.type === b.type,
+      (a, b) => a.type === b.type
     );
 
     const keyHandler = showableEq(
@@ -468,7 +430,7 @@ describe("Real-world patterns", () => {
         handler: () => results.push("key:Enter"),
       },
       (v) => `KeyHandler(${v.key})`,
-      (a, b) => a.type === b.type && a.key === b.key,
+      (a, b) => a.type === b.type && a.key === b.key
     );
 
     const handlers: Erased<HandlerCaps>[] = [clickHandler, keyHandler];
@@ -482,12 +444,16 @@ describe("Real-world patterns", () => {
 
     const registry: Erased<SerCaps>[] = [
       showableEq(42, String, (a, b) => a === b),
-      showableEq("hello", (s) => `"${s}"`, (a, b) => a === b),
+      showableEq(
+        "hello",
+        (s) => `"${s}"`,
+        (a, b) => a === b
+      ),
       showableEq(true, String, (a, b) => a === b),
       showableEq(
         [1, 2, 3],
         (a) => `[${a.join(",")}]`,
-        (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
+        (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
       ),
     ];
 

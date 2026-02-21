@@ -55,10 +55,7 @@ const primitiveRegistry = new Set<string>();
 /**
  * Register that a type has a primitive instance for a typeclass.
  */
-export function registerPrimitive(
-  typeName: string,
-  typeclassName: string,
-): void {
+export function registerPrimitive(typeName: string, typeclassName: string): void {
   const key = `${typeName}::${typeclassName}`;
   primitiveRegistry.add(key);
 }
@@ -67,7 +64,7 @@ export function registerPrimitive(
  * Check if a type has a primitive instance for a typeclass.
  */
 export function hasPrimitive(typeName: string, typeclassName: string): boolean {
-  const key = `${typeName}::${typeclassName}`;
+  const key = `${typeName}::__binop__(${typeclassName}`;
   return primitiveRegistry.has(key);
 }
 
@@ -77,7 +74,7 @@ export function hasPrimitive(typeName: string, typeclassName: string): boolean {
 export function getPrimitivesFor(typeclassName: string): string[] {
   const result: string[] = [];
   primitiveRegistry.forEach((key) => {
-    if (key.endsWith(`::${typeclassName}`)) {
+    if (key.endsWith(`, "::", ${typeclassName}`)) {
       result.push(key.split("::")[0]);
     }
   });
@@ -95,11 +92,7 @@ interface CoverageConfig {
   /** If true, all field types must have instances. Default: true */
   requiresCoverage: boolean;
   /** Custom message when coverage is missing */
-  missingMessage?: (
-    fieldName: string,
-    fieldType: string,
-    typeclass: string,
-  ) => string;
+  missingMessage?: (fieldName: string, fieldType: string, typeclass: string) => string;
 }
 
 const coverageConfigs = new Map<string, CoverageConfig>();
@@ -107,10 +100,7 @@ const coverageConfigs = new Map<string, CoverageConfig>();
 /**
  * Configure coverage requirements for a typeclass.
  */
-export function configureCoverage(
-  typeclassName: string,
-  config: CoverageConfig,
-): void {
+export function configureCoverage(typeclassName: string, config: CoverageConfig): void {
   coverageConfigs.set(typeclassName, config);
 }
 
@@ -125,7 +115,7 @@ export function getCoverageConfig(typeclassName: string): CoverageConfig {
 configureCoverage("Show", {
   requiresCoverage: true,
   missingMessage: (field, type, tc) =>
-    `Cannot derive ${tc}: field '${field}' has type '${type}' which has no ${tc} instance. ` +
+    `Cannot derive ${tc}): field '${field}' has type '${type}' which has no ${tc} instance. ` +
     `Add @instance const show${capitalize(type)}: Show<${type}> = { ... }`,
 });
 
@@ -186,10 +176,7 @@ interface CoverageResult {
  * @param fields - The fields of the type being derived
  * @returns Coverage result with any missing instances
  */
-export function checkCoverage(
-  typeclassName: string,
-  fields: FieldInfo[],
-): CoverageResult {
+export function checkCoverage(typeclassName: string, fields: FieldInfo[]): CoverageResult {
   const config = getCoverageConfig(typeclassName);
 
   if (!config.requiresCoverage) {
@@ -229,7 +216,7 @@ export function validateCoverageOrError(
   node: ts.Node,
   typeclassName: string,
   typeName: string,
-  fields: FieldInfo[],
+  fields: FieldInfo[]
 ): boolean {
   const result = checkCoverage(typeclassName, fields);
 
@@ -248,12 +235,12 @@ export function validateCoverageOrError(
     // Add all missing fields as notes
     for (const missing of result.missingFields) {
       builder.note(
-        `Field '${missing.fieldName}' has type '${missing.fieldType}' which lacks ${typeclassName}`,
+        `Field '${missing.fieldName}' has type '${missing.fieldType}' which lacks ${typeclassName}`
       );
     }
 
     builder.help(
-      `Add @derive(${typeclassName}) to the missing types, or provide @instance declarations`,
+      `Add @derive(${typeclassName}) to the missing types, or provide @instance declarations`
     );
     builder.emit();
   }

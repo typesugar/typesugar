@@ -144,8 +144,7 @@ describe("HTML string macro semantics", () => {
     });
 
     it("should safely interpolate user data", () => {
-      const escapeHtml = (str: string): string =>
-        str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const escapeHtml = (str: string): string => str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
       const userInput = "<script>alert('xss')</script>";
       const safe = `<div>${escapeHtml(userInput)}</div>`;
@@ -196,9 +195,7 @@ describe("Format string macro semantics", () => {
     it("should support %d for integers", () => {
       const format = (template: string, ...args: unknown[]): string => {
         let i = 0;
-        return template.replace(/%d/g, () =>
-          String(Math.floor(Number(args[i++]))),
-        );
+        return template.replace(/%d/g, () => String(Math.floor(Number(args[i++]))));
       };
 
       expect(format("Value: %d", 42.7)).toBe("Value: 42");
@@ -216,9 +213,7 @@ describe("JSON string macro semantics", () => {
     });
 
     it("should handle nested objects", () => {
-      const json = JSON.parse(
-        '{"user": {"name": "John", "email": "john@example.com"}}',
-      );
+      const json = JSON.parse('{"user": {"name": "John", "email": "john@example.com"}}');
 
       expect(json.user.name).toBe("John");
       expect(json.user.email).toBe("john@example.com");

@@ -5,7 +5,12 @@
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { createMacroTestContext } from "../../../test-utils/macro-context.js";
-import { stateMacro, getStateMetadata, isStateMarker, extractStateFromMarker } from "../macros/state.js";
+import {
+  stateMacro,
+  getStateMetadata,
+  isStateMarker,
+  extractStateFromMarker,
+} from "../macros/state.js";
 
 describe("state() macro", () => {
   describe("basic transformation", () => {
@@ -16,11 +21,11 @@ describe("state() macro", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const callExpr = findStateCall(ctx.sourceFile);
       expect(callExpr).toBeTruthy();
-      
+
       if (callExpr) {
         const result = stateMacro.expand(ctx, callExpr, [...callExpr.arguments]);
         expect(ts.isObjectLiteralExpression(result)).toBe(true);
@@ -35,10 +40,10 @@ describe("state() macro", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const callExpr = findStateCall(ctx.sourceFile);
-      
+
       if (callExpr) {
         const result = stateMacro.expand(ctx, callExpr, [...callExpr.arguments]);
         if (ts.isObjectLiteralExpression(result)) {
@@ -59,14 +64,14 @@ describe("state() macro", () => {
           return <div>{count}{name}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const calls = findAllStateCalls(ctx.sourceFile);
-      
+
       for (const call of calls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       const metadata = getStateMetadata(ctx.sourceFile);
       expect(metadata.size).toBe(2);
       expect(metadata.has("count")).toBe(true);
@@ -82,10 +87,10 @@ describe("state() macro", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const callExpr = findStateCall(ctx.sourceFile);
-      
+
       if (callExpr) {
         const result = stateMacro.expand(ctx, callExpr, []);
         // Should return original call when there's an error
@@ -102,10 +107,10 @@ describe("state() macro", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const callExpr = findStateCall(ctx.sourceFile);
-      
+
       if (callExpr) {
         const result = stateMacro.expand(ctx, callExpr, [...callExpr.arguments]);
         expect(ctx.errors.length).toBeGreaterThan(0);
@@ -118,7 +123,7 @@ describe("state() macro", () => {
 // Helper to find state() calls in source
 function findStateCall(sourceFile: ts.SourceFile): ts.CallExpression | undefined {
   let result: ts.CallExpression | undefined;
-  
+
   function visit(node: ts.Node): void {
     if (
       ts.isCallExpression(node) &&
@@ -130,14 +135,14 @@ function findStateCall(sourceFile: ts.SourceFile): ts.CallExpression | undefined
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return result;
 }
 
 function findAllStateCalls(sourceFile: ts.SourceFile): ts.CallExpression[] {
   const results: ts.CallExpression[] = [];
-  
+
   function visit(node: ts.Node): void {
     if (
       ts.isCallExpression(node) &&
@@ -148,7 +153,7 @@ function findAllStateCalls(sourceFile: ts.SourceFile): ts.CallExpression[] {
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return results;
 }

@@ -21,7 +21,7 @@ describe("static assertion and diagnostic macros", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -33,9 +33,7 @@ describe("static assertion and diagnostic macros", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -66,12 +64,10 @@ describe("static assertion and diagnostic macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("staticAssert"),
         undefined,
-        [ts.factory.createTrue()],
+        [ts.factory.createTrue()]
       );
 
-      const result = staticAssertMacro.expand(ctx, callExpr, [
-        ts.factory.createTrue(),
-      ]);
+      const result = staticAssertMacro.expand(ctx, callExpr, [ts.factory.createTrue()]);
 
       // Should produce `undefined` (assertion removed)
       expect(ts.isIdentifier(result)).toBe(true);
@@ -85,10 +81,7 @@ describe("static assertion and diagnostic macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("staticAssert"),
         undefined,
-        [
-          ts.factory.createFalse(),
-          ts.factory.createStringLiteral("must be true"),
-        ],
+        [ts.factory.createFalse(), ts.factory.createStringLiteral("must be true")]
       );
 
       staticAssertMacro.expand(ctx, callExpr, [
@@ -105,12 +98,10 @@ describe("static assertion and diagnostic macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("staticAssert"),
         undefined,
-        [ts.factory.createNumericLiteral(0)],
+        [ts.factory.createNumericLiteral(0)]
       );
 
-      staticAssertMacro.expand(ctx, callExpr, [
-        ts.factory.createNumericLiteral(0),
-      ]);
+      staticAssertMacro.expand(ctx, callExpr, [ts.factory.createNumericLiteral(0)]);
 
       const diags = ctx.getDiagnostics();
       expect(diags.length).toBeGreaterThan(0);
@@ -121,12 +112,10 @@ describe("static assertion and diagnostic macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("staticAssert"),
         undefined,
-        [ts.factory.createNumericLiteral(42)],
+        [ts.factory.createNumericLiteral(42)]
       );
 
-      staticAssertMacro.expand(ctx, callExpr, [
-        ts.factory.createNumericLiteral(42),
-      ]);
+      staticAssertMacro.expand(ctx, callExpr, [ts.factory.createNumericLiteral(42)]);
 
       expect(ctx.getDiagnostics()).toHaveLength(0);
     });
@@ -137,7 +126,7 @@ describe("static assertion and diagnostic macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("compileError"),
         undefined,
-        [ts.factory.createStringLiteral("something went wrong")],
+        [ts.factory.createStringLiteral("something went wrong")]
       );
 
       compileErrorMacro.expand(ctx, callExpr, [
@@ -156,12 +145,10 @@ describe("static assertion and diagnostic macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("compileWarning"),
         undefined,
-        [ts.factory.createStringLiteral("deprecated API")],
+        [ts.factory.createStringLiteral("deprecated API")]
       );
 
-      compileWarningMacro.expand(ctx, callExpr, [
-        ts.factory.createStringLiteral("deprecated API"),
-      ]);
+      compileWarningMacro.expand(ctx, callExpr, [ts.factory.createStringLiteral("deprecated API")]);
 
       const diags = ctx.getDiagnostics();
       expect(diags.length).toBe(1);

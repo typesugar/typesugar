@@ -186,12 +186,12 @@ const searchResults = fx(function* () {
 
   const results = yield* Fx.all(
     http.fetch<Results>(`/search?q=${query}`),
-    http.fetch<Suggestions>(`/suggest?q=${query}`),
+    http.fetch<Suggestions>(`/suggest?q=${query}`)
   );
 
   const fresh = yield* Fx.race(
     results,
-    Fx.delay(3000).map(() => cachedResults),
+    Fx.delay(3000).map(() => cachedResults)
   );
 
   return fresh;
@@ -205,12 +205,8 @@ const searchResults = async (query) => {
   const controller = new AbortController();
   try {
     const results = await Promise.all([
-      fetch(`/search?q=${query}`, { signal: controller.signal }).then((r) =>
-        r.json(),
-      ),
-      fetch(`/suggest?q=${query}`, { signal: controller.signal }).then((r) =>
-        r.json(),
-      ),
+      fetch(`/search?q=${query}`, { signal: controller.signal }).then((r) => r.json()),
+      fetch(`/suggest?q=${query}`, { signal: controller.signal }).then((r) => r.json()),
     ]);
     return await Promise.race([
       Promise.resolve(results),
@@ -281,9 +277,7 @@ const LikeButton = component(($) => {
     });
 
     return html`
-      <button onClick=${() => like.run()}>
-        ${like.pending ? "..." : `${likes} likes`}
-      </button>
+      <button onClick=${() => like.run()}>${like.pending ? "..." : `${likes} likes`}</button>
     `;
   };
 });
@@ -334,11 +328,7 @@ const Settings = component(() => {
       <option value="light" selected=${state.theme === "light"}>Light</option>
       <option value="dark" selected=${state.theme === "dark"}>Dark</option>
     </select>
-    <input
-      type="checkbox"
-      checked=${state.notifications}
-      onChange=${toggleNotifications}
-    />
+    <input type="checkbox" checked=${state.notifications} onChange=${toggleNotifications} />
   `;
 });
 ```

@@ -38,6 +38,17 @@ export interface PreprocessResult {
 }
 
 /**
+ * Options passed to syntax extension rewrite methods
+ */
+export interface RewriteOptions {
+  /**
+   * "macro" (default) for compilation -- produces valid TS for macro processing
+   * "format" for prettier round-tripping -- produces markers that can be reversed
+   */
+  mode?: "macro" | "format";
+}
+
+/**
  * Base interface for non-operator syntax extensions (e.g., HKT)
  */
 export interface SyntaxExtension {
@@ -53,7 +64,7 @@ export interface SyntaxExtension {
    * Rewrite patterns in the token stream.
    * Returns replacements to apply to the source text.
    */
-  rewrite(stream: TokenStream, source: string): Replacement[];
+  rewrite(stream: TokenStream, source: string, options?: RewriteOptions): Replacement[];
 }
 
 /**
@@ -80,12 +91,7 @@ export interface CustomOperatorExtension {
  * Type guard for CustomOperatorExtension
  */
 export function isCustomOperatorExtension(
-  ext: SyntaxExtension | CustomOperatorExtension,
+  ext: SyntaxExtension | CustomOperatorExtension
 ): ext is CustomOperatorExtension {
-  return (
-    "symbol" in ext &&
-    "precedence" in ext &&
-    "associativity" in ext &&
-    "transform" in ext
-  );
+  return "symbol" in ext && "precedence" in ext && "associativity" in ext && "transform" in ext;
 }

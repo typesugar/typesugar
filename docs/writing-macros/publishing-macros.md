@@ -133,19 +133,14 @@ defineExpressionMacro("myMacro", {
     }
 
     // Transform...
-    return ctx.factory.createBinaryExpression(
-      arg,
-      ts.SyntaxKind.PlusToken,
-      arg,
-    );
+    return ctx.factory.createBinaryExpression(arg, ts.SyntaxKind.PlusToken, arg);
   },
 });
 
 // Runtime placeholder
 export function myMacro<T>(value: T): T {
   throw new Error(
-    "myMacro() should be compiled away. " +
-      "Make sure @typesugar/transformer is configured.",
+    "myMacro() should be compiled away. " + "Make sure @typesugar/transformer is configured."
   );
 }
 ```

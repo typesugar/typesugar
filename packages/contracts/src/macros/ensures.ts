@@ -32,11 +32,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 import { shouldEmitCheck } from "../config.js";
 import { normalizeExpression } from "../parser/predicate.js";
 
@@ -58,21 +54,16 @@ export const ensuresMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
-      ctx.reportError(
-        callExpr,
-        "ensures() expects 1-2 arguments: ensures(condition, message?)",
-      );
+      ctx.reportError(callExpr, "ensures() expects 1-2 arguments: ensures(condition, message?)");
       return callExpr;
     }
 
     // If stripping is enabled, remove the call entirely
     if (!shouldEmitCheck("postcondition")) {
-      return ctx.factory.createVoidExpression(
-        ctx.factory.createNumericLiteral(0),
-      );
+      return ctx.factory.createVoidExpression(ctx.factory.createNumericLiteral(0));
     }
 
     const condition = args[0];
@@ -80,9 +71,7 @@ export const ensuresMacro = defineExpressionMacro({
     const message =
       args.length >= 2
         ? args[1]
-        : ctx.factory.createStringLiteral(
-            `Postcondition failed: ${conditionText}`,
-          );
+        : ctx.factory.createStringLiteral(`Postcondition failed: ${conditionText}`);
 
     // NOTE: old() hoisting and statement reordering is handled by the
     // @contract attribute macro or by a post-processing pass in the
@@ -104,18 +93,16 @@ export const ensuresMacro = defineExpressionMacro({
             ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
             ctx.factory.createBlock([
               ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(
-                  ctx.factory.createIdentifier("Error"),
-                  undefined,
-                  [message],
-                ),
+                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
+                  message,
+                ])
               ),
-            ]),
-          ),
+            ])
+          )
         ),
         undefined,
-        [],
-      ),
+        []
+      )
     );
   },
 });

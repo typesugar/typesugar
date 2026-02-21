@@ -71,14 +71,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   expand(
     ctx: MacroContext,
     mainBlock: ts.LabeledStatement,
-    continuation: ts.LabeledStatement | undefined,
+    continuation: ts.LabeledStatement | undefined
   ): ts.Statement | ts.Statement[] {
     const { factory, typeChecker } = ctx;
 
     if (!continuation) {
       ctx.reportError(
         mainBlock,
-        "let: block requires a 'yield:', 'pure:', or 'return:' block after it",
+        "let: block requires a 'yield:', 'pure:', or 'return:' block after it"
       );
       return mainBlock;
     }
@@ -87,10 +87,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     const bindings = parseBindingsFromBlock(mainBlock.statement, ctx);
 
     if (bindings.length === 0) {
-      ctx.reportError(
-        mainBlock,
-        "let: block must contain at least one binding (x << expression)",
-      );
+      ctx.reportError(mainBlock, "let: block must contain at least one binding (x << expression)");
       return mainBlock;
     }
 
@@ -109,7 +106,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       ctx.reportError(
         firstEffect,
         "Could not infer type constructor from expression. " +
-          "Make sure the expression has a known type (Array, Promise, Option, etc.)",
+          "Make sure the expression has a known type (Array, Promise, Option, etc.)"
       );
       return mainBlock;
     }
@@ -121,18 +118,13 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       ctx.reportError(
         firstEffect,
         `No FlatMap instance registered for '${typeConstructorName}'. ` +
-          "Use registerFlatMap() to register an instance.",
+          "Use registerFlatMap() to register an instance."
       );
       return mainBlock;
     }
 
     // Generate the flatMap chain based on the type constructor
-    const result = generateFlatMapChain(
-      ctx,
-      bindings,
-      yieldExpr,
-      typeConstructorName,
-    );
+    const result = generateFlatMapChain(ctx, bindings, yieldExpr, typeConstructorName);
 
     return factory.createExpressionStatement(result);
   },
@@ -155,10 +147,7 @@ interface Binding {
  * Parse bindings from a block statement.
  * Expects expressions with << operator: { x << getX(); y << getY(x); }
  */
-function parseBindingsFromBlock(
-  stmt: ts.Statement,
-  ctx: MacroContext,
-): Binding[] {
+function parseBindingsFromBlock(stmt: ts.Statement, ctx: MacroContext): Binding[] {
   const bindings: Binding[] = [];
 
   if (ts.isBlock(stmt)) {
@@ -181,10 +170,7 @@ function parseBindingsFromBlock(
 /**
  * Parse a single binding from a statement.
  */
-function parseBindingStatement(
-  stmt: ts.Statement,
-  ctx: MacroContext,
-): Binding | undefined {
+function parseBindingStatement(stmt: ts.Statement, ctx: MacroContext): Binding | undefined {
   if (ts.isExpressionStatement(stmt)) {
     return parseBindingFromExpression(stmt.expression, ctx);
   }
@@ -195,8 +181,7 @@ function parseBindingStatement(
       // Check if initializer is _ << effect — use the declaration name, not the left of <<
       if (
         ts.isBinaryExpression(decl.initializer) &&
-        decl.initializer.operatorToken.kind ===
-          ts.SyntaxKind.LessThanLessThanToken
+        decl.initializer.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
       ) {
         return {
           name: decl.name.text,
@@ -217,10 +202,7 @@ function parseBindingStatement(
 /**
  * Parse binding from expression (x << effect format).
  */
-function parseBindingFromExpression(
-  expr: ts.Expression,
-  ctx: MacroContext,
-): Binding | undefined {
+function parseBindingFromExpression(expr: ts.Expression, ctx: MacroContext): Binding | undefined {
   if (
     ts.isBinaryExpression(expr) &&
     expr.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
@@ -243,10 +225,7 @@ function parseBindingFromExpression(
  * Comma expressions evaluate all operands but return only the last value.
  */
 function isCommaExpression(expr: ts.Expression): boolean {
-  return (
-    ts.isBinaryExpression(expr) &&
-    expr.operatorToken.kind === ts.SyntaxKind.CommaToken
-  );
+  return ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.CommaToken;
 }
 
 /**
@@ -280,17 +259,14 @@ function looksLikeIntendedObjectLiteral(expr: ts.Expression): boolean {
 /**
  * Extract the yield expression from a block.
  */
-function extractYieldExpression(
-  stmt: ts.Statement,
-  ctx: MacroContext,
-): ts.Expression | undefined {
+function extractYieldExpression(stmt: ts.Statement, ctx: MacroContext): ts.Expression | undefined {
   if (ts.isBlock(stmt)) {
     const lastStmt = stmt.statements[stmt.statements.length - 1];
     if (stmt.statements.length > 1) {
       ctx.reportWarning(
         stmt,
         "yield: block has multiple statements; only the last expression is used. " +
-          "Preceding statements will be discarded.",
+          "Preceding statements will be discarded."
       );
     }
     if (lastStmt && ts.isExpressionStatement(lastStmt)) {
@@ -301,7 +277,7 @@ function extractYieldExpression(
         ctx.reportError(
           lastStmt,
           "yield: block contains a comma expression, not an object literal. " +
-            "Did you mean `yield: ({ user, posts })`? Use parentheses to create an object literal.",
+            "Did you mean `yield: ({ user, posts })`? Use parentheses to create an object literal."
         );
         // Still return the expression so compilation can continue with a warning
         return expr;
@@ -319,15 +295,12 @@ function extractYieldExpression(
       ctx.reportError(
         lastStmt,
         "yield: contains a nested block, not an object literal. " +
-          "To return an object, use `yield: ({ user, posts })` with parentheses.",
+          "To return an object, use `yield: ({ user, posts })` with parentheses."
       );
       return undefined;
     }
 
-    ctx.reportError(
-      stmt,
-      "yield: block should contain a single expression or object literal",
-    );
+    ctx.reportError(stmt, "yield: block should contain a single expression or object literal");
     return undefined;
   }
 
@@ -347,7 +320,7 @@ function extractYieldExpression(
  */
 function inferTypeConstructor(
   expr: ts.Expression,
-  typeChecker: ts.TypeChecker,
+  typeChecker: ts.TypeChecker
 ): string | undefined {
   const type = typeChecker.getTypeAtLocation(expr);
   const typeString = typeChecker.typeToString(type);
@@ -378,10 +351,7 @@ function inferTypeConstructor(
   }
 
   // Handle AsyncIterable<T>
-  if (
-    type.symbol?.name === "AsyncIterable" ||
-    typeString.startsWith("AsyncIterable<")
-  ) {
+  if (type.symbol?.name === "AsyncIterable" || typeString.startsWith("AsyncIterable<")) {
     return "AsyncIterable";
   }
 
@@ -448,7 +418,7 @@ function generateFlatMapChain(
   ctx: MacroContext,
   bindings: Binding[],
   yieldExpr: ts.Expression,
-  typeConstructor: string,
+  typeConstructor: string
 ): ts.Expression {
   const { factory } = ctx;
 
@@ -466,14 +436,7 @@ function generateFlatMapChain(
 
     // Generate: effect.methodName(name => result)
     // or for Array: effect.methodName(name => result)
-    result = generateMethodCall(
-      factory,
-      effect,
-      methodName,
-      name,
-      result,
-      typeConstructor,
-    );
+    result = generateMethodCall(factory, effect, methodName, name, result, typeConstructor);
   }
 
   return result;
@@ -492,7 +455,7 @@ function generateMethodCall(
   methodName: string,
   paramName: string,
   body: ts.Expression,
-  typeConstructor: string,
+  typeConstructor: string
 ): ts.Expression {
   // For Array and Promise, use native methods directly
   if (typeConstructor === "Array" || typeConstructor === "Promise") {
@@ -500,10 +463,7 @@ function generateMethodCall(
     const actualMethod = typeConstructor === "Promise" ? "then" : methodName;
 
     return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        expr,
-        factory.createIdentifier(actualMethod),
-      ),
+      factory.createPropertyAccessExpression(expr, factory.createIdentifier(actualMethod)),
       undefined,
       [
         factory.createArrowFunction(
@@ -513,14 +473,14 @@ function generateMethodCall(
             factory.createParameterDeclaration(
               undefined,
               undefined,
-              factory.createIdentifier(paramName),
+              factory.createIdentifier(paramName)
             ),
           ],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          body,
+          body
         ),
-      ],
+      ]
     );
   }
 
@@ -531,7 +491,7 @@ function generateMethodCall(
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("Effect"),
-        factory.createIdentifier(methodName),
+        factory.createIdentifier(methodName)
       ),
       undefined,
       [
@@ -543,14 +503,14 @@ function generateMethodCall(
             factory.createParameterDeclaration(
               undefined,
               undefined,
-              factory.createIdentifier(paramName),
+              factory.createIdentifier(paramName)
             ),
           ],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          body,
+          body
         ),
-      ],
+      ]
     );
   }
 
@@ -561,22 +521,16 @@ function generateMethodCall(
       factory.createNonNullExpression(
         factory.createCallExpression(
           factory.createPropertyAccessExpression(
-            factory.createCallExpression(
-              factory.createIdentifier("require"),
-              undefined,
-              [
-                factory.createStringLiteral(
-                  "@typesugar/std/typeclasses/flatmap",
-                ),
-              ],
-            ),
-            factory.createIdentifier("getFlatMap"),
+            factory.createCallExpression(factory.createIdentifier("require"), undefined, [
+              factory.createStringLiteral("@typesugar/std/typeclasses/flatmap"),
+            ]),
+            factory.createIdentifier("getFlatMap")
           ),
           undefined,
-          [factory.createStringLiteral(typeConstructor)],
-        ),
+          [factory.createStringLiteral(typeConstructor)]
+        )
       ),
-      factory.createIdentifier(methodName),
+      factory.createIdentifier(methodName)
     ),
     undefined,
     [
@@ -588,14 +542,14 @@ function generateMethodCall(
           factory.createParameterDeclaration(
             undefined,
             undefined,
-            factory.createIdentifier(paramName),
+            factory.createIdentifier(paramName)
           ),
         ],
         undefined,
         factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        body,
+        body
       ),
-    ],
+    ]
   );
 }
 

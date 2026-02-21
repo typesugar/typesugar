@@ -3,7 +3,7 @@ import type { Graph, GraphEdge, GraphNode } from "./types.js";
 /** Create a directed graph from node IDs and edge tuples `[from, to, label?]`. */
 export function createDigraph(
   nodes: string[],
-  edges: [from: string, to: string, label?: string][],
+  edges: [from: string, to: string, label?: string][]
 ): Graph {
   return buildGraph(nodes, edges, true);
 }
@@ -11,7 +11,7 @@ export function createDigraph(
 /** Create an undirected graph from node IDs and edge tuples `[from, to, label?]`. */
 export function createGraph(
   nodes: string[],
-  edges: [from: string, to: string, label?: string][],
+  edges: [from: string, to: string, label?: string][]
 ): Graph {
   return buildGraph(nodes, edges, false);
 }
@@ -19,7 +19,7 @@ export function createGraph(
 function buildGraph(
   nodeIds: string[],
   edgeTuples: [string, string, string?][],
-  directed: boolean,
+  directed: boolean
 ): Graph {
   const nodeSet = new Set(nodeIds);
   for (const [from, to] of edgeTuples) {
@@ -105,11 +105,7 @@ export function adjacencyList(graph: Graph): Map<string, string[]> {
 }
 
 /** Return a new graph with an additional node. */
-export function addNode(
-  graph: Graph,
-  id: string,
-  metadata?: Record<string, unknown>,
-): Graph {
+export function addNode(graph: Graph, id: string, metadata?: Record<string, unknown>): Graph {
   if (graph.nodes.some((n) => n.id === id)) return graph;
   const node: GraphNode = metadata ? { id, metadata } : { id };
   return { ...graph, nodes: [...graph.nodes, node] };
@@ -121,7 +117,7 @@ export function addEdge(
   from: string,
   to: string,
   label?: string,
-  weight?: number,
+  weight?: number
 ): Graph {
   let g = graph;
   if (!g.nodes.some((n) => n.id === from)) g = addNode(g, from);

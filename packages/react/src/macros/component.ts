@@ -30,11 +30,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  type MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 import type { ReactMacroMode } from "../types.js";
 import {
   analyzeClosureCaptures,
@@ -69,17 +65,12 @@ export interface HoistedComponent {
 /**
  * Per-file tracking of hoisted components
  */
-export const hoistedComponentsMap = new WeakMap<
-  ts.SourceFile,
-  HoistedComponent[]
->();
+export const hoistedComponentsMap = new WeakMap<ts.SourceFile, HoistedComponent[]>();
 
 /**
  * Get or create the hoisted components array for a source file
  */
-export function getHoistedComponents(
-  sourceFile: ts.SourceFile,
-): HoistedComponent[] {
+export function getHoistedComponents(sourceFile: ts.SourceFile): HoistedComponent[] {
   let arr = hoistedComponentsMap.get(sourceFile);
   if (!arr) {
     arr = [];
@@ -107,7 +98,7 @@ export const componentMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -115,7 +106,7 @@ export const componentMacro = defineExpressionMacro({
     if (args.length !== 1) {
       ctx.reportError(
         callExpr,
-        `component() requires exactly one argument (render function), got ${args.length}`,
+        `component() requires exactly one argument (render function), got ${args.length}`
       );
       return callExpr;
     }
@@ -126,15 +117,14 @@ export const componentMacro = defineExpressionMacro({
     if (!ts.isArrowFunction(renderFn) && !ts.isFunctionExpression(renderFn)) {
       ctx.reportError(
         callExpr,
-        "component() argument must be an arrow function or function expression",
+        "component() argument must be an arrow function or function expression"
       );
       return callExpr;
     }
 
     // Get the component name from the parent variable declaration
     const componentName = getComponentNameFromCall(callExpr);
-    const finalName =
-      componentName ?? `__AnonymousComponent_${++componentCounter}`;
+    const finalName = componentName ?? `__AnonymousComponent_${++componentCounter}`;
 
     // Get props type from type argument if provided
     let propsType: ts.TypeNode | undefined;
@@ -157,14 +147,11 @@ export const componentMacro = defineExpressionMacro({
       ctx,
       renderFn as ts.ArrowFunction | ts.FunctionExpression,
       parentStateVars,
-      parentScopeVars,
+      parentScopeVars
     );
 
     if (!captureAnalysis.canHoist) {
-      ctx.reportError(
-        callExpr,
-        `Cannot hoist component: ${captureAnalysis.hoistBlocker}`,
-      );
+      ctx.reportError(callExpr, `Cannot hoist component: ${captureAnalysis.hoistBlocker}`);
       return callExpr;
     }
 
@@ -174,9 +161,7 @@ export const componentMacro = defineExpressionMacro({
       name: finalName,
       propsType,
       body: renderFn as ts.ArrowFunction | ts.FunctionExpression,
-      capturedProps: captureAnalysis.captures
-        .filter((c) => c.needsProp)
-        .map((c) => c.name),
+      capturedProps: captureAnalysis.captures.filter((c) => c.needsProp).map((c) => c.name),
       originalNode: callExpr,
     });
 
@@ -189,12 +174,12 @@ export const componentMacro = defineExpressionMacro({
       // Marker
       factory.createPropertyAssignment(
         factory.createIdentifier("__typemacro_component"),
-        factory.createTrue(),
+        factory.createTrue()
       ),
       // Component name
       factory.createPropertyAssignment(
         factory.createIdentifier("__name"),
-        factory.createStringLiteral(finalName),
+        factory.createStringLiteral(finalName)
       ),
       // Captured props (for JSX usage transformation)
       factory.createPropertyAssignment(
@@ -202,8 +187,8 @@ export const componentMacro = defineExpressionMacro({
         factory.createArrayLiteralExpression(
           captureAnalysis.captures
             .filter((c) => c.needsProp)
-            .map((c) => factory.createStringLiteral(c.name)),
-        ),
+            .map((c) => factory.createStringLiteral(c.name))
+        )
       ),
     ]);
   },
@@ -231,7 +216,7 @@ function getComponentNameFromCall(callExpr: ts.CallExpression): string | null {
  * Find the parent function containing a node
  */
 function findParentFunction(
-  node: ts.Node,
+  node: ts.Node
 ): ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | null {
   let current: ts.Node | undefined = node.parent;
   while (current) {
@@ -253,7 +238,7 @@ function findParentFunction(
 export function generateHoistedComponent(
   ctx: MacroContext,
   component: HoistedComponent,
-  stateMetadata: Map<string, StateMetadata>,
+  stateMetadata: Map<string, StateMetadata>
 ): ts.VariableStatement {
   const factory = ctx.factory;
 
@@ -267,7 +252,7 @@ export function generateHoistedComponent(
     factory.createObjectBindingPattern(getPropsBindings(renderFn, factory)),
     undefined,
     component.propsType,
-    undefined,
+    undefined
   );
 
   // Create the inner function
@@ -280,17 +265,17 @@ export function generateHoistedComponent(
     undefined,
     ts.isBlock(renderFn.body)
       ? renderFn.body
-      : factory.createBlock([factory.createReturnStatement(renderFn.body)]),
+      : factory.createBlock([factory.createReturnStatement(renderFn.body)])
   );
 
   // Wrap in React.memo
   const memoizedComponent = factory.createCallExpression(
     factory.createPropertyAccessExpression(
       factory.createIdentifier("React"),
-      factory.createIdentifier("memo"),
+      factory.createIdentifier("memo")
     ),
     undefined,
-    [innerFn],
+    [innerFn]
   );
 
   // Create the variable declaration
@@ -302,11 +287,11 @@ export function generateHoistedComponent(
           factory.createIdentifier(component.name),
           undefined,
           undefined,
-          memoizedComponent,
+          memoizedComponent
         ),
       ],
-      ts.NodeFlags.Const,
-    ),
+      ts.NodeFlags.Const
+    )
   );
 }
 
@@ -315,7 +300,7 @@ export function generateHoistedComponent(
  */
 function getPropsBindings(
   renderFn: ts.ArrowFunction | ts.FunctionExpression,
-  factory: ts.NodeFactory,
+  factory: ts.NodeFactory
 ): ts.BindingElement[] {
   const params = renderFn.parameters;
   if (params.length === 0) {
@@ -344,7 +329,7 @@ export function isComponentMarker(expr: ts.Expression): boolean {
     (prop) =>
       ts.isPropertyAssignment(prop) &&
       ts.isIdentifier(prop.name) &&
-      prop.name.text === "__typemacro_component",
+      prop.name.text === "__typemacro_component"
   );
 }
 
@@ -352,7 +337,7 @@ export function isComponentMarker(expr: ts.Expression): boolean {
  * Extract component name from a marker object
  */
 export function extractComponentFromMarker(
-  expr: ts.ObjectLiteralExpression,
+  expr: ts.ObjectLiteralExpression
 ): { name: string; capturedProps: string[] } | null {
   let name: string | undefined;
   let capturedProps: string[] = [];
@@ -370,9 +355,7 @@ export function extractComponentFromMarker(
         break;
       case "__capturedProps":
         if (ts.isArrayLiteralExpression(prop.initializer)) {
-          capturedProps = prop.initializer.elements
-            .filter(ts.isStringLiteral)
-            .map((s) => s.text);
+          capturedProps = prop.initializer.elements.filter(ts.isStringLiteral).map((s) => s.text);
         }
         break;
     }

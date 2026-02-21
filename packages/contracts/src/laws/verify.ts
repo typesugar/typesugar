@@ -81,7 +81,7 @@ export function resetLawsConfig(): void {
 export function proofHintToFacts(
   hint: ProofHint,
   operation?: string,
-  identity?: string,
+  identity?: string
 ): TypeFact[] {
   const facts: TypeFact[] = [];
   const op = operation ?? "combine";
@@ -178,14 +178,12 @@ export function proofHintToFacts(
 export function verifyLaw(
   law: Law,
   facts: TypeFact[],
-  options?: VerifyOptions,
+  options?: VerifyOptions
 ): LawVerificationResult {
   // Add hint-derived facts
   const allFacts = [...facts];
   if (law.proofHint) {
-    const hints = Array.isArray(law.proofHint)
-      ? law.proofHint
-      : [law.proofHint];
+    const hints = Array.isArray(law.proofHint) ? law.proofHint : [law.proofHint];
     for (const hint of hints) {
       allFacts.push(...proofHintToFacts(hint));
     }
@@ -246,7 +244,7 @@ export function verifyLaw(
 export function verifyLaws(
   laws: LawSet,
   facts: TypeFact[],
-  options?: VerifyOptions,
+  options?: VerifyOptions
 ): VerificationSummary {
   const results: LawVerificationResult[] = [];
 
@@ -275,7 +273,7 @@ export function verifyLaws(
 export async function verifyLawsAsync(
   laws: LawSet,
   facts: TypeFact[],
-  options?: VerifyOptions,
+  options?: VerifyOptions
 ): Promise<VerificationSummary> {
   const results: LawVerificationResult[] = [];
 
@@ -299,14 +297,12 @@ export async function verifyLawsAsync(
 async function verifyLawAsync(
   law: Law,
   facts: TypeFact[],
-  options?: VerifyOptions,
+  options?: VerifyOptions
 ): Promise<LawVerificationResult> {
   // Add hint-derived facts
   const allFacts = [...facts];
   if (law.proofHint) {
-    const hints = Array.isArray(law.proofHint)
-      ? law.proofHint
-      : [law.proofHint];
+    const hints = Array.isArray(law.proofHint) ? law.proofHint : [law.proofHint];
     for (const hint of hints) {
       allFacts.push(...proofHintToFacts(hint));
     }
@@ -372,12 +368,10 @@ async function verifyLawAsync(
 export function generatePropertyTest(
   law: Law,
   arbitraryExpr: string,
-  iterations: number = 100,
+  iterations: number = 100
 ): string {
   // Generate forAll call based on arity
-  const args = Array.from({ length: law.arity }, (_, i) => `_arg${i}`).join(
-    ", ",
-  );
+  const args = Array.from({ length: law.arity }, (_, i) => `_arg${i}`).join(", ");
 
   return `forAll(
     ${arbitraryExpr},
@@ -396,9 +390,7 @@ export function generatePropertyTest(
 /**
  * Format a verification summary for diagnostic output.
  */
-export function formatVerificationSummary(
-  summary: VerificationSummary,
-): string {
+export function formatVerificationSummary(summary: VerificationSummary): string {
   const lines: string[] = [];
   lines.push(`Law Verification: ${summary.proven}/${summary.total} proven`);
 
@@ -411,18 +403,10 @@ export function formatVerificationSummary(
 
   lines.push("");
   for (const result of summary.results) {
-    const icon =
-      result.status === "proven"
-        ? "✓"
-        : result.status === "disproven"
-          ? "✗"
-          : "?";
-    const method =
-      result.status === "proven" && result.method ? ` [${result.method}]` : "";
+    const icon = result.status === "proven" ? "✓" : result.status === "disproven" ? "✗" : "?";
+    const method = result.status === "proven" && result.method ? ` [${result.method}]` : "";
     const reason =
-      result.status !== "proven" && "reason" in result && result.reason
-        ? `: ${result.reason}`
-        : "";
+      result.status !== "proven" && "reason" in result && result.reason ? `: ${result.reason}` : "";
     lines.push(`  ${icon} ${result.law}${method}${reason}`);
   }
 

@@ -79,9 +79,7 @@ class SignalImpl<T> implements Signal<T> {
 
   set(valueOrFn: T | ((prev: T) => T)): void {
     const newValue =
-      typeof valueOrFn === "function"
-        ? (valueOrFn as (prev: T) => T)(this.value)
-        : valueOrFn;
+      typeof valueOrFn === "function" ? (valueOrFn as (prev: T) => T)(this.value) : valueOrFn;
 
     if (Object.is(this.value, newValue)) {
       return; // No change
@@ -297,13 +295,10 @@ class EffectImpl {
  * ```
  */
 export function createSignal<T>(
-  initialValue: T,
+  initialValue: T
 ): [read: () => T, write: (value: T | ((prev: T) => T)) => void] {
   const signal = new SignalImpl(initialValue);
-  return [
-    () => signal.get(),
-    (value: T | ((prev: T) => T)) => signal.set(value),
-  ];
+  return [() => signal.get(), (value: T | ((prev: T) => T)) => signal.set(value)];
 }
 
 /**

@@ -114,7 +114,7 @@ export function parseStateMachine(source: string): StateMachineDefinition {
     const match = line.match(/^(\S+)\s+--(\S+)-->\s+(\S+)$/);
     if (!match) {
       throw new SyntaxError(
-        `Invalid state machine transition: "${rawLine}". Expected: "State --event--> State"`,
+        `Invalid state machine transition: "${rawLine}". Expected: "State --event--> State"`
       );
     }
     transitions.push({ from: match[1], event: match[2], to: match[3] });

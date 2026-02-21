@@ -1,6 +1,21 @@
 # Extension Methods
 
-typesugar supports Scala 3-style extension methods for adding functionality to existing types.
+typesugar supports Scala 3-style extension methods — call methods on types that don't natively have them, with zero runtime cost.
+
+## How It Works
+
+Extension methods work implicitly. Just import a namespace or function and call methods directly:
+
+```typescript
+import { NumberExt, StringExt, ArrayExt } from "@typesugar/std";
+
+// Methods on primitives just work
+(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
+"hello".capitalize(); // → StringExt.capitalize("hello")
+[1, 2, 3].sum(); // → ArrayExt.sum([1, 2, 3])
+```
+
+The transformer detects method calls on types, looks up matching extension methods from your imports, and rewrites to direct function calls — zero wrapper overhead.
 
 ## Two Types of Extensions
 
@@ -9,45 +24,22 @@ typesugar supports Scala 3-style extension methods for adding functionality to e
 Methods from typeclass instances:
 
 ```typescript
-import { extend } from "@typesugar/typeclass";
 import { Show, Eq } from "@typesugar/std";
 
-extend(42).show(); // "42" (from Show<number>)
-extend("hi").show(); // "\"hi\""
+(42).show(); // "42" (from Show<number>)
+"hi".show(); // "\"hi\""
+point.equals(p); // Eq<Point>.equals
 ```
 
 ### 2. Standalone Extensions
 
-Methods added to specific types:
+Methods added to specific types via namespaces:
 
 ```typescript
-import { extend } from "@typesugar/std";
 import { NumberExt, StringExt } from "@typesugar/std";
 
-extend(42).clamp(0, 100); // 42
-extend("hello").capitalize(); // "Hello"
-```
-
-## Using Extensions
-
-### With extend()
-
-```typescript
-import { extend } from "@typesugar/std";
-
-const clamped = extend(150).clamp(0, 100); // 100
-const upper = extend("hello").toUpperCase(); // "HELLO"
-```
-
-### Import-Scoped Extensions
-
-Extensions are discovered from imports:
-
-```typescript
-import { clamp } from "@typesugar/std";
-
-// The transformer sees clamp is imported and rewrites:
-(42).clamp(0, 100); // → clamp(42, 0, 100)
+(42).clamp(0, 100); // NumberExt.clamp
+"hello".capitalize(); // StringExt.capitalize
 ```
 
 ## Built-in Extensions
@@ -57,12 +49,12 @@ import { clamp } from "@typesugar/std";
 ```typescript
 import { NumberExt } from "@typesugar/std";
 
-extend(42).clamp(0, 100); // Clamp to range
-extend(42).times(fn); // Call fn 42 times
-extend(3.14159).round(2); // 3.14
-extend(42).isEven(); // true
-extend(42).isOdd(); // false
-extend(7).isPrime(); // true
+(42).clamp(0, 100); // Clamp to range
+(42).times(fn); // Call fn 42 times
+(3.14159).round(2); // 3.14
+(42).isEven(); // true
+(42).isOdd(); // false
+(7).isPrime(); // true
 ```
 
 ### String Extensions
@@ -70,11 +62,11 @@ extend(7).isPrime(); // true
 ```typescript
 import { StringExt } from "@typesugar/std";
 
-extend("hello").capitalize(); // "Hello"
-extend("hello world").titleCase(); // "Hello World"
-extend("  hi  ").strip(); // "hi"
-extend("hello").reverse(); // "olleh"
-extend("hello").truncate(3); // "hel..."
+"hello".capitalize(); // "Hello"
+"hello world".titleCase(); // "Hello World"
+"  hi  ".strip(); // "hi"
+"hello".reverse(); // "olleh"
+"hello".truncate(3); // "hel..."
 ```
 
 ### Array Extensions
@@ -82,12 +74,12 @@ extend("hello").truncate(3); // "hel..."
 ```typescript
 import { ArrayExt } from "@typesugar/std";
 
-extend([1, 2, 3]).first(); // Some(1)
-extend([1, 2, 3]).last(); // Some(3)
-extend([1, 2, 3]).isEmpty(); // false
-extend([1, 2, 3]).nonEmpty(); // true
-extend([1, 2, 3]).partition((x) => x > 1); // [[2, 3], [1]]
-extend([1, 2, 3]).groupBy((x) => x % 2); // Map { 1: [1, 3], 0: [2] }
+[1, 2, 3].first(); // Some(1)
+[1, 2, 3].last(); // Some(3)
+[1, 2, 3].isEmpty(); // false
+[1, 2, 3].nonEmpty(); // true
+[1, 2, 3].partition((x) => x > 1); // [[2, 3], [1]]
+[1, 2, 3].groupBy((x) => x % 2); // Map { 1: [1, 3], 0: [2] }
 ```
 
 ## Creating Extensions
@@ -110,13 +102,9 @@ Usage:
 ```typescript
 import { double, greet } from "./my-extensions";
 
-// Automatically discovered
-(42)
-  .double()(
-    // → double(42) → 84
-    "Alice",
-  )
-  .greet(); // → greet("Alice") → "Hello, Alice!"
+// Automatically discovered from imports
+(42).double(); // → double(42) → 84
+"Alice".greet(); // → greet("Alice") → "Hello, Alice!"
 ```
 
 ### Extension Namespaces
@@ -138,8 +126,8 @@ Usage:
 ```typescript
 import { MathExt } from "./math-ext";
 
-extend(3).square(); // 9
-extend(3).cube(); // 27
+(3).square(); // 9
+(3).cube(); // 27
 ```
 
 ### Registering Extensions Explicitly
@@ -184,7 +172,7 @@ const PrintableNumber: Printable<number> = {
   print: (n) => console.log(n),
 };
 
-extend(42).print();  // Calls PrintableNumber.print(42)
+(42).print();  // Calls PrintableNumber.print(42)
 ```
 
 ## Precedence
@@ -212,8 +200,28 @@ function first<T>(arr: T[]): T | undefined {
 }
 
 // Works with any array
-extend([1, 2, 3]).first(); // 1
-extend(["a", "b"]).first(); // "a"
+[1, 2, 3].first(); // 1
+["a", "b"].first(); // "a"
+```
+
+## When to Use `extend()`
+
+The `extend()` wrapper exists but is rarely needed. Use it for:
+
+- **Disambiguation** — multiple typeclasses define the same method name
+- **Generic contexts** — type parameter isn't concrete at the call site
+- **Explicit intent** — documentation or teaching
+
+```typescript
+import { extend } from "@typesugar/typeclass";
+import { Functor, Applicative } from "@typesugar/fp";
+
+// Rare: disambiguate when multiple typeclasses have .map()
+extend(value, Functor).map(f);
+
+// Common: just call methods directly
+value.show();
+value.clone();
 ```
 
 ## Best Practices
@@ -227,14 +235,14 @@ extend(["a", "b"]).first(); // "a"
 ### Don't
 
 - Shadow built-in methods unintentionally
-- Create extension with side effects
+- Create extensions with side effects
 - Register the same extension twice
 
 ## Comparison to Other Languages
 
-| Feature           | typesugar            | Scala 3    | Kotlin       | C#           |
-| ----------------- | -------------------- | ---------- | ------------ | ------------ |
-| Syntax            | `extend(x).method()` | `x.method` | `x.method()` | `x.Method()` |
-| Import-scoped     | Yes                  | Yes        | Yes          | Yes          |
-| Typeclass-derived | Yes                  | Yes        | No           | No           |
-| Zero-cost         | Yes                  | Yes        | Yes          | Yes          |
+| Feature           | typesugar    | Scala 3    | Kotlin       | C#           |
+| ----------------- | ------------ | ---------- | ------------ | ------------ |
+| Syntax            | `x.method()` | `x.method` | `x.method()` | `x.Method()` |
+| Import-scoped     | Yes          | Yes        | Yes          | Yes          |
+| Typeclass-derived | Yes          | Yes        | No           | No           |
+| Zero-cost         | Yes          | Yes        | Yes          | Yes          |

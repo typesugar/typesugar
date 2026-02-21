@@ -41,7 +41,7 @@ export const comptimeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.reportError(callExpr, "comptime expects exactly one argument");
@@ -76,7 +76,7 @@ export const comptimeMacro = defineExpressionMacro({
 function evaluateViaVm(
   ctx: MacroContextImpl,
   node: ts.Node,
-  callExpr: ts.CallExpression,
+  callExpr: ts.CallExpression
 ): ts.Expression {
   const sourceText = node.getText ? node.getText() : nodeToString(node, ctx);
 
@@ -96,13 +96,8 @@ function evaluateViaVm(
   });
 
   if (diagnostics && diagnostics.length > 0) {
-    const messages = diagnostics.map((d) =>
-      ts.flattenDiagnosticMessageText(d.messageText, "\n"),
-    );
-    ctx.reportError(
-      callExpr,
-      `Cannot transpile comptime expression: ${messages.join("; ")}`,
-    );
+    const messages = diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+    ctx.reportError(callExpr, `Cannot transpile comptime expression: ${messages.join("; ")}`);
     return callExpr;
   }
 
@@ -122,10 +117,7 @@ function evaluateViaVm(
 
     return jsValueToExpression(ctx, result, callExpr);
   } catch (error: unknown) {
-    ctx.reportError(
-      callExpr,
-      formatComptimeError(error, sourceText, ctx, callExpr),
-    );
+    ctx.reportError(callExpr, formatComptimeError(error, sourceText, ctx, callExpr));
     return callExpr;
   }
 }
@@ -140,7 +132,7 @@ function formatComptimeError(
   error: unknown,
   sourceText: string,
   ctx: MacroContextImpl,
-  callExpr: ts.CallExpression,
+  callExpr: ts.CallExpression
 ): string {
   const rawMessage = error instanceof Error ? error.message : String(error);
 
@@ -153,9 +145,7 @@ function formatComptimeError(
   // Truncate long source snippets
   const maxSnippetLen = 200;
   const snippet =
-    sourceText.length > maxSnippetLen
-      ? sourceText.slice(0, maxSnippetLen) + "..."
-      : sourceText;
+    sourceText.length > maxSnippetLen ? sourceText.slice(0, maxSnippetLen) + "..." : sourceText;
 
   // Detect common error patterns and provide helpful messages
   let hint = "";
@@ -163,10 +153,7 @@ function formatComptimeError(
     hint =
       `\n  Hint: The expression took longer than ${COMPTIME_TIMEOUT_MS}ms to evaluate. ` +
       `Check for infinite loops or very expensive computations.`;
-  } else if (
-    rawMessage.includes("is not defined") ||
-    rawMessage.includes("is not a function")
-  ) {
+  } else if (rawMessage.includes("is not defined") || rawMessage.includes("is not a function")) {
     const match = rawMessage.match(/(\w+) is not (defined|a function)/);
     const name = match?.[1] ?? "unknown";
     hint =
@@ -233,7 +220,7 @@ function createComptimeSandbox(): Record<string, unknown> {
 function jsValueToExpression(
   ctx: MacroContextImpl,
   value: unknown,
-  errorNode: ts.Node,
+  errorNode: ts.Node
 ): ts.Expression {
   if (value === null) {
     return ctx.factory.createNull();
@@ -247,7 +234,7 @@ function jsValueToExpression(
     if (value < 0) {
       return ctx.factory.createPrefixUnaryExpression(
         ts.SyntaxKind.MinusToken,
-        ctx.factory.createNumericLiteral(Math.abs(value)),
+        ctx.factory.createNumericLiteral(Math.abs(value))
       );
     }
     if (!isFinite(value)) {
@@ -277,14 +264,10 @@ function jsValueToExpression(
   }
 
   if (value instanceof RegExp) {
-    return ctx.factory.createCallExpression(
-      ctx.factory.createIdentifier("RegExp"),
-      undefined,
-      [
-        ctx.factory.createStringLiteral(value.source),
-        ctx.factory.createStringLiteral(value.flags),
-      ],
-    );
+    return ctx.factory.createCallExpression(ctx.factory.createIdentifier("RegExp"), undefined, [
+      ctx.factory.createStringLiteral(value.source),
+      ctx.factory.createStringLiteral(value.flags),
+    ]);
   }
 
   if (typeof value === "object") {
@@ -295,18 +278,15 @@ function jsValueToExpression(
           /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
             ? ctx.factory.createIdentifier(key)
             : ctx.factory.createStringLiteral(key),
-          jsValueToExpression(ctx, val, errorNode),
-        ),
+          jsValueToExpression(ctx, val, errorNode)
+        )
       );
     }
     return ctx.factory.createObjectLiteralExpression(properties, true);
   }
 
   // Functions, symbols, etc. cannot be serialized to AST
-  ctx.reportError(
-    errorNode,
-    `Cannot serialize comptime result of type ${typeof value} to AST`,
-  );
+  ctx.reportError(errorNode, `Cannot serialize comptime result of type ${typeof value} to AST`);
   return ctx.factory.createIdentifier("undefined");
 }
 
@@ -377,7 +357,7 @@ export function comptime<T>(expr: T | (() => T)): T {
   throw new Error(
     "comptime() was called at runtime. " +
       "This indicates the typesugar transformer is not configured correctly. " +
-      "Please ensure your build tool is configured to use the typesugar transformer.",
+      "Please ensure your build tool is configured to use the typesugar transformer."
   );
 }
 

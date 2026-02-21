@@ -79,9 +79,7 @@ const TYPECLASS_EXTENSION_METHODS: Record<
   },
 };
 
-const EXTENSION_METHOD_NAMES = new Set(
-  Object.keys(TYPECLASS_EXTENSION_METHODS),
-);
+const EXTENSION_METHOD_NAMES = new Set(Object.keys(TYPECLASS_EXTENSION_METHODS));
 
 const DECORATOR_MACROS = new Set([
   "derive",
@@ -104,15 +102,7 @@ const DERIVE_MACROS = [
   { name: "Builder", description: "Generate builder pattern class" },
 ];
 
-const TAGGED_TEMPLATE_MACROS = new Set([
-  "sql",
-  "regex",
-  "html",
-  "fmt",
-  "json",
-  "raw",
-  "units",
-]);
+const TAGGED_TEMPLATE_MACROS = new Set(["sql", "regex", "html", "fmt", "json", "raw", "units"]);
 
 /** Semantic diagnostic codes to suppress unconditionally */
 const SUPPRESSED_SEMANTIC_CODES = new Set([
@@ -160,9 +150,7 @@ function init(modules: { typescript: typeof ts }) {
     for (const k of Object.keys(oldLS)) {
       const prop = (oldLS as unknown as Record<string, unknown>)[k];
       if (typeof prop === "function") {
-        (proxy as unknown as Record<string, unknown>)[k] = (
-          ...args: unknown[]
-        ): unknown => {
+        (proxy as unknown as Record<string, unknown>)[k] = (...args: unknown[]): unknown => {
           return (prop as Function).apply(oldLS, args);
         };
       }
@@ -172,9 +160,7 @@ function init(modules: { typescript: typeof ts }) {
     // Override: getSyntacticDiagnostics
     // Suppress parse errors from HKT syntax like F<_>
     // -----------------------------------------------------------------------
-    proxy.getSyntacticDiagnostics = (
-      fileName: string,
-    ): ts.DiagnosticWithLocation[] => {
+    proxy.getSyntacticDiagnostics = (fileName: string): ts.DiagnosticWithLocation[] => {
       const diagnostics = oldLS.getSyntacticDiagnostics(fileName);
       const program = oldLS.getProgram();
       if (!program) return diagnostics;
@@ -192,17 +178,14 @@ function init(modules: { typescript: typeof ts }) {
         // Look for HKT pattern near the error position: Identifier<_>
         // Check a window around the error position for the <_> pattern
         const windowStart = Math.max(0, diag.start - 30);
-        const windowEnd = Math.min(
-          sourceText.length,
-          diag.start + diag.length + 30,
-        );
+        const windowEnd = Math.min(sourceText.length, diag.start + diag.length + 30);
         const window = sourceText.slice(windowStart, windowEnd);
 
         // Pattern: uppercase identifier followed by <_> or <_, _>
         const hktPattern = /[A-Z][a-zA-Z0-9]*\s*<\s*_(\s*,\s*_)*\s*>/;
         if (hktPattern.test(window)) {
           log(
-            `Suppressed syntactic diagnostic ${diag.code} (HKT syntax): ${window.trim().slice(0, 40)}...`,
+            `Suppressed syntactic diagnostic ${diag.code} (HKT syntax): ${window.trim().slice(0, 40)}...`
           );
           return false;
         }
@@ -278,7 +261,7 @@ function init(modules: { typescript: typeof ts }) {
     proxy.getCompletionsAtPosition = (
       fileName: string,
       position: number,
-      options: ts.GetCompletionsAtPositionOptions | undefined,
+      options: ts.GetCompletionsAtPositionOptions | undefined
     ): ts.WithMetadata<ts.CompletionInfo> | undefined => {
       const prior = oldLS.getCompletionsAtPosition(fileName, position, options);
 
@@ -293,17 +276,15 @@ function init(modules: { typescript: typeof ts }) {
 
       const deriveContext = findDeriveContext(tsModule, node);
       if (deriveContext) {
-        const deriveEntries: ts.CompletionEntry[] = DERIVE_MACROS.map(
-          (macro) => ({
-            name: macro.name,
-            kind: tsModule.ScriptElementKind.constElement,
-            kindModifiers: "",
-            sortText: `0${macro.name}`,
-            labelDetails: {
-              description: macro.description,
-            },
-          }),
-        );
+        const deriveEntries: ts.CompletionEntry[] = DERIVE_MACROS.map((macro) => ({
+          name: macro.name,
+          kind: tsModule.ScriptElementKind.constElement,
+          kindModifiers: "",
+          sortText: `0${macro.name}`,
+          labelDetails: {
+            description: macro.description,
+          },
+        }));
 
         if (prior) {
           return {
@@ -320,12 +301,7 @@ function init(modules: { typescript: typeof ts }) {
         };
       }
 
-      const extensionEntries = getExtensionMethodCompletions(
-        tsModule,
-        sourceFile,
-        node,
-        program,
-      );
+      const extensionEntries = getExtensionMethodCompletions(tsModule, sourceFile, node, program);
       if (extensionEntries.length > 0) {
         if (prior) {
           return {
@@ -347,7 +323,7 @@ function init(modules: { typescript: typeof ts }) {
 
     proxy.getQuickInfoAtPosition = (
       fileName: string,
-      position: number,
+      position: number
     ): ts.QuickInfo | undefined => {
       const prior = oldLS.getQuickInfoAtPosition(fileName, position);
 
@@ -432,12 +408,7 @@ function init(modules: { typescript: typeof ts }) {
           };
         }
 
-        const extInfo = getExtensionMethodHoverInfo(
-          tsModule,
-          sourceFile,
-          node,
-          program,
-        );
+        const extInfo = getExtensionMethodHoverInfo(tsModule, sourceFile, node, program);
         if (extInfo) {
           return {
             kind: tsModule.ScriptElementKind.memberFunctionElement,
@@ -478,7 +449,7 @@ function init(modules: { typescript: typeof ts }) {
 function isTypesugarImport(
   ts: typeof import("typescript"),
   node: ts.Node,
-  sourceFile: ts.SourceFile,
+  sourceFile: ts.SourceFile
 ): boolean {
   // Walk up to find the import declaration
   let current: ts.Node | undefined = node;
@@ -488,9 +459,7 @@ function isTypesugarImport(
       if (ts.isStringLiteral(moduleSpecifier)) {
         const modulePath = moduleSpecifier.text;
         return TYPESUGAR_PACKAGE_PREFIXES.some(
-          (prefix) =>
-            modulePath === prefix.replace(/\/$/, "") ||
-            modulePath.startsWith(prefix),
+          (prefix) => modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix)
         );
       }
       return false;
@@ -503,7 +472,7 @@ function isTypesugarImport(
 function findNodeAtPosition(
   ts: typeof import("typescript"),
   sourceFile: ts.SourceFile,
-  position: number,
+  position: number
 ): ts.Node | undefined {
   function find(node: ts.Node): ts.Node | undefined {
     if (position >= node.getStart(sourceFile) && position < node.getEnd()) {
@@ -517,7 +486,7 @@ function findNodeAtPosition(
 function findAncestor(
   ts: typeof import("typescript"),
   node: ts.Node,
-  predicate: (node: ts.Node) => boolean,
+  predicate: (node: ts.Node) => boolean
 ): ts.Node | undefined {
   let current: ts.Node | undefined = node;
   while (current) {
@@ -529,7 +498,7 @@ function findAncestor(
 
 function getDecoratorName(
   ts: typeof import("typescript"),
-  decorator: ts.Decorator,
+  decorator: ts.Decorator
 ): string | undefined {
   const expr = decorator.expression;
   if (ts.isIdentifier(expr)) return expr.text;
@@ -539,17 +508,11 @@ function getDecoratorName(
   return undefined;
 }
 
-function findDeriveContext(
-  ts: typeof import("typescript"),
-  node: ts.Node,
-): boolean {
+function findDeriveContext(ts: typeof import("typescript"), node: ts.Node): boolean {
   let current: ts.Node | undefined = node;
   while (current) {
     if (ts.isCallExpression(current)) {
-      if (
-        ts.isIdentifier(current.expression) &&
-        current.expression.text === "derive"
-      ) {
+      if (ts.isIdentifier(current.expression) && current.expression.text === "derive") {
         return true;
       }
     }
@@ -565,7 +528,7 @@ function findDeriveContext(
 function isNearMacroInvocation(
   ts: typeof import("typescript"),
   sourceFile: ts.SourceFile,
-  node: ts.Node,
+  node: ts.Node
 ): boolean {
   let current: ts.Node | undefined = node;
   while (current) {
@@ -581,13 +544,9 @@ function isNearMacroInvocation(
     }
     if (ts.isBlock(current) || ts.isSourceFile(current)) {
       for (const stmt of current.statements ?? []) {
-        if (
-          ts.isExpressionStatement(stmt) &&
-          ts.isCallExpression(stmt.expression)
-        ) {
+        if (ts.isExpressionStatement(stmt) && ts.isCallExpression(stmt.expression)) {
           if (ts.isIdentifier(stmt.expression.expression)) {
-            if (EXPRESSION_MACROS.has(stmt.expression.expression.text))
-              return true;
+            if (EXPRESSION_MACROS.has(stmt.expression.expression.text)) return true;
           }
         }
       }
@@ -600,7 +559,7 @@ function isNearMacroInvocation(
 function isExtensionMethodCall(
   ts: typeof import("typescript"),
   sourceFile: ts.SourceFile,
-  node: ts.Node,
+  node: ts.Node
 ): boolean {
   if (ts.isIdentifier(node) && EXTENSION_METHOD_NAMES.has(node.text)) {
     const parent = node.parent;
@@ -626,7 +585,7 @@ function getExtensionMethodCompletions(
   ts: typeof import("typescript"),
   sourceFile: ts.SourceFile,
   node: ts.Node,
-  program: ts.Program | undefined,
+  program: ts.Program | undefined
 ): ts.CompletionEntry[] {
   if (!program) return [];
 
@@ -645,16 +604,12 @@ function getExtensionMethodCompletions(
 
   const entries: ts.CompletionEntry[] = [];
 
-  for (const [methodName, info] of Object.entries(
-    TYPECLASS_EXTENSION_METHODS,
-  )) {
+  for (const [methodName, info] of Object.entries(TYPECLASS_EXTENSION_METHODS)) {
     const existingProp = receiverType.getProperty(methodName);
     if (existingProp) continue;
 
     const returnType =
-      info.returnType === "self"
-        ? checker.typeToString(receiverType)
-        : info.returnType;
+      info.returnType === "self" ? checker.typeToString(receiverType) : info.returnType;
 
     entries.push({
       name: methodName,
@@ -674,7 +629,7 @@ function getExtensionMethodHoverInfo(
   ts: typeof import("typescript"),
   sourceFile: ts.SourceFile,
   node: ts.Identifier,
-  program: ts.Program | undefined,
+  program: ts.Program | undefined
 ): { displayText: string; documentation: string } | undefined {
   if (!program) return undefined;
 

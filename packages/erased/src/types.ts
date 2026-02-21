@@ -49,13 +49,12 @@ export interface Erased<Caps extends readonly Capability[]> {
  *
  * @typeParam Caps - A readonly tuple of {@link Capability} types.
  */
-export type UnionOfVtables<Caps extends readonly Capability[]> =
-  Caps extends readonly [
-    infer First extends Capability,
-    ...infer Rest extends Capability[],
-  ]
-    ? Vtable<First> & UnionOfVtables<Rest>
-    : {};
+export type UnionOfVtables<Caps extends readonly Capability[]> = Caps extends readonly [
+  infer First extends Capability,
+  ...infer Rest extends Capability[],
+]
+  ? Vtable<First> & UnionOfVtables<Rest>
+  : {};
 
 // ---------------------------------------------------------------------------
 // Structural vtable constraints

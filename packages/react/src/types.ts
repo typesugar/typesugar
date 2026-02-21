@@ -67,9 +67,7 @@ export type ComponentProps<P> = P & { key?: React.Key };
  * An embedded component created via the `component()` macro.
  * This is hoisted to module level and wrapped in React.memo at compile time.
  */
-export type EmbeddedComponent<P> = React.MemoExoticComponent<
-  React.FC<ComponentProps<P>>
->;
+export type EmbeddedComponent<P> = React.MemoExoticComponent<React.FC<ComponentProps<P>>>;
 
 // ============================================================================
 // Placeholder Functions (replaced by macros at compile time)
@@ -143,7 +141,9 @@ export declare function effect(effectFn: () => void | (() => void)): void;
  */
 export declare function watch<T extends readonly State<unknown>[]>(
   deps: T,
-  effectFn: (...values: { [K in keyof T]: T[K] extends State<infer V> ? V : never }) => void | (() => void),
+  effectFn: (
+    ...values: { [K in keyof T]: T[K] extends State<infer V> ? V : never }
+  ) => void | (() => void)
 ): void;
 
 /**
@@ -169,9 +169,7 @@ export declare function watch<T extends readonly State<unknown>[]>(
  * }
  * ```
  */
-export declare function component<P extends object>(
-  render: React.FC<P>,
-): EmbeddedComponent<P>;
+export declare function component<P extends object>(render: React.FC<P>): EmbeddedComponent<P>;
 
 // ============================================================================
 // JSX Helpers (expression macros for JSX)
@@ -193,7 +191,7 @@ export declare function component<P extends object>(
 export declare function each<T, K>(
   items: readonly T[],
   render: (item: T, index: number) => React.ReactNode,
-  keyFn: (item: T) => K,
+  keyFn: (item: T) => K
 ): React.ReactNode;
 
 /**
@@ -214,7 +212,7 @@ export declare function match<T extends { _tag: string }, R>(
   value: T,
   cases: {
     [K in T["_tag"]]: (value: Extract<T, { _tag: K }>) => R;
-  },
+  }
 ): R;
 
 // ============================================================================

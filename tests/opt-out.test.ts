@@ -29,7 +29,7 @@ describe("opt-out directive system", () => {
 const x = 1;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -45,7 +45,7 @@ const x = 1;`,
 const x = 1;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -60,7 +60,7 @@ const x = 1;`,
         `const x = 1;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -78,7 +78,7 @@ const x = 1;`,
 const x = 1;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -94,7 +94,7 @@ const x = 1;`,
         `"use no typesugar extensions";`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -109,7 +109,7 @@ const x = 1;`,
         `"use no typesugar derive";`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -125,7 +125,7 @@ const x = 1;`,
 "use no typesugar extensions";`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -145,7 +145,7 @@ const y = 2; // @ts-no-typesugar
 const z = 3;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       // Find the 'y' declaration node
@@ -162,7 +162,7 @@ const z = 3;`,
         `x.clamp(0, 100); // @ts-no-typesugar extensions`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       const stmt = sourceFile.statements[0];
@@ -177,7 +177,7 @@ const z = 3;`,
         `x.foo(); // @ts-no-typesugar-all`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       const stmt = sourceFile.statements[0];
@@ -198,7 +198,7 @@ const z = 3;`,
 }`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -222,7 +222,7 @@ function foo() {
 const after = 3;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -246,7 +246,7 @@ const after = 3;`,
 }`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       scanImportsForScope(sourceFile, tracker);
@@ -254,12 +254,8 @@ const after = 3;`,
       const funcDecl = sourceFile.statements[0] as ts.FunctionDeclaration;
       const callStmt = funcDecl.body!.statements[1];
 
-      expect(
-        isInOptedOutScope(sourceFile, callStmt, tracker, "extensions"),
-      ).toBe(true);
-      expect(isInOptedOutScope(sourceFile, callStmt, tracker, "macros")).toBe(
-        false,
-      );
+      expect(isInOptedOutScope(sourceFile, callStmt, tracker, "extensions")).toBe(true);
+      expect(isInOptedOutScope(sourceFile, callStmt, tracker, "macros")).toBe(false);
     });
   });
 

@@ -46,10 +46,7 @@ export function clearOperatorMappings(): void {
 /**
  * Register operator mappings for a type
  */
-export function registerOperators(
-  typeName: string,
-  mappings: Record<string, string>,
-): void {
+export function registerOperators(typeName: string, mappings: Record<string, string>): void {
   const typeMap = operatorMappings.get(typeName) ?? new Map();
   for (const [op, method] of Object.entries(mappings)) {
     typeMap.set(op, method);
@@ -62,10 +59,7 @@ export function registerOperators(
  * Falls back to checking well-known method names by convention
  * if no explicit mapping is registered.
  */
-export function getOperatorMethod(
-  typeName: string,
-  operator: string,
-): string | undefined {
+export function getOperatorMethod(typeName: string, operator: string): string | undefined {
   const explicit = operatorMappings.get(typeName)?.get(operator);
   if (explicit) return explicit;
 
@@ -89,13 +83,10 @@ export const operatorsAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isClassDeclaration(target) || !target.name) {
-      ctx.reportError(
-        decorator,
-        "@operators can only be applied to named classes",
-      );
+      ctx.reportError(decorator, "@operators can only be applied to named classes");
       return target;
     }
 
@@ -103,10 +94,7 @@ export const operatorsAttribute = defineAttributeMacro({
 
     // Parse the operator mappings from the decorator argument
     if (args.length !== 1 || !ts.isObjectLiteralExpression(args[0])) {
-      ctx.reportError(
-        decorator,
-        "@operators requires an object literal argument",
-      );
+      ctx.reportError(decorator, "@operators requires an object literal argument");
       return target;
     }
 
@@ -148,13 +136,10 @@ export const opsMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "ops() expects exactly one expression argument",
-      );
+      ctx.reportError(callExpr, "ops() expects exactly one expression argument");
       return callExpr;
     }
 
@@ -166,10 +151,7 @@ export const opsMacro = defineExpressionMacro({
 /**
  * Recursively transform an expression, converting operators to method calls
  */
-function transformExpression(
-  ctx: MacroContext,
-  expr: ts.Expression,
-): ts.Expression {
+function transformExpression(ctx: MacroContext, expr: ts.Expression): ts.Expression {
   const factory = ctx.factory;
 
   // Handle binary expressions
@@ -181,7 +163,7 @@ function transformExpression(
         expr,
         transformExpression(ctx, expr.left),
         expr.operatorToken,
-        transformExpression(ctx, expr.right),
+        transformExpression(ctx, expr.right)
       );
     }
 
@@ -203,7 +185,7 @@ function transformExpression(
       return factory.createCallExpression(
         factory.createPropertyAccessExpression(left, method),
         undefined,
-        [right],
+        [right]
       );
     }
 
@@ -212,7 +194,7 @@ function transformExpression(
       expr,
       transformExpression(ctx, expr.left),
       expr.operatorToken,
-      transformExpression(ctx, expr.right),
+      transformExpression(ctx, expr.right)
     );
   }
 
@@ -221,10 +203,7 @@ function transformExpression(
     const operator = getPrefixOperatorString(expr.operator);
     if (operator) {
       const operandType = ctx.getTypeOf(expr.operand);
-      const typeName = ctx.typeChecker
-        .typeToString(operandType)
-        .split("<")[0]
-        .trim();
+      const typeName = ctx.typeChecker.typeToString(operandType).split("<")[0].trim();
       const method = getOperatorMethod(typeName, operator);
 
       if (method) {
@@ -233,23 +212,17 @@ function transformExpression(
         return factory.createCallExpression(
           factory.createPropertyAccessExpression(operand, method),
           undefined,
-          [],
+          []
         );
       }
     }
 
-    return factory.updatePrefixUnaryExpression(
-      expr,
-      transformExpression(ctx, expr.operand),
-    );
+    return factory.updatePrefixUnaryExpression(expr, transformExpression(ctx, expr.operand));
   }
 
   // Handle parenthesized expressions
   if (ts.isParenthesizedExpression(expr)) {
-    return factory.updateParenthesizedExpression(
-      expr,
-      transformExpression(ctx, expr.expression),
-    );
+    return factory.updateParenthesizedExpression(expr, transformExpression(ctx, expr.expression));
   }
 
   // Handle call expressions (recurse into arguments)
@@ -258,7 +231,7 @@ function transformExpression(
       expr,
       transformExpression(ctx, expr.expression),
       expr.typeArguments,
-      expr.arguments.map((arg) => transformExpression(ctx, arg)),
+      expr.arguments.map((arg) => transformExpression(ctx, arg))
     );
   }
 
@@ -267,7 +240,7 @@ function transformExpression(
     return factory.updatePropertyAccessExpression(
       expr,
       transformExpression(ctx, expr.expression),
-      expr.name,
+      expr.name
     );
   }
 
@@ -326,9 +299,7 @@ function getOperatorString(kind: ts.SyntaxKind): string | undefined {
 /**
  * Convert a prefix unary operator to a string representation
  */
-function getPrefixOperatorString(
-  kind: ts.PrefixUnaryOperator,
-): string | undefined {
+function getPrefixOperatorString(kind: ts.PrefixUnaryOperator): string | undefined {
   switch (kind) {
     case ts.SyntaxKind.MinusToken:
       return "-unary";
@@ -364,13 +335,12 @@ function getPrefixOperatorString(
 export const pipeMacro = defineExpressionMacro({
   name: "pipe",
   module: "@typesugar/operators",
-  description:
-    "Zero-cost pipe — inlines function composition into nested calls",
+  description: "Zero-cost pipe — inlines function composition into nested calls",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -415,7 +385,7 @@ export const flowMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -442,7 +412,7 @@ export const flowMacro = defineExpressionMacro({
       [factory.createParameterDeclaration(undefined, undefined, param)],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      body,
+      body
     );
   },
 });
@@ -468,7 +438,7 @@ export const composeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1) {
       ctx.reportError(callExpr, "compose() requires at least one function");
@@ -496,7 +466,7 @@ export const composeMacro = defineExpressionMacro({
       [factory.createParameterDeclaration(undefined, undefined, paramName)],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      body,
+      body
     );
   },
 });
@@ -509,18 +479,13 @@ export const composeMacro = defineExpressionMacro({
 export function pipe<A>(value: A): A;
 export function pipe<A, B>(value: A, f1: (a: A) => B): B;
 export function pipe<A, B, C>(value: A, f1: (a: A) => B, f2: (b: B) => C): C;
-export function pipe<A, B, C, D>(
-  value: A,
-  f1: (a: A) => B,
-  f2: (b: B) => C,
-  f3: (c: C) => D,
-): D;
+export function pipe<A, B, C, D>(value: A, f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D): D;
 export function pipe<A, B, C, D, E>(
   value: A,
   f1: (a: A) => B,
   f2: (b: B) => C,
   f3: (c: C) => D,
-  f4: (d: D) => E,
+  f4: (d: D) => E
 ): E;
 export function pipe<A, B, C, D, E, F>(
   value: A,
@@ -528,7 +493,7 @@ export function pipe<A, B, C, D, E, F>(
   f2: (b: B) => C,
   f3: (c: C) => D,
   f4: (d: D) => E,
-  f5: (e: E) => F,
+  f5: (e: E) => F
 ): F;
 export function pipe<A, B, C, D, E, F, G>(
   value: A,
@@ -537,7 +502,7 @@ export function pipe<A, B, C, D, E, F, G>(
   f3: (c: C) => D,
   f4: (d: D) => E,
   f5: (e: E) => F,
-  f6: (f: F) => G,
+  f6: (f: F) => G
 ): G;
 export function pipe<A, B, C, D, E, F, G, H>(
   value: A,
@@ -547,35 +512,28 @@ export function pipe<A, B, C, D, E, F, G, H>(
   f4: (d: D) => E,
   f5: (e: E) => F,
   f6: (f: F) => G,
-  f7: (g: G) => H,
+  f7: (g: G) => H
 ): H;
-export function pipe(
-  value: unknown,
-  ...fns: Array<(x: unknown) => unknown>
-): unknown {
+export function pipe(value: unknown, ...fns: Array<(x: unknown) => unknown>): unknown {
   return fns.reduce((acc, fn) => fn(acc), value);
 }
 
 /** flow: Compose functions left-to-right into a single function */
 export function flow<A, B>(f1: (a: A) => B): (a: A) => B;
 export function flow<A, B, C>(f1: (a: A) => B, f2: (b: B) => C): (a: A) => C;
-export function flow<A, B, C, D>(
-  f1: (a: A) => B,
-  f2: (b: B) => C,
-  f3: (c: C) => D,
-): (a: A) => D;
+export function flow<A, B, C, D>(f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D): (a: A) => D;
 export function flow<A, B, C, D, E>(
   f1: (a: A) => B,
   f2: (b: B) => C,
   f3: (c: C) => D,
-  f4: (d: D) => E,
+  f4: (d: D) => E
 ): (a: A) => E;
 export function flow<A, B, C, D, E, F>(
   f1: (a: A) => B,
   f2: (b: B) => C,
   f3: (c: C) => D,
   f4: (d: D) => E,
-  f5: (e: E) => F,
+  f5: (e: E) => F
 ): (a: A) => F;
 export function flow<A, B, C, D, E, F, G>(
   f1: (a: A) => B,
@@ -583,31 +541,23 @@ export function flow<A, B, C, D, E, F, G>(
   f3: (c: C) => D,
   f4: (d: D) => E,
   f5: (e: E) => F,
-  f6: (f: F) => G,
+  f6: (f: F) => G
 ): (a: A) => G;
-export function flow(
-  ...fns: Array<(x: unknown) => unknown>
-): (x: unknown) => unknown {
+export function flow(...fns: Array<(x: unknown) => unknown>): (x: unknown) => unknown {
   return (x) => fns.reduce((acc, fn) => fn(acc), x);
 }
 
 /** compose: Compose functions right-to-left into a single function */
 export function compose<A, B>(f1: (a: A) => B): (a: A) => B;
 export function compose<A, B, C>(f1: (b: B) => C, f2: (a: A) => B): (a: A) => C;
-export function compose<A, B, C, D>(
-  f1: (c: C) => D,
-  f2: (b: B) => C,
-  f3: (a: A) => B,
-): (a: A) => D;
+export function compose<A, B, C, D>(f1: (c: C) => D, f2: (b: B) => C, f3: (a: A) => B): (a: A) => D;
 export function compose<A, B, C, D, E>(
   f1: (d: D) => E,
   f2: (c: C) => D,
   f3: (b: B) => C,
-  f4: (a: A) => B,
+  f4: (a: A) => B
 ): (a: A) => E;
-export function compose(
-  ...fns: Array<(x: unknown) => unknown>
-): (x: unknown) => unknown {
+export function compose(...fns: Array<(x: unknown) => unknown>): (x: unknown) => unknown {
   return (x) => fns.reduceRight((acc, fn) => fn(acc), x);
 }
 

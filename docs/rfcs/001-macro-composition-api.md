@@ -17,6 +17,7 @@ Currently, macro composition happens in three ways:
 3. **expandAfter declarations** - Declarative ordering in macro definitions
 
 The ad-hoc pattern (2) is problematic:
+
 ```typescript
 // typeclass.ts:2286-2288 - Current ad-hoc composition
 const deriveMacro = globalRegistry.getDerive(`${tcName}TC`);
@@ -36,25 +37,23 @@ Add composition primitives directly to MacroContext:
 ```typescript
 interface MacroContext {
   // ... existing methods ...
-  
+
   /** Invoke another macro by name */
-  invokeMacro<K extends MacroKind>(
-    kind: K,
-    name: string,
-    ...args: MacroArgs<K>
-  ): MacroResult<K>;
-  
+  invokeMacro<K extends MacroKind>(kind: K, name: string, ...args: MacroArgs<K>): MacroResult<K>;
+
   /** Compose multiple macros */
   composeMacros(macros: MacroDefinition[]): MacroDefinition;
 }
 ```
 
 **Pros:**
+
 - Discoverable API available to all macro authors
 - Consistent access pattern
 - Can add validation/tracing at invocation point
 
 **Cons:**
+
 - Expands MacroContext surface area
 - Runtime composition harder to type correctly
 - Still couples macros to specific names
@@ -82,19 +81,21 @@ For cases where dynamic dispatch is needed (derive by name), use explicit regist
 ```typescript
 interface MacroDefinitionBase {
   // ... existing fields ...
-  
+
   /** Macros this macro may invoke dynamically (documentation only) */
   invokes?: string[];
 }
 ```
 
 **Pros:**
+
 - No API surface expansion
 - Composition relationships are explicit at definition time
 - Easier to analyze/visualize macro dependencies
 - Simpler MacroContext
 
 **Cons:**
+
 - Can't compose purely at runtime
 - Ad-hoc invocations remain unsanctioned
 
@@ -108,7 +109,7 @@ interface MacroContext {
   expandDerive(
     name: string,
     target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] | undefined;
 }
 ```
@@ -116,11 +117,13 @@ interface MacroContext {
 This acknowledges the common pattern without generalizing.
 
 **Pros:**
+
 - Addresses the most common composition case
 - Minimal API expansion
 - Type-safe for derives
 
 **Cons:**
+
 - Partial solution (only derives)
 - Still adds to MacroContext
 
@@ -144,6 +147,7 @@ This acknowledges the common pattern without generalizing.
 ### Future Considerations
 
 If runtime composition becomes common, revisit with:
+
 - A `ComposableMacro` trait/interface
 - Explicit `ctx.getComposableMacro()` with verified interface
 

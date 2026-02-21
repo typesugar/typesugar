@@ -114,9 +114,7 @@ With compile-time type checker access, the macro can figure out what the program
 Traditional discriminated unions require manual tags:
 
 ```typescript
-type Shape =
-  | { kind: "circle"; radius: number }
-  | { kind: "rect"; width: number; height: number };
+type Shape = { kind: "circle"; radius: number } | { kind: "rect"; width: number; height: number };
 ```
 
 With reflection, the macro can:

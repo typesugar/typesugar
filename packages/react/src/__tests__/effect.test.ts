@@ -20,21 +20,21 @@ describe("effect() macro", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process effect() calls
       const effectCalls = findAllCalls(ctx.sourceFile, "effect");
       expect(effectCalls.length).toBe(1);
-      
+
       const result = effectMacro.expand(ctx, effectCalls[0], [...effectCalls[0].arguments]);
-      
+
       // Should be a useEffect call
       expect(ts.isCallExpression(result)).toBe(true);
       if (ts.isCallExpression(result)) {
@@ -55,19 +55,19 @@ describe("effect() macro", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process effect() call
       const effectCalls = findAllCalls(ctx.sourceFile, "effect");
       const result = effectMacro.expand(ctx, effectCalls[0], [...effectCalls[0].arguments]);
-      
+
       // Check dependency array has both deps
       if (ts.isCallExpression(result)) {
         const depsArg = result.arguments[1];
@@ -90,19 +90,19 @@ describe("effect() macro", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process effect() call
       const effectCalls = findAllCalls(ctx.sourceFile, "effect");
       effectMacro.expand(ctx, effectCalls[0], [...effectCalls[0].arguments]);
-      
+
       // Should warn about using derived() instead
       // Note: This depends on the exact implementation of shouldBeDerived()
     });
@@ -122,21 +122,21 @@ describe("watch() macro", () => {
           return <div>{profile}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process watch() calls
       const watchCalls = findAllCalls(ctx.sourceFile, "watch");
       expect(watchCalls.length).toBe(1);
-      
+
       const result = watchMacro.expand(ctx, watchCalls[0], [...watchCalls[0].arguments]);
-      
+
       // Should be a useEffect call
       expect(ts.isCallExpression(result)).toBe(true);
       if (ts.isCallExpression(result)) {
@@ -154,12 +154,12 @@ describe("watch() macro", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const watchCalls = findAllCalls(ctx.sourceFile, "watch");
-      
+
       watchMacro.expand(ctx, watchCalls[0], [...watchCalls[0].arguments]);
-      
+
       expect(ctx.errors.length).toBeGreaterThan(0);
       expect(ctx.errors[0]).toContain("two arguments");
     });
@@ -172,18 +172,18 @@ describe("watch() macro", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       const watchCalls = findAllCalls(ctx.sourceFile, "watch");
       watchMacro.expand(ctx, watchCalls[0], [...watchCalls[0].arguments]);
-      
+
       expect(ctx.errors.length).toBeGreaterThan(0);
       expect(ctx.errors[0]).toContain("array");
     });
@@ -193,7 +193,7 @@ describe("watch() macro", () => {
 // Helper to find calls by function name
 function findAllCalls(sourceFile: ts.SourceFile, fnName: string): ts.CallExpression[] {
   const results: ts.CallExpression[] = [];
-  
+
   function visit(node: ts.Node): void {
     if (
       ts.isCallExpression(node) &&
@@ -204,7 +204,7 @@ function findAllCalls(sourceFile: ts.SourceFile, fnName: string): ts.CallExpress
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return results;
 }

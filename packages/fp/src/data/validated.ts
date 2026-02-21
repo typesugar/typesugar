@@ -11,11 +11,7 @@
 import type { NonEmptyList } from "./nonempty-list.js";
 import * as NEL from "./nonempty-list.js";
 import type { Either } from "./either.js";
-import {
-  Left as EitherLeft,
-  Right as EitherRight,
-  isRight as isEitherRight,
-} from "./either.js";
+import { Left as EitherLeft, Right as EitherRight, isRight as isEitherRight } from "./either.js";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
@@ -104,7 +100,7 @@ export function validNel<E = never, A = unknown>(a: A): ValidatedNel<E, A> {
 export function fromPredicate<E, A>(
   value: A,
   predicate: (a: A) => boolean,
-  onFalse: (a: A) => E,
+  onFalse: (a: A) => E
 ): Validated<E, A> {
   return predicate(value) ? Valid(value) : Invalid(onFalse(value));
 }
@@ -115,7 +111,7 @@ export function fromPredicate<E, A>(
 export function fromPredicateNel<E, A>(
   value: A,
   predicate: (a: A) => boolean,
-  onFalse: (a: A) => E,
+  onFalse: (a: A) => E
 ): ValidatedNel<E, A> {
   return predicate(value) ? Valid(value) : invalidNel(onFalse(value));
 }
@@ -137,10 +133,7 @@ export function fromEitherNel<E, A>(either: Either<E, A>): ValidatedNel<E, A> {
 /**
  * Create a Validated from an Option
  */
-export function fromOption<E, A>(
-  opt: Option<A>,
-  onNone: () => E,
-): Validated<E, A> {
+export function fromOption<E, A>(opt: Option<A>, onNone: () => E): Validated<E, A> {
   // With null-based Option, opt IS the value when it's not null
   return isSome(opt) ? Valid(opt) : Invalid(onNone());
 }
@@ -148,10 +141,7 @@ export function fromOption<E, A>(
 /**
  * Create a Validated from a try/catch
  */
-export function tryCatch<E, A>(
-  f: () => A,
-  onError: (error: unknown) => E,
-): Validated<E, A> {
+export function tryCatch<E, A>(f: () => A, onError: (error: unknown) => E): Validated<E, A> {
   try {
     return Valid(f());
   } catch (error) {
@@ -191,20 +181,14 @@ export function isInvalid<E, A>(v: Validated<E, A>): v is Invalid<E> {
 /**
  * Map over the Valid value
  */
-export function map<E, A, B>(
-  v: Validated<E, A>,
-  f: (a: A) => B,
-): Validated<E, B> {
+export function map<E, A, B>(v: Validated<E, A>, f: (a: A) => B): Validated<E, B> {
   return isValid(v) ? Valid(f(v.value)) : v;
 }
 
 /**
  * Map over the Invalid value
  */
-export function mapError<E, A, E2>(
-  v: Validated<E, A>,
-  f: (e: E) => E2,
-): Validated<E2, A> {
+export function mapError<E, A, E2>(v: Validated<E, A>, f: (e: E) => E2): Validated<E2, A> {
   return isInvalid(v) ? Invalid(f(v.error)) : v;
 }
 
@@ -214,7 +198,7 @@ export function mapError<E, A, E2>(
 export function bimap<E, A, E2, B>(
   v: Validated<E, A>,
   f: (e: E) => E2,
-  g: (a: A) => B,
+  g: (a: A) => B
 ): Validated<E2, B> {
   return isValid(v) ? Valid(g(v.value)) : Invalid(f(v.error));
 }
@@ -225,7 +209,7 @@ export function bimap<E, A, E2, B>(
 export function ap<E, A, B>(
   vf: Validated<E, (a: A) => B>,
   va: Validated<E, A>,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, B> {
   if (isValid(vf) && isValid(va)) {
     return Valid(vf.value(va.value));
@@ -244,7 +228,7 @@ export function ap<E, A, B>(
  */
 export function apNel<E, A, B>(
   vf: ValidatedNel<E, (a: A) => B>,
-  va: ValidatedNel<E, A>,
+  va: ValidatedNel<E, A>
 ): ValidatedNel<E, B> {
   return ap(vf, va, NEL.getSemigroup<E>());
 }
@@ -256,12 +240,12 @@ export function map2<E, A, B, C>(
   va: Validated<E, A>,
   vb: Validated<E, B>,
   f: (a: A, b: B) => C,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, C> {
   return ap(
     map(va, (a) => (b: B) => f(a, b)),
     vb,
-    S,
+    S
   );
 }
 
@@ -271,7 +255,7 @@ export function map2<E, A, B, C>(
 export function map2Nel<E, A, B, C>(
   va: ValidatedNel<E, A>,
   vb: ValidatedNel<E, B>,
-  f: (a: A, b: B) => C,
+  f: (a: A, b: B) => C
 ): ValidatedNel<E, C> {
   return map2(va, vb, f, NEL.getSemigroup<E>());
 }
@@ -284,12 +268,12 @@ export function map3<E, A, B, C, D>(
   vb: Validated<E, B>,
   vc: Validated<E, C>,
   f: (a: A, b: B, c: C) => D,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, D> {
   return ap(
     map2(va, vb, (a, b) => (c: C) => f(a, b, c), S),
     vc,
-    S,
+    S
   );
 }
 
@@ -300,7 +284,7 @@ export function map3Nel<E, A, B, C, D>(
   va: ValidatedNel<E, A>,
   vb: ValidatedNel<E, B>,
   vc: ValidatedNel<E, C>,
-  f: (a: A, b: B, c: C) => D,
+  f: (a: A, b: B, c: C) => D
 ): ValidatedNel<E, D> {
   return map3(va, vb, vc, f, NEL.getSemigroup<E>());
 }
@@ -314,12 +298,12 @@ export function map4<E, A, B, C, D, F>(
   vc: Validated<E, C>,
   vd: Validated<E, D>,
   f: (a: A, b: B, c: C, d: D) => F,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, F> {
   return ap(
     map3(va, vb, vc, (a, b, c) => (d: D) => f(a, b, c, d), S),
     vd,
-    S,
+    S
   );
 }
 
@@ -331,7 +315,7 @@ export function map4Nel<E, A, B, C, D, F>(
   vb: ValidatedNel<E, B>,
   vc: ValidatedNel<E, C>,
   vd: ValidatedNel<E, D>,
-  f: (a: A, b: B, c: C, d: D) => F,
+  f: (a: A, b: B, c: C, d: D) => F
 ): ValidatedNel<E, F> {
   return map4(va, vb, vc, vd, f, NEL.getSemigroup<E>());
 }
@@ -346,12 +330,12 @@ export function map5<E, A, B, C, D, F, G>(
   vd: Validated<E, D>,
   ve: Validated<E, F>,
   f: (a: A, b: B, c: C, d: D, e: F) => G,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, G> {
   return ap(
     map4(va, vb, vc, vd, (a, b, c, d) => (e: F) => f(a, b, c, d, e), S),
     ve,
-    S,
+    S
   );
 }
 
@@ -364,7 +348,7 @@ export function map5Nel<E, A, B, C, D, F, G>(
   vc: ValidatedNel<E, C>,
   vd: ValidatedNel<E, D>,
   ve: ValidatedNel<E, F>,
-  f: (a: A, b: B, c: C, d: D, e: F) => G,
+  f: (a: A, b: B, c: C, d: D, e: F) => G
 ): ValidatedNel<E, G> {
   return map5(va, vb, vc, vd, ve, f, NEL.getSemigroup<E>());
 }
@@ -372,11 +356,7 @@ export function map5Nel<E, A, B, C, D, F, G>(
 /**
  * Fold over Validated
  */
-export function fold<E, A, B>(
-  v: Validated<E, A>,
-  onInvalid: (e: E) => B,
-  onValid: (a: A) => B,
-): B {
+export function fold<E, A, B>(v: Validated<E, A>, onInvalid: (e: E) => B, onValid: (a: A) => B): B {
   return isValid(v) ? onValid(v.value) : onInvalid(v.error);
 }
 
@@ -385,7 +365,7 @@ export function fold<E, A, B>(
  */
 export function match<E, A, B>(
   v: Validated<E, A>,
-  patterns: { Invalid: (e: E) => B; Valid: (a: A) => B },
+  patterns: { Invalid: (e: E) => B; Valid: (a: A) => B }
 ): B {
   return isValid(v) ? patterns.Valid(v.value) : patterns.Invalid(v.error);
 }
@@ -393,10 +373,7 @@ export function match<E, A, B>(
 /**
  * Get the Valid value or a default
  */
-export function getOrElse<E, A>(
-  v: Validated<E, A>,
-  defaultValue: (e: E) => A,
-): A {
+export function getOrElse<E, A>(v: Validated<E, A>, defaultValue: (e: E) => A): A {
   return isValid(v) ? v.value : defaultValue(v.error);
 }
 
@@ -434,7 +411,7 @@ export function swap<E, A>(v: Validated<E, A>): Validated<A, E> {
  */
 export function andThen<E, A, B>(
   v: Validated<E, A>,
-  f: (a: A) => Validated<E, B>,
+  f: (a: A) => Validated<E, B>
 ): Validated<E, B> {
   return isValid(v) ? f(v.value) : v;
 }
@@ -446,7 +423,7 @@ export function ensure<E, A>(
   v: Validated<E, A>,
   predicate: (a: A) => boolean,
   onFalse: (a: A) => E,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, A> {
   if (isInvalid(v)) return v;
   if (predicate(v.value)) return v;
@@ -459,7 +436,7 @@ export function ensure<E, A>(
 export function ensureNel<E, A>(
   v: ValidatedNel<E, A>,
   predicate: (a: A) => boolean,
-  onFalse: (a: A) => E,
+  onFalse: (a: A) => E
 ): ValidatedNel<E, A> {
   if (isInvalid(v)) return v;
   if (predicate(v.value)) return v;
@@ -473,7 +450,7 @@ export function combine<E, A>(
   v1: Validated<E, A>,
   v2: Validated<E, A>,
   SA: Semigroup<A>,
-  SE: Semigroup<E>,
+  SE: Semigroup<E>
 ): Validated<E, A> {
   if (isValid(v1) && isValid(v2)) {
     return Valid(SA.combine(v1.value, v2.value));
@@ -493,11 +470,11 @@ export function combine<E, A>(
 export function traverse<E, A, B>(
   arr: A[],
   f: (a: A) => Validated<E, B>,
-  S: Semigroup<E>,
+  S: Semigroup<E>
 ): Validated<E, B[]> {
   return arr.reduce(
     (acc: Validated<E, B[]>, a: A) => map2(acc, f(a), (bs, b) => [...bs, b], S),
-    Valid([]),
+    Valid([])
   );
 }
 
@@ -506,7 +483,7 @@ export function traverse<E, A, B>(
  */
 export function traverseNel<E, A, B>(
   arr: A[],
-  f: (a: A) => ValidatedNel<E, B>,
+  f: (a: A) => ValidatedNel<E, B>
 ): ValidatedNel<E, B[]> {
   return traverse(arr, f, NEL.getSemigroup<E>());
 }
@@ -514,19 +491,14 @@ export function traverseNel<E, A, B>(
 /**
  * Sequence an array of Validated
  */
-export function sequence<E, A>(
-  arr: Validated<E, A>[],
-  S: Semigroup<E>,
-): Validated<E, A[]> {
+export function sequence<E, A>(arr: Validated<E, A>[], S: Semigroup<E>): Validated<E, A[]> {
   return traverse(arr, (v) => v, S);
 }
 
 /**
  * Sequence with ValidatedNel
  */
-export function sequenceNel<E, A>(
-  arr: ValidatedNel<E, A>[],
-): ValidatedNel<E, A[]> {
+export function sequenceNel<E, A>(arr: ValidatedNel<E, A>[]): ValidatedNel<E, A[]> {
   return sequence(arr, NEL.getSemigroup<E>());
 }
 
@@ -567,20 +539,14 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Validated<E, A>> {
  */
 export function getShow<E, A>(SE: Show<E>, SA: Show<A>): Show<Validated<E, A>> {
   return {
-    show: (v) =>
-      isValid(v)
-        ? `Valid(${SA.show(v.value)})`
-        : `Invalid(${SE.show(v.error)})`,
+    show: (v) => (isValid(v) ? `Valid(${SA.show(v.value)})` : `Invalid(${SE.show(v.error)})`),
   };
 }
 
 /**
  * Semigroup instance for Validated
  */
-export function getSemigroup<E, A>(
-  SE: Semigroup<E>,
-  SA: Semigroup<A>,
-): Semigroup<Validated<E, A>> {
+export function getSemigroup<E, A>(SE: Semigroup<E>, SA: Semigroup<A>): Semigroup<Validated<E, A>> {
   return {
     combine: (x, y) => combine(x, y, SA, SE),
   };
@@ -652,30 +618,24 @@ export const Validated = {
       return map2Nel(vs[0], vs[1], (a, b) => f(a, b)) as ValidatedNel<E, B>;
     }
     if (vs.length === 3) {
-      return map3Nel(vs[0], vs[1], vs[2], (a, b, c) =>
-        f(a, b, c),
-      ) as ValidatedNel<E, B>;
+      return map3Nel(vs[0], vs[1], vs[2], (a, b, c) => f(a, b, c)) as ValidatedNel<E, B>;
     }
     if (vs.length === 4) {
-      return map4Nel(vs[0], vs[1], vs[2], vs[3], (a, b, c, d) =>
-        f(a, b, c, d),
-      ) as ValidatedNel<E, B>;
+      return map4Nel(vs[0], vs[1], vs[2], vs[3], (a, b, c, d) => f(a, b, c, d)) as ValidatedNel<
+        E,
+        B
+      >;
     }
     if (vs.length === 5) {
       return map5Nel(vs[0], vs[1], vs[2], vs[3], vs[4], (a, b, c, d, e) =>
-        f(a, b, c, d, e),
+        f(a, b, c, d, e)
       ) as ValidatedNel<E, B>;
     }
 
     // For more than 5 arguments, fall back to sequential application
-    let result: ValidatedNel<E, unknown[]> = map(vs[0], (a) => [
-      a,
-    ]) as ValidatedNel<E, unknown[]>;
+    let result: ValidatedNel<E, unknown[]> = map(vs[0], (a) => [a]) as ValidatedNel<E, unknown[]>;
     for (let i = 1; i < vs.length; i++) {
-      result = map2Nel(result, vs[i], (arr, v) => [...arr, v]) as ValidatedNel<
-        E,
-        unknown[]
-      >;
+      result = map2Nel(result, vs[i], (arr, v) => [...arr, v]) as ValidatedNel<E, unknown[]>;
     }
     return map(result, (arr) => f(...arr)) as ValidatedNel<E, B>;
   },

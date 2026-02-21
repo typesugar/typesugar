@@ -14,7 +14,7 @@ function generateValidationChecks(
   callExpr: ts.CallExpression,
   type: ts.Type,
   accessorExpr: ts.Expression,
-  pathExpr: ts.Expression,
+  pathExpr: ts.Expression
 ): ts.Statement[] {
   const factory = ctx.factory;
   const typeStr = ctx.typeChecker.typeToString(type);
@@ -27,12 +27,10 @@ function generateValidationChecks(
         factory.createBinaryExpression(
           factory.createTypeOfExpression(accessorExpr),
           ts.SyntaxKind.ExclamationEqualsEqualsToken,
-          factory.createStringLiteral("string"),
+          factory.createStringLiteral("string")
         ),
-        factory.createBlock([
-          createErrorPush(factory, pathExpr, "expected string"),
-        ]),
-      ),
+        factory.createBlock([createErrorPush(factory, pathExpr, "expected string")])
+      )
     );
     return checks;
   }
@@ -43,12 +41,10 @@ function generateValidationChecks(
         factory.createBinaryExpression(
           factory.createTypeOfExpression(accessorExpr),
           ts.SyntaxKind.ExclamationEqualsEqualsToken,
-          factory.createStringLiteral("number"),
+          factory.createStringLiteral("number")
         ),
-        factory.createBlock([
-          createErrorPush(factory, pathExpr, "expected number"),
-        ]),
-      ),
+        factory.createBlock([createErrorPush(factory, pathExpr, "expected number")])
+      )
     );
     return checks;
   }
@@ -59,12 +55,10 @@ function generateValidationChecks(
         factory.createBinaryExpression(
           factory.createTypeOfExpression(accessorExpr),
           ts.SyntaxKind.ExclamationEqualsEqualsToken,
-          factory.createStringLiteral("boolean"),
+          factory.createStringLiteral("boolean")
         ),
-        factory.createBlock([
-          createErrorPush(factory, pathExpr, "expected boolean"),
-        ]),
-      ),
+        factory.createBlock([createErrorPush(factory, pathExpr, "expected boolean")])
+      )
     );
     return checks;
   }
@@ -72,29 +66,23 @@ function generateValidationChecks(
   // 1.5 Handle Union Types (simplistic MVP - just find non-undefined types)
   if (type.isUnion()) {
     // If it's a boolean union (true | false) or (boolean | undefined), TS represents boolean as a union of true | false
-    if (
-      type.flags & ts.TypeFlags.Boolean ||
-      type.flags & ts.TypeFlags.BooleanLike
-    ) {
+    if (type.flags & ts.TypeFlags.Boolean || type.flags & ts.TypeFlags.BooleanLike) {
       checks.push(
         factory.createIfStatement(
           factory.createBinaryExpression(
             factory.createTypeOfExpression(accessorExpr),
             ts.SyntaxKind.ExclamationEqualsEqualsToken,
-            factory.createStringLiteral("boolean"),
+            factory.createStringLiteral("boolean")
           ),
-          factory.createBlock([
-            createErrorPush(factory, pathExpr, "expected boolean"),
-          ]),
-        ),
+          factory.createBlock([createErrorPush(factory, pathExpr, "expected boolean")])
+        )
       );
       return checks;
     }
 
     // Filter out undefined/null if it's an optional field
     const nonNullableTypes = type.types.filter(
-      (t) =>
-        !(t.flags & ts.TypeFlags.Undefined) && !(t.flags & ts.TypeFlags.Null),
+      (t) => !(t.flags & ts.TypeFlags.Undefined) && !(t.flags & ts.TypeFlags.Null)
     );
 
     // Check again if it's boolean
@@ -108,50 +96,33 @@ function generateValidationChecks(
           factory.createBinaryExpression(
             factory.createTypeOfExpression(accessorExpr),
             ts.SyntaxKind.ExclamationEqualsEqualsToken,
-            factory.createStringLiteral("boolean"),
+            factory.createStringLiteral("boolean")
           ),
-          factory.createBlock([
-            createErrorPush(factory, pathExpr, "expected boolean"),
-          ]),
-        ),
+          factory.createBlock([createErrorPush(factory, pathExpr, "expected boolean")])
+        )
       );
       return checks;
     }
 
     if (nonNullableTypes.length === 1) {
-      return generateValidationChecks(
-        ctx,
-        callExpr,
-        nonNullableTypes[0],
-        accessorExpr,
-        pathExpr,
-      );
+      return generateValidationChecks(ctx, callExpr, nonNullableTypes[0], accessorExpr, pathExpr);
     }
   }
 
   // 2. Handle Arrays
-  if (
-    ctx.typeChecker.isArrayType(type) ||
-    typeStr.includes("[]") ||
-    typeStr.startsWith("Array<")
-  ) {
+  if (ctx.typeChecker.isArrayType(type) || typeStr.includes("[]") || typeStr.startsWith("Array<")) {
     checks.push(
       factory.createIfStatement(
         factory.createPrefixUnaryExpression(
           ts.SyntaxKind.ExclamationToken,
           factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("Array"),
-              "isArray",
-            ),
+            factory.createPropertyAccessExpression(factory.createIdentifier("Array"), "isArray"),
             undefined,
-            [accessorExpr],
-          ),
+            [accessorExpr]
+          )
         ),
-        factory.createBlock([
-          createErrorPush(factory, pathExpr, "expected array"),
-        ]),
-      ),
+        factory.createBlock([createErrorPush(factory, pathExpr, "expected array")])
+      )
     );
 
     // We could recurse into array elements here, but for MVP we'll stick to shallow checks
@@ -166,47 +137,36 @@ function generateValidationChecks(
           factory.createBinaryExpression(
             factory.createTypeOfExpression(accessorExpr),
             ts.SyntaxKind.ExclamationEqualsEqualsToken,
-            factory.createStringLiteral("object"),
+            factory.createStringLiteral("object")
           ),
           ts.SyntaxKind.BarBarToken,
           factory.createBinaryExpression(
             accessorExpr,
             ts.SyntaxKind.EqualsEqualsEqualsToken,
-            factory.createNull(),
-          ),
+            factory.createNull()
+          )
         ),
-        factory.createBlock([
-          createErrorPush(factory, pathExpr, "expected object"),
-        ]),
-      ),
+        factory.createBlock([createErrorPush(factory, pathExpr, "expected object")])
+      )
     );
 
     const properties = ctx.typeChecker.getPropertiesOfType(type);
     for (const prop of properties) {
       const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        callExpr,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
 
       const propAccessor = factory.createPropertyAccessExpression(
         accessorExpr,
-        factory.createIdentifier(prop.name),
+        factory.createIdentifier(prop.name)
       );
 
       const propPath = factory.createBinaryExpression(
         pathExpr,
         ts.SyntaxKind.PlusToken,
-        factory.createStringLiteral(`.${prop.name}`),
+        factory.createStringLiteral(`.${prop.name}`)
       );
 
-      const propChecks = generateValidationChecks(
-        ctx,
-        callExpr,
-        propType,
-        propAccessor,
-        propPath,
-      );
+      const propChecks = generateValidationChecks(ctx, callExpr, propType, propAccessor, propPath);
 
       if (isOptional) {
         checks.push(
@@ -214,10 +174,10 @@ function generateValidationChecks(
             factory.createBinaryExpression(
               propAccessor,
               ts.SyntaxKind.ExclamationEqualsEqualsToken,
-              factory.createIdentifier("undefined"),
+              factory.createIdentifier("undefined")
             ),
-            factory.createBlock(propChecks.filter(Boolean)),
-          ),
+            factory.createBlock(propChecks.filter(Boolean))
+          )
         );
       } else {
         checks.push(...propChecks.filter(Boolean));
@@ -227,7 +187,7 @@ function generateValidationChecks(
 
   console.log(
     "Returning checks:",
-    checks.map((c) => c?.kind),
+    checks.map((c) => c?.kind)
   );
   return checks.filter(Boolean);
 }
@@ -235,28 +195,22 @@ function generateValidationChecks(
 function createErrorPush(
   factory: ts.NodeFactory,
   pathExpr: ts.Expression,
-  message: string,
+  message: string
 ): ts.Statement {
   return factory.createExpressionStatement(
     factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("errors"),
-        "push",
-      ),
+      factory.createPropertyAccessExpression(factory.createIdentifier("errors"), "push"),
       undefined,
       [
         factory.createObjectLiteralExpression([
-          factory.createPropertyAssignment(
-            factory.createIdentifier("path"),
-            pathExpr,
-          ),
+          factory.createPropertyAssignment(factory.createIdentifier("path"), pathExpr),
           factory.createPropertyAssignment(
             factory.createIdentifier("message"),
-            factory.createStringLiteral(message),
+            factory.createStringLiteral(message)
           ),
         ]),
-      ],
-    ),
+      ]
+    )
   );
 }
 
@@ -271,7 +225,7 @@ export const validateMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -290,7 +244,7 @@ export const validateMacro = defineExpressionMacro({
       callExpr,
       type,
       factory.createIdentifier("value"),
-      factory.createStringLiteral("$"),
+      factory.createStringLiteral("$")
     );
 
     return factory.createArrowFunction(
@@ -302,7 +256,7 @@ export const validateMacro = defineExpressionMacro({
           undefined,
           factory.createIdentifier("value"),
           undefined,
-          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
         ),
       ],
       undefined,
@@ -318,15 +272,13 @@ export const validateMacro = defineExpressionMacro({
                   "errors",
                   undefined,
                   factory.createArrayTypeNode(
-                    factory.createTypeReferenceNode(
-                      factory.createIdentifier("ValidationError"),
-                    ),
+                    factory.createTypeReferenceNode(factory.createIdentifier("ValidationError"))
                   ),
-                  factory.createArrayLiteralExpression([]),
+                  factory.createArrayLiteralExpression([])
                 ),
               ],
-              ts.NodeFlags.Const,
-            ),
+              ts.NodeFlags.Const
+            )
           ),
           ...checks,
           // return errors.length === 0 ? Valid(value as T) : Invalid(errors);
@@ -335,33 +287,24 @@ export const validateMacro = defineExpressionMacro({
               factory.createBinaryExpression(
                 factory.createPropertyAccessExpression(
                   factory.createIdentifier("errors"),
-                  "length",
+                  "length"
                 ),
                 ts.SyntaxKind.EqualsEqualsEqualsToken,
-                factory.createNumericLiteral(0),
+                factory.createNumericLiteral(0)
               ),
               factory.createToken(ts.SyntaxKind.QuestionToken),
-              factory.createCallExpression(
-                factory.createIdentifier("Valid"),
-                undefined,
-                [
-                  factory.createAsExpression(
-                    factory.createIdentifier("value"),
-                    clonedTypeNode,
-                  ),
-                ],
-              ),
+              factory.createCallExpression(factory.createIdentifier("Valid"), undefined, [
+                factory.createAsExpression(factory.createIdentifier("value"), clonedTypeNode),
+              ]),
               factory.createToken(ts.SyntaxKind.ColonToken),
-              factory.createCallExpression(
-                factory.createIdentifier("Invalid"),
-                undefined,
-                [factory.createIdentifier("errors")],
-              ),
-            ),
+              factory.createCallExpression(factory.createIdentifier("Invalid"), undefined, [
+                factory.createIdentifier("errors"),
+              ])
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
   },
 });
@@ -377,7 +320,7 @@ export const isMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -398,7 +341,7 @@ export const isMacro = defineExpressionMacro({
       callExpr,
       type,
       factory.createIdentifier("value"),
-      factory.createStringLiteral("$"),
+      factory.createStringLiteral("$")
     );
 
     const result = factory.createArrowFunction(
@@ -410,14 +353,10 @@ export const isMacro = defineExpressionMacro({
           undefined,
           factory.createIdentifier("value"),
           undefined,
-          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
         ),
       ],
-      factory.createTypePredicateNode(
-        undefined,
-        factory.createIdentifier("value"),
-        clonedTypeNode,
-      ),
+      factory.createTypePredicateNode(undefined, factory.createIdentifier("value"), clonedTypeNode),
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       factory.createBlock(
         [
@@ -429,34 +368,29 @@ export const isMacro = defineExpressionMacro({
                   "errors",
                   undefined,
                   undefined,
-                  factory.createArrayLiteralExpression([]),
+                  factory.createArrayLiteralExpression([])
                 ),
               ],
-              ts.NodeFlags.Const,
-            ),
+              ts.NodeFlags.Const
+            )
           ),
           ...checks,
           factory.createReturnStatement(
             factory.createBinaryExpression(
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("errors"),
-                "length",
-              ),
+              factory.createPropertyAccessExpression(factory.createIdentifier("errors"), "length"),
               ts.SyntaxKind.EqualsEqualsEqualsToken,
-              factory.createNumericLiteral(0),
-            ),
+              factory.createNumericLiteral(0)
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
 
     console.log("isMacro generated AST successfully. Printing:");
     try {
       console.log(
-        ts
-          .createPrinter()
-          .printNode(ts.EmitHint.Unspecified, result, callExpr.getSourceFile()),
+        ts.createPrinter().printNode(ts.EmitHint.Unspecified, result, callExpr.getSourceFile())
       );
     } catch (printErr: any) {
       console.log("PRINTER CRASHED:", printErr.stack);
@@ -476,7 +410,7 @@ export const assertMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -495,7 +429,7 @@ export const assertMacro = defineExpressionMacro({
       callExpr,
       type,
       factory.createIdentifier("value"),
-      factory.createStringLiteral("$"),
+      factory.createStringLiteral("$")
     );
 
     return factory.createArrowFunction(
@@ -507,7 +441,7 @@ export const assertMacro = defineExpressionMacro({
           undefined,
           factory.createIdentifier("value"),
           undefined,
-          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
         ),
       ],
       undefined,
@@ -522,71 +456,56 @@ export const assertMacro = defineExpressionMacro({
                   "errors",
                   undefined,
                   undefined,
-                  factory.createArrayLiteralExpression([]),
+                  factory.createArrayLiteralExpression([])
                 ),
               ],
-              ts.NodeFlags.Const,
-            ),
+              ts.NodeFlags.Const
+            )
           ),
           ...checks,
           factory.createIfStatement(
             factory.createBinaryExpression(
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("errors"),
-                "length",
-              ),
+              factory.createPropertyAccessExpression(factory.createIdentifier("errors"), "length"),
               ts.SyntaxKind.GreaterThanToken,
-              factory.createNumericLiteral(0),
+              factory.createNumericLiteral(0)
             ),
             factory.createBlock([
               factory.createThrowStatement(
-                factory.createNewExpression(
-                  factory.createIdentifier("Error"),
-                  undefined,
-                  [
-                    factory.createBinaryExpression(
-                      factory.createStringLiteral("Validation failed: "),
-                      ts.SyntaxKind.PlusToken,
-                      factory.createCallExpression(
-                        factory.createPropertyAccessExpression(
-                          factory.createCallExpression(
-                            factory.createPropertyAccessExpression(
-                              factory.createIdentifier("JSON"),
-                              "stringify",
-                            ),
-                            undefined,
-                            [factory.createIdentifier("errors")],
+                factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+                  factory.createBinaryExpression(
+                    factory.createStringLiteral("Validation failed: "),
+                    ts.SyntaxKind.PlusToken,
+                    factory.createCallExpression(
+                      factory.createPropertyAccessExpression(
+                        factory.createCallExpression(
+                          factory.createPropertyAccessExpression(
+                            factory.createIdentifier("JSON"),
+                            "stringify"
                           ),
-                          "substring",
+                          undefined,
+                          [factory.createIdentifier("errors")]
                         ),
-                        undefined,
-                        [
-                          factory.createNumericLiteral(0),
-                          factory.createNumericLiteral(100),
-                        ],
+                        "substring"
                       ),
-                    ),
-                  ],
-                ),
+                      undefined,
+                      [factory.createNumericLiteral(0), factory.createNumericLiteral(100)]
+                    )
+                  ),
+                ])
               ),
-            ]),
+            ])
           ),
           factory.createReturnStatement(
-            factory.createAsExpression(
-              factory.createIdentifier("value"),
-              clonedTypeNode,
-            ),
+            factory.createAsExpression(factory.createIdentifier("value"), clonedTypeNode)
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
   },
 });
 
-export function register(
-  registry: import("@typesugar/core").MacroRegistry,
-): void {
+export function register(registry: import("@typesugar/core").MacroRegistry): void {
   registry.register(validateMacro);
   registry.register(isMacro);
   registry.register(assertMacro);

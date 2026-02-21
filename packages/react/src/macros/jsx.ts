@@ -9,11 +9,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  type MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 import type { ReactMacroMode } from "../types.js";
 
 /**
@@ -34,13 +30,12 @@ const MODULE_NAME = "typemacro/react";
 export const eachMacro = defineExpressionMacro({
   name: "each",
   module: MODULE_NAME,
-  description:
-    "Keyed iteration with automatic key extraction (Svelte-inspired)",
+  description: "Keyed iteration with automatic key extraction (Svelte-inspired)",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -48,7 +43,7 @@ export const eachMacro = defineExpressionMacro({
     if (args.length < 2 || args.length > 3) {
       ctx.reportError(
         callExpr,
-        `each() requires 2-3 arguments (items, renderFn, keyFn?), got ${args.length}`,
+        `each() requires 2-3 arguments (items, renderFn, keyFn?), got ${args.length}`
       );
       return callExpr;
     }
@@ -59,7 +54,7 @@ export const eachMacro = defineExpressionMacro({
     if (!ts.isArrowFunction(renderFn) && !ts.isFunctionExpression(renderFn)) {
       ctx.reportError(
         callExpr,
-        "each() second argument must be an arrow function or function expression",
+        "each() second argument must be an arrow function or function expression"
       );
       return callExpr;
     }
@@ -67,10 +62,7 @@ export const eachMacro = defineExpressionMacro({
     // Get the item parameter name
     const itemParamName = getRenderFnParamName(renderFn);
     if (!itemParamName) {
-      ctx.reportError(
-        callExpr,
-        "each() render function must have at least one parameter",
-      );
+      ctx.reportError(callExpr, "each() render function must have at least one parameter");
       return callExpr;
     }
 
@@ -78,11 +70,11 @@ export const eachMacro = defineExpressionMacro({
 
     if (mode === "fine-grained" && keyFn) {
       // Fine-grained mode: use keyed reconciler
-      return factory.createCallExpression(
-        factory.createIdentifier("keyedList"),
-        undefined,
-        [items, renderFn, keyFn],
-      );
+      return factory.createCallExpression(factory.createIdentifier("keyedList"), undefined, [
+        items,
+        renderFn,
+        keyFn,
+      ]);
     }
 
     // Standard React mode: items.map() with injected key
@@ -103,14 +95,14 @@ export const eachMacro = defineExpressionMacro({
           renderFn.parameters,
           renderFn.type,
           renderFn.equalsGreaterThanToken,
-          newBody,
+          newBody
         );
 
         // Generate: items.map(newRenderFn)
         return factory.createCallExpression(
           factory.createPropertyAccessExpression(items, "map"),
           undefined,
-          [newRenderFn],
+          [newRenderFn]
         );
       }
 
@@ -119,7 +111,7 @@ export const eachMacro = defineExpressionMacro({
       const indexParam = factory.createParameterDeclaration(
         undefined,
         undefined,
-        ctx.generateUniqueName("index"),
+        ctx.generateUniqueName("index")
       );
 
       const wrappedRenderFn = factory.createArrowFunction(
@@ -128,13 +120,13 @@ export const eachMacro = defineExpressionMacro({
         [...renderFn.parameters, indexParam],
         undefined,
         factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        renderFn.body,
+        renderFn.body
       );
 
       return factory.createCallExpression(
         factory.createPropertyAccessExpression(items, "map"),
         undefined,
-        [wrappedRenderFn],
+        [wrappedRenderFn]
       );
     }
 
@@ -143,7 +135,7 @@ export const eachMacro = defineExpressionMacro({
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(items, "map"),
       undefined,
-      [renderFn],
+      [renderFn]
     );
   },
 });
@@ -151,9 +143,7 @@ export const eachMacro = defineExpressionMacro({
 /**
  * Get the first parameter name from a render function
  */
-function getRenderFnParamName(
-  fn: ts.ArrowFunction | ts.FunctionExpression,
-): string | null {
+function getRenderFnParamName(fn: ts.ArrowFunction | ts.FunctionExpression): string | null {
   if (fn.parameters.length === 0) {
     return null;
   }
@@ -171,7 +161,7 @@ function getRenderFnParamName(
 function createKeyExpression(
   factory: ts.NodeFactory,
   keyFn: ts.ArrowFunction,
-  itemParamName: string,
+  itemParamName: string
 ): ts.Expression {
   const body = keyFn.body;
   if (ts.isExpression(body)) {
@@ -187,21 +177,17 @@ function createKeyExpression(
 function injectKeyIntoJsx(
   factory: ts.NodeFactory,
   jsx: ts.JsxElement | ts.JsxSelfClosingElement,
-  keyExpr: ts.Expression,
+  keyExpr: ts.Expression
 ): ts.JsxElement | ts.JsxSelfClosingElement {
   const keyAttr = factory.createJsxAttribute(
     factory.createIdentifier("key"),
-    factory.createJsxExpression(undefined, keyExpr),
+    factory.createJsxExpression(undefined, keyExpr)
   );
 
   if (ts.isJsxSelfClosingElement(jsx)) {
     const existingAttrs = jsx.attributes.properties;
     const newAttrs = factory.createJsxAttributes([keyAttr, ...existingAttrs]);
-    return factory.createJsxSelfClosingElement(
-      jsx.tagName,
-      jsx.typeArguments,
-      newAttrs,
-    );
+    return factory.createJsxSelfClosingElement(jsx.tagName, jsx.typeArguments, newAttrs);
   }
 
   // JsxElement
@@ -210,7 +196,7 @@ function injectKeyIntoJsx(
   const newOpening = factory.createJsxOpeningElement(
     jsx.openingElement.tagName,
     jsx.openingElement.typeArguments,
-    newAttrs,
+    newAttrs
   );
   return factory.createJsxElement(newOpening, jsx.children, jsx.closingElement);
 }
@@ -235,7 +221,7 @@ export const matchMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -243,7 +229,7 @@ export const matchMacro = defineExpressionMacro({
     if (args.length !== 2) {
       ctx.reportError(
         callExpr,
-        `match() requires exactly 2 arguments (value, cases), got ${args.length}`,
+        `match() requires exactly 2 arguments (value, cases), got ${args.length}`
       );
       return callExpr;
     }
@@ -252,10 +238,7 @@ export const matchMacro = defineExpressionMacro({
 
     // Ensure cases is an object literal
     if (!ts.isObjectLiteralExpression(cases)) {
-      ctx.reportError(
-        callExpr,
-        "match() second argument must be an object literal of cases",
-      );
+      ctx.reportError(callExpr, "match() second argument must be an object literal of cases");
       return callExpr;
     }
 
@@ -266,7 +249,7 @@ export const matchMacro = defineExpressionMacro({
     if (!discriminantProp) {
       ctx.reportWarning(
         callExpr,
-        "match() value type doesn't appear to be a discriminated union. Expected a type with '_tag' or similar discriminant property.",
+        "match() value type doesn't appear to be a discriminated union. Expected a type with '_tag' or similar discriminant property."
       );
     }
 
@@ -307,7 +290,7 @@ export const matchMacro = defineExpressionMacro({
               prop.parameters,
               undefined,
               factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-              prop.body ?? factory.createBlock([]),
+              prop.body ?? factory.createBlock([])
             );
           }
 
@@ -320,20 +303,14 @@ export const matchMacro = defineExpressionMacro({
     if (discriminantProp && expectedVariants.size > 0) {
       for (const expected of expectedVariants) {
         if (!providedVariants.has(expected)) {
-          ctx.reportError(
-            callExpr,
-            `match() is missing case for variant '${expected}'`,
-          );
+          ctx.reportError(callExpr, `match() is missing case for variant '${expected}'`);
         }
       }
 
       // Check for extra cases
       for (const provided of providedVariants) {
         if (!expectedVariants.has(provided)) {
-          ctx.reportWarning(
-            callExpr,
-            `match() has case for unknown variant '${provided}'`,
-          );
+          ctx.reportWarning(callExpr, `match() has case for unknown variant '${provided}'`);
         }
       }
     }
@@ -358,17 +335,15 @@ export const matchMacro = defineExpressionMacro({
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createBlock([
             factory.createThrowStatement(
-              factory.createNewExpression(
-                factory.createIdentifier("Error"),
-                undefined,
-                [factory.createStringLiteral("Unhandled match case")],
-              ),
+              factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+                factory.createStringLiteral("Unhandled match case"),
+              ])
             ),
-          ]),
-        ),
+          ])
+        )
       ),
       undefined,
-      [],
+      []
     );
 
     for (let i = caseEntries.length - 1; i >= 0; i--) {
@@ -376,25 +351,20 @@ export const matchMacro = defineExpressionMacro({
 
       // value._tag === "variant"
       const condition = factory.createBinaryExpression(
-        factory.createPropertyAccessExpression(
-          value,
-          factory.createIdentifier(tagProp),
-        ),
+        factory.createPropertyAccessExpression(value, factory.createIdentifier(tagProp)),
         factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-        factory.createStringLiteral(entry.tag),
+        factory.createStringLiteral(entry.tag)
       );
 
       // handler(value)
-      const whenTrue = factory.createCallExpression(entry.handler, undefined, [
-        value,
-      ]);
+      const whenTrue = factory.createCallExpression(entry.handler, undefined, [value]);
 
       result = factory.createConditionalExpression(
         condition,
         factory.createToken(ts.SyntaxKind.QuestionToken),
         whenTrue,
         factory.createToken(ts.SyntaxKind.ColonToken),
-        result,
+        result
       );
     }
 
@@ -405,10 +375,7 @@ export const matchMacro = defineExpressionMacro({
 /**
  * Get the discriminant property name from a union type
  */
-function getDiscriminantProperty(
-  type: ts.Type,
-  ctx: MacroContext,
-): string | null {
+function getDiscriminantProperty(type: ts.Type, ctx: MacroContext): string | null {
   // Common discriminant property names
   const candidates = ["_tag", "type", "kind", "tag", "__typename"];
 
@@ -441,11 +408,7 @@ function getDiscriminantProperty(
 /**
  * Get all variant names from a discriminated union
  */
-function getUnionVariants(
-  type: ts.Type,
-  discriminantProp: string,
-  ctx: MacroContext,
-): Set<string> {
+function getUnionVariants(type: ts.Type, discriminantProp: string, ctx: MacroContext): Set<string> {
   const variants = new Set<string>();
 
   if (!type.isUnion()) {
@@ -459,7 +422,7 @@ function getUnionVariants(
     if (discProp) {
       const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
         discProp,
-        discProp.valueDeclaration!,
+        discProp.valueDeclaration!
       );
 
       if (propType.isStringLiteral()) {
@@ -489,7 +452,7 @@ globalRegistry.register(matchMacro);
  */
 export function processClassDirectives(
   factory: ts.NodeFactory,
-  attributes: readonly ts.JsxAttributeLike[],
+  attributes: readonly ts.JsxAttributeLike[]
 ): ts.JsxAttributes {
   const classConditions: Array<{ name: string; condition: ts.Expression }> = [];
   const otherAttrs: ts.JsxAttributeLike[] = [];
@@ -543,7 +506,7 @@ export function processClassDirectives(
       factory.createToken(ts.SyntaxKind.QuestionToken),
       factory.createStringLiteral(` ${name}`),
       factory.createToken(ts.SyntaxKind.ColonToken),
-      factory.createStringLiteral(""),
+      factory.createStringLiteral("")
     );
     parts.push(conditionalExpr);
   }
@@ -559,15 +522,15 @@ export function processClassDirectives(
       factory.createBinaryExpression(
         acc as ts.Expression,
         factory.createToken(ts.SyntaxKind.PlusToken),
-        part as ts.Expression,
-      ),
+        part as ts.Expression
+      )
     ) as ts.Expression;
   }
 
   // Create the className attribute
   const classNameAttr = factory.createJsxAttribute(
     factory.createIdentifier("className"),
-    factory.createJsxExpression(undefined, classNameExpr),
+    factory.createJsxExpression(undefined, classNameExpr)
   );
 
   return factory.createJsxAttributes([classNameAttr, ...otherAttrs]);
@@ -582,7 +545,7 @@ export function processClassDirectives(
  */
 export function processShowDirective(
   factory: ts.NodeFactory,
-  attributes: readonly ts.JsxAttributeLike[],
+  attributes: readonly ts.JsxAttributeLike[]
 ): ts.JsxAttributes {
   let showCondition: ts.Expression | null = null;
   const otherAttrs: ts.JsxAttributeLike[] = [];
@@ -621,7 +584,7 @@ export function processShowDirective(
     factory.createToken(ts.SyntaxKind.QuestionToken),
     factory.createIdentifier("undefined"),
     factory.createToken(ts.SyntaxKind.ColonToken),
-    factory.createStringLiteral("none"),
+    factory.createStringLiteral("none")
   );
 
   // Build the style object
@@ -631,25 +594,19 @@ export function processShowDirective(
     // Merge with existing style: { ...existingStyle, display: ... }
     styleExpr = factory.createObjectLiteralExpression([
       factory.createSpreadAssignment(existingStyle),
-      factory.createPropertyAssignment(
-        factory.createIdentifier("display"),
-        displayExpr,
-      ),
+      factory.createPropertyAssignment(factory.createIdentifier("display"), displayExpr),
     ]);
   } else {
     // Just display property: { display: ... }
     styleExpr = factory.createObjectLiteralExpression([
-      factory.createPropertyAssignment(
-        factory.createIdentifier("display"),
-        displayExpr,
-      ),
+      factory.createPropertyAssignment(factory.createIdentifier("display"), displayExpr),
     ]);
   }
 
   // Create the style attribute
   const styleAttr = factory.createJsxAttribute(
     factory.createIdentifier("style"),
-    factory.createJsxExpression(undefined, styleExpr),
+    factory.createJsxExpression(undefined, styleExpr)
   );
 
   return factory.createJsxAttributes([styleAttr, ...otherAttrs]);
@@ -660,7 +617,7 @@ export function processShowDirective(
  */
 function getJsxAttributeValue(
   attr: ts.JsxAttribute,
-  factory: ts.NodeFactory,
+  factory: ts.NodeFactory
 ): ts.Expression | null {
   if (!attr.initializer) {
     // Boolean attribute: show -> true

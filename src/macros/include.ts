@@ -70,7 +70,7 @@ function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
   if (path.isAbsolute(relativePath)) {
     throw new Error(
       `Security: absolute paths are not allowed in include macros. ` +
-        `Use a path relative to the source file instead: "${relativePath}"`,
+        `Use a path relative to the source file instead: "${relativePath}"`
     );
   }
 
@@ -78,14 +78,11 @@ function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
   const resolved = path.normalize(path.resolve(sourceDir, relativePath));
   const projectRoot = path.normalize(ctx.program.getCurrentDirectory());
 
-  if (
-    !resolved.startsWith(projectRoot + path.sep) &&
-    resolved !== projectRoot
-  ) {
+  if (!resolved.startsWith(projectRoot + path.sep) && resolved !== projectRoot) {
     throw new Error(
       `Security: path "${relativePath}" resolves to "${resolved}" which is ` +
         `outside the project root "${projectRoot}". ` +
-        `File access is restricted to the project directory.`,
+        `File access is restricted to the project directory.`
     );
   }
 
@@ -99,7 +96,7 @@ function extractPathArg(
   ctx: MacroContext,
   arg: ts.Expression,
   callExpr: ts.CallExpression,
-  macroName: string,
+  macroName: string
 ): string | undefined {
   if (ts.isStringLiteral(arg)) {
     return arg.text;
@@ -117,7 +114,7 @@ function extractPathArg(
 
   ctx.reportError(
     callExpr,
-    `${macroName}: path argument must be a string literal or compile-time constant`,
+    `${macroName}: path argument must be a string literal or compile-time constant`
   );
   return undefined;
 }
@@ -129,19 +126,15 @@ function extractPathArg(
 export const includeStrMacro = defineExpressionMacro({
   name: "includeStr",
   module: "typemacro",
-  description:
-    "Read a file at compile time and embed its contents as a string literal.",
+  description: "Read a file at compile time and embed its contents as a string literal.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "includeStr expects exactly one argument: includeStr(path)",
-      );
+      ctx.reportError(callExpr, "includeStr expects exactly one argument: includeStr(path)");
       return callExpr;
     }
 
@@ -159,7 +152,7 @@ export const includeStrMacro = defineExpressionMacro({
         callExpr,
         `includeStr: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }`
       );
       return callExpr;
     }
@@ -173,19 +166,15 @@ export const includeStrMacro = defineExpressionMacro({
 export const includeBytesMacro = defineExpressionMacro({
   name: "includeBytes",
   module: "typemacro",
-  description:
-    "Read a file at compile time and embed its contents as a Uint8Array literal.",
+  description: "Read a file at compile time and embed its contents as a Uint8Array literal.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "includeBytes expects exactly one argument: includeBytes(path)",
-      );
+      ctx.reportError(callExpr, "includeBytes expects exactly one argument: includeBytes(path)");
       return callExpr;
     }
 
@@ -205,14 +194,14 @@ export const includeBytesMacro = defineExpressionMacro({
       return ctx.factory.createNewExpression(
         ctx.factory.createIdentifier("Uint8Array"),
         undefined,
-        [ctx.factory.createArrayLiteralExpression(elements)],
+        [ctx.factory.createArrayLiteralExpression(elements)]
       );
     } catch (error) {
       ctx.reportError(
         callExpr,
         `includeBytes: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }`
       );
       return callExpr;
     }
@@ -232,13 +221,10 @@ export const includeJsonMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "includeJson expects exactly one argument: includeJson(path)",
-      );
+      ctx.reportError(callExpr, "includeJson expects exactly one argument: includeJson(path)");
       return callExpr;
     }
 
@@ -256,14 +242,14 @@ export const includeJsonMacro = defineExpressionMacro({
       if (error instanceof SyntaxError) {
         ctx.reportError(
           callExpr,
-          `includeJson: Invalid JSON in '${relativePath}': ${error.message}`,
+          `includeJson: Invalid JSON in '${relativePath}': ${error.message}`
         );
       } else {
         ctx.reportError(
           callExpr,
           `includeJson: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
             error instanceof Error ? error.message : String(error)
-          }`,
+          }`
         );
       }
       return callExpr;
@@ -278,13 +264,12 @@ export const includeJsonMacro = defineExpressionMacro({
 export const includeTextMacro = defineExpressionMacro({
   name: "includeText",
   module: "typemacro",
-  description:
-    "Read a text file at compile time with optional encoding. Alias for includeStr.",
+  description: "Read a text file at compile time with optional encoding. Alias for includeStr.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     // Delegate to includeStr
     return includeStrMacro.expand(ctx, callExpr, args);

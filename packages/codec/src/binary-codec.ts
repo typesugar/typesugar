@@ -27,15 +27,10 @@ export interface FieldLayout {
 }
 
 /** Create a binary codec with an explicit field layout. */
-export function createBinaryCodec<T>(
-  schema: Schema,
-  layout: FieldLayout[],
-): Codec<T> {
+export function createBinaryCodec<T>(schema: Schema, layout: FieldLayout[]): Codec<T> {
   const history = generateMigrations(schema);
 
-  const totalSize =
-    HEADER_SIZE +
-    layout.reduce((max, f) => Math.max(max, f.offset + f.size), 0);
+  const totalSize = HEADER_SIZE + layout.reduce((max, f) => Math.max(max, f.offset + f.size), 0);
 
   return {
     schema,
@@ -56,22 +51,14 @@ export function createBinaryCodec<T>(
     decode(data: string | Uint8Array): T {
       const bytes = ensureBytes(data);
       validateHeader(bytes, schema.version);
-      const view = new DataView(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.byteLength,
-      );
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       return decodeBinary(layout, view) as T;
     },
 
     decodeAny(data: string | Uint8Array): T {
       const bytes = ensureBytes(data);
       validateMagic(bytes);
-      const view = new DataView(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.byteLength,
-      );
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const version = view.getUint16(2, true);
 
       let record = decodeBinary(layout, view);
@@ -95,11 +82,7 @@ function ensureBytes(data: string | Uint8Array): Uint8Array {
 }
 
 function validateMagic(bytes: Uint8Array): void {
-  if (
-    bytes.length < HEADER_SIZE ||
-    bytes[0] !== MAGIC_BYTE_0 ||
-    bytes[1] !== MAGIC_BYTE_1
-  ) {
+  if (bytes.length < HEADER_SIZE || bytes[0] !== MAGIC_BYTE_0 || bytes[1] !== MAGIC_BYTE_1) {
     throw new Error("Invalid binary codec header: bad magic bytes");
   }
 }
@@ -110,16 +93,12 @@ function validateHeader(bytes: Uint8Array, expectedVersion: number): void {
   const version = view.getUint16(2, true);
   if (version !== expectedVersion) {
     throw new Error(
-      `Version mismatch: data is v${version}, codec expects v${expectedVersion}. Use decodeAny() for migration.`,
+      `Version mismatch: data is v${version}, codec expects v${expectedVersion}. Use decodeAny() for migration.`
     );
   }
 }
 
-function encodeBinary(
-  value: Record<string, unknown>,
-  layout: FieldLayout[],
-  view: DataView,
-): void {
+function encodeBinary(value: Record<string, unknown>, layout: FieldLayout[], view: DataView): void {
   for (const field of layout) {
     const v = value[field.name];
     const abs = HEADER_SIZE + field.offset;
@@ -160,8 +139,7 @@ function encodeBinary(
         break;
       }
       case "bytes": {
-        const src =
-          v instanceof Uint8Array ? v : new Uint8Array(field.size);
+        const src = v instanceof Uint8Array ? v : new Uint8Array(field.size);
         const copyLen = Math.min(src.length, field.size);
         const target = new Uint8Array(view.buffer, view.byteOffset + abs, copyLen);
         target.set(src.subarray(0, copyLen));
@@ -171,10 +149,7 @@ function encodeBinary(
   }
 }
 
-function decodeBinary(
-  layout: FieldLayout[],
-  view: DataView,
-): Record<string, unknown> {
+function decodeBinary(layout: FieldLayout[], view: DataView): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
   for (const field of layout) {
@@ -214,10 +189,7 @@ function decodeBinary(
       }
       case "bytes": {
         result[field.name] = new Uint8Array(
-          view.buffer.slice(
-            view.byteOffset + abs,
-            view.byteOffset + abs + field.size,
-          ),
+          view.buffer.slice(view.byteOffset + abs, view.byteOffset + abs + field.size)
         );
         break;
       }

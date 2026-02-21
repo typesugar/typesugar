@@ -143,9 +143,7 @@ export async function runCreate(args: string[]): Promise<void> {
   const templatesDir = findTemplatesDir();
   if (!templatesDir) {
     console.error("Error: Could not find templates directory.");
-    console.error(
-      "Make sure you're running from a typesugar installation or repository.",
-    );
+    console.error("Make sure you're running from a typesugar installation or repository.");
     process.exit(1);
   }
 
@@ -165,9 +163,7 @@ export async function runCreate(args: string[]): Promise<void> {
     selectedTemplate = template as TemplateName;
   } else {
     console.log("\nAvailable templates:");
-    console.log(
-      "  app          - Application with Vite (comptime, derive, sql)",
-    );
+    console.log("  app          - Application with Vite (comptime, derive, sql)");
     console.log("  library      - Publishable library with typeclasses");
     console.log("  macro-plugin - Custom macros package");
     console.log();
@@ -194,7 +190,7 @@ export async function runCreate(args: string[]): Promise<void> {
   // Validate project name
   if (!/^[a-z0-9-_.@/]+$/i.test(projectName)) {
     console.error(
-      "Invalid project name. Use only letters, numbers, hyphens, underscores, dots, @ and /.",
+      "Invalid project name. Use only letters, numbers, hyphens, underscores, dots, @ and /."
     );
     process.exit(1);
   }
@@ -205,9 +201,7 @@ export async function runCreate(args: string[]): Promise<void> {
   if (fs.existsSync(targetDir)) {
     const contents = fs.readdirSync(targetDir);
     if (contents.length > 0) {
-      console.error(
-        `Error: Directory "${projectName}" already exists and is not empty.`,
-      );
+      console.error(`Error: Directory "${projectName}" already exists and is not empty.`);
       process.exit(1);
     }
   }

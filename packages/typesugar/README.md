@@ -94,8 +94,8 @@ Eliminate typeclass dictionary passing at compile time for true zero-cost abstra
 
 ## Package Structure
 
-| Package             | Description                         |
-| ------------------- | ----------------------------------- |
+| Package                  | Description                         |
+| ------------------------ | ----------------------------------- |
 | `typesugar`              | Umbrella package (this one)         |
 | `@typesugar/core`        | Foundation types, registry, context |
 | `@typesugar/transformer` | TypeScript transformer              |

@@ -151,10 +151,7 @@ export const normedNumberArray: Normed<number[], number> = {
  * @param VS - VectorSpace instance
  * @param N - Numeric instance for the scalar field
  */
-export function vSub<V, F>(
-  VS: VectorSpace<V, F>,
-  N: Numeric<F>,
-): (a: V, b: V) => V {
+export function vSub<V, F>(VS: VectorSpace<V, F>, N: Numeric<F>): (a: V, b: V) => V {
   return (a, b) => VS.vAdd(a, VS.vScale(N.negate(N.one()), b));
 }
 
@@ -170,9 +167,7 @@ export function normSquared<V, F>(IP: InnerProduct<V, F>): (v: V) => F {
  * Normalize a vector to unit length.
  * Returns the zero vector if the input is zero.
  */
-export function normalize(
-  IP: InnerProduct<number[], number>,
-): (v: number[]) => number[] {
+export function normalize(IP: InnerProduct<number[], number>): (v: number[]) => number[] {
   return (v) => {
     const n = Math.sqrt(IP.dot(v, v));
     if (n === 0) return IP.vZero();
@@ -188,7 +183,7 @@ export function normalize(
  */
 export function distance(
   IP: InnerProduct<number[], number>,
-  N: Numeric<number>,
+  N: Numeric<number>
 ): (a: number[], b: number[]) => number {
   return (a, b) => {
     const diff = vSub(IP, N)(a, b);
@@ -202,10 +197,7 @@ export function distance(
  * @param IP - InnerProduct instance
  * @param N - Numeric instance for equality check via zero()
  */
-export function isOrthogonal<V, F>(
-  IP: InnerProduct<V, F>,
-  N: Numeric<F>,
-): (a: V, b: V) => boolean {
+export function isOrthogonal<V, F>(IP: InnerProduct<V, F>, N: Numeric<F>): (a: V, b: V) => boolean {
   return (a, b) => {
     const d = IP.dot(a, b);
     const z = N.zero();
@@ -217,7 +209,7 @@ export function isOrthogonal<V, F>(
  * Project vector a onto vector b.
  */
 export function project(
-  IP: InnerProduct<number[], number>,
+  IP: InnerProduct<number[], number>
 ): (a: number[], b: number[]) => number[] {
   return (a, b) => {
     const dotAB = IP.dot(a, b);

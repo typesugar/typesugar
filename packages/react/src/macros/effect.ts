@@ -26,11 +26,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  type MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 import type { ReactMacroMode } from "../types.js";
 import {
   extractDependencies,
@@ -59,7 +55,7 @@ export const effectMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -67,7 +63,7 @@ export const effectMacro = defineExpressionMacro({
     if (args.length !== 1) {
       ctx.reportError(
         callExpr,
-        `effect() requires exactly one argument (effect function), got ${args.length}`,
+        `effect() requires exactly one argument (effect function), got ${args.length}`
       );
       return callExpr;
     }
@@ -78,7 +74,7 @@ export const effectMacro = defineExpressionMacro({
     if (!ts.isArrowFunction(effectFn) && !ts.isFunctionExpression(effectFn)) {
       ctx.reportError(
         callExpr,
-        "effect() argument must be an arrow function or function expression",
+        "effect() argument must be an arrow function or function expression"
       );
       return callExpr;
     }
@@ -91,7 +87,7 @@ export const effectMacro = defineExpressionMacro({
     const deps = extractDependencies(
       ctx,
       effectFn as ts.ArrowFunction | ts.FunctionExpression,
-      knownStateVars,
+      knownStateVars
     );
 
     // Check if this should be a derived() instead (warning)
@@ -101,14 +97,12 @@ export const effectMacro = defineExpressionMacro({
     }
 
     // Check for cleanup requirements
-    const cleanupCheck = checkEffectCleanup(
-      effectFn as ts.ArrowFunction | ts.FunctionExpression,
-    );
+    const cleanupCheck = checkEffectCleanup(effectFn as ts.ArrowFunction | ts.FunctionExpression);
     for (const resource of cleanupCheck) {
       if (resource.needsCleanup && !resource.hasCleanup) {
         ctx.reportWarning(
           callExpr,
-          `[effect] ${resource.resource} should have a cleanup function. Return a cleanup function from the effect.`,
+          `[effect] ${resource.resource} should have a cleanup function. Return a cleanup function from the effect.`
         );
       }
     }
@@ -121,13 +115,11 @@ export const effectMacro = defineExpressionMacro({
       const rewrittenEffectFn = rewriteStateReferencesInEffect(
         ctx,
         effectFn as ts.ArrowFunction | ts.FunctionExpression,
-        stateMetadata,
+        stateMetadata
       );
-      return factory.createCallExpression(
-        factory.createIdentifier("createEffect"),
-        undefined,
-        [rewrittenEffectFn],
-      );
+      return factory.createCallExpression(factory.createIdentifier("createEffect"), undefined, [
+        rewrittenEffectFn,
+      ]);
     }
 
     // Standard React mode: useEffect(() => { ... }, [deps])
@@ -142,22 +134,17 @@ export const effectMacro = defineExpressionMacro({
     const rewrittenEffectFn = rewriteStateReferencesInEffect(
       ctx,
       effectFn as ts.ArrowFunction | ts.FunctionExpression,
-      stateMetadata,
+      stateMetadata
     );
 
     // Generate dependency array
-    const depArray = generateDependencyArray(
-      factory,
-      deps.reads,
-      stateValueMap,
-    );
+    const depArray = generateDependencyArray(factory, deps.reads, stateValueMap);
 
     // Generate: useEffect(() => { ... }, [deps])
-    return factory.createCallExpression(
-      factory.createIdentifier("useEffect"),
-      undefined,
-      [rewrittenEffectFn, depArray],
-    );
+    return factory.createCallExpression(factory.createIdentifier("useEffect"), undefined, [
+      rewrittenEffectFn,
+      depArray,
+    ]);
   },
 });
 
@@ -175,7 +162,7 @@ export const watchMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -183,7 +170,7 @@ export const watchMacro = defineExpressionMacro({
     if (args.length !== 2) {
       ctx.reportError(
         callExpr,
-        `watch() requires exactly two arguments (deps array, effect function), got ${args.length}`,
+        `watch() requires exactly two arguments (deps array, effect function), got ${args.length}`
       );
       return callExpr;
     }
@@ -192,10 +179,7 @@ export const watchMacro = defineExpressionMacro({
 
     // Ensure first argument is an array
     if (!ts.isArrayLiteralExpression(depsArg)) {
-      ctx.reportError(
-        callExpr,
-        "watch() first argument must be an array literal of dependencies",
-      );
+      ctx.reportError(callExpr, "watch() first argument must be an array literal of dependencies");
       return callExpr;
     }
 
@@ -203,7 +187,7 @@ export const watchMacro = defineExpressionMacro({
     if (!ts.isArrowFunction(effectFn) && !ts.isFunctionExpression(effectFn)) {
       ctx.reportError(
         callExpr,
-        "watch() second argument must be an arrow function or function expression",
+        "watch() second argument must be an arrow function or function expression"
       );
       return callExpr;
     }
@@ -248,13 +232,11 @@ export const watchMacro = defineExpressionMacro({
       const rewrittenEffectFn = rewriteStateReferencesInEffect(
         ctx,
         effectFn as ts.ArrowFunction | ts.FunctionExpression,
-        stateMetadata,
+        stateMetadata
       );
-      return factory.createCallExpression(
-        factory.createIdentifier("createEffect"),
-        undefined,
-        [rewrittenEffectFn],
-      );
+      return factory.createCallExpression(factory.createIdentifier("createEffect"), undefined, [
+        rewrittenEffectFn,
+      ]);
     }
 
     // Standard React mode: useEffect
@@ -263,18 +245,17 @@ export const watchMacro = defineExpressionMacro({
     const rewrittenEffectFn = rewriteStateReferencesInEffect(
       ctx,
       effectFn as ts.ArrowFunction | ts.FunctionExpression,
-      stateMetadata,
+      stateMetadata
     );
 
     // Create dependency array
     const depArray = factory.createArrayLiteralExpression(depElements);
 
     // Generate: useEffect(() => { ... }, [deps])
-    return factory.createCallExpression(
-      factory.createIdentifier("useEffect"),
-      undefined,
-      [rewrittenEffectFn, depArray],
-    );
+    return factory.createCallExpression(factory.createIdentifier("useEffect"), undefined, [
+      rewrittenEffectFn,
+      depArray,
+    ]);
   },
 });
 
@@ -288,10 +269,7 @@ export const watchMacro = defineExpressionMacro({
 function rewriteStateReferencesInEffect(
   ctx: MacroContext,
   effectFn: ts.ArrowFunction | ts.FunctionExpression,
-  stateMetadata: Map<
-    string,
-    { name: string; valueIdent: string; setterIdent: string }
-  >,
+  stateMetadata: Map<string, { name: string; valueIdent: string; setterIdent: string }>
 ): ts.ArrowFunction | ts.FunctionExpression {
   const factory = ctx.factory;
 
@@ -311,27 +289,21 @@ function rewriteStateReferencesInEffect(
     }
 
     // Rewrite stateVar.set() and stateVar.update() calls
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression)
-    ) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const methodName = node.expression.name.text;
       const obj = node.expression.expression;
 
-      if (
-        (methodName === "set" || methodName === "update") &&
-        ts.isIdentifier(obj)
-      ) {
+      if ((methodName === "set" || methodName === "update") && ts.isIdentifier(obj)) {
         const meta = stateMetadata.get(obj.text);
         if (meta) {
           // Transform args recursively first
           const transformedArgs = node.arguments.map(
-            (arg) => ts.visitNode(arg, transformNode) as ts.Expression,
+            (arg) => ts.visitNode(arg, transformNode) as ts.Expression
           );
           return factory.createCallExpression(
             factory.createIdentifier(meta.setterIdent),
             undefined,
-            transformedArgs,
+            transformedArgs
           );
         }
       }
@@ -353,11 +325,7 @@ function rewriteStateReferencesInEffect(
         }
 
         // Skip if this is being declared
-        if (
-          node.parent &&
-          ts.isVariableDeclaration(node.parent) &&
-          node.parent.name === node
-        ) {
+        if (node.parent && ts.isVariableDeclaration(node.parent) && node.parent.name === node) {
           return node;
         }
 

@@ -17,11 +17,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  type MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 import type { ReactMacroMode } from "../types.js";
 import {
   extractDependencies,
@@ -50,7 +46,7 @@ export const derivedMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -58,7 +54,7 @@ export const derivedMacro = defineExpressionMacro({
     if (args.length !== 1) {
       ctx.reportError(
         callExpr,
-        `derived() requires exactly one argument (computation function), got ${args.length}`,
+        `derived() requires exactly one argument (computation function), got ${args.length}`
       );
       return callExpr;
     }
@@ -66,13 +62,10 @@ export const derivedMacro = defineExpressionMacro({
     const computation = args[0];
 
     // Ensure the argument is a function
-    if (
-      !ts.isArrowFunction(computation) &&
-      !ts.isFunctionExpression(computation)
-    ) {
+    if (!ts.isArrowFunction(computation) && !ts.isFunctionExpression(computation)) {
       ctx.reportError(
         callExpr,
-        "derived() argument must be an arrow function or function expression",
+        "derived() argument must be an arrow function or function expression"
       );
       return callExpr;
     }
@@ -86,7 +79,7 @@ export const derivedMacro = defineExpressionMacro({
       ctx,
       computation as ts.ArrowFunction | ts.FunctionExpression,
       knownStateVars,
-      true, // strict mode
+      true // strict mode
     );
 
     if (!purityResult.isPure) {
@@ -102,11 +95,9 @@ export const derivedMacro = defineExpressionMacro({
 
     if (mode === "fine-grained") {
       // Fine-grained mode: createComputed(() => computation)
-      return factory.createCallExpression(
-        factory.createIdentifier("createComputed"),
-        undefined,
-        [computation],
-      );
+      return factory.createCallExpression(factory.createIdentifier("createComputed"), undefined, [
+        computation,
+      ]);
     }
 
     // Standard React mode: useMemo(() => computation, [deps])
@@ -121,22 +112,17 @@ export const derivedMacro = defineExpressionMacro({
     const rewrittenComputation = rewriteStateReferences(
       ctx,
       computation as ts.ArrowFunction | ts.FunctionExpression,
-      stateMetadata,
+      stateMetadata
     );
 
     // Generate dependency array
-    const depArray = generateDependencyArray(
-      factory,
-      deps.reads,
-      stateValueMap,
-    );
+    const depArray = generateDependencyArray(factory, deps.reads, stateValueMap);
 
     // Generate: useMemo(() => rewrittenBody, [deps])
-    return factory.createCallExpression(
-      factory.createIdentifier("useMemo"),
-      undefined,
-      [rewrittenComputation, depArray],
-    );
+    return factory.createCallExpression(factory.createIdentifier("useMemo"), undefined, [
+      rewrittenComputation,
+      depArray,
+    ]);
   },
 });
 
@@ -149,10 +135,7 @@ export const derivedMacro = defineExpressionMacro({
 function rewriteStateReferences(
   ctx: MacroContext,
   computation: ts.ArrowFunction | ts.FunctionExpression,
-  stateMetadata: Map<
-    string,
-    { name: string; valueIdent: string; setterIdent: string }
-  >,
+  stateMetadata: Map<string, { name: string; valueIdent: string; setterIdent: string }>
 ): ts.ArrowFunction | ts.FunctionExpression {
   const factory = ctx.factory;
 
@@ -187,11 +170,7 @@ function rewriteStateReferences(
         }
 
         // Skip if this is being declared
-        if (
-          node.parent &&
-          ts.isVariableDeclaration(node.parent) &&
-          node.parent.name === node
-        ) {
+        if (node.parent && ts.isVariableDeclaration(node.parent) && node.parent.name === node) {
           return node;
         }
 
@@ -203,11 +182,7 @@ function rewriteStateReferences(
           node.parent.expression === node
         ) {
           const propName = node.parent.name.text;
-          if (
-            propName === "get" ||
-            propName === "set" ||
-            propName === "update"
-          ) {
+          if (propName === "get" || propName === "set" || propName === "update") {
             // Already handled above for .get(), .set()/.update() is an error
             return node;
           }

@@ -16,10 +16,7 @@
       "endCaptures": {
         "1": { "name": "punctuation.section.block.end.typesugar" }
       },
-      "patterns": [
-        { "include": "#comprehension-body" },
-        { "include": "source.ts" }
-      ]
+      "patterns": [{ "include": "#comprehension-body" }, { "include": "source.ts" }]
     },
     {
       "name": "meta.comprehension.yield.typesugar",
@@ -33,9 +30,7 @@
       "endCaptures": {
         "1": { "name": "punctuation.section.block.end.typesugar" }
       },
-      "patterns": [
-        { "include": "source.ts" }
-      ]
+      "patterns": [{ "include": "source.ts" }]
     },
     { "$comment": "Monadic bind operator: name << expr" },
     {

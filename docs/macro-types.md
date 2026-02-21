@@ -270,10 +270,7 @@ const Port = refinement((n) => n >= 0 && n <= 65535, "Port");
 type UserId = Opaque<number, "UserId">;
 
 // Phantom types — type-level state machines
-type Door<State extends "open" | "closed" | "locked"> = Phantom<
-  State,
-  DoorData
->;
+type Door<State extends "open" | "closed" | "locked"> = Phantom<State, DoorData>;
 ```
 
 ## Choosing the Right Macro Type

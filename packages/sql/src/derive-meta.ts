@@ -96,10 +96,7 @@ function toSnakeCase(str: string): string {
 /**
  * Get the Meta instance name for a TypeScript type.
  */
-function getMetaForType(
-  typeChecker: ts.TypeChecker,
-  type: ts.Type,
-): string | null {
+function getMetaForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
   // Handle primitives
   if (type.flags & ts.TypeFlags.String) return "stringMeta";
   if (type.flags & ts.TypeFlags.Number) return "numberMeta";
@@ -114,15 +111,13 @@ function getMetaForType(
   // Handle nullable/optional
   if (type.isUnion()) {
     const nonNullTypes = type.types.filter(
-      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)),
+      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined))
     );
     if (nonNullTypes.length === 1) {
       const innerMeta = getMetaForType(typeChecker, nonNullTypes[0]);
       if (innerMeta) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
-        const hasUndefined = type.types.some(
-          (t) => t.flags & ts.TypeFlags.Undefined,
-        );
+        const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
         if (hasNull) return `nullable(${innerMeta})`;
         if (hasUndefined) return `optional(${innerMeta})`;
       }
@@ -159,7 +154,7 @@ interface FieldInfo {
 function getFields(
   typeChecker: ts.TypeChecker,
   type: ts.Type,
-  ctx: MacroContext,
+  ctx: MacroContext
 ): FieldInfo[] | null {
   const fields: FieldInfo[] = [];
   const properties = type.getProperties();
@@ -173,7 +168,7 @@ function getFields(
       if (decl) {
         ctx.reportError(
           decl,
-          `Cannot derive Meta for field '${prop.name}': unsupported type '${typeChecker.typeToString(propType)}'`,
+          `Cannot derive Meta for field '${prop.name}': unsupported type '${typeChecker.typeToString(propType)}'`
         );
       }
       return null;
@@ -193,11 +188,9 @@ function getFields(
 
     // Check nullability
     const isNullable =
-      propType.isUnion() &&
-      propType.types.some((t) => t.flags & ts.TypeFlags.Null);
+      propType.isUnion() && propType.types.some((t) => t.flags & ts.TypeFlags.Null);
     const isOptional =
-      propType.isUnion() &&
-      propType.types.some((t) => t.flags & ts.TypeFlags.Undefined);
+      propType.isUnion() && propType.types.some((t) => t.flags & ts.TypeFlags.Undefined);
 
     fields.push({
       name: prop.name,
@@ -218,33 +211,25 @@ function getFields(
 /**
  * Generate the read function body.
  */
-function generateReadBody(
-  fields: FieldInfo[],
-  factory: ts.NodeFactory,
-): ts.Expression {
+function generateReadBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Expression {
   const properties = fields.map((field) => {
     // row.columnName
     const rowAccess = factory.createPropertyAccessExpression(
       factory.createIdentifier("row"),
-      factory.createIdentifier(field.columnName),
+      factory.createIdentifier(field.columnName)
     );
 
     // meta.unsafeGet(row.columnName) or meta.get(row.columnName)
     const metaCall = factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier(field.typeMeta),
-        factory.createIdentifier(
-          field.isNullable || field.isOptional ? "get" : "unsafeGet",
-        ),
+        factory.createIdentifier(field.isNullable || field.isOptional ? "get" : "unsafeGet")
       ),
       undefined,
-      [rowAccess],
+      [rowAccess]
     );
 
-    return factory.createPropertyAssignment(
-      factory.createIdentifier(field.name),
-      metaCall,
-    );
+    return factory.createPropertyAssignment(factory.createIdentifier(field.name), metaCall);
   });
 
   return factory.createObjectLiteralExpression(properties, true);
@@ -253,25 +238,22 @@ function generateReadBody(
 /**
  * Generate the write function body.
  */
-function generateWriteBody(
-  fields: FieldInfo[],
-  factory: ts.NodeFactory,
-): ts.Expression {
+function generateWriteBody(fields: FieldInfo[], factory: ts.NodeFactory): ts.Expression {
   const elements = fields.map((field) => {
     // value.fieldName
     const valueAccess = factory.createPropertyAccessExpression(
       factory.createIdentifier("value"),
-      factory.createIdentifier(field.name),
+      factory.createIdentifier(field.name)
     );
 
     // meta.put(value.fieldName)
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier(field.typeMeta),
-        factory.createIdentifier("put"),
+        factory.createIdentifier("put")
       ),
       undefined,
-      [valueAccess],
+      [valueAccess]
     );
   });
 
@@ -292,7 +274,7 @@ export const deriveMetaMacro = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node[] {
     // Check argument is "Meta"
     const arg = args[0];
@@ -304,10 +286,7 @@ export const deriveMetaMacro = defineAttributeMacro({
 
     // Must be an interface or type alias
     if (!ts.isInterfaceDeclaration(node) && !ts.isTypeAliasDeclaration(node)) {
-      ctx.reportError(
-        node,
-        "@derive(Meta) can only be applied to interfaces and type aliases",
-      );
+      ctx.reportError(node, "@derive(Meta) can only be applied to interfaces and type aliases");
       return [node];
     }
 
@@ -331,7 +310,7 @@ export const deriveMetaMacro = defineAttributeMacro({
     // Generate column names array
     const columnsArray = factory.createArrayLiteralExpression(
       fields.map((f) => factory.createStringLiteral(f.columnName)),
-      false,
+      false
     );
 
     // Generate read function
@@ -345,12 +324,12 @@ export const deriveMetaMacro = defineAttributeMacro({
           undefined,
           factory.createIdentifier("row"),
           undefined,
-          factory.createTypeReferenceNode("SqlRow"),
+          factory.createTypeReferenceNode("SqlRow")
         ),
       ],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      readBody,
+      readBody
     );
 
     // Generate write function
@@ -364,12 +343,12 @@ export const deriveMetaMacro = defineAttributeMacro({
           undefined,
           factory.createIdentifier("value"),
           undefined,
-          factory.createTypeReferenceNode(typeName),
+          factory.createTypeReferenceNode(typeName)
         ),
       ],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      writeBody,
+      writeBody
     );
 
     // Generate the Meta constant
@@ -381,19 +360,12 @@ export const deriveMetaMacro = defineAttributeMacro({
             factory.createIdentifier(`${typeName}Meta`),
             undefined,
             factory.createIntersectionTypeNode([
-              factory.createTypeReferenceNode("Read", [
-                factory.createTypeReferenceNode(typeName),
-              ]),
-              factory.createTypeReferenceNode("Write", [
-                factory.createTypeReferenceNode(typeName),
-              ]),
+              factory.createTypeReferenceNode("Read", [factory.createTypeReferenceNode(typeName)]),
+              factory.createTypeReferenceNode("Write", [factory.createTypeReferenceNode(typeName)]),
             ]),
             factory.createObjectLiteralExpression(
               [
-                factory.createPropertyAssignment(
-                  "_tag",
-                  factory.createStringLiteral("Meta"),
-                ),
+                factory.createPropertyAssignment("_tag", factory.createStringLiteral("Meta")),
                 factory.createPropertyAssignment("columns", columnsArray),
                 factory.createPropertyAssignment("read", readFunction),
                 factory.createPropertyAssignment(
@@ -407,7 +379,7 @@ export const deriveMetaMacro = defineAttributeMacro({
                         undefined,
                         factory.createIdentifier("row"),
                         undefined,
-                        factory.createTypeReferenceNode("SqlRow"),
+                        factory.createTypeReferenceNode("SqlRow")
                       ),
                     ],
                     undefined,
@@ -416,57 +388,49 @@ export const deriveMetaMacro = defineAttributeMacro({
                       factory.createCallExpression(
                         factory.createPropertyAccessExpression(
                           factory.createIdentifier(`${typeName}Meta`),
-                          factory.createIdentifier("read"),
+                          factory.createIdentifier("read")
                         ),
                         undefined,
-                        [factory.createIdentifier("row")],
-                      ),
-                    ),
-                  ),
+                        [factory.createIdentifier("row")]
+                      )
+                    )
+                  )
                 ),
                 factory.createPropertyAssignment("write", writeFunction),
               ],
-              true,
-            ),
+              true
+            )
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
+        ts.NodeFlags.Const
+      )
     );
 
     // Register for specialize
     const registerCall = factory.createExpressionStatement(
-      factory.createCallExpression(
-        factory.createIdentifier("registerInstanceMethods"),
-        undefined,
-        [
-          factory.createStringLiteral(`${typeName}Meta`),
-          factory.createStringLiteral("Meta"),
-          factory.createObjectLiteralExpression([
-            factory.createPropertyAssignment(
-              "read",
-              factory.createObjectLiteralExpression([
-                factory.createPropertyAssignment(
-                  "source",
-                  factory.createStringLiteral(
-                    `(row) => (${JSON.stringify(
-                      Object.fromEntries(
-                        fields.map((f) => [f.name, `\${row.${f.columnName}}`]),
-                      ),
-                    )})`,
-                  ),
-                ),
-                factory.createPropertyAssignment(
-                  "params",
-                  factory.createArrayLiteralExpression([
-                    factory.createStringLiteral("row"),
-                  ]),
-                ),
-              ]),
-            ),
-          ]),
-        ],
-      ),
+      factory.createCallExpression(factory.createIdentifier("registerInstanceMethods"), undefined, [
+        factory.createStringLiteral(`${typeName}Meta`),
+        factory.createStringLiteral("Meta"),
+        factory.createObjectLiteralExpression([
+          factory.createPropertyAssignment(
+            "read",
+            factory.createObjectLiteralExpression([
+              factory.createPropertyAssignment(
+                "source",
+                factory.createStringLiteral(
+                  `(row) => (${JSON.stringify(
+                    Object.fromEntries(fields.map((f) => [f.name, `\${row.${f.columnName}}`]))
+                  )})`
+                )
+              ),
+              factory.createPropertyAssignment(
+                "params",
+                factory.createArrayLiteralExpression([factory.createStringLiteral("row")])
+              ),
+            ])
+          ),
+        ]),
+      ])
     );
 
     return [node, metaConst, registerCall];

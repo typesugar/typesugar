@@ -70,11 +70,7 @@ export type {
 export { DEFAULT_CONFIG } from "./types.js";
 
 // Re-export analysis utilities (for advanced use)
-export type {
-  DependencyInfo,
-  SideEffect,
-  ClosureCapture,
-} from "./types.js";
+export type { DependencyInfo, SideEffect, ClosureCapture } from "./types.js";
 
 // Re-export macros (they register themselves)
 export * from "./macros/index.js";
@@ -171,10 +167,14 @@ export function effect(effectFn: () => void | (() => void)): void {
  */
 export function watch<T extends readonly State<unknown>[]>(
   deps: T,
-  effectFn: (...values: { [K in keyof T]: T[K] extends State<infer V> ? V : never }) => void | (() => void),
+  effectFn: (
+    ...values: { [K in keyof T]: T[K] extends State<infer V> ? V : never }
+  ) => void | (() => void)
 ): void {
   // Runtime fallback - just run immediately
-  const values = deps.map(d => d.get()) as { [K in keyof T]: T[K] extends State<infer V> ? V : never };
+  const values = deps.map((d) => d.get()) as {
+    [K in keyof T]: T[K] extends State<infer V> ? V : never;
+  };
   const cleanup = effectFn(...values);
   void cleanup;
 }
@@ -191,9 +191,7 @@ export function watch<T extends readonly State<unknown>[]>(
  *
  * @see The macro hoists this to module level and wraps in React.memo
  */
-export function component<P extends object>(
-  render: React.FC<P>,
-): EmbeddedComponent<P> {
+export function component<P extends object>(render: React.FC<P>): EmbeddedComponent<P> {
   // Runtime fallback - just return the component (no memoization)
   // In real use, this is replaced by the macro
   return render as unknown as EmbeddedComponent<P>;
@@ -212,7 +210,7 @@ export function component<P extends object>(
 export function each<T, K>(
   items: readonly T[],
   render: (item: T, index: number) => React.ReactNode,
-  keyFn: (item: T) => K,
+  keyFn: (item: T) => K
 ): React.ReactNode {
   // Runtime fallback - just map (keys handled by React)
   return items.map((item, index) => render(item, index));
@@ -234,7 +232,7 @@ export function each<T, K>(
  */
 export function match<T extends { _tag: string }, R>(
   value: T,
-  cases: { [K in T["_tag"]]: (value: Extract<T, { _tag: K }>) => R },
+  cases: { [K in T["_tag"]]: (value: Extract<T, { _tag: K }>) => R }
 ): R {
   // Runtime fallback
   const tag = value._tag;

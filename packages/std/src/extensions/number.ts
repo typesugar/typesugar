@@ -33,7 +33,7 @@ export function remap(
   fromMin: number,
   fromMax: number,
   toMin: number,
-  toMax: number,
+  toMax: number
 ): number {
   const t = inverseLerp(fromMin, fromMax, n);
   return lerp(toMin, toMax, t);
@@ -282,9 +282,7 @@ export function toWords(n: number): string {
   if (n < 20) return (negative ? "negative " : "") + ones[n];
   if (n < 100)
     return (
-      (negative ? "negative " : "") +
-      tens[Math.floor(n / 10)] +
-      (n % 10 ? "-" + ones[n % 10] : "")
+      (negative ? "negative " : "") + tens[Math.floor(n / 10)] + (n % 10 ? "-" + ones[n % 10] : "")
     );
   if (n < 1000)
     return (
@@ -300,9 +298,7 @@ export function toWords(n: number): string {
   while (n > 0) {
     const chunk = n % 1000;
     if (chunk > 0) {
-      parts.unshift(
-        toWords(chunk) + (scales[scaleIdx] ? " " + scales[scaleIdx] : ""),
-      );
+      parts.unshift(toWords(chunk) + (scales[scaleIdx] ? " " + scales[scaleIdx] : ""));
     }
     n = Math.floor(n / 1000);
     scaleIdx++;
@@ -316,21 +312,7 @@ export function toRoman(n: number): string {
     throw new RangeError("Roman numerals require 1-3999");
 
   const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-  const syms = [
-    "M",
-    "CM",
-    "D",
-    "CD",
-    "C",
-    "XC",
-    "L",
-    "XL",
-    "X",
-    "IX",
-    "V",
-    "IV",
-    "I",
-  ];
+  const syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"];
   let result = "";
   for (let i = 0; i < vals.length; i++) {
     while (n >= vals[i]) {
@@ -436,12 +418,12 @@ export function saturatingSub(a: number, b: number, min: number = Number.MIN_SAF
 
 export function wrappingAdd(a: number, b: number, bits: number = 32): number {
   const max = 2 ** bits;
-  return ((a + b) % max + max) % max;
+  return (((a + b) % max) + max) % max;
 }
 
 export function wrappingSub(a: number, b: number, bits: number = 32): number {
   const max = 2 ** bits;
-  return ((a - b) % max + max) % max;
+  return (((a - b) % max) + max) % max;
 }
 
 // ============================================================================

@@ -10,9 +10,7 @@ export function registerNamedArgs(meta: NamedArgsFunctionMeta): void {
 }
 
 /** Look up registered metadata for a function by name. */
-export function getNamedArgsMeta(
-  name: string,
-): NamedArgsFunctionMeta | undefined {
+export function getNamedArgsMeta(name: string): NamedArgsFunctionMeta | undefined {
   return namedArgsRegistry.get(name);
 }
 
@@ -26,7 +24,7 @@ export function getNamedArgsMeta(
 export function callWithNamedArgs<F extends (...args: any[]) => any>(
   fn: F,
   params: ReadonlyArray<ParamMeta>,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): ReturnType<F> {
   const fnName = fn.name || "<anonymous>";
   const knownNames = new Set(params.map((p) => p.name));
@@ -38,7 +36,7 @@ export function callWithNamedArgs<F extends (...args: any[]) => any>(
         key,
         "unknown_param",
         `Unknown parameter '${key}' for function '${fnName}'. ` +
-          `Known parameters: ${[...knownNames].join(", ")}`,
+          `Known parameters: ${[...knownNames].join(", ")}`
       );
     }
   }
@@ -55,7 +53,7 @@ export function callWithNamedArgs<F extends (...args: any[]) => any>(
         fnName,
         param.name,
         "missing_required",
-        `Missing required parameter '${param.name}' for function '${fnName}'`,
+        `Missing required parameter '${param.name}' for function '${fnName}'`
       );
     } else {
       positionalArgs[param.position] = param.defaultValue;
@@ -76,7 +74,7 @@ export function callWithNamedArgs<F extends (...args: any[]) => any>(
  */
 export function namedArgs<F extends (...args: any[]) => any>(
   fn: F,
-  params: ParamMeta[],
+  params: ParamMeta[]
 ): WithNamedArgs<F> {
   const sorted = [...params].sort((a, b) => a.position - b.position);
   const meta: NamedArgsFunctionMeta = {

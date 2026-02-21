@@ -99,12 +99,7 @@ This module provides three levels of type branding:
 Type constructors as type parameters via indexed-access encoding.
 
 ```typescript
-import {
-  type $,
-  type Kind,
-  type ArrayF,
-  type PromiseF,
-} from "@typesugar/type-system";
+import { type $, type Kind, type ArrayF, type PromiseF } from "@typesugar/type-system";
 
 // F is a type constructor (Array, Promise, etc.)
 interface Functor<F extends Kind> {
@@ -147,13 +142,7 @@ for (const item of items) {
 Types with predicates — Byte, Port, NonEmpty, Email — with compile-time validation for literals.
 
 ```typescript
-import {
-  type Refined,
-  Positive,
-  NonEmpty,
-  Email,
-  Port,
-} from "@typesugar/type-system";
+import { type Refined, Positive, NonEmpty, Email, Port } from "@typesugar/type-system";
 
 // Refined types carry their constraints
 type PositiveInt = Refined<number, typeof Positive>;

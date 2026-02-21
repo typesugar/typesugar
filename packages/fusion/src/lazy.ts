@@ -33,10 +33,7 @@ export class LazyPipeline<T> {
   }
 
   private chain(step: PipelineStep): LazyPipeline<any> {
-    return new LazyPipeline<any>(
-      this.source,
-      [...this.steps, step],
-    );
+    return new LazyPipeline<any>(this.source, [...this.steps, step]);
   }
 
   /** Transform each element */
@@ -179,7 +176,8 @@ export class LazyPipeline<T> {
 
   /** Minimum element (uses optional comparator, defaults to < ) */
   min(compare?: (a: T, b: T) => number): T | null {
-    const cmp = compare ?? ((a: T, b: T) => ((a as any) < (b as any) ? -1 : (a as any) > (b as any) ? 1 : 0));
+    const cmp =
+      compare ?? ((a: T, b: T) => ((a as any) < (b as any) ? -1 : (a as any) > (b as any) ? 1 : 0));
     let result: T | null = null;
     let first = true;
     for (const value of this.execute()) {
@@ -195,7 +193,8 @@ export class LazyPipeline<T> {
 
   /** Maximum element (uses optional comparator, defaults to > ) */
   max(compare?: (a: T, b: T) => number): T | null {
-    const cmp = compare ?? ((a: T, b: T) => ((a as any) < (b as any) ? -1 : (a as any) > (b as any) ? 1 : 0));
+    const cmp =
+      compare ?? ((a: T, b: T) => ((a as any) < (b as any) ? -1 : (a as any) > (b as any) ? 1 : 0));
     let result: T | null = null;
     let first = true;
     for (const value of this.execute()) {

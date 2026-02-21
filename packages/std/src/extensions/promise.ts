@@ -27,10 +27,7 @@ export function timeout<T>(promise: Promise<T>, ms: number, message?: string): P
 }
 
 export function timeoutOr<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    delay(ms).then(() => fallback),
-  ]);
+  return Promise.race([promise, delay(ms).then(() => fallback)]);
 }
 
 // ============================================================================
@@ -48,9 +45,16 @@ export interface RetryOptions {
 
 export async function retry<T>(
   fn: (attempt: number) => Promise<T>,
-  options: RetryOptions,
+  options: RetryOptions
 ): Promise<T> {
-  const { retries, delay: baseDelay = 0, backoff = "linear", maxDelay = 30_000, onRetry, shouldRetry } = options;
+  const {
+    retries,
+    delay: baseDelay = 0,
+    backoff = "linear",
+    maxDelay = 30_000,
+    onRetry,
+    shouldRetry,
+  } = options;
 
   let lastError: Error | undefined;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -62,9 +66,10 @@ export async function retry<T>(
       if (attempt < retries) {
         onRetry?.(lastError, attempt + 1);
         if (baseDelay > 0) {
-          const d = backoff === "exponential"
-            ? Math.min(baseDelay * 2 ** attempt, maxDelay)
-            : Math.min(baseDelay * (attempt + 1), maxDelay);
+          const d =
+            backoff === "exponential"
+              ? Math.min(baseDelay * 2 ** attempt, maxDelay)
+              : Math.min(baseDelay * (attempt + 1), maxDelay);
           await delay(d);
         }
       }
@@ -77,13 +82,19 @@ export async function retry<T>(
 // Tap & Transform (Bluebird tap, Scala Future andThen/transform)
 // ============================================================================
 
-export async function tap<T>(promise: Promise<T>, fn: (value: T) => void | Promise<void>): Promise<T> {
+export async function tap<T>(
+  promise: Promise<T>,
+  fn: (value: T) => void | Promise<void>
+): Promise<T> {
   const value = await promise;
   await fn(value);
   return value;
 }
 
-export async function tapError<T>(promise: Promise<T>, fn: (error: Error) => void | Promise<void>): Promise<T> {
+export async function tapError<T>(
+  promise: Promise<T>,
+  fn: (error: Error) => void | Promise<void>
+): Promise<T> {
   try {
     return await promise;
   } catch (err) {
@@ -94,7 +105,7 @@ export async function tapError<T>(promise: Promise<T>, fn: (error: Error) => voi
 
 export async function recover<T>(
   promise: Promise<T>,
-  fn: (error: Error) => T | Promise<T>,
+  fn: (error: Error) => T | Promise<T>
 ): Promise<T> {
   try {
     return await promise;
@@ -118,7 +129,7 @@ export async function fallbackTo<T>(promise: Promise<T>, fallback: Promise<T>): 
 export async function mapConcurrent<A, B>(
   items: readonly A[],
   fn: (item: A, index: number) => Promise<B>,
-  concurrency: number = Infinity,
+  concurrency: number = Infinity
 ): Promise<B[]> {
   if (concurrency === Infinity) {
     return Promise.all(items.map(fn));
@@ -142,7 +153,7 @@ export async function mapConcurrent<A, B>(
 export async function filterConcurrent<A>(
   items: readonly A[],
   pred: (item: A, index: number) => Promise<boolean>,
-  concurrency: number = Infinity,
+  concurrency: number = Infinity
 ): Promise<A[]> {
   const results = await mapConcurrent(items, pred, concurrency);
   return items.filter((_, i) => results[i]);
@@ -163,23 +174,27 @@ export async function settle<T>(promises: readonly Promise<T>[]): Promise<Settle
     promises.map((p) =>
       p
         .then((value): SettledResult<T> => ({ status: "fulfilled", value }))
-        .catch((reason): SettledResult<T> => ({
-          status: "rejected",
-          reason: reason instanceof Error ? reason : new Error(String(reason)),
-        })),
-    ),
+        .catch(
+          (reason): SettledResult<T> => ({
+            status: "rejected",
+            reason: reason instanceof Error ? reason : new Error(String(reason)),
+          })
+        )
+    )
   );
 }
 
 export async function allFulfilled<T>(promises: readonly Promise<T>[]): Promise<T[]> {
   const results = await settle(promises);
   return results
-    .filter((r): r is SettledResult<T> & { status: "fulfilled"; value: T } => r.status === "fulfilled")
+    .filter(
+      (r): r is SettledResult<T> & { status: "fulfilled"; value: T } => r.status === "fulfilled"
+    )
     .map((r) => r.value);
 }
 
 export async function props<T extends Record<string, Promise<unknown>>>(
-  obj: T,
+  obj: T
 ): Promise<{ [K in keyof T]: Awaited<T[K]> }> {
   const keys = Object.keys(obj) as (keyof T)[];
   const values = await Promise.all(keys.map((k) => obj[k]));
@@ -221,7 +236,7 @@ export function lazy<T>(fn: () => Promise<T>): () => Promise<T> {
 }
 
 export function memo<A extends string | number, T>(
-  fn: (arg: A) => Promise<T>,
+  fn: (arg: A) => Promise<T>
 ): (arg: A) => Promise<T> {
   const cache = new Map<A, Promise<T>>();
   return (arg: A) => {

@@ -64,9 +64,7 @@ defineDeriveMacro("Printable", {
     const { name, fields } = typeInfo;
 
     // Build field printing
-    const fieldPrints = fields
-      .map((f) => `  ${f.name}: \${this.${f.name}}`)
-      .join(",\\n");
+    const fieldPrints = fields.map((f) => `  ${f.name}: \${this.${f.name}}`).join(",\\n");
 
     return quoteStatements(ctx)`
       ${target}
@@ -88,7 +86,7 @@ Usage:
 class User {
   constructor(
     public name: string,
-    public age: number,
+    public age: number
   ) {}
 }
 
@@ -177,7 +175,7 @@ defineDeriveMacro("Match", {
       .map(
         (v) => `
       ${v.discriminant}: (value: ${v.name}) => R
-    `,
+    `
       )
       .join(",\n");
 

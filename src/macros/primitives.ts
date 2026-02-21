@@ -60,8 +60,7 @@ export const showUndefined = {
 // Generic array Show - requires element Show instance
 export function showArray<A>(elementShow: { show: (a: A) => string }) {
   return {
-    show: (arr: A[]): string =>
-      `[${arr.map((x) => elementShow.show(x)).join(", ")}]`,
+    show: (arr: A[]): string => `[${arr.map((x) => elementShow.show(x)).join(", ")}]`,
   };
 }
 

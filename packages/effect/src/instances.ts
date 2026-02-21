@@ -102,9 +102,7 @@ export interface Foldable<F> {
  * Traverse typeclass interface (Functor + Foldable + sequence).
  */
 export interface Traverse<F> extends Functor<F>, Foldable<F> {
-  readonly traverse: <G>(
-    G: Applicative<G>,
-  ) => <A, B>(fa: any, f: (a: A) => any) => any;
+  readonly traverse: <G>(G: Applicative<G>) => <A, B>(fa: any, f: (a: A) => any) => any;
 }
 
 // ============================================================================
@@ -139,9 +137,7 @@ export function effectApply<E = never, R = never>(): Apply<EffectF<E, R>> {
 /**
  * Applicative instance for Effect.Effect.
  */
-export function effectApplicative<E = never, R = never>(): Applicative<
-  EffectF<E, R>
-> {
+export function effectApplicative<E = never, R = never>(): Applicative<EffectF<E, R>> {
   return {
     map: (fa, f) => Effect.map(fa, f),
     ap: (fab, fa) => Effect.flatMap(fab, (f: any) => Effect.map(fa, f)),
@@ -209,8 +205,7 @@ export const chunkFunctor: Functor<ChunkF> = {
  */
 export const chunkFoldable: Foldable<ChunkF> = {
   foldLeft: (fa, b, f) => Chunk.reduce(fa, b, f),
-  foldRight: (fa, b, f) =>
-    Chunk.reduceRight(fa, b, (acc: any, a: any) => f(a, acc)),
+  foldRight: (fa, b, f) => Chunk.reduceRight(fa, b, (acc: any, a: any) => f(a, acc)),
 };
 
 /**
@@ -220,19 +215,15 @@ export function chunkTraverse(): Traverse<ChunkF> {
   return {
     map: (fa, f) => Chunk.map(fa, f),
     foldLeft: (fa, b, f) => Chunk.reduce(fa, b, f),
-    foldRight: (fa, b, f) =>
-      Chunk.reduceRight(fa, b, (acc: any, a: any) => f(a, acc)),
+    foldRight: (fa, b, f) => Chunk.reduceRight(fa, b, (acc: any, a: any) => f(a, acc)),
     traverse:
       <G>(G: Applicative<G>) =>
       <A, B>(fa: Chunk.Chunk<A>, f: (a: A) => any): any => {
         return Chunk.reduce(fa, G.pure(Chunk.empty<B>()), (gb: any, a: A) =>
           G.ap(
-            G.map(
-              gb,
-              (chunk: Chunk.Chunk<B>) => (b: B) => Chunk.append(chunk, b),
-            ),
-            f(a),
-          ),
+            G.map(gb, (chunk: Chunk.Chunk<B>) => (b: B) => Chunk.append(chunk, b)),
+            f(a)
+          )
         );
       },
   };

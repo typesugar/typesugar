@@ -18,21 +18,21 @@ describe("derived() macro", () => {
           return <div>{doubled}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // First process state() calls to populate metadata
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Now process derived() calls
       const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
       expect(derivedCalls.length).toBe(1);
-      
+
       const result = derivedMacro.expand(ctx, derivedCalls[0], [...derivedCalls[0].arguments]);
-      
+
       // Should be a useMemo call
       expect(ts.isCallExpression(result)).toBe(true);
       if (ts.isCallExpression(result)) {
@@ -51,19 +51,19 @@ describe("derived() macro", () => {
           return <div>{sum}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process derived() call
       const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
       const result = derivedMacro.expand(ctx, derivedCalls[0], [...derivedCalls[0].arguments]);
-      
+
       // Check dependency array
       if (ts.isCallExpression(result)) {
         const depsArg = result.arguments[1];
@@ -88,22 +88,22 @@ describe("derived() macro", () => {
           return <div>{bad}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process derived() call
       const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
       derivedMacro.expand(ctx, derivedCalls[0], [...derivedCalls[0].arguments]);
-      
+
       // Should have purity error
       expect(ctx.errors.length).toBeGreaterThan(0);
-      expect(ctx.errors.some(e => e.includes("pure") || e.includes("mutation"))).toBe(true);
+      expect(ctx.errors.some((e) => e.includes("pure") || e.includes("mutation"))).toBe(true);
     });
 
     it("should report error for console.log in derived", () => {
@@ -117,22 +117,22 @@ describe("derived() macro", () => {
           return <div>{bad}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process state() calls
       const stateCalls = findAllCalls(ctx.sourceFile, "state");
       for (const call of stateCalls) {
         stateMacro.expand(ctx, call, [...call.arguments]);
       }
-      
+
       // Process derived() call
       const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
       derivedMacro.expand(ctx, derivedCalls[0], [...derivedCalls[0].arguments]);
-      
+
       // Should have purity error
       expect(ctx.errors.length).toBeGreaterThan(0);
-      expect(ctx.errors.some(e => e.includes("pure") || e.includes("console"))).toBe(true);
+      expect(ctx.errors.some((e) => e.includes("pure") || e.includes("console"))).toBe(true);
     });
   });
 
@@ -144,12 +144,12 @@ describe("derived() macro", () => {
           return <div>{bad}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
-      
+
       derivedMacro.expand(ctx, derivedCalls[0], []);
-      
+
       expect(ctx.errors.length).toBeGreaterThan(0);
       expect(ctx.errors[0]).toContain("exactly one argument");
     });
@@ -161,12 +161,12 @@ describe("derived() macro", () => {
           return <div>{bad}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
-      
+
       derivedMacro.expand(ctx, derivedCalls[0], [...derivedCalls[0].arguments]);
-      
+
       expect(ctx.errors.length).toBeGreaterThan(0);
       expect(ctx.errors[0]).toContain("function");
     });
@@ -176,7 +176,7 @@ describe("derived() macro", () => {
 // Helper to find calls by function name
 function findAllCalls(sourceFile: ts.SourceFile, fnName: string): ts.CallExpression[] {
   const results: ts.CallExpression[] = [];
-  
+
   function visit(node: ts.Node): void {
     if (
       ts.isCallExpression(node) &&
@@ -187,7 +187,7 @@ function findAllCalls(sourceFile: ts.SourceFile, fnName: string): ts.CallExpress
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return results;
 }

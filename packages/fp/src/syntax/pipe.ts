@@ -26,18 +26,13 @@
 export function pipe<A>(a: A): A;
 export function pipe<A, B>(a: A, ab: (a: A) => B): B;
 export function pipe<A, B, C>(a: A, ab: (a: A) => B, bc: (b: B) => C): C;
-export function pipe<A, B, C, D>(
-  a: A,
-  ab: (a: A) => B,
-  bc: (b: B) => C,
-  cd: (c: C) => D,
-): D;
+export function pipe<A, B, C, D>(a: A, ab: (a: A) => B, bc: (b: B) => C, cd: (c: C) => D): D;
 export function pipe<A, B, C, D, E>(
   a: A,
   ab: (a: A) => B,
   bc: (b: B) => C,
   cd: (c: C) => D,
-  de: (d: D) => E,
+  de: (d: D) => E
 ): E;
 export function pipe<A, B, C, D, E, F>(
   a: A,
@@ -45,7 +40,7 @@ export function pipe<A, B, C, D, E, F>(
   bc: (b: B) => C,
   cd: (c: C) => D,
   de: (d: D) => E,
-  ef: (e: E) => F,
+  ef: (e: E) => F
 ): F;
 export function pipe<A, B, C, D, E, F, G>(
   a: A,
@@ -54,7 +49,7 @@ export function pipe<A, B, C, D, E, F, G>(
   cd: (c: C) => D,
   de: (d: D) => E,
   ef: (e: E) => F,
-  fg: (f: F) => G,
+  fg: (f: F) => G
 ): G;
 export function pipe<A, B, C, D, E, F, G, H>(
   a: A,
@@ -64,7 +59,7 @@ export function pipe<A, B, C, D, E, F, G, H>(
   de: (d: D) => E,
   ef: (e: E) => F,
   fg: (f: F) => G,
-  gh: (g: G) => H,
+  gh: (g: G) => H
 ): H;
 export function pipe<A, B, C, D, E, F, G, H, I>(
   a: A,
@@ -75,7 +70,7 @@ export function pipe<A, B, C, D, E, F, G, H, I>(
   ef: (e: E) => F,
   fg: (f: F) => G,
   gh: (g: G) => H,
-  hi: (h: H) => I,
+  hi: (h: H) => I
 ): I;
 export function pipe<A, B, C, D, E, F, G, H, I, J>(
   a: A,
@@ -87,12 +82,9 @@ export function pipe<A, B, C, D, E, F, G, H, I, J>(
   fg: (f: F) => G,
   gh: (g: G) => H,
   hi: (h: H) => I,
-  ij: (i: I) => J,
+  ij: (i: I) => J
 ): J;
-export function pipe(
-  a: unknown,
-  ...fns: Array<(a: unknown) => unknown>
-): unknown {
+export function pipe(a: unknown, ...fns: Array<(a: unknown) => unknown>): unknown {
   return fns.reduce((acc, fn) => fn(acc), a);
 }
 
@@ -113,30 +105,28 @@ export function pipe(
  * transform(5); // "11"
  * ```
  */
-export function flow<A extends readonly unknown[], B>(
-  ab: (...a: A) => B,
-): (...a: A) => B;
+export function flow<A extends readonly unknown[], B>(ab: (...a: A) => B): (...a: A) => B;
 export function flow<A extends readonly unknown[], B, C>(
   ab: (...a: A) => B,
-  bc: (b: B) => C,
+  bc: (b: B) => C
 ): (...a: A) => C;
 export function flow<A extends readonly unknown[], B, C, D>(
   ab: (...a: A) => B,
   bc: (b: B) => C,
-  cd: (c: C) => D,
+  cd: (c: C) => D
 ): (...a: A) => D;
 export function flow<A extends readonly unknown[], B, C, D, E>(
   ab: (...a: A) => B,
   bc: (b: B) => C,
   cd: (c: C) => D,
-  de: (d: D) => E,
+  de: (d: D) => E
 ): (...a: A) => E;
 export function flow<A extends readonly unknown[], B, C, D, E, F>(
   ab: (...a: A) => B,
   bc: (b: B) => C,
   cd: (c: C) => D,
   de: (d: D) => E,
-  ef: (e: E) => F,
+  ef: (e: E) => F
 ): (...a: A) => F;
 export function flow<A extends readonly unknown[], B, C, D, E, F, G>(
   ab: (...a: A) => B,
@@ -144,7 +134,7 @@ export function flow<A extends readonly unknown[], B, C, D, E, F, G>(
   cd: (c: C) => D,
   de: (d: D) => E,
   ef: (e: E) => F,
-  fg: (f: F) => G,
+  fg: (f: F) => G
 ): (...a: A) => G;
 export function flow<A extends readonly unknown[], B, C, D, E, F, G, H>(
   ab: (...a: A) => B,
@@ -153,7 +143,7 @@ export function flow<A extends readonly unknown[], B, C, D, E, F, G, H>(
   de: (d: D) => E,
   ef: (e: E) => F,
   fg: (f: F) => G,
-  gh: (g: G) => H,
+  gh: (g: G) => H
 ): (...a: A) => H;
 export function flow<A extends readonly unknown[], B, C, D, E, F, G, H, I>(
   ab: (...a: A) => B,
@@ -163,7 +153,7 @@ export function flow<A extends readonly unknown[], B, C, D, E, F, G, H, I>(
   ef: (e: E) => F,
   fg: (f: F) => G,
   gh: (g: G) => H,
-  hi: (h: H) => I,
+  hi: (h: H) => I
 ): (...a: A) => I;
 export function flow<A extends readonly unknown[], B, C, D, E, F, G, H, I, J>(
   ab: (...a: A) => B,
@@ -174,7 +164,7 @@ export function flow<A extends readonly unknown[], B, C, D, E, F, G, H, I, J>(
   fg: (f: F) => G,
   gh: (g: G) => H,
   hi: (h: H) => I,
-  ij: (i: I) => J,
+  ij: (i: I) => J
 ): (...a: A) => J;
 export function flow(
   ...fns: Array<(...args: unknown[]) => unknown>
@@ -207,27 +197,21 @@ export function flow(
  */
 export function compose<A, B>(ab: (a: A) => B): (a: A) => B;
 export function compose<A, B, C>(bc: (b: B) => C, ab: (a: A) => B): (a: A) => C;
-export function compose<A, B, C, D>(
-  cd: (c: C) => D,
-  bc: (b: B) => C,
-  ab: (a: A) => B,
-): (a: A) => D;
+export function compose<A, B, C, D>(cd: (c: C) => D, bc: (b: B) => C, ab: (a: A) => B): (a: A) => D;
 export function compose<A, B, C, D, E>(
   de: (d: D) => E,
   cd: (c: C) => D,
   bc: (b: B) => C,
-  ab: (a: A) => B,
+  ab: (a: A) => B
 ): (a: A) => E;
 export function compose<A, B, C, D, E, F>(
   ef: (e: E) => F,
   de: (d: D) => E,
   cd: (c: C) => D,
   bc: (b: B) => C,
-  ab: (a: A) => B,
+  ab: (a: A) => B
 ): (a: A) => F;
-export function compose(
-  ...fns: Array<(a: unknown) => unknown>
-): (a: unknown) => unknown {
+export function compose(...fns: Array<(a: unknown) => unknown>): (a: unknown) => unknown {
   return (a: unknown) => fns.reduceRight((acc, fn) => fn(acc), a);
 }
 
@@ -493,9 +477,7 @@ export const lazy = <A>(thunk: () => A): Lazy<A> => Lazy.of(thunk);
 /**
  * Memoize a function (cache results)
  */
-export function memoize<A extends unknown[], B>(
-  f: (...args: A) => B,
-): (...args: A) => B {
+export function memoize<A extends unknown[], B>(f: (...args: A) => B): (...args: A) => B {
   const cache = new Map<string, B>();
   return (...args: A): B => {
     const key = JSON.stringify(args);
@@ -513,7 +495,7 @@ export function memoize<A extends unknown[], B>(
  */
 export function memoizeWith<A extends unknown[], B, K>(
   keyFn: (...args: A) => K,
-  f: (...args: A) => B,
+  f: (...args: A) => B
 ): (...args: A) => B {
   const cache = new Map<K, B>();
   return (...args: A): B => {

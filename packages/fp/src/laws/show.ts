@@ -51,8 +51,7 @@ export function showLawsWithEq<A>(S: Show<A>, E: Eq<A>): LawSet {
     {
       name: "eq consistency",
       arity: 2,
-      description:
-        "Equal values have equal representations: eqv(x, y) => show(x) === show(y)",
+      description: "Equal values have equal representations: eqv(x, y) => show(x) === show(y)",
       check: (x: A, y: A): boolean => {
         // If x == y, then show(x) must equal show(y)
         if (E.eqv(x, y)) {

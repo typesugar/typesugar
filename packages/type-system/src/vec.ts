@@ -54,10 +54,7 @@ import { type Refined } from "./refined.js";
  * Type-level addition for small numbers (0-20).
  * Falls back to `number` for larger values.
  */
-export type Add<
-  A extends number,
-  B extends number,
-> = A extends keyof AdditionTable
+export type Add<A extends number, B extends number> = A extends keyof AdditionTable
   ? B extends keyof AdditionTable[A]
     ? AdditionTable[A][B]
     : number
@@ -67,10 +64,7 @@ export type Add<
  * Type-level subtraction for small numbers.
  * Returns 0 if result would be negative.
  */
-export type Sub<
-  A extends number,
-  B extends number,
-> = A extends keyof SubtractionTable
+export type Sub<A extends number, B extends number> = A extends keyof SubtractionTable
   ? B extends keyof SubtractionTable[A]
     ? SubtractionTable[A][B]
     : number
@@ -229,14 +223,9 @@ export function isVec<T>(value: unknown): value is Vec<T, number> {
  * Create a Vec from an array with runtime length validation.
  * @throws If array length doesn't match expected length N
  */
-function createVec<T, N extends number>(
-  arr: T[],
-  expectedLength: N,
-): Vec<T, N> {
+function createVec<T, N extends number>(arr: T[], expectedLength: N): Vec<T, N> {
   if (arr.length !== expectedLength) {
-    throw new Error(
-      `Vec length mismatch: expected ${expectedLength}, got ${arr.length}`,
-    );
+    throw new Error(`Vec length mismatch: expected ${expectedLength}, got ${arr.length}`);
   }
 
   // Create a branded array
@@ -333,9 +322,7 @@ export const Vec = {
    * const v = Vec.tuple("a", "b", "c"); // Vec<string, 3>
    * ```
    */
-  tuple<T extends unknown[]>(
-    ...items: T
-  ): Vec<T[number], T["length"] & number> {
+  tuple<T extends unknown[]>(...items: T): Vec<T[number], T["length"] & number> {
     return createVec(items, items.length as T["length"] & number);
   },
 
@@ -359,10 +346,7 @@ export const Vec = {
    * const indices = Vec.generate(5, i => i); // Vec<number, 5> = [0,1,2,3,4]
    * ```
    */
-  generate<T, N extends number>(
-    length: N,
-    fn: (index: number) => T,
-  ): Vec<T, N> {
+  generate<T, N extends number>(length: N, fn: (index: number) => T): Vec<T, N> {
     const arr = Array.from({ length }, (_, i) => fn(i));
     return createVec(arr, length);
   },
@@ -412,10 +396,7 @@ export const Vec = {
    * const v5 = Vec.append(v2, v3); // Vec<number, 5> = [1, 2, 3, 4, 5]
    * ```
    */
-  append<T, N extends number, M extends number>(
-    a: Vec<T, N>,
-    b: Vec<T, M>,
-  ): Vec<T, Add<N, M>> {
+  append<T, N extends number, M extends number>(a: Vec<T, N>, b: Vec<T, M>): Vec<T, Add<N, M>> {
     const newArr = [...(a as T[]), ...(b as T[])];
     return unsafeVec<T, Add<N, M>>(newArr);
   },
@@ -498,10 +479,7 @@ export const Vec = {
    * const v3 = Vec.take(v5, 3); // Vec<number, 3> = [1, 2, 3]
    * ```
    */
-  take<T, N extends number, M extends number>(
-    vec: Vec<T, N>,
-    count: M,
-  ): Vec<T, Min<N, M>> {
+  take<T, N extends number, M extends number>(vec: Vec<T, N>, count: M): Vec<T, Min<N, M>> {
     return unsafeVec<T, Min<N, M>>((vec as T[]).slice(0, count));
   },
 
@@ -515,10 +493,7 @@ export const Vec = {
    * const v2 = Vec.drop(v5, 3); // Vec<number, 2> = [4, 5]
    * ```
    */
-  drop<T, N extends number, M extends number>(
-    vec: Vec<T, N>,
-    count: M,
-  ): Vec<T, Sub<N, M>> {
+  drop<T, N extends number, M extends number>(vec: Vec<T, N>, count: M): Vec<T, Sub<N, M>> {
     return unsafeVec<T, Sub<N, M>>((vec as T[]).slice(count));
   },
 
@@ -530,9 +505,7 @@ export const Vec = {
   get<T, N extends number>(vec: Vec<T, N>, index: number): T {
     const arr = vec as T[];
     if (index < 0 || index >= arr.length) {
-      throw new Error(
-        `Vec index out of bounds: ${index} not in [0, ${arr.length})`,
-      );
+      throw new Error(`Vec index out of bounds: ${index} not in [0, ${arr.length})`);
     }
     return arr[index];
   },
@@ -546,10 +519,7 @@ export const Vec = {
    * const doubled = Vec.map(v3, x => x * 2); // Vec<number, 3> = [2, 4, 6]
    * ```
    */
-  map<T, U, N extends number>(
-    vec: Vec<T, N>,
-    fn: (value: T, index: number) => U,
-  ): Vec<U, N> {
+  map<T, U, N extends number>(vec: Vec<T, N>, fn: (value: T, index: number) => U): Vec<U, N> {
     return unsafeVec<U, N>((vec as T[]).map(fn));
   },
 

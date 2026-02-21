@@ -89,14 +89,14 @@ export const ksqlMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     // sql`...` from kysely
     const kyselySql = factory.createPropertyAccessExpression(
       factory.createIdentifier("kysely_sql"),
-      factory.createIdentifier("sql"),
+      factory.createIdentifier("sql")
     );
 
     // Create the tagged template with the same template literal
     return factory.createTaggedTemplateExpression(
       factory.createIdentifier("sql"),
       undefined,
-      node.template,
+      node.template
     );
   },
   validate(ctx: MacroContext, node: ts.TaggedTemplateExpression): boolean {
@@ -144,25 +144,22 @@ export const refMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length !== 1) {
-      ctx.reportError(
-        node,
-        "ref$ expects exactly one argument: the column/table reference",
-      );
+      ctx.reportError(node, "ref$ expects exactly one argument: the column/table reference");
       return node;
     }
 
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("sql"),
-        factory.createIdentifier("ref"),
+        factory.createIdentifier("ref")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -190,25 +187,22 @@ export const tableMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length !== 1) {
-      ctx.reportError(
-        node,
-        "table$ expects exactly one argument: the table name",
-      );
+      ctx.reportError(node, "table$ expects exactly one argument: the table name");
       return node;
     }
 
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("sql"),
-        factory.createIdentifier("table"),
+        factory.createIdentifier("table")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -236,7 +230,7 @@ export const idMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
@@ -248,10 +242,10 @@ export const idMacro: ExpressionMacro = defineExpressionMacro({
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("sql"),
-        factory.createIdentifier("id"),
+        factory.createIdentifier("id")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -279,15 +273,12 @@ export const litMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length !== 1) {
-      ctx.reportError(
-        node,
-        "lit$ expects exactly one argument: the literal value",
-      );
+      ctx.reportError(node, "lit$ expects exactly one argument: the literal value");
       return node;
     }
 
@@ -296,17 +287,17 @@ export const litMacro: ExpressionMacro = defineExpressionMacro({
     if (!ts.isStringLiteral(arg) && !ts.isNumericLiteral(arg)) {
       ctx.reportWarning(
         node,
-        "lit$ with dynamic values may be vulnerable to SQL injection. Consider using parameterized queries.",
+        "lit$ with dynamic values may be vulnerable to SQL injection. Consider using parameterized queries."
       );
     }
 
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("sql"),
-        factory.createIdentifier("lit"),
+        factory.createIdentifier("lit")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -334,14 +325,14 @@ export const joinMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         node,
-        "join$ expects one or two arguments: items array and optional separator",
+        "join$ expects one or two arguments: items array and optional separator"
       );
       return node;
     }
@@ -349,10 +340,10 @@ export const joinMacro: ExpressionMacro = defineExpressionMacro({
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("sql"),
-        factory.createIdentifier("join"),
+        factory.createIdentifier("join")
       ),
       undefined,
-      [...args],
+      [...args]
     );
   },
 });
@@ -380,15 +371,12 @@ export const rawMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length !== 1) {
-      ctx.reportError(
-        node,
-        "raw$ expects exactly one argument: the raw SQL string",
-      );
+      ctx.reportError(node, "raw$ expects exactly one argument: the raw SQL string");
       return node;
     }
 
@@ -398,27 +386,22 @@ export const rawMacro: ExpressionMacro = defineExpressionMacro({
       ctx.reportWarning(
         node,
         "raw$ with dynamic values is HIGHLY DANGEROUS and vulnerable to SQL injection. " +
-          "Use parameterized queries or sql tagged templates instead.",
+          "Use parameterized queries or sql tagged templates instead."
       );
     }
 
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("sql"),
-        factory.createIdentifier("raw"),
+        factory.createIdentifier("raw")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
 
-import {
-  validateSqlSyntax,
-  QueryableCompanion,
-  DbConnection,
-  Queryable,
-} from "@typesugar/sql";
+import { validateSqlSyntax, QueryableCompanion, DbConnection, Queryable } from "@typesugar/sql";
 import type { Compilable } from "kysely";
 
 // ============================================================================
@@ -451,13 +434,10 @@ register();
 /**
  * Runtime placeholder for ksql (should be transformed at compile time)
  */
-export function ksql<T = unknown>(
-  _strings: TemplateStringsArray,
-  ..._values: unknown[]
-): never {
+export function ksql<T = unknown>(_strings: TemplateStringsArray, ..._values: unknown[]): never {
   throw new Error(
     "ksql was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -467,7 +447,7 @@ export function ksql<T = unknown>(
 export function ref$(_reference: string): never {
   throw new Error(
     "ref$ was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -477,7 +457,7 @@ export function ref$(_reference: string): never {
 export function table$(_name: string): never {
   throw new Error(
     "table$ was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -487,7 +467,7 @@ export function table$(_name: string): never {
 export function id$(_identifier: string): never {
   throw new Error(
     "id$ was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -497,7 +477,7 @@ export function id$(_identifier: string): never {
 export function lit$<T>(_value: T): never {
   throw new Error(
     "lit$ was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -507,7 +487,7 @@ export function lit$<T>(_value: T): never {
 export function join$<T>(_items: T[], _separator?: unknown): never {
   throw new Error(
     "join$ was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -517,7 +497,7 @@ export function join$<T>(_items: T[], _separator?: unknown): never {
 export function raw$(_sql: string): never {
   throw new Error(
     "raw$ was not transformed at compile time. " +
-      "Make sure @typesugar/kysely is registered with the transformer.",
+      "Make sure @typesugar/kysely is registered with the transformer."
   );
 }
 
@@ -535,7 +515,7 @@ export const KyselyQueryable: Queryable<Compilable<unknown>> = QueryableCompanio
   async (query: Compilable<unknown>, conn: DbConnection) => {
     const { sql, parameters } = query.compile();
     return await conn.query(sql, parameters as unknown[]);
-  },
+  }
 );
 
 // ============================================================================

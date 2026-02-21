@@ -40,11 +40,7 @@
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
-import type {
-  LawSet,
-  VerificationMode,
-  UndecidableAction,
-} from "../laws/types.js";
+import type { LawSet, VerificationMode, UndecidableAction } from "../laws/types.js";
 import { getLawsConfig } from "../laws/verify.js";
 
 // ============================================================================
@@ -78,7 +74,7 @@ export const lawsAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     const config = getLawsConfig();
 
@@ -97,7 +93,7 @@ export const lawsAttribute = defineAttributeMacro({
       ctx.reportError(
         decorator,
         "@laws requires a law generator function as the first argument. " +
-          "Example: @laws(myLaws, { arbitrary: arbMyType })",
+          "Example: @laws(myLaws, { arbitrary: arbMyType })"
       );
       return stripDecorator(ctx, target, decorator);
     }
@@ -105,10 +101,7 @@ export const lawsAttribute = defineAttributeMacro({
     // Get the target name for diagnostics and generated code
     const targetName = extractTargetName(ctx, target);
     if (!targetName) {
-      ctx.reportError(
-        decorator,
-        "@laws must be applied to a named declaration.",
-      );
+      ctx.reportError(decorator, "@laws must be applied to a named declaration.");
       return stripDecorator(ctx, target, decorator);
     }
 
@@ -151,7 +144,7 @@ function expandCompileTime(
   ctx: MacroContext,
   target: ts.Declaration,
   decorator: ts.Decorator,
-  expCtx: ExpansionContext,
+  expCtx: ExpansionContext
 ): ts.Node[] {
   const { targetName, lawGenExpr, options } = expCtx;
   const lawGen = lawGenExpr.getText();
@@ -182,7 +175,7 @@ function expandPropertyTest(
   ctx: MacroContext,
   target: ts.Declaration,
   decorator: ts.Decorator,
-  expCtx: ExpansionContext,
+  expCtx: ExpansionContext
 ): ts.Node[] {
   const { targetName, lawGenExpr, options, config } = expCtx;
   const lawGen = lawGenExpr.getText();
@@ -192,7 +185,7 @@ function expandPropertyTest(
     ctx.reportError(
       decorator,
       "@laws in property-test mode requires an 'arbitrary' option. " +
-        "Example: @laws(myLaws, { arbitrary: arbMyType })",
+        "Example: @laws(myLaws, { arbitrary: arbMyType })"
     );
     return [stripDecorator(ctx, target, decorator)];
   }
@@ -231,10 +224,7 @@ describe("${targetName} laws", () => {
 // Parsing Helpers
 // ============================================================================
 
-function parseOptions(
-  ctx: MacroContext,
-  args: readonly ts.Expression[],
-): LawsDecoratorOptions {
+function parseOptions(ctx: MacroContext, args: readonly ts.Expression[]): LawsDecoratorOptions {
   const result: LawsDecoratorOptions = {};
 
   // Skip first arg (law generator), parse remaining as options
@@ -283,10 +273,7 @@ function parseOptions(
   return result;
 }
 
-function extractTargetName(
-  ctx: MacroContext,
-  target: ts.Node,
-): string | undefined {
+function extractTargetName(ctx: MacroContext, target: ts.Node): string | undefined {
   if (ts.isVariableStatement(target)) {
     const decl = target.declarationList.declarations[0];
     if (decl && ts.isIdentifier(decl.name)) {
@@ -309,20 +296,16 @@ function extractTargetName(
 function stripDecorator(
   ctx: MacroContext,
   target: ts.Node,
-  decoratorToRemove: ts.Decorator,
+  decoratorToRemove: ts.Decorator
 ): ts.Node {
   if (!ts.canHaveDecorators(target)) return target;
 
   const existingDecorators = ts.getDecorators(target);
   if (!existingDecorators) return target;
 
-  const remainingDecorators = existingDecorators.filter(
-    (d) => d !== decoratorToRemove,
-  );
+  const remainingDecorators = existingDecorators.filter((d) => d !== decoratorToRemove);
 
-  const existingModifiers = ts.canHaveModifiers(target)
-    ? ts.getModifiers(target)
-    : undefined;
+  const existingModifiers = ts.canHaveModifiers(target) ? ts.getModifiers(target) : undefined;
 
   const newModifiers = [...remainingDecorators, ...(existingModifiers ?? [])];
 
@@ -333,7 +316,7 @@ function stripDecorator(
     return ctx.factory.updateVariableStatement(
       node,
       newModifiers.length > 0 ? newModifiers : undefined,
-      node.declarationList,
+      node.declarationList
     );
   }
 
@@ -344,7 +327,7 @@ function stripDecorator(
       node.name,
       node.typeParameters,
       node.heritageClauses,
-      node.members,
+      node.members
     );
   }
 
@@ -367,7 +350,7 @@ globalRegistry.register(lawsAttribute);
  */
 export function laws<T extends object>(
   lawGenerator: (instance: T) => LawSet,
-  options?: LawsDecoratorOptions,
+  options?: LawsDecoratorOptions
 ): (target: T) => T {
   return (target) => target;
 }

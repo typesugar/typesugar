@@ -42,7 +42,7 @@ export default mergeConfig(
         provider: "v8",
       },
     },
-  }),
+  })
 );
 ```
 
@@ -67,7 +67,7 @@ describe("comptime", () => {
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 
@@ -113,7 +113,7 @@ describe("macro expansion", () => {
   it("matches expected output", () => {
     assertExpands(
       `import { comptime } from "@typesugar/comptime"; const x = comptime(21 * 2);`,
-      `const x = 42;`,
+      `const x = 42;`
     );
   });
 });

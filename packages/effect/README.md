@@ -128,12 +128,7 @@ effect
 ### Typeclass Instances
 
 ```typescript
-import {
-  effectFunctor,
-  effectMonad,
-  effectMonadError,
-  chunkFoldable,
-} from "@typesugar/effect";
+import { effectFunctor, effectMonad, effectMonadError, chunkFoldable } from "@typesugar/effect";
 
 // Use with generic FP functions
 const mapped = genericMap(effectFunctor<never, never>(), effect, f);

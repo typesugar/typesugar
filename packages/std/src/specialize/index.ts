@@ -124,20 +124,14 @@ export function promiseMap<A, B>(fa: Promise<A>, f: (a: A) => B): Promise<B> {
 /**
  * Pre-specialized promise flatMap. Equivalent to `specialize((F, fa, f) => F.flatMap(fa, f), stdFlatMapPromise)`.
  */
-export function promiseFlatMap<A, B>(
-  fa: Promise<A>,
-  f: (a: A) => Promise<B>,
-): Promise<B> {
+export function promiseFlatMap<A, B>(fa: Promise<A>, f: (a: A) => Promise<B>): Promise<B> {
   return fa.then(f);
 }
 
 /**
  * Pre-specialized iterable map — lazy evaluation.
  */
-export function* iterableMap<A, B>(
-  fa: Iterable<A>,
-  f: (a: A) => B,
-): Iterable<B> {
+export function* iterableMap<A, B>(fa: Iterable<A>, f: (a: A) => B): Iterable<B> {
   for (const a of fa) {
     yield f(a);
   }
@@ -146,10 +140,7 @@ export function* iterableMap<A, B>(
 /**
  * Pre-specialized iterable flatMap — lazy evaluation.
  */
-export function* iterableFlatMap<A, B>(
-  fa: Iterable<A>,
-  f: (a: A) => Iterable<B>,
-): Iterable<B> {
+export function* iterableFlatMap<A, B>(fa: Iterable<A>, f: (a: A) => Iterable<B>): Iterable<B> {
   for (const a of fa) {
     yield* f(a);
   }
@@ -160,7 +151,7 @@ export function* iterableFlatMap<A, B>(
  */
 export async function* asyncIterableMap<A, B>(
   fa: AsyncIterable<A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): AsyncIterable<B> {
   for await (const a of fa) {
     yield f(a);
@@ -172,7 +163,7 @@ export async function* asyncIterableMap<A, B>(
  */
 export async function* asyncIterableFlatMap<A, B>(
   fa: AsyncIterable<A>,
-  f: (a: A) => AsyncIterable<B>,
+  f: (a: A) => AsyncIterable<B>
 ): AsyncIterable<B> {
   for await (const a of fa) {
     yield* f(a);

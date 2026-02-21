@@ -13,11 +13,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
-import {
-  MacroContextImpl,
-  createMacroContext,
-  globalRegistry,
-} from "@typesugar/core";
+import { MacroContextImpl, createMacroContext, globalRegistry } from "@typesugar/core";
 
 // Import to register the testing macros
 import "../macro.js";
@@ -61,7 +57,7 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -74,9 +70,7 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "test.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   const transformContext: ts.TransformationContext = {
@@ -104,9 +98,7 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
 /** Print an AST node to a string for assertion */
 function printNode(node: ts.Node, sourceFile?: ts.SourceFile): string {
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  const sf =
-    sourceFile ??
-    ts.createSourceFile("out.ts", "", ts.ScriptTarget.Latest, false);
+  const sf = sourceFile ?? ts.createSourceFile("out.ts", "", ts.ScriptTarget.Latest, false);
   return printer.printNode(ts.EmitHint.Unspecified, node, sf);
 }
 
@@ -274,9 +266,9 @@ describe("staticAssert macro expansion", () => {
         ts.factory.createBinaryExpression(
           ts.factory.createNumericLiteral(3),
           ts.SyntaxKind.PlusToken,
-          ts.factory.createNumericLiteral(4),
+          ts.factory.createNumericLiteral(4)
         ),
-      ],
+      ]
     );
 
     // Manually simulate what the macro does
@@ -293,7 +285,7 @@ describe("staticAssert macro expansion", () => {
     const falseExpr = ts.factory.createBinaryExpression(
       ts.factory.createNumericLiteral(3),
       ts.SyntaxKind.EqualsEqualsEqualsToken,
-      ts.factory.createNumericLiteral(5),
+      ts.factory.createNumericLiteral(5)
     );
 
     const result = ctx.evaluate(falseExpr);
@@ -304,7 +296,7 @@ describe("staticAssert macro expansion", () => {
     const trueExpr = ts.factory.createBinaryExpression(
       ts.factory.createNumericLiteral(7),
       ts.SyntaxKind.EqualsEqualsEqualsToken,
-      ts.factory.createNumericLiteral(7),
+      ts.factory.createNumericLiteral(7)
     );
 
     const result = ctx.evaluate(trueExpr);
@@ -342,9 +334,7 @@ describe("powerAssert runtime fallback (backward compat)", () => {
   });
 
   it("should include custom message", () => {
-    expect(() => powerAssert(false, "custom message")).toThrow(
-      "custom message",
-    );
+    expect(() => powerAssert(false, "custom message")).toThrow("custom message");
   });
 });
 
@@ -372,7 +362,7 @@ describe("forAll runtime fallback", () => {
       10,
       (_value) => {
         count++;
-      },
+      }
     );
     expect(count).toBe(10);
   });
@@ -383,7 +373,7 @@ describe("forAll runtime fallback", () => {
       (seed) => seed,
       (_value) => {
         count++;
-      },
+      }
     );
     expect(count).toBe(100);
   });
@@ -394,8 +384,8 @@ describe("forAll runtime fallback", () => {
         (seed) => seed,
         (value) => {
           if (value === 5) throw new Error("bad value");
-        },
-      ),
+        }
+      )
     ).toThrow(/Property failed after 6 tests/);
   });
 
@@ -405,8 +395,8 @@ describe("forAll runtime fallback", () => {
         (seed) => ({ n: seed }),
         (value) => {
           if (value.n === 3) throw new Error("nope");
-        },
-      ),
+        }
+      )
     ).toThrow(/Failing input:.*"n":3/);
   });
 });
@@ -534,7 +524,7 @@ describe("@derive(Arbitrary) expansion", () => {
       "User",
       undefined,
       undefined,
-      [],
+      []
     );
 
     const result = ArbitraryDerive.expand(ctx, target, typeInfo);
@@ -578,7 +568,7 @@ describe("@derive(Arbitrary) expansion", () => {
       "Config",
       undefined,
       undefined,
-      [],
+      []
     );
 
     const result = ArbitraryDerive.expand(ctx, target, typeInfo);
@@ -619,7 +609,7 @@ describe("@derive(Arbitrary) expansion", () => {
       "Point",
       undefined,
       undefined,
-      [],
+      []
     );
 
     const result = ArbitraryDerive.expand(ctx, target, typeInfo);

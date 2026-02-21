@@ -81,9 +81,7 @@ interface ChainStep {
 // Option Macro
 // ============================================================================
 
-function parseOptionChain(
-  node: ts.Expression,
-): { root: ts.Expression; steps: ChainStep[] } | null {
+function parseOptionChain(node: ts.Expression): { root: ts.Expression; steps: ChainStep[] } | null {
   const steps: ChainStep[] = [];
   let current = node;
 
@@ -93,8 +91,16 @@ function parseOptionChain(
 
     const methodName = expr.name.text;
     const validMethods = [
-      "map", "flatMap", "filter", "unwrapOr", "unwrap",
-      "match", "zip", "and", "or", "tap",
+      "map",
+      "flatMap",
+      "filter",
+      "unwrapOr",
+      "unwrap",
+      "match",
+      "zip",
+      "and",
+      "or",
+      "tap",
     ];
 
     if (!validMethods.includes(methodName)) break;
@@ -124,25 +130,25 @@ function parseOptionChain(
 
 function expandOptionChain(
   ctx: MacroContext,
-  chain: { root: ts.Expression; steps: ChainStep[] },
+  chain: { root: ts.Expression; steps: ChainStep[] }
 ): ts.Expression {
   const factory = ctx.factory;
 
   function nullCheck(
     value: ts.Expression,
     thenExpr: ts.Expression,
-    elseExpr?: ts.Expression,
+    elseExpr?: ts.Expression
   ): ts.Expression {
     return factory.createConditionalExpression(
       factory.createBinaryExpression(
         value,
         factory.createToken(ts.SyntaxKind.ExclamationEqualsToken),
-        factory.createNull(),
+        factory.createNull()
       ),
       factory.createToken(ts.SyntaxKind.QuestionToken),
       thenExpr,
       factory.createToken(ts.SyntaxKind.ColonToken),
-      elseExpr ?? factory.createNull(),
+      elseExpr ?? factory.createNull()
     );
   }
 
@@ -155,7 +161,7 @@ function expandOptionChain(
         currentExpr = factory.createBinaryExpression(
           arg,
           factory.createToken(ts.SyntaxKind.QuestionQuestionToken),
-          factory.createNull(),
+          factory.createNull()
         );
         break;
       }
@@ -163,10 +169,7 @@ function expandOptionChain(
       case "flatMap": {
         const fn = step.args[0];
         const prev = currentExpr!;
-        currentExpr = nullCheck(
-          prev,
-          factory.createCallExpression(fn, undefined, [prev]),
-        );
+        currentExpr = nullCheck(prev, factory.createCallExpression(fn, undefined, [prev]));
         break;
       }
       case "filter": {
@@ -179,8 +182,8 @@ function expandOptionChain(
             factory.createToken(ts.SyntaxKind.QuestionToken),
             prev,
             factory.createToken(ts.SyntaxKind.ColonToken),
-            factory.createNull(),
-          ),
+            factory.createNull()
+          )
         );
         break;
       }
@@ -198,21 +201,23 @@ function expandOptionChain(
           factory.createCallExpression(
             factory.createParenthesizedExpression(
               factory.createArrowFunction(
-                undefined, undefined, [], undefined,
+                undefined,
+                undefined,
+                [],
+                undefined,
                 factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                 factory.createBlock([
                   factory.createThrowStatement(
-                    factory.createNewExpression(
-                      factory.createIdentifier("Error"),
-                      undefined,
-                      [factory.createStringLiteral("Called unwrap() on None")],
-                    ),
+                    factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+                      factory.createStringLiteral("Called unwrap() on None"),
+                    ])
                   ),
-                ]),
-              ),
+                ])
+              )
             ),
-            undefined, [],
-          ),
+            undefined,
+            []
+          )
         );
         break;
       }
@@ -224,7 +229,7 @@ function expandOptionChain(
           currentExpr = nullCheck(
             prev,
             factory.createCallExpression(someFn, undefined, [prev]),
-            factory.createCallExpression(noneFn, undefined, []),
+            factory.createCallExpression(noneFn, undefined, [])
           );
         }
         break;
@@ -234,14 +239,22 @@ function expandOptionChain(
         const prev = currentExpr!;
         currentExpr = factory.createConditionalExpression(
           factory.createBinaryExpression(
-            factory.createBinaryExpression(prev, factory.createToken(ts.SyntaxKind.ExclamationEqualsToken), factory.createNull()),
+            factory.createBinaryExpression(
+              prev,
+              factory.createToken(ts.SyntaxKind.ExclamationEqualsToken),
+              factory.createNull()
+            ),
             factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-            factory.createBinaryExpression(other, factory.createToken(ts.SyntaxKind.ExclamationEqualsToken), factory.createNull()),
+            factory.createBinaryExpression(
+              other,
+              factory.createToken(ts.SyntaxKind.ExclamationEqualsToken),
+              factory.createNull()
+            )
           ),
           factory.createToken(ts.SyntaxKind.QuestionToken),
           factory.createArrayLiteralExpression([prev, other]),
           factory.createToken(ts.SyntaxKind.ColonToken),
-          factory.createNull(),
+          factory.createNull()
         );
         break;
       }
@@ -266,8 +279,8 @@ function expandOptionChain(
             factory.createCommaListExpression([
               factory.createCallExpression(fn, undefined, [prev]),
               prev,
-            ]),
-          ),
+            ])
+          )
         );
         break;
       }
@@ -285,7 +298,7 @@ export const zeroCostOptionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const chain = parseOptionChain(callExpr);
     if (chain) return expandOptionChain(ctx, chain);
@@ -301,7 +314,7 @@ export const zeroCostOptionMacro = defineExpressionMacro({
         return ctx.factory.createBinaryExpression(
           args[0],
           ctx.factory.createToken(ts.SyntaxKind.QuestionQuestionToken),
-          ctx.factory.createNull(),
+          ctx.factory.createNull()
         );
       }
       if (method === "some" && args.length === 1) return args[0];
@@ -309,14 +322,14 @@ export const zeroCostOptionMacro = defineExpressionMacro({
         return ctx.factory.createBinaryExpression(
           args[0],
           ctx.factory.createToken(ts.SyntaxKind.ExclamationEqualsToken),
-          ctx.factory.createNull(),
+          ctx.factory.createNull()
         );
       }
       if (method === "isNone" && args.length === 1) {
         return ctx.factory.createBinaryExpression(
           args[0],
           ctx.factory.createToken(ts.SyntaxKind.EqualsEqualsToken),
-          ctx.factory.createNull(),
+          ctx.factory.createNull()
         );
       }
     }

@@ -167,9 +167,7 @@ export namespace Reader {
   /**
    * Lift a function into Reader
    */
-  export function lift<A, B>(
-    f: (a: A) => B,
-  ): <R>(ra: Reader<R, A>) => Reader<R, B> {
+  export function lift<A, B>(f: (a: A) => B): <R>(ra: Reader<R, A>) => Reader<R, B> {
     return (ra) => ra.map(f);
   }
 
@@ -177,7 +175,7 @@ export namespace Reader {
    * Lift a binary function into Reader
    */
   export function lift2<A, B, C>(
-    f: (a: A, b: B) => C,
+    f: (a: A, b: B) => C
   ): <R>(ra: Reader<R, A>, rb: Reader<R, B>) => Reader<R, C> {
     return (ra, rb) => ra.flatMap((a) => rb.map((b) => f(a, b)));
   }
@@ -197,20 +195,14 @@ export function map<R, A, B>(ra: Reader<R, A>, f: (a: A) => B): Reader<R, B> {
 /**
  * FlatMap (standalone function)
  */
-export function flatMap<R, A, B>(
-  ra: Reader<R, A>,
-  f: (a: A) => Reader<R, B>,
-): Reader<R, B> {
+export function flatMap<R, A, B>(ra: Reader<R, A>, f: (a: A) => Reader<R, B>): Reader<R, B> {
   return ra.flatMap(f);
 }
 
 /**
  * Apply (standalone function)
  */
-export function ap<R, A, B>(
-  rf: Reader<R, (a: A) => B>,
-  ra: Reader<R, A>,
-): Reader<R, B> {
+export function ap<R, A, B>(rf: Reader<R, (a: A) => B>, ra: Reader<R, A>): Reader<R, B> {
   return rf.flatMap((f) => ra.map(f));
 }
 
@@ -224,14 +216,10 @@ export function flatten<R, A>(rra: Reader<R, Reader<R, A>>): Reader<R, A> {
 /**
  * Traverse an array with a Reader-returning function
  */
-export function traverse<R, A, B>(
-  arr: A[],
-  f: (a: A) => Reader<R, B>,
-): Reader<R, B[]> {
+export function traverse<R, A, B>(arr: A[], f: (a: A) => Reader<R, B>): Reader<R, B[]> {
   return arr.reduce(
-    (acc: Reader<R, B[]>, a: A) =>
-      acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
-    Reader.pure([]),
+    (acc: Reader<R, B[]>, a: A) => acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
+    Reader.pure([])
   );
 }
 
@@ -266,12 +254,10 @@ export function Do<R>(): Reader<R, {}> {
  */
 export function bind<N extends string, R, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => Reader<R, B>,
+  f: (a: A) => Reader<R, B>
 ): (reader: Reader<R, A>) => Reader<R, A & { readonly [K in N]: B }> {
   return (reader) =>
-    reader.flatMap((a) =>
-      f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
-    );
+    reader.flatMap((a) => f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }));
 }
 
 /**
@@ -279,10 +265,9 @@ export function bind<N extends string, R, A extends object, B>(
  */
 export function let_<N extends string, R, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (reader: Reader<R, A>) => Reader<R, A & { readonly [K in N]: B }> {
-  return (reader) =>
-    reader.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
+  return (reader) => reader.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
 }
 
 // ============================================================================
@@ -313,7 +298,7 @@ export namespace ReaderT {
    * Ask for the environment in ReaderT
    */
   export function ask<R, MPure extends <T>(a: T) => unknown>(
-    pure: MPure,
+    pure: MPure
   ): ReaderT<R, ReturnType<MPure>, R> {
     return new ReaderT((r) => pure(r) as ReturnType<MPure>);
   }

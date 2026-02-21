@@ -237,6 +237,9 @@ describe("type safety", () => {
   it("prevents adding vectors from different coordinate systems", () => {
     const v1 = vec2(1, 2);
     // @ts-expect-error — cannot add Cartesian vector to Polar vector
-    addVec(v1, [1, 0] as unknown as import("../types.js").Vector<import("../types.js").Polar, import("../types.js").Dim2>);
+    addVec(v1, [1, 0] as unknown as import("../types.js").Vector<
+      import("../types.js").Polar,
+      import("../types.js").Dim2
+    >);
   });
 });

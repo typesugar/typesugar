@@ -22,7 +22,7 @@ import {
 async function proveGoalWithPlugins(
   goal: string,
   facts: TypeFact[],
-  plugins: ProverPlugin[],
+  plugins: ProverPlugin[]
 ): Promise<{ proven: boolean; method?: string; reason?: string }> {
   // First try algebraic rules
   const algebraResult = tryAlgebraicProof(goal, facts);
@@ -331,10 +331,7 @@ describe("@typesugar/contracts-z3", () => {
         { variable: "x", predicate: "x >= 0" },
         { variable: "y", predicate: "y >= 0" },
       ];
-      const result = await z3Plugin.prove(
-        "(x + y) >= 0 && (x * y) >= 0",
-        facts,
-      );
+      const result = await z3Plugin.prove("(x + y) >= 0 && (x * y) >= 0", facts);
       expect(result.proven).toBe(true);
     });
   });
@@ -395,11 +392,9 @@ describe("@typesugar/contracts-z3", () => {
 
   describe("proveWithZ3Async helper", () => {
     it("should prove simple goals", async () => {
-      const result = await proveWithZ3Async(
-        "x > 0",
-        [{ variable: "x", predicate: "x > 0" }],
-        { timeout: 2000 },
-      );
+      const result = await proveWithZ3Async("x > 0", [{ variable: "x", predicate: "x > 0" }], {
+        timeout: 2000,
+      });
       expect(result.proven).toBe(true);
     });
 
@@ -443,29 +438,21 @@ describe("@typesugar/contracts-z3", () => {
     });
 
     it("proveGoalWithPlugins should use Z3 as fallback", async () => {
-      const facts: TypeFact[] = [
-        { variable: "x", predicate: "x >= 0 && x <= 255" },
-      ];
+      const facts: TypeFact[] = [{ variable: "x", predicate: "x >= 0 && x <= 255" }];
 
       const result = await proveGoalWithPlugins("x < 256", facts, [z3Plugin]);
       expect(result.proven).toBe(true);
     });
 
     it("should prove Byte range constraint", async () => {
-      const facts: TypeFact[] = [
-        { variable: "x", predicate: "x >= 0 && x <= 255" },
-      ];
+      const facts: TypeFact[] = [{ variable: "x", predicate: "x >= 0 && x <= 255" }];
 
-      const result = await proveGoalWithPlugins("x >= 0 && x < 256", facts, [
-        z3Plugin,
-      ]);
+      const result = await proveGoalWithPlugins("x >= 0 && x < 256", facts, [z3Plugin]);
       expect(result.proven).toBe(true);
     });
 
     it("should prove Port range constraint", async () => {
-      const facts: TypeFact[] = [
-        { variable: "port", predicate: "port >= 1 && port <= 65535" },
-      ];
+      const facts: TypeFact[] = [{ variable: "port", predicate: "port >= 1 && port <= 65535" }];
 
       const result = await proveGoalWithPlugins("port > 0", facts, [z3Plugin]);
       expect(result.proven).toBe(true);
@@ -503,9 +490,7 @@ describe("@typesugar/contracts-z3", () => {
     });
 
     it("should prove percentage bounds", async () => {
-      const facts: TypeFact[] = [
-        { variable: "p", predicate: "p >= 0 && p <= 100" },
-      ];
+      const facts: TypeFact[] = [{ variable: "p", predicate: "p >= 0 && p <= 100" }];
 
       const result = await z3Plugin.prove("p / 100 <= 1", facts);
       expect(result.proven).toBe(true);
@@ -519,17 +504,11 @@ describe("@typesugar/contracts-z3", () => {
       ];
 
       // mid should be >= low
-      const result1 = await z3Plugin.prove(
-        "low + (high - low) / 2 >= low",
-        facts,
-      );
+      const result1 = await z3Plugin.prove("low + (high - low) / 2 >= low", facts);
       expect(result1.proven).toBe(true);
 
       // mid should be <= high
-      const result2 = await z3Plugin.prove(
-        "low + (high - low) / 2 <= high",
-        facts,
-      );
+      const result2 = await z3Plugin.prove("low + (high - low) / 2 <= high", facts);
       expect(result2.proven).toBe(true);
     });
   });

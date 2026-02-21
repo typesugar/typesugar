@@ -59,11 +59,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-} from "@typesugar/core";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 
 // ============================================================================
@@ -105,10 +101,7 @@ export type StatesOf<Def extends StateMachineDef> = keyof Def & string;
 /**
  * Extract transitions available in a given state.
  */
-export type TransitionsIn<
-  Def extends StateMachineDef,
-  S extends keyof Def,
-> = keyof Def[S] & string;
+export type TransitionsIn<Def extends StateMachineDef, S extends keyof Def> = keyof Def[S] & string;
 
 /**
  * Get the target state of a transition from a given state.
@@ -190,7 +183,7 @@ export interface StateMachineInstance<Data, State extends string> {
  * ```
  */
 export function createStateMachine<Def extends StateMachineDef, Data>(
-  config: StateMachineConfig<Def, Data>,
+  config: StateMachineConfig<Def, Data>
 ): StateMachineModule<Def, Data> {
   const { initial, initialData, transitions } = config;
 
@@ -204,23 +197,16 @@ export function createStateMachine<Def extends StateMachineDef, Data>(
     getState: (instance: StateMachineInstance<Data, string>) => instance.state,
     getData: (instance: StateMachineInstance<Data, string>) => instance.data,
 
-    is: (instance: StateMachineInstance<Data, string>, state: string) =>
-      instance.state === state,
+    is: (instance: StateMachineInstance<Data, string>, state: string) => instance.state === state,
   };
 
   // Add transition functions
   for (const [name, transitionFn] of Object.entries(transitions)) {
     const fn = transitionFn as (data: Data, ...args: unknown[]) => Data;
-    module[name] = (
-      instance: StateMachineInstance<Data, string>,
-      ...args: unknown[]
-    ) => {
+    module[name] = (instance: StateMachineInstance<Data, string>, ...args: unknown[]) => {
       // Find which state this transition belongs to and its target
       let targetState: string | undefined;
-      for (const [, trans] of Object.entries(config) as [
-        string,
-        Record<string, string>,
-      ][]) {
+      for (const [, trans] of Object.entries(config) as [string, Record<string, string>][]) {
         if (typeof trans === "object" && name in trans) {
           targetState = trans[name];
           break;
@@ -247,9 +233,7 @@ export type StateMachineModule<Def extends StateMachineDef, Data> = {
   readonly create: () => StateMachineInstance<Data, StatesOf<Def>>;
 
   /** Get the current state */
-  readonly getState: (
-    instance: StateMachineInstance<Data, string>,
-  ) => StatesOf<Def>;
+  readonly getState: (instance: StateMachineInstance<Data, string>) => StatesOf<Def>;
 
   /** Get the current data */
   readonly getData: (instance: StateMachineInstance<Data, string>) => Data;
@@ -257,7 +241,7 @@ export type StateMachineModule<Def extends StateMachineDef, Data> = {
   /** Check if the instance is in a specific state */
   readonly is: <S extends StatesOf<Def>>(
     instance: StateMachineInstance<Data, string>,
-    state: S,
+    state: S
   ) => instance is StateMachineInstance<Data, S>;
 } & {
   /** Transition functions */
@@ -296,7 +280,7 @@ export interface TypedBuilder<
   /** Set a field value */
   set<K extends keyof Fields>(
     key: K,
-    value: Fields[K],
+    value: Fields[K]
   ): TypedBuilder<Fields, Set & Record<K, true>>;
 
   /** Build the final object (only available when all required fields are set) */
@@ -309,9 +293,7 @@ export interface TypedBuilder<
 /**
  * Create a type-safe builder for a record type.
  */
-export function createBuilder<
-  Fields extends Record<string, unknown>,
->(): TypedBuilder<Fields> {
+export function createBuilder<Fields extends Record<string, unknown>>(): TypedBuilder<Fields> {
   const data: Partial<Fields> = {};
 
   const builder: any = {
@@ -337,11 +319,7 @@ export function createBuilder<
 /**
  * A protocol step — represents one step in a communication protocol.
  */
-export interface ProtocolStep<
-  Direction extends "send" | "receive",
-  Payload,
-  Next,
-> {
+export interface ProtocolStep<Direction extends "send" | "receive", Payload, Next> {
   readonly direction: Direction;
   readonly __payload__: Payload;
   readonly __next__: Next;
@@ -385,15 +363,14 @@ export type Dual<P> =
  */
 export const phantomAttribute = defineAttributeMacro({
   name: "phantom",
-  description:
-    "Add phantom type state tracking to a class for type-safe state machines",
+  description: "Add phantom type state tracking to a class for type-safe state machines",
   validTargets: ["class"] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isClassDeclaration(target)) {
       ctx.reportError(target, "@phantom can only be applied to classes");
@@ -424,9 +401,7 @@ export const phantomAttribute = defineAttributeMacro({
         if (args.length >= 2) {
           const from = ts.isStringLiteral(args[0]) ? args[0].text : "";
           const to = ts.isStringLiteral(args[1]) ? args[1].text : "";
-          const methodName = ts.isIdentifier(member.name)
-            ? member.name.text
-            : "";
+          const methodName = ts.isIdentifier(member.name) ? member.name.text : "";
 
           if (from && to && methodName) {
             transitions.push({ method: methodName, from, to });
@@ -453,10 +428,8 @@ export const phantomAttribute = defineAttributeMacro({
               [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
               factory.createIdentifier(method),
               undefined,
-              factory.createLiteralTypeNode(
-                factory.createStringLiteral(target),
-              ),
-            ),
+              factory.createLiteralTypeNode(factory.createStringLiteral(target))
+            )
           );
         }
 
@@ -465,8 +438,8 @@ export const phantomAttribute = defineAttributeMacro({
             [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
             factory.createIdentifier(state),
             undefined,
-            factory.createTypeLiteralNode(transMembers),
-          ),
+            factory.createTypeLiteralNode(transMembers)
+          )
         );
       }
 
@@ -474,7 +447,7 @@ export const phantomAttribute = defineAttributeMacro({
         [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
         factory.createIdentifier(`${name}States`),
         undefined,
-        factory.createTypeLiteralNode(stateTypeMembers),
+        factory.createTypeLiteralNode(stateTypeMembers)
       );
 
       return [target, stateDefType];
@@ -503,7 +476,7 @@ export const stateMachineMacro = defineExpressionMacro({
   expand(
     _ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     // Pass through to createStateMachine runtime implementation
     return callExpr;

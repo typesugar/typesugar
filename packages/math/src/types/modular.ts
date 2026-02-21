@@ -104,7 +104,7 @@ export function modPow<N extends number>(a: Mod<N>, exp: number): Mod<N> {
     const inv = modInverse(a);
     if (inv === null) {
       throw new RangeError(
-        `Cannot raise ${a.value} to negative power: no inverse mod ${a.modulus}`,
+        `Cannot raise ${a.value} to negative power: no inverse mod ${a.modulus}`
       );
     }
     return modPow(inv, -exp);
@@ -258,9 +258,7 @@ export function integralMod<N extends number>(modulus: N): Integral<Mod<N>> {
     div: (a, b) => {
       const result = modDiv(a, b);
       if (result === null) {
-        throw new RangeError(
-          `Division not defined: ${b.value} has no inverse mod ${modulus}`,
-        );
+        throw new RangeError(`Division not defined: ${b.value} has no inverse mod ${modulus}`);
       }
       return result as Mod<N> & Op<"/">;
     },
@@ -268,18 +266,14 @@ export function integralMod<N extends number>(modulus: N): Integral<Mod<N>> {
     divMod: (a, b) => {
       const q = modDiv(a, b);
       if (q === null) {
-        throw new RangeError(
-          `Division not defined: ${b.value} has no inverse mod ${modulus}`,
-        );
+        throw new RangeError(`Division not defined: ${b.value} has no inverse mod ${modulus}`);
       }
       return [q, zero(modulus)];
     },
     quot: (a, b) => {
       const result = modDiv(a, b);
       if (result === null) {
-        throw new RangeError(
-          `Division not defined: ${b.value} has no inverse mod ${modulus}`,
-        );
+        throw new RangeError(`Division not defined: ${b.value} has no inverse mod ${modulus}`);
       }
       return result;
     },
@@ -294,31 +288,23 @@ export function integralMod<N extends number>(modulus: N): Integral<Mod<N>> {
  *
  * @throws RangeError if modulus is not prime
  */
-export function fractionalMod<N extends number>(
-  modulus: N,
-): Fractional<Mod<N>> {
+export function fractionalMod<N extends number>(modulus: N): Fractional<Mod<N>> {
   if (!isPrime(modulus)) {
-    throw new RangeError(
-      `Fractional instance requires prime modulus, got ${modulus}`,
-    );
+    throw new RangeError(`Fractional instance requires prime modulus, got ${modulus}`);
   }
 
   return {
     div: (a, b) => {
       const result = modDiv(a, b);
       if (result === null) {
-        throw new RangeError(
-          `Division by zero: ${b.value} = 0 mod ${modulus}`,
-        );
+        throw new RangeError(`Division by zero: ${b.value} = 0 mod ${modulus}`);
       }
       return result as Mod<N> & Op<"/">;
     },
     recip: (a) => {
       const result = modInverse(a);
       if (result === null) {
-        throw new RangeError(
-          `No inverse: ${a.value} = 0 mod ${modulus}`,
-        );
+        throw new RangeError(`No inverse: ${a.value} = 0 mod ${modulus}`);
       }
       return result;
     },
@@ -328,7 +314,7 @@ export function fractionalMod<N extends number>(
       const result = modDiv(n, d);
       if (result === null) {
         throw new RangeError(
-          `Cannot represent ${num}/${den} mod ${modulus}: denominator has no inverse`,
+          `Cannot represent ${num}/${den} mod ${modulus}: denominator has no inverse`
         );
       }
       return result;
@@ -372,12 +358,7 @@ export function units<N extends number>(modulus: N): Mod<N>[] {
  * Given a ≡ r1 (mod m1) and a ≡ r2 (mod m2), find a mod (m1*m2).
  * Requires m1 and m2 to be coprime.
  */
-export function crt(
-  r1: number,
-  m1: number,
-  r2: number,
-  m2: number,
-): number {
+export function crt(r1: number, m1: number, r2: number, m2: number): number {
   if (!coprime(m1, m2)) {
     throw new RangeError(`CRT requires coprime moduli, got ${m1} and ${m2}`);
   }

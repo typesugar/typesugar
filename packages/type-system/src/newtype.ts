@@ -56,11 +56,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -124,7 +120,7 @@ export function newtypeCtor<T>(): (value: UnwrapNewtype<T>) => T {
  */
 export function validatedNewtype<T>(
   validate: (value: UnwrapNewtype<T>) => boolean,
-  errorMessage?: string,
+  errorMessage?: string
 ): (value: UnwrapNewtype<T>) => T {
   return (value) => {
     if (!validate(value)) {
@@ -146,7 +142,7 @@ export const wrapMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.reportError(callExpr, "wrap() expects exactly one argument");
@@ -165,7 +161,7 @@ export const unwrapMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.reportError(callExpr, "unwrap() expects exactly one argument");
@@ -179,30 +175,25 @@ export const unwrapMacro = defineExpressionMacro({
 export const newtypeCtorMacro = defineExpressionMacro({
   name: "newtypeCtor",
   module: "@typesugar/type-system",
-  description:
-    "Zero-cost newtype constructor factory — the returned function compiles to identity",
+  description: "Zero-cost newtype constructor factory — the returned function compiles to identity",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     // newtypeCtor<UserId>() => (v) => v
     // Which further inlines at call sites
     const factory = ctx.factory;
     const vIdent = ctx.generateUniqueName("v");
-    const param = factory.createParameterDeclaration(
-      undefined,
-      undefined,
-      vIdent,
-    );
+    const param = factory.createParameterDeclaration(undefined, undefined, vIdent);
     return factory.createArrowFunction(
       undefined,
       undefined,
       [param],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      factory.createIdentifier(vIdent.text),
+      factory.createIdentifier(vIdent.text)
     );
   },
 });

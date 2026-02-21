@@ -11,7 +11,7 @@ import { operators, ops } from "@typesugar/operators";
 class Vec2 {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 
   add(other: Vec2): Vec2 {
@@ -108,7 +108,7 @@ const result = pipe(
   5,
   (x) => x * 2,
   (x) => x + 1,
-  (x) => x.toString(),
+  (x) => x.toString()
 );
 // result: "11"
 ```
@@ -120,7 +120,7 @@ const processed = pipe(
   new Vec2(1, 1),
   (v) => v.add(new Vec2(2, 2)),
   (v) => v.scale(3),
-  (v) => v.toString(),
+  (v) => v.toString()
 );
 ```
 
@@ -173,7 +173,7 @@ You can use both:
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 

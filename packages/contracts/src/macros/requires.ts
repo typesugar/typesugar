@@ -31,11 +31,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 import { shouldEmitCheck } from "../config.js";
 import { normalizeExpression } from "../parser/predicate.js";
 
@@ -58,21 +54,16 @@ export const requiresMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
-      ctx.reportError(
-        callExpr,
-        "requires() expects 1-2 arguments: requires(condition, message?)",
-      );
+      ctx.reportError(callExpr, "requires() expects 1-2 arguments: requires(condition, message?)");
       return callExpr;
     }
 
     // If stripping is enabled, remove the call entirely
     if (!shouldEmitCheck("precondition")) {
-      return ctx.factory.createVoidExpression(
-        ctx.factory.createNumericLiteral(0),
-      );
+      return ctx.factory.createVoidExpression(ctx.factory.createNumericLiteral(0));
     }
 
     const condition = args[0];
@@ -80,17 +71,13 @@ export const requiresMacro = defineExpressionMacro({
     const message =
       args.length >= 2
         ? args[1]
-        : ctx.factory.createStringLiteral(
-            `Precondition failed: ${conditionText}`,
-          );
+        : ctx.factory.createStringLiteral(`Precondition failed: ${conditionText}`);
 
     // Try compile-time evaluation — if condition is statically true, skip
     if (ctx.isComptime(condition)) {
       const result = ctx.evaluate(condition);
       if (result.kind === "boolean" && result.value === true) {
-        return ctx.factory.createVoidExpression(
-          ctx.factory.createNumericLiteral(0),
-        );
+        return ctx.factory.createVoidExpression(ctx.factory.createNumericLiteral(0));
       }
       if (result.kind === "boolean" && result.value === false) {
         ctx.reportError(callExpr, `Precondition is statically false`);
@@ -111,18 +98,16 @@ export const requiresMacro = defineExpressionMacro({
             ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
             ctx.factory.createBlock([
               ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(
-                  ctx.factory.createIdentifier("Error"),
-                  undefined,
-                  [message],
-                ),
+                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
+                  message,
+                ])
               ),
-            ]),
-          ),
+            ])
+          )
         ),
         undefined,
-        [],
-      ),
+        []
+      )
     );
   },
 });

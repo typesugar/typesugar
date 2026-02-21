@@ -5,11 +5,7 @@ import { type MacroContext } from "@typesugar/core";
  * Basic SQL syntax validation for template literals.
  * Checks for unbalanced parentheses and potentially dangerous patterns.
  */
-export function validateSqlSyntax(
-  sql: string,
-  ctx: MacroContext,
-  node: ts.Node,
-): boolean {
+export function validateSqlSyntax(sql: string, ctx: MacroContext, node: ts.Node): boolean {
   const trimmed = sql.trim().toUpperCase();
 
   // Check for common SQL injection patterns
@@ -23,10 +19,7 @@ export function validateSqlSyntax(
 
   for (const pattern of dangerousPatterns) {
     if (pattern.test(sql)) {
-      ctx.reportWarning(
-        node,
-        "SQL contains potentially dangerous patterns. Review carefully.",
-      );
+      ctx.reportWarning(node, "SQL contains potentially dangerous patterns. Review carefully.");
       break;
     }
   }
@@ -57,18 +50,12 @@ export function validateSqlSyntax(
     if (char === "(") parenCount++;
     if (char === ")") parenCount--;
     if (parenCount < 0) {
-      ctx.reportError(
-        node,
-        "SQL has unbalanced parentheses: too many closing parentheses",
-      );
+      ctx.reportError(node, "SQL has unbalanced parentheses: too many closing parentheses");
       return false;
     }
   }
   if (parenCount !== 0) {
-    ctx.reportError(
-      node,
-      "SQL has unbalanced parentheses: missing closing parentheses",
-    );
+    ctx.reportError(node, "SQL has unbalanced parentheses: missing closing parentheses");
     return false;
   }
 

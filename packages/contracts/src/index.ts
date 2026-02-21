@@ -220,11 +220,7 @@ export {
 } from "./runtime/errors.js";
 
 // --- old() utilities ---
-export {
-  type OldCapture,
-  extractOldCaptures,
-  generateOldCaptureStatements,
-} from "./macros/old.js";
+export { type OldCapture, extractOldCaptures, generateOldCaptureStatements } from "./macros/old.js";
 
 // --- Laws Verification System ---
 // Re-export law types and verification utilities

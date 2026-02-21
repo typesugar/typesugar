@@ -13,10 +13,7 @@
 // Selection (Lodash pick/omit, Ruby slice/except)
 // ============================================================================
 
-export function pick<T extends object, K extends keyof T>(
-  obj: T,
-  keys: readonly K[],
-): Pick<T, K> {
+export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Pick<T, K> {
   const result = {} as Pick<T, K>;
   for (const key of keys) {
     if (key in obj) result[key] = obj[key];
@@ -24,10 +21,7 @@ export function pick<T extends object, K extends keyof T>(
   return result;
 }
 
-export function omit<T extends object, K extends keyof T>(
-  obj: T,
-  keys: readonly K[],
-): Omit<T, K> {
+export function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
   const result = { ...obj };
   for (const key of keys) delete (result as Record<string, unknown>)[key as string];
   return result as Omit<T, K>;
@@ -35,7 +29,7 @@ export function omit<T extends object, K extends keyof T>(
 
 export function pickBy<V>(
   obj: Record<string, V>,
-  pred: (value: V, key: string) => boolean,
+  pred: (value: V, key: string) => boolean
 ): Record<string, V> {
   const result: Record<string, V> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -46,7 +40,7 @@ export function pickBy<V>(
 
 export function omitBy<V>(
   obj: Record<string, V>,
-  pred: (value: V, key: string) => boolean,
+  pred: (value: V, key: string) => boolean
 ): Record<string, V> {
   return pickBy(obj, (v, k) => !pred(v, k));
 }
@@ -57,7 +51,7 @@ export function omitBy<V>(
 
 export function mapValues<V, U>(
   obj: Record<string, V>,
-  fn: (value: V, key: string) => U,
+  fn: (value: V, key: string) => U
 ): Record<string, U> {
   const result: Record<string, U> = {};
   for (const [k, v] of Object.entries(obj)) result[k] = fn(v, k);
@@ -66,7 +60,7 @@ export function mapValues<V, U>(
 
 export function mapKeys<V>(
   obj: Record<string, V>,
-  fn: (key: string, value: V) => string,
+  fn: (key: string, value: V) => string
 ): Record<string, V> {
   const result: Record<string, V> = {};
   for (const [k, v] of Object.entries(obj)) result[fn(k, v)] = v;
@@ -75,7 +69,7 @@ export function mapKeys<V>(
 
 export function mapEntries<V, U>(
   obj: Record<string, V>,
-  fn: (key: string, value: V) => [string, U],
+  fn: (key: string, value: V) => [string, U]
 ): Record<string, U> {
   const result: Record<string, U> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -87,14 +81,14 @@ export function mapEntries<V, U>(
 
 export function filterKeys<V>(
   obj: Record<string, V>,
-  pred: (key: string) => boolean,
+  pred: (key: string) => boolean
 ): Record<string, V> {
   return pickBy(obj, (_, k) => pred(k));
 }
 
 export function filterValues<V>(
   obj: Record<string, V>,
-  pred: (value: V) => boolean,
+  pred: (value: V) => boolean
 ): Record<string, V> {
   return pickBy(obj, (v) => pred(v));
 }
@@ -132,7 +126,7 @@ export function deepMerge<T extends Record<string, unknown>>(
       ) {
         result[key] = deepMerge(
           result[key] as Record<string, unknown>,
-          value as Record<string, unknown>,
+          value as Record<string, unknown>
         );
       } else {
         result[key] = value;
@@ -164,7 +158,7 @@ export function getPathOr<T>(obj: unknown, path: string | readonly string[], def
 export function setPath<T extends Record<string, unknown>>(
   obj: T,
   path: string | readonly string[],
-  value: unknown,
+  value: unknown
 ): T {
   const keys = typeof path === "string" ? path.split(".") : [...path];
   if (keys.length === 0) return obj;
@@ -239,10 +233,7 @@ export function deepEqual(a: unknown, b: unknown): boolean {
     const keysB = Object.keys(b as object);
     if (keysA.length !== keysB.length) return false;
     return keysA.every((k) =>
-      deepEqual(
-        (a as Record<string, unknown>)[k],
-        (b as Record<string, unknown>)[k],
-      ),
+      deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
     );
   }
 
@@ -261,7 +252,7 @@ export function deepFreeze<T extends object>(obj: T): Readonly<T> {
 
 export function diff(
   a: Record<string, unknown>,
-  b: Record<string, unknown>,
+  b: Record<string, unknown>
 ): Record<string, { from: unknown; to: unknown }> {
   const result: Record<string, { from: unknown; to: unknown }> = {};
   const allKeys = new Set([...Object.keys(a), ...Object.keys(b)]);

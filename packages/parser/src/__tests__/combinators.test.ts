@@ -300,12 +300,9 @@ describe("lazy", () => {
     // Nested parentheses: value = '(' value ')' | digit
     const value: Parser<string> = lazy(() =>
       alt(
-        map(
-          seq3(char("("), value, char(")")),
-          ([, inner]) => `(${inner})`,
-        ),
-        map(digit(), (d) => d),
-      ),
+        map(seq3(char("("), value, char(")")), ([, inner]) => `(${inner})`),
+        map(digit(), (d) => d)
+      )
     );
     expect(value.parse("((3))")).toEqual({ ok: true, value: "((3))", pos: 5 });
     expect(value.parse("7")).toEqual({ ok: true, value: "7", pos: 1 });
@@ -426,10 +423,8 @@ describe("expression parser (composed)", () => {
   // A simple calculator: number ((+|-) number)*
   const num = token(integer());
   const addOp = token(alt(char("+"), char("-")));
-  const expr = map(
-    seq(num, many(seq(addOp, num))),
-    ([first, rest]) =>
-      rest.reduce((acc, [op, n]) => (op === "+" ? acc + n : acc - n), first),
+  const expr = map(seq(num, many(seq(addOp, num))), ([first, rest]) =>
+    rest.reduce((acc, [op, n]) => (op === "+" ? acc + n : acc - n), first)
   );
 
   it("parses a single number", () => {

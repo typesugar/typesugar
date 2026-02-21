@@ -69,6 +69,23 @@
 import * as ts from "typescript";
 import type { MacroContext } from "../core/types.js";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
+import type { ResolutionAttempt } from "../core/resolution-trace.js";
+
+// ============================================================================
+// Derivation Result (with resolution trace for error diagnostics)
+// ============================================================================
+
+/**
+ * Result of attempting to derive a typeclass instance via Generic.
+ * Includes both the expression (if successful) and a trace of all
+ * resolution attempts (for error diagnostics when derivation fails).
+ */
+export interface DerivationResult {
+  /** The derived instance expression, or null if derivation failed */
+  expression: ts.Expression | null;
+  /** Resolution attempts made, regardless of success/failure */
+  trace: ResolutionAttempt[];
+}
 
 // ============================================================================
 // Derivation Strategy (≈ Scala 3 TC.derived)
@@ -114,11 +131,7 @@ export interface GenericDerivation {
    * @param meta - The Generic metadata (field names, types, etc.)
    * @returns TypeScript code string for the instance, or null if not possible
    */
-  deriveProduct(
-    ctx: MacroContext,
-    typeName: string,
-    meta: GenericMeta,
-  ): string | null;
+  deriveProduct(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null;
 
   /**
    * Generate code for deriving an instance for a sum type.
@@ -129,11 +142,7 @@ export interface GenericDerivation {
    * @param meta - The Generic metadata (discriminant, variants, etc.)
    * @returns TypeScript code string for the instance, or null if not possible
    */
-  deriveSum?(
-    ctx: MacroContext,
-    typeName: string,
-    meta: GenericMeta,
-  ): string | null;
+  deriveSum?(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null;
 }
 
 // ============================================================================
@@ -150,7 +159,7 @@ const genericDerivations = new Map<string, GenericDerivation>();
  */
 export function registerGenericDerivation(
   typeclassName: string,
-  strategy: GenericDerivation,
+  strategy: GenericDerivation
 ): void {
   genericDerivations.set(typeclassName, strategy);
 }
@@ -158,9 +167,7 @@ export function registerGenericDerivation(
 /**
  * Get the Generic derivation strategy for a typeclass.
  */
-export function getGenericDerivation(
-  typeclassName: string,
-): GenericDerivation | undefined {
+export function getGenericDerivation(typeclassName: string): GenericDerivation | undefined {
   return genericDerivations.get(typeclassName);
 }
 
@@ -219,14 +226,14 @@ export function clearDerivationCaches(): void {
 // ============================================================================
 
 /**
- * Try to derive a typeclass instance at compile time via Mirror.
+ * Try to derive a typeclass instance at compile time via Generic.
  *
  * Called by the `summon` macro when no explicit instance is found.
  * Follows the Scala 3 pattern:
  *
- * 1. Obtain the Mirror (GenericMeta) for the type
- * 2. Check all MirroredElemTypes have the required given instances
- * 3. Invoke the `derived` strategy to generate the instance code
+ * 1. Obtain the Generic (GenericMeta) for the type
+ * 2. Check all element types have the required instances
+ * 3. Invoke the derivation strategy to generate the instance code
  *
  * Results are cached at two levels:
  * - L1: in-memory `derivationCache` (fast, per-compilation)
@@ -236,47 +243,122 @@ export function clearDerivationCaches(): void {
  * @param ctx - The macro context
  * @param typeclassName - The typeclass to derive (e.g., "Show", "Read")
  * @param typeName - The type to derive for (e.g., "User")
- * @returns An AST expression for the derived instance, or null
+ * @returns DerivationResult with expression (if successful) and trace (always)
  */
 export function tryDeriveViaGeneric(
   ctx: MacroContext,
   typeclassName: string,
-  typeName: string,
-): ts.Expression | null {
+  typeName: string
+): DerivationResult {
+  const trace: ResolutionAttempt[] = [];
+
+  // Step 1: Check for derivation strategy
   const strategy = genericDerivations.get(typeclassName);
-  if (!strategy) return null;
+  if (!strategy) {
+    trace.push({
+      step: "derivation-strategy",
+      target: typeclassName,
+      result: "not-found",
+      reason: `no GenericDerivation registered for ${typeclassName}`,
+    });
+    return { expression: null, trace };
+  }
+
+  trace.push({
+    step: "derivation-strategy",
+    target: typeclassName,
+    result: "found",
+  });
 
   // L1 fast path: return in-memory cached derivation
   const memKey = `${typeclassName}<${typeName}>`;
   const memCached = derivationCache.get(memKey);
   if (memCached !== undefined) {
-    return ctx.parseExpression(memCached);
+    trace.push({
+      step: "cache-lookup",
+      target: memKey,
+      result: "found",
+      reason: "in-memory cache hit",
+    });
+    return { expression: ctx.parseExpression(memCached), trace };
   }
 
-  // Obtain Mirror: check pre-cached registry, then mirror cache, then synthesize
+  // Step 2: Obtain GenericMeta
   let meta = getGenericMeta(typeName);
   if (!meta) {
     const mirrorCached = mirrorCache.get(typeName);
     if (mirrorCached === false) {
-      return null; // previously failed to synthesize
+      trace.push({
+        step: "generic-meta",
+        target: `GenericMeta for ${typeName}`,
+        result: "not-found",
+        reason: "type not found in scope (cached failure)",
+      });
+      return { expression: null, trace };
     }
     if (mirrorCached) {
       meta = mirrorCached;
     } else {
       meta = extractMetaFromTypeChecker(ctx, typeName);
       mirrorCache.set(typeName, meta ?? false);
-      if (!meta) return null;
-    }
-  }
-
-  // Check all fields have the required instances
-  if (strategy.fieldTypeclass && meta.fieldTypes) {
-    for (const fieldType of meta.fieldTypes) {
-      if (!strategy.hasFieldInstance(fieldType)) {
-        return null;
+      if (!meta) {
+        trace.push({
+          step: "generic-meta",
+          target: `GenericMeta for ${typeName}`,
+          result: "not-found",
+          reason: "type not found in scope or has no properties",
+        });
+        return { expression: null, trace };
       }
     }
   }
+
+  // Record the successful GenericMeta extraction
+  const fieldSummary =
+    meta.fieldNames && meta.fieldTypes
+      ? `{ ${meta.fieldNames.map((n, i) => `${n}: ${meta.fieldTypes![i]}`).join(", ")} }`
+      : meta.kind === "sum"
+        ? `sum type with discriminant "${meta.discriminant}"`
+        : "unknown structure";
+
+  const genericMetaAttempt: ResolutionAttempt = {
+    step: "generic-meta",
+    target: `GenericMeta for ${typeName}: ${fieldSummary}`,
+    result: "found",
+    children: [],
+  };
+
+  // Step 3: Check all fields have the required instances
+  if (strategy.fieldTypeclass && meta.fieldTypes && meta.fieldNames) {
+    let allFieldsOk = true;
+    for (let i = 0; i < meta.fieldTypes.length; i++) {
+      const fieldType = meta.fieldTypes[i];
+      const fieldName = meta.fieldNames[i];
+      const hasInstance = strategy.hasFieldInstance(fieldType);
+
+      genericMetaAttempt.children!.push({
+        step: "field-check",
+        target: `field \`${fieldName}\`: ${fieldType}`,
+        result: hasInstance ? "found" : "rejected",
+        reason: hasInstance
+          ? `${fieldType} has ${strategy.fieldTypeclass}`
+          : `${fieldType} lacks ${strategy.fieldTypeclass}`,
+      });
+
+      if (!hasInstance) {
+        allFieldsOk = false;
+      }
+    }
+
+    if (!allFieldsOk) {
+      genericMetaAttempt.result = "rejected";
+      genericMetaAttempt.reason = "one or more fields lack required instance";
+      trace.push(genericMetaAttempt);
+      return { expression: null, trace };
+    }
+  }
+
+  trace.push(genericMetaAttempt);
 
   // L2: check disk cache using structural key (field names + types)
   const diskCache = ctx.expansionCache;
@@ -294,28 +376,60 @@ export function tryDeriveViaGeneric(
     const diskKey = diskCache.computeStructuralKey(typeclassName, structuralJson);
     const diskCached = diskCache.get(diskKey);
     if (diskCached !== undefined) {
-      // Populate L1 cache so subsequent calls in this compilation are fast
       derivationCache.set(memKey, diskCached);
-      return ctx.parseExpression(diskCached);
+      trace.push({
+        step: "cache-lookup",
+        target: memKey,
+        result: "found",
+        reason: "disk cache hit",
+      });
+      return { expression: ctx.parseExpression(diskCached), trace };
     }
 
     // Generate the derivation code
     const code = generateDerivationCode(strategy, ctx, typeName, meta);
-    if (!code) return null;
+    if (!code) {
+      trace.push({
+        step: "code-generation",
+        target: `${typeclassName}<${typeName}>`,
+        result: "rejected",
+        reason: `derivation strategy returned null for ${meta.kind} type`,
+      });
+      return { expression: null, trace };
+    }
 
-    // Store in both L1 and L2
     derivationCache.set(memKey, code);
     diskCache.set(diskKey, code);
 
-    return ctx.parseExpression(code);
+    trace.push({
+      step: "code-generation",
+      target: `${typeclassName}<${typeName}>`,
+      result: "found",
+    });
+
+    return { expression: ctx.parseExpression(code), trace };
   }
 
   // No disk cache available — generate and store in L1 only
   const code = generateDerivationCode(strategy, ctx, typeName, meta);
-  if (!code) return null;
+  if (!code) {
+    trace.push({
+      step: "code-generation",
+      target: `${typeclassName}<${typeName}>`,
+      result: "rejected",
+      reason: `derivation strategy returned null for ${meta.kind} type`,
+    });
+    return { expression: null, trace };
+  }
 
   derivationCache.set(memKey, code);
-  return ctx.parseExpression(code);
+  trace.push({
+    step: "code-generation",
+    target: `${typeclassName}<${typeName}>`,
+    result: "found",
+  });
+
+  return { expression: ctx.parseExpression(code), trace };
 }
 
 /**
@@ -325,7 +439,7 @@ function generateDerivationCode(
   strategy: GenericDerivation,
   ctx: MacroContext,
   typeName: string,
-  meta: GenericMeta,
+  meta: GenericMeta
 ): string | null {
   if (meta.kind === "product") {
     return strategy.deriveProduct(ctx, typeName, meta);
@@ -341,10 +455,7 @@ function generateDerivationCode(
  * Does not generate code — just checks feasibility.
  * Uses the mirror cache if available.
  */
-export function canDeriveViaGeneric(
-  typeclassName: string,
-  typeName: string,
-): boolean {
+export function canDeriveViaGeneric(typeclassName: string, typeName: string): boolean {
   const strategy = genericDerivations.get(typeclassName);
   if (!strategy) return false;
 
@@ -381,10 +492,7 @@ export function canDeriveViaGeneric(
  * case classes — no annotation needed, the compiler just knows the structure.
  * We use the TypeScript type checker to extract field names and types.
  */
-function extractMetaFromTypeChecker(
-  ctx: MacroContext,
-  typeName: string,
-): GenericMeta | null {
+function extractMetaFromTypeChecker(ctx: MacroContext, typeName: string): GenericMeta | null {
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
 
@@ -393,7 +501,7 @@ function extractMetaFromTypeChecker(
   // Search imports and local declarations
   const symbols = typeChecker.getSymbolsInScope(
     sourceFile,
-    ts.SymbolFlags.Type | ts.SymbolFlags.Interface | ts.SymbolFlags.Class,
+    ts.SymbolFlags.Type | ts.SymbolFlags.Interface | ts.SymbolFlags.Class
   );
 
   for (const sym of symbols) {
@@ -416,7 +524,7 @@ function extractMetaFromTypeChecker(
   for (const prop of properties) {
     const propType = typeChecker.getTypeOfSymbolAtLocation(
       prop,
-      prop.valueDeclaration ?? sourceFile,
+      prop.valueDeclaration ?? sourceFile
     );
 
     fieldNames.push(prop.name);
@@ -439,7 +547,7 @@ function extractMetaFromTypeChecker(
  * instance for a given typeclass.
  */
 export function makePrimitiveChecker(
-  primitiveTypes: ReadonlySet<string>,
+  primitiveTypes: ReadonlySet<string>
 ): (fieldType: string) => boolean {
   return function hasInstance(fieldType: string): boolean {
     // Strip nullable/optional wrappers
@@ -467,9 +575,7 @@ registerGenericDerivation("Show", {
   typeclassName: "Show",
   fieldTypeclass: "Show",
 
-  hasFieldInstance: makePrimitiveChecker(
-    new Set(["number", "string", "boolean", "bigint"]),
-  ),
+  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean", "bigint"])),
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames || !meta.fieldTypes) return null;
@@ -502,16 +608,12 @@ registerGenericDerivation("Eq", {
   typeclassName: "Eq",
   fieldTypeclass: "Eq",
 
-  hasFieldInstance: makePrimitiveChecker(
-    new Set(["number", "string", "boolean", "bigint"]),
-  ),
+  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean", "bigint"])),
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
 
-    const checks = meta.fieldNames
-      .map((name) => `a.${name} === b.${name}`)
-      .join(" && ");
+    const checks = meta.fieldNames.map((name) => `a.${name} === b.${name}`).join(" && ");
 
     return `({ eq: (a: ${typeName}, b: ${typeName}) => ${checks || "true"} })`;
   },
@@ -522,9 +624,7 @@ registerGenericDerivation("Ord", {
   typeclassName: "Ord",
   fieldTypeclass: "Ord",
 
-  hasFieldInstance: makePrimitiveChecker(
-    new Set(["number", "string", "boolean", "bigint"]),
-  ),
+  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean", "bigint"])),
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
@@ -532,7 +632,7 @@ registerGenericDerivation("Ord", {
     const comparisons = meta.fieldNames
       .map(
         (name) =>
-          `{ const c = a.${name} < b.${name} ? -1 : a.${name} > b.${name} ? 1 : 0; if (c !== 0) return c; }`,
+          `{ const c = a.${name} < b.${name} ? -1 : a.${name} > b.${name} ? 1 : 0; if (c !== 0) return c; }`
       )
       .join(" ");
 
@@ -545,9 +645,7 @@ registerGenericDerivation("Hash", {
   typeclassName: "Hash",
   fieldTypeclass: "Hash",
 
-  hasFieldInstance: makePrimitiveChecker(
-    new Set(["number", "string", "boolean", "bigint"]),
-  ),
+  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean", "bigint"])),
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames || !meta.fieldTypes) return null;
@@ -575,9 +673,7 @@ registerGenericDerivation("Clone", {
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
 
-    const fields = meta.fieldNames
-      .map((name) => `${name}: structuredClone(a.${name})`)
-      .join(", ");
+    const fields = meta.fieldNames.map((name) => `${name}: structuredClone(a.${name})`).join(", ");
 
     return `({ clone: (a: ${typeName}): ${typeName} => ({ ${fields} }) })`;
   },

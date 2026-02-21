@@ -56,7 +56,7 @@ export function filterMapValues<K, V>(map: Map<K, V>, pred: (value: V) => boolea
 export function mergeMap<K, V>(
   a: Map<K, V>,
   b: Map<K, V>,
-  resolve?: (va: V, vb: V, key: K) => V,
+  resolve?: (va: V, vb: V, key: K) => V
 ): Map<K, V> {
   const result = new Map(a);
   for (const [k, v] of b) {
@@ -97,7 +97,7 @@ export function invertMap<K, V>(map: Map<K, V>): Map<V, K> {
 
 export function groupMapBy<K, V, G>(
   map: Map<K, V>,
-  fn: (value: V, key: K) => G,
+  fn: (value: V, key: K) => G
 ): Map<G, Map<K, V>> {
   const result = new Map<G, Map<K, V>>();
   for (const [k, v] of map) {

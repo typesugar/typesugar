@@ -97,7 +97,17 @@ export {
  */
 export interface TypeInfo {
   name: string;
-  kind: "interface" | "class" | "type" | "enum" | "primitive" | "union" | "intersection" | "array" | "tuple" | "function";
+  kind:
+    | "interface"
+    | "class"
+    | "type"
+    | "enum"
+    | "primitive"
+    | "union"
+    | "intersection"
+    | "array"
+    | "tuple"
+    | "function";
   fields?: FieldInfo[];
   methods?: MethodInfo[];
   typeParameters?: string[];
@@ -188,8 +198,7 @@ export function assert(condition: boolean, message?: string): void {
   // Runtime fallback — the transformer replaces this with instrumented code
   if (!condition) {
     throw new Error(
-      message ??
-        "Power assertion failed (run with typesugar transformer for detailed output)",
+      message ?? "Power assertion failed (run with typesugar transformer for detailed output)"
     );
   }
 }
@@ -256,7 +265,7 @@ export const comptimeAssert = staticAssert;
  * ```
  */
 export function testCases(
-  _cases: Array<Record<string, unknown>>,
+  _cases: Array<Record<string, unknown>>
 ): MethodDecorator & ClassDecorator & PropertyDecorator {
   // Placeholder decorator — processed by transformer
   return (() => {}) as any;
@@ -389,12 +398,11 @@ export function assertType<T>(value: unknown, message?: string): asserts value i
 export function forAll<T>(
   generator: (seed: number) => T,
   countOrProperty: number | ((value: T) => void),
-  property?: (value: T) => void,
+  property?: (value: T) => void
 ): void {
   // Runtime fallback
   const count = typeof countOrProperty === "number" ? countOrProperty : 100;
-  const prop =
-    typeof countOrProperty === "function" ? countOrProperty : property!;
+  const prop = typeof countOrProperty === "function" ? countOrProperty : property!;
 
   for (let i = 0; i < count; i++) {
     const value = generator(i);
@@ -405,7 +413,7 @@ export function forAll<T>(
       throw new Error(
         `Property failed after ${i + 1} tests.\n` +
           `Failing input: ${JSON.stringify(value)}\n` +
-          `Error: ${err}`,
+          `Error: ${err}`
       );
     }
   }

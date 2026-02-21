@@ -92,7 +92,7 @@ export interface VerifyLawsOptions<A = unknown> {
  */
 export type ValueLawGenerator<TC, A> = (
   instance: TC,
-  eq: { readonly eqv: (x: A, y: A) => boolean },
+  eq: { readonly eqv: (x: A, y: A) => boolean }
 ) => readonly import("@typesugar/contracts").Law[];
 
 /**
@@ -101,5 +101,5 @@ export type ValueLawGenerator<TC, A> = (
  */
 export type HKTLawGenerator<TC, F, A> = (
   instance: TC,
-  eqFA: EqFA<F, A>,
+  eqFA: EqFA<F, A>
 ) => readonly import("@typesugar/contracts").Law[];

@@ -4,12 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { Effect, Option, Either, Chunk } from "effect";
 import type { $, HKT } from "@typesugar/fp/hkt";
-import type {
-  EffectF,
-  ChunkF,
-  EffectOptionF,
-  EffectEitherF,
-} from "../src/hkt.js";
+import type { EffectF, ChunkF, EffectOptionF, EffectEitherF } from "../src/hkt.js";
 
 describe("HKT Encoding", () => {
   describe("EffectF", () => {

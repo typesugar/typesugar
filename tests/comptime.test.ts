@@ -17,7 +17,7 @@ describe("comptime macro - compile-time evaluation", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -29,9 +29,7 @@ describe("comptime macro - compile-time evaluation", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -92,7 +90,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(5),
         ts.SyntaxKind.PlusToken,
-        ts.factory.createNumericLiteral(3),
+        ts.factory.createNumericLiteral(3)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 8 });
@@ -102,7 +100,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(10),
         ts.SyntaxKind.MinusToken,
-        ts.factory.createNumericLiteral(4),
+        ts.factory.createNumericLiteral(4)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 6 });
@@ -112,7 +110,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(6),
         ts.SyntaxKind.AsteriskToken,
-        ts.factory.createNumericLiteral(7),
+        ts.factory.createNumericLiteral(7)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 42 });
@@ -122,7 +120,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(20),
         ts.SyntaxKind.SlashToken,
-        ts.factory.createNumericLiteral(4),
+        ts.factory.createNumericLiteral(4)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 5 });
@@ -132,7 +130,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(17),
         ts.SyntaxKind.PercentToken,
-        ts.factory.createNumericLiteral(5),
+        ts.factory.createNumericLiteral(5)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 2 });
@@ -142,7 +140,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(2),
         ts.SyntaxKind.AsteriskAsteriskToken,
-        ts.factory.createNumericLiteral(10),
+        ts.factory.createNumericLiteral(10)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 1024 });
@@ -154,7 +152,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(3),
         ts.SyntaxKind.LessThanToken,
-        ts.factory.createNumericLiteral(5),
+        ts.factory.createNumericLiteral(5)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "boolean", value: true });
@@ -164,7 +162,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(5),
         ts.SyntaxKind.EqualsEqualsEqualsToken,
-        ts.factory.createNumericLiteral(5),
+        ts.factory.createNumericLiteral(5)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "boolean", value: true });
@@ -176,7 +174,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createStringLiteral("hello"),
         ts.SyntaxKind.PlusToken,
-        ts.factory.createStringLiteral(" world"),
+        ts.factory.createStringLiteral(" world")
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "string", value: "hello world" });
@@ -186,7 +184,7 @@ describe("comptime macro - compile-time evaluation", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createStringLiteral("value: "),
         ts.SyntaxKind.PlusToken,
-        ts.factory.createNumericLiteral(42),
+        ts.factory.createNumericLiteral(42)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "string", value: "value: 42" });
@@ -215,14 +213,8 @@ describe("comptime macro - compile-time evaluation", () => {
   describe("object operations", () => {
     it("should evaluate object literals", () => {
       const node = ts.factory.createObjectLiteralExpression([
-        ts.factory.createPropertyAssignment(
-          "x",
-          ts.factory.createNumericLiteral(1),
-        ),
-        ts.factory.createPropertyAssignment(
-          "y",
-          ts.factory.createNumericLiteral(2),
-        ),
+        ts.factory.createPropertyAssignment("x", ts.factory.createNumericLiteral(1)),
+        ts.factory.createPropertyAssignment("y", ts.factory.createNumericLiteral(2)),
       ]);
       const result = ctx.evaluate(node);
       expect(result.kind).toBe("object");
@@ -243,7 +235,7 @@ describe("comptime macro - compile-time evaluation", () => {
     it("should evaluate negation", () => {
       const node = ts.factory.createPrefixUnaryExpression(
         ts.SyntaxKind.MinusToken,
-        ts.factory.createNumericLiteral(5),
+        ts.factory.createNumericLiteral(5)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: -5 });
@@ -252,7 +244,7 @@ describe("comptime macro - compile-time evaluation", () => {
     it("should evaluate logical not", () => {
       const node = ts.factory.createPrefixUnaryExpression(
         ts.SyntaxKind.ExclamationToken,
-        ts.factory.createTrue(),
+        ts.factory.createTrue()
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "boolean", value: false });
@@ -266,7 +258,7 @@ describe("comptime macro - compile-time evaluation", () => {
         ts.factory.createToken(ts.SyntaxKind.QuestionToken),
         ts.factory.createNumericLiteral(1),
         ts.factory.createToken(ts.SyntaxKind.ColonToken),
-        ts.factory.createNumericLiteral(2),
+        ts.factory.createNumericLiteral(2)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 1 });
@@ -278,7 +270,7 @@ describe("comptime macro - compile-time evaluation", () => {
         ts.factory.createToken(ts.SyntaxKind.QuestionToken),
         ts.factory.createNumericLiteral(1),
         ts.factory.createToken(ts.SyntaxKind.ColonToken),
-        ts.factory.createNumericLiteral(2),
+        ts.factory.createNumericLiteral(2)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 2 });
@@ -293,11 +285,11 @@ describe("comptime macro - compile-time evaluation", () => {
           ts.factory.createBinaryExpression(
             ts.factory.createNumericLiteral(2),
             ts.SyntaxKind.PlusToken,
-            ts.factory.createNumericLiteral(3),
-          ),
+            ts.factory.createNumericLiteral(3)
+          )
         ),
         ts.SyntaxKind.AsteriskToken,
-        ts.factory.createNumericLiteral(4),
+        ts.factory.createNumericLiteral(4)
       );
       const result = ctx.evaluate(node);
       expect(result).toEqual({ kind: "number", value: 20 });
@@ -314,7 +306,7 @@ describe("MacroContext utilities", () => {
       "",
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {};
@@ -363,10 +355,7 @@ describe("MacroContext utilities", () => {
   });
 
   it("should create array literals", () => {
-    const arr = ctx.createArrayLiteral([
-      ctx.createNumericLiteral(1),
-      ctx.createNumericLiteral(2),
-    ]);
+    const arr = ctx.createArrayLiteral([ctx.createNumericLiteral(1), ctx.createNumericLiteral(2)]);
     expect(ts.isArrayLiteralExpression(arr)).toBe(true);
     expect(arr.elements.length).toBe(2);
   });

@@ -71,11 +71,7 @@ export interface SubtypingRule {
  * Decidability level for a predicate.
  * Inspired by Coq's termination/decidability requirements.
  */
-export type Decidability =
-  | "compile-time"
-  | "decidable"
-  | "runtime"
-  | "undecidable";
+export type Decidability = "compile-time" | "decidable" | "runtime" | "undecidable";
 
 /**
  * Preferred proof strategy for a predicate.
@@ -119,10 +115,7 @@ const DECIDABILITY_REGISTRY: Map<string, DecidabilityInfo> = new Map();
 /**
  * Register a custom refinement predicate.
  */
-export function registerRefinementPredicate(
-  brand: string,
-  predicate: string,
-): void {
+export function registerRefinementPredicate(brand: string, predicate: string): void {
   REFINEMENT_PREDICATES[brand] = predicate;
 }
 
@@ -155,7 +148,7 @@ const DYNAMIC_PREDICATE_GENERATORS: Array<{
  */
 export function registerDynamicPredicateGenerator(
   pattern: RegExp,
-  generate: (match: RegExpMatchArray) => string,
+  generate: (match: RegExpMatchArray) => string
 ): void {
   DYNAMIC_PREDICATE_GENERATORS.push({ pattern, generate });
 }
@@ -204,10 +197,7 @@ export function registerSubtypingRule(rule: SubtypingRule): void {
 /**
  * Get the subtyping rule for coercing from one brand to another.
  */
-export function getSubtypingRule(
-  from: string,
-  to: string,
-): SubtypingRule | undefined {
+export function getSubtypingRule(from: string, to: string): SubtypingRule | undefined {
   return SUBTYPING_RULES.get(`${from}:${to}`);
 }
 
@@ -278,9 +268,7 @@ export function getPreferredStrategy(brand: string): ProofStrategy {
 export function isCompileTimeDecidable(brand: string): boolean {
   const info = DECIDABILITY_REGISTRY.get(brand);
   if (!info) return true; // Assume decidable if not registered
-  return (
-    info.decidability === "compile-time" || info.decidability === "decidable"
-  );
+  return info.decidability === "compile-time" || info.decidability === "decidable";
 }
 
 /**
@@ -305,7 +293,7 @@ export function getAllDecidabilityInfo(): readonly DecidabilityInfo[] {
  */
 export function extractTypeFacts(
   ctx: MacroContext,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
 ): TypeFact[] {
   const facts: TypeFact[] = [];
 
@@ -356,11 +344,7 @@ function extractBrandFromProperties(type: ts.Type): string | undefined {
       const declarations = prop.getDeclarations();
       if (declarations && declarations.length > 0) {
         const decl = declarations[0];
-        if (
-          ts.isPropertySignature(decl) &&
-          decl.type &&
-          ts.isLiteralTypeNode(decl.type)
-        ) {
+        if (ts.isPropertySignature(decl) && decl.type && ts.isLiteralTypeNode(decl.type)) {
           if (ts.isStringLiteral(decl.type.literal)) {
             return decl.type.literal.text;
           }

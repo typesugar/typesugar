@@ -77,10 +77,7 @@ describe("multiple numeric types", () => {
         { name: "c", type: "number" },
       ],
     });
-    const codec = createBinaryCodec<{ a: number; b: number; c: number }>(
-      s,
-      signedLayout,
-    );
+    const codec = createBinaryCodec<{ a: number; b: number; c: number }>(s, signedLayout);
 
     const original = { a: -128, b: -32768, c: -2147483648 };
     const decoded = codec.decode(codec.encode(original));
@@ -92,9 +89,7 @@ describe("multiple numeric types", () => {
 });
 
 describe("string fields", () => {
-  const layout: FieldLayout[] = [
-    { name: "label", offset: 0, size: 34, type: "string" },
-  ];
+  const layout: FieldLayout[] = [{ name: "label", offset: 0, size: 34, type: "string" }];
   const schema = defineSchema("Label", {
     version: 1,
     format: "binary",
@@ -116,9 +111,7 @@ describe("string fields", () => {
 });
 
 describe("version header", () => {
-  const layout: FieldLayout[] = [
-    { name: "value", offset: 0, size: 4, type: "uint32" },
-  ];
+  const layout: FieldLayout[] = [{ name: "value", offset: 0, size: 4, type: "uint32" }];
   const schema = defineSchema("Versioned", {
     version: 42,
     format: "binary",
@@ -131,11 +124,7 @@ describe("version header", () => {
 
     expect(encoded[0]).toBe(0x54);
     expect(encoded[1]).toBe(0x53);
-    const view = new DataView(
-      encoded.buffer,
-      encoded.byteOffset,
-      encoded.byteLength,
-    );
+    const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength);
     expect(view.getUint16(2, true)).toBe(42);
   });
 
@@ -153,9 +142,7 @@ describe("version header", () => {
     view.setUint8(1, 0x53);
     view.setUint16(2, 1, true);
     view.setUint32(4, 123, true);
-    expect(() => codec.decode(new Uint8Array(buf))).toThrow(
-      "Version mismatch",
-    );
+    expect(() => codec.decode(new Uint8Array(buf))).toThrow("Version mismatch");
   });
 });
 
@@ -200,28 +187,20 @@ describe("big-endian encoding", () => {
     const codec = createBinaryCodec<{ value: number }>(schema, layout);
 
     const encoded = codec.encode({ value: 0x01020304 }) as Uint8Array;
-    const view = new DataView(
-      encoded.buffer,
-      encoded.byteOffset,
-      encoded.byteLength,
-    );
+    const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength);
     expect(view.getUint32(4, false)).toBe(0x01020304);
   });
 });
 
 describe("binary codec error handling", () => {
   it("throws when given string input", () => {
-    const layout: FieldLayout[] = [
-      { name: "x", offset: 0, size: 4, type: "float32" },
-    ];
+    const layout: FieldLayout[] = [{ name: "x", offset: 0, size: 4, type: "float32" }];
     const schema = defineSchema("Foo", {
       version: 1,
       format: "binary",
       fields: [{ name: "x", type: "number" }],
     });
     const codec = createBinaryCodec<{ x: number }>(schema, layout);
-    expect(() => codec.decode("not bytes" as any)).toThrow(
-      "Uint8Array",
-    );
+    expect(() => codec.decode("not bytes" as any)).toThrow("Uint8Array");
   });
 });

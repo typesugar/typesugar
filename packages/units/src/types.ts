@@ -230,10 +230,7 @@ type NegMap = {
 type DimToString<D extends DimExp> = `${D["value"]}`;
 
 // Add two dimension exponents
-export type AddDim<
-  A extends DimExp,
-  B extends DimExp,
-> = AddMap[DimToString<A>][DimToString<B>];
+export type AddDim<A extends DimExp, B extends DimExp> = AddMap[DimToString<A>][DimToString<B>];
 
 // Negate a dimension exponent
 export type NegDim<D extends DimExp> = NegMap[DimToString<D>];
@@ -309,12 +306,10 @@ export type Resistance = Dimensions<P1, P2, N3, N2, Z0, Z0, Z0>; // M*L^2/(T^3*I
  * A quantity with a value and dimensional type.
  * The dimension is encoded in the type system for compile-time checking.
  */
-export class Unit<
-  D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>,
-> {
+export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>> {
   constructor(
     public readonly value: number,
-    public readonly symbol: string = "",
+    public readonly symbol: string = ""
   ) {}
 
   /**
@@ -334,34 +329,18 @@ export class Unit<
   /**
    * Multiply by another unit (dimensions add)
    */
-  mul<
-    D2 extends Dimensions<
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp
-    >,
-  >(other: Unit<D2>): Unit<MulDimensions<D, D2>> {
+  mul<D2 extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>(
+    other: Unit<D2>
+  ): Unit<MulDimensions<D, D2>> {
     return new Unit(this.value * other.value);
   }
 
   /**
    * Divide by another unit (dimensions subtract)
    */
-  div<
-    D2 extends Dimensions<
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp,
-      DimExp
-    >,
-  >(other: Unit<D2>): Unit<DivDimensions<D, D2>> {
+  div<D2 extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>(
+    other: Unit<D2>
+  ): Unit<DivDimensions<D, D2>> {
     return new Unit(this.value / other.value);
   }
 
@@ -402,8 +381,7 @@ export class Unit<
 export const meters = (v: number): Unit<Length> => new Unit(v, "m");
 export const kilometers = (v: number): Unit<Length> => new Unit(v * 1000, "km");
 export const centimeters = (v: number): Unit<Length> => new Unit(v / 100, "cm");
-export const millimeters = (v: number): Unit<Length> =>
-  new Unit(v / 1000, "mm");
+export const millimeters = (v: number): Unit<Length> => new Unit(v / 1000, "mm");
 export const feet = (v: number): Unit<Length> => new Unit(v * 0.3048, "ft");
 export const inches = (v: number): Unit<Length> => new Unit(v * 0.0254, "in");
 export const miles = (v: number): Unit<Length> => new Unit(v * 1609.344, "mi");
@@ -422,16 +400,12 @@ export const days = (v: number): Unit<Time> => new Unit(v * 86400, "d");
 export const milliseconds = (v: number): Unit<Time> => new Unit(v / 1000, "ms");
 
 // Velocity
-export const metersPerSecond = (v: number): Unit<Velocity> =>
-  new Unit(v, "m/s");
-export const kilometersPerHour = (v: number): Unit<Velocity> =>
-  new Unit(v / 3.6, "km/h");
-export const milesPerHour = (v: number): Unit<Velocity> =>
-  new Unit(v * 0.44704, "mph");
+export const metersPerSecond = (v: number): Unit<Velocity> => new Unit(v, "m/s");
+export const kilometersPerHour = (v: number): Unit<Velocity> => new Unit(v / 3.6, "km/h");
+export const milesPerHour = (v: number): Unit<Velocity> => new Unit(v * 0.44704, "mph");
 
 // Acceleration
-export const metersPerSecondSquared = (v: number): Unit<Acceleration> =>
-  new Unit(v, "m/s²");
+export const metersPerSecondSquared = (v: number): Unit<Acceleration> => new Unit(v, "m/s²");
 
 // Force
 export const newtons = (v: number): Unit<Force> => new Unit(v, "N");
@@ -440,8 +414,7 @@ export const newtons = (v: number): Unit<Force> => new Unit(v, "N");
 export const joules = (v: number): Unit<Energy> => new Unit(v, "J");
 export const kilojoules = (v: number): Unit<Energy> => new Unit(v * 1000, "kJ");
 export const calories = (v: number): Unit<Energy> => new Unit(v * 4.184, "cal");
-export const kilocalories = (v: number): Unit<Energy> =>
-  new Unit(v * 4184, "kcal");
+export const kilocalories = (v: number): Unit<Energy> => new Unit(v * 4184, "kcal");
 
 // Power
 export const watts = (v: number): Unit<Power> => new Unit(v, "W");
@@ -453,10 +426,8 @@ export const celsius = (v: number): Unit<Temperature> => new Unit(v, "°C");
 
 // Pressure
 export const pascals = (v: number): Unit<Pressure> => new Unit(v, "Pa");
-export const kilopascals = (v: number): Unit<Pressure> =>
-  new Unit(v * 1000, "kPa");
-export const atmospheres = (v: number): Unit<Pressure> =>
-  new Unit(v * 101325, "atm");
+export const kilopascals = (v: number): Unit<Pressure> => new Unit(v * 1000, "kPa");
+export const atmospheres = (v: number): Unit<Pressure> => new Unit(v * 101325, "atm");
 
 // ============================================================================
 // Type Guards and Utilities

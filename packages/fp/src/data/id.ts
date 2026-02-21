@@ -120,10 +120,7 @@ export class Id<A> {
   /**
    * Check equality
    */
-  equals<B extends A>(
-    other: Id<B>,
-    eq: (a: A, b: B) => boolean = (a, b) => a === b,
-  ): boolean {
+  equals<B extends A>(other: Id<B>, eq: (a: A, b: B) => boolean = (a, b) => a === b): boolean {
     return eq(this._value, other._value);
   }
 }
@@ -164,9 +161,7 @@ export namespace Id {
   /**
    * Lift a binary function into Id
    */
-  export function lift2<A, B, C>(
-    f: (a: A, b: B) => C,
-  ): (ia: Id<A>, ib: Id<B>) => Id<C> {
+  export function lift2<A, B, C>(f: (a: A, b: B) => C): (ia: Id<A>, ib: Id<B>) => Id<C> {
     return (ia, ib) => ia.flatMap((a) => ib.map((b) => f(a, b)));
   }
 
@@ -174,10 +169,9 @@ export namespace Id {
    * Lift a ternary function into Id
    */
   export function lift3<A, B, C, D>(
-    f: (a: A, b: B, c: C) => D,
+    f: (a: A, b: B, c: C) => D
   ): (ia: Id<A>, ib: Id<B>, ic: Id<C>) => Id<D> {
-    return (ia, ib, ic) =>
-      ia.flatMap((a) => ib.flatMap((b) => ic.map((c) => f(a, b, c))));
+    return (ia, ib, ic) => ia.flatMap((a) => ib.flatMap((b) => ic.map((c) => f(a, b, c))));
   }
 }
 
@@ -282,12 +276,10 @@ export function Do(): Id<{}> {
  */
 export function bind<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => Id<B>,
+  f: (a: A) => Id<B>
 ): (id: Id<A>) => Id<A & { readonly [K in N]: B }> {
   return (id) =>
-    id.flatMap((a) =>
-      f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
-    );
+    id.flatMap((a) => f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }));
 }
 
 /**
@@ -295,10 +287,9 @@ export function bind<N extends string, A extends object, B>(
  */
 export function let_<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (id: Id<A>) => Id<A & { readonly [K in N]: B }> {
-  return (id) =>
-    id.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
+  return (id) => id.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
 }
 
 // ============================================================================

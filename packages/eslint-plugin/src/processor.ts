@@ -59,7 +59,7 @@ function createSingleFileProgram(fileName: string, source: string): ts.Program {
     source,
     ts.ScriptTarget.ESNext,
     true,
-    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
 
   // Create a minimal compiler host
@@ -84,7 +84,7 @@ function createSingleFileProgram(fileName: string, source: string): ts.Program {
  */
 function transformSource(
   fileName: string,
-  source: string,
+  source: string
 ): {
   transformed: string;
   mappings: SourceMapping[];
@@ -146,11 +146,7 @@ function transformSource(
     const originalLines = source.split("\n");
     const transformedLines = transformed.split("\n");
 
-    for (
-      let i = 0;
-      i < Math.min(originalLines.length, transformedLines.length);
-      i++
-    ) {
+    for (let i = 0; i < Math.min(originalLines.length, transformedLines.length); i++) {
       mappings.push({
         originalFile: fileName,
         originalLine: i + 1,
@@ -174,7 +170,7 @@ function transformSource(
 function mapToOriginal(
   state: ProcessorState,
   line: number,
-  column: number,
+  column: number
 ): { line: number; column: number } {
   // Find the closest mapping
   for (let i = state.sourceMappings.length - 1; i >= 0; i--) {
@@ -206,10 +202,7 @@ const TYPESUGAR_PACKAGE_PREFIXES = [
 /**
  * Check if a lint message is about an unused import from a typesugar package.
  */
-function isTypesugarUnusedImportError(
-  message: Linter.LintMessage,
-  source: string,
-): boolean {
+function isTypesugarUnusedImportError(message: Linter.LintMessage, source: string): boolean {
   // Rules that report unused imports
   const unusedImportRules = [
     "no-unused-vars",
@@ -239,8 +232,7 @@ function isTypesugarUnusedImportError(
 
   const modulePath = importMatch[1];
   return TYPESUGAR_PACKAGE_PREFIXES.some(
-    (prefix) =>
-      modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix),
+    (prefix) => modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix)
   );
 }
 
@@ -260,10 +252,7 @@ export function createProcessor(): Linter.Processor {
     /**
      * Preprocess: Transform the source before linting
      */
-    preprocess(
-      text: string,
-      filename: string,
-    ): Array<string | { text: string; filename: string }> {
+    preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
       // Skip non-TypeScript files
       if (!filename.endsWith(".ts") && !filename.endsWith(".tsx")) {
         return [text];
@@ -316,46 +305,28 @@ export function createProcessor(): Linter.Processor {
      * Postprocess: Map lint messages back to original source locations
      * and filter out false positives for typesugar imports
      */
-    postprocess(
-      messages: Linter.LintMessage[][],
-      filename: string,
-    ): Linter.LintMessage[] {
+    postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
       const state = fileStates.get(filename);
       if (!state || state.sourceMappings.length === 0) {
         // No transformation was done, but still filter typesugar import errors
         return messages
           .flat()
-          .filter(
-            (message) =>
-              !isTypesugarUnusedImportError(
-                message,
-                state?.originalSource ?? "",
-              ),
-          );
+          .filter((message) => !isTypesugarUnusedImportError(message, state?.originalSource ?? ""));
       }
 
       // Map each message's location back to the original source
       // and filter out false positives for typesugar imports
       return messages
         .flat()
-        .filter(
-          (message) =>
-            !isTypesugarUnusedImportError(message, state.originalSource),
-        )
+        .filter((message) => !isTypesugarUnusedImportError(message, state.originalSource))
         .map((message) => {
           if (message.line !== undefined) {
-            const mapped = mapToOriginal(
-              state,
-              message.line,
-              message.column ?? 0,
-            );
+            const mapped = mapToOriginal(state, message.line, message.column ?? 0);
             return {
               ...message,
               line: mapped.line,
               column: mapped.column,
-              endLine: message.endLine
-                ? mapToOriginal(state, message.endLine, 0).line
-                : undefined,
+              endLine: message.endLine ? mapToOriginal(state, message.endLine, 0).line : undefined,
             };
           }
           return message;

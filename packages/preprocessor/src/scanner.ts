@@ -52,19 +52,11 @@ function getLanguageVariant(fileName?: string): ts.LanguageVariant {
  * Tokenize source code using TypeScript's scanner, then merge adjacent tokens
  * that form custom operators.
  */
-export function tokenize(
-  source: string,
-  options: ScannerOptions = {},
-): Token[] {
+export function tokenize(source: string, options: ScannerOptions = {}): Token[] {
   const customOperators = options.customOperators ?? DEFAULT_CUSTOM_OPERATORS;
   const languageVariant = getLanguageVariant(options.fileName);
 
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    false,
-    languageVariant,
-    source,
-  );
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, languageVariant, source);
 
   const rawTokens: Token[] = [];
 
@@ -74,10 +66,7 @@ export function tokenize(
     const text = scanner.getTokenText();
     const end = start + text.length;
 
-    if (
-      kind !== ts.SyntaxKind.WhitespaceTrivia &&
-      kind !== ts.SyntaxKind.NewLineTrivia
-    ) {
+    if (kind !== ts.SyntaxKind.WhitespaceTrivia && kind !== ts.SyntaxKind.NewLineTrivia) {
       rawTokens.push({ kind, text, start, end });
     }
   }
@@ -114,10 +103,7 @@ function isTemplateStringToken(kind: ts.SyntaxKind): boolean {
  * string part (TemplateHead, TemplateMiddle) because those are inside the
  * template literal's text, not in code.
  */
-function mergeCustomOperators(
-  tokens: Token[],
-  customOperators: CustomOperatorDef[],
-): Token[] {
+function mergeCustomOperators(tokens: Token[], customOperators: CustomOperatorDef[]): Token[] {
   const result: Token[] = [];
   let i = 0;
 
@@ -182,8 +168,7 @@ function mergeCustomOperators(
     // Skip merging if we're inside a template literal and just saw a CloseBrace
     // that could end a template expression (the next content should be template string)
     const prevToken = result.length > 0 ? result[result.length - 1] : null;
-    const skipMerge =
-      templateDepth > 0 && prevToken?.kind === ts.SyntaxKind.CloseBraceToken;
+    const skipMerge = templateDepth > 0 && prevToken?.kind === ts.SyntaxKind.CloseBraceToken;
 
     let merged = false;
 
@@ -311,9 +296,7 @@ export function isCloseBracket(token: Token): boolean {
 /**
  * Get the matching close bracket for an open bracket
  */
-export function getMatchingClose(
-  openKind: ts.SyntaxKind,
-): ts.SyntaxKind | null {
+export function getMatchingClose(openKind: ts.SyntaxKind): ts.SyntaxKind | null {
   switch (openKind) {
     case ts.SyntaxKind.OpenBraceToken:
       return ts.SyntaxKind.CloseBraceToken;

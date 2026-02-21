@@ -17,14 +17,7 @@ import * as ts from "typescript";
 import * as path from "path";
 import macroTransformerFactory from "./index.js";
 
-type Command =
-  | "build"
-  | "watch"
-  | "check"
-  | "expand"
-  | "init"
-  | "doctor"
-  | "create";
+type Command = "build" | "watch" | "check" | "expand" | "init" | "doctor" | "create";
 
 interface CliOptions {
   command: Command;
@@ -50,7 +43,7 @@ function parseArgs(args: string[]): CliOptions {
 
   if (!validCommands.includes(command)) {
     console.error(
-      `Unknown command: ${command}\nUsage: typesugar <build|watch|check|expand|init|doctor|create> [options]`,
+      `Unknown command: ${command}\nUsage: typesugar <build|watch|check|expand|init|doctor|create> [options]`
     );
     process.exit(1);
   }
@@ -138,10 +131,7 @@ function readTsConfig(configPath: string): ts.ParsedCommandLine {
   const configFile = ts.readConfigFile(absolutePath, ts.sys.readFile);
 
   if (configFile.error) {
-    const message = ts.flattenDiagnosticMessageText(
-      configFile.error.messageText,
-      "\n",
-    );
+    const message = ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n");
     console.error(`Error reading ${configPath}: ${message}`);
     process.exit(1);
   }
@@ -149,13 +139,11 @@ function readTsConfig(configPath: string): ts.ParsedCommandLine {
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
-    path.dirname(absolutePath),
+    path.dirname(absolutePath)
   );
 
   if (parsed.errors.length > 0) {
-    const messages = parsed.errors.map((d) =>
-      ts.flattenDiagnosticMessageText(d.messageText, "\n"),
-    );
+    const messages = parsed.errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
     console.error(`Config errors:\n${messages.join("\n")}`);
     process.exit(1);
   }
@@ -166,22 +154,14 @@ function readTsConfig(configPath: string): ts.ParsedCommandLine {
 function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
   let errorCount = 0;
   for (const diagnostic of diagnostics) {
-    const message = ts.flattenDiagnosticMessageText(
-      diagnostic.messageText,
-      "\n",
-    );
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
 
     if (diagnostic.file && diagnostic.start !== undefined) {
-      const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
-        diagnostic.start,
-      );
+      const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
       const fileName = diagnostic.file.fileName;
-      const prefix =
-        diagnostic.category === ts.DiagnosticCategory.Error
-          ? "error"
-          : "warning";
+      const prefix = diagnostic.category === ts.DiagnosticCategory.Error ? "error" : "warning";
       console.error(
-        `${fileName}(${line + 1},${character + 1}): ${prefix} TS${diagnostic.code}: ${message}`,
+        `${fileName}(${line + 1},${character + 1}): ${prefix} TS${diagnostic.code}: ${message}`
       );
     } else {
       console.error(message);
@@ -218,9 +198,7 @@ function build(options: CliOptions): void {
     before: [transformerFactory],
   });
 
-  const allDiagnostics = ts
-    .getPreEmitDiagnostics(program)
-    .concat(emitResult.diagnostics);
+  const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
 
   const errorCount = reportDiagnostics(allDiagnostics);
 
@@ -228,7 +206,7 @@ function build(options: CliOptions): void {
     const fileCount = config.fileNames.length;
     if (errorCount > 0) {
       console.error(
-        `\n🧊 Found ${errorCount} error${errorCount === 1 ? "" : "s"} in ${fileCount} files.`,
+        `\n🧊 Found ${errorCount} error${errorCount === 1 ? "" : "s"} in ${fileCount} files.`
       );
     } else {
       console.log(`✨ Successfully compiled ${fileCount} files.`);
@@ -242,7 +220,7 @@ function watch(options: CliOptions): void {
   const configPath = ts.findConfigFile(
     path.dirname(path.resolve(options.project)),
     ts.sys.fileExists,
-    path.basename(options.project),
+    path.basename(options.project)
   );
 
   if (!configPath) {
@@ -259,12 +237,9 @@ function watch(options: CliOptions): void {
       reportDiagnostics([diagnostic]);
     },
     (diagnostic) => {
-      const message = ts.flattenDiagnosticMessageText(
-        diagnostic.messageText,
-        "\n",
-      );
+      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
       console.log(`🧊 ${message}`);
-    },
+    }
   );
 
   const origCreateProgram = host.createProgram;
@@ -288,18 +263,12 @@ function watch(options: CliOptions): void {
       writeFile,
       cancellationToken,
       emitOnlyDtsFiles,
-      customTransformers,
+      customTransformers
     ) => {
-      return origEmit(
-        targetSourceFile,
-        writeFile,
-        cancellationToken,
-        emitOnlyDtsFiles,
-        {
-          ...customTransformers,
-          before: [transformerFactory, ...(customTransformers?.before ?? [])],
-        },
-      );
+      return origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
+        ...customTransformers,
+        before: [transformerFactory, ...(customTransformers?.before ?? [])],
+      });
     };
 
     origAfterProgramCreate?.(builderProgram);
@@ -347,20 +316,13 @@ function expand(options: CliOptions): void {
   const transformedSourceFile = result.transformed[0];
 
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  const expandedContent = printer.printFile(
-    transformedSourceFile as ts.SourceFile,
-  );
+  const expandedContent = printer.printFile(transformedSourceFile as ts.SourceFile);
 
   if (options.ast) {
     const ast = JSON.stringify(
       transformedSourceFile,
       (key, value) => {
-        if (
-          key === "parent" ||
-          key === "pos" ||
-          key === "end" ||
-          key === "flags"
-        ) {
+        if (key === "parent" || key === "pos" || key === "end" || key === "flags") {
           return undefined;
         }
         if (typeof value === "object" && value !== null && "kind" in value) {
@@ -371,7 +333,7 @@ function expand(options: CliOptions): void {
         }
         return value;
       },
-      2,
+      2
     );
     console.log(ast);
   } else if (options.diff) {

@@ -45,11 +45,7 @@ import {
 } from "./type-facts.js";
 import { tryAlgebraicProof, type AlgebraicProofResult } from "./algebra.js";
 import { tryLinearArithmetic, type LinearProofResult } from "./linear.js";
-import {
-  getContractConfig,
-  emitDecidabilityWarning,
-  canProveAtCompileTime,
-} from "../config.js";
+import { getContractConfig, emitDecidabilityWarning, canProveAtCompileTime } from "../config.js";
 import {
   type ProofCertificate,
   type ProofStep,
@@ -91,11 +87,7 @@ export interface ProverPlugin {
    * Return proven: true if the goal is provably true.
    * Can return a Promise for async provers like Z3.
    */
-  prove(
-    goal: string,
-    facts: TypeFact[],
-    timeout?: number,
-  ): ProofResult | Promise<ProofResult>;
+  prove(goal: string, facts: TypeFact[], timeout?: number): ProofResult | Promise<ProofResult>;
 }
 
 // Re-export for convenience
@@ -117,7 +109,7 @@ export type { TypeFact } from "./type-facts.js";
 export function tryProve(
   ctx: MacroContext,
   condition: ContractCondition,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
 ): ProofResult {
   const config = getContractConfig();
 
@@ -156,10 +148,7 @@ export function tryProve(
     if (pluginResult && !(pluginResult instanceof Promise)) {
       if (pluginResult.proven) {
         // Track if SMT solver was used (for decidability warnings)
-        if (
-          plugin.name.toLowerCase().includes("z3") ||
-          plugin.name.toLowerCase().includes("smt")
-        ) {
+        if (plugin.name.toLowerCase().includes("z3") || plugin.name.toLowerCase().includes("smt")) {
           usedSMT = true;
         }
         return {
@@ -185,7 +174,7 @@ export function tryProve(
 function emitFallbackWarning(
   condition: ContractCondition,
   facts: TypeFact[],
-  usedSMT: boolean,
+  usedSMT: boolean
 ): void {
   // Extract brand names from facts (brands are typically Capitalized)
   const brands = extractBrandsFromFacts(facts);
@@ -246,7 +235,7 @@ function extractBrandsFromFacts(facts: TypeFact[]): string[] {
 export async function tryProveAsync(
   ctx: MacroContext,
   condition: ContractCondition,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
 ): Promise<ProofResult> {
   // Layer 1: Constant evaluation
   if (ctx.isComptime(condition.expression)) {
@@ -299,10 +288,7 @@ export async function tryProveAsync(
  * Try to prove a goal string directly with plugins (for testing).
  * Skips the TypeScript AST layer and directly runs plugins.
  */
-export async function proveGoalWithPlugins(
-  goal: string,
-  facts: TypeFact[],
-): Promise<ProofResult> {
+export async function proveGoalWithPlugins(goal: string, facts: TypeFact[]): Promise<ProofResult> {
   // First try algebraic rules
   const algebraProof = tryAlgebraicProof(goal, facts);
   if (algebraProof.proven) return algebraProof;
@@ -347,10 +333,7 @@ interface TypeDeductionResult extends ProofResult {
  * This handles the simple case where the contract condition
  * exactly matches a known type fact.
  */
-function tryTypeDeduction(
-  goal: string,
-  facts: TypeFact[],
-): TypeDeductionResult {
+function tryTypeDeduction(goal: string, facts: TypeFact[]): TypeDeductionResult {
   const normalizedGoal = goal.trim();
 
   for (const fact of facts) {
@@ -364,7 +347,7 @@ function tryTypeDeduction(
           "type_fact",
           `Goal matches type fact from ${fact.variable}`,
           `${fact.variable} has Refined type guaranteeing: ${fact.predicate}`,
-          [fact],
+          [fact]
         ),
       };
     }
@@ -382,7 +365,7 @@ function tryTypeDeduction(
             "type_fact_conjunction",
             `Goal is part of compound type fact from ${fact.variable}`,
             `${fact.variable} has Refined type guaranteeing: ${fact.predicate} (includes ${normalizedGoal})`,
-            [fact],
+            [fact]
           ),
         };
       }
@@ -405,7 +388,7 @@ function tryTypeDeduction(
 export function tryProveWithCertificate(
   ctx: MacroContext,
   condition: ContractCondition,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
 ): ProofCertificate {
   const startTime = performance.now();
   const facts = extractTypeFacts(ctx, fn);
@@ -421,8 +404,8 @@ export function tryProveWithCertificate(
         createStep(
           "constant_eval",
           "Evaluated at compile time",
-          "Expression statically evaluates to true",
-        ),
+          "Expression statically evaluates to true"
+        )
       );
       cert.timeMs = performance.now() - startTime;
       return cert;
@@ -471,8 +454,8 @@ export function tryProveWithCertificate(
           createStep(
             plugin.name,
             `Proven by ${plugin.name}`,
-            pluginResult.reason ?? "Proven by external prover",
-          ),
+            pluginResult.reason ?? "Proven by external prover"
+          )
         );
         cert.timeMs = performance.now() - startTime;
         return cert;
@@ -492,7 +475,7 @@ export function tryProveWithCertificate(
 export async function tryProveWithCertificateAsync(
   ctx: MacroContext,
   condition: ContractCondition,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
 ): Promise<ProofCertificate> {
   const startTime = performance.now();
   const facts = extractTypeFacts(ctx, fn);
@@ -508,8 +491,8 @@ export async function tryProveWithCertificateAsync(
         createStep(
           "constant_eval",
           "Evaluated at compile time",
-          "Expression statically evaluates to true",
-        ),
+          "Expression statically evaluates to true"
+        )
       );
       cert.timeMs = performance.now() - startTime;
       return cert;
@@ -558,8 +541,8 @@ export async function tryProveWithCertificateAsync(
           createStep(
             plugin.name,
             `Proven by ${plugin.name}`,
-            pluginResult.reason ?? "Proven by external prover",
-          ),
+            pluginResult.reason ?? "Proven by external prover"
+          )
         );
         cert.timeMs = performance.now() - startTime;
         return cert;

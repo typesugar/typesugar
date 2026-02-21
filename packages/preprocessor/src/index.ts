@@ -51,6 +51,7 @@ export type {
   Replacement,
   RawSourceMap,
   PreprocessResult,
+  RewriteOptions,
 } from "./extensions/types.js";
 export { isCustomOperatorExtension } from "./extensions/types.js";
 

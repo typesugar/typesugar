@@ -65,7 +65,7 @@ export function hnil(): HNil {
  * ```
  */
 export function labeled<R extends Record<string, unknown>>(
-  record: R,
+  record: R
 ): LabeledHList<_RecordToFields<R>> {
   const values = Object.values(record);
   const result = values as unknown as LabeledHList<_RecordToFields<R>>;
@@ -94,9 +94,7 @@ type _RecordToFields<R extends Record<string, unknown>> = {
  * head(hlist(1, "a", true)); // 1
  * ```
  */
-export function head<H, T extends readonly unknown[]>(
-  list: HList<[H, ...T]>,
-): H {
+export function head<H, T extends readonly unknown[]>(list: HList<[H, ...T]>): H {
   return (list as unknown as [H, ...T])[0];
 }
 
@@ -108,9 +106,7 @@ export function head<H, T extends readonly unknown[]>(
  * tail(hlist(1, "a", true)); // HList<[string, boolean]>
  * ```
  */
-export function tail<H, T extends readonly unknown[]>(
-  list: HList<[H, ...T]>,
-): HList<T> {
+export function tail<H, T extends readonly unknown[]>(list: HList<[H, ...T]>): HList<T> {
   return (list as unknown as unknown[]).slice(1) as unknown as HList<T>;
 }
 
@@ -122,9 +118,7 @@ export function tail<H, T extends readonly unknown[]>(
  * last(hlist(1, "a", true)); // true
  * ```
  */
-export function last<T extends readonly [unknown, ...unknown[]]>(
-  list: HList<T>,
-): Last<T> {
+export function last<T extends readonly [unknown, ...unknown[]]>(list: HList<T>): Last<T> {
   const arr = list as unknown as unknown[];
   return arr[arr.length - 1] as Last<T>;
 }
@@ -137,9 +131,7 @@ export function last<T extends readonly [unknown, ...unknown[]]>(
  * init(hlist(1, "a", true)); // HList<[number, string]>
  * ```
  */
-export function init<T extends readonly [unknown, ...unknown[]]>(
-  list: HList<T>,
-): HList<Init<T>> {
+export function init<T extends readonly [unknown, ...unknown[]]>(list: HList<T>): HList<Init<T>> {
   const arr = list as unknown as unknown[];
   return arr.slice(0, -1) as unknown as HList<Init<T>>;
 }
@@ -154,7 +146,7 @@ export function init<T extends readonly [unknown, ...unknown[]]>(
  */
 export function at<T extends readonly unknown[], N extends number>(
   list: HList<T>,
-  index: N,
+  index: N
 ): At<T, N> {
   return (list as unknown as unknown[])[index] as At<T, N>;
 }
@@ -185,7 +177,7 @@ export function length<T extends readonly unknown[]>(list: HList<T>): number {
  */
 export function append<T extends readonly unknown[], V>(
   list: HList<T>,
-  value: V,
+  value: V
 ): HList<[...T, V]> {
   return [...(list as unknown as T), value] as unknown as HList<[...T, V]>;
 }
@@ -200,7 +192,7 @@ export function append<T extends readonly unknown[], V>(
  */
 export function prepend<V, T extends readonly unknown[]>(
   value: V,
-  list: HList<T>,
+  list: HList<T>
 ): HList<[V, ...T]> {
   return [value, ...(list as unknown as T)] as unknown as HList<[V, ...T]>;
 }
@@ -213,14 +205,11 @@ export function prepend<V, T extends readonly unknown[]>(
  * concat(hlist(1, 2), hlist("a", "b")); // HList<[number, number, string, string]>
  * ```
  */
-export function concat<
-  A extends readonly unknown[],
-  B extends readonly unknown[],
->(a: HList<A>, b: HList<B>): HList<[...A, ...B]> {
-  return [
-    ...(a as unknown as A),
-    ...(b as unknown as B),
-  ] as unknown as HList<[...A, ...B]>;
+export function concat<A extends readonly unknown[], B extends readonly unknown[]>(
+  a: HList<A>,
+  b: HList<B>
+): HList<[...A, ...B]> {
+  return [...(a as unknown as A), ...(b as unknown as B)] as unknown as HList<[...A, ...B]>;
 }
 
 /**
@@ -231,9 +220,7 @@ export function concat<
  * reverse(hlist(1, "a", true)); // HList<[boolean, string, number]>
  * ```
  */
-export function reverse<T extends readonly unknown[]>(
-  list: HList<T>,
-): HList<Reverse<T>> {
+export function reverse<T extends readonly unknown[]>(list: HList<T>): HList<Reverse<T>> {
   return [...(list as unknown as T)].reverse() as unknown as HList<Reverse<T>>;
 }
 
@@ -245,10 +232,10 @@ export function reverse<T extends readonly unknown[]>(
  * zip(hlist(1, 2), hlist("a", "b")); // HList<[[number, string], [number, string]]>
  * ```
  */
-export function zip<
-  A extends readonly unknown[],
-  B extends readonly unknown[],
->(a: HList<A>, b: HList<B>): HList<Zip<A, B>> {
+export function zip<A extends readonly unknown[], B extends readonly unknown[]>(
+  a: HList<A>,
+  b: HList<B>
+): HList<Zip<A, B>> {
   const arrA = a as unknown as unknown[];
   const arrB = b as unknown as unknown[];
   const len = Math.min(arrA.length, arrB.length);
@@ -269,7 +256,7 @@ export function zip<
  */
 export function splitAt<T extends readonly unknown[], N extends number>(
   list: HList<T>,
-  index: N,
+  index: N
 ): [HList<SplitAt<T, N>[0]>, HList<SplitAt<T, N>[1]>] {
   const arr = list as unknown as unknown[];
   return [
@@ -291,12 +278,9 @@ export function splitAt<T extends readonly unknown[], N extends number>(
  * get(rec, "x"); // 42
  * ```
  */
-export function get<
-  Fields extends readonly LabeledField[],
-  Name extends string,
->(
+export function get<Fields extends readonly LabeledField[], Name extends string>(
   list: LabeledHList<Fields>,
-  name: Name,
+  name: Name
 ): ValueByName<Fields, Name> {
   const keys = (list as any).__keys as string[];
   const idx = keys.indexOf(name);
@@ -315,14 +299,10 @@ export function get<
  * set(rec, "x", 99); // { x: 99, y: "hi" }
  * ```
  */
-export function set<
-  Fields extends readonly LabeledField[],
-  Name extends string,
-  V,
->(
+export function set<Fields extends readonly LabeledField[], Name extends string, V>(
   list: LabeledHList<Fields>,
   name: Name,
-  value: V,
+  value: V
 ): LabeledHList<UpdateField<Fields, Name, V>> {
   const keys = (list as any).__keys as string[];
   const idx = keys.indexOf(name);
@@ -345,7 +325,7 @@ export function set<
  * ```
  */
 export function labels<Fields extends readonly LabeledField[]>(
-  list: LabeledHList<Fields>,
+  list: LabeledHList<Fields>
 ): string[] {
   return [...((list as any).__keys as string[])];
 }
@@ -359,10 +339,7 @@ export function labels<Fields extends readonly LabeledField[]>(
  * project(rec, "x", "z"); // labeled with x=1, z=3
  * ```
  */
-export function project<
-  Fields extends readonly LabeledField[],
-  Names extends string[],
->(
+export function project<Fields extends readonly LabeledField[], Names extends string[]>(
   list: LabeledHList<Fields>,
   ...names: Names
 ): LabeledHList<ProjectFields<Fields, Names>> {
@@ -378,9 +355,7 @@ export function project<
     newValues.push(arr[idx]);
     newKeys.push(name);
   }
-  const result = newValues as unknown as LabeledHList<
-    ProjectFields<Fields, Names>
-  >;
+  const result = newValues as unknown as LabeledHList<ProjectFields<Fields, Names>>;
   (result as any).__keys = newKeys;
   return result;
 }
@@ -394,12 +369,9 @@ export function project<
  * // labeled with x=1, y="hi"
  * ```
  */
-export function merge<
-  A extends readonly LabeledField[],
-  B extends readonly LabeledField[],
->(
+export function merge<A extends readonly LabeledField[], B extends readonly LabeledField[]>(
   a: LabeledHList<A>,
-  b: LabeledHList<B>,
+  b: LabeledHList<B>
 ): LabeledHList<[...A, ...B]> {
   const arrA = a as unknown as unknown[];
   const arrB = b as unknown as unknown[];
@@ -428,11 +400,9 @@ export function merge<
  */
 export function map<T extends readonly unknown[]>(
   list: HList<T>,
-  f: (elem: T[number], index: number) => unknown,
+  f: (elem: T[number], index: number) => unknown
 ): HList<unknown[]> {
-  return (list as unknown as unknown[]).map((elem, i) =>
-    f(elem, i),
-  ) as unknown as HList<unknown[]>;
+  return (list as unknown as unknown[]).map((elem, i) => f(elem, i)) as unknown as HList<unknown[]>;
 }
 
 /**
@@ -446,7 +416,7 @@ export function map<T extends readonly unknown[]>(
 export function foldLeft<T extends readonly unknown[], Acc>(
   list: HList<T>,
   init: Acc,
-  f: (acc: Acc, elem: T[number], index: number) => Acc,
+  f: (acc: Acc, elem: T[number], index: number) => Acc
 ): Acc {
   const arr = list as unknown as unknown[];
   let acc: Acc = init;
@@ -466,7 +436,7 @@ export function foldLeft<T extends readonly unknown[], Acc>(
  */
 export function forEach<T extends readonly unknown[]>(
   list: HList<T>,
-  f: (elem: T[number], index: number) => void,
+  f: (elem: T[number], index: number) => void
 ): void {
   (list as unknown as unknown[]).forEach((elem, i) => f(elem, i));
 }

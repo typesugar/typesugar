@@ -69,15 +69,10 @@ interface VerifyLawsConfig {
 
 function getVerifyLawsConfig(): VerifyLawsConfig {
   return {
-    mode:
-      config.get<false | "compile-time" | "property-test">("cats.verifyLaws") ??
-      false,
+    mode: config.get<false | "compile-time" | "property-test">("cats.verifyLaws") ?? false,
     onUndecidable:
-      config.get<"error" | "warn" | "fallback" | "ignore">(
-        "cats.onUndecidable",
-      ) ?? "warn",
-    propertyTestIterations:
-      config.get<number>("cats.propertyTestIterations") ?? 100,
+      config.get<"error" | "warn" | "fallback" | "ignore">("cats.onUndecidable") ?? "warn",
+    propertyTestIterations: config.get<number>("cats.propertyTestIterations") ?? 100,
   };
 }
 
@@ -88,15 +83,14 @@ function getVerifyLawsConfig(): VerifyLawsConfig {
 export const verifyLawsAttribute = defineAttributeMacro({
   name: "verifyLaws",
   module: "typesugar",
-  description:
-    "Verify typeclass law compliance at compile time or via property tests",
+  description: "Verify typeclass law compliance at compile time or via property tests",
   validTargets: ["property", "class"],
 
   expand(
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     const cfg = getVerifyLawsConfig();
 
@@ -112,7 +106,7 @@ export const verifyLawsAttribute = defineAttributeMacro({
       ctx.reportError(
         decorator,
         "@verifyLaws could not determine the instance type. " +
-          "Apply to a const declaration with a typeclass type annotation.",
+          "Apply to a const declaration with a typeclass type annotation."
       );
       return stripDecorator(ctx, target, decorator);
     }
@@ -123,13 +117,12 @@ export const verifyLawsAttribute = defineAttributeMacro({
     const macroArgs = parseVerifyLawsArgs(ctx, args);
 
     // Determine which law generator to use
-    const lawGenName =
-      macroArgs.lawGenerator ?? inferLawGenerator(typeclassName);
+    const lawGenName = macroArgs.lawGenerator ?? inferLawGenerator(typeclassName);
     if (!lawGenName) {
       ctx.reportError(
         decorator,
         `@verifyLaws: no law generator found for typeclass '${typeclassName}'. ` +
-          `Pass one explicitly: @verifyLaws(myLawGenerator, {...})`,
+          `Pass one explicitly: @verifyLaws(myLawGenerator, {...})`
       );
       return stripDecorator(ctx, target, decorator);
     }
@@ -173,10 +166,7 @@ interface InstanceInfo {
   forType: string;
 }
 
-function extractInstanceInfo(
-  ctx: MacroContext,
-  target: ts.Declaration,
-): InstanceInfo | undefined {
+function extractInstanceInfo(ctx: MacroContext, target: ts.Declaration): InstanceInfo | undefined {
   let varName: string | undefined;
   let typeNode: ts.TypeNode | undefined;
 
@@ -255,10 +245,7 @@ interface VerifyLawsArgs {
   strict?: boolean;
 }
 
-function parseVerifyLawsArgs(
-  ctx: MacroContext,
-  args: readonly ts.Expression[],
-): VerifyLawsArgs {
+function parseVerifyLawsArgs(ctx: MacroContext, args: readonly ts.Expression[]): VerifyLawsArgs {
   const result: VerifyLawsArgs = {};
 
   for (const arg of args) {
@@ -341,10 +328,9 @@ function expandCompileTimeVerification(
   ctx: MacroContext,
   target: ts.Declaration,
   decorator: ts.Decorator,
-  verifyCtx: VerificationContext,
+  verifyCtx: VerificationContext
 ): ts.Node | ts.Node[] {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } =
-    verifyCtx;
+  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } = verifyCtx;
 
   // In compile-time mode, we attempt to prove each law at compile time
   // If proof succeeds: emit nothing (law holds statically)
@@ -367,8 +353,7 @@ function expandCompileTimeVerification(
 }
 
 function generateCompileTimeCheck(verifyCtx: VerificationContext): string {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs } =
-    verifyCtx;
+  const { instanceName, typeclassName, forType, lawGenName, macroArgs } = verifyCtx;
 
   // Generate import for the law generator if needed
   const eqArg = macroArgs.eq ?? `eq${capitalize(forType)}`;
@@ -401,10 +386,9 @@ function expandPropertyTestVerification(
   ctx: MacroContext,
   target: ts.Declaration,
   decorator: ts.Decorator,
-  verifyCtx: VerificationContext,
+  verifyCtx: VerificationContext
 ): ts.Node | ts.Node[] {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } =
-    verifyCtx;
+  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } = verifyCtx;
 
   // In property-test mode, generate forAll() blocks for each law
   const testCode = generatePropertyTests(verifyCtx);
@@ -415,8 +399,7 @@ function expandPropertyTestVerification(
 }
 
 function generatePropertyTests(verifyCtx: VerificationContext): string {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } =
-    verifyCtx;
+  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } = verifyCtx;
 
   // Generate property-based tests using forAll
   // Requires an Arbitrary instance for the type

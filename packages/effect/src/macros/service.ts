@@ -37,11 +37,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  type AttributeMacro,
-  type MacroContext,
-  defineAttributeMacro,
-} from "@typesugar/core";
+import { type AttributeMacro, type MacroContext, defineAttributeMacro } from "@typesugar/core";
 
 /**
  * Service metadata stored in the registry.
@@ -93,24 +89,17 @@ export function getService(name: string): ServiceInfo | undefined {
 /**
  * Extract method information from an interface.
  */
-function extractMethods(
-  ctx: MacroContext,
-  iface: ts.InterfaceDeclaration,
-): ServiceMethodInfo[] {
+function extractMethods(ctx: MacroContext, iface: ts.InterfaceDeclaration): ServiceMethodInfo[] {
   const methods: ServiceMethodInfo[] = [];
   const typeChecker = ctx.typeChecker;
 
   for (const member of iface.members) {
     if (ts.isMethodSignature(member) && member.name) {
-      const methodName = ts.isIdentifier(member.name)
-        ? member.name.text
-        : member.name.getText();
+      const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
 
       const params: Array<{ name: string; typeString: string }> = [];
       for (const param of member.parameters) {
-        const paramName = ts.isIdentifier(param.name)
-          ? param.name.text
-          : param.name.getText();
+        const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
         const paramType = param.type
           ? param.type.getText()
           : typeChecker.typeToString(typeChecker.getTypeAtLocation(param));
@@ -123,22 +112,16 @@ function extractMethods(
     } else if (ts.isPropertySignature(member) && member.name && member.type) {
       // Handle property signatures that are function types
       if (ts.isFunctionTypeNode(member.type)) {
-        const methodName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : member.name.getText();
+        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
 
         const params: Array<{ name: string; typeString: string }> = [];
         for (const param of member.type.parameters) {
-          const paramName = ts.isIdentifier(param.name)
-            ? param.name.text
-            : param.name.getText();
+          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
           const paramType = param.type ? param.type.getText() : "unknown";
           params.push({ name: paramName, typeString: paramType });
         }
 
-        const returnType = member.type.type
-          ? member.type.type.getText()
-          : "unknown";
+        const returnType = member.type.type ? member.type.type.getText() : "unknown";
 
         methods.push({ name: methodName, params, returnType });
       }
@@ -154,7 +137,7 @@ function extractMethods(
 function generateTagClass(
   factory: ts.NodeFactory,
   serviceName: string,
-  methods: ServiceMethodInfo[],
+  methods: ServiceMethodInfo[]
 ): ts.ClassDeclaration {
   // Build the service shape type literal
   const typeMembers: ts.TypeElement[] = methods.map((method) => {
@@ -165,15 +148,15 @@ function generateTagClass(
         undefined,
         factory.createIdentifier(p.name),
         undefined,
-        factory.createTypeReferenceNode(p.typeString),
-      ),
+        factory.createTypeReferenceNode(p.typeString)
+      )
     );
 
     // Create the function type
     const funcType = factory.createFunctionTypeNode(
       undefined,
       paramTypes,
-      factory.createTypeReferenceNode(method.returnType),
+      factory.createTypeReferenceNode(method.returnType)
     );
 
     // Create readonly property signature
@@ -181,7 +164,7 @@ function generateTagClass(
       [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
       factory.createIdentifier(method.name),
       undefined,
-      funcType,
+      funcType
     );
   });
 
@@ -192,10 +175,10 @@ function generateTagClass(
   const tagCall = factory.createCallExpression(
     factory.createPropertyAccessExpression(
       factory.createIdentifier("Context"),
-      factory.createIdentifier("Tag"),
+      factory.createIdentifier("Tag")
     ),
     undefined,
-    [factory.createStringLiteral(serviceName)],
+    [factory.createStringLiteral(serviceName)]
   );
 
   // The extends clause: Context.Tag("ServiceName")<ServiceName, ShapeType>()
@@ -205,20 +188,19 @@ function generateTagClass(
       shapeTypeLiteral,
     ]),
     undefined,
-    [],
+    []
   );
 
-  const heritageClause = factory.createHeritageClause(
-    ts.SyntaxKind.ExtendsKeyword,
-    [factory.createExpressionWithTypeArguments(extendsExpression, [])],
-  );
+  const heritageClause = factory.createHeritageClause(ts.SyntaxKind.ExtendsKeyword, [
+    factory.createExpressionWithTypeArguments(extendsExpression, []),
+  ]);
 
   return factory.createClassDeclaration(
     [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
     factory.createIdentifier(`${serviceName}Tag`),
     undefined,
     [heritageClause],
-    [],
+    []
   );
 }
 
@@ -228,7 +210,7 @@ function generateTagClass(
 function generateAccessorNamespace(
   factory: ts.NodeFactory,
   serviceName: string,
-  methods: ServiceMethodInfo[],
+  methods: ServiceMethodInfo[]
 ): ts.ModuleDeclaration {
   const statements: ts.Statement[] = [];
 
@@ -242,12 +224,12 @@ function generateAccessorNamespace(
             factory.createIdentifier("Tag"),
             undefined,
             undefined,
-            factory.createIdentifier(`${serviceName}Tag`),
+            factory.createIdentifier(`${serviceName}Tag`)
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
-    ),
+        ts.NodeFlags.Const
+      )
+    )
   );
 
   // Generate Effect.serviceFunctionEffect for each method
@@ -263,7 +245,7 @@ function generateAccessorNamespace(
             factory.createCallExpression(
               factory.createPropertyAccessExpression(
                 factory.createIdentifier("Effect"),
-                factory.createIdentifier("serviceFunctionEffect"),
+                factory.createIdentifier("serviceFunctionEffect")
               ),
               undefined,
               [
@@ -275,22 +257,22 @@ function generateAccessorNamespace(
                     factory.createParameterDeclaration(
                       undefined,
                       undefined,
-                      factory.createIdentifier("_"),
+                      factory.createIdentifier("_")
                     ),
                   ],
                   undefined,
                   factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                   factory.createPropertyAccessExpression(
                     factory.createIdentifier("_"),
-                    factory.createIdentifier(method.name),
-                  ),
+                    factory.createIdentifier(method.name)
+                  )
                 ),
-              ],
-            ),
+              ]
+            )
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
+        ts.NodeFlags.Const
+      )
     );
     statements.push(accessor);
   }
@@ -299,7 +281,7 @@ function generateAccessorNamespace(
     [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
     factory.createIdentifier(serviceName),
     factory.createModuleBlock(statements),
-    ts.NodeFlags.Namespace,
+    ts.NodeFlags.Namespace
   );
 }
 
@@ -321,7 +303,7 @@ export const serviceAttribute: AttributeMacro = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     const factory = ctx.factory;
 
@@ -338,7 +320,7 @@ export const serviceAttribute: AttributeMacro = defineAttributeMacro({
     if (methods.length === 0) {
       ctx.reportWarning(
         target,
-        `@service interface '${serviceName}' has no methods. Consider adding methods that return Effect.Effect<...>.`,
+        `@service interface '${serviceName}' has no methods. Consider adding methods that return Effect.Effect<...>.`
       );
     }
 

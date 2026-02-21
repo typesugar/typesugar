@@ -35,27 +35,15 @@ export interface AlgebraicRule {
 /**
  * Check if a fact set contains a specific predicate for a variable.
  */
-function hasFact(
-  facts: TypeFact[],
-  variable: string,
-  predicate: string,
-): boolean {
-  return facts.some(
-    (f) => f.variable === variable && f.predicate.includes(predicate),
-  );
+function hasFact(facts: TypeFact[], variable: string, predicate: string): boolean {
+  return facts.some((f) => f.variable === variable && f.predicate.includes(predicate));
 }
 
 /**
  * Get the fact matching a variable and predicate pattern.
  */
-function getFact(
-  facts: TypeFact[],
-  variable: string,
-  predicate: string,
-): TypeFact | undefined {
-  return facts.find(
-    (f) => f.variable === variable && f.predicate.includes(predicate),
-  );
+function getFact(facts: TypeFact[], variable: string, predicate: string): TypeFact | undefined {
+  return facts.find((f) => f.variable === variable && f.predicate.includes(predicate));
 }
 
 function hasFactMatching(facts: TypeFact[], pattern: RegExp): boolean {
@@ -85,9 +73,7 @@ function structurallyEqual(a: string, b: string): boolean {
  * Parse a binary operation expression like "op(a, b)" or "a.op(b)".
  * Returns the operator name and operands, or null if not parseable.
  */
-function parseBinaryOp(
-  expr: string,
-): { op: string; left: string; right: string } | null {
+function parseBinaryOp(expr: string): { op: string; left: string; right: string } | null {
   // Match function call style: op(a, b)
   const funcMatch = expr.match(/^(\w+)\s*\(\s*(.+?)\s*,\s*(.+?)\s*\)$/);
   if (funcMatch) {
@@ -112,9 +98,7 @@ function parseBinaryOp(
 /**
  * Parse an equality goal: expr1 === expr2 or eqv(expr1, expr2)
  */
-function parseEqualityGoal(
-  goal: string,
-): { left: string; right: string } | null {
+function parseEqualityGoal(goal: string): { left: string; right: string } | null {
   // Match strict equality: a === b
   const strictMatch = goal.match(/^(.+?)\s*===\s*(.+?)$/);
   if (strictMatch) {
@@ -147,16 +131,12 @@ function isIdentityElement(expr: string): boolean {
 /**
  * Check if a fact declares an identity element for an operation.
  */
-function hasIdentityFact(
-  facts: TypeFact[],
-  op: string,
-  element: string,
-): boolean {
+function hasIdentityFact(facts: TypeFact[], op: string, element: string): boolean {
   return facts.some(
     (f) =>
       f.predicate.includes(`identity(${op})`) ||
       f.predicate.includes(`${element} is identity for ${op}`) ||
-      f.predicate.includes(`Monoid<${op}>`),
+      f.predicate.includes(`Monoid<${op}>`)
   );
 }
 
@@ -168,7 +148,7 @@ function hasAssociativityFact(facts: TypeFact[], op: string): boolean {
     (f) =>
       f.predicate.includes(`associative(${op})`) ||
       f.predicate.includes(`Semigroup<${op}>`) ||
-      f.predicate.includes(`${op} is associative`),
+      f.predicate.includes(`${op} is associative`)
   );
 }
 
@@ -180,7 +160,7 @@ function hasCommutativityFact(facts: TypeFact[], op: string): boolean {
     (f) =>
       f.predicate.includes(`commutative(${op})`) ||
       f.predicate.includes(`CommutativeSemigroup<${op}>`) ||
-      f.predicate.includes(`${op} is commutative`),
+      f.predicate.includes(`${op} is commutative`)
   );
 }
 
@@ -208,17 +188,14 @@ const RULES: AlgebraicRule[] = [
       if (!leftOp) return { matched: false, usedFacts: [] };
 
       // Check if left operand is identity element
-      if (!isIdentityElement(leftOp.left))
-        return { matched: false, usedFacts: [] };
+      if (!isIdentityElement(leftOp.left)) return { matched: false, usedFacts: [] };
 
       // Check if right side equals the non-identity operand
-      if (!structurallyEqual(eq.right, leftOp.right))
-        return { matched: false, usedFacts: [] };
+      if (!structurallyEqual(eq.right, leftOp.right)) return { matched: false, usedFacts: [] };
 
       // Optionally verify we have a Monoid fact
       const usedFacts = facts.filter(
-        (f) =>
-          f.predicate.includes("identity") || f.predicate.includes("Monoid"),
+        (f) => f.predicate.includes("identity") || f.predicate.includes("Monoid")
       );
 
       return { matched: true, usedFacts };
@@ -238,16 +215,13 @@ const RULES: AlgebraicRule[] = [
       if (!leftOp) return { matched: false, usedFacts: [] };
 
       // Check if right operand of the operation is identity element
-      if (!isIdentityElement(leftOp.right))
-        return { matched: false, usedFacts: [] };
+      if (!isIdentityElement(leftOp.right)) return { matched: false, usedFacts: [] };
 
       // Check if result equals the non-identity operand
-      if (!structurallyEqual(eq.right, leftOp.left))
-        return { matched: false, usedFacts: [] };
+      if (!structurallyEqual(eq.right, leftOp.left)) return { matched: false, usedFacts: [] };
 
       const usedFacts = facts.filter(
-        (f) =>
-          f.predicate.includes("identity") || f.predicate.includes("Monoid"),
+        (f) => f.predicate.includes("identity") || f.predicate.includes("Monoid")
       );
 
       return { matched: true, usedFacts };
@@ -260,8 +234,7 @@ const RULES: AlgebraicRule[] = [
   // --- Associativity Laws ---
   {
     name: "associativity",
-    description:
-      "combine(combine(a, b), c) === combine(a, combine(b, c)) (associativity law)",
+    description: "combine(combine(a, b), c) === combine(a, combine(b, c)) (associativity law)",
     matchWithFacts(goal, facts): MatchResult {
       const eq = parseEqualityGoal(goal);
       if (!eq) return { matched: false, usedFacts: [] };
@@ -271,8 +244,7 @@ const RULES: AlgebraicRule[] = [
       const rightOuter = parseBinaryOp(eq.right);
 
       if (!leftOuter || !rightOuter) return { matched: false, usedFacts: [] };
-      if (leftOuter.op !== rightOuter.op)
-        return { matched: false, usedFacts: [] };
+      if (leftOuter.op !== rightOuter.op) return { matched: false, usedFacts: [] };
 
       const op = leftOuter.op;
 
@@ -280,12 +252,7 @@ const RULES: AlgebraicRule[] = [
       const leftInner = parseBinaryOp(leftOuter.left);
       const rightInner = parseBinaryOp(rightOuter.right);
 
-      if (
-        leftInner &&
-        rightInner &&
-        leftInner.op === op &&
-        rightInner.op === op
-      ) {
+      if (leftInner && rightInner && leftInner.op === op && rightInner.op === op) {
         // Check: leftInner = (a, b), leftOuter.right = c
         //        rightOuter.left = a, rightInner = (b, c)
         const a1 = leftInner.left;
@@ -295,15 +262,9 @@ const RULES: AlgebraicRule[] = [
         const b2 = rightInner.left;
         const c2 = rightInner.right;
 
-        if (
-          structurallyEqual(a1, a2) &&
-          structurallyEqual(b1, b2) &&
-          structurallyEqual(c1, c2)
-        ) {
+        if (structurallyEqual(a1, a2) && structurallyEqual(b1, b2) && structurallyEqual(c1, c2)) {
           const usedFacts = facts.filter(
-            (f) =>
-              f.predicate.includes("associative") ||
-              f.predicate.includes("Semigroup"),
+            (f) => f.predicate.includes("associative") || f.predicate.includes("Semigroup")
           );
           return { matched: true, usedFacts };
         }
@@ -313,12 +274,7 @@ const RULES: AlgebraicRule[] = [
       const leftInner2 = parseBinaryOp(leftOuter.right);
       const rightInner2 = parseBinaryOp(rightOuter.left);
 
-      if (
-        leftInner2 &&
-        rightInner2 &&
-        leftInner2.op === op &&
-        rightInner2.op === op
-      ) {
+      if (leftInner2 && rightInner2 && leftInner2.op === op && rightInner2.op === op) {
         const a1 = leftOuter.left;
         const b1 = leftInner2.left;
         const c1 = leftInner2.right;
@@ -326,15 +282,9 @@ const RULES: AlgebraicRule[] = [
         const b2 = rightInner2.right;
         const c2 = rightOuter.right;
 
-        if (
-          structurallyEqual(a1, a2) &&
-          structurallyEqual(b1, b2) &&
-          structurallyEqual(c1, c2)
-        ) {
+        if (structurallyEqual(a1, a2) && structurallyEqual(b1, b2) && structurallyEqual(c1, c2)) {
           const usedFacts = facts.filter(
-            (f) =>
-              f.predicate.includes("associative") ||
-              f.predicate.includes("Semigroup"),
+            (f) => f.predicate.includes("associative") || f.predicate.includes("Semigroup")
           );
           return { matched: true, usedFacts };
         }
@@ -367,9 +317,7 @@ const RULES: AlgebraicRule[] = [
         structurallyEqual(leftOp.right, rightOp.left)
       ) {
         const usedFacts = facts.filter(
-          (f) =>
-            f.predicate.includes("commutative") ||
-            f.predicate.includes("CommutativeSemigroup"),
+          (f) => f.predicate.includes("commutative") || f.predicate.includes("CommutativeSemigroup")
         );
         return { matched: true, usedFacts };
       }
@@ -419,9 +367,7 @@ const RULES: AlgebraicRule[] = [
         leftOp.left.trim() === "id" ||
         leftOp.left.trim() === "identity" ||
         /^(?:x|a)\s*=>\s*(?:x|a)$/.test(leftOp.left.trim()) ||
-        /^function\s*\((?:x|a)\)\s*\{\s*return\s+(?:x|a)\s*;\s*\}$/.test(
-          leftOp.left.trim(),
-        );
+        /^function\s*\((?:x|a)\)\s*\{\s*return\s+(?:x|a)\s*;\s*\}$/.test(leftOp.left.trim());
 
       if (!isId) return { matched: false, usedFacts: [] };
 
@@ -441,8 +387,7 @@ const RULES: AlgebraicRule[] = [
   // --- Composition Laws ---
   {
     name: "functor_composition",
-    description:
-      "map(g, map(f, fa)) === map(g . f, fa) (functor composition law)",
+    description: "map(g, map(f, fa)) === map(g . f, fa) (functor composition law)",
     matchWithFacts(goal, facts): MatchResult {
       const eq = parseEqualityGoal(goal);
       if (!eq) return { matched: false, usedFacts: [] };
@@ -455,8 +400,7 @@ const RULES: AlgebraicRule[] = [
       const rightOp = parseBinaryOp(eq.right);
 
       if (!leftOp || !rightOp) return { matched: false, usedFacts: [] };
-      if (leftOp.op !== "map" || rightOp.op !== "map")
-        return { matched: false, usedFacts: [] };
+      if (leftOp.op !== "map" || rightOp.op !== "map") return { matched: false, usedFacts: [] };
 
       // Check for nested map on left: map(g, map(f, fa))
       const innerLeft = parseBinaryOp(leftOp.right);
@@ -464,9 +408,7 @@ const RULES: AlgebraicRule[] = [
         // leftOp.left = g, innerLeft.left = f, innerLeft.right = fa
         // rightOp should have composed function and same fa
         if (structurallyEqual(innerLeft.right, rightOp.right)) {
-          const usedFacts = facts.filter((f) =>
-            f.predicate.includes("Functor"),
-          );
+          const usedFacts = facts.filter((f) => f.predicate.includes("Functor"));
           return { matched: true, usedFacts };
         }
       }
@@ -475,9 +417,7 @@ const RULES: AlgebraicRule[] = [
       const innerRight = parseBinaryOp(rightOp.right);
       if (innerRight && innerRight.op === "map") {
         if (structurallyEqual(innerRight.right, leftOp.right)) {
-          const usedFacts = facts.filter((f) =>
-            f.predicate.includes("Functor"),
-          );
+          const usedFacts = facts.filter((f) => f.predicate.includes("Functor"));
           return { matched: true, usedFacts };
         }
       }
@@ -605,10 +545,7 @@ const RULES: AlgebraicRule[] = [
  * Try to prove a goal using algebraic rules.
  * Returns extended result with proof step information for certificates.
  */
-export function tryAlgebraicProof(
-  goal: string,
-  facts: TypeFact[],
-): AlgebraicProofResult {
+export function tryAlgebraicProof(goal: string, facts: TypeFact[]): AlgebraicProofResult {
   for (const rule of RULES) {
     // Try extended match first for proof certificate support
     if (rule.matchWithFacts) {

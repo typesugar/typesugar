@@ -35,9 +35,7 @@ export interface Cols<N extends number> {
  * Matrix type - branded Float64Array with dimension tracking.
  * Data is stored in row-major order.
  */
-export type Matrix<R extends number, C extends number> = Float64Array &
-  Rows<R> &
-  Cols<C>;
+export type Matrix<R extends number, C extends number> = Float64Array & Rows<R> & Cols<C>;
 
 // ============================================================================
 // Constructors
@@ -55,12 +53,12 @@ export type Matrix<R extends number, C extends number> = Float64Array &
 export function matrix<R extends number, C extends number>(
   rows: R,
   cols: C,
-  data: number[] | Float64Array,
+  data: number[] | Float64Array
 ): Matrix<R, C> {
   const expectedLength = rows * cols;
   if (data.length !== expectedLength) {
     throw new RangeError(
-      `Matrix data length ${data.length} doesn't match dimensions ${rows}x${cols} (expected ${expectedLength})`,
+      `Matrix data length ${data.length} doesn't match dimensions ${rows}x${cols} (expected ${expectedLength})`
     );
   }
   const arr = new Float64Array(data) as Matrix<R, C>;
@@ -73,10 +71,7 @@ export function matrix<R extends number, C extends number>(
 /**
  * Create a zero matrix of given dimensions.
  */
-export function zeros<R extends number, C extends number>(
-  rows: R,
-  cols: C,
-): Matrix<R, C> {
+export function zeros<R extends number, C extends number>(rows: R, cols: C): Matrix<R, C> {
   const arr = new Float64Array(rows * cols) as Matrix<R, C>;
   Object.defineProperty(arr, "__rows", { value: rows, enumerable: false });
   Object.defineProperty(arr, "__cols", { value: cols, enumerable: false });
@@ -102,9 +97,7 @@ export function identity<N extends number>(n: N): Matrix<N, N> {
  * @param rows - Array of row arrays
  * @returns A typed matrix
  */
-export function fromRows<R extends number, C extends number>(
-  rows: number[][],
-): Matrix<R, C> {
+export function fromRows<R extends number, C extends number>(rows: number[][]): Matrix<R, C> {
   if (rows.length === 0) {
     throw new RangeError("Cannot create matrix from empty rows array");
   }
@@ -139,16 +132,12 @@ export function diag<N extends number>(values: number[]): Matrix<N, N> {
 // ============================================================================
 
 /** Get the number of rows */
-export function rows<R extends number, C extends number>(
-  m: Matrix<R, C>,
-): R {
+export function rows<R extends number, C extends number>(m: Matrix<R, C>): R {
   return (m as unknown as { __rows: R }).__rows;
 }
 
 /** Get the number of columns */
-export function cols<R extends number, C extends number>(
-  m: Matrix<R, C>,
-): C {
+export function cols<R extends number, C extends number>(m: Matrix<R, C>): C {
   return (m as unknown as { __cols: C }).__cols;
 }
 
@@ -162,7 +151,7 @@ export function cols<R extends number, C extends number>(
 export function get<R extends number, C extends number>(
   m: Matrix<R, C>,
   row: number,
-  col: number,
+  col: number
 ): number {
   const c = cols(m);
   return m[row * c + col];
@@ -175,7 +164,7 @@ export function set<R extends number, C extends number>(
   m: Matrix<R, C>,
   row: number,
   col: number,
-  value: number,
+  value: number
 ): void {
   const c = cols(m);
   m[row * c + col] = value;
@@ -184,10 +173,7 @@ export function set<R extends number, C extends number>(
 /**
  * Get a row as an array.
  */
-export function row<R extends number, C extends number>(
-  m: Matrix<R, C>,
-  i: number,
-): number[] {
+export function row<R extends number, C extends number>(m: Matrix<R, C>, i: number): number[] {
   const c = cols(m);
   const result: number[] = [];
   const start = i * c;
@@ -200,10 +186,7 @@ export function row<R extends number, C extends number>(
 /**
  * Get a column as an array.
  */
-export function col<R extends number, C extends number>(
-  m: Matrix<R, C>,
-  j: number,
-): number[] {
+export function col<R extends number, C extends number>(m: Matrix<R, C>, j: number): number[] {
   const r = rows(m);
   const c = cols(m);
   const result: number[] = [];
@@ -220,9 +203,7 @@ export function col<R extends number, C extends number>(
 /**
  * Transpose a matrix.
  */
-export function transpose<R extends number, C extends number>(
-  m: Matrix<R, C>,
-): Matrix<C, R> {
+export function transpose<R extends number, C extends number>(m: Matrix<R, C>): Matrix<C, R> {
   const r = rows(m);
   const c = cols(m);
   const result = new Float64Array(r * c) as Matrix<C, R>;
@@ -242,7 +223,7 @@ export function transpose<R extends number, C extends number>(
  */
 export function matMul<R extends number, K extends number, C extends number>(
   a: Matrix<R, K>,
-  b: Matrix<K, C>,
+  b: Matrix<K, C>
 ): Matrix<R, C> {
   const r = rows(a);
   const k = cols(a);
@@ -250,9 +231,7 @@ export function matMul<R extends number, K extends number, C extends number>(
 
   // Runtime dimension check (type system handles static check)
   if (k !== rows(b)) {
-    throw new RangeError(
-      `Matrix multiplication dimension mismatch: ${r}x${k} * ${rows(b)}x${c}`,
-    );
+    throw new RangeError(`Matrix multiplication dimension mismatch: ${r}x${k} * ${rows(b)}x${c}`);
   }
 
   const result = new Float64Array(r * c) as Matrix<R, C>;
@@ -275,7 +254,7 @@ export function matMul<R extends number, K extends number, C extends number>(
  */
 export function add<R extends number, C extends number>(
   a: Matrix<R, C>,
-  b: Matrix<R, C>,
+  b: Matrix<R, C>
 ): Matrix<R, C> {
   const r = rows(a);
   const c = cols(a);
@@ -293,7 +272,7 @@ export function add<R extends number, C extends number>(
  */
 export function sub<R extends number, C extends number>(
   a: Matrix<R, C>,
-  b: Matrix<R, C>,
+  b: Matrix<R, C>
 ): Matrix<R, C> {
   const r = rows(a);
   const c = cols(a);
@@ -311,7 +290,7 @@ export function sub<R extends number, C extends number>(
  */
 export function scale<R extends number, C extends number>(
   m: Matrix<R, C>,
-  scalar: number,
+  scalar: number
 ): Matrix<R, C> {
   const r = rows(m);
   const c = cols(m);
@@ -327,9 +306,7 @@ export function scale<R extends number, C extends number>(
 /**
  * Negate all elements.
  */
-export function negate<R extends number, C extends number>(
-  m: Matrix<R, C>,
-): Matrix<R, C> {
+export function negate<R extends number, C extends number>(m: Matrix<R, C>): Matrix<R, C> {
   return scale(m, -1);
 }
 
@@ -440,12 +417,10 @@ export function inverse<N extends number>(m: Matrix<N, N>): Matrix<N, N> {
       throw new RangeError("Matrix is singular");
     }
     const invD = 1 / d;
-    return matrix(2 as N, 2 as N, [
-      m[3] * invD,
-      -m[1] * invD,
-      -m[2] * invD,
-      m[0] * invD,
-    ]) as Matrix<N, N>;
+    return matrix(2 as N, 2 as N, [m[3] * invD, -m[1] * invD, -m[2] * invD, m[0] * invD]) as Matrix<
+      N,
+      N
+    >;
   }
 
   if (n === 3) {
@@ -466,8 +441,7 @@ function inverse3x3<N extends number>(m: Matrix<N, N>): Matrix<N, N> {
     h = m[7],
     i = m[8];
 
-  const det =
-    a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
 
   if (Math.abs(det) < 1e-12) {
     throw new RangeError("Matrix is singular");
@@ -488,10 +462,7 @@ function inverse3x3<N extends number>(m: Matrix<N, N>): Matrix<N, N> {
   ]) as Matrix<N, N>;
 }
 
-function inverseGaussJordan<N extends number>(
-  m: Matrix<N, N>,
-  n: number,
-): Matrix<N, N> {
+function inverseGaussJordan<N extends number>(m: Matrix<N, N>, n: number): Matrix<N, N> {
   // Augmented matrix [A | I]
   const aug = new Float64Array(n * 2 * n);
 
@@ -593,7 +564,7 @@ export function numericMatrix<N extends number>(n: N): Numeric<Matrix<N, N>> {
 export function approxEquals<R extends number, C extends number>(
   a: Matrix<R, C>,
   b: Matrix<R, C>,
-  tolerance = 1e-10,
+  tolerance = 1e-10
 ): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
@@ -605,9 +576,7 @@ export function approxEquals<R extends number, C extends number>(
 /**
  * Convert matrix to 2D array representation.
  */
-export function toArray<R extends number, C extends number>(
-  m: Matrix<R, C>,
-): number[][] {
+export function toArray<R extends number, C extends number>(m: Matrix<R, C>): number[][] {
   const r = rows(m);
   const c = cols(m);
   const result: number[][] = [];
@@ -620,9 +589,7 @@ export function toArray<R extends number, C extends number>(
 /**
  * Pretty-print a matrix.
  */
-export function toString<R extends number, C extends number>(
-  m: Matrix<R, C>,
-): string {
+export function toString<R extends number, C extends number>(m: Matrix<R, C>): string {
   return toArray(m)
     .map((row) => "[ " + row.map((v) => v.toFixed(4).padStart(10)).join(" ") + " ]")
     .join("\n");

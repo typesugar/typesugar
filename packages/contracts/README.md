@@ -57,12 +57,12 @@ The `comptime()` macro evaluates expressions at build time:
 import { requires, comptime } from "@ttfx/contracts";
 
 // Complex computations at build time
-const BUFFER_SIZE = comptime(() => 1024 * 16);  // Becomes: 16384
+const BUFFER_SIZE = comptime(() => 1024 * 16); // Becomes: 16384
 const FACTORIALS = comptime(() => {
   const result = [1];
   for (let i = 1; i <= 10; i++) result.push(result[i - 1] * i);
   return result;
-});  // Becomes: [1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800]
+}); // Becomes: [1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800]
 
 function allocate(size: number) {
   // Prover can verify this when size is BUFFER_SIZE
@@ -166,11 +166,7 @@ Supported patterns:
 Generate structured proof traces for debugging:
 
 ```typescript
-import {
-  createCertificate,
-  succeedCertificate,
-  formatCertificate,
-} from "@typesugar/contracts";
+import { createCertificate, succeedCertificate, formatCertificate } from "@typesugar/contracts";
 
 const facts = [{ variable: "x", predicate: "x > 0" }];
 let cert = createCertificate("x >= 0", facts);
@@ -245,9 +241,7 @@ registerAlgebraicRule({
   match(goal, facts) {
     const m = goal.match(/^(\w+)\s*<=\s*100$/);
     if (!m) return false;
-    return facts.some(
-      (f) => f.variable === m[1] && f.predicate.includes("Percentage"),
-    );
+    return facts.some((f) => f.variable === m[1] && f.predicate.includes("Percentage"));
   },
 });
 ```

@@ -219,8 +219,8 @@ Built-in support for:
 ```typescript
 fetchUser(42).flatMap((user) =>
   fetchPosts(user.id).flatMap((posts) =>
-    fetchComments(posts[0].id).map((comments) => ({ user, posts, comments })),
-  ),
+    fetchComments(posts[0].id).map((comments) => ({ user, posts, comments }))
+  )
 );
 ```
 

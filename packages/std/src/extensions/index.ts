@@ -76,10 +76,4 @@ export {
 } from "./object";
 
 // Map/Set utilities
-export {
-  filterMapKeys,
-  filterMapValues,
-  setUnion,
-  setIntersection,
-  setDifference,
-} from "./map";
+export { filterMapKeys, filterMapValues, setUnion, setIntersection, setDifference } from "./map";

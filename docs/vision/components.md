@@ -156,9 +156,7 @@ When the macro detects a reactive value (signal) in a template expression, it wr
 const Counter = component(() => {
   let count = 0;
 
-  return html`
-    <button onClick=${() => count++}>Clicked ${count} times</button>
-  `;
+  return html` <button onClick=${() => count++}>Clicked ${count} times</button> `;
 });
 ```
 
@@ -294,12 +292,7 @@ const styles = css`
 The `transition:` directive generates Web Animations API code with automatic cleanup:
 
 ```typescript
-html`
-  ${when(
-    isVisible,
-    html`<div transition:fade={{ duration: 200 }}>Content</div>`,
-  )}
-`;
+html` ${when(isVisible, html`<div transition:fade={{ duration: 200 }}>Content</div>`)} `;
 ```
 
 **Compiles to:**

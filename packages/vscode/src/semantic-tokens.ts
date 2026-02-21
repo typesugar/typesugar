@@ -27,26 +27,23 @@ export const TOKEN_TYPES = [
 
 export const TOKEN_MODIFIERS = ["macro", "comptime"] as const;
 
-export const LEGEND = new vscode.SemanticTokensLegend(
-  [...TOKEN_TYPES],
-  [...TOKEN_MODIFIERS],
-);
+export const LEGEND = new vscode.SemanticTokensLegend([...TOKEN_TYPES], [...TOKEN_MODIFIERS]);
 
-const TokenTypeIndex = Object.fromEntries(
-  TOKEN_TYPES.map((t, i) => [t, i]),
-) as Record<(typeof TOKEN_TYPES)[number], number>;
+const TokenTypeIndex = Object.fromEntries(TOKEN_TYPES.map((t, i) => [t, i])) as Record<
+  (typeof TOKEN_TYPES)[number],
+  number
+>;
 
-const TokenModIndex = Object.fromEntries(
-  TOKEN_MODIFIERS.map((m, i) => [m, 1 << i]),
-) as Record<(typeof TOKEN_MODIFIERS)[number], number>;
+const TokenModIndex = Object.fromEntries(TOKEN_MODIFIERS.map((m, i) => [m, 1 << i])) as Record<
+  (typeof TOKEN_MODIFIERS)[number],
+  number
+>;
 
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
-export class MacroSemanticTokensProvider
-  implements vscode.DocumentSemanticTokensProvider
-{
+export class MacroSemanticTokensProvider implements vscode.DocumentSemanticTokensProvider {
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeSemanticTokens = this.onDidChangeEmitter.event;
 
@@ -57,7 +54,7 @@ export class MacroSemanticTokensProvider
 
   provideDocumentSemanticTokens(
     document: vscode.TextDocument,
-    _token: vscode.CancellationToken,
+    _token: vscode.CancellationToken
   ): vscode.SemanticTokens {
     const builder = new vscode.SemanticTokensBuilder(LEGEND);
     const text = document.getText();
@@ -67,9 +64,7 @@ export class MacroSemanticTokensProvider
       text,
       ts.ScriptTarget.Latest,
       true,
-      document.languageId === "typescriptreact"
-        ? ts.ScriptKind.TSX
-        : ts.ScriptKind.TS,
+      document.languageId === "typescriptreact" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
     );
 
     const expressionNames = this.manifest.expressionMacroNames;
@@ -93,7 +88,7 @@ export class MacroSemanticTokensProvider
           sourceFile,
           name,
           isComptime ? "comptimeBlock" : "macro",
-          isComptime ? TokenModIndex.comptime : TokenModIndex.macro,
+          isComptime ? TokenModIndex.comptime : TokenModIndex.macro
         );
       }
 
@@ -103,26 +98,14 @@ export class MacroSemanticTokensProvider
         ts.isIdentifier(node.tag) &&
         templateNames.has(node.tag.text)
       ) {
-        this.pushToken(
-          builder,
-          sourceFile,
-          node.tag,
-          "macroTemplate",
-          TokenModIndex.macro,
-        );
+        this.pushToken(builder, sourceFile, node.tag, "macroTemplate", TokenModIndex.macro);
       }
 
       // --- Decorator macros: @derive(...), @operators(...) ---
       if (ts.isDecorator(node)) {
         const name = this.getDecoratorName(node);
         if (name && decoratorNames.has(name.text)) {
-          this.pushToken(
-            builder,
-            sourceFile,
-            name,
-            "macroDecorator",
-            TokenModIndex.macro,
-          );
+          this.pushToken(builder, sourceFile, name, "macroDecorator", TokenModIndex.macro);
 
           // Highlight derive arguments: @derive(Eq, Ord, Clone)
           if (name.text === "derive" && ts.isCallExpression(node.expression)) {
@@ -146,24 +129,12 @@ export class MacroSemanticTokensProvider
       ) {
         // Only highlight if the parent is a call expression (x.show())
         // or if it's a bare access (x.show — user might be mid-typing)
-        this.pushToken(
-          builder,
-          sourceFile,
-          node.name,
-          "extensionMethod",
-          TokenModIndex.macro,
-        );
+        this.pushToken(builder, sourceFile, node.name, "extensionMethod", TokenModIndex.macro);
       }
 
       // --- Labeled block comprehensions: let: { ... } ---
       if (ts.isLabeledStatement(node) && labelNames.has(node.label.text)) {
-        this.pushToken(
-          builder,
-          sourceFile,
-          node.label,
-          "macro",
-          TokenModIndex.macro,
-        );
+        this.pushToken(builder, sourceFile, node.label, "macro", TokenModIndex.macro);
 
         // Walk the block body looking for bind expressions: name << expr
         if (ts.isBlock(node.statement)) {
@@ -184,7 +155,7 @@ export class MacroSemanticTokensProvider
   private tokenizeComprehensionBlock(
     builder: vscode.SemanticTokensBuilder,
     sourceFile: ts.SourceFile,
-    block: ts.Block,
+    block: ts.Block
   ): void {
     for (const stmt of block.statements) {
       if (!ts.isExpressionStatement(stmt)) continue;
@@ -192,18 +163,11 @@ export class MacroSemanticTokensProvider
       // Pattern: name << expr  (parsed as BinaryExpression with << operator)
       if (
         ts.isBinaryExpression(stmt.expression) &&
-        stmt.expression.operatorToken.kind ===
-          ts.SyntaxKind.LessThanLessThanToken
+        stmt.expression.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
       ) {
         const left = stmt.expression.left;
         if (ts.isIdentifier(left)) {
-          this.pushToken(
-            builder,
-            sourceFile,
-            left,
-            "bindVariable",
-            TokenModIndex.macro,
-          );
+          this.pushToken(builder, sourceFile, left, "bindVariable", TokenModIndex.macro);
         }
       }
     }
@@ -229,22 +193,18 @@ export class MacroSemanticTokensProvider
     sourceFile: ts.SourceFile,
     node: ts.Node,
     type: (typeof TOKEN_TYPES)[number],
-    modifiers: number,
+    modifiers: number
   ): void {
-    const start = sourceFile.getLineAndCharacterOfPosition(
-      node.getStart(sourceFile),
-    );
+    const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
     const width = node.getWidth(sourceFile);
 
     builder.push(
       new vscode.Range(
         new vscode.Position(start.line, start.character),
-        new vscode.Position(start.line, start.character + width),
+        new vscode.Position(start.line, start.character + width)
       ),
       TOKEN_TYPES[TokenTypeIndex[type]],
-      modifiers > 0
-        ? TOKEN_MODIFIERS.filter((_, i) => modifiers & (1 << i))
-        : [],
+      modifiers > 0 ? TOKEN_MODIFIERS.filter((_, i) => modifiers & (1 << i)) : []
     );
   }
 

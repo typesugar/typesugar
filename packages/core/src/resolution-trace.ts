@@ -52,12 +52,7 @@ export interface ResolutionRecord {
     typeArgs?: string[];
   };
   /** How the resolution was made */
-  source:
-    | "auto-derive"
-    | "explicit-instance"
-    | "import"
-    | "prelude"
-    | "builtin";
+  source: "auto-derive" | "explicit-instance" | "import" | "prelude" | "builtin";
   /** Timestamp for ordering */
   timestamp: number;
 }
@@ -112,7 +107,7 @@ export class ResolutionTracer {
     sourceNode: ts.Node,
     sourceFile: ts.SourceFile,
     resolvedTo: ResolutionRecord["resolvedTo"],
-    source: ResolutionRecord["source"],
+    source: ResolutionRecord["source"]
   ): void {
     if (!this.enabled) return;
 
@@ -155,8 +150,7 @@ export class ResolutionTracer {
 
     for (const record of fileRecords) {
       byKind[record.kind] = (byKind[record.kind] ?? 0) + 1;
-      byTypeclass[record.resolvedTo.name] =
-        (byTypeclass[record.resolvedTo.name] ?? 0) + 1;
+      byTypeclass[record.resolvedTo.name] = (byTypeclass[record.resolvedTo.name] ?? 0) + 1;
     }
 
     return {
@@ -170,15 +164,12 @@ export class ResolutionTracer {
   /**
    * Get resolution at a specific position (for hover info).
    */
-  getResolutionAt(
-    fileName: string,
-    position: number,
-  ): ResolutionRecord | undefined {
+  getResolutionAt(fileName: string, position: number): ResolutionRecord | undefined {
     return this.records.find(
       (r) =>
         r.sourceNode.fileName === fileName &&
         r.sourceNode.start <= position &&
-        r.sourceNode.end >= position,
+        r.sourceNode.end >= position
     );
   }
 
@@ -234,7 +225,7 @@ export class ResolutionTracer {
         const typeArgsStr = typeArgs ? `<${typeArgs}>` : "";
 
         lines.push(
-          `  [${record.kind}] ${record.sourceNode.text} → ${resolved}${typeArgsStr} (${record.source})`,
+          `  [${record.kind}] ${record.sourceNode.text} → ${resolved}${typeArgsStr} (${record.source})`
         );
       }
     }
@@ -280,9 +271,7 @@ export class ResolutionTracer {
    * Clear records for a specific file.
    */
   clearFile(fileName: string): void {
-    this.records = this.records.filter(
-      (r) => r.sourceNode.fileName !== fileName,
-    );
+    this.records = this.records.filter((r) => r.sourceNode.fileName !== fileName);
   }
 }
 
@@ -404,7 +393,7 @@ export function formatResolutionTrace(trace: ResolutionTrace): string[] {
 function formatAttempt(
   attempt: ResolutionAttempt,
   stepNum: number | null,
-  depth: number,
+  depth: number
 ): string[] {
   const lines: string[] = [];
   const indent = "  ".repeat(depth);
@@ -413,7 +402,9 @@ function formatAttempt(
   const resultIndicator = formatResultIndicator(attempt.result);
   const reasonSuffix = attempt.reason ? ` — ${attempt.reason}` : "";
 
-  lines.push(`${indent}${prefix}${attempt.step}: ${attempt.target}${resultIndicator}${reasonSuffix}`);
+  lines.push(
+    `${indent}${prefix}${attempt.step}: ${attempt.target}${resultIndicator}${reasonSuffix}`
+  );
 
   if (attempt.children && attempt.children.length > 0) {
     for (const child of attempt.children) {
@@ -445,7 +436,7 @@ function formatResultIndicator(result: ResolutionAttempt["result"]): string {
 export function generateHelpFromTrace(
   trace: ResolutionTrace,
   typeclassName: string,
-  typeName: string,
+  typeName: string
 ): string {
   // Find the most specific failure
   for (const attempt of trace.attempts) {

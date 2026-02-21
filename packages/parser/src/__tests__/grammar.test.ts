@@ -36,7 +36,7 @@ describe("simple rules", () => {
         start = greeting
         greeting = "hi"
       `,
-      "hi",
+      "hi"
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toBe("hi");
@@ -284,7 +284,7 @@ describe("left recursion detection", () => {
       parseGrammarDef(`
         expr = expr "+" term
         term = "x"
-      `),
+      `)
     ).toThrow(/left recursion/i);
   });
 
@@ -293,7 +293,7 @@ describe("left recursion detection", () => {
       parseGrammarDef(`
         a = b "x"
         b = a "y"
-      `),
+      `)
     ).toThrow(/left recursion/i);
   });
 
@@ -301,7 +301,7 @@ describe("left recursion detection", () => {
     expect(() =>
       parseGrammarDef(`
         list = "(" list ")" | "x"
-      `),
+      `)
     ).not.toThrow();
   });
 });

@@ -123,16 +123,7 @@ export function createDefaultManifest(): MacroManifest {
         derive: {
           module: "typemacro",
           description: "Auto-derive implementations",
-          args: [
-            "Eq",
-            "Ord",
-            "Clone",
-            "Debug",
-            "Hash",
-            "Default",
-            "Json",
-            "Builder",
-          ],
+          args: ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder"],
         },
         operators: {
           module: "typemacro",
@@ -256,8 +247,7 @@ export function createDefaultManifest(): MacroManifest {
 export class ManifestLoader {
   private manifest: MacroManifest;
   private watcher: vscode.FileSystemWatcher | undefined;
-  private readonly onDidChangeEmitter =
-    new vscode.EventEmitter<MacroManifest>();
+  private readonly onDidChangeEmitter = new vscode.EventEmitter<MacroManifest>();
 
   /** Fires when the manifest changes (file updated or created) */
   readonly onDidChange = this.onDidChangeEmitter.event;
@@ -286,9 +276,7 @@ export class ManifestLoader {
 
   get labeledBlockLabels(): Set<string> {
     const labels = new Set<string>();
-    for (const [label, entry] of Object.entries(
-      this.manifest.macros.labeledBlock,
-    )) {
+    for (const [label, entry] of Object.entries(this.manifest.macros.labeledBlock)) {
       labels.add(label);
       for (const cont of entry.continuations ?? []) {
         labels.add(cont);
@@ -317,26 +305,16 @@ export class ManifestLoader {
    */
   async initialize(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
     const config = vscode.workspace.getConfiguration("typemacro");
-    const manifestRelPath = config.get<string>(
-      "manifestPath",
-      "typemacro.manifest.json",
-    );
-    const pattern = new vscode.RelativePattern(
-      workspaceFolder,
-      manifestRelPath,
-    );
+    const manifestRelPath = config.get<string>("manifestPath", "typemacro.manifest.json");
+    const pattern = new vscode.RelativePattern(workspaceFolder, manifestRelPath);
 
     // Try to load existing manifest
     await this.loadFromDisk(workspaceFolder, manifestRelPath);
 
     // Watch for changes
     this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
-    this.watcher.onDidChange(() =>
-      this.loadFromDisk(workspaceFolder, manifestRelPath),
-    );
-    this.watcher.onDidCreate(() =>
-      this.loadFromDisk(workspaceFolder, manifestRelPath),
-    );
+    this.watcher.onDidChange(() => this.loadFromDisk(workspaceFolder, manifestRelPath));
+    this.watcher.onDidCreate(() => this.loadFromDisk(workspaceFolder, manifestRelPath));
     this.watcher.onDidDelete(() => {
       this.manifest = createDefaultManifest();
       this.onDidChangeEmitter.fire(this.manifest);
@@ -345,18 +323,16 @@ export class ManifestLoader {
 
   private async loadFromDisk(
     workspaceFolder: vscode.WorkspaceFolder,
-    relativePath: string,
+    relativePath: string
   ): Promise<void> {
     const uri = vscode.Uri.joinPath(workspaceFolder.uri, relativePath);
     try {
       const content = await vscode.workspace.fs.readFile(uri);
-      const parsed = JSON.parse(
-        Buffer.from(content).toString("utf-8"),
-      ) as MacroManifest;
+      const parsed = JSON.parse(Buffer.from(content).toString("utf-8")) as MacroManifest;
 
       if (parsed.version !== 1) {
         vscode.window.showWarningMessage(
-          `typemacro: Unsupported manifest version ${parsed.version}. Expected 1.`,
+          `typemacro: Unsupported manifest version ${parsed.version}. Expected 1.`
         );
         return;
       }
@@ -379,10 +355,7 @@ export class ManifestLoader {
 /**
  * Merge a base manifest with an overlay. Overlay entries win on conflict.
  */
-function mergeManifests(
-  base: MacroManifest,
-  overlay: MacroManifest,
-): MacroManifest {
+function mergeManifests(base: MacroManifest, overlay: MacroManifest): MacroManifest {
   return {
     version: overlay.version,
     macros: {
@@ -429,7 +402,7 @@ export function generateManifestFromRegistry(
   extensionMethods?: Record<
     string,
     { typeclass: string; description?: string; returnType?: string }
-  >,
+  >
 ): MacroManifest {
   const manifest: MacroManifest = {
     version: 1,

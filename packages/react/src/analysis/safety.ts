@@ -58,7 +58,7 @@ export interface SafetyViolation {
  */
 export function checkConditionalPrimitives(
   ctx: MacroContext,
-  body: ts.Block | ts.ConciseBody,
+  body: ts.Block | ts.ConciseBody
 ): SafetyCheckResult {
   const violations: SafetyViolation[] = [];
 
@@ -222,7 +222,7 @@ export function checkConditionalPrimitives(
 export function checkDirectMutation(
   ctx: MacroContext,
   body: ts.Block | ts.ConciseBody,
-  stateVariables: Set<string>,
+  stateVariables: Set<string>
 ): SafetyCheckResult {
   const violations: SafetyViolation[] = [];
 
@@ -255,10 +255,7 @@ export function checkDirectMutation(
     // Check for increment/decrement of state
     if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
       const op = node.operator;
-      if (
-        op === ts.SyntaxKind.PlusPlusToken ||
-        op === ts.SyntaxKind.MinusMinusToken
-      ) {
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
         const operand = node.operand;
         if (ts.isIdentifier(operand) && stateVariables.has(operand.text)) {
           violations.push({
@@ -293,7 +290,7 @@ export function checkDirectMutation(
  */
 export function checkComponentScope(
   ctx: MacroContext,
-  sourceFile: ts.SourceFile,
+  sourceFile: ts.SourceFile
 ): SafetyCheckResult {
   const violations: SafetyViolation[] = [];
 
@@ -356,7 +353,7 @@ function getCallExpressionName(node: ts.CallExpression): string | null {
  * (starts with uppercase or returns JSX)
  */
 function checkIfComponent(
-  node: ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction,
+  node: ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction
 ): boolean {
   // Check name starts with uppercase (convention for components)
   if (ts.isFunctionDeclaration(node) && node.name) {
@@ -378,11 +375,7 @@ function checkIfComponent(
  * Check if a function body contains a JSX return
  */
 function containsJsxReturn(body: ts.ConciseBody): boolean {
-  if (
-    ts.isJsxElement(body) ||
-    ts.isJsxSelfClosingElement(body) ||
-    ts.isJsxFragment(body)
-  ) {
+  if (ts.isJsxElement(body) || ts.isJsxSelfClosingElement(body) || ts.isJsxFragment(body)) {
     return true;
   }
 
@@ -415,7 +408,7 @@ function containsJsxReturn(body: ts.ConciseBody): boolean {
 export function runAllSafetyChecks(
   ctx: MacroContext,
   body: ts.Block | ts.ConciseBody,
-  stateVariables: Set<string>,
+  stateVariables: Set<string>
 ): SafetyCheckResult {
   const results: SafetyCheckResult[] = [
     checkConditionalPrimitives(ctx, body),
@@ -433,10 +426,7 @@ export function runAllSafetyChecks(
 /**
  * Report safety violations as compile-time errors
  */
-export function reportSafetyViolations(
-  ctx: MacroContext,
-  result: SafetyCheckResult,
-): void {
+export function reportSafetyViolations(ctx: MacroContext, result: SafetyCheckResult): void {
   for (const violation of result.violations) {
     let message = violation.message;
     if (violation.suggestion) {

@@ -32,12 +32,9 @@ describe("compile-time file I/O macros", () => {
     fs.writeFileSync(path.join(tmpDir, "hello.txt"), "Hello, World!");
     fs.writeFileSync(
       path.join(tmpDir, "config.json"),
-      JSON.stringify({ name: "test", version: 1, items: [1, 2, 3] }),
+      JSON.stringify({ name: "test", version: 1, items: [1, 2, 3] })
     );
-    fs.writeFileSync(
-      path.join(tmpDir, "data.bin"),
-      Buffer.from([0x48, 0x65, 0x6c]),
-    );
+    fs.writeFileSync(path.join(tmpDir, "data.bin"), Buffer.from([0x48, 0x65, 0x6c]));
 
     const sourceFilePath = path.join(tmpDir, "test.ts");
     const sourceText = "const x = 1;";
@@ -46,7 +43,7 @@ describe("compile-time file I/O macros", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -59,9 +56,7 @@ describe("compile-time file I/O macros", () => {
       ...host,
       getCurrentDirectory: () => tmpDir,
       getSourceFile: (name) =>
-        name === sourceFilePath
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === sourceFilePath ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -99,7 +94,7 @@ describe("compile-time file I/O macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("includeStr"),
         undefined,
-        [ts.factory.createStringLiteral("./hello.txt")],
+        [ts.factory.createStringLiteral("./hello.txt")]
       );
 
       const result = includeStrMacro.expand(ctx, callExpr, [
@@ -114,12 +109,10 @@ describe("compile-time file I/O macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("includeStr"),
         undefined,
-        [ts.factory.createStringLiteral("./hello.txt")],
+        [ts.factory.createStringLiteral("./hello.txt")]
       );
 
-      includeStrMacro.expand(ctx, callExpr, [
-        ts.factory.createStringLiteral("./hello.txt"),
-      ]);
+      includeStrMacro.expand(ctx, callExpr, [ts.factory.createStringLiteral("./hello.txt")]);
 
       const deps = getFileDependencies();
       expect(deps.size).toBe(1);
@@ -130,12 +123,10 @@ describe("compile-time file I/O macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("includeStr"),
         undefined,
-        [ts.factory.createStringLiteral("./nonexistent.txt")],
+        [ts.factory.createStringLiteral("./nonexistent.txt")]
       );
 
-      includeStrMacro.expand(ctx, callExpr, [
-        ts.factory.createStringLiteral("./nonexistent.txt"),
-      ]);
+      includeStrMacro.expand(ctx, callExpr, [ts.factory.createStringLiteral("./nonexistent.txt")]);
 
       const diags = ctx.getDiagnostics();
       expect(diags.length).toBeGreaterThan(0);
@@ -148,7 +139,7 @@ describe("compile-time file I/O macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("includeJson"),
         undefined,
-        [ts.factory.createStringLiteral("./config.json")],
+        [ts.factory.createStringLiteral("./config.json")]
       );
 
       const result = includeJsonMacro.expand(ctx, callExpr, [
@@ -168,7 +159,7 @@ describe("compile-time file I/O macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("includeBytes"),
         undefined,
-        [ts.factory.createStringLiteral("./data.bin")],
+        [ts.factory.createStringLiteral("./data.bin")]
       );
 
       const result = includeBytesMacro.expand(ctx, callExpr, [

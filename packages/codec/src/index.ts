@@ -16,12 +16,7 @@ export type {
   SchemaValidationError,
 } from "./types.js";
 
-export {
-  defineSchema,
-  validateSchema,
-  fieldsAtVersion,
-  generateMigrations,
-} from "./schema.js";
+export { defineSchema, validateSchema, fieldsAtVersion, generateMigrations } from "./schema.js";
 
 export { createJsonCodec } from "./json-codec.js";
 
@@ -29,10 +24,4 @@ export { createBinaryCodec, type FieldLayout } from "./binary-codec.js";
 
 export { SchemaBuilder, schema } from "./decorators.js";
 
-export {
-  codecMacro,
-  sinceMacro,
-  removedMacro,
-  renamedMacro,
-  defaultValueMacro,
-} from "./macros.js";
+export { codecMacro, sinceMacro, removedMacro, renamedMacro, defaultValueMacro } from "./macros.js";

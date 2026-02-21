@@ -13,7 +13,7 @@ export function defineSchema(
     version: number;
     format?: "json" | "binary";
     fields: FieldMeta[];
-  },
+  }
 ): Schema {
   return {
     name,
@@ -52,11 +52,7 @@ export function validateSchema(schema: Schema): SchemaValidationError[] {
       });
     }
 
-    if (
-      field.removed !== undefined &&
-      field.since !== undefined &&
-      field.removed <= field.since
-    ) {
+    if (field.removed !== undefined && field.since !== undefined && field.removed <= field.since) {
       errors.push({
         field: field.name,
         message: `@removed(${field.removed}) must be greater than @since(${field.since})`,
@@ -64,10 +60,7 @@ export function validateSchema(schema: Schema): SchemaValidationError[] {
       });
     }
 
-    if (
-      field.renamed !== undefined &&
-      field.renamed.version > schema.version
-    ) {
+    if (field.renamed !== undefined && field.renamed.version > schema.version) {
       errors.push({
         field: field.name,
         message: `@renamed version ${field.renamed.version} exceeds current schema version ${schema.version}`,
@@ -76,11 +69,7 @@ export function validateSchema(schema: Schema): SchemaValidationError[] {
     }
 
     const addedVersion = field.since ?? 1;
-    if (
-      addedVersion > 1 &&
-      !field.optional &&
-      field.defaultValue === undefined
-    ) {
+    if (addedVersion > 1 && !field.optional && field.defaultValue === undefined) {
       errors.push({
         field: field.name,
         message: `Non-optional field added after v1 must have a @defaultValue`,
@@ -93,10 +82,7 @@ export function validateSchema(schema: Schema): SchemaValidationError[] {
 }
 
 /** Return the fields that are active at a given schema version. */
-export function fieldsAtVersion(
-  schema: Schema,
-  version: number,
-): FieldMeta[] {
+export function fieldsAtVersion(schema: Schema, version: number): FieldMeta[] {
   return schema.fields.filter((f) => {
     const addedAt = f.since ?? 1;
     if (version < addedAt) return false;
@@ -125,9 +111,7 @@ export function generateMigrations(schema: Schema): VersionHistory {
     const to = from + 1;
     const fieldsAdded = schema.fields.filter((f) => f.since === to);
     const fieldsRemoved = schema.fields.filter((f) => f.removed === to);
-    const fieldsRenamed = schema.fields.filter(
-      (f) => f.renamed?.version === to,
-    );
+    const fieldsRenamed = schema.fields.filter((f) => f.renamed?.version === to);
 
     const migrate: Migration = (value) => {
       const result = { ...value };

@@ -39,12 +39,12 @@ export const staticAssertMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         callExpr,
-        "staticAssert expects 1-2 arguments: staticAssert(condition, message?)",
+        "staticAssert expects 1-2 arguments: staticAssert(condition, message?)"
       );
       return ctx.factory.createIdentifier("undefined");
     }
@@ -82,7 +82,7 @@ export const staticAssertMacro = defineExpressionMacro({
           callExpr,
           `staticAssert: Cannot evaluate condition at compile time. ` +
             `The condition must be a compile-time constant. ` +
-            `Original message: ${message}`,
+            `Original message: ${message}`
         );
       }
       return ctx.factory.createIdentifier("undefined");
@@ -97,7 +97,7 @@ export const staticAssertMacro = defineExpressionMacro({
       ctx.reportError(
         callExpr,
         `staticAssert: Cannot convert ${result.kind} to boolean for assertion. ` +
-          `Original message: ${message}`,
+          `Original message: ${message}`
       );
     }
 
@@ -119,13 +119,10 @@ export const compileErrorMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "compileError expects exactly one argument: compileError(message)",
-      );
+      ctx.reportError(callExpr, "compileError expects exactly one argument: compileError(message)");
       return ctx.factory.createIdentifier("undefined");
     }
 
@@ -149,12 +146,12 @@ export const compileWarningMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.reportError(
         callExpr,
-        "compileWarning expects exactly one argument: compileWarning(message)",
+        "compileWarning expects exactly one argument: compileWarning(message)"
       );
       return ctx.factory.createIdentifier("undefined");
     }
@@ -175,11 +172,7 @@ export const compileWarningMacro = defineExpressionMacro({
  * Extract a string from a macro argument, supporting string literals
  * and compile-time evaluation.
  */
-function extractStringArg(
-  ctx: MacroContext,
-  arg: ts.Expression,
-  macroName: string,
-): string {
+function extractStringArg(ctx: MacroContext, arg: ts.Expression, macroName: string): string {
   if (ts.isStringLiteral(arg)) {
     return arg.text;
   }
@@ -200,9 +193,7 @@ function extractStringArg(
 /**
  * Convert a ComptimeValue to a boolean (mirrors context.ts logic).
  */
-function comptimeToBoolean(
-  value: import("../core/types.js").ComptimeValue,
-): boolean | null {
+function comptimeToBoolean(value: import("../core/types.js").ComptimeValue): boolean | null {
   switch (value.kind) {
     case "boolean":
       return value.value;

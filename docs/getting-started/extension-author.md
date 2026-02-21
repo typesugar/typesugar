@@ -81,7 +81,7 @@ defineExpressionMacro("double", {
     return ctx.factory.createBinaryExpression(
       ctx.factory.createParenthesizedExpression(arg),
       ts.SyntaxKind.PlusToken,
-      ctx.factory.createParenthesizedExpression(arg),
+      ctx.factory.createParenthesizedExpression(arg)
     );
   },
 });
@@ -142,9 +142,7 @@ defineDeriveMacro("Printable", {
   expand(ctx, target, typeInfo: DeriveTypeInfo) {
     const { name, fields } = typeInfo;
 
-    const fieldPrints = fields
-      .map((f) => `${f.name}: \${this.${f.name}}`)
-      .join(", ");
+    const fieldPrints = fields.map((f) => `${f.name}: \${this.${f.name}}`).join(", ");
 
     return quoteStatements(ctx)`
       ${target}
@@ -165,7 +163,7 @@ Usage:
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 
@@ -190,10 +188,7 @@ defineTaggedTemplateMacro("upper", {
 
     // With interpolations: transform at compile time where possible
     // or generate runtime code for dynamic parts
-    ctx.reportWarning(
-      node,
-      "upper`...` with interpolations falls back to runtime",
-    );
+    ctx.reportWarning(node, "upper`...` with interpolations falls back to runtime");
     return node;
   },
 });
@@ -250,14 +245,14 @@ describe("double macro", () => {
   it("doubles numeric literals", () => {
     assertExpands(
       `import { double } from "./double"; const x = double(21);`,
-      `const x = (21) + (21);`,
+      `const x = (21) + (21);`
     );
   });
 
   it("reports error for no arguments", async () => {
     const result = await expandMacro(`double()`);
     expect(result.errors).toContainEqual(
-      expect.objectContaining({ message: /requires an argument/ }),
+      expect.objectContaining({ message: /requires an argument/ })
     );
   });
 });

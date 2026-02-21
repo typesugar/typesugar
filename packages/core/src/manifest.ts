@@ -152,9 +152,7 @@ export interface ManifestDiscoveryOptions {
 /**
  * Discover all typesugar manifests in a project.
  */
-export function discoverManifests(
-  options: ManifestDiscoveryOptions,
-): DiscoveredManifest[] {
+export function discoverManifests(options: ManifestDiscoveryOptions): DiscoveredManifest[] {
   const results: DiscoveredManifest[] = [];
   const visited = new Set<string>();
   const { exclude = [], scanNodeModules = true, maxDepth = 3 } = options;
@@ -213,10 +211,7 @@ export function discoverManifests(
     // Scan node_modules if enabled
     if (scanNodeModules) {
       const nodeModulesPath = path.join(dir, "node_modules");
-      if (
-        fs.existsSync(nodeModulesPath) &&
-        fs.statSync(nodeModulesPath).isDirectory()
-      ) {
+      if (fs.existsSync(nodeModulesPath) && fs.statSync(nodeModulesPath).isDirectory()) {
         try {
           const entries = fs.readdirSync(nodeModulesPath);
           for (const entry of entries) {
@@ -283,8 +278,7 @@ export function validateManifest(manifest: LibraryManifest): {
       const tc = manifest.typeclasses[i];
       if (!tc.name) errors.push(`typeclasses[${i}]: missing 'name'`);
       if (!tc.module) errors.push(`typeclasses[${i}]: missing 'module'`);
-      if (!Array.isArray(tc.methods))
-        errors.push(`typeclasses[${i}]: missing 'methods' array`);
+      if (!Array.isArray(tc.methods)) errors.push(`typeclasses[${i}]: missing 'methods' array`);
     }
   }
 
@@ -361,7 +355,7 @@ export function createManifestRegistry(): ManifestRegistry {
  */
 export function mergeManifestIntoRegistry(
   registry: ManifestRegistry,
-  discovered: DiscoveredManifest,
+  discovered: DiscoveredManifest
 ): void {
   const { manifest, sourcePath } = discovered;
 

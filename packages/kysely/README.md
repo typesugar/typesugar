@@ -158,9 +158,7 @@ const result = await db
 ### Type Helpers
 
 ```typescript
-type SqlResult<T> = T extends { execute: (db: unknown) => Promise<infer R> }
-  ? R
-  : never;
+type SqlResult<T> = T extends { execute: (db: unknown) => Promise<infer R> } ? R : never;
 type Column<T> = T;
 type Generated<T> = T;
 type Nullable<T> = T | null;

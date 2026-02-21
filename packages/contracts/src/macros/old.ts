@@ -25,11 +25,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 /**
  * Runtime old function — identity at runtime (only meaningful with transformer).
@@ -60,7 +56,7 @@ export interface OldCapture {
  */
 export function extractOldCaptures(
   ctx: MacroContext,
-  expression: ts.Expression,
+  expression: ts.Expression
 ): { rewritten: ts.Expression; captures: OldCapture[] } {
   const captures: OldCapture[] = [];
 
@@ -101,7 +97,7 @@ export function extractOldCaptures(
  */
 export function generateOldCaptureStatements(
   ctx: MacroContext,
-  captures: OldCapture[],
+  captures: OldCapture[]
 ): ts.Statement[] {
   return captures.map((capture) =>
     ctx.factory.createVariableStatement(
@@ -112,12 +108,12 @@ export function generateOldCaptureStatements(
             capture.variableName,
             undefined,
             undefined,
-            capture.expression,
+            capture.expression
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
-    ),
+        ts.NodeFlags.Const
+      )
+    )
   );
 }
 
@@ -129,13 +125,12 @@ export function generateOldCaptureStatements(
 export const oldMacro = defineExpressionMacro({
   name: "old",
   module: "@typesugar/contracts",
-  description:
-    "Capture the pre-call value of an expression for use in postconditions.",
+  description: "Capture the pre-call value of an expression for use in postconditions.",
 
   expand(
     _ctx: MacroContext,
     _callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     // When old() is encountered standalone (not inside ensures/@contract),
     // just return the argument as-is (identity).

@@ -104,12 +104,7 @@ export function pow<A>(base: A, exp: number, N: Numeric<A>): A {
  * @param F - Fractional instance for type A (needed for negative exponents)
  * @returns base^exp
  */
-export function powFrac<A>(
-  base: A,
-  exp: number,
-  N: Numeric<A>,
-  F: Fractional<A>,
-): A {
+export function powFrac<A>(base: A, exp: number, N: Numeric<A>, F: Fractional<A>): A {
   if (exp >= 0) {
     return pow(base, exp, N);
   }
@@ -269,13 +264,7 @@ export function maxBy<A>(xs: Iterable<A>, O: Ord<A>): A {
  * @param F - Fractional instance for type A
  * @returns a + t * (b - a)
  */
-export function lerpWith<A>(
-  a: A,
-  b: A,
-  t: A,
-  N: Numeric<A>,
-  F: Fractional<A>,
-): A {
+export function lerpWith<A>(a: A, b: A, t: A, N: Numeric<A>, F: Fractional<A>): A {
   // a + t * (b - a)
   return N.add(a, N.mul(t, N.sub(b, a)));
 }
@@ -291,13 +280,7 @@ export function lerpWith<A>(
  * @param F - Fractional instance for type A
  * @returns t such that lerp(a, b, t) ≈ value
  */
-export function inverseLerpWith<A>(
-  a: A,
-  b: A,
-  value: A,
-  N: Numeric<A>,
-  F: Fractional<A>,
-): A {
+export function inverseLerpWith<A>(a: A, b: A, value: A, N: Numeric<A>, F: Fractional<A>): A {
   // (value - a) / (b - a)
   return F.div(N.sub(value, a), N.sub(b, a));
 }

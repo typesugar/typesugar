@@ -52,7 +52,7 @@ export interface MacroContext {
 
   /** Create an object literal from properties */
   createObjectLiteral(
-    properties: Array<{ name: string; value: ts.Expression }>,
+    properties: Array<{ name: string; value: ts.Expression }>
   ): ts.ObjectLiteralExpression;
 
   /** Parse a code string into an expression */
@@ -218,7 +218,7 @@ export interface ExpressionMacro extends MacroDefinitionBase {
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression;
 }
 
@@ -242,7 +242,7 @@ export interface AttributeMacro extends MacroDefinitionBase {
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[];
 }
 
@@ -267,11 +267,8 @@ export interface DeriveMacro extends MacroDefinitionBase {
    */
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[];
 }
 
@@ -396,7 +393,7 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   expand(
     ctx: MacroContext,
     mainBlock: ts.LabeledStatement,
-    continuation: ts.LabeledStatement | undefined,
+    continuation: ts.LabeledStatement | undefined
   ): ts.Statement | ts.Statement[];
 }
 
@@ -436,10 +433,7 @@ export interface MacroRegistry {
   getLabeledBlock(label: string): LabeledBlockMacro | undefined;
 
   /** Look up a macro by its source module and export name */
-  getByModuleExport(
-    mod: string,
-    exportName: string,
-  ): MacroDefinition | undefined;
+  getByModuleExport(mod: string, exportName: string): MacroDefinition | undefined;
 
   /** Check whether a macro requires import-scoping */
   isImportScoped(name: string, kind: MacroDefinition["kind"]): boolean;
@@ -495,7 +489,7 @@ export interface TypeMacro extends MacroDefinitionBase {
   expand(
     ctx: MacroContext,
     typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode;
 }
 

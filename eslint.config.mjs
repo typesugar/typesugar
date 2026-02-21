@@ -18,12 +18,7 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   // Ignore build artifacts
   {
-    ignores: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/.turbo/**",
-      "**/coverage/**",
-    ],
+    ignores: ["**/node_modules/**", "**/dist/**", "**/.turbo/**", "**/coverage/**"],
   },
 
   // Base config for all files
@@ -85,5 +80,5 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
       "@typescript-eslint/no-explicit-any": "off",
     },
-  },
+  }
 );

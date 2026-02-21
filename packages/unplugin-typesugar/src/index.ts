@@ -21,8 +21,4 @@
  * ```
  */
 
-export {
-  unplugin,
-  unpluginFactory,
-  type TypesugarPluginOptions,
-} from "./unplugin.js";
+export { unplugin, unpluginFactory, type TypesugarPluginOptions } from "./unplugin.js";

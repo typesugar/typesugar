@@ -171,10 +171,7 @@ describe("Reflection use cases", () => {
         typeParameters: [],
       };
 
-      const validate = (
-        obj: Record<string, unknown>,
-        info: TypeInfo,
-      ): boolean => {
+      const validate = (obj: Record<string, unknown>, info: TypeInfo): boolean => {
         for (const field of info.fields) {
           if (!field.optional && !(field.name in obj)) {
             return false;
@@ -182,10 +179,8 @@ describe("Reflection use cases", () => {
 
           const value = obj[field.name];
           if (value !== undefined) {
-            if (field.type === "number" && typeof value !== "number")
-              return false;
-            if (field.type === "string" && typeof value !== "string")
-              return false;
+            if (field.type === "number" && typeof value !== "number") return false;
+            if (field.type === "string" && typeof value !== "string") return false;
           }
         }
         return true;
@@ -201,7 +196,7 @@ describe("Reflection use cases", () => {
     it("should generate field extraction based on TypeInfo", () => {
       const extractFields = (
         obj: Record<string, unknown>,
-        fields: FieldInfo[],
+        fields: FieldInfo[]
       ): Record<string, unknown> => {
         const result: Record<string, unknown> = {};
         for (const field of fields) {
@@ -245,9 +240,7 @@ describe("Reflection use cases", () => {
 
       // Generate method signatures
       const signatures = methods.map((m) => {
-        const params = m.parameters
-          .map((p) => `${p.name}: ${p.type}`)
-          .join(", ");
+        const params = m.parameters.map((p) => `${p.name}: ${p.type}`).join(", ");
         return `${m.name}(${params}): ${m.returnType}`;
       });
 
@@ -362,9 +355,7 @@ describe("type-level assertions", () => {
   });
 
   it("FieldInfo has expected shape", () => {
-    typeAssert<
-      Extends<FieldInfo, { name: string; type: string; optional: boolean }>
-    >();
+    typeAssert<Extends<FieldInfo, { name: string; type: string; optional: boolean }>>();
   });
 
   it("MethodInfo has expected shape", () => {

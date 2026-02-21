@@ -57,7 +57,7 @@ const list = 1 :: 2 :: [];`;
         extensions: ["pipeline", "cons"],
       });
       expect(code).toBe(
-        `__binop__(__binop__(__binop__(a, "::", b), "|>", f), "|>", __binop__(g, "::", c))`,
+        `__binop__(__binop__(__binop__(a, "::", b), "|>", f), "|>", __binop__(g, "::", c))`
       );
     });
   });

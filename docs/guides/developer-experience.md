@@ -30,14 +30,14 @@ error[TS9001]: No instance found for `Eq<Color>`
 
 Every error includes:
 
-| Part | What it does |
-| --- | --- |
-| `error[TS9001]` | Error code — look it up with `npx typesugar --explain TS9001` |
-| Primary span (`^^^`) | Points at exactly what went wrong |
-| Secondary labels (`---`) | Shows related code that contributes to the error |
-| `= note:` | Explains *why* this is an error |
-| `= help:` | Tells you *what to do* about it |
-| `= suggestion:` | Machine-applicable fix — your IDE can apply it in one click |
+| Part                     | What it does                                                  |
+| ------------------------ | ------------------------------------------------------------- |
+| `error[TS9001]`          | Error code — look it up with `npx typesugar --explain TS9001` |
+| Primary span (`^^^`)     | Points at exactly what went wrong                             |
+| Secondary labels (`---`) | Shows related code that contributes to the error              |
+| `= note:`                | Explains _why_ this is an error                               |
+| `= help:`                | Tells you _what to do_ about it                               |
+| `= suggestion:`          | Machine-applicable fix — your IDE can apply it in one click   |
 
 For the full catalog of error codes and examples, see the [Error Messages Guide](./error-messages.md).
 
@@ -101,7 +101,7 @@ But in the transformed output, `Eq` and `Show` don't appear — they were consum
 
 typesugar handles this at two levels — no configuration needed:
 
-**TypeScript Language Service Plugin** — suppresses `TS6133` specifically for imports from `@typesugar/*` and `typesugar` packages. It does *not* suppress all unused variable warnings — just the ones on typesugar imports.
+**TypeScript Language Service Plugin** — suppresses `TS6133` specifically for imports from `@typesugar/*` and `typesugar` packages. It does _not_ suppress all unused variable warnings — just the ones on typesugar imports.
 
 **ESLint Processor** (`@typesugar/eslint-plugin`) — the `postprocess` hook filters out `no-unused-imports` errors for typesugar package imports. Your ESLint config stays exactly the same.
 
@@ -143,20 +143,20 @@ Sometimes you need to disable typesugar — for debugging, benchmarking, or inte
 
 ```typescript
 function normalCode() {
-  const x = comptime(() => 1 + 2);  // Transformed → 3
+  const x = comptime(() => 1 + 2); // Transformed → 3
 }
 
 function debugThis() {
   "use no typesugar";
-  const x = comptime(() => 1 + 2);  // Left as-is
+  const x = comptime(() => 1 + 2); // Left as-is
 }
 ```
 
 ### Line Level
 
 ```typescript
-const fast = specialize(add);           // Transformed: inlined
-const slow = specialize(add);           // @ts-no-typesugar — left as-is
+const fast = specialize(add); // Transformed: inlined
+const slow = specialize(add); // @ts-no-typesugar — left as-is
 ```
 
 ### Feature-Specific
@@ -165,17 +165,17 @@ const slow = specialize(add);           // @ts-no-typesugar — left as-is
 "use no typesugar extensions";
 
 // Extension methods disabled — macros still work
-(42).clamp(0, 100);                    // Won't rewrite (runtime error)
-const x = comptime(() => 1 + 1);      // Still transformed → 2
+(42).clamp(0, 100); // Won't rewrite (runtime error)
+const x = comptime(() => 1 + 1); // Still transformed → 2
 ```
 
-| Feature | What it disables |
-| --- | --- |
-| `macros` | Expression macros, tagged templates, type macros, labeled blocks |
-| `derive` | `@derive()` decorator expansion |
-| `extensions` | Standalone extension method rewriting |
-| `typeclasses` | `@typeclass`, `@instance`, `summon()` |
-| `operators` | Operator overloading |
+| Feature       | What it disables                                                 |
+| ------------- | ---------------------------------------------------------------- |
+| `macros`      | Expression macros, tagged templates, type macros, labeled blocks |
+| `derive`      | `@derive()` decorator expansion                                  |
+| `extensions`  | Standalone extension method rewriting                            |
+| `typeclasses` | `@typeclass`, `@instance`, `summon()`                            |
+| `operators`   | Operator overloading                                             |
 
 Full details: [Opt-Out Guide](./opt-out.md)
 

@@ -110,11 +110,7 @@ export function mapVec<T, U>(v: FusedVec<T>, f: (value: T) => U): FusedVec<U> {
 }
 
 /** Combine two vectors element-wise using a binary function */
-export function zipVec<A, B, C>(
-  a: FusedVec<A>,
-  b: FusedVec<B>,
-  f: (a: A, b: B) => C,
-): FusedVec<C> {
+export function zipVec<A, B, C>(a: FusedVec<A>, b: FusedVec<B>, f: (a: A, b: B) => C): FusedVec<C> {
   const len = Math.min(a.length, b.length);
   const result = new Array<C>(len);
   for (let i = 0; i < len; i++) {

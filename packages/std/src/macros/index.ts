@@ -11,7 +11,4 @@
 
 export * from "./let-yield.js";
 export * from "./match.js";
-export {
-  registerStdInstances,
-  registerStdInstancesMacro,
-} from "./register-instances.js";
+export { registerStdInstances, registerStdInstancesMacro } from "./register-instances.js";

@@ -5,12 +5,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "../src/core/context.js";
-import {
-  pipeline,
-  parenthesize,
-  voidify,
-  awaitify,
-} from "../src/core/pipeline.js";
+import { pipeline, parenthesize, voidify, awaitify } from "../src/core/pipeline.js";
 
 describe("macro composition pipeline", () => {
   let ctx: MacroContextImpl;
@@ -27,7 +22,7 @@ describe("macro composition pipeline", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -39,9 +34,7 @@ describe("macro composition pipeline", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -105,9 +98,9 @@ describe("macro composition pipeline", () => {
           return ts.factory.createBinaryExpression(
             expr,
             ts.SyntaxKind.AsteriskToken,
-            ts.factory.createNumericLiteral(2),
+            ts.factory.createNumericLiteral(2)
           );
-        },
+        }
       );
 
       // Numeric input — should be doubled
@@ -124,7 +117,7 @@ describe("macro composition pipeline", () => {
         return ts.factory.createBinaryExpression(
           expr,
           ts.SyntaxKind.PlusToken,
-          ts.factory.createNumericLiteral(1),
+          ts.factory.createNumericLiteral(1)
         );
       });
 
@@ -147,7 +140,7 @@ describe("macro composition pipeline", () => {
       const input = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(1),
         ts.SyntaxKind.PlusToken,
-        ts.factory.createNumericLiteral(2),
+        ts.factory.createNumericLiteral(2)
       );
       const result = parenthesize(ctx, input);
       expect(printExpr(result)).toBe("(1 + 2)");

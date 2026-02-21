@@ -27,8 +27,8 @@ const items = [
   }),
 ];
 
-showAll(items);  // ["42", '"hello"']
-equals(items[0], items[1]);  // false
+showAll(items); // ["42", '"hello"']
+equals(items[0], items[1]); // false
 ```
 
 ## Quick Start
@@ -41,13 +41,20 @@ For common single/dual capability cases:
 import { showable, equatable, showableEq } from "@typesugar/erased";
 
 const s = showable(42, (n) => `num:${n}`);
-show(s);  // "num:42"
+show(s); // "num:42"
 
 const e = equatable(10, (a, b) => a === b);
-equals(e, equatable(10, (a, b) => a === b));  // true
+equals(
+  e,
+  equatable(10, (a, b) => a === b)
+); // true
 
-const se = showableEq("hi", (s) => s.toUpperCase(), (a, b) => a === b);
-show(se);  // "HI"
+const se = showableEq(
+  "hi",
+  (s) => s.toUpperCase(),
+  (a, b) => a === b
+);
+show(se); // "HI"
 ```
 
 ### Full vtable
@@ -76,15 +83,15 @@ const erased = eraseWith<number, AllCaps>(42, {
 
 ## Built-in Capabilities
 
-| Capability | Methods | Matches Typeclass |
-| --- | --- | --- |
-| `ShowCapability` | `show(value): string` | Show |
-| `EqCapability` | `equals(a, b): boolean` | Eq |
-| `OrdCapability` | `compare(a, b): number` | Ord |
-| `HashCapability` | `hash(value): number` | Hash |
-| `CloneCapability` | `clone(value): unknown` | Clone |
-| `DebugCapability` | `debug(value): string` | Debug |
-| `JsonCapability` | `toJson(value): unknown`, `fromJson(json): unknown` | Json |
+| Capability        | Methods                                             | Matches Typeclass |
+| ----------------- | --------------------------------------------------- | ----------------- |
+| `ShowCapability`  | `show(value): string`                               | Show              |
+| `EqCapability`    | `equals(a, b): boolean`                             | Eq                |
+| `OrdCapability`   | `compare(a, b): number`                             | Ord               |
+| `HashCapability`  | `hash(value): number`                               | Hash              |
+| `CloneCapability` | `clone(value): unknown`                             | Clone             |
+| `DebugCapability` | `debug(value): string`                              | Debug             |
+| `JsonCapability`  | `toJson(value): unknown`, `fromJson(json): unknown` | Json              |
 
 You can also define custom capabilities by extending `Capability<Name>`.
 
@@ -125,7 +132,7 @@ import { narrow } from "@typesugar/erased";
 
 const result = narrow<[ShowCapability], [ShowCapability, EqCapability]>(
   showOnly,
-  ["equals"],  // method names to check for
+  ["equals"] // method names to check for
 );
 // result is Erased<[ShowCapability, EqCapability]> | null
 ```
@@ -164,24 +171,24 @@ No classes, no prototypes, no hidden state. `widen()` is literally identity.
 
 ## Comparison to Exists<W>
 
-| | `Erased<Caps>` | `Exists<W>` (existential wrapper) |
-| --- | --- | --- |
-| Level | High-level, capability-oriented | Low-level, witness-oriented |
-| Vtable | Explicit method record | Implicit via witness type |
-| Collections | First-class `ErasedList<Caps>` | Manual wrapping |
-| Narrowing | Runtime method check | Type-level only |
-| Use case | Heterogeneous collections, plugin systems | Type-level existentials |
+|             | `Erased<Caps>`                            | `Exists<W>` (existential wrapper) |
+| ----------- | ----------------------------------------- | --------------------------------- |
+| Level       | High-level, capability-oriented           | Low-level, witness-oriented       |
+| Vtable      | Explicit method record                    | Implicit via witness type         |
+| Collections | First-class `ErasedList<Caps>`            | Manual wrapping                   |
+| Narrowing   | Runtime method check                      | Type-level only                   |
+| Use case    | Heterogeneous collections, plugin systems | Type-level existentials           |
 
 ## Zero-Cost Analysis
 
-| Operation | Cost |
-| --- | --- |
-| `eraseWith()` | One object allocation (value + vtable ref) |
-| `show()`, `equals()`, etc. | One vtable lookup + one function call |
-| `widen()` | Zero — identity cast |
-| `narrow()` | O(n) where n = number of required methods |
-| `clone()` | Depends on clone implementation + one allocation |
-| `unwrapErased()` | Zero — property access |
+| Operation                  | Cost                                             |
+| -------------------------- | ------------------------------------------------ |
+| `eraseWith()`              | One object allocation (value + vtable ref)       |
+| `show()`, `equals()`, etc. | One vtable lookup + one function call            |
+| `widen()`                  | Zero — identity cast                             |
+| `narrow()`                 | O(n) where n = number of required methods        |
+| `clone()`                  | Depends on clone implementation + one allocation |
+| `unwrapErased()`           | Zero — property access                           |
 
 The vtable is shared across all values created with the same method implementations, so there is no per-element overhead for the method pointers themselves.
 

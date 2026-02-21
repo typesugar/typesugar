@@ -55,15 +55,8 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineDeriveMacro,
-  globalRegistry,
-} from "@typesugar/core";
-import type {
-  MacroContext,
-  DeriveTypeInfo,
-  DeriveFieldInfo,
-} from "@typesugar/core";
+import { defineDeriveMacro, globalRegistry } from "@typesugar/core";
+import type { MacroContext, DeriveTypeInfo, DeriveFieldInfo } from "@typesugar/core";
 
 // ============================================================================
 // Type-to-Instance Mapping
@@ -72,10 +65,7 @@ import type {
 /**
  * Map from TypeScript type strings to Get instance expressions.
  */
-function getGetInstanceForType(
-  typeChecker: ts.TypeChecker,
-  type: ts.Type,
-): string | null {
+function getGetInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
   // Handle primitives
   if (type.flags & ts.TypeFlags.String) return "Get.string";
   if (type.flags & ts.TypeFlags.Number) return "Get.number";
@@ -90,15 +80,13 @@ function getGetInstanceForType(
   // Handle nullable/optional unions
   if (type.isUnion()) {
     const nonNullTypes = type.types.filter(
-      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)),
+      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined))
     );
     if (nonNullTypes.length === 1) {
       const innerGet = getGetInstanceForType(typeChecker, nonNullTypes[0]);
       if (innerGet) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
-        const hasUndefined = type.types.some(
-          (t) => t.flags & ts.TypeFlags.Undefined,
-        );
+        const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
         if (hasNull) return `Get.nullable(${innerGet})`;
         if (hasUndefined) return `Get.optional(${innerGet})`;
       }
@@ -120,10 +108,7 @@ function getGetInstanceForType(
 /**
  * Map from TypeScript type strings to Put instance expressions.
  */
-function getPutInstanceForType(
-  typeChecker: ts.TypeChecker,
-  type: ts.Type,
-): string | null {
+function getPutInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
   // Handle primitives
   if (type.flags & ts.TypeFlags.String) return "Put.string";
   if (type.flags & ts.TypeFlags.Number) return "Put.number";
@@ -138,15 +123,13 @@ function getPutInstanceForType(
   // Handle nullable/optional unions
   if (type.isUnion()) {
     const nonNullTypes = type.types.filter(
-      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)),
+      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined))
     );
     if (nonNullTypes.length === 1) {
       const innerPut = getPutInstanceForType(typeChecker, nonNullTypes[0]);
       if (innerPut) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
-        const hasUndefined = type.types.some(
-          (t) => t.flags & ts.TypeFlags.Undefined,
-        );
+        const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
         if (hasNull) return `Put.nullable(${innerPut})`;
         if (hasUndefined) return `Put.optional(${innerPut})`;
       }
@@ -168,10 +151,7 @@ function getPutInstanceForType(
 /**
  * Map from TypeScript type strings to Meta instance expressions.
  */
-function getMetaInstanceForType(
-  typeChecker: ts.TypeChecker,
-  type: ts.Type,
-): string | null {
+function getMetaInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
   // Handle primitives
   if (type.flags & ts.TypeFlags.String) return "Meta.string";
   if (type.flags & ts.TypeFlags.Number) return "Meta.number";
@@ -186,15 +166,13 @@ function getMetaInstanceForType(
   // Handle nullable/optional unions
   if (type.isUnion()) {
     const nonNullTypes = type.types.filter(
-      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)),
+      (t) => !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined))
     );
     if (nonNullTypes.length === 1) {
       const innerMeta = getMetaInstanceForType(typeChecker, nonNullTypes[0]);
       if (innerMeta) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
-        const hasUndefined = type.types.some(
-          (t) => t.flags & ts.TypeFlags.Undefined,
-        );
+        const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
         if (hasNull) return `Meta.nullable(${innerMeta})`;
         if (hasUndefined) return `Meta.optional(${innerMeta})`;
       }
@@ -252,11 +230,8 @@ export const deriveReadMacro = defineDeriveMacro({
   name: "Read",
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const factory = ctx.factory;
     const typeChecker = ctx.typeChecker;
@@ -264,10 +239,7 @@ export const deriveReadMacro = defineDeriveMacro({
 
     // Only support product types
     if (typeInfo.kind !== "product") {
-      ctx.reportError(
-        target,
-        `@derive(Read) only supports product types (interfaces/classes)`,
-      );
+      ctx.reportError(target, `@derive(Read) only supports product types (interfaces/classes)`);
       return [];
     }
 
@@ -292,16 +264,14 @@ export const deriveReadMacro = defineDeriveMacro({
       if (!getExpr) {
         ctx.reportError(
           target,
-          `Cannot derive Read for field '${field.name}': unsupported type '${typeChecker.typeToString(fieldType)}'`,
+          `Cannot derive Read for field '${field.name}': unsupported type '${typeChecker.typeToString(fieldType)}'`
         );
         return [];
       }
 
       const isNullable =
         fieldType.isUnion() &&
-        fieldType.types.some(
-          (t) => t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined),
-        );
+        fieldType.types.some((t) => t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined));
 
       mappings.push({
         field: field.name,
@@ -325,25 +295,16 @@ export const deriveReadMacro = defineDeriveMacro({
     const mappingsArray = factory.createArrayLiteralExpression(
       mappings.map((m) =>
         factory.createObjectLiteralExpression([
-          factory.createPropertyAssignment(
-            "field",
-            factory.createStringLiteral(m.field),
-          ),
-          factory.createPropertyAssignment(
-            "column",
-            factory.createStringLiteral(m.column),
-          ),
-          factory.createPropertyAssignment(
-            "get",
-            ctx.parseExpression(m.getExpr),
-          ),
+          factory.createPropertyAssignment("field", factory.createStringLiteral(m.field)),
+          factory.createPropertyAssignment("column", factory.createStringLiteral(m.column)),
+          factory.createPropertyAssignment("get", ctx.parseExpression(m.getExpr)),
           factory.createPropertyAssignment(
             "nullable",
-            m.nullable ? factory.createTrue() : factory.createFalse(),
+            m.nullable ? factory.createTrue() : factory.createFalse()
           ),
-        ]),
+        ])
       ),
-      true,
+      true
     );
 
     const constructFn = factory.createArrowFunction(
@@ -354,8 +315,8 @@ export const deriveReadMacro = defineDeriveMacro({
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       factory.createAsExpression(
         factory.createIdentifier("fields"),
-        factory.createTypeReferenceNode(typeName),
-      ),
+        factory.createTypeReferenceNode(typeName)
+      )
     );
 
     const readInstance = factory.createVariableStatement(
@@ -365,37 +326,26 @@ export const deriveReadMacro = defineDeriveMacro({
           factory.createVariableDeclaration(
             `Read${typeName}`,
             undefined,
-            factory.createTypeReferenceNode("Read", [
-              factory.createTypeReferenceNode(typeName),
-            ]),
+            factory.createTypeReferenceNode("Read", [factory.createTypeReferenceNode(typeName)]),
             factory.createCallExpression(
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("Read"),
-                "make",
-              ),
+              factory.createPropertyAccessExpression(factory.createIdentifier("Read"), "make"),
               undefined,
-              [mappingsArray, constructFn],
-            ),
+              [mappingsArray, constructFn]
+            )
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
+        ts.NodeFlags.Const
+      )
     );
 
     // Generate registration statement for implicit resolution using the registry
     // readRegistry.set("User", ReadUser);
     const registerStatement = factory.createExpressionStatement(
       factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier("readRegistry"),
-          "set",
-        ),
+        factory.createPropertyAccessExpression(factory.createIdentifier("readRegistry"), "set"),
         undefined,
-        [
-          factory.createStringLiteral(typeName),
-          factory.createIdentifier(`Read${typeName}`),
-        ],
-      ),
+        [factory.createStringLiteral(typeName), factory.createIdentifier(`Read${typeName}`)]
+      )
     );
 
     return [readInstance, registerStatement];
@@ -415,11 +365,8 @@ export const deriveWriteMacro = defineDeriveMacro({
   name: "Write",
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const factory = ctx.factory;
     const typeChecker = ctx.typeChecker;
@@ -427,10 +374,7 @@ export const deriveWriteMacro = defineDeriveMacro({
 
     // Only support product types
     if (typeInfo.kind !== "product") {
-      ctx.reportError(
-        target,
-        `@derive(Write) only supports product types (interfaces/classes)`,
-      );
+      ctx.reportError(target, `@derive(Write) only supports product types (interfaces/classes)`);
       return [];
     }
 
@@ -454,7 +398,7 @@ export const deriveWriteMacro = defineDeriveMacro({
       if (!putExpr) {
         ctx.reportError(
           target,
-          `Cannot derive Write for field '${field.name}': unsupported type '${typeChecker.typeToString(fieldType)}'`,
+          `Cannot derive Write for field '${field.name}': unsupported type '${typeChecker.typeToString(fieldType)}'`
         );
         return [];
       }
@@ -468,7 +412,7 @@ export const deriveWriteMacro = defineDeriveMacro({
 
     // Generate columns array
     const columnsArray = factory.createArrayLiteralExpression(
-      mappings.map((m) => factory.createStringLiteral(m.column)),
+      mappings.map((m) => factory.createStringLiteral(m.column))
     );
 
     // Generate extractors array
@@ -483,27 +427,19 @@ export const deriveWriteMacro = defineDeriveMacro({
               undefined,
               "value",
               undefined,
-              factory.createTypeReferenceNode(typeName),
+              factory.createTypeReferenceNode(typeName)
             ),
           ],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              ctx.parseExpression(m.putExpr),
-              "put",
-            ),
+            factory.createPropertyAccessExpression(ctx.parseExpression(m.putExpr), "put"),
             undefined,
-            [
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("value"),
-                m.field,
-              ),
-            ],
-          ),
-        ),
+            [factory.createPropertyAccessExpression(factory.createIdentifier("value"), m.field)]
+          )
+        )
       ),
-      true,
+      true
     );
 
     const writeInstance = factory.createVariableStatement(
@@ -513,37 +449,26 @@ export const deriveWriteMacro = defineDeriveMacro({
           factory.createVariableDeclaration(
             `Write${typeName}`,
             undefined,
-            factory.createTypeReferenceNode("Write", [
-              factory.createTypeReferenceNode(typeName),
-            ]),
+            factory.createTypeReferenceNode("Write", [factory.createTypeReferenceNode(typeName)]),
             factory.createCallExpression(
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("Write"),
-                "make",
-              ),
+              factory.createPropertyAccessExpression(factory.createIdentifier("Write"), "make"),
               undefined,
-              [columnsArray, extractorsArray],
-            ),
+              [columnsArray, extractorsArray]
+            )
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
+        ts.NodeFlags.Const
+      )
     );
 
     // Generate registration statement for implicit resolution using the registry
     // writeRegistry.set("User", WriteUser);
     const registerStatement = factory.createExpressionStatement(
       factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier("writeRegistry"),
-          "set",
-        ),
+        factory.createPropertyAccessExpression(factory.createIdentifier("writeRegistry"), "set"),
         undefined,
-        [
-          factory.createStringLiteral(typeName),
-          factory.createIdentifier(`Write${typeName}`),
-        ],
-      ),
+        [factory.createStringLiteral(typeName), factory.createIdentifier(`Write${typeName}`)]
+      )
     );
 
     return [writeInstance, registerStatement];
@@ -564,11 +489,8 @@ export const deriveCodecMacro = defineDeriveMacro({
   name: "Codec",
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const factory = ctx.factory;
     const typeName = typeInfo.name;
@@ -589,24 +511,22 @@ export const deriveCodecMacro = defineDeriveMacro({
           factory.createVariableDeclaration(
             `Codec${typeName}`,
             undefined,
-            factory.createTypeReferenceNode("Codec", [
-              factory.createTypeReferenceNode(typeName),
-            ]),
+            factory.createTypeReferenceNode("Codec", [factory.createTypeReferenceNode(typeName)]),
             factory.createCallExpression(
               factory.createPropertyAccessExpression(
                 factory.createIdentifier("Codec"),
-                "fromReadWrite",
+                "fromReadWrite"
               ),
               undefined,
               [
                 factory.createIdentifier(`Read${typeName}`),
                 factory.createIdentifier(`Write${typeName}`),
-              ],
-            ),
+              ]
+            )
           ),
         ],
-        ts.NodeFlags.Const,
-      ),
+        ts.NodeFlags.Const
+      )
     );
 
     // Generate registration statement for implicit resolution
@@ -615,14 +535,11 @@ export const deriveCodecMacro = defineDeriveMacro({
       factory.createCallExpression(
         factory.createPropertyAccessExpression(
           factory.createIdentifier("Codec"),
-          "registerInstance",
+          "registerInstance"
         ),
         [factory.createTypeReferenceNode(typeName)],
-        [
-          factory.createStringLiteral(typeName),
-          factory.createIdentifier(`Codec${typeName}`),
-        ],
-      ),
+        [factory.createStringLiteral(typeName), factory.createIdentifier(`Codec${typeName}`)]
+      )
     );
 
     return [...readStatements, ...writeStatements, codecInstance, registerStatement];

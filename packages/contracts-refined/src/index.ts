@@ -165,7 +165,7 @@ export {
 export function registerRefinementPredicate(
   brand: string,
   predicate: string,
-  decidability: Decidability = "runtime",
+  decidability: Decidability = "runtime"
 ): void {
   coreRegister(brand, predicate);
   registeredPredicates.push({
@@ -270,6 +270,6 @@ if (process.env.NODE_ENV === "development") {
   const subtypingRules = getAllSubtypingDeclarations();
   const decidabilityInfo = getAllDecidabilityInfo();
   console.log(
-    `[@typesugar/contracts-refined] Registered ${REFINEMENT_PREDICATES.length} predicates, ${subtypingRules.length} subtyping rules, ${decidabilityInfo.length} decidability annotations`,
+    `[@typesugar/contracts-refined] Registered ${REFINEMENT_PREDICATES.length} predicates, ${subtypingRules.length} subtyping rules, ${decidabilityInfo.length} decidability annotations`
   );
 }

@@ -48,7 +48,7 @@ export class MacroContextImpl implements MacroContext {
     public readonly factory: ts.NodeFactory,
     public readonly transformContext: ts.TransformationContext,
     hygiene?: HygieneContext,
-    expansionCache?: MacroExpansionCache,
+    expansionCache?: MacroExpansionCache
   ) {
     this.hygiene = hygiene ?? globalHygiene;
     this.expansionCache = expansionCache;
@@ -86,13 +86,10 @@ export class MacroContextImpl implements MacroContext {
   }
 
   createObjectLiteral(
-    properties: Array<{ name: string; value: ts.Expression }>,
+    properties: Array<{ name: string; value: ts.Expression }>
   ): ts.ObjectLiteralExpression {
     const propAssignments = properties.map(({ name, value }) =>
-      this.factory.createPropertyAssignment(
-        this.factory.createIdentifier(name),
-        value,
-      ),
+      this.factory.createPropertyAssignment(this.factory.createIdentifier(name), value)
     );
     return this.factory.createObjectLiteralExpression(propAssignments, true);
   }
@@ -105,13 +102,12 @@ export class MacroContextImpl implements MacroContext {
       wrapper,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     // Check for parse errors — ts.createSourceFile never throws, it just
     // records diagnostics and produces partial/error nodes.
-    const diags = (tempSource as unknown as { parseDiagnostics?: unknown[] })
-      .parseDiagnostics;
+    const diags = (tempSource as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics;
     if (diags && diags.length > 0) {
       throw new Error(`Failed to parse expression: ${code}`);
     }
@@ -142,11 +138,9 @@ export class MacroContextImpl implements MacroContext {
       code,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
-    return Array.from(tempSource.statements).map(
-      (s) => stripPositions(s) as ts.Statement,
-    );
+    return Array.from(tempSource.statements).map((s) => stripPositions(s) as ts.Statement);
   }
 
   // -------------------------------------------------------------------------
@@ -237,8 +231,7 @@ export class MacroContextImpl implements MacroContext {
         const obj = node as ts.ObjectLiteralExpression;
         for (let i = 0; i < obj.properties.length; i++) {
           const p = obj.properties[i];
-          if (!ts.isPropertyAssignment(p) || !this.isComptime(p.initializer))
-            return false;
+          if (!ts.isPropertyAssignment(p) || !this.isComptime(p.initializer)) return false;
         }
         return true;
       }
@@ -274,13 +267,8 @@ export class MacroContextImpl implements MacroContext {
             const decl = declarations[0];
             if (ts.isVariableDeclaration(decl)) {
               const parent = decl.parent;
-              if (
-                ts.isVariableDeclarationList(parent) &&
-                parent.flags & ts.NodeFlags.Const
-              ) {
-                return decl.initializer
-                  ? this.isComptime(decl.initializer)
-                  : false;
+              if (ts.isVariableDeclarationList(parent) && parent.flags & ts.NodeFlags.Const) {
+                return decl.initializer ? this.isComptime(decl.initializer) : false;
               }
             }
           }
@@ -320,9 +308,7 @@ export class MacroContextImpl implements MacroContext {
         };
 
       case ts.SyntaxKind.ParenthesizedExpression:
-        return this.evaluateNode(
-          (node as ts.ParenthesizedExpression).expression,
-        );
+        return this.evaluateNode((node as ts.ParenthesizedExpression).expression);
 
       case ts.SyntaxKind.ArrayLiteralExpression:
         return this.evaluateArrayLiteral(node as ts.ArrayLiteralExpression);
@@ -366,9 +352,7 @@ export class MacroContextImpl implements MacroContext {
     return { kind: "array", elements };
   }
 
-  private evaluateObjectLiteral(
-    node: ts.ObjectLiteralExpression,
-  ): ComptimeValue {
+  private evaluateObjectLiteral(node: ts.ObjectLiteralExpression): ComptimeValue {
     const properties = new Map<string, ComptimeValue>();
     for (let i = 0; i < node.properties.length; i++) {
       const prop = node.properties[i];
@@ -397,9 +381,7 @@ export class MacroContextImpl implements MacroContext {
     if (condValue === null) {
       return { kind: "error", message: "Cannot convert to boolean" };
     }
-    return condValue
-      ? this.evaluateNode(node.whenTrue)
-      : this.evaluateNode(node.whenFalse);
+    return condValue ? this.evaluateNode(node.whenTrue) : this.evaluateNode(node.whenFalse);
   }
 
   private evaluateTemplate(node: ts.TemplateExpression): ComptimeValue {
@@ -640,12 +622,7 @@ export class MacroContextImpl implements MacroContext {
   // -------------------------------------------------------------------------
 
   markPure<T extends ts.Node>(node: T): T {
-    ts.addSyntheticLeadingComment(
-      node,
-      ts.SyntaxKind.MultiLineCommentTrivia,
-      "#__PURE__",
-      false,
-    );
+    ts.addSyntheticLeadingComment(node, ts.SyntaxKind.MultiLineCommentTrivia, "#__PURE__", false);
     return node;
   }
 
@@ -681,7 +658,7 @@ export class MacroContextImpl implements MacroContext {
         return this.factory.createIdentifier("undefined");
       case "array":
         return this.createArrayLiteral(
-          value.elements.map((e) => this.comptimeValueToExpression(e)),
+          value.elements.map((e) => this.comptimeValueToExpression(e))
         );
       case "object":
         const props: Array<{ name: string; value: ts.Expression }> = [];
@@ -690,9 +667,7 @@ export class MacroContextImpl implements MacroContext {
         });
         return this.createObjectLiteral(props);
       case "error":
-        throw new Error(
-          `Cannot convert error value to expression: ${value.message}`,
-        );
+        throw new Error(`Cannot convert error value to expression: ${value.message}`);
       default:
         throw new Error(`Cannot convert ${value.kind} to expression`);
     }
@@ -707,7 +682,7 @@ export function createMacroContext(
   sourceFile: ts.SourceFile,
   transformContext: ts.TransformationContext,
   hygiene?: HygieneContext,
-  expansionCache?: MacroExpansionCache,
+  expansionCache?: MacroExpansionCache
 ): MacroContextImpl {
   return new MacroContextImpl(
     program,
@@ -716,7 +691,7 @@ export function createMacroContext(
     transformContext.factory,
     transformContext,
     hygiene,
-    expansionCache,
+    expansionCache
   );
 }
 
@@ -729,11 +704,6 @@ export function createMacroContext(
  * and can be dropped if unused.
  */
 export function markPure<T extends ts.Node>(node: T): T {
-  ts.addSyntheticLeadingComment(
-    node,
-    ts.SyntaxKind.MultiLineCommentTrivia,
-    "#__PURE__",
-    false,
-  );
+  ts.addSyntheticLeadingComment(node, ts.SyntaxKind.MultiLineCommentTrivia, "#__PURE__", false);
   return node;
 }

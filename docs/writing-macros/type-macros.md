@@ -120,7 +120,7 @@ defineTypeMacro("WithId", {
           undefined,
           ctx.factory.createIdentifier("id"),
           undefined,
-          ctx.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+          ctx.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword)
         ),
       ]),
       innerType,
@@ -149,15 +149,12 @@ defineTypeMacro("Readonly", {
         undefined,
         ctx.factory.createIdentifier("K"),
         ctx.factory.createTypeOperatorNode(ts.SyntaxKind.KeyOfKeyword, args[0]),
-        undefined,
+        undefined
       ),
       undefined,
       undefined,
-      ctx.factory.createIndexedAccessTypeNode(
-        args[0],
-        ctx.factory.createTypeReferenceNode("K"),
-      ),
-      undefined,
+      ctx.factory.createIndexedAccessTypeNode(args[0], ctx.factory.createTypeReferenceNode("K")),
+      undefined
     );
   },
 });
@@ -182,12 +179,12 @@ defineTypeMacro("UnwrapPromise", {
             undefined,
             ctx.factory.createIdentifier("U"),
             undefined,
-            undefined,
-          ),
+            undefined
+          )
         ),
       ]),
       ctx.factory.createTypeReferenceNode("U"),
-      args[0],
+      args[0]
     );
   },
 });
@@ -231,10 +228,10 @@ defineTypeMacro("Handler", {
           ctx.factory.createIdentifier("event"),
           undefined,
           args[0],
-          undefined,
+          undefined
         ),
       ],
-      ctx.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword),
+      ctx.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword)
     );
   },
 });
@@ -256,7 +253,7 @@ defineTypeMacro("Constrained", {
       undefined,
       ctx.factory.createIdentifier("T"),
       ctx.factory.createKeywordTypeNode(ts.SyntaxKind.ObjectKeyword),
-      undefined,
+      undefined
     );
 
     // Use in a mapped type...
@@ -273,10 +270,7 @@ defineTypeMacro("RequiredArgs", {
     const args = typeRef.typeArguments;
 
     if (!args || args.length < 2) {
-      ctx.reportError(
-        typeRef,
-        "RequiredArgs requires exactly 2 type arguments",
-      );
+      ctx.reportError(typeRef, "RequiredArgs requires exactly 2 type arguments");
       return ctx.factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword);
     }
 

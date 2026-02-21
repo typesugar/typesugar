@@ -44,10 +44,7 @@ import { Read, Write, SqlRow } from "./meta.js";
 // ============================================================================
 
 /** Concatenate two tuples at the type level */
-export type Concat<
-  A extends readonly unknown[],
-  B extends readonly unknown[],
-> = [...A, ...B];
+export type Concat<A extends readonly unknown[], B extends readonly unknown[]> = [...A, ...B];
 
 /** Empty tuple type */
 export type Empty = readonly [];
@@ -104,26 +101,26 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
    * Append another fragment, concatenating parameter types.
    */
   append<P2 extends readonly unknown[], R2>(
-    other: TypedFragment<P2, R2>,
+    other: TypedFragment<P2, R2>
   ): TypedFragment<Concat<P, P2>, R extends Unit ? R2 : R> {
     const result = this.toFragment().append(other.toFragment());
-    return new TypedFragment(
-      [...result.segments],
-      [...result.params],
-    ) as TypedFragment<Concat<P, P2>, R extends Unit ? R2 : R>;
+    return new TypedFragment([...result.segments], [...result.params]) as TypedFragment<
+      Concat<P, P2>,
+      R extends Unit ? R2 : R
+    >;
   }
 
   /**
    * Prepend another fragment.
    */
   prepend<P2 extends readonly unknown[], R2>(
-    other: TypedFragment<P2, R2>,
+    other: TypedFragment<P2, R2>
   ): TypedFragment<Concat<P2, P>, R2 extends Unit ? R : R2> {
     const result = this.toFragment().prepend(other.toFragment());
-    return new TypedFragment(
-      [...result.segments],
-      [...result.params],
-    ) as TypedFragment<Concat<P2, P>, R2 extends Unit ? R : R2>;
+    return new TypedFragment([...result.segments], [...result.params]) as TypedFragment<
+      Concat<P2, P>,
+      R2 extends Unit ? R : R2
+    >;
   }
 
   /**
@@ -203,9 +200,7 @@ export class TypedQuery<P extends readonly unknown[], R> {
    * Optional result (expects zero or one row).
    */
   option(): TypedQuery<P, R | null> {
-    return new TypedQuery(
-      this.fragment as unknown as TypedFragment<P, R | null>,
-    );
+    return new TypedQuery(this.fragment as unknown as TypedFragment<P, R | null>);
   }
 }
 
@@ -243,12 +238,8 @@ export class TypedUpdate<P extends readonly unknown[]> {
   /**
    * Execute with generated keys returned.
    */
-  withGeneratedKeys<K extends string>(
-    ...columns: K[]
-  ): TypedQuery<P, Record<K, unknown>> {
-    return new TypedQuery(
-      this.fragment as unknown as TypedFragment<P, Record<K, unknown>>,
-    );
+  withGeneratedKeys<K extends string>(...columns: K[]): TypedQuery<P, Record<K, unknown>> {
+    return new TypedQuery(this.fragment as unknown as TypedFragment<P, Record<K, unknown>>);
   }
 }
 
@@ -257,17 +248,14 @@ export class TypedUpdate<P extends readonly unknown[]> {
 // ============================================================================
 
 /** Empty typed fragment */
-export const emptyTyped: TypedFragment<Empty, Unit> = new TypedFragment(
-  [""],
-  [],
-);
+export const emptyTyped: TypedFragment<Empty, Unit> = new TypedFragment([""], []);
 
 /**
  * Join fragments with a separator (AND, OR, comma, etc.).
  */
 export function intercalateTyped<P extends readonly unknown[], R>(
   sep: TypedFragment<Empty, Unit>,
-  fragments: readonly TypedFragment<P, R>[],
+  fragments: readonly TypedFragment<P, R>[]
 ): TypedFragment<P[], R> {
   if (fragments.length === 0) {
     return emptyTyped as unknown as TypedFragment<P[], R>;
@@ -343,10 +331,7 @@ export function commasTyped<P extends readonly unknown[], R>(
  * // SQL: "id IN (?, ?, ?)"
  * ```
  */
-export function inListTyped<T>(
-  column: string,
-  values: readonly T[],
-): TypedFragment<T[], Unit> {
+export function inListTyped<T>(column: string, values: readonly T[]): TypedFragment<T[], Unit> {
   if (values.length === 0) {
     // Empty IN is always false
     return new TypedFragment(["1 = 0"], []);
@@ -355,7 +340,7 @@ export function inListTyped<T>(
   const placeholders = values.map(() => "?").join(", ");
   return new TypedFragment(
     [`${column} IN (${placeholders})`],
-    values as unknown as readonly SqlParam[],
+    values as unknown as readonly SqlParam[]
   );
 }
 
@@ -374,16 +359,10 @@ export function inListTyped<T>(
  * // SQL: "(?, ?)"
  * ```
  */
-export function valuesTyped<A>(
-  meta: Write<A>,
-  value: A,
-): TypedFragment<unknown[], Unit> {
+export function valuesTyped<A>(meta: Write<A>, value: A): TypedFragment<unknown[], Unit> {
   const params = meta.write(value);
   const placeholders = params.map(() => "?").join(", ");
-  return new TypedFragment(
-    [`(${placeholders})`],
-    params as readonly SqlParam[],
-  );
+  return new TypedFragment([`(${placeholders})`], params as readonly SqlParam[]);
 }
 
 /**
@@ -391,7 +370,7 @@ export function valuesTyped<A>(
  */
 export function valuesManyTyped<A>(
   meta: Write<A>,
-  values: readonly A[],
+  values: readonly A[]
 ): TypedFragment<unknown[], Unit> {
   if (values.length === 0) {
     return emptyTyped as unknown as TypedFragment<unknown[], Unit>;
@@ -424,10 +403,7 @@ export function valuesManyTyped<A>(
  * // SQL: "name = ?, email = ?"
  * ```
  */
-export function setTyped<A>(
-  meta: Write<A>,
-  value: Partial<A>,
-): TypedFragment<unknown[], Unit> {
+export function setTyped<A>(meta: Write<A>, value: Partial<A>): TypedFragment<unknown[], Unit> {
   const columns = meta.columns;
   const allValues = meta.write(value as A);
 
@@ -456,7 +432,7 @@ export function setTyped<A>(
  */
 export function whenTyped<P extends readonly unknown[], R>(
   condition: boolean,
-  fragment: TypedFragment<P, R>,
+  fragment: TypedFragment<P, R>
 ): TypedFragment<P, R> | TypedFragment<Empty, Unit> {
   return condition ? fragment : emptyTyped;
 }
@@ -468,7 +444,7 @@ export function whereAndTyped<P extends readonly unknown[]>(
   ...conditions: (TypedFragment<P, Unit> | null | undefined | false)[]
 ): TypedFragment<P[], Unit> {
   const validConditions = conditions.filter(
-    (c): c is TypedFragment<P, Unit> => c instanceof TypedFragment,
+    (c): c is TypedFragment<P, Unit> => c instanceof TypedFragment
   );
 
   if (validConditions.length === 0) {
@@ -478,6 +454,6 @@ export function whereAndTyped<P extends readonly unknown[]>(
   const combined = andTyped(...validConditions);
   return new TypedFragment(
     ["WHERE " + combined.segments[0], ...combined.segments.slice(1)],
-    [...combined.params],
+    [...combined.params]
   ) as TypedFragment<P[], Unit>;
 }

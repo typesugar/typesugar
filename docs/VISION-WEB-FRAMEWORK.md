@@ -368,9 +368,7 @@ const Counter = component(() => {
   const { count, doubled, increment } = useCounter(0);
 
   // count and doubled are Signal/Computed — the macro unwraps them
-  return html`
-    <button onClick=${increment}>${count} × 2 = ${doubled}</button>
-  `;
+  return html` <button onClick=${increment}>${count} × 2 = ${doubled}</button> `;
 });
 ```
 
@@ -436,9 +434,8 @@ const Navbar = component(() => {
     <nav>
       ${when(
         isLoggedIn,
-        html`<span>Hi, ${user.name}</span>
-          <button onClick=${logout}>Log out</button>`,
-        html`<a href="/login">Sign in</a>`,
+        html`<span>Hi, ${user.name}</span> <button onClick=${logout}>Log out</button>`,
+        html`<a href="/login">Sign in</a>`
       )}
     </nav>
   `;
@@ -633,10 +630,7 @@ const TodoItem = component(($) => {
   `;
 
   $.view = ({ todo, onToggle }) => html`
-    <li
-      class=${todo.done ? "done item" : "item"}
-      onClick=${() => onToggle(todo.id)}
-    >
+    <li class=${todo.done ? "done item" : "item"} onClick=${() => onToggle(todo.id)}>
       ${todo.text}
     </li>
   `;
@@ -662,13 +656,8 @@ const FilterButtons = component(($) => {
       ${each(
         ["all", "active", "done"] as Filter[],
         (f) => html`
-          <button
-            class=${f === current ? "active" : ""}
-            onClick=${() => onSelect(f)}
-          >
-            ${f}
-          </button>
-        `,
+          <button class=${f === current ? "active" : ""} onClick=${() => onSelect(f)}>${f}</button>
+        `
       )}
     </div>
   `;
@@ -696,9 +685,7 @@ export const TodoList = component(($) => {
         { ...model, saving: true },
         api.createTodo(text).map((todo) => $.msg.Added({ todo })),
       ],
-      Added: ({ todo }) => [
-        { ...model, saving: false, todos: [...model.todos, todo] },
-      ],
+      Added: ({ todo }) => [{ ...model, saving: false, todos: [...model.todos, todo] }],
       SetFilter: ({ filter }) => [{ ...model, filter }],
     });
 
@@ -727,15 +714,10 @@ export const TodoList = component(($) => {
         <ul class="list">
           ${each(
             visible,
-            (todo) => html`
-              <TodoItem todo=${todo} onToggle=${(id) => Toggle({ id })} />
-            `,
+            (todo) => html` <TodoItem todo=${todo} onToggle=${(id) => Toggle({ id })} /> `
           )}
         </ul>
-        <FilterButtons
-          current=${model.filter}
-          onSelect=${(f) => SetFilter({ filter: f })}
-        />
+        <FilterButtons current=${model.filter} onSelect=${(f) => SetFilter({ filter: f })} />
       </section>
     `;
   };
@@ -898,9 +880,7 @@ re-evaluated.
 const Counter = component(() => {
   let count = 0; // @reactive rewrites to signal
 
-  return html`
-    <button onClick=${() => count++}>Clicked ${count} times</button>
-  `;
+  return html` <button onClick=${() => count++}>Clicked ${count} times</button> `;
 });
 ```
 
@@ -1101,14 +1081,8 @@ inlined directly into mount/unmount logic. No animation library shipped.
 
 ```typescript
 html`
-  ${when(
-    visible,
-    html` <div transition:fade=${{ duration: 300 }}>Content</div> `,
-  )}
-  ${each(
-    sortedItems,
-    (item) => html` <li animate:flip key=${item.id}>${item.name}</li> `,
-  )}
+  ${when(visible, html` <div transition:fade=${{ duration: 300 }}>Content</div> `)}
+  ${each(sortedItems, (item) => html` <li animate:flip key=${item.id}>${item.name}</li> `)}
 `;
 ```
 
@@ -1311,12 +1285,12 @@ const searchResults = fx(function* () {
 
   const results = yield* Fx.all(
     http.fetch<Results>(`/search?q=${query}`),
-    http.fetch<Suggestions>(`/suggest?q=${query}`),
+    http.fetch<Suggestions>(`/suggest?q=${query}`)
   );
 
   const fresh = yield* Fx.race(
     results,
-    Fx.delay(3000).map(() => cachedResults),
+    Fx.delay(3000).map(() => cachedResults)
   );
 
   return fresh;
@@ -1330,12 +1304,8 @@ const searchResults = async (query) => {
   const controller = new AbortController();
   try {
     const results = await Promise.all([
-      fetch(`/search?q=${query}`, { signal: controller.signal }).then((r) =>
-        r.json(),
-      ),
-      fetch(`/suggest?q=${query}`, { signal: controller.signal }).then((r) =>
-        r.json(),
-      ),
+      fetch(`/search?q=${query}`, { signal: controller.signal }).then((r) => r.json()),
+      fetch(`/suggest?q=${query}`, { signal: controller.signal }).then((r) => r.json()),
     ]);
     return await Promise.race([
       Promise.resolve(results),
@@ -1625,7 +1595,7 @@ const Navbar = component(() => {
         isLoggedIn,
         html`<span>Welcome, ${displayName}</span>
           <button onClick=${authStore.logout}>Log out</button>`,
-        html`<a href="/login">Sign in</a>`,
+        html`<a href="/login">Sign in</a>`
       )}
     </nav>
   `;
@@ -1663,14 +1633,12 @@ client, so the `resource` that consumes the API knows every possible failure.
 // server/routes/users.ts
 export const getUser = route("GET", "/users/:id", (params) =>
   fx(function* () {
-    const user = yield* db.query(
-      sql`SELECT * FROM users WHERE id = ${params.id}`,
-    );
+    const user = yield* db.query(sql`SELECT * FROM users WHERE id = ${params.id}`);
     return match(user, {
       Some: (u) => Response.json(u),
       None: () => Response.error(404, "User not found"),
     });
-  }),
+  })
 );
 
 // client/pages/user.ts — errors are typed!
@@ -1685,7 +1653,7 @@ export const createPost = formAction(PostSchema, (data) =>
   fx(function* () {
     const post = yield* db.insert(sql`INSERT INTO posts ${values(data)}`);
     return redirect(`/posts/${post.id}`);
-  }),
+  })
 );
 
 // In the component — progressive enhancement, works without JS

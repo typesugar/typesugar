@@ -81,7 +81,7 @@ interface RecursiveCallInfo {
 function findRecursiveCalls(
   body: ts.Block,
   fnName: string,
-  sourceFile: ts.SourceFile,
+  sourceFile: ts.SourceFile
 ): RecursiveCallInfo[] {
   const calls: RecursiveCallInfo[] = [];
 
@@ -97,18 +97,13 @@ function findRecursiveCalls(
    * Walk the AST collecting recursive calls. `inTail` tracks whether the
    * current position is a valid tail position.
    */
-  function visit(
-    node: ts.Node,
-    inTail: boolean,
-    insideTryCatch: boolean,
-  ): void {
+  function visit(node: ts.Node, inTail: boolean, insideTryCatch: boolean): void {
     if (isRecursiveCall(node)) {
       if (insideTryCatch) {
         calls.push({
           call: node,
           isTail: false,
-          reason:
-            "recursive call inside try/catch/finally is not in tail position",
+          reason: "recursive call inside try/catch/finally is not in tail position",
         });
       } else if (!inTail) {
         calls.push({
@@ -162,11 +157,7 @@ function findRecursiveCalls(
       for (const clause of node.caseBlock.clauses) {
         const clauseStmts = clause.statements;
         for (let i = 0; i < clauseStmts.length; i++) {
-          visit(
-            clauseStmts[i],
-            i === clauseStmts.length - 1 && inTail,
-            insideTryCatch,
-          );
+          visit(clauseStmts[i], i === clauseStmts.length - 1 && inTail, insideTryCatch);
         }
       }
       return;
@@ -200,11 +191,7 @@ function findRecursiveCalls(
       return;
     }
 
-    if (
-      ts.isForStatement(node) ||
-      ts.isWhileStatement(node) ||
-      ts.isDoStatement(node)
-    ) {
+    if (ts.isForStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node)) {
       ts.forEachChild(node, (child) => visit(child, false, insideTryCatch));
       return;
     }
@@ -260,11 +247,7 @@ function findRecursiveCalls(
     }
 
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-      visit(
-        ts.isAsExpression(node) ? node.expression : node.expression,
-        inTail,
-        insideTryCatch,
-      );
+      visit(ts.isAsExpression(node) ? node.expression : node.expression, inTail, insideTryCatch);
       return;
     }
 
@@ -307,7 +290,7 @@ function findRecursiveCalls(
 function transformTailRecursion(
   ctx: MacroContext,
   fn: ts.FunctionDeclaration,
-  fnName: string,
+  fnName: string
 ): ts.FunctionDeclaration {
   const factory = ctx.factory;
   const params = fn.parameters;
@@ -388,17 +371,13 @@ function transformTailRecursion(
     }
 
     if (ts.isBlock(node)) {
-      const newStmts = node.statements.map(
-        (s) => rewriteTailCalls(s) as ts.Statement,
-      );
+      const newStmts = node.statements.map((s) => rewriteTailCalls(s) as ts.Statement);
       return factory.updateBlock(node, newStmts);
     }
 
     if (ts.isSwitchStatement(node)) {
       const newClauses = node.caseBlock.clauses.map((clause) => {
-        const newStmts = clause.statements.map(
-          (s) => rewriteTailCalls(s) as ts.Statement,
-        );
+        const newStmts = clause.statements.map((s) => rewriteTailCalls(s) as ts.Statement);
         if (ts.isCaseClause(clause)) {
           return factory.updateCaseClause(clause, clause.expression, newStmts);
         }
@@ -407,7 +386,7 @@ function transformTailRecursion(
       return factory.updateSwitchStatement(
         node,
         node.expression,
-        factory.updateCaseBlock(node.caseBlock, newClauses),
+        factory.updateCaseBlock(node.caseBlock, newClauses)
       );
     }
 
@@ -415,7 +394,7 @@ function transformTailRecursion(
       return factory.updateLabeledStatement(
         node,
         node.label,
-        rewriteTailCalls(node.statement) as ts.Statement,
+        rewriteTailCalls(node.statement) as ts.Statement
       );
     }
 
@@ -464,9 +443,7 @@ function transformTailRecursion(
    * { const _next_p1 = arg1; const _next_p2 = arg2; _tr_p1 = _next_p1; _tr_p2 = _next_p2; continue; }
    * ```
    */
-  function createTrampolineAssignment(
-    args: ts.NodeArray<ts.Expression>,
-  ): ts.Statement {
+  function createTrampolineAssignment(args: ts.NodeArray<ts.Expression>): ts.Statement {
     const stmts: ts.Statement[] = [];
     const tempNames: string[] = [];
 
@@ -483,12 +460,12 @@ function transformTailRecursion(
                 factory.createIdentifier(tempName),
                 undefined,
                 undefined,
-                rewriteParamRefs(args[i]) as ts.Expression,
+                rewriteParamRefs(args[i]) as ts.Expression
               ),
             ],
-            ts.NodeFlags.Const,
-          ),
-        ),
+            ts.NodeFlags.Const
+          )
+        )
       );
     }
 
@@ -500,9 +477,9 @@ function transformTailRecursion(
           factory.createBinaryExpression(
             factory.createIdentifier(mutableName),
             factory.createToken(ts.SyntaxKind.EqualsToken),
-            factory.createIdentifier(tempNames[i]),
-          ),
-        ),
+            factory.createIdentifier(tempNames[i])
+          )
+        )
       );
     }
 
@@ -528,7 +505,7 @@ function transformTailRecursion(
     fnName,
     paramNames,
     paramMap,
-    createTrampolineAssignment,
+    createTrampolineAssignment
   );
 
   // Step 3: Rewrite remaining tail calls (return f(...) and expression-statement f(...))
@@ -549,21 +526,18 @@ function transformTailRecursion(
                 factory.createIdentifier(mutable),
                 undefined,
                 undefined,
-                factory.createIdentifier(original),
+                factory.createIdentifier(original)
               ),
             ],
-            ts.NodeFlags.Let,
-          ),
-        ),
+            ts.NodeFlags.Let
+          )
+        )
       );
     }
   }
 
   // Step 5: Wrap in while(true) { ... }
-  const whileLoop = factory.createWhileStatement(
-    factory.createTrue(),
-    rewrittenBody,
-  );
+  const whileLoop = factory.createWhileStatement(factory.createTrue(), rewrittenBody);
 
   const newBody = factory.createBlock([...letDecls, whileLoop], true);
 
@@ -578,17 +552,14 @@ function transformTailRecursion(
     fn.typeParameters,
     fn.parameters,
     fn.type,
-    newBody,
+    newBody
   );
 }
 
 /**
  * Check if an expression is a direct recursive call to fnName.
  */
-function isDirectRecursiveCall(
-  node: ts.Expression,
-  fnName: string,
-): node is ts.CallExpression {
+function isDirectRecursiveCall(node: ts.Expression, fnName: string): node is ts.CallExpression {
   if (ts.isParenthesizedExpression(node)) {
     return isDirectRecursiveCall(node.expression, fnName);
   }
@@ -596,9 +567,7 @@ function isDirectRecursiveCall(
     return isDirectRecursiveCall(node.expression, fnName);
   }
   return (
-    ts.isCallExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === fnName
+    ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === fnName
   );
 }
 
@@ -628,9 +597,7 @@ function liftTernaryTailCalls(
   fnName: string,
   paramNames: string[],
   paramMap: Map<string, string>,
-  createTrampolineAssignment: (
-    args: ts.NodeArray<ts.Expression>,
-  ) => ts.Statement,
+  createTrampolineAssignment: (args: ts.NodeArray<ts.Expression>) => ts.Statement
 ): ts.Block {
   const factory = ctx.factory;
 
@@ -647,22 +614,14 @@ function liftTernaryTailCalls(
 
       if (trueCall || falseCall) {
         const thenBranch = trueCall
-          ? createTrampolineAssignment(
-              unwrapToCall(ternary.whenTrue)!.arguments,
-            )
+          ? createTrampolineAssignment(unwrapToCall(ternary.whenTrue)!.arguments)
           : factory.createReturnStatement(ternary.whenTrue);
 
         const elseBranch = falseCall
-          ? createTrampolineAssignment(
-              unwrapToCall(ternary.whenFalse)!.arguments,
-            )
+          ? createTrampolineAssignment(unwrapToCall(ternary.whenFalse)!.arguments)
           : factory.createReturnStatement(ternary.whenFalse);
 
-        return factory.createIfStatement(
-          ternary.condition,
-          thenBranch,
-          elseBranch,
-        );
+        return factory.createIfStatement(ternary.condition, thenBranch, elseBranch);
       }
     }
 
@@ -670,7 +629,7 @@ function liftTernaryTailCalls(
     if (ts.isBlock(node)) {
       return factory.updateBlock(
         node,
-        node.statements.map((s) => visitStatement(s) as ts.Statement),
+        node.statements.map((s) => visitStatement(s) as ts.Statement)
       );
     }
 
@@ -679,9 +638,7 @@ function liftTernaryTailCalls(
         node,
         node.expression,
         visitStatement(node.thenStatement) as ts.Statement,
-        node.elseStatement
-          ? (visitStatement(node.elseStatement) as ts.Statement)
-          : undefined,
+        node.elseStatement ? (visitStatement(node.elseStatement) as ts.Statement) : undefined
       );
     }
 
@@ -707,7 +664,7 @@ export const tailrecAttribute = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     // --- Validation: must be a function declaration ---
     if (!ts.isFunctionDeclaration(target)) {
@@ -726,20 +683,12 @@ export const tailrecAttribute = defineAttributeMacro({
     const fnName = fn.name?.text;
 
     if (!fnName) {
-      ctx
-        .diagnostic(TS9206)
-        .at(fn)
-        .withArgs({ macro: "tailrec", target: "function" })
-        .emit();
+      ctx.diagnostic(TS9206).at(fn).withArgs({ macro: "tailrec", target: "function" }).emit();
       return target;
     }
 
     if (!fn.body) {
-      ctx
-        .diagnostic(TS9207)
-        .at(fn)
-        .withArgs({ macro: "@tailrec", target: "function" })
-        .emit();
+      ctx.diagnostic(TS9207).at(fn).withArgs({ macro: "@tailrec", target: "function" }).emit();
       return target;
     }
 
@@ -751,9 +700,7 @@ export const tailrecAttribute = defineAttributeMacro({
         .diagnostic(TS9220)
         .at(fn)
         .withArgs({ issue: `function '${fnName}' contains no recursive calls` })
-        .note(
-          "@tailrec requires at least one self-recursive call in tail position",
-        )
+        .note("@tailrec requires at least one self-recursive call in tail position")
         .emit();
       return target;
     }

@@ -7,12 +7,7 @@
 
 import * as ts from "typescript";
 import MagicString from "magic-string";
-import {
-  tokenize,
-  isBoundaryToken,
-  type Token,
-  type CustomOperatorDef,
-} from "./scanner.js";
+import { tokenize, isBoundaryToken, type Token, type CustomOperatorDef } from "./scanner.js";
 import { TokenStream } from "./token-stream.js";
 import type {
   SyntaxExtension,
@@ -36,10 +31,7 @@ const BUILT_IN_EXTENSIONS: Record<string, AnyExtension> = {
   cons: consExtension,
 };
 
-const BUILT_IN_OPERATORS: CustomOperatorExtension[] = [
-  pipelineExtension,
-  consExtension,
-];
+const BUILT_IN_OPERATORS: CustomOperatorExtension[] = [pipelineExtension, consExtension];
 
 export interface PreprocessOptions {
   extensions?: string[];
@@ -49,6 +41,11 @@ export interface PreprocessOptions {
    * Files ending in .tsx or .jsx use JSX mode.
    */
   fileName?: string;
+  /**
+   * "macro" (default) for compilation -- produces valid TS for macro processing
+   * "format" for prettier round-tripping -- produces markers that can be reversed
+   */
+  mode?: "macro" | "format";
 }
 
 /**
@@ -62,10 +59,7 @@ export interface PreprocessOptions {
  * @param options - Configuration options
  * @returns The preprocessed result with source map
  */
-export function preprocess(
-  source: string,
-  options: PreprocessOptions = {},
-): PreprocessResult {
+export function preprocess(source: string, options: PreprocessOptions = {}): PreprocessResult {
   const enabledExtensions = getEnabledExtensions(options);
 
   if (enabledExtensions.length === 0) {
@@ -73,13 +67,12 @@ export function preprocess(
   }
 
   const nonOperatorExtensions = enabledExtensions.filter(
-    (ext): ext is SyntaxExtension =>
-      !("symbol" in ext && "precedence" in ext) && "rewrite" in ext,
+    (ext): ext is SyntaxExtension => !("symbol" in ext && "precedence" in ext) && "rewrite" in ext
   );
 
   const operatorExtensions = enabledExtensions.filter(
     (ext): ext is CustomOperatorExtension =>
-      "symbol" in ext && "precedence" in ext && "transform" in ext,
+      "symbol" in ext && "precedence" in ext && "transform" in ext
   );
 
   // Use MagicString to track all changes and generate source maps
@@ -88,12 +81,10 @@ export function preprocess(
 
   // Phase 1: Apply non-operator extensions (HKT, etc.)
   if (nonOperatorExtensions.length > 0) {
-    const customOperatorDefs: CustomOperatorDef[] = operatorExtensions.map(
-      (op) => ({
-        symbol: op.symbol,
-        chars: op.symbol.split(""),
-      }),
-    );
+    const customOperatorDefs: CustomOperatorDef[] = operatorExtensions.map((op) => ({
+      symbol: op.symbol,
+      chars: op.symbol.split(""),
+    }));
 
     const tokens = tokenize(source, {
       customOperators: customOperatorDefs,
@@ -103,7 +94,7 @@ export function preprocess(
 
     const replacements: Replacement[] = [];
     for (const ext of nonOperatorExtensions) {
-      const extReplacements = ext.rewrite(stream, source);
+      const extReplacements = ext.rewrite(stream, source, { mode: options.mode });
       replacements.push(...extReplacements);
     }
 
@@ -115,12 +106,10 @@ export function preprocess(
 
   // Phase 2: Apply operator extensions iteratively
   if (operatorExtensions.length > 0) {
-    const customOperatorDefs: CustomOperatorDef[] = operatorExtensions.map(
-      (op) => ({
-        symbol: op.symbol,
-        chars: op.symbol.split(""),
-      }),
-    );
+    const customOperatorDefs: CustomOperatorDef[] = operatorExtensions.map((op) => ({
+      symbol: op.symbol,
+      chars: op.symbol.split(""),
+    }));
 
     // After phase 1, get the current code state for operator processing
     // We need to work on the transformed code, but MagicString tracks original positions
@@ -139,7 +128,7 @@ export function preprocess(
         currentSource,
         operatorExtensions,
         customOperatorDefs,
-        options.fileName,
+        options.fileName
       );
 
       if (operatorResult.changed) {
@@ -174,7 +163,7 @@ function rewriteOperatorsIteratively(
   source: string,
   operators: CustomOperatorExtension[],
   operatorDefs: CustomOperatorDef[],
-  fileName?: string,
+  fileName?: string
 ): { code: string; changed: boolean } {
   let currentSource = source;
   let changed = false;
@@ -209,7 +198,7 @@ function rewriteOperatorsIteratively(
       tokenIndex,
       operators,
       operator.precedence,
-      operator.associativity,
+      operator.associativity
     );
 
     const rightBoundary = findRightOperandBoundary(
@@ -217,7 +206,7 @@ function rewriteOperatorsIteratively(
       tokenIndex,
       operators,
       operator.precedence,
-      operator.associativity,
+      operator.associativity
     );
 
     if (leftBoundary >= tokenIndex || rightBoundary <= tokenIndex) {
@@ -234,10 +223,7 @@ function rewriteOperatorsIteratively(
 
     const transformed = operator.transform(leftText, rightText);
 
-    currentSource =
-      currentSource.slice(0, leftStart) +
-      transformed +
-      currentSource.slice(rightEnd);
+    currentSource = currentSource.slice(0, leftStart) + transformed + currentSource.slice(rightEnd);
     changed = true;
   }
 
@@ -252,7 +238,7 @@ interface OperatorOccurrence {
 
 function findOperatorOccurrences(
   tokens: readonly Token[],
-  operators: CustomOperatorExtension[],
+  operators: CustomOperatorExtension[]
 ): OperatorOccurrence[] {
   const operatorMap = new Map(operators.map((op) => [op.symbol, op]));
   const occurrences: OperatorOccurrence[] = [];
@@ -328,20 +314,14 @@ function findOperatorOccurrences(
     }
 
     // Track last significant token for heuristics
-    if (
-      kind !== ts.SyntaxKind.WhitespaceTrivia &&
-      kind !== ts.SyntaxKind.NewLineTrivia
-    ) {
+    if (kind !== ts.SyntaxKind.WhitespaceTrivia && kind !== ts.SyntaxKind.NewLineTrivia) {
       lastSignificantKind = kind;
     }
 
     // Skip operators in type contexts
     if (token.isCustomOperator) {
       const inTypeContext =
-        typeAnnotationDepth > 0 ||
-        angleBracketDepth > 0 ||
-        inTypeAlias ||
-        inInterface;
+        typeAnnotationDepth > 0 || angleBracketDepth > 0 || inTypeAlias || inInterface;
 
       if (!inTypeContext) {
         const op = operatorMap.get(token.text);
@@ -359,9 +339,7 @@ function findOperatorOccurrences(
   return occurrences;
 }
 
-function selectNextOperator(
-  occurrences: OperatorOccurrence[],
-): OperatorOccurrence | null {
+function selectNextOperator(occurrences: OperatorOccurrence[]): OperatorOccurrence | null {
   if (occurrences.length === 0) {
     return null;
   }
@@ -391,11 +369,9 @@ function findLeftOperandBoundary(
   operatorIndex: number,
   operators: CustomOperatorExtension[],
   currentPrecedence: number,
-  associativity: "left" | "right",
+  associativity: "left" | "right"
 ): number {
-  const operatorPrecedences = new Map(
-    operators.map((op) => [op.symbol, op.precedence]),
-  );
+  const operatorPrecedences = new Map(operators.map((op) => [op.symbol, op.precedence]));
   let bracketDepth = 0;
   let i = operatorIndex - 1;
 
@@ -449,11 +425,9 @@ function findRightOperandBoundary(
   operatorIndex: number,
   operators: CustomOperatorExtension[],
   currentPrecedence: number,
-  associativity: "left" | "right",
+  associativity: "left" | "right"
 ): number {
-  const operatorPrecedences = new Map(
-    operators.map((op) => [op.symbol, op.precedence]),
-  );
+  const operatorPrecedences = new Map(operators.map((op) => [op.symbol, op.precedence]));
   let bracketDepth = 0;
   let i = operatorIndex + 1;
   let lastValidIndex = operatorIndex;
@@ -552,10 +526,7 @@ function getEnabledExtensions(options: PreprocessOptions): AnyExtension[] {
  * Replacements must be sorted by start position (ascending) to avoid issues
  * with overlapping or out-of-order modifications.
  */
-function applyReplacementsToMagicString(
-  s: MagicString,
-  replacements: Replacement[],
-): void {
+function applyReplacementsToMagicString(s: MagicString, replacements: Replacement[]): void {
   // Sort by start position ascending - MagicString handles position tracking
   const sorted = [...replacements].sort((a, b) => a.start - b.start);
 

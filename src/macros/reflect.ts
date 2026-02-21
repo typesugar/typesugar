@@ -28,19 +28,11 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-} from "../core/registry.js";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext, AttributeTarget } from "../core/types.js";
 
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-const dummySource = ts.createSourceFile(
-  "__dummy__.ts",
-  "",
-  ts.ScriptTarget.Latest,
-);
+const dummySource = ts.createSourceFile("__dummy__.ts", "", ts.ScriptTarget.Latest);
 
 /**
  * Safely get the text of a node, handling synthetic nodes that lack source
@@ -122,7 +114,7 @@ export const reflectAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     // Extract type information directly from the type checker
     const typeInfo = extractTypeInfo(ctx, target);
@@ -144,10 +136,7 @@ export const reflectAttribute = defineAttributeMacro({
 /**
  * Extract type information from a declaration
  */
-function extractTypeInfo(
-  ctx: MacroContext,
-  node: ts.Declaration,
-): TypeInfo | null {
+function extractTypeInfo(ctx: MacroContext, node: ts.Declaration): TypeInfo | null {
   if (ts.isInterfaceDeclaration(node)) {
     return extractInterfaceInfo(ctx, node);
   }
@@ -163,10 +152,7 @@ function extractTypeInfo(
   return null;
 }
 
-function extractInterfaceInfo(
-  ctx: MacroContext,
-  node: ts.InterfaceDeclaration,
-): TypeInfo {
+function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration): TypeInfo {
   let type: ts.Type;
   let properties: ts.Symbol[];
   try {
@@ -187,10 +173,7 @@ function extractInterfaceInfo(
     const decl = decls?.[0];
     let propTypeStr = "unknown";
     try {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        decl || node,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl || node);
       propTypeStr = ctx.typeChecker.typeToString(propType);
     } catch {
       // Fall back to "unknown" for unresolvable types
@@ -202,9 +185,7 @@ function extractInterfaceInfo(
       optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
       readonly:
         decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
-          ? (decl.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
-            ) ?? false)
+          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
           : false,
     };
   });
@@ -215,10 +196,8 @@ function extractInterfaceInfo(
       ?.filter((hc) => hc.token === ts.SyntaxKind.ExtendsKeyword)
       .flatMap((hc) =>
         hc.types.map((t) =>
-          ts.isIdentifier(t.expression)
-            ? t.expression.text
-            : safeGetText(t.expression),
-        ),
+          ts.isIdentifier(t.expression) ? t.expression.text : safeGetText(t.expression)
+        )
       ) ?? [];
 
   return {
@@ -230,10 +209,7 @@ function extractInterfaceInfo(
   };
 }
 
-function extractClassInfo(
-  ctx: MacroContext,
-  node: ts.ClassDeclaration,
-): TypeInfo {
+function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInfo {
   let type: ts.Type;
   let properties: ts.Symbol[];
   try {
@@ -257,10 +233,7 @@ function extractClassInfo(
     const decl = decls?.[0];
     let typeStr = "unknown";
     try {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        decl || node,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl || node);
       typeStr = ctx.typeChecker.typeToString(propType);
     } catch {
       // Fall back to "unknown" for unresolvable types
@@ -279,12 +252,8 @@ function extractClassInfo(
         name: prop.name,
         parameters: params,
         returnType: decl.type ? safeGetText(decl.type) : "void",
-        isAsync: !!decl.modifiers?.some(
-          (m) => m.kind === ts.SyntaxKind.AsyncKeyword,
-        ),
-        isStatic: !!decl.modifiers?.some(
-          (m) => m.kind === ts.SyntaxKind.StaticKeyword,
-        ),
+        isAsync: !!decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+        isStatic: !!decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword),
       });
     } else {
       fields.push({
@@ -293,9 +262,7 @@ function extractClassInfo(
         optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
         readonly:
           decl && ts.isPropertyDeclaration(decl)
-            ? (decl.modifiers?.some(
-                (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
-              ) ?? false)
+            ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
             : false,
       });
     }
@@ -312,10 +279,7 @@ function extractClassInfo(
   };
 }
 
-function extractTypeAliasInfo(
-  ctx: MacroContext,
-  node: ts.TypeAliasDeclaration,
-): TypeInfo {
+function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration): TypeInfo {
   let type: ts.Type;
   let typeString: string;
   try {
@@ -392,7 +356,7 @@ function extractTypeAliasInfo(
 function generateTypeInfoDeclaration(
   ctx: MacroContext,
   name: string,
-  info: TypeInfo,
+  info: TypeInfo
 ): ts.Statement {
   const factory = ctx.factory;
 
@@ -400,46 +364,34 @@ function generateTypeInfoDeclaration(
     info.fields?.map((f) =>
       factory.createObjectLiteralExpression(
         [
-          factory.createPropertyAssignment(
-            "name",
-            factory.createStringLiteral(f.name),
-          ),
-          factory.createPropertyAssignment(
-            "type",
-            factory.createStringLiteral(f.type),
-          ),
+          factory.createPropertyAssignment("name", factory.createStringLiteral(f.name)),
+          factory.createPropertyAssignment("type", factory.createStringLiteral(f.type)),
           factory.createPropertyAssignment(
             "optional",
-            f.optional ? factory.createTrue() : factory.createFalse(),
+            f.optional ? factory.createTrue() : factory.createFalse()
           ),
           factory.createPropertyAssignment(
             "readonly",
-            f.readonly ? factory.createTrue() : factory.createFalse(),
+            f.readonly ? factory.createTrue() : factory.createFalse()
           ),
         ],
-        true,
-      ),
+        true
+      )
     ) ?? [];
 
   const methodsArray =
     info.methods?.map((m) =>
       factory.createObjectLiteralExpression(
         [
-          factory.createPropertyAssignment(
-            "name",
-            factory.createStringLiteral(m.name),
-          ),
-          factory.createPropertyAssignment(
-            "returnType",
-            factory.createStringLiteral(m.returnType),
-          ),
+          factory.createPropertyAssignment("name", factory.createStringLiteral(m.name)),
+          factory.createPropertyAssignment("returnType", factory.createStringLiteral(m.returnType)),
           factory.createPropertyAssignment(
             "isAsync",
-            m.isAsync ? factory.createTrue() : factory.createFalse(),
+            m.isAsync ? factory.createTrue() : factory.createFalse()
           ),
           factory.createPropertyAssignment(
             "isStatic",
-            m.isStatic ? factory.createTrue() : factory.createFalse(),
+            m.isStatic ? factory.createTrue() : factory.createFalse()
           ),
           factory.createPropertyAssignment(
             "parameters",
@@ -447,65 +399,51 @@ function generateTypeInfoDeclaration(
               m.parameters.map((p) =>
                 factory.createObjectLiteralExpression(
                   [
-                    factory.createPropertyAssignment(
-                      "name",
-                      factory.createStringLiteral(p.name),
-                    ),
-                    factory.createPropertyAssignment(
-                      "type",
-                      factory.createStringLiteral(p.type),
-                    ),
+                    factory.createPropertyAssignment("name", factory.createStringLiteral(p.name)),
+                    factory.createPropertyAssignment("type", factory.createStringLiteral(p.type)),
                     factory.createPropertyAssignment(
                       "optional",
-                      p.optional ? factory.createTrue() : factory.createFalse(),
+                      p.optional ? factory.createTrue() : factory.createFalse()
                     ),
                   ],
-                  true,
-                ),
-              ),
-            ),
+                  true
+                )
+              )
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     ) ?? [];
 
   const infoObj = factory.createObjectLiteralExpression(
     [
-      factory.createPropertyAssignment(
-        "name",
-        factory.createStringLiteral(info.name),
-      ),
-      factory.createPropertyAssignment(
-        "kind",
-        factory.createStringLiteral(info.kind),
-      ),
+      factory.createPropertyAssignment("name", factory.createStringLiteral(info.name)),
+      factory.createPropertyAssignment("kind", factory.createStringLiteral(info.kind)),
       factory.createPropertyAssignment(
         "fields",
-        factory.createArrayLiteralExpression(fieldsArray, true),
+        factory.createArrayLiteralExpression(fieldsArray, true)
       ),
       factory.createPropertyAssignment(
         "methods",
-        factory.createArrayLiteralExpression(methodsArray, true),
+        factory.createArrayLiteralExpression(methodsArray, true)
       ),
       factory.createPropertyAssignment(
         "typeParameters",
         factory.createArrayLiteralExpression(
-          (info.typeParameters ?? []).map((tp) =>
-            factory.createStringLiteral(tp),
-          ),
-        ),
+          (info.typeParameters ?? []).map((tp) => factory.createStringLiteral(tp))
+        )
       ),
     ],
-    true,
+    true
   );
 
   return factory.createVariableStatement(
     [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
     factory.createVariableDeclarationList(
       [factory.createVariableDeclaration(name, undefined, undefined, infoObj)],
-      ts.NodeFlags.Const,
-    ),
+      ts.NodeFlags.Const
+    )
   );
 }
 
@@ -521,7 +459,7 @@ export const typeInfoMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -555,60 +493,46 @@ export const typeInfoMacro = defineExpressionMacro({
     }
 
     const fieldsArray = properties.map((prop) => {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        callExpr,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
       const decls = prop.getDeclarations();
       const decl = decls?.[0];
       const isReadonly =
         decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
-          ? (decl.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
-            ) ?? false)
+          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
           : false;
 
       return factory.createObjectLiteralExpression(
         [
-          factory.createPropertyAssignment(
-            "name",
-            factory.createStringLiteral(prop.name),
-          ),
+          factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
           factory.createPropertyAssignment(
             "type",
-            factory.createStringLiteral(ctx.typeChecker.typeToString(propType)),
+            factory.createStringLiteral(ctx.typeChecker.typeToString(propType))
           ),
           factory.createPropertyAssignment(
             "optional",
             (prop.flags & ts.SymbolFlags.Optional) !== 0
               ? factory.createTrue()
-              : factory.createFalse(),
+              : factory.createFalse()
           ),
           factory.createPropertyAssignment(
             "readonly",
-            isReadonly ? factory.createTrue() : factory.createFalse(),
+            isReadonly ? factory.createTrue() : factory.createFalse()
           ),
         ],
-        true,
+        true
       );
     });
 
     return factory.createObjectLiteralExpression(
       [
-        factory.createPropertyAssignment(
-          "name",
-          factory.createStringLiteral(typeName),
-        ),
-        factory.createPropertyAssignment(
-          "kind",
-          factory.createStringLiteral(kind),
-        ),
+        factory.createPropertyAssignment("name", factory.createStringLiteral(typeName)),
+        factory.createPropertyAssignment("kind", factory.createStringLiteral(kind)),
         factory.createPropertyAssignment(
           "fields",
-          factory.createArrayLiteralExpression(fieldsArray, true),
+          factory.createArrayLiteralExpression(fieldsArray, true)
         ),
       ],
-      true,
+      true
     );
   },
 });
@@ -625,16 +549,13 @@ export const fieldNamesMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
 
     if (!typeArgs || typeArgs.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "fieldNames requires exactly one type argument",
-      );
+      ctx.reportError(callExpr, "fieldNames requires exactly one type argument");
       return callExpr;
     }
 
@@ -642,7 +563,7 @@ export const fieldNamesMacro = defineExpressionMacro({
     const properties = ctx.typeChecker.getPropertiesOfType(type);
 
     return factory.createArrayLiteralExpression(
-      properties.map((prop) => factory.createStringLiteral(prop.name)),
+      properties.map((prop) => factory.createStringLiteral(prop.name))
     );
   },
 });
@@ -659,7 +580,7 @@ export const validatorMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -677,10 +598,7 @@ export const validatorMacro = defineExpressionMacro({
     const checks: ts.Statement[] = [];
 
     for (const prop of properties) {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        callExpr,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
       const propTypeStr = ctx.typeChecker.typeToString(propType);
       const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
 
@@ -690,35 +608,26 @@ export const validatorMacro = defineExpressionMacro({
       if (propTypeStr === "string") {
         checkExpr = factory.createBinaryExpression(
           factory.createTypeOfExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("value"),
-              prop.name,
-            ),
+            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name)
           ),
           factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral("string"),
+          factory.createStringLiteral("string")
         );
       } else if (propTypeStr === "number") {
         checkExpr = factory.createBinaryExpression(
           factory.createTypeOfExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("value"),
-              prop.name,
-            ),
+            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name)
           ),
           factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral("number"),
+          factory.createStringLiteral("number")
         );
       } else if (propTypeStr === "boolean") {
         checkExpr = factory.createBinaryExpression(
           factory.createTypeOfExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("value"),
-              prop.name,
-            ),
+            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name)
           ),
           factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral("boolean"),
+          factory.createStringLiteral("boolean")
         );
       } else {
         // Skip complex types for now
@@ -729,15 +638,12 @@ export const validatorMacro = defineExpressionMacro({
       if (isOptional) {
         checkExpr = factory.createBinaryExpression(
           factory.createBinaryExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("value"),
-              prop.name,
-            ),
+            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name),
             factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-            factory.createIdentifier("undefined"),
+            factory.createIdentifier("undefined")
           ),
           factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-          checkExpr,
+          checkExpr
         );
       }
 
@@ -747,20 +653,17 @@ export const validatorMacro = defineExpressionMacro({
           factory.createBlock([
             factory.createExpressionStatement(
               factory.createCallExpression(
-                factory.createPropertyAccessExpression(
-                  factory.createIdentifier("errors"),
-                  "push",
-                ),
+                factory.createPropertyAccessExpression(factory.createIdentifier("errors"), "push"),
                 undefined,
                 [
                   factory.createStringLiteral(
-                    `Invalid type for field '${prop.name}': expected ${propTypeStr}`,
+                    `Invalid type for field '${prop.name}': expected ${propTypeStr}`
                   ),
-                ],
-              ),
+                ]
+              )
             ),
-          ]),
-        ),
+          ])
+        )
       );
     }
 
@@ -774,7 +677,7 @@ export const validatorMacro = defineExpressionMacro({
           undefined,
           factory.createIdentifier("value"),
           undefined,
-          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
         ),
       ],
       factory.createTypeReferenceNode("ValidationResult", [typeArgs[0]]),
@@ -790,52 +693,45 @@ export const validatorMacro = defineExpressionMacro({
                   "errors",
                   undefined,
                   factory.createArrayTypeNode(
-                    factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+                    factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword)
                   ),
-                  factory.createArrayLiteralExpression([]),
+                  factory.createArrayLiteralExpression([])
                 ),
               ],
-              ts.NodeFlags.Const,
-            ),
+              ts.NodeFlags.Const
+            )
           ),
           // Type check: if (typeof value !== "object" || value === null)
           factory.createIfStatement(
             factory.createBinaryExpression(
               factory.createBinaryExpression(
-                factory.createTypeOfExpression(
-                  factory.createIdentifier("value"),
-                ),
+                factory.createTypeOfExpression(factory.createIdentifier("value")),
                 factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-                factory.createStringLiteral("object"),
+                factory.createStringLiteral("object")
               ),
               factory.createToken(ts.SyntaxKind.BarBarToken),
               factory.createBinaryExpression(
                 factory.createIdentifier("value"),
                 factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-                factory.createNull(),
-              ),
+                factory.createNull()
+              )
             ),
             factory.createBlock([
               factory.createReturnStatement(
                 factory.createObjectLiteralExpression(
                   [
-                    factory.createPropertyAssignment(
-                      "success",
-                      factory.createFalse(),
-                    ),
+                    factory.createPropertyAssignment("success", factory.createFalse()),
                     factory.createPropertyAssignment(
                       "errors",
                       factory.createArrayLiteralExpression([
-                        factory.createStringLiteral(
-                          `Expected object, got ${typeof null}`,
-                        ),
-                      ]),
+                        factory.createStringLiteral(`Expected object, got ${typeof null}`),
+                      ])
                     ),
                   ],
-                  true,
-                ),
+                  true
+                )
               ),
-            ]),
+            ])
           ),
           ...checks,
           // Return result
@@ -844,47 +740,35 @@ export const validatorMacro = defineExpressionMacro({
               factory.createBinaryExpression(
                 factory.createPropertyAccessExpression(
                   factory.createIdentifier("errors"),
-                  "length",
+                  "length"
                 ),
                 factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-                factory.createNumericLiteral(0),
+                factory.createNumericLiteral(0)
               ),
               factory.createToken(ts.SyntaxKind.QuestionToken),
               factory.createObjectLiteralExpression(
                 [
-                  factory.createPropertyAssignment(
-                    "success",
-                    factory.createTrue(),
-                  ),
+                  factory.createPropertyAssignment("success", factory.createTrue()),
                   factory.createPropertyAssignment(
                     "value",
-                    factory.createAsExpression(
-                      factory.createIdentifier("value"),
-                      typeArgs[0],
-                    ),
+                    factory.createAsExpression(factory.createIdentifier("value"), typeArgs[0])
                   ),
                 ],
-                true,
+                true
               ),
               factory.createToken(ts.SyntaxKind.ColonToken),
               factory.createObjectLiteralExpression(
                 [
-                  factory.createPropertyAssignment(
-                    "success",
-                    factory.createFalse(),
-                  ),
-                  factory.createPropertyAssignment(
-                    "errors",
-                    factory.createIdentifier("errors"),
-                  ),
+                  factory.createPropertyAssignment("success", factory.createFalse()),
+                  factory.createPropertyAssignment("errors", factory.createIdentifier("errors")),
                 ],
-                true,
-              ),
-            ),
+                true
+              )
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
   },
 });

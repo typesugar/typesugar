@@ -18,7 +18,7 @@ function createTestContext(): MacroContextImpl {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -30,9 +30,7 @@ function createTestContext(): MacroContextImpl {
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "test.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   const transformContext: ts.TransformationContext = {
@@ -233,11 +231,9 @@ describe("config.evaluate", () => {
     });
     expect(config.evaluate("debug && contracts.mode == 'full'")).toBe(true);
     expect(config.evaluate("!debug || features.experimental")).toBe(true);
-    expect(
-      config.evaluate(
-        "(debug && features.experimental) || contracts.mode == 'none'",
-      ),
-    ).toBe(true);
+    expect(config.evaluate("(debug && features.experimental) || contracts.mode == 'none'")).toBe(
+      true
+    );
   });
 });
 
@@ -293,7 +289,7 @@ describe("config.when", () => {
       () => {
         elseCalled = true;
         return "else";
-      },
+      }
     );
     expect(thenCalled).toBe(false);
     expect(elseCalled).toBe(true);
@@ -312,9 +308,7 @@ describe("config.when", () => {
 
   it("should work with complex conditions", () => {
     config.set({ debug: true, contracts: { mode: "full" } });
-    expect(
-      config.when("debug && contracts.mode == 'full'", "both", "not"),
-    ).toBe("both");
+    expect(config.when("debug && contracts.mode == 'full'", "both", "not")).toBe("both");
   });
 });
 

@@ -46,13 +46,10 @@ export const contractAttribute = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target) && !ts.isMethodDeclaration(target)) {
-      ctx.reportError(
-        target,
-        "@contract can only be applied to functions and methods",
-      );
+      ctx.reportError(target, "@contract can only be applied to functions and methods");
       return target;
     }
 
@@ -74,7 +71,7 @@ export const contractAttribute = defineAttributeMacro({
         condition,
         "precondition",
         fn,
-        config.proveAtCompileTime,
+        config.proveAtCompileTime
       );
       if (check) preChecks.push(check);
     }
@@ -83,10 +80,7 @@ export const contractAttribute = defineAttributeMacro({
     for (const ensuresBlock of parsed.ensures) {
       for (const condition of ensuresBlock.conditions) {
         // Extract old() captures from the condition
-        const { rewritten, captures } = extractOldCaptures(
-          ctx,
-          condition.expression,
-        );
+        const { rewritten, captures } = extractOldCaptures(ctx, condition.expression);
         allOldCaptures.push(...generateOldCaptureStatements(ctx, captures));
 
         // Generate the post-check with rewritten expression (old replaced)
@@ -99,7 +93,7 @@ export const contractAttribute = defineAttributeMacro({
           rewrittenCondition,
           "postcondition",
           fn,
-          config.proveAtCompileTime,
+          config.proveAtCompileTime
         );
         if (check) postChecks.push(check);
       }
@@ -134,21 +128,21 @@ export const contractAttribute = defineAttributeMacro({
                       [],
                       undefined,
                       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-                      factory.createBlock(parsed.body, true),
-                    ),
+                      factory.createBlock(parsed.body, true)
+                    )
                   ),
                   undefined,
-                  [],
-                ),
+                  []
+                )
               ),
             ],
-            ts.NodeFlags.Const,
-          ),
+            ts.NodeFlags.Const
+          )
         );
 
         // Replace `result` references in postconditions with the result variable
         const resultPostChecks = postChecks.map((check) =>
-          replaceResultReferences(ctx, check, resultVar, parsed.ensures),
+          replaceResultReferences(ctx, check, resultVar, parsed.ensures)
         );
 
         newBodyStatements = [
@@ -160,12 +154,7 @@ export const contractAttribute = defineAttributeMacro({
         ];
       } else {
         // No return — just append post-checks after body
-        newBodyStatements = [
-          ...preChecks,
-          ...allOldCaptures,
-          ...parsed.body,
-          ...postChecks,
-        ];
+        newBodyStatements = [...preChecks, ...allOldCaptures, ...parsed.body, ...postChecks];
       }
     } else {
       // No postconditions — just prepend prechecks
@@ -179,9 +168,7 @@ export const contractAttribute = defineAttributeMacro({
     const decorators = ts.canHaveDecorators(target)
       ? (ts.getDecorators(target) ?? []).filter((d) => d !== _decorator)
       : [];
-    const modifiers = ts.canHaveModifiers(target)
-      ? (ts.getModifiers(target) ?? [])
-      : [];
+    const modifiers = ts.canHaveModifiers(target) ? (ts.getModifiers(target) ?? []) : [];
     const allModifiers = [...decorators, ...modifiers];
 
     if (ts.isFunctionDeclaration(fn)) {
@@ -193,7 +180,7 @@ export const contractAttribute = defineAttributeMacro({
         fn.typeParameters,
         fn.parameters,
         fn.type,
-        newBody,
+        newBody
       );
     }
 
@@ -207,7 +194,7 @@ export const contractAttribute = defineAttributeMacro({
         fn.typeParameters,
         fn.parameters,
         fn.type,
-        newBody,
+        newBody
       );
     }
 
@@ -228,7 +215,7 @@ function generateConditionCheck(
   condition: ContractCondition,
   type: "precondition" | "postcondition",
   fn: ts.FunctionDeclaration | ts.MethodDeclaration,
-  proveAtCompileTime: boolean,
+  proveAtCompileTime: boolean
 ): ts.Statement | undefined {
   if (!shouldEmitCheck(type)) return undefined;
 
@@ -245,31 +232,28 @@ function generateConditionCheck(
     if (result.kind === "boolean" && result.value === false) {
       ctx.reportError(
         condition.expression,
-        `${type === "precondition" ? "Precondition" : "Postcondition"} is statically false: ${condition.sourceText}`,
+        `${type === "precondition" ? "Precondition" : "Postcondition"} is statically false: ${condition.sourceText}`
       );
     }
   }
 
   const label = type === "precondition" ? "Precondition" : "Postcondition";
-  const message =
-    condition.message ?? `${label} failed: ${condition.sourceText}`;
+  const message = condition.message ?? `${label} failed: ${condition.sourceText}`;
 
   // Generate: if (!(condition)) throw new Error(message);
   const factory = ctx.factory;
   return factory.createIfStatement(
     factory.createPrefixUnaryExpression(
       ts.SyntaxKind.ExclamationToken,
-      factory.createParenthesizedExpression(condition.expression),
+      factory.createParenthesizedExpression(condition.expression)
     ),
     factory.createBlock([
       factory.createThrowStatement(
-        factory.createNewExpression(
-          factory.createIdentifier("Error"),
-          undefined,
-          [factory.createStringLiteral(message)],
-        ),
+        factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+          factory.createStringLiteral(message),
+        ])
       ),
-    ]),
+    ])
   );
 }
 
@@ -305,7 +289,7 @@ function replaceResultReferences(
   ctx: MacroContext,
   statement: ts.Statement,
   resultVar: ts.Identifier,
-  ensuresBlocks: Array<{ resultParam?: string }>,
+  ensuresBlocks: Array<{ resultParam?: string }>
 ): ts.Statement {
   const resultParams = ensuresBlocks
     .map((b) => b.resultParam)

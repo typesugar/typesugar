@@ -96,7 +96,7 @@ import { invariant } from "@typesugar/contracts";
 class Range {
   constructor(
     public min: number,
-    public max: number,
+    public max: number
   ) {}
 
   expand(delta: number): void {

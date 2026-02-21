@@ -105,8 +105,4 @@ export {
 import "../macros/laws.js";
 
 // Export macro components
-export {
-  lawsAttribute,
-  laws,
-  type LawsDecoratorOptions,
-} from "../macros/laws.js";
+export { lawsAttribute, laws, type LawsDecoratorOptions } from "../macros/laws.js";

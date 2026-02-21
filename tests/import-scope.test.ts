@@ -147,9 +147,7 @@ describe("Import-scoped macro resolution - Registry", () => {
 
       expect(registry.isImportScoped("scopedExpr", "expression")).toBe(true);
       expect(registry.isImportScoped("scopedAttr", "attribute")).toBe(true);
-      expect(registry.isImportScoped("scopedTag", "tagged-template")).toBe(
-        true,
-      );
+      expect(registry.isImportScoped("scopedTag", "tagged-template")).toBe(true);
       expect(registry.isImportScoped("ScopedType", "type")).toBe(true);
     });
   });
@@ -167,9 +165,7 @@ describe("Import-scoped macro resolution - Registry", () => {
 
       (registry as any).clear();
 
-      expect(
-        registry.getByModuleExport("typemacro", "comptime"),
-      ).toBeUndefined();
+      expect(registry.getByModuleExport("typemacro", "comptime")).toBeUndefined();
       expect(registry.getExpression("comptime")).toBeUndefined();
     });
   });
@@ -195,12 +191,8 @@ describe("Import-scoped macro resolution - Registry", () => {
       expect(registry.getExpression("unscopedMacro")).toBeDefined();
 
       // Only scoped one should be findable by module
-      expect(
-        registry.getByModuleExport("typemacro", "scopedMacro"),
-      ).toBeDefined();
-      expect(
-        registry.getByModuleExport("typemacro", "unscopedMacro"),
-      ).toBeUndefined();
+      expect(registry.getByModuleExport("typemacro", "scopedMacro")).toBeDefined();
+      expect(registry.getByModuleExport("typemacro", "unscopedMacro")).toBeUndefined();
     });
   });
 
@@ -222,15 +214,11 @@ describe("Import-scoped macro resolution - Registry", () => {
       registry.register(unitsMacro);
 
       expect(registry.getByModuleExport("typemacro", "comptime")).toBeDefined();
-      expect(
-        registry.getByModuleExport("typemacro/units", "units"),
-      ).toBeDefined();
+      expect(registry.getByModuleExport("typemacro/units", "units")).toBeDefined();
 
       // Cross-module lookups should fail
       expect(registry.getByModuleExport("typemacro", "units")).toBeUndefined();
-      expect(
-        registry.getByModuleExport("typemacro/units", "comptime"),
-      ).toBeUndefined();
+      expect(registry.getByModuleExport("typemacro/units", "comptime")).toBeUndefined();
     });
   });
 });
@@ -242,14 +230,11 @@ describe("Built-in macros have module field", () => {
   it("should have module set on all core expression macros", async () => {
     // Import the macros to trigger registration
     const { comptimeMacro } = await import("../src/macros/comptime.js");
-    const { opsMacro, pipeMacro, composeMacro } =
-      await import("../src/macros/operators.js");
+    const { opsMacro, pipeMacro, composeMacro } = await import("../src/macros/operators.js");
     const { typeInfoMacro, fieldNamesMacro, validatorMacro } =
       await import("../src/macros/reflect.js");
-    const { summonMacro, extendMacro } =
-      await import("../src/macros/typeclass.js");
-    const { specializeMacro, specializeInlineMacro } =
-      await import("../src/macros/specialize.js");
+    const { summonMacro, extendMacro } = await import("../src/macros/typeclass.js");
+    const { specializeMacro, specializeInlineMacro } = await import("../src/macros/specialize.js");
 
     for (const macro of [
       comptimeMacro,
@@ -264,9 +249,7 @@ describe("Built-in macros have module field", () => {
       specializeMacro,
       specializeInlineMacro,
     ]) {
-      expect(macro.module, `${macro.name} should have module set`).toBe(
-        "typemacro",
-      );
+      expect(macro.module, `${macro.name} should have module set`).toBe("typemacro");
     }
   });
 
@@ -283,9 +266,7 @@ describe("Built-in macros have module field", () => {
       instanceAttribute,
       derivingAttribute,
     ]) {
-      expect(macro.module, `${macro.name} should have module set`).toBe(
-        "typemacro",
-      );
+      expect(macro.module, `${macro.name} should have module set`).toBe("typemacro");
     }
   });
 
@@ -311,10 +292,7 @@ describe("Built-in macros have module field", () => {
       JsonDerive,
       BuilderDerive,
     ]) {
-      expect(
-        macro.module,
-        `${macro.name} should NOT have module set`,
-      ).toBeUndefined();
+      expect(macro.module, `${macro.name} should NOT have module set`).toBeUndefined();
     }
   });
 });

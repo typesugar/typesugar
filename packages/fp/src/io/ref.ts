@@ -117,7 +117,7 @@ export class Ref<A> {
         }
         return None as Option<[void, A]>;
       }),
-      (opt) => opt !== null,
+      (opt) => opt !== null
     );
   }
 
@@ -291,7 +291,7 @@ export class AtomicBoolean {
 export class Semaphore {
   private constructor(
     private readonly permits: Ref<number>,
-    private readonly maxPermits: number,
+    private readonly maxPermits: number
   ) {}
 
   /**
@@ -321,7 +321,7 @@ export class Semaphore {
     return IO.bracket(
       this.acquire(),
       () => fa,
-      () => this.release(),
+      () => this.release()
     );
   }
 
@@ -401,9 +401,7 @@ export class Queue<A> {
    * Peek at the head (doesn't remove)
    */
   peek(): IO<Option<A>> {
-    return IO.map(this.ref.get(), (arr) =>
-      arr.length > 0 ? Some(arr[0]) : None,
-    );
+    return IO.map(this.ref.get(), (arr) => (arr.length > 0 ? Some(arr[0]) : None));
   }
 
   /**

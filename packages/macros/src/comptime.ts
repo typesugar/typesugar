@@ -19,12 +19,7 @@
 
 import * as ts from "typescript";
 import * as vm from "node:vm";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9501,
-  TS9502,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, TS9501, TS9502 } from "@typesugar/core";
 import { MacroContext, ComptimeValue } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
 import { jsValueToExpression } from "@typesugar/core";
@@ -71,7 +66,7 @@ export const comptimeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.diagnostic(TS9502).at(callExpr).emit();
@@ -106,7 +101,7 @@ export const comptimeMacro = defineExpressionMacro({
 function evaluateViaVm(
   ctx: MacroContextImpl,
   node: ts.Node,
-  callExpr: ts.CallExpression,
+  callExpr: ts.CallExpression
 ): ts.Expression {
   const sourceText = node.getText ? node.getText() : nodeToString(node, ctx);
 
@@ -115,15 +110,10 @@ function evaluateViaVm(
   const codeToEval = isFunction ? `(${sourceText})()` : `(${sourceText})`;
 
   // Transpile TypeScript to JavaScript (reuse shared compiler options)
-  const { outputText, diagnostics } = ts.transpileModule(
-    codeToEval,
-    TRANSPILE_OPTIONS,
-  );
+  const { outputText, diagnostics } = ts.transpileModule(codeToEval, TRANSPILE_OPTIONS);
 
   if (diagnostics && diagnostics.length > 0) {
-    const messages = diagnostics.map((d) =>
-      ts.flattenDiagnosticMessageText(d.messageText, "\n"),
-    );
+    const messages = diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
     ctx
       .diagnostic(TS9501)
       .at(callExpr)
@@ -175,7 +165,7 @@ function formatComptimeError(
   error: unknown,
   sourceText: string,
   ctx: MacroContextImpl,
-  callExpr: ts.CallExpression,
+  callExpr: ts.CallExpression
 ): string {
   const rawMessage = error instanceof Error ? error.message : String(error);
 
@@ -188,9 +178,7 @@ function formatComptimeError(
   // Truncate long source snippets
   const maxSnippetLen = 200;
   const snippet =
-    sourceText.length > maxSnippetLen
-      ? sourceText.slice(0, maxSnippetLen) + "..."
-      : sourceText;
+    sourceText.length > maxSnippetLen ? sourceText.slice(0, maxSnippetLen) + "..." : sourceText;
 
   // Detect common error patterns and provide helpful messages
   let hint = "";
@@ -198,10 +186,7 @@ function formatComptimeError(
     hint =
       `\n  Hint: The expression took longer than ${COMPTIME_TIMEOUT_MS}ms to evaluate. ` +
       `Check for infinite loops or very expensive computations.`;
-  } else if (
-    rawMessage.includes("is not defined") ||
-    rawMessage.includes("is not a function")
-  ) {
+  } else if (rawMessage.includes("is not defined") || rawMessage.includes("is not a function")) {
     const match = rawMessage.match(/(\w+) is not (defined|a function)/);
     const name = match?.[1] ?? "unknown";
     hint =

@@ -81,9 +81,7 @@ interface FlatMap<A, B> {
  */
 interface Async<A> {
   readonly _tag: "Async";
-  readonly register: (
-    cb: (result: Either<Error, A>) => void,
-  ) => void | (() => void);
+  readonly register: (cb: (result: Either<Error, A>) => void) => void | (() => void);
 }
 
 /**
@@ -167,9 +165,7 @@ export const IO = {
   /**
    * Create an IO from a callback-based async computation
    */
-  async<A>(
-    register: (cb: (result: Either<Error, A>) => void) => void | (() => void),
-  ): IO<A> {
+  async<A>(register: (cb: (result: Either<Error, A>) => void) => void | (() => void)): IO<A> {
     return { _tag: "Async", register };
   },
 
@@ -277,15 +273,8 @@ export const IO = {
   /**
    * Map3 - combine three IOs
    */
-  map3<A, B, C, D>(
-    fa: IO<A>,
-    fb: IO<B>,
-    fc: IO<C>,
-    f: (a: A, b: B, c: C) => D,
-  ): IO<D> {
-    return IO.flatMap(fa, (a) =>
-      IO.flatMap(fb, (b) => IO.map(fc, (c) => f(a, b, c))),
-    );
+  map3<A, B, C, D>(fa: IO<A>, fb: IO<B>, fc: IO<C>, f: (a: A, b: B, c: C) => D): IO<D> {
+    return IO.flatMap(fa, (a) => IO.flatMap(fb, (b) => IO.map(fc, (c) => f(a, b, c))));
   },
 
   /**
@@ -337,7 +326,7 @@ export const IO = {
     return IO.tap(fa, (a) =>
       IO.delay(() => {
         f(a);
-      }),
+      })
     );
   },
 
@@ -346,9 +335,8 @@ export const IO = {
    */
   traverse<A, B>(arr: A[], f: (a: A) => IO<B>): IO<B[]> {
     return arr.reduce(
-      (acc: IO<B[]>, a: A) =>
-        IO.flatMap(acc, (bs) => IO.map(f(a), (b) => [...bs, b])),
-      IO.pure([]),
+      (acc: IO<B[]>, a: A) => IO.flatMap(acc, (bs) => IO.map(f(a), (b) => [...bs, b])),
+      IO.pure([])
     );
   },
 
@@ -378,10 +366,7 @@ export const IO = {
    */
   race<A, B>(fa: IO<A>, fb: IO<B>): IO<Either<A, B>> {
     return IO.fromPromise(() =>
-      Promise.race([
-        runIO(fa).then((a) => Left<A, B>(a)),
-        runIO(fb).then((b) => Right<A, B>(b)),
-      ]),
+      Promise.race([runIO(fa).then((a) => Left<A, B>(a)), runIO(fb).then((b) => Right<A, B>(b))])
     );
   },
 
@@ -390,7 +375,7 @@ export const IO = {
    */
   both<A, B>(fa: IO<A>, fb: IO<B>): IO<[A, B]> {
     return IO.fromPromise(() =>
-      Promise.all([runIO(fa), runIO(fb)]).then(([a, b]) => [a, b] as [A, B]),
+      Promise.all([runIO(fa), runIO(fb)]).then(([a, b]) => [a, b] as [A, B])
     );
   },
 
@@ -399,9 +384,7 @@ export const IO = {
    */
   replicateA<A>(n: number, fa: IO<A>): IO<A[]> {
     if (n <= 0) return IO.pure([]);
-    return IO.flatMap(fa, (a) =>
-      IO.map(IO.replicateA(n - 1, fa), (as) => [a, ...as]),
-    );
+    return IO.flatMap(fa, (a) => IO.map(IO.replicateA(n - 1, fa), (as) => [a, ...as]));
   },
 
   /**
@@ -426,7 +409,7 @@ export const IO = {
           return IO.unit;
         }
         return IO.untilM_(body, cond);
-      }),
+      })
     );
   },
 
@@ -454,11 +437,7 @@ export const IO = {
   /**
    * Bracket - resource safety pattern
    */
-  bracket<R, A>(
-    acquire: IO<R>,
-    use: (r: R) => IO<A>,
-    release: (r: R) => IO<void>,
-  ): IO<A> {
+  bracket<R, A>(acquire: IO<R>, use: (r: R) => IO<A>, release: (r: R) => IO<void>): IO<A> {
     return IO.flatMap(acquire, (r) =>
       IO.flatMap(
         IO.attempt(use(r)),
@@ -468,8 +447,8 @@ export const IO = {
               return IO.raiseError(result.left);
             }
             return IO.pure(result.right);
-          }),
-      ),
+          })
+      )
     );
   },
 
@@ -483,7 +462,7 @@ export const IO = {
           return IO.raiseError(result.left);
         }
         return IO.pure(result.right);
-      }),
+      })
     );
   },
 
@@ -493,9 +472,7 @@ export const IO = {
   onError<A>(fa: IO<A>, handler: (e: Error) => IO<void>): IO<A> {
     return IO.flatMap(IO.attempt(fa), (result) => {
       if (result._tag === "Left") {
-        return IO.flatMap(handler(result.left), () =>
-          IO.raiseError(result.left),
-        );
+        return IO.flatMap(handler(result.left), () => IO.raiseError(result.left));
       }
       return IO.pure(result.right);
     });
@@ -516,11 +493,7 @@ export const IO = {
   /**
    * RedeemWith - handle both with effectful functions
    */
-  redeemWith<A, B>(
-    fa: IO<A>,
-    recover: (e: Error) => IO<B>,
-    map: (a: A) => IO<B>,
-  ): IO<B> {
+  redeemWith<A, B>(fa: IO<A>, recover: (e: Error) => IO<B>, map: (a: A) => IO<B>): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
       if (result._tag === "Left") {
         return recover(result.left);
@@ -563,8 +536,7 @@ export const IO = {
   timeout<A>(fa: IO<A>, ms: number): IO<Option<A>> {
     return IO.map(
       IO.race(fa, IO.sleep(ms)),
-      (result): Option<A> =>
-        result._tag === "Left" ? Some(result.left) : None,
+      (result): Option<A> => (result._tag === "Left" ? Some(result.left) : None)
     );
   },
 
@@ -585,9 +557,7 @@ export const IO = {
         if (remaining <= 0) {
           return IO.raiseError(e);
         }
-        return IO.flatMap(IO.sleep(delay), () =>
-          attempt(remaining - 1, delay * 2),
-        );
+        return IO.flatMap(IO.sleep(delay), () => attempt(remaining - 1, delay * 2));
       });
     }
     return attempt(maxRetries, baseDelay);
@@ -648,10 +618,7 @@ export function runIO<A>(io: IO<A>): Promise<A> {
 /**
  * Run an IO with a callback
  */
-function runIOAsync<A>(
-  io: IO<A>,
-  cb: (result: Either<Error, A>) => void,
-): void {
+function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void {
   type Frame = (a: unknown) => IO<unknown>;
   const stack: Frame[] = [];
   let current: IO<unknown> = io;
@@ -722,11 +689,7 @@ function runIOAsync<A>(
                 }
               })
               .catch((error) => {
-                cb(
-                  Left(
-                    error instanceof Error ? error : new Error(String(error)),
-                  ),
-                );
+                cb(Left(error instanceof Error ? error : new Error(String(error))));
               });
             return; // Exit the loop, promise will resume
           }
@@ -820,9 +783,7 @@ export function runIOSync<A>(io: IO<A>): A {
 
       case "Async":
       case "FromPromise":
-        throw new Error(
-          "Cannot run async IO synchronously. Use runIO instead.",
-        );
+        throw new Error("Cannot run async IO synchronously. Use runIO instead.");
 
       case "HandleError": {
         const handler = current.handler;
@@ -889,14 +850,11 @@ export const IODo = {
    */
   bind<N extends string, A extends object, B>(
     name: Exclude<N, keyof A>,
-    f: (a: A) => IO<B>,
+    f: (a: A) => IO<B>
   ): (io: IO<A>) => IO<A & { readonly [K in N]: B }> {
     return (io) =>
       IO.flatMap(io, (a) =>
-        IO.map(
-          f(a),
-          (b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B },
-        ),
+        IO.map(f(a), (b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B })
       );
   },
 
@@ -905,13 +863,9 @@ export const IODo = {
    */
   let_<N extends string, A extends object, B>(
     name: Exclude<N, keyof A>,
-    f: (a: A) => B,
+    f: (a: A) => B
   ): (io: IO<A>) => IO<A & { readonly [K in N]: B }> {
-    return (io) =>
-      IO.map(
-        io,
-        (a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B },
-      );
+    return (io) => IO.map(io, (a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
   },
 };
 

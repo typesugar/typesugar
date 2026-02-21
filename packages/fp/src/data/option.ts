@@ -71,10 +71,7 @@ export function fromNullable<A>(value: A | null | undefined): Option<A> {
 /**
  * Create an Option from a predicate
  */
-export function fromPredicate<A>(
-  value: A,
-  predicate: (a: A) => boolean,
-): Option<A> {
+export function fromPredicate<A>(value: A, predicate: (a: A) => boolean): Option<A> {
   return predicate(value) ? value : null;
 }
 
@@ -142,41 +139,28 @@ export function map<A, B>(opt: Option<A>, f: (a: A) => B): Option<B> {
 /**
  * FlatMap over the Option value
  */
-export function flatMap<A, B>(
-  opt: Option<A>,
-  f: (a: A) => Option<B>,
-): Option<B> {
+export function flatMap<A, B>(opt: Option<A>, f: (a: A) => Option<B>): Option<B> {
   return opt !== null ? f(opt) : null;
 }
 
 /**
  * Apply a function in Option to a value in Option
  */
-export function ap<A, B>(
-  optF: Option<(a: A) => B>,
-  optA: Option<A>,
-): Option<B> {
+export function ap<A, B>(optF: Option<(a: A) => B>, optA: Option<A>): Option<B> {
   return optF !== null && optA !== null ? optF(optA) : null;
 }
 
 /**
  * Fold over Option - provide handlers for both cases
  */
-export function fold<A, B>(
-  opt: Option<A>,
-  onNone: () => B,
-  onSome: (a: A) => B,
-): B {
+export function fold<A, B>(opt: Option<A>, onNone: () => B, onSome: (a: A) => B): B {
   return opt !== null ? onSome(opt) : onNone();
 }
 
 /**
  * Match over Option (alias for fold with object syntax)
  */
-export function match<A, B>(
-  opt: Option<A>,
-  patterns: { None: () => B; Some: (a: A) => B },
-): B {
+export function match<A, B>(opt: Option<A>, patterns: { None: () => B; Some: (a: A) => B }): B {
   return opt !== null ? patterns.Some(opt) : patterns.None();
 }
 
@@ -205,50 +189,35 @@ export function getOrThrow<A>(opt: Option<A>, message?: string): A {
 /**
  * Return the first Some, or evaluate the fallback
  */
-export function orElse<A>(
-  opt: Option<A>,
-  fallback: () => Option<A>,
-): Option<A> {
+export function orElse<A>(opt: Option<A>, fallback: () => Option<A>): Option<A> {
   return opt !== null ? opt : fallback();
 }
 
 /**
  * Filter the Option value
  */
-export function filter<A>(
-  opt: Option<A>,
-  predicate: (a: A) => boolean,
-): Option<A> {
+export function filter<A>(opt: Option<A>, predicate: (a: A) => boolean): Option<A> {
   return opt !== null && predicate(opt) ? opt : null;
 }
 
 /**
  * Filter the Option value (inverted)
  */
-export function filterNot<A>(
-  opt: Option<A>,
-  predicate: (a: A) => boolean,
-): Option<A> {
+export function filterNot<A>(opt: Option<A>, predicate: (a: A) => boolean): Option<A> {
   return filter(opt, (a) => !predicate(a));
 }
 
 /**
  * Check if the value satisfies a predicate
  */
-export function exists<A>(
-  opt: Option<A>,
-  predicate: (a: A) => boolean,
-): boolean {
+export function exists<A>(opt: Option<A>, predicate: (a: A) => boolean): boolean {
   return opt !== null && predicate(opt);
 }
 
 /**
  * Check if all values satisfy a predicate (vacuously true for None)
  */
-export function forall<A>(
-  opt: Option<A>,
-  predicate: (a: A) => boolean,
-): boolean {
+export function forall<A>(opt: Option<A>, predicate: (a: A) => boolean): boolean {
   return opt === null || predicate(opt);
 }
 
@@ -258,7 +227,7 @@ export function forall<A>(
 export function contains<A>(
   opt: Option<A>,
   value: A,
-  eq: (a: A, b: A) => boolean = (a, b) => a === b,
+  eq: (a: A, b: A) => boolean = (a, b) => a === b
 ): boolean {
   return opt !== null && eq(opt, value);
 }
@@ -311,7 +280,7 @@ export function zip<A, B>(optA: Option<A>, optB: Option<B>): Option<[A, B]> {
 export function zipWith<A, B, C>(
   optA: Option<A>,
   optB: Option<B>,
-  f: (a: A, b: B) => C,
+  f: (a: A, b: B) => C
 ): Option<C> {
   return optA !== null && optB !== null ? f(optA, optB) : null;
 }
@@ -472,7 +441,7 @@ export const Do: Option<{}> = {};
  */
 export function bind<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => Option<B>,
+  f: (a: A) => Option<B>
 ): (opt: Option<A>) => Option<A & { readonly [K in N]: B }> {
   return (opt) => {
     if (opt === null) return null;
@@ -487,7 +456,7 @@ export function bind<N extends string, A extends object, B>(
  */
 export function let_<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (opt: Option<A>) => Option<A & { readonly [K in N]: B }> {
   return (opt) => {
     if (opt === null) return null;
@@ -520,10 +489,7 @@ export class OptionImpl<A> {
     return new OptionImpl(fromNullable(value));
   }
 
-  static fromPredicate<A>(
-    value: A,
-    predicate: (a: A) => boolean,
-  ): OptionImpl<A> {
+  static fromPredicate<A>(value: A, predicate: (a: A) => boolean): OptionImpl<A> {
     return new OptionImpl(fromPredicate(value, predicate));
   }
 

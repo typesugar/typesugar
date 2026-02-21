@@ -36,7 +36,7 @@ export class SchemaBuilder<T> {
       renamed?: { version: number; oldName: string };
       defaultValue?: unknown;
       optional?: boolean;
-    },
+    }
   ): this {
     this._fields.push({ name, type, ...options });
     return this;
@@ -58,12 +58,8 @@ export class SchemaBuilder<T> {
 
     const errors = validateSchema(s);
     if (errors.length > 0) {
-      const messages = errors.map(
-        (e) => `  ${e.field}: ${e.message}`,
-      );
-      throw new Error(
-        `Schema "${this._name}" validation failed:\n${messages.join("\n")}`,
-      );
+      const messages = errors.map((e) => `  ${e.field}: ${e.message}`);
+      throw new Error(`Schema "${this._name}" validation failed:\n${messages.join("\n")}`);
     }
 
     return s;
@@ -75,7 +71,7 @@ export class SchemaBuilder<T> {
     if (s.format === "binary") {
       if (!this._layout) {
         throw new Error(
-          `Binary schema "${this._name}" requires a field layout. Call .binaryLayout() before .buildCodec().`,
+          `Binary schema "${this._name}" requires a field layout. Call .binaryLayout() before .buildCodec().`
         );
       }
       return createBinaryCodec<T>(s, this._layout);
@@ -88,7 +84,7 @@ export class SchemaBuilder<T> {
 export function schema<T>(
   name: string,
   version: number,
-  format?: "json" | "binary",
+  format?: "json" | "binary"
 ): SchemaBuilder<T> {
   return new SchemaBuilder<T>(name, version, format);
 }

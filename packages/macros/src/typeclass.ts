@@ -65,12 +65,7 @@ import {
   defineDeriveMacro,
   globalRegistry,
 } from "@typesugar/core";
-import {
-  MacroContext,
-  DeriveTypeInfo,
-  DeriveFieldInfo,
-  DeriveVariantInfo,
-} from "@typesugar/core";
+import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
 import { OPERATOR_SYMBOLS } from "@typesugar/core";
 import {
   TS9001,
@@ -83,6 +78,12 @@ import {
   TS9103,
   TS9104,
   TS9201,
+} from "@typesugar/core";
+import {
+  formatResolutionTrace,
+  generateHelpFromTrace,
+  type ResolutionAttempt,
+  type ResolutionTrace,
 } from "@typesugar/core";
 import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
@@ -101,16 +102,14 @@ import { quoteStatements } from "./quote.js";
 // ============================================================================
 
 // Hook for coverage module to register itself
-let onPrimitiveRegistered:
-  | ((typeName: string, typeclassName: string) => void)
-  | undefined;
+let onPrimitiveRegistered: ((typeName: string, typeclassName: string) => void) | undefined;
 let onCoverageCheck:
   | ((
       ctx: MacroContext,
       node: ts.Node,
       typeclassName: string,
       typeName: string,
-      fields: Array<{ name: string; typeName: string }>,
+      fields: Array<{ name: string; typeName: string }>
     ) => boolean)
   | undefined;
 
@@ -125,8 +124,8 @@ export function setCoverageHooks(
     node: ts.Node,
     typeclassName: string,
     typeName: string,
-    fields: Array<{ name: string; typeName: string }>,
-  ) => boolean,
+    fields: Array<{ name: string; typeName: string }>
+  ) => boolean
 ): void {
   onPrimitiveRegistered = registerPrimitive;
   onCoverageCheck = validateCoverage;
@@ -145,10 +144,7 @@ const pendingPrimitives: Array<[string, string]> = [];
  * Register that a type has an instance for a typeclass.
  * Enables coverage checking during derivation.
  */
-function notifyPrimitiveRegistered(
-  typeName: string,
-  typeclassName: string,
-): void {
+function notifyPrimitiveRegistered(typeName: string, typeclassName: string): void {
   if (onPrimitiveRegistered) {
     onPrimitiveRegistered(typeName, typeclassName);
   } else {
@@ -164,7 +160,7 @@ function checkCoverageForDerive(
   node: ts.Node,
   typeclassName: string,
   typeName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): boolean {
   if (!onCoverageCheck) {
     // Coverage module not loaded - allow derivation
@@ -175,7 +171,7 @@ function checkCoverageForDerive(
     node,
     typeclassName,
     typeName,
-    fields.map((f) => ({ name: f.name, typeName: f.typeString })),
+    fields.map((f) => ({ name: f.name, typeName: f.typeString }))
   );
 }
 
@@ -197,9 +193,7 @@ interface TransitiveTypeInfo {
 /**
  * Parse transitive options from decorator arguments.
  */
-function parseTransitiveOptions(
-  args: readonly ts.Expression[],
-): TransitiveOptions {
+function parseTransitiveOptions(args: readonly ts.Expression[]): TransitiveOptions {
   const options: TransitiveOptions = { transitive: true, maxDepth: 10 };
 
   for (const arg of args) {
@@ -207,13 +201,9 @@ function parseTransitiveOptions(
       for (const prop of arg.properties) {
         if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
           if (prop.name.text === "transitive") {
-            options.transitive =
-              prop.initializer.kind !== ts.SyntaxKind.FalseKeyword;
+            options.transitive = prop.initializer.kind !== ts.SyntaxKind.FalseKeyword;
           }
-          if (
-            prop.name.text === "maxDepth" &&
-            ts.isNumericLiteral(prop.initializer)
-          ) {
+          if (prop.name.text === "maxDepth" && ts.isNumericLiteral(prop.initializer)) {
             options.maxDepth = parseInt(prop.initializer.text, 10);
           }
         }
@@ -229,23 +219,13 @@ function parseTransitiveOptions(
  */
 function findTypeInSourceFile(
   ctx: MacroContext,
-  typeName: string,
-):
-  | ts.InterfaceDeclaration
-  | ts.TypeAliasDeclaration
-  | ts.ClassDeclaration
-  | undefined {
+  typeName: string
+): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration | undefined {
   for (const statement of ctx.sourceFile.statements) {
-    if (
-      ts.isInterfaceDeclaration(statement) &&
-      statement.name.text === typeName
-    ) {
+    if (ts.isInterfaceDeclaration(statement) && statement.name.text === typeName) {
       return statement;
     }
-    if (
-      ts.isTypeAliasDeclaration(statement) &&
-      statement.name.text === typeName
-    ) {
+    if (ts.isTypeAliasDeclaration(statement) && statement.name.text === typeName) {
       return statement;
     }
     if (ts.isClassDeclaration(statement) && statement.name?.text === typeName) {
@@ -271,16 +251,9 @@ function normalizeTypeNameForLookup(typeName: string): string {
 /**
  * Check if a type has a primitive/instance for a typeclass.
  */
-function hasPrimitiveOrInstance(
-  typeName: string,
-  typeclassName: string,
-): boolean {
+function hasPrimitiveOrInstance(typeName: string, typeclassName: string): boolean {
   // Check instance registry
-  if (
-    instanceRegistry.some(
-      (i) => i.typeclassName === typeclassName && i.forType === typeName,
-    )
-  ) {
+  if (instanceRegistry.some((i) => i.typeclassName === typeclassName && i.forType === typeName)) {
     return true;
   }
   // Check via coverage hook
@@ -288,14 +261,7 @@ function hasPrimitiveOrInstance(
     // Primitives are registered there
   }
   // Hardcoded primitives as fallback
-  const primitives = [
-    "number",
-    "string",
-    "boolean",
-    "bigint",
-    "null",
-    "undefined",
-  ];
+  const primitives = ["number", "string", "boolean", "bigint", "null", "undefined"];
   return primitives.includes(typeName.toLowerCase());
 }
 
@@ -307,7 +273,7 @@ function buildTransitiveDerivationPlan(
   ctx: MacroContext,
   rootTypeName: string,
   typeclassName: string,
-  options: TransitiveOptions,
+  options: TransitiveOptions
 ): { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] } {
   const result: {
     types: TransitiveTypeInfo[];
@@ -352,7 +318,7 @@ function buildTransitiveDerivationPlan(
       result.errors.push(
         `Type '${typeName}' not found in current file. ` +
           `Transitive derivation only works for same-file types. ` +
-          `Add @derive(${typeclassName}) to '${typeName}' or provide an @instance.`,
+          `Add @derive(${typeclassName}) to '${typeName}' or provide an @instance.`
       );
       return false;
     }
@@ -410,7 +376,7 @@ function buildTransitiveDerivationPlan(
 function executeTransitiveDerivation(
   ctx: MacroContext,
   typeclassName: string,
-  plan: { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] },
+  plan: { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] }
 ): ts.Statement[] {
   const statements: ts.Statement[] = [];
   const derivation = builtinDerivations[typeclassName];
@@ -421,8 +387,7 @@ function executeTransitiveDerivation(
     // Skip if already has instance (explicit override)
     if (
       instanceRegistry.some(
-        (i) =>
-          i.typeclassName === typeclassName && i.forType === typeInfo.typeName,
+        (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
       )
     ) {
       continue;
@@ -433,10 +398,7 @@ function executeTransitiveDerivation(
     statements.push(...ctx.parseStatements(code));
 
     // Register
-    const varName = instanceVarName(
-      uncapitalize(typeclassName),
-      typeInfo.typeName,
-    );
+    const varName = instanceVarName(uncapitalize(typeclassName), typeInfo.typeName);
     instanceRegistry.push({
       typeclassName,
       forType: typeInfo.typeName,
@@ -546,10 +508,7 @@ const syntaxRegistry = new Map<string, SyntaxEntry[]>();
  * Register operator syntax for a typeclass.
  * Called when a typeclass with Op<> annotated methods is registered.
  */
-function registerTypeclassSyntax(
-  tcName: string,
-  syntax: Map<string, string>,
-): void {
+function registerTypeclassSyntax(tcName: string, syntax: Map<string, string>): void {
   for (const [op, method] of syntax) {
     let entries = syntaxRegistry.get(op);
     if (!entries) {
@@ -574,9 +533,7 @@ function clearSyntaxRegistry(): void {
   syntaxRegistry.clear();
 }
 
-const operatorSymbolSet: ReadonlySet<string> = new Set(
-  OPERATOR_SYMBOLS as readonly string[],
-);
+const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as readonly string[]);
 
 /**
  * Extract an operator symbol from a return type node of the form `T & Op<"+">`.
@@ -639,7 +596,7 @@ function extractOpFromReturnType(typeNode: ts.TypeNode | undefined): {
  */
 function stripOpFromInterface(
   ctx: MacroContext,
-  iface: ts.InterfaceDeclaration,
+  iface: ts.InterfaceDeclaration
 ): ts.InterfaceDeclaration {
   const factory = ctx.factory;
   let needsUpdate = false;
@@ -649,10 +606,7 @@ function stripOpFromInterface(
     if (!ts.isIntersectionTypeNode(member.type)) return member;
 
     const hasOp = member.type.types.some(
-      (t) =>
-        ts.isTypeReferenceNode(t) &&
-        ts.isIdentifier(t.typeName) &&
-        t.typeName.text === "Op",
+      (t) => ts.isTypeReferenceNode(t) && ts.isIdentifier(t.typeName) && t.typeName.text === "Op"
     );
     if (!hasOp) return member;
 
@@ -673,7 +627,7 @@ function stripOpFromInterface(
       member.questionToken,
       member.typeParameters,
       member.parameters,
-      newTypeNode,
+      newTypeNode
     );
   });
 
@@ -685,7 +639,7 @@ function stripOpFromInterface(
     iface.name,
     iface.typeParameters,
     iface.heritageClauses,
-    newMembers,
+    newMembers
   );
 }
 
@@ -701,10 +655,7 @@ function registerExtensionMethods(typeName: string, tcName: string): void {
     if (method.isSelfMethod) {
       // Avoid duplicates
       const exists = extensionMethodRegistry.some(
-        (e) =>
-          e.methodName === method.name &&
-          e.forType === typeName &&
-          e.typeclassName === tcName,
+        (e) => e.methodName === method.name && e.forType === typeName && e.typeclassName === tcName
       );
       if (!exists) {
         extensionMethodRegistry.push({
@@ -726,11 +677,9 @@ function registerExtensionMethods(typeName: string, tcName: string): void {
  */
 function findExtensionMethod(
   methodName: string,
-  typeName: string,
+  typeName: string
 ): ExtensionMethodInfo | undefined {
-  return extensionMethodRegistry.find(
-    (e) => e.methodName === methodName && e.forType === typeName,
-  );
+  return extensionMethodRegistry.find((e) => e.methodName === methodName && e.forType === typeName);
 }
 
 /**
@@ -776,7 +725,7 @@ function instanceVarName(tcName: string, typeName: string): string {
 function getSpecializationMethodsForDerivation(
   tcName: string,
   typeName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): Record<string, { source: string; params: string[] }> | undefined {
   switch (tcName) {
     case "Functor": {
@@ -791,9 +740,7 @@ function getSpecializationMethodsForDerivation(
     }
 
     case "Eq": {
-      const checks = fields
-        .map((f) => `a.${f.name} === b.${f.name}`)
-        .join(" && ");
+      const checks = fields.map((f) => `a.${f.name} === b.${f.name}`).join(" && ");
       return {
         eq: {
           source: `(a, b) => ${checks || "true"}`,
@@ -821,7 +768,7 @@ function getSpecializationMethodsForDerivation(
       const hashCode = fields
         .map(
           (f, i) =>
-            `((h << 5) - h + (typeof a.${f.name} === 'number' ? a.${f.name} : String(a.${f.name}).length))`,
+            `((h << 5) - h + (typeof a.${f.name} === 'number' ? a.${f.name} : String(a.${f.name}).length))`
         )
         .join(", ");
       return {
@@ -841,9 +788,7 @@ function getSpecializationMethodsForDerivation(
       const body =
         comparisons.length > 0
           ? comparisons.reduce((acc, c, i) =>
-              i === 0
-                ? c.replace(/ : $/, "")
-                : `(${acc.replace(/ : $/, "")} || ${c})`,
+              i === 0 ? c.replace(/ : $/, "") : `(${acc.replace(/ : $/, "")} || ${c})`
             )
           : "0";
       return {
@@ -856,9 +801,7 @@ function getSpecializationMethodsForDerivation(
 
     case "Semigroup": {
       // Semigroup combine: combine each field
-      const combines = fields
-        .map((f) => `${f.name}: a.${f.name} + b.${f.name}`)
-        .join(", ");
+      const combines = fields.map((f) => `${f.name}: a.${f.name} + b.${f.name}`).join(", ");
       return {
         combine: {
           source: `(a, b) => ({ ${combines} })`,
@@ -883,9 +826,7 @@ function getSpecializationMethodsForDerivation(
           return `${f.name}: ${emptyVal}`;
         })
         .join(", ");
-      const combines = fields
-        .map((f) => `${f.name}: a.${f.name} + b.${f.name}`)
-        .join(", ");
+      const combines = fields.map((f) => `${f.name}: a.${f.name} + b.${f.name}`).join(", ");
       return {
         empty: {
           source: `() => ({ ${empties} })`,
@@ -915,13 +856,8 @@ function getBaseType(field: DeriveFieldInfo): string {
 /**
  * Find a registered instance for a given typeclass and type.
  */
-function findInstance(
-  tcName: string,
-  typeName: string,
-): InstanceInfo | undefined {
-  return instanceRegistry.find(
-    (i) => i.typeclassName === tcName && i.forType === typeName,
-  );
+function findInstance(tcName: string, typeName: string): InstanceInfo | undefined {
+  return instanceRegistry.find((i) => i.typeclassName === tcName && i.forType === typeName);
 }
 
 /**
@@ -956,15 +892,14 @@ export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
   module: "@typesugar/macros",
   cacheable: false,
-  description:
-    "Define a typeclass from an interface, enabling derivation and extension methods",
+  description: "Define a typeclass from an interface, enabling derivation and extension methods",
   validTargets: ["interface"],
 
   expand(
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isInterfaceDeclaration(target)) {
       ctx.diagnostic(TS9003).at(target).emit();
@@ -994,18 +929,14 @@ export const typeclassAttribute = defineAttributeMacro({
       }
 
       if (ts.isMethodSignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : member.name.getText();
+        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
 
         const params: Array<{ name: string; typeString: string }> = [];
         let isSelfMethod = false;
 
         for (let i = 0; i < member.parameters.length; i++) {
           const param = member.parameters[i];
-          const paramName = ts.isIdentifier(param.name)
-            ? param.name.text
-            : param.name.getText();
+          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
           const paramType = param.type ? param.type.getText() : "unknown";
 
           // Check if this parameter uses the typeclass's type param
@@ -1016,9 +947,7 @@ export const typeclassAttribute = defineAttributeMacro({
           params.push({ name: paramName, typeString: paramType });
         }
 
-        const { operatorSymbol, cleanReturnType } = extractOpFromReturnType(
-          member.type,
-        );
+        const { operatorSymbol, cleanReturnType } = extractOpFromReturnType(member.type);
 
         methods.push({
           name: methodName,
@@ -1028,9 +957,7 @@ export const typeclassAttribute = defineAttributeMacro({
           operatorSymbol,
         });
       } else if (ts.isPropertySignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name)
-          ? member.name.text
-          : member.name.getText();
+        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
 
         methods.push({
           name: methodName,
@@ -1042,8 +969,7 @@ export const typeclassAttribute = defineAttributeMacro({
     }
 
     // Build the full interface body text for HKT expansion
-    const fullSignatureText =
-      memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
+    const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
 
     // Build syntax map from Op<> annotations on methods
     const syntax = new Map<string, string>();
@@ -1097,10 +1023,7 @@ export const typeclassAttribute = defineAttributeMacro({
  *     def derived[A](using Mirror.ProductOf[A]): Show[A] = ...
  *   }
  */
-function generateCompanionNamespace(
-  ctx: MacroContext,
-  tc: TypeclassInfo,
-): string {
+function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo): string {
   const { name } = tc;
   const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
 
@@ -1156,9 +1079,7 @@ function generateExtensionHelpers(tc: TypeclassInfo): string {
     if (method.isSelfMethod) {
       // This is a "self" method - generate an extension function
       const otherParams = method.params.slice(1);
-      const otherParamDecls = otherParams
-        .map((p) => `${p.name}: ${p.typeString}`)
-        .join(", ");
+      const otherParamDecls = otherParams.map((p) => `${p.name}: ${p.typeString}`).join(", ");
       const otherParamNames = otherParams.map((p) => p.name).join(", ");
       const allArgs = ["self", ...otherParams.map((p) => p.name)].join(", ");
 
@@ -1222,7 +1143,7 @@ export const instanceAttribute = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     const factory = ctx.factory;
 
@@ -1338,19 +1259,14 @@ export const instanceAttribute = defineAttributeMacro({
           decl.name,
           decl.exclamationToken,
           expandedType,
-          decl.initializer,
+          decl.initializer
         );
 
         if (ts.isVariableStatement(target)) {
-          const newDeclList = factory.updateVariableDeclarationList(
-            target.declarationList,
-            [newDecl],
-          );
-          updatedTarget = factory.updateVariableStatement(
-            target,
-            target.modifiers,
-            newDeclList,
-          );
+          const newDeclList = factory.updateVariableDeclarationList(target.declarationList, [
+            newDecl,
+          ]);
+          updatedTarget = factory.updateVariableStatement(target, target.modifiers, newDeclList);
         } else {
           updatedTarget = newDecl;
         }
@@ -1375,17 +1291,14 @@ export const instanceAttribute = defineAttributeMacro({
     // and register them for zero-cost specialization
     let objLiteral: ts.ObjectLiteralExpression | undefined;
     if (ts.isVariableStatement(updatedTarget)) {
-      const d = (updatedTarget as ts.VariableStatement).declarationList
-        .declarations[0];
+      const d = (updatedTarget as ts.VariableStatement).declarationList.declarations[0];
       if (d?.initializer && ts.isObjectLiteralExpression(d.initializer)) {
         objLiteral = d.initializer;
       }
     } else if (ts.isVariableDeclaration(updatedTarget)) {
       if (
         (updatedTarget as ts.VariableDeclaration).initializer &&
-        ts.isObjectLiteralExpression(
-          (updatedTarget as ts.VariableDeclaration).initializer!,
-        )
+        ts.isObjectLiteralExpression((updatedTarget as ts.VariableDeclaration).initializer!)
       ) {
         objLiteral = (updatedTarget as ts.VariableDeclaration)
           .initializer as ts.ObjectLiteralExpression;
@@ -1401,7 +1314,7 @@ export const instanceAttribute = defineAttributeMacro({
 
     // Generate registration call using quoteStatements
     const registrationStatements = quoteStatements(
-      ctx,
+      ctx
     )`${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
 
     return [updatedTarget, ...registrationStatements];
@@ -1484,10 +1397,7 @@ export function registerHKTTypeclass(name: string): void {
  * @param hktName - The type constructor name (e.g., "OptionF" or "Option")
  * @param concreteName - The concrete type name (e.g., "Option")
  */
-export function registerHKTExpansion(
-  hktName: string,
-  concreteName: string,
-): void {
+export function registerHKTExpansion(hktName: string, concreteName: string): void {
   hktExpansionRegistry.set(hktName, concreteName);
 }
 
@@ -1516,7 +1426,7 @@ function getHKTExpansion(hktName: string): string {
 function generateHKTExpandedType(
   ctx: MacroContext,
   typeclassName: string,
-  hktParam: string,
+  hktParam: string
 ): ts.TypeNode | undefined {
   const expansion = getHKTExpansion(hktParam);
 
@@ -1527,11 +1437,7 @@ function generateHKTExpandedType(
   if (tcInfo?.fullSignatureText) {
     // Dynamic substitution: replace $<F, A> with ConcreteType<A>
     // where F is the type parameter from the typeclass (e.g., "F" in Monad<F>)
-    signature = expandHKTInSignature(
-      tcInfo.fullSignatureText,
-      tcInfo.typeParam,
-      expansion,
-    );
+    signature = expandHKTInSignature(tcInfo.fullSignatureText, tcInfo.typeParam, expansion);
   } else {
     // Fall back to hardcoded templates for unregistered typeclasses (e.g., cats)
     signature = getTypeclassSignatureTemplate(typeclassName, expansion);
@@ -1543,12 +1449,7 @@ function generateHKTExpandedType(
   try {
     // SAFE: __T is only used for parsing, never emitted into generated code.
     const tempSource = `type __T = ${signature};`;
-    const tempFile = ts.createSourceFile(
-      "__temp.ts",
-      tempSource,
-      ts.ScriptTarget.Latest,
-      true,
-    );
+    const tempFile = ts.createSourceFile("__temp.ts", tempSource, ts.ScriptTarget.Latest, true);
 
     for (const stmt of tempFile.statements) {
       if (ts.isTypeAliasDeclaration(stmt)) {
@@ -1566,11 +1467,7 @@ function generateHKTExpandedType(
  * Expand HKT patterns in a type signature string.
  * Replaces $<F, X> with ConcreteType<X> throughout.
  */
-function expandHKTInSignature(
-  signatureText: string,
-  typeParam: string,
-  expansion: string,
-): string {
+function expandHKTInSignature(signatureText: string, typeParam: string, expansion: string): string {
   // Match $<TypeParam, ...> and replace with Expansion<...>
   // Handle nested type parameters gracefully
   const pattern = new RegExp(`\\$<${typeParam},\\s*([^<>]+(?:<[^>]+>)?)>`, "g");
@@ -1593,7 +1490,7 @@ function expandHKTInSignature(
  */
 function getTypeclassSignatureTemplate(
   typeclassName: string,
-  concreteType: string,
+  concreteType: string
 ): string | undefined {
   const exp = concreteType;
 
@@ -1700,7 +1597,7 @@ interface BuiltinTypeclassDerivation {
   deriveSum(
     typeName: string,
     discriminant: string,
-    variants: Array<{ tag: string; typeName: string }>,
+    variants: Array<{ tag: string; typeName: string }>
   ): string;
   /**
    * Generate factory function for a generic sum type.
@@ -1710,7 +1607,7 @@ interface BuiltinTypeclassDerivation {
     typeName: string,
     discriminant: string,
     variants: DeriveVariantInfo[],
-    typeParams: ts.TypeParameterDeclaration[],
+    typeParams: ts.TypeParameterDeclaration[]
   ): string | undefined;
 }
 
@@ -1737,7 +1634,7 @@ function getInstanceParamName(tcName: string, typeParamName: string): string {
 function buildGenericFactorySignature(
   tcName: string,
   typeName: string,
-  typeParams: ts.TypeParameterDeclaration[],
+  typeParams: ts.TypeParameterDeclaration[]
 ): { signature: string; paramMap: Map<string, string> } {
   const paramNames = typeParams.map((tp) => tp.name.text);
   const typeParamsStr = paramNames.join(", ");
@@ -1765,7 +1662,7 @@ function buildGenericFactorySignature(
 function getFieldInstanceRef(
   tcName: string,
   field: DeriveFieldInfo,
-  paramMap: Map<string, string>,
+  paramMap: Map<string, string>
 ): string {
   const fieldType = field.typeString.trim();
 
@@ -1801,7 +1698,7 @@ Show.registerInstance<${typeName}>("${typeName}", ${varName});
     deriveSum(
       typeName: string,
       discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>,
+      variants: Array<{ tag: string; typeName: string }>
     ): string {
       const varName = instanceVarName("show", typeName);
       const cases = variants
@@ -1828,15 +1725,11 @@ Show.registerInstance<${typeName}>("${typeName}", ${varName});
       typeName: string,
       discriminant: string,
       variants: DeriveVariantInfo[],
-      typeParams: ts.TypeParameterDeclaration[],
+      typeParams: ts.TypeParameterDeclaration[]
     ): string | undefined {
       if (typeParams.length === 0) return undefined;
 
-      const { signature, paramMap } = buildGenericFactorySignature(
-        "Show",
-        typeName,
-        typeParams,
-      );
+      const { signature, paramMap } = buildGenericFactorySignature("Show", typeName, typeParams);
       const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
       const fullTypeName = `${typeName}<${typeParamsStr}>`;
 
@@ -1899,7 +1792,7 @@ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
     deriveSum(
       typeName: string,
       discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>,
+      variants: Array<{ tag: string; typeName: string }>
     ): string {
       const varName = instanceVarName("eq", typeName);
       const cases = variants
@@ -1928,15 +1821,11 @@ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
       typeName: string,
       discriminant: string,
       variants: DeriveVariantInfo[],
-      typeParams: ts.TypeParameterDeclaration[],
+      typeParams: ts.TypeParameterDeclaration[]
     ): string | undefined {
       if (typeParams.length === 0) return undefined;
 
-      const { signature, paramMap } = buildGenericFactorySignature(
-        "Eq",
-        typeName,
-        typeParams,
-      );
+      const { signature, paramMap } = buildGenericFactorySignature("Eq", typeName, typeParams);
       const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
       const fullTypeName = `${typeName}<${typeParamsStr}>`;
 
@@ -1995,7 +1884,7 @@ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
     deriveSum(
       typeName: string,
       discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>,
+      variants: Array<{ tag: string; typeName: string }>
     ): string {
       const varName = instanceVarName("ord", typeName);
       const tagOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
@@ -2027,22 +1916,16 @@ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
       typeName: string,
       discriminant: string,
       variants: DeriveVariantInfo[],
-      typeParams: ts.TypeParameterDeclaration[],
+      typeParams: ts.TypeParameterDeclaration[]
     ): string | undefined {
       if (typeParams.length === 0) return undefined;
 
-      const { signature, paramMap } = buildGenericFactorySignature(
-        "Ord",
-        typeName,
-        typeParams,
-      );
+      const { signature, paramMap } = buildGenericFactorySignature("Ord", typeName, typeParams);
       const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
       const fullTypeName = `${typeName}<${typeParamsStr}>`;
 
       // Build Eq signature for eqv method (needed by Ord)
-      const eqParams = typeParams
-        .map((tp) => getInstanceParamName("Ord", tp.name.text))
-        .join(", ");
+      const eqParams = typeParams.map((tp) => getInstanceParamName("Ord", tp.name.text)).join(", ");
 
       // Build cases for each variant
       const cases = variants
@@ -2055,9 +1938,7 @@ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
               return `      { const c = ${inst}.compare((x as any).${f.name}, (y as any).${f.name}); if (c !== 0) return c; }`;
             });
           const body =
-            fieldComps.length > 0
-              ? fieldComps.join("\n") + "\n      return 0;"
-              : "return 0;";
+            fieldComps.length > 0 ? fieldComps.join("\n") + "\n      return 0;" : "return 0;";
           return `      case "${v.tag}":\n${body}`;
         })
         .join("\n");
@@ -2110,7 +1991,7 @@ Hash.registerInstance<${typeName}>("${typeName}", ${varName});
     deriveSum(
       typeName: string,
       discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>,
+      variants: Array<{ tag: string; typeName: string }>
     ): string {
       const varName = instanceVarName("hash", typeName);
       const cases = variants
@@ -2153,7 +2034,7 @@ Functor.registerInstance<${typeName}>("${typeName}", ${varName});
     deriveSum(
       typeName: string,
       discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>,
+      variants: Array<{ tag: string; typeName: string }>
     ): string {
       const varName = instanceVarName("functor", typeName);
       const cases = variants
@@ -2193,42 +2074,23 @@ function createTypeclassDeriveMacro(tcName: string) {
 
     expand(
       ctx: MacroContext,
-      target:
-        | ts.InterfaceDeclaration
-        | ts.ClassDeclaration
-        | ts.TypeAliasDeclaration,
-      typeInfo: DeriveTypeInfo,
+      target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+      typeInfo: DeriveTypeInfo
     ): ts.Statement[] {
       const derivation = builtinDerivations[tcName];
       if (!derivation) {
-        ctx
-          .diagnostic(TS9103)
-          .at(target)
-          .withArgs({ typeclass: tcName })
-          .emit();
+        ctx.diagnostic(TS9103).at(target).withArgs({ typeclass: tcName }).emit();
         return [];
       }
 
-      const {
-        name: typeName,
-        fields,
-        kind,
-        discriminant,
-        variants,
-        typeParameters,
-      } = typeInfo;
+      const { name: typeName, fields, kind, discriminant, variants, typeParameters } = typeInfo;
       let code: string | undefined;
 
       // Use typeInfo.kind to determine derivation method (zero-cost: metadata-driven)
       if (kind === "sum" && discriminant && variants) {
         // For generic types with type parameters, try factory function derivation
         if (typeParameters.length > 0 && derivation.deriveGenericSum) {
-          code = derivation.deriveGenericSum(
-            typeName,
-            discriminant,
-            variants,
-            typeParameters,
-          );
+          code = derivation.deriveGenericSum(typeName, discriminant, variants, typeParameters);
         }
 
         // Fall back to non-generic derivation if generic not supported
@@ -2273,10 +2135,8 @@ function createTypeclassDeriveMacro(tcName: string) {
  */
 export function tryExtractSumType(
   ctx: MacroContext,
-  target: ts.TypeAliasDeclaration,
-):
-  | { discriminant: string; variants: Array<{ tag: string; typeName: string }> }
-  | undefined {
+  target: ts.TypeAliasDeclaration
+): { discriminant: string; variants: Array<{ tag: string; typeName: string }> } | undefined {
   if (!ts.isUnionTypeNode(target.type)) {
     return undefined;
   }
@@ -2296,12 +2156,7 @@ export function tryExtractSumType(
     // Look for common discriminant fields
     for (const prop of props) {
       const name = prop.name;
-      if (
-        name === "kind" ||
-        name === "_tag" ||
-        name === "type" ||
-        name === "tag"
-      ) {
+      if (name === "kind" || name === "_tag" || name === "type" || name === "tag") {
         if (!discriminant) {
           discriminant = name;
         } else if (discriminant !== name) {
@@ -2312,10 +2167,7 @@ export function tryExtractSumType(
         const declarations = prop.getDeclarations();
         if (declarations && declarations.length > 0) {
           const decl = declarations[0];
-          const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-            prop,
-            decl,
-          );
+          const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
           if (propType.isStringLiteral()) {
             variants.push({ tag: propType.value, typeName });
           }
@@ -2351,15 +2203,14 @@ export const derivingAttribute = defineAttributeMacro({
   name: "deriving",
   module: "@typesugar/macros",
   cacheable: false,
-  description:
-    "Auto-derive typeclass instances for a type (Scala 3-like derives clause)",
+  description: "Auto-derive typeclass instances for a type (Scala 3-like derives clause)",
   validTargets: ["interface", "class", "type"],
 
   expand(
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (
       !ts.isInterfaceDeclaration(target) &&
@@ -2372,9 +2223,7 @@ export const derivingAttribute = defineAttributeMacro({
 
     const typeName = target.name?.text ?? "Anonymous";
     const type = ctx.typeChecker.getTypeAtLocation(target);
-    const typeParameters = target.typeParameters
-      ? Array.from(target.typeParameters)
-      : [];
+    const typeParameters = target.typeParameters ? Array.from(target.typeParameters) : [];
 
     // Extract fields
     const fields: DeriveFieldInfo[] = [];
@@ -2388,9 +2237,7 @@ export const derivingAttribute = defineAttributeMacro({
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
       const readonly =
         ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
-          ? (decl.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
-            ) ?? false)
+          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
           : false;
 
       fields.push({
@@ -2421,20 +2268,14 @@ export const derivingAttribute = defineAttributeMacro({
         // Find the variant type and extract its fields
         if (ts.isUnionTypeNode(target.type)) {
           for (const member of target.type.types) {
-            if (
-              ts.isTypeReferenceNode(member) &&
-              member.typeName.getText() === variant.typeName
-            ) {
+            if (ts.isTypeReferenceNode(member) && member.typeName.getText() === variant.typeName) {
               const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
               const props = ctx.typeChecker.getPropertiesOfType(variantType);
               for (const prop of props) {
                 if (prop.name === sumInfo.discriminant) continue;
                 const decl = prop.getDeclarations()?.[0];
                 if (!decl) continue;
-                const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-                  prop,
-                  decl,
-                );
+                const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
                 variantFields.push({
                   name: prop.name,
                   typeString: ctx.typeChecker.typeToString(propType),
@@ -2498,21 +2339,11 @@ export const derivingAttribute = defineAttributeMacro({
       if (derivation) {
         // === TRANSITIVE DERIVATION ===
         // First, derive any nested types that need instances
-        const plan = buildTransitiveDerivationPlan(
-          ctx,
-          typeName,
-          tcName,
-          transitiveOptions,
-        );
+        const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
 
         // Report any errors
         for (const err of plan.errors) {
-          ctx
-            .diagnostic(TS9103)
-            .at(target)
-            .withArgs({ typeclass: tcName })
-            .note(err)
-            .emit();
+          ctx.diagnostic(TS9103).at(target).withArgs({ typeclass: tcName }).note(err).emit();
         }
         for (const cycle of plan.cycles) {
           ctx
@@ -2540,28 +2371,20 @@ export const derivingAttribute = defineAttributeMacro({
         const { typeParameters } = typeInfo;
 
         // Use typeInfo.kind to determine derivation method
-        if (
-          typeInfo.kind === "sum" &&
-          typeInfo.discriminant &&
-          variants.length > 0
-        ) {
+        if (typeInfo.kind === "sum" && typeInfo.discriminant && variants.length > 0) {
           // For generic types with type parameters, try factory function derivation
           if (typeParameters.length > 0 && derivation.deriveGenericSum) {
             code = derivation.deriveGenericSum(
               typeName,
               typeInfo.discriminant,
               variants,
-              typeParameters,
+              typeParameters
             );
           }
 
           // Fall back to non-generic derivation if generic not supported
           if (!code) {
-            code = derivation.deriveSum(
-              typeName,
-              typeInfo.discriminant,
-              variants,
-            );
+            code = derivation.deriveSum(typeName, typeInfo.discriminant, variants);
           }
         } else {
           code = derivation.deriveProduct(typeName, fields);
@@ -2587,11 +2410,7 @@ export const derivingAttribute = defineAttributeMacro({
 
           // Bridge to specialization registry: register derived instance methods
           // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
-          const specMethods = getSpecializationMethodsForDerivation(
-            tcName,
-            typeName,
-            fields,
-          );
+          const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
           if (specMethods && Object.keys(specMethods).length > 0) {
             registerInstanceMethods(varName, typeName, specMethods);
           }
@@ -2632,7 +2451,7 @@ export const summonMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     // Get the type argument: summon<Show<Point>>()
     const typeArgs = callExpr.typeArguments;
@@ -2654,9 +2473,7 @@ export const summonMacro = defineExpressionMacro({
       ctx
         .diagnostic(TS9008)
         .at(callExpr)
-        .note(
-          `summon<${tcName}<...>>() requires the typeclass to have a type argument`,
-        )
+        .note(`summon<${tcName}<...>>() requires the typeclass to have a type argument`)
         .emit();
       return callExpr;
     }
@@ -2676,35 +2493,68 @@ export const summonMacro = defineExpressionMacro({
       typeName = innerType.getText();
     }
 
+    // Build resolution trace for detailed error messages
+    const attempts: ResolutionAttempt[] = [];
+
     // 1. Check for explicit instance in the compile-time registry
     const explicitInstance = findInstance(tcName, typeName);
     if (explicitInstance) {
       return ctx.parseExpression(instanceVarName(tcName, typeName));
     }
+    attempts.push({
+      step: "explicit-instance",
+      target: `${tcName}<${typeName}>`,
+      result: "not-found",
+      reason: "no @instance or @deriving registered",
+    });
 
-    // 2. Try Scala 3-style derivation via Mirror (GenericMeta)
+    // 2. Try Scala 3-style derivation via Generic (GenericMeta)
     const { tryDeriveViaGeneric } =
       require("./auto-derive.js") as typeof import("./auto-derive.js");
-    const derived = tryDeriveViaGeneric(ctx, tcName, typeName);
-    if (derived) {
-      return derived;
+    const derivationResult = tryDeriveViaGeneric(ctx, tcName, typeName);
+
+    // Merge derivation trace into our attempts
+    if (derivationResult.trace.length > 0) {
+      attempts.push({
+        step: "auto-derive via Generic",
+        target: `${tcName}<${typeName}>`,
+        result: derivationResult.expression ? "found" : "rejected",
+        reason: derivationResult.expression ? "derivation succeeded" : "see child attempts",
+        children: derivationResult.trace,
+      });
     }
 
-    // 3. No instance found — compile error with actionable guidance
-    ctx
+    if (derivationResult.expression) {
+      return derivationResult.expression;
+    }
+
+    // 3. No instance found — compile error with resolution trace
+    const trace: ResolutionTrace = {
+      sought: `${tcName}<${typeName}>`,
+      attempts,
+      finalResult: "failed",
+    };
+
+    const traceNotes = formatResolutionTrace(trace);
+    const helpMessage = generateHelpFromTrace(trace, tcName, typeName);
+
+    const diagnostic = ctx
       .diagnostic(TS9001)
       .at(callExpr)
-      .withArgs({ typeclass: tcName, type: typeName })
-      .note("summon tried: explicit instance, @deriving, auto-derivation")
-      .note(`Auto-derivation failed for ${tcName}<${typeName}>`)
-      .help(
-        `Add @deriving(${tcName}) to ${typeName}, or provide an explicit @instance`,
-      )
+      .withArgs({ typeclass: tcName, type: typeName });
+
+    // Add all trace notes to the diagnostic
+    for (const note of traceNotes) {
+      diagnostic.note(note);
+    }
+
+    diagnostic
+      .help(helpMessage)
       .suggestion(
         callExpr,
         "add-deriving",
         `@deriving(${tcName})\ninterface ${typeName} { /* ... */ }`,
-        `Add @deriving(${tcName}) to ${typeName}`,
+        `Add @deriving(${tcName}) to ${typeName}`
       )
       .emit();
     return callExpr;
@@ -2731,7 +2581,7 @@ export const extendMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length === 0) {
       ctx
@@ -2754,9 +2604,7 @@ export const extendMacro = defineExpressionMacro({
           expected: "method call chain",
           actual: "standalone call",
         })
-        .help(
-          "extend() must be followed by a method call, e.g., extend(value).show()",
-        )
+        .help("extend() must be followed by a method call, e.g., extend(value).show()")
         .emit();
       return callExpr;
     }
@@ -2778,9 +2626,7 @@ export const extendMacro = defineExpressionMacro({
           const extraArgs = Array.from(grandParent.arguments)
             .map((a) => a.getText())
             .join(", ");
-          const allArgs = extraArgs
-            ? `${value.getText()}, ${extraArgs}`
-            : value.getText();
+          const allArgs = extraArgs ? `${value.getText()}, ${extraArgs}` : value.getText();
           const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
           return ctx.parseExpression(code);
         }
@@ -2791,22 +2637,12 @@ export const extendMacro = defineExpressionMacro({
     }
 
     // Check standalone extensions (Scala 3-style concrete type extensions)
-    const standaloneExt = findStandaloneExtensionForExtend(
-      methodName,
-      typeName,
-    );
+    const standaloneExt = findStandaloneExtensionForExtend(methodName, typeName);
     if (standaloneExt) {
       const grandParent = parent.parent;
       const extraArgs =
-        grandParent && ts.isCallExpression(grandParent)
-          ? Array.from(grandParent.arguments)
-          : [];
-      return buildStandaloneExtensionCall(
-        ctx.factory,
-        standaloneExt,
-        value,
-        extraArgs,
-      );
+        grandParent && ts.isCallExpression(grandParent) ? Array.from(grandParent.arguments) : [];
+      return buildStandaloneExtensionCall(ctx.factory, standaloneExt, value, extraArgs);
     }
 
     // No match in registries — strip the extend() wrapper and emit
@@ -2817,14 +2653,11 @@ export const extendMacro = defineExpressionMacro({
       const methodCall = ctx.factory.createCallExpression(
         ctx.factory.createPropertyAccessExpression(value, methodName),
         undefined,
-        Array.from(grandParent.arguments),
+        Array.from(grandParent.arguments)
       );
       return methodCall;
     }
-    const propAccess = ctx.factory.createPropertyAccessExpression(
-      value,
-      methodName,
-    );
+    const propAccess = ctx.factory.createPropertyAccessExpression(value, methodName);
     return propAccess;
   },
 });
@@ -3015,7 +2848,7 @@ Semigroup.registerInstance<${typeName}>("${typeName}", ${varName});
   deriveSum(
     _typeName: string,
     _discriminant: string,
-    _variants: Array<{ tag: string; typeName: string }>,
+    _variants: Array<{ tag: string; typeName: string }>
   ): string {
     // Semigroup cannot generally be derived for sum types
     return `// Semigroup cannot be auto-derived for sum types`;
@@ -3054,7 +2887,7 @@ Monoid.registerInstance<${typeName}>("${typeName}", ${varName});
   deriveSum(
     _typeName: string,
     _discriminant: string,
-    _variants: Array<{ tag: string; typeName: string }>,
+    _variants: Array<{ tag: string; typeName: string }>
   ): string {
     return `// Monoid cannot be auto-derived for sum types`;
   },

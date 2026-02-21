@@ -33,9 +33,12 @@ function divide(a: number, b: number): number {
 type Shape = { kind: "circle" } | { kind: "square" };
 function area(shape: Shape): number {
   switch (shape.kind) {
-    case "circle": return Math.PI;
-    case "square": return 1;
-    default: unreachable(shape); // Type error if Shape is extended
+    case "circle":
+      return Math.PI;
+    case "square":
+      return 1;
+    default:
+      unreachable(shape); // Type error if Shape is extended
   }
 }
 
@@ -50,14 +53,14 @@ debugOnly(() => {
 
 typesugar supports six kinds of macros:
 
-| Kind | Interface | Trigger | Example |
-|------|-----------|---------|---------|
-| **Expression** | `ExpressionMacro` | Function call | `comptime(() => 1 + 1)` |
-| **Attribute** | `AttributeMacro` | Decorator | `@operators class Vec { }` |
-| **Derive** | `DeriveMacro` | `@derive(Name)` | `@derive(Eq, Clone)` |
-| **Tagged Template** | `TaggedTemplateMacroDef` | Tagged template | `` sql`SELECT * FROM users` `` |
-| **Type** | `TypeMacro` | Type reference | `type X = Add<1, 2>` |
-| **Labeled Block** | `LabeledBlockMacro` | Labeled statement | `let: { x << expr }` |
+| Kind                | Interface                | Trigger           | Example                        |
+| ------------------- | ------------------------ | ----------------- | ------------------------------ |
+| **Expression**      | `ExpressionMacro`        | Function call     | `comptime(() => 1 + 1)`        |
+| **Attribute**       | `AttributeMacro`         | Decorator         | `@operators class Vec { }`     |
+| **Derive**          | `DeriveMacro`            | `@derive(Name)`   | `@derive(Eq, Clone)`           |
+| **Tagged Template** | `TaggedTemplateMacroDef` | Tagged template   | `` sql`SELECT * FROM users` `` |
+| **Type**            | `TypeMacro`              | Type reference    | `type X = Add<1, 2>`           |
+| **Labeled Block**   | `LabeledBlockMacro`      | Labeled statement | `let: { x << expr }`           |
 
 ## Defining a Custom Macro
 

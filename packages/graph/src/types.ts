@@ -48,10 +48,7 @@ export interface VerificationResult {
 }
 
 /** A state machine instance that tracks current state immutably. */
-export interface StateMachineInstance<
-  States extends string,
-  Events extends string,
-> {
+export interface StateMachineInstance<States extends string, Events extends string> {
   readonly current: States;
   /** Transition to the next state given an event. Throws if no valid transition exists. */
   transition(event: Events): StateMachineInstance<States, Events>;

@@ -22,7 +22,7 @@ describe("double macro", () => {
   it("doubles numeric literals", () => {
     assertExpands(
       `import { double } from "./double"; const x = double(21);`,
-      `const x = (21) + (21);`,
+      `const x = (21) + (21);`
     );
   });
 });
@@ -74,7 +74,7 @@ it("reports error for missing argument", async () => {
   expect(result.errors).toContainEqual(
     expect.objectContaining({
       message: expect.stringMatching(/requires an argument/),
-    }),
+    })
   );
 });
 ```
@@ -91,7 +91,7 @@ it("warns on deprecated usage", async () => {
   expect(result.warnings).toContainEqual(
     expect.objectContaining({
       message: expect.stringMatching(/deprecated/),
-    }),
+    })
   );
 });
 ```
@@ -134,7 +134,7 @@ it("handles generic types", async () => {
       compilerOptions: {
         strict: true,
       },
-    },
+    }
   );
 
   expect(result.code).toContain('["name", "age"]');

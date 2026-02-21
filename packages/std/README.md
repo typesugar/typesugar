@@ -159,7 +159,7 @@ snd(p); // "hello"
 bimap(
   p,
   (x) => x + 1,
-  (s) => s.toUpperCase(),
+  (s) => s.toUpperCase()
 ); // [2, "HELLO"]
 swap(p); // ["hello", 1]
 ```

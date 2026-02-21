@@ -106,7 +106,7 @@ export function span<A>(arr: readonly A[], pred: (a: A) => boolean): [A[], A[]] 
 
 export function groupBy<A, K extends string | number | symbol>(
   arr: readonly A[],
-  fn: (a: A) => K,
+  fn: (a: A) => K
 ): Record<K, A[]> {
   const result = {} as Record<K, A[]>;
   for (const x of arr) {
@@ -118,7 +118,7 @@ export function groupBy<A, K extends string | number | symbol>(
 
 export function keyBy<A, K extends string | number | symbol>(
   arr: readonly A[],
-  fn: (a: A) => K,
+  fn: (a: A) => K
 ): Record<K, A> {
   const result = {} as Record<K, A>;
   for (const x of arr) result[fn(x)] = x;
@@ -127,7 +127,7 @@ export function keyBy<A, K extends string | number | symbol>(
 
 export function countBy<A, K extends string | number | symbol>(
   arr: readonly A[],
-  fn: (a: A) => K,
+  fn: (a: A) => K
 ): Record<K, number> {
   const result = {} as Record<K, number>;
   for (const x of arr) {
@@ -173,22 +173,14 @@ export function zip<A, B>(a: readonly A[], b: readonly B[]): [A, B][] {
   return result;
 }
 
-export function zip3<A, B, C>(
-  a: readonly A[],
-  b: readonly B[],
-  c: readonly C[],
-): [A, B, C][] {
+export function zip3<A, B, C>(a: readonly A[], b: readonly B[], c: readonly C[]): [A, B, C][] {
   const len = Math.min(a.length, b.length, c.length);
   const result: [A, B, C][] = [];
   for (let i = 0; i < len; i++) result.push([a[i], b[i], c[i]]);
   return result;
 }
 
-export function zipWith<A, B, C>(
-  a: readonly A[],
-  b: readonly B[],
-  fn: (a: A, b: B) => C,
-): C[] {
+export function zipWith<A, B, C>(a: readonly A[], b: readonly B[], fn: (a: A, b: B) => C): C[] {
   const len = Math.min(a.length, b.length);
   const result: C[] = [];
   for (let i = 0; i < len; i++) result.push(fn(a[i], b[i]));
@@ -273,10 +265,7 @@ export function union<A>(a: readonly A[], b: readonly A[]): A[] {
 export function symmetricDifference<A>(a: readonly A[], b: readonly A[]): A[] {
   const setA = new Set(a);
   const setB = new Set(b);
-  return [
-    ...a.filter((x) => !setB.has(x)),
-    ...b.filter((x) => !setA.has(x)),
-  ];
+  return [...a.filter((x) => !setB.has(x)), ...b.filter((x) => !setA.has(x))];
 }
 
 export function isSubsetOf<A>(a: readonly A[], b: readonly A[]): boolean {
@@ -537,7 +526,7 @@ export function mkString<A>(
   arr: readonly A[],
   sep: string = "",
   prefix: string = "",
-  suffix: string = "",
+  suffix: string = ""
 ): string {
   return prefix + arr.join(sep) + suffix;
 }
@@ -548,7 +537,7 @@ export function mkString<A>(
 
 export function associate<A, K extends string | number | symbol, V>(
   arr: readonly A[],
-  fn: (a: A) => [K, V],
+  fn: (a: A) => [K, V]
 ): Record<K, V> {
   const result = {} as Record<K, V>;
   for (const x of arr) {
@@ -568,7 +557,7 @@ export function toSet<A>(arr: readonly A[]): Set<A> {
 
 export function zipObject<K extends string | number | symbol, V>(
   keys: readonly K[],
-  values: readonly V[],
+  values: readonly V[]
 ): Record<K, V> {
   const result = {} as Record<K, V>;
   for (let i = 0; i < keys.length; i++) {

@@ -43,11 +43,7 @@ export interface TypeFact {
 
 export interface ProverPlugin {
   name: string;
-  prove(
-    goal: string,
-    facts: TypeFact[],
-    timeout?: number,
-  ): ProofResult | Promise<ProofResult>;
+  prove(goal: string, facts: TypeFact[], timeout?: number): ProofResult | Promise<ProofResult>;
 }
 
 export interface Z3PluginOptions {
@@ -117,11 +113,7 @@ export function z3ProverPlugin(options: Z3PluginOptions = {}): Z3ProverPlugin {
       return z3 !== null;
     },
 
-    async prove(
-      goal: string,
-      facts: TypeFact[],
-      overrideTimeout?: number,
-    ): Promise<ProofResult> {
+    async prove(goal: string, facts: TypeFact[], overrideTimeout?: number): Promise<ProofResult> {
       try {
         // Ensure Z3 is initialized
         if (!z3) {
@@ -155,7 +147,7 @@ async function proveWithZ3(
   z3: Z3Instance,
   goal: string,
   facts: TypeFact[],
-  timeout: number,
+  timeout: number
 ): Promise<ProofResult> {
   const ctx = z3.Context("proof");
 
@@ -226,7 +218,7 @@ class PredicateParser {
 
   constructor(
     private ctx: Z3Context,
-    private variables: Map<string, Z3Expr>,
+    private variables: Map<string, Z3Expr>
   ) {}
 
   parse(predicate: string): Z3Expr | null {
@@ -433,18 +425,14 @@ class PredicateParser {
     }
 
     // Identifier (variable or property access)
-    const idMatch = this.input
-      .slice(this.pos)
-      .match(/^[a-zA-Z_$][a-zA-Z0-9_$]*/);
+    const idMatch = this.input.slice(this.pos).match(/^[a-zA-Z_$][a-zA-Z0-9_$]*/);
     if (idMatch) {
       this.pos += idMatch[0].length;
       let name = idMatch[0];
 
       // Handle property access: obj.prop.subprop -> obj_prop_subprop
       while (this.consume(".")) {
-        const propMatch = this.input
-          .slice(this.pos)
-          .match(/^[a-zA-Z_$][a-zA-Z0-9_$]*/);
+        const propMatch = this.input.slice(this.pos).match(/^[a-zA-Z_$][a-zA-Z0-9_$]*/);
         if (!propMatch) return null;
         this.pos += propMatch[0].length;
         name += "_" + propMatch[0];
@@ -478,7 +466,7 @@ class PredicateParser {
 export async function proveWithZ3Async(
   goal: string,
   facts: TypeFact[],
-  options: Z3PluginOptions = {},
+  options: Z3PluginOptions = {}
 ): Promise<ProofResult> {
   const plugin = z3ProverPlugin(options);
   await plugin.init();

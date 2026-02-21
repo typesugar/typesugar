@@ -20,18 +20,8 @@
  */
 
 import ts from "typescript";
-import type {
-  MacroContext,
-  ExpressionMacro,
-  StandaloneExtensionInfo,
-} from "@typesugar/core";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9402,
-  TS9403,
-  TS9208,
-} from "@typesugar/core";
+import type { MacroContext, ExpressionMacro, StandaloneExtensionInfo } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, TS9402, TS9403, TS9208 } from "@typesugar/core";
 import {
   standaloneExtensionRegistry,
   registerStandaloneExtensionEntry,
@@ -64,7 +54,7 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       ctx.diagnostic(TS9402).at(callExpr).emit();
@@ -96,10 +86,7 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
     const properties = namespaceType.getProperties();
 
     for (const prop of properties) {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        namespaceArg,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, namespaceArg);
 
       // Only register callable properties (functions)
       const callSignatures = propType.getCallSignatures();
@@ -123,13 +110,12 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
 
 export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
   name: "registerExtension",
-  description:
-    "Register a single function as an extension method for a concrete type",
+  description: "Register a single function as an extension method for a concrete type",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       ctx.diagnostic(TS9403).at(callExpr).emit();

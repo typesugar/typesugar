@@ -18,7 +18,7 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
 
   constructor(
     private readonly manifest: ManifestLoader,
-    private readonly expansion: ExpansionService,
+    private readonly expansion: ExpansionService
   ) {
     manifest.onDidChange(() => this.onDidChangeEmitter.fire());
   }
@@ -26,7 +26,7 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
   async provideInlayHints(
     document: vscode.TextDocument,
     range: vscode.Range,
-    token: vscode.CancellationToken,
+    token: vscode.CancellationToken
   ): Promise<vscode.InlayHint[]> {
     const config = vscode.workspace.getConfiguration("typemacro");
     if (!config.get<boolean>("enableInlayHints", true)) return [];
@@ -39,9 +39,7 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
       text,
       ts.ScriptTarget.Latest,
       true,
-      document.languageId === "typescriptreact"
-        ? ts.ScriptKind.TSX
-        : ts.ScriptKind.TS,
+      document.languageId === "typescriptreact" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
     );
 
     const expressionNames = this.manifest.expressionMacroNames;
@@ -53,9 +51,7 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
     const visit = (node: ts.Node): void => {
       if (token.isCancellationRequested) return;
 
-      const nodeStart = sourceFile.getLineAndCharacterOfPosition(
-        node.getStart(sourceFile),
-      );
+      const nodeStart = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
       const nodeEnd = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
 
       // Skip nodes outside the visible range
@@ -72,21 +68,17 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
         node.expression.text === "comptime" &&
         expressionNames.has("comptime")
       ) {
-        const result = expansionResult?.comptimeResults?.get(
-          node.getStart(sourceFile),
-        );
+        const result = expansionResult?.comptimeResults?.get(node.getStart(sourceFile));
         if (result !== undefined) {
-          const endPos = sourceFile.getLineAndCharacterOfPosition(
-            node.getEnd(),
-          );
+          const endPos = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
           const hint = new vscode.InlayHint(
             new vscode.Position(endPos.line, endPos.character),
             ` = ${truncate(String(result), 40)}`,
-            vscode.InlayHintKind.Type,
+            vscode.InlayHintKind.Type
           );
           hint.paddingLeft = true;
           hint.tooltip = new vscode.MarkdownString(
-            `**Compile-time result:**\n\`\`\`\n${String(result)}\n\`\`\``,
+            `**Compile-time result:**\n\`\`\`\n${String(result)}\n\`\`\``
           );
           hints.push(hint);
         }
@@ -99,22 +91,17 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
             if (!ts.isExpressionStatement(stmt)) continue;
             if (
               ts.isBinaryExpression(stmt.expression) &&
-              stmt.expression.operatorToken.kind ===
-                ts.SyntaxKind.LessThanLessThanToken &&
+              stmt.expression.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken &&
               ts.isIdentifier(stmt.expression.left)
             ) {
               const bindName = stmt.expression.left;
-              const inferredType = expansionResult?.bindTypes?.get(
-                bindName.getStart(sourceFile),
-              );
+              const inferredType = expansionResult?.bindTypes?.get(bindName.getStart(sourceFile));
               if (inferredType) {
-                const nameEnd = sourceFile.getLineAndCharacterOfPosition(
-                  bindName.getEnd(),
-                );
+                const nameEnd = sourceFile.getLineAndCharacterOfPosition(bindName.getEnd());
                 const hint = new vscode.InlayHint(
                   new vscode.Position(nameEnd.line, nameEnd.character),
                   `: ${truncate(inferredType, 30)}`,
-                  vscode.InlayHintKind.Type,
+                  vscode.InlayHintKind.Type
                 );
                 hint.paddingLeft = true;
                 hints.push(hint);

@@ -49,10 +49,7 @@ import { defineExpressionMacro, globalRegistry, MacroContext } from "./index.js"
  * @param message - Error message if the invariant is violated
  * @throws Error if condition is false
  */
-export function invariant(
-  condition: boolean,
-  message?: string,
-): asserts condition {
+export function invariant(condition: boolean, message?: string): asserts condition {
   if (!condition) {
     throw new Error(message ?? "Invariant violation");
   }
@@ -85,13 +82,12 @@ export function debugOnly(fn: () => void): void {
 export const invariantMacro = defineExpressionMacro({
   name: "invariant",
   module: "@typesugar/core",
-  description:
-    "Runtime invariant — compiles to a conditional throw (strippable in prod)",
+  description: "Runtime invariant — compiles to a conditional throw (strippable in prod)",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -101,10 +97,7 @@ export const invariantMacro = defineExpressionMacro({
     }
 
     const condition = args[0];
-    const message =
-      args.length >= 2
-        ? args[1]
-        : factory.createStringLiteral("Invariant violation");
+    const message = args.length >= 2 ? args[1] : factory.createStringLiteral("Invariant violation");
 
     // Compile to: condition || (() => { throw new Error(message); })()
     return factory.createBinaryExpression(
@@ -120,18 +113,14 @@ export const invariantMacro = defineExpressionMacro({
             factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
             factory.createBlock([
               factory.createThrowStatement(
-                factory.createNewExpression(
-                  factory.createIdentifier("Error"),
-                  undefined,
-                  [message],
-                ),
+                factory.createNewExpression(factory.createIdentifier("Error"), undefined, [message])
               ),
-            ]),
-          ),
+            ])
+          )
         ),
         undefined,
-        [],
-      ),
+        []
+      )
     );
   },
 });
@@ -144,7 +133,7 @@ export const unreachableMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -159,17 +148,15 @@ export const unreachableMacro = defineExpressionMacro({
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createBlock([
             factory.createThrowStatement(
-              factory.createNewExpression(
-                factory.createIdentifier("Error"),
-                undefined,
-                [factory.createStringLiteral("Unreachable code reached")],
-              ),
+              factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+                factory.createStringLiteral("Unreachable code reached"),
+              ])
             ),
-          ]),
-        ),
+          ])
+        )
       ),
       undefined,
-      [],
+      []
     );
   },
 });
@@ -177,13 +164,12 @@ export const unreachableMacro = defineExpressionMacro({
 export const debugOnlyMacro = defineExpressionMacro({
   name: "debugOnly",
   module: "@typesugar/core",
-  description:
-    "Dev-only code block — inlined in dev, completely erased in prod",
+  description: "Dev-only code block — inlined in dev, completely erased in prod",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 

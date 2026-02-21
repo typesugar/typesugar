@@ -20,10 +20,7 @@ import type {
   WithClone,
   WithDebug,
 } from "./types.js";
-import type {
-  ShowCapability,
-  EqCapability,
-} from "./capabilities.js";
+import type { ShowCapability, EqCapability } from "./capabilities.js";
 
 /**
  * Create an erased value with an explicit vtable.
@@ -34,7 +31,7 @@ import type {
  */
 export function eraseWith<T, Caps extends readonly Capability[]>(
   value: T,
-  vtable: UnionOfVtables<Caps>,
+  vtable: UnionOfVtables<Caps>
 ): Erased<Caps> {
   return { __erased__: true, __value: value, __vtable: vtable };
 }
@@ -45,10 +42,7 @@ export function eraseWith<T, Caps extends readonly Capability[]>(
  * @param value - The value to wrap.
  * @param showFn - Converts the value to a string.
  */
-export function showable<T>(
-  value: T,
-  showFn: (v: T) => string,
-): Erased<[ShowCapability]> {
+export function showable<T>(value: T, showFn: (v: T) => string): Erased<[ShowCapability]> {
   return eraseWith<T, [ShowCapability]>(value, {
     show: (v) => showFn(v as T),
   });
@@ -60,10 +54,7 @@ export function showable<T>(
  * @param value - The value to wrap.
  * @param equalsFn - Compares two values for equality.
  */
-export function equatable<T>(
-  value: T,
-  equalsFn: (a: T, b: T) => boolean,
-): Erased<[EqCapability]> {
+export function equatable<T>(value: T, equalsFn: (a: T, b: T) => boolean): Erased<[EqCapability]> {
   return eraseWith<T, [EqCapability]>(value, {
     equals: (a, b) => equalsFn(a as T, b as T),
   });
@@ -80,7 +71,7 @@ export function equatable<T>(
 export function showableEq<T>(
   value: T,
   showFn: (v: T) => string,
-  equalsFn: (a: T, b: T) => boolean,
+  equalsFn: (a: T, b: T) => boolean
 ): Erased<[ShowCapability, EqCapability]> {
   return eraseWith<T, [ShowCapability, EqCapability]>(value, {
     show: (v) => showFn(v as T),
@@ -120,7 +111,7 @@ export function callMethod(
   if (typeof fn !== "function") {
     throw new Error(
       `Method "${method}" not found in erased vtable. ` +
-        `Available: [${Object.keys(erased.__vtable).join(", ")}]`,
+        `Available: [${Object.keys(erased.__vtable).join(", ")}]`
     );
   }
   return fn(...args);
@@ -173,9 +164,7 @@ export function hash(erased: WithHash): number {
 export function clone<E extends WithClone>(erased: E): E {
   const cloneFn = (erased.__vtable as Record<string, unknown>)["clone"];
   if (typeof cloneFn !== "function") {
-    throw new Error(
-      "clone() requires CloneCapability in the erased value's vtable",
-    );
+    throw new Error("clone() requires CloneCapability in the erased value's vtable");
   }
   const clonedValue = cloneFn(erased.__value);
   return { ...erased, __value: clonedValue } as E;

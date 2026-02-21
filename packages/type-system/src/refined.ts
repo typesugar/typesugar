@@ -99,7 +99,7 @@ export interface Refinement<Base, Brand extends string> {
 
   /** Refine a value, returning a Result-like object. */
   readonly safe: (
-    value: Base,
+    value: Base
   ) => { ok: true; value: Refined<Base, Brand> } | { ok: false; error: string };
 
   /** The brand name for error messages. */
@@ -127,16 +127,14 @@ export interface Refinement<Base, Brand extends string> {
  */
 export function refinement<Base, Brand extends string>(
   predicate: (value: Base) => boolean,
-  brand: Brand,
+  brand: Brand
 ): Refinement<Base, Brand> {
   return {
     brand,
 
     refine(value: Base): Refined<Base, Brand> {
       if (!predicate(value)) {
-        throw new Error(
-          `Refinement failed: ${JSON.stringify(value)} is not a valid ${brand}`,
-        );
+        throw new Error(`Refinement failed: ${JSON.stringify(value)} is not a valid ${brand}`);
       }
       return value as Refined<Base, Brand>;
     },
@@ -149,11 +147,7 @@ export function refinement<Base, Brand extends string>(
       return predicate(value) ? (value as Refined<Base, Brand>) : undefined;
     },
 
-    safe(
-      value: Base,
-    ):
-      | { ok: true; value: Refined<Base, Brand> }
-      | { ok: false; error: string } {
+    safe(value: Base): { ok: true; value: Refined<Base, Brand> } | { ok: false; error: string } {
       if (predicate(value)) {
         return { ok: true, value: value as Refined<Base, Brand> };
       }
@@ -181,12 +175,9 @@ export function refinement<Base, Brand extends string>(
 export function composeRefinements<Base, B1 extends string, B2 extends string>(
   r1: Refinement<Base, B1>,
   r2: Refinement<Base, B2>,
-  brand: string,
+  brand: string
 ): Refinement<Base, B1 & B2 extends string ? B1 & B2 : string> {
-  return refinement(
-    (value: Base) => r1.is(value) && r2.is(value),
-    brand as any,
-  );
+  return refinement((value: Base) => r1.is(value) && r2.is(value), brand as any);
 }
 
 // ============================================================================
@@ -228,10 +219,12 @@ export interface SubtypingDeclaration {
  * Uses the generic Registry<K,V> abstraction from @typesugar/core with "replace"
  * duplicate strategy for idempotent registration.
  */
-const SUBTYPING_DECLARATIONS: GenericRegistry<string, SubtypingDeclaration> = createGenericRegistry({
-  name: "SubtypingDeclarations",
-  duplicateStrategy: "replace",
-});
+const SUBTYPING_DECLARATIONS: GenericRegistry<string, SubtypingDeclaration> = createGenericRegistry(
+  {
+    name: "SubtypingDeclarations",
+    duplicateStrategy: "replace",
+  }
+);
 
 /**
  * Declare a subtyping relationship between two refined types.
@@ -265,7 +258,7 @@ export function isSubtype(from: string, to: string): boolean {
  */
 export function getSubtypingDeclaration(
   from: string,
-  to: string,
+  to: string
 ): SubtypingDeclaration | undefined {
   return SUBTYPING_DECLARATIONS.get(`${from}:${to}`);
 }
@@ -292,7 +285,7 @@ export function getAllSubtypingDeclarations(): readonly SubtypingDeclaration[] {
  * ```
  */
 export function widen<Target extends Refined<any, string>>(
-  value: Refined<BaseOf<Target>, string>,
+  value: Refined<BaseOf<Target>, string>
 ): Target {
   return value as unknown as Target;
 }
@@ -310,13 +303,9 @@ export function widen<Target extends Refined<any, string>>(
  * const pos = widenTo(Negative.refine(-1), Positive);
  * ```
  */
-export function widenTo<
-  FromBase,
-  FromBrand extends string,
-  ToBrand extends string,
->(
+export function widenTo<FromBase, FromBrand extends string, ToBrand extends string>(
   value: Refined<FromBase, FromBrand>,
-  _target: Refinement<FromBase, ToBrand>,
+  _target: Refinement<FromBase, ToBrand>
 ): Refined<FromBase, ToBrand> {
   return value as unknown as Refined<FromBase, ToBrand>;
 }
@@ -405,22 +394,13 @@ declareSubtyping({
 // --- Number refinements ---
 
 export type Positive = Refined<number, "Positive">;
-export const Positive = refinement<number, "Positive">(
-  (n) => n > 0,
-  "Positive",
-);
+export const Positive = refinement<number, "Positive">((n) => n > 0, "Positive");
 
 export type NonNegative = Refined<number, "NonNegative">;
-export const NonNegative = refinement<number, "NonNegative">(
-  (n) => n >= 0,
-  "NonNegative",
-);
+export const NonNegative = refinement<number, "NonNegative">((n) => n >= 0, "NonNegative");
 
 export type Negative = Refined<number, "Negative">;
-export const Negative = refinement<number, "Negative">(
-  (n) => n < 0,
-  "Negative",
-);
+export const Negative = refinement<number, "Negative">((n) => n < 0, "Negative");
 
 export type Int = Refined<number, "Int">;
 export const Int = refinement<number, "Int">((n) => Number.isInteger(n), "Int");
@@ -428,57 +408,39 @@ export const Int = refinement<number, "Int">((n) => Number.isInteger(n), "Int");
 export type Byte = Refined<number, "Byte">;
 export const Byte = refinement<number, "Byte">(
   (n) => Number.isInteger(n) && n >= 0 && n <= 255,
-  "Byte",
+  "Byte"
 );
 
 export type Port = Refined<number, "Port">;
 export const Port = refinement<number, "Port">(
   (n) => Number.isInteger(n) && n >= 1 && n <= 65535,
-  "Port",
+  "Port"
 );
 
 export type Percentage = Refined<number, "Percentage">;
-export const Percentage = refinement<number, "Percentage">(
-  (n) => n >= 0 && n <= 100,
-  "Percentage",
-);
+export const Percentage = refinement<number, "Percentage">((n) => n >= 0 && n <= 100, "Percentage");
 
 export type Finite = Refined<number, "Finite">;
-export const Finite = refinement<number, "Finite">(
-  (n) => Number.isFinite(n),
-  "Finite",
-);
+export const Finite = refinement<number, "Finite">((n) => Number.isFinite(n), "Finite");
 
 // --- String refinements ---
 
 export type NonEmpty = Refined<string, "NonEmpty">;
-export const NonEmpty = refinement<string, "NonEmpty">(
-  (s) => s.length > 0,
-  "NonEmpty",
-);
+export const NonEmpty = refinement<string, "NonEmpty">((s) => s.length > 0, "NonEmpty");
 
 export type Trimmed = Refined<string, "Trimmed">;
-export const Trimmed = refinement<string, "Trimmed">(
-  (s) => s === s.trim(),
-  "Trimmed",
-);
+export const Trimmed = refinement<string, "Trimmed">((s) => s === s.trim(), "Trimmed");
 
 export type Lowercase = Refined<string, "Lowercase">;
-export const Lowercase = refinement<string, "Lowercase">(
-  (s) => s === s.toLowerCase(),
-  "Lowercase",
-);
+export const Lowercase = refinement<string, "Lowercase">((s) => s === s.toLowerCase(), "Lowercase");
 
 export type Uppercase = Refined<string, "Uppercase">;
-export const Uppercase = refinement<string, "Uppercase">(
-  (s) => s === s.toUpperCase(),
-  "Uppercase",
-);
+export const Uppercase = refinement<string, "Uppercase">((s) => s === s.toUpperCase(), "Uppercase");
 
 export type Email = Refined<string, "Email">;
 export const Email = refinement<string, "Email">(
   (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s),
-  "Email",
+  "Email"
 );
 
 export type Url = Refined<string, "Url">;
@@ -493,21 +455,15 @@ export const Url = refinement<string, "Url">((s) => {
 
 export type Uuid = Refined<string, "Uuid">;
 export const Uuid = refinement<string, "Uuid">(
-  (s) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      s,
-    ),
-  "Uuid",
+  (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s),
+  "Uuid"
 );
 
 // --- Array refinements ---
 
 export type NonEmptyArray<T> = Refined<T[], "NonEmptyArray">;
 export function NonEmptyArray<T>(): Refinement<T[], "NonEmptyArray"> {
-  return refinement<T[], "NonEmptyArray">(
-    (arr) => arr.length > 0,
-    "NonEmptyArray",
-  );
+  return refinement<T[], "NonEmptyArray">((arr) => arr.length > 0, "NonEmptyArray");
 }
 
 export type MaxLength<T> = Refined<T[], "MaxLength">;
@@ -533,13 +489,12 @@ export function MinLength<T>(min: number): Refinement<T[], "MinLength"> {
  */
 export const refineMacro = defineExpressionMacro({
   name: "refine",
-  description:
-    "Validate and refine a value at compile time (for literals) or runtime",
+  description: "Validate and refine a value at compile time (for literals) or runtime",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       // If called as refine(refinement, value), pass through
@@ -564,7 +519,7 @@ export const refineMacro = defineExpressionMacro({
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(refinementArg, "refine"),
       undefined,
-      [valueArg],
+      [valueArg]
     );
   },
 });
@@ -581,7 +536,7 @@ export const unsafeRefineMacro = defineExpressionMacro({
   expand(
     _ctx: MacroContext,
     _callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     // unsafeRefine(value) => value (identity — the type cast happens at the type level)
     if (args.length >= 1) {
@@ -609,11 +564,7 @@ globalRegistry.register(refineMacro);
  * - "decidable": Decidable but may require SMT solver (e.g., complex arithmetic)
  * - "undecidable": Cannot be automatically decided (e.g., halting problem)
  */
-export type Decidability =
-  | "compile-time"
-  | "runtime"
-  | "decidable"
-  | "undecidable";
+export type Decidability = "compile-time" | "runtime" | "decidable" | "undecidable";
 
 /**
  * Preferred proof strategy for a predicate.
@@ -766,8 +717,7 @@ export const REFINEMENT_PREDICATES: RefinementPredicate[] = [
   },
   {
     brand: "Url",
-    predicate:
-      "(() => { try { new URL($); return true; } catch { return false; } })()",
+    predicate: "(() => { try { new URL($); return true; } catch { return false; } })()",
     description: "Valid URL",
     decidability: "runtime",
     preferredStrategy: "constant",

@@ -147,11 +147,7 @@ export function registerPure(name: string, location?: string): void {
 /**
  * Register an effectful function.
  */
-export function registerEffect(
-  name: string,
-  effects: EffectKind[],
-  location?: string,
-): void {
+export function registerEffect(name: string, effects: EffectKind[], location?: string): void {
   effectRegistry.set(name, {
     name,
     pure: false,
@@ -164,10 +160,7 @@ export function registerEffect(
  * Check if calling `callee` from `caller` is valid.
  * Returns an error message if invalid, undefined if OK.
  */
-export function checkEffectCall(
-  caller: string,
-  callee: string,
-): string | undefined {
+export function checkEffectCall(caller: string, callee: string): string | undefined {
   const callerAnnotation = effectRegistry.get(caller);
   const calleeAnnotation = effectRegistry.get(callee);
 
@@ -226,13 +219,10 @@ export const pureAttribute = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target) && !ts.isMethodDeclaration(target)) {
-      ctx.reportError(
-        target,
-        "@pure can only be applied to functions and methods",
-      );
+      ctx.reportError(target, "@pure can only be applied to functions and methods");
       return target;
     }
 
@@ -245,7 +235,7 @@ export const pureAttribute = defineAttributeMacro({
     // Register as pure
     registerPure(
       name,
-      `${ctx.sourceFile.fileName}:${ctx.sourceFile.getLineAndCharacterOfPosition(target.getStart()).line + 1}`,
+      `${ctx.sourceFile.fileName}:${ctx.sourceFile.getLineAndCharacterOfPosition(target.getStart()).line + 1}`
     );
 
     // Walk the function body to check for effect violations
@@ -271,21 +261,17 @@ export const pureAttribute = defineAttributeMacro({
  */
 export const effectAttribute = defineAttributeMacro({
   name: "effect",
-  description:
-    "Declare the side effects of a function. Enables compile-time effect checking.",
+  description: "Declare the side effects of a function. Enables compile-time effect checking.",
   validTargets: ["function", "method"] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target) && !ts.isMethodDeclaration(target)) {
-      ctx.reportError(
-        target,
-        "@effect can only be applied to functions and methods",
-      );
+      ctx.reportError(target, "@effect can only be applied to functions and methods");
       return target;
     }
 
@@ -304,17 +290,14 @@ export const effectAttribute = defineAttributeMacro({
     }
 
     if (effects.length === 0) {
-      ctx.reportWarning(
-        target,
-        '@effect requires at least one effect name, e.g. @effect("io")',
-      );
+      ctx.reportWarning(target, '@effect requires at least one effect name, e.g. @effect("io")');
     }
 
     // Register with effects
     registerEffect(
       name,
       effects,
-      `${ctx.sourceFile.fileName}:${ctx.sourceFile.getLineAndCharacterOfPosition(target.getStart()).line + 1}`,
+      `${ctx.sourceFile.fileName}:${ctx.sourceFile.getLineAndCharacterOfPosition(target.getStart()).line + 1}`
     );
 
     // Walk the function body to check for undeclared effects
@@ -333,11 +316,7 @@ export const effectAttribute = defineAttributeMacro({
 /**
  * Walk a function body and check for effect violations.
  */
-function walkForEffectViolations(
-  ctx: MacroContext,
-  callerName: string,
-  body: ts.Node,
-): void {
+function walkForEffectViolations(ctx: MacroContext, callerName: string, body: ts.Node): void {
   const visitor = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       let calleeName: string | undefined;
@@ -399,16 +378,12 @@ export type EffectsOf<T> = T extends Effectful<infer E, unknown> ? E : never;
 /**
  * Check if a type has a specific effect.
  */
-export type HasEffect<T, E extends string> =
-  E extends EffectsOf<T> ? true : false;
+export type HasEffect<T, E extends string> = E extends EffectsOf<T> ? true : false;
 
 /**
  * Combine effects from multiple types.
  */
-export type CombineEffects<A, B> = Effectful<
-  EffectsOf<A> | EffectsOf<B>,
-  unknown
->;
+export type CombineEffects<A, B> = Effectful<EffectsOf<A> | EffectsOf<B>, unknown>;
 
 // ============================================================================
 // Runtime Helpers

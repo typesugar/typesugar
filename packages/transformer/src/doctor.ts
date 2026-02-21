@@ -158,7 +158,7 @@ function checkTransformerPlugin(cwd: string): DiagnosticCheck {
     const plugins = tsconfig.compilerOptions?.plugins ?? [];
 
     const hasTransformer = plugins.some(
-      (p: { transform?: string }) => p.transform === "@typesugar/transformer",
+      (p: { transform?: string }) => p.transform === "@typesugar/transformer"
     );
 
     if (!hasTransformer) {
@@ -203,7 +203,7 @@ function checkLanguageServicePlugin(cwd: string): DiagnosticCheck {
     const hasLSPlugin = plugins.some(
       (p: { name?: string }) =>
         p.name === "typesugar/language-service" ||
-        p.name === "@typesugar/transformer/language-service",
+        p.name === "@typesugar/transformer/language-service"
     );
 
     if (!hasLSPlugin) {
@@ -268,13 +268,7 @@ function checkTsPatch(cwd: string): DiagnosticCheck {
 }
 
 function checkTsPatchActive(cwd: string): DiagnosticCheck {
-  const tsPath = path.join(
-    cwd,
-    "node_modules",
-    "typescript",
-    "lib",
-    "typescript.js",
-  );
+  const tsPath = path.join(cwd, "node_modules", "typescript", "lib", "typescript.js");
 
   if (!fs.existsSync(tsPath)) {
     return {
@@ -330,8 +324,7 @@ function checkPrepareScript(cwd: string): DiagnosticCheck {
       return {
         name: "prepare script configured",
         status: "warn",
-        message:
-          "No ts-patch in prepare script. ts-patch may be lost after npm install.",
+        message: "No ts-patch in prepare script. ts-patch may be lost after npm install.",
         fix: 'Add "prepare": "ts-patch install -s" to scripts in package.json',
       };
     }
@@ -365,8 +358,7 @@ function checkTransformerPackage(cwd: string): DiagnosticCheck {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-    const hasTransformer =
-      allDeps["@typesugar/transformer"] || allDeps["typesugar"];
+    const hasTransformer = allDeps["@typesugar/transformer"] || allDeps["typesugar"];
 
     if (!hasTransformer) {
       return {
@@ -407,10 +399,7 @@ function checkUnplugin(cwd: string): DiagnosticCheck {
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
     const hasBundler =
-      allDeps["vite"] ||
-      allDeps["webpack"] ||
-      allDeps["esbuild"] ||
-      allDeps["rollup"];
+      allDeps["vite"] || allDeps["webpack"] || allDeps["esbuild"] || allDeps["rollup"];
     const hasUnplugin = allDeps["unplugin-typesugar"];
 
     if (hasBundler && !hasUnplugin) {
@@ -461,9 +450,7 @@ function checkVersionMismatch(cwd: string): DiagnosticCheck {
 
     const typesugarPackages = Object.keys(allDeps).filter(
       (name) =>
-        name.startsWith("@typesugar/") ||
-        name === "typesugar" ||
-        name === "unplugin-typesugar",
+        name.startsWith("@typesugar/") || name === "typesugar" || name === "unplugin-typesugar"
     );
 
     if (typesugarPackages.length === 0) {
@@ -478,11 +465,7 @@ function checkVersionMismatch(cwd: string): DiagnosticCheck {
     for (const pkg of typesugarPackages) {
       const version = allDeps[pkg];
       if (version && !version.includes("workspace:")) {
-        const cleanVersion = version
-          .replace(/[\^~]/g, "")
-          .split(".")
-          .slice(0, 2)
-          .join(".");
+        const cleanVersion = version.replace(/[\^~]/g, "").split(".").slice(0, 2).join(".");
         versions.add(cleanVersion);
       }
     }
@@ -535,18 +518,9 @@ const x = comptime(1 + 1);
       };
     }
 
-    const parsed = ts.parseJsonConfigFileContent(
-      configFile.config,
-      ts.sys,
-      cwd,
-    );
+    const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, cwd);
 
-    const sourceFile = ts.createSourceFile(
-      "test.ts",
-      testCode,
-      ts.ScriptTarget.ES2022,
-      true,
-    );
+    const sourceFile = ts.createSourceFile("test.ts", testCode, ts.ScriptTarget.ES2022, true);
 
     const compilerOptions: ts.CompilerOptions = {
       ...parsed.options,
@@ -555,34 +529,20 @@ const x = comptime(1 + 1);
 
     const host = ts.createCompilerHost(compilerOptions);
     const originalGetSourceFile = host.getSourceFile;
-    host.getSourceFile = (
-      fileName,
-      languageVersion,
-      onError,
-      shouldCreateNewSourceFile,
-    ) => {
+    host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
       if (fileName === "test.ts") {
         return sourceFile;
       }
-      return originalGetSourceFile(
-        fileName,
-        languageVersion,
-        onError,
-        shouldCreateNewSourceFile,
-      );
+      return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
     };
 
     const program = ts.createProgram(["test.ts"], compilerOptions, host);
     const diagnostics = ts.getPreEmitDiagnostics(program);
 
-    const errors = diagnostics.filter(
-      (d) => d.category === ts.DiagnosticCategory.Error,
-    );
+    const errors = diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error);
 
     if (errors.length > 0 && verbose) {
-      const messages = errors.map((d) =>
-        ts.flattenDiagnosticMessageText(d.messageText, " "),
-      );
+      const messages = errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "));
       return {
         name: "Macro expansion test",
         status: "warn",
@@ -653,21 +613,19 @@ export async function runDoctor(verbose: boolean): Promise<void> {
 
   if (failCount > 0) {
     console.log(
-      `${COLORS.red}${COLORS.bright}${failCount} issue${failCount === 1 ? "" : "s"} found${COLORS.reset}`,
+      `${COLORS.red}${COLORS.bright}${failCount} issue${failCount === 1 ? "" : "s"} found${COLORS.reset}`
     );
     console.log(
-      `\nRun ${COLORS.cyan}typesugar init${COLORS.reset} to fix configuration automatically.`,
+      `\nRun ${COLORS.cyan}typesugar init${COLORS.reset} to fix configuration automatically.`
     );
     process.exit(1);
   } else if (warnCount > 0) {
     console.log(
-      `${COLORS.yellow}${COLORS.bright}${warnCount} warning${warnCount === 1 ? "" : "s"}${COLORS.reset}`,
+      `${COLORS.yellow}${COLORS.bright}${warnCount} warning${warnCount === 1 ? "" : "s"}${COLORS.reset}`
     );
     console.log(`${COLORS.green}All critical checks passed.${COLORS.reset}`);
   } else {
-    console.log(
-      `${COLORS.green}${COLORS.bright}✨ All checks passed!${COLORS.reset}`,
-    );
+    console.log(`${COLORS.green}${COLORS.bright}✨ All checks passed!${COLORS.reset}`);
     console.log("\n🧊 typesugar is properly configured and ready to use.");
   }
 

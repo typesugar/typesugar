@@ -17,11 +17,7 @@
  * @module
  */
 
-import type {
-  SemigroupK,
-  MonoidK,
-  Alternative,
-} from "../typeclasses/alternative.js";
+import type { SemigroupK, MonoidK, Alternative } from "../typeclasses/alternative.js";
 import type { $ } from "../hkt.js";
 import type { Law, LawSet } from "./types.js";
 import type { EqFA } from "./types.js";
@@ -38,10 +34,7 @@ import { applicativeLaws } from "./applicative.js";
  * @param EqFA - Eq instance for comparing F[A] values
  * @returns Array of laws that must hold
  */
-export function semigroupKLaws<F, A>(
-  SK: SemigroupK<F>,
-  EqFA: EqFA<F, A>,
-): LawSet {
+export function semigroupKLaws<F, A>(SK: SemigroupK<F>, EqFA: EqFA<F, A>): LawSet {
   return [
     {
       name: "associativity",
@@ -50,10 +43,7 @@ export function semigroupKLaws<F, A>(
       description:
         "combineK is associative: combineK(combineK(x, y), z) === combineK(x, combineK(y, z))",
       check: (x: $<F, A>, y: $<F, A>, z: $<F, A>): boolean =>
-        EqFA.eqv(
-          SK.combineK(SK.combineK(x, y), z),
-          SK.combineK(x, SK.combineK(y, z)),
-        ),
+        EqFA.eqv(SK.combineK(SK.combineK(x, y), z), SK.combineK(x, SK.combineK(y, z))),
     },
   ] as unknown as LawSet;
 }
@@ -79,16 +69,14 @@ export function monoidKLaws<F, A>(MK: MonoidK<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 1,
       proofHint: "identity-left",
       description: "emptyK is left identity: combineK(emptyK, x) === x",
-      check: (x: $<F, A>): boolean =>
-        EqFA.eqv(MK.combineK(MK.emptyK<A>(), x), x),
+      check: (x: $<F, A>): boolean => EqFA.eqv(MK.combineK(MK.emptyK<A>(), x), x),
     },
     {
       name: "right identity",
       arity: 1,
       proofHint: "identity-right",
       description: "emptyK is right identity: combineK(x, emptyK) === x",
-      check: (x: $<F, A>): boolean =>
-        EqFA.eqv(MK.combineK(x, MK.emptyK<A>()), x),
+      check: (x: $<F, A>): boolean => EqFA.eqv(MK.combineK(x, MK.emptyK<A>()), x),
     },
   ] as unknown as LawSet;
 }
@@ -104,10 +92,7 @@ export function monoidKLaws<F, A>(MK: MonoidK<F>, EqFA: EqFA<F, A>): LawSet {
  * @param EqFA - Eq instance for comparing F[A] values
  * @returns Array of laws that must hold
  */
-export function alternativeLaws<F, A>(
-  Alt: Alternative<F>,
-  EqFA: EqFA<F, A>,
-): LawSet {
+export function alternativeLaws<F, A>(Alt: Alternative<F>, EqFA: EqFA<F, A>): LawSet {
   return [
     // Include Applicative laws
     ...applicativeLaws(Alt, EqFA),
@@ -121,15 +106,8 @@ export function alternativeLaws<F, A>(
       arity: 3,
       description:
         "ap distributes over combineK: ap(combineK(f, g), a) === combineK(ap(f, a), ap(g, a))",
-      check: (
-        a: $<F, A>,
-        f: $<F, (a: A) => A>,
-        g: $<F, (a: A) => A>,
-      ): boolean =>
-        EqFA.eqv(
-          Alt.ap(Alt.combineK(f, g), a),
-          Alt.combineK(Alt.ap(f, a), Alt.ap(g, a)),
-        ),
+      check: (a: $<F, A>, f: $<F, (a: A) => A>, g: $<F, (a: A) => A>): boolean =>
+        EqFA.eqv(Alt.ap(Alt.combineK(f, g), a), Alt.combineK(Alt.ap(f, a), Alt.ap(g, a))),
     },
     {
       name: "right absorption",
@@ -153,7 +131,7 @@ export function alternativeLaws<F, A>(
  */
 export function alternativeLawsNonDistributive<F, A>(
   Alt: Alternative<F>,
-  EqFA: EqFA<F, A>,
+  EqFA: EqFA<F, A>
 ): LawSet {
   return [
     // Include Applicative laws

@@ -43,7 +43,7 @@ export const invariantAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isClassDeclaration(target)) {
       ctx.reportError(target, "@invariant can only be applied to classes");
@@ -53,7 +53,7 @@ export const invariantAttribute = defineAttributeMacro({
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         decorator,
-        "@invariant expects 1-2 arguments: @invariant(predicate, message?)",
+        "@invariant expects 1-2 arguments: @invariant(predicate, message?)"
       );
       return target;
     }
@@ -92,7 +92,7 @@ export const invariantAttribute = defineAttributeMacro({
     if (!predicateBody) {
       ctx.reportError(
         decorator,
-        "@invariant predicate must be an arrow function: (self) => condition",
+        "@invariant predicate must be an arrow function: (self) => condition"
       );
       return target;
     }
@@ -109,30 +109,21 @@ export const invariantAttribute = defineAttributeMacro({
     const checkStatement = ctx.factory.createIfStatement(
       ctx.factory.createPrefixUnaryExpression(
         ts.SyntaxKind.ExclamationToken,
-        ctx.factory.createParenthesizedExpression(checkExpr),
+        ctx.factory.createParenthesizedExpression(checkExpr)
       ),
       ctx.factory.createBlock([
         ctx.factory.createThrowStatement(
-          ctx.factory.createNewExpression(
-            ctx.factory.createIdentifier("Error"),
-            undefined,
-            [ctx.factory.createStringLiteral(message)],
-          ),
+          ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
+            ctx.factory.createStringLiteral(message),
+          ])
         ),
-      ]),
+      ])
     );
 
     // Insert the check at the end of every public method
     const newMembers = target.members.map((member) => {
-      if (
-        ts.isMethodDeclaration(member) &&
-        !isPrivateOrProtected(member) &&
-        member.body
-      ) {
-        const newBody = ctx.factory.createBlock(
-          [...member.body.statements, checkStatement],
-          true,
-        );
+      if (ts.isMethodDeclaration(member) && !isPrivateOrProtected(member) && member.body) {
+        const newBody = ctx.factory.createBlock([...member.body.statements, checkStatement], true);
         return ctx.factory.updateMethodDeclaration(
           member,
           member.modifiers,
@@ -142,21 +133,18 @@ export const invariantAttribute = defineAttributeMacro({
           member.typeParameters,
           member.parameters,
           member.type,
-          newBody,
+          newBody
         );
       }
 
       // Also add to constructor
       if (ts.isConstructorDeclaration(member) && member.body) {
-        const newBody = ctx.factory.createBlock(
-          [...member.body.statements, checkStatement],
-          true,
-        );
+        const newBody = ctx.factory.createBlock([...member.body.statements, checkStatement], true);
         return ctx.factory.updateConstructorDeclaration(
           member,
           member.modifiers,
           member.parameters,
-          newBody,
+          newBody
         );
       }
 
@@ -164,11 +152,8 @@ export const invariantAttribute = defineAttributeMacro({
     });
 
     // Strip the @invariant decorator and update the class
-    const remainingDecorators =
-      ts.getDecorators(target)?.filter((d) => d !== decorator) ?? [];
-    const otherModifiers = ts.canHaveModifiers(target)
-      ? (ts.getModifiers(target) ?? [])
-      : [];
+    const remainingDecorators = ts.getDecorators(target)?.filter((d) => d !== decorator) ?? [];
+    const otherModifiers = ts.canHaveModifiers(target) ? (ts.getModifiers(target) ?? []) : [];
 
     return ctx.factory.updateClassDeclaration(
       target,
@@ -176,7 +161,7 @@ export const invariantAttribute = defineAttributeMacro({
       target.name,
       target.typeParameters,
       target.heritageClauses,
-      newMembers,
+      newMembers
     );
   },
 });
@@ -189,16 +174,14 @@ function isPrivateOrProtected(member: ts.MethodDeclaration): boolean {
   const modifiers = ts.getModifiers(member);
   if (!modifiers) return false;
   return modifiers.some(
-    (m) =>
-      m.kind === ts.SyntaxKind.PrivateKeyword ||
-      m.kind === ts.SyntaxKind.ProtectedKeyword,
+    (m) => m.kind === ts.SyntaxKind.PrivateKeyword || m.kind === ts.SyntaxKind.ProtectedKeyword
   );
 }
 
 function replaceSelfWithThis(
   ctx: MacroContext,
   expr: ts.Expression,
-  selfParam: string,
+  selfParam: string
 ): ts.Expression {
   function visit(node: ts.Node): ts.Node {
     if (ts.isIdentifier(node) && node.text === selfParam) {
@@ -212,13 +195,11 @@ function replaceSelfWithThis(
 function stripDecorator(
   ctx: MacroContext,
   target: ts.ClassDeclaration,
-  decoratorToRemove: ts.Decorator,
+  decoratorToRemove: ts.Decorator
 ): ts.Node {
   const remainingDecorators =
     ts.getDecorators(target)?.filter((d) => d !== decoratorToRemove) ?? [];
-  const otherModifiers = ts.canHaveModifiers(target)
-    ? (ts.getModifiers(target) ?? [])
-    : [];
+  const otherModifiers = ts.canHaveModifiers(target) ? (ts.getModifiers(target) ?? []) : [];
 
   return ctx.factory.updateClassDeclaration(
     target,
@@ -226,7 +207,7 @@ function stripDecorator(
     target.name,
     target.typeParameters,
     target.heritageClauses,
-    target.members,
+    target.members
   );
 }
 

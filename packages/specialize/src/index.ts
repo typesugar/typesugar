@@ -18,11 +18,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // specialize() - Create specialized function at compile time
@@ -36,12 +32,12 @@ export const specializeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       ctx.reportError(
         callExpr,
-        "specialize() requires a function and an array of typeclass instances",
+        "specialize() requires a function and an array of typeclass instances"
       );
       return callExpr;
     }
@@ -53,7 +49,7 @@ export const specializeMacro = defineExpressionMacro({
     if (!ts.isArrayLiteralExpression(instancesArg)) {
       ctx.reportError(
         callExpr,
-        "specialize() second argument must be an array literal of typeclass instances",
+        "specialize() second argument must be an array literal of typeclass instances"
       );
       return callExpr;
     }
@@ -80,7 +76,7 @@ export const specializeMacro = defineExpressionMacro({
     if (realParamCount < 0) {
       ctx.reportError(
         callExpr,
-        `specialize() provided ${numInstances} instances but function only has ${params.length} parameters`,
+        `specialize() provided ${numInstances} instances but function only has ${params.length} parameters`
       );
       return callExpr;
     }
@@ -97,24 +93,15 @@ export const specializeMacro = defineExpressionMacro({
       paramNames.push(paramName);
 
       // Get parameter type
-      const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        paramSymbol,
-        callExpr,
-      );
+      const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(paramSymbol, callExpr);
       const typeNode = ctx.typeChecker.typeToTypeNode(
         paramType,
         callExpr,
-        ts.NodeBuilderFlags.None,
+        ts.NodeBuilderFlags.None
       );
 
       paramDecls.push(
-        factory.createParameterDeclaration(
-          undefined,
-          undefined,
-          paramName,
-          undefined,
-          typeNode,
-        ),
+        factory.createParameterDeclaration(undefined, undefined, paramName, undefined, typeNode)
       );
     }
 
@@ -130,7 +117,7 @@ export const specializeMacro = defineExpressionMacro({
       paramDecls,
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      body,
+      body
     );
   },
 });
@@ -147,23 +134,17 @@ export const specializeInlineMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "specialize$() requires exactly one function call expression",
-      );
+      ctx.reportError(callExpr, "specialize$() requires exactly one function call expression");
       return callExpr;
     }
 
     const innerCall = args[0];
 
     if (!ts.isCallExpression(innerCall)) {
-      ctx.reportError(
-        callExpr,
-        "specialize$() argument must be a function call",
-      );
+      ctx.reportError(callExpr, "specialize$() argument must be a function call");
       return callExpr;
     }
 
@@ -201,7 +182,7 @@ export const specializeInlineMacro = defineExpressionMacro({
     return factory.createCallExpression(
       innerCall.expression,
       innerCall.typeArguments,
-      innerCall.arguments.slice(),
+      innerCall.arguments.slice()
     );
   },
 });
@@ -218,13 +199,10 @@ export const monoMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "mono() requires exactly one function reference",
-      );
+      ctx.reportError(callExpr, "mono() requires exactly one function reference");
       return callExpr;
     }
 
@@ -257,24 +235,15 @@ export const monoMacro = defineExpressionMacro({
       const name = factory.createIdentifier(param.getName());
       paramRefs.push(name);
 
-      const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        param,
-        callExpr,
-      );
+      const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(param, callExpr);
       const typeNode = ctx.typeChecker.typeToTypeNode(
         paramType,
         callExpr,
-        ts.NodeBuilderFlags.None,
+        ts.NodeBuilderFlags.None
       );
 
       paramDecls.push(
-        factory.createParameterDeclaration(
-          undefined,
-          undefined,
-          name,
-          undefined,
-          typeNode,
-        ),
+        factory.createParameterDeclaration(undefined, undefined, name, undefined, typeNode)
       );
     }
 
@@ -287,7 +256,7 @@ export const monoMacro = defineExpressionMacro({
       paramDecls,
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      body,
+      body
     );
   },
 });
@@ -304,22 +273,16 @@ export const inlineCallMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
-      ctx.reportError(
-        callExpr,
-        "inlineCall() requires exactly one function call",
-      );
+      ctx.reportError(callExpr, "inlineCall() requires exactly one function call");
       return callExpr;
     }
 
     const call = args[0];
     if (!ts.isCallExpression(call)) {
-      ctx.reportError(
-        callExpr,
-        "inlineCall() argument must be a function call",
-      );
+      ctx.reportError(callExpr, "inlineCall() argument must be a function call");
       return callExpr;
     }
 
@@ -373,18 +336,12 @@ export const inlineCallMacro = defineExpressionMacro({
       const clonedParams = fnParams.map((p) =>
         factory.createParameterDeclaration(
           undefined,
-          p.dotDotDotToken
-            ? factory.createToken(ts.SyntaxKind.DotDotDotToken)
-            : undefined,
-          ts.isIdentifier(p.name)
-            ? factory.createIdentifier(p.name.text)
-            : p.name,
-          p.questionToken
-            ? factory.createToken(ts.SyntaxKind.QuestionToken)
-            : undefined,
+          p.dotDotDotToken ? factory.createToken(ts.SyntaxKind.DotDotDotToken) : undefined,
+          ts.isIdentifier(p.name) ? factory.createIdentifier(p.name.text) : p.name,
+          p.questionToken ? factory.createToken(ts.SyntaxKind.QuestionToken) : undefined,
           p.type,
-          p.initializer,
-        ),
+          p.initializer
+        )
       );
 
       return factory.createCallExpression(
@@ -395,11 +352,11 @@ export const inlineCallMacro = defineExpressionMacro({
             clonedParams,
             undefined,
             factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-            body, // Body is already an expression, can reuse
-          ),
+            body // Body is already an expression, can reuse
+          )
         ),
         undefined,
-        call.arguments.slice(),
+        call.arguments.slice()
       );
     }
 
@@ -413,18 +370,12 @@ export const inlineCallMacro = defineExpressionMacro({
         const clonedParams = fnParams.map((p) =>
           factory.createParameterDeclaration(
             undefined,
-            p.dotDotDotToken
-              ? factory.createToken(ts.SyntaxKind.DotDotDotToken)
-              : undefined,
-            ts.isIdentifier(p.name)
-              ? factory.createIdentifier(p.name.text)
-              : p.name,
-            p.questionToken
-              ? factory.createToken(ts.SyntaxKind.QuestionToken)
-              : undefined,
+            p.dotDotDotToken ? factory.createToken(ts.SyntaxKind.DotDotDotToken) : undefined,
+            ts.isIdentifier(p.name) ? factory.createIdentifier(p.name.text) : p.name,
+            p.questionToken ? factory.createToken(ts.SyntaxKind.QuestionToken) : undefined,
             p.type,
-            p.initializer,
-          ),
+            p.initializer
+          )
         );
 
         return factory.createCallExpression(
@@ -435,11 +386,11 @@ export const inlineCallMacro = defineExpressionMacro({
               clonedParams,
               undefined,
               factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-              stmt.expression, // Reuse the expression
-            ),
+              stmt.expression // Reuse the expression
+            )
           ),
           undefined,
-          call.arguments.slice(),
+          call.arguments.slice()
         );
       }
     }

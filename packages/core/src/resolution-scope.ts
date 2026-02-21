@@ -72,7 +72,7 @@ export class ResolutionScopeTracker {
     fileName: string,
     typeclassName: string,
     module: string,
-    isReexport = false,
+    isReexport = false
   ): void {
     const scope = this.getScope(fileName);
     scope.importedTypeclasses.set(typeclassName, {
@@ -101,10 +101,7 @@ export class ResolutionScopeTracker {
 
       case "import-scoped":
         // Must be imported or in prelude
-        return (
-          scope.importedTypeclasses.has(typeclassName) ||
-          config.isInPrelude(typeclassName)
-        );
+        return scope.importedTypeclasses.has(typeclassName) || config.isInPrelude(typeclassName);
 
       case "explicit":
         // Nothing is implicitly in scope
@@ -193,7 +190,7 @@ export const globalResolutionScope = new ResolutionScopeTracker();
  */
 export function scanImportsForScope(
   sourceFile: ts.SourceFile,
-  tracker: ResolutionScopeTracker = globalResolutionScope,
+  tracker: ResolutionScopeTracker = globalResolutionScope
 ): void {
   const fileName = sourceFile.fileName;
 
@@ -239,10 +236,7 @@ export function scanImportsForScope(
       if (!importClause) return;
 
       // Named imports: import { Eq, Ord } from "@typesugar/std"
-      if (
-        importClause.namedBindings &&
-        ts.isNamedImports(importClause.namedBindings)
-      ) {
+      if (importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
         for (const element of importClause.namedBindings.elements) {
           const importedName = (element.propertyName ?? element.name).text;
           const localName = element.name.text;
@@ -256,15 +250,9 @@ export function scanImportsForScope(
 
       // Namespace import: import * as std from "@typesugar/std"
       // In this case, all typeclasses from that module are potentially in scope
-      if (
-        importClause.namedBindings &&
-        ts.isNamespaceImport(importClause.namedBindings)
-      ) {
+      if (importClause.namedBindings && ts.isNamespaceImport(importClause.namedBindings)) {
         // For namespace imports from typesugar packages, register all known typeclasses
-        if (
-          moduleName.startsWith("@typesugar/") ||
-          moduleName.startsWith("typesugar")
-        ) {
+        if (moduleName.startsWith("@typesugar/") || moduleName.startsWith("typesugar")) {
           for (const tc of knownTypeclasses) {
             tracker.registerImportedTypeclass(fileName, tc, moduleName, true);
           }
@@ -290,15 +278,7 @@ export function scanImportsForScope(
         const featureMatch = text.match(/^use no typesugar (\w+)$/);
         if (featureMatch) {
           const feature = featureMatch[1];
-          if (
-            [
-              "operators",
-              "derive",
-              "extensions",
-              "typeclasses",
-              "macros",
-            ].includes(feature)
-          ) {
+          if (["operators", "derive", "extensions", "typeclasses", "macros"].includes(feature)) {
             tracker.addOptedOutFeature(fileName, feature);
           }
         }
@@ -314,7 +294,7 @@ export function scanImportsForScope(
 export function hasInlineOptOut(
   sourceFile: ts.SourceFile,
   node: ts.Node,
-  feature?: string,
+  feature?: string
 ): boolean {
   const nodeStart = node.getStart(sourceFile);
   const lineStarts = sourceFile.getLineStarts();
@@ -331,17 +311,14 @@ export function hasInlineOptOut(
 
   const lineStart = lineStarts[lineIndex];
   const lineEnd =
-    lineIndex + 1 < lineStarts.length
-      ? lineStarts[lineIndex + 1]
-      : sourceFile.getEnd();
+    lineIndex + 1 < lineStarts.length ? lineStarts[lineIndex + 1] : sourceFile.getEnd();
 
   const lineText = sourceFile.text.slice(lineStart, lineEnd);
 
   // Check for inline opt-out comment
   if (feature) {
     return (
-      lineText.includes(`@ts-no-typesugar ${feature}`) ||
-      lineText.includes("@ts-no-typesugar-all")
+      lineText.includes(`@ts-no-typesugar ${feature}`) || lineText.includes("@ts-no-typesugar-all")
     );
   }
 
@@ -355,7 +332,7 @@ export function isInOptedOutScope(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   tracker: ResolutionScopeTracker = globalResolutionScope,
-  feature?: string,
+  feature?: string
 ): boolean {
   const fileName = sourceFile.fileName;
   const scope = tracker.getScope(fileName);

@@ -50,10 +50,7 @@ const result = verify(order);
 // }
 
 const inst = order.create();
-const shipped = inst
-  .transition("submit")
-  .transition("approve")
-  .transition("ship");
+const shipped = inst.transition("submit").transition("approve").transition("ship");
 shipped.current; // "Shipped"
 shipped.availableEvents(); // ["deliver"]
 ```
@@ -83,10 +80,13 @@ const ug = graph`
 ```typescript
 import { createDigraph, createGraph, addNode, addEdge } from "@typesugar/graph";
 
-const g = createDigraph(["a", "b", "c"], [
-  ["a", "b"],
-  ["b", "c"],
-]);
+const g = createDigraph(
+  ["a", "b", "c"],
+  [
+    ["a", "b"],
+    ["b", "c"],
+  ]
+);
 
 // Immutable — returns new graphs
 const g2 = addNode(g, "d");
@@ -95,18 +95,18 @@ const g3 = addEdge(g2, "c", "d", "next", 5);
 
 ## Algorithms
 
-| Algorithm | Function | Complexity |
-| --- | --- | --- |
-| Topological sort | `topoSort(g)` | O(V + E) |
-| Cycle detection | `detectCycles(g)`, `hasCycles(g)` | O(V + E) |
-| BFS / DFS | `bfs(g, start)`, `dfs(g, start)` | O(V + E) |
-| Reachability | `reachable(g, start)`, `hasPath(g, a, b)` | O(V + E) |
-| Shortest path (unweighted) | `shortestPath(g, a, b)` | O(V + E) |
-| Shortest path (weighted) | `dijkstra(g, a, b)` | O(V^2) |
-| Strongly connected components | `stronglyConnectedComponents(g)` | O(V + E) |
-| DAG check | `isDAG(g)` | O(V + E) |
-| Transitive closure | `transitiveClosure(g)` | O(V * (V + E)) |
-| Reverse graph | `reverseGraph(g)` | O(V + E) |
+| Algorithm                     | Function                                  | Complexity      |
+| ----------------------------- | ----------------------------------------- | --------------- |
+| Topological sort              | `topoSort(g)`                             | O(V + E)        |
+| Cycle detection               | `detectCycles(g)`, `hasCycles(g)`         | O(V + E)        |
+| BFS / DFS                     | `bfs(g, start)`, `dfs(g, start)`          | O(V + E)        |
+| Reachability                  | `reachable(g, start)`, `hasPath(g, a, b)` | O(V + E)        |
+| Shortest path (unweighted)    | `shortestPath(g, a, b)`                   | O(V + E)        |
+| Shortest path (weighted)      | `dijkstra(g, a, b)`                       | O(V^2)          |
+| Strongly connected components | `stronglyConnectedComponents(g)`          | O(V + E)        |
+| DAG check                     | `isDAG(g)`                                | O(V + E)        |
+| Transitive closure            | `transitiveClosure(g)`                    | O(V \* (V + E)) |
+| Reverse graph                 | `reverseGraph(g)`                         | O(V + E)        |
 
 ## State Machine Verification
 

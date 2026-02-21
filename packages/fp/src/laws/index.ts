@@ -81,11 +81,7 @@ export { flatMapLaws, monadLaws, monadStackSafetyLaws } from "./monad.js";
 export { foldableLaws, foldableOrderLaws } from "./foldable.js";
 
 // Traverse
-export {
-  traverseLaws,
-  traverseLawsWithApplicative,
-  sequenceLaws,
-} from "./traverse.js";
+export { traverseLaws, traverseLawsWithApplicative, sequenceLaws } from "./traverse.js";
 
 // Alternative
 export {

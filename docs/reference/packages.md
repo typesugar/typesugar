@@ -484,6 +484,7 @@ npm install @typesugar/hlist
 ```
 
 **Key exports:**
+
 - `hlist()` — construct an HList
 - `head()`, `tail()`, `last()`, `init()`, `at()` — element access
 - `append()`, `prepend()`, `concat()`, `reverse()`, `zip()`, `splitAt()` — operations
@@ -501,6 +502,7 @@ npm install @typesugar/parser
 ```
 
 **Key exports:**
+
 - `` grammar`...` `` — PEG grammar tagged template
 - `literal()`, `char()`, `charRange()`, `regex()` — primitive parsers
 - `seq()`, `alt()`, `many()`, `many1()`, `optional()`, `not()` — combinators
@@ -518,6 +520,7 @@ npm install @typesugar/fusion
 ```
 
 **Key exports:**
+
 - `lazy()` — create a fused iterator pipeline
 - `.map()`, `.filter()`, `.flatMap()`, `.take()`, `.drop()` — pipeline operations
 - `.toArray()`, `.reduce()`, `.find()`, `.some()`, `.every()` — terminal operations
@@ -535,6 +538,7 @@ npm install @typesugar/graph
 ```
 
 **Key exports:**
+
 - `createDigraph()`, `createGraph()` — construction
 - `` digraph`...` `` — DSL construction
 - `topoSort()`, `bfs()`, `dfs()`, `reachable()`, `shortestPath()`, `dijkstra()` — algorithms
@@ -552,6 +556,7 @@ npm install @typesugar/erased
 ```
 
 **Key exports:**
+
 - `eraseWith()` — create an erased value with explicit vtable
 - `showable()`, `equatable()`, `showableEq()` — convenience constructors
 - `show()`, `equals()`, `compare()`, `hash()`, `clone()` — dispatch functions
@@ -569,6 +574,7 @@ npm install @typesugar/codec
 ```
 
 **Key exports:**
+
 - `schema()` — fluent schema builder with version annotations
 - `createJsonCodec()` — JSON codec with version migration
 - `createBinaryCodec()` — binary codec with explicit field layouts
@@ -586,6 +592,7 @@ npm install @typesugar/named-args
 ```
 
 **Key exports:**
+
 - `namedArgs()` — wrap a function for named argument calling
 - `callWithNamedArgs()` — call with an object of named arguments
 - `createBuilder()` — builder pattern for many-param functions
@@ -602,6 +609,7 @@ npm install @typesugar/geometry
 ```
 
 **Key exports:**
+
 - `point2d()`, `point3d()`, `vec2()`, `vec3()` — Cartesian constructors
 - `polar()`, `spherical()`, `cylindrical()` — other coordinate systems
 - `translate()`, `distance()`, `dot()`, `cross()`, `normalize()` — operations

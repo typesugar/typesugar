@@ -29,17 +29,13 @@ describe("import suggestion system", () => {
       // Check typeclasses - both original and re-exports are registered
       // The last one registered wins for typeclassToModule
       const eqModule = index.typeclassToModule.get("Eq");
-      expect(eqModule === "@typesugar/std" || eqModule === "typesugar").toBe(
-        true,
-      );
+      expect(eqModule === "@typesugar/std" || eqModule === "typesugar").toBe(true);
 
       // Check that Eq is available from at least one module
       const eqExports = index.byName.get("Eq");
       expect(eqExports).toBeDefined();
       expect(
-        eqExports!.some(
-          (e) => e.module === "@typesugar/std" || e.module === "typesugar",
-        ),
+        eqExports!.some((e) => e.module === "@typesugar/std" || e.module === "typesugar")
       ).toBe(true);
 
       // Check macros
@@ -48,9 +44,7 @@ describe("import suggestion system", () => {
 
       // Check extension methods
       expect(index.extensionToModule.get("clamp")).toContain("@typesugar/std");
-      expect(index.extensionToModule.get("capitalize")).toContain(
-        "@typesugar/std",
-      );
+      expect(index.extensionToModule.get("capitalize")).toContain("@typesugar/std");
     });
 
     it("can register custom exports", () => {
@@ -81,9 +75,7 @@ describe("import suggestion system", () => {
 
       // typesugar re-exports Option from @typesugar/fp
       const first = suggestions[0];
-      expect(
-        first.module === "typesugar" || first.module === "@typesugar/fp",
-      ).toBe(true);
+      expect(first.module === "typesugar" || first.module === "@typesugar/fp").toBe(true);
     });
 
     it("returns empty for unknown symbols", () => {
@@ -128,8 +120,7 @@ describe("import suggestion system", () => {
       expect(suggestions).toHaveLength(1);
       // Could be from @typesugar/std or re-exported via typesugar
       expect(
-        suggestions[0].module === "@typesugar/std" ||
-          suggestions[0].module === "typesugar",
+        suggestions[0].module === "@typesugar/std" || suggestions[0].module === "typesugar"
       ).toBe(true);
       expect(suggestions[0].kind).toBe("typeclass");
     });
@@ -196,7 +187,7 @@ describe("import suggestion system", () => {
         `const x = 1;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       const fix = generateImportFix(sourceFile, {
@@ -220,7 +211,7 @@ describe("import suggestion system", () => {
 const x = 1;`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
 
       const fix = generateImportFix(sourceFile, {

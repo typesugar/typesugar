@@ -21,20 +21,16 @@ import type { MacroContext } from "./types.js";
 export function stripDecorator(
   ctx: MacroContext,
   target: ts.Declaration,
-  decoratorToRemove: ts.Decorator,
+  decoratorToRemove: ts.Decorator
 ): ts.Node {
   if (!ts.canHaveDecorators(target)) return target;
 
   const existingDecorators = ts.getDecorators(target);
   if (!existingDecorators) return target;
 
-  const remainingDecorators = existingDecorators.filter(
-    (d) => d !== decoratorToRemove,
-  );
+  const remainingDecorators = existingDecorators.filter((d) => d !== decoratorToRemove);
 
-  const existingModifiers = ts.canHaveModifiers(target)
-    ? ts.getModifiers(target)
-    : undefined;
+  const existingModifiers = ts.canHaveModifiers(target) ? ts.getModifiers(target) : undefined;
 
   const newModifiers = [...remainingDecorators, ...(existingModifiers ?? [])];
 
@@ -48,7 +44,7 @@ export function stripDecorator(
       target.typeParameters,
       target.parameters,
       target.type,
-      target.body,
+      target.body
     );
   }
 
@@ -59,7 +55,7 @@ export function stripDecorator(
       target.name,
       target.questionToken ?? target.exclamationToken,
       target.type,
-      target.initializer,
+      target.initializer
     );
   }
 
@@ -70,7 +66,7 @@ export function stripDecorator(
       target.name,
       target.typeParameters,
       target.heritageClauses,
-      target.members,
+      target.members
     );
   }
 
@@ -82,7 +78,7 @@ export function stripDecorator(
     return ctx.factory.updateVariableStatement(
       maybeNode,
       newModifiers.length > 0 ? newModifiers : undefined,
-      maybeNode.declarationList,
+      maybeNode.declarationList
     );
   }
 
@@ -96,7 +92,7 @@ export function stripDecorator(
       maybeFunc.typeParameters,
       maybeFunc.parameters,
       maybeFunc.type,
-      maybeFunc.body,
+      maybeFunc.body
     );
   }
 
@@ -118,7 +114,7 @@ export function stripPositions<T extends ts.Node>(node: T): T {
   return ts.visitEachChild(
     node,
     (child) => stripPositions(child),
-    undefined as unknown as ts.TransformationContext,
+    undefined as unknown as ts.TransformationContext
   ) as T;
 }
 
@@ -147,7 +143,7 @@ export interface JsValueContext {
 export function jsValueToExpression(
   ctx: JsValueContext,
   value: unknown,
-  errorNode: ts.Node,
+  errorNode: ts.Node
 ): ts.Expression {
   if (value === null) {
     return ctx.factory.createNull();
@@ -161,7 +157,7 @@ export function jsValueToExpression(
     if (value < 0) {
       return ctx.factory.createPrefixUnaryExpression(
         ts.SyntaxKind.MinusToken,
-        ctx.factory.createNumericLiteral(Math.abs(value)),
+        ctx.factory.createNumericLiteral(Math.abs(value))
       );
     }
     if (!isFinite(value)) {
@@ -191,14 +187,10 @@ export function jsValueToExpression(
   }
 
   if (value instanceof RegExp) {
-    return ctx.factory.createCallExpression(
-      ctx.factory.createIdentifier("RegExp"),
-      undefined,
-      [
-        ctx.factory.createStringLiteral(value.source),
-        ctx.factory.createStringLiteral(value.flags),
-      ],
-    );
+    return ctx.factory.createCallExpression(ctx.factory.createIdentifier("RegExp"), undefined, [
+      ctx.factory.createStringLiteral(value.source),
+      ctx.factory.createStringLiteral(value.flags),
+    ]);
   }
 
   if (typeof value === "object") {
@@ -209,18 +201,15 @@ export function jsValueToExpression(
           /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
             ? ctx.factory.createIdentifier(key)
             : ctx.factory.createStringLiteral(key),
-          jsValueToExpression(ctx, val, errorNode),
-        ),
+          jsValueToExpression(ctx, val, errorNode)
+        )
       );
     }
     return ctx.factory.createObjectLiteralExpression(properties, true);
   }
 
   // Functions, symbols, etc. cannot be serialized to AST
-  ctx.reportError(
-    errorNode,
-    `Cannot serialize value of type ${typeof value} to AST`,
-  );
+  ctx.reportError(errorNode, `Cannot serialize value of type ${typeof value} to AST`);
   return ctx.factory.createIdentifier("undefined");
 }
 
@@ -252,7 +241,7 @@ export function getDummySourceFile(): ts.SourceFile {
     "",
     ts.ScriptTarget.Latest,
     false,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   ));
 }
 
@@ -262,10 +251,7 @@ export function getDummySourceFile(): ts.SourceFile {
  * @param node - The AST node to print
  * @param sourceFile - Optional source file context (uses dummy if not provided)
  */
-export function printNode(
-  node: ts.Node,
-  sourceFile?: ts.SourceFile,
-): string {
+export function printNode(node: ts.Node, sourceFile?: ts.SourceFile): string {
   const printer = getPrinter();
   const sf = sourceFile ?? getDummySourceFile();
 
@@ -325,10 +311,7 @@ export function findMatchingParen(expr: string, start: number): number {
  * @example
  * getNestedValue({ a: { b: 1 } }, "a.b") // => 1
  */
-export function getNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-): unknown {
+export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.trim().split(".");
   let current: unknown = obj;
 
@@ -351,10 +334,7 @@ export function getNestedValue(
  * @param expr - The condition expression (e.g., "debug && !production")
  * @param config - Configuration object to evaluate against
  */
-export function evaluateConditionExpr(
-  expr: string,
-  config: Record<string, unknown>,
-): boolean {
+export function evaluateConditionExpr(expr: string, config: Record<string, unknown>): boolean {
   expr = expr.trim();
 
   // Handle OR (lowest precedence)

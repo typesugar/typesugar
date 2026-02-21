@@ -16,11 +16,7 @@ import { defineLabeledBlockMacro } from "@typesugar/core";
 import * as ts from "typescript";
 
 defineLabeledBlockMacro("myLabel", {
-  expand(
-    ctx,
-    block: ts.Block,
-    continuation?: ts.Block,
-  ): ts.Statement | ts.Statement[] {
+  expand(ctx, block: ts.Block, continuation?: ts.Block): ts.Statement | ts.Statement[] {
     // block: the labeled block content
     // continuation: optional following block (for multi-block macros)
 

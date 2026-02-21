@@ -31,16 +31,13 @@ describe("defineStateMachine", () => {
         { from: "A", event: "go", to: "B" },
         { from: "B", event: "go", to: "C" },
       ],
-      { initial: "B" },
+      { initial: "B" }
     );
     expect(sm.initial).toBe("B");
   });
 
   it("accepts terminal states", () => {
-    const sm = defineStateMachine(
-      [{ from: "A", event: "go", to: "B" }],
-      { terminal: ["B"] },
-    );
+    const sm = defineStateMachine([{ from: "A", event: "go", to: "B" }], { terminal: ["B"] });
     expect(sm.terminal).toEqual(["B"]);
   });
 
@@ -86,7 +83,7 @@ describe("verify", () => {
         { from: "Idle", event: "start", to: "Running" },
         { from: "Running", event: "stop", to: "Idle" },
       ],
-      { initial: "Idle" },
+      { initial: "Idle" }
     );
     const result = verify(sm);
     expect(result.valid).toBe(true);
@@ -101,7 +98,7 @@ describe("verify", () => {
         { from: "A", event: "go", to: "B" },
         { from: "C", event: "go", to: "D" },
       ],
-      { initial: "A" },
+      { initial: "A" }
     );
     const result = verify(sm);
     expect(result.unreachableStates).toContain("C");
@@ -114,7 +111,7 @@ describe("verify", () => {
         { from: "A", event: "go", to: "B" },
         { from: "A", event: "alt", to: "C" },
       ],
-      { initial: "A", terminal: ["C"] },
+      { initial: "A", terminal: ["C"] }
     );
     const result = verify(sm);
     expect(result.deadEndStates).toContain("B");
@@ -146,7 +143,7 @@ describe("createInstance", () => {
       { from: "Paused", event: "resume", to: "Running" },
       { from: "Running", event: "stop", to: "Idle" },
     ],
-    { initial: "Idle" },
+    { initial: "Idle" }
   );
 
   it("starts in initial state", () => {
@@ -187,7 +184,7 @@ describe("createInstance", () => {
   it("throws on invalid transition", () => {
     const inst = createInstance(sm);
     expect(() => inst.transition("stop")).toThrow(
-      /No transition from state "Idle" on event "stop"/,
+      /No transition from state "Idle" on event "stop"/
     );
   });
 
@@ -222,7 +219,7 @@ describe("reachableStates", () => {
         { from: "B", event: "go", to: "C" },
         { from: "D", event: "go", to: "E" },
       ],
-      { initial: "A" },
+      { initial: "A" }
     );
     const reached = reachableStates(sm);
     expect(reached).toEqual(new Set(["A", "B", "C"]));
@@ -236,7 +233,7 @@ describe("deadEndStates", () => {
         { from: "A", event: "go", to: "B" },
         { from: "A", event: "alt", to: "C" },
       ],
-      { terminal: ["C"] },
+      { terminal: ["C"] }
     );
     const dead = deadEndStates(sm);
     expect(dead).toContain("B");
@@ -278,7 +275,7 @@ describe("complex FSMs", () => {
         { from: "Shipped", event: "deliver", to: "Delivered" },
         { from: "Pending", event: "cancel", to: "Cancelled" },
       ],
-      { initial: "Created", terminal: ["Delivered", "Rejected", "Cancelled"] },
+      { initial: "Created", terminal: ["Delivered", "Rejected", "Cancelled"] }
     );
 
     const result = verify(sm);
@@ -302,7 +299,7 @@ describe("complex FSMs", () => {
         { from: "Yellow", event: "timer", to: "Red" },
         { from: "Red", event: "timer", to: "Green" },
       ],
-      { initial: "Green" },
+      { initial: "Green" }
     );
     const result = verify(sm);
     expect(result.valid).toBe(true);

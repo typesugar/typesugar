@@ -8,11 +8,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // Map of unit strings to constructor function names
 const UNIT_MAP: Record<string, { fn: string; factor: number }> = {
@@ -132,9 +128,7 @@ const UNIT_MAP: Record<string, { fn: string; factor: number }> = {
 /**
  * Parse a unit literal string like "5 meters" or "100 km/h"
  */
-function parseUnitLiteral(
-  text: string,
-): { value: number; unit: string } | null {
+function parseUnitLiteral(text: string): { value: number; unit: string } | null {
   const trimmed = text.trim();
 
   // Try to match: number followed by optional whitespace and unit
@@ -163,7 +157,7 @@ export const unitsMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -178,10 +172,7 @@ export const unitsMacro = defineExpressionMacro({
 
       // Template with substitutions - we need to handle this differently
       // For now, error on complex templates
-      ctx.reportError(
-        callExpr,
-        "units template literals with substitutions are not yet supported",
-      );
+      ctx.reportError(callExpr, "units template literals with substitutions are not yet supported");
       return callExpr;
     }
 
@@ -207,25 +198,21 @@ export const unitsMacro = defineExpressionMacro({
         // Generate: unitFn(value * factor)
         if (ts.isNumericLiteral(valueArg)) {
           const value = parseFloat(valueArg.text) * unitInfo.factor;
-          return factory.createCallExpression(
-            factory.createIdentifier(unitInfo.fn),
-            undefined,
-            [factory.createNumericLiteral(value)],
-          );
+          return factory.createCallExpression(factory.createIdentifier(unitInfo.fn), undefined, [
+            factory.createNumericLiteral(value),
+          ]);
         }
 
         // If value isn't a literal, generate: unitFn(value)
-        return factory.createCallExpression(
-          factory.createIdentifier(unitInfo.fn),
-          undefined,
-          [valueArg],
-        );
+        return factory.createCallExpression(factory.createIdentifier(unitInfo.fn), undefined, [
+          valueArg,
+        ]);
       }
     }
 
     ctx.reportError(
       callExpr,
-      "Invalid units() call - expected a string literal or tagged template",
+      "Invalid units() call - expected a string literal or tagged template"
     );
     return callExpr;
   },
@@ -234,11 +221,7 @@ export const unitsMacro = defineExpressionMacro({
 /**
  * Helper to parse a unit string and create the appropriate function call
  */
-function parseAndCreateUnit(
-  ctx: MacroContext,
-  text: string,
-  errorNode: ts.Node,
-): ts.Expression {
+function parseAndCreateUnit(ctx: MacroContext, text: string, errorNode: ts.Node): ts.Expression {
   const factory = ctx.factory;
   const parsed = parseUnitLiteral(text);
 
@@ -263,11 +246,9 @@ function parseAndCreateUnit(
 
   const finalValue = value * unitInfo.factor;
 
-  return factory.createCallExpression(
-    factory.createIdentifier(unitInfo.fn),
-    undefined,
-    [factory.createNumericLiteral(finalValue)],
-  );
+  return factory.createCallExpression(factory.createIdentifier(unitInfo.fn), undefined, [
+    factory.createNumericLiteral(finalValue),
+  ]);
 }
 
 // ============================================================================

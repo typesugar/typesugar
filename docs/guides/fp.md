@@ -106,9 +106,7 @@ res.match({
 import { Validated, Valid, Invalid } from "@typesugar/fp";
 
 function validateAge(age: number): Validated<string[], number> {
-  return age >= 0 && age <= 150
-    ? Valid(age)
-    : Invalid(["Age must be between 0 and 150"]);
+  return age >= 0 && age <= 150 ? Valid(age) : Invalid(["Age must be between 0 and 150"]);
 }
 
 function validateName(name: string): Validated<string[], string> {
@@ -142,8 +140,7 @@ program.unsafeRun();
 
 ```typescript
 const readFile = (path: string) => IO.of(() => fs.readFileSync(path, "utf8"));
-const writeFile = (path: string, content: string) =>
-  IO.of(() => fs.writeFileSync(path, content));
+const writeFile = (path: string, content: string) => IO.of(() => fs.writeFileSync(path, content));
 
 const copyFile = (src: string, dest: string) =>
   readFile(src).flatMap((content) => writeFile(dest, content));
@@ -215,9 +212,7 @@ Use `specialize()` for hot paths:
 ```typescript
 import { specialize } from "@typesugar/specialize";
 
-const process = specialize((opt: Option<number>) =>
-  opt.map((x) => x * 2).getOrElse(0),
-);
+const process = specialize((opt: Option<number>) => opt.map((x) => x * 2).getOrElse(0));
 ```
 
 ## Do-Notation

@@ -11,7 +11,7 @@ export class NamedArgsError extends Error {
     readonly functionName: string,
     readonly paramName: string,
     readonly reason: NamedArgsErrorReason,
-    message: string,
+    message: string
   ) {
     super(message);
     this.name = "NamedArgsError";

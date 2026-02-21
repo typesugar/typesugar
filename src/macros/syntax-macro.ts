@@ -101,7 +101,7 @@ export type SyntaxMacroOptions = SyntaxMacroSingleArm | SyntaxMacroMultiArm;
 // =============================================================================
 
 /** Regex to match capture groups: $name:kind or $name */
-const CAPTURE_RE = /\$(\w+)(?::(\w+))?/g;
+const CAPTURE_RE = /\$(\w+)(__binop__(?, "::", (\w+)))?/g;
 
 /**
  * Parse a pattern string into a list of captures and a regex-like matcher.

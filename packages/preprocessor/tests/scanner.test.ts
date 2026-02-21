@@ -67,9 +67,7 @@ describe("scanner", () => {
 
     it("should not merge operators inside strings", () => {
       const tokens = tokenize("const s = '|>';");
-      const pipeToken = tokens.find(
-        (t) => t.text === "|>" && t.isCustomOperator,
-      );
+      const pipeToken = tokens.find((t) => t.text === "|>" && t.isCustomOperator);
       expect(pipeToken).toBeUndefined();
     });
 

@@ -38,11 +38,7 @@ beforeAll(() => {
 
   testMacro = defineExpressionMacro({
     name: "benchMacro",
-    expand: (
-      _ctx: MacroContext,
-      _callExpr: ts.CallExpression,
-      args: readonly ts.Expression[],
-    ) => {
+    expand: (_ctx: MacroContext, _callExpr: ts.CallExpression, args: readonly ts.Expression[]) => {
       return args.length > 0 ? args[0] : _ctx.factory.createNumericLiteral(0);
     },
   });
@@ -65,11 +61,11 @@ afterAll(() => {
  */
 function createProgram(
   source: string,
-  extraFiles: Record<string, string> = {},
+  extraFiles: Record<string, string> = {}
 ): { program: ts.Program; mainFile: string } {
   const mainFile = path.join(
     tmpDir,
-    `bench_${Date.now()}_${Math.random().toString(36).slice(2)}.ts`,
+    `bench_${Date.now()}_${Math.random().toString(36).slice(2)}.ts`
   );
   fs.writeFileSync(mainFile, source);
 
@@ -100,7 +96,7 @@ function createProgram(
  */
 function transformAndMeasure(
   source: string,
-  extraFiles: Record<string, string> = {},
+  extraFiles: Record<string, string> = {}
 ): { output: string; totalMs: number; programMs: number; transformMs: number } {
   const programStart = performance.now();
   const { program, mainFile } = createProgram(source, extraFiles);
@@ -151,7 +147,7 @@ function computeStats(times: number[]): BenchStats {
 function benchTransform(
   source: string,
   iterations: number,
-  extraFiles: Record<string, string> = {},
+  extraFiles: Record<string, string> = {}
 ): FullBenchStats {
   const totalTimes: number[] = [];
   const programTimes: number[] = [];
@@ -234,9 +230,7 @@ function generatePlainTypeScript(lines: number): string {
       }
       parts.push("}");
     } else if (i % 10 === 0) {
-      parts.push(
-        `function compute${i}(x: number): number { return x * ${i} + ${i}; }`,
-      );
+      parts.push(`function compute${i}(x: number): number { return x * ${i} + ${i}; }`);
     } else if (i % 5 === 0) {
       parts.push(`const val${i} = ${i} * 2 + ${i % 7};`);
     } else {
@@ -263,9 +257,7 @@ function generateMixedFile(macroCount: number, plainLines: number): string {
 
   for (let i = 0; i < plainLines; i++) {
     if (macrosPlaced < macroCount && i % interval === 0) {
-      parts.push(
-        `const macro${macrosPlaced} = benchMacro(${macrosPlaced * 3});`,
-      );
+      parts.push(`const macro${macrosPlaced} = benchMacro(${macrosPlaced * 3});`);
       macrosPlaced++;
     } else {
       parts.push(`const plain${i} = ${i} + ${i * 2};`);
@@ -313,18 +305,14 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
     it("medium file (200 lines, no macros)", () => {
       const source = generatePlainTypeScript(200);
       const stats = benchTransformOnly(source, 20);
-      console.log(
-        `  200-line plain TS (transform only): ${formatStats(stats)}`,
-      );
+      console.log(`  200-line plain TS (transform only): ${formatStats(stats)}`);
       expect(stats.medianMs).toBeLessThan(100);
     });
 
     it("large file (1000 lines, no macros)", () => {
       const source = generatePlainTypeScript(1000);
       const stats = benchTransformOnly(source, 10);
-      console.log(
-        `  1000-line plain TS (transform only): ${formatStats(stats)}`,
-      );
+      console.log(`  1000-line plain TS (transform only): ${formatStats(stats)}`);
       expect(stats.medianMs).toBeLessThan(200);
     });
 
@@ -345,9 +333,7 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
     it("1000 lines + 100 macros (transform only)", () => {
       const source = generateMixedFile(100, 1000);
       const stats = benchTransformOnly(source, 10);
-      console.log(
-        `  1000 lines + 100 macros (transform only): ${formatStats(stats)}`,
-      );
+      console.log(`  1000 lines + 100 macros (transform only): ${formatStats(stats)}`);
       expect(stats.medianMs).toBeLessThan(200);
     });
   });
@@ -411,36 +397,28 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
       const results: Array<{ count: number; medianMs: number }> = [];
 
       for (const count of counts) {
-        const source =
-          count === 0
-            ? "const x = 1;\n".repeat(10)
-            : generateComptimeCalls(count);
+        const source = count === 0 ? "const x = 1;\n".repeat(10) : generateComptimeCalls(count);
         const stats = benchTransformOnly(source, 10);
         results.push({ count, medianMs: stats.medianMs });
       }
 
-      console.log(
-        "\n  Scaling analysis — transform only (macro count → median time):",
-      );
+      console.log("\n  Scaling analysis — transform only (macro count → median time):");
       console.log("  ┌──────────┬────────────┬──────────────┐");
       console.log("  │ # macros │ median ms  │ ms per macro  │");
       console.log("  ├──────────┼────────────┼──────────────┤");
 
       const baselineMs = results[0].medianMs;
       for (const r of results) {
-        const perMacro =
-          r.count > 0 ? ((r.medianMs - baselineMs) / r.count).toFixed(3) : "—";
+        const perMacro = r.count > 0 ? ((r.medianMs - baselineMs) / r.count).toFixed(3) : "—";
         console.log(
-          `  │ ${String(r.count).padStart(8)} │ ${r.medianMs.toFixed(2).padStart(10)} │ ${String(perMacro).padStart(12)} │`,
+          `  │ ${String(r.count).padStart(8)} │ ${r.medianMs.toFixed(2).padStart(10)} │ ${String(perMacro).padStart(12)} │`
         );
       }
       console.log("  └──────────┴────────────┴──────────────┘");
 
       const last = results[results.length - 1];
       const perMacroCost = (last.medianMs - baselineMs) / last.count;
-      console.log(
-        `\n  Per-macro marginal cost: ${(perMacroCost * 1000).toFixed(1)}μs`,
-      );
+      console.log(`\n  Per-macro marginal cost: ${(perMacroCost * 1000).toFixed(1)}μs`);
       expect(perMacroCost).toBeLessThan(2);
     });
   });
@@ -463,15 +441,13 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
       for (const r of results) {
         const perLine = ((r.medianMs / r.lines) * 1000).toFixed(1);
         console.log(
-          `  │ ${String(r.lines).padStart(8)} │ ${r.medianMs.toFixed(2).padStart(10)} │ ${perLine.padStart(12)} │`,
+          `  │ ${String(r.lines).padStart(8)} │ ${r.medianMs.toFixed(2).padStart(10)} │ ${perLine.padStart(12)} │`
         );
       }
       console.log("  └──────────┴────────────┴──────────────┘");
 
       const ratio = results[results.length - 1].medianMs / results[0].medianMs;
-      console.log(
-        `\n  1000-line / 50-line ratio: ${ratio.toFixed(1)}x (ideal ≈ 20x)`,
-      );
+      console.log(`\n  1000-line / 50-line ratio: ${ratio.toFixed(1)}x (ideal ≈ 20x)`);
       expect(ratio).toBeLessThan(100);
     });
   });

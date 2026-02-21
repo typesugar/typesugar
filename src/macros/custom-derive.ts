@@ -32,12 +32,7 @@
 
 import * as ts from "typescript";
 import { globalRegistry, defineDeriveMacro } from "../core/registry.js";
-import {
-  MacroContext,
-  DeriveTypeInfo,
-  DeriveFieldInfo,
-  DeriveMacro,
-} from "../core/types.js";
+import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveMacro } from "../core/types.js";
 
 // =============================================================================
 // Simplified Type Info
@@ -128,7 +123,7 @@ export type StringDeriveCallback = (info: SimpleTypeInfo) => string;
 export type AstDeriveCallback = (
   ctx: MacroContext,
   info: SimpleTypeInfo,
-  rawInfo: DeriveTypeInfo,
+  rawInfo: DeriveTypeInfo
 ) => ts.Statement[];
 
 // =============================================================================
@@ -164,7 +159,7 @@ export function defineCustomDerive(
   options?: {
     module?: string;
     description?: string;
-  },
+  }
 ): DeriveMacro {
   const macro = defineDeriveMacro({
     name,
@@ -173,11 +168,8 @@ export function defineCustomDerive(
 
     expand(
       ctx: MacroContext,
-      target:
-        | ts.InterfaceDeclaration
-        | ts.ClassDeclaration
-        | ts.TypeAliasDeclaration,
-      typeInfo: DeriveTypeInfo,
+      target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+      typeInfo: DeriveTypeInfo
     ): ts.Statement[] {
       const simpleInfo = toSimpleTypeInfo(typeInfo);
 
@@ -194,7 +186,7 @@ export function defineCustomDerive(
           target,
           `Custom derive '${name}' failed: ${
             error instanceof Error ? error.message : String(error)
-          }`,
+          }`
         );
         return [];
       }
@@ -226,7 +218,7 @@ export function defineCustomDeriveAst(
   options?: {
     module?: string;
     description?: string;
-  },
+  }
 ): DeriveMacro {
   const macro = defineDeriveMacro({
     name,
@@ -235,11 +227,8 @@ export function defineCustomDeriveAst(
 
     expand(
       ctx: MacroContext,
-      target:
-        | ts.InterfaceDeclaration
-        | ts.ClassDeclaration
-        | ts.TypeAliasDeclaration,
-      typeInfo: DeriveTypeInfo,
+      target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+      typeInfo: DeriveTypeInfo
     ): ts.Statement[] {
       const simpleInfo = toSimpleTypeInfo(typeInfo);
 
@@ -250,7 +239,7 @@ export function defineCustomDeriveAst(
           target,
           `Custom derive '${name}' (AST) failed: ${
             error instanceof Error ? error.message : String(error)
-          }`,
+          }`
         );
         return [];
       }
@@ -285,7 +274,7 @@ export function defineFieldDerive(
     preamble?: (info: SimpleTypeInfo) => string;
     /** Optional postamble code generated once after field functions */
     postamble?: (info: SimpleTypeInfo) => string;
-  },
+  }
 ): DeriveMacro {
   return defineCustomDerive(
     name,
@@ -306,7 +295,7 @@ export function defineFieldDerive(
 
       return parts.join("\n");
     },
-    options,
+    options
   );
 }
 
@@ -337,7 +326,7 @@ export function defineTypeFunctionDerive(
   options?: {
     module?: string;
     description?: string;
-  },
+  }
 ): DeriveMacro {
   return defineCustomDerive(
     name,
@@ -347,6 +336,6 @@ export function defineTypeFunctionDerive(
       const params = fn.params.map((p) => `${p.name}: ${p.type}`).join(", ");
       return `${exportKw}function ${fn.functionName}(${params}): ${fn.returnType} {\n${fn.body}\n}`;
     },
-    options,
+    options
   );
 }

@@ -18,12 +18,7 @@ export type {
 export { NamedArgsError } from "./errors.js";
 export type { NamedArgsErrorReason } from "./errors.js";
 
-export {
-  namedArgs,
-  callWithNamedArgs,
-  registerNamedArgs,
-  getNamedArgsMeta,
-} from "./named-args.js";
+export { namedArgs, callWithNamedArgs, registerNamedArgs, getNamedArgsMeta } from "./named-args.js";
 
 export { createBuilder } from "./builder.js";
 export type { Builder } from "./builder.js";

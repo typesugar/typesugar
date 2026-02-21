@@ -49,11 +49,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  defineAttributeMacro,
-  globalRegistry,
-} from "@typesugar/core";
+import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 
 // ============================================================================
@@ -110,11 +106,7 @@ export function useExists<W, R>(ex: Exists<W>, f: (witness: W) => R): R {
 /**
  * Map over the result of using an existential.
  */
-export function mapExists<W, R, S>(
-  ex: Exists<W>,
-  f: (witness: W) => R,
-  g: (r: R) => S,
-): S {
+export function mapExists<W, R, S>(ex: Exists<W>, f: (witness: W) => R, g: (r: R) => S): S {
   return g(ex.use(f));
 }
 
@@ -130,10 +122,7 @@ export type ExistsList<W> = ReadonlyArray<Exists<W>>;
 /**
  * Apply a function to each element of an existential list.
  */
-export function forEachExists<W>(
-  list: ExistsList<W>,
-  f: (witness: W) => void,
-): void {
+export function forEachExists<W>(list: ExistsList<W>, f: (witness: W) => void): void {
   for (const ex of list) {
     ex.use(f);
   }
@@ -142,10 +131,7 @@ export function forEachExists<W>(
 /**
  * Map over an existential list, extracting a uniform result type.
  */
-export function mapExistsList<W, R>(
-  list: ExistsList<W>,
-  f: (witness: W) => R,
-): R[] {
+export function mapExistsList<W, R>(list: ExistsList<W>, f: (witness: W) => R): R[] {
   return list.map((ex) => ex.use(f));
 }
 
@@ -179,10 +165,7 @@ export interface CompareWitness<T> {
 }
 export type Comparable = Exists<CompareWitness<unknown>>;
 
-export function comparable<T>(
-  value: T,
-  compare: (a: T, b: T) => number,
-): Comparable {
+export function comparable<T>(value: T, compare: (a: T, b: T) => number): Comparable {
   return packExists({ value, compare } as CompareWitness<unknown>);
 }
 
@@ -199,7 +182,7 @@ export type Serializable = Exists<SerializeWitness<unknown>>;
 export function serializable<T>(
   value: T,
   serialize: (t: T) => string,
-  deserialize: (s: string) => T,
+  deserialize: (s: string) => T
 ): Serializable {
   return packExists({
     value,
@@ -236,15 +219,14 @@ export function serializable<T>(
  */
 export const existentialAttribute = defineAttributeMacro({
   name: "existential",
-  description:
-    "Generate existential type wrappers for a parameterized interface",
+  description: "Generate existential type wrappers for a parameterized interface",
   validTargets: ["interface"] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isInterfaceDeclaration(target)) {
       ctx.reportError(target, "@existential can only be applied to interfaces");
@@ -257,7 +239,7 @@ export const existentialAttribute = defineAttributeMacro({
     if (!target.typeParameters || target.typeParameters.length === 0) {
       ctx.reportError(
         target,
-        "@existential requires an interface with at least one type parameter",
+        "@existential requires an interface with at least one type parameter"
       );
       return target;
     }
@@ -272,7 +254,7 @@ export const existentialAttribute = defineAttributeMacro({
         factory.createTypeReferenceNode(factory.createIdentifier(name), [
           factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
         ]),
-      ]),
+      ])
     );
 
     // Generate: function pack{Name}<T>(witness: {Name}<T>): Any{Name}
@@ -281,12 +263,7 @@ export const existentialAttribute = defineAttributeMacro({
       [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
       undefined,
       factory.createIdentifier(packFnName),
-      [
-        factory.createTypeParameterDeclaration(
-          undefined,
-          factory.createIdentifier("T"),
-        ),
-      ],
+      [factory.createTypeParameterDeclaration(undefined, factory.createIdentifier("T"))],
       [
         factory.createParameterDeclaration(
           undefined,
@@ -295,7 +272,7 @@ export const existentialAttribute = defineAttributeMacro({
           undefined,
           factory.createTypeReferenceNode(factory.createIdentifier(name), [
             factory.createTypeReferenceNode(factory.createIdentifier("T")),
-          ]),
+          ])
         ),
       ],
       factory.createTypeReferenceNode(factory.createIdentifier(anyTypeName)),
@@ -313,25 +290,23 @@ export const existentialAttribute = defineAttributeMacro({
                       factory.createParameterDeclaration(
                         undefined,
                         undefined,
-                        factory.createIdentifier("f"),
+                        factory.createIdentifier("f")
                       ),
                     ],
                     undefined,
                     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-                    factory.createCallExpression(
-                      factory.createIdentifier("f"),
-                      undefined,
-                      [factory.createIdentifier("witness")],
-                    ),
-                  ),
+                    factory.createCallExpression(factory.createIdentifier("f"), undefined, [
+                      factory.createIdentifier("witness"),
+                    ])
+                  )
                 ),
               ],
-              true,
-            ),
+              true
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
 
     // Generate: function use{Name}<R>(ex: Any{Name}, f: (w: {Name}<any>) => R): R
@@ -340,21 +315,14 @@ export const existentialAttribute = defineAttributeMacro({
       [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
       undefined,
       factory.createIdentifier(useFnName),
-      [
-        factory.createTypeParameterDeclaration(
-          undefined,
-          factory.createIdentifier("R"),
-        ),
-      ],
+      [factory.createTypeParameterDeclaration(undefined, factory.createIdentifier("R"))],
       [
         factory.createParameterDeclaration(
           undefined,
           undefined,
           factory.createIdentifier("ex"),
           undefined,
-          factory.createTypeReferenceNode(
-            factory.createIdentifier(anyTypeName),
-          ),
+          factory.createTypeReferenceNode(factory.createIdentifier(anyTypeName))
         ),
         factory.createParameterDeclaration(
           undefined,
@@ -369,14 +337,13 @@ export const existentialAttribute = defineAttributeMacro({
                 undefined,
                 factory.createIdentifier("w"),
                 undefined,
-                factory.createTypeReferenceNode(
-                  factory.createIdentifier(name),
-                  [factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)],
-                ),
+                factory.createTypeReferenceNode(factory.createIdentifier(name), [
+                  factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword),
+                ])
               ),
             ],
-            factory.createTypeReferenceNode(factory.createIdentifier("R")),
-          ),
+            factory.createTypeReferenceNode(factory.createIdentifier("R"))
+          )
         ),
       ],
       factory.createTypeReferenceNode(factory.createIdentifier("R")),
@@ -386,15 +353,15 @@ export const existentialAttribute = defineAttributeMacro({
             factory.createCallExpression(
               factory.createPropertyAccessExpression(
                 factory.createIdentifier("ex"),
-                factory.createIdentifier("use"),
+                factory.createIdentifier("use")
               ),
               undefined,
-              [factory.createIdentifier("f")],
-            ),
+              [factory.createIdentifier("f")]
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
 
     return [target, anyTypeAlias, packFn, useFn];
@@ -416,7 +383,7 @@ export const packExistsMacro = defineExpressionMacro({
   expand(
     _ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       _ctx.reportError(callExpr, "packExists() expects exactly one argument");
@@ -436,15 +403,13 @@ export const packExistsMacro = defineExpressionMacro({
             [factory.createParameterDeclaration(undefined, undefined, fIdent)],
             undefined,
             factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-            factory.createCallExpression(
-              factory.createIdentifier(fIdent.text),
-              undefined,
-              [args[0]],
-            ),
-          ),
+            factory.createCallExpression(factory.createIdentifier(fIdent.text), undefined, [
+              args[0],
+            ])
+          )
         ),
       ],
-      false,
+      false
     );
   },
 });
@@ -454,18 +419,17 @@ export const packExistsMacro = defineExpressionMacro({
  */
 export const useExistsMacro = defineExpressionMacro({
   name: "useExists",
-  description:
-    "Eliminate an existential type by providing a universal continuation",
+  description: "Eliminate an existential type by providing a universal continuation",
 
   expand(
     _ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 2) {
       _ctx.reportError(
         callExpr,
-        "useExists() expects exactly two arguments (existential, callback)",
+        "useExists() expects exactly two arguments (existential, callback)"
       );
       return callExpr;
     }
@@ -475,7 +439,7 @@ export const useExistsMacro = defineExpressionMacro({
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(args[0], "use"),
       undefined,
-      [args[1]],
+      [args[1]]
     );
   },
 });

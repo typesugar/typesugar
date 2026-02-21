@@ -159,6 +159,7 @@ export {
 // --- Scala 3-style typeclass derivation via Mirror/Generic ---
 export {
   type GenericDerivation,
+  type DerivationResult,
   registerGenericDerivation,
   getGenericDerivation,
   hasGenericDerivation,
@@ -261,23 +262,13 @@ export {
 } from "./include.js";
 
 // --- Phase 2.2: Conditional compilation ---
-export {
-  cfgMacro,
-  cfgAttrMacro,
-  setCfgConfig,
-  getCfgConfig,
-  evaluateCfgCondition,
-} from "./cfg.js";
+export { cfgMacro, cfgAttrMacro, setCfgConfig, getCfgConfig, evaluateCfgCondition } from "./cfg.js";
 
 // --- Phase 2.3: Module-graph reflection ---
 export { collectTypesMacro, moduleIndexMacro } from "./module-graph.js";
 
 // --- Phase 3.2: Enhanced diagnostics ---
-export {
-  staticAssertMacro,
-  compileErrorMacro,
-  compileWarningMacro,
-} from "./static-assert.js";
+export { staticAssertMacro, compileErrorMacro, compileWarningMacro } from "./static-assert.js";
 
 // --- Tail-call optimization ---
 export { tailrecAttribute } from "./tailrec.js";

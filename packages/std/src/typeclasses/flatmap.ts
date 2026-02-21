@@ -135,8 +135,7 @@ export const flatMapArray: FlatMap<_ArrayTag> = {
  * map and flatMap have the same implementation.
  */
 export const flatMapPromise: FlatMap<_PromiseTag> = {
-  map: <A, B>(fa: unknown, f: (a: A) => B): unknown =>
-    (fa as Promise<A>).then(f),
+  map: <A, B>(fa: unknown, f: (a: A) => B): unknown => (fa as Promise<A>).then(f),
   flatMap: <A, B>(fa: unknown, f: (a: A) => unknown): unknown =>
     (fa as Promise<A>).then(f as (a: A) => Promise<B>),
 };
@@ -148,8 +147,7 @@ export const flatMapPromise: FlatMap<_PromiseTag> = {
  * Elements are produced on demand, not eagerly.
  */
 export const flatMapIterable: FlatMap<_IterableTag> = {
-  map: <A, B>(fa: unknown, f: (a: A) => B): unknown =>
-    iterableMap(fa as Iterable<A>, f),
+  map: <A, B>(fa: unknown, f: (a: A) => B): unknown => iterableMap(fa as Iterable<A>, f),
   flatMap: <A, B>(fa: unknown, f: (a: A) => unknown): unknown =>
     iterableFlatMap(fa as Iterable<A>, f as (a: A) => Iterable<B>),
 };
@@ -161,13 +159,9 @@ export const flatMapIterable: FlatMap<_IterableTag> = {
  * Useful for streaming data processing.
  */
 export const flatMapAsyncIterable: FlatMap<_AsyncIterableTag> = {
-  map: <A, B>(fa: unknown, f: (a: A) => B): unknown =>
-    asyncIterableMap(fa as AsyncIterable<A>, f),
+  map: <A, B>(fa: unknown, f: (a: A) => B): unknown => asyncIterableMap(fa as AsyncIterable<A>, f),
   flatMap: <A, B>(fa: unknown, f: (a: A) => unknown): unknown =>
-    asyncIterableFlatMap(
-      fa as AsyncIterable<A>,
-      f as (a: A) => AsyncIterable<B>,
-    ),
+    asyncIterableFlatMap(fa as AsyncIterable<A>, f as (a: A) => AsyncIterable<B>),
 };
 
 // ============================================================================
@@ -186,10 +180,7 @@ function* iterableMap<A, B>(fa: Iterable<A>, f: (a: A) => B): Iterable<B> {
 /**
  * Lazy flatMap for Iterable.
  */
-function* iterableFlatMap<A, B>(
-  fa: Iterable<A>,
-  f: (a: A) => Iterable<B>,
-): Iterable<B> {
+function* iterableFlatMap<A, B>(fa: Iterable<A>, f: (a: A) => Iterable<B>): Iterable<B> {
   for (const a of fa) {
     yield* f(a);
   }
@@ -198,10 +189,7 @@ function* iterableFlatMap<A, B>(
 /**
  * Lazy map for AsyncIterable.
  */
-async function* asyncIterableMap<A, B>(
-  fa: AsyncIterable<A>,
-  f: (a: A) => B,
-): AsyncIterable<B> {
+async function* asyncIterableMap<A, B>(fa: AsyncIterable<A>, f: (a: A) => B): AsyncIterable<B> {
   for await (const a of fa) {
     yield f(a);
   }
@@ -212,7 +200,7 @@ async function* asyncIterableMap<A, B>(
  */
 async function* asyncIterableFlatMap<A, B>(
   fa: AsyncIterable<A>,
-  f: (a: A) => AsyncIterable<B>,
+  f: (a: A) => AsyncIterable<B>
 ): AsyncIterable<B> {
   for await (const a of fa) {
     yield* f(a);
@@ -232,10 +220,7 @@ async function* asyncIterableFlatMap<A, B>(
  *
  * Module-private — use {@link registerFlatMap} and {@link getFlatMap} to access.
  */
-const flatMapInstances: GenericRegistry<
-  string,
-  FlatMap<unknown>
-> = createGenericRegistry({
+const flatMapInstances: GenericRegistry<string, FlatMap<unknown>> = createGenericRegistry({
   name: "FlatMapRegistry",
   duplicateStrategy: "replace",
 });
@@ -254,9 +239,7 @@ flatMapInstances.set("AsyncIterable", flatMapAsyncIterable as FlatMap<unknown>);
  */
 export function registerFlatMap<F>(name: string, instance: FlatMap<F>): void {
   if (flatMapInstances.has(name)) {
-    console.warn(
-      `[typesugar] FlatMap instance for '${name}' is already registered. Overriding.`,
-    );
+    console.warn(`[typesugar] FlatMap instance for '${name}' is already registered. Overriding.`);
   }
   flatMapInstances.set(name, instance as FlatMap<unknown>);
 }

@@ -46,7 +46,7 @@ export class DoBuilder<F, Ctx extends object> {
       flatMap<A, B>(fa: unknown, f: (a: A) => unknown): unknown;
       map<A, B>(fa: unknown, f: (a: A) => B): unknown;
     },
-    private readonly fa: F,
+    private readonly fa: F
   ) {}
 
   /**
@@ -54,11 +54,10 @@ export class DoBuilder<F, Ctx extends object> {
    */
   bind<N extends string, B>(
     name: Exclude<N, keyof Ctx>,
-    fb: F | ((ctx: Ctx) => F),
+    fb: F | ((ctx: Ctx) => F)
   ): DoBuilder<F, Ctx & { readonly [K in N]: B }> {
     const next = this.M.flatMap(this.fa as unknown, (ctx: Ctx) => {
-      const value =
-        typeof fb === "function" ? (fb as (ctx: Ctx) => F)(ctx) : fb;
+      const value = typeof fb === "function" ? (fb as (ctx: Ctx) => F)(ctx) : fb;
       return this.M.map(value as unknown, (b: B) => ({
         ...ctx,
         [name]: b,
@@ -72,7 +71,7 @@ export class DoBuilder<F, Ctx extends object> {
    */
   let_<N extends string, B>(
     name: Exclude<N, keyof Ctx>,
-    f: (ctx: Ctx) => B,
+    f: (ctx: Ctx) => B
   ): DoBuilder<F, Ctx & { readonly [K in N]: B }> {
     const next = this.M.map(this.fa as unknown, (ctx: Ctx) => ({
       ...ctx,
@@ -100,8 +99,7 @@ export class DoBuilder<F, Ctx extends object> {
    */
   do_(fb: F | ((ctx: Ctx) => F)): DoBuilder<F, Ctx> {
     const next = this.M.flatMap(this.fa as unknown, (ctx: Ctx) => {
-      const value =
-        typeof fb === "function" ? (fb as (ctx: Ctx) => F)(ctx) : fb;
+      const value = typeof fb === "function" ? (fb as (ctx: Ctx) => F)(ctx) : fb;
       return this.M.map(value as unknown, () => ctx);
     });
     return new DoBuilder(this.M, next as F);
@@ -165,10 +163,7 @@ export const OptionFor = Do<Option<unknown>>(OptionDo);
 export function EitherDo<E>() {
   return {
     pure: <A>(a: A): Either<E, A> => Right(a),
-    flatMap: <A, B>(
-      fa: Either<E, A>,
-      f: (a: A) => Either<E, B>,
-    ): Either<E, B> => {
+    flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> => {
       if (fa._tag === "Left") return fa as unknown as Either<E, B>;
       return f(fa.right);
     },
@@ -337,8 +332,7 @@ export const optionCE: ComputationBuilder<Option<unknown>> = {
   zero: () => null,
   // Some(a) = a
   return_: <A>(a: A) => a,
-  bind: <A, B>(fa: Option<A>, f: (a: A) => Option<B>) =>
-    fa === null ? null : f(fa),
+  bind: <A, B>(fa: Option<A>, f: (a: A) => Option<B>) => (fa === null ? null : f(fa)),
   combine: (fa, fb) => (fa === null ? fb : fa),
   delay: <A>(f: () => Option<A>) => f(),
   run: <A>(f: Option<A>) => f,
@@ -353,7 +347,7 @@ export const optionCE: ComputationBuilder<Option<unknown>> = {
  * This is mainly for demonstration - native async/await is usually better
  */
 export async function asyncDo<A>(
-  computation: () => AsyncGenerator<unknown, A, unknown>,
+  computation: () => AsyncGenerator<unknown, A, unknown>
 ): Promise<A> {
   const gen = computation();
   let result = await gen.next();
@@ -369,8 +363,6 @@ export async function asyncDo<A>(
 /**
  * Helper to yield a Promise in asyncDo
  */
-export function* yieldAsync<A>(
-  promise: Promise<A>,
-): Generator<Promise<A>, A, A> {
+export function* yieldAsync<A>(promise: Promise<A>): Generator<Promise<A>, A, A> {
   return yield promise;
 }

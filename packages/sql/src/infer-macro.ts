@@ -69,13 +69,7 @@ import {
 // SQL Statement Types
 // ============================================================================
 
-type SqlStatementType =
-  | "SELECT"
-  | "INSERT"
-  | "UPDATE"
-  | "DELETE"
-  | "WITH"
-  | "UNKNOWN";
+type SqlStatementType = "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "WITH" | "UNKNOWN";
 
 interface ParsedSql {
   type: SqlStatementType;
@@ -216,7 +210,7 @@ export const sql$Macro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeChecker = ctx.typeChecker;
@@ -242,16 +236,13 @@ export const sql$Macro = defineExpressionMacro({
     }
 
     // Handle call with template: sql$(`...`)
-    if (
-      ts.isTemplateExpression(template) ||
-      ts.isNoSubstitutionTemplateLiteral(template)
-    ) {
+    if (ts.isTemplateExpression(template) || ts.isNoSubstitutionTemplateLiteral(template)) {
       return expandTemplate(ctx, template, explicitResultType);
     }
 
     ctx.reportError(
       callExpr,
-      "sql$ must be used with a template literal: sql$`...` or sql$(`...`)",
+      "sql$ must be used with a template literal: sql$`...` or sql$(`...`)"
     );
     return callExpr;
   },
@@ -263,7 +254,7 @@ export const sql$Macro = defineExpressionMacro({
 function expandTaggedTemplate(
   ctx: MacroContext,
   node: ts.TaggedTemplateExpression,
-  explicitResultType: ts.TypeNode | undefined,
+  explicitResultType: ts.TypeNode | undefined
 ): ts.Expression {
   const factory = ctx.factory;
   const template = node.template;
@@ -273,13 +264,7 @@ function expandTaggedTemplate(
     const sqlText = template.text;
     const parsed = parseSql(sqlText);
 
-    return createTypedFragmentCall(
-      ctx,
-      [sqlText],
-      [],
-      parsed,
-      explicitResultType,
-    );
+    return createTypedFragmentCall(ctx, [sqlText], [], parsed, explicitResultType);
   }
 
   if (ts.isTemplateExpression(template)) {
@@ -295,7 +280,7 @@ function expandTaggedTemplate(
 function expandTemplate(
   ctx: MacroContext,
   template: ts.TemplateExpression | ts.NoSubstitutionTemplateLiteral,
-  explicitResultType: ts.TypeNode | undefined,
+  explicitResultType: ts.TypeNode | undefined
 ): ts.Expression {
   const factory = ctx.factory;
   const typeChecker = ctx.typeChecker;
@@ -303,13 +288,7 @@ function expandTemplate(
   if (ts.isNoSubstitutionTemplateLiteral(template)) {
     const sqlText = template.text;
     const parsed = parseSql(sqlText);
-    return createTypedFragmentCall(
-      ctx,
-      [sqlText],
-      [],
-      parsed,
-      explicitResultType,
-    );
+    return createTypedFragmentCall(ctx, [sqlText], [], parsed, explicitResultType);
   }
 
   // Extract segments and expressions
@@ -340,7 +319,7 @@ function expandTemplate(
     expressions,
     parsed,
     explicitResultType,
-    paramTypes,
+    paramTypes
   );
 }
 
@@ -353,7 +332,7 @@ function createTypedFragmentCall(
   expressions: ts.Expression[],
   parsed: ParsedSql,
   explicitResultType: ts.TypeNode | undefined,
-  paramTypes?: ts.Type[],
+  paramTypes?: ts.Type[]
 ): ts.Expression {
   const factory = ctx.factory;
   const typeChecker = ctx.typeChecker;
@@ -362,10 +341,7 @@ function createTypedFragmentCall(
   let paramTypeTuple: ts.TypeNode;
   if (paramTypes && paramTypes.length > 0) {
     paramTypeTuple = factory.createTupleTypeNode(
-      paramTypes.map(
-        (t) =>
-          typeChecker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.None)!,
-      ),
+      paramTypes.map((t) => typeChecker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.None)!)
     );
   } else {
     paramTypeTuple = factory.createTupleTypeNode([]);
@@ -385,31 +361,26 @@ function createTypedFragmentCall(
 
   // Create: new TypedFragment<P, R>(segments, params)
   const segmentsArray = factory.createArrayLiteralExpression(
-    segments.map((s) => factory.createStringLiteral(s)),
+    segments.map((s) => factory.createStringLiteral(s))
   );
 
   const paramsArray = factory.createArrayLiteralExpression(
     expressions.map((expr) =>
-      factory.createObjectLiteralExpression([
-        factory.createPropertyAssignment("value", expr),
-      ]),
-    ),
+      factory.createObjectLiteralExpression([factory.createPropertyAssignment("value", expr)])
+    )
   );
 
   return factory.createNewExpression(
     factory.createIdentifier("TypedFragment"),
     [paramTypeTuple, resultType],
-    [segmentsArray, paramsArray],
+    [segmentsArray, paramsArray]
   );
 }
 
 /**
  * Try to infer result type from schema registry.
  */
-function tryInferResultType(
-  ctx: MacroContext,
-  parsed: ParsedSql,
-): ts.TypeNode | null {
+function tryInferResultType(ctx: MacroContext, parsed: ParsedSql): ts.TypeNode | null {
   const factory = ctx.factory;
 
   if (parsed.tables.length !== 1) return null;
@@ -424,9 +395,7 @@ function tryInferResultType(
 
   // Return Pick<TableType, columns>
   const columnUnion = factory.createUnionTypeNode(
-    parsed.columns.map((col) =>
-      factory.createLiteralTypeNode(factory.createStringLiteral(col)),
-    ),
+    parsed.columns.map((col) => factory.createLiteralTypeNode(factory.createStringLiteral(col)))
   );
 
   return factory.createTypeReferenceNode("Pick", [
@@ -455,7 +424,7 @@ export const schemaMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     // This is handled at the attribute level, not expression level
     return callExpr;
@@ -504,10 +473,7 @@ class SelectBuilder<R> {
     return this;
   }
 
-  andWhere(fragment: {
-    segments: string[];
-    params: { value: unknown }[];
-  }): this {
+  andWhere(fragment: { segments: string[]; params: { value: unknown }[] }): this {
     return this.where(fragment);
   }
 

@@ -31,18 +31,14 @@ export function titleCase(s: string): string {
 }
 
 export function swapCase(s: string): string {
-  return [...s]
-    .map((c) => (c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()))
-    .join("");
+  return [...s].map((c) => (c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase())).join("");
 }
 
 export function camelCase(s: string): string {
   const w = words(s);
   return w
     .map((word, i) =>
-      i === 0
-        ? word.toLowerCase()
-        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+      i === 0 ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
     )
     .join("");
 }
@@ -95,11 +91,7 @@ export function sentenceCase(s: string): string {
 // ============================================================================
 
 export function words(s: string): string[] {
-  return (
-    s.match(
-      /[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\b)|[A-Z]|[0-9]+/g,
-    ) || []
-  );
+  return s.match(/[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\b)|[A-Z]|[0-9]+/g) || [];
 }
 
 export function lines(s: string): string[] {
@@ -122,9 +114,7 @@ export function trimIndent(s: string): string {
   const ls = lines(s);
   const nonEmpty = ls.filter((l) => l.trim().length > 0);
   if (nonEmpty.length === 0) return s;
-  const minIndent = Math.min(
-    ...nonEmpty.map((l) => l.match(/^\s*/)?.[0].length ?? 0),
-  );
+  const minIndent = Math.min(...nonEmpty.map((l) => l.match(/^\s*/)?.[0].length ?? 0));
   return ls.map((l) => l.slice(minIndent)).join("\n");
 }
 
@@ -141,11 +131,7 @@ export function stripSuffix(s: string, suffix: string): string {
   return s.endsWith(suffix) ? s.slice(0, -suffix.length) : s;
 }
 
-export function removeSurrounding(
-  s: string,
-  prefix: string,
-  suffix?: string,
-): string {
+export function removeSurrounding(s: string, prefix: string, suffix?: string): string {
   const suf = suffix ?? prefix;
   if (s.startsWith(prefix) && s.endsWith(suf)) {
     return s.slice(prefix.length, s.length - suf.length);
@@ -195,20 +181,12 @@ export function zfill(s: string, width: number): string {
 // Truncation & Ellipsis
 // ============================================================================
 
-export function truncate(
-  s: string,
-  maxLength: number,
-  suffix: string = "...",
-): string {
+export function truncate(s: string, maxLength: number, suffix: string = "..."): string {
   if (s.length <= maxLength) return s;
   return s.slice(0, maxLength - suffix.length) + suffix;
 }
 
-export function truncateWords(
-  s: string,
-  maxWords: number,
-  suffix: string = "...",
-): string {
+export function truncateWords(s: string, maxWords: number, suffix: string = "..."): string {
   const w = s.split(/\s+/);
   if (w.length <= maxWords) return s;
   return w.slice(0, maxWords).join(" ") + suffix;

@@ -60,7 +60,7 @@ class Validation<E, A> {
   private constructor(
     private readonly _errors: E[],
     private readonly _value: A | undefined,
-    public readonly isValid: boolean,
+    public readonly isValid: boolean
   ) {}
 
   static success<E, A>(value: A): Validation<E, A> {
@@ -86,10 +86,7 @@ class Validation<E, A> {
     return Validation.failure(this._errors);
   }
 
-  ap<B>(
-    this: Validation<E, (a: A) => B>,
-    va: Validation<E, A>,
-  ): Validation<E, B> {
+  ap<B>(this: Validation<E, (a: A) => B>, va: Validation<E, A>): Validation<E, B> {
     if (this.isValid && va.isValid) {
       return Validation.success(this._value!(va._value!));
     }
@@ -143,9 +140,7 @@ describe("let:/yield: bind (<<) semantics", () => {
     it("three bindings", () => {
       // let: { a << some(1); b << some(2); c << some(3) }
       // yield: { a + b + c }
-      const result = some(1).flatMap((a) =>
-        some(2).flatMap((b) => some(3).map((c) => a + b + c)),
-      );
+      const result = some(1).flatMap((a) => some(2).flatMap((b) => some(3).map((c) => a + b + c)));
       expect(result.value).toBe(6);
     });
 
@@ -168,7 +163,7 @@ describe("let:/yield: bind (<<) semantics", () => {
       // let: { a << some(10); _ << doSideEffect; b << some(20) }
       // yield: { a + b }
       const result = some(10).flatMap((a) =>
-        doSideEffect.flatMap((_) => some(20).map((b) => a + b)),
+        doSideEffect.flatMap((_) => some(20).map((b) => a + b))
       );
       expect(result.value).toBe(30);
       expect(sideEffect).toBe(true);
@@ -178,7 +173,7 @@ describe("let:/yield: bind (<<) semantics", () => {
   describe("short-circuiting", () => {
     it("should short-circuit on none in the middle", () => {
       const result = some(10).flatMap((a) =>
-        none<number>().flatMap((b: number) => some(30).map((c) => a + b + c)),
+        none<number>().flatMap((b: number) => some(30).map((c) => a + b + c))
       );
       expect(result.value).toBeUndefined();
     });
@@ -197,7 +192,7 @@ describe("let:/yield: bind (<<) semantics", () => {
   describe("with Either", () => {
     it("should chain Right values", () => {
       const result = right<string, number>(10).flatMap((a) =>
-        right<string, number>(20).map((b) => a + b),
+        right<string, number>(20).map((b) => a + b)
       );
       expect(result.value).toBe(30);
       expect(result.isRight).toBe(true);
@@ -206,8 +201,8 @@ describe("let:/yield: bind (<<) semantics", () => {
     it("should short-circuit on Left", () => {
       const result = right<string, number>(10).flatMap((a) =>
         left<string, number>("error").flatMap((b: number) =>
-          right<string, number>(30).map((c) => a + b + c),
-        ),
+          right<string, number>(30).map((c) => a + b + c)
+        )
       );
       expect(result.isRight).toBe(false);
       expect(result.error).toBe("error");
@@ -216,9 +211,7 @@ describe("let:/yield: bind (<<) semantics", () => {
 
   describe("with IO", () => {
     it("should compose IO effects", () => {
-      const result = io(() => 10).flatMap((a) =>
-        io(() => 20).map((b) => a + b),
-      );
+      const result = io(() => 10).flatMap((a) => io(() => 20).map((b) => a + b));
       expect(result.run()).toBe(30);
     });
 
@@ -233,8 +226,8 @@ describe("let:/yield: bind (<<) semantics", () => {
         }).flatMap((a) =>
           io(() => {
             log.push("third");
-          }).map((_) => a),
-        ),
+          }).map((_) => a)
+        )
       );
       expect(result.run()).toBe(42);
       expect(log).toEqual(["first", "second", "third"]);
@@ -280,9 +273,7 @@ describe("let:/yield: pure map (=) semantics", () => {
     //   c << some(b * 2)    // uses the mapped value
     // }
     // yield: { c }
-    const result = some(10).flatMap((a) =>
-      ((b: number) => some(b * 2).map((c) => c))(a + 5),
-    );
+    const result = some(10).flatMap((a) => ((b: number) => some(b * 2).map((c) => c))(a + 5));
     expect(result.value).toBe(30);
   });
 
@@ -292,9 +283,7 @@ describe("let:/yield: pure map (=) semantics", () => {
     //   upper = name.toUpperCase()
     // }
     // yield: { upper }
-    const result = some("alice").map((name) =>
-      ((upper: string) => upper)(name.toUpperCase()),
-    );
+    const result = some("alice").map((name) => ((upper: string) => upper)(name.toUpperCase()));
     expect(result.value).toBe("ALICE");
   });
 });
@@ -311,9 +300,7 @@ describe("let:/yield: Promise support", () => {
     // }
     // yield: { a + b }
     // => uses .then() instead of .flatMap()
-    const result = await Promise.resolve(10).then((a) =>
-      Promise.resolve(20).then((b) => a + b),
-    );
+    const result = await Promise.resolve(10).then((a) => Promise.resolve(20).then((b) => a + b));
     expect(result).toBe(30);
   });
 
@@ -326,9 +313,7 @@ describe("let:/yield: Promise support", () => {
     //   b << delay(1, 20)
     // }
     // yield: { a + b }
-    const result = await delay(1, 10).then((a) =>
-      delay(1, 20).then((b) => a + b),
-    );
+    const result = await delay(1, 10).then((a) => delay(1, 20).then((b) => a + b));
     expect(result).toBe(30);
   });
 
@@ -339,15 +324,14 @@ describe("let:/yield: Promise support", () => {
     // }
     // yield: { a + b }
     const result = Promise.resolve(10).then((_a) =>
-      Promise.reject(new Error("boom")).then((_b: number) => 0),
+      Promise.reject(new Error("boom")).then((_b: number) => 0)
     );
     await expect(result).rejects.toThrow("boom");
   });
 
   it("should support dependent async bindings", async () => {
     const fetchUser = (id: number) => Promise.resolve({ id, name: "Alice" });
-    const fetchPosts = (userId: number) =>
-      Promise.resolve([{ userId, title: "Hello" }]);
+    const fetchPosts = (userId: number) => Promise.resolve([{ userId, title: "Hello" }]);
 
     // let: {
     //   user << fetchUser(1)
@@ -355,7 +339,7 @@ describe("let:/yield: Promise support", () => {
     // }
     // yield: { ({ user, posts }) }
     const result = await fetchUser(1).then((user) =>
-      fetchPosts(user.id).then((posts) => ({ user, posts })),
+      fetchPosts(user.id).then((posts) => ({ user, posts }))
     );
     expect(result.user.name).toBe("Alice");
     expect(result.posts).toHaveLength(1);
@@ -450,7 +434,7 @@ describe("let:/yield: guard (if) semantics", () => {
     // }
     // yield: { head }
     const result = some([1, 2, 3]).map((xs) =>
-      xs.length > 0 ? ((head: number) => head)(xs[0]) : undefined,
+      xs.length > 0 ? ((head: number) => head)(xs[0]) : undefined
     );
     expect(result.value).toBe(1);
   });
@@ -468,9 +452,7 @@ describe("let:/yield: combined features", () => {
     //   c << some(b + 1)
     // }
     // yield: { a + c }
-    const result = some(10).flatMap((a) =>
-      ((b: number) => some(b + 1).map((c) => a + c))(a * 3),
-    );
+    const result = some(10).flatMap((a) => ((b: number) => some(b + 1).map((c) => a + c))(a * 3));
     expect(result.value).toBe(41); // 10 + 31
   });
 
@@ -481,18 +463,14 @@ describe("let:/yield: combined features", () => {
     //   y << some(x * 2)
     // }
     // yield: { y }
-    const result = some(10).flatMap((x) =>
-      x > 0 ? some(x * 2).map((y) => y) : undefined,
-    );
+    const result = some(10).flatMap((x) => (x > 0 ? some(x * 2).map((y) => y) : undefined));
     expect(result?.value).toBe(20);
   });
 
   it("object construction in yield needs parens", () => {
     // let: { name << some("Alice"); age << some(30) }
     // yield: { ({ name, age }) }
-    const result = some("Alice").flatMap((name) =>
-      some(30).map((age) => ({ name, age })),
-    );
+    const result = some("Alice").flatMap((name) => some(30).map((age) => ({ name, age })));
     expect(result.value).toEqual({ name: "Alice", age: 30 });
   });
 });
@@ -617,11 +595,7 @@ describe("par:/yield: applicative (.map/.ap) semantics", () => {
         .ap(invalid<string, number>("age required"))
         .ap(invalid<string, string>("email required"));
       expect(result.isValid).toBe(false);
-      expect(result.errors).toEqual([
-        "name required",
-        "age required",
-        "email required",
-      ]);
+      expect(result.errors).toEqual(["name required", "age required", "email required"]);
     });
 
     it("should report error from one failure among successes", () => {
@@ -661,10 +635,9 @@ describe("par:/yield: Promise support (Promise.all)", () => {
     // yield: { a + b }
     // => Promise.all([Promise.resolve(10), Promise.resolve(20)])
     //      .then(([a, b]) => a + b)
-    const result = await Promise.all([
-      Promise.resolve(10),
-      Promise.resolve(20),
-    ]).then(([a, b]) => a + b);
+    const result = await Promise.all([Promise.resolve(10), Promise.resolve(20)]).then(
+      ([a, b]) => a + b
+    );
     expect(result).toBe(30);
   });
 
@@ -686,7 +659,7 @@ describe("par:/yield: Promise support (Promise.all)", () => {
         setTimeout(() => {
           order.push(label);
           resolve(value);
-        }, ms),
+        }, ms)
       );
 
     // par: { a << delay(30, "a", 1); b << delay(10, "b", 2); c << delay(20, "c", 3) }
@@ -728,9 +701,7 @@ describe("par:/yield: Promise support (Promise.all)", () => {
     // }
     // yield: { a + b + c }
     const result = await ((c: number) =>
-      Promise.all([Promise.resolve(10), Promise.resolve(20)]).then(
-        ([a, b]) => a + b + c,
-      ))(100);
+      Promise.all([Promise.resolve(10), Promise.resolve(20)]).then(([a, b]) => a + b + c))(100);
     expect(result).toBe(130);
   });
 });
@@ -756,9 +727,8 @@ describe("Applicative laws with par: style", () => {
   });
 
   it("composition: pure(compose).ap(u).ap(v).ap(w) === u.ap(v.ap(w))", () => {
-    const compose =
-      (f: (b: number) => number) => (g: (a: number) => number) => (a: number) =>
-        f(g(a));
+    const compose = (f: (b: number) => number) => (g: (a: number) => number) => (a: number) =>
+      f(g(a));
     const u = box((x: number) => x + 1);
     const v = box((x: number) => x * 2);
     const w = box(3);

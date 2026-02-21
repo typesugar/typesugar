@@ -40,7 +40,7 @@ import {
  */
 function collectSubExpressions(
   node: ts.Expression,
-  sourceFile: ts.SourceFile,
+  sourceFile: ts.SourceFile
 ): Array<{ node: ts.Expression; source: string }> {
   const subs: Array<{ node: ts.Expression; source: string }> = [];
 
@@ -98,12 +98,12 @@ export const assertMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         callExpr,
-        "assert expects 1 or 2 arguments: assert(expr) or assert(expr, message)",
+        "assert expects 1 or 2 arguments: assert(expr) or assert(expr, message)"
       );
       return callExpr;
     }
@@ -179,14 +179,12 @@ export const assertMacro = defineExpressionMacro({
       resultVarDecl.name,
       undefined,
       undefined,
-      expr,
+      expr
     );
     const newResultStmt = factory.updateVariableStatement(
       resultDecl,
       resultDecl.modifiers,
-      factory.updateVariableDeclarationList(resultDecl.declarationList, [
-        newResultDecl,
-      ]),
+      factory.updateVariableDeclarationList(resultDecl.declarationList, [newResultDecl])
     );
 
     // Statement 1: if (!__pa_result__) { ... }
@@ -201,14 +199,12 @@ export const assertMacro = defineExpressionMacro({
       valsVarDecl.name,
       undefined,
       undefined,
-      factory.createArrayLiteralExpression(valElements),
+      factory.createArrayLiteralExpression(valElements)
     );
     const newValsStmt = factory.updateVariableStatement(
       valsDecl,
       valsDecl.modifiers,
-      factory.updateVariableDeclarationList(valsDecl.declarationList, [
-        newValsDecl,
-      ]),
+      factory.updateVariableDeclarationList(valsDecl.declarationList, [newValsDecl])
     );
 
     // ifBlock[1]: const __pa_srcs__ = [<source strings>]
@@ -219,14 +215,12 @@ export const assertMacro = defineExpressionMacro({
       srcsVarDecl.name,
       undefined,
       undefined,
-      factory.createArrayLiteralExpression(srcElements),
+      factory.createArrayLiteralExpression(srcElements)
     );
     const newSrcsStmt = factory.updateVariableStatement(
       srcsDecl,
       srcsDecl.modifiers,
-      factory.updateVariableDeclarationList(srcsDecl.declarationList, [
-        newSrcsDecl,
-      ]),
+      factory.updateVariableDeclarationList(srcsDecl.declarationList, [newSrcsDecl])
     );
 
     // ifBlock[2]: let __pa_msg__ = <customMessage or undefined>
@@ -237,14 +231,12 @@ export const assertMacro = defineExpressionMacro({
       msgVarDecl.name,
       undefined,
       undefined,
-      customMessage ?? factory.createIdentifier("undefined"),
+      customMessage ?? factory.createIdentifier("undefined")
     );
     const newMsgStmt = factory.updateVariableStatement(
       msgDecl,
       msgDecl.modifiers,
-      factory.updateVariableDeclarationList(msgDecl.declarationList, [
-        newMsgDecl,
-      ]),
+      factory.updateVariableDeclarationList(msgDecl.declarationList, [newMsgDecl])
     );
 
     // Rebuild the if-block with patched statements
@@ -259,7 +251,7 @@ export const assertMacro = defineExpressionMacro({
       ifStmt,
       ifStmt.expression,
       newIfBlock,
-      ifStmt.elseStatement,
+      ifStmt.elseStatement
     );
 
     // Rebuild the arrow function body
@@ -272,14 +264,14 @@ export const assertMacro = defineExpressionMacro({
       arrowFn.parameters,
       arrowFn.type,
       arrowFn.equalsGreaterThanToken,
-      newBlock,
+      newBlock
     );
 
     // Rebuild the IIFE
     return factory.createCallExpression(
       factory.createParenthesizedExpression(newArrow),
       undefined,
-      [],
+      []
     );
   },
 });
@@ -290,16 +282,12 @@ export const assertMacro = defineExpressionMacro({
 
 export const ArbitraryDerive = defineDeriveMacro({
   name: "Arbitrary",
-  description:
-    "Generate a random value generator (Arbitrary instance) for property-based testing",
+  description: "Generate a random value generator (Arbitrary instance) for property-based testing",
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `arbitrary${name}`;
@@ -377,18 +365,17 @@ function getArbitraryForBaseType(typeStr: string): string {
 export const staticAssertMacro = defineExpressionMacro({
   name: "staticAssert",
   module: "@typesugar/testing",
-  description:
-    "Assert a condition at compile time — fails the BUILD if the condition is false",
+  description: "Assert a condition at compile time — fails the BUILD if the condition is false",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         callExpr,
-        "staticAssert expects 1 or 2 arguments: staticAssert(expr) or staticAssert(expr, message)",
+        "staticAssert expects 1 or 2 arguments: staticAssert(expr) or staticAssert(expr, message)"
       );
       return callExpr;
     }
@@ -403,7 +390,7 @@ export const staticAssertMacro = defineExpressionMacro({
       // Can't evaluate at compile time — report error
       ctx.reportError(
         callExpr,
-        `staticAssert: cannot evaluate condition at compile time: ${result.message}`,
+        `staticAssert: cannot evaluate condition at compile time: ${result.message}`
       );
       return callExpr;
     }
@@ -431,16 +418,11 @@ export const staticAssertMacro = defineExpressionMacro({
         ? conditionExpr.getText(ctx.sourceFile)
         : "<expression>";
 
-      ctx.reportError(
-        callExpr,
-        `${message}\n  Assertion: staticAssert(${sourceText})`,
-      );
+      ctx.reportError(callExpr, `${message}\n  Assertion: staticAssert(${sourceText})`);
     }
 
     // Replace with void 0 (no runtime cost)
-    return ctx.factory.createVoidExpression(
-      ctx.factory.createNumericLiteral(0),
-    );
+    return ctx.factory.createVoidExpression(ctx.factory.createNumericLiteral(0));
   },
 });
 
@@ -451,28 +433,24 @@ export const staticAssertMacro = defineExpressionMacro({
 export const testCasesAttribute = defineAttributeMacro({
   name: "testCases",
   module: "@typesugar/testing",
-  description:
-    "Expand a single test function into multiple parameterized test cases",
+  description: "Expand a single test function into multiple parameterized test cases",
   validTargets: ["function"] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target)) {
-      ctx.reportError(
-        target,
-        "@testCases can only be applied to function declarations",
-      );
+      ctx.reportError(target, "@testCases can only be applied to function declarations");
       return target;
     }
 
     if (args.length !== 1 || !ts.isArrayLiteralExpression(args[0])) {
       ctx.reportError(
         _decorator,
-        "@testCases expects a single array argument of test case objects",
+        "@testCases expects a single array argument of test case objects"
       );
       return target;
     }
@@ -494,10 +472,7 @@ export const testCasesAttribute = defineAttributeMacro({
       const caseExpr = casesArray.elements[i];
 
       if (!ts.isObjectLiteralExpression(caseExpr)) {
-        ctx.reportError(
-          caseExpr,
-          `@testCases: element ${i} must be an object literal`,
-        );
+        ctx.reportError(caseExpr, `@testCases: element ${i} must be an object literal`);
         continue;
       }
 
@@ -508,7 +483,7 @@ export const testCasesAttribute = defineAttributeMacro({
           const valText = printer.printNode(
             ts.EmitHint.Expression,
             prop.initializer,
-            ctx.sourceFile,
+            ctx.sourceFile
           );
           props.set(prop.name.text, valText);
         }
@@ -521,9 +496,7 @@ export const testCasesAttribute = defineAttributeMacro({
 
       // Generate: it("fnName (case #i: label)", () => { ... })
       // where the body destructures the case object into the function params
-      const paramNames = params.map((p) =>
-        ts.isIdentifier(p.name) ? p.name.text : `_p${i}`,
-      );
+      const paramNames = params.map((p) => (ts.isIdentifier(p.name) ? p.name.text : `_p${i}`));
 
       const destructure = paramNames
         .map((name) => {
@@ -533,11 +506,7 @@ export const testCasesAttribute = defineAttributeMacro({
         .filter(Boolean)
         .join("\n  ");
 
-      const bodyText = printer.printNode(
-        ts.EmitHint.Unspecified,
-        body,
-        ctx.sourceFile,
-      );
+      const bodyText = printer.printNode(ts.EmitHint.Unspecified, body, ctx.sourceFile);
       // Strip the outer braces from the function body
       const innerBody = bodyText.replace(/^\{/, "").replace(/\}$/, "").trim();
 
@@ -568,12 +537,12 @@ export const assertSnapshotMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         callExpr,
-        "assertSnapshot expects 1 or 2 arguments: assertSnapshot(expr) or assertSnapshot(expr, snapshotName)",
+        "assertSnapshot expects 1 or 2 arguments: assertSnapshot(expr) or assertSnapshot(expr, snapshotName)"
       );
       return callExpr;
     }
@@ -583,9 +552,7 @@ export const assertSnapshotMacro = defineExpressionMacro({
     const factory = ctx.factory;
 
     // Capture the source text of the expression at compile time
-    const exprSource = expr.getText
-      ? expr.getText(ctx.sourceFile)
-      : "<expression>";
+    const exprSource = expr.getText ? expr.getText(ctx.sourceFile) : "<expression>";
 
     // Get file and line info
     const start = callExpr.getStart(ctx.sourceFile);
@@ -603,15 +570,9 @@ export const assertSnapshotMacro = defineExpressionMacro({
     if (snapshotName) {
       // Template: `${snapshotLabel} [${snapshotName}]`
       snapshotArgs.push(
-        factory.createTemplateExpression(
-          factory.createTemplateHead(`${snapshotLabel} [`),
-          [
-            factory.createTemplateSpan(
-              snapshotName,
-              factory.createTemplateTail("]"),
-            ),
-          ],
-        ),
+        factory.createTemplateExpression(factory.createTemplateHead(`${snapshotLabel} [`), [
+          factory.createTemplateSpan(snapshotName, factory.createTemplateTail("]")),
+        ])
       );
     } else {
       snapshotArgs.push(factory.createStringLiteral(snapshotLabel));
@@ -620,15 +581,11 @@ export const assertSnapshotMacro = defineExpressionMacro({
     // Build: expect(<expr>).toMatchSnapshot(<label>)
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
-        factory.createCallExpression(
-          factory.createIdentifier("expect"),
-          undefined,
-          [expr],
-        ),
-        "toMatchSnapshot",
+        factory.createCallExpression(factory.createIdentifier("expect"), undefined, [expr]),
+        "toMatchSnapshot"
       ),
       undefined,
-      snapshotArgs,
+      snapshotArgs
     );
   },
 });
@@ -646,7 +603,7 @@ export const typeAssertMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -654,7 +611,7 @@ export const typeAssertMacro = defineExpressionMacro({
     if (!typeArgs || typeArgs.length !== 1) {
       ctx.reportError(
         callExpr,
-        "typeAssert requires exactly one type argument: typeAssert<Condition>()",
+        "typeAssert requires exactly one type argument: typeAssert<Condition>()"
       );
       return callExpr;
     }
@@ -681,12 +638,10 @@ export const typeAssertMacro = defineExpressionMacro({
 
     // Check if it's `false` — definite failure
     if (typeStr === "false") {
-      const sourceText = typeArg.getText
-        ? typeArg.getText(ctx.sourceFile)
-        : typeStr;
+      const sourceText = typeArg.getText ? typeArg.getText(ctx.sourceFile) : typeStr;
       ctx.reportError(
         callExpr,
-        `Type assertion failed: typeAssert<${sourceText}> resolved to false`,
+        `Type assertion failed: typeAssert<${sourceText}> resolved to false`
       );
       return factory.createVoidExpression(factory.createNumericLiteral(0));
     }
@@ -694,23 +649,19 @@ export const typeAssertMacro = defineExpressionMacro({
     // If the type is `boolean` (union of true | false), it means the
     // type-level computation is ambiguous — warn but don't fail
     if (typeStr === "boolean") {
-      const sourceText = typeArg.getText
-        ? typeArg.getText(ctx.sourceFile)
-        : typeStr;
+      const sourceText = typeArg.getText ? typeArg.getText(ctx.sourceFile) : typeStr;
       ctx.reportWarning(
         callExpr,
-        `Type assertion ambiguous: typeAssert<${sourceText}> resolved to boolean (expected true)`,
+        `Type assertion ambiguous: typeAssert<${sourceText}> resolved to boolean (expected true)`
       );
     }
 
     // For any other type, it's a failure
     if (typeStr !== "true" && typeStr !== "boolean") {
-      const sourceText = typeArg.getText
-        ? typeArg.getText(ctx.sourceFile)
-        : typeStr;
+      const sourceText = typeArg.getText ? typeArg.getText(ctx.sourceFile) : typeStr;
       ctx.reportError(
         callExpr,
-        `Type assertion failed: typeAssert<${sourceText}> resolved to ${typeStr} (expected true)`,
+        `Type assertion failed: typeAssert<${sourceText}> resolved to ${typeStr} (expected true)`
       );
     }
 
@@ -731,20 +682,19 @@ export const forAllMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2 || args.length > 3) {
       ctx.reportError(
         callExpr,
-        "forAll expects 2-3 arguments: forAll(generator, property) or forAll(generator, count, property)",
+        "forAll expects 2-3 arguments: forAll(generator, property) or forAll(generator, count, property)"
       );
       return callExpr;
     }
 
     const factory = ctx.factory;
     const generator = args[0];
-    const count =
-      args.length === 3 ? args[1] : factory.createNumericLiteral(100);
+    const count = args.length === 3 ? args[1] : factory.createNumericLiteral(100);
     const property = args.length === 3 ? args[2] : args[1];
 
     // Generate hygienic variable names
@@ -802,10 +752,10 @@ export const forAllMacro = defineExpressionMacro({
       factory.createBinaryExpression(
         factory.createIdentifier(iName),
         factory.createToken(ts.SyntaxKind.LessThanToken),
-        count,
+        count
       ),
       forStmt.incrementor,
-      forStmt.statement,
+      forStmt.statement
     );
 
     // Patch <value> = <generator>(<i>)
@@ -816,16 +766,12 @@ export const forAllMacro = defineExpressionMacro({
       valueVarDecl.name,
       undefined,
       undefined,
-      factory.createCallExpression(generator, undefined, [
-        factory.createIdentifier(iName),
-      ]),
+      factory.createCallExpression(generator, undefined, [factory.createIdentifier(iName)])
     );
     const newValueStmt = factory.updateVariableStatement(
       valueDecl,
       valueDecl.modifiers,
-      factory.updateVariableDeclarationList(valueDecl.declarationList, [
-        newValueDecl,
-      ]),
+      factory.updateVariableDeclarationList(valueDecl.declarationList, [newValueDecl])
     );
 
     // Patch try body: (<property>)(<value>)
@@ -833,11 +779,9 @@ export const forAllMacro = defineExpressionMacro({
     const tryBlock = tryStmt.tryBlock;
     const newTryBlock = factory.updateBlock(tryBlock, [
       factory.createExpressionStatement(
-        factory.createCallExpression(
-          factory.createParenthesizedExpression(property),
-          undefined,
-          [factory.createIdentifier(valueName)],
-        ),
+        factory.createCallExpression(factory.createParenthesizedExpression(property), undefined, [
+          factory.createIdentifier(valueName),
+        ])
       ),
     ]);
 
@@ -845,21 +789,18 @@ export const forAllMacro = defineExpressionMacro({
       tryStmt,
       newTryBlock,
       tryStmt.catchClause,
-      tryStmt.finallyBlock,
+      tryStmt.finallyBlock
     );
 
     // Rebuild
-    const newForBlock = factory.updateBlock(forBlock, [
-      newValueStmt,
-      newTryStmt,
-    ]);
+    const newForBlock = factory.updateBlock(forBlock, [newValueStmt, newTryStmt]);
 
     const finalForStmt = factory.updateForStatement(
       newForStmt,
       newForStmt.initializer,
       newForStmt.condition,
       newForStmt.incrementor,
-      newForBlock,
+      newForBlock
     );
 
     const newBody = factory.updateBlock(block, [finalForStmt]);
@@ -870,13 +811,13 @@ export const forAllMacro = defineExpressionMacro({
       arrowFn.parameters,
       arrowFn.type,
       arrowFn.equalsGreaterThanToken,
-      newBody,
+      newBody
     );
 
     return factory.createCallExpression(
       factory.createParenthesizedExpression(newArrow),
       undefined,
-      [],
+      []
     );
   },
 });
@@ -918,7 +859,7 @@ export const assertTypeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -926,7 +867,7 @@ export const assertTypeMacro = defineExpressionMacro({
     if (!typeArgs || typeArgs.length !== 1) {
       ctx.reportError(
         callExpr,
-        "assertType requires exactly one type argument: assertType<T>(value)",
+        "assertType requires exactly one type argument: assertType<T>(value)"
       );
       return callExpr;
     }
@@ -934,7 +875,7 @@ export const assertTypeMacro = defineExpressionMacro({
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         callExpr,
-        "assertType expects 1 or 2 arguments: assertType<T>(value) or assertType<T>(value, message)",
+        "assertType expects 1 or 2 arguments: assertType<T>(value) or assertType<T>(value, message)"
       );
       return callExpr;
     }
@@ -954,10 +895,7 @@ export const assertTypeMacro = defineExpressionMacro({
       type: string;
       optional: boolean;
     }> = properties.map((prop) => {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        callExpr,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
       return {
         name: prop.name,
         type: ctx.typeChecker.typeToString(propType),
@@ -978,9 +916,9 @@ export const assertTypeMacro = defineExpressionMacro({
         factory.createPropertyAssignment("type", factory.createStringLiteral(f.type)),
         factory.createPropertyAssignment(
           "optional",
-          f.optional ? factory.createTrue() : factory.createFalse(),
+          f.optional ? factory.createTrue() : factory.createFalse()
         ),
-      ]),
+      ])
     );
 
     // Generate the runtime validation code
@@ -1052,14 +990,12 @@ export const assertTypeMacro = defineExpressionMacro({
       valueVarDecl.name,
       undefined,
       undefined,
-      valueExpr,
+      valueExpr
     );
     const newValueStmt = factory.updateVariableStatement(
       valueDecl,
       valueDecl.modifiers,
-      factory.updateVariableDeclarationList(valueDecl.declarationList, [
-        newValueDecl,
-      ]),
+      factory.updateVariableDeclarationList(valueDecl.declarationList, [newValueDecl])
     );
 
     // Patch: const __at_fields__ = [<field metadata>]
@@ -1070,14 +1006,12 @@ export const assertTypeMacro = defineExpressionMacro({
       fieldsVarDecl.name,
       undefined,
       undefined,
-      factory.createArrayLiteralExpression(fieldMetaElements, true),
+      factory.createArrayLiteralExpression(fieldMetaElements, true)
     );
     const newFieldsStmt = factory.updateVariableStatement(
       fieldsDecl,
       fieldsDecl.modifiers,
-      factory.updateVariableDeclarationList(fieldsDecl.declarationList, [
-        newFieldsDecl,
-      ]),
+      factory.updateVariableDeclarationList(fieldsDecl.declarationList, [newFieldsDecl])
     );
 
     // Find and patch the custom message in the final if block
@@ -1095,7 +1029,7 @@ export const assertTypeMacro = defineExpressionMacro({
         factory.createBinaryExpression(
           customMessage,
           factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createIdentifier("undefined"),
+          factory.createIdentifier("undefined")
         ),
         factory.createBlock([
           factory.createExpressionStatement(
@@ -1105,12 +1039,12 @@ export const assertTypeMacro = defineExpressionMacro({
               factory.createBinaryExpression(
                 factory.createStringLiteral(": "),
                 factory.createToken(ts.SyntaxKind.PlusToken),
-                customMessage,
-              ),
-            ),
+                customMessage
+              )
+            )
           ),
         ]),
-        undefined,
+        undefined
       );
     } else {
       // Remove the if statement entirely by replacing with empty block
@@ -1118,7 +1052,7 @@ export const assertTypeMacro = defineExpressionMacro({
         msgIfStmt,
         factory.createFalse(),
         factory.createBlock([]),
-        undefined,
+        undefined
       );
     }
 
@@ -1133,7 +1067,7 @@ export const assertTypeMacro = defineExpressionMacro({
       ifStmt,
       ifStmt.expression,
       newIfBlock,
-      ifStmt.elseStatement,
+      ifStmt.elseStatement
     );
 
     // Rebuild the block with patched statements
@@ -1153,13 +1087,13 @@ export const assertTypeMacro = defineExpressionMacro({
       arrowFn.parameters,
       arrowFn.type,
       arrowFn.equalsGreaterThanToken,
-      newBlock,
+      newBlock
     );
 
     return factory.createCallExpression(
       factory.createParenthesizedExpression(newArrow),
       undefined,
-      [],
+      []
     );
   },
 });
@@ -1176,13 +1110,12 @@ export const assertTypeMacro = defineExpressionMacro({
 export const typeInfoMacro = defineExpressionMacro({
   name: "typeInfo",
   module: "@typesugar/testing",
-  description:
-    "Get compile-time type information for enhanced assertion diagnostics",
+  description: "Get compile-time type information for enhanced assertion diagnostics",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const typeArgs = callExpr.typeArguments;
@@ -1212,60 +1145,46 @@ export const typeInfoMacro = defineExpressionMacro({
 
     // Build fields array
     const fieldsArray = properties.map((prop) => {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-        prop,
-        callExpr,
-      );
+      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
       const decls = prop.getDeclarations();
       const decl = decls?.[0];
       const isReadonly =
         decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
-          ? (decl.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
-            ) ?? false)
+          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
           : false;
 
       return factory.createObjectLiteralExpression(
         [
-          factory.createPropertyAssignment(
-            "name",
-            factory.createStringLiteral(prop.name),
-          ),
+          factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
           factory.createPropertyAssignment(
             "type",
-            factory.createStringLiteral(ctx.typeChecker.typeToString(propType)),
+            factory.createStringLiteral(ctx.typeChecker.typeToString(propType))
           ),
           factory.createPropertyAssignment(
             "optional",
             (prop.flags & ts.SymbolFlags.Optional) !== 0
               ? factory.createTrue()
-              : factory.createFalse(),
+              : factory.createFalse()
           ),
           factory.createPropertyAssignment(
             "readonly",
-            isReadonly ? factory.createTrue() : factory.createFalse(),
+            isReadonly ? factory.createTrue() : factory.createFalse()
           ),
         ],
-        true,
+        true
       );
     });
 
     return factory.createObjectLiteralExpression(
       [
-        factory.createPropertyAssignment(
-          "name",
-          factory.createStringLiteral(typeName),
-        ),
-        factory.createPropertyAssignment(
-          "kind",
-          factory.createStringLiteral(kind),
-        ),
+        factory.createPropertyAssignment("name", factory.createStringLiteral(typeName)),
+        factory.createPropertyAssignment("kind", factory.createStringLiteral(kind)),
         factory.createPropertyAssignment(
           "fields",
-          factory.createArrayLiteralExpression(fieldsArray, true),
+          factory.createArrayLiteralExpression(fieldsArray, true)
         ),
       ],
-      true,
+      true
     );
   },
 });

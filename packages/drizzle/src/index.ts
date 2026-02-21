@@ -48,12 +48,7 @@ import {
   defineExpressionMacro,
   globalRegistry,
 } from "@typesugar/core";
-import {
-  validateSqlSyntax,
-  QueryableCompanion,
-  DbConnection,
-  Queryable,
-} from "@typesugar/sql";
+import { validateSqlSyntax, QueryableCompanion, DbConnection, Queryable } from "@typesugar/sql";
 
 // ============================================================================
 // Drizzle SQL Tagged Template Macro
@@ -85,10 +80,10 @@ export const dsqlMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     return factory.createTaggedTemplateExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("drizzle_orm"),
-        factory.createIdentifier("sql"),
+        factory.createIdentifier("sql")
       ),
       undefined,
-      node.template,
+      node.template
     );
   },
   validate(ctx: MacroContext, node: ts.TaggedTemplateExpression): boolean {
@@ -136,15 +131,12 @@ export const refMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length !== 1) {
-      ctx.reportError(
-        node,
-        "ref$ expects exactly one argument: the column/table reference",
-      );
+      ctx.reportError(node, "ref$ expects exactly one argument: the column/table reference");
       return node;
     }
 
@@ -152,12 +144,12 @@ export const refMacro: ExpressionMacro = defineExpressionMacro({
       factory.createPropertyAccessExpression(
         factory.createPropertyAccessExpression(
           factory.createIdentifier("drizzle_orm"),
-          factory.createIdentifier("sql"),
+          factory.createIdentifier("sql")
         ),
-        factory.createIdentifier("identifier"),
+        factory.createIdentifier("identifier")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -185,7 +177,7 @@ export const idMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
@@ -198,12 +190,12 @@ export const idMacro: ExpressionMacro = defineExpressionMacro({
       factory.createPropertyAccessExpression(
         factory.createPropertyAccessExpression(
           factory.createIdentifier("drizzle_orm"),
-          factory.createIdentifier("sql"),
+          factory.createIdentifier("sql")
         ),
-        factory.createIdentifier("identifier"),
+        factory.createIdentifier("identifier")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -231,14 +223,14 @@ export const joinMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         node,
-        "join$ expects one or two arguments: items array and optional separator",
+        "join$ expects one or two arguments: items array and optional separator"
       );
       return node;
     }
@@ -247,12 +239,12 @@ export const joinMacro: ExpressionMacro = defineExpressionMacro({
       factory.createPropertyAccessExpression(
         factory.createPropertyAccessExpression(
           factory.createIdentifier("drizzle_orm"),
-          factory.createIdentifier("sql"),
+          factory.createIdentifier("sql")
         ),
-        factory.createIdentifier("join"),
+        factory.createIdentifier("join")
       ),
       undefined,
-      [...args],
+      [...args]
     );
   },
 });
@@ -280,15 +272,12 @@ export const rawMacro: ExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     node: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 
     if (args.length !== 1) {
-      ctx.reportError(
-        node,
-        "raw$ expects exactly one argument: the raw SQL string",
-      );
+      ctx.reportError(node, "raw$ expects exactly one argument: the raw SQL string");
       return node;
     }
 
@@ -298,7 +287,7 @@ export const rawMacro: ExpressionMacro = defineExpressionMacro({
       ctx.reportWarning(
         node,
         "raw$ with dynamic values is HIGHLY DANGEROUS and vulnerable to SQL injection. " +
-          "Use parameterized queries or dsql tagged templates instead.",
+          "Use parameterized queries or dsql tagged templates instead."
       );
     }
 
@@ -306,12 +295,12 @@ export const rawMacro: ExpressionMacro = defineExpressionMacro({
       factory.createPropertyAccessExpression(
         factory.createPropertyAccessExpression(
           factory.createIdentifier("drizzle_orm"),
-          factory.createIdentifier("sql"),
+          factory.createIdentifier("sql")
         ),
-        factory.createIdentifier("raw"),
+        factory.createIdentifier("raw")
       ),
       undefined,
-      [args[0]],
+      [args[0]]
     );
   },
 });
@@ -341,13 +330,10 @@ register();
 /**
  * Runtime placeholder for dsql (should be transformed at compile time)
  */
-export function dsql<T = unknown>(
-  _strings: TemplateStringsArray,
-  ..._values: unknown[]
-): never {
+export function dsql<T = unknown>(_strings: TemplateStringsArray, ..._values: unknown[]): never {
   throw new Error(
     "dsql was not transformed at compile time. " +
-      "Make sure @typesugar/drizzle is registered with the transformer.",
+      "Make sure @typesugar/drizzle is registered with the transformer."
   );
 }
 
@@ -357,7 +343,7 @@ export function dsql<T = unknown>(
 export function ref$(_reference: string): never {
   throw new Error(
     "ref$ was not transformed at compile time. " +
-      "Make sure @typesugar/drizzle is registered with the transformer.",
+      "Make sure @typesugar/drizzle is registered with the transformer."
   );
 }
 
@@ -367,7 +353,7 @@ export function ref$(_reference: string): never {
 export function id$(_identifier: string): never {
   throw new Error(
     "id$ was not transformed at compile time. " +
-      "Make sure @typesugar/drizzle is registered with the transformer.",
+      "Make sure @typesugar/drizzle is registered with the transformer."
   );
 }
 
@@ -377,7 +363,7 @@ export function id$(_identifier: string): never {
 export function join$<T>(_items: T[], _separator?: unknown): never {
   throw new Error(
     "join$ was not transformed at compile time. " +
-      "Make sure @typesugar/drizzle is registered with the transformer.",
+      "Make sure @typesugar/drizzle is registered with the transformer."
   );
 }
 
@@ -387,7 +373,7 @@ export function join$<T>(_items: T[], _separator?: unknown): never {
 export function raw$(_sql: string): never {
   throw new Error(
     "raw$ was not transformed at compile time. " +
-      "Make sure @typesugar/drizzle is registered with the transformer.",
+      "Make sure @typesugar/drizzle is registered with the transformer."
   );
 }
 
@@ -404,11 +390,8 @@ export function raw$(_sql: string): never {
 export const DrizzleQueryable: Queryable<{
   toSQL(): { sql: string; params: unknown[] };
 }> = QueryableCompanion.make(
-  async (
-    query: { toSQL(): { sql: string; params: unknown[] } },
-    conn: DbConnection,
-  ) => {
+  async (query: { toSQL(): { sql: string; params: unknown[] } }, conn: DbConnection) => {
     const { sql, params } = query.toSQL();
     return await conn.query(sql, params);
-  },
+  }
 );

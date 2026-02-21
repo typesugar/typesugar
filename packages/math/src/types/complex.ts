@@ -127,11 +127,9 @@ export function toString(z: Complex): string {
  * Numeric instance for Complex numbers.
  */
 export const numericComplex: Numeric<Complex> = {
-  add: (a, b) =>
-    ({ re: a.re + b.re, im: a.im + b.im }) as Complex & Op<"+">,
+  add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }) as Complex & Op<"+">,
 
-  sub: (a, b) =>
-    ({ re: a.re - b.re, im: a.im - b.im }) as Complex & Op<"-">,
+  sub: (a, b) => ({ re: a.re - b.re, im: a.im - b.im }) as Complex & Op<"-">,
 
   mul: (a, b) =>
     ({

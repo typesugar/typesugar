@@ -56,21 +56,17 @@ export function traverseLaws<F, A>(T: Traverse<F>, EqFA: EqFA<F, A>): LawSet {
       name: "identity",
       arity: 1,
       proofHint: "identity-left",
-      description:
-        "Traversing with identity is identity: traverse(Id)(fa, pure) === pure(fa)",
+      description: "Traversing with identity is identity: traverse(Id)(fa, pure) === pure(fa)",
       check: (fa: $<F, A>): boolean => {
         // traverse with identity applicative should be identity
-        const result = T.traverse(idApplicative)(fa, (a: A) =>
-          idApplicative.pure(a),
-        );
+        const result = T.traverse(idApplicative)(fa, (a: A) => idApplicative.pure(a));
         return EqFA.eqv(result as $<F, A>, fa);
       },
     },
     {
       name: "traverse preserves structure",
       arity: 1,
-      description:
-        "traverse(G)(fa, G.pure) should equal G.pure(fa) for any applicative G",
+      description: "traverse(G)(fa, G.pure) should equal G.pure(fa) for any applicative G",
       check: (fa: $<F, A>): boolean => {
         // Using identity applicative, traverse should preserve the structure
         const result = T.traverse(idApplicative)(fa, idApplicative.pure);
@@ -91,7 +87,7 @@ export function traverseLaws<F, A>(T: Traverse<F>, EqFA: EqFA<F, A>): LawSet {
 export function traverseLawsWithApplicative<F, G, A>(
   T: Traverse<F>,
   Ap: Applicative<G>,
-  EqGFA: { readonly eqv: (x: $<G, $<F, A>>, y: $<G, $<F, A>>) => boolean },
+  EqGFA: { readonly eqv: (x: $<G, $<F, A>>, y: $<G, $<F, A>>) => boolean }
 ): LawSet {
   return [
     {
@@ -118,7 +114,7 @@ export function traverseLawsWithApplicative<F, G, A>(
 export function sequenceLaws<F, G, A>(
   T: Traverse<F>,
   Ap: Applicative<G>,
-  EqGFA: { readonly eqv: (x: $<G, $<F, A>>, y: $<G, $<F, A>>) => boolean },
+  EqGFA: { readonly eqv: (x: $<G, $<F, A>>, y: $<G, $<F, A>>) => boolean }
 ): LawSet {
   return [
     {

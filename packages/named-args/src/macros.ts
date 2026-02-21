@@ -10,8 +10,7 @@ import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 export const namedArgsMacro = defineAttributeMacro({
   name: "namedArgs",
   module: "@typesugar/named-args",
-  description:
-    "Enable named argument calling convention for a function",
+  description: "Enable named argument calling convention for a function",
   validTargets: ["function", "method"],
   expand(_ctx, _decorator, target, _args) {
     return target;

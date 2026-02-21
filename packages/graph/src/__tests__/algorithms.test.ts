@@ -34,7 +34,13 @@ import {
 
 describe("graph construction", () => {
   it("creates a directed graph", () => {
-    const g = createDigraph(["a", "b", "c"], [["a", "b"], ["b", "c"]]);
+    const g = createDigraph(
+      ["a", "b", "c"],
+      [
+        ["a", "b"],
+        ["b", "c"],
+      ]
+    );
     expect(g.directed).toBe(true);
     expect(g.nodes).toHaveLength(3);
     expect(g.edges).toHaveLength(2);
@@ -54,7 +60,12 @@ describe("graph construction", () => {
 describe("graph query", () => {
   const g = createDigraph(
     ["a", "b", "c", "d"],
-    [["a", "b"], ["a", "c"], ["b", "d"], ["c", "d"]],
+    [
+      ["a", "b"],
+      ["a", "c"],
+      ["b", "d"],
+      ["c", "d"],
+    ]
   );
 
   it("neighbors returns outgoing targets", () => {
@@ -129,7 +140,12 @@ describe("topoSort", () => {
   it("sorts a DAG", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["a", "c"], ["b", "d"], ["c", "d"]],
+      [
+        ["a", "b"],
+        ["a", "c"],
+        ["b", "d"],
+        ["c", "d"],
+      ]
     );
     const result = topoSort(g);
     expect(result.ok).toBe(true);
@@ -143,7 +159,10 @@ describe("topoSort", () => {
   it("sorts a linear chain", () => {
     const g = createDigraph(
       ["a", "b", "c"],
-      [["a", "b"], ["b", "c"]],
+      [
+        ["a", "b"],
+        ["b", "c"],
+      ]
     );
     const result = topoSort(g);
     expect(result.ok).toBe(true);
@@ -155,7 +174,11 @@ describe("topoSort", () => {
   it("detects a cycle", () => {
     const g = createDigraph(
       ["a", "b", "c"],
-      [["a", "b"], ["b", "c"], ["c", "a"]],
+      [
+        ["a", "b"],
+        ["b", "c"],
+        ["c", "a"],
+      ]
     );
     const result = topoSort(g);
     expect(result.ok).toBe(false);
@@ -167,7 +190,12 @@ describe("topoSort", () => {
   it("handles a diamond DAG", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["a", "c"], ["b", "d"], ["c", "d"]],
+      [
+        ["a", "b"],
+        ["a", "c"],
+        ["b", "d"],
+        ["c", "d"],
+      ]
     );
     const result = topoSort(g);
     expect(result.ok).toBe(true);
@@ -185,7 +213,11 @@ describe("bfs", () => {
   it("visits nodes in breadth-first order", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["a", "c"], ["b", "d"]],
+      [
+        ["a", "b"],
+        ["a", "c"],
+        ["b", "d"],
+      ]
     );
     const order = bfs(g, "a");
     expect(order[0]).toBe("a");
@@ -204,7 +236,11 @@ describe("dfs", () => {
   it("visits nodes in depth-first order", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["b", "d"], ["a", "c"]],
+      [
+        ["a", "b"],
+        ["b", "d"],
+        ["a", "c"],
+      ]
     );
     const order = dfs(g, "a");
     expect(order[0]).toBe("a");
@@ -225,7 +261,11 @@ describe("dfs", () => {
 describe("reachability", () => {
   const g = createDigraph(
     ["a", "b", "c", "d", "e"],
-    [["a", "b"], ["b", "c"], ["c", "d"]],
+    [
+      ["a", "b"],
+      ["b", "c"],
+      ["c", "d"],
+    ]
   );
 
   it("reachable from start", () => {
@@ -259,7 +299,12 @@ describe("shortestPath (unweighted)", () => {
   it("finds shortest path in a DAG", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["b", "d"], ["a", "c"], ["c", "d"]],
+      [
+        ["a", "b"],
+        ["b", "d"],
+        ["a", "c"],
+        ["c", "d"],
+      ]
     );
     const path = shortestPath(g, "a", "d");
     expect(path).not.toBeNull();
@@ -317,7 +362,10 @@ describe("stronglyConnectedComponents", () => {
   it("each node is its own SCC in a DAG", () => {
     const g = createDigraph(
       ["a", "b", "c"],
-      [["a", "b"], ["b", "c"]],
+      [
+        ["a", "b"],
+        ["b", "c"],
+      ]
     );
     const sccs = stronglyConnectedComponents(g);
     expect(sccs).toHaveLength(3);
@@ -329,7 +377,11 @@ describe("stronglyConnectedComponents", () => {
   it("detects a single SCC (full cycle)", () => {
     const g = createDigraph(
       ["a", "b", "c"],
-      [["a", "b"], ["b", "c"], ["c", "a"]],
+      [
+        ["a", "b"],
+        ["b", "c"],
+        ["c", "a"],
+      ]
     );
     const sccs = stronglyConnectedComponents(g);
     expect(sccs).toHaveLength(1);
@@ -339,12 +391,21 @@ describe("stronglyConnectedComponents", () => {
   it("detects multiple SCCs", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["b", "a"], ["c", "d"], ["d", "c"], ["b", "c"]],
+      [
+        ["a", "b"],
+        ["b", "a"],
+        ["c", "d"],
+        ["d", "c"],
+        ["b", "c"],
+      ]
     );
     const sccs = stronglyConnectedComponents(g);
     expect(sccs).toHaveLength(2);
     const sorted = sccs.map((s) => s.sort()).sort((a, b) => a[0].localeCompare(b[0]));
-    expect(sorted).toEqual([["a", "b"], ["c", "d"]]);
+    expect(sorted).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]);
   });
 });
 
@@ -354,7 +415,13 @@ describe("stronglyConnectedComponents", () => {
 
 describe("cycle detection", () => {
   it("no cycles in a DAG", () => {
-    const g = createDigraph(["a", "b", "c"], [["a", "b"], ["b", "c"]]);
+    const g = createDigraph(
+      ["a", "b", "c"],
+      [
+        ["a", "b"],
+        ["b", "c"],
+      ]
+    );
     expect(hasCycles(g)).toBe(false);
     expect(detectCycles(g)).toEqual([]);
   });
@@ -369,7 +436,11 @@ describe("cycle detection", () => {
   it("detects complex cycles", () => {
     const g = createDigraph(
       ["a", "b", "c"],
-      [["a", "b"], ["b", "c"], ["c", "a"]],
+      [
+        ["a", "b"],
+        ["b", "c"],
+        ["c", "a"],
+      ]
     );
     expect(hasCycles(g)).toBe(true);
     const cycles = detectCycles(g);
@@ -388,14 +459,26 @@ describe("isDAG", () => {
   });
 
   it("returns false for a cyclic graph", () => {
-    const g = createDigraph(["a", "b"], [["a", "b"], ["b", "a"]]);
+    const g = createDigraph(
+      ["a", "b"],
+      [
+        ["a", "b"],
+        ["b", "a"],
+      ]
+    );
     expect(isDAG(g)).toBe(false);
   });
 });
 
 describe("transitiveClosure", () => {
   it("adds transitive edges", () => {
-    const g = createDigraph(["a", "b", "c"], [["a", "b"], ["b", "c"]]);
+    const g = createDigraph(
+      ["a", "b", "c"],
+      [
+        ["a", "b"],
+        ["b", "c"],
+      ]
+    );
     const tc = transitiveClosure(g);
     const edgeSet = new Set(tc.edges.map((e) => `${e.from}->${e.to}`));
     expect(edgeSet.has("a->b")).toBe(true);
@@ -406,7 +489,13 @@ describe("transitiveClosure", () => {
 
 describe("reverseGraph", () => {
   it("flips all edges", () => {
-    const g = createDigraph(["a", "b", "c"], [["a", "b"], ["b", "c"]]);
+    const g = createDigraph(
+      ["a", "b", "c"],
+      [
+        ["a", "b"],
+        ["b", "c"],
+      ]
+    );
     const rg = reverseGraph(g);
     expect(rg.edges[0].from).toBe("b");
     expect(rg.edges[0].to).toBe("a");
@@ -438,7 +527,10 @@ describe("edge cases", () => {
   it("disconnected graph", () => {
     const g = createDigraph(
       ["a", "b", "c", "d"],
-      [["a", "b"], ["c", "d"]],
+      [
+        ["a", "b"],
+        ["c", "d"],
+      ]
     );
     expect(hasPath(g, "a", "d")).toBe(false);
     expect(hasPath(g, "a", "b")).toBe(true);

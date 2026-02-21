@@ -37,20 +37,13 @@
  */
 
 import * as ts from "typescript";
-import {
-  type ExpressionMacro,
-  type MacroContext,
-  defineExpressionMacro,
-} from "@typesugar/core";
+import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
 import { layerRegistry, getLayersForService, type LayerInfo } from "./layer.js";
 
 /**
  * Extract service names from a union type (e.g., "UserRepo | EmailService").
  */
-function extractServiceNames(
-  ctx: MacroContext,
-  typeNode: ts.TypeNode,
-): string[] {
+function extractServiceNames(ctx: MacroContext, typeNode: ts.TypeNode): string[] {
   const services: string[] = [];
 
   function visit(node: ts.TypeNode): void {
@@ -81,7 +74,7 @@ function extractServiceNames(
  * Returns a map from service name to its dependencies.
  */
 function buildDependencyGraph(
-  layers: LayerInfo[],
+  layers: LayerInfo[]
 ): Map<string, { layer: LayerInfo; dependencies: string[] }> {
   const graph = new Map<string, { layer: LayerInfo; dependencies: string[] }>();
 
@@ -101,7 +94,7 @@ function buildDependencyGraph(
  */
 function topologicalSort(
   services: string[],
-  graph: Map<string, { layer: LayerInfo; dependencies: string[] }>,
+  graph: Map<string, { layer: LayerInfo; dependencies: string[] }>
 ): { sorted: string[]; missing: string[] } {
   const visited = new Set<string>();
   const visiting = new Set<string>();
@@ -141,10 +134,7 @@ function topologicalSort(
  * Find the best layer for each service.
  * Prefers layers from the current source file.
  */
-function selectLayers(
-  services: string[],
-  currentFile: string,
-): Map<string, LayerInfo | null> {
+function selectLayers(services: string[], currentFile: string): Map<string, LayerInfo | null> {
   const selected = new Map<string, LayerInfo | null>();
 
   for (const service of services) {
@@ -170,7 +160,7 @@ function generateLayerComposition(
   ctx: MacroContext,
   sortedServices: string[],
   selectedLayers: Map<string, LayerInfo | null>,
-  graph: Map<string, { layer: LayerInfo; dependencies: string[] }>,
+  graph: Map<string, { layer: LayerInfo; dependencies: string[] }>
 ): ts.Expression {
   const { factory } = ctx;
 
@@ -207,30 +197,27 @@ function generateLayerComposition(
           depExpr = factory.createCallExpression(
             factory.createPropertyAccessExpression(
               factory.createIdentifier("Layer"),
-              factory.createIdentifier("merge"),
+              factory.createIdentifier("merge")
             ),
             undefined,
-            depLayers,
+            depLayers
           );
         }
 
         // layer.pipe(Layer.provide(depLayer))
         expr = factory.createCallExpression(
-          factory.createPropertyAccessExpression(
-            expr,
-            factory.createIdentifier("pipe"),
-          ),
+          factory.createPropertyAccessExpression(expr, factory.createIdentifier("pipe")),
           undefined,
           [
             factory.createCallExpression(
               factory.createPropertyAccessExpression(
                 factory.createIdentifier("Layer"),
-                factory.createIdentifier("provide"),
+                factory.createIdentifier("provide")
               ),
               undefined,
-              [depExpr],
+              [depExpr]
             ),
-          ],
+          ]
         );
       }
     }
@@ -243,7 +230,7 @@ function generateLayerComposition(
     // No layers found, return Layer.empty
     return factory.createPropertyAccessExpression(
       factory.createIdentifier("Layer"),
-      factory.createIdentifier("empty"),
+      factory.createIdentifier("empty")
     );
   } else if (layerExprs.length === 1) {
     return layerExprs[0];
@@ -251,10 +238,10 @@ function generateLayerComposition(
     return factory.createCallExpression(
       factory.createPropertyAccessExpression(
         factory.createIdentifier("Layer"),
-        factory.createIdentifier("merge"),
+        factory.createIdentifier("merge")
       ),
       undefined,
-      layerExprs,
+      layerExprs
     );
   }
 }
@@ -264,13 +251,12 @@ function generateLayerComposition(
  */
 export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
   name: "resolveLayer",
-  description:
-    "Automatically resolve and compose Effect layers for requirements",
+  description: "Automatically resolve and compose Effect layers for requirements",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory, sourceFile } = ctx;
 
@@ -279,11 +265,11 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
     if (!typeArgs || typeArgs.length === 0) {
       ctx.reportError(
         callExpr,
-        "resolveLayer<R>() requires a type argument specifying the required services",
+        "resolveLayer<R>() requires a type argument specifying the required services"
       );
       return factory.createPropertyAccessExpression(
         factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty"),
+        factory.createIdentifier("empty")
       );
     }
 
@@ -293,13 +279,10 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
     const requiredServices = extractServiceNames(ctx, requirementsType);
 
     if (requiredServices.length === 0) {
-      ctx.reportWarning(
-        callExpr,
-        "resolveLayer<R>() received no recognizable service types",
-      );
+      ctx.reportWarning(callExpr, "resolveLayer<R>() received no recognizable service types");
       return factory.createPropertyAccessExpression(
         factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty"),
+        factory.createIdentifier("empty")
       );
     }
 
@@ -321,18 +304,16 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       ctx.reportError(
         callExpr,
         `No @layer found for required services: ${missingServices.join(", ")}. ` +
-          `Register layers using @layer(${missingServices[0]}) decorator.`,
+          `Register layers using @layer(${missingServices[0]}) decorator.`
       );
       return factory.createPropertyAccessExpression(
         factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty"),
+        factory.createIdentifier("empty")
       );
     }
 
     // Build the dependency graph from all selected layers
-    const allLayers = Array.from(selectedLayers.values()).filter(
-      (l): l is LayerInfo => l !== null,
-    );
+    const allLayers = Array.from(selectedLayers.values()).filter((l): l is LayerInfo => l !== null);
 
     // Also include transitive dependencies
     const allRequiredServices = new Set(requiredServices);
@@ -348,9 +329,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
             // Select layer for this dependency too
             const depLayers = getLayersForService(dep);
             if (depLayers.length > 0) {
-              const localLayer = depLayers.find(
-                (l) => l.sourceFile === currentFile,
-              );
+              const localLayer = depLayers.find((l) => l.sourceFile === currentFile);
               selectedLayers.set(dep, localLayer ?? depLayers[0]);
             } else {
               selectedLayers.set(dep, null);
@@ -366,35 +345,29 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       ctx.reportError(
         callExpr,
         `No @layer found for transitive dependencies: ${missingServices.join(", ")}. ` +
-          `Register layers using @layer decorators.`,
+          `Register layers using @layer decorators.`
       );
       return factory.createPropertyAccessExpression(
         factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty"),
+        factory.createIdentifier("empty")
       );
     }
 
     // Build dependency graph with all layers
     const finalLayers = Array.from(selectedLayers.values()).filter(
-      (l): l is LayerInfo => l !== null,
+      (l): l is LayerInfo => l !== null
     );
     const graph = buildDependencyGraph(finalLayers);
 
     // Topological sort
     try {
-      const { sorted, missing } = topologicalSort(
-        Array.from(allRequiredServices),
-        graph,
-      );
+      const { sorted, missing } = topologicalSort(Array.from(allRequiredServices), graph);
 
       if (missing.length > 0) {
-        ctx.reportError(
-          callExpr,
-          `Cannot resolve layers for: ${missing.join(", ")}`,
-        );
+        ctx.reportError(callExpr, `Cannot resolve layers for: ${missing.join(", ")}`);
         return factory.createPropertyAccessExpression(
           factory.createIdentifier("Layer"),
-          factory.createIdentifier("empty"),
+          factory.createIdentifier("empty")
         );
       }
 
@@ -403,11 +376,11 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
     } catch (error) {
       ctx.reportError(
         callExpr,
-        `Failed to resolve layers: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to resolve layers: ${error instanceof Error ? error.message : String(error)}`
       );
       return factory.createPropertyAccessExpression(
         factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty"),
+        factory.createIdentifier("empty")
       );
     }
   },
@@ -420,6 +393,6 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
 export function resolveLayer<R>(): never {
   throw new Error(
     "resolveLayer<R>() was not transformed at compile time. " +
-      "Make sure @typesugar/effect is registered with the transformer.",
+      "Make sure @typesugar/effect is registered with the transformer."
   );
 }

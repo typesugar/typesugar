@@ -61,14 +61,7 @@ import {
 } from "@typesugar/core";
 
 // Quasiquoting
-import {
-  quote,
-  quoteStatements,
-  quoteType,
-  ident,
-  raw,
-  spread,
-} from "@typesugar/core/quote";
+import { quote, quoteStatements, quoteType, ident, raw, spread } from "@typesugar/core/quote";
 
 // Testing
 import { expandCode, expandMacro, assertExpands } from "@typesugar/testing";

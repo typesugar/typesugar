@@ -16,9 +16,7 @@ export interface Queryable<Q> {
 }
 
 export const Queryable = {
-  make<Q>(
-    execute: (query: Q, conn: DbConnection) => Promise<unknown>,
-  ): Queryable<Q> {
+  make<Q>(execute: (query: Q, conn: DbConnection) => Promise<unknown>): Queryable<Q> {
     return { _tag: "Queryable", execute };
   },
 } as const;

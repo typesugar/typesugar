@@ -75,10 +75,7 @@ export interface ProofCertificate {
 /**
  * Create an empty proof certificate for a goal.
  */
-export function createCertificate(
-  goal: string,
-  assumptions: TypeFact[],
-): ProofCertificate {
+export function createCertificate(goal: string, assumptions: TypeFact[]): ProofCertificate {
   return {
     goal,
     proven: false,
@@ -93,7 +90,7 @@ export function createCertificate(
 export function succeedCertificate(
   cert: ProofCertificate,
   method: ProofMethod,
-  step: ProofStep,
+  step: ProofStep
 ): ProofCertificate {
   return {
     ...cert,
@@ -107,10 +104,7 @@ export function succeedCertificate(
 /**
  * Mark a certificate as failed.
  */
-export function failCertificate(
-  cert: ProofCertificate,
-  reason: string,
-): ProofCertificate {
+export function failCertificate(cert: ProofCertificate, reason: string): ProofCertificate {
   return {
     ...cert,
     proven: false,
@@ -121,10 +115,7 @@ export function failCertificate(
 /**
  * Add an intermediate step to a certificate.
  */
-export function addStep(
-  cert: ProofCertificate,
-  step: ProofStep,
-): ProofCertificate {
+export function addStep(cert: ProofCertificate, step: ProofStep): ProofCertificate {
   return {
     ...cert,
     steps: [...cert.steps, step],
@@ -139,7 +130,7 @@ export function createStep(
   description: string,
   justification: string,
   usedFacts: TypeFact[] = [],
-  subgoals: string[] = [],
+  subgoals: string[] = []
 ): ProofStep {
   return {
     rule,
@@ -179,9 +170,7 @@ export function formatCertificate(cert: ProofCertificate): string {
       lines.push(`  ${i + 1}. ${step.rule}`);
       lines.push(`     ${step.description}`);
       if (step.usedFacts.length > 0) {
-        lines.push(
-          `     Using: ${step.usedFacts.map((f) => f.predicate).join(", ")}`,
-        );
+        lines.push(`     Using: ${step.usedFacts.map((f) => f.predicate).join(", ")}`);
       }
       if (step.subgoals.length > 0) {
         lines.push(`     Subgoals: ${step.subgoals.join(", ")}`);

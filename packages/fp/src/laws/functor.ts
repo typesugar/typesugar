@@ -37,24 +37,22 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
       name: "identity",
       arity: 1,
       proofHint: "identity-left",
-      description:
-        "Mapping identity preserves structure: F.map(fa, a => a) === fa",
+      description: "Mapping identity preserves structure: F.map(fa, a => a) === fa",
       check: (fa: $<F, A>): boolean =>
         EqFA.eqv(
           Fn.map(fa, (a: A) => a),
-          fa,
+          fa
         ),
     },
     {
       name: "composition",
       arity: 3,
       proofHint: "composition",
-      description:
-        "Mapping composes: F.map(F.map(fa, f), g) === F.map(fa, a => g(f(a)))",
+      description: "Mapping composes: F.map(F.map(fa, f), g) === F.map(fa, a => g(f(a)))",
       check: (fa: $<F, A>, f: (a: A) => A, g: (a: A) => A): boolean =>
         EqFA.eqv(
           Fn.map(Fn.map(fa, f), g),
-          Fn.map(fa, (a: A) => g(f(a))),
+          Fn.map(fa, (a: A) => g(f(a)))
         ),
     },
   ] as unknown as LawSet;
@@ -74,7 +72,7 @@ export function functorCompositionLaws<F, A, B, C>(
   Fn: Functor<F>,
   EqFC: { readonly eqv: (fa1: $<F, C>, fa2: $<F, C>) => boolean },
   f: (a: A) => B,
-  g: (b: B) => C,
+  g: (b: B) => C
 ): LawSet {
   return [
     {
@@ -85,7 +83,7 @@ export function functorCompositionLaws<F, A, B, C>(
       check: (fa: $<F, A>): boolean =>
         EqFC.eqv(
           Fn.map(Fn.map(fa, f), g),
-          Fn.map(fa, (a: A) => g(f(a))),
+          Fn.map(fa, (a: A) => g(f(a)))
         ),
     },
   ] as unknown as LawSet;

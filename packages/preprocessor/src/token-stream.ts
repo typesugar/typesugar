@@ -45,11 +45,7 @@ export class TokenStream {
    * Get the source text for a range of tokens (inclusive)
    */
   getSourceRange(startIndex: number, endIndex: number): string {
-    if (
-      startIndex > endIndex ||
-      startIndex < 0 ||
-      endIndex >= this.tokens.length
-    ) {
+    if (startIndex > endIndex || startIndex < 0 || endIndex >= this.tokens.length) {
       return "";
     }
     const start = this.tokens[startIndex].start;

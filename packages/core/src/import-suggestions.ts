@@ -582,7 +582,7 @@ export interface ImportSuggestion {
  */
 export function getSuggestionsForSymbol(
   symbolName: string,
-  context?: { preferredModules?: string[] },
+  context?: { preferredModules?: string[] }
 ): ImportSuggestion[] {
   const index = getExportIndex();
   const exports = index.byName.get(symbolName);
@@ -646,7 +646,7 @@ export function getSuggestionsForSymbol(
  */
 export function getSuggestionsForMethod(
   methodName: string,
-  receiverType?: string,
+  receiverType?: string
 ): ImportSuggestion[] {
   const index = getExportIndex();
   const modules = index.extensionToModule.get(methodName);
@@ -663,8 +663,7 @@ export function getSuggestionsForMethod(
     // Find the extension namespace that provides this method
     const extensionNamespace = exports.find(
       (e) =>
-        e.kind === "extension" &&
-        e.name.toLowerCase().includes(receiverType?.toLowerCase() ?? ""),
+        e.kind === "extension" && e.name.toLowerCase().includes(receiverType?.toLowerCase() ?? "")
     );
 
     const importTarget = extensionNamespace?.name ?? methodName;
@@ -686,9 +685,7 @@ export function getSuggestionsForMethod(
 /**
  * Get import suggestions for a typeclass that's not in scope.
  */
-export function getSuggestionsForTypeclass(
-  typeclassName: string,
-): ImportSuggestion[] {
+export function getSuggestionsForTypeclass(typeclassName: string): ImportSuggestion[] {
   const index = getExportIndex();
   const module = index.typeclassToModule.get(typeclassName);
 
@@ -736,7 +733,7 @@ export function getSuggestionsForMacro(macroName: string): ImportSuggestion[] {
  */
 export function formatSuggestionsMessage(
   suggestions: ImportSuggestion[],
-  maxSuggestions = 3,
+  maxSuggestions = 3
 ): string {
   if (suggestions.length === 0) {
     return "";
@@ -761,7 +758,7 @@ export function formatSuggestionsMessage(
  */
 export function generateImportFix(
   sourceFile: ts.SourceFile,
-  suggestion: ImportSuggestion,
+  suggestion: ImportSuggestion
 ): { range: { start: number; end: number }; text: string } {
   // Find the first non-comment, non-empty line to insert after
   const firstStatement = sourceFile.statements[0];

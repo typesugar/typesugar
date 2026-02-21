@@ -305,12 +305,7 @@ The quasiquoting system provides AST construction via tagged templates, replacin
 ### Core Functions
 
 ```typescript
-import {
-  quote,
-  quoteStatements,
-  quoteType,
-  quoteBlock,
-} from "../macros/quote.js";
+import { quote, quoteStatements, quoteType, quoteBlock } from "../macros/quote.js";
 
 // Single expression
 const expr = quote(ctx)`${left} + ${right}`;
@@ -355,14 +350,14 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 
 ### Key Macros
 
-| Macro                        | Kind       | Purpose                              |
-| ---------------------------- | ---------- | ------------------------------------ |
-| `@typeclass`                 | Attribute  | Declares a typeclass interface       |
-| `@instance`                  | Attribute  | Registers a typeclass instance       |
-| `@deriving`                  | Attribute  | Auto-derives instances for a type    |
-| `summon<TC<T>>()`            | Expression | Resolves a typeclass instance        |
-| `extend(value).method(args)` | Expression | Extension method syntax              |
-| `specialize(fn)`             | Expression | Inlines typeclass dictionary methods |
+| Macro                | Kind       | Purpose                              |
+| -------------------- | ---------- | ------------------------------------ |
+| `@typeclass`         | Attribute  | Declares a typeclass interface       |
+| `@instance`          | Attribute  | Registers a typeclass instance       |
+| `@deriving`          | Attribute  | Auto-derives instances for a type    |
+| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance        |
+| `value.method(args)` | Expression | Extension method syntax (implicit)   |
+| `specialize(fn)`     | Expression | Inlines typeclass dictionary methods |
 
 ### Extension Method Resolution Order
 
@@ -584,7 +579,7 @@ globalExpansionTracker.recordExpansion(
   originalNode,
   sourceFile,
   expandedText,
-  fromCache,
+  fromCache
 );
 globalExpansionTracker.generateReport(); // human-readable summary
 globalExpansionTracker.toJSON(); // machine-readable format
@@ -618,7 +613,7 @@ For direct enrichment without typeclasses:
 
 ```typescript
 registerExtensions("number", NumberExt);
-extend(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
+(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
 ```
 
 These are stored in `standaloneExtensionRegistry` and resolved before typeclass extensions.

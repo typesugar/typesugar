@@ -1,0 +1,61 @@
+{
+  "name": "@typesugar/prettier-plugin",
+  "version": "0.1.0",
+  "description": "Prettier plugin for typesugar custom syntax (|>, ::, F<_>)",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dpovey/typesugar.git",
+    "directory": "packages/prettier-plugin"
+  },
+  "homepage": "https://github.com/dpovey/typesugar/tree/main/packages/prettier-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/dpovey/typesugar/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "typesugar-fmt": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "prettier",
+    "prettier-plugin",
+    "typesugar",
+    "typescript",
+    "formatting",
+    "hkt",
+    "pipeline"
+  ],
+  "peerDependencies": {
+    "prettier": ">=3.0.0"
+  },
+  "dependencies": {
+    "@typesugar/preprocessor": "workspace:*",
+    "magic-string": "^0.30.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

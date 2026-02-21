@@ -29,14 +29,12 @@ Route handlers are `Fx` computations. The error types flow through to the client
 // server/routes/users.ts
 export const getUser = route("GET", "/users/:id", (params) =>
   fx(function* () {
-    const user = yield* db.query(
-      sql`SELECT * FROM users WHERE id = ${params.id}`,
-    );
+    const user = yield* db.query(sql`SELECT * FROM users WHERE id = ${params.id}`);
     return match(user, {
       Some: (u) => Response.json(u),
       None: () => Response.error(404, "User not found"),
     });
-  }),
+  })
 );
 
 // client/pages/user.ts — errors are typed!
@@ -55,7 +53,7 @@ export const createPost = formAction(PostSchema, (data) =>
   fx(function* () {
     const post = yield* db.insert(sql`INSERT INTO posts ${values(data)}`);
     return redirect(`/posts/${post.id}`);
-  }),
+  })
 );
 
 // In the component — works without JS

@@ -122,14 +122,12 @@ export type FailableEffect<A, E> = Effect.Effect<A, E, never>;
 /**
  * Type helper to extract the success type from an Effect.
  */
-export type EffectSuccess<T> =
-  T extends Effect.Effect<infer A, infer _E, infer _R> ? A : never;
+export type EffectSuccess<T> = T extends Effect.Effect<infer A, infer _E, infer _R> ? A : never;
 
 /**
  * Type helper to extract the error type from an Effect.
  */
-export type EffectError<T> =
-  T extends Effect.Effect<infer _A, infer E, infer _R> ? E : never;
+export type EffectError<T> = T extends Effect.Effect<infer _A, infer E, infer _R> ? E : never;
 
 /**
  * Type helper to extract the requirements type from an Effect.

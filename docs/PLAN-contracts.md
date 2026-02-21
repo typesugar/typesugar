@@ -221,11 +221,7 @@ Fast patterns (no full FM elimination needed):
 Generate structured proof traces for debugging and auditing:
 
 ```typescript
-import {
-  createCertificate,
-  succeedCertificate,
-  formatCertificate,
-} from "@typesugar/contracts";
+import { createCertificate, succeedCertificate, formatCertificate } from "@typesugar/contracts";
 
 const facts = [{ variable: "x", predicate: "x: Positive" }];
 let cert = createCertificate("x >= 0", facts);
@@ -261,9 +257,7 @@ registerAlgebraicRule({
   match(goal, facts) {
     const m = goal.match(/^(\w+)\s*<=\s*100$/);
     if (!m) return false;
-    return facts.some(
-      (f) => f.variable === m[1] && f.predicate.includes("Percentage"),
-    );
+    return facts.some((f) => f.variable === m[1] && f.predicate.includes("Percentage"));
   },
 });
 ```
@@ -302,12 +296,12 @@ packages/contracts-z3/src/
 
 ## Related Packages
 
-| Package                   | Purpose                                     |
-| ------------------------- | ------------------------------------------- |
-| `@typesugar/contracts`         | Core contracts, prover, decidability        |
+| Package                        | Purpose                                          |
+| ------------------------------ | ------------------------------------------------ |
+| `@typesugar/contracts`         | Core contracts, prover, decidability             |
 | `@typesugar/contracts-refined` | Bridge to `@typesugar/type-system` refined types |
-| `@typesugar/contracts-z3`      | Z3 SMT solver prover plugin                 |
-| `@typesugar/type-system`       | Refined types (Positive, Byte, Port, etc.)  |
+| `@typesugar/contracts-z3`      | Z3 SMT solver prover plugin                      |
+| `@typesugar/type-system`       | Refined types (Positive, Byte, Port, etc.)       |
 
 ## References
 

@@ -40,14 +40,10 @@ export function flatMapLaws<F, A>(FM: FlatMap<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "associativity",
       description:
         "flatMap is associative: F.flatMap(F.flatMap(fa, f), g) === F.flatMap(fa, a => F.flatMap(f(a), g))",
-      check: (
-        fa: $<F, A>,
-        f: (a: A) => $<F, A>,
-        g: (a: A) => $<F, A>,
-      ): boolean =>
+      check: (fa: $<F, A>, f: (a: A) => $<F, A>, g: (a: A) => $<F, A>): boolean =>
         EqFA.eqv(
           FM.flatMap(FM.flatMap(fa, f), g),
-          FM.flatMap(fa, (a: A) => FM.flatMap(f(a), g)),
+          FM.flatMap(fa, (a: A) => FM.flatMap(f(a), g))
         ),
     },
     {
@@ -89,17 +85,14 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       name: "left identity",
       arity: 2,
       proofHint: "identity-left",
-      description:
-        "pure is left identity for flatMap: F.flatMap(F.pure(a), f) === f(a)",
-      check: (a: A, f: (a: A) => $<F, A>): boolean =>
-        EqFA.eqv(M.flatMap(M.pure(a), f), f(a)),
+      description: "pure is left identity for flatMap: F.flatMap(F.pure(a), f) === f(a)",
+      check: (a: A, f: (a: A) => $<F, A>): boolean => EqFA.eqv(M.flatMap(M.pure(a), f), f(a)),
     },
     {
       name: "right identity",
       arity: 1,
       proofHint: "identity-right",
-      description:
-        "pure is right identity for flatMap: F.flatMap(fa, F.pure) === fa",
+      description: "pure is right identity for flatMap: F.flatMap(fa, F.pure) === fa",
       check: (fa: $<F, A>): boolean => EqFA.eqv(M.flatMap(fa, M.pure), fa),
     },
     {
@@ -108,14 +101,10 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "associativity",
       description:
         "flatMap is associative: F.flatMap(F.flatMap(fa, f), g) === F.flatMap(fa, a => F.flatMap(f(a), g))",
-      check: (
-        fa: $<F, A>,
-        f: (a: A) => $<F, A>,
-        g: (a: A) => $<F, A>,
-      ): boolean =>
+      check: (fa: $<F, A>, f: (a: A) => $<F, A>, g: (a: A) => $<F, A>): boolean =>
         EqFA.eqv(
           M.flatMap(M.flatMap(fa, f), g),
-          M.flatMap(fa, (a: A) => M.flatMap(f(a), g)),
+          M.flatMap(fa, (a: A) => M.flatMap(f(a), g))
         ),
     },
     {
@@ -127,7 +116,7 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       check: (fa: $<F, A>, f: (a: A) => A): boolean =>
         EqFA.eqv(
           M.map(fa, f),
-          M.flatMap(fa, (a: A) => M.pure(f(a))),
+          M.flatMap(fa, (a: A) => M.pure(f(a)))
         ),
     },
   ] as unknown as LawSet;
@@ -145,7 +134,7 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
 export function monadStackSafetyLaws<F, A>(
   M: Monad<F>,
   EqFA: EqFA<F, A>,
-  depth: number = 10000,
+  depth: number = 10000
 ): LawSet {
   return [
     {

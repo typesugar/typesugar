@@ -54,13 +54,7 @@ const VALID_DECIDABILITY: readonly Decidability[] = [
 /**
  * Valid proof strategies.
  */
-const VALID_STRATEGIES: readonly ProofStrategy[] = [
-  "constant",
-  "type",
-  "algebra",
-  "linear",
-  "z3",
-];
+const VALID_STRATEGIES: readonly ProofStrategy[] = ["constant", "type", "algebra", "linear", "z3"];
 
 export const decidableAttribute = defineAttributeMacro({
   name: "decidable",
@@ -72,13 +66,13 @@ export const decidableAttribute = defineAttributeMacro({
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     // Validate arguments: @decidable(decidability, strategy?)
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         decorator,
-        '@decidable expects 1-2 arguments: @decidable("compile-time" | "decidable" | "runtime" | "undecidable", strategy?)',
+        '@decidable expects 1-2 arguments: @decidable("compile-time" | "decidable" | "runtime" | "undecidable", strategy?)'
       );
       return stripDecorator(ctx, target, decorator);
     }
@@ -86,10 +80,7 @@ export const decidableAttribute = defineAttributeMacro({
     // Parse decidability level
     const decidabilityArg = args[0];
     if (!ts.isStringLiteral(decidabilityArg)) {
-      ctx.reportError(
-        decorator,
-        "@decidable first argument must be a string literal",
-      );
+      ctx.reportError(decorator, "@decidable first argument must be a string literal");
       return stripDecorator(ctx, target, decorator);
     }
 
@@ -97,7 +88,7 @@ export const decidableAttribute = defineAttributeMacro({
     if (!VALID_DECIDABILITY.includes(decidability)) {
       ctx.reportError(
         decorator,
-        `@decidable: invalid decidability "${decidability}". Must be one of: ${VALID_DECIDABILITY.join(", ")}`,
+        `@decidable: invalid decidability "${decidability}". Must be one of: ${VALID_DECIDABILITY.join(", ")}`
       );
       return stripDecorator(ctx, target, decorator);
     }
@@ -107,17 +98,14 @@ export const decidableAttribute = defineAttributeMacro({
     if (args.length >= 2) {
       const strategyArg = args[1];
       if (!ts.isStringLiteral(strategyArg)) {
-        ctx.reportError(
-          decorator,
-          "@decidable second argument must be a string literal",
-        );
+        ctx.reportError(decorator, "@decidable second argument must be a string literal");
         return stripDecorator(ctx, target, decorator);
       }
       strategy = strategyArg.text as ProofStrategy;
       if (!VALID_STRATEGIES.includes(strategy)) {
         ctx.reportError(
           decorator,
-          `@decidable: invalid strategy "${strategy}". Must be one of: ${VALID_STRATEGIES.join(", ")}`,
+          `@decidable: invalid strategy "${strategy}". Must be one of: ${VALID_STRATEGIES.join(", ")}`
         );
         return stripDecorator(ctx, target, decorator);
       }
@@ -130,10 +118,7 @@ export const decidableAttribute = defineAttributeMacro({
       // For type aliases, use the type name as the brand
       // Or try to extract from Refined<Base, "Brand"> if present
       brand = extractBrandFromTypeAlias(ctx, target);
-    } else if (
-      ts.isFunctionDeclaration(target) ||
-      ts.isMethodDeclaration(target)
-    ) {
+    } else if (ts.isFunctionDeclaration(target) || ts.isMethodDeclaration(target)) {
       // For functions, use the function name as a custom predicate identifier
       brand = target.name?.getText();
     } else if (ts.isClassDeclaration(target)) {
@@ -142,10 +127,7 @@ export const decidableAttribute = defineAttributeMacro({
     }
 
     if (!brand) {
-      ctx.reportError(
-        decorator,
-        "@decidable: could not determine brand name from target",
-      );
+      ctx.reportError(decorator, "@decidable: could not determine brand name from target");
       return stripDecorator(ctx, target, decorator);
     }
 
@@ -164,26 +146,23 @@ export const decidableAttribute = defineAttributeMacro({
       ctx.factory.createCallExpression(
         ctx.factory.createPropertyAccessExpression(
           ctx.factory.createIdentifier("__typesugar_contracts"),
-          ctx.factory.createIdentifier("registerDecidability"),
+          ctx.factory.createIdentifier("registerDecidability")
         ),
         undefined,
         [
           ctx.factory.createObjectLiteralExpression([
-            ctx.factory.createPropertyAssignment(
-              "brand",
-              ctx.factory.createStringLiteral(brand),
-            ),
+            ctx.factory.createPropertyAssignment("brand", ctx.factory.createStringLiteral(brand)),
             ctx.factory.createPropertyAssignment(
               "decidability",
-              ctx.factory.createStringLiteral(decidability),
+              ctx.factory.createStringLiteral(decidability)
             ),
             ctx.factory.createPropertyAssignment(
               "preferredStrategy",
-              ctx.factory.createStringLiteral(strategy),
+              ctx.factory.createStringLiteral(strategy)
             ),
           ]),
-        ],
-      ),
+        ]
+      )
     );
 
     // For type aliases, we can't add statements, so we return just the stripped type
@@ -211,7 +190,7 @@ export const decidableAttribute = defineAttributeMacro({
  */
 function extractBrandFromTypeAlias(
   ctx: MacroContext,
-  typeAlias: ts.TypeAliasDeclaration,
+  typeAlias: ts.TypeAliasDeclaration
 ): string | undefined {
   const typeName = typeAlias.name.getText();
   const typeNode = typeAlias.type;
@@ -232,10 +211,7 @@ function findRefinedBrand(typeNode: ts.TypeNode): string | undefined {
     const typeName = typeNode.typeName.getText();
     if (typeName === "Refined" && typeNode.typeArguments?.length === 2) {
       const brandArg = typeNode.typeArguments[1];
-      if (
-        ts.isLiteralTypeNode(brandArg) &&
-        ts.isStringLiteral(brandArg.literal)
-      ) {
+      if (ts.isLiteralTypeNode(brandArg) && ts.isStringLiteral(brandArg.literal)) {
         return brandArg.literal.text;
       }
     }
@@ -261,14 +237,12 @@ function findRefinedBrand(typeNode: ts.TypeNode): string | undefined {
 function stripDecorator(
   ctx: MacroContext,
   target: ts.Declaration,
-  decoratorToRemove: ts.Decorator,
+  decoratorToRemove: ts.Decorator
 ): ts.Node {
   if (ts.isClassDeclaration(target)) {
     const remainingDecorators =
       ts.getDecorators(target)?.filter((d) => d !== decoratorToRemove) ?? [];
-    const otherModifiers = ts.canHaveModifiers(target)
-      ? (ts.getModifiers(target) ?? [])
-      : [];
+    const otherModifiers = ts.canHaveModifiers(target) ? (ts.getModifiers(target) ?? []) : [];
 
     return ctx.factory.updateClassDeclaration(
       target,
@@ -276,7 +250,7 @@ function stripDecorator(
       target.name,
       target.typeParameters,
       target.heritageClauses,
-      target.members,
+      target.members
     );
   }
 
@@ -286,11 +260,8 @@ function stripDecorator(
     // was applied by the macro system.
     const hasDecorators = target as unknown as ts.HasDecorators;
     const remainingDecorators =
-      ts.getDecorators(hasDecorators)?.filter((d) => d !== decoratorToRemove) ??
-      [];
-    const otherModifiers = ts.canHaveModifiers(target)
-      ? (ts.getModifiers(target) ?? [])
-      : [];
+      ts.getDecorators(hasDecorators)?.filter((d) => d !== decoratorToRemove) ?? [];
+    const otherModifiers = ts.canHaveModifiers(target) ? (ts.getModifiers(target) ?? []) : [];
 
     return ctx.factory.updateFunctionDeclaration(
       target,
@@ -300,7 +271,7 @@ function stripDecorator(
       target.typeParameters,
       target.parameters,
       target.type,
-      target.body,
+      target.body
     );
   }
 
@@ -311,24 +282,21 @@ function stripDecorator(
 function stripDecoratorFromTypeAlias(
   ctx: MacroContext,
   target: ts.TypeAliasDeclaration,
-  decoratorToRemove: ts.Decorator,
+  decoratorToRemove: ts.Decorator
 ): ts.Node {
   // Type aliases can't have decorators in standard TS, but with macros they can.
   // We use type assertion since we know the decorator was applied by the macro system.
   const hasDecorators = target as unknown as ts.HasDecorators;
   const remainingDecorators =
-    ts.getDecorators(hasDecorators)?.filter((d) => d !== decoratorToRemove) ??
-    [];
-  const otherModifiers = ts.canHaveModifiers(target)
-    ? (ts.getModifiers(target) ?? [])
-    : [];
+    ts.getDecorators(hasDecorators)?.filter((d) => d !== decoratorToRemove) ?? [];
+  const otherModifiers = ts.canHaveModifiers(target) ? (ts.getModifiers(target) ?? []) : [];
 
   return ctx.factory.updateTypeAliasDeclaration(
     target,
     [...remainingDecorators, ...otherModifiers],
     target.name,
     target.typeParameters,
-    target.type,
+    target.type
   );
 }
 
@@ -353,7 +321,7 @@ globalRegistry.register(decidableAttribute);
 export function decidable(
   brand: string,
   decidability: Decidability,
-  preferredStrategy: ProofStrategy = "algebra",
+  preferredStrategy: ProofStrategy = "algebra"
 ): void {
   registerDecidability({
     brand,

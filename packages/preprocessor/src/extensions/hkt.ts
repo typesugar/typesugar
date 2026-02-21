@@ -18,7 +18,7 @@
  */
 
 import * as ts from "typescript";
-import type { SyntaxExtension, Replacement } from "./types.js";
+import type { SyntaxExtension, Replacement, RewriteOptions } from "./types.js";
 import type { TokenStream } from "../token-stream.js";
 import type { Token } from "../scanner.js";
 
@@ -56,7 +56,8 @@ interface HKTUsage {
 export const hktExtension: SyntaxExtension = {
   name: "hkt",
 
-  rewrite(stream: TokenStream, source: string): Replacement[] {
+  rewrite(stream: TokenStream, source: string, options?: RewriteOptions): Replacement[] {
+    const mode = options?.mode ?? "macro";
     const tokens = stream.getTokens();
     const declarations: HKTDeclaration[] = [];
     const usages: HKTUsage[] = [];
@@ -138,7 +139,7 @@ export const hktExtension: SyntaxExtension = {
       const hasOnlyUnderscores = innerTokens.every(
         (t) =>
           (t.kind === ts.SyntaxKind.Identifier && t.text === "_") ||
-          t.kind === ts.SyntaxKind.CommaToken,
+          t.kind === ts.SyntaxKind.CommaToken
       );
       if (hasOnlyUnderscores) continue;
 
@@ -161,7 +162,9 @@ export const hktExtension: SyntaxExtension = {
       replacements.push({
         start: decl.removeStart,
         end: decl.removeEnd,
-        text: "",
+        // In format mode, emit a marker comment so postFormat can reverse the transformation
+        // In macro mode, just remove the <_> entirely
+        text: mode === "format" ? " /*@ts:hkt*/" : "",
       });
     }
 
@@ -191,7 +194,7 @@ export const hktExtension: SyntaxExtension = {
  */
 function findEnclosingScope(
   tokens: readonly Token[],
-  paramIndex: number,
+  paramIndex: number
 ): { start: number; end: number } {
   let braceDepth = 0;
   let scopeStart = 0;
@@ -267,7 +270,7 @@ function findEnclosingScope(
 function findActiveDeclaration(
   declarations: HKTDeclaration[],
   paramName: string,
-  position: number,
+  position: number
 ): HKTDeclaration | null {
   let best: HKTDeclaration | null = null;
   let bestSize = Infinity;
@@ -290,10 +293,7 @@ function findActiveDeclaration(
  * Find the matching > for a < at the given index.
  * Handles nested generics.
  */
-function findMatchingGreaterThan(
-  tokens: readonly Token[],
-  lessThanIndex: number,
-): number {
+function findMatchingGreaterThan(tokens: readonly Token[], lessThanIndex: number): number {
   const lessThanValue = ts.SyntaxKind.LessThanToken as number;
   const greaterThanValue = ts.SyntaxKind.GreaterThanToken as number;
 

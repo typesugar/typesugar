@@ -21,7 +21,7 @@ export function createJsonCodec<T>(schema: Schema): Codec<T> {
       const version = typeof parsed[VERSION_KEY] === "number" ? parsed[VERSION_KEY] : 1;
       if (version !== schema.version) {
         throw new Error(
-          `Version mismatch: data is v${version}, codec expects v${schema.version}. Use decodeAny() for migration.`,
+          `Version mismatch: data is v${version}, codec expects v${schema.version}. Use decodeAny() for migration.`
         );
       }
       return stripVersionField(parsed) as T;
@@ -30,14 +30,13 @@ export function createJsonCodec<T>(schema: Schema): Codec<T> {
     decodeAny(data: string | Uint8Array): T {
       const json = typeof data === "string" ? data : new TextDecoder().decode(data);
       const parsed = JSON.parse(json) as Record<string, unknown>;
-      const version =
-        typeof parsed[VERSION_KEY] === "number" ? parsed[VERSION_KEY] : 1;
+      const version = typeof parsed[VERSION_KEY] === "number" ? parsed[VERSION_KEY] : 1;
       let record = stripVersionField(parsed);
 
       if (version > schema.version) {
         throw new Error(
           `Cannot decode v${version} data with a v${schema.version} codec. ` +
-            `Upgrade the codec schema to v${version} or later.`,
+            `Upgrade the codec schema to v${version} or later.`
         );
       }
 
@@ -72,9 +71,7 @@ function encodeJson(value: Record<string, unknown>, schema: Schema): string {
   return JSON.stringify(output);
 }
 
-function stripVersionField(
-  record: Record<string, unknown>,
-): Record<string, unknown> {
+function stripVersionField(record: Record<string, unknown>): Record<string, unknown> {
   const { [VERSION_KEY]: _, ...rest } = record;
   return rest;
 }

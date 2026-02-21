@@ -39,7 +39,7 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -52,20 +52,13 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "test.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   // Use ts.transform to get a real TransformationContext that has all
   // required methods (including startBlockScope for iteration statements).
   let capturedContext: ts.TransformationContext | undefined;
-  const dummySf = ts.createSourceFile(
-    "__ctx.ts",
-    "",
-    ts.ScriptTarget.Latest,
-    false,
-  );
+  const dummySf = ts.createSourceFile("__ctx.ts", "", ts.ScriptTarget.Latest, false);
   const transformResult = ts.transform(dummySf, [
     (context) => {
       capturedContext = context;
@@ -98,7 +91,7 @@ function parseFunctionDecl(source: string): {
     source,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   let fn: ts.FunctionDeclaration | undefined;
@@ -125,9 +118,7 @@ function expandTailrec(source: string): {
   const { fn } = parseFunctionDecl(source);
 
   // Create a dummy decorator node
-  const decorator = ts.factory.createDecorator(
-    ts.factory.createIdentifier("tailrec"),
-  );
+  const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("tailrec"));
 
   const result = tailrecAttribute.expand(ctx, decorator, fn, []);
   const diagnostics = ctx.getDiagnostics();
@@ -184,9 +175,7 @@ describe("tailrec valid patterns", () => {
     expect(output).toContain("continue");
     // The output should not contain recursive calls (only the function declaration has "factorial")
     const bodyLines = output.split("\n").slice(1); // skip function declaration line
-    const hasRecursiveCall = bodyLines.some((line) =>
-      /\bfactorial\s*\(/.test(line),
-    );
+    const hasRecursiveCall = bodyLines.some((line) => /\bfactorial\s*\(/.test(line));
     expect(hasRecursiveCall).toBe(false);
   });
 
@@ -531,9 +520,7 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    expect(output).toContain(
-      "function factorial(n: number, acc: number): number",
-    );
+    expect(output).toContain("function factorial(n: number, acc: number): number");
   });
 
   it("should not contain any recursive calls in the output", () => {
@@ -549,8 +536,7 @@ describe("tailrec transformation", () => {
     const lines = output.split("\n");
     const bodyLines = lines.slice(1); // skip the function declaration line
     const hasRecursiveCall = bodyLines.some(
-      (line) =>
-        line.includes("factorial(") && !line.includes("function factorial"),
+      (line) => line.includes("factorial(") && !line.includes("function factorial")
     );
     expect(hasRecursiveCall).toBe(false);
   });
@@ -748,9 +734,7 @@ describe("tailrec functional correctness", () => {
     expect(output).toMatch(/return __typemacro_tr_acc_\d+__/);
     expect(output).toMatch(/__typemacro_tr_next_n_\d+__/);
     expect(output).toMatch(/__typemacro_tr_next_acc_\d+__/);
-    expect(output).toMatch(
-      /__typemacro_tr_n_\d+__ \* __typemacro_tr_acc_\d+__/,
-    );
+    expect(output).toMatch(/__typemacro_tr_n_\d+__ \* __typemacro_tr_acc_\d+__/);
     expect(output).toContain("continue");
   });
 

@@ -155,9 +155,7 @@ interface MethodInfo {
 ### ValidationResult
 
 ```typescript
-type ValidationResult<T> =
-  | { success: true; value: T }
-  | { success: false; errors: string[] };
+type ValidationResult<T> = { success: true; value: T } | { success: false; errors: string[] };
 ```
 
 ## API Reference

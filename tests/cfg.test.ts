@@ -5,11 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "../src/core/context.js";
-import {
-  cfgMacro,
-  setCfgConfig,
-  evaluateCfgCondition,
-} from "../src/macros/cfg.js";
+import { cfgMacro, setCfgConfig, evaluateCfgCondition } from "../src/macros/cfg.js";
 
 describe("conditional compilation", () => {
   let ctx: MacroContextImpl;
@@ -21,7 +17,7 @@ describe("conditional compilation", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -33,9 +29,7 @@ describe("conditional compilation", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -93,9 +87,7 @@ describe("conditional compilation", () => {
 
     it("should evaluate OR conditions", () => {
       expect(evaluateCfgCondition("debug || production")).toBe(true);
-      expect(evaluateCfgCondition("production || platform.browser")).toBe(
-        false,
-      );
+      expect(evaluateCfgCondition("production || platform.browser")).toBe(false);
     });
 
     it("should evaluate equality conditions", () => {
@@ -109,12 +101,8 @@ describe("conditional compilation", () => {
     });
 
     it("should evaluate complex conditions with parentheses", () => {
-      expect(
-        evaluateCfgCondition("(debug || production) && platform.node"),
-      ).toBe(true);
-      expect(
-        evaluateCfgCondition("(production || platform.browser) && debug"),
-      ).toBe(false);
+      expect(evaluateCfgCondition("(debug || production) && platform.node")).toBe(true);
+      expect(evaluateCfgCondition("(production || platform.browser) && debug")).toBe(false);
     });
 
     it("should handle undefined keys as falsy", () => {
@@ -133,7 +121,7 @@ describe("conditional compilation", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("cfg"),
         undefined,
-        [ts.factory.createStringLiteral("debug"), thenExpr],
+        [ts.factory.createStringLiteral("debug"), thenExpr]
       );
 
       const result = cfgMacro.expand(ctx, callExpr, [
@@ -150,7 +138,7 @@ describe("conditional compilation", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("cfg"),
         undefined,
-        [ts.factory.createStringLiteral("production"), thenExpr],
+        [ts.factory.createStringLiteral("production"), thenExpr]
       );
 
       const result = cfgMacro.expand(ctx, callExpr, [
@@ -168,7 +156,7 @@ describe("conditional compilation", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("cfg"),
         undefined,
-        [ts.factory.createStringLiteral("production"), thenExpr, elseExpr],
+        [ts.factory.createStringLiteral("production"), thenExpr, elseExpr]
       );
 
       const result = cfgMacro.expand(ctx, callExpr, [

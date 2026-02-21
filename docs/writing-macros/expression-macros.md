@@ -54,8 +54,7 @@ defineExpressionMacro("assert", {
     const conditionText = condition.getText(ctx.sourceFile);
 
     // Generate: if (!(condition)) throw new Error(message || "Assertion failed: <text>")
-    const errorMessage =
-      message ?? ctx.createStringLiteral(`Assertion failed: ${conditionText}`);
+    const errorMessage = message ?? ctx.createStringLiteral(`Assertion failed: ${conditionText}`);
 
     return ctx.factory.createCallExpression(
       ctx.factory.createParenthesizedExpression(
@@ -69,21 +68,19 @@ defineExpressionMacro("assert", {
             ctx.factory.createIfStatement(
               ctx.factory.createPrefixUnaryExpression(
                 ts.SyntaxKind.ExclamationToken,
-                ctx.factory.createParenthesizedExpression(condition),
+                ctx.factory.createParenthesizedExpression(condition)
               ),
               ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(
-                  ctx.factory.createIdentifier("Error"),
-                  undefined,
-                  [errorMessage],
-                ),
-              ),
+                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
+                  errorMessage,
+                ])
+              )
             ),
-          ]),
-        ),
+          ])
+        )
       ),
       undefined,
-      [],
+      []
     );
   },
 });
@@ -127,8 +124,7 @@ defineExpressionMacro("assert", {
     const condition = callExpr.arguments[0];
     const conditionText = condition?.getText(ctx.sourceFile) ?? "?";
     const message =
-      callExpr.arguments[1] ??
-      ctx.createStringLiteral(`Assertion failed: ${conditionText}`);
+      callExpr.arguments[1] ?? ctx.createStringLiteral(`Assertion failed: ${conditionText}`);
 
     return quote(ctx)`
       (() => {

@@ -24,9 +24,9 @@ function createUser(name: string, age: number, active: boolean) {
 }
 
 const params: ParamMeta[] = [
-  { name: "name",   type: "string",  required: true,  position: 0 },
-  { name: "age",    type: "number",  required: true,  position: 1 },
-  { name: "active", type: "boolean", required: true,  position: 2 },
+  { name: "name", type: "string", required: true, position: 0 },
+  { name: "age", type: "number", required: true, position: 1 },
+  { name: "active", type: "boolean", required: true, position: 2 },
 ];
 
 const create = namedArgs(createUser, params);
@@ -44,12 +44,12 @@ Mark parameters as optional and provide defaults:
 
 ```typescript
 const params: ParamMeta[] = [
-  { name: "name",     type: "string", required: true,  position: 0 },
+  { name: "name", type: "string", required: true, position: 0 },
   { name: "greeting", type: "string", required: false, defaultValue: "Hello", position: 1 },
 ];
 
 const greet = namedArgs(greetFn, params);
-greet.namedCall({ name: "World" });           // "Hello, World!"
+greet.namedCall({ name: "World" }); // "Hello, World!"
 greet.namedCall({ name: "World", greeting: "Hi" }); // "Hi, World!"
 ```
 
@@ -70,9 +70,7 @@ const user = createBuilder(createUser, params)
 Builders are immutable — each `.set()` returns a new builder. You can branch from a partial builder:
 
 ```typescript
-const base = createBuilder(createUser, params)
-  .set("name", "Alice")
-  .set("age", 30);
+const base = createBuilder(createUser, params).set("name", "Alice").set("age", 30);
 
 const work = base.set("email", "alice@work.com").build();
 const personal = base.set("email", "alice@home.com").build();
@@ -92,8 +90,8 @@ try {
   wrapped.namedCall({ name: "Alice" }); // missing "age"
 } catch (err) {
   if (err instanceof NamedArgsError) {
-    console.log(err.reason);       // "missing_required"
-    console.log(err.paramName);    // "age"
+    console.log(err.reason); // "missing_required"
+    console.log(err.paramName); // "age"
     console.log(err.functionName); // "createUser"
   }
 }

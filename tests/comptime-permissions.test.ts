@@ -28,7 +28,7 @@ beforeAll(() => {
   fs.writeFileSync(path.join(tmpDir, "test-data.txt"), "hello from test file");
   fs.writeFileSync(
     path.join(tmpDir, "config.json"),
-    JSON.stringify({ key: "value", nested: { num: 42 } }),
+    JSON.stringify({ key: "value", nested: { num: 42 } })
   );
   fs.mkdirSync(path.join(tmpDir, "pages"), { recursive: true });
   fs.writeFileSync(path.join(tmpDir, "pages", "home.tsx"), "");
@@ -62,7 +62,7 @@ function transformSource(source: string): {
 
   const mainFile = path.join(
     tmpDir,
-    `test_${Date.now()}_${Math.random().toString(36).slice(2)}.ts`,
+    `test_${Date.now()}_${Math.random().toString(36).slice(2)}.ts`
   );
   fs.writeFileSync(mainFile, sourceWithImport);
 

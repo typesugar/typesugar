@@ -23,14 +23,14 @@ export class MacroDiagnosticsManager {
         if (this.isTypeScriptDocument(doc)) {
           this.updateDiagnostics(doc);
         }
-      }),
+      })
     );
 
     // Clear diagnostics when a file is closed
     this.disposables.push(
       vscode.workspace.onDidCloseTextDocument((doc) => {
         this.collection.delete(doc.uri);
-      }),
+      })
     );
 
     // Run diagnostics on all open TS files at startup
@@ -41,9 +41,7 @@ export class MacroDiagnosticsManager {
     }
   }
 
-  private async updateDiagnostics(
-    document: vscode.TextDocument,
-  ): Promise<void> {
+  private async updateDiagnostics(document: vscode.TextDocument): Promise<void> {
     const config = vscode.workspace.getConfiguration("typemacro");
     if (!config.get<boolean>("enableDiagnostics", true)) {
       this.collection.delete(document.uri);
@@ -61,7 +59,7 @@ export class MacroDiagnosticsManager {
         const range = d.range
           ? new vscode.Range(
               new vscode.Position(d.range.startLine, d.range.startChar),
-              new vscode.Position(d.range.endLine, d.range.endChar),
+              new vscode.Position(d.range.endLine, d.range.endChar)
             )
           : new vscode.Range(0, 0, 0, 0);
 
@@ -78,7 +76,7 @@ export class MacroDiagnosticsManager {
           diag.relatedInformation = [
             new vscode.DiagnosticRelatedInformation(
               new vscode.Location(document.uri, range),
-              `Expansion:\n${d.expansion}`,
+              `Expansion:\n${d.expansion}`
             ),
           ];
         }
@@ -94,9 +92,7 @@ export class MacroDiagnosticsManager {
   }
 
   private isTypeScriptDocument(doc: vscode.TextDocument): boolean {
-    return (
-      doc.languageId === "typescript" || doc.languageId === "typescriptreact"
-    );
+    return doc.languageId === "typescript" || doc.languageId === "typescriptreact";
   }
 
   dispose(): void {

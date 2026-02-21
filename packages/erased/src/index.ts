@@ -52,22 +52,10 @@ export {
 
 // Heterogeneous collection utilities
 export type { ErasedList } from "./collections.js";
-export {
-  mapErased,
-  filterErased,
-  showAll,
-  sortErased,
-  dedup,
-  groupByHash,
-} from "./collections.js";
+export { mapErased, filterErased, showAll, sortErased, dedup, groupByHash } from "./collections.js";
 
 // Capability widening / narrowing
-export {
-  widen,
-  narrow,
-  extendCapabilities,
-  hasCapability,
-} from "./widen-narrow.js";
+export { widen, narrow, extendCapabilities, hasCapability } from "./widen-narrow.js";
 
 // Macro (Phase 1 stub)
 export { erasedMacro } from "./macros.js";

@@ -181,7 +181,7 @@ describe("EffectExt", () => {
       const filtered = EffectExt.filterOrFail(
         effect,
         (x) => x > 0,
-        () => "must be positive",
+        () => "must be positive"
       );
       expect(Effect.runSync(filtered)).toBe(42);
     });
@@ -191,7 +191,7 @@ describe("EffectExt", () => {
       const filtered = EffectExt.filterOrFail(
         effect,
         (x) => x > 0,
-        () => "must be positive",
+        () => "must be positive"
       );
       const exit = Effect.runSyncExit(filtered);
       expect(exit._tag).toBe("Failure");
@@ -215,7 +215,7 @@ describe("EffectExt", () => {
         effect,
         Effect.sync(() => {
           finalized = true;
-        }),
+        })
       );
       Effect.runSync(ensured);
       expect(finalized).toBe(true);
@@ -228,7 +228,7 @@ describe("EffectExt", () => {
         effect,
         Effect.sync(() => {
           finalized = true;
-        }),
+        })
       );
       Effect.runSyncExit(ensured);
       expect(finalized).toBe(true);

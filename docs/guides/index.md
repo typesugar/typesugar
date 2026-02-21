@@ -13,22 +13,22 @@ Deep-dive guides for typesugar features.
 
 ## Developer Experience
 
-| Guide                                                      | Description                                         |
-| ---------------------------------------------------------- | --------------------------------------------------- |
+| Guide                                                      | Description                                                       |
+| ---------------------------------------------------------- | ----------------------------------------------------------------- |
 | [Developer Experience Overview](./developer-experience.md) | How error messages, import suggestions, and tooling work together |
-| [Error Messages](./error-messages.md)                      | Rust-style errors with labeled spans and auto-fixes |
-| [Opt-Out Directives](./opt-out.md)                         | Disable transformations for debugging/interop       |
+| [Error Messages](./error-messages.md)                      | Rust-style errors with labeled spans and auto-fixes               |
+| [Opt-Out Directives](./opt-out.md)                         | Disable transformations for debugging/interop                     |
 
 ## Advanced Features
 
-| Guide                                                   | Description                                      |
-| ------------------------------------------------------- | ------------------------------------------------ |
-| [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units            |
-| [Contracts](./contracts.md)                             | Design by contract with `requires:`/`ensures:`   |
-| [Functional Programming](./fp.md)                       | Option, Result, IO, and HKT                      |
-| [Extension Methods](./extension-methods.md)             | Scala 3-style extension methods                  |
-| [Do-Notation](./do-notation.md)                         | Monadic comprehensions with `let:`/`yield:`      |
-| [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`        |
+| Guide                                                   | Description                                    |
+| ------------------------------------------------------- | ---------------------------------------------- |
+| [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units          |
+| [Contracts](./contracts.md)                             | Design by contract with `requires:`/`ensures:` |
+| [Functional Programming](./fp.md)                       | Option, Result, IO, and HKT                    |
+| [Extension Methods](./extension-methods.md)             | Scala 3-style extension methods                |
+| [Do-Notation](./do-notation.md)                         | Monadic comprehensions with `let:`/`yield:`    |
+| [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`      |
 
 ## Quick Reference
 

@@ -45,13 +45,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9216,
-  TS9201,
-  TS9221,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, TS9216, TS9201, TS9221 } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
@@ -95,7 +89,7 @@ const instanceMethodRegistry = new Map<string, DictMethodMap>();
 export function registerInstanceMethods(
   dictName: string,
   brand: string,
-  methods: Record<string, { source: string; params: string[] }>,
+  methods: Record<string, { source: string; params: string[] }>
 ): void {
   const methodMap = new Map<string, DictMethod>();
   for (const [name, info] of Object.entries(methods)) {
@@ -113,7 +107,7 @@ export function registerInstanceMethods(
 export function registerInstanceMethodsFromAST(
   dictName: string,
   brand: string,
-  methods: Map<string, DictMethod>,
+  methods: Map<string, DictMethod>
 ): void {
   instanceMethodRegistry.set(dictName, { brand, methods });
 }
@@ -128,7 +122,7 @@ export function registerInstanceMethodsFromAST(
  */
 export function extractMethodsFromObjectLiteral(
   objLiteral: ts.ObjectLiteralExpression,
-  hygiene?: HygieneContext,
+  hygiene?: HygieneContext
 ): Map<string, DictMethod> {
   const methods = new Map<string, DictMethod>();
 
@@ -145,10 +139,7 @@ export function extractMethodsFromObjectLiteral(
       // Skip non-method properties (like URI)
       if (methodName === "URI") continue;
 
-      if (
-        ts.isArrowFunction(initializer) ||
-        ts.isFunctionExpression(initializer)
-      ) {
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
         const params = initializer.parameters.map((p, i) => {
           if (ts.isIdentifier(p.name)) {
             return p.name.text;
@@ -199,9 +190,7 @@ export function extractMethodsFromObjectLiteral(
 /**
  * Get the method map for a known dictionary.
  */
-export function getInstanceMethods(
-  dictName: string,
-): DictMethodMap | undefined {
+export function getInstanceMethods(dictName: string): DictMethodMap | undefined {
   return instanceMethodRegistry.get(dictName);
 }
 
@@ -361,16 +350,14 @@ registerInstanceMethods("optionSemigroupK", "Option", {
  */
 registerInstanceMethods("eitherFunctor", "Either", {
   map: {
-    source:
-      '(fa, f) => fa._tag === "Right" ? { _tag: "Right", right: f(fa.right) } : fa',
+    source: '(fa, f) => fa._tag === "Right" ? { _tag: "Right", right: f(fa.right) } : fa',
     params: ["fa", "f"],
   },
 });
 
 registerInstanceMethods("eitherMonad", "Either", {
   map: {
-    source:
-      '(fa, f) => fa._tag === "Right" ? { _tag: "Right", right: f(fa.right) } : fa',
+    source: '(fa, f) => fa._tag === "Right" ? { _tag: "Right", right: f(fa.right) } : fa',
     params: ["fa", "f"],
   },
   pure: {
@@ -406,8 +393,7 @@ registerInstanceMethods("eitherBifunctor", "Either", {
     params: ["fa", "f", "g"],
   },
   mapLeft: {
-    source:
-      '(fa, f) => fa._tag === "Left" ? { _tag: "Left", left: f(fa.left) } : fa',
+    source: '(fa, f) => fa._tag === "Left" ? { _tag: "Left", left: f(fa.left) } : fa',
     params: ["fa", "f"],
   },
 });
@@ -498,26 +484,22 @@ registerInstanceMethods("flatMapIterable", "Iterable", {
 // FlatMap instance for AsyncIterable — uses async generator functions
 registerInstanceMethods("stdFlatMapAsyncIterable", "AsyncIterable", {
   map: {
-    source:
-      "(fa, f) => (async function* () { for await (const a of fa) yield f(a); })()",
+    source: "(fa, f) => (async function* () { for await (const a of fa) yield f(a); })()",
     params: ["fa", "f"],
   },
   flatMap: {
-    source:
-      "(fa, f) => (async function* () { for await (const a of fa) yield* f(a); })()",
+    source: "(fa, f) => (async function* () { for await (const a of fa) yield* f(a); })()",
     params: ["fa", "f"],
   },
 });
 
 registerInstanceMethods("flatMapAsyncIterable", "AsyncIterable", {
   map: {
-    source:
-      "(fa, f) => (async function* () { for await (const a of fa) yield f(a); })()",
+    source: "(fa, f) => (async function* () { for await (const a of fa) yield f(a); })()",
     params: ["fa", "f"],
   },
   flatMap: {
-    source:
-      "(fa, f) => (async function* () { for await (const a of fa) yield* f(a); })()",
+    source: "(fa, f) => (async function* () { for await (const a of fa) yield* f(a); })()",
     params: ["fa", "f"],
   },
 });
@@ -553,20 +535,15 @@ interface ResolvedDict {
 export const specializeMacro = defineExpressionMacro({
   name: "specialize",
   module: "@typesugar/macros",
-  description:
-    "Specialize a generic function by inlining typeclass dictionaries at compile time",
+  description: "Specialize a generic function by inlining typeclass dictionaries at compile time",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx
-        .diagnostic(TS9216)
-        .at(callExpr)
-        .withArgs({ macro: "specialize", min: "2" })
-        .emit();
+      ctx.diagnostic(TS9216).at(callExpr).withArgs({ macro: "specialize", min: "2" }).emit();
       return callExpr;
     }
 
@@ -577,9 +554,7 @@ export const specializeMacro = defineExpressionMacro({
     const resolvedDicts: ResolvedDict[] = [];
     for (const dictArg of dictArgs) {
       const dictName = getDictName(dictArg);
-      const dictMethods = dictName
-        ? instanceMethodRegistry.get(dictName)
-        : undefined;
+      const dictMethods = dictName ? instanceMethodRegistry.get(dictName) : undefined;
 
       if (dictMethods) {
         resolvedDicts.push({
@@ -600,12 +575,7 @@ export const specializeMacro = defineExpressionMacro({
     if (fnBody) {
       if (resolvedDicts.length === 1) {
         // Single dictionary - use the simpler path
-        return specializeFunction(
-          ctx,
-          fnBody,
-          resolvedDicts[0].methods,
-          resolvedDicts[0].name,
-        );
+        return specializeFunction(ctx, fnBody, resolvedDicts[0].methods, resolvedDicts[0].name);
       } else {
         // Multiple dictionaries
         return specializeFunctionMulti(ctx, fnBody, resolvedDicts);
@@ -636,13 +606,12 @@ export const specializeMacro = defineExpressionMacro({
 export const specializeInlineMacro = defineExpressionMacro({
   name: "specialize$",
   module: "@typesugar/macros",
-  description:
-    "Inline-specialize an expression by replacing dictionary method calls",
+  description: "Inline-specialize an expression by replacing dictionary method calls",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 2) {
       ctx
@@ -659,9 +628,7 @@ export const specializeInlineMacro = defineExpressionMacro({
 
     const [dictArg, exprArg] = args;
     const dictName = getDictName(dictArg);
-    const dictMethods = dictName
-      ? instanceMethodRegistry.get(dictName)
-      : undefined;
+    const dictMethods = dictName ? instanceMethodRegistry.get(dictName) : undefined;
 
     if (!dictMethods) {
       // Can't specialize — just call the lambda with the dict
@@ -736,7 +703,7 @@ const TYPECLASS_NAMES = new Set([
 function findDictParamByType(
   ctx: MacroContext,
   params: readonly ts.ParameterDeclaration[],
-  dictMethods: DictMethodMap,
+  dictMethods: DictMethodMap
 ): { index: number; typeParamName: string | undefined } | undefined {
   for (let i = 0; i < params.length; i++) {
     const param = params[i];
@@ -797,12 +764,8 @@ function findDictParamByType(
  */
 function resolveFunctionBody(
   ctx: MacroContext,
-  fnExpr: ts.Expression,
-):
-  | ts.ArrowFunction
-  | ts.FunctionExpression
-  | ts.FunctionDeclaration
-  | undefined {
+  fnExpr: ts.Expression
+): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
   // Direct arrow/function expression
   if (ts.isArrowFunction(fnExpr) || ts.isFunctionExpression(fnExpr)) {
     return fnExpr;
@@ -819,10 +782,7 @@ function resolveFunctionBody(
     for (const decl of declarations) {
       // const fn = (...) => { ... }
       if (ts.isVariableDeclaration(decl) && decl.initializer) {
-        if (
-          ts.isArrowFunction(decl.initializer) ||
-          ts.isFunctionExpression(decl.initializer)
-        ) {
+        if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
           return decl.initializer;
         }
       }
@@ -844,7 +804,7 @@ function specializeFunction(
   ctx: MacroContext,
   fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
   dictMethods: DictMethodMap,
-  dictName: string,
+  dictName: string
 ): ts.Expression {
   const params = Array.from(fn.parameters);
 
@@ -861,8 +821,7 @@ function specializeFunction(
   const dictParam = params[dictParamIndex];
   const dictParamName = dictParam.name.getText();
   const typeParamName =
-    dictParamInfo?.typeParamName ??
-    extractTypeParamFromDictType(dictParam.type);
+    dictParamInfo?.typeParamName ?? extractTypeParamFromDictType(dictParam.type);
 
   // Remove the dictionary parameter, keeping all others
   const remainingParams = params.filter((_, i) => i !== dictParamIndex);
@@ -874,12 +833,7 @@ function specializeFunction(
   }
 
   // Rewrite dictionary calls in the body
-  const specializedBody = rewriteDictCalls(
-    ctx,
-    body,
-    dictParamName,
-    dictMethods,
-  );
+  const specializedBody = rewriteDictCalls(ctx, body, dictParamName, dictMethods);
 
   // Create a new arrow function without the dictionary parameter
   if (remainingParams.length === 0) {
@@ -901,33 +855,18 @@ function specializeFunction(
       p.name,
       p.questionToken,
       narrowedType,
-      p.initializer,
+      p.initializer
     );
   });
 
   // Also narrow the return type if present
   let narrowedReturnType: ts.TypeNode | undefined;
   if (ts.isArrowFunction(fn) && fn.type) {
-    narrowedReturnType = narrowKindType(
-      ctx,
-      fn.type,
-      typeParamName,
-      dictMethods.brand,
-    );
+    narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   } else if (ts.isFunctionExpression(fn) && fn.type) {
-    narrowedReturnType = narrowKindType(
-      ctx,
-      fn.type,
-      typeParamName,
-      dictMethods.brand,
-    );
+    narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   } else if (ts.isFunctionDeclaration(fn) && fn.type) {
-    narrowedReturnType = narrowKindType(
-      ctx,
-      fn.type,
-      typeParamName,
-      dictMethods.brand,
-    );
+    narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   }
 
   return ctx.factory.createArrowFunction(
@@ -936,7 +875,7 @@ function specializeFunction(
     cleanParams,
     narrowedReturnType,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    specializedBody as ts.ConciseBody,
+    specializedBody as ts.ConciseBody
   );
 }
 
@@ -944,9 +883,7 @@ function specializeFunction(
  * Extract the type parameter name from a dictionary type annotation.
  * e.g., for `Functor<F>`, returns "F"
  */
-function extractTypeParamFromDictType(
-  typeNode: ts.TypeNode | undefined,
-): string | undefined {
+function extractTypeParamFromDictType(typeNode: ts.TypeNode | undefined): string | undefined {
   if (!typeNode) return undefined;
 
   if (ts.isTypeReferenceNode(typeNode)) {
@@ -971,7 +908,7 @@ function narrowKindType(
   ctx: MacroContext,
   typeNode: ts.TypeNode,
   typeParamName: string | undefined,
-  brand: string,
+  brand: string
 ): ts.TypeNode {
   // Visit the type node and transform Kind references
   function visit(node: ts.Node): ts.Node {
@@ -992,10 +929,9 @@ function narrowKindType(
             // Replace with concrete type: brand<A>
             // e.g., Array<number>
             const innerTypeArg = ts.visitNode(args[1], visit) as ts.TypeNode;
-            return ctx.factory.createTypeReferenceNode(
-              ctx.factory.createIdentifier(brand),
-              [innerTypeArg],
-            );
+            return ctx.factory.createTypeReferenceNode(ctx.factory.createIdentifier(brand), [
+              innerTypeArg,
+            ]);
           }
         }
 
@@ -1010,10 +946,10 @@ function narrowKindType(
             // e.g., Either<string, number>
             const eArg = ts.visitNode(args[1], visit) as ts.TypeNode;
             const aArg = ts.visitNode(args[2], visit) as ts.TypeNode;
-            return ctx.factory.createTypeReferenceNode(
-              ctx.factory.createIdentifier(brand),
-              [eArg, aArg],
-            );
+            return ctx.factory.createTypeReferenceNode(ctx.factory.createIdentifier(brand), [
+              eArg,
+              aArg,
+            ]);
           }
         }
       }
@@ -1024,10 +960,8 @@ function narrowKindType(
         return ctx.factory.createTypeReferenceNode(
           ctx.factory.createIdentifier(brand),
           node.typeArguments
-            ? (node.typeArguments.map((a) =>
-                ts.visitNode(a, visit),
-              ) as ts.TypeNode[])
-            : undefined,
+            ? (node.typeArguments.map((a) => ts.visitNode(a, visit)) as ts.TypeNode[])
+            : undefined
         );
       }
     }
@@ -1060,7 +994,7 @@ function rewriteDictCalls(
   node: ts.Node,
   dictParamName: string,
   dictMethods: DictMethodMap,
-  depth: number = 0,
+  depth: number = 0
 ): ts.Expression {
   const ctxImpl = ctx as MacroContextImpl;
 
@@ -1087,14 +1021,10 @@ function rewriteDictCalls(
     // Transitive specialization: Match someFunction(..., dictParam, ...)
     // When we see a function call where the dictionary is passed as any argument,
     // try to recursively specialize that function
-    if (
-      ts.isCallExpression(n) &&
-      n.arguments.length > 0 &&
-      depth < MAX_SPECIALIZATION_DEPTH
-    ) {
+    if (ts.isCallExpression(n) && n.arguments.length > 0 && depth < MAX_SPECIALIZATION_DEPTH) {
       // Find which argument (if any) is the dictionary
       const dictArgIndex = n.arguments.findIndex(
-        (arg) => ts.isIdentifier(arg) && arg.text === dictParamName,
+        (arg) => ts.isIdentifier(arg) && arg.text === dictParamName
       );
 
       if (dictArgIndex !== -1) {
@@ -1105,23 +1035,17 @@ function rewriteDictCalls(
             ctx,
             calledFn,
             dictMethods,
-            depth + 1,
+            depth + 1
           );
 
           if (innerSpecialized) {
             // Replace the call with: specializedFn(argsWithoutDict...)
-            const remainingArgs = n.arguments.filter(
-              (_, i) => i !== dictArgIndex,
-            );
+            const remainingArgs = n.arguments.filter((_, i) => i !== dictArgIndex);
             const visitedArgs = remainingArgs.map(
-              (arg) => ts.visitNode(arg, visit) as ts.Expression,
+              (arg) => ts.visitNode(arg, visit) as ts.Expression
             );
 
-            return ctx.factory.createCallExpression(
-              innerSpecialized,
-              n.typeArguments,
-              visitedArgs,
-            );
+            return ctx.factory.createCallExpression(innerSpecialized, n.typeArguments, visitedArgs);
           }
         }
       }
@@ -1142,7 +1066,7 @@ function specializeFunctionTransitive(
   ctx: MacroContext,
   fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
   dictMethods: DictMethodMap,
-  depth: number,
+  depth: number
 ): ts.Expression | undefined {
   const params = Array.from(fn.parameters);
 
@@ -1156,8 +1080,7 @@ function specializeFunctionTransitive(
   const dictParam = params[dictParamIndex];
   const dictParamName = dictParam.name.getText();
   const typeParamName =
-    dictParamInfo?.typeParamName ??
-    extractTypeParamFromDictType(dictParam.type);
+    dictParamInfo?.typeParamName ?? extractTypeParamFromDictType(dictParam.type);
   const remainingParams = params.filter((_, i) => i !== dictParamIndex);
 
   const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
@@ -1166,13 +1089,7 @@ function specializeFunctionTransitive(
   }
 
   // Recursively rewrite dictionary calls in the body, tracking depth
-  const specializedBody = rewriteDictCalls(
-    ctx,
-    body,
-    dictParamName,
-    dictMethods,
-    depth,
-  );
+  const specializedBody = rewriteDictCalls(ctx, body, dictParamName, dictMethods, depth);
 
   if (remainingParams.length === 0) {
     if (ts.isExpression(specializedBody)) {
@@ -1192,33 +1109,18 @@ function specializeFunctionTransitive(
       p.name,
       p.questionToken,
       narrowedType,
-      p.initializer,
+      p.initializer
     );
   });
 
   // Also narrow return type if present
   let narrowedReturnType: ts.TypeNode | undefined;
   if (ts.isArrowFunction(fn) && fn.type) {
-    narrowedReturnType = narrowKindType(
-      ctx,
-      fn.type,
-      typeParamName,
-      dictMethods.brand,
-    );
+    narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   } else if (ts.isFunctionExpression(fn) && fn.type) {
-    narrowedReturnType = narrowKindType(
-      ctx,
-      fn.type,
-      typeParamName,
-      dictMethods.brand,
-    );
+    narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   } else if (ts.isFunctionDeclaration(fn) && fn.type) {
-    narrowedReturnType = narrowKindType(
-      ctx,
-      fn.type,
-      typeParamName,
-      dictMethods.brand,
-    );
+    narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   }
 
   return ctx.factory.createArrowFunction(
@@ -1227,7 +1129,7 @@ function specializeFunctionTransitive(
     cleanParams,
     narrowedReturnType,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    specializedBody as ts.ConciseBody,
+    specializedBody as ts.ConciseBody
   );
 }
 
@@ -1243,7 +1145,7 @@ function specializeFunctionTransitive(
 function specializeFunctionMulti(
   ctx: MacroContext,
   fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
-  dicts: ResolvedDict[],
+  dicts: ResolvedDict[]
 ): ts.Expression {
   const params = Array.from(fn.parameters);
 
@@ -1359,7 +1261,7 @@ function specializeFunctionMulti(
           ctx,
           narrowedType,
           dictInfo.typeParamName,
-          dictInfo.methods.brand,
+          dictInfo.methods.brand
         );
       }
     }
@@ -1370,7 +1272,7 @@ function specializeFunctionMulti(
       p.name,
       p.questionToken,
       narrowedType ?? undefined,
-      p.initializer,
+      p.initializer
     );
   });
 
@@ -1390,7 +1292,7 @@ function specializeFunctionMulti(
         ctx,
         narrowedReturnType,
         dictInfo.typeParamName,
-        dictInfo.methods.brand,
+        dictInfo.methods.brand
       );
     }
   }
@@ -1401,7 +1303,7 @@ function specializeFunctionMulti(
     cleanParams,
     narrowedReturnType,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    specializedBody as ts.ConciseBody,
+    specializedBody as ts.ConciseBody
   );
 }
 
@@ -1411,10 +1313,7 @@ function specializeFunctionMulti(
 function rewriteDictCallsMulti(
   ctx: MacroContext,
   node: ts.Node,
-  dictParamMap: Map<
-    string,
-    { methods: DictMethodMap; typeParamName: string | undefined }
-  >,
+  dictParamMap: Map<string, { methods: DictMethodMap; typeParamName: string | undefined }>
 ): ts.Expression {
   function visit(n: ts.Node): ts.Node {
     // Match: anyDictParam.method(args...) for any of our tracked dicts
@@ -1453,7 +1352,7 @@ function createPartialApplicationMulti(
   ctx: MacroContext,
   fnExpr: ts.Expression,
   dictExprs: readonly ts.Expression[],
-  _callExpr: ts.CallExpression,
+  _callExpr: ts.CallExpression
 ): ts.Expression {
   const argsIdent = ctx.generateUniqueName("args");
   const argsParam = ctx.factory.createParameterDeclaration(
@@ -1462,7 +1361,7 @@ function createPartialApplicationMulti(
     argsIdent,
     undefined,
     undefined,
-    undefined,
+    undefined
   );
 
   return ctx.factory.createArrowFunction(
@@ -1473,10 +1372,8 @@ function createPartialApplicationMulti(
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     ctx.factory.createCallExpression(fnExpr, undefined, [
       ...dictExprs,
-      ctx.factory.createSpreadElement(
-        ctx.factory.createIdentifier(argsIdent.text),
-      ),
-    ]),
+      ctx.factory.createSpreadElement(ctx.factory.createIdentifier(argsIdent.text)),
+    ])
   );
 }
 
@@ -1491,7 +1388,7 @@ function createPartialApplicationMulti(
 function inlineMethod(
   ctx: MacroContext,
   method: DictMethod,
-  callArgs: ts.Expression[],
+  callArgs: ts.Expression[]
 ): ts.Expression | undefined {
   const ctxImpl = ctx as MacroContextImpl;
 
@@ -1521,7 +1418,7 @@ function inlineFromNode(
   ctx: MacroContext,
   methodNode: ts.Expression | ts.Node,
   paramNames: string[],
-  callArgs: ts.Expression[],
+  callArgs: ts.Expression[]
 ): ts.Expression | undefined {
   let body: ts.Node | undefined;
   let params: readonly ts.ParameterDeclaration[] | undefined;
@@ -1583,7 +1480,7 @@ function inlineFromNode(
 function substituteParams(
   ctx: MacroContext,
   node: ts.Node,
-  substitutions: Map<string, ts.Expression>,
+  substitutions: Map<string, ts.Expression>
 ): ts.Expression {
   function visit(n: ts.Node): ts.Node {
     // Replace identifier references to parameters
@@ -1608,7 +1505,7 @@ function createPartialApplication(
   ctx: MacroContext,
   fnExpr: ts.Expression,
   dictExpr: ts.Expression,
-  _callExpr: ts.CallExpression,
+  _callExpr: ts.CallExpression
 ): ts.Expression {
   const argsIdent = ctx.generateUniqueName("args");
   const argsParam = ctx.factory.createParameterDeclaration(
@@ -1617,7 +1514,7 @@ function createPartialApplication(
     argsIdent,
     undefined,
     undefined,
-    undefined,
+    undefined
   );
 
   return ctx.factory.createArrowFunction(
@@ -1628,10 +1525,8 @@ function createPartialApplication(
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     ctx.factory.createCallExpression(fnExpr, undefined, [
       dictExpr,
-      ctx.factory.createSpreadElement(
-        ctx.factory.createIdentifier(argsIdent.text),
-      ),
-    ]),
+      ctx.factory.createSpreadElement(ctx.factory.createIdentifier(argsIdent.text)),
+    ])
   );
 }
 

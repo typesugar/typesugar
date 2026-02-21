@@ -196,6 +196,7 @@ warning[TS9601]: specialize(processItems): falling back to dictionary passing �
 ```
 
 Common reasons for fallback:
+
 - **Dictionary not registered**: The instance isn't known to the compiler. Use `@instance` or `registerInstanceMethods()`.
 - **Function body not resolvable**: Can't find the function definition. Use `const fn = ...` or named `function`.
 - **Early return**: Multiple return paths prevent inlining. Extract into helpers.
@@ -207,7 +208,7 @@ Suppress with `// @no-specialize-warn`:
 
 ```typescript
 // @no-specialize-warn
-const specialized = specialize(fn, dict);  // No warning emitted
+const specialized = specialize(fn, dict); // No warning emitted
 ```
 
 ## CLI: `--explain`
@@ -233,6 +234,54 @@ Solutions:
 
 See also: https://typesugar.dev/errors/TS9001
 ```
+
+## Resolution Traces
+
+When typeclass resolution fails (e.g., `summon<Eq<Point>>()` can't find an instance), error messages now include a detailed resolution trace showing exactly what was tried and why each path failed:
+
+```
+error[TS9001]: No instance found for `Eq<Point>`
+  --> src/example.ts:15:10
+   |
+15 |   summon<Eq<Point>>()
+   |   ^^^^^^^^^^^^^^^^^^
+   |
+   = note: resolution trace for Eq<Point>:
+   = note:   1. explicit-instance: Eq<Point> — not found
+   = note:      no @instance or @deriving registered
+   = note:   2. auto-derive via Generic: Eq<Point> — FAILED
+   = note:      see child attempts
+   = note:        derivation-strategy: Eq — ok
+   = note:        generic-meta: GenericMeta for Point: { x: number, y: number, color: Color } — ok
+   = note:          field-check: field `x`: number — ok
+   = note:            number has Eq
+   = note:          field-check: field `y`: number — ok
+   = note:            number has Eq
+   = note:          field-check: field `color`: Color — FAILED
+   = note:            Color lacks Eq
+   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+```
+
+The trace shows:
+
+1. **Resolution steps** — each attempt the compiler made (explicit instance lookup, auto-derivation, etc.)
+2. **Nested children** — for auto-derivation, the per-field instance checks
+3. **Pass/fail indicators** — "ok" for successful checks, "FAILED" for the blocker
+4. **Contextual help** — based on what failed, suggests the most specific fix
+
+This makes debugging typeclass issues much easier — instead of guessing why derivation failed, you can see exactly which field type is missing the required instance.
+
+### Resolution Trace Sources
+
+Resolution traces appear in error messages from:
+
+| Source               | When traces appear                                             |
+| -------------------- | -------------------------------------------------------------- |
+| `summon<TC<T>>()`    | No explicit or auto-derived instance found                     |
+| `@implicits`         | Implicit parameter resolution failed                           |
+| `summonHKT<TC<F>>()` | HKT instance not registered                                    |
+| Operator rewriting   | No typeclass with `Op<"+">` found (verbose mode only)          |
+| Extension methods    | No typeclass or standalone extension found (verbose mode only) |
 
 ## For Macro Authors
 

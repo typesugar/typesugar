@@ -63,19 +63,13 @@ export const DEFAULT_CAPABILITIES: Required<MacroCapabilities> = {
 /**
  * Merge user-specified capabilities with defaults.
  */
-export function resolveCapabilities(
-  caps?: MacroCapabilities,
-): Required<MacroCapabilities> {
+export function resolveCapabilities(caps?: MacroCapabilities): Required<MacroCapabilities> {
   if (!caps) return { ...DEFAULT_CAPABILITIES };
   return {
-    needsTypeChecker:
-      caps.needsTypeChecker ?? DEFAULT_CAPABILITIES.needsTypeChecker,
-    needsFileSystem:
-      caps.needsFileSystem ?? DEFAULT_CAPABILITIES.needsFileSystem,
-    needsProjectIndex:
-      caps.needsProjectIndex ?? DEFAULT_CAPABILITIES.needsProjectIndex,
-    canEmitDiagnostics:
-      caps.canEmitDiagnostics ?? DEFAULT_CAPABILITIES.canEmitDiagnostics,
+    needsTypeChecker: caps.needsTypeChecker ?? DEFAULT_CAPABILITIES.needsTypeChecker,
+    needsFileSystem: caps.needsFileSystem ?? DEFAULT_CAPABILITIES.needsFileSystem,
+    needsProjectIndex: caps.needsProjectIndex ?? DEFAULT_CAPABILITIES.needsProjectIndex,
+    canEmitDiagnostics: caps.canEmitDiagnostics ?? DEFAULT_CAPABILITIES.canEmitDiagnostics,
     maxTimeout: caps.maxTimeout ?? DEFAULT_CAPABILITIES.maxTimeout,
   };
 }
@@ -92,7 +86,7 @@ export function resolveCapabilities(
 export function createRestrictedContext(
   inner: MacroContext,
   capabilities: Required<MacroCapabilities>,
-  macroName: string,
+  macroName: string
 ): MacroContext {
   const restrictedMessage = (operation: string, capability: string) =>
     `Macro '${macroName}' attempted to use '${operation}' but does not declare ` +
@@ -105,18 +99,14 @@ export function createRestrictedContext(
       if (!capabilities.needsTypeChecker) {
         switch (prop) {
           case "typeChecker":
-            throw new Error(
-              restrictedMessage("typeChecker", "needsTypeChecker"),
-            );
+            throw new Error(restrictedMessage("typeChecker", "needsTypeChecker"));
           case "getTypeOf":
           case "getTypeString":
           case "isAssignableTo":
           case "getPropertiesOfType":
           case "getSymbol":
             return () => {
-              throw new Error(
-                restrictedMessage(String(prop), "needsTypeChecker"),
-              );
+              throw new Error(restrictedMessage(String(prop), "needsTypeChecker"));
             };
         }
       }
@@ -127,9 +117,7 @@ export function createRestrictedContext(
           case "reportError":
           case "reportWarning":
             return () => {
-              throw new Error(
-                restrictedMessage(String(prop), "canEmitDiagnostics"),
-              );
+              throw new Error(restrictedMessage(String(prop), "canEmitDiagnostics"));
             };
         }
       }

@@ -30,9 +30,7 @@
  * const add = logged((a: number, b: number) => a + b);
  * add(1, 2); // logs: "add(1, 2) => 3"
  */
-export declare function logged<F extends (...args: unknown[]) => unknown>(
-  fn: F,
-): F;
+export declare function logged<F extends (...args: unknown[]) => unknown>(fn: F): F;
 
 /**
  * Memoizes a pure function.
@@ -43,9 +41,7 @@ export declare function logged<F extends (...args: unknown[]) => unknown>(
  *   return fib(n - 1) + fib(n - 2);
  * });
  */
-export declare function memo<F extends (...args: unknown[]) => unknown>(
-  fn: F,
-): F;
+export declare function memo<F extends (...args: unknown[]) => unknown>(fn: F): F;
 
 /**
  * Derive macro that generates validation for a class.

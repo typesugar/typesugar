@@ -200,20 +200,14 @@ export function map<S, A, B>(sa: State<S, A>, f: (a: A) => B): State<S, B> {
 /**
  * FlatMap (standalone function)
  */
-export function flatMap<S, A, B>(
-  sa: State<S, A>,
-  f: (a: A) => State<S, B>,
-): State<S, B> {
+export function flatMap<S, A, B>(sa: State<S, A>, f: (a: A) => State<S, B>): State<S, B> {
   return sa.flatMap(f);
 }
 
 /**
  * Apply (standalone function)
  */
-export function ap<S, A, B>(
-  sf: State<S, (a: A) => B>,
-  sa: State<S, A>,
-): State<S, B> {
+export function ap<S, A, B>(sf: State<S, (a: A) => B>, sa: State<S, A>): State<S, B> {
   return sf.flatMap((f) => sa.map(f));
 }
 
@@ -227,14 +221,10 @@ export function flatten<S, A>(ssa: State<S, State<S, A>>): State<S, A> {
 /**
  * Traverse an array with a State-returning function
  */
-export function traverse<S, A, B>(
-  arr: A[],
-  f: (a: A) => State<S, B>,
-): State<S, B[]> {
+export function traverse<S, A, B>(arr: A[], f: (a: A) => State<S, B>): State<S, B[]> {
   return arr.reduce(
-    (acc: State<S, B[]>, a: A) =>
-      acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
-    State.pure([]),
+    (acc: State<S, B[]>, a: A) => acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
+    State.pure([])
   );
 }
 
@@ -256,10 +246,7 @@ export function replicateA<S, A>(n: number, sa: State<S, A>): State<S, A[]> {
 /**
  * Execute an action while a condition holds
  */
-export function whileM<S>(
-  cond: State<S, boolean>,
-  body: State<S, void>,
-): State<S, void> {
+export function whileM<S>(cond: State<S, boolean>, body: State<S, void>): State<S, void> {
   return cond.flatMap((b) => {
     if (b) {
       return body.flatMap(() => whileM(cond, body));
@@ -271,17 +258,14 @@ export function whileM<S>(
 /**
  * Execute an action until a condition holds
  */
-export function untilM<S>(
-  body: State<S, void>,
-  cond: State<S, boolean>,
-): State<S, void> {
+export function untilM<S>(body: State<S, void>, cond: State<S, boolean>): State<S, void> {
   return body.flatMap(() =>
     cond.flatMap((b) => {
       if (b) {
         return State.pure(undefined);
       }
       return untilM(body, cond);
-    }),
+    })
   );
 }
 
@@ -301,12 +285,10 @@ export function Do<S>(): State<S, {}> {
  */
 export function bind<N extends string, S, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => State<S, B>,
+  f: (a: A) => State<S, B>
 ): (state: State<S, A>) => State<S, A & { readonly [K in N]: B }> {
   return (state) =>
-    state.flatMap((a) =>
-      f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
-    );
+    state.flatMap((a) => f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }));
 }
 
 /**
@@ -314,10 +296,9 @@ export function bind<N extends string, S, A extends object, B>(
  */
 export function let_<N extends string, S, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (state: State<S, A>) => State<S, A & { readonly [K in N]: B }> {
-  return (state) =>
-    state.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
+  return (state) => state.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
 }
 
 // ============================================================================
@@ -341,9 +322,7 @@ export class IndexedState<S1, S2, A> {
     });
   }
 
-  flatMap<S3, B>(
-    f: (a: A) => IndexedState<S2, S3, B>,
-  ): IndexedState<S1, S3, B> {
+  flatMap<S3, B>(f: (a: A) => IndexedState<S2, S3, B>): IndexedState<S1, S3, B> {
     return new IndexedState((s) => {
       const [a, s2] = this._run(s);
       return f(a).run(s2);

@@ -45,7 +45,7 @@ export namespace EffectExt {
    */
   export function map<A, E, R, B>(
     self: Effect.Effect<A, E, R>,
-    f: (a: A) => B,
+    f: (a: A) => B
   ): Effect.Effect<B, E, R> {
     return E.map(self, f);
   }
@@ -56,10 +56,7 @@ export namespace EffectExt {
    * @example
    * effect.as(42)  // → EffectExt.as(effect, 42)
    */
-  export function as<A, E, R, B>(
-    self: Effect.Effect<A, E, R>,
-    value: B,
-  ): Effect.Effect<B, E, R> {
+  export function as<A, E, R, B>(self: Effect.Effect<A, E, R>, value: B): Effect.Effect<B, E, R> {
     return E.as(self, value);
   }
 
@@ -69,9 +66,7 @@ export namespace EffectExt {
    * @example
    * effect.asVoid()  // → EffectExt.asVoid(effect)
    */
-  export function asVoid<A, E, R>(
-    self: Effect.Effect<A, E, R>,
-  ): Effect.Effect<void, E, R> {
+  export function asVoid<A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<void, E, R> {
     return E.asVoid(self);
   }
 
@@ -87,7 +82,7 @@ export namespace EffectExt {
    */
   export function flatMap<A, E, R, B, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    f: (a: A) => Effect.Effect<B, E2, R2>,
+    f: (a: A) => Effect.Effect<B, E2, R2>
   ): Effect.Effect<B, E | E2, R | R2> {
     return E.flatMap(self, f);
   }
@@ -99,7 +94,7 @@ export namespace EffectExt {
    * Effect.succeed(Effect.succeed(1)).flatten()  // → Effect<1>
    */
   export function flatten<A, E, R, E2, R2>(
-    self: Effect.Effect<Effect.Effect<A, E2, R2>, E, R>,
+    self: Effect.Effect<Effect.Effect<A, E2, R2>, E, R>
   ): Effect.Effect<A, E | E2, R | R2> {
     return E.flatten(self);
   }
@@ -112,7 +107,7 @@ export namespace EffectExt {
    */
   export function tap<A, E, R, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    f: (a: A) => Effect.Effect<unknown, E2, R2>,
+    f: (a: A) => Effect.Effect<unknown, E2, R2>
   ): Effect.Effect<A, E | E2, R | R2> {
     return E.tap(self, f);
   }
@@ -125,7 +120,7 @@ export namespace EffectExt {
    */
   export function tapError<A, E, R, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    f: (e: E) => Effect.Effect<unknown, E2, R2>,
+    f: (e: E) => Effect.Effect<unknown, E2, R2>
   ): Effect.Effect<A, E | E2, R | R2> {
     return E.tapError(self, f);
   }
@@ -144,7 +139,7 @@ export namespace EffectExt {
     options: {
       readonly onSuccess: (a: A) => Effect.Effect<unknown, E2, R2>;
       readonly onFailure: (e: E) => Effect.Effect<unknown, E3, R3>;
-    },
+    }
   ): Effect.Effect<A, E | E2 | E3, R | R2 | R3> {
     return E.tapBoth(self, options);
   }
@@ -161,7 +156,7 @@ export namespace EffectExt {
    */
   export function catchAll<A, E, R, B, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    f: (e: E) => Effect.Effect<B, E2, R2>,
+    f: (e: E) => Effect.Effect<B, E2, R2>
   ): Effect.Effect<A | B, E2, R | R2> {
     return E.catchAll(self, f);
   }
@@ -174,7 +169,7 @@ export namespace EffectExt {
    */
   export function orElse<A, E, R, B, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    that: () => Effect.Effect<B, E2, R2>,
+    that: () => Effect.Effect<B, E2, R2>
   ): Effect.Effect<A | B, E2, R | R2> {
     return E.orElse(self, that);
   }
@@ -187,7 +182,7 @@ export namespace EffectExt {
    */
   export function orElseSucceed<A, E, R, B>(
     self: Effect.Effect<A, E, R>,
-    that: () => B,
+    that: () => B
   ): Effect.Effect<A | B, never, R> {
     return E.orElseSucceed(self, that);
   }
@@ -200,7 +195,7 @@ export namespace EffectExt {
    */
   export function mapError<A, E, R, E2>(
     self: Effect.Effect<A, E, R>,
-    f: (e: E) => E2,
+    f: (e: E) => E2
   ): Effect.Effect<A, E2, R> {
     return E.mapError(self, f);
   }
@@ -219,7 +214,7 @@ export namespace EffectExt {
     options: {
       readonly onSuccess: (a: A) => A2;
       readonly onFailure: (e: E) => E2;
-    },
+    }
   ): Effect.Effect<A2, E2, R> {
     return E.mapBoth(self, options);
   }
@@ -236,11 +231,9 @@ export namespace EffectExt {
    */
   export function someOrFail<A, E, R, E2>(
     self: Effect.Effect<Option.Option<A>, E, R>,
-    error: () => E2,
+    error: () => E2
   ): Effect.Effect<A, E | E2, R> {
-    return E.flatMap(self, (opt) =>
-      O.isSome(opt) ? E.succeed(opt.value) : E.fail(error()),
-    );
+    return E.flatMap(self, (opt) => (O.isSome(opt) ? E.succeed(opt.value) : E.fail(error())));
   }
 
   /**
@@ -250,7 +243,7 @@ export namespace EffectExt {
    * effect.option()  // Effect<Option<A>, never, R>
    */
   export function option<A, E, R>(
-    self: Effect.Effect<A, E, R>,
+    self: Effect.Effect<A, E, R>
   ): Effect.Effect<Option.Option<A>, never, R> {
     return E.option(self);
   }
@@ -262,7 +255,7 @@ export namespace EffectExt {
    * effect.either()  // Effect<Either<E, A>, never, R>
    */
   export function either<A, E, R>(
-    self: Effect.Effect<A, E, R>,
+    self: Effect.Effect<A, E, R>
   ): Effect.Effect<Either.Either<A, E>, never, R> {
     return E.either(self);
   }
@@ -279,7 +272,7 @@ export namespace EffectExt {
    */
   export function zip<A, E, R, B, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    that: Effect.Effect<B, E2, R2>,
+    that: Effect.Effect<B, E2, R2>
   ): Effect.Effect<[A, B], E | E2, R | R2> {
     return E.zip(self, that);
   }
@@ -292,7 +285,7 @@ export namespace EffectExt {
    */
   export function zipLeft<A, E, R, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    that: Effect.Effect<unknown, E2, R2>,
+    that: Effect.Effect<unknown, E2, R2>
   ): Effect.Effect<A, E | E2, R | R2> {
     return E.zipLeft(self, that);
   }
@@ -305,7 +298,7 @@ export namespace EffectExt {
    */
   export function zipRight<A, E, R, B, E2, R2>(
     self: Effect.Effect<A, E, R>,
-    that: Effect.Effect<B, E2, R2>,
+    that: Effect.Effect<B, E2, R2>
   ): Effect.Effect<B, E | E2, R | R2> {
     return E.zipRight(self, that);
   }
@@ -319,7 +312,7 @@ export namespace EffectExt {
   export function zipWith<A, E, R, B, E2, R2, C>(
     self: Effect.Effect<A, E, R>,
     that: Effect.Effect<B, E2, R2>,
-    f: (a: A, b: B) => C,
+    f: (a: A, b: B) => C
   ): Effect.Effect<C, E | E2, R | R2> {
     return E.zipWith(self, that, f);
   }
@@ -337,7 +330,7 @@ export namespace EffectExt {
   export function filterOrFail<A, E, R, E2>(
     self: Effect.Effect<A, E, R>,
     predicate: (a: A) => boolean,
-    error: (a: A) => E2,
+    error: (a: A) => E2
   ): Effect.Effect<A, E | E2, R> {
     return E.filterOrFail(self, predicate, error);
   }
@@ -351,7 +344,7 @@ export namespace EffectExt {
   export function filterOrDie<A, E, R>(
     self: Effect.Effect<A, E, R>,
     predicate: (a: A) => boolean,
-    error: (a: A) => unknown,
+    error: (a: A) => unknown
   ): Effect.Effect<A, E, R> {
     return E.filterOrDie(self, predicate, error);
   }
@@ -369,7 +362,7 @@ export namespace EffectExt {
    */
   export function delay<A, E, R>(
     self: Effect.Effect<A, E, R>,
-    duration: import("effect").Duration.DurationInput,
+    duration: import("effect").Duration.DurationInput
   ): Effect.Effect<A, E, R> {
     return E.delay(self, duration);
   }
@@ -383,7 +376,7 @@ export namespace EffectExt {
    */
   export function timeout<A, E, R>(
     self: Effect.Effect<A, E, R>,
-    duration: import("effect").Duration.DurationInput,
+    duration: import("effect").Duration.DurationInput
   ): Effect.Effect<A, E | import("effect").Cause.TimeoutException, R> {
     return E.timeout(self, duration);
   }
@@ -402,7 +395,7 @@ export namespace EffectExt {
     options: {
       readonly duration: import("effect").Duration.DurationInput;
       readonly onTimeout: () => E2;
-    },
+    }
   ): Effect.Effect<A, E | E2, R> {
     return E.timeoutFail(self, options);
   }
@@ -414,7 +407,7 @@ export namespace EffectExt {
    * effect.timed()  // Effect<[Duration, A], E, R>
    */
   export function timed<A, E, R>(
-    self: Effect.Effect<A, E, R>,
+    self: Effect.Effect<A, E, R>
   ): Effect.Effect<[import("effect").Duration.Duration, A], E, R> {
     return E.timed(self);
   }
@@ -432,7 +425,7 @@ export namespace EffectExt {
    */
   export function retry<A, E, R, Out, R2>(
     self: Effect.Effect<A, E, R>,
-    policy: Schedule.Schedule<Out, E, R2>,
+    policy: Schedule.Schedule<Out, E, R2>
   ): Effect.Effect<A, E, R | R2> {
     return E.retry(self, policy);
   }
@@ -449,7 +442,7 @@ export namespace EffectExt {
    */
   export function ensuring<A, E, R, R2>(
     self: Effect.Effect<A, E, R>,
-    finalizer: Effect.Effect<unknown, never, R2>,
+    finalizer: Effect.Effect<unknown, never, R2>
   ): Effect.Effect<A, E, R | R2> {
     return E.ensuring(self, finalizer);
   }
@@ -462,7 +455,7 @@ export namespace EffectExt {
    */
   export function onSuccess<A, E, R, R2>(
     self: Effect.Effect<A, E, R>,
-    f: (a: A) => Effect.Effect<unknown, never, R2>,
+    f: (a: A) => Effect.Effect<unknown, never, R2>
   ): Effect.Effect<A, E, R | R2> {
     return E.tap(self, f);
   }
@@ -475,7 +468,7 @@ export namespace EffectExt {
    */
   export function onError<A, E, R, R2>(
     self: Effect.Effect<A, E, R>,
-    f: (cause: Cause.Cause<E>) => Effect.Effect<unknown, never, R2>,
+    f: (cause: Cause.Cause<E>) => Effect.Effect<unknown, never, R2>
   ): Effect.Effect<A, E, R | R2> {
     return E.onError(self, f);
   }
@@ -493,7 +486,7 @@ export namespace EffectExt {
   export function provideService<A, E, R, S, I extends S>(
     self: Effect.Effect<A, E, R>,
     tag: import("effect").Context.Tag<S, I>,
-    service: I,
+    service: I
   ): Effect.Effect<A, E, Exclude<R, S>> {
     return E.provideService(self, tag, service);
   }
@@ -506,7 +499,7 @@ export namespace EffectExt {
    */
   export function provide<A, E, R, R2, E2, ROut>(
     self: Effect.Effect<A, E, R>,
-    layer: import("effect").Layer.Layer<ROut, E2, R2>,
+    layer: import("effect").Layer.Layer<ROut, E2, R2>
   ): Effect.Effect<A, E | E2, R2 | Exclude<R, ROut>> {
     return E.provide(self, layer);
   }
@@ -531,9 +524,7 @@ export namespace EffectExt {
    * @example
    * const value = await effect.runPromise()
    */
-  export function runPromise<A, E>(
-    self: Effect.Effect<A, E, never>,
-  ): Promise<A> {
+  export function runPromise<A, E>(self: Effect.Effect<A, E, never>): Promise<A> {
     return E.runPromise(self);
   }
 
@@ -544,7 +535,7 @@ export namespace EffectExt {
    * const exit = await effect.runPromiseExit()
    */
   export function runPromiseExit<A, E>(
-    self: Effect.Effect<A, E, never>,
+    self: Effect.Effect<A, E, never>
   ): Promise<import("effect").Exit.Exit<A, E>> {
     return E.runPromiseExit(self);
   }
@@ -557,10 +548,7 @@ export namespace OptionExt {
   /**
    * Transform the value inside Some.
    */
-  export function map<A, B>(
-    self: Option.Option<A>,
-    f: (a: A) => B,
-  ): Option.Option<B> {
+  export function map<A, B>(self: Option.Option<A>, f: (a: A) => B): Option.Option<B> {
     return O.map(self, f);
   }
 
@@ -569,7 +557,7 @@ export namespace OptionExt {
    */
   export function flatMap<A, B>(
     self: Option.Option<A>,
-    f: (a: A) => Option.Option<B>,
+    f: (a: A) => Option.Option<B>
   ): Option.Option<B> {
     return O.flatMap(self, f);
   }
@@ -577,10 +565,7 @@ export namespace OptionExt {
   /**
    * Get the value or return a default.
    */
-  export function getOrElse<A, B>(
-    self: Option.Option<A>,
-    orElse: () => B,
-  ): A | B {
+  export function getOrElse<A, B>(self: Option.Option<A>, orElse: () => B): A | B {
     return O.getOrElse(self, orElse);
   }
 
@@ -617,7 +602,7 @@ export namespace OptionExt {
    */
   export function filter<A>(
     self: Option.Option<A>,
-    predicate: (a: A) => boolean,
+    predicate: (a: A) => boolean
   ): Option.Option<A> {
     return O.filter(self, predicate);
   }
@@ -627,7 +612,7 @@ export namespace OptionExt {
    */
   export function orElse<A, B>(
     self: Option.Option<A>,
-    that: () => Option.Option<B>,
+    that: () => Option.Option<B>
   ): Option.Option<A | B> {
     return O.orElse(self, that);
   }
@@ -640,10 +625,7 @@ export namespace EitherExt {
   /**
    * Transform the Right value.
    */
-  export function map<A, E, B>(
-    self: Either.Either<A, E>,
-    f: (a: A) => B,
-  ): Either.Either<B, E> {
+  export function map<A, E, B>(self: Either.Either<A, E>, f: (a: A) => B): Either.Either<B, E> {
     return Ei.map(self, f);
   }
 
@@ -652,7 +634,7 @@ export namespace EitherExt {
    */
   export function flatMap<A, E, B, E2>(
     self: Either.Either<A, E>,
-    f: (a: A) => Either.Either<B, E2>,
+    f: (a: A) => Either.Either<B, E2>
   ): Either.Either<B, E | E2> {
     return Ei.flatMap(self, f);
   }
@@ -662,7 +644,7 @@ export namespace EitherExt {
    */
   export function mapLeft<A, E, E2>(
     self: Either.Either<A, E>,
-    f: (e: E) => E2,
+    f: (e: E) => E2
   ): Either.Either<A, E2> {
     return Ei.mapLeft(self, f);
   }
@@ -670,10 +652,7 @@ export namespace EitherExt {
   /**
    * Get the Right value or return a default.
    */
-  export function getOrElse<A, E, B>(
-    self: Either.Either<A, E>,
-    orElse: (e: E) => B,
-  ): A | B {
+  export function getOrElse<A, E, B>(self: Either.Either<A, E>, orElse: (e: E) => B): A | B {
     return Ei.getOrElse(self, orElse);
   }
 

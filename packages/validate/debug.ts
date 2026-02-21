@@ -17,9 +17,7 @@ const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, "./");
 const program = ts.createProgram([filename], config.options);
 const sourceFile = program.getSourceFile(filename)!;
 
-const result = ts.transform(sourceFile, [
-  macroTransformerFactory(program, { verbose: true }),
-]);
+const result = ts.transform(sourceFile, [macroTransformerFactory(program, { verbose: true })]);
 
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 const transformed = printer.printFile(result.transformed[0]);

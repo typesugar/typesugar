@@ -15,11 +15,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Regex Tagged Template
@@ -32,7 +28,7 @@ export const regexMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -60,11 +56,9 @@ export const regexMacro = defineExpressionMacro({
     }
 
     // Return: new RegExp("pattern")
-    return factory.createNewExpression(
-      factory.createIdentifier("RegExp"),
-      undefined,
-      [factory.createStringLiteral(pattern)],
-    );
+    return factory.createNewExpression(factory.createIdentifier("RegExp"), undefined, [
+      factory.createStringLiteral(pattern),
+    ]);
   },
 });
 
@@ -79,7 +73,7 @@ export const htmlMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -98,9 +92,7 @@ export const htmlMacro = defineExpressionMacro({
     // Template with interpolations - wrap each value in escapeHtml()
     if (ts.isTemplateExpression(template)) {
       // Build: `head` + escapeHtml(expr1) + `mid1` + escapeHtml(expr2) + ...
-      let result: ts.Expression = factory.createStringLiteral(
-        template.head.text,
-      );
+      let result: ts.Expression = factory.createStringLiteral(template.head.text);
 
       for (const span of template.templateSpans) {
         // INTENTIONALLY UNHYGIENIC: __typemacro_escapeHtml is a runtime helper
@@ -108,13 +100,13 @@ export const htmlMacro = defineExpressionMacro({
         const escapedValue = factory.createCallExpression(
           factory.createIdentifier("__typemacro_escapeHtml"),
           undefined,
-          [span.expression],
+          [span.expression]
         );
 
         result = factory.createBinaryExpression(
           result,
           factory.createToken(ts.SyntaxKind.PlusToken),
-          escapedValue,
+          escapedValue
         );
 
         // Add literal part
@@ -122,7 +114,7 @@ export const htmlMacro = defineExpressionMacro({
           result = factory.createBinaryExpression(
             result,
             factory.createToken(ts.SyntaxKind.PlusToken),
-            factory.createStringLiteral(span.literal.text),
+            factory.createStringLiteral(span.literal.text)
           );
         }
       }
@@ -145,7 +137,7 @@ export const fmtMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -173,11 +165,7 @@ export const fmtMacro = defineExpressionMacro({
     const headParts = parseFormatString(template.head.text);
     for (const part of headParts) {
       if (part.type === "literal") {
-        result = concatStrings(
-          factory,
-          result,
-          factory.createStringLiteral(part.value),
-        );
+        result = concatStrings(factory, result, factory.createStringLiteral(part.value));
       }
     }
 
@@ -190,7 +178,7 @@ export const fmtMacro = defineExpressionMacro({
       const formattedValue = factory.createCallExpression(
         factory.createIdentifier("String"),
         undefined,
-        [span.expression],
+        [span.expression]
       );
 
       result = concatStrings(factory, result, formattedValue);
@@ -199,11 +187,7 @@ export const fmtMacro = defineExpressionMacro({
       const literalParts = parseFormatString(span.literal.text);
       for (const part of literalParts) {
         if (part.type === "literal") {
-          result = concatStrings(
-            factory,
-            result,
-            factory.createStringLiteral(part.value),
-          );
+          result = concatStrings(factory, result, factory.createStringLiteral(part.value));
         }
       }
     }
@@ -212,9 +196,7 @@ export const fmtMacro = defineExpressionMacro({
   },
 });
 
-function parseFormatString(
-  str: string,
-): Array<{ type: "literal" | "format"; value: string }> {
+function parseFormatString(str: string): Array<{ type: "literal" | "format"; value: string }> {
   // Simple parser - just return literals for now
   // Could be enhanced to parse %d, %s, etc.
   return [{ type: "literal", value: str }];
@@ -223,18 +205,14 @@ function parseFormatString(
 function concatStrings(
   factory: ts.NodeFactory,
   left: ts.Expression,
-  right: ts.Expression,
+  right: ts.Expression
 ): ts.Expression {
   // Optimize: if left is empty string literal, just return right
   if (ts.isStringLiteral(left) && left.text === "") {
     return right;
   }
 
-  return factory.createBinaryExpression(
-    left,
-    factory.createToken(ts.SyntaxKind.PlusToken),
-    right,
-  );
+  return factory.createBinaryExpression(left, factory.createToken(ts.SyntaxKind.PlusToken), right);
 }
 
 // ============================================================================
@@ -248,7 +226,7 @@ export const jsonMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -262,7 +240,7 @@ export const jsonMacro = defineExpressionMacro({
     if (!ts.isNoSubstitutionTemplateLiteral(template)) {
       ctx.reportError(
         callExpr,
-        "json does not support interpolations - use a regular object literal",
+        "json does not support interpolations - use a regular object literal"
       );
       return callExpr;
     }
@@ -302,20 +280,17 @@ function jsonToAst(factory: ts.NodeFactory, value: unknown): ts.Expression {
   }
 
   if (Array.isArray(value)) {
-    return factory.createArrayLiteralExpression(
-      value.map((v) => jsonToAst(factory, v)),
-    );
+    return factory.createArrayLiteralExpression(value.map((v) => jsonToAst(factory, v)));
   }
 
   if (typeof value === "object") {
-    const properties = Object.entries(value as Record<string, unknown>).map(
-      ([key, val]) =>
-        factory.createPropertyAssignment(
-          /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
-            ? factory.createIdentifier(key)
-            : factory.createStringLiteral(key),
-          jsonToAst(factory, val),
-        ),
+    const properties = Object.entries(value as Record<string, unknown>).map(([key, val]) =>
+      factory.createPropertyAssignment(
+        /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+          ? factory.createIdentifier(key)
+          : factory.createStringLiteral(key),
+        jsonToAst(factory, val)
+      )
     );
     return factory.createObjectLiteralExpression(properties, true);
   }
@@ -334,7 +309,7 @@ export const rawMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
@@ -353,7 +328,7 @@ export const rawMacro = defineExpressionMacro({
     // For templates with substitutions, concatenate raw parts
     if (ts.isTemplateExpression(template)) {
       let result: ts.Expression = factory.createStringLiteral(
-        template.head.rawText ?? template.head.text,
+        template.head.rawText ?? template.head.text
       );
 
       for (const span of template.templateSpans) {
@@ -361,9 +336,7 @@ export const rawMacro = defineExpressionMacro({
         result = concatStrings(
           factory,
           result,
-          factory.createStringLiteral(
-            span.literal.rawText ?? span.literal.text,
-          ),
+          factory.createStringLiteral(span.literal.rawText ?? span.literal.text)
         );
       }
 

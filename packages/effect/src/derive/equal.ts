@@ -61,11 +61,8 @@ export const EffectEqualDerive: DeriveMacro = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind, fields, variants, discriminant } = typeInfo;
 
@@ -96,7 +93,7 @@ function generateSumTypeEqual(
   ctx: MacroContext,
   typeName: string,
   discriminant: string,
-  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>,
+  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>
 ): ts.Statement[] {
   const equalName = `${typeName}Equal`;
 

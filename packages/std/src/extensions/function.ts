@@ -26,14 +26,12 @@ export function flip<A, B, C>(fn: (a: A, b: B) => C): (b: B, a: A) => C {
   return (b, a) => fn(a, b);
 }
 
-export function negate<A extends unknown[]>(
-  fn: (...args: A) => boolean,
-): (...args: A) => boolean {
+export function negate<A extends unknown[]>(fn: (...args: A) => boolean): (...args: A) => boolean {
   return (...args) => !fn(...args);
 }
 
 export function complement<A extends unknown[]>(
-  fn: (...args: A) => boolean,
+  fn: (...args: A) => boolean
 ): (...args: A) => boolean {
   return negate(fn);
 }
@@ -52,9 +50,7 @@ export function curry2<A, B, C>(fn: (a: A, b: B) => C): (a: A) => (b: B) => C {
   return (a) => (b) => fn(a, b);
 }
 
-export function curry3<A, B, C, D>(
-  fn: (a: A, b: B, c: C) => D,
-): (a: A) => (b: B) => (c: C) => D {
+export function curry3<A, B, C, D>(fn: (a: A, b: B, c: C) => D): (a: A) => (b: B) => (c: C) => D {
   return (a) => (b) => (c) => fn(a, b, c);
 }
 
@@ -62,15 +58,13 @@ export function uncurry2<A, B, C>(fn: (a: A) => (b: B) => C): (a: A, b: B) => C 
   return (a, b) => fn(a)(b);
 }
 
-export function uncurry3<A, B, C, D>(
-  fn: (a: A) => (b: B) => (c: C) => D,
-): (a: A, b: B, c: C) => D {
+export function uncurry3<A, B, C, D>(fn: (a: A) => (b: B) => (c: C) => D): (a: A, b: B, c: C) => D {
   return (a, b, c) => fn(a)(b)(c);
 }
 
 export function partial<A, B extends unknown[], C>(
   fn: (a: A, ...rest: B) => C,
-  a: A,
+  a: A
 ): (...rest: B) => C {
   return (...rest) => fn(a, ...rest);
 }
@@ -78,7 +72,7 @@ export function partial<A, B extends unknown[], C>(
 export function partial2<A, B, C extends unknown[], D>(
   fn: (a: A, b: B, ...rest: C) => D,
   a: A,
-  b: B,
+  b: B
 ): (...rest: C) => D {
   return (...rest) => fn(a, b, ...rest);
 }
@@ -105,7 +99,7 @@ export function untupled<A, B, C>(fn: (args: [A, B]) => C): (a: A, b: B) => C {
 
 export function debounce<A extends unknown[]>(
   fn: (...args: A) => void,
-  ms: number,
+  ms: number
 ): (...args: A) => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return (...args) => {
@@ -116,7 +110,7 @@ export function debounce<A extends unknown[]>(
 
 export function throttle<A extends unknown[]>(
   fn: (...args: A) => void,
-  ms: number,
+  ms: number
 ): (...args: A) => void {
   let last = 0;
   return (...args) => {
@@ -134,7 +128,7 @@ export function throttle<A extends unknown[]>(
 
 export function memoize<A extends unknown[], R>(
   fn: (...args: A) => R,
-  keyFn?: (...args: A) => string,
+  keyFn?: (...args: A) => string
 ): (...args: A) => R {
   const cache = new Map<string, R>();
   return (...args) => {
@@ -174,7 +168,7 @@ export function once<A extends unknown[], R>(fn: (...args: A) => R): (...args: A
 
 export function after<A extends unknown[], R>(
   n: number,
-  fn: (...args: A) => R,
+  fn: (...args: A) => R
 ): (...args: A) => R | undefined {
   let count = 0;
   return (...args) => {
@@ -186,7 +180,7 @@ export function after<A extends unknown[], R>(
 
 export function before<A extends unknown[], R>(
   n: number,
-  fn: (...args: A) => R,
+  fn: (...args: A) => R
 ): (...args: A) => R | undefined {
   let count = 0;
   let lastResult: R | undefined;
@@ -202,7 +196,7 @@ export function before<A extends unknown[], R>(
 
 export function tryCatch<A extends unknown[], R, E>(
   fn: (...args: A) => R,
-  onError: (error: Error, ...args: A) => E,
+  onError: (error: Error, ...args: A) => E
 ): (...args: A) => R | E {
   return (...args) => {
     try {
@@ -233,10 +227,7 @@ export function converge<A extends unknown[], B extends unknown[], C>(
   };
 }
 
-export function on<A, B, C>(
-  fn: (b1: B, b2: B) => C,
-  transform: (a: A) => B,
-): (a1: A, a2: A) => C {
+export function on<A, B, C>(fn: (b1: B, b2: B) => C, transform: (a: A) => B): (a1: A, a2: A) => C {
   return (a1, a2) => fn(transform(a1), transform(a2));
 }
 

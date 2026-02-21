@@ -167,7 +167,7 @@ export class DiagnosticBuilder {
   constructor(
     private readonly descriptor: DiagnosticDescriptor,
     private readonly sourceFile: ts.SourceFile,
-    private readonly emitter: (diagnostic: RichDiagnostic) => void,
+    private readonly emitter: (diagnostic: RichDiagnostic) => void
   ) {
     this.diagnostic = {
       code: descriptor.code,
@@ -234,7 +234,7 @@ export class DiagnosticBuilder {
     id: string,
     replacement: string,
     description?: string,
-    isPreferred?: boolean,
+    isPreferred?: boolean
   ): this {
     this.diagnostic.suggestions.push({
       id,
@@ -313,8 +313,7 @@ export const TS9003: DiagnosticDescriptor = {
   code: 9003,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate:
-    "@instance requires explicit type annotation (e.g., Typeclass<Type>)",
+  messageTemplate: "@instance requires explicit type annotation (e.g., Typeclass<Type>)",
   explanation: `The @instance decorator needs to know both the typeclass and the type.
 
 Correct:
@@ -334,8 +333,7 @@ export const TS9004: DiagnosticDescriptor = {
   code: 9004,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate:
-    "@instance type must be a generic type reference (e.g., Show<Point>)",
+  messageTemplate: "@instance type must be a generic type reference (e.g., Show<Point>)",
   explanation: `The type annotation must reference a registered typeclass with a type argument.
 
 Correct forms:
@@ -386,8 +384,7 @@ export const TS9007: DiagnosticDescriptor = {
   code: 9007,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate:
-    "summon type argument '{typeArg}' is not a registered typeclass",
+  messageTemplate: "summon type argument '{typeArg}' is not a registered typeclass",
   explanation: `summon<T>() expects T to be a typeclass name that was registered with @typeclass.
 
 Common typeclasses: Show, Eq, Ord, Clone, Hash, Default, Json
@@ -402,8 +399,7 @@ export const TS9008: DiagnosticDescriptor = {
   code: 9008,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate:
-    "summon type argument must be a type reference like Show<Point>",
+  messageTemplate: "summon type argument must be a type reference like Show<Point>",
   explanation: `summon<T>() expects T to be a typeclass applied to a type.
 
 Correct:
@@ -465,8 +461,7 @@ export const TS9102: DiagnosticDescriptor = {
   code: 9102,
   severity: "error",
   category: DiagnosticCategory.DeriveFailed,
-  messageTemplate:
-    "@derive({typeclass}) requires an interface, class, or type alias",
+  messageTemplate: "@derive({typeclass}) requires an interface, class, or type alias",
   explanation: `The @derive decorator can only be applied to:
 - interface declarations
 - class declarations
@@ -549,8 +544,7 @@ export const TS9202: DiagnosticDescriptor = {
   code: 9202,
   severity: "error",
   category: DiagnosticCategory.MacroSyntax,
-  messageTemplate:
-    "{macro} argument {index} must be a {expected}, got {received}",
+  messageTemplate: "{macro} argument {index} must be a {expected}, got {received}",
   explanation: `The macro received an argument of the wrong type.
 
 Macros have specific requirements for their arguments that are
@@ -814,8 +808,7 @@ export const TS9301: DiagnosticDescriptor = {
   code: 9301,
   severity: "error",
   category: DiagnosticCategory.HKT,
-  messageTemplate:
-    'Higher-kinded type {type} must define a \`_\` property that uses \`this["_"]\`',
+  messageTemplate: 'Higher-kinded type {type} must define a \`_\` property that uses \`this["_"]\`',
   explanation: `Type-level functions for HKT must be parameterized via the \`_\` property.
 
 Correct:
@@ -864,8 +857,7 @@ export const TS9402: DiagnosticDescriptor = {
   code: 9402,
   severity: "error",
   category: DiagnosticCategory.Extension,
-  messageTemplate:
-    "registerExtensions expects 2 arguments: (typeName, namespace)",
+  messageTemplate: "registerExtensions expects 2 arguments: (typeName, namespace)",
   explanation: `registerExtensions() registers methods from a namespace as extensions.
 
 Usage:
@@ -879,8 +871,7 @@ export const TS9403: DiagnosticDescriptor = {
   code: 9403,
   severity: "error",
   category: DiagnosticCategory.Extension,
-  messageTemplate:
-    "registerExtension expects 2 arguments: (typeName, function)",
+  messageTemplate: "registerExtension expects 2 arguments: (typeName, function)",
   explanation: `registerExtension() registers a single function as an extension method.
 
 Usage:
@@ -912,8 +903,7 @@ export const TS9502: DiagnosticDescriptor = {
   code: 9502,
   severity: "error",
   category: DiagnosticCategory.Comptime,
-  messageTemplate:
-    "comptime() requires exactly 1 argument (a function to evaluate)",
+  messageTemplate: "comptime() requires exactly 1 argument (a function to evaluate)",
   explanation: `comptime() evaluates a function at compile time.
 
 Correct:
@@ -933,8 +923,7 @@ export const TS9601: DiagnosticDescriptor = {
   code: 9601,
   severity: "warning",
   category: DiagnosticCategory.Specialization,
-  messageTemplate:
-    "specialize({function}): falling back to dictionary passing — {reason}",
+  messageTemplate: "specialize({function}): falling back to dictionary passing — {reason}",
   explanation: `The specialize() macro could not inline the function body and fell back
 to dictionary passing, which has runtime cost (indirect dispatch, closure allocation).
 
@@ -988,8 +977,7 @@ export const TS9702: DiagnosticDescriptor = {
   code: 9702,
   severity: "warning",
   category: DiagnosticCategory.ImportResolution,
-  messageTemplate:
-    "Operator `{operator}` on {type} is not rewritten in explicit mode",
+  messageTemplate: "Operator `{operator}` on {type} is not rewritten in explicit mode",
   explanation: `In explicit resolution mode, operators are only rewritten when
 the typeclass is explicitly imported and used.
 
@@ -1003,8 +991,7 @@ export const TS9703: DiagnosticDescriptor = {
   code: 9703,
   severity: "error",
   category: DiagnosticCategory.ImportResolution,
-  messageTemplate:
-    "Ambiguous resolution: both '{source1}' and '{source2}' provide '{symbol}'",
+  messageTemplate: "Ambiguous resolution: both '{source1}' and '{source2}' provide '{symbol}'",
   explanation: `Multiple imports provide the same symbol, creating ambiguity.
 
 Solutions:
@@ -1035,8 +1022,7 @@ export const TS9801: DiagnosticDescriptor = {
   code: 9801,
   severity: "error",
   category: DiagnosticCategory.Operator,
-  messageTemplate:
-    "Binary operator '{operator}' requires exactly 1 parameter (the right operand)",
+  messageTemplate: "Binary operator '{operator}' requires exactly 1 parameter (the right operand)",
   explanation: `Operator methods follow the pattern: left.operator(right)
 
 Correct:
@@ -1069,8 +1055,7 @@ export const TS9803: DiagnosticDescriptor = {
   code: 9803,
   severity: "warning",
   category: DiagnosticCategory.Operator,
-  messageTemplate:
-    "Unknown custom operator '{operator}' with no registered method",
+  messageTemplate: "Unknown custom operator '{operator}' with no registered method",
   explanation: `The __binop__ macro encountered an operator that:
 - Is not a built-in operator (|>, <|, ::)
 - Has no method registered via @operator
@@ -1185,21 +1170,15 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
 /**
  * Get a diagnostic descriptor by code.
  */
-export function getDiagnosticDescriptor(
-  code: number,
-): DiagnosticDescriptor | undefined {
+export function getDiagnosticDescriptor(code: number): DiagnosticDescriptor | undefined {
   return DIAGNOSTIC_CATALOG.get(code);
 }
 
 /**
  * Get all diagnostic descriptors for a category.
  */
-export function getDiagnosticsByCategory(
-  category: DiagnosticCategory,
-): DiagnosticDescriptor[] {
-  return Array.from(DIAGNOSTIC_CATALOG.values()).filter(
-    (d) => d.category === category,
-  );
+export function getDiagnosticsByCategory(category: DiagnosticCategory): DiagnosticDescriptor[] {
+  return Array.from(DIAGNOSTIC_CATALOG.values()).filter((d) => d.category === category);
 }
 
 // ============================================================================
@@ -1227,8 +1206,7 @@ export function richToLegacyDiagnostic(rich: RichDiagnostic): MacroDiagnostic {
     severity: rich.severity,
     message,
     node: rich.primarySpan?.node,
-    suggestion:
-      rich.suggestions.length > 0 ? rich.suggestions[0].replacement : undefined,
+    suggestion: rich.suggestions.length > 0 ? rich.suggestions[0].replacement : undefined,
   };
 }
 
@@ -1240,7 +1218,7 @@ export function legacyToRichDiagnostic(
   message: string,
   severity: "error" | "warning" | "info",
   node?: ts.Node,
-  sourceFile?: ts.SourceFile,
+  sourceFile?: ts.SourceFile
 ): RichDiagnostic {
   return {
     code: 9999,
@@ -1295,9 +1273,7 @@ function color(text: string, ...styles: (keyof typeof COLORS)[]): string {
 /**
  * Get the severity color.
  */
-function severityColor(
-  severity: "error" | "warning" | "info",
-): "red" | "yellow" | "cyan" {
+function severityColor(severity: "error" | "warning" | "info"): "red" | "yellow" | "cyan" {
   switch (severity) {
     case "error":
       return "red";
@@ -1313,7 +1289,7 @@ function severityColor(
  */
 function getLineAndColumn(
   sourceFile: ts.SourceFile,
-  pos: number,
+  pos: number
 ): { line: number; column: number } {
   const { line, character } = sourceFile.getLineAndCharacterOfPosition(pos);
   return { line: line + 1, column: character + 1 };
@@ -1344,11 +1320,7 @@ function formatLineNumber(lineNum: number, width: number): string {
 /**
  * Create an underline annotation string.
  */
-function createUnderline(
-  startColumn: number,
-  length: number,
-  char: string = "^",
-): string {
+function createUnderline(startColumn: number, length: number, char: string = "^"): string {
   const padding = " ".repeat(startColumn - 1);
   const underline = char.repeat(Math.max(1, length));
   return padding + underline;
@@ -1386,7 +1358,7 @@ export interface CLIRenderOptions {
  */
 export function renderDiagnosticCLI(
   diagnostic: RichDiagnostic,
-  options: CLIRenderOptions = {},
+  options: CLIRenderOptions = {}
 ): string {
   const { contextLines = 2, showExplanation = false } = options;
 
@@ -1424,22 +1396,17 @@ export function renderDiagnosticCLI(
     for (let lineNum = minLine; lineNum <= maxLine; lineNum++) {
       const lineText = getLineText(sourceFile, lineNum);
       const lineNumStr = formatLineNumber(lineNum, numWidth);
-      lines.push(
-        ` ${color(lineNumStr, "blue")} ${color("|", "blue")} ${lineText}`,
-      );
+      lines.push(` ${color(lineNumStr, "blue")} ${color("|", "blue")} ${lineText}`);
 
       // Primary span annotation
       if (lineNum >= startPos.line && lineNum <= endPos.line) {
         // Calculate span on this line
         const lineStartCol = lineNum === startPos.line ? startPos.column : 1;
-        const lineEndCol =
-          lineNum === endPos.line ? endPos.column : lineText.length + 1;
+        const lineEndCol = lineNum === endPos.line ? endPos.column : lineText.length + 1;
         const spanLength = Math.max(1, lineEndCol - lineStartCol);
 
         const underline = createUnderline(lineStartCol, spanLength, "^");
-        lines.push(
-          ` ${gutter} ${color("|", "blue")} ${color(underline, severityClr)}`,
-        );
+        lines.push(` ${gutter} ${color("|", "blue")} ${color(underline, severityClr)}`);
       }
     }
 
@@ -1454,14 +1421,12 @@ export function renderDiagnosticCLI(
           lines.push(` ${gutter} ${color("|", "blue")}`);
           const labelLineText = getLineText(sourceFile, labelStart.line);
           const labelLineNum = formatLineNumber(labelStart.line, numWidth);
-          lines.push(
-            ` ${color(labelLineNum, "blue")} ${color("|", "blue")} ${labelLineText}`,
-          );
+          lines.push(` ${color(labelLineNum, "blue")} ${color("|", "blue")} ${labelLineText}`);
 
           const spanLength = Math.max(1, labelEnd.column - labelStart.column);
           const underline = createUnderline(labelStart.column, spanLength, "-");
           lines.push(
-            ` ${gutter} ${color("|", "blue")} ${color(underline, "blue")} ${color(label.message, "blue")}`,
+            ` ${gutter} ${color("|", "blue")} ${color(underline, "blue")} ${color(label.message, "blue")}`
           );
         }
       }
@@ -1483,9 +1448,7 @@ export function renderDiagnosticCLI(
 
   // Suggestions
   for (const suggestion of diagnostic.suggestions) {
-    lines.push(
-      `   ${color("= suggestion:", "bold", "cyan")} ${suggestion.description}`,
-    );
+    lines.push(`   ${color("= suggestion:", "bold", "cyan")} ${suggestion.description}`);
     if (suggestion.replacement) {
       const replacementLines = suggestion.replacement.split("\n");
       for (const repLine of replacementLines) {
@@ -1506,9 +1469,7 @@ export function renderDiagnosticCLI(
   // See also link
   if (diagnostic.seeAlso) {
     lines.push("");
-    lines.push(
-      `For more information, see: ${color(diagnostic.seeAlso, "cyan")}`,
-    );
+    lines.push(`For more information, see: ${color(diagnostic.seeAlso, "cyan")}`);
   }
 
   return lines.join("\n");
@@ -1517,10 +1478,7 @@ export function renderDiagnosticCLI(
 /**
  * Print a RichDiagnostic to the console (stderr).
  */
-export function printDiagnostic(
-  diagnostic: RichDiagnostic,
-  options: CLIRenderOptions = {},
-): void {
+export function printDiagnostic(diagnostic: RichDiagnostic, options: CLIRenderOptions = {}): void {
   const writer = options.writer ?? ((line: string) => console.error(line));
   writer(renderDiagnosticCLI(diagnostic, options));
 }
@@ -1530,7 +1488,7 @@ export function printDiagnostic(
  */
 export function renderDiagnosticsCLI(
   diagnostics: RichDiagnostic[],
-  options: CLIRenderOptions = {},
+  options: CLIRenderOptions = {}
 ): string {
   if (diagnostics.length === 0) {
     return "";
@@ -1549,18 +1507,10 @@ export function renderDiagnosticsCLI(
 
   const parts: string[] = [];
   if (errorCount > 0) {
-    parts.push(
-      color(`${errorCount} error${errorCount > 1 ? "s" : ""}`, "bold", "red"),
-    );
+    parts.push(color(`${errorCount} error${errorCount > 1 ? "s" : ""}`, "bold", "red"));
   }
   if (warnCount > 0) {
-    parts.push(
-      color(
-        `${warnCount} warning${warnCount > 1 ? "s" : ""}`,
-        "bold",
-        "yellow",
-      ),
-    );
+    parts.push(color(`${warnCount} warning${warnCount > 1 ? "s" : ""}`, "bold", "yellow"));
   }
 
   if (parts.length > 0) {
@@ -1575,7 +1525,7 @@ export function renderDiagnosticsCLI(
  */
 export function printDiagnostics(
   diagnostics: RichDiagnostic[],
-  options: CLIRenderOptions = {},
+  options: CLIRenderOptions = {}
 ): void {
   const writer = options.writer ?? ((line: string) => console.error(line));
   writer(renderDiagnosticsCLI(diagnostics, options));

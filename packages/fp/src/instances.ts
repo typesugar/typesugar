@@ -50,11 +50,7 @@ import { makeMonad } from "./typeclasses/monad.js";
 import type { Foldable } from "./typeclasses/foldable.js";
 import type { Traverse } from "./typeclasses/traverse.js";
 import type { MonadError } from "./typeclasses/monad-error.js";
-import type {
-  SemigroupK,
-  MonoidK,
-  Alternative,
-} from "./typeclasses/alternative.js";
+import type { SemigroupK, MonoidK, Alternative } from "./typeclasses/alternative.js";
 
 import type { Option } from "./data/option.js";
 // Note: With null-based Option, isSome(opt) = opt !== null, isNone(opt) = opt === null
@@ -97,7 +93,7 @@ type OptionFoldable = {
 type OptionTraverse = OptionFunctor &
   OptionFoldable & {
     readonly traverse: <G>(
-      G: Applicative<G>,
+      G: Applicative<G>
     ) => <A, B>(fa: Option<A>, f: (a: A) => $<G, B>) => $<G, Option<B>>;
   };
 
@@ -150,9 +146,7 @@ type ArrayFoldable = {
  */
 type ArrayTraverse = ArrayFunctor &
   ArrayFoldable & {
-    readonly traverse: <G>(
-      G: Applicative<G>,
-    ) => <A, B>(fa: A[], f: (a: A) => $<G, B>) => $<G, B[]>;
+    readonly traverse: <G>(G: Applicative<G>) => <A, B>(fa: A[], f: (a: A) => $<G, B>) => $<G, B[]>;
   };
 
 /**
@@ -186,10 +180,7 @@ type PromiseFunctor = {
  */
 type PromiseMonad = {
   readonly map: <A, B>(fa: Promise<A>, f: (a: A) => B) => Promise<B>;
-  readonly flatMap: <A, B>(
-    fa: Promise<A>,
-    f: (a: A) => Promise<B>,
-  ) => Promise<B>;
+  readonly flatMap: <A, B>(fa: Promise<A>, f: (a: A) => Promise<B>) => Promise<B>;
   readonly pure: <A>(a: A) => Promise<A>;
   readonly ap: <A, B>(fab: Promise<(a: A) => B>, fa: Promise<A>) => Promise<B>;
 };
@@ -207,15 +198,9 @@ type EitherFunctor<E> = {
  */
 type EitherMonad<E> = {
   readonly map: <A, B>(fa: Either<E, A>, f: (a: A) => B) => Either<E, B>;
-  readonly flatMap: <A, B>(
-    fa: Either<E, A>,
-    f: (a: A) => Either<E, B>,
-  ) => Either<E, B>;
+  readonly flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>) => Either<E, B>;
   readonly pure: <A>(a: A) => Either<E, A>;
-  readonly ap: <A, B>(
-    fab: Either<E, (a: A) => B>,
-    fa: Either<E, A>,
-  ) => Either<E, B>;
+  readonly ap: <A, B>(fab: Either<E, (a: A) => B>, fa: Either<E, A>) => Either<E, B>;
 };
 
 /**
@@ -223,10 +208,7 @@ type EitherMonad<E> = {
  */
 type EitherMonadError<E> = EitherMonad<E> & {
   readonly raiseError: <A>(e: E) => Either<E, A>;
-  readonly handleErrorWith: <A>(
-    fa: Either<E, A>,
-    f: (e: E) => Either<E, A>,
-  ) => Either<E, A>;
+  readonly handleErrorWith: <A>(fa: Either<E, A>, f: (e: E) => Either<E, A>) => Either<E, A>;
 };
 
 /**
@@ -243,7 +225,7 @@ type EitherFoldable<E> = {
 type EitherTraverse<E> = EitherFunctor<E> &
   EitherFoldable<E> & {
     readonly traverse: <G>(
-      G: Applicative<G>,
+      G: Applicative<G>
     ) => <A, B>(fa: Either<E, A>, f: (a: A) => $<G, B>) => $<G, Either<E, B>>;
   };
 
@@ -269,8 +251,7 @@ type EitherSemigroupK<E> = {
  * Uses concrete expanded types to avoid TypeScript's HKT recursion.
  */
 export const optionFunctor: OptionFunctor = {
-  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
-    fa !== null ? f(fa) : null,
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa !== null ? f(fa) : null),
 };
 
 /**
@@ -281,8 +262,7 @@ export const optionFunctor: OptionFunctor = {
  */
 export const optionMonad: OptionMonad = {
   map: optionFunctor.map,
-  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
-    fa !== null ? f(fa) : null,
+  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> => (fa !== null ? f(fa) : null),
   pure: <A>(a: A): Option<A> => a,
   ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>): Option<B> =>
     fab !== null && fa !== null ? fab(fa) : null,
@@ -292,10 +272,8 @@ export const optionMonad: OptionMonad = {
  * Foldable instance for Option
  */
 export const optionFoldable: OptionFoldable = {
-  foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B): B =>
-    fa !== null ? f(b, fa) : b,
-  foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B): B =>
-    fa !== null ? f(fa, b) : b,
+  foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B): B => (fa !== null ? f(b, fa) : b),
+  foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B): B => (fa !== null ? f(fa, b) : b),
 };
 
 /**
@@ -355,8 +333,7 @@ export const arrayMonad: ArrayMonad = {
   map: arrayFunctor.map,
   flatMap: <A, B>(fa: A[], f: (a: A) => B[]): B[] => fa.flatMap(f),
   pure: <A>(a: A): A[] => [a],
-  ap: <A, B>(fab: ((a: A) => B)[], fa: A[]): B[] =>
-    fab.flatMap((f) => fa.map(f)),
+  ap: <A, B>(fab: ((a: A) => B)[], fa: A[]): B[] => fab.flatMap((f) => fa.map(f)),
 };
 
 /**
@@ -381,9 +358,9 @@ export const arrayTraverse: ArrayTraverse = {
         (acc: $<G, B[]>, a: A) =>
           G.ap(
             G.map(acc, (bs: B[]) => (b: B) => [...bs, b]),
-            f(a),
+            f(a)
           ),
-        G.pure([] as B[]),
+        G.pure([] as B[])
       ),
 };
 
@@ -426,8 +403,7 @@ export const promiseFunctor: PromiseFunctor = {
  */
 export const promiseMonad: PromiseMonad = {
   map: promiseFunctor.map,
-  flatMap: <A, B>(fa: Promise<A>, f: (a: A) => Promise<B>): Promise<B> =>
-    fa.then(f),
+  flatMap: <A, B>(fa: Promise<A>, f: (a: A) => Promise<B>): Promise<B> => fa.then(f),
   pure: <A>(a: A): Promise<A> => Promise.resolve(a),
   ap: <A, B>(fab: Promise<(a: A) => B>, fa: Promise<A>): Promise<B> =>
     fab.then((f) => fa.then((a) => f(a))),
@@ -455,10 +431,8 @@ export function eitherMonad<E>(): EitherMonad<E> {
   const functor = eitherFunctor<E>();
   return {
     map: functor.map,
-    flatMap: <A, B>(
-      fa: Either<E, A>,
-      f: (a: A) => Either<E, B>,
-    ): Either<E, B> => (isRight(fa) ? f(fa.right) : fa),
+    flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> =>
+      isRight(fa) ? f(fa.right) : fa,
     pure: <A>(a: A): Either<E, A> => Right(a),
     ap: <A, B>(fab: Either<E, (a: A) => B>, fa: Either<E, A>): Either<E, B> => {
       if (isLeft(fab)) return fab;
@@ -476,10 +450,8 @@ export function eitherMonadError<E>(): EitherMonadError<E> {
   return {
     ...monad,
     raiseError: <A>(e: E): Either<E, A> => Left(e),
-    handleErrorWith: <A>(
-      fa: Either<E, A>,
-      f: (e: E) => Either<E, A>,
-    ): Either<E, A> => (isLeft(fa) ? f(fa.left) : fa),
+    handleErrorWith: <A>(fa: Either<E, A>, f: (e: E) => Either<E, A>): Either<E, A> =>
+      isLeft(fa) ? f(fa.left) : fa,
   };
 }
 
@@ -520,8 +492,7 @@ export function eitherTraverse<E>(): EitherTraverse<E> {
  */
 export function eitherSemigroupK<E>(): EitherSemigroupK<E> {
   return {
-    combineK: <A>(x: Either<E, A>, y: Either<E, A>): Either<E, A> =>
-      isRight(x) ? x : y,
+    combineK: <A>(x: Either<E, A>, y: Either<E, A>): Either<E, A> => (isRight(x) ? x : y),
   };
 }
 
@@ -559,10 +530,7 @@ import { map as listMap, flatMap as listFlatMap } from "./data/list.js";
 import type { IO } from "./io/io.js";
 import { IO as IONamespace } from "./io/io.js";
 import type { Validated } from "./data/validated.js";
-import {
-  map as validatedMap,
-  andThen as validatedFlatMap,
-} from "./data/validated.js";
+import { map as validatedMap, andThen as validatedFlatMap } from "./data/validated.js";
 
 /**
  * FlatMap instance for Option.
@@ -570,10 +538,8 @@ import {
  */
 export const flatMapOption = {
   _tag: "Option" as const,
-  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
-    fa !== null ? f(fa) : null,
-  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
-    fa !== null ? f(fa) : null,
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa !== null ? f(fa) : null),
+  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> => (fa !== null ? f(fa) : null),
 };
 
 /**
@@ -584,10 +550,8 @@ export function flatMapEither<E>() {
     _tag: "Either" as const,
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> =>
       isRight(fa) ? Right(f(fa.right)) : fa,
-    flatMap: <A, B>(
-      fa: Either<E, A>,
-      f: (a: A) => Either<E, B>,
-    ): Either<E, B> => (isRight(fa) ? f(fa.right) : fa),
+    flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> =>
+      isRight(fa) ? f(fa.right) : fa,
   };
 }
 
@@ -597,8 +561,7 @@ export function flatMapEither<E>() {
 export const flatMapIO = {
   _tag: "IO" as const,
   map: <A, B>(fa: IO<A>, f: (a: A) => B): IO<B> => IONamespace.map(fa, f),
-  flatMap: <A, B>(fa: IO<A>, f: (a: A) => IO<B>): IO<B> =>
-    IONamespace.flatMap(fa, f),
+  flatMap: <A, B>(fa: IO<A>, f: (a: A) => IO<B>): IO<B> => IONamespace.flatMap(fa, f),
 };
 
 /**
@@ -607,8 +570,7 @@ export const flatMapIO = {
 export const flatMapList = {
   _tag: "List" as const,
   map: <A, B>(fa: List<A>, f: (a: A) => B): List<B> => listMap(fa, f),
-  flatMap: <A, B>(fa: List<A>, f: (a: A) => List<B>): List<B> =>
-    listFlatMap(fa, f),
+  flatMap: <A, B>(fa: List<A>, f: (a: A) => List<B>): List<B> => listFlatMap(fa, f),
 };
 
 /**
@@ -621,12 +583,9 @@ export const flatMapList = {
 export function flatMapValidated<E>() {
   return {
     _tag: "Validated" as const,
-    map: <A, B>(fa: Validated<E, A>, f: (a: A) => B): Validated<E, B> =>
-      validatedMap(fa, f),
-    flatMap: <A, B>(
-      fa: Validated<E, A>,
-      f: (a: A) => Validated<E, B>,
-    ): Validated<E, B> => validatedFlatMap(fa, f),
+    map: <A, B>(fa: Validated<E, A>, f: (a: A) => B): Validated<E, B> => validatedMap(fa, f),
+    flatMap: <A, B>(fa: Validated<E, A>, f: (a: A) => Validated<E, B>): Validated<E, B> =>
+      validatedFlatMap(fa, f),
   };
 }
 
@@ -655,7 +614,7 @@ export const fpFlatMapInstances = {
  * ```
  */
 export function registerFpFlatMapInstances(
-  registerFlatMap: (name: string, instance: object) => void,
+  registerFlatMap: (name: string, instance: object) => void
 ): void {
   registerFlatMap("Option", flatMapOption);
   registerFlatMap("Either", flatMapEither<unknown>());

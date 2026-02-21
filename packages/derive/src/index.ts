@@ -31,11 +31,8 @@ export const EqDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `${uncapitalize(name)}Eq`;
@@ -75,11 +72,8 @@ export const OrdDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `${uncapitalize(name)}Compare`;
@@ -114,11 +108,8 @@ export const CloneDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `clone${name}`;
@@ -151,19 +142,14 @@ export const DebugDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `debug${name}`;
 
     // Generate field string representations
-    const fieldStrs = fields.map(
-      (field) => `\${JSON.stringify(value.${field.name})}`,
-    );
+    const fieldStrs = fields.map((field) => `\${JSON.stringify(value.${field.name})}`);
 
     const fieldNames = fields.map((f) => f.name);
     const pairs = fieldNames.map((n, i) => `${n}: ${fieldStrs[i]}`);
@@ -188,11 +174,8 @@ export const HashDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `hash${name}`;
@@ -236,11 +219,8 @@ export const DefaultDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `default${name}`;
@@ -273,11 +253,8 @@ export const JsonDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
 
@@ -314,10 +291,7 @@ ${validations}
 }
 `;
 
-    return [
-      ...ctx.parseStatements(serializeCode),
-      ...ctx.parseStatements(deserializeCode),
-    ];
+    return [...ctx.parseStatements(serializeCode), ...ctx.parseStatements(deserializeCode)];
   },
 });
 
@@ -331,11 +305,8 @@ export const BuilderDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const builderName = `${name}Builder`;
@@ -393,11 +364,8 @@ export const TypeGuardDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, fields } = typeInfo;
     const fnName = `is${name}`;
@@ -468,9 +436,7 @@ function typeCheckForPrimitive(accessor: string, typeStr: string): string {
       if (typeStr.endsWith("[]") || typeStr.startsWith("Array<")) {
         return `Array.isArray(${accessor})`;
       }
-      if (
-        ["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(typeStr)
-      ) {
+      if (["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(typeStr)) {
         return `${accessor} instanceof ${typeStr}`;
       }
       return `(typeof ${accessor} === "object" && ${accessor} !== null)`;
@@ -550,10 +516,7 @@ export const deriveMacros = {
 /**
  * Create a derived function name based on convention
  */
-export function createDerivedFunctionName(
-  operation: string,
-  typeName: string,
-): string {
+export function createDerivedFunctionName(operation: string, typeName: string): string {
   switch (operation) {
     case "eq":
       return `${uncapitalize(typeName)}Eq`;

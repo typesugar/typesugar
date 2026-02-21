@@ -17,18 +17,7 @@ pnpm add @typesugar/fp
 ## Quick Start
 
 ```typescript
-import {
-  Option,
-  Some,
-  None,
-  Either,
-  Left,
-  Right,
-  IO,
-  runIO,
-  pipe,
-  flow,
-} from "@typesugar/fp";
+import { Option, Some, None, Either, Left, Right, IO, runIO, pipe, flow } from "@typesugar/fp";
 
 // Option — nullable values
 const user = Option.flatMap(Some(2), (x) => Some(x * 3));
@@ -41,7 +30,7 @@ const result = Either.map(Right(42), (x) => x.toString());
 // IO — pure effects
 const program = IO.flatMap(
   IO.delay(() => "Hello"),
-  (msg) => IO.delay(() => console.log(msg)),
+  (msg) => IO.delay(() => console.log(msg))
 );
 await runIO(program);
 
@@ -50,7 +39,7 @@ const transformed = pipe(
   5,
   (x) => x * 2,
   (x) => x + 1,
-  (x) => x.toString(),
+  (x) => x.toString()
 );
 // "11"
 ```
@@ -88,7 +77,7 @@ Either.mapLeft(failure, (e) => e.toUpperCase()); // Left("ERROR")
 Either.fold(
   success,
   (e) => 0,
-  (x) => x,
+  (x) => x
 ); // 42
 ```
 
@@ -131,7 +120,7 @@ import { IO, runIO, runIOSync } from "@typesugar/fp";
 
 const program = IO.flatMap(
   IO.delay(() => fetch("/api/user")),
-  (response) => IO.delay(() => response.json()),
+  (response) => IO.delay(() => response.json())
 );
 
 // Run the effect
@@ -179,9 +168,7 @@ Logging and accumulation.
 import { Writer, LogWriter } from "@typesugar/fp";
 
 const program = Writer.flatMap(Writer.tell(["Started"]), () =>
-  Writer.flatMap(Writer.pure(42), (x) =>
-    Writer.tell([`Got ${x}`]).map(() => x),
-  ),
+  Writer.flatMap(Writer.pure(42), (x) => Writer.tell([`Got ${x}`]).map(() => x))
 );
 
 Writer.run(program); // [["Started", "Got 42"], 42]
@@ -237,9 +224,7 @@ if (ZeroCostResultOps.isOk(result)) {
 }
 
 // Pattern matching (compiles to if/else chains)
-type Shape =
-  | { kind: "circle"; radius: number }
-  | { kind: "square"; side: number };
+type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
 
 const area = match(shape, {
   circle: (s) => Math.PI * s.radius ** 2,
@@ -258,14 +243,14 @@ import { pipe, flow } from "@typesugar/fp";
 const result = pipe(
   5,
   (x) => x * 2,
-  (x) => x + 1,
+  (x) => x + 1
 );
 
 // Function composition
 const transform = flow(
   (x: number) => x * 2,
   (x) => x + 1,
-  (x) => x.toString(),
+  (x) => x.toString()
 );
 ```
 

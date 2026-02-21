@@ -32,7 +32,7 @@ function parseArgs(args: string[]): CliOptions {
   const command = (args[0] ?? "build") as CliOptions["command"];
   if (!["build", "watch", "check", "expand"].includes(command)) {
     console.error(
-      `Unknown command: ${command}\nUsage: typemacro <build|watch|check|expand> [--project tsconfig.json] [--verbose]`,
+      `Unknown command: ${command}\nUsage: typemacro <build|watch|check|expand> [--project tsconfig.json] [--verbose]`
     );
     process.exit(1);
   }
@@ -62,11 +62,7 @@ function parseArgs(args: string[]): CliOptions {
     } else if (args[i] === "--help" || args[i] === "-h") {
       printHelp();
       process.exit(0);
-    } else if (
-      command === "expand" &&
-      !expandFile &&
-      !args[i].startsWith("-")
-    ) {
+    } else if (command === "expand" && !expandFile && !args[i].startsWith("-")) {
       expandFile = args[i];
     }
   }
@@ -122,10 +118,7 @@ function readTsConfig(configPath: string): ts.ParsedCommandLine {
   const configFile = ts.readConfigFile(absolutePath, ts.sys.readFile);
 
   if (configFile.error) {
-    const message = ts.flattenDiagnosticMessageText(
-      configFile.error.messageText,
-      "\n",
-    );
+    const message = ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n");
     console.error(`Error reading ${configPath}: ${message}`);
     process.exit(1);
   }
@@ -133,13 +126,11 @@ function readTsConfig(configPath: string): ts.ParsedCommandLine {
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
-    path.dirname(absolutePath),
+    path.dirname(absolutePath)
   );
 
   if (parsed.errors.length > 0) {
-    const messages = parsed.errors.map((d) =>
-      ts.flattenDiagnosticMessageText(d.messageText, "\n"),
-    );
+    const messages = parsed.errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
     console.error(`Config errors:\n${messages.join("\n")}`);
     process.exit(1);
   }
@@ -150,22 +141,14 @@ function readTsConfig(configPath: string): ts.ParsedCommandLine {
 function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
   let errorCount = 0;
   for (const diagnostic of diagnostics) {
-    const message = ts.flattenDiagnosticMessageText(
-      diagnostic.messageText,
-      "\n",
-    );
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
 
     if (diagnostic.file && diagnostic.start !== undefined) {
-      const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
-        diagnostic.start,
-      );
+      const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
       const fileName = diagnostic.file.fileName;
-      const prefix =
-        diagnostic.category === ts.DiagnosticCategory.Error
-          ? "error"
-          : "warning";
+      const prefix = diagnostic.category === ts.DiagnosticCategory.Error ? "error" : "warning";
       console.error(
-        `${fileName}(${line + 1},${character + 1}): ${prefix} TS${diagnostic.code}: ${message}`,
+        `${fileName}(${line + 1},${character + 1}): ${prefix} TS${diagnostic.code}: ${message}`
       );
     } else {
       console.error(message);
@@ -202,9 +185,7 @@ function build(options: CliOptions): void {
     before: [transformerFactory],
   });
 
-  const allDiagnostics = ts
-    .getPreEmitDiagnostics(program)
-    .concat(emitResult.diagnostics);
+  const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
 
   const errorCount = reportDiagnostics(allDiagnostics);
 
@@ -212,7 +193,7 @@ function build(options: CliOptions): void {
     const fileCount = config.fileNames.length;
     if (errorCount > 0) {
       console.error(
-        `\n[typemacro] Found ${errorCount} error${errorCount === 1 ? "" : "s"} in ${fileCount} files.`,
+        `\n[typemacro] Found ${errorCount} error${errorCount === 1 ? "" : "s"} in ${fileCount} files.`
       );
     } else {
       console.log(`[typemacro] Successfully compiled ${fileCount} files.`);
@@ -231,7 +212,7 @@ function watch(options: CliOptions): void {
   const configPath = ts.findConfigFile(
     path.dirname(path.resolve(options.project)),
     ts.sys.fileExists,
-    path.basename(options.project),
+    path.basename(options.project)
   );
 
   if (!configPath) {
@@ -248,12 +229,9 @@ function watch(options: CliOptions): void {
       reportDiagnostics([diagnostic]);
     },
     (diagnostic) => {
-      const message = ts.flattenDiagnosticMessageText(
-        diagnostic.messageText,
-        "\n",
-      );
+      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
       console.log(`[typemacro] ${message}`);
-    },
+    }
   );
 
   const origCreateProgram = host.createProgram;
@@ -278,18 +256,12 @@ function watch(options: CliOptions): void {
       writeFile,
       cancellationToken,
       emitOnlyDtsFiles,
-      customTransformers,
+      customTransformers
     ) => {
-      return origEmit(
-        targetSourceFile,
-        writeFile,
-        cancellationToken,
-        emitOnlyDtsFiles,
-        {
-          ...customTransformers,
-          before: [transformerFactory, ...(customTransformers?.before ?? [])],
-        },
-      );
+      return origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
+        ...customTransformers,
+        before: [transformerFactory, ...(customTransformers?.before ?? [])],
+      });
     };
 
     origAfterProgramCreate?.(builderProgram);
@@ -315,7 +287,7 @@ function writeManifest(options: CliOptions): void {
         `${Object.keys(m.taggedTemplate).length} tagged template macros, ` +
         `${Object.keys(m.labeledBlock).length} labeled block macros, ` +
         `${Object.keys(m.type).length} type macros, ` +
-        `${Object.keys(m.extensionMethods).length} extension methods`,
+        `${Object.keys(m.extensionMethods).length} extension methods`
     );
   }
 }
@@ -340,9 +312,7 @@ function main(): void {
       break;
     case "expand":
       if (!options.expandFile) {
-        console.error(
-          "expand requires a file argument: typemacro expand <file>",
-        );
+        console.error("expand requires a file argument: typemacro expand <file>");
         process.exit(1);
       }
       runExpand({

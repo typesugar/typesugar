@@ -73,11 +73,8 @@ export const EffectHashDerive: DeriveMacro = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind, fields, variants, discriminant } = typeInfo;
 
@@ -108,7 +105,7 @@ function generateSumTypeHash(
   ctx: MacroContext,
   typeName: string,
   discriminant: string,
-  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>,
+  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>
 ): ts.Statement[] {
   const hashName = `${typeName}Hash`;
 
@@ -118,9 +115,7 @@ function generateSumTypeHash(
       const baseHash = `Hash.hash("${variant.tag}")`;
       const fieldHashes = generateFieldHashes(variant.fields);
       const combinedHash =
-        variant.fields.length > 0
-          ? `Hash.combine(${baseHash}, ${fieldHashes})`
-          : baseHash;
+        variant.fields.length > 0 ? `Hash.combine(${baseHash}, ${fieldHashes})` : baseHash;
       return `      case "${variant.tag}":
         return ${combinedHash};`;
     })

@@ -24,12 +24,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9201,
-  TS9205,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, TS9201, TS9205 } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 
 // =============================================================================
@@ -56,7 +51,7 @@ export const collectTypesMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -78,11 +73,7 @@ export const collectTypesMacro = defineExpressionMacro({
     } else if (ts.isNoSubstitutionTemplateLiteral(args[0])) {
       pattern = args[0].text;
     } else {
-      ctx
-        .diagnostic(TS9205)
-        .at(callExpr)
-        .withArgs({ macro: "collectTypes" })
-        .emit();
+      ctx.diagnostic(TS9205).at(callExpr).withArgs({ macro: "collectTypes" }).emit();
       return callExpr;
     }
 
@@ -93,25 +84,16 @@ export const collectTypesMacro = defineExpressionMacro({
     const elements = collected.map((t) =>
       ctx.factory.createObjectLiteralExpression(
         [
-          ctx.factory.createPropertyAssignment(
-            "name",
-            ctx.factory.createStringLiteral(t.name),
-          ),
-          ctx.factory.createPropertyAssignment(
-            "module",
-            ctx.factory.createStringLiteral(t.module),
-          ),
-          ctx.factory.createPropertyAssignment(
-            "kind",
-            ctx.factory.createStringLiteral(t.kind),
-          ),
+          ctx.factory.createPropertyAssignment("name", ctx.factory.createStringLiteral(t.name)),
+          ctx.factory.createPropertyAssignment("module", ctx.factory.createStringLiteral(t.module)),
+          ctx.factory.createPropertyAssignment("kind", ctx.factory.createStringLiteral(t.kind)),
           ctx.factory.createPropertyAssignment(
             "exported",
-            t.exported ? ctx.factory.createTrue() : ctx.factory.createFalse(),
+            t.exported ? ctx.factory.createTrue() : ctx.factory.createFalse()
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
 
     return ctx.factory.createArrayLiteralExpression(elements, true);
@@ -128,10 +110,7 @@ export const collectTypesMacro = defineExpressionMacro({
  * - "class" — all classes
  * - "*" — all exported types
  */
-function collectTypesFromProgram(
-  ctx: MacroContext,
-  pattern: string,
-): CollectedType[] {
+function collectTypesFromProgram(ctx: MacroContext, pattern: string): CollectedType[] {
   const results: CollectedType[] = [];
   const program = ctx.program;
   const sourceDir = path.dirname(ctx.sourceFile.fileName);
@@ -159,11 +138,7 @@ function collectTypesFromProgram(
 /**
  * Check if a file path matches the collection pattern.
  */
-function matchesPattern(
-  fileName: string,
-  pattern: string,
-  sourceDir: string,
-): boolean {
+function matchesPattern(fileName: string, pattern: string, sourceDir: string): boolean {
   // Decorator patterns: @name
   if (pattern.startsWith("@")) return true; // Check decorators per-node
 
@@ -202,7 +177,7 @@ function simpleGlobMatch(filepath: string, pattern: string): boolean {
 function extractTypeDeclaration(
   node: ts.Node,
   sourceFile: ts.SourceFile,
-  pattern: string,
+  pattern: string
 ): CollectedType | null {
   const isExported = hasExportModifier(node);
 
@@ -324,13 +299,12 @@ function hasExportModifier(node: ts.Node): boolean {
 export const moduleIndexMacro = defineExpressionMacro({
   name: "moduleIndex",
   module: "@typesugar/macros",
-  description:
-    "Get a compile-time index of all modules and their exported symbols in the project.",
+  description: "Get a compile-time index of all modules and their exported symbols in the project.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const program = ctx.program;
     const index: Array<{
@@ -369,7 +343,7 @@ export const moduleIndexMacro = defineExpressionMacro({
       if (exports.length > 0) {
         const relativePath = path.relative(
           path.dirname(ctx.sourceFile.fileName),
-          sourceFile.fileName,
+          sourceFile.fileName
         );
         index.push({ module: relativePath, exports });
       }
@@ -381,7 +355,7 @@ export const moduleIndexMacro = defineExpressionMacro({
         [
           ctx.factory.createPropertyAssignment(
             "module",
-            ctx.factory.createStringLiteral(mod.module),
+            ctx.factory.createStringLiteral(mod.module)
           ),
           ctx.factory.createPropertyAssignment(
             "exports",
@@ -391,22 +365,22 @@ export const moduleIndexMacro = defineExpressionMacro({
                   [
                     ctx.factory.createPropertyAssignment(
                       "name",
-                      ctx.factory.createStringLiteral(exp.name),
+                      ctx.factory.createStringLiteral(exp.name)
                     ),
                     ctx.factory.createPropertyAssignment(
                       "kind",
-                      ctx.factory.createStringLiteral(exp.kind),
+                      ctx.factory.createStringLiteral(exp.kind)
                     ),
                   ],
-                  true,
-                ),
+                  true
+                )
               ),
-              true,
-            ),
+              true
+            )
           ),
         ],
-        true,
-      ),
+        true
+      )
     );
 
     return ctx.factory.createArrayLiteralExpression(moduleEntries, true);

@@ -21,7 +21,7 @@ describe("classifyInlineFailure", () => {
       `function test() ${code}`,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
     const fn = sourceFile.statements[0] as ts.FunctionDeclaration;
     return fn.body!;
@@ -204,7 +204,7 @@ describe("specialize macro diagnostics", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -216,9 +216,7 @@ describe("specialize macro diagnostics", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -250,7 +248,7 @@ describe("specialize macro diagnostics", () => {
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("specialize"),
       undefined,
-      [fnArg, dictArg],
+      [fnArg, dictArg]
     );
 
     specializeMacro.expand(ctx, callExpr, [fnArg, dictArg]);
@@ -266,14 +264,14 @@ describe("specialize macro diagnostics", () => {
     // Use a function that can't be resolved (dynamic property access)
     const fnArg = ts.factory.createElementAccessExpression(
       ts.factory.createIdentifier("fns"),
-      ts.factory.createNumericLiteral(0),
+      ts.factory.createNumericLiteral(0)
     );
     const dictArg = ts.factory.createIdentifier("arrayFunctor");
 
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("specialize"),
       undefined,
-      [fnArg, dictArg],
+      [fnArg, dictArg]
     );
 
     specializeMacro.expand(ctx, callExpr, [fnArg, dictArg]);
@@ -294,7 +292,7 @@ describe("specialize macro diagnostics", () => {
         `function test() ${code}`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
       const fn = sourceFile.statements[0] as ts.FunctionDeclaration;
       return fn.body!;
@@ -319,7 +317,7 @@ describe("specialize macro diagnostics", () => {
         `function test() ${code}`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS,
+        ts.ScriptKind.TS
       );
       const fn = sourceFile.statements[0] as ts.FunctionDeclaration;
       return fn.body!;

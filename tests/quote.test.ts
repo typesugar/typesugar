@@ -48,7 +48,7 @@ describe("quasiquoting system", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -60,9 +60,7 @@ describe("quasiquoting system", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -289,18 +287,14 @@ describe("quasiquoting system", () => {
 
   describe("quoteCall()", () => {
     it("should create a function call", () => {
-      const result = quoteCall(ctx, "console.log", [
-        ts.factory.createStringLiteral("hello"),
-      ]);
+      const result = quoteCall(ctx, "console.log", [ts.factory.createStringLiteral("hello")]);
       expect(ts.isCallExpression(result)).toBe(true);
       expect(printExpr(result)).toBe('console.log("hello")');
     });
 
     it("should handle expression callee", () => {
       const callee = ts.factory.createIdentifier("myFunc");
-      const result = quoteCall(ctx, callee, [
-        ts.factory.createNumericLiteral(42),
-      ]);
+      const result = quoteCall(ctx, callee, [ts.factory.createNumericLiteral(42)]);
       expect(printExpr(result)).toBe("myFunc(42)");
     });
   });
@@ -316,9 +310,7 @@ describe("quasiquoting system", () => {
   describe("quoteMethodCall()", () => {
     it("should create a method call", () => {
       const obj = ts.factory.createIdentifier("arr");
-      const result = quoteMethodCall(ctx, obj, "push", [
-        ts.factory.createNumericLiteral(1),
-      ]);
+      const result = quoteMethodCall(ctx, obj, "push", [ts.factory.createNumericLiteral(1)]);
       expect(printExpr(result)).toBe("arr.push(1)");
     });
   });
@@ -423,7 +415,7 @@ describe("quasiquoting system", () => {
         {
           returnType: quoteType(ctx)`number`,
           exported: true,
-        },
+        }
       );
       const text = printStmt(result);
       expect(text).toContain("export");
@@ -441,11 +433,7 @@ describe("quasiquoting system", () => {
     it("SpreadSplice should wrap statement arrays", () => {
       const stmts = [
         ctx.factory.createExpressionStatement(
-          ts.factory.createCallExpression(
-            ts.factory.createIdentifier("foo"),
-            undefined,
-            [],
-          ),
+          ts.factory.createCallExpression(ts.factory.createIdentifier("foo"), undefined, [])
         ),
       ];
       const s = spread(stmts);

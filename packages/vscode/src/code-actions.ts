@@ -20,14 +20,14 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
 
   constructor(
     private readonly manifest: ManifestLoader,
-    private readonly expansion: ExpansionService,
+    private readonly expansion: ExpansionService
   ) {}
 
   provideCodeActions(
     document: vscode.TextDocument,
     range: vscode.Range | vscode.Selection,
     context: vscode.CodeActionContext,
-    _token: vscode.CancellationToken,
+    _token: vscode.CancellationToken
   ): vscode.CodeAction[] {
     const actions: vscode.CodeAction[] = [];
     const text = document.getText();
@@ -37,9 +37,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
       text,
       ts.ScriptTarget.Latest,
       true,
-      document.languageId === "typescriptreact"
-        ? ts.ScriptKind.TSX
-        : ts.ScriptKind.TS,
+      document.languageId === "typescriptreact" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
     );
 
     const offset = document.offsetAt(range.start);
@@ -51,9 +49,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     const templateNames = this.manifest.taggedTemplateMacroNames;
 
     // --- "Expand macro" for expression macros ---
-    const callExpr = findAncestor(node, ts.isCallExpression) as
-      | ts.CallExpression
-      | undefined;
+    const callExpr = findAncestor(node, ts.isCallExpression) as ts.CallExpression | undefined;
     if (
       callExpr &&
       ts.isIdentifier(callExpr.expression) &&
@@ -61,7 +57,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     ) {
       const action = new vscode.CodeAction(
         `Expand ${callExpr.expression.text}(...)`,
-        vscode.CodeActionKind.Refactor,
+        vscode.CodeActionKind.Refactor
       );
       action.command = {
         command: "typemacro.expandMacro",
@@ -76,10 +72,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     if (decorator) {
       const name = getDecoratorName(decorator as ts.Decorator);
       if (name && decoratorNames.has(name)) {
-        const action = new vscode.CodeAction(
-          `Expand @${name}`,
-          vscode.CodeActionKind.Refactor,
-        );
+        const action = new vscode.CodeAction(`Expand @${name}`, vscode.CodeActionKind.Refactor);
         action.command = {
           command: "typemacro.expandMacro",
           title: "Expand macro",
@@ -94,17 +87,12 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     if (
       taggedTemplate &&
       ts.isIdentifier((taggedTemplate as ts.TaggedTemplateExpression).tag) &&
-      templateNames.has(
-        ((taggedTemplate as ts.TaggedTemplateExpression).tag as ts.Identifier)
-          .text,
-      )
+      templateNames.has(((taggedTemplate as ts.TaggedTemplateExpression).tag as ts.Identifier).text)
     ) {
-      const tagName = (
-        (taggedTemplate as ts.TaggedTemplateExpression).tag as ts.Identifier
-      ).text;
+      const tagName = ((taggedTemplate as ts.TaggedTemplateExpression).tag as ts.Identifier).text;
       const action = new vscode.CodeAction(
         `Expand ${tagName}\`...\``,
-        vscode.CodeActionKind.Refactor,
+        vscode.CodeActionKind.Refactor
       );
       action.command = {
         command: "typemacro.expandMacro",
@@ -115,23 +103,15 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     }
 
     // --- "Wrap in comptime" for selected expressions ---
-    if (
-      range instanceof vscode.Selection &&
-      !range.isEmpty &&
-      expressionNames.has("comptime")
-    ) {
+    if (range instanceof vscode.Selection && !range.isEmpty && expressionNames.has("comptime")) {
       const selectedText = document.getText(range).trim();
       if (selectedText && !selectedText.includes("\n")) {
         const action = new vscode.CodeAction(
           "Wrap in comptime(() => ...)",
-          vscode.CodeActionKind.Refactor,
+          vscode.CodeActionKind.Refactor
         );
         action.edit = new vscode.WorkspaceEdit();
-        action.edit.replace(
-          document.uri,
-          range,
-          `comptime(() => ${selectedText})`,
-        );
+        action.edit.replace(document.uri, range, `comptime(() => ${selectedText})`);
         actions.push(action);
       }
     }
@@ -139,7 +119,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
     // --- "Add @derive" for classes/interfaces without one ---
     const classOrInterface = findAncestor(
       node,
-      (n) => ts.isClassDeclaration(n) || ts.isInterfaceDeclaration(n),
+      (n) => ts.isClassDeclaration(n) || ts.isInterfaceDeclaration(n)
     );
     if (classOrInterface) {
       const hasDerive = ts.canHaveDecorators(classOrInterface)
@@ -150,10 +130,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
         : false;
 
       if (!hasDerive && decoratorNames.has("derive")) {
-        const action = new vscode.CodeAction(
-          "Add @derive(...)",
-          vscode.CodeActionKind.Refactor,
-        );
+        const action = new vscode.CodeAction("Add @derive(...)", vscode.CodeActionKind.Refactor);
         action.command = {
           command: "typemacro.addDerive",
           title: "Add derive",
@@ -171,10 +148,7 @@ export class MacroCodeActionsProvider implements vscode.CodeActionProvider {
 // AST Helpers
 // ---------------------------------------------------------------------------
 
-function findNodeAtOffset(
-  sourceFile: ts.SourceFile,
-  offset: number,
-): ts.Node | undefined {
+function findNodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
   function find(node: ts.Node): ts.Node | undefined {
     if (offset >= node.getStart(sourceFile) && offset < node.getEnd()) {
       return ts.forEachChild(node, find) ?? node;
@@ -184,10 +158,7 @@ function findNodeAtOffset(
   return find(sourceFile);
 }
 
-function findAncestor(
-  node: ts.Node,
-  predicate: (node: ts.Node) => boolean,
-): ts.Node | undefined {
+function findAncestor(node: ts.Node, predicate: (node: ts.Node) => boolean): ts.Node | undefined {
   let current: ts.Node | undefined = node;
   while (current) {
     if (predicate(current)) return current;

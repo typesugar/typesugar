@@ -308,14 +308,8 @@ export function equals(a: Interval, b: Interval): boolean {
 /**
  * Check if two intervals are approximately equal.
  */
-export function approxEquals(
-  a: Interval,
-  b: Interval,
-  tolerance = 1e-10,
-): boolean {
-  return (
-    Math.abs(a.lo - b.lo) <= tolerance && Math.abs(a.hi - b.hi) <= tolerance
-  );
+export function approxEquals(a: Interval, b: Interval, tolerance = 1e-10): boolean {
+  return Math.abs(a.lo - b.lo) <= tolerance && Math.abs(a.hi - b.hi) <= tolerance;
 }
 
 /**

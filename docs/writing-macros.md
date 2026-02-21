@@ -73,8 +73,8 @@ export const assertMacro = defineExpressionMacro({
       factory.createCallExpression(
         factory.createIdentifier("(() => { throw new Error(...) })"),
         undefined,
-        [],
-      ),
+        []
+      )
     );
   },
 });
@@ -108,7 +108,7 @@ export const myDecorator = defineAttributeMacro({
       undefined,
       [],
       undefined,
-      factory.createBlock([]),
+      factory.createBlock([])
     );
 
     // Return the modified class
@@ -119,7 +119,7 @@ export const myDecorator = defineAttributeMacro({
         node.name,
         node.typeParameters,
         node.heritageClauses,
-        [...node.members, newMethod],
+        [...node.members, newMethod]
       ),
     ];
   },
@@ -194,11 +194,9 @@ export const regexMacro = defineTaggedTemplateMacro({
     }
 
     // Return: new RegExp("pattern")
-    return factory.createNewExpression(
-      factory.createIdentifier("RegExp"),
-      undefined,
-      [factory.createStringLiteral(pattern)],
-    );
+    return factory.createNewExpression(factory.createIdentifier("RegExp"), undefined, [
+      factory.createStringLiteral(pattern),
+    ]);
   },
 });
 ```
@@ -232,9 +230,7 @@ export const myBlockMacro = defineLabeledBlockMacro({
     const statements = mainBlock.statement.statements;
 
     // Generate transformed code
-    return factory.createExpressionStatement(
-      factory.createCallExpression(/* ... */),
-    );
+    return factory.createExpressionStatement(factory.createCallExpression(/* ... */));
   },
 });
 
@@ -305,8 +301,7 @@ if (ts.isStringLiteral(arg)) {
 ```typescript
 ctx.reportError(
   node,
-  `Expected a string literal, got ${ts.SyntaxKind[node.kind]}. ` +
-    `Example: myMacro("hello")`,
+  `Expected a string literal, got ${ts.SyntaxKind[node.kind]}. ` + `Example: myMacro("hello")`
 );
 ```
 

@@ -8,20 +8,11 @@
  * @module
  */
 
-import type {
-  Capability,
-  Erased,
-  WithShow,
-  WithEq,
-  WithOrd,
-  WithHash,
-} from "./types.js";
+import type { Capability, Erased, WithShow, WithEq, WithOrd, WithHash } from "./types.js";
 import { show, equals, compare, hash } from "./erased.js";
 
 /** A heterogeneous list where all elements share the same capabilities. */
-export type ErasedList<Caps extends readonly Capability[]> = ReadonlyArray<
-  Erased<Caps>
->;
+export type ErasedList<Caps extends readonly Capability[]> = ReadonlyArray<Erased<Caps>>;
 
 /**
  * Map a function over every element of an erased list.
@@ -31,7 +22,7 @@ export type ErasedList<Caps extends readonly Capability[]> = ReadonlyArray<
  */
 export function mapErased<Caps extends readonly Capability[], R>(
   list: ErasedList<Caps>,
-  f: (erased: Erased<Caps>) => R,
+  f: (erased: Erased<Caps>) => R
 ): R[] {
   return list.map(f);
 }
@@ -44,7 +35,7 @@ export function mapErased<Caps extends readonly Capability[], R>(
  */
 export function filterErased<Caps extends readonly Capability[]>(
   list: ErasedList<Caps>,
-  predicate: (erased: Erased<Caps>) => boolean,
+  predicate: (erased: Erased<Caps>) => boolean
 ): ErasedList<Caps> {
   return list.filter(predicate);
 }
@@ -98,9 +89,7 @@ export function dedup<E extends WithEq>(list: readonly E[]): E[] {
  *
  * @param list - Elements must have `hash` and `equals` methods.
  */
-export function groupByHash<E extends WithHash & WithEq>(
-  list: readonly E[],
-): Map<number, E[]> {
+export function groupByHash<E extends WithHash & WithEq>(list: readonly E[]): Map<number, E[]> {
   const groups = new Map<number, E[]>();
   for (const item of list) {
     const h = hash(item);

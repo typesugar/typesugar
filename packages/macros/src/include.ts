@@ -71,7 +71,7 @@ export function recordDependency(absolutePath: string): void {
  */
 export function resolveRelativePath(
   ctxOrBaseDir: MacroContext | string,
-  relativePath: string,
+  relativePath: string
 ): string {
   const baseDir =
     typeof ctxOrBaseDir === "string"
@@ -87,7 +87,7 @@ function extractPathArg(
   ctx: MacroContext,
   arg: ts.Expression,
   callExpr: ts.CallExpression,
-  macroName: string,
+  macroName: string
 ): string | undefined {
   if (ts.isStringLiteral(arg)) {
     return arg.text;
@@ -114,13 +114,12 @@ function extractPathArg(
 export const includeStrMacro = defineExpressionMacro({
   name: "includeStr",
   module: "@typesugar/macros",
-  description:
-    "Read a file at compile time and embed its contents as a string literal.",
+  description: "Read a file at compile time and embed its contents as a string literal.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -166,13 +165,12 @@ export const includeStrMacro = defineExpressionMacro({
 export const includeBytesMacro = defineExpressionMacro({
   name: "includeBytes",
   module: "@typesugar/macros",
-  description:
-    "Read a file at compile time and embed its contents as a Uint8Array literal.",
+  description: "Read a file at compile time and embed its contents as a Uint8Array literal.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -203,7 +201,7 @@ export const includeBytesMacro = defineExpressionMacro({
       return ctx.factory.createNewExpression(
         ctx.factory.createIdentifier("Uint8Array"),
         undefined,
-        [ctx.factory.createArrayLiteralExpression(elements)],
+        [ctx.factory.createArrayLiteralExpression(elements)]
       );
     } catch (error) {
       ctx
@@ -233,7 +231,7 @@ export const includeJsonMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -289,13 +287,12 @@ export const includeJsonMacro = defineExpressionMacro({
 export const includeTextMacro = defineExpressionMacro({
   name: "includeText",
   module: "@typesugar/macros",
-  description:
-    "Read a text file at compile time with optional encoding. Alias for includeStr.",
+  description: "Read a text file at compile time with optional encoding. Alias for includeStr.",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     // Delegate to includeStr
     return includeStrMacro.expand(ctx, callExpr, args);

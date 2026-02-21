@@ -109,10 +109,7 @@ export class CoherenceChecker {
 
     // Check if we already have this exact instance (deduplication)
     const duplicate = existing.find(
-      (e) =>
-        e.source === info.source &&
-        e.fileName === info.fileName &&
-        e.line === info.line,
+      (e) => e.source === info.source && e.fileName === info.fileName && e.line === info.line
     );
     if (duplicate) {
       return undefined;
@@ -135,13 +132,11 @@ export class CoherenceChecker {
   private detectConflict(
     key: string,
     existing: InstanceLocation[],
-    incoming: InstanceLocation,
+    incoming: InstanceLocation
   ): InstanceConflict | undefined {
     // Find the highest-priority existing instance
     const primary = existing.reduce((best, current) =>
-      SOURCE_PRIORITY[current.source] < SOURCE_PRIORITY[best.source]
-        ? current
-        : best,
+      SOURCE_PRIORITY[current.source] < SOURCE_PRIORITY[best.source] ? current : best
     );
 
     const primaryPriority = SOURCE_PRIORITY[primary.source];
@@ -207,10 +202,7 @@ export class CoherenceChecker {
   /**
    * Format a conflict message with source locations.
    */
-  private formatConflictMessage(
-    existing: InstanceLocation,
-    incoming: InstanceLocation,
-  ): string {
+  private formatConflictMessage(existing: InstanceLocation, incoming: InstanceLocation): string {
     const formatLoc = (loc: InstanceLocation): string => {
       const sourceLabel = {
         explicit: "explicit instance",
@@ -272,10 +264,7 @@ export class CoherenceChecker {
    * Find the best instance for a (typeclass, type) pair.
    * Returns the highest-priority instance, or undefined if none.
    */
-  findInstance(
-    typeclass: string,
-    forType: string,
-  ): InstanceLocation | undefined {
+  findInstance(typeclass: string, forType: string): InstanceLocation | undefined {
     const key = this.key(typeclass, forType);
     const instances = this.instances.get(key);
     if (!instances || instances.length === 0) {
@@ -284,9 +273,7 @@ export class CoherenceChecker {
 
     // Return highest priority (lowest number)
     return instances.reduce((best, current) =>
-      SOURCE_PRIORITY[current.source] < SOURCE_PRIORITY[best.source]
-        ? current
-        : best,
+      SOURCE_PRIORITY[current.source] < SOURCE_PRIORITY[best.source] ? current : best
     );
   }
 
@@ -328,11 +315,9 @@ export function createInstanceLocation(
   source: InstanceSource,
   node: ts.Node,
   sourceFile: ts.SourceFile,
-  modulePath?: string,
+  modulePath?: string
 ): InstanceLocation {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(
-    node.getStart(sourceFile),
-  );
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
   return {
     typeclass,
     forType,

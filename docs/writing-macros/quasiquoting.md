@@ -203,11 +203,7 @@ Create arrow function:
 ```typescript
 import { quoteArrow } from "@typesugar/core/quote";
 
-const arrow = quoteArrow(
-  ctx,
-  ["x", "y"],
-  quote(ctx)`${ident("x")} + ${ident("y")}`,
-);
+const arrow = quoteArrow(ctx, ["x", "y"], quote(ctx)`${ident("x")} + ${ident("y")}`);
 // Produces: (x, y) => x + y
 ```
 
@@ -222,7 +218,7 @@ const fn = quoteFunction(
   ctx,
   "add",
   ["a", "b"],
-  [quoteReturn(ctx, quote(ctx)`${ident("a")} + ${ident("b")}`)],
+  [quoteReturn(ctx, quote(ctx)`${ident("a")} + ${ident("b")}`)]
 );
 // Produces: function add(a, b) { return a + b; }
 ```

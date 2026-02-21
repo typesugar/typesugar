@@ -83,10 +83,7 @@ function initializeFromEnvironment(): void {
 
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("TYPESUGAR_CFG_")) {
-      const cfgKey = key
-        .slice("TYPESUGAR_CFG_".length)
-        .toLowerCase()
-        .replace(/__/g, ".");
+      const cfgKey = key.slice("TYPESUGAR_CFG_".length).toLowerCase().replace(/__/g, ".");
 
       // Parse value: "1", "true" → true; "0", "false" → false; else string
       if (value === "1" || value === "true") {
@@ -104,11 +101,7 @@ function initializeFromEnvironment(): void {
  * Set a nested value in a config object using dot notation.
  * E.g., setNestedValue(obj, "platform.node", true) → obj.platform.node = true
  */
-function setNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split(".");
   let current: Record<string, unknown> = obj;
 
@@ -158,7 +151,7 @@ export const cfgMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2 || args.length > 3) {
       ctx
@@ -198,7 +191,7 @@ export const cfgMacro = defineExpressionMacro({
         return ctx.factory.createCallExpression(
           ctx.factory.createParenthesizedExpression(thenArg),
           undefined,
-          [],
+          []
         );
       }
       return thenArg;
@@ -209,7 +202,7 @@ export const cfgMacro = defineExpressionMacro({
           return ctx.factory.createCallExpression(
             ctx.factory.createParenthesizedExpression(elseArg),
             undefined,
-            [],
+            []
           );
         }
         return elseArg;
@@ -226,20 +219,14 @@ export const cfgMacro = defineExpressionMacro({
 export const cfgAttrMacro = defineAttributeMacro({
   name: "cfgAttr",
   module: "@typesugar/macros",
-  description:
-    "Conditionally include a declaration based on a compile-time condition.",
-  validTargets: [
-    "class",
-    "method",
-    "property",
-    "function",
-  ] as AttributeTarget[],
+  description: "Conditionally include a declaration based on a compile-time condition.",
+  validTargets: ["class", "method", "property", "function"] as AttributeTarget[],
 
   expand(
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (args.length !== 1) {
       ctx
@@ -263,11 +250,7 @@ export const cfgAttrMacro = defineAttributeMacro({
     } else if (ts.isNoSubstitutionTemplateLiteral(conditionArg)) {
       condition = conditionArg.text;
     } else {
-      ctx
-        .diagnostic(TS9205)
-        .at(decorator)
-        .withArgs({ macro: "@cfgAttr" })
-        .emit();
+      ctx.diagnostic(TS9205).at(decorator).withArgs({ macro: "@cfgAttr" }).emit();
       return target;
     }
 

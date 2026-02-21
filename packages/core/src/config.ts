@@ -136,11 +136,7 @@ function loadConfigFromEnv(): TypesugarConfig {
 /**
  * Set a nested value using dot notation.
  */
-function setNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split(".");
   let current: Record<string, unknown> = obj;
 
@@ -177,7 +173,7 @@ function getNestedValue(obj: unknown, path: string): unknown {
  */
 function deepMerge(
   target: Record<string, unknown>,
-  source: Record<string, unknown>,
+  source: Record<string, unknown>
 ): Record<string, unknown> {
   const result = { ...target };
 
@@ -195,7 +191,7 @@ function deepMerge(
     ) {
       result[key] = deepMerge(
         targetValue as Record<string, unknown>,
-        sourceValue as Record<string, unknown>,
+        sourceValue as Record<string, unknown>
       );
     } else {
       result[key] = sourceValue;
@@ -364,18 +360,14 @@ function findMatchingParen(expr: string, start: number): number {
 function when<T, U = undefined>(
   condition: string,
   thenValue: T | (() => T),
-  elseValue?: U | (() => U),
+  elseValue?: U | (() => U)
 ): T | U | undefined {
   const isActive = evaluate(condition);
 
   if (isActive) {
-    return typeof thenValue === "function"
-      ? (thenValue as () => T)()
-      : thenValue;
+    return typeof thenValue === "function" ? (thenValue as () => T)() : thenValue;
   } else if (elseValue !== undefined) {
-    return typeof elseValue === "function"
-      ? (elseValue as () => U)()
-      : elseValue;
+    return typeof elseValue === "function" ? (elseValue as () => U)() : elseValue;
   }
 
   return undefined;

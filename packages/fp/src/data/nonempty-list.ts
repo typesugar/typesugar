@@ -121,7 +121,7 @@ export function init<A>(nel: NonEmptyList<A>): List<A> {
     nel.head,
     L.toArray(nel.tail)
       .slice(0, -1)
-      .reduce((acc: List<A>, a) => L.append(acc, L.singleton(a)), L.Nil),
+      .reduce((acc: List<A>, a) => L.append(acc, L.singleton(a)), L.Nil)
   );
 }
 
@@ -161,20 +161,14 @@ export function toArray<A>(nel: NonEmptyList<A>): A[] {
 /**
  * Map over the NonEmptyList
  */
-export function map<A, B>(
-  nel: NonEmptyList<A>,
-  f: (a: A) => B,
-): NonEmptyList<B> {
+export function map<A, B>(nel: NonEmptyList<A>, f: (a: A) => B): NonEmptyList<B> {
   return NonEmptyList(f(nel.head), L.map(nel.tail, f));
 }
 
 /**
  * FlatMap over the NonEmptyList
  */
-export function flatMap<A, B>(
-  nel: NonEmptyList<A>,
-  f: (a: A) => NonEmptyList<B>,
-): NonEmptyList<B> {
+export function flatMap<A, B>(nel: NonEmptyList<A>, f: (a: A) => NonEmptyList<B>): NonEmptyList<B> {
   const headResult = f(nel.head);
   const tailResults = L.flatMap(nel.tail, (a) => toList(f(a)));
   return NonEmptyList(headResult.head, L.append(headResult.tail, tailResults));
@@ -183,10 +177,7 @@ export function flatMap<A, B>(
 /**
  * Apply a function in NonEmptyList to a value in NonEmptyList
  */
-export function ap<A, B>(
-  nelF: NonEmptyList<(a: A) => B>,
-  nelA: NonEmptyList<A>,
-): NonEmptyList<B> {
+export function ap<A, B>(nelF: NonEmptyList<(a: A) => B>, nelA: NonEmptyList<A>): NonEmptyList<B> {
   return flatMap(nelF, (f) => map(nelA, f));
 }
 
@@ -216,20 +207,14 @@ export function append<A>(nel: NonEmptyList<A>, a: A): NonEmptyList<A> {
 /**
  * Concatenate two NonEmptyLists
  */
-export function concat<A>(
-  nel1: NonEmptyList<A>,
-  nel2: NonEmptyList<A>,
-): NonEmptyList<A> {
+export function concat<A>(nel1: NonEmptyList<A>, nel2: NonEmptyList<A>): NonEmptyList<A> {
   return NonEmptyList(nel1.head, L.append(nel1.tail, toList(nel2)));
 }
 
 /**
  * Take the first n elements (returns Option since result may be empty)
  */
-export function take<A>(
-  nel: NonEmptyList<A>,
-  n: number,
-): Option<NonEmptyList<A>> {
+export function take<A>(nel: NonEmptyList<A>, n: number): Option<NonEmptyList<A>> {
   if (n <= 0) return None;
   return fromList(L.take(toList(nel), n));
 }
@@ -237,10 +222,7 @@ export function take<A>(
 /**
  * Drop the first n elements (returns Option since result may be empty)
  */
-export function drop<A>(
-  nel: NonEmptyList<A>,
-  n: number,
-): Option<NonEmptyList<A>> {
+export function drop<A>(nel: NonEmptyList<A>, n: number): Option<NonEmptyList<A>> {
   if (n <= 0) return Some(nel);
   return fromList(L.drop(toList(nel), n));
 }
@@ -250,7 +232,7 @@ export function drop<A>(
  */
 export function filter<A>(
   nel: NonEmptyList<A>,
-  predicate: (a: A) => boolean,
+  predicate: (a: A) => boolean
 ): Option<NonEmptyList<A>> {
   return fromList(L.filter(toList(nel), predicate));
 }
@@ -258,10 +240,7 @@ export function filter<A>(
 /**
  * Zip two NonEmptyLists
  */
-export function zip<A, B>(
-  nelA: NonEmptyList<A>,
-  nelB: NonEmptyList<B>,
-): NonEmptyList<[A, B]> {
+export function zip<A, B>(nelA: NonEmptyList<A>, nelB: NonEmptyList<B>): NonEmptyList<[A, B]> {
   return NonEmptyList([nelA.head, nelB.head], L.zip(nelA.tail, nelB.tail));
 }
 
@@ -271,12 +250,9 @@ export function zip<A, B>(
 export function zipWith<A, B, C>(
   nelA: NonEmptyList<A>,
   nelB: NonEmptyList<B>,
-  f: (a: A, b: B) => C,
+  f: (a: A, b: B) => C
 ): NonEmptyList<C> {
-  return NonEmptyList(
-    f(nelA.head, nelB.head),
-    L.zipWith(nelA.tail, nelB.tail, f),
-  );
+  return NonEmptyList(f(nelA.head, nelB.head), L.zipWith(nelA.tail, nelB.tail, f));
 }
 
 /**
@@ -294,22 +270,14 @@ export function intersperse<A>(nel: NonEmptyList<A>, sep: A): NonEmptyList<A> {
 /**
  * Fold left
  */
-export function foldLeft<A, B>(
-  nel: NonEmptyList<A>,
-  init: B,
-  f: (b: B, a: A) => B,
-): B {
+export function foldLeft<A, B>(nel: NonEmptyList<A>, init: B, f: (b: B, a: A) => B): B {
   return L.foldLeft(toList(nel), init, f);
 }
 
 /**
  * Fold right
  */
-export function foldRight<A, B>(
-  nel: NonEmptyList<A>,
-  init: B,
-  f: (a: A, b: B) => B,
-): B {
+export function foldRight<A, B>(nel: NonEmptyList<A>, init: B, f: (a: A, b: B) => B): B {
   return L.foldRight(toList(nel), init, f);
 }
 
@@ -329,8 +297,7 @@ export function reduceRight<A>(nel: NonEmptyList<A>, f: (a: A, b: A) => A): A {
 }
 
 function unsafeFromList<A>(list: List<A>): NonEmptyList<A> {
-  if (L.isNil(list))
-    throw new Error("Cannot create NonEmptyList from empty list");
+  if (L.isNil(list)) throw new Error("Cannot create NonEmptyList from empty list");
   return NonEmptyList(list.head, list.tail);
 }
 
@@ -341,30 +308,21 @@ function unsafeFromList<A>(list: List<A>): NonEmptyList<A> {
 /**
  * Find the first element matching a predicate
  */
-export function find<A>(
-  nel: NonEmptyList<A>,
-  predicate: (a: A) => boolean,
-): Option<A> {
+export function find<A>(nel: NonEmptyList<A>, predicate: (a: A) => boolean): Option<A> {
   return L.find(toList(nel), predicate);
 }
 
 /**
  * Check if any element satisfies the predicate
  */
-export function exists<A>(
-  nel: NonEmptyList<A>,
-  predicate: (a: A) => boolean,
-): boolean {
+export function exists<A>(nel: NonEmptyList<A>, predicate: (a: A) => boolean): boolean {
   return L.exists(toList(nel), predicate);
 }
 
 /**
  * Check if all elements satisfy the predicate
  */
-export function forall<A>(
-  nel: NonEmptyList<A>,
-  predicate: (a: A) => boolean,
-): boolean {
+export function forall<A>(nel: NonEmptyList<A>, predicate: (a: A) => boolean): boolean {
   return L.forall(toList(nel), predicate);
 }
 
@@ -374,7 +332,7 @@ export function forall<A>(
 export function contains<A>(
   nel: NonEmptyList<A>,
   a: A,
-  eq: (x: A, y: A) => boolean = (x, y) => x === y,
+  eq: (x: A, y: A) => boolean = (x, y) => x === y
 ): boolean {
   return L.contains(toList(nel), a, eq);
 }
@@ -386,20 +344,14 @@ export function contains<A>(
 /**
  * Get the minimum element
  */
-export function minimum<A>(
-  nel: NonEmptyList<A>,
-  compare: (a: A, b: A) => number,
-): A {
+export function minimum<A>(nel: NonEmptyList<A>, compare: (a: A, b: A) => number): A {
   return reduce(nel, (a, b) => (compare(a, b) <= 0 ? a : b));
 }
 
 /**
  * Get the maximum element
  */
-export function maximum<A>(
-  nel: NonEmptyList<A>,
-  compare: (a: A, b: A) => number,
-): A {
+export function maximum<A>(nel: NonEmptyList<A>, compare: (a: A, b: A) => number): A {
   return reduce(nel, (a, b) => (compare(a, b) >= 0 ? a : b));
 }
 
@@ -409,7 +361,7 @@ export function maximum<A>(
 export function minimumBy<A, B>(
   nel: NonEmptyList<A>,
   f: (a: A) => B,
-  compare: (b1: B, b2: B) => number,
+  compare: (b1: B, b2: B) => number
 ): A {
   return reduce(nel, (a1, a2) => (compare(f(a1), f(a2)) <= 0 ? a1 : a2));
 }
@@ -420,7 +372,7 @@ export function minimumBy<A, B>(
 export function maximumBy<A, B>(
   nel: NonEmptyList<A>,
   f: (a: A) => B,
-  compare: (b1: B, b2: B) => number,
+  compare: (b1: B, b2: B) => number
 ): A {
   return reduce(nel, (a1, a2) => (compare(f(a1), f(a2)) >= 0 ? a1 : a2));
 }
@@ -434,7 +386,7 @@ export function maximumBy<A, B>(
  */
 export function traverse<A, B>(
   nel: NonEmptyList<A>,
-  f: (a: A) => Option<B>,
+  f: (a: A) => Option<B>
 ): Option<NonEmptyList<B>> {
   const headResult = f(nel.head);
   if (!isSome(headResult)) return None;
@@ -449,9 +401,7 @@ export function traverse<A, B>(
 /**
  * Sequence a NonEmptyList of Options
  */
-export function sequence<A>(
-  nel: NonEmptyList<Option<A>>,
-): Option<NonEmptyList<A>> {
+export function sequence<A>(nel: NonEmptyList<Option<A>>): Option<NonEmptyList<A>> {
   return traverse(nel, (opt) => opt);
 }
 
@@ -518,12 +468,10 @@ export function Do<A>(a: A): NonEmptyList<A> {
  */
 export function bind<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => NonEmptyList<B>,
+  f: (a: A) => NonEmptyList<B>
 ): (nel: NonEmptyList<A>) => NonEmptyList<A & { readonly [K in N]: B }> {
   return (nel) =>
-    flatMap(nel, (a) =>
-      map(f(a), (b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
-    );
+    flatMap(nel, (a) => map(f(a), (b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }));
 }
 
 /**
@@ -531,10 +479,9 @@ export function bind<N extends string, A extends object, B>(
  */
 export function let_<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (nel: NonEmptyList<A>) => NonEmptyList<A & { readonly [K in N]: B }> {
-  return (nel) =>
-    map(nel, (a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
+  return (nel) => map(nel, (a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
 }
 
 // ============================================================================
@@ -553,21 +500,18 @@ export function forEach<A>(nel: NonEmptyList<A>, f: (a: A) => void): void {
  */
 export function mapWithIndex<A, B>(
   nel: NonEmptyList<A>,
-  f: (index: number, a: A) => B,
+  f: (index: number, a: A) => B
 ): NonEmptyList<B> {
   return NonEmptyList(
     f(0, nel.head),
-    L.mapWithIndex(nel.tail, (i, a) => f(i + 1, a)),
+    L.mapWithIndex(nel.tail, (i, a) => f(i + 1, a))
   );
 }
 
 /**
  * Sort the NonEmptyList
  */
-export function sort<A>(
-  nel: NonEmptyList<A>,
-  compare: (a: A, b: A) => number,
-): NonEmptyList<A> {
+export function sort<A>(nel: NonEmptyList<A>, compare: (a: A, b: A) => number): NonEmptyList<A> {
   return unsafeFromArray(toArray(nel).sort(compare));
 }
 
@@ -577,7 +521,7 @@ export function sort<A>(
 export function sortBy<A, B>(
   nel: NonEmptyList<A>,
   f: (a: A) => B,
-  compare: (b1: B, b2: B) => number,
+  compare: (b1: B, b2: B) => number
 ): NonEmptyList<A> {
   return sort(nel, (a1, a2) => compare(f(a1), f(a2)));
 }
@@ -587,7 +531,7 @@ export function sortBy<A, B>(
  */
 export function distinct<A>(
   nel: NonEmptyList<A>,
-  eq: (a: A, b: A) => boolean = (a, b) => a === b,
+  eq: (a: A, b: A) => boolean = (a, b) => a === b
 ): NonEmptyList<A> {
   const result = L.distinct(toList(nel), eq);
   // We know result is non-empty because nel is non-empty
@@ -607,7 +551,7 @@ export function mkString(nel: NonEmptyList<string>, sep: string = ""): string {
 export function groupBy<A, K>(
   nel: NonEmptyList<A>,
   f: (a: A) => K,
-  eq: (k1: K, k2: K) => boolean = (k1, k2) => k1 === k2,
+  eq: (k1: K, k2: K) => boolean = (k1, k2) => k1 === k2
 ): NonEmptyList<NonEmptyList<A>> {
   const groups = L.groupBy(toList(nel), f, eq);
   // We know groups is non-empty because nel is non-empty

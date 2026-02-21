@@ -39,13 +39,10 @@ export interface TransformConfig<From, To> {
  * @param config Optional configuration for renaming, computing, and providing constants.
  * @returns The transformed object.
  */
-export function transformInto<From, To>(
-  source: From,
-  config?: TransformConfig<From, To>,
-): To {
+export function transformInto<From, To>(source: From, config?: TransformConfig<From, To>): To {
   throw new Error(
     "transformInto() was called at runtime. " +
       "This indicates the typesugar transformer is not configured correctly. " +
-      "Please ensure your build tool is configured to use the typesugar transformer.",
+      "Please ensure your build tool is configured to use the typesugar transformer."
   );
 }

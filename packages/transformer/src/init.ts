@@ -77,16 +77,14 @@ async function prompt(question: string): Promise<string> {
 
 async function confirm(question: string, defaultYes = true): Promise<boolean> {
   const hint = defaultYes ? "[Y/n]" : "[y/N]";
-  const answer = await prompt(
-    `${question} ${COLORS.dim}${hint}${COLORS.reset}`,
-  );
+  const answer = await prompt(`${question} ${COLORS.dim}${hint}${COLORS.reset}`);
   if (answer === "") return defaultYes;
   return answer.toLowerCase().startsWith("y");
 }
 
 async function select<T extends string>(
   question: string,
-  options: { value: T; label: string }[],
+  options: { value: T; label: string }[]
 ): Promise<T> {
   log(`${COLORS.cyan}?${COLORS.reset} ${question}`);
   options.forEach((opt, i) => {
@@ -171,7 +169,7 @@ function detectStack(cwd: string): DetectedStack {
 function getInstallCommand(
   pm: DetectedStack["packageManager"],
   packages: string[],
-  dev = true,
+  dev = true
 ): string {
   const pkgList = packages.join(" ");
   switch (pm) {
@@ -231,12 +229,8 @@ function patchTsConfig(cwd: string): boolean {
       type?: string;
     }>;
 
-    const hasLanguageService = plugins.some(
-      (p) => p.name === "typesugar/language-service",
-    );
-    const hasTransformer = plugins.some(
-      (p) => p.transform === "@typesugar/transformer",
-    );
+    const hasLanguageService = plugins.some((p) => p.name === "typesugar/language-service");
+    const hasTransformer = plugins.some((p) => p.transform === "@typesugar/transformer");
 
     if (!hasLanguageService) {
       plugins.unshift({ name: "typesugar/language-service" });
@@ -331,7 +325,7 @@ export default {
 function patchBundlerConfig(
   cwd: string,
   bundler: DetectedStack["bundler"],
-  configFile?: string,
+  configFile?: string
 ): { created: boolean; patched: boolean; file?: string } {
   if (bundler === "none" || bundler === "next") {
     return { created: false, patched: false };
@@ -423,7 +417,7 @@ console.log(\`JSON: \${user1.toJson()}\`);
 
 function getPackagesForPersona(
   persona: Persona,
-  bundler: DetectedStack["bundler"],
+  bundler: DetectedStack["bundler"]
 ): { runtime: string[]; dev: string[] } {
   const dev: string[] = ["@typesugar/transformer", "ts-patch"];
 
@@ -437,11 +431,7 @@ function getPackagesForPersona(
 
     case "app-developer":
       return {
-        runtime: [
-          "@typesugar/comptime",
-          "@typesugar/derive",
-          "@typesugar/reflect",
-        ],
+        runtime: ["@typesugar/comptime", "@typesugar/derive", "@typesugar/reflect"],
         dev,
       };
 
@@ -461,9 +451,7 @@ export async function runInit(verbose: boolean): Promise<void> {
   log("Detecting your project setup...\n");
   const stack = detectStack(cwd);
 
-  info(
-    `Package manager: ${COLORS.bright}${stack.packageManager}${COLORS.reset}`,
-  );
+  info(`Package manager: ${COLORS.bright}${stack.packageManager}${COLORS.reset}`);
   info(`Bundler: ${COLORS.bright}${stack.bundler}${COLORS.reset}`);
   info(`TypeScript: ${stack.hasTypeScript ? "yes" : "no"}`);
   info(`tsconfig.json: ${stack.hasTsConfig ? "exists" : "will be created"}`);
@@ -536,11 +524,7 @@ export async function runInit(verbose: boolean): Promise<void> {
     success('Added "prepare" script for ts-patch');
   }
 
-  const bundlerResult = patchBundlerConfig(
-    cwd,
-    stack.bundler,
-    stack.configFile,
-  );
+  const bundlerResult = patchBundlerConfig(cwd, stack.bundler, stack.configFile);
   if (bundlerResult.created) {
     success(`Created ${bundlerResult.file} with typesugar plugin`);
   } else if (bundlerResult.file && !bundlerResult.patched) {
@@ -579,9 +563,7 @@ export async function runInit(verbose: boolean): Promise<void> {
 
   log("");
   log(`  2. ${COLORS.dim}Check macro expansion:${COLORS.reset}`);
-  log(
-    `     ${COLORS.cyan}npx typesugar expand src/typesugar-example.ts${COLORS.reset}`,
-  );
+  log(`     ${COLORS.cyan}npx typesugar expand src/typesugar-example.ts${COLORS.reset}`);
 
   log("");
   log(`  3. ${COLORS.dim}Run diagnostics if issues arise:${COLORS.reset}`);

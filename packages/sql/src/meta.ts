@@ -44,7 +44,7 @@
 function registerInstanceMethods(
   _dictName: string,
   _brand: string,
-  _methods: Record<string, { source: string; params: string[] }>,
+  _methods: Record<string, { source: string; params: string[] }>
 ): void {
   // This function is intentionally a no-op at runtime.
   // The specialize macro reads these registrations at compile time
@@ -112,7 +112,7 @@ export interface Get<A> {
  */
 export function makeGet<A>(
   decode: (value: unknown) => A | null,
-  sqlTypes: readonly SqlTypeName[],
+  sqlTypes: readonly SqlTypeName[]
 ): Get<A> {
   return {
     _tag: "Get",
@@ -148,10 +148,7 @@ export interface Put<A> {
 /**
  * Create a Put instance from an encoder function.
  */
-export function makePut<A>(
-  encode: (value: A) => unknown,
-  sqlType: SqlTypeName,
-): Put<A> {
+export function makePut<A>(encode: (value: A) => unknown, sqlType: SqlTypeName): Put<A> {
   return {
     _tag: "Put",
     put: encode,
@@ -190,7 +187,7 @@ export function makeMeta<A>(
   decode: (value: unknown) => A | null,
   encode: (value: A) => unknown,
   sqlType: SqlTypeName,
-  readTypes?: readonly SqlTypeName[],
+  readTypes?: readonly SqlTypeName[]
 ): Meta<A> {
   return {
     _tag: "Meta",
@@ -217,7 +214,7 @@ export const stringMeta: Meta<string> = makeMeta(
   (v) => (typeof v === "string" ? v : v === null ? null : String(v)),
   (v) => v,
   "TEXT",
-  ["TEXT", "VARCHAR", "CHAR"],
+  ["TEXT", "VARCHAR", "CHAR"]
 );
 
 /** Meta instance for numbers (integers and floats) */
@@ -225,16 +222,7 @@ export const numberMeta: Meta<number> = makeMeta(
   (v) => (typeof v === "number" ? v : v === null ? null : Number(v)),
   (v) => v,
   "NUMERIC",
-  [
-    "INTEGER",
-    "INT",
-    "BIGINT",
-    "SMALLINT",
-    "REAL",
-    "DOUBLE PRECISION",
-    "NUMERIC",
-    "DECIMAL",
-  ],
+  ["INTEGER", "INT", "BIGINT", "SMALLINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"]
 );
 
 /** Meta instance for integers specifically */
@@ -246,7 +234,7 @@ export const intMeta: Meta<number> = makeMeta(
   },
   (v) => Math.trunc(v),
   "INTEGER",
-  ["INTEGER", "INT", "BIGINT", "SMALLINT"],
+  ["INTEGER", "INT", "BIGINT", "SMALLINT"]
 );
 
 /** Meta instance for bigints */
@@ -259,7 +247,7 @@ export const bigintMeta: Meta<bigint> = makeMeta(
     return null;
   },
   (v) => v.toString(),
-  "BIGINT",
+  "BIGINT"
 );
 
 /** Meta instance for booleans */
@@ -272,7 +260,7 @@ export const booleanMeta: Meta<boolean> = makeMeta(
     return Boolean(v);
   },
   (v) => v,
-  "BOOLEAN",
+  "BOOLEAN"
 );
 
 /** Meta instance for Date objects */
@@ -288,7 +276,7 @@ export const dateMeta: Meta<Date> = makeMeta(
   },
   (v) => v.toISOString(),
   "TIMESTAMPTZ",
-  ["DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ"],
+  ["DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ"]
 );
 
 /** Meta instance for date-only (no time component) */
@@ -304,7 +292,7 @@ export const dateOnlyMeta: Meta<Date> = makeMeta(
     return null;
   },
   (v) => v.toISOString().split("T")[0],
-  "DATE",
+  "DATE"
 );
 
 /** Meta instance for UUIDs (as strings) */
@@ -313,14 +301,13 @@ export const uuidMeta: Meta<string> = makeMeta(
     if (v === null) return null;
     if (typeof v === "string") {
       // Basic UUID format validation
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       return uuidRegex.test(v) ? v : null;
     }
     return null;
   },
   (v) => v,
-  "UUID",
+  "UUID"
 );
 
 /** Meta instance for JSON values */
@@ -338,7 +325,7 @@ export const jsonMeta: Meta<unknown> = makeMeta(
   },
   (v) => JSON.stringify(v),
   "JSONB",
-  ["JSON", "JSONB"],
+  ["JSON", "JSONB"]
 );
 
 /** Meta instance for Buffer/binary data */
@@ -353,7 +340,7 @@ export const bufferMeta: Meta<Buffer> = makeMeta(
     return null;
   },
   (v) => v,
-  "BYTEA",
+  "BYTEA"
 );
 
 // ============================================================================
@@ -369,7 +356,7 @@ export function nullable<A>(meta: Meta<A>): Meta<A | null> {
     (v) => (v === null ? null : meta.get(v)),
     (v) => (v === null ? null : meta.put(v as A)),
     meta.sqlType,
-    meta.sqlTypes,
+    meta.sqlTypes
   );
 }
 
@@ -392,7 +379,7 @@ export function arrayMeta<A>(elementMeta: Meta<A>): Meta<A[]> {
       return result;
     },
     (v) => v.map((item) => elementMeta.put(item)),
-    "ARRAY",
+    "ARRAY"
   );
 }
 
@@ -402,11 +389,10 @@ export function arrayMeta<A>(elementMeta: Meta<A>): Meta<A[]> {
  */
 export function optional<A>(meta: Meta<A>): Meta<A | undefined> {
   return makeMeta<A | undefined>(
-    (v) =>
-      v === null || v === undefined ? undefined : (meta.get(v) ?? undefined),
+    (v) => (v === null || v === undefined ? undefined : (meta.get(v) ?? undefined)),
     (v) => (v === undefined ? null : meta.put(v as A)),
     meta.sqlType,
-    meta.sqlTypes,
+    meta.sqlTypes
   );
 }
 
@@ -451,8 +437,7 @@ export interface Write<A> {
 
 registerInstanceMethods("stringMeta", "Meta", {
   get: {
-    source:
-      '(v) => (typeof v === "string" ? v : v === null ? null : String(v))',
+    source: '(v) => (typeof v === "string" ? v : v === null ? null : String(v))',
     params: ["v"],
   },
   unsafeGet: {
@@ -468,8 +453,7 @@ registerInstanceMethods("stringMeta", "Meta", {
 
 registerInstanceMethods("numberMeta", "Meta", {
   get: {
-    source:
-      '(v) => (typeof v === "number" ? v : v === null ? null : Number(v))',
+    source: '(v) => (typeof v === "number" ? v : v === null ? null : Number(v))',
     params: ["v"],
   },
   unsafeGet: {

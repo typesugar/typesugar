@@ -46,7 +46,7 @@ export const staticAssertMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
       ctx
@@ -90,11 +90,7 @@ export const staticAssertMacro = defineExpressionMacro({
       } else if (conditionArg.kind === ts.SyntaxKind.TrueKeyword) {
         // Assertion passes — remove the call
       } else {
-        ctx
-          .diagnostic(TS9219)
-          .at(callExpr)
-          .note(`Original assertion message: ${message}`)
-          .emit();
+        ctx.diagnostic(TS9219).at(callExpr).note(`Original assertion message: ${message}`).emit();
       }
       return ctx.factory.createIdentifier("undefined");
     }
@@ -131,7 +127,7 @@ export const compileErrorMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -166,7 +162,7 @@ export const compileWarningMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -197,11 +193,7 @@ export const compileWarningMacro = defineExpressionMacro({
  * Extract a string from a macro argument, supporting string literals
  * and compile-time evaluation.
  */
-function extractStringArg(
-  ctx: MacroContext,
-  arg: ts.Expression,
-  macroName: string,
-): string {
+function extractStringArg(ctx: MacroContext, arg: ts.Expression, macroName: string): string {
   if (ts.isStringLiteral(arg)) {
     return arg.text;
   }
@@ -222,9 +214,7 @@ function extractStringArg(
 /**
  * Convert a ComptimeValue to a boolean (mirrors context.ts logic).
  */
-function comptimeToBoolean(
-  value: import("@typesugar/core").ComptimeValue,
-): boolean | null {
+function comptimeToBoolean(value: import("@typesugar/core").ComptimeValue): boolean | null {
   switch (value.kind) {
     case "boolean":
       return value.value;

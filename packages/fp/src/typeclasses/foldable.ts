@@ -32,36 +32,29 @@ export interface Foldable<F> {
  * Map each element to a monoid and combine
  */
 export function foldMap<F>(
-  F: Foldable<F>,
+  F: Foldable<F>
 ): <M>(M: Monoid<M>) => <A>(fa: $<F, A>, f: (a: A) => M) => M {
-  return (M) => (fa, f) =>
-    F.foldLeft(fa, M.empty, (acc, a) => M.combine(acc, f(a)));
+  return (M) => (fa, f) => F.foldLeft(fa, M.empty, (acc, a) => M.combine(acc, f(a)));
 }
 
 /**
  * Combine all elements using a monoid
  */
-export function fold<F>(
-  F: Foldable<F>,
-): <A>(M: Monoid<A>) => (fa: $<F, A>) => A {
+export function fold<F>(F: Foldable<F>): <A>(M: Monoid<A>) => (fa: $<F, A>) => A {
   return (M) => (fa) => F.foldLeft(fa, M.empty, M.combine);
 }
 
 /**
  * Check if any element satisfies a predicate
  */
-export function exists<F>(
-  F: Foldable<F>,
-): <A>(fa: $<F, A>, p: (a: A) => boolean) => boolean {
+export function exists<F>(F: Foldable<F>): <A>(fa: $<F, A>, p: (a: A) => boolean) => boolean {
   return (fa, p) => F.foldLeft(fa, false, (acc, a) => acc || p(a));
 }
 
 /**
  * Check if all elements satisfy a predicate
  */
-export function forall<F>(
-  F: Foldable<F>,
-): <A>(fa: $<F, A>, p: (a: A) => boolean) => boolean {
+export function forall<F>(F: Foldable<F>): <A>(fa: $<F, A>, p: (a: A) => boolean) => boolean {
   return (fa, p) => F.foldLeft(fa, true, (acc, a) => acc && p(a));
 }
 
@@ -89,12 +82,10 @@ export function size<F>(F: Foldable<F>): <A>(fa: $<F, A>) => number {
 /**
  * Find the first element satisfying a predicate
  */
-export function find<F>(
-  F: Foldable<F>,
-): <A>(fa: $<F, A>, p: (a: A) => boolean) => A | undefined {
+export function find<F>(F: Foldable<F>): <A>(fa: $<F, A>, p: (a: A) => boolean) => A | undefined {
   return <A>(fa: $<F, A>, p: (a: A) => boolean): A | undefined =>
     F.foldLeft<A, A | undefined>(fa, undefined, (acc, a) =>
-      acc !== undefined ? acc : p(a) ? a : undefined,
+      acc !== undefined ? acc : p(a) ? a : undefined
     );
 }
 
@@ -127,9 +118,7 @@ export function toArray<F>(F: Foldable<F>): <A>(fa: $<F, A>) => A[] {
 /**
  * Filter elements and collect to array
  */
-export function filter<F>(
-  F: Foldable<F>,
-): <A>(fa: $<F, A>, p: (a: A) => boolean) => A[] {
+export function filter<F>(F: Foldable<F>): <A>(fa: $<F, A>, p: (a: A) => boolean) => A[] {
   return <A>(fa: $<F, A>, p: (a: A) => boolean): A[] =>
     F.foldLeft<A, A[]>(fa, [], (acc, a) => {
       if (p(a)) acc.push(a);
@@ -141,11 +130,11 @@ export function filter<F>(
  * Get minimum element (requires a comparison function)
  */
 export function minimum<F>(
-  F: Foldable<F>,
+  F: Foldable<F>
 ): <A>(fa: $<F, A>, compare: (a: A, b: A) => number) => A | undefined {
   return <A>(fa: $<F, A>, compare: (a: A, b: A) => number): A | undefined =>
     F.foldLeft<A, A | undefined>(fa, undefined, (acc, a) =>
-      acc === undefined ? a : compare(a, acc) < 0 ? a : acc,
+      acc === undefined ? a : compare(a, acc) < 0 ? a : acc
     );
 }
 
@@ -153,11 +142,11 @@ export function minimum<F>(
  * Get maximum element (requires a comparison function)
  */
 export function maximum<F>(
-  F: Foldable<F>,
+  F: Foldable<F>
 ): <A>(fa: $<F, A>, compare: (a: A, b: A) => number) => A | undefined {
   return <A>(fa: $<F, A>, compare: (a: A, b: A) => number): A | undefined =>
     F.foldLeft<A, A | undefined>(fa, undefined, (acc, a) =>
-      acc === undefined ? a : compare(a, acc) > 0 ? a : acc,
+      acc === undefined ? a : compare(a, acc) > 0 ? a : acc
     );
 }
 
@@ -165,7 +154,7 @@ export function maximum<F>(
  * Check if an element exists in the structure
  */
 export function contains<F>(
-  F: Foldable<F>,
+  F: Foldable<F>
 ): <A>(fa: $<F, A>, a: A, eq: (x: A, y: A) => boolean) => boolean {
   return (fa, a, eq) => exists(F)(fa, (x) => eq(x, a));
 }
@@ -179,7 +168,7 @@ export function contains<F>(
  */
 export function makeFoldable<F>(
   foldLeft: <A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B) => B,
-  foldRight: <A, B>(fa: $<F, A>, b: B, f: (a: A, b: B) => B) => B,
+  foldRight: <A, B>(fa: $<F, A>, b: B, f: (a: A, b: B) => B) => B
 ): Foldable<F> {
   return { foldLeft, foldRight };
 }

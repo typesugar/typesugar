@@ -42,10 +42,7 @@ class HttpClientTag extends Context.Tag("HttpClient")<
   HttpClient,
   {
     readonly get: (url: string) => Effect.Effect<Response, HttpError>;
-    readonly post: (
-      url: string,
-      body: unknown,
-    ) => Effect.Effect<Response, HttpError>;
+    readonly post: (url: string, body: unknown) => Effect.Effect<Response, HttpError>;
   }
 >() {}
 
@@ -99,7 +96,7 @@ yield: ({ findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`) 
 
 ---
 
-### resolveLayer<R>() — Automatic Layer Composition
+### resolveLayer\<R\>() — Automatic Layer Composition
 
 Given registered layers, automatically build the dependency graph:
 
@@ -146,7 +143,7 @@ yield: ({ user, posts });
 
 // Compiles to:
 Effect.flatMap(getUserById(id), (user) =>
-  Effect.map(getPostsForUser(user.id), (posts) => ({ user, posts })),
+  Effect.map(getPostsForUser(user.id), (posts) => ({ user, posts }))
 );
 ```
 

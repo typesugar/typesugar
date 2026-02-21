@@ -39,10 +39,7 @@ import { defineExpressionMacro, globalRegistry } from "./registry.js";
  * A transformation step in a pipeline.
  * Takes an expression and returns a transformed expression.
  */
-export type PipelineStep = (
-  ctx: MacroContext,
-  expr: ts.Expression,
-) => ts.Expression;
+export type PipelineStep = (ctx: MacroContext, expr: ts.Expression) => ts.Expression;
 
 /**
  * A pipeline builder for composing macro transformations.
@@ -70,7 +67,7 @@ export class MacroPipeline {
         const callExpr = ctx.factory.createCallExpression(
           ctx.factory.createIdentifier(macro.name),
           undefined,
-          [expr],
+          [expr]
         );
         return macro.expand(ctx, callExpr, [expr]);
       });
@@ -85,7 +82,7 @@ export class MacroPipeline {
    */
   pipeIf(
     predicate: (ctx: MacroContext, expr: ts.Expression) => boolean,
-    step: PipelineStep | ExpressionMacro,
+    step: PipelineStep | ExpressionMacro
   ): MacroPipeline {
     const wrappedStep =
       "expand" in step && "kind" in step
@@ -94,7 +91,7 @@ export class MacroPipeline {
             const callExpr = ctx.factory.createCallExpression(
               ctx.factory.createIdentifier(macro.name),
               undefined,
-              [expr],
+              [expr]
             );
             return macro.expand(ctx, callExpr, [expr]);
           }
@@ -115,12 +112,9 @@ export class MacroPipeline {
   mapElements(step: PipelineStep): MacroPipeline {
     this.steps.push((ctx, expr) => {
       if (ts.isArrayLiteralExpression(expr)) {
-        const newElements = expr.elements.map((el) =>
-          ts.isExpression(el) ? step(ctx, el) : el,
-        );
+        const newElements = expr.elements.map((el) => (ts.isExpression(el) ? step(ctx, el) : el));
         // multiLine is not in the public TS API, check if it exists on the node
-        const multiLine =
-          (expr as unknown as { multiLine?: boolean }).multiLine ?? false;
+        const multiLine = (expr as unknown as { multiLine?: boolean }).multiLine ?? false;
         return ctx.factory.createArrayLiteralExpression(newElements, multiLine);
       }
       return step(ctx, expr);
@@ -131,28 +125,21 @@ export class MacroPipeline {
   /**
    * Build the pipeline into a registered ExpressionMacro.
    */
-  build(options?: {
-    register?: boolean;
-    description?: string;
-  }): ExpressionMacro {
+  build(options?: { register?: boolean; description?: string }): ExpressionMacro {
     const steps = [...this.steps];
     const macro = defineExpressionMacro({
       name: this.macroName,
       module: this.macroModule,
       description:
-        options?.description ??
-        `Pipeline macro: ${this.macroName} (${steps.length} steps)`,
+        options?.description ?? `Pipeline macro: ${this.macroName} (${steps.length} steps)`,
 
       expand(
         ctx: MacroContext,
         callExpr: ts.CallExpression,
-        args: readonly ts.Expression[],
+        args: readonly ts.Expression[]
       ): ts.Expression {
         if (args.length !== 1) {
-          ctx.reportError(
-            callExpr,
-            `Pipeline macro '${macro.name}' expects exactly one argument`,
-          );
+          ctx.reportError(callExpr, `Pipeline macro '${macro.name}' expects exactly one argument`);
           return callExpr;
         }
 
@@ -166,7 +153,7 @@ export class MacroPipeline {
               callExpr,
               `Pipeline macro '${macro.name}' failed at step ${i + 1}: ${
                 error instanceof Error ? error.message : String(error)
-              }`,
+              }`
             );
             return callExpr;
           }
@@ -217,10 +204,7 @@ export function pipeline(name: string, module?: string): MacroPipeline {
 /**
  * A pipeline step that wraps an expression in parentheses.
  */
-export function parenthesize(
-  _ctx: MacroContext,
-  expr: ts.Expression,
-): ts.Expression {
+export function parenthesize(_ctx: MacroContext, expr: ts.Expression): ts.Expression {
   return ts.factory.createParenthesizedExpression(expr);
 }
 
@@ -229,9 +213,7 @@ export function parenthesize(
  */
 export function assertType(typeName: string): PipelineStep {
   return (ctx, expr) => {
-    const typeNode = ts.factory.createTypeReferenceNode(
-      ts.factory.createIdentifier(typeName),
-    );
+    const typeNode = ts.factory.createTypeReferenceNode(ts.factory.createIdentifier(typeName));
     return ctx.factory.createAsExpression(expr, typeNode);
   };
 }
@@ -239,20 +221,14 @@ export function assertType(typeName: string): PipelineStep {
 /**
  * A pipeline step that wraps an expression in a void operator.
  */
-export function voidify(
-  _ctx: MacroContext,
-  expr: ts.Expression,
-): ts.Expression {
+export function voidify(_ctx: MacroContext, expr: ts.Expression): ts.Expression {
   return ts.factory.createVoidExpression(expr);
 }
 
 /**
  * A pipeline step that wraps an expression in an await.
  */
-export function awaitify(
-  _ctx: MacroContext,
-  expr: ts.Expression,
-): ts.Expression {
+export function awaitify(_ctx: MacroContext, expr: ts.Expression): ts.Expression {
   return ts.factory.createAwaitExpression(expr);
 }
 
@@ -262,11 +238,7 @@ export function awaitify(
 export function debugStep(label: string): PipelineStep {
   return (ctx, expr) => {
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const text = printer.printNode(
-      ts.EmitHint.Expression,
-      expr,
-      ctx.sourceFile,
-    );
+    const text = printer.printNode(ts.EmitHint.Expression, expr, ctx.sourceFile);
     console.log(`[pipeline:${label}] ${text}`);
     return expr;
   };

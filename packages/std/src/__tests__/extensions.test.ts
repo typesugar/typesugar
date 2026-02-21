@@ -333,7 +333,7 @@ describe("StringExt", () => {
 
   it("escapeHtml", () => {
     expect(escapeHtml('<script>alert("xss")</script>')).toBe(
-      "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
+      "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;"
     );
   });
 });
@@ -488,15 +488,15 @@ describe("BooleanExt", () => {
       boolFold(
         true,
         () => "no",
-        () => "yes",
-      ),
+        () => "yes"
+      )
     ).toBe("yes");
     expect(
       boolFold(
         false,
         () => "no",
-        () => "yes",
-      ),
+        () => "yes"
+      )
     ).toBe("no");
   });
 
@@ -718,8 +718,8 @@ describe("TupleExt", () => {
       bimap(
         pair(1, "a"),
         (n) => n * 2,
-        (s) => s.toUpperCase(),
-      ),
+        (s) => s.toUpperCase()
+      )
     ).toEqual([2, "A"]);
   });
 

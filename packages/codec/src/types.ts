@@ -34,9 +34,7 @@ export interface Codec<T> {
 }
 
 /** A function that migrates a record from one version to the next. */
-export type Migration = (
-  value: Record<string, unknown>,
-) => Record<string, unknown>;
+export type Migration = (value: Record<string, unknown>) => Record<string, unknown>;
 
 /** The full migration chain for a versioned type. */
 export interface VersionHistory {

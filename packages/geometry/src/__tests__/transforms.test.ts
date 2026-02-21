@@ -169,9 +169,7 @@ describe("composition", () => {
     const prt = applyToPoint(rt, p);
     const ptr = applyToPoint(tr, p);
 
-    const same =
-      Math.abs(prt[0] - ptr[0]) < 1e-10 &&
-      Math.abs(prt[1] - ptr[1]) < 1e-10;
+    const same = Math.abs(prt[0] - ptr[0]) < 1e-10 && Math.abs(prt[1] - ptr[1]) < 1e-10;
     expect(same).toBe(false);
   });
 

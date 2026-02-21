@@ -253,9 +253,7 @@ export default defineConfig({
       ],
     },
 
-    socialLinks: [
-      { icon: "github", link: "https://github.com/dpovey/typesugar" },
-    ],
+    socialLinks: [{ icon: "github", link: "https://github.com/dpovey/typesugar" }],
 
     search: {
       provider: "local",

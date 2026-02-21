@@ -7,10 +7,7 @@ function transformInto(source, config) {
 
 // src/macros.ts
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 var transformIntoMacro = defineExpressionMacro({
   name: "transformInto",
   module: "@typesugar/mapper",
@@ -40,21 +37,15 @@ var transformIntoMacro = defineExpressionMacro({
     for (const toProp of toProps) {
       const name = toProp.name;
       if (config.const.has(name)) {
-        resultProperties.push(
-          ctx.factory.createPropertyAssignment(name, config.const.get(name))
-        );
+        resultProperties.push(ctx.factory.createPropertyAssignment(name, config.const.get(name)));
         continue;
       }
       if (config.compute.has(name)) {
         const computeLambda = config.compute.get(name);
-        const inlineCall = ctx.factory.createCallExpression(
-          computeLambda,
-          void 0,
-          [sourceIdent]
-        );
-        resultProperties.push(
-          ctx.factory.createPropertyAssignment(name, inlineCall)
-        );
+        const inlineCall = ctx.factory.createCallExpression(computeLambda, void 0, [
+          sourceIdent
+        ]);
+        resultProperties.push(ctx.factory.createPropertyAssignment(name, inlineCall));
         continue;
       }
       let sourceName = name;
@@ -69,9 +60,7 @@ var transformIntoMacro = defineExpressionMacro({
         );
         const isTargetIdentifier = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
         const propName = isTargetIdentifier ? ctx.factory.createIdentifier(name) : ctx.factory.createStringLiteral(name);
-        resultProperties.push(
-          ctx.factory.createPropertyAssignment(propName, propAccess)
-        );
+        resultProperties.push(ctx.factory.createPropertyAssignment(propName, propAccess));
         continue;
       }
       ctx.reportError(
@@ -79,10 +68,7 @@ var transformIntoMacro = defineExpressionMacro({
         `Cannot map field '${name}': No matching field '${sourceName}' in source type and no constant/compute rule provided.`
       );
     }
-    const objLit = ctx.factory.createObjectLiteralExpression(
-      resultProperties,
-      true
-    );
+    const objLit = ctx.factory.createObjectLiteralExpression(resultProperties, true);
     if (needsTempVar && tempName) {
       return ctx.factory.createCallExpression(
         ctx.factory.createArrowFunction(

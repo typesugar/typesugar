@@ -113,10 +113,7 @@ function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
   const resolved = path.resolve(sourceDir, relativePath);
   const projectRoot = getProjectRoot(ctx);
   if (!resolved.startsWith(projectRoot + path.sep)) {
-    ctx.reportError(
-      node,
-      `Path traversal blocked: ${relativePath} resolves outside project root`,
-    );
+    ctx.reportError(node, `Path traversal blocked: ${relativePath} resolves outside project root`);
     return sourceDir; // safe fallback
   }
   return resolved;
@@ -329,11 +326,7 @@ export default {
     ],
 
     // Block these patterns in macro output
-    blockedOutputPatterns: [
-      "eval(",
-      "new Function(",
-      "require('child_process')",
-    ],
+    blockedOutputPatterns: ["eval(", "new Function(", "require('child_process')"],
 
     // Maximum expansion depth (prevent infinite recursion)
     maxExpansionDepth: 50,
@@ -401,13 +394,10 @@ All file-reading macros (`includeStr`, `includeBytes`, `includeJson`, `comptime`
 ```typescript
 function assertWithinProject(resolved: string, projectRoot: string): void {
   const normalized = path.normalize(resolved);
-  if (
-    !normalized.startsWith(projectRoot + path.sep) &&
-    normalized !== projectRoot
-  ) {
+  if (!normalized.startsWith(projectRoot + path.sep) && normalized !== projectRoot) {
     throw new Error(
       `Security: path "${resolved}" is outside project root "${projectRoot}". ` +
-        `File access is restricted to the project directory.`,
+        `File access is restricted to the project directory.`
     );
   }
 }

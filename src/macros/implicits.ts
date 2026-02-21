@@ -66,13 +66,15 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineAttributeMacro,
-  defineExpressionMacro,
-  globalRegistry,
-} from "../core/registry.js";
+import { defineAttributeMacro, defineExpressionMacro, globalRegistry } from "../core/registry.js";
 import { MacroContext } from "../core/types.js";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
+import {
+  formatResolutionTrace,
+  generateHelpFromTrace,
+  type ResolutionAttempt,
+  type ResolutionTrace,
+} from "../core/resolution-trace.js";
 
 // ============================================================================
 // Types
@@ -135,7 +137,7 @@ export function registerImplicitsFunction(info: ImplicitsFunctionInfo): void {
  */
 export function getImplicitsFunction(
   functionName: string,
-  sourceFile?: string,
+  sourceFile?: string
 ): ImplicitsFunctionInfo | undefined {
   if (sourceFile) {
     const key = `${sourceFile}::${functionName}`;
@@ -164,10 +166,10 @@ export function isRegisteredTypeclass(name: string): boolean {
  */
 export function resolveImplicit(
   typeclassName: string,
-  forType: string,
+  forType: string
 ): { instanceName: string; derived: boolean } | undefined {
   const instance = instanceRegistry.find(
-    (i) => i.typeclassName === typeclassName && i.forType === forType,
+    (i) => i.typeclassName === typeclassName && i.forType === forType
   );
   if (instance) {
     return {
@@ -185,21 +187,17 @@ export function resolveImplicit(
 export const implicitsAttribute = defineAttributeMacro({
   name: "implicits",
   module: "typemacro",
-  description:
-    "Mark a function as having implicit parameters that are auto-resolved",
+  description: "Mark a function as having implicit parameters that are auto-resolved",
   validTargets: ["function"],
 
   expand(
     ctx: MacroContext,
     decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target) || !target.name) {
-      ctx.reportError(
-        decorator,
-        "@implicits can only be applied to named function declarations",
-      );
+      ctx.reportError(decorator, "@implicits can only be applied to named function declarations");
       return target;
     }
 
@@ -250,10 +248,7 @@ export const implicitsAttribute = defineAttributeMacro({
       const typeclassName = typeName.text;
 
       // Must be a registered typeclass (or we're in auto-detect mode with explicit names)
-      if (
-        explicitParamNames.length === 0 &&
-        !isRegisteredTypeclass(typeclassName)
-      ) {
+      if (explicitParamNames.length === 0 && !isRegisteredTypeclass(typeclassName)) {
         continue;
       }
 
@@ -267,10 +262,7 @@ export const implicitsAttribute = defineAttributeMacro({
       const typeParamName = typeArg.getText();
 
       // In auto-detect mode, type arg must be a type parameter of the function
-      if (
-        explicitParamNames.length === 0 &&
-        !typeParams.includes(typeParamName)
-      ) {
+      if (explicitParamNames.length === 0 && !typeParams.includes(typeParamName)) {
         continue;
       }
 
@@ -287,7 +279,7 @@ export const implicitsAttribute = defineAttributeMacro({
       ctx.reportWarning(
         decorator,
         `@implicits on '${functionName}' found no implicit parameters. ` +
-          `Implicit params must be typed as Typeclass<T> where Typeclass is registered.`,
+          `Implicit params must be typed as Typeclass<T> where Typeclass is registered.`
       );
     }
 
@@ -298,8 +290,7 @@ export const implicitsAttribute = defineAttributeMacro({
       implicitParams,
       totalParams: target.parameters.length,
       typeParams,
-      explicitParamNames:
-        explicitParamNames.length > 0 ? explicitParamNames : undefined,
+      explicitParamNames: explicitParamNames.length > 0 ? explicitParamNames : undefined,
     });
 
     // Remove the @implicits decorator from output
@@ -325,7 +316,7 @@ export const implicitsAttribute = defineAttributeMacro({
 export function transformImplicitsCall(
   ctx: MacroContext,
   callExpr: ts.CallExpression,
-  enclosingScope?: ImplicitScope,
+  enclosingScope?: ImplicitScope
 ): ts.Expression | undefined {
   // Get function name
   const callee = callExpr.expression;
@@ -362,10 +353,7 @@ export function transformImplicitsCall(
   if (callExpr.typeArguments) {
     for (let i = 0; i < callExpr.typeArguments.length; i++) {
       if (i < funcInfo.typeParams.length) {
-        typeParamMap.set(
-          funcInfo.typeParams[i],
-          callExpr.typeArguments[i].getText(),
-        );
+        typeParamMap.set(funcInfo.typeParams[i], callExpr.typeArguments[i].getText());
       }
     }
   } else if (callExpr.arguments.length > 0 && funcInfo.typeParams.length > 0) {
@@ -412,10 +400,10 @@ export function transformImplicitsCall(
       const summonExpr = factory.createCallExpression(
         factory.createPropertyAccessExpression(
           factory.createIdentifier(implicitParam.typeclassName),
-          "summon",
+          "summon"
         ),
         [factory.createTypeReferenceNode(concreteType, undefined)],
-        [factory.createStringLiteral(concreteType)],
+        [factory.createStringLiteral(concreteType)]
       );
 
       while (newArgs.length < implicitParam.paramIndex) {
@@ -423,11 +411,42 @@ export function transformImplicitsCall(
       }
       newArgs.push(summonExpr);
     } else {
-      ctx.reportError(
-        callExpr,
-        `No implicit instance found for '${implicitParam.paramName}: ${implicitParam.typeclassName}<${concreteType}>'. ` +
-          `Add an @instance declaration or pass the argument explicitly.`,
-      );
+      // Build resolution trace for detailed error
+      const tcName = implicitParam.typeclassName;
+      const attempts: ResolutionAttempt[] = [
+        {
+          step: "enclosing-scope",
+          target: scopeKey,
+          result: "not-found",
+          reason: "not available in current implicit scope",
+        },
+        {
+          step: "explicit-instance",
+          target: `${tcName}<${concreteType}>`,
+          result: "not-found",
+          reason: "no @instance or @deriving registered",
+        },
+      ];
+
+      const trace: ResolutionTrace = {
+        sought: `${tcName}<${concreteType}>`,
+        attempts,
+        finalResult: "failed",
+      };
+
+      const traceNotes = formatResolutionTrace(trace);
+      const helpMessage = generateHelpFromTrace(trace, tcName, concreteType);
+
+      // Build a rich error message with the trace
+      const errorLines = [
+        `No instance found for \`${tcName}<${concreteType}>\``,
+        "",
+        ...traceNotes.map((note) => `  = note: ${note}`),
+        `  = note: implicit parameter: ${implicitParam.paramName}`,
+        `  = help: ${helpMessage}`,
+      ];
+
+      ctx.reportError(callExpr, errorLines.join("\n"));
       return undefined;
     }
   }
@@ -436,7 +455,7 @@ export function transformImplicitsCall(
     callExpr,
     callExpr.expression,
     callExpr.typeArguments,
-    newArgs,
+    newArgs
   );
 }
 
@@ -446,7 +465,7 @@ export function transformImplicitsCall(
  */
 export function buildImplicitScope(
   funcInfo: ImplicitsFunctionInfo,
-  typeParamMap: Map<string, string>,
+  typeParamMap: Map<string, string>
 ): ImplicitScope {
   const available = new Map<string, string>();
 
@@ -474,7 +493,7 @@ export function buildImplicitScope(
 export function processImplicitsFunctionBody(
   ctx: MacroContext,
   func: ts.FunctionDeclaration,
-  funcInfo: ImplicitsFunctionInfo,
+  funcInfo: ImplicitsFunctionInfo
 ): ts.FunctionDeclaration {
   // For now, we'll handle propagation at the transformer level
   // The transformer needs to track the current scope as it visits
@@ -493,13 +512,13 @@ export const summonAllMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
       ctx.reportError(
         callExpr,
-        "summonAll requires type arguments, e.g., summonAll<Show<Point>, Eq<Point>>()",
+        "summonAll requires type arguments, e.g., summonAll<Show<Point>, Eq<Point>>()"
       );
       return callExpr;
     }
@@ -511,7 +530,7 @@ export const summonAllMacro = defineExpressionMacro({
       if (!ts.isTypeReferenceNode(typeArg)) {
         ctx.reportError(
           typeArg,
-          "summonAll type arguments must be type references like Show<Point>",
+          "summonAll type arguments must be type references like Show<Point>"
         );
         continue;
       }
@@ -528,13 +547,10 @@ export const summonAllMacro = defineExpressionMacro({
 
       summonedExprs.push(
         factory.createCallExpression(
-          factory.createPropertyAccessExpression(
-            factory.createIdentifier(tcName),
-            "summon",
-          ),
+          factory.createPropertyAccessExpression(factory.createIdentifier(tcName), "summon"),
           [factory.createTypeReferenceNode(forType, undefined)],
-          [factory.createStringLiteral(forType)],
-        ),
+          [factory.createStringLiteral(forType)]
+        )
       );
     }
 
@@ -553,9 +569,4 @@ globalRegistry.register(summonAllMacro);
 // Exports
 // ============================================================================
 
-export {
-  ImplicitParamInfo,
-  ImplicitsFunctionInfo,
-  ImplicitScope,
-  implicitsFunctions,
-};
+export { ImplicitParamInfo, ImplicitsFunctionInfo, ImplicitScope, implicitsFunctions };

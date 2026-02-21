@@ -39,11 +39,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  type AttributeMacro,
-  type MacroContext,
-  defineAttributeMacro,
-} from "@typesugar/core";
+import { type AttributeMacro, type MacroContext, defineAttributeMacro } from "@typesugar/core";
 import { getService, type ServiceInfo } from "./service.js";
 
 /**
@@ -89,9 +85,7 @@ export function getLayer(name: string): LayerInfo | undefined {
  * Get all layers that provide a specific service.
  */
 export function getLayersForService(serviceName: string): LayerInfo[] {
-  return Array.from(layerRegistry.values()).filter(
-    (layer) => layer.provides === serviceName,
-  );
+  return Array.from(layerRegistry.values()).filter((layer) => layer.provides === serviceName);
 }
 
 /**
@@ -102,7 +96,7 @@ export function getLayersForService(serviceName: string): LayerInfo[] {
  */
 function parseLayerArgs(
   ctx: MacroContext,
-  args: readonly ts.Expression[],
+  args: readonly ts.Expression[]
 ): { serviceName: string; requires: string[] } | undefined {
   if (args.length === 0) {
     return undefined;
@@ -153,7 +147,7 @@ function parseLayerArgs(
  */
 function detectLayerType(
   ctx: MacroContext,
-  initializer: ts.Expression,
+  initializer: ts.Expression
 ): "succeed" | "effect" | "scoped" {
   // If it's an object literal, use Layer.succeed
   if (ts.isObjectLiteralExpression(initializer)) {
@@ -165,16 +159,12 @@ function detectLayerType(
     const callExpr = initializer.expression;
     if (ts.isPropertyAccessExpression(callExpr)) {
       const methodName = callExpr.name.text;
-      const objName = ts.isIdentifier(callExpr.expression)
-        ? callExpr.expression.text
-        : "";
+      const objName = ts.isIdentifier(callExpr.expression) ? callExpr.expression.text : "";
 
       // Effect.acquireRelease, Effect.acquireUseRelease, etc.
       if (
         objName === "Effect" &&
-        (methodName.includes("acquire") ||
-          methodName === "scoped" ||
-          methodName === "bracket")
+        (methodName.includes("acquire") || methodName === "scoped" || methodName === "bracket")
       ) {
         return "scoped";
       }
@@ -192,24 +182,20 @@ function generateLayerWrapper(
   factory: ts.NodeFactory,
   serviceName: string,
   initializer: ts.Expression,
-  layerType: "succeed" | "effect" | "scoped",
+  layerType: "succeed" | "effect" | "scoped"
 ): ts.Expression {
   const tagIdentifier = factory.createIdentifier(`${serviceName}Tag`);
 
   const layerMethod =
-    layerType === "succeed"
-      ? "succeed"
-      : layerType === "scoped"
-        ? "scoped"
-        : "effect";
+    layerType === "succeed" ? "succeed" : layerType === "scoped" ? "scoped" : "effect";
 
   return factory.createCallExpression(
     factory.createPropertyAccessExpression(
       factory.createIdentifier("Layer"),
-      factory.createIdentifier(layerMethod),
+      factory.createIdentifier(layerMethod)
     ),
     undefined,
-    [tagIdentifier, initializer],
+    [tagIdentifier, initializer]
   );
 }
 
@@ -231,29 +217,24 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
     ctx: MacroContext,
     _decorator: ts.Decorator,
     target: ts.Declaration,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     const factory = ctx.factory;
 
     // Handle variable statements (const declarations)
     if (!ts.isVariableDeclaration(target)) {
-      ctx.reportError(
-        target,
-        "@layer can only be applied to const declarations",
-      );
+      ctx.reportError(target, "@layer can only be applied to const declarations");
       return target;
     }
 
-    const varName = ts.isIdentifier(target.name)
-      ? target.name.text
-      : target.name.getText();
+    const varName = ts.isIdentifier(target.name) ? target.name.text : target.name.getText();
 
     // Parse arguments
     const parsedArgs = parseLayerArgs(ctx, args);
     if (!parsedArgs) {
       ctx.reportError(
         target,
-        "@layer requires a service identifier: @layer(ServiceName) or @layer(ServiceName, { requires: [...] })",
+        "@layer requires a service identifier: @layer(ServiceName) or @layer(ServiceName, { requires: [...] })"
       );
       return target;
     }
@@ -265,16 +246,13 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
     if (!serviceInfo) {
       ctx.reportWarning(
         target,
-        `Service '${serviceName}' not found in registry. Make sure @service decorator is applied to the interface.`,
+        `Service '${serviceName}' not found in registry. Make sure @service decorator is applied to the interface.`
       );
     }
 
     // Get the initializer
     if (!target.initializer) {
-      ctx.reportError(
-        target,
-        "@layer requires an initializer (the layer implementation)",
-      );
+      ctx.reportError(target, "@layer requires an initializer (the layer implementation)");
       return target;
     }
 
@@ -295,7 +273,7 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
       factory,
       serviceName,
       target.initializer,
-      layerType,
+      layerType
     );
 
     // Create new variable declaration with wrapped initializer
@@ -303,7 +281,7 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
       target.name,
       target.exclamationToken,
       target.type,
-      wrappedInitializer,
+      wrappedInitializer
     );
 
     return newDeclaration;
@@ -314,9 +292,6 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
  * Runtime placeholder for @layer decorator.
  * This is a decorator factory that returns a no-op decorator.
  */
-export function layer<S>(
-  _service: S,
-  _options?: { requires?: unknown[] },
-): <T>(target: T) => T {
+export function layer<S>(_service: S, _options?: { requires?: unknown[] }): <T>(target: T) => T {
   return (target) => target;
 }

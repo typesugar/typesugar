@@ -60,16 +60,14 @@ export class ExpansionService {
     this.disposables.push(
       vscode.workspace.onDidSaveTextDocument((doc) => {
         this.resultCache.delete(doc.uri.fsPath);
-      }),
+      })
     );
   }
 
   /**
    * Get cached expansion result for a document, or compute it.
    */
-  async getExpansionResult(
-    document: vscode.TextDocument,
-  ): Promise<ExpansionResult | undefined> {
+  async getExpansionResult(document: vscode.TextDocument): Promise<ExpansionResult | undefined> {
     const cached = this.resultCache.get(document.uri.fsPath);
     if (cached) return cached;
 
@@ -80,9 +78,7 @@ export class ExpansionService {
    * Expand a single file by running the typemacro transformer.
    * Returns the expansion result with computed values and diagnostics.
    */
-  async expandFile(
-    document: vscode.TextDocument,
-  ): Promise<ExpansionResult | undefined> {
+  async expandFile(document: vscode.TextDocument): Promise<ExpansionResult | undefined> {
     try {
       const program = this.getOrCreateProgram(document);
       if (!program) return undefined;
@@ -114,27 +110,18 @@ export class ExpansionService {
         },
         undefined,
         false,
-        { before: [transformerFactory] },
+        { before: [transformerFactory] }
       );
 
       // Collect diagnostics
       for (const diag of emitResult.diagnostics) {
         if (diag.source === "typemacro" || diag.code === 90000) {
-          const message = ts.flattenDiagnosticMessageText(
-            diag.messageText,
-            "\n",
-          );
+          const message = ts.flattenDiagnosticMessageText(diag.messageText, "\n");
           let range: ExpansionDiagnostic["range"];
 
-          if (
-            diag.file &&
-            diag.start !== undefined &&
-            diag.length !== undefined
-          ) {
+          if (diag.file && diag.start !== undefined && diag.length !== undefined) {
             const start = diag.file.getLineAndCharacterOfPosition(diag.start);
-            const end = diag.file.getLineAndCharacterOfPosition(
-              diag.start + diag.length,
-            );
+            const end = diag.file.getLineAndCharacterOfPosition(diag.start + diag.length);
             range = {
               startLine: start.line,
               startChar: start.character,
@@ -145,10 +132,7 @@ export class ExpansionService {
 
           diagnostics.push({
             message,
-            severity:
-              diag.category === ts.DiagnosticCategory.Error
-                ? "error"
-                : "warning",
+            severity: diag.category === ts.DiagnosticCategory.Error ? "error" : "warning",
             code: diag.code,
             range,
           });
@@ -181,7 +165,7 @@ export class ExpansionService {
    */
   async getExpansionAtPosition(
     document: vscode.TextDocument,
-    position: number,
+    position: number
   ): Promise<string | undefined> {
     const result = await this.getExpansionResult(document);
     if (!result) return undefined;
@@ -192,9 +176,7 @@ export class ExpansionService {
     return result.expandedText || undefined;
   }
 
-  private getOrCreateProgram(
-    document: vscode.TextDocument,
-  ): ts.Program | undefined {
+  private getOrCreateProgram(document: vscode.TextDocument): ts.Program | undefined {
     // Find tsconfig.json
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
     if (!workspaceFolder) return undefined;
@@ -202,7 +184,7 @@ export class ExpansionService {
     const configPath = ts.findConfigFile(
       workspaceFolder.uri.fsPath,
       ts.sys.fileExists,
-      "tsconfig.json",
+      "tsconfig.json"
     );
 
     // Re-use program if config hasn't changed
@@ -218,7 +200,7 @@ export class ExpansionService {
     const parsed = ts.parseJsonConfigFileContent(
       configFile.config,
       ts.sys,
-      path.dirname(configPath),
+      path.dirname(configPath)
     );
 
     this.program = ts.createProgram(parsed.fileNames, parsed.options);
@@ -228,10 +210,7 @@ export class ExpansionService {
 
   private async loadTransformer(): Promise<
     | {
-        default: (
-          program: ts.Program,
-          config?: unknown,
-        ) => ts.TransformerFactory<ts.SourceFile>;
+        default: (program: ts.Program, config?: unknown) => ts.TransformerFactory<ts.SourceFile>;
       }
     | undefined
   > {
@@ -246,7 +225,7 @@ export class ExpansionService {
         "node_modules",
         "typemacro",
         "dist",
-        "transformer.js",
+        "transformer.js"
       );
 
       // Dynamic import
@@ -263,7 +242,7 @@ export class ExpansionService {
   private extractComptimeResults(
     sourceFile: ts.SourceFile,
     expandedText: string,
-    results: Map<number, unknown>,
+    results: Map<number, unknown>
   ): void {
     if (!expandedText) return;
 
@@ -272,7 +251,7 @@ export class ExpansionService {
       "expanded.ts",
       expandedText,
       ts.ScriptTarget.Latest,
-      true,
+      true
     );
 
     // Walk the original looking for comptime() calls and try to find
@@ -286,16 +265,12 @@ export class ExpansionService {
       ) {
         // Look for a variable declaration containing this call
         const parent = node.parent;
-        if (
-          ts.isVariableDeclaration(parent) &&
-          parent.name &&
-          ts.isIdentifier(parent.name)
-        ) {
+        if (ts.isVariableDeclaration(parent) && parent.name && ts.isIdentifier(parent.name)) {
           const varName = parent.name.text;
           // Search expanded output for `const varName = <literal>`
           const pattern = new RegExp(
             `(?:const|let|var)\\s+${escapeRegex(varName)}\\s*=\\s*(.+?)(?:;|$)`,
-            "m",
+            "m"
           );
           const match = expandedText.match(pattern);
           if (match) {
@@ -321,28 +296,23 @@ export class ExpansionService {
   private extractBindTypes(
     sourceFile: ts.SourceFile,
     checker: ts.TypeChecker,
-    types: Map<number, string>,
+    types: Map<number, string>
   ): void {
     const visit = (node: ts.Node): void => {
       if (
         ts.isLabeledStatement(node) &&
-        (node.label.text === "let" ||
-          node.label.text === "yield" ||
-          node.label.text === "pure") &&
+        (node.label.text === "let" || node.label.text === "yield" || node.label.text === "pure") &&
         ts.isBlock(node.statement)
       ) {
         for (const stmt of node.statement.statements) {
           if (!ts.isExpressionStatement(stmt)) continue;
           if (
             ts.isBinaryExpression(stmt.expression) &&
-            stmt.expression.operatorToken.kind ===
-              ts.SyntaxKind.LessThanLessThanToken &&
+            stmt.expression.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken &&
             ts.isIdentifier(stmt.expression.left)
           ) {
             try {
-              const rightType = checker.getTypeAtLocation(
-                stmt.expression.right,
-              );
+              const rightType = checker.getTypeAtLocation(stmt.expression.right);
               // For monadic types, try to extract the inner type
               const typeStr = checker.typeToString(rightType);
               types.set(stmt.expression.left.getStart(sourceFile), typeStr);

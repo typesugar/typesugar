@@ -69,9 +69,7 @@ describe("namedArgs", () => {
         { name: "w", type: "number", required: true, position: 3 },
       ];
       const wrapped = namedArgs(create, params);
-      expect(wrapped.namedCall({ w: 4, z: 3, x: 1, y: 2 })).toEqual([
-        1, 2, 3, 4,
-      ]);
+      expect(wrapped.namedCall({ w: 4, z: 3, x: 1, y: 2 })).toEqual([1, 2, 3, 4]);
     });
   });
 
@@ -83,9 +81,7 @@ describe("namedArgs", () => {
 
     it("overrides defaults when provided", () => {
       const wrapped = namedArgs(greet, greetParams);
-      expect(wrapped.namedCall({ name: "World", greeting: "Hi" })).toBe(
-        "Hi, World!",
-      );
+      expect(wrapped.namedCall({ name: "World", greeting: "Hi" })).toBe("Hi, World!");
     });
   });
 
@@ -93,9 +89,7 @@ describe("namedArgs", () => {
     it("throws NamedArgsError for missing required param", () => {
       const wrapped = namedArgs(add, addParams);
       expect(() => wrapped.namedCall({ a: 1 } as any)).toThrow(NamedArgsError);
-      expect(() => wrapped.namedCall({ a: 1 } as any)).toThrow(
-        /Missing required parameter 'b'/,
-      );
+      expect(() => wrapped.namedCall({ a: 1 } as any)).toThrow(/Missing required parameter 'b'/);
     });
 
     it("error has correct properties", () => {
@@ -116,12 +110,8 @@ describe("namedArgs", () => {
   describe("unknown params", () => {
     it("throws NamedArgsError for unknown param", () => {
       const wrapped = namedArgs(add, addParams);
-      expect(() =>
-        wrapped.namedCall({ a: 1, b: 2, c: 3 } as any),
-      ).toThrow(NamedArgsError);
-      expect(() =>
-        wrapped.namedCall({ a: 1, b: 2, c: 3 } as any),
-      ).toThrow(/Unknown parameter 'c'/);
+      expect(() => wrapped.namedCall({ a: 1, b: 2, c: 3 } as any)).toThrow(NamedArgsError);
+      expect(() => wrapped.namedCall({ a: 1, b: 2, c: 3 } as any)).toThrow(/Unknown parameter 'c'/);
     });
 
     it("error includes known parameter names", () => {
@@ -146,13 +136,7 @@ describe("namedArgs", () => {
 
   describe("mixed types", () => {
     it("handles string, number, boolean, object, array params", () => {
-      function mixed(
-        s: string,
-        n: number,
-        b: boolean,
-        o: object,
-        a: number[],
-      ) {
+      function mixed(s: string, n: number, b: boolean, o: object, a: number[]) {
         return { s, n, b, o, a };
       }
       const params: ParamMeta[] = [
@@ -190,7 +174,7 @@ describe("namedArgs", () => {
         e: number,
         f: number,
         g: number,
-        h: number,
+        h: number
       ) {
         return a + b + c + d + e + f + g + h;
       }
@@ -211,7 +195,7 @@ describe("namedArgs", () => {
           c: 3,
           b: 2,
           a: 1,
-        }),
+        })
       ).toBe(36);
     });
   });
@@ -249,9 +233,7 @@ describe("namedArgs", () => {
       function identity(x: unknown) {
         return x;
       }
-      const params: ParamMeta[] = [
-        { name: "x", type: "unknown", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "unknown", required: true, position: 0 }];
       const wrapped = namedArgs(identity, params);
       expect(wrapped.namedCall({ x: undefined })).toBeUndefined();
     });

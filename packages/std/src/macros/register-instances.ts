@@ -64,39 +64,134 @@ interface InstanceReg {
  */
 const STD_INSTANCES: InstanceReg[] = [
   // Bounded instances
-  { typeclass: "Bounded", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "boundedNumber" },
-  { typeclass: "Bounded", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "boundedBigInt" },
-  { typeclass: "Bounded", forType: "boolean", importPath: "@typesugar/std/typeclasses", exportName: "boundedBoolean" },
-  { typeclass: "Bounded", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "boundedString" },
+  {
+    typeclass: "Bounded",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedNumber",
+  },
+  {
+    typeclass: "Bounded",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedBigInt",
+  },
+  {
+    typeclass: "Bounded",
+    forType: "boolean",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedBoolean",
+  },
+  {
+    typeclass: "Bounded",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedString",
+  },
 
   // Enum instances
-  { typeclass: "Enum", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "enumNumber" },
-  { typeclass: "Enum", forType: "boolean", importPath: "@typesugar/std/typeclasses", exportName: "enumBoolean" },
-  { typeclass: "Enum", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "enumString" },
+  {
+    typeclass: "Enum",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "enumNumber",
+  },
+  {
+    typeclass: "Enum",
+    forType: "boolean",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "enumBoolean",
+  },
+  {
+    typeclass: "Enum",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "enumString",
+  },
 
   // Numeric instances (Ring abstraction with Op<+>, Op<->, Op<*>)
-  { typeclass: "Numeric", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "numericNumber" },
-  { typeclass: "Numeric", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "numericBigInt" },
+  {
+    typeclass: "Numeric",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "numericNumber",
+  },
+  {
+    typeclass: "Numeric",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "numericBigInt",
+  },
 
   // Integral instances (Euclidean Ring with Op</>, Op<%>)
-  { typeclass: "Integral", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "integralNumber" },
-  { typeclass: "Integral", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "integralBigInt" },
+  {
+    typeclass: "Integral",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "integralNumber",
+  },
+  {
+    typeclass: "Integral",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "integralBigInt",
+  },
 
   // Fractional instances (Field with Op</>)
-  { typeclass: "Fractional", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "fractionalNumber" },
+  {
+    typeclass: "Fractional",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "fractionalNumber",
+  },
 
   // Floating instances (transcendental functions)
-  { typeclass: "Floating", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "floatingNumber" },
+  {
+    typeclass: "Floating",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "floatingNumber",
+  },
 
   // Group instances (Monoid with inverse)
-  { typeclass: "Group", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "groupNumber" },
-  { typeclass: "Group", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "groupBigInt" },
+  {
+    typeclass: "Group",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "groupNumber",
+  },
+  {
+    typeclass: "Group",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "groupBigInt",
+  },
 
   // FlatMap instances (HKT)
-  { typeclass: "FlatMap", forType: "Array", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapArray" },
-  { typeclass: "FlatMap", forType: "Promise", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapPromise" },
-  { typeclass: "FlatMap", forType: "Iterable", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapIterable" },
-  { typeclass: "FlatMap", forType: "AsyncIterable", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapAsyncIterable" },
+  {
+    typeclass: "FlatMap",
+    forType: "Array",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapArray",
+  },
+  {
+    typeclass: "FlatMap",
+    forType: "Promise",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapPromise",
+  },
+  {
+    typeclass: "FlatMap",
+    forType: "Iterable",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapIterable",
+  },
+  {
+    typeclass: "FlatMap",
+    forType: "AsyncIterable",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapAsyncIterable",
+  },
 ];
 
 /**
@@ -114,13 +209,12 @@ const STD_INSTANCES: InstanceReg[] = [
 export const registerStdInstancesMacro: ExpressionMacro = defineExpressionMacro({
   name: "registerStdInstances",
   module: "@typesugar/std/macros",
-  description:
-    "Register all @typesugar/std typeclass instances for summon<>() resolution",
+  description: "Register all @typesugar/std typeclass instances for summon<>() resolution",
 
   expand(
     ctx: MacroContext,
     _callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
 

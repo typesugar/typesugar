@@ -11,17 +11,14 @@ import {
 
 describe("Schema typeclass", () => {
   describe("nativeSchema instance", () => {
-    const isNumber = (value: unknown): value is number =>
-      typeof value === "number";
+    const isNumber = (value: unknown): value is number => typeof value === "number";
 
     it("parse returns value when valid", () => {
       expect(nativeSchema.parse(isNumber, 42)).toBe(42);
     });
 
     it("parse throws when invalid", () => {
-      expect(() => nativeSchema.parse(isNumber, "not a number")).toThrow(
-        "Validation failed",
-      );
+      expect(() => nativeSchema.parse(isNumber, "not a number")).toThrow("Validation failed");
     });
 
     it("safeParse returns Valid when valid", () => {
@@ -42,8 +39,7 @@ describe("Schema typeclass", () => {
   });
 
   describe("derived operations", () => {
-    const isPositive = (value: unknown): value is number =>
-      typeof value === "number" && value > 0;
+    const isPositive = (value: unknown): value is number => typeof value === "number" && value > 0;
 
     it("nativeParseOrElse returns value when valid", () => {
       const parse = nativeParseOrElse(nativeSchema);
@@ -105,16 +101,13 @@ describe("Schema typeclass", () => {
               tail: { _tag: "Nil" as const },
             },
           };
-        },
+        }
       );
 
-      const isString = (value: unknown): value is string =>
-        typeof value === "string";
+      const isString = (value: unknown): value is string => typeof value === "string";
 
       expect(customSchema.parse(isString, "hello")).toBe("hello");
-      expect(() => customSchema.parse(isString, 123)).toThrow(
-        "Custom validation failed",
-      );
+      expect(() => customSchema.parse(isString, 123)).toThrow("Custom validation failed");
 
       const result = customSchema.safeParse(isString, 123);
       expect(result._tag).toBe("Invalid");

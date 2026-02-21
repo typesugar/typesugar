@@ -250,7 +250,7 @@ function getEffectModule(): any {
     } catch {
       throw new Error(
         "@typesugar/effect requires 'effect' as a peer dependency. " +
-          "Install it with: npm install effect",
+          "Install it with: npm install effect"
       );
     }
   }

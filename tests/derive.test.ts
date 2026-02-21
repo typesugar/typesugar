@@ -8,10 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
-import {
-  deriveMacros,
-  createDerivedFunctionName,
-} from "../src/macros/derive.js";
+import { deriveMacros, createDerivedFunctionName } from "../src/macros/derive.js";
 import { globalRegistry } from "../src/core/registry.js";
 import {
   builtinDerivations,
@@ -81,9 +78,7 @@ describe("createDerivedFunctionName", () => {
     assert(createDerivedFunctionName("clone", "User") === "cloneUser");
     assert(createDerivedFunctionName("debug", "Point") === "debugPoint");
     assert(createDerivedFunctionName("hash", "Config") === "hashConfig");
-    assert(
-      createDerivedFunctionName("default", "Settings") === "defaultSettings",
-    );
+    assert(createDerivedFunctionName("default", "Settings") === "defaultSettings");
     assert(createDerivedFunctionName("toJson", "Data") === "dataToJson");
     assert(createDerivedFunctionName("fromJson", "Data") === "dataFromJson");
     assert(createDerivedFunctionName("typeGuard", "User") === "isUser");

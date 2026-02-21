@@ -14,12 +14,7 @@
 
 import * as ts from "typescript";
 import { defineDeriveMacro, globalRegistry } from "../core/registry.js";
-import {
-  MacroContext,
-  DeriveTypeInfo,
-  DeriveFieldInfo,
-  DeriveVariantInfo,
-} from "../core/types.js";
+import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "../core/types.js";
 
 // ============================================================================
 // Eq - Generate equality comparison function
@@ -31,23 +26,14 @@ export const EqDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `${uncapitalize(name)}Eq`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandEqForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandEqForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -59,11 +45,9 @@ function expandEqForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
-  const comparisons = fields.map(
-    (field) => `a.${field.name} === b.${field.name}`,
-  );
+  const comparisons = fields.map((field) => `a.${field.name} === b.${field.name}`);
 
   const body = comparisons.length > 0 ? comparisons.join(" && ") : "true";
 
@@ -81,15 +65,14 @@ function expandEqForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   const cases = variants
     .map((variant) => {
       const fieldComparisons = variant.fields.map(
-        (field) => `(a as any).${field.name} === (b as any).${field.name}`,
+        (field) => `(a as any).${field.name} === (b as any).${field.name}`
       );
-      const body =
-        fieldComparisons.length > 0 ? fieldComparisons.join(" && ") : "true";
+      const body = fieldComparisons.length > 0 ? fieldComparisons.join(" && ") : "true";
       return `    case "${variant.tag}": return ${body};`;
     })
     .join("\n");
@@ -117,23 +100,14 @@ export const OrdDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `${uncapitalize(name)}Compare`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandOrdForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandOrdForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -145,7 +119,7 @@ function expandOrdForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
   const comparisons = fields
     .map((field) => {
@@ -170,7 +144,7 @@ function expandOrdForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   // First compare by variant order, then by fields within each variant
   const variantOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
@@ -181,7 +155,7 @@ function expandOrdForSumType(
         .map(
           (field) => `
       if ((a as any).${field.name} < (b as any).${field.name}) return -1;
-      if ((a as any).${field.name} > (b as any).${field.name}) return 1;`,
+      if ((a as any).${field.name} > (b as any).${field.name}) return 1;`
         )
         .join("");
       return `    case "${variant.tag}":${fieldComparisons}
@@ -217,23 +191,14 @@ export const CloneDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `clone${name}`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandCloneForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandCloneForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -245,7 +210,7 @@ function expandCloneForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
   const copies = fields.map((field) => {
     return `    ${field.name}: value.${field.name}`;
@@ -267,15 +232,13 @@ function expandCloneForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   const cases = variants
     .map((variant) => {
       const copies = [
         `${discriminant}: value.${discriminant}`,
-        ...variant.fields.map(
-          (field) => `${field.name}: (value as any).${field.name}`,
-        ),
+        ...variant.fields.map((field) => `${field.name}: (value as any).${field.name}`),
       ];
       return `    case "${variant.tag}": return { ${copies.join(", ")} } as ${typeName};`;
     })
@@ -303,23 +266,14 @@ export const DebugDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `debug${name}`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandDebugForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandDebugForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -331,11 +285,9 @@ function expandDebugForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
-  const fieldStrs = fields.map(
-    (field) => `\${JSON.stringify(value.${field.name})}`,
-  );
+  const fieldStrs = fields.map((field) => `\${JSON.stringify(value.${field.name})}`);
 
   const fieldNames = fields.map((f) => f.name);
   const pairs = fieldNames.map((n, i) => `${n}: ${fieldStrs[i]}`);
@@ -354,12 +306,12 @@ function expandDebugForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   const cases = variants
     .map((variant) => {
       const fieldStrs = variant.fields.map(
-        (field) => `\${JSON.stringify((value as any).${field.name})}`,
+        (field) => `\${JSON.stringify((value as any).${field.name})}`
       );
       const pairs = variant.fields.map((f, i) => `${f.name}: ${fieldStrs[i]}`);
       const body = pairs.length > 0 ? ` { ${pairs.join(", ")} }` : "";
@@ -389,23 +341,14 @@ export const HashDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `hash${name}`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandHashForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandHashForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -417,7 +360,7 @@ function expandHashForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
   const hashCode = fields
     .map((field) => {
@@ -451,7 +394,7 @@ function expandHashForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   const cases = variants
     .map((variant, variantIdx) => {
@@ -500,23 +443,14 @@ export const DefaultDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `default${name}`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandDefaultForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandDefaultForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -528,7 +462,7 @@ function expandDefaultForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
   const defaults = fields.map((field) => {
     const defaultValue = getDefaultForType(field);
@@ -551,7 +485,7 @@ function expandDefaultForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   // For sum types, default to the first variant
   if (variants.length === 0) {
@@ -591,21 +525,13 @@ export const JsonDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandJsonForSumType(
-        ctx,
-        name,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandJsonForSumType(ctx, name, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -616,7 +542,7 @@ export const JsonDerive = defineDeriveMacro({
 function expandJsonForProductType(
   ctx: MacroContext,
   typeName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
   const serializeCode = `
 export function ${uncapitalize(typeName)}ToJson(value: ${typeName}): string {
@@ -649,17 +575,14 @@ ${validations}
 }
 `;
 
-  return [
-    ...ctx.parseStatements(serializeCode),
-    ...ctx.parseStatements(deserializeCode),
-  ];
+  return [...ctx.parseStatements(serializeCode), ...ctx.parseStatements(deserializeCode)];
 }
 
 function expandJsonForSumType(
   ctx: MacroContext,
   typeName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   const serializeCode = `
 export function ${uncapitalize(typeName)}ToJson(value: ${typeName}): string {
@@ -709,10 +632,7 @@ ${variantValidations}
 }
 `;
 
-  return [
-    ...ctx.parseStatements(serializeCode),
-    ...ctx.parseStatements(deserializeCode),
-  ];
+  return [...ctx.parseStatements(serializeCode), ...ctx.parseStatements(deserializeCode)];
 }
 
 // ============================================================================
@@ -725,11 +645,8 @@ export const BuilderDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const builderName = `${name}Builder`;
@@ -738,7 +655,7 @@ export const BuilderDerive = defineDeriveMacro({
     if (kind === "sum") {
       ctx.reportWarning(
         target,
-        `@derive(Builder) is not applicable to sum types. Skipping Builder for ${name}.`,
+        `@derive(Builder) is not applicable to sum types. Skipping Builder for ${name}.`
       );
       return [];
     }
@@ -796,23 +713,14 @@ export const TypeGuardDerive = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    _target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind } = typeInfo;
     const fnName = `is${name}`;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
-      return expandTypeGuardForSumType(
-        ctx,
-        name,
-        fnName,
-        typeInfo.discriminant,
-        typeInfo.variants,
-      );
+      return expandTypeGuardForSumType(ctx, name, fnName, typeInfo.discriminant, typeInfo.variants);
     }
 
     // Product type (default)
@@ -824,7 +732,7 @@ function expandTypeGuardForProductType(
   ctx: MacroContext,
   typeName: string,
   fnName: string,
-  fields: DeriveFieldInfo[],
+  fields: DeriveFieldInfo[]
 ): ts.Statement[] {
   if (fields.length === 0) {
     const code = `
@@ -859,7 +767,7 @@ function expandTypeGuardForSumType(
   typeName: string,
   fnName: string,
   discriminant: string,
-  variants: DeriveVariantInfo[],
+  variants: DeriveVariantInfo[]
 ): ts.Statement[] {
   const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
 
@@ -912,7 +820,7 @@ function generateTypeCheck(field: DeriveFieldInfo, _rootVar: string): string {
   // Use semantic type checking for unions
   if (fieldType.isUnion()) {
     const memberChecks = fieldType.types.map((memberType) =>
-      typeCheckForSemanticType(accessor, memberType, field.typeString),
+      typeCheckForSemanticType(accessor, memberType, field.typeString)
     );
     return `(${memberChecks.join(" || ")})`;
   }
@@ -927,7 +835,7 @@ function generateTypeCheck(field: DeriveFieldInfo, _rootVar: string): string {
 function typeCheckForSemanticType(
   accessor: string,
   type: ts.Type,
-  fallbackTypeStr: string,
+  fallbackTypeStr: string
 ): string {
   const flags = type.getFlags();
 
@@ -942,8 +850,7 @@ function typeCheckForSemanticType(
   if (flags & ts.TypeFlags.Undefined) return `${accessor} === undefined`;
   if (flags & ts.TypeFlags.Any || flags & ts.TypeFlags.Unknown) return "true";
   if (flags & ts.TypeFlags.Never) return "false";
-  if (flags & ts.TypeFlags.Void)
-    return `${accessor} === undefined || ${accessor} === null`;
+  if (flags & ts.TypeFlags.Void) return `${accessor} === undefined || ${accessor} === null`;
 
   // Check for array types via symbol
   const symbol = type.getSymbol();
@@ -951,10 +858,7 @@ function typeCheckForSemanticType(
 
   // Check for known built-in types
   const symbolName = symbol?.getName();
-  if (
-    symbolName &&
-    ["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(symbolName)
-  ) {
+  if (symbolName && ["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(symbolName)) {
     return `${accessor} instanceof ${symbolName}`;
   }
 
@@ -991,9 +895,7 @@ function typeCheckForPrimitive(accessor: string, typeStr: string): string {
         return `Array.isArray(${accessor})`;
       }
       // Date, RegExp, Map, Set, etc.
-      if (
-        ["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(typeStr)
-      ) {
+      if (["Date", "RegExp", "Map", "Set", "WeakMap", "WeakSet"].includes(typeStr)) {
         return `${accessor} instanceof ${typeStr}`;
       }
       // Fallback: check it's a non-null object (structural types, interfaces, etc.)
@@ -1022,14 +924,10 @@ function getBaseType(field: DeriveFieldInfo): string {
   const flags = type.getFlags();
 
   // Check for primitive types via TypeFlags
-  if (flags & ts.TypeFlags.Number || flags & ts.TypeFlags.NumberLiteral)
-    return "number";
-  if (flags & ts.TypeFlags.String || flags & ts.TypeFlags.StringLiteral)
-    return "string";
-  if (flags & ts.TypeFlags.Boolean || flags & ts.TypeFlags.BooleanLiteral)
-    return "boolean";
-  if (flags & ts.TypeFlags.BigInt || flags & ts.TypeFlags.BigIntLiteral)
-    return "bigint";
+  if (flags & ts.TypeFlags.Number || flags & ts.TypeFlags.NumberLiteral) return "number";
+  if (flags & ts.TypeFlags.String || flags & ts.TypeFlags.StringLiteral) return "string";
+  if (flags & ts.TypeFlags.Boolean || flags & ts.TypeFlags.BooleanLiteral) return "boolean";
+  if (flags & ts.TypeFlags.BigInt || flags & ts.TypeFlags.BigIntLiteral) return "bigint";
 
   // Handle union types - check if any constituent is a primitive
   if (type.isUnion()) {
@@ -1086,10 +984,7 @@ export const deriveMacros = {
 /**
  * Create a derived function name based on convention
  */
-export function createDerivedFunctionName(
-  operation: string,
-  typeName: string,
-): string {
+export function createDerivedFunctionName(operation: string, typeName: string): string {
   switch (operation) {
     case "eq":
       return `${uncapitalize(typeName)}Eq`;

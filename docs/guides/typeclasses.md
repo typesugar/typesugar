@@ -96,7 +96,7 @@ import { deriving } from "@typesugar/typeclass";
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 
@@ -120,15 +120,17 @@ summon<Show<number[]>>().show([1, 2, 3]);
 
 ## Extension Methods
 
-Typeclass methods can be used as extension methods:
+Typeclass methods work as extension methods — just call them directly:
 
 ```typescript
-import { extend } from "@typesugar/typeclass";
+import { Show } from "@typesugar/std";
 
-extend(42).show(); // "42"
-extend("hi").show(); // "\"hi\""
-extend([1, 2]).show(); // "[1, 2]"
+(42).show(); // "42"
+"hi".show(); // "\"hi\""
+[1, 2].show(); // "[1, 2]"
 ```
+
+The transformer detects `.show()` on a type, finds the `Show` instance, and rewrites to a direct call.
 
 ## Zero-Cost Specialization
 

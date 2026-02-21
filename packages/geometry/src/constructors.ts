@@ -44,20 +44,12 @@ export function polar(r: number, theta: number): PolarPoint {
 }
 
 /** Create a spherical point from radius, inclination, and azimuth (radians) */
-export function spherical(
-  r: number,
-  theta: number,
-  phi: number,
-): SphericalPoint {
+export function spherical(r: number, theta: number, phi: number): SphericalPoint {
   return [r, theta, phi] as SphericalPoint;
 }
 
 /** Create a cylindrical point from radius, angle (radians), and height */
-export function cylindrical(
-  r: number,
-  theta: number,
-  z: number,
-): CylindricalPoint {
+export function cylindrical(r: number, theta: number, z: number): CylindricalPoint {
   return [r, theta, z] as CylindricalPoint;
 }
 

@@ -87,11 +87,7 @@ defineExpressionMacro("memo", "my-typesugar-macros", {
 // ============================================================================
 
 defineDeriveMacro("Validation", "my-typesugar-macros", {
-  expand(
-    ctx: MacroContext,
-    target: ts.Node,
-    typeInfo: DeriveTypeInfo,
-  ): ts.Statement[] {
+  expand(ctx: MacroContext, target: ts.Node, typeInfo: DeriveTypeInfo): ts.Statement[] {
     const { name, fields } = typeInfo;
 
     // Build validation checks for each field

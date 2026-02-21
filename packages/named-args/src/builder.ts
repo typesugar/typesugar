@@ -26,7 +26,7 @@ export interface Builder<F extends (...args: any[]) => any> {
  */
 export function createBuilder<F extends (...args: any[]) => any>(
   fn: F,
-  params: ParamMeta[],
+  params: ParamMeta[]
 ): Builder<F> {
   const sorted = [...params].sort((a, b) => a.position - b.position);
   const knownNames = new Set(sorted.map((p) => p.name));
@@ -38,7 +38,7 @@ function makeBuilder<F extends (...args: any[]) => any>(
   fn: F,
   params: ReadonlyArray<ParamMeta>,
   knownNames: ReadonlySet<string>,
-  accumulated: Record<string, unknown>,
+  accumulated: Record<string, unknown>
 ): Builder<F> {
   return {
     set(name: string, value: unknown): Builder<F> {
@@ -47,7 +47,7 @@ function makeBuilder<F extends (...args: any[]) => any>(
           fn.name || "<anonymous>",
           name,
           "unknown_param",
-          `Unknown parameter '${name}' for function '${fn.name || "<anonymous>"}'`,
+          `Unknown parameter '${name}' for function '${fn.name || "<anonymous>"}'`
         );
       }
 
@@ -65,10 +65,7 @@ function makeBuilder<F extends (...args: any[]) => any>(
       const positionalArgs: unknown[] = [];
 
       for (const param of params) {
-        const hasKey = Object.prototype.hasOwnProperty.call(
-          accumulated,
-          param.name,
-        );
+        const hasKey = Object.prototype.hasOwnProperty.call(accumulated, param.name);
 
         if (hasKey) {
           positionalArgs[param.position] = accumulated[param.name];
@@ -77,7 +74,7 @@ function makeBuilder<F extends (...args: any[]) => any>(
             fnName,
             param.name,
             "missing_required",
-            `Missing required parameter '${param.name}' for function '${fnName}'`,
+            `Missing required parameter '${param.name}' for function '${fnName}'`
           );
         } else {
           positionalArgs[param.position] = param.defaultValue;

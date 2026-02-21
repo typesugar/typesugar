@@ -82,9 +82,7 @@ import {
 // Unit constructor map for runtime fallback
 const UNIT_CONSTRUCTORS: Record<
   string,
-  (
-    v: number,
-  ) => Unit<Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>
+  (v: number) => Unit<Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>
 > = {
   m: meters,
   meter: meters,
@@ -190,7 +188,7 @@ const UNIT_CONSTRUCTORS: Record<
  * ```
  */
 export function units(
-  strings: TemplateStringsArray,
+  strings: TemplateStringsArray
 ): Unit<Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>> {
   const text = strings[0].trim();
   const match = text.match(/^(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(.+)?$/i);

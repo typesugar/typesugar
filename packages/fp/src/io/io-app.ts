@@ -114,9 +114,7 @@ export function runIOApp(program: () => IO<ExitCode>): void {
 /**
  * Create and run an IO application with access to args
  */
-export function runIOAppWithArgs(
-  program: (args: string[]) => IO<ExitCode>,
-): void {
+export function runIOAppWithArgs(program: (args: string[]) => IO<ExitCode>): void {
   class App extends IOApp {
     run(args: string[]): IO<ExitCode> {
       return program(args);
@@ -169,11 +167,9 @@ export class IOAppBuilder {
   run(program: IO<ExitCode>): void {
     const fullProgram = IO.flatMap(this._beforeAll, () =>
       IO.guarantee(
-        IO.handleError(program, (e) =>
-          IO.flatMap(this._onError(e), () => IO.pure(ExitFailure)),
-        ),
-        this._afterAll,
-      ),
+        IO.handleError(program, (e) => IO.flatMap(this._onError(e), () => IO.pure(ExitFailure))),
+        this._afterAll
+      )
     );
 
     runIOApp(() => fullProgram);
@@ -197,7 +193,7 @@ export function ioApp(): IOAppBuilder {
 export function runIOAppWithResources<R>(
   acquire: IO<R>,
   use: (r: R) => IO<ExitCode>,
-  release: (r: R) => IO<void>,
+  release: (r: R) => IO<void>
 ): void {
   const program = IO.bracket(acquire, use, release);
   runIOApp(() => program);
@@ -213,7 +209,7 @@ export function runIOAppWithResources<R>(
 export class AppError extends Error {
   constructor(
     message: string,
-    public readonly exitCode: ExitCode = ExitFailure,
+    public readonly exitCode: ExitCode = ExitFailure
   ) {
     super(message);
     this.name = "AppError";
@@ -223,10 +219,7 @@ export class AppError extends Error {
 /**
  * Create an IO that fails with an AppError
  */
-export function fail(
-  message: string,
-  exitCode: ExitCode = ExitFailure,
-): IO<never> {
+export function fail(message: string, exitCode: ExitCode = ExitFailure): IO<never> {
   return IO.raiseError(new AppError(message, exitCode));
 }
 
@@ -250,9 +243,7 @@ export function exit(code: ExitCode): IO<never> {
  * Get environment variable
  */
 export function getEnv(name: string): IO<string | undefined> {
-  return IO.delay(() =>
-    typeof process !== "undefined" ? process.env[name] : undefined,
-  );
+  return IO.delay(() => (typeof process !== "undefined" ? process.env[name] : undefined));
 }
 
 /**
@@ -278,7 +269,5 @@ export function getCwd(): IO<string> {
  * Get command line arguments
  */
 export function getArgs(): IO<string[]> {
-  return IO.delay(() =>
-    typeof process !== "undefined" ? process.argv.slice(2) : [],
-  );
+  return IO.delay(() => (typeof process !== "undefined" ? process.argv.slice(2) : []));
 }

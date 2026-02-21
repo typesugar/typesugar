@@ -245,9 +245,7 @@ describe("@typesugar/hlist", () => {
 
     it("get() throws for unknown field name", () => {
       const rec = labeled({ x: 42 });
-      expect(() => get(rec, "nonexistent" as any)).toThrow(
-        'no field named "nonexistent"',
-      );
+      expect(() => get(rec, "nonexistent" as any)).toThrow('no field named "nonexistent"');
     });
 
     it("set() returns a new LabeledHList with updated value", () => {
@@ -261,9 +259,7 @@ describe("@typesugar/hlist", () => {
 
     it("set() throws for unknown field name", () => {
       const rec = labeled({ x: 42 });
-      expect(() => set(rec, "nonexistent" as any, 0)).toThrow(
-        'no field named "nonexistent"',
-      );
+      expect(() => set(rec, "nonexistent" as any, 0)).toThrow('no field named "nonexistent"');
     });
 
     it("labels() returns field names", () => {
@@ -281,9 +277,7 @@ describe("@typesugar/hlist", () => {
 
     it("project() throws for unknown field name", () => {
       const rec = labeled({ x: 1 });
-      expect(() => project(rec, "nonexistent" as any)).toThrow(
-        'no field named "nonexistent"',
-      );
+      expect(() => project(rec, "nonexistent" as any)).toThrow('no field named "nonexistent"');
     });
 
     it("merge() combines two LabeledHLists", () => {
@@ -439,28 +433,19 @@ describe("@typesugar/hlist", () => {
 
     it("concat() produces the concatenated tuple type", () => {
       const result = concat(hlist(1, 2), hlist("a", "b"));
-      type _check = AssertExtends<
-        typeof result,
-        HList<[number, number, string, string]>
-      >;
+      type _check = AssertExtends<typeof result, HList<[number, number, string, string]>>;
       expect(result).toHaveLength(4);
     });
 
     it("append() extends the tuple type", () => {
       const result = append(hlist(1, "a"), true);
-      type _check = AssertExtends<
-        typeof result,
-        HList<[number, string, boolean]>
-      >;
+      type _check = AssertExtends<typeof result, HList<[number, string, boolean]>>;
       expect(result).toHaveLength(3);
     });
 
     it("prepend() extends the tuple type at the front", () => {
       const result = prepend(true, hlist(1, "a"));
-      type _check = AssertExtends<
-        typeof result,
-        HList<[boolean, number, string]>
-      >;
+      type _check = AssertExtends<typeof result, HList<[boolean, number, string]>>;
       expect(result).toHaveLength(3);
     });
   });
@@ -489,17 +474,14 @@ describe("@typesugar/hlist", () => {
     it("HList of functions", () => {
       const fns = hlist(
         (x: number) => x + 1,
-        (s: string) => s.length,
+        (s: string) => s.length
       );
       const f = head(fns);
       expect(f(10)).toBe(11);
     });
 
     it("large HList (20 elements)", () => {
-      const large = hlist(
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-        10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-      );
+      const large = hlist(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19);
       expect(length(large)).toBe(20);
       expect(at(large, 0)).toBe(0);
       expect(at(large, 19)).toBe(19);

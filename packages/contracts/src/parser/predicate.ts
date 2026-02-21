@@ -92,9 +92,7 @@ function tokenToString(kind: ts.SyntaxKind): string {
  * }
  * ```
  */
-export function extractConditionsFromBlock(
-  block: ts.Block | ts.Statement,
-): ContractCondition[] {
+export function extractConditionsFromBlock(block: ts.Block | ts.Statement): ContractCondition[] {
   const conditions: ContractCondition[] = [];
 
   if (ts.isBlock(block)) {
@@ -112,13 +110,8 @@ export function extractConditionsFromBlock(
 
 function expressionToCondition(expr: ts.Expression): ContractCondition {
   // Check for comma expression: `condition, "message"`
-  if (
-    ts.isBinaryExpression(expr) &&
-    expr.operatorToken.kind === ts.SyntaxKind.CommaToken
-  ) {
-    const message = ts.isStringLiteral(expr.right)
-      ? expr.right.text
-      : undefined;
+  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    const message = ts.isStringLiteral(expr.right) ? expr.right.text : undefined;
     return {
       expression: expr.left,
       normalized: normalizeExpression(expr.left),

@@ -63,7 +63,7 @@ export function verifyPurity(
   ctx: MacroContext,
   closure: ts.ArrowFunction | ts.FunctionExpression,
   knownStateVars: StateVariableSet,
-  strictMode: boolean = true,
+  strictMode: boolean = true
 ): PurityResult {
   const dependencies = extractDependencies(ctx, closure, knownStateVars);
   const violations: PurityViolation[] = [];
@@ -92,10 +92,7 @@ export function verifyPurity(
 /**
  * Convert a side effect to a purity violation
  */
-function sideEffectToViolation(
-  effect: SideEffect,
-  closure: ts.Node,
-): PurityViolation | null {
+function sideEffectToViolation(effect: SideEffect, closure: ts.Node): PurityViolation | null {
   switch (effect.kind) {
     case "state-mutation":
       return {
@@ -157,8 +154,7 @@ function checkStrictPurity(closure: ts.Node): PurityViolation[] {
         message:
           "derived() computations should not throw. Consider returning an error value instead.",
         node,
-        suggestion:
-          "Return { ok: false, error } instead of throwing, or use a try/catch",
+        suggestion: "Return { ok: false, error } instead of throwing, or use a try/catch",
       });
     }
 
@@ -173,17 +169,12 @@ function checkStrictPurity(closure: ts.Node): PurityViolation[] {
         op === ts.SyntaxKind.SlashEqualsToken
       ) {
         // Check if LHS is a property access or element access (mutation)
-        if (
-          ts.isPropertyAccessExpression(node.left) ||
-          ts.isElementAccessExpression(node.left)
-        ) {
+        if (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left)) {
           violations.push({
             kind: "state-mutation",
-            message:
-              "derived() computations should not mutate objects. Found property assignment.",
+            message: "derived() computations should not mutate objects. Found property assignment.",
             node,
-            suggestion:
-              "Create a new object with spread syntax: { ...obj, prop: newValue }",
+            suggestion: "Create a new object with spread syntax: { ...obj, prop: newValue }",
           });
         }
       }
@@ -192,10 +183,7 @@ function checkStrictPurity(closure: ts.Node): PurityViolation[] {
     // Check for increment/decrement operators (mutations)
     if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
       const op = node.operator;
-      if (
-        op === ts.SyntaxKind.PlusPlusToken ||
-        op === ts.SyntaxKind.MinusMinusToken
-      ) {
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
         violations.push({
           kind: "state-mutation",
           message: "derived() computations should not use ++/-- operators.",
@@ -218,7 +206,7 @@ function checkStrictPurity(closure: ts.Node): PurityViolation[] {
 export function reportPurityViolations(
   ctx: MacroContext,
   result: PurityResult,
-  macroName: string,
+  macroName: string
 ): void {
   for (const violation of result.violations) {
     let message = `[${macroName}] ${violation.message}`;
@@ -265,7 +253,7 @@ export function shouldBeDerived(dependencies: DependencyInfo): {
  * Emits warnings for common patterns that need cleanup.
  */
 export function checkEffectCleanup(
-  closure: ts.ArrowFunction | ts.FunctionExpression,
+  closure: ts.ArrowFunction | ts.FunctionExpression
 ): { needsCleanup: boolean; resource: string; hasCleanup: boolean }[] {
   const resourcesNeedingCleanup: {
     needsCleanup: boolean;

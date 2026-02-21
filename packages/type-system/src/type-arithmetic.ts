@@ -50,10 +50,7 @@ import { defineTypeMacro, globalRegistry, MacroContext } from "@typesugar/core";
 // Helper: Extract numeric literal from a TypeNode
 // ============================================================================
 
-function extractNumericLiteral(
-  ctx: MacroContext,
-  typeNode: ts.TypeNode,
-): number | undefined {
+function extractNumericLiteral(ctx: MacroContext, typeNode: ts.TypeNode): number | undefined {
   // Direct literal type: 42
   if (ts.isLiteralTypeNode(typeNode)) {
     if (ts.isNumericLiteral(typeNode.literal)) {
@@ -81,16 +78,13 @@ function extractNumericLiteral(
 /**
  * Create a literal number type node from a numeric value.
  */
-function createNumericLiteralType(
-  factory: ts.NodeFactory,
-  value: number,
-): ts.TypeNode {
+function createNumericLiteralType(factory: ts.NodeFactory, value: number): ts.TypeNode {
   if (value < 0) {
     return factory.createLiteralTypeNode(
       factory.createPrefixUnaryExpression(
         ts.SyntaxKind.MinusToken,
-        factory.createNumericLiteral(Math.abs(value)),
-      ),
+        factory.createNumericLiteral(Math.abs(value))
+      )
     );
   }
   return factory.createLiteralTypeNode(factory.createNumericLiteral(value));
@@ -99,10 +93,7 @@ function createNumericLiteralType(
 /**
  * Create a boolean literal type node.
  */
-function createBooleanLiteralType(
-  factory: ts.NodeFactory,
-  value: boolean,
-): ts.TypeNode {
+function createBooleanLiteralType(factory: ts.NodeFactory, value: boolean): ts.TypeNode {
   return value
     ? factory.createLiteralTypeNode(factory.createTrue())
     : factory.createLiteralTypeNode(factory.createFalse());
@@ -120,7 +111,7 @@ export const addTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Add<A, B> requires exactly 2 type arguments");
@@ -147,7 +138,7 @@ export const subTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Sub<A, B> requires exactly 2 type arguments");
@@ -173,7 +164,7 @@ export const mulTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Mul<A, B> requires exactly 2 type arguments");
@@ -199,7 +190,7 @@ export const divTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Div<A, B> requires exactly 2 type arguments");
@@ -229,7 +220,7 @@ export const modTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Mod<A, B> requires exactly 2 type arguments");
@@ -259,13 +250,10 @@ export const powTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
-      ctx.reportError(
-        _typeRef,
-        "Pow<Base, Exp> requires exactly 2 type arguments",
-      );
+      ctx.reportError(_typeRef, "Pow<Base, Exp> requires exactly 2 type arguments");
       return _typeRef;
     }
 
@@ -288,7 +276,7 @@ export const negateTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 1) {
       ctx.reportError(_typeRef, "Negate<A> requires exactly 1 type argument");
@@ -312,7 +300,7 @@ export const absTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 1) {
       ctx.reportError(_typeRef, "Abs<A> requires exactly 1 type argument");
@@ -336,7 +324,7 @@ export const maxTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Max<A, B> requires exactly 2 type arguments");
@@ -362,7 +350,7 @@ export const minTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Min<A, B> requires exactly 2 type arguments");
@@ -392,7 +380,7 @@ export const ltTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Lt<A, B> requires exactly 2 type arguments");
@@ -418,7 +406,7 @@ export const lteTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Lte<A, B> requires exactly 2 type arguments");
@@ -444,7 +432,7 @@ export const gtTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Gt<A, B> requires exactly 2 type arguments");
@@ -470,7 +458,7 @@ export const gteTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
       ctx.reportError(_typeRef, "Gte<A, B> requires exactly 2 type arguments");
@@ -496,13 +484,10 @@ export const eqTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 2) {
-      ctx.reportError(
-        _typeRef,
-        "NumEq<A, B> requires exactly 2 type arguments",
-      );
+      ctx.reportError(_typeRef, "NumEq<A, B> requires exactly 2 type arguments");
       return _typeRef;
     }
 
@@ -529,13 +514,10 @@ export const incTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 1) {
-      ctx.reportError(
-        _typeRef,
-        "Increment<A> requires exactly 1 type argument",
-      );
+      ctx.reportError(_typeRef, "Increment<A> requires exactly 1 type argument");
       return _typeRef;
     }
 
@@ -556,13 +538,10 @@ export const decTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 1) {
-      ctx.reportError(
-        _typeRef,
-        "Decrement<A> requires exactly 1 type argument",
-      );
+      ctx.reportError(_typeRef, "Decrement<A> requires exactly 1 type argument");
       return _typeRef;
     }
 
@@ -583,7 +562,7 @@ export const isEvenTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 1) {
       ctx.reportError(_typeRef, "IsEven<A> requires exactly 1 type argument");
@@ -607,7 +586,7 @@ export const isOddTypeMacro = defineTypeMacro({
   expand(
     ctx: MacroContext,
     _typeRef: ts.TypeReferenceNode,
-    args: readonly ts.TypeNode[],
+    args: readonly ts.TypeNode[]
   ): ts.TypeNode {
     if (args.length !== 1) {
       ctx.reportError(_typeRef, "IsOdd<A> requires exactly 1 type argument");

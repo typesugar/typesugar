@@ -43,6 +43,9 @@ import {
   TS9201,
   TS9204,
   TS9501,
+  formatResolutionTrace,
+  type ResolutionAttempt,
+  type ResolutionTrace,
 } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { getInstanceMethods } from "./specialize.js";
@@ -71,7 +74,7 @@ const instanceRegistry = new Map<string, Map<string, string>>();
 export function registerInstance(
   typeclass: string,
   typeConstructor: string,
-  instanceName: string,
+  instanceName: string
 ): void {
   let typeclassMap = instanceRegistry.get(typeclass);
   if (!typeclassMap) {
@@ -84,10 +87,7 @@ export function registerInstance(
 /**
  * Lookup a registered instance.
  */
-export function lookupInstance(
-  typeclass: string,
-  typeConstructor: string,
-): string | undefined {
+export function lookupInstance(typeclass: string, typeConstructor: string): string | undefined {
   return instanceRegistry.get(typeclass)?.get(typeConstructor);
 }
 
@@ -138,13 +138,12 @@ registerInstance("Monad", "PromiseF", "promiseMonad");
 export const summonHKTMacro = defineExpressionMacro({
   name: "summonHKT",
   module: "@typesugar/macros",
-  description:
-    "Summon an HKT-based typeclass instance at compile time based on type argument",
+  description: "Summon an HKT-based typeclass instance at compile time based on type argument",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     // Get the type arguments: summon<Monad<OptionF>>()
     const typeArgs = callExpr.typeArguments;
@@ -177,12 +176,36 @@ export const summonHKTMacro = defineExpressionMacro({
     // Look up the instance
     const instanceName = lookupInstance(typeclass, typeConstructor);
     if (!instanceName) {
-      ctx
+      // Build resolution trace for detailed error
+      const attempts: ResolutionAttempt[] = [
+        {
+          step: "hkt-instance-registry",
+          target: `${typeclass}<${typeConstructor}>`,
+          result: "not-found",
+          reason: "not registered via registerInstance()",
+        },
+      ];
+
+      const trace: ResolutionTrace = {
+        sought: `${typeclass}<${typeConstructor}>`,
+        attempts,
+        finalResult: "failed",
+      };
+
+      const traceNotes = formatResolutionTrace(trace);
+
+      const diagnostic = ctx
         .diagnostic(TS9001)
         .at(callExpr)
-        .withArgs({ typeclass, type: typeConstructor })
+        .withArgs({ typeclass, type: typeConstructor });
+
+      for (const note of traceNotes) {
+        diagnostic.note(note);
+      }
+
+      diagnostic
         .help(
-          `Register with registerInstance("${typeclass}", "${typeConstructor}", "instanceName")`,
+          `Register with registerInstance("${typeclass}", "${typeConstructor}", "instanceName")`
         )
         .emit();
       return callExpr;
@@ -223,13 +246,12 @@ export const summonHKTMacro = defineExpressionMacro({
 export const deriveMacro = defineExpressionMacro({
   name: "derive",
   module: "@typesugar/macros",
-  description:
-    "Create a wrapper that auto-summons and specializes a generic function",
+  description: "Create a wrapper that auto-summons and specializes a generic function",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length !== 1) {
       ctx
@@ -254,9 +276,7 @@ export const deriveMacro = defineExpressionMacro({
         .withArgs({
           error: "Could not determine typeclass from function signature",
         })
-        .help(
-          "Ensure the first parameter is a typeclass dictionary (e.g., F: Monad<F>)",
-        )
+        .help("Ensure the first parameter is a typeclass dictionary (e.g., F: Monad<F>)")
         .emit();
       return callExpr;
     }
@@ -291,7 +311,7 @@ export const implicitMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
       ctx
@@ -342,10 +362,36 @@ export const implicitMacro = defineExpressionMacro({
     // Look up the instance
     const instanceName = lookupInstance(typeclassInfo.name, typeConstructor);
     if (!instanceName) {
-      ctx
+      // Build resolution trace for detailed error
+      const tcName = typeclassInfo.name;
+      const attempts: ResolutionAttempt[] = [
+        {
+          step: "hkt-instance-registry",
+          target: `${tcName}<${typeConstructor}>`,
+          result: "not-found",
+          reason: "not registered via registerInstance()",
+        },
+      ];
+
+      const trace: ResolutionTrace = {
+        sought: `${tcName}<${typeConstructor}>`,
+        attempts,
+        finalResult: "failed",
+      };
+
+      const traceNotes = formatResolutionTrace(trace);
+
+      const diagnostic = ctx
         .diagnostic(TS9001)
         .at(callExpr)
-        .withArgs({ typeclass: typeclassInfo.name, type: typeConstructor })
+        .withArgs({ typeclass: tcName, type: typeConstructor });
+
+      for (const note of traceNotes) {
+        diagnostic.note(note);
+      }
+
+      diagnostic
+        .help(`Register with registerInstance("${tcName}", "${typeConstructor}", "instanceName")`)
         .emit();
       return callExpr;
     }
@@ -376,7 +422,7 @@ export const implicitMacro = defineExpressionMacro({
  */
 function parseTypeclassType(
   ctx: MacroContext,
-  typeNode: ts.TypeNode,
+  typeNode: ts.TypeNode
 ): { typeclass?: string; typeConstructor?: string } {
   // Handle TypeReference: Monad<OptionF>
   if (ts.isTypeReferenceNode(typeNode)) {
@@ -393,9 +439,7 @@ function parseTypeclassType(
       let typeConstructor: string | undefined;
 
       if (ts.isTypeReferenceNode(firstArg)) {
-        typeConstructor = ts.isIdentifier(firstArg.typeName)
-          ? firstArg.typeName.text
-          : undefined;
+        typeConstructor = ts.isIdentifier(firstArg.typeName) ? firstArg.typeName.text : undefined;
       }
 
       return { typeclass, typeConstructor };
@@ -416,7 +460,7 @@ function parseTypeclassType(
  */
 function extractTypeclassFromFunction(
   ctx: MacroContext,
-  fnType: ts.Type,
+  fnType: ts.Type
 ): { name: string; paramName: string } | undefined {
   const signatures = fnType.getCallSignatures();
   if (!signatures.length) return undefined;
@@ -428,7 +472,7 @@ function extractTypeclassFromFunction(
   const firstParam = params[0];
   const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(
     firstParam,
-    firstParam.valueDeclaration!,
+    firstParam.valueDeclaration!
   );
 
   // Try to get the typeclass name using semantic type APIs
@@ -474,10 +518,7 @@ function extractTypeclassFromFunction(
  * Array<string> → "ArrayF"
  * Promise<number> → "PromiseF"
  */
-function inferTypeConstructor(
-  ctx: MacroContext,
-  valueType: ts.Type,
-): string | undefined {
+function inferTypeConstructor(ctx: MacroContext, valueType: ts.Type): string | undefined {
   // Get the type name
   const symbol = valueType.getSymbol() || valueType.aliasSymbol;
   if (!symbol) {
@@ -512,7 +553,7 @@ function inferTypeConstructor(
 function createDeriveWrapper(
   ctx: MacroContext,
   fnExpr: ts.Expression,
-  typeclassInfo: { name: string; paramName: string },
+  typeclassInfo: { name: string; paramName: string }
 ): ts.Expression {
   // Create: <F>(fa: $<F, any>, ...args: any[]) => fn(summon<Typeclass<F>>(), fa, ...args)
   // This is a simplified version — full implementation would inline
@@ -522,7 +563,7 @@ function createDeriveWrapper(
     undefined,
     "F",
     undefined,
-    undefined,
+    undefined
   );
 
   const faParam = ctx.factory.createParameterDeclaration(
@@ -531,7 +572,7 @@ function createDeriveWrapper(
     "fa",
     undefined,
     undefined,
-    undefined,
+    undefined
   );
 
   const restParam = ctx.factory.createParameterDeclaration(
@@ -540,7 +581,7 @@ function createDeriveWrapper(
     "args",
     undefined,
     undefined,
-    undefined,
+    undefined
   );
 
   // Body: fn(summon<Typeclass<F>>(), fa, ...args)
@@ -555,7 +596,7 @@ function createDeriveWrapper(
           ctx.factory.createTypeReferenceNode("F", undefined),
         ]),
       ],
-      [],
+      []
     ),
     ctx.factory.createIdentifier("fa"),
     ctx.factory.createSpreadElement(ctx.factory.createIdentifier("args")),
@@ -567,7 +608,7 @@ function createDeriveWrapper(
     [faParam, restParam],
     undefined,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    body,
+    body
   );
 }
 

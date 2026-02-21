@@ -83,11 +83,7 @@ export class MacroExpansionCache {
   /**
    * Compute a cache key from the macro name, source text, and arguments.
    */
-  computeKey(
-    macroName: string,
-    sourceText: string,
-    argTexts: string[],
-  ): string {
+  computeKey(macroName: string, sourceText: string, argTexts: string[]): string {
     const input = [macroName, sourceText, ...argTexts].join("\0");
     return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
   }
@@ -175,11 +171,7 @@ export class MacroExpansionCache {
         data[key] = entry;
       }
 
-      fs.writeFileSync(
-        this.cacheFilePath,
-        JSON.stringify(data, null, 2),
-        "utf-8",
-      );
+      fs.writeFileSync(this.cacheFilePath, JSON.stringify(data, null, 2), "utf-8");
       this.dirty = false;
     } catch {
       // Cache write failure is non-fatal
@@ -212,8 +204,7 @@ export class MacroExpansionCache {
    */
   getStatsString(): string {
     const total = this.stats.hits + this.stats.misses;
-    const hitRate =
-      total > 0 ? ((this.stats.hits / total) * 100).toFixed(1) : "0.0";
+    const hitRate = total > 0 ? ((this.stats.hits / total) * 100).toFixed(1) : "0.0";
     return (
       `Cache: ${this.stats.hits} hits, ${this.stats.misses} misses ` +
       `(${hitRate}% hit rate), ${this.stats.evictions} evictions, ` +
@@ -247,10 +238,7 @@ export class MacroExpansionCache {
    * name together with a JSON representation of the type metadata so that
    * any field change invalidates the entry.
    */
-  computeStructuralKey(
-    typeclassName: string,
-    structuralJson: string,
-  ): string {
+  computeStructuralKey(typeclassName: string, structuralJson: string): string {
     const input = `derive\0${typeclassName}\0${structuralJson}`;
     return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
   }
@@ -272,11 +260,7 @@ export class MacroExpansionCache {
 export class InMemoryExpansionCache {
   private entries = new Map<string, string>();
 
-  computeKey(
-    macroName: string,
-    sourceText: string,
-    argTexts: string[],
-  ): string {
+  computeKey(macroName: string, sourceText: string, argTexts: string[]): string {
     const input = [macroName, sourceText, ...argTexts].join("\0");
     return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
   }

@@ -83,7 +83,7 @@ function mapTypeToSchema(typeString: string, optional: boolean): string {
         /^'[^']*'$/.test(p) ||
         /^\d+$/.test(p) ||
         p === "true" ||
-        p === "false",
+        p === "false"
     );
     if (allLiterals) {
       schema = `Schema.Literal(${parts.join(", ")})`;
@@ -178,10 +178,7 @@ function splitGenericArgs(inner: string): [string, string] {
     return [inner.trim(), "unknown"];
   }
 
-  return [
-    inner.slice(0, splitIndex).trim(),
-    inner.slice(splitIndex + 1).trim(),
-  ];
+  return [inner.slice(0, splitIndex).trim(), inner.slice(splitIndex + 1).trim()];
 }
 
 /**
@@ -208,11 +205,8 @@ export const EffectSchemaDerive: DeriveMacro = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    target:
-      | ts.InterfaceDeclaration
-      | ts.ClassDeclaration
-      | ts.TypeAliasDeclaration,
-    typeInfo: DeriveTypeInfo,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind, fields, variants, discriminant } = typeInfo;
 
@@ -242,7 +236,7 @@ function generateSumTypeSchema(
   ctx: MacroContext,
   typeName: string,
   discriminant: string,
-  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>,
+  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>
 ): ts.Statement[] {
   const schemaName = `${typeName}Schema`;
 

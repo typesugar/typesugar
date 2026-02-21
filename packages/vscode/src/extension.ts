@@ -30,9 +30,7 @@ const TS_SELECTOR: vscode.DocumentSelector = [
   { language: "typescriptreact", scheme: "file" },
 ];
 
-export async function activate(
-  context: vscode.ExtensionContext,
-): Promise<void> {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const outputChannel = vscode.window.createOutputChannel("typemacro");
   outputChannel.appendLine("typemacro extension activating...");
 
@@ -49,33 +47,29 @@ export async function activate(
     outputChannel.appendLine(
       `Manifest loaded: ${Object.keys(manifest.current.macros.expression).length} expression macros, ` +
         `${Object.keys(manifest.current.macros.decorator).length} decorator macros, ` +
-        `${Object.keys(manifest.current.macros.taggedTemplate).length} tagged template macros`,
+        `${Object.keys(manifest.current.macros.taggedTemplate).length} tagged template macros`
     );
   }
 
   // --- Semantic Tokens ---
   const semanticTokens = new MacroSemanticTokensProvider(manifest);
   context.subscriptions.push(
-    vscode.languages.registerDocumentSemanticTokensProvider(
-      TS_SELECTOR,
-      semanticTokens,
-      LEGEND,
-    ),
-    semanticTokens,
+    vscode.languages.registerDocumentSemanticTokensProvider(TS_SELECTOR, semanticTokens, LEGEND),
+    semanticTokens
   );
 
   // --- CodeLens ---
   const codeLens = new MacroCodeLensProvider(manifest, expansion);
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(TS_SELECTOR, codeLens),
-    codeLens,
+    codeLens
   );
 
   // --- Inlay Hints ---
   const inlayHints = new MacroInlayHintsProvider(manifest, expansion);
   context.subscriptions.push(
     vscode.languages.registerInlayHintsProvider(TS_SELECTOR, inlayHints),
-    inlayHints,
+    inlayHints
   );
 
   // --- Code Actions ---
@@ -83,7 +77,7 @@ export async function activate(
   context.subscriptions.push(
     vscode.languages.registerCodeActionsProvider(TS_SELECTOR, codeActions, {
       providedCodeActionKinds: MacroCodeActionsProvider.providedCodeActionKinds,
-    }),
+    })
   );
 
   // --- Diagnostics ---
@@ -94,10 +88,7 @@ export async function activate(
   registerCommands(context, manifest, expansion);
 
   // --- Status bar ---
-  const statusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100,
-  );
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.text = "$(zap) typemacro";
   statusBar.tooltip = "typemacro macro system active";
   statusBar.command = "typemacro.refreshManifest";

@@ -203,7 +203,7 @@ const total = [1, 2, 3, 4, 5].sum(); // 15
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 ```
@@ -230,8 +230,8 @@ Eight new packages inspired by Boost and C++ template techniques, all following 
 ```typescript
 // Lazy iterator fusion — single pass, no intermediate arrays
 const result = lazy([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-  .filter(x => x % 2 === 0)
-  .map(x => x * x)
+  .filter((x) => x % 2 === 0)
+  .map((x) => x * x)
   .take(3)
   .toArray();
 // → [4, 16, 36] — single loop, early termination
@@ -331,7 +331,7 @@ assert(user.age > 18 && user.name.length > 0);
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 
@@ -385,10 +385,12 @@ error[TS9062]: Method `clamp` does not exist on type `number`
 ### Opt-Out When You Need To
 
 ```typescript
-"use no typesugar";                     // whole file
-function debug() { "use no typesugar"; } // one function
+"use no typesugar"; // whole file
+function debug() {
+  "use no typesugar";
+} // one function
 specialize(add); // @ts-no-typesugar     // one line
-"use no typesugar extensions";           // just extensions
+("use no typesugar extensions"); // just extensions
 ```
 
 [Error Messages Guide](/guides/error-messages) · [Developer Experience Guide](/guides/developer-experience) · [Opt-Out Guide](/guides/opt-out) · [Error Reference](/errors/)
@@ -397,16 +399,16 @@ specialize(add); // @ts-no-typesugar     // one line
 
 ## Packages
 
-| Core | Features | Adapters | C++ Inspired |
-| --- | --- | --- | --- |
-| [@typesugar/transformer](/reference/packages#transformer) | [@typesugar/fp](/reference/packages#fp) | [@typesugar/effect](/reference/packages#effect) | [@typesugar/hlist](/reference/packages#hlist) |
-| [@typesugar/core](/reference/packages#core) | [@typesugar/typeclass](/reference/packages#typeclass) | [@typesugar/kysely](/reference/packages#kysely) | [@typesugar/parser](/reference/packages#parser) |
-| [unplugin-typesugar](/reference/packages#unplugin) | [@typesugar/std](/reference/packages#std) | [@typesugar/react](/reference/packages#react) | [@typesugar/fusion](/reference/packages#fusion) |
-| | [@typesugar/contracts](/reference/packages#contracts) | [@typesugar/testing](/reference/packages#testing) | [@typesugar/graph](/reference/packages#graph) |
-| | [@typesugar/type-system](/reference/packages#type-system) | | [@typesugar/erased](/reference/packages#erased) |
-| | [@typesugar/derive](/reference/packages#derive) | | [@typesugar/codec](/reference/packages#codec) |
-| | | | [@typesugar/named-args](/reference/packages#named-args) |
-| | | | [@typesugar/geometry](/reference/packages#geometry) |
+| Core                                                      | Features                                                  | Adapters                                          | C++ Inspired                                            |
+| --------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------- |
+| [@typesugar/transformer](/reference/packages#transformer) | [@typesugar/fp](/reference/packages#fp)                   | [@typesugar/effect](/reference/packages#effect)   | [@typesugar/hlist](/reference/packages#hlist)           |
+| [@typesugar/core](/reference/packages#core)               | [@typesugar/typeclass](/reference/packages#typeclass)     | [@typesugar/kysely](/reference/packages#kysely)   | [@typesugar/parser](/reference/packages#parser)         |
+| [unplugin-typesugar](/reference/packages#unplugin)        | [@typesugar/std](/reference/packages#std)                 | [@typesugar/react](/reference/packages#react)     | [@typesugar/fusion](/reference/packages#fusion)         |
+|                                                           | [@typesugar/contracts](/reference/packages#contracts)     | [@typesugar/testing](/reference/packages#testing) | [@typesugar/graph](/reference/packages#graph)           |
+|                                                           | [@typesugar/type-system](/reference/packages#type-system) |                                                   | [@typesugar/erased](/reference/packages#erased)         |
+|                                                           | [@typesugar/derive](/reference/packages#derive)           |                                                   | [@typesugar/codec](/reference/packages#codec)           |
+|                                                           |                                                           |                                                   | [@typesugar/named-args](/reference/packages#named-args) |
+|                                                           |                                                           |                                                   | [@typesugar/geometry](/reference/packages#geometry)     |
 
 [Full Package Reference](/reference/packages)
 

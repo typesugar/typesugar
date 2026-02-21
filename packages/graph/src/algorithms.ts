@@ -6,7 +6,7 @@ import { adjacencyList } from "./graph.js";
  * Returns the sorted node IDs, or the cycle that prevented sorting.
  */
 export function topoSort(
-  graph: Graph,
+  graph: Graph
 ): { ok: true; order: string[] } | { ok: false; cycle: string[] } {
   const adj = adjacencyList(graph);
   const inDeg = new Map<string, number>();
@@ -53,9 +53,7 @@ function findOneCycle(graph: Graph): string[] | null {
 
   for (const n of graph.nodes) {
     if (color.get(n.id) !== WHITE) continue;
-    const stack: Array<{ node: string; idx: number }> = [
-      { node: n.id, idx: 0 },
-    ];
+    const stack: Array<{ node: string; idx: number }> = [{ node: n.id, idx: 0 }];
     color.set(n.id, GRAY);
 
     while (stack.length > 0) {
@@ -199,11 +197,7 @@ export function hasPath(graph: Graph, from: string, to: string): boolean {
 }
 
 /** Shortest path (unweighted) via BFS. Returns the path array or null. */
-export function shortestPath(
-  graph: Graph,
-  from: string,
-  to: string,
-): string[] | null {
+export function shortestPath(graph: Graph, from: string, to: string): string[] | null {
   if (from === to) return [from];
   const adj = adjacencyList(graph);
   const visited = new Set<string>([from]);
@@ -225,11 +219,7 @@ export function shortestPath(
   return null;
 }
 
-function reconstructPath(
-  parent: Map<string, string>,
-  from: string,
-  to: string,
-): string[] {
+function reconstructPath(parent: Map<string, string>, from: string, to: string): string[] {
   const path: string[] = [];
   let cur: string | undefined = to;
   while (cur !== undefined) {
@@ -248,7 +238,7 @@ function reconstructPath(
 export function dijkstra(
   graph: Graph,
   from: string,
-  to: string,
+  to: string
 ): { path: string[]; weight: number } | null {
   if (from === to) return { path: [from], weight: 0 };
 

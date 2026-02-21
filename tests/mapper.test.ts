@@ -11,7 +11,7 @@ function createTestContext(sourceText: string): MacroContextImpl {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -24,9 +24,7 @@ function createTestContext(sourceText: string): MacroContextImpl {
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "test.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   const transformContext: ts.TransformationContext = {
@@ -57,8 +55,7 @@ function expandTransformInto(source: string): {
   output: string;
 } {
   const fullSource =
-    "export declare function transformInto<From, To>(source: From, config?: any): To;\n" +
-    source;
+    "export declare function transformInto<From, To>(source: From, config?: any): To;\n" + source;
   const ctx = createTestContext(fullSource);
 
   let callExpr: ts.CallExpression | undefined;
@@ -75,11 +72,7 @@ function expandTransformInto(source: string): {
   const result = transformIntoMacro.expand(ctx, callExpr, callExpr.arguments);
 
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  const output = printer.printNode(
-    ts.EmitHint.Unspecified,
-    result,
-    ctx.sourceFile,
-  );
+  const output = printer.printNode(ts.EmitHint.Unspecified, result, ctx.sourceFile);
 
   return { result, output };
 }

@@ -176,11 +176,7 @@ export function evaluate<F>(p: Polynomial<F>, x: F, N: Numeric<F>): F {
 /**
  * Add two polynomials.
  */
-export function addPoly<F>(
-  a: Polynomial<F>,
-  b: Polynomial<F>,
-  N: Numeric<F>,
-): Polynomial<F> {
+export function addPoly<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
   const maxLen = Math.max(a.coeffs.length, b.coeffs.length);
   const result: F[] = [];
 
@@ -196,11 +192,7 @@ export function addPoly<F>(
 /**
  * Subtract two polynomials.
  */
-export function subPoly<F>(
-  a: Polynomial<F>,
-  b: Polynomial<F>,
-  N: Numeric<F>,
-): Polynomial<F> {
+export function subPoly<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
   const maxLen = Math.max(a.coeffs.length, b.coeffs.length);
   const result: F[] = [];
 
@@ -216,11 +208,7 @@ export function subPoly<F>(
 /**
  * Multiply two polynomials (convolution).
  */
-export function mulPoly<F>(
-  a: Polynomial<F>,
-  b: Polynomial<F>,
-  N: Numeric<F>,
-): Polynomial<F> {
+export function mulPoly<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
   if (a.coeffs.length === 0 || b.coeffs.length === 0) {
     return zeroPoly();
   }
@@ -247,11 +235,7 @@ export function negatePoly<F>(p: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
 /**
  * Multiply a polynomial by a scalar.
  */
-export function scalePoly<F>(
-  p: Polynomial<F>,
-  scalar: F,
-  N: Numeric<F>,
-): Polynomial<F> {
+export function scalePoly<F>(p: Polynomial<F>, scalar: F, N: Numeric<F>): Polynomial<F> {
   return polynomial(p.coeffs.map((c) => N.mul(c, scalar)));
 }
 
@@ -279,11 +263,7 @@ export function derivative<F>(p: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
  * Compute the indefinite integral of a polynomial (with constant 0).
  * Requires Fractional for division.
  */
-export function integral<F>(
-  p: Polynomial<F>,
-  N: Numeric<F>,
-  F: Fractional<F>,
-): Polynomial<F> {
+export function integral<F>(p: Polynomial<F>, N: Numeric<F>, F: Fractional<F>): Polynomial<F> {
   if (p.coeffs.length === 0) {
     return zeroPoly();
   }
@@ -299,11 +279,7 @@ export function integral<F>(
 /**
  * Compute the nth derivative.
  */
-export function nthDerivative<F>(
-  p: Polynomial<F>,
-  n: number,
-  N: Numeric<F>,
-): Polynomial<F> {
+export function nthDerivative<F>(p: Polynomial<F>, n: number, N: Numeric<F>): Polynomial<F> {
   let result = p;
   for (let i = 0; i < n; i++) {
     result = derivative(result, N);
@@ -324,7 +300,7 @@ export function divPoly<F>(
   a: Polynomial<F>,
   b: Polynomial<F>,
   N: Numeric<F>,
-  Fr: Fractional<F>,
+  Fr: Fractional<F>
 ): [Polynomial<F>, Polynomial<F>] {
   if (isZero(b)) {
     throw new RangeError("Polynomial division by zero");
@@ -370,7 +346,7 @@ export function gcdPoly<F>(
   a: Polynomial<F>,
   b: Polynomial<F>,
   N: Numeric<F>,
-  Fr: Fractional<F>,
+  Fr: Fractional<F>
 ): Polynomial<F> {
   while (!isZero(b)) {
     const [, r] = divPoly(a, b, N, Fr);
@@ -483,11 +459,7 @@ export function numericPolynomial<F>(N: Numeric<F>): Numeric<Polynomial<F>> {
 /**
  * Check if two polynomials are equal.
  */
-export function equals<F>(
-  a: Polynomial<F>,
-  b: Polynomial<F>,
-  N: Numeric<F>,
-): boolean {
+export function equals<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): boolean {
   if (a.coeffs.length !== b.coeffs.length) return false;
   for (let i = 0; i < a.coeffs.length; i++) {
     const diff = N.toNumber(N.sub(a.coeffs[i], b.coeffs[i]));
@@ -536,11 +508,7 @@ function formatCoeff(c: number, hideOne = false): string {
 /**
  * Compose two polynomials: compute p(q(x)).
  */
-export function compose<F>(
-  p: Polynomial<F>,
-  q: Polynomial<F>,
-  N: Numeric<F>,
-): Polynomial<F> {
+export function compose<F>(p: Polynomial<F>, q: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
   if (isZero(p)) return zeroPoly();
 
   // p(q(x)) = c_0 + c_1*q(x) + c_2*q(x)² + ...

@@ -22,10 +22,9 @@ import type { Capability, Erased, UnionOfVtables } from "./types.js";
  * @typeParam Sub - A subset of `Full` to retain in the type.
  * @param erased - The erased value to widen.
  */
-export function widen<
-  Full extends readonly Capability[],
-  Sub extends readonly Capability[],
->(erased: Erased<Full>): Erased<Sub> {
+export function widen<Full extends readonly Capability[], Sub extends readonly Capability[]>(
+  erased: Erased<Full>
+): Erased<Sub> {
   return erased as unknown as Erased<Sub>;
 }
 
@@ -41,12 +40,9 @@ export function widen<
  * @param requiredMethods - Method names that must exist in the vtable
  *   for the narrowing to succeed.
  */
-export function narrow<
-  From extends readonly Capability[],
-  To extends readonly Capability[],
->(
+export function narrow<From extends readonly Capability[], To extends readonly Capability[]>(
   erased: Erased<From>,
-  requiredMethods: readonly string[],
+  requiredMethods: readonly string[]
 ): Erased<To> | null {
   const vtable = erased.__vtable as Record<string, unknown>;
   for (const method of requiredMethods) {
@@ -71,10 +67,7 @@ export function narrow<
 export function extendCapabilities<
   From extends readonly Capability[],
   To extends readonly Capability[],
->(
-  erased: Erased<From>,
-  additionalVtable: Partial<UnionOfVtables<To>>,
-): Erased<To> {
+>(erased: Erased<From>, additionalVtable: Partial<UnionOfVtables<To>>): Erased<To> {
   const merged = { ...erased.__vtable, ...additionalVtable } as unknown as UnionOfVtables<To>;
   return { __erased__: true, __value: erased.__value, __vtable: merged };
 }
@@ -88,9 +81,6 @@ export function extendCapabilities<
  * @param erased - Any erased value.
  * @param methodName - The method name to probe for.
  */
-export function hasCapability(
-  erased: Erased<readonly Capability[]>,
-  methodName: string,
-): boolean {
+export function hasCapability(erased: Erased<readonly Capability[]>, methodName: string): boolean {
   return typeof (erased.__vtable as Record<string, unknown>)[methodName] === "function";
 }

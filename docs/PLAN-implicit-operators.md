@@ -155,10 +155,7 @@ code with `Op<>` removed from all return types.
 // Maps: operator → array of { typeclass, method }
 const syntaxRegistry = new Map<string, SyntaxEntry[]>();
 
-function registerTypeclassSyntax(
-  tcName: string,
-  syntax: Map<string, string>,
-): void;
+function registerTypeclassSyntax(tcName: string, syntax: Map<string, string>): void;
 function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined;
 ```
 
@@ -264,22 +261,22 @@ Preprocess files **before** creating the Program using a custom CompilerHost:
 buildStart() {
   const host = ts.createCompilerHost(config.options);
   const originalReadFile = host.readFile;
-  
+
   // Intercept file reads to return preprocessed content
   host.readFile = (fileName) => {
     const original = originalReadFile(fileName);
     if (!original || !shouldPreprocess(fileName)) return original;
-    
+
     // Check disk cache first
     const cached = cache.get(fileName, original);
     if (cached) return cached.code;
-    
+
     // Preprocess and cache
     const result = preprocess(original, { fileName });
     cache.set(fileName, original, result);
     return result.code;
   };
-  
+
   // Program now built with preprocessed content
   program = ts.createProgram(config.fileNames, config.options, host);
 }

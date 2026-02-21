@@ -314,6 +314,8 @@ For more information, see: https://typesugar.dev/errors/TS9001
 
 Every error has a code (TS9001-TS9999), an explanation (`npx typesugar --explain TS9001`), and machine-applicable fixes that your IDE can apply automatically.
 
+For typeclass resolution failures, you get a complete **resolution trace** showing each step attempted and why it failed — including per-field instance checks for auto-derivation. See the [error messages guide](docs/guides/error-messages.md) for details.
+
 ### "Did You Mean to Import...?"
 
 Forgot an import? typesugar knows what's available and suggests it:
@@ -342,14 +344,14 @@ Debugging something? Need to bypass typesugar for one file, one function, or one
 // Just this function
 function debugMe() {
   "use no typesugar";
-  const x = comptime(() => 1 + 1);  // Left as-is
+  const x = comptime(() => 1 + 1); // Left as-is
 }
 
 // Just this line
-const slow = specialize(add);  // @ts-no-typesugar
+const slow = specialize(add); // @ts-no-typesugar
 
 // Just extensions, keep macros working
-"use no typesugar extensions";
+("use no typesugar extensions");
 ```
 
 Inspired by React Compiler's `"use no memo"`. See the [opt-out guide](docs/guides/opt-out.md) for all options.

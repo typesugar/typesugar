@@ -77,9 +77,7 @@ describe("getOperatorString", () => {
   });
 
   it("should map EqualsEqualsEqualsToken to '==='", () => {
-    expect(getOperatorString(ts.SyntaxKind.EqualsEqualsEqualsToken)).toBe(
-      "===",
-    );
+    expect(getOperatorString(ts.SyntaxKind.EqualsEqualsEqualsToken)).toBe("===");
   });
 
   it("should return undefined for non-overloadable tokens", () => {
@@ -110,9 +108,7 @@ describe("getOperatorString", () => {
       ts.SyntaxKind.GreaterThanGreaterThanToken,
     ];
 
-    const mapped = syntaxKinds
-      .map(getOperatorString)
-      .filter((s): s is string => s !== undefined);
+    const mapped = syntaxKinds.map(getOperatorString).filter((s): s is string => s !== undefined);
 
     expect(mapped).toHaveLength(OPERATOR_SYMBOLS.length);
     for (const sym of OPERATOR_SYMBOLS) {
@@ -145,14 +141,8 @@ describe("syntax registry", () => {
   });
 
   it("should support multiple typeclasses for the same operator", () => {
-    registerTypeclassSyntax(
-      "Semigroup",
-      new Map<string, string>([["+" as string, "concat"]]),
-    );
-    registerTypeclassSyntax(
-      "Num",
-      new Map<string, string>([["+" as string, "add"]]),
-    );
+    registerTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
+    registerTypeclassSyntax("Num", new Map<string, string>([["+" as string, "add"]]));
 
     const entries = getSyntaxForOperator("+");
     expect(entries).toHaveLength(2);
@@ -166,7 +156,7 @@ describe("syntax registry", () => {
       new Map<string, string>([
         ["===" as string, "eq"],
         ["!==" as string, "neq"],
-      ]),
+      ])
     );
 
     expect(getSyntaxForOperator("===")).toHaveLength(1);
@@ -176,10 +166,7 @@ describe("syntax registry", () => {
   });
 
   it("should clear all entries", () => {
-    registerTypeclassSyntax(
-      "Semigroup",
-      new Map<string, string>([["+" as string, "concat"]]),
-    );
+    registerTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
     clearSyntaxRegistry();
     expect(getSyntaxForOperator("+")).toBeUndefined();
   });
@@ -268,12 +255,7 @@ describe("TypeclassInfo.syntax", () => {
 
 describe("extractOpFromReturnType", () => {
   function parseReturnType(code: string): ts.TypeNode | undefined {
-    const src = ts.createSourceFile(
-      "test.ts",
-      `type T = ${code};`,
-      ts.ScriptTarget.Latest,
-      true,
-    );
+    const src = ts.createSourceFile("test.ts", `type T = ${code};`, ts.ScriptTarget.Latest, true);
     const stmt = src.statements[0];
     if (ts.isTypeAliasDeclaration(stmt)) {
       return stmt.type;

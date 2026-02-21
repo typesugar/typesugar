@@ -50,11 +50,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -83,9 +79,7 @@ export type ReprOf<T> = T extends Opaque<infer Repr, string> ? Repr : T;
  * Extract the opaque type from a module.
  */
 export type OpaqueType<M> =
-  M extends OpaqueModule<infer Repr, string, infer _Ops>
-    ? Opaque<Repr, string>
-    : never;
+  M extends OpaqueModule<infer Repr, string, infer _Ops> ? Opaque<Repr, string> : never;
 
 /**
  * An opaque module — contains the smart constructor and operations.
@@ -144,18 +138,16 @@ export type OpaqueOps<Repr> = Record<string, (...args: any[]) => any>;
  */
 export function opaqueModule<Repr>(
   brand: string,
-  validate?: (repr: Repr) => boolean,
+  validate?: (repr: Repr) => boolean
 ): <Ops extends Record<string, (repr: Repr, ...args: any[]) => any>>(
-  ops: Ops,
+  ops: Ops
 ) => OpaqueModuleResult<Repr, Ops> {
   return <Ops extends Record<string, (repr: Repr, ...args: any[]) => any>>(
-    ops: Ops,
+    ops: Ops
   ): OpaqueModuleResult<Repr, Ops> => {
     const create = (repr: Repr): any => {
       if (validate && !validate(repr)) {
-        throw new Error(
-          `Invalid ${brand}: ${JSON.stringify(repr)} failed validation`,
-        );
+        throw new Error(`Invalid ${brand}: ${JSON.stringify(repr)} failed validation`);
       }
       return repr;
     };
@@ -207,14 +199,8 @@ export type OpaqueModuleResult<
   readonly tryCreate: (repr: Repr) => Opaque<Repr, string> | undefined;
 } & {
   // Wrap operations to accept Opaque<Repr, Brand> instead of Repr
-  readonly [K in keyof Ops]: Ops[K] extends (
-    repr: Repr,
-    ...args: infer Args
-  ) => infer R
-    ? (
-        opaque: Opaque<Repr, string>,
-        ...args: Args
-      ) => R extends Repr ? Opaque<Repr, string> : R
+  readonly [K in keyof Ops]: Ops[K] extends (repr: Repr, ...args: infer Args) => infer R
+    ? (opaque: Opaque<Repr, string>, ...args: Args) => R extends Repr ? Opaque<Repr, string> : R
     : never;
 };
 
@@ -225,7 +211,7 @@ export type OpaqueModuleResult<
 /** Opaque positive integer */
 export const PositiveInt = opaqueModule<number>(
   "PositiveInt",
-  (n: number) => Number.isInteger(n) && n > 0,
+  (n: number) => Number.isInteger(n) && n > 0
 )({
   toNumber: (n: number) => n,
   add: (a: number, b: number) => a + b,
@@ -235,7 +221,7 @@ export const PositiveInt = opaqueModule<number>(
 /** Opaque non-empty string */
 export const NonEmptyString = opaqueModule<string>(
   "NonEmptyString",
-  (s: string) => s.length > 0,
+  (s: string) => s.length > 0
 )({
   toString: (s: string) => s,
   length: (s: string) => s.length,
@@ -246,7 +232,7 @@ export const NonEmptyString = opaqueModule<string>(
 
 /** Opaque email address */
 export const EmailAddress = opaqueModule<string>("EmailAddress", (s: string) =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s),
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
 )({
   toString: (s: string) => s,
   domain: (s: string) => s.split("@")[1],
@@ -278,13 +264,12 @@ export const SafeUrl = opaqueModule<string>("SafeUrl", (s: string) => {
  */
 export const opaqueModuleMacro = defineExpressionMacro({
   name: "opaqueModule",
-  description:
-    "Create an opaque type module with smart constructors and controlled access",
+  description: "Create an opaque type module with smart constructors and controlled access",
 
   expand(
     _ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[],
+    _args: readonly ts.Expression[]
   ): ts.Expression {
     // Pass through to the runtime implementation — the type system
     // handles the opacity via branded types

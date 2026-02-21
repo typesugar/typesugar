@@ -14,10 +14,7 @@
  * W must be a Monoid for proper composition
  */
 
-import {
-  Monoid,
-  combineAll as combineAllMonoid,
-} from "../typeclasses/semigroup";
+import { Monoid, combineAll as combineAllMonoid } from "../typeclasses/semigroup";
 
 // ============================================================================
 // Writer Type Definition
@@ -29,7 +26,7 @@ import {
 export class Writer<W, A> {
   constructor(
     private readonly _value: A,
-    private readonly _log: W,
+    private readonly _log: W
   ) {}
 
   /**
@@ -71,11 +68,7 @@ export class Writer<W, A> {
   /**
    * Apply (ap)
    */
-  ap<B>(
-    this: Writer<W, (a: A) => B>,
-    wa: Writer<W, A>,
-    W: Monoid<W>,
-  ): Writer<W, B> {
+  ap<B>(this: Writer<W, (a: A) => B>, wa: Writer<W, A>, W: Monoid<W>): Writer<W, B> {
     return this.flatMap((f) => wa.map(f), W);
   }
 
@@ -153,11 +146,7 @@ export class Writer<W, A> {
   /**
    * Zip with a function
    */
-  zipWith<B, C>(
-    wb: Writer<W, B>,
-    f: (a: A, b: B) => C,
-    W: Monoid<W>,
-  ): Writer<W, C> {
+  zipWith<B, C>(wb: Writer<W, B>, f: (a: A, b: B) => C, W: Monoid<W>): Writer<W, C> {
     return this.flatMap((a) => wb.map((b) => f(a, b)), W);
   }
 
@@ -226,10 +215,7 @@ export namespace Writer {
   /**
    * Lift a function into Writer
    */
-  export function lift<W, A, B>(
-    f: (a: A) => B,
-    W: Monoid<W>,
-  ): (wa: Writer<W, A>) => Writer<W, B> {
+  export function lift<W, A, B>(f: (a: A) => B, W: Monoid<W>): (wa: Writer<W, A>) => Writer<W, B> {
     return (wa) => wa.map(f);
   }
 
@@ -238,7 +224,7 @@ export namespace Writer {
    */
   export function lift2<W, A, B, C>(
     f: (a: A, b: B) => C,
-    W: Monoid<W>,
+    W: Monoid<W>
   ): (wa: Writer<W, A>, wb: Writer<W, B>) => Writer<W, C> {
     return (wa, wb) => wa.flatMap((a) => wb.map((b) => f(a, b)), W);
   }
@@ -261,7 +247,7 @@ export function map<W, A, B>(wa: Writer<W, A>, f: (a: A) => B): Writer<W, B> {
 export function flatMap<W, A, B>(
   wa: Writer<W, A>,
   f: (a: A) => Writer<W, B>,
-  W: Monoid<W>,
+  W: Monoid<W>
 ): Writer<W, B> {
   return wa.flatMap(f, W);
 }
@@ -272,7 +258,7 @@ export function flatMap<W, A, B>(
 export function ap<W, A, B>(
   wf: Writer<W, (a: A) => B>,
   wa: Writer<W, A>,
-  W: Monoid<W>,
+  W: Monoid<W>
 ): Writer<W, B> {
   return wf.flatMap((f) => wa.map(f), W);
 }
@@ -280,10 +266,7 @@ export function ap<W, A, B>(
 /**
  * Flatten nested Writer
  */
-export function flatten<W, A>(
-  wwa: Writer<W, Writer<W, A>>,
-  W: Monoid<W>,
-): Writer<W, A> {
+export function flatten<W, A>(wwa: Writer<W, Writer<W, A>>, W: Monoid<W>): Writer<W, A> {
   return wwa.flatMap((wa) => wa, W);
 }
 
@@ -293,33 +276,25 @@ export function flatten<W, A>(
 export function traverse<W, A, B>(
   arr: A[],
   f: (a: A) => Writer<W, B>,
-  W: Monoid<W>,
+  W: Monoid<W>
 ): Writer<W, B[]> {
   return arr.reduce(
-    (acc: Writer<W, B[]>, a: A) =>
-      acc.flatMap((bs) => f(a).map((b) => [...bs, b]), W),
-    Writer.pure([], W),
+    (acc: Writer<W, B[]>, a: A) => acc.flatMap((bs) => f(a).map((b) => [...bs, b]), W),
+    Writer.pure([], W)
   );
 }
 
 /**
  * Sequence an array of Writer values
  */
-export function sequence<W, A>(
-  writers: Writer<W, A>[],
-  W: Monoid<W>,
-): Writer<W, A[]> {
+export function sequence<W, A>(writers: Writer<W, A>[], W: Monoid<W>): Writer<W, A[]> {
   return traverse(writers, (w) => w, W);
 }
 
 /**
  * Execute a Writer action repeatedly n times
  */
-export function replicateA<W, A>(
-  n: number,
-  wa: Writer<W, A>,
-  W: Monoid<W>,
-): Writer<W, A[]> {
+export function replicateA<W, A>(n: number, wa: Writer<W, A>, W: Monoid<W>): Writer<W, A[]> {
   if (n <= 0) return Writer.pure([], W);
   return wa.flatMap((a) => replicateA(n - 1, wa, W).map((as) => [a, ...as]), W);
 }
@@ -330,7 +305,7 @@ export function replicateA<W, A>(
 export function combineAll<W, A>(
   writers: Writer<W, A>[],
   W: Monoid<W>,
-  A: Monoid<A>,
+  A: Monoid<A>
 ): Writer<W, A> {
   if (writers.length === 0) {
     return Writer.pure(A.empty, W);
@@ -338,7 +313,7 @@ export function combineAll<W, A>(
 
   return writers.reduce(
     (acc, w) => acc.flatMap((a) => w.map((b) => A.combine(a, b)), W),
-    Writer.pure(A.empty, W),
+    Writer.pure(A.empty, W)
   );
 }
 
@@ -359,13 +334,12 @@ export function Do<W>(W: Monoid<W>): Writer<W, {}> {
 export function bind<N extends string, W, A extends object, B>(
   name: Exclude<N, keyof A>,
   f: (a: A) => Writer<W, B>,
-  W: Monoid<W>,
+  W: Monoid<W>
 ): (writer: Writer<W, A>) => Writer<W, A & { readonly [K in N]: B }> {
   return (writer) =>
     writer.flatMap(
-      (a) =>
-        f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
-      W,
+      (a) => f(a).map((b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
+      W
     );
 }
 
@@ -374,10 +348,9 @@ export function bind<N extends string, W, A extends object, B>(
  */
 export function let_<N extends string, W, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (writer: Writer<W, A>) => Writer<W, A & { readonly [K in N]: B }> {
-  return (writer) =>
-    writer.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
+  return (writer) => writer.map((a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
 }
 
 // ============================================================================

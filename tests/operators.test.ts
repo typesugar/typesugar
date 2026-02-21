@@ -15,20 +15,7 @@ describe("operator macro infrastructure", () => {
   describe("operator symbol to method mapping", () => {
     it("should have correct default operator symbols", () => {
       // These are the standard operator symbols we support
-      const supportedOperators = [
-        "+",
-        "-",
-        "*",
-        "/",
-        "%",
-        "**",
-        "==",
-        "!=",
-        "<",
-        ">",
-        "<=",
-        ">=",
-      ];
+      const supportedOperators = ["+", "-", "*", "/", "%", "**", "==", "!=", "<", ">", "<=", ">="];
       expect(supportedOperators).toHaveLength(12);
     });
   });

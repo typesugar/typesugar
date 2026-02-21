@@ -1,13 +1,4 @@
-import type {
-  Cartesian,
-  CoordSys,
-  Dim,
-  Dim2,
-  Dim3,
-  Point,
-  Transform,
-  Vector,
-} from "./types.js";
+import type { Cartesian, CoordSys, Dim, Dim2, Dim3, Point, Transform, Vector } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Internal helpers — flat row-major homogeneous matrices
@@ -56,9 +47,7 @@ function mul4(a: number[], b: number[]): number[] {
 // ---------------------------------------------------------------------------
 
 /** 2D rotation around the origin by `angle` radians (counter-clockwise) */
-export function rotation2d(
-  angle: number,
-): Transform<Cartesian, Cartesian, Dim2> {
+export function rotation2d(angle: number): Transform<Cartesian, Cartesian, Dim2> {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   // prettier-ignore
@@ -70,10 +59,7 @@ export function rotation2d(
 }
 
 /** 2D translation by (dx, dy) */
-export function translation2d(
-  dx: number,
-  dy: number,
-): Transform<Cartesian, Cartesian, Dim2> {
+export function translation2d(dx: number, dy: number): Transform<Cartesian, Cartesian, Dim2> {
   // prettier-ignore
   return [
     1, 0, dx,
@@ -83,10 +69,7 @@ export function translation2d(
 }
 
 /** 2D scale by (sx, sy) */
-export function scale2d(
-  sx: number,
-  sy: number,
-): Transform<Cartesian, Cartesian, Dim2> {
+export function scale2d(sx: number, sy: number): Transform<Cartesian, Cartesian, Dim2> {
   // prettier-ignore
   return [
     sx,  0, 0,
@@ -96,10 +79,7 @@ export function scale2d(
 }
 
 /** 2D shear by (sx, sy) */
-export function shear2d(
-  sx: number,
-  sy: number,
-): Transform<Cartesian, Cartesian, Dim2> {
+export function shear2d(sx: number, sy: number): Transform<Cartesian, Cartesian, Dim2> {
   // prettier-ignore
   return [
     1, sx, 0,
@@ -113,9 +93,7 @@ export function shear2d(
 // ---------------------------------------------------------------------------
 
 /** 3D rotation around the X axis */
-export function rotationX(
-  angle: number,
-): Transform<Cartesian, Cartesian, Dim3> {
+export function rotationX(angle: number): Transform<Cartesian, Cartesian, Dim3> {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   // prettier-ignore
@@ -128,9 +106,7 @@ export function rotationX(
 }
 
 /** 3D rotation around the Y axis */
-export function rotationY(
-  angle: number,
-): Transform<Cartesian, Cartesian, Dim3> {
+export function rotationY(angle: number): Transform<Cartesian, Cartesian, Dim3> {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   // prettier-ignore
@@ -143,9 +119,7 @@ export function rotationY(
 }
 
 /** 3D rotation around the Z axis */
-export function rotationZ(
-  angle: number,
-): Transform<Cartesian, Cartesian, Dim3> {
+export function rotationZ(angle: number): Transform<Cartesian, Cartesian, Dim3> {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   // prettier-ignore
@@ -161,7 +135,7 @@ export function rotationZ(
 export function translation3d(
   dx: number,
   dy: number,
-  dz: number,
+  dz: number
 ): Transform<Cartesian, Cartesian, Dim3> {
   // prettier-ignore
   return [
@@ -173,11 +147,7 @@ export function translation3d(
 }
 
 /** 3D scale by (sx, sy, sz) */
-export function scale3d(
-  sx: number,
-  sy: number,
-  sz: number,
-): Transform<Cartesian, Cartesian, Dim3> {
+export function scale3d(sx: number, sy: number, sz: number): Transform<Cartesian, Cartesian, Dim3> {
   // prettier-ignore
   return [
     sx,  0,  0, 0,
@@ -194,14 +164,11 @@ export function scale3d(
 /** Apply a 2D or 3D transform to a point (includes translation) */
 export function applyToPoint<CS extends CoordSys, D extends Dim<number>>(
   transform: Transform<CS, CS, D>,
-  p: Point<CS, D>,
+  p: Point<CS, D>
 ): Point<CS, D> {
   if (p.length === 2) {
     const t = transform as number[];
-    return [
-      t[0] * p[0] + t[1] * p[1] + t[2],
-      t[3] * p[0] + t[4] * p[1] + t[5],
-    ] as Point<CS, D>;
+    return [t[0] * p[0] + t[1] * p[1] + t[2], t[3] * p[0] + t[4] * p[1] + t[5]] as Point<CS, D>;
   }
   const t = transform as number[];
   return [
@@ -214,14 +181,11 @@ export function applyToPoint<CS extends CoordSys, D extends Dim<number>>(
 /** Apply a 2D or 3D transform to a vector (translation is ignored) */
 export function applyToVector<CS extends CoordSys, D extends Dim<number>>(
   transform: Transform<CS, CS, D>,
-  v: Vector<CS, D>,
+  v: Vector<CS, D>
 ): Vector<CS, D> {
   if (v.length === 2) {
     const t = transform as number[];
-    return [
-      t[0] * v[0] + t[1] * v[1],
-      t[3] * v[0] + t[4] * v[1],
-    ] as Vector<CS, D>;
+    return [t[0] * v[0] + t[1] * v[1], t[3] * v[0] + t[4] * v[1]] as Vector<CS, D>;
   }
   const t = transform as number[];
   return [
@@ -238,7 +202,7 @@ export function applyToVector<CS extends CoordSys, D extends Dim<number>>(
 /** Compose two transforms: apply `first`, then `second` */
 export function compose<CS extends CoordSys, D extends Dim<number>>(
   first: Transform<CS, CS, D>,
-  second: Transform<CS, CS, D>,
+  second: Transform<CS, CS, D>
 ): Transform<CS, CS, D> {
   if (first.length === 9) {
     return mul3(second as number[], first as number[]) as Transform<CS, CS, D>;
@@ -274,7 +238,7 @@ export function identity3d(): Transform<Cartesian, Cartesian, Dim3> {
  * Throws if the matrix is singular.
  */
 export function inverse<CS extends CoordSys, D extends Dim<number>>(
-  transform: Transform<CS, CS, D>,
+  transform: Transform<CS, CS, D>
 ): Transform<CS, CS, D> {
   if (transform.length === 9) {
     return inverse3(transform as number[]) as Transform<CS, CS, D>;
@@ -323,8 +287,7 @@ function inverse4(m: number[]): number[] {
   const c1 = m[8] * m[14] - m[12] * m[10];
   const c0 = m[8] * m[13] - m[12] * m[9];
 
-  const det =
-    s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0;
+  const det = s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0;
 
   if (Math.abs(det) < 1e-12) {
     throw new Error("Singular matrix — cannot invert");

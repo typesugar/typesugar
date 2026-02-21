@@ -12,7 +12,7 @@ class User {
   constructor(
     public id: number,
     public name: string,
-    public email: string,
+    public email: string
   ) {}
 }
 ```
@@ -36,7 +36,7 @@ Structural equality comparison.
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 
@@ -62,7 +62,7 @@ Ordering comparison (requires Eq).
 class Version {
   constructor(
     public major: number,
-    public minor: number,
+    public minor: number
   ) {}
 }
 
@@ -105,7 +105,7 @@ String representation for debugging.
 class User {
   constructor(
     public id: number,
-    public name: string,
+    public name: string
   ) {}
 }
 
@@ -122,7 +122,7 @@ Hash code generation.
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 
@@ -139,7 +139,7 @@ class Options {
   constructor(
     public enabled: boolean = true,
     public count: number = 0,
-    public name: string = "",
+    public name: string = ""
   ) {}
 }
 
@@ -155,7 +155,7 @@ JSON serialization/deserialization.
 class User {
   constructor(
     public id: number,
-    public name: string,
+    public name: string
   ) {}
 }
 
@@ -174,7 +174,7 @@ class Request {
   constructor(
     public method: string,
     public url: string,
-    public headers: Record<string, string>,
+    public headers: Record<string, string>
   ) {}
 }
 
@@ -194,7 +194,7 @@ Runtime type checking.
 class User {
   constructor(
     public id: number,
-    public name: string,
+    public name: string
   ) {}
 }
 
@@ -216,7 +216,7 @@ class Product {
   constructor(
     public id: string,
     public name: string,
-    public price: number,
+    public price: number
   ) {}
 }
 ```
@@ -258,7 +258,7 @@ class User {
   constructor(
     public id: number,
     public name: string,
-    @deriveIgnore public cache?: Map<string, unknown>,
+    @deriveIgnore public cache?: Map<string, unknown>
   ) {}
 }
 ```
@@ -275,7 +275,7 @@ class Document {
   constructor(
     public id: string,
     @deriveWith({ eq: (a, b) => a.toLowerCase() === b.toLowerCase() })
-    public title: string,
+    public title: string
   ) {}
 }
 ```
@@ -289,7 +289,7 @@ Derives handle nested types automatically:
 class Address {
   constructor(
     public city: string,
-    public zip: string,
+    public zip: string
   ) {}
 }
 
@@ -297,7 +297,7 @@ class Address {
 class Person {
   constructor(
     public name: string,
-    public address: Address,
+    public address: Address
   ) {}
 }
 

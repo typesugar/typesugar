@@ -56,11 +56,9 @@ export interface ComptimePermissions {
 class ComptimePermissionError extends Error {
   constructor(
     public readonly permission: keyof ComptimePermissions,
-    public readonly action: string,
+    public readonly action: string
   ) {
-    super(
-      `comptime permission denied: ${action} requires { ${permission}: 'read' | true }`,
-    );
+    super(`comptime permission denied: ${action} requires { ${permission}: 'read' | true }`);
     this.name = "ComptimePermissionError";
   }
 }
@@ -79,7 +77,7 @@ const MAX_ITERATIONS = 100_000;
 function createSandboxFs(
   baseDir: string,
   projectRoot: string,
-  permissions: ComptimePermissions,
+  permissions: ComptimePermissions
 ): Record<string, unknown> {
   const normalizedRoot = nodePath.normalize(projectRoot);
 
@@ -101,20 +99,15 @@ function createSandboxFs(
     if (nodePath.isAbsolute(relativePath)) {
       throw new Error(
         `Security: absolute paths are not allowed in comptime fs. ` +
-          `Use a path relative to the source file instead: "${relativePath}"`,
+          `Use a path relative to the source file instead: "${relativePath}"`
       );
     }
-    const resolved = nodePath.normalize(
-      nodePath.resolve(baseDir, relativePath),
-    );
-    if (
-      !resolved.startsWith(normalizedRoot + nodePath.sep) &&
-      resolved !== normalizedRoot
-    ) {
+    const resolved = nodePath.normalize(nodePath.resolve(baseDir, relativePath));
+    if (!resolved.startsWith(normalizedRoot + nodePath.sep) && resolved !== normalizedRoot) {
       throw new Error(
         `Security: path "${relativePath}" resolves to "${resolved}" which is ` +
           `outside the project root "${normalizedRoot}". ` +
-          `File access is restricted to the project directory.`,
+          `File access is restricted to the project directory.`
       );
     }
     return resolved;
@@ -123,7 +116,7 @@ function createSandboxFs(
   return {
     readFileSync: (
       filePath: string,
-      encoding?: BufferEncoding | { encoding?: BufferEncoding },
+      encoding?: BufferEncoding | { encoding?: BufferEncoding }
     ): string | Buffer => {
       checkRead();
       const absolutePath = resolvePath(filePath);
@@ -139,13 +132,11 @@ function createSandboxFs(
 
     readdirSync: (
       dirPath: string,
-      options?: { withFileTypes?: boolean },
+      options?: { withFileTypes?: boolean }
     ): string[] | nodeFs.Dirent[] => {
       checkRead();
       const absolutePath = resolvePath(dirPath);
-      return nodeFs.readdirSync(absolutePath, options) as
-        | string[]
-        | nodeFs.Dirent[];
+      return nodeFs.readdirSync(absolutePath, options) as string[] | nodeFs.Dirent[];
     },
 
     statSync: (filePath: string): nodeFs.Stats => {
@@ -157,17 +148,14 @@ function createSandboxFs(
     writeFileSync: (
       filePath: string,
       data: string | Buffer,
-      options?: { encoding?: BufferEncoding },
+      options?: { encoding?: BufferEncoding }
     ): void => {
       checkWrite();
       const absolutePath = resolvePath(filePath);
       nodeFs.writeFileSync(absolutePath, data, options);
     },
 
-    mkdirSync: (
-      dirPath: string,
-      options?: { recursive?: boolean },
-    ): string | undefined => {
+    mkdirSync: (dirPath: string, options?: { recursive?: boolean }): string | undefined => {
       checkWrite();
       const absolutePath = resolvePath(dirPath);
       return nodeFs.mkdirSync(absolutePath, options);
@@ -180,7 +168,7 @@ function createSandboxFs(
  */
 function createSandboxProcess(
   baseDir: string,
-  permissions: ComptimePermissions,
+  permissions: ComptimePermissions
 ): Record<string, unknown> {
   const checkEnvRead = () => {
     const envPermission = permissions.env;
@@ -217,7 +205,7 @@ function createSandboxProcess(
           }
           return undefined;
         },
-      },
+      }
     ),
     cwd: () => baseDir,
     platform: process.platform,
@@ -231,7 +219,7 @@ function createSandboxProcess(
 function createSandboxRequire(
   baseDir: string,
   projectRoot: string,
-  permissions: ComptimePermissions,
+  permissions: ComptimePermissions
 ): (moduleName: string) => unknown {
   const sandboxFs = createSandboxFs(baseDir, projectRoot, permissions);
   const sandboxProcess = createSandboxProcess(baseDir, permissions);
@@ -253,7 +241,7 @@ function createSandboxRequire(
       default:
         throw new Error(
           `comptime: require('${moduleName}') is not supported. ` +
-            `Only 'fs', 'path', and 'process' are available.`,
+            `Only 'fs', 'path', and 'process' are available.`
         );
     }
   };
@@ -282,10 +270,7 @@ const TRANSPILE_OPTIONS: ts.TranspileOptions = {
 /**
  * Parse a permissions object literal from the AST.
  */
-function parsePermissions(
-  ctx: MacroContextImpl,
-  expr: ts.Expression,
-): ComptimePermissions {
+function parsePermissions(ctx: MacroContextImpl, expr: ts.Expression): ComptimePermissions {
   const permissions: ComptimePermissions = {};
 
   if (!ts.isObjectLiteralExpression(expr)) {
@@ -336,9 +321,7 @@ function parsePermissions(
         } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
           permissions.net = false;
         } else if (ts.isArrayLiteralExpression(value)) {
-          permissions.net = value.elements
-            .filter(ts.isStringLiteral)
-            .map((e) => e.text);
+          permissions.net = value.elements.filter(ts.isStringLiteral).map((e) => e.text);
         }
         break;
       }
@@ -365,12 +348,12 @@ export const comptimeMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 1 || args.length > 2) {
       ctx.reportError(
         callExpr,
-        "comptime expects 1 or 2 arguments: comptime(fn) or comptime(permissions, fn)",
+        "comptime expects 1 or 2 arguments: comptime(fn) or comptime(permissions, fn)"
       );
       return callExpr;
     }
@@ -389,12 +372,7 @@ export const comptimeMacro = defineExpressionMacro({
 
     // If it's an arrow function or function expression, evaluate via vm
     if (ts.isArrowFunction(fnArg) || ts.isFunctionExpression(fnArg)) {
-      return evaluateViaVm(
-        ctx as MacroContextImpl,
-        fnArg,
-        callExpr,
-        permissions,
-      );
+      return evaluateViaVm(ctx as MacroContextImpl, fnArg, callExpr, permissions);
     }
 
     // For simple expressions without permissions, try the lightweight AST evaluator first
@@ -420,7 +398,7 @@ function evaluateViaVm(
   ctx: MacroContextImpl,
   node: ts.Node,
   callExpr: ts.CallExpression,
-  permissions: ComptimePermissions = {},
+  permissions: ComptimePermissions = {}
 ): ts.Expression {
   const sourceText = node.getText ? node.getText() : nodeToString(node, ctx);
 
@@ -429,19 +407,11 @@ function evaluateViaVm(
   const codeToEval = isFunction ? `(${sourceText})()` : `(${sourceText})`;
 
   // Transpile TypeScript to JavaScript (reuse shared compiler options)
-  const { outputText, diagnostics } = ts.transpileModule(
-    codeToEval,
-    TRANSPILE_OPTIONS,
-  );
+  const { outputText, diagnostics } = ts.transpileModule(codeToEval, TRANSPILE_OPTIONS);
 
   if (diagnostics && diagnostics.length > 0) {
-    const messages = diagnostics.map((d) =>
-      ts.flattenDiagnosticMessageText(d.messageText, "\n"),
-    );
-    ctx.reportError(
-      callExpr,
-      `Cannot transpile comptime expression: ${messages.join("; ")}`,
-    );
+    const messages = diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+    ctx.reportError(callExpr, `Cannot transpile comptime expression: ${messages.join("; ")}`);
     return callExpr;
   }
 
@@ -467,10 +437,7 @@ function evaluateViaVm(
     return jsValueToExpression(ctx, result, callExpr);
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    ctx.reportError(
-      callExpr,
-      formatComptimeError(error, sourceText, ctx, callExpr),
-    );
+    ctx.reportError(callExpr, formatComptimeError(error, sourceText, ctx, callExpr));
     // Return an IIFE that throws the error at runtime
     // This prevents the transformer from trying to re-expand the call
     const factory = ctx.factory;
@@ -484,21 +451,15 @@ function evaluateViaVm(
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createBlock([
             factory.createThrowStatement(
-              factory.createNewExpression(
-                factory.createIdentifier("Error"),
-                undefined,
-                [
-                  factory.createStringLiteral(
-                    `comptime evaluation failed: ${errMsg}`,
-                  ),
-                ],
-              ),
+              factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+                factory.createStringLiteral(`comptime evaluation failed: ${errMsg}`),
+              ])
             ),
-          ]),
-        ),
+          ])
+        )
       ),
       undefined,
-      [],
+      []
     );
   }
 }
@@ -513,7 +474,7 @@ function formatComptimeError(
   error: unknown,
   sourceText: string,
   ctx: MacroContextImpl,
-  callExpr: ts.CallExpression,
+  callExpr: ts.CallExpression
 ): string {
   const rawMessage = error instanceof Error ? error.message : String(error);
 
@@ -526,9 +487,7 @@ function formatComptimeError(
   // Truncate long source snippets
   const maxSnippetLen = 200;
   const snippet =
-    sourceText.length > maxSnippetLen
-      ? sourceText.slice(0, maxSnippetLen) + "..."
-      : sourceText;
+    sourceText.length > maxSnippetLen ? sourceText.slice(0, maxSnippetLen) + "..." : sourceText;
 
   // Detect common error patterns and provide helpful messages
   let hint = "";
@@ -540,10 +499,7 @@ function formatComptimeError(
     hint =
       `\n  Hint: The expression took longer than ${COMPTIME_TIMEOUT_MS}ms to evaluate. ` +
       `Check for infinite loops or very expensive computations.`;
-  } else if (
-    rawMessage.includes("is not defined") ||
-    rawMessage.includes("is not a function")
-  ) {
+  } else if (rawMessage.includes("is not defined") || rawMessage.includes("is not a function")) {
     const match = rawMessage.match(/(\w+) is not (defined|a function)/);
     const name = match?.[1] ?? "unknown";
     hint =
@@ -555,10 +511,7 @@ function formatComptimeError(
     hint =
       "\n  Hint: A null/undefined value was accessed. " +
       "Check that all variables are properly initialized.";
-  } else if (
-    rawMessage.includes("require") &&
-    rawMessage.includes("not supported")
-  ) {
+  } else if (rawMessage.includes("require") && rawMessage.includes("not supported")) {
     hint =
       "\n  Hint: Only 'fs', 'path', and 'process' modules are available in comptime. " +
       "For fs access, add { fs: 'read' } permission.";
@@ -579,15 +532,11 @@ function formatComptimeError(
 function createComptimeSandbox(
   baseDir: string,
   projectRoot: string,
-  permissions: ComptimePermissions,
+  permissions: ComptimePermissions
 ): Record<string, unknown> {
   const sandboxFs = createSandboxFs(baseDir, projectRoot, permissions);
   const sandboxProcess = createSandboxProcess(baseDir, permissions);
-  const sandboxRequire = createSandboxRequire(
-    baseDir,
-    projectRoot,
-    permissions,
-  );
+  const sandboxRequire = createSandboxRequire(baseDir, projectRoot, permissions);
 
   return {
     // Safe built-ins

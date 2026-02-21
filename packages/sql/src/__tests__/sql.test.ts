@@ -50,7 +50,7 @@ describe("Fragment", () => {
     it("should number parameters sequentially", () => {
       const f = new Fragment(
         ["SELECT * FROM users WHERE name = ", " AND age > ", ""],
-        ["Alice", 30],
+        ["Alice", 30]
       );
       expect(f.text).toBe("SELECT * FROM users WHERE name = $1 AND age > $2");
       expect(f.values).toEqual(["Alice", 30]);
@@ -74,15 +74,10 @@ describe("Fragment", () => {
     });
 
     it("should append fragments preserving parameters", () => {
-      const a = new Fragment(
-        ["SELECT * FROM users WHERE name = ", ""],
-        ["Alice"],
-      );
+      const a = new Fragment(["SELECT * FROM users WHERE name = ", ""], ["Alice"]);
       const b = new Fragment(["AND age > ", ""], [30]);
       const result = a.append(b);
-      expect(result.text).toBe(
-        "SELECT * FROM users WHERE name = $1 AND age > $2",
-      );
+      expect(result.text).toBe("SELECT * FROM users WHERE name = $1 AND age > $2");
       expect(result.values).toEqual(["Alice", 30]);
     });
 
@@ -141,11 +136,7 @@ describe("Fragment", () => {
     });
 
     it("should create comma-separated lists", () => {
-      const cols = [
-        Fragment.raw("id"),
-        Fragment.raw("name"),
-        Fragment.raw("email"),
-      ];
+      const cols = [Fragment.raw("id"), Fragment.raw("name"), Fragment.raw("email")];
       const result = Fragment.commas(cols);
       expect(result.text).toBe("id, name, email");
     });
@@ -198,16 +189,12 @@ describe("Fragment", () => {
 
   describe("conditional fragments", () => {
     it("should include fragment when condition is true", () => {
-      const result = Fragment.when(true, () =>
-        Fragment.raw("AND active = true"),
-      );
+      const result = Fragment.when(true, () => Fragment.raw("AND active = true"));
       expect(result.text).toBe("AND active = true");
     });
 
     it("should return empty when condition is false", () => {
-      const result = Fragment.when(false, () =>
-        Fragment.raw("AND active = true"),
-      );
+      const result = Fragment.when(false, () => Fragment.raw("AND active = true"));
       expect(result.text).toBe("");
     });
 
@@ -217,14 +204,8 @@ describe("Fragment", () => {
       const isActive = false;
 
       const result = Fragment.whereAnd([
-        Fragment.when(
-          !!nameFilter,
-          () => new Fragment(["name = ", ""], [nameFilter]),
-        ),
-        Fragment.when(
-          minAge > 0,
-          () => new Fragment(["age >= ", ""], [minAge]),
-        ),
+        Fragment.when(!!nameFilter, () => new Fragment(["name = ", ""], [nameFilter])),
+        Fragment.when(minAge > 0, () => new Fragment(["age >= ", ""], [minAge])),
         Fragment.when(isActive, () => Fragment.raw("active = true")),
       ]);
 
@@ -244,9 +225,7 @@ describe("Fragment", () => {
   describe("toString", () => {
     it("should produce a debug string", () => {
       const f = new Fragment(["SELECT * FROM users WHERE id = ", ""], [42]);
-      expect(f.toString()).toBe(
-        "Fragment(SELECT * FROM users WHERE id = $1, [42])",
-      );
+      expect(f.toString()).toBe("Fragment(SELECT * FROM users WHERE id = $1, [42])");
     });
   });
 });
@@ -304,9 +283,7 @@ describe("sql tagged template", () => {
     const cond = sql`name = ${name} AND age > ${age}`;
     const q = sql`SELECT * FROM users WHERE ${cond} AND status = ${status}`;
 
-    expect(q.text).toBe(
-      "SELECT * FROM users WHERE name = $1 AND age > $2 AND status = $3",
-    );
+    expect(q.text).toBe("SELECT * FROM users WHERE name = $1 AND age > $2 AND status = $3");
     expect(q.values).toEqual(["Alice", 30, "active"]);
   });
 
@@ -315,9 +292,7 @@ describe("sql tagged template", () => {
     const middle = sql`${inner} AND y = ${2}`;
     const outer = sql`SELECT * FROM t WHERE ${middle} AND z = ${3}`;
 
-    expect(outer.text).toBe(
-      "SELECT * FROM t WHERE x = $1 AND y = $2 AND z = $3",
-    );
+    expect(outer.text).toBe("SELECT * FROM t WHERE x = $1 AND y = $2 AND z = $3");
     expect(outer.values).toEqual([1, 2, 3]);
   });
 });
@@ -348,10 +323,7 @@ describe("__sql_build", () => {
 
   it("should mix Fragment and plain interpolations", () => {
     const sub = new Fragment(["name = ", ""], ["Alice"]);
-    const f = __sql_build(
-      ["SELECT * FROM users WHERE ", " AND age > ", ""],
-      [sub, 30],
-    );
+    const f = __sql_build(["SELECT * FROM users WHERE ", " AND age > ", ""], [sub, 30]);
     expect(f.text).toBe("SELECT * FROM users WHERE name = $1 AND age > $2");
     expect(f.values).toEqual(["Alice", 30]);
   });
@@ -426,9 +398,7 @@ describe("ConnectionIO", () => {
   });
 
   it("should flatMap operations", () => {
-    const io = ConnectionIO.flatMap(ConnectionIO.pure(42), (n) =>
-      ConnectionIO.pure(n * 2),
-    );
+    const io = ConnectionIO.flatMap(ConnectionIO.pure(42), (n) => ConnectionIO.pure(n * 2));
     expect(io._tag).toBe("FlatMap");
   });
 
@@ -491,15 +461,15 @@ describe("Transactor", () => {
           id: number;
           name: string;
         }>(),
-        (row) => ({ id: row.id as number, name: row.name as string }),
+        (row) => ({ id: row.id as number, name: row.name as string })
       ),
       (users) =>
         ConnectionIO.query(
           sql`SELECT count(*) as count FROM posts WHERE author_id = ${(users as { id: number }[])[0].id}`.toQuery<{
             count: number;
           }>(),
-          (row) => ({ count: row.count as number }),
-        ),
+          (row) => ({ count: row.count as number })
+        )
     );
 
     const result = await xa.run(program);
@@ -529,7 +499,7 @@ describe("real-world patterns", () => {
     const query = base.append(where).append(order).append(limit);
 
     expect(query.text).toBe(
-      "SELECT * FROM users WHERE name ILIKE $1 AND age >= $2 AND role IN ($3, $4) ORDER BY created_at DESC LIMIT $5",
+      "SELECT * FROM users WHERE name ILIKE $1 AND age >= $2 AND role IN ($3, $4) ORDER BY created_at DESC LIMIT $5"
     );
     expect(query.values).toEqual(["%Alice%", 25, "admin", "editor", 20]);
   });
@@ -544,7 +514,7 @@ describe("real-world patterns", () => {
       .append(sql`RETURNING id, created_at`);
 
     expect(query.text).toBe(
-      "INSERT INTO users (name, email, age) VALUES ($1, $2, $3) RETURNING id, created_at",
+      "INSERT INTO users (name, email, age) VALUES ($1, $2, $3) RETURNING id, created_at"
     );
     expect(query.values).toEqual(["Charlie", "charlie@example.com", 28]);
   });
@@ -555,9 +525,7 @@ describe("real-world patterns", () => {
       .append(Fragment.set({ name: "Bob", age: 31 }))
       .append(sql`WHERE id = ${id}`);
 
-    expect(query.text).toBe(
-      "UPDATE users SET name = $1, age = $2 WHERE id = $3",
-    );
+    expect(query.text).toBe("UPDATE users SET name = $1, age = $2 WHERE id = $3");
     expect(query.values).toEqual(["Bob", 31, 42]);
   });
 
@@ -567,7 +535,7 @@ describe("real-world patterns", () => {
     const query = sql`SELECT * FROM users WHERE id IN (${subquery})`;
 
     expect(query.text).toBe(
-      "SELECT * FROM users WHERE id IN (SELECT author_id FROM posts GROUP BY author_id HAVING count(*) > $1)",
+      "SELECT * FROM users WHERE id IN (SELECT author_id FROM posts GROUP BY author_id HAVING count(*) > $1)"
     );
     expect(query.values).toEqual([5]);
   });
@@ -591,7 +559,7 @@ describe("real-world patterns", () => {
         "WHERE u.status = $1 " +
         "GROUP BY u.id, u.name " +
         "ORDER BY post_count DESC " +
-        "LIMIT $2",
+        "LIMIT $2"
     );
     expect(query.values).toEqual(["active", 10]);
   });
@@ -604,12 +572,10 @@ describe("real-world patterns", () => {
     ];
 
     const query = sql`INSERT INTO users (name, age)`.append(
-      Fragment.values(users.map((u) => [u.name, u.age])),
+      Fragment.values(users.map((u) => [u.name, u.age]))
     );
 
-    expect(query.text).toBe(
-      "INSERT INTO users (name, age) VALUES ($1, $2), ($3, $4), ($5, $6)",
-    );
+    expect(query.text).toBe("INSERT INTO users (name, age) VALUES ($1, $2), ($3, $4), ($5, $6)");
     expect(query.values).toEqual(["Alice", 30, "Bob", 25, "Charlie", 35]);
   });
 
@@ -624,12 +590,10 @@ describe("real-world patterns", () => {
     expect(q1.text).toBe("SELECT * FROM users WHERE active = true");
 
     const q2 = selectUsers.append(
-      Fragment.raw("WHERE ").appendNoSpace(
-        Fragment.and([activeOnly, recentOnly]),
-      ),
+      Fragment.raw("WHERE ").appendNoSpace(Fragment.and([activeOnly, recentOnly]))
     );
     expect(q2.text).toBe(
-      "SELECT * FROM users WHERE active = true AND created_at > now() - interval '30 days'",
+      "SELECT * FROM users WHERE active = true AND created_at > now() - interval '30 days'"
     );
   });
 });

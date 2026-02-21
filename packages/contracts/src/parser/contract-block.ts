@@ -48,9 +48,7 @@ export interface EnsuresBlock {
  * Parse a function body to extract requires:/ensures: labeled blocks.
  * Returns the contract conditions and the remaining body statements.
  */
-export function parseContractBlocks(
-  body: ts.Block | undefined,
-): ParsedContractBlocks {
+export function parseContractBlocks(body: ts.Block | undefined): ParsedContractBlocks {
   if (!body) {
     return { requires: [], ensures: [], body: [] };
   }
@@ -134,9 +132,7 @@ function parseEnsuresBlock(statement: ts.Statement): EnsuresBlock {
 /**
  * Extract conditions from an arrow function body.
  */
-function extractConditionsFromArrowBody(
-  body: ts.ConciseBody,
-): ContractCondition[] {
+function extractConditionsFromArrowBody(body: ts.ConciseBody): ContractCondition[] {
   if (ts.isBlock(body)) {
     return extractConditionsFromBlock(body);
   }

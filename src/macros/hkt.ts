@@ -139,10 +139,7 @@ export function getKindParamName(param: ts.TypeParameterDeclaration): string {
 /**
  * Check if a type reference is a kind application (F<A> where F is a kind param)
  */
-export function isKindApplication(
-  node: ts.TypeReferenceNode,
-  kindParams: Set<string>,
-): boolean {
+export function isKindApplication(node: ts.TypeReferenceNode, kindParams: Set<string>): boolean {
   if (!ts.isIdentifier(node.typeName)) return false;
   const name = node.typeName.text;
   return kindParams.has(name) && !!node.typeArguments;
@@ -160,7 +157,7 @@ export function isKindApplication(
  */
 export function transformHKTDeclaration(
   ctx: MacroContext,
-  node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration,
+  node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration
 ): ts.InterfaceDeclaration | ts.TypeAliasDeclaration {
   const factory = ctx.factory;
   const typeParams = node.typeParameters;
@@ -183,8 +180,8 @@ export function transformHKTDeclaration(
           param.modifiers,
           param.name,
           param.constraint,
-          param.default,
-        ),
+          param.default
+        )
       );
 
       // Register in the kind registry
@@ -206,7 +203,7 @@ export function transformHKTDeclaration(
 
   if (ts.isInterfaceDeclaration(node)) {
     const transformedMembers = node.members.map((member) =>
-      transformMemberHKT(ctx, member, kindParamNames),
+      transformMemberHKT(ctx, member, kindParamNames)
     );
 
     return factory.updateInterfaceDeclaration(
@@ -215,7 +212,7 @@ export function transformHKTDeclaration(
       node.name,
       newTypeParams,
       node.heritageClauses,
-      transformedMembers,
+      transformedMembers
     );
   } else {
     const transformedType = transformTypeHKT(ctx, node.type, kindParamNames);
@@ -225,7 +222,7 @@ export function transformHKTDeclaration(
       node.modifiers,
       node.name,
       newTypeParams,
-      transformedType,
+      transformedType
     );
   }
 }
@@ -236,7 +233,7 @@ export function transformHKTDeclaration(
 function transformMemberHKT(
   ctx: MacroContext,
   member: ts.TypeElement,
-  kindParams: Set<string>,
+  kindParams: Set<string>
 ): ts.TypeElement {
   const factory = ctx.factory;
 
@@ -246,7 +243,7 @@ function transformMemberHKT(
       member.modifiers,
       member.name,
       member.questionToken,
-      transformTypeHKT(ctx, member.type, kindParams),
+      transformTypeHKT(ctx, member.type, kindParams)
     );
   }
 
@@ -260,7 +257,7 @@ function transformMemberHKT(
           param.name,
           param.questionToken,
           transformTypeHKT(ctx, param.type, kindParams),
-          param.initializer,
+          param.initializer
         );
       }
       return param;
@@ -273,7 +270,7 @@ function transformMemberHKT(
       member.questionToken,
       member.typeParameters,
       newParams,
-      member.type ? transformTypeHKT(ctx, member.type, kindParams) : undefined,
+      member.type ? transformTypeHKT(ctx, member.type, kindParams) : undefined
     );
   }
 
@@ -286,7 +283,7 @@ function transformMemberHKT(
 function transformTypeHKT(
   ctx: MacroContext,
   type: ts.TypeNode,
-  kindParams: Set<string>,
+  kindParams: Set<string>
 ): ts.TypeNode {
   const factory = ctx.factory;
 
@@ -309,10 +306,8 @@ function transformTypeHKT(
         type,
         type.typeName,
         factory.createNodeArray(
-          type.typeArguments.map((arg) =>
-            transformTypeHKT(ctx, arg, kindParams),
-          ),
-        ),
+          type.typeArguments.map((arg) => transformTypeHKT(ctx, arg, kindParams))
+        )
       );
     }
     return type;
@@ -328,7 +323,7 @@ function transformTypeHKT(
           param.name,
           param.questionToken,
           transformTypeHKT(ctx, param.type, kindParams),
-          param.initializer,
+          param.initializer
         );
       }
       return param;
@@ -338,33 +333,26 @@ function transformTypeHKT(
       type,
       type.typeParameters,
       newParams,
-      type.type ? transformTypeHKT(ctx, type.type, kindParams) : type.type,
+      type.type ? transformTypeHKT(ctx, type.type, kindParams) : type.type
     );
   }
 
   if (ts.isUnionTypeNode(type)) {
     return factory.updateUnionTypeNode(
       type,
-      factory.createNodeArray(
-        type.types.map((t) => transformTypeHKT(ctx, t, kindParams)),
-      ),
+      factory.createNodeArray(type.types.map((t) => transformTypeHKT(ctx, t, kindParams)))
     );
   }
 
   if (ts.isIntersectionTypeNode(type)) {
     return factory.updateIntersectionTypeNode(
       type,
-      factory.createNodeArray(
-        type.types.map((t) => transformTypeHKT(ctx, t, kindParams)),
-      ),
+      factory.createNodeArray(type.types.map((t) => transformTypeHKT(ctx, t, kindParams)))
     );
   }
 
   if (ts.isArrayTypeNode(type)) {
-    return factory.updateArrayTypeNode(
-      type,
-      transformTypeHKT(ctx, type.elementType, kindParams),
-    );
+    return factory.updateArrayTypeNode(type, transformTypeHKT(ctx, type.elementType, kindParams));
   }
 
   if (ts.isTupleTypeNode(type)) {
@@ -378,26 +366,23 @@ function transformTypeHKT(
               el.dotDotDotToken,
               el.name,
               el.questionToken,
-              transformTypeHKT(ctx, el.type, kindParams),
+              transformTypeHKT(ctx, el.type, kindParams)
             );
           }
           return transformTypeHKT(ctx, el, kindParams);
-        }),
-      ),
+        })
+      )
     );
   }
 
   if (ts.isParenthesizedTypeNode(type)) {
-    return factory.updateParenthesizedType(
-      type,
-      transformTypeHKT(ctx, type.type, kindParams),
-    );
+    return factory.updateParenthesizedType(type, transformTypeHKT(ctx, type.type, kindParams));
   }
 
   if (ts.isTypeLiteralNode(type)) {
     return factory.updateTypeLiteralNode(
       type,
-      type.members.map((m) => transformMemberHKT(ctx, m, kindParams)),
+      type.members.map((m) => transformMemberHKT(ctx, m, kindParams))
     );
   }
 
@@ -416,16 +401,12 @@ function transformTypeHKT(
  */
 export const hktAttribute = defineAttributeMacro({
   name: "hkt",
-  description:
-    "Enable HKT syntax (F<_> kind annotations) in an interface or type alias",
+  description: "Enable HKT syntax (F<_> kind annotations) in an interface or type alias",
   expand(ctx, decorator, node) {
     if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
       return transformHKTDeclaration(ctx, node);
     }
-    ctx.reportError(
-      decorator,
-      "@hkt can only be applied to interfaces or type aliases",
-    );
+    ctx.reportError(decorator, "@hkt can only be applied to interfaces or type aliases");
     return node;
   },
 });

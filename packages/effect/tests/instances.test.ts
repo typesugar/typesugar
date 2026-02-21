@@ -37,7 +37,7 @@ describe("Effect Typeclass Instances", () => {
 
       const left = effectFunctor<never, never>().map(
         effectFunctor<never, never>().map(effect, f),
-        g,
+        g
       );
       const right = effectFunctor<never, never>().map(effect, (x) => g(f(x)));
 
@@ -62,9 +62,7 @@ describe("Effect Typeclass Instances", () => {
   describe("effectMonad", () => {
     it("should flatMap over Effect", () => {
       const effect = Effect.succeed(10);
-      const result = effectMonad<never, never>().flatMap(effect, (x) =>
-        Effect.succeed(x * 2),
-      );
+      const result = effectMonad<never, never>().flatMap(effect, (x) => Effect.succeed(x * 2));
       expect(Effect.runSync(result)).toBe(20);
     });
 
@@ -72,10 +70,7 @@ describe("Effect Typeclass Instances", () => {
       const a = 5;
       const f = (x: number) => Effect.succeed(x * 2);
 
-      const left = effectMonad<never, never>().flatMap(
-        effectMonad<never, never>().pure(a),
-        f,
-      );
+      const left = effectMonad<never, never>().flatMap(effectMonad<never, never>().pure(a), f);
       const right = f(a);
 
       expect(Effect.runSync(left)).toBe(Effect.runSync(right));
@@ -85,7 +80,7 @@ describe("Effect Typeclass Instances", () => {
       const fa = Effect.succeed(42);
 
       const result = effectMonad<never, never>().flatMap(fa, (x) =>
-        effectMonad<never, never>().pure(x),
+        effectMonad<never, never>().pure(x)
       );
 
       expect(Effect.runSync(result)).toBe(Effect.runSync(fa));
@@ -101,9 +96,8 @@ describe("Effect Typeclass Instances", () => {
 
     it("should handle errors", () => {
       const failing = Effect.fail("original error");
-      const recovered = effectMonadError<string, never>().handleErrorWith(
-        failing,
-        () => Effect.succeed(42),
+      const recovered = effectMonadError<string, never>().handleErrorWith(failing, () =>
+        Effect.succeed(42)
       );
       expect(Effect.runSync(recovered)).toBe(42);
     });
@@ -168,19 +162,13 @@ describe("Effect Either Instances", () => {
   describe("effectEitherFunctor", () => {
     it("should map over Right values", () => {
       const either = Either.right(10);
-      const mapped = effectEitherFunctor<string, never, never>().map(
-        either,
-        (x) => x * 2,
-      );
+      const mapped = effectEitherFunctor<string, never, never>().map(either, (x) => x * 2);
       expect(Either.getOrElse(mapped, () => 0)).toBe(20);
     });
 
     it("should preserve Left values", () => {
       const either: Either.Either<number, string> = Either.left("error");
-      const mapped = effectEitherFunctor<string, never, never>().map(
-        either,
-        (x) => x * 2,
-      );
+      const mapped = effectEitherFunctor<string, never, never>().map(either, (x) => x * 2);
       expect(Either.isLeft(mapped)).toBe(true);
     });
   });
@@ -188,18 +176,16 @@ describe("Effect Either Instances", () => {
   describe("effectEitherMonad", () => {
     it("should flatMap over Right values", () => {
       const either = Either.right(10);
-      const result = effectEitherMonad<string, never, never>().flatMap(
-        either,
-        (x) => Either.right(x * 2),
+      const result = effectEitherMonad<string, never, never>().flatMap(either, (x) =>
+        Either.right(x * 2)
       );
       expect(Either.getOrElse(result, () => 0)).toBe(20);
     });
 
     it("should short-circuit on Left", () => {
       const either: Either.Either<number, string> = Either.left("error");
-      const result = effectEitherMonad<string, never, never>().flatMap(
-        either,
-        (x) => Either.right(x * 2),
+      const result = effectEitherMonad<string, never, never>().flatMap(either, (x) =>
+        Either.right(x * 2)
       );
       expect(Either.isLeft(result)).toBe(true);
     });

@@ -29,13 +29,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  TS9209,
-  TS9210,
-  TS9501,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, TS9209, TS9210, TS9501 } from "@typesugar/core";
 import { MacroContext, ExpressionMacro } from "@typesugar/core";
 import { getDummySourceFile, getPrinter } from "@typesugar/core";
 
@@ -107,7 +101,7 @@ export type SyntaxMacroOptions = SyntaxMacroSingleArm | SyntaxMacroMultiArm;
 // =============================================================================
 
 /** Regex to match capture groups: $name:kind or $name */
-const CAPTURE_RE = /\$(\w+)(?::(\w+))?/g;
+const CAPTURE_RE = /\$(\w+)(__binop__(?, "::", (\w+)))?/g;
 
 /**
  * Parse a pattern string into a list of captures and a regex-like matcher.
@@ -150,7 +144,7 @@ function parsePattern(pattern: string): {
 function extractCaptures(
   captures: PatternCapture[],
   args: readonly ts.Expression[],
-  ctx: MacroContext,
+  ctx: MacroContext
 ): Map<string, ts.Node> | null {
   const result = new Map<string, ts.Node>();
 
@@ -204,7 +198,7 @@ function extractCaptures(
 function expandTemplate(
   template: string,
   captures: Map<string, ts.Node>,
-  ctx: MacroContext,
+  ctx: MacroContext
 ): string {
   const printer = getPrinter();
 
@@ -248,7 +242,7 @@ function expandTemplate(
 export function defineSyntaxMacro(
   name: string,
   options: SyntaxMacroOptions,
-  macroModule?: string,
+  macroModule?: string
 ): ExpressionMacro {
   // Normalize to multi-arm format
   const arms: PatternArm[] = [];
@@ -281,7 +275,7 @@ export function defineSyntaxMacro(
     expand(
       ctx: MacroContext,
       callExpr: ts.CallExpression,
-      args: readonly ts.Expression[],
+      args: readonly ts.Expression[]
     ): ts.Expression {
       // Try each arm in order
       for (const arm of arms) {
@@ -316,9 +310,7 @@ export function defineSyntaxMacro(
         .diagnostic(TS9210)
         .at(callExpr)
         .withArgs({ name })
-        .note(
-          `Available patterns:\n${arms.map((a) => `  - ${a.patternSource}`).join("\n")}`,
-        )
+        .note(`Available patterns:\n${arms.map((a) => `  - ${a.patternSource}`).join("\n")}`)
         .emit();
       return callExpr;
     },
@@ -346,7 +338,7 @@ export function defineRewrite(
   name: string,
   pattern: string,
   expand: string,
-  macroModule?: string,
+  macroModule?: string
 ): ExpressionMacro {
   return defineSyntaxMacro(name, { pattern, expand }, macroModule);
 }

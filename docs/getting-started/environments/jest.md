@@ -104,10 +104,7 @@ module.exports = {
     "module": "CommonJS",
     "moduleResolution": "Node",
     "esModuleInterop": true,
-    "plugins": [
-      { "name": "typesugar/language-service" },
-      { "transform": "@typesugar/transformer" }
-    ]
+    "plugins": [{ "name": "typesugar/language-service" }, { "transform": "@typesugar/transformer" }]
   }
 }
 ```
@@ -130,7 +127,7 @@ describe("comptime", () => {
 class User {
   constructor(
     public id: number,
-    public name: string,
+    public name: string
   ) {}
 }
 

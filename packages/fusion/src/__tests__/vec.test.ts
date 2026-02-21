@@ -103,11 +103,7 @@ describe("vec — mapVec and zipVec", () => {
   });
 
   it("zipVec with different types", () => {
-    const result = zipVec(
-      vecOf(["a", "b", "c"]),
-      vec([1, 2, 3]),
-      (s, n) => `${s}${n}`,
-    );
+    const result = zipVec(vecOf(["a", "b", "c"]), vec([1, 2, 3]), (s, n) => `${s}${n}`);
     expect(toArray(result)).toEqual(["a1", "b2", "c3"]);
   });
 });

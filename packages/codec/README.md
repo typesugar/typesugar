@@ -46,13 +46,13 @@ const bob = userCodec.decodeAny(old);
 
 ## Schema Evolution Rules
 
-| Annotation | Meaning | Constraint |
-| --- | --- | --- |
-| `since: N` | Field added in version N | N <= current version |
-| `removed: N` | Field removed in version N | N > `since` |
-| `renamed: { version, oldName }` | Field renamed at version N | version <= current |
-| `defaultValue: V` | Default for older versions | Required for non-optional fields added after v1 |
-| `optional: true` | Field may be null/undefined | No default needed |
+| Annotation                      | Meaning                     | Constraint                                      |
+| ------------------------------- | --------------------------- | ----------------------------------------------- |
+| `since: N`                      | Field added in version N    | N <= current version                            |
+| `removed: N`                    | Field removed in version N  | N > `since`                                     |
+| `renamed: { version, oldName }` | Field renamed at version N  | version <= current                              |
+| `defaultValue: V`               | Default for older versions  | Required for non-optional fields added after v1 |
+| `optional: true`                | Field may be null/undefined | No default needed                               |
 
 Validation runs at schema build time. Break a rule and `buildCodec()` throws with a clear error.
 
@@ -124,14 +124,14 @@ const v1Fields = fieldsAtVersion(s, 1);    // fields active at v1
 
 ## Comparison
 
-| Feature | @typesugar/codec | protobuf | serde |
-| --- | --- | --- | --- |
-| Language | TypeScript | Multi-language | Rust |
-| Schema evolution | Automatic migrations | Manual field numbering | Manual `#[serde(default)]` |
-| Binary format | Fixed-layout | Varint + tag | Format-dependent |
-| JSON support | Built-in | Via jsonpb | Via serde_json |
-| Compile-time validation | Phase 2 (planned) | protoc | Compile-time |
-| Zero external deps | Yes | protobuf runtime | N/A |
+| Feature                 | @typesugar/codec     | protobuf               | serde                      |
+| ----------------------- | -------------------- | ---------------------- | -------------------------- |
+| Language                | TypeScript           | Multi-language         | Rust                       |
+| Schema evolution        | Automatic migrations | Manual field numbering | Manual `#[serde(default)]` |
+| Binary format           | Fixed-layout         | Varint + tag           | Format-dependent           |
+| JSON support            | Built-in             | Via jsonpb             | Via serde_json             |
+| Compile-time validation | Phase 2 (planned)    | protoc                 | Compile-time               |
+| Zero external deps      | Yes                  | protobuf runtime       | N/A                        |
 
 ## Macro Support (Phase 2)
 

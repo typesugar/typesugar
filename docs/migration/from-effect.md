@@ -77,8 +77,7 @@ interface UserRepo {
 class UserRepoTag extends Context.Tag("UserRepo")<UserRepoTag, UserRepo>() {}
 
 const UserRepo = {
-  findById: (id: string) =>
-    Effect.flatMap(UserRepoTag, (repo) => repo.findById(id)),
+  findById: (id: string) => Effect.flatMap(UserRepoTag, (repo) => repo.findById(id)),
 };
 ```
 
@@ -128,7 +127,7 @@ yield: ({ findById: (id) => db.query(...) })
 // Layer is registered with its dependencies for automatic resolution
 ```
 
-## resolveLayer<R>() — Automatic Layer Composition
+## resolveLayer\<R\>() — Automatic Layer Composition
 
 The `resolveLayer<R>()` macro:
 

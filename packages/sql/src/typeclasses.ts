@@ -1,7 +1,4 @@
-import {
-  createGenericRegistry,
-  type GenericRegistry,
-} from "@typesugar/core";
+import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
 
 /**
  * Doobie-Style SQL Typeclasses
@@ -137,7 +134,7 @@ export interface Get<A> {
 // Helper function to create Get instances (defined before companion to avoid circular reference)
 function makeGet<A>(
   decode: (value: unknown) => A | null,
-  sqlTypes: readonly SqlTypeName[],
+  sqlTypes: readonly SqlTypeName[]
 ): Get<A> {
   return {
     _tag: "Get",
@@ -156,95 +153,109 @@ function makeGet<A>(
 // Pre-create primitive instances to avoid circular reference in companion object
 const _getString: Get<string> = makeGet(
   (v: unknown) => (typeof v === "string" ? v : v === null ? null : String(v)),
-  ["TEXT", "VARCHAR", "CHAR"],
+  ["TEXT", "VARCHAR", "CHAR"]
 );
 
 const _getNumber: Get<number> = makeGet(
   (v: unknown) => (typeof v === "number" ? v : v === null ? null : Number(v)),
-  [
-    "INTEGER",
-    "INT",
-    "BIGINT",
-    "SMALLINT",
-    "REAL",
-    "DOUBLE PRECISION",
-    "NUMERIC",
-    "DECIMAL",
-  ],
+  ["INTEGER", "INT", "BIGINT", "SMALLINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"]
 );
 
-const _getInt: Get<number> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isInteger(n) ? n : Math.trunc(n);
-}, ["INTEGER", "INT", "BIGINT", "SMALLINT"]);
+const _getInt: Get<number> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isInteger(n) ? n : Math.trunc(n);
+  },
+  ["INTEGER", "INT", "BIGINT", "SMALLINT"]
+);
 
-const _getBigint: Get<bigint> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (typeof v === "bigint") return v;
-  if (typeof v === "number") return BigInt(Math.trunc(v));
-  if (typeof v === "string") return BigInt(v);
-  return null;
-}, ["BIGINT"]);
+const _getBigint: Get<bigint> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (typeof v === "bigint") return v;
+    if (typeof v === "number") return BigInt(Math.trunc(v));
+    if (typeof v === "string") return BigInt(v);
+    return null;
+  },
+  ["BIGINT"]
+);
 
-const _getBoolean: Get<boolean> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (typeof v === "boolean") return v;
-  if (v === "t" || v === "true" || v === 1) return true;
-  if (v === "f" || v === "false" || v === 0) return false;
-  return Boolean(v);
-}, ["BOOLEAN"]);
+const _getBoolean: Get<boolean> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (typeof v === "boolean") return v;
+    if (v === "t" || v === "true" || v === 1) return true;
+    if (v === "f" || v === "false" || v === 0) return false;
+    return Boolean(v);
+  },
+  ["BOOLEAN"]
+);
 
-const _getDate: Get<Date> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (v instanceof Date) return v;
-  if (typeof v === "string" || typeof v === "number") {
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}, ["DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ"]);
-
-const _getDateOnly: Get<Date> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (v instanceof Date) return v;
-  if (typeof v === "string") {
-    const d = new Date(v + "T00:00:00Z");
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}, ["DATE"]);
-
-const _getUuid: Get<string> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (typeof v === "string") {
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(v) ? v : null;
-  }
-  return null;
-}, ["UUID"]);
-
-const _getJson: Get<unknown> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (typeof v === "string") {
-    try {
-      return JSON.parse(v);
-    } catch {
-      return null;
+const _getDate: Get<Date> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (v instanceof Date) return v;
+    if (typeof v === "string" || typeof v === "number") {
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
     }
-  }
-  return v;
-}, ["JSON", "JSONB"]);
+    return null;
+  },
+  ["DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ"]
+);
 
-const _getBuffer: Get<Buffer> = makeGet((v: unknown) => {
-  if (v === null) return null;
-  if (Buffer.isBuffer(v)) return v;
-  if (typeof v === "string") {
-    return Buffer.from(v.replace(/^\\x/, ""), "hex");
-  }
-  return null;
-}, ["BYTEA"]);
+const _getDateOnly: Get<Date> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (v instanceof Date) return v;
+    if (typeof v === "string") {
+      const d = new Date(v + "T00:00:00Z");
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  },
+  ["DATE"]
+);
+
+const _getUuid: Get<string> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (typeof v === "string") {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      return uuidRegex.test(v) ? v : null;
+    }
+    return null;
+  },
+  ["UUID"]
+);
+
+const _getJson: Get<unknown> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (typeof v === "string") {
+      try {
+        return JSON.parse(v);
+      } catch {
+        return null;
+      }
+    }
+    return v;
+  },
+  ["JSON", "JSONB"]
+);
+
+const _getBuffer: Get<Buffer> = makeGet(
+  (v: unknown) => {
+    if (v === null) return null;
+    if (Buffer.isBuffer(v)) return v;
+    if (typeof v === "string") {
+      return Buffer.from(v.replace(/^\\x/, ""), "hex");
+    }
+    return null;
+  },
+  ["BYTEA"]
+);
 
 /** Get typeclass companion with constructors and combinators */
 export const Get = {
@@ -261,18 +272,14 @@ export const Get = {
 
   /** Make a Get nullable — handle SQL NULL explicitly. */
   nullable<A>(ga: Get<A>): Get<A | null> {
-    return makeGet(
-      (v: unknown) => (v === null ? null : ga.get(v)),
-      [...ga.sqlTypes, "NULL"],
-    );
+    return makeGet((v: unknown) => (v === null ? null : ga.get(v)), [...ga.sqlTypes, "NULL"]);
   },
 
   /** Make a Get optional — map NULL to undefined. */
   optional<A>(ga: Get<A>): Get<A | undefined> {
     return makeGet(
-      (v: unknown) =>
-        v === null || v === undefined ? undefined : (ga.get(v) ?? undefined),
-      [...ga.sqlTypes, "NULL"],
+      (v: unknown) => (v === null || v === undefined ? undefined : (ga.get(v) ?? undefined)),
+      [...ga.sqlTypes, "NULL"]
     );
   },
 
@@ -308,7 +315,7 @@ export const Get = {
         }
         return result;
       },
-      ["ARRAY"],
+      ["ARRAY"]
     );
   },
 } as const;
@@ -425,7 +432,7 @@ export const Put = {
  * );
  * ```
  */
-export interface Meta<A> extends Omit<Get<A>, '_tag'>, Omit<Put<A>, '_tag'> {
+export interface Meta<A> extends Omit<Get<A>, "_tag">, Omit<Put<A>, "_tag"> {
   readonly _tag: "Meta";
 }
 
@@ -463,7 +470,7 @@ export const Meta = {
     decode: (value: unknown) => A | null,
     encode: (value: A) => unknown,
     sqlType: SqlTypeName,
-    readTypes?: readonly SqlTypeName[],
+    readTypes?: readonly SqlTypeName[]
   ): Meta<A> {
     const get = makeGet(decode, readTypes ?? [sqlType]);
     const put = makePut(encode, sqlType);
@@ -472,22 +479,34 @@ export const Meta = {
 
   /** Invariant functor imap — transform both directions. */
   imap<A, B>(ma: Meta<A>, f: (a: A) => B, g: (b: B) => A): Meta<B> {
-    return metaFromGetPut(Get.map(ma as unknown as Get<A>, f), Put.contramap(ma as unknown as Put<A>, g));
+    return metaFromGetPut(
+      Get.map(ma as unknown as Get<A>, f),
+      Put.contramap(ma as unknown as Put<A>, g)
+    );
   },
 
   /** Make a Meta nullable. */
   nullable<A>(ma: Meta<A>): Meta<A | null> {
-    return metaFromGetPut(Get.nullable(ma as unknown as Get<A>), Put.nullable(ma as unknown as Put<A>));
+    return metaFromGetPut(
+      Get.nullable(ma as unknown as Get<A>),
+      Put.nullable(ma as unknown as Put<A>)
+    );
   },
 
   /** Make a Meta optional. */
   optional<A>(ma: Meta<A>): Meta<A | undefined> {
-    return metaFromGetPut(Get.optional(ma as unknown as Get<A>), Put.optional(ma as unknown as Put<A>));
+    return metaFromGetPut(
+      Get.optional(ma as unknown as Get<A>),
+      Put.optional(ma as unknown as Put<A>)
+    );
   },
 
   /** Meta for arrays. */
   array<A>(element: Meta<A>): Meta<A[]> {
-    return metaFromGetPut(Get.array(element as unknown as Get<A>), Put.array(element as unknown as Put<A>));
+    return metaFromGetPut(
+      Get.array(element as unknown as Get<A>),
+      Put.array(element as unknown as Put<A>)
+    );
   },
 
   // Primitive Instances
@@ -569,7 +588,7 @@ export const Read = {
    */
   make<A>(
     mappings: readonly ColumnMapping[],
-    construct: (fields: Record<string, unknown>) => A,
+    construct: (fields: Record<string, unknown>) => A
   ): Read<A> {
     const columns = mappings.map((m) => m.column);
 
@@ -727,10 +746,7 @@ export const Write = {
   /**
    * Create a Write instance from field extractors.
    */
-  make<A>(
-    columns: readonly string[],
-    extractors: readonly ((value: A) => unknown)[],
-  ): Write<A> {
+  make<A>(columns: readonly string[], extractors: readonly ((value: A) => unknown)[]): Write<A> {
     return {
       _tag: "Write",
       columns,
@@ -781,8 +797,7 @@ export const Write = {
     return {
       _tag: "Write",
       columns: writes.flatMap((w) => w.columns),
-      write: (values: Input) =>
-        writes.flatMap((w, i) => w.write((values as unknown[])[i])),
+      write: (values: Input) => writes.flatMap((w, i) => w.write((values as unknown[])[i])),
     };
   },
 
@@ -806,7 +821,7 @@ export const Write = {
  *
  * This is the row-level equivalent of Meta.
  */
-export interface Codec<A> extends Omit<Read<A>, '_tag'>, Omit<Write<A>, '_tag'> {
+export interface Codec<A> extends Omit<Read<A>, "_tag">, Omit<Write<A>, "_tag"> {
   readonly _tag: "Codec";
 }
 
@@ -829,7 +844,10 @@ export const Codec = {
    * Invariant functor imap.
    */
   imap<A, B>(ca: Codec<A>, f: (a: A) => B, g: (b: B) => A): Codec<B> {
-    return Codec.fromReadWrite(Read.map(ca as unknown as Read<A>, f), Write.contramap(ca as unknown as Write<A>, g));
+    return Codec.fromReadWrite(
+      Read.map(ca as unknown as Read<A>, f),
+      Write.contramap(ca as unknown as Write<A>, g)
+    );
   },
 } as const;
 
@@ -896,18 +914,16 @@ export interface DeriveColumn<A> {
 export function deriveRead<A extends Record<string, unknown>>(config: {
   [K in keyof A]: DeriveColumn<A[K]>;
 }): Read<A> {
-  const mappings: ColumnMapping[] = Object.entries(config).map(
-    ([field, conf]) => {
-      const c = conf as DeriveColumn<unknown>;
-      return {
-        field,
-        column: c.column ?? toSnakeCase(field),
-        // Cast Meta to Get since they share the decode/sqlTypes structure
-        get: c.meta as unknown as Get<unknown>,
-        nullable: c.nullable ?? false,
-      };
-    },
-  );
+  const mappings: ColumnMapping[] = Object.entries(config).map(([field, conf]) => {
+    const c = conf as DeriveColumn<unknown>;
+    return {
+      field,
+      column: c.column ?? toSnakeCase(field),
+      // Cast Meta to Get since they share the decode/sqlTypes structure
+      get: c.meta as unknown as Get<unknown>,
+      nullable: c.nullable ?? false,
+    };
+  });
 
   return Read.make(mappings, (fields) => fields as A);
 }
@@ -1038,11 +1054,4 @@ metaRegistry.set("uuid", Meta.uuid as Meta<unknown>);
 // The @deriving(Read), @deriving(Write), @deriving(Codec) macros will
 // generate code that uses these registries.
 
-export {
-  getRegistry,
-  putRegistry,
-  metaRegistry,
-  readRegistry,
-  writeRegistry,
-  codecRegistry,
-};
+export { getRegistry, putRegistry, metaRegistry, readRegistry, writeRegistry, codecRegistry };

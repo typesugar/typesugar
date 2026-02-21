@@ -30,7 +30,7 @@ function createTestContext(): MacroContextImpl {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -42,9 +42,7 @@ function createTestContext(): MacroContextImpl {
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "test.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   const transformContext: ts.TransformationContext = {
@@ -77,7 +75,7 @@ function printNode(node: ts.Node): string {
     "",
     ts.ScriptTarget.Latest,
     false,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
   return printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
 }
@@ -176,13 +174,13 @@ describe("requires() macro", () => {
     const condition = ts.factory.createBinaryExpression(
       ts.factory.createIdentifier("x"),
       ts.factory.createToken(ts.SyntaxKind.GreaterThanToken),
-      ts.factory.createNumericLiteral(0),
+      ts.factory.createNumericLiteral(0)
     );
 
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("requires"),
       undefined,
-      [condition],
+      [condition]
     );
 
     const result = requiresMacro.expand(ctx, callExpr, [condition]);
@@ -206,7 +204,7 @@ describe("requires() macro", () => {
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("requires"),
       undefined,
-      [condition],
+      [condition]
     );
 
     const result = requiresMacro.expand(ctx, callExpr, [condition]);
@@ -221,7 +219,7 @@ describe("requires() macro", () => {
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("requires"),
       undefined,
-      [condition],
+      [condition]
     );
 
     const result = requiresMacro.expand(ctx, callExpr, [condition]);
@@ -262,13 +260,13 @@ describe("ensures() macro", () => {
     const condition = ts.factory.createBinaryExpression(
       ts.factory.createIdentifier("result"),
       ts.factory.createToken(ts.SyntaxKind.GreaterThanToken),
-      ts.factory.createNumericLiteral(0),
+      ts.factory.createNumericLiteral(0)
     );
 
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("ensures"),
       undefined,
-      [condition],
+      [condition]
     );
 
     const result = ensuresMacro.expand(ctx, callExpr, [condition]);
@@ -291,7 +289,7 @@ describe("ensures() macro", () => {
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("ensures"),
       undefined,
-      [condition],
+      [condition]
     );
 
     const result = ensuresMacro.expand(ctx, callExpr, [condition]);
@@ -316,7 +314,7 @@ describe("old() macro", () => {
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("old"),
       undefined,
-      [arg],
+      [arg]
     );
 
     const result = oldMacro.expand(ctx, callExpr, [arg]);
@@ -341,7 +339,7 @@ describe("contract block parser", () => {
         return x + y;
       }`,
       ts.ScriptTarget.Latest,
-      true,
+      true
     );
 
     const fn = source.statements[0] as ts.FunctionDeclaration;
@@ -361,7 +359,7 @@ describe("contract block parser", () => {
         return 42;
       }`,
       ts.ScriptTarget.Latest,
-      true,
+      true
     );
 
     const fn = source.statements[0] as ts.FunctionDeclaration;
@@ -382,7 +380,7 @@ describe("contract block parser", () => {
         return x + y;
       }`,
       ts.ScriptTarget.Latest,
-      true,
+      true
     );
 
     const fn = source.statements[0] as ts.FunctionDeclaration;
@@ -403,19 +401,16 @@ describe("predicate normalization", () => {
     const expr = ts.factory.createBinaryExpression(
       ts.factory.createIdentifier("x"),
       ts.factory.createToken(ts.SyntaxKind.GreaterThanToken),
-      ts.factory.createNumericLiteral(0),
+      ts.factory.createNumericLiteral(0)
     );
     expect(normalizeExpression(expr)).toBe("x > 0");
   });
 
   it("should normalize property access", () => {
     const expr = ts.factory.createBinaryExpression(
-      ts.factory.createPropertyAccessExpression(
-        ts.factory.createIdentifier("account"),
-        "balance",
-      ),
+      ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("account"), "balance"),
       ts.factory.createToken(ts.SyntaxKind.GreaterThanEqualsToken),
-      ts.factory.createNumericLiteral(0),
+      ts.factory.createNumericLiteral(0)
     );
     expect(normalizeExpression(expr)).toBe("account.balance >= 0");
   });
@@ -423,7 +418,7 @@ describe("predicate normalization", () => {
   it("should normalize negation", () => {
     const expr = ts.factory.createPrefixUnaryExpression(
       ts.SyntaxKind.ExclamationToken,
-      ts.factory.createIdentifier("frozen"),
+      ts.factory.createIdentifier("frozen")
     );
     expect(normalizeExpression(expr)).toBe("!frozen");
   });
@@ -526,9 +521,7 @@ describe("@typesugar/contracts-refined integration", () => {
   it("should export helper functions", async () => {
     const contractsRefined = await import("@typesugar/contracts-refined");
 
-    expect(typeof contractsRefined.registerRefinementPredicate).toBe(
-      "function",
-    );
+    expect(typeof contractsRefined.registerRefinementPredicate).toBe("function");
     expect(typeof contractsRefined.hasRefinementPredicate).toBe("function");
     expect(typeof contractsRefined.getRegisteredPredicates).toBe("function");
   });
@@ -537,15 +530,10 @@ describe("@typesugar/contracts-refined integration", () => {
     const contractsRefined = await import("@typesugar/contracts-refined");
 
     // Register a custom predicate
-    contractsRefined.registerRefinementPredicate(
-      "PositiveEvenTest",
-      "$ > 0 && $ % 2 === 0",
-    );
+    contractsRefined.registerRefinementPredicate("PositiveEvenTest", "$ > 0 && $ % 2 === 0");
 
     // Verify it's registered
-    expect(contractsRefined.hasRefinementPredicate("PositiveEvenTest")).toBe(
-      true,
-    );
+    expect(contractsRefined.hasRefinementPredicate("PositiveEvenTest")).toBe(true);
   });
 
   it("should track registered predicates via getRegisteredPredicates()", async () => {

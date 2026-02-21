@@ -52,10 +52,7 @@ export interface Schema<F> {
   /**
    * Parse data and return a `ValidatedNel` with accumulated errors.
    */
-  readonly safeParse: <A>(
-    schema: $<F, A>,
-    data: unknown,
-  ) => ValidatedNel<ValidationError, A>;
+  readonly safeParse: <A>(schema: $<F, A>, data: unknown) => ValidatedNel<ValidationError, A>;
 }
 
 // ============================================================================
@@ -88,7 +85,7 @@ export interface NativeSchema {
   readonly parse: <A>(validator: Validator<A>, data: unknown) => A;
   readonly safeParse: <A>(
     validator: Validator<A>,
-    data: unknown,
+    data: unknown
   ) => ValidatedNel<ValidationError, A>;
 }
 
@@ -117,10 +114,7 @@ export const nativeSchema: NativeSchema = {
     throw new Error("Validation failed");
   },
 
-  safeParse: <A>(
-    validator: Validator<A>,
-    data: unknown,
-  ): ValidatedNel<ValidationError, A> => {
+  safeParse: <A>(validator: Validator<A>, data: unknown): ValidatedNel<ValidationError, A> => {
     if (validator(data)) {
       return Valid(data);
     }
@@ -136,7 +130,7 @@ export const nativeSchema: NativeSchema = {
  * Parse or return a default value.
  */
 export function parseOrElse<F>(
-  S: Schema<F>,
+  S: Schema<F>
 ): <A>(schema: $<F, A>, data: unknown, fallback: A) => A {
   return (schema, data, fallback) => {
     const result = S.safeParse(schema, data);
@@ -148,7 +142,7 @@ export function parseOrElse<F>(
  * Parse and map the result.
  */
 export function parseMap<F>(
-  S: Schema<F>,
+  S: Schema<F>
 ): <A, B>(schema: $<F, A>, data: unknown, f: (a: A) => B) => B {
   return (schema, data, f) => f(S.parse(schema, data));
 }
@@ -157,7 +151,7 @@ export function parseMap<F>(
  * Chain two parsers - parse with the first, then parse the result with the second.
  */
 export function parseChain<F>(
-  S: Schema<F>,
+  S: Schema<F>
 ): <A, B>(schemaA: $<F, A>, schemaB: $<F, B>, data: unknown) => B {
   return (schemaA, schemaB, data) => {
     const a = S.parse(schemaA, data);
@@ -168,9 +162,7 @@ export function parseChain<F>(
 /**
  * Validate multiple values with the same schema.
  */
-export function parseAll<F>(
-  S: Schema<F>,
-): <A>(schema: $<F, A>, data: unknown[]) => A[] {
+export function parseAll<F>(S: Schema<F>): <A>(schema: $<F, A>, data: unknown[]) => A[] {
   return (schema, data) => data.map((d) => S.parse(schema, d));
 }
 
@@ -178,11 +170,8 @@ export function parseAll<F>(
  * Safely validate multiple values, collecting all errors.
  */
 export function safeParseAll<F>(
-  S: Schema<F>,
-): <A>(
-  schema: $<F, A>,
-  data: unknown[],
-) => ValidatedNel<ValidationError, A[]> {
+  S: Schema<F>
+): <A>(schema: $<F, A>, data: unknown[]) => ValidatedNel<ValidationError, A[]> {
   return <A>(schema: $<F, A>, data: unknown[]) => {
     const results = data.map((d) => S.safeParse(schema, d));
     const errors: ValidationError[] = [];
@@ -220,7 +209,7 @@ export function safeParseAll<F>(
  * Parse or return a default value (native validators).
  */
 export function nativeParseOrElse(
-  S: NativeSchema,
+  S: NativeSchema
 ): <A>(validator: Validator<A>, data: unknown, fallback: A) => A {
   return (validator, data, fallback) => {
     const result = S.safeParse(validator, data);
@@ -232,7 +221,7 @@ export function nativeParseOrElse(
  * Parse and map the result (native validators).
  */
 export function nativeParseMap(
-  S: NativeSchema,
+  S: NativeSchema
 ): <A, B>(validator: Validator<A>, data: unknown, f: (a: A) => B) => B {
   return (validator, data, f) => f(S.parse(validator, data));
 }
@@ -241,7 +230,7 @@ export function nativeParseMap(
  * Validate multiple values with the same validator (native validators).
  */
 export function nativeParseAll(
-  S: NativeSchema,
+  S: NativeSchema
 ): <A>(validator: Validator<A>, data: unknown[]) => A[] {
   return (validator, data) => data.map((d) => S.parse(validator, d));
 }
@@ -250,11 +239,8 @@ export function nativeParseAll(
  * Safely validate multiple values, collecting all errors (native validators).
  */
 export function nativeSafeParseAll(
-  S: NativeSchema,
-): <A>(
-  validator: Validator<A>,
-  data: unknown[],
-) => ValidatedNel<ValidationError, A[]> {
+  S: NativeSchema
+): <A>(validator: Validator<A>, data: unknown[]) => ValidatedNel<ValidationError, A[]> {
   return <A>(validator: Validator<A>, data: unknown[]) => {
     const results = data.map((d) => S.safeParse(validator, d));
     const errors: ValidationError[] = [];
@@ -291,10 +277,7 @@ export function nativeSafeParseAll(
  */
 export function makeSchema<F>(
   parse: <A>(schema: $<F, A>, data: unknown) => A,
-  safeParse: <A>(
-    schema: $<F, A>,
-    data: unknown,
-  ) => ValidatedNel<ValidationError, A>,
+  safeParse: <A>(schema: $<F, A>, data: unknown) => ValidatedNel<ValidationError, A>
 ): Schema<F> {
   return { parse, safeParse };
 }
@@ -304,10 +287,7 @@ export function makeSchema<F>(
  */
 export function makeNativeSchema(
   parse: <A>(validator: Validator<A>, data: unknown) => A,
-  safeParse: <A>(
-    validator: Validator<A>,
-    data: unknown,
-  ) => ValidatedNel<ValidationError, A>,
+  safeParse: <A>(validator: Validator<A>, data: unknown) => ValidatedNel<ValidationError, A>
 ): NativeSchema {
   return { parse, safeParse };
 }

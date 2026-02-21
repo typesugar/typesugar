@@ -6,10 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "../src/core/context.js";
 import { globalRegistry } from "../src/core/registry.js";
-import {
-  defineSyntaxMacro,
-  defineRewrite,
-} from "../src/macros/syntax-macro.js";
+import { defineSyntaxMacro, defineRewrite } from "../src/macros/syntax-macro.js";
 
 describe("pattern-based / declarative macros", () => {
   let ctx: MacroContextImpl;
@@ -26,7 +23,7 @@ describe("pattern-based / declarative macros", () => {
       sourceText,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ts.ScriptKind.TS
     );
 
     const options: ts.CompilerOptions = {
@@ -38,9 +35,7 @@ describe("pattern-based / declarative macros", () => {
     const program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
-        name === "test.ts"
-          ? sourceFile
-          : host.getSourceFile(name, ts.ScriptTarget.Latest),
+        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
     const transformContext: ts.TransformationContext = {
@@ -87,12 +82,10 @@ describe("pattern-based / declarative macros", () => {
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("triple_test"),
         undefined,
-        [ts.factory.createNumericLiteral(5)],
+        [ts.factory.createNumericLiteral(5)]
       );
 
-      const result = macro.expand(ctx, callExpr, [
-        ts.factory.createNumericLiteral(5),
-      ]);
+      const result = macro.expand(ctx, callExpr, [ts.factory.createNumericLiteral(5)]);
 
       const text = printExpr(result);
       expect(text).toContain("5");
@@ -116,12 +109,10 @@ describe("pattern-based / declarative macros", () => {
       // Test with identifier — should match first arm
       const idResult = macro.expand(
         ctx,
-        ts.factory.createCallExpression(
-          ts.factory.createIdentifier("multi_test"),
-          undefined,
-          [ts.factory.createIdentifier("foo")],
-        ),
-        [ts.factory.createIdentifier("foo")],
+        ts.factory.createCallExpression(ts.factory.createIdentifier("multi_test"), undefined, [
+          ts.factory.createIdentifier("foo"),
+        ]),
+        [ts.factory.createIdentifier("foo")]
       );
 
       expect(printExpr(idResult)).toContain("toString");
@@ -130,16 +121,12 @@ describe("pattern-based / declarative macros", () => {
 
   describe("defineRewrite", () => {
     it("should define a simple rewrite macro", () => {
-      const macro = defineRewrite(
-        "negate_test",
-        "negate_test($x:expr)",
-        "!($x)",
-      );
+      const macro = defineRewrite("negate_test", "negate_test($x:expr)", "!($x)");
 
       const callExpr = ts.factory.createCallExpression(
         ts.factory.createIdentifier("negate_test"),
         undefined,
-        [ts.factory.createTrue()],
+        [ts.factory.createTrue()]
       );
 
       const result = macro.expand(ctx, callExpr, [ts.factory.createTrue()]);

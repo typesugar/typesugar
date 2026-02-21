@@ -248,10 +248,7 @@ export function flatMap<A, B>(list: List<A>, f: (a: A) => List<B>): List<B> {
 /**
  * Filter the list (stack-safe)
  */
-export function filter<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): List<A> {
+export function filter<A>(list: List<A>, predicate: (a: A) => boolean): List<A> {
   let acc: List<A> = Nil;
   let current = list;
   while (isCons(current)) {
@@ -266,10 +263,7 @@ export function filter<A>(
 /**
  * Filter and map in one pass (stack-safe)
  */
-export function filterMap<A, B>(
-  list: List<A>,
-  f: (a: A) => Option<B>,
-): List<B> {
+export function filterMap<A, B>(list: List<A>, f: (a: A) => Option<B>): List<B> {
   let acc: List<B> = Nil;
   let current = list;
   while (isCons(current)) {
@@ -372,10 +366,7 @@ export function dropLast<A>(list: List<A>, n: number): List<A> {
 /**
  * Take elements while predicate holds (stack-safe)
  */
-export function takeWhile<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): List<A> {
+export function takeWhile<A>(list: List<A>, predicate: (a: A) => boolean): List<A> {
   let acc: List<A> = Nil;
   let current = list;
   while (isCons(current) && predicate(current.head)) {
@@ -388,10 +379,7 @@ export function takeWhile<A>(
 /**
  * Drop elements while predicate holds
  */
-export function dropWhile<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): List<A> {
+export function dropWhile<A>(list: List<A>, predicate: (a: A) => boolean): List<A> {
   let current = list;
   while (isCons(current) && predicate(current.head)) {
     current = current.tail;
@@ -417,11 +405,7 @@ export function zip<A, B>(listA: List<A>, listB: List<B>): List<[A, B]> {
 /**
  * Zip with a function (stack-safe)
  */
-export function zipWith<A, B, C>(
-  listA: List<A>,
-  listB: List<B>,
-  f: (a: A, b: B) => C,
-): List<C> {
+export function zipWith<A, B, C>(listA: List<A>, listB: List<B>, f: (a: A, b: B) => C): List<C> {
   let acc: List<C> = Nil;
   let currentA = listA;
   let currentB = listB;
@@ -469,11 +453,7 @@ export function intersperse<A>(list: List<A>, sep: A): List<A> {
 /**
  * Fold left
  */
-export function foldLeft<A, B>(
-  list: List<A>,
-  init: B,
-  f: (b: B, a: A) => B,
-): B {
+export function foldLeft<A, B>(list: List<A>, init: B, f: (b: B, a: A) => B): B {
   let acc = init;
   let current = list;
   while (isCons(current)) {
@@ -489,11 +469,7 @@ export function foldLeft<A, B>(
  * Note: This is stack-safe but evaluates strictly (not lazy).
  * For lazy/short-circuiting foldRight, use Eval-based version.
  */
-export function foldRight<A, B>(
-  list: List<A>,
-  init: B,
-  f: (a: A, b: B) => B,
-): B {
+export function foldRight<A, B>(list: List<A>, init: B, f: (a: A, b: B) => B): B {
   // foldRight(xs, z, f) = foldLeft(reverse(xs), z, (b, a) => f(a, b))
   return foldLeft(reverse(list), init, (b, a) => f(a, b));
 }
@@ -513,10 +489,7 @@ export function reduce<A>(list: List<A>, f: (a: A, b: A) => A): Option<A> {
 /**
  * Find the first element matching a predicate
  */
-export function find<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): Option<A> {
+export function find<A>(list: List<A>, predicate: (a: A) => boolean): Option<A> {
   let current = list;
   while (isCons(current)) {
     if (predicate(current.head)) return Some(current.head);
@@ -528,10 +501,7 @@ export function find<A>(
 /**
  * Find index of first element matching a predicate
  */
-export function findIndex<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): Option<number> {
+export function findIndex<A>(list: List<A>, predicate: (a: A) => boolean): Option<number> {
   let current = list;
   let i = 0;
   while (isCons(current)) {
@@ -545,20 +515,14 @@ export function findIndex<A>(
 /**
  * Check if any element satisfies the predicate
  */
-export function exists<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): boolean {
+export function exists<A>(list: List<A>, predicate: (a: A) => boolean): boolean {
   return isSome(find(list, predicate));
 }
 
 /**
  * Check if all elements satisfy the predicate
  */
-export function forall<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): boolean {
+export function forall<A>(list: List<A>, predicate: (a: A) => boolean): boolean {
   let current = list;
   while (isCons(current)) {
     if (!predicate(current.head)) return false;
@@ -573,7 +537,7 @@ export function forall<A>(
 export function contains<A>(
   list: List<A>,
   a: A,
-  eq: (x: A, y: A) => boolean = (x, y) => x === y,
+  eq: (x: A, y: A) => boolean = (x, y) => x === y
 ): boolean {
   return exists(list, (x) => eq(x, a));
 }
@@ -612,11 +576,7 @@ export function mkString(list: List<string>, sep: string = ""): string {
 /**
  * Show elements with a separator
  */
-export function mkStringShow<A>(
-  list: List<A>,
-  show: (a: A) => string,
-  sep: string = "",
-): string {
+export function mkStringShow<A>(list: List<A>, show: (a: A) => string, sep: string = ""): string {
   return toArray(list).map(show).join(sep);
 }
 
@@ -627,10 +587,7 @@ export function mkStringShow<A>(
 /**
  * Traverse the list with an Option-returning function (stack-safe)
  */
-export function traverse<A, B>(
-  list: List<A>,
-  f: (a: A) => Option<B>,
-): Option<List<B>> {
+export function traverse<A, B>(list: List<A>, f: (a: A) => Option<B>): Option<List<B>> {
   let acc: List<B> = Nil;
   let current = list;
   while (isCons(current)) {
@@ -735,12 +692,10 @@ export const Do: List<{}> = singleton({});
  */
 export function bind<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => List<B>,
+  f: (a: A) => List<B>
 ): (list: List<A>) => List<A & { readonly [K in N]: B }> {
   return (list) =>
-    flatMap(list, (a) =>
-      map(f(a), (b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }),
-    );
+    flatMap(list, (a) => map(f(a), (b) => ({ ...a, [name]: b }) as A & { readonly [K in N]: B }));
 }
 
 /**
@@ -748,10 +703,9 @@ export function bind<N extends string, A extends object, B>(
  */
 export function let_<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
-  f: (a: A) => B,
+  f: (a: A) => B
 ): (list: List<A>) => List<A & { readonly [K in N]: B }> {
-  return (list) =>
-    map(list, (a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
+  return (list) => map(list, (a) => ({ ...a, [name]: f(a) }) as A & { readonly [K in N]: B });
 }
 
 // ============================================================================
@@ -772,10 +726,7 @@ export function forEach<A>(list: List<A>, f: (a: A) => void): void {
 /**
  * Map with index (stack-safe)
  */
-export function mapWithIndex<A, B>(
-  list: List<A>,
-  f: (index: number, a: A) => B,
-): List<B> {
+export function mapWithIndex<A, B>(list: List<A>, f: (index: number, a: A) => B): List<B> {
   let acc: List<B> = Nil;
   let current = list;
   let i = 0;
@@ -790,10 +741,7 @@ export function mapWithIndex<A, B>(
 /**
  * Sort the list
  */
-export function sort<A>(
-  list: List<A>,
-  compare: (a: A, b: A) => number,
-): List<A> {
+export function sort<A>(list: List<A>, compare: (a: A, b: A) => number): List<A> {
   return fromArray(toArray(list).sort(compare));
 }
 
@@ -803,7 +751,7 @@ export function sort<A>(
 export function sortBy<A, B>(
   list: List<A>,
   f: (a: A) => B,
-  compare: (b1: B, b2: B) => number,
+  compare: (b1: B, b2: B) => number
 ): List<A> {
   return sort(list, (a1, a2) => compare(f(a1), f(a2)));
 }
@@ -814,7 +762,7 @@ export function sortBy<A, B>(
 export function groupBy<A, K>(
   list: List<A>,
   f: (a: A) => K,
-  eq: (k1: K, k2: K) => boolean = (k1, k2) => k1 === k2,
+  eq: (k1: K, k2: K) => boolean = (k1, k2) => k1 === k2
 ): List<List<A>> {
   if (isNil(list)) return Nil;
 
@@ -843,7 +791,7 @@ export function groupBy<A, K>(
  */
 export function distinct<A>(
   list: List<A>,
-  eq: (a: A, b: A) => boolean = (a, b) => a === b,
+  eq: (a: A, b: A) => boolean = (a, b) => a === b
 ): List<A> {
   const seen: A[] = [];
   return filter(list, (a) => {
@@ -856,10 +804,7 @@ export function distinct<A>(
 /**
  * Partition list into [matching, non-matching]
  */
-export function partition<A>(
-  list: List<A>,
-  predicate: (a: A) => boolean,
-): [List<A>, List<A>] {
+export function partition<A>(list: List<A>, predicate: (a: A) => boolean): [List<A>, List<A>] {
   const matching: A[] = [];
   const nonMatching: A[] = [];
   forEach(list, (a) => {

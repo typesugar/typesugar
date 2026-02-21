@@ -12,12 +12,7 @@
  */
 
 // Core types
-export type {
-  ParseResult,
-  Parser,
-  GrammarRule,
-  Grammar,
-} from "./types.js";
+export type { ParseResult, Parser, GrammarRule, Grammar } from "./types.js";
 
 // Combinator API
 export {
@@ -50,14 +45,7 @@ export {
 } from "./combinators.js";
 
 // Grammar DSL
-export {
-  parseGrammarDef,
-  buildParser,
-} from "./grammar.js";
+export { parseGrammarDef, buildParser } from "./grammar.js";
 
 // Tagged template macro + runtime fallback
-export {
-  grammarMacro,
-  grammar,
-  register,
-} from "./grammar-macro.js";
+export { grammarMacro, grammar, register } from "./grammar-macro.js";

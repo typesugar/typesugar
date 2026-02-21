@@ -39,9 +39,7 @@
  * - `Equal<1 | 2, 2 | 1>` → true
  */
 export type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-    ? true
-    : false;
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 /**
  * Type-level subtype check.
@@ -98,8 +96,7 @@ export type IsAny<T> = 0 extends 1 & T ? true : false;
  *
  * Returns true only for `unknown`, not for `any`.
  */
-export type IsUnknown<T> =
-  IsAny<T> extends true ? false : unknown extends T ? true : false;
+export type IsUnknown<T> = IsAny<T> extends true ? false : unknown extends T ? true : false;
 
 /**
  * Assert that two types are equal (deprecated alias).

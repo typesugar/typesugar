@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { createBuilder, NamedArgsError } from "../index.js";
 import type { ParamMeta } from "../index.js";
 
-function makeUser(name: string, age: number, email: string): {
+function makeUser(
+  name: string,
+  age: number,
+  email: string
+): {
   name: string;
   age: number;
   email: string;
@@ -109,9 +113,7 @@ describe("Builder", () => {
     });
 
     it("allows branching from the same partial builder", () => {
-      const base = createBuilder(makeUser, userParams)
-        .set("name", "Dana")
-        .set("age", 35);
+      const base = createBuilder(makeUser, userParams).set("name", "Dana").set("age", 35);
 
       const result1 = base.set("email", "dana@work.com").build();
       const result2 = base.set("email", "dana@personal.com").build();
@@ -125,9 +127,7 @@ describe("Builder", () => {
 
   describe("defaults", () => {
     it("fills defaults for optional params when not set", () => {
-      const result = createBuilder(greet, greetParams)
-        .set("name", "World")
-        .build();
+      const result = createBuilder(greet, greetParams).set("name", "World").build();
 
       expect(result).toBe("Hello, World!");
     });
@@ -144,20 +144,18 @@ describe("Builder", () => {
 
   describe("unknown params", () => {
     it("throws for unknown param names", () => {
-      expect(() =>
-        createBuilder(makeUser, userParams).set("unknown", "val"),
-      ).toThrow(NamedArgsError);
-      expect(() =>
-        createBuilder(makeUser, userParams).set("unknown", "val"),
-      ).toThrow(/Unknown parameter 'unknown'/);
+      expect(() => createBuilder(makeUser, userParams).set("unknown", "val")).toThrow(
+        NamedArgsError
+      );
+      expect(() => createBuilder(makeUser, userParams).set("unknown", "val")).toThrow(
+        /Unknown parameter 'unknown'/
+      );
     });
   });
 
   describe("values()", () => {
     it("returns a snapshot of accumulated values", () => {
-      const builder = createBuilder(makeUser, userParams)
-        .set("name", "Eve")
-        .set("age", 22);
+      const builder = createBuilder(makeUser, userParams).set("name", "Eve").set("age", 22);
 
       const vals = builder.values();
       expect(vals).toEqual({ name: "Eve", age: 22 });

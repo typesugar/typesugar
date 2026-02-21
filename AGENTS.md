@@ -178,12 +178,7 @@ Every macro's `expand` function receives a `MacroContext` (`ctx`) with:
 The preferred way to construct AST in macro implementations. Uses tagged templates with splicing:
 
 ```typescript
-import {
-  quote,
-  quoteStatements,
-  quoteType,
-  quoteBlock,
-} from "../macros/quote.js";
+import { quote, quoteStatements, quoteType, quoteBlock } from "../macros/quote.js";
 import { spread, ident, raw } from "../macros/quote.js";
 
 // Single expression
@@ -245,7 +240,7 @@ globalExpansionTracker.recordExpansion(
   originalNode,
   sourceFile,
   expandedText,
-  fromCache,
+  fromCache
 );
 globalExpansionTracker.generateReport(); // human-readable summary
 ```
@@ -270,10 +265,7 @@ if (!cached) {
 Declarative permissions for macros:
 
 ```typescript
-import {
-  createRestrictedContext,
-  MacroCapabilities,
-} from "../core/capabilities.js";
+import { createRestrictedContext, MacroCapabilities } from "../core/capabilities.js";
 
 const caps: MacroCapabilities = {
   needsTypeChecker: true,
@@ -501,10 +493,7 @@ All derives handle both product types (records) and sum types (discriminated uni
 **Simplified derive API:**
 
 ```typescript
-import {
-  defineCustomDerive,
-  defineFieldDerive,
-} from "../macros/custom-derive.js";
+import { defineCustomDerive, defineFieldDerive } from "../macros/custom-derive.js";
 
 // String-based (returns code as string)
 defineCustomDerive("MyDerive", (typeInfo) => {
@@ -731,12 +720,12 @@ The transformer is the runtime engine that orchestrates all macro expansion duri
 
 The transformer respects opt-out directives at multiple granularities:
 
-| Scope | Syntax | Checked by |
-| --- | --- | --- |
-| File | `"use no typesugar"` at top of file | `scanImportsForScope()` |
-| Function | `"use no typesugar"` as first statement | `isInOptedOutScope()` |
-| Line | `// @ts-no-typesugar` comment | `hasInlineOptOut()` |
-| Feature | `"use no typesugar extensions"` | `isFeatureOptedOut()` |
+| Scope    | Syntax                                  | Checked by              |
+| -------- | --------------------------------------- | ----------------------- |
+| File     | `"use no typesugar"` at top of file     | `scanImportsForScope()` |
+| Function | `"use no typesugar"` as first statement | `isInOptedOutScope()`   |
+| Line     | `// @ts-no-typesugar` comment           | `hasInlineOptOut()`     |
+| Feature  | `"use no typesugar extensions"`         | `isFeatureOptedOut()`   |
 
 All macro expansion points in the transformer check `isInOptedOutScope()` before transforming.
 
@@ -756,41 +745,41 @@ The export index is pre-populated with known typesugar exports and can be extend
 
 ## Quick Lookup: "I Need To..."
 
-| Need                            | Use                                                                 | Location                  |
-| ------------------------------- | ------------------------------------------------------------------- | ------------------------- |
-| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                               | `specialize.ts`           |
-| Register a new expression macro | `defineExpressionMacro(name, macro)`                                | `core/registry.ts`        |
-| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                 | `core/registry.ts`        |
-| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                    | `core/registry.ts`        |
-| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`            | `core/context.ts`         |
-| Create AST with splicing        | `quote(ctx)\`...\``, `quoteStatements(ctx)\`...\``                  | `macros/quote.ts`         |
-| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)` | `core/context.ts`         |
-| Get type properties             | `ctx.getPropertiesOfType(type)`                                     | `core/context.ts`         |
-| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                        | `core/context.ts`         |
-| Report compile error            | `ctx.reportError(node, message)`                                    | `core/context.ts`         |
-| Generate unique names           | `ctx.generateUniqueName(prefix)`                                    | `core/context.ts`         |
-| Avoid name collisions           | `globalHygiene.withScope(() => { ... })`                            | `core/hygiene.ts`         |
-| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                | `macros/typeclass.ts`     |
-| Register standalone extensions  | `registerStandaloneExtensionEntry(info)`                            | `macros/extension.ts`     |
-| Find standalone extension       | `findStandaloneExtension(method, type)`                             | `macros/extension.ts`     |
-| Register instance methods       | `registerInstanceMethods(name, methods)`                            | `macros/specialize.ts`    |
-| Check primitive coverage        | `registerPrimitive()`, `validateCoverageOrError()`                  | `macros/coverage.ts`      |
-| Extract type metadata           | `extractTypeInfo(ctx, node)`                                        | `macros/reflect.ts`       |
-| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                    | `macros/typeclass.ts`     |
-| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                  | `macros/syntax-macro.ts`  |
-| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                | `macros/custom-derive.ts` |
-| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                  | `core/pipeline.ts`        |
-| Restrict macro capabilities     | `createRestrictedContext(ctx, caps, name)`                          | `core/capabilities.ts`    |
-| Read config values              | `config.get(path)`, `config.evaluate(condition)`                    | `core/config.ts`          |
-| Include file at compile time    | `includeStr()`, `includeJson()`                                     | `macros/include.ts`       |
-| Assert at compile time          | `static_assert(cond, msg)`                                          | `macros/static-assert.ts` |
-| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                    | `@typesugar/std`          |
-| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                  | `@typesugar/std`            |
-| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`            | `core/resolution-scope.ts`  |
-| Check for inline opt-out        | `hasInlineOptOut(sourceFile, node, feature?)`                       | `core/resolution-scope.ts`  |
-| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`    | `core/import-suggestions.ts`|
-| Register export for suggestions | `registerExport(symbol)`                                            | `core/import-suggestions.ts`|
-| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()`| `core/diagnostics.ts`       |
+| Need                            | Use                                                                  | Location                     |
+| ------------------------------- | -------------------------------------------------------------------- | ---------------------------- |
+| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                | `specialize.ts`              |
+| Register a new expression macro | `defineExpressionMacro(name, macro)`                                 | `core/registry.ts`           |
+| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `core/registry.ts`           |
+| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `core/registry.ts`           |
+| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`             | `core/context.ts`            |
+| Create AST with splicing        | `quote(ctx)\`...\``, `quoteStatements(ctx)\`...\``                   | `macros/quote.ts`            |
+| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`  | `core/context.ts`            |
+| Get type properties             | `ctx.getPropertiesOfType(type)`                                      | `core/context.ts`            |
+| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `core/context.ts`            |
+| Report compile error            | `ctx.reportError(node, message)`                                     | `core/context.ts`            |
+| Generate unique names           | `ctx.generateUniqueName(prefix)`                                     | `core/context.ts`            |
+| Avoid name collisions           | `globalHygiene.withScope(() => { ... })`                             | `core/hygiene.ts`            |
+| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `macros/typeclass.ts`        |
+| Register standalone extensions  | `registerStandaloneExtensionEntry(info)`                             | `macros/extension.ts`        |
+| Find standalone extension       | `findStandaloneExtension(method, type)`                              | `macros/extension.ts`        |
+| Register instance methods       | `registerInstanceMethods(name, methods)`                             | `macros/specialize.ts`       |
+| Check primitive coverage        | `registerPrimitive()`, `validateCoverageOrError()`                   | `macros/coverage.ts`         |
+| Extract type metadata           | `extractTypeInfo(ctx, node)`                                         | `macros/reflect.ts`          |
+| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                     | `macros/typeclass.ts`        |
+| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                   | `macros/syntax-macro.ts`     |
+| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                 | `macros/custom-derive.ts`    |
+| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                   | `core/pipeline.ts`           |
+| Restrict macro capabilities     | `createRestrictedContext(ctx, caps, name)`                           | `core/capabilities.ts`       |
+| Read config values              | `config.get(path)`, `config.evaluate(condition)`                     | `core/config.ts`             |
+| Include file at compile time    | `includeStr()`, `includeJson()`                                      | `macros/include.ts`          |
+| Assert at compile time          | `static_assert(cond, msg)`                                           | `macros/static-assert.ts`    |
+| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                     | `@typesugar/std`             |
+| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                   | `@typesugar/std`             |
+| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`             | `core/resolution-scope.ts`   |
+| Check for inline opt-out        | `hasInlineOptOut(sourceFile, node, feature?)`                        | `core/resolution-scope.ts`   |
+| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`     | `core/import-suggestions.ts` |
+| Register export for suggestions | `registerExport(symbol)`                                             | `core/import-suggestions.ts` |
+| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()` | `core/diagnostics.ts`        |
 
 ---
 

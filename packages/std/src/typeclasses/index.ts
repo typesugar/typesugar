@@ -89,13 +89,9 @@ export const enumBoolean: Enum<boolean> = {
 
 export const enumString: Enum<string> = {
   succ: (a) =>
-    a.length === 0
-      ? "a"
-      : a.slice(0, -1) + String.fromCharCode(a.charCodeAt(a.length - 1) + 1),
+    a.length === 0 ? "a" : a.slice(0, -1) + String.fromCharCode(a.charCodeAt(a.length - 1) + 1),
   pred: (a) =>
-    a.length === 0
-      ? ""
-      : a.slice(0, -1) + String.fromCharCode(a.charCodeAt(a.length - 1) - 1),
+    a.length === 0 ? "" : a.slice(0, -1) + String.fromCharCode(a.charCodeAt(a.length - 1) - 1),
   toEnum: (n) => String.fromCharCode(n),
   fromEnum: (a) => (a.length > 0 ? a.charCodeAt(0) : 0),
 };
@@ -276,9 +272,7 @@ export const floatingNumber: Floating<number> = {
 // Types that can be parsed from a string.
 // ============================================================================
 
-export type ParseResult<A> =
-  | { ok: true; value: A; rest: string }
-  | { ok: false; error: string };
+export type ParseResult<A> = { ok: true; value: A; rest: string } | { ok: false; error: string };
 
 export interface Parseable<A> {
   parse(s: string): ParseResult<A>;
@@ -466,10 +460,7 @@ export function copyableArray<A>(inner: Copyable<A>): Copyable<A[]> {
   return { copy: (a) => a.map((x) => inner.copy(x)) };
 }
 
-export function copyableMap<K, V>(
-  innerK: Copyable<K>,
-  innerV: Copyable<V>,
-): Copyable<Map<K, V>> {
+export function copyableMap<K, V>(innerK: Copyable<K>, innerV: Copyable<V>): Copyable<Map<K, V>> {
   return {
     copy: (a) => {
       const m = new Map<K, V>();

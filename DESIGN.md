@@ -118,7 +118,7 @@ Auto-generate implementations for classes:
 class Point {
   constructor(
     public x: number,
-    public y: number,
+    public y: number
   ) {}
 }
 // Generates: pointEq(), pointCompare(), debugPoint(), clonePoint()
@@ -137,7 +137,7 @@ Transform entire declarations:
 class Complex {
   constructor(
     public real: number,
-    public imag: number,
+    public imag: number
   ) {}
 
   add(other: Complex): Complex {
@@ -331,7 +331,7 @@ const html = html`<div>${unsafeInput}</div>`;
 class Complex {
   constructor(
     public real: number,
-    public imag: number,
+    public imag: number
   ) {}
   add(other: Complex): Complex {
     return new Complex(this.real + other.real, this.imag + other.imag);

@@ -54,7 +54,9 @@ export function rationalToUnit<
   D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>,
 >(r: Rational, symbol: string = ""): Unit<D> {
   // Import Unit dynamically to avoid circular deps at module level
-  const { Unit } = require("@typesugar/units") as { Unit: new (value: number, symbol?: string) => Unit<D> };
+  const { Unit } = require("@typesugar/units") as {
+    Unit: new (value: number, symbol?: string) => Unit<D>;
+  };
   return new Unit(toNumber(r), symbol);
 }
 
@@ -69,7 +71,9 @@ export function rationalToUnit<
 export function unitToRationalPrecise<
   D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>,
 >(u: Unit<D>, maxDenominator: bigint = 1000000n): Rational {
-  const { fromNumber } = require("../types/rational.js") as { fromNumber: (n: number, max?: bigint) => Rational };
+  const { fromNumber } = require("../types/rational.js") as {
+    fromNumber: (n: number, max?: bigint) => Rational;
+  };
   return fromNumber(u.value, maxDenominator);
 }
 

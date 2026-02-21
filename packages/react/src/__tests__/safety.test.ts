@@ -22,13 +22,13 @@ describe("Compile-time safety checks", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkConditionalPrimitives(ctx, fn.body);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations.length).toBeGreaterThan(0);
         expect(result.violations[0].kind).toBe("conditional-state");
@@ -44,13 +44,13 @@ describe("Compile-time safety checks", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkConditionalPrimitives(ctx, fn.body);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations[0].kind).toBe("conditional-effect");
       }
@@ -65,13 +65,13 @@ describe("Compile-time safety checks", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkConditionalPrimitives(ctx, fn.body);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations[0].kind).toBe("state-in-loop");
       }
@@ -87,13 +87,13 @@ describe("Compile-time safety checks", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkConditionalPrimitives(ctx, fn.body);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations[0].kind).toBe("state-in-loop");
       }
@@ -106,13 +106,13 @@ describe("Compile-time safety checks", () => {
           return <div>test</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkConditionalPrimitives(ctx, fn.body);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations.length).toBe(2); // Both branches
       }
@@ -126,13 +126,13 @@ describe("Compile-time safety checks", () => {
           return <div>{count}{name}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkConditionalPrimitives(ctx, fn.body);
-        
+
         expect(result.valid).toBe(true);
         expect(result.violations.length).toBe(0);
       }
@@ -148,14 +148,14 @@ describe("Compile-time safety checks", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
       const stateVars = new Set(["count"]);
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkDirectMutation(ctx, fn.body, stateVars);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations[0].kind).toBe("direct-mutation");
       }
@@ -169,14 +169,14 @@ describe("Compile-time safety checks", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
       const stateVars = new Set(["count"]);
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkDirectMutation(ctx, fn.body, stateVars);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations[0].kind).toBe("direct-mutation");
       }
@@ -190,14 +190,14 @@ describe("Compile-time safety checks", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
       const stateVars = new Set(["count"]);
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkDirectMutation(ctx, fn.body, stateVars);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations[0].kind).toBe("direct-mutation");
       }
@@ -212,14 +212,14 @@ describe("Compile-time safety checks", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
       const stateVars = new Set(["count"]);
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = checkDirectMutation(ctx, fn.body, stateVars);
-        
+
         expect(result.valid).toBe(true);
         expect(result.violations.length).toBe(0);
       }
@@ -238,14 +238,14 @@ describe("Compile-time safety checks", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
       const stateVars = new Set(["count", "x"]);
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         const result = runAllSafetyChecks(ctx, fn.body, stateVars);
-        
+
         expect(result.valid).toBe(false);
         expect(result.violations.length).toBe(2);
       }
@@ -254,12 +254,9 @@ describe("Compile-time safety checks", () => {
 });
 
 // Helper to find a function by name
-function findFunction(
-  sourceFile: ts.SourceFile,
-  name: string,
-): ts.FunctionDeclaration | undefined {
+function findFunction(sourceFile: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined {
   let result: ts.FunctionDeclaration | undefined;
-  
+
   function visit(node: ts.Node): void {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       result = node;
@@ -267,7 +264,7 @@ function findFunction(
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return result;
 }

@@ -32,11 +32,7 @@
 import * as ts from "typescript";
 import { MacroContext } from "../core/types.js";
 import { MacroContextImpl } from "../core/context.js";
-import {
-  stripPositions,
-  getPrinter,
-  getDummySourceFile,
-} from "../core/ast-utils.js";
+import { stripPositions, getPrinter, getDummySourceFile } from "../core/ast-utils.js";
 
 // =============================================================================
 // Splice Types
@@ -98,7 +94,7 @@ export function raw(name: string): RawSplice {
  * ```
  */
 export function quote(
-  ctx: MacroContext,
+  ctx: MacroContext
 ): (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => ts.Expression {
   return (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => {
     const code = assembleSpliceTemplate(strings, splices, ctx);
@@ -106,7 +102,7 @@ export function quote(
       return ctx.parseExpression(code);
     } catch (e) {
       throw new Error(
-        `quote: Failed to parse expression template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`,
+        `quote: Failed to parse expression template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`
       );
     }
   };
@@ -125,18 +121,15 @@ export function quote(
  * ```
  */
 export function quoteStatements(
-  ctx: MacroContext,
-): (
-  strings: TemplateStringsArray,
-  ...splices: QuoteSplice[]
-) => ts.Statement[] {
+  ctx: MacroContext
+): (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => ts.Statement[] {
   return (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => {
     const code = assembleSpliceTemplate(strings, splices, ctx);
     try {
       return ctx.parseStatements(code);
     } catch (e) {
       throw new Error(
-        `quoteStatements: Failed to parse statement template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`,
+        `quoteStatements: Failed to parse statement template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`
       );
     }
   };
@@ -152,7 +145,7 @@ export function quoteStatements(
  * ```
  */
 export function quoteType(
-  ctx: MacroContext,
+  ctx: MacroContext
 ): (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => ts.TypeNode {
   return (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => {
     const code = assembleSpliceTemplate(strings, splices, ctx);
@@ -160,7 +153,7 @@ export function quoteType(
       return parseTypeNode(code);
     } catch (e) {
       throw new Error(
-        `quoteType: Failed to parse type template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`,
+        `quoteType: Failed to parse type template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`
       );
     }
   };
@@ -182,7 +175,7 @@ export function quoteType(
  * ```
  */
 export function quoteBlock(
-  ctx: MacroContext,
+  ctx: MacroContext
 ): (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => ts.Block {
   return (strings: TemplateStringsArray, ...splices: QuoteSplice[]) => {
     const code = assembleSpliceTemplate(strings, splices, ctx);
@@ -191,7 +184,7 @@ export function quoteBlock(
       return ts.factory.createBlock(stmts, true);
     } catch (e) {
       throw new Error(
-        `quoteBlock: Failed to parse block template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`,
+        `quoteBlock: Failed to parse block template: ${code}\n  ${e instanceof Error ? e.message : String(e)}`
       );
     }
   };
@@ -215,7 +208,7 @@ export function quoteBlock(
 function assembleSpliceTemplate(
   strings: TemplateStringsArray,
   splices: QuoteSplice[],
-  ctx: MacroContext,
+  ctx: MacroContext
 ): string {
   const printer = getPrinter();
   const sourceFile = ctx.sourceFile ?? getDummySourceFile();
@@ -239,7 +232,7 @@ function assembleSpliceTemplate(
 function spliceToString(
   splice: QuoteSplice,
   printer: ts.Printer,
-  sourceFile: ts.SourceFile,
+  sourceFile: ts.SourceFile
 ): string {
   // Handle our custom splice wrapper types
   if (splice instanceof SpreadSplice) {
@@ -319,12 +312,11 @@ function parseTypeNode(code: string): ts.TypeNode {
     wrapper,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   // Check for parse errors
-  const diags = (tempSource as unknown as { parseDiagnostics?: unknown[] })
-    .parseDiagnostics;
+  const diags = (tempSource as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics;
   if (diags && diags.length > 0) {
     throw new Error(`Failed to parse type: ${code}`);
   }
@@ -358,10 +350,9 @@ export function quoteCall(
   ctx: MacroContext,
   callee: string | ts.Expression,
   args: ts.Expression[],
-  typeArgs?: ts.TypeNode[],
+  typeArgs?: ts.TypeNode[]
 ): ts.CallExpression {
-  const calleeExpr =
-    typeof callee === "string" ? ctx.parseExpression(callee) : callee;
+  const calleeExpr = typeof callee === "string" ? ctx.parseExpression(callee) : callee;
 
   return ctx.factory.createCallExpression(calleeExpr, typeArgs, args);
 }
@@ -378,12 +369,9 @@ export function quoteCall(
 export function quotePropAccess(
   ctx: MacroContext,
   object: ts.Expression,
-  property: string,
+  property: string
 ): ts.PropertyAccessExpression {
-  return ctx.factory.createPropertyAccessExpression(
-    object,
-    ctx.factory.createIdentifier(property),
-  );
+  return ctx.factory.createPropertyAccessExpression(object, ctx.factory.createIdentifier(property));
 }
 
 /**
@@ -399,13 +387,9 @@ export function quoteMethodCall(
   ctx: MacroContext,
   object: ts.Expression,
   method: string,
-  args: ts.Expression[],
+  args: ts.Expression[]
 ): ts.CallExpression {
-  return ctx.factory.createCallExpression(
-    quotePropAccess(ctx, object, method),
-    undefined,
-    args,
-  );
+  return ctx.factory.createCallExpression(quotePropAccess(ctx, object, method), undefined, args);
 }
 
 /**
@@ -421,24 +405,16 @@ export function quoteConst(
   ctx: MacroContext,
   name: string | ts.Identifier,
   initializer: ts.Expression,
-  typeAnnotation?: ts.TypeNode,
+  typeAnnotation?: ts.TypeNode
 ): ts.VariableStatement {
-  const nameNode =
-    typeof name === "string" ? ctx.factory.createIdentifier(name) : name;
+  const nameNode = typeof name === "string" ? ctx.factory.createIdentifier(name) : name;
 
   return ctx.factory.createVariableStatement(
     undefined,
     ctx.factory.createVariableDeclarationList(
-      [
-        ctx.factory.createVariableDeclaration(
-          nameNode,
-          undefined,
-          typeAnnotation,
-          initializer,
-        ),
-      ],
-      ts.NodeFlags.Const,
-    ),
+      [ctx.factory.createVariableDeclaration(nameNode, undefined, typeAnnotation, initializer)],
+      ts.NodeFlags.Const
+    )
   );
 }
 
@@ -449,34 +425,23 @@ export function quoteLet(
   ctx: MacroContext,
   name: string | ts.Identifier,
   initializer?: ts.Expression,
-  typeAnnotation?: ts.TypeNode,
+  typeAnnotation?: ts.TypeNode
 ): ts.VariableStatement {
-  const nameNode =
-    typeof name === "string" ? ctx.factory.createIdentifier(name) : name;
+  const nameNode = typeof name === "string" ? ctx.factory.createIdentifier(name) : name;
 
   return ctx.factory.createVariableStatement(
     undefined,
     ctx.factory.createVariableDeclarationList(
-      [
-        ctx.factory.createVariableDeclaration(
-          nameNode,
-          undefined,
-          typeAnnotation,
-          initializer,
-        ),
-      ],
-      ts.NodeFlags.Let,
-    ),
+      [ctx.factory.createVariableDeclaration(nameNode, undefined, typeAnnotation, initializer)],
+      ts.NodeFlags.Let
+    )
   );
 }
 
 /**
  * Build a return statement.
  */
-export function quoteReturn(
-  ctx: MacroContext,
-  expr?: ts.Expression,
-): ts.ReturnStatement {
+export function quoteReturn(ctx: MacroContext, expr?: ts.Expression): ts.ReturnStatement {
   return ctx.factory.createReturnStatement(expr);
 }
 
@@ -487,7 +452,7 @@ export function quoteIf(
   ctx: MacroContext,
   condition: ts.Expression,
   thenBlock: ts.Statement | ts.Statement[],
-  elseBlock?: ts.Statement | ts.Statement[],
+  elseBlock?: ts.Statement | ts.Statement[]
 ): ts.IfStatement {
   const thenBody = Array.isArray(thenBlock)
     ? ctx.factory.createBlock(thenBlock, true)
@@ -514,16 +479,16 @@ export function quoteArrow(
   params: Array<string | ts.ParameterDeclaration>,
   body: ts.Expression | ts.Block,
   typeParams?: ts.TypeParameterDeclaration[],
-  returnType?: ts.TypeNode,
+  returnType?: ts.TypeNode
 ): ts.ArrowFunction {
   const paramDecls = params.map((p) =>
     typeof p === "string"
       ? ctx.factory.createParameterDeclaration(
           undefined,
           undefined,
-          ctx.factory.createIdentifier(p),
+          ctx.factory.createIdentifier(p)
         )
-      : p,
+      : p
   );
 
   const bodyNode = ts.isBlock(body) ? body : body;
@@ -534,7 +499,7 @@ export function quoteArrow(
     paramDecls,
     returnType,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    bodyNode,
+    bodyNode
   );
 }
 
@@ -554,7 +519,7 @@ export function quoteFunction(
     typeParams?: ts.TypeParameterDeclaration[];
     returnType?: ts.TypeNode;
     exported?: boolean;
-  },
+  }
 ): ts.FunctionDeclaration {
   const modifiers = options?.exported
     ? [ctx.factory.createModifier(ts.SyntaxKind.ExportKeyword)]
@@ -565,11 +530,9 @@ export function quoteFunction(
       undefined,
       undefined,
       ctx.factory.createIdentifier(p.name),
-      p.optional
-        ? ctx.factory.createToken(ts.SyntaxKind.QuestionToken)
-        : undefined,
-      p.type,
-    ),
+      p.optional ? ctx.factory.createToken(ts.SyntaxKind.QuestionToken) : undefined,
+      p.type
+    )
   );
 
   return ctx.factory.createFunctionDeclaration(
@@ -579,6 +542,6 @@ export function quoteFunction(
     options?.typeParams,
     paramDecls,
     options?.returnType,
-    ctx.factory.createBlock(body, true),
+    ctx.factory.createBlock(body, true)
   );
 }

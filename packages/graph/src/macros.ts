@@ -15,10 +15,7 @@ import { createInstance } from "./state-machine.js";
  * `;
  * ```
  */
-export function digraph(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): Graph {
+export function digraph(strings: TemplateStringsArray, ...values: unknown[]): Graph {
   return parseDigraph(interpolate(strings, values));
 }
 
@@ -35,14 +32,11 @@ export function digraph(
  * `;
  * ```
  */
-export function graph(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): Graph {
+export function graph(strings: TemplateStringsArray, ...values: unknown[]): Graph {
   const parsed = parseDigraph(interpolate(strings, values));
   return createUndirectedGraph(
     parsed.nodes.map((n) => n.id),
-    parsed.edges.map((e) => [e.from, e.to, e.label]),
+    parsed.edges.map((e) => [e.from, e.to, e.label])
   );
 }
 
@@ -67,22 +61,16 @@ export function stateMachine(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): StateMachineDefinition & {
-  create: <S extends string, E extends string>() => ReturnType<
-    typeof createInstance<S, E>
-  >;
+  create: <S extends string, E extends string>() => ReturnType<typeof createInstance<S, E>>;
 } {
   const def = parseStateMachine(interpolate(strings, values));
   return {
     ...def,
-    create: <S extends string, E extends string>() =>
-      createInstance<S, E>(def),
+    create: <S extends string, E extends string>() => createInstance<S, E>(def),
   };
 }
 
-function interpolate(
-  strings: TemplateStringsArray,
-  values: unknown[],
-): string {
+function interpolate(strings: TemplateStringsArray, values: unknown[]): string {
   let result = strings[0];
   for (let i = 0; i < values.length; i++) {
     result += String(values[i]) + strings[i + 1];

@@ -32,18 +32,14 @@ export type HList<T extends readonly unknown[] = readonly unknown[]> = T & {
 export type HNil = HList<[]>;
 
 /** Prepend element `H` onto an HList with tail types `T`. */
-export type HCons<H, T extends readonly unknown[] = readonly unknown[]> =
-  HList<[H, ...T]>;
+export type HCons<H, T extends readonly unknown[] = readonly unknown[]> = HList<[H, ...T]>;
 
 // ============================================================================
 // LabeledHList Types
 // ============================================================================
 
 /** A field with a compile-time label and a runtime value. */
-export type LabeledField<
-  Name extends string = string,
-  Value = unknown,
-> = readonly [Name, Value];
+export type LabeledField<Name extends string = string, Value = unknown> = readonly [Name, Value];
 
 /** Brand symbol for LabeledHList type discrimination (type-only). */
 declare const __labeled_hlist__: unique symbol;
@@ -60,9 +56,7 @@ declare const __labeled_hlist__: unique symbol;
  * get(rec, "x"); // 42, typed as number
  * ```
  */
-export type LabeledHList<
-  Fields extends readonly LabeledField[] = readonly LabeledField[],
-> = {
+export type LabeledHList<Fields extends readonly LabeledField[] = readonly LabeledField[]> = {
   readonly __fields: Fields;
   readonly [__labeled_hlist__]: true;
 } & unknown[];
@@ -79,10 +73,7 @@ export type LabeledHList<
  * type H = Head<[number, string]>; // number
  * ```
  */
-export type Head<T extends readonly unknown[]> = T extends readonly [
-  infer H,
-  ...unknown[],
-]
+export type Head<T extends readonly unknown[]> = T extends readonly [infer H, ...unknown[]]
   ? H
   : never;
 
@@ -94,10 +85,7 @@ export type Head<T extends readonly unknown[]> = T extends readonly [
  * type T = Tail<[number, string, boolean]>; // [string, boolean]
  * ```
  */
-export type Tail<T extends readonly unknown[]> = T extends readonly [
-  unknown,
-  ...infer Rest,
-]
+export type Tail<T extends readonly unknown[]> = T extends readonly [unknown, ...infer Rest]
   ? Rest
   : [];
 
@@ -109,10 +97,7 @@ export type Tail<T extends readonly unknown[]> = T extends readonly [
  * type L = Last<[number, string, boolean]>; // boolean
  * ```
  */
-export type Last<T extends readonly unknown[]> = T extends readonly [
-  ...unknown[],
-  infer L,
-]
+export type Last<T extends readonly unknown[]> = T extends readonly [...unknown[], infer L]
   ? L
   : never;
 
@@ -124,12 +109,7 @@ export type Last<T extends readonly unknown[]> = T extends readonly [
  * type I = Init<[number, string, boolean]>; // [number, string]
  * ```
  */
-export type Init<T extends readonly unknown[]> = T extends readonly [
-  ...infer I,
-  unknown,
-]
-  ? I
-  : [];
+export type Init<T extends readonly unknown[]> = T extends readonly [...infer I, unknown] ? I : [];
 
 /**
  * The literal length of a tuple type.
@@ -163,10 +143,7 @@ export type At<T extends readonly unknown[], N extends number> = T[N];
  * type C = Concat<[number, string], [boolean]>; // [number, string, boolean]
  * ```
  */
-export type Concat<
-  A extends readonly unknown[],
-  B extends readonly unknown[],
-> = [...A, ...B];
+export type Concat<A extends readonly unknown[], B extends readonly unknown[]> = [...A, ...B];
 
 /**
  * Reverse a tuple type.
@@ -176,10 +153,7 @@ export type Concat<
  * type R = Reverse<[1, 2, 3]>; // [3, 2, 1]
  * ```
  */
-export type Reverse<T extends readonly unknown[]> = T extends readonly [
-  infer H,
-  ...infer Rest,
-]
+export type Reverse<T extends readonly unknown[]> = T extends readonly [infer H, ...infer Rest]
   ? [...Reverse<Rest>, H]
   : [];
 
@@ -192,10 +166,10 @@ export type Reverse<T extends readonly unknown[]> = T extends readonly [
  * type Z = Zip<[1, 2], ["a", "b"]>; // [[1, "a"], [2, "b"]]
  * ```
  */
-export type Zip<
-  A extends readonly unknown[],
-  B extends readonly unknown[],
-> = A extends readonly [infer AH, ...infer AT]
+export type Zip<A extends readonly unknown[], B extends readonly unknown[]> = A extends readonly [
+  infer AH,
+  ...infer AT,
+]
   ? B extends readonly [infer BH, ...infer BT]
     ? [[AH, BH], ...Zip<AT, BT>]
     : []
@@ -227,10 +201,7 @@ type _SplitAtImpl<
  * type S = SplitAt<[1, 2, 3, 4], 2>; // [[1, 2], [3, 4]]
  * ```
  */
-export type SplitAt<
-  T extends readonly unknown[],
-  N extends number,
-> = _SplitAtImpl<T, N>;
+export type SplitAt<T extends readonly unknown[], N extends number> = _SplitAtImpl<T, N>;
 
 // ============================================================================
 // Type-Level Utilities — Labeled Fields
@@ -244,9 +215,7 @@ export type SplitAt<
  * type N = LabelOf<LabeledField<"x", number>>; // "x"
  * ```
  */
-export type LabelOf<F> = F extends LabeledField<infer Name, unknown>
-  ? Name
-  : never;
+export type LabelOf<F> = F extends LabeledField<infer Name, unknown> ? Name : never;
 
 /**
  * Extract the value type from a `LabeledField`.
@@ -256,9 +225,7 @@ export type LabelOf<F> = F extends LabeledField<infer Name, unknown>
  * type V = ValueOf<LabeledField<"x", number>>; // number
  * ```
  */
-export type ValueOf<F> = F extends LabeledField<string, infer Value>
-  ? Value
-  : never;
+export type ValueOf<F> = F extends LabeledField<string, infer Value> ? Value : never;
 
 /**
  * Look up a field by label name in a list of `LabeledField`s.
@@ -289,10 +256,9 @@ export type FieldByName<
  * // number
  * ```
  */
-export type ValueByName<
-  Fields extends readonly LabeledField[],
-  Name extends string,
-> = ValueOf<FieldByName<Fields, Name>>;
+export type ValueByName<Fields extends readonly LabeledField[], Name extends string> = ValueOf<
+  FieldByName<Fields, Name>
+>;
 
 /**
  * Replace the value of a field by name, preserving the field's position.
@@ -350,7 +316,6 @@ export type ProjectFields<
  * a function at the value level; the result type is `unknown[]` unless the
  * caller narrows it.
  */
-export type MapResult<
-  T extends readonly unknown[],
-  F,
-> = { [K in keyof T]: F extends (arg: T[K]) => infer R ? R : unknown };
+export type MapResult<T extends readonly unknown[], F> = {
+  [K in keyof T]: F extends (arg: T[K]) => infer R ? R : unknown;
+};

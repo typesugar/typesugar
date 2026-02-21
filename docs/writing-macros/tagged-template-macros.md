@@ -25,10 +25,7 @@ defineTaggedTemplateMacro("myTag", {
 });
 
 // Runtime placeholder
-export function myTag(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): string {
+export function myTag(strings: TemplateStringsArray, ...values: unknown[]): string {
   throw new Error("myTag should be compiled away");
 }
 ```
@@ -73,9 +70,7 @@ defineTaggedTemplateMacro("upper", {
     }
 
     // With interpolations: uppercase static parts, keep dynamic
-    const head = ctx.factory.createTemplateHead(
-      template.head.text.toUpperCase(),
-    );
+    const head = ctx.factory.createTemplateHead(template.head.text.toUpperCase());
 
     const spans = template.templateSpans.map((span, i) => {
       const isLast = i === template.templateSpans.length - 1;

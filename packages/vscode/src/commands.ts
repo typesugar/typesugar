@@ -14,7 +14,7 @@ import type { ExpansionService } from "./expansion.js";
 export function registerCommands(
   context: vscode.ExtensionContext,
   manifest: ManifestLoader,
-  expansion: ExpansionService,
+  expansion: ExpansionService
 ): void {
   // --- Expand Macro ---
   context.subscriptions.push(
@@ -28,41 +28,30 @@ export function registerCommands(
         }
 
         const targetUri = uri ?? editor!.document.uri;
-        const targetDoc = uri
-          ? await vscode.workspace.openTextDocument(uri)
-          : editor!.document;
-        const targetPos =
-          position ?? editor!.document.offsetAt(editor!.selection.active);
+        const targetDoc = uri ? await vscode.workspace.openTextDocument(uri) : editor!.document;
+        const targetPos = position ?? editor!.document.offsetAt(editor!.selection.active);
 
-        const expanded = await expansion.getExpansionAtPosition(
-          targetDoc,
-          targetPos,
-        );
+        const expanded = await expansion.getExpansionAtPosition(targetDoc, targetPos);
         if (!expanded) {
           vscode.window.showInformationMessage(
-            "Could not expand macro. Make sure typemacro is installed in this project.",
+            "Could not expand macro. Make sure typemacro is installed in this project."
           );
           return;
         }
 
         // Show expansion in a virtual document
-        const expandedUri = vscode.Uri.parse(
-          `typemacro-expansion:${targetUri.fsPath}?expanded`,
-        );
+        const expandedUri = vscode.Uri.parse(`typemacro-expansion:${targetUri.fsPath}?expanded`);
 
-        const provider = new (class
-          implements vscode.TextDocumentContentProvider
-        {
+        const provider = new (class implements vscode.TextDocumentContentProvider {
           provideTextDocumentContent(): string {
             return expanded;
           }
         })();
 
-        const registration =
-          vscode.workspace.registerTextDocumentContentProvider(
-            "typemacro-expansion",
-            provider,
-          );
+        const registration = vscode.workspace.registerTextDocumentContentProvider(
+          "typemacro-expansion",
+          provider
+        );
 
         const doc = await vscode.workspace.openTextDocument(expandedUri);
         await vscode.window.showTextDocument(doc, {
@@ -76,8 +65,8 @@ export function registerCommands(
 
         // Clean up the provider after a delay (the document stays open)
         setTimeout(() => registration.dispose(), 5000);
-      },
-    ),
+      }
+    )
   );
 
   // --- Refresh Manifest ---
@@ -90,7 +79,7 @@ export function registerCommands(
       }
       await manifest.initialize(workspaceFolder);
       vscode.window.showInformationMessage("typemacro: Manifest refreshed");
-    }),
+    })
   );
 
   // --- Generate Manifest ---
@@ -108,7 +97,7 @@ export function registerCommands(
       });
       terminal.show();
       terminal.sendText("npx typemacro build --manifest");
-    }),
+    })
   );
 
   // --- Add Derive ---
@@ -140,7 +129,7 @@ export function registerCommands(
             canPickMany: true,
             placeHolder: "Select derive macros to add",
             title: "Add @derive(...)",
-          },
+          }
         );
 
         if (!selected || selected.length === 0) return;
@@ -158,7 +147,7 @@ export function registerCommands(
           const lineStart = new vscode.Position(targetLine, 0);
           editBuilder.insert(lineStart, decorator);
         });
-      },
-    ),
+      }
+    )
   );
 }

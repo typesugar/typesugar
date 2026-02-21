@@ -161,8 +161,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // Bounded: x >= a && x <= b
     {
-      regex:
-        /^(\w+)\s*>=\s*(-?\d+(?:\.\d+)?)\s*&&\s*\1\s*<=\s*(-?\d+(?:\.\d+)?)$/,
+      regex: /^(\w+)\s*>=\s*(-?\d+(?:\.\d+)?)\s*&&\s*\1\s*<=\s*(-?\d+(?:\.\d+)?)$/,
       parse: () => undefined, // Handle as two separate constraints
     },
   ];
@@ -180,9 +179,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
 /**
  * Flip a comparison operator (for moving terms across the inequality).
  */
-function flipOperator(
-  op: LinearConstraint["operator"],
-): LinearConstraint["operator"] {
+function flipOperator(op: LinearConstraint["operator"]): LinearConstraint["operator"] {
   switch (op) {
     case "<":
       return ">";
@@ -262,10 +259,7 @@ function isTriviallyFalse(c: LinearConstraint): boolean {
 /**
  * Eliminate a variable from a set of constraints using Fourier-Motzkin.
  */
-function eliminateVariable(
-  constraints: LinearConstraint[],
-  variable: string,
-): LinearConstraint[] {
+function eliminateVariable(constraints: LinearConstraint[], variable: string): LinearConstraint[] {
   const lower: LinearConstraint[] = []; // coefficient > 0 (x >= ...)
   const upper: LinearConstraint[] = []; // coefficient < 0 (x <= ...)
   const noVar: LinearConstraint[] = []; // doesn't contain variable
@@ -305,7 +299,7 @@ function eliminateVariable(
 function combineConstraints(
   lower: LinearConstraint,
   upper: LinearConstraint,
-  variable: string,
+  variable: string
 ): LinearConstraint | undefined {
   const c1 = lower.coefficients.get(variable) ?? 0;
   const c2 = upper.coefficients.get(variable) ?? 0;
@@ -376,10 +370,7 @@ function getVariables(constraints: LinearConstraint[]): Set<string> {
  * 4. Eliminate all variables
  * 5. Check for contradiction
  */
-export function tryLinearProof(
-  goal: string,
-  facts: TypeFact[],
-): LinearProofResult {
+export function tryLinearProof(goal: string, facts: TypeFact[]): LinearProofResult {
   // Parse facts into constraints
   const constraints: LinearConstraint[] = [];
 
@@ -469,17 +460,12 @@ export function tryLinearProof(
  * Quick check for simple linear proofs without full elimination.
  * Handles common patterns directly.
  */
-export function trySimpleLinearProof(
-  goal: string,
-  facts: TypeFact[],
-): LinearProofResult {
+export function trySimpleLinearProof(goal: string, facts: TypeFact[]): LinearProofResult {
   // Pattern: x >= 0 given x > 0 (positive implies non-negative)
   const nonNegMatch = goal.match(/^(\w+)\s*>=\s*0$/);
   if (nonNegMatch) {
     const [, a] = nonNegMatch;
-    const aPos = facts.find(
-      (f) => f.variable === a && f.predicate.includes("> 0"),
-    );
+    const aPos = facts.find((f) => f.variable === a && f.predicate.includes("> 0"));
     if (aPos) {
       return {
         proven: true,
@@ -501,23 +487,15 @@ export function trySimpleLinearProof(
   if (sumPos) {
     const [, a, b] = sumPos;
     const aPos = facts.find(
-      (f) =>
-        f.variable === a &&
-        (f.predicate.includes("> 0") || f.predicate.includes(">= 0")),
+      (f) => f.variable === a && (f.predicate.includes("> 0") || f.predicate.includes(">= 0"))
     );
     const bPos = facts.find(
-      (f) =>
-        f.variable === b &&
-        (f.predicate.includes("> 0") || f.predicate.includes(">= 0")),
+      (f) => f.variable === b && (f.predicate.includes("> 0") || f.predicate.includes(">= 0"))
     );
 
     // Need at least one strictly positive
-    const aStrict = facts.some(
-      (f) => f.variable === a && f.predicate.includes("> 0"),
-    );
-    const bStrict = facts.some(
-      (f) => f.variable === b && f.predicate.includes("> 0"),
-    );
+    const aStrict = facts.some((f) => f.variable === a && f.predicate.includes("> 0"));
+    const bStrict = facts.some((f) => f.variable === b && f.predicate.includes("> 0"));
 
     if (aPos && bPos && (aStrict || bStrict)) {
       return {
@@ -541,14 +519,10 @@ export function trySimpleLinearProof(
     const [, a, b] = sumNonNeg;
     // Both must be non-negative (>= 0) or positive (> 0)
     const aNonNeg = facts.find(
-      (f) =>
-        f.variable === a &&
-        (f.predicate.includes("> 0") || f.predicate.includes(">= 0")),
+      (f) => f.variable === a && (f.predicate.includes("> 0") || f.predicate.includes(">= 0"))
     );
     const bNonNeg = facts.find(
-      (f) =>
-        f.variable === b &&
-        (f.predicate.includes("> 0") || f.predicate.includes(">= 0")),
+      (f) => f.variable === b && (f.predicate.includes("> 0") || f.predicate.includes(">= 0"))
     );
 
     if (aNonNeg && bNonNeg) {
@@ -568,9 +542,7 @@ export function trySimpleLinearProof(
   }
 
   // Pattern: x + y >= c given x >= a, y >= b where a + b >= c
-  const sumBoundMatch = goal.match(
-    /^(\w+)\s*\+\s*(\w+)\s*(>=|>)\s*(-?\d+(?:\.\d+)?)$/,
-  );
+  const sumBoundMatch = goal.match(/^(\w+)\s*\+\s*(\w+)\s*(>=|>)\s*(-?\d+(?:\.\d+)?)$/);
   if (sumBoundMatch) {
     const [, a, b, op, targetStr] = sumBoundMatch;
     const target = parseFloat(targetStr);
@@ -586,17 +558,10 @@ export function trySimpleLinearProof(
     });
 
     if (aBound && bBound) {
-      const aVal = parseFloat(
-        aBound.predicate.match(/>=\s*(-?\d+(?:\.\d+)?)$/)?.[1] ?? "0",
-      );
-      const bVal = parseFloat(
-        bBound.predicate.match(/>=\s*(-?\d+(?:\.\d+)?)$/)?.[1] ?? "0",
-      );
+      const aVal = parseFloat(aBound.predicate.match(/>=\s*(-?\d+(?:\.\d+)?)$/)?.[1] ?? "0");
+      const bVal = parseFloat(bBound.predicate.match(/>=\s*(-?\d+(?:\.\d+)?)$/)?.[1] ?? "0");
 
-      if (
-        (op === ">=" && aVal + bVal >= target) ||
-        (op === ">" && aVal + bVal > target)
-      ) {
+      if ((op === ">=" && aVal + bVal >= target) || (op === ">" && aVal + bVal > target)) {
         return {
           proven: true,
           method: "linear",
@@ -634,8 +599,7 @@ export function trySimpleLinearProof(
           const m2 = f2.predicate.match(/^(\w+)\s*(>|>=)\s*(\w+)$/);
           const op2 = m2?.[2];
           // Can prove a > c if either is strict
-          const canProveStrict =
-            (op1 === ">" || op2 === ">") && (op === ">" || op === ">=");
+          const canProveStrict = (op1 === ">" || op2 === ">") && (op === ">" || op === ">=");
           const canProveWeak = op1 === ">=" && op2 === ">=" && op === ">=";
 
           if (canProveStrict || canProveWeak) {
@@ -662,8 +626,7 @@ export function trySimpleLinearProof(
           });
           if (bPos) {
             const bOp = bPos.predicate.match(/^(\w+)\s*(>|>=)\s*0$/)?.[2];
-            const canProve =
-              (op1 === ">" || bOp === ">") && (op === ">" || op === ">=");
+            const canProve = (op1 === ">" || bOp === ">") && (op === ">" || op === ">=");
 
             if (canProve) {
               return {
@@ -685,12 +648,8 @@ export function trySimpleLinearProof(
     }
 
     // Pattern: x > y given x > 0, y < 0
-    const aPos = facts.find(
-      (f) => f.variable === a && f.predicate.includes("> 0"),
-    );
-    const cNeg = facts.find(
-      (f) => f.variable === c && f.predicate.includes("< 0"),
-    );
+    const aPos = facts.find((f) => f.variable === a && f.predicate.includes("> 0"));
+    const cNeg = facts.find((f) => f.variable === c && f.predicate.includes("< 0"));
 
     if (aPos && cNeg) {
       return {
@@ -721,11 +680,8 @@ export function trySimpleLinearProof(
     });
 
     if (eqFact) {
-      const eqVal = parseFloat(
-        eqFact.predicate.match(/===?\s*(-?\d+(?:\.\d+)?)$/)?.[1] ?? "0",
-      );
-      const proves =
-        (op === ">=" && eqVal >= bound) || (op === "<=" && eqVal <= bound);
+      const eqVal = parseFloat(eqFact.predicate.match(/===?\s*(-?\d+(?:\.\d+)?)$/)?.[1] ?? "0");
+      const proves = (op === ">=" && eqVal >= bound) || (op === "<=" && eqVal <= bound);
 
       if (proves) {
         return {
@@ -751,10 +707,7 @@ export function trySimpleLinearProof(
  * Combined linear arithmetic proof.
  * Tries simple patterns first, then full Fourier-Motzkin.
  */
-export function tryLinearArithmetic(
-  goal: string,
-  facts: TypeFact[],
-): LinearProofResult {
+export function tryLinearArithmetic(goal: string, facts: TypeFact[]): LinearProofResult {
   // Try simple patterns first (fast)
   const simple = trySimpleLinearProof(goal, facts);
   if (simple.proven) return simple;

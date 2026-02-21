@@ -12,9 +12,7 @@ import type { Parser, ParseResult } from "./types.js";
 // ---------------------------------------------------------------------------
 
 /** Create a Parser<T> from a raw parse function. */
-function mkParser<T>(
-  parseFn: (input: string, pos: number) => ParseResult<T>,
-): Parser<T> {
+function mkParser<T>(parseFn: (input: string, pos: number) => ParseResult<T>): Parser<T> {
   return {
     parse(input: string, pos = 0): ParseResult<T> {
       return parseFn(input, pos);
@@ -25,11 +23,7 @@ function mkParser<T>(
         throw new ParseError(input, result.pos, result.expected);
       }
       if (result.pos !== input.length) {
-        throw new ParseError(
-          input,
-          result.pos,
-          "end of input",
-        );
+        throw new ParseError(input, result.pos, "end of input");
       }
       return result.value;
     },
@@ -58,9 +52,7 @@ export class ParseError extends Error {
   constructor(input: string, pos: number, expected: string) {
     const { line, col } = lineCol(input, pos);
     const snippet = input.slice(Math.max(0, pos - 10), pos + 20);
-    super(
-      `Parse error at line ${line}, col ${col}: expected ${expected}\n  ...${snippet}...`,
-    );
+    super(`Parse error at line ${line}, col ${col}: expected ${expected}\n  ...${snippet}...`);
     this.name = "ParseError";
     this.pos = pos;
     this.expected = expected;
@@ -165,11 +157,7 @@ export function seq<A, B>(a: Parser<A>, b: Parser<B>): Parser<[A, B]> {
 }
 
 /** Sequence three parsers. */
-export function seq3<A, B, C>(
-  a: Parser<A>,
-  b: Parser<B>,
-  c: Parser<C>,
-): Parser<[A, B, C]> {
+export function seq3<A, B, C>(a: Parser<A>, b: Parser<B>, c: Parser<C>): Parser<[A, B, C]> {
   return mkParser((input, pos) => {
     const ra = a.parse(input, pos);
     if (!ra.ok) return ra as ParseResult<[A, B, C]>;
@@ -192,10 +180,7 @@ export function alt<A, B>(a: Parser<A>, b: Parser<B>): Parser<A | B> {
     if (ra.ok) return ra;
     const rb = b.parse(input, pos);
     if (rb.ok) return rb;
-    return fail(
-      Math.max(ra.pos, rb.pos),
-      `${ra.expected} or ${rb.expected}`,
-    );
+    return fail(Math.max(ra.pos, rb.pos), `${ra.expected} or ${rb.expected}`);
   });
 }
 
@@ -315,11 +300,7 @@ export function sepBy1<T, S>(item: Parser<T>, sep: Parser<S>): Parser<T[]> {
 }
 
 /** Parse `p` between `open` and `close`, returning only the inner result. */
-export function between<O, T, C>(
-  open: Parser<O>,
-  p: Parser<T>,
-  close: Parser<C>,
-): Parser<T> {
+export function between<O, T, C>(open: Parser<O>, p: Parser<T>, close: Parser<C>): Parser<T> {
   return mkParser((input, pos) => {
     const ro = open.parse(input, pos);
     if (!ro.ok) return ro as ParseResult<T>;
@@ -377,13 +358,10 @@ export function token<T>(p: Parser<T>): Parser<T> {
 
 /** Parse an integer (with optional leading minus). */
 export function integer(): Parser<number> {
-  return map(
-    seq(optional(char("-")), many1(digit())),
-    ([sign, digits]) => {
-      const n = parseInt(digits.join(""), 10);
-      return sign ? -n : n;
-    },
-  );
+  return map(seq(optional(char("-")), many1(digit())), ([sign, digits]) => {
+    const n = parseInt(digits.join(""), 10);
+    return sign ? -n : n;
+  });
 }
 
 /** Parse a floating-point number (with optional leading minus and decimal part). */
@@ -410,13 +388,27 @@ export function quotedString(): Parser<string> {
         if (i >= input.length) return fail(i, "escape character");
         const esc = input[i];
         switch (esc) {
-          case '"':  value += '"';  break;
-          case "\\": value += "\\"; break;
-          case "n":  value += "\n"; break;
-          case "r":  value += "\r"; break;
-          case "t":  value += "\t"; break;
-          case "/":  value += "/";  break;
-          default:   value += esc;  break;
+          case '"':
+            value += '"';
+            break;
+          case "\\":
+            value += "\\";
+            break;
+          case "n":
+            value += "\n";
+            break;
+          case "r":
+            value += "\r";
+            break;
+          case "t":
+            value += "\t";
+            break;
+          case "/":
+            value += "/";
+            break;
+          default:
+            value += esc;
+            break;
         }
         i++;
       } else if (ch === '"') {

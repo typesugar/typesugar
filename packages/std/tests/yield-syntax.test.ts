@@ -8,12 +8,7 @@ import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 
 function parseYieldSyntax(code: string): { kind: string; text?: string }[] {
-  const sourceFile = ts.createSourceFile(
-    "test.ts",
-    code,
-    ts.ScriptTarget.Latest,
-    true,
-  );
+  const sourceFile = ts.createSourceFile("test.ts", code, ts.ScriptTarget.Latest, true);
 
   const results: { kind: string; text?: string }[] = [];
 
@@ -34,12 +29,7 @@ function parseYieldSyntax(code: string): { kind: string; text?: string }[] {
 }
 
 function getYieldExpressionKind(code: string): string | undefined {
-  const sourceFile = ts.createSourceFile(
-    "test.ts",
-    code,
-    ts.ScriptTarget.Latest,
-    true,
-  );
+  const sourceFile = ts.createSourceFile("test.ts", code, ts.ScriptTarget.Latest, true);
 
   // The labeled statement's statement is what we care about
   const firstStmt = sourceFile.statements[0];
@@ -86,7 +76,7 @@ describe("yield: syntax parsing", () => {
       "test.ts",
       `yield: ({ user, posts })`,
       ts.ScriptTarget.Latest,
-      true,
+      true
     );
     const stmt = sourceFile.statements[0] as ts.LabeledStatement;
     const exprStmt = stmt.statement as ts.ExpressionStatement;
@@ -96,12 +86,7 @@ describe("yield: syntax parsing", () => {
 
   it("yield: { { user, posts } } - ALSO BROKEN: parses as nested blocks, not object literal", () => {
     const code = `yield: { { user, posts } }`;
-    const sourceFile = ts.createSourceFile(
-      "test.ts",
-      code,
-      ts.ScriptTarget.Latest,
-      true,
-    );
+    const sourceFile = ts.createSourceFile("test.ts", code, ts.ScriptTarget.Latest, true);
     const stmt = sourceFile.statements[0] as ts.LabeledStatement;
     const block = stmt.statement as ts.Block;
 
@@ -126,12 +111,7 @@ describe("yield: syntax parsing", () => {
     // - yield: ({ user, posts })     → parenthesized object literal
 
     const code = `yield: ({ user, posts })`;
-    const sourceFile = ts.createSourceFile(
-      "test.ts",
-      code,
-      ts.ScriptTarget.Latest,
-      true,
-    );
+    const sourceFile = ts.createSourceFile("test.ts", code, ts.ScriptTarget.Latest, true);
     const stmt = sourceFile.statements[0] as ts.LabeledStatement;
     const exprStmt = stmt.statement as ts.ExpressionStatement;
     const paren = exprStmt.expression as ts.ParenthesizedExpression;

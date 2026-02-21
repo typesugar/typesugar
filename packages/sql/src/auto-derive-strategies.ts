@@ -33,32 +33,11 @@ import { toSnakeCase } from "./typeclasses.js";
 // Primitive type sets for field instance checking
 // ============================================================================
 
-const GET_PRIMITIVES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "Date",
-  "Buffer",
-]);
+const GET_PRIMITIVES = new Set(["number", "string", "boolean", "bigint", "Date", "Buffer"]);
 
-const PUT_PRIMITIVES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "Date",
-  "Buffer",
-]);
+const PUT_PRIMITIVES = new Set(["number", "string", "boolean", "bigint", "Date", "Buffer"]);
 
-const META_PRIMITIVES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "Date",
-  "Buffer",
-]);
+const META_PRIMITIVES = new Set(["number", "string", "boolean", "bigint", "Date", "Buffer"]);
 
 // ============================================================================
 // Read<A> derivation: requires Get for each field
@@ -70,11 +49,7 @@ const readDerivation: GenericDerivation = {
 
   hasFieldInstance: makePrimitiveChecker(GET_PRIMITIVES),
 
-  deriveProduct(
-    ctx: MacroContext,
-    typeName: string,
-    meta: GenericMeta,
-  ): string | null {
+  deriveProduct(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null {
     if (!meta.fieldNames || !meta.fieldTypes) return null;
 
     const mappings = meta.fieldNames.map((name, i) => {
@@ -82,8 +57,7 @@ const readDerivation: GenericDerivation = {
       const getExpr = resolveGetExpr(fieldType);
       if (!getExpr) return null;
 
-      const isNullable =
-        fieldType.includes("| null") || fieldType.includes("| undefined");
+      const isNullable = fieldType.includes("| null") || fieldType.includes("| undefined");
 
       return `{ field: "${name}", column: "${toSnakeCase(name)}", get: ${getExpr}, nullable: ${isNullable} }`;
     });
@@ -104,11 +78,7 @@ const writeDerivation: GenericDerivation = {
 
   hasFieldInstance: makePrimitiveChecker(PUT_PRIMITIVES),
 
-  deriveProduct(
-    ctx: MacroContext,
-    typeName: string,
-    meta: GenericMeta,
-  ): string | null {
+  deriveProduct(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null {
     if (!meta.fieldNames || !meta.fieldTypes) return null;
 
     const columns = meta.fieldNames.map((name) => `"${toSnakeCase(name)}"`);
@@ -137,11 +107,7 @@ const codecDerivation: GenericDerivation = {
 
   hasFieldInstance: makePrimitiveChecker(META_PRIMITIVES),
 
-  deriveProduct(
-    ctx: MacroContext,
-    typeName: string,
-    meta: GenericMeta,
-  ): string | null {
+  deriveProduct(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null {
     const readCode = readDerivation.deriveProduct(ctx, typeName, meta);
     const writeCode = writeDerivation.deriveProduct(ctx, typeName, meta);
 

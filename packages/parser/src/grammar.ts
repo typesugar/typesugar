@@ -6,20 +6,9 @@
  */
 
 import type { Parser, ParseResult, GrammarRule, Grammar } from "./types.js";
-import {
-  literal,
-  char,
-  regex,
-  seq,
-  alt,
-  many,
-  map,
-  lazy,
-} from "./combinators.js";
+import { literal, char, regex, seq, alt, many, map, lazy } from "./combinators.js";
 
-function mkParser<T>(
-  fn: (input: string, pos: number) => ParseResult<T>,
-): Parser<T> {
+function mkParser<T>(fn: (input: string, pos: number) => ParseResult<T>): Parser<T> {
   return {
     parse(input: string, pos = 0) {
       return fn(input, pos);
@@ -27,14 +16,10 @@ function mkParser<T>(
     parseAll(input: string): T {
       const result = fn(input, 0);
       if (!result.ok) {
-        throw new Error(
-          `Grammar parse error at pos ${result.pos}: expected ${result.expected}`,
-        );
+        throw new Error(`Grammar parse error at pos ${result.pos}: expected ${result.expected}`);
       }
       if (result.pos !== input.length) {
-        throw new Error(
-          `Grammar parse error: unexpected input at pos ${result.pos}`,
-        );
+        throw new Error(`Grammar parse error: unexpected input at pos ${result.pos}`);
       }
       return result.value;
     },
@@ -54,10 +39,7 @@ function fail<T>(pos: number, expected: string): ParseResult<T> {
 // ---------------------------------------------------------------------------
 
 const ws: Parser<string[]> = many(regex(/[ \t]/));
-const comment: Parser<string> = map(
-  seq(literal("//"), regex(/[^\n]*/)),
-  ([, c]) => c,
-);
+const comment: Parser<string> = map(seq(literal("//"), regex(/[^\n]*/)), ([, c]) => c);
 const wsOrComment: Parser<unknown[]> = many(alt(regex(/[ \t\r\n]/), comment));
 
 // ---------------------------------------------------------------------------
@@ -77,11 +59,21 @@ const quotedLit: Parser<GrammarRule> = mkParser((input, pos) => {
       if (i >= input.length) return fail(i, "escape sequence");
       const esc = input[i];
       switch (esc) {
-        case "n":  value += "\n"; break;
-        case "r":  value += "\r"; break;
-        case "t":  value += "\t"; break;
-        case "\\": value += "\\"; break;
-        default:   value += esc;  break;
+        case "n":
+          value += "\n";
+          break;
+        case "r":
+          value += "\r";
+          break;
+        case "t":
+          value += "\t";
+          break;
+        case "\\":
+          value += "\\";
+          break;
+        default:
+          value += esc;
+          break;
       }
     } else {
       value += input[i];
@@ -99,7 +91,7 @@ const quotedLit: Parser<GrammarRule> = mkParser((input, pos) => {
     if (endQuote.ok && endQuote.value.type === "literal" && endQuote.value.value.length === 1) {
       return ok(
         { type: "charRange", from: value, to: endQuote.value.value } as GrammarRule,
-        endQuote.pos,
+        endQuote.pos
       );
     }
   }
@@ -142,7 +134,7 @@ const primary: Parser<GrammarRule> = lazy(() =>
     if (id.ok) return ok({ type: "reference", name: id.value } as GrammarRule, id.pos);
 
     return fail(pos, "expression");
-  }),
+  })
 );
 
 /** Suffixed: primary ('*' | '+' | '?')? */
@@ -155,16 +147,10 @@ const suffixed: Parser<GrammarRule> = mkParser((input, pos) => {
   if (cur < input.length) {
     const ch = input[cur];
     if (ch === "*") {
-      return ok(
-        { type: "repetition", rule, min: 0, max: null } as GrammarRule,
-        cur + 1,
-      );
+      return ok({ type: "repetition", rule, min: 0, max: null } as GrammarRule, cur + 1);
     }
     if (ch === "+") {
-      return ok(
-        { type: "repetition", rule, min: 1, max: null } as GrammarRule,
-        cur + 1,
-      );
+      return ok({ type: "repetition", rule, min: 1, max: null } as GrammarRule, cur + 1);
     }
     if (ch === "?") {
       return ok({ type: "optional", rule } as GrammarRule, cur + 1);
@@ -187,7 +173,7 @@ const prefixed: Parser<GrammarRule> = mkParser((input, pos) => {
     if (!neg.ok) return neg;
     return ok(
       { type: "negation", rule: neg.value, then: { type: "literal", value: "" } } as GrammarRule,
-      neg.pos,
+      neg.pos
     );
   }
   return suffixed.parse(input, pos);
@@ -284,7 +270,7 @@ export function parseGrammarDef(source: string): Map<string, GrammarRule> {
     const nameResult = identifier.parse(source, pos);
     if (!nameResult.ok) {
       throw new Error(
-        `Grammar syntax error at pos ${pos}: expected rule name, got ${JSON.stringify(source.slice(pos, pos + 20))}`,
+        `Grammar syntax error at pos ${pos}: expected rule name, got ${JSON.stringify(source.slice(pos, pos + 20))}`
       );
     }
     const name = nameResult.value;
@@ -296,9 +282,7 @@ export function parseGrammarDef(source: string): Map<string, GrammarRule> {
 
     // Expect '='
     if (pos >= source.length || source[pos] !== "=") {
-      throw new Error(
-        `Grammar syntax error at pos ${pos}: expected '=' after rule name '${name}'`,
-      );
+      throw new Error(`Grammar syntax error at pos ${pos}: expected '=' after rule name '${name}'`);
     }
     pos++; // skip '='
 
@@ -310,7 +294,7 @@ export function parseGrammarDef(source: string): Map<string, GrammarRule> {
     const exprResult = alternation.parse(source, pos);
     if (!exprResult.ok) {
       throw new Error(
-        `Grammar syntax error at pos ${pos}: expected expression for rule '${name}', got ${JSON.stringify(source.slice(pos, pos + 20))}`,
+        `Grammar syntax error at pos ${pos}: expected expression for rule '${name}', got ${JSON.stringify(source.slice(pos, pos + 20))}`
       );
     }
 
@@ -339,14 +323,12 @@ export function parseGrammarDef(source: string): Map<string, GrammarRule> {
 function validateReferences(
   rule: GrammarRule,
   allRules: Map<string, GrammarRule>,
-  context: string,
+  context: string
 ): void {
   switch (rule.type) {
     case "reference":
       if (!allRules.has(rule.name)) {
-        throw new Error(
-          `Undefined rule '${rule.name}' referenced in '${context}'`,
-        );
+        throw new Error(`Undefined rule '${rule.name}' referenced in '${context}'`);
       }
       break;
     case "sequence":
@@ -388,7 +370,7 @@ function isLeftRecursive(
   ruleName: string,
   rules: Map<string, GrammarRule>,
   visited: Set<string>,
-  path: string[],
+  path: string[]
 ): boolean {
   const rule = rules.get(ruleName);
   if (!rule) return false;
@@ -400,7 +382,7 @@ function firstRefsAre(
   rule: GrammarRule,
   rules: Map<string, GrammarRule>,
   visited: Set<string>,
-  path: string[],
+  path: string[]
 ): boolean {
   switch (rule.type) {
     case "reference": {
@@ -408,7 +390,7 @@ function firstRefsAre(
         throw new Error(
           `Left recursion detected: ${path.join(" -> ")} -> ${rule.name}. ` +
             `PEG parsers cannot handle left recursion. ` +
-            `Rewrite using iteration (e.g., 'a (op a)*' instead of 'a = a op a').`,
+            `Rewrite using iteration (e.g., 'a (op a)*' instead of 'a = a op a').`
         );
       }
       if (visited.has(rule.name)) return false;
@@ -445,7 +427,7 @@ function firstRefsAre(
  */
 export function buildParser<T = string>(
   rules: Map<string, GrammarRule>,
-  startRule?: string,
+  startRule?: string
 ): Grammar<T> {
   const start = startRule ?? rules.keys().next().value!;
   if (!rules.has(start)) {
@@ -461,7 +443,7 @@ export function buildParser<T = string>(
         const built = buildRule(rules.get(name)!, rules, parsers);
         parsers.set(name, built);
         return built.parse(input, pos);
-      }),
+      })
     );
   }
 
@@ -486,14 +468,17 @@ export function buildParser<T = string>(
       const origParsers = new Map(parsers);
       // Wrap each parser to track furthest failure
       for (const [name, p] of origParsers) {
-        parsers.set(name, mkParser((inp, pos) => {
-          const r = p.parse(inp, pos);
-          if (!r.ok && r.pos >= furthestPos) {
-            furthestPos = r.pos;
-            furthestExpected = r.expected;
-          }
-          return r;
-        }));
+        parsers.set(
+          name,
+          mkParser((inp, pos) => {
+            const r = p.parse(inp, pos);
+            if (!r.ok && r.pos >= furthestPos) {
+              furthestPos = r.pos;
+              furthestExpected = r.expected;
+            }
+            return r;
+          })
+        );
       }
 
       const result = parsers.get(start)!.parse(input, 0);
@@ -502,15 +487,11 @@ export function buildParser<T = string>(
 
       if (!result.ok) {
         const { line, col } = lineColOf(input, furthestPos);
-        throw new Error(
-          `Parse error at line ${line}, col ${col}: expected ${furthestExpected}`,
-        );
+        throw new Error(`Parse error at line ${line}, col ${col}: expected ${furthestExpected}`);
       }
       if (result.pos !== input.length) {
         const { line, col } = lineColOf(input, result.pos);
-        throw new Error(
-          `Parse error at line ${line}, col ${col}: expected end of input`,
-        );
+        throw new Error(`Parse error at line ${line}, col ${col}: expected end of input`);
       }
       return result.value as T;
     },
@@ -523,7 +504,12 @@ function lineColOf(input: string, pos: number): { line: number; col: number } {
   let line = 1;
   let col = 1;
   for (let i = 0; i < pos && i < input.length; i++) {
-    if (input[i] === "\n") { line++; col = 1; } else { col++; }
+    if (input[i] === "\n") {
+      line++;
+      col = 1;
+    } else {
+      col++;
+    }
   }
   return { line, col };
 }
@@ -532,7 +518,7 @@ function lineColOf(input: string, pos: number): { line: number; col: number } {
 function buildRule(
   rule: GrammarRule,
   allRules: Map<string, GrammarRule>,
-  parsers: Map<string, Parser<unknown>>,
+  parsers: Map<string, Parser<unknown>>
 ): Parser<unknown> {
   switch (rule.type) {
     case "literal":

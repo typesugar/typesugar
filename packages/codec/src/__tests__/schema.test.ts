@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  defineSchema,
-  fieldsAtVersion,
-  generateMigrations,
-  validateSchema,
-} from "../schema.js";
+import { defineSchema, fieldsAtVersion, generateMigrations, validateSchema } from "../schema.js";
 import type { FieldMeta } from "../types.js";
 
 describe("defineSchema", () => {
@@ -67,22 +62,16 @@ describe("validateSchema", () => {
       fields: [{ name: "old", type: "string", removed: 5 }],
     });
     const errors = validateSchema(s);
-    expect(errors.some((e) => e.message.includes("exceeds current"))).toBe(
-      true,
-    );
+    expect(errors.some((e) => e.message.includes("exceeds current"))).toBe(true);
   });
 
   it("errors when @removed <= @since", () => {
     const s = defineSchema("User", {
       version: 5,
-      fields: [
-        { name: "bad", type: "string", since: 3, removed: 3, defaultValue: "" },
-      ],
+      fields: [{ name: "bad", type: "string", since: 3, removed: 3, defaultValue: "" }],
     });
     const errors = validateSchema(s);
-    expect(errors.some((e) => e.message.includes("must be greater"))).toBe(
-      true,
-    );
+    expect(errors.some((e) => e.message.includes("must be greater"))).toBe(true);
   });
 
   it("errors when non-optional field added after v1 lacks defaultValue", () => {
@@ -133,9 +122,7 @@ describe("validateSchema", () => {
       ],
     });
     const errors = validateSchema(s);
-    expect(errors.some((e) => e.message.includes("exceeds current"))).toBe(
-      true,
-    );
+    expect(errors.some((e) => e.message.includes("exceeds current"))).toBe(true);
   });
 });
 

@@ -24,98 +24,116 @@ Use cases:
 
 ```typescript
 import {
-  hlist, hnil, head, tail, concat, reverse, zip, splitAt,
-  append, prepend, at, last, init, length,
-  labeled, get, set, labels, project, merge,
-  map, foldLeft, forEach, toArray, fromArray,
+  hlist,
+  hnil,
+  head,
+  tail,
+  concat,
+  reverse,
+  zip,
+  splitAt,
+  append,
+  prepend,
+  at,
+  last,
+  init,
+  length,
+  labeled,
+  get,
+  set,
+  labels,
+  project,
+  merge,
+  map,
+  foldLeft,
+  forEach,
+  toArray,
+  fromArray,
 } from "@typesugar/hlist";
 
 // --- Positional HList ---
 
 const list = hlist(1, "hello", true);
 
-head(list);    // 1       (typed as number)
-tail(list);    // ["hello", true] (typed as HList<[string, boolean]>)
-at(list, 2);   // true    (typed as boolean)
-last(list);    // true    (typed as boolean)
+head(list); // 1       (typed as number)
+tail(list); // ["hello", true] (typed as HList<[string, boolean]>)
+at(list, 2); // true    (typed as boolean)
+last(list); // true    (typed as boolean)
 
 // Structural transforms
-append(list, 42);                // HList<[number, string, boolean, number]>
-prepend("start", list);         // HList<[string, number, string, boolean]>
-concat(hlist(1, 2), hlist(3));  // HList<[number, number, number]>
-reverse(list);                  // HList<[boolean, string, number]>
+append(list, 42); // HList<[number, string, boolean, number]>
+prepend("start", list); // HList<[string, number, string, boolean]>
+concat(hlist(1, 2), hlist(3)); // HList<[number, number, number]>
+reverse(list); // HList<[boolean, string, number]>
 
 // Zip and split
-zip(hlist(1, 2), hlist("a", "b"));  // HList<[[number, string], [number, string]]>
-splitAt(list, 1);                    // [HList<[number]>, HList<[string, boolean]>]
+zip(hlist(1, 2), hlist("a", "b")); // HList<[[number, string], [number, string]]>
+splitAt(list, 1); // [HList<[number]>, HList<[string, boolean]>]
 
 // --- Labeled HList ---
 
 const rec = labeled({ x: 10, y: "hi", z: true });
 
-get(rec, "x");     // 10 (typed as number)
-get(rec, "y");     // "hi" (typed as string)
-labels(rec);       // ["x", "y", "z"]
+get(rec, "x"); // 10 (typed as number)
+get(rec, "y"); // "hi" (typed as string)
+labels(rec); // ["x", "y", "z"]
 
-set(rec, "x", 99);            // new LabeledHList with x=99
-project(rec, "x", "z");       // subset with just x and z
-merge(
-  labeled({ a: 1 }),
-  labeled({ b: 2 }),
-);  // combined LabeledHList with a=1, b=2
+set(rec, "x", 99); // new LabeledHList with x=99
+project(rec, "x", "z"); // subset with just x and z
+merge(labeled({ a: 1 }), labeled({ b: 2 })); // combined LabeledHList with a=1, b=2
 ```
 
 ## API Reference
 
 ### Construction
 
-| Function | Signature | Description |
-| --- | --- | --- |
-| `hlist` | `(...args: T) => HList<T>` | Create from positional arguments |
-| `hnil` | `() => HNil` | Create empty HList |
-| `labeled` | `(record: R) => LabeledHList<...>` | Create from a record object |
-| `fromArray` | `(arr: T) => HList<T>` | Wrap an existing array/tuple |
+| Function    | Signature                          | Description                      |
+| ----------- | ---------------------------------- | -------------------------------- |
+| `hlist`     | `(...args: T) => HList<T>`         | Create from positional arguments |
+| `hnil`      | `() => HNil`                       | Create empty HList               |
+| `labeled`   | `(record: R) => LabeledHList<...>` | Create from a record object      |
+| `fromArray` | `(arr: T) => HList<T>`             | Wrap an existing array/tuple     |
 
 ### Element Access
 
-| Function | Signature | Description |
-| --- | --- | --- |
-| `head` | `(list) => H` | First element |
-| `tail` | `(list) => HList<T>` | All but first |
-| `last` | `(list) => Last<T>` | Last element |
-| `init` | `(list) => HList<Init<T>>` | All but last |
-| `at` | `(list, N) => At<T, N>` | Element at index N |
-| `length` | `(list) => number` | Number of elements |
+| Function | Signature                  | Description        |
+| -------- | -------------------------- | ------------------ |
+| `head`   | `(list) => H`              | First element      |
+| `tail`   | `(list) => HList<T>`       | All but first      |
+| `last`   | `(list) => Last<T>`        | Last element       |
+| `init`   | `(list) => HList<Init<T>>` | All but last       |
+| `at`     | `(list, N) => At<T, N>`    | Element at index N |
+| `length` | `(list) => number`         | Number of elements |
 
 ### Structural Operations
 
-| Function | Signature | Description |
-| --- | --- | --- |
-| `append` | `(list, value) => HList<[...T, V]>` | Add to end |
-| `prepend` | `(value, list) => HList<[V, ...T]>` | Add to front |
-| `concat` | `(a, b) => HList<[...A, ...B]>` | Join two lists |
-| `reverse` | `(list) => HList<Reverse<T>>` | Reverse order |
-| `zip` | `(a, b) => HList<Zip<A, B>>` | Pairwise zip |
-| `splitAt` | `(list, N) => [left, right]` | Split at index |
+| Function  | Signature                           | Description    |
+| --------- | ----------------------------------- | -------------- |
+| `append`  | `(list, value) => HList<[...T, V]>` | Add to end     |
+| `prepend` | `(value, list) => HList<[V, ...T]>` | Add to front   |
+| `concat`  | `(a, b) => HList<[...A, ...B]>`     | Join two lists |
+| `reverse` | `(list) => HList<Reverse<T>>`       | Reverse order  |
+| `zip`     | `(a, b) => HList<Zip<A, B>>`        | Pairwise zip   |
+| `splitAt` | `(list, N) => [left, right]`        | Split at index |
 
 ### Labeled Operations
 
-| Function | Signature | Description |
-| --- | --- | --- |
-| `get` | `(list, name) => ValueByName<...>` | Get field by label |
-| `set` | `(list, name, value) => LabeledHList<...>` | Replace field value (immutable) |
-| `labels` | `(list) => string[]` | Get all label names |
-| `project` | `(list, ...names) => LabeledHList<...>` | Select subset of fields |
-| `merge` | `(a, b) => LabeledHList<[...A, ...B]>` | Combine two labeled lists |
+| Function  | Signature                                  | Description                     |
+| --------- | ------------------------------------------ | ------------------------------- |
+| `get`     | `(list, name) => ValueByName<...>`         | Get field by label              |
+| `set`     | `(list, name, value) => LabeledHList<...>` | Replace field value (immutable) |
+| `labels`  | `(list) => string[]`                       | Get all label names             |
+| `project` | `(list, ...names) => LabeledHList<...>`    | Select subset of fields         |
+| `merge`   | `(a, b) => LabeledHList<[...A, ...B]>`     | Combine two labeled lists       |
 
 ### Higher-Order Operations
 
-| Function | Signature | Description |
-| --- | --- | --- |
-| `map` | `(list, f) => HList<...>` | Apply f to each element |
-| `foldLeft` | `(list, init, f) => Acc` | Left fold |
-| `forEach` | `(list, f) => void` | Side-effecting iteration |
-| `toArray` | `(list) => T` | Extract underlying array (copy) |
+| Function   | Signature                 | Description                     |
+| ---------- | ------------------------- | ------------------------------- |
+| `map`      | `(list, f) => HList<...>` | Apply f to each element         |
+| `foldLeft` | `(list, init, f) => Acc`  | Left fold                       |
+| `forEach`  | `(list, f) => void`       | Side-effecting iteration        |
+| `toArray`  | `(list) => T`             | Extract underlying array (copy) |
 
 ## Type-Level Utilities
 
@@ -123,19 +141,34 @@ All type-level operations are exported for use in your own generic code:
 
 ```typescript
 import type {
-  Head, Tail, Last, Init, Length, At,
-  Concat, Reverse, Zip, SplitAt,
-  LabelOf, ValueOf, FieldByName, ValueByName,
-  UpdateField, ProjectFields,
-  HList, HNil, HCons,
-  LabeledField, LabeledHList,
+  Head,
+  Tail,
+  Last,
+  Init,
+  Length,
+  At,
+  Concat,
+  Reverse,
+  Zip,
+  SplitAt,
+  LabelOf,
+  ValueOf,
+  FieldByName,
+  ValueByName,
+  UpdateField,
+  ProjectFields,
+  HList,
+  HNil,
+  HCons,
+  LabeledField,
+  LabeledHList,
 } from "@typesugar/hlist";
 
-type First = Head<[number, string, boolean]>;  // number
-type Rest = Tail<[number, string, boolean]>;   // [string, boolean]
-type Joined = Concat<[1, 2], [3, 4]>;         // [1, 2, 3, 4]
-type Rev = Reverse<[1, 2, 3]>;                // [3, 2, 1]
-type Halves = SplitAt<[1, 2, 3, 4], 2>;       // [[1, 2], [3, 4]]
+type First = Head<[number, string, boolean]>; // number
+type Rest = Tail<[number, string, boolean]>; // [string, boolean]
+type Joined = Concat<[1, 2], [3, 4]>; // [1, 2, 3, 4]
+type Rev = Reverse<[1, 2, 3]>; // [3, 2, 1]
+type Halves = SplitAt<[1, 2, 3, 4], 2>; // [[1, 2], [3, 4]]
 ```
 
 ## Zero-Cost Design

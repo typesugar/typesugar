@@ -22,7 +22,7 @@ import { IO, runIO } from "./io";
 export class Resource<A> {
   constructor(
     private readonly _acquire: IO<A>,
-    private readonly _release: (a: A) => IO<void>,
+    private readonly _release: (a: A) => IO<void>
   ) {}
 
   /**
@@ -38,7 +38,7 @@ export class Resource<A> {
   map<B>(f: (a: A) => B): Resource<B> {
     return new Resource(
       IO.map(this._acquire, f),
-      () => IO.unit, // The original release will still run
+      () => IO.unit // The original release will still run
     ).combineWith(this, (b, _a) => b);
   }
 
@@ -47,14 +47,12 @@ export class Resource<A> {
    */
   flatMap<B>(f: (a: A) => Resource<B>): Resource<B> {
     return Resource.make(
-      IO.flatMap(this._acquire, (a) =>
-        IO.map(f(a)._acquire, (b) => [a, b] as const),
-      ),
+      IO.flatMap(this._acquire, (a) => IO.map(f(a)._acquire, (b) => [a, b] as const)),
       ([a, b]) => {
         // Release in reverse order (b first, then a)
         const rb = f(a);
         return IO.flatMap(rb._release(b), () => this._release(a));
-      },
+      }
     ).map(([_a, b]) => b);
   }
 
@@ -76,9 +74,7 @@ export class Resource<A> {
    * Add a finalizer that always runs
    */
   onFinalize(finalizer: IO<void>): Resource<A> {
-    return new Resource(this._acquire, (a) =>
-      IO.guarantee(this._release(a), finalizer),
-    );
+    return new Resource(this._acquire, (a) => IO.guarantee(this._release(a), finalizer));
   }
 
   /**
@@ -88,7 +84,7 @@ export class Resource<A> {
   evalTap(f: (a: A) => IO<void>): Resource<A> {
     return new Resource(
       IO.flatMap(this._acquire, (a) => IO.as(f(a), a)),
-      this._release,
+      this._release
     );
   }
 
@@ -108,10 +104,7 @@ export namespace Resource {
   /**
    * Create a Resource from acquire and release
    */
-  export function make<A>(
-    acquire: IO<A>,
-    release: (a: A) => IO<void>,
-  ): Resource<A> {
+  export function make<A>(acquire: IO<A>, release: (a: A) => IO<void>): Resource<A> {
     return new Resource(acquire, release);
   }
 
@@ -146,13 +139,10 @@ export namespace Resource {
   /**
    * Traverse with Resource
    */
-  export function traverse<A, B>(
-    arr: A[],
-    f: (a: A) => Resource<B>,
-  ): Resource<B[]> {
+  export function traverse<A, B>(arr: A[], f: (a: A) => Resource<B>): Resource<B[]> {
     return arr.reduce<Resource<B[]>>(
       (acc, a) => acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
-      pure([] as B[]),
+      pure([] as B[])
     );
   }
 
@@ -166,10 +156,7 @@ export namespace Resource {
   /**
    * Both - acquire both resources in parallel (simplified - actually sequential)
    */
-  export function both<A, B>(
-    ra: Resource<A>,
-    rb: Resource<B>,
-  ): Resource<[A, B]> {
+  export function both<A, B>(ra: Resource<A>, rb: Resource<B>): Resource<[A, B]> {
     return ra.product(rb);
   }
 
@@ -179,7 +166,7 @@ export namespace Resource {
   export function map2<A, B, C>(
     ra: Resource<A>,
     rb: Resource<B>,
-    f: (a: A, b: B) => C,
+    f: (a: A, b: B) => C
   ): Resource<C> {
     return ra.combineWith(rb, f);
   }
@@ -199,10 +186,7 @@ export namespace Resource {
 /**
  * Create a file resource (conceptual - needs actual filesystem access)
  */
-export function fileResource(
-  path: string,
-  mode: "r" | "w" | "a" = "r",
-): Resource<FileHandle> {
+export function fileResource(path: string, mode: "r" | "w" | "a" = "r"): Resource<FileHandle> {
   return Resource.make(
     IO.delay(() => {
       // This is a mock - in real code you'd use fs.promises.open
@@ -211,7 +195,7 @@ export function fileResource(
     (handle) =>
       IO.delay(() => {
         handle.close();
-      }),
+      })
   );
 }
 
@@ -223,7 +207,7 @@ export class FileHandle {
 
   constructor(
     public readonly path: string,
-    public readonly mode: string,
+    public readonly mode: string
   ) {}
 
   read(): IO<string> {
@@ -248,17 +232,15 @@ export class FileHandle {
 /**
  * Timer resource - will cancel on release
  */
-export function timerResource(
-  intervalMs: number,
-): Resource<NodeJS.Timer | number> {
+export function timerResource(intervalMs: number): Resource<NodeJS.Timer | number> {
   return Resource.make(
     IO.delay(
       () =>
         setInterval(() => {
           /* tick */
-        }, intervalMs) as NodeJS.Timer | number,
+        }, intervalMs) as NodeJS.Timer | number
     ),
-    (timer) => IO.delay(() => clearInterval(timer as NodeJS.Timeout)),
+    (timer) => IO.delay(() => clearInterval(timer as NodeJS.Timeout))
   );
 }
 
@@ -272,7 +254,7 @@ export function eventListenerResource<E>(
     removeEventListener: (type: string, handler: (e: E) => void) => void;
   },
   eventType: string,
-  handler: (e: E) => void,
+  handler: (e: E) => void
 ): Resource<void> {
   return Resource.make(
     IO.delay(() => {
@@ -281,7 +263,7 @@ export function eventListenerResource<E>(
     () =>
       IO.delay(() => {
         element.removeEventListener(eventType, handler);
-      }),
+      })
   );
 }
 
@@ -299,7 +281,7 @@ export class ResourcePool<A> {
   constructor(
     private readonly create: IO<A>,
     private readonly destroy: (a: A) => IO<void>,
-    private readonly maxSize: number,
+    private readonly maxSize: number
   ) {}
 
   /**
@@ -319,7 +301,7 @@ export class ResourcePool<A> {
           this.waiters.push((a) => cb({ _tag: "Right", right: a }));
         }
       }),
-      (a) => this.release(a),
+      (a) => this.release(a)
     );
   }
 
@@ -351,10 +333,7 @@ export class ResourcePool<A> {
 export function pool<A>(
   create: IO<A>,
   destroy: (a: A) => IO<void>,
-  maxSize: number,
+  maxSize: number
 ): Resource<ResourcePool<A>> {
-  return Resource.make(
-    IO.pure(new ResourcePool(create, destroy, maxSize)),
-    (p) => p.drain(),
-  );
+  return Resource.make(IO.pure(new ResourcePool(create, destroy, maxSize)), (p) => p.drain());
 }

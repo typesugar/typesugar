@@ -180,9 +180,7 @@ const Result = z.discriminatedUnion("status", [
 ]);
 
 // typesugar
-type Result =
-  | { status: "success"; data: string }
-  | { status: "error"; error: string };
+type Result = { status: "success"; data: string } | { status: "error"; error: string };
 
 const isResult = validator<Result>();
 ```
@@ -202,7 +200,7 @@ import { derive, Json } from "@typesugar/derive";
 class User {
   constructor(
     public name: string,
-    public age: number,
+    public age: number
   ) {}
 }
 

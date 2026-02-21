@@ -170,17 +170,11 @@ export const Console = {
   /**
    * Read with validation and retry
    */
-  readValidated<A>(
-    promptMsg: string,
-    parse: (s: string) => Either<string, A>,
-  ): IO<A> {
+  readValidated<A>(promptMsg: string, parse: (s: string) => Either<string, A>): IO<A> {
     const attempt: IO<A> = IO.flatMap(Console.prompt(promptMsg), (input) => {
       const result = parse(input);
       if (result._tag === "Left") {
-        return IO.flatMap(
-          Console.putErrLn(`Invalid input: ${result.left}`),
-          () => attempt,
-        );
+        return IO.flatMap(Console.putErrLn(`Invalid input: ${result.left}`), () => attempt);
       }
       return IO.pure(result.right);
     });
@@ -225,26 +219,21 @@ export const Console = {
       IO.flatMap(Console.putStrLn("-".repeat(title.length)), () =>
         IO.traverse(
           options.map(([label], i) => `${i + 1}. ${label}`),
-          Console.putStrLn,
-        ),
-      ),
+          Console.putStrLn
+        )
+      )
     );
 
-    const getChoice: IO<A> = IO.flatMap(
-      Console.prompt("\nEnter your choice: "),
-      (input) => {
-        const choice = parseInt(input, 10);
-        if (isNaN(choice) || choice < 1 || choice > options.length) {
-          return IO.flatMap(
-            Console.putErrLn(
-              `Invalid choice. Please enter 1-${options.length}`,
-            ),
-            () => getChoice,
-          );
-        }
-        return IO.pure(options[choice - 1][1]);
-      },
-    );
+    const getChoice: IO<A> = IO.flatMap(Console.prompt("\nEnter your choice: "), (input) => {
+      const choice = parseInt(input, 10);
+      if (isNaN(choice) || choice < 1 || choice > options.length) {
+        return IO.flatMap(
+          Console.putErrLn(`Invalid choice. Please enter 1-${options.length}`),
+          () => getChoice
+        );
+      }
+      return IO.pure(options[choice - 1][1]);
+    });
 
     return IO.flatMap(displayMenu, () => getChoice);
   },
@@ -278,10 +267,8 @@ export const Console = {
   header(title: string): IO<void> {
     return IO.flatMap(Console.newLine(), () =>
       IO.flatMap(Console.hr("=", title.length + 4), () =>
-        IO.flatMap(Console.putStrLn(`= ${title} =`), () =>
-          Console.hr("=", title.length + 4),
-        ),
-      ),
+        IO.flatMap(Console.putStrLn(`= ${title} =`), () => Console.hr("=", title.length + 4))
+      )
     );
   },
 
@@ -304,7 +291,7 @@ export const Console = {
    */
   table(headers: string[], rows: string[][]): IO<void> {
     const colWidths = headers.map((h, i) =>
-      Math.max(h.length, ...rows.map((r) => (r[i] || "").length)),
+      Math.max(h.length, ...rows.map((r) => (r[i] || "").length))
     );
 
     const formatRow = (cells: string[]): string =>
@@ -314,8 +301,8 @@ export const Console = {
 
     return IO.flatMap(Console.putStrLn(formatRow(headers)), () =>
       IO.flatMap(Console.putStrLn(separator), () =>
-        IO.void_(IO.traverse(rows, (row) => Console.putStrLn(formatRow(row)))),
-      ),
+        IO.void_(IO.traverse(rows, (row) => Console.putStrLn(formatRow(row))))
+      )
     );
   },
 

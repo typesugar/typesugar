@@ -29,18 +29,26 @@ function counted<T>(source: Iterable<T>): { iterable: Iterable<T>; reads: () => 
 
 describe("LazyPipeline — single operations", () => {
   it("map transforms elements", () => {
-    expect(lazy([1, 2, 3]).map((x) => x * 2).toArray()).toEqual([2, 4, 6]);
+    expect(
+      lazy([1, 2, 3])
+        .map((x) => x * 2)
+        .toArray()
+    ).toEqual([2, 4, 6]);
   });
 
   it("filter keeps matching elements", () => {
-    expect(lazy([1, 2, 3, 4, 5]).filter((x) => x % 2 === 0).toArray()).toEqual([2, 4]);
+    expect(
+      lazy([1, 2, 3, 4, 5])
+        .filter((x) => x % 2 === 0)
+        .toArray()
+    ).toEqual([2, 4]);
   });
 
   it("flatMap expands and flattens", () => {
     expect(
       lazy([1, 2, 3])
         .flatMap((x) => [x, x * 10])
-        .toArray(),
+        .toArray()
     ).toEqual([1, 10, 2, 20, 3, 30]);
   });
 
@@ -53,11 +61,19 @@ describe("LazyPipeline — single operations", () => {
   });
 
   it("takeWhile stops at first failure", () => {
-    expect(lazy([1, 2, 3, 4, 1]).takeWhile((x) => x < 3).toArray()).toEqual([1, 2]);
+    expect(
+      lazy([1, 2, 3, 4, 1])
+        .takeWhile((x) => x < 3)
+        .toArray()
+    ).toEqual([1, 2]);
   });
 
   it("dropWhile skips initial matching elements", () => {
-    expect(lazy([1, 2, 3, 2, 1]).dropWhile((x) => x < 3).toArray()).toEqual([3, 2, 1]);
+    expect(
+      lazy([1, 2, 3, 2, 1])
+        .dropWhile((x) => x < 3)
+        .toArray()
+    ).toEqual([3, 2, 1]);
   });
 });
 
@@ -71,7 +87,7 @@ describe("LazyPipeline — chained operations", () => {
       lazy([1, 2, 3, 4, 5])
         .filter((x) => x % 2 === 0)
         .map((x) => x * 10)
-        .toArray(),
+        .toArray()
     ).toEqual([20, 40]);
   });
 
@@ -81,7 +97,7 @@ describe("LazyPipeline — chained operations", () => {
         .map((x) => x * 2)
         .filter((x) => x > 5)
         .take(3)
-        .toArray(),
+        .toArray()
     ).toEqual([6, 8, 10]);
   });
 
@@ -91,7 +107,7 @@ describe("LazyPipeline — chained operations", () => {
         .drop(2)
         .filter((x) => x % 2 === 0)
         .map((x) => x * 100)
-        .toArray(),
+        .toArray()
     ).toEqual([400, 600]);
   });
 
@@ -100,7 +116,7 @@ describe("LazyPipeline — chained operations", () => {
       lazy([1, 2, 3])
         .flatMap((x) => [x, -x])
         .filter((x) => x > 0)
-        .toArray(),
+        .toArray()
     ).toEqual([1, 2, 3]);
   });
 
@@ -110,7 +126,7 @@ describe("LazyPipeline — chained operations", () => {
         .filter((x) => x % 2 === 0)
         .flatMap((x) => [x, x + 100])
         .take(3)
-        .toArray(),
+        .toArray()
     ).toEqual([2, 102, 4]);
   });
 });
@@ -149,7 +165,11 @@ describe("LazyPipeline — terminal operations", () => {
   });
 
   it("count counts elements", () => {
-    expect(lazy([1, 2, 3, 4, 5]).filter((x) => x > 2).count()).toBe(3);
+    expect(
+      lazy([1, 2, 3, 4, 5])
+        .filter((x) => x > 2)
+        .count()
+    ).toBe(3);
   });
 
   it("forEach executes for each element", () => {
@@ -215,7 +235,7 @@ describe("LazyPipeline — aggregations", () => {
   it("toMap builds a Map", () => {
     const m = lazy(["a", "bb", "ccc"]).toMap(
       (s) => s,
-      (s) => s.length,
+      (s) => s.length
     );
     expect(m.get("a")).toBe(1);
     expect(m.get("bb")).toBe(2);
@@ -289,7 +309,9 @@ describe("LazyPipeline — early termination", () => {
 
   it("takeWhile stops at first failure", () => {
     const { iterable, reads } = counted([1, 2, 3, 4, 5]);
-    lazy(iterable).takeWhile((x) => x < 3).toArray();
+    lazy(iterable)
+      .takeWhile((x) => x < 3)
+      .toArray();
     // Reads 1 (emit), 2 (emit), 3 (fails → stop)
     expect(reads()).toBe(3);
   });
@@ -301,7 +323,11 @@ describe("LazyPipeline — early termination", () => {
 
 describe("LazyPipeline — infinite sources", () => {
   it("iterate with take terminates", () => {
-    expect(iterate(1, (x) => x * 2).take(5).toArray()).toEqual([1, 2, 4, 8, 16]);
+    expect(
+      iterate(1, (x) => x * 2)
+        .take(5)
+        .toArray()
+    ).toEqual([1, 2, 4, 8, 16]);
   });
 
   it("repeat with take terminates", () => {
@@ -313,7 +339,7 @@ describe("LazyPipeline — infinite sources", () => {
     expect(
       generate(() => counter++)
         .take(4)
-        .toArray(),
+        .toArray()
     ).toEqual([0, 1, 2, 3]);
   });
 
@@ -351,7 +377,7 @@ describe("LazyPipeline — edge cases", () => {
     expect(
       lazy([1, 2, 3])
         .filter(() => false)
-        .toArray(),
+        .toArray()
     ).toEqual([]);
   });
 
@@ -369,19 +395,23 @@ describe("LazyPipeline — edge cases", () => {
         .map((x) => x * 2)
         .filter((x) => x > 0)
         .take(5)
-        .toArray(),
+        .toArray()
     ).toEqual([]);
   });
 
   it("single element pipeline", () => {
-    expect(lazy([42]).map((x) => x + 1).toArray()).toEqual([43]);
+    expect(
+      lazy([42])
+        .map((x) => x + 1)
+        .toArray()
+    ).toEqual([43]);
   });
 
   it("flatMap to empty iterables produces empty", () => {
     expect(
       lazy([1, 2, 3])
         .flatMap(() => [])
-        .toArray(),
+        .toArray()
     ).toEqual([]);
   });
 
@@ -402,7 +432,7 @@ describe("LazyPipeline — edge cases", () => {
       lazy(new Set([3, 1, 2]))
         .map((x) => x * 10)
         .toArray()
-        .sort((a, b) => a - b),
+        .sort((a, b) => a - b)
     ).toEqual([10, 20, 30]);
   });
 
@@ -415,7 +445,7 @@ describe("LazyPipeline — edge cases", () => {
       lazy(m)
         .map(([k, v]) => `${k}=${v}`)
         .toArray()
-        .sort(),
+        .sort()
     ).toEqual(["a=1", "b=2"]);
   });
 
@@ -425,7 +455,11 @@ describe("LazyPipeline — edge cases", () => {
       yield 2;
       yield 3;
     }
-    expect(lazy(gen()).map((x) => x * 2).toArray()).toEqual([2, 4, 6]);
+    expect(
+      lazy(gen())
+        .map((x) => x * 2)
+        .toArray()
+    ).toEqual([2, 4, 6]);
   });
 });
 

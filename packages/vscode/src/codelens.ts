@@ -20,14 +20,14 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
 
   constructor(
     private readonly manifest: ManifestLoader,
-    private readonly expansion: ExpansionService,
+    private readonly expansion: ExpansionService
   ) {
     manifest.onDidChange(() => this.onDidChangeEmitter.fire());
   }
 
   provideCodeLenses(
     document: vscode.TextDocument,
-    _token: vscode.CancellationToken,
+    _token: vscode.CancellationToken
   ): vscode.CodeLens[] {
     const config = vscode.workspace.getConfiguration("typemacro");
     if (!config.get<boolean>("enableCodeLens", true)) return [];
@@ -40,9 +40,7 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
       text,
       ts.ScriptTarget.Latest,
       true,
-      document.languageId === "typescriptreact"
-        ? ts.ScriptKind.TSX
-        : ts.ScriptKind.TS,
+      document.languageId === "typescriptreact" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
     );
 
     const expressionNames = this.manifest.expressionMacroNames;
@@ -57,22 +55,15 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
         ts.isIdentifier(node.expression) &&
         expressionNames.has(node.expression.text)
       ) {
-        const pos = sourceFile.getLineAndCharacterOfPosition(
-          node.getStart(sourceFile),
-        );
-        const range = new vscode.Range(
-          pos.line,
-          pos.character,
-          pos.line,
-          pos.character,
-        );
+        const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        const range = new vscode.Range(pos.line, pos.character, pos.line, pos.character);
         lenses.push(
           new vscode.CodeLens(range, {
             title: `$(zap) ${node.expression.text}(...)`,
             command: "typemacro.expandMacro",
             arguments: [document.uri, node.getStart(sourceFile)],
             tooltip: "Click to see macro expansion",
-          }),
+          })
         );
       }
 
@@ -80,21 +71,11 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
       if (ts.isDecorator(node)) {
         const nameNode = getDecoratorNameNode(node);
         if (nameNode && decoratorNames.has(nameNode.text)) {
-          const pos = sourceFile.getLineAndCharacterOfPosition(
-            node.getStart(sourceFile),
-          );
-          const range = new vscode.Range(
-            pos.line,
-            pos.character,
-            pos.line,
-            pos.character,
-          );
+          const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+          const range = new vscode.Range(pos.line, pos.character, pos.line, pos.character);
 
           let title = `$(zap) @${nameNode.text}`;
-          if (
-            nameNode.text === "derive" &&
-            ts.isCallExpression(node.expression)
-          ) {
+          if (nameNode.text === "derive" && ts.isCallExpression(node.expression)) {
             const argCount = node.expression.arguments.length;
             title += ` — ${argCount} derive${argCount === 1 ? "" : "s"}`;
           }
@@ -105,7 +86,7 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
               command: "typemacro.expandMacro",
               arguments: [document.uri, node.getStart(sourceFile)],
               tooltip: "Click to see macro expansion",
-            }),
+            })
           );
         }
       }
@@ -116,48 +97,34 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
         ts.isIdentifier(node.tag) &&
         templateNames.has(node.tag.text)
       ) {
-        const pos = sourceFile.getLineAndCharacterOfPosition(
-          node.getStart(sourceFile),
-        );
-        const range = new vscode.Range(
-          pos.line,
-          pos.character,
-          pos.line,
-          pos.character,
-        );
+        const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        const range = new vscode.Range(pos.line, pos.character, pos.line, pos.character);
         lenses.push(
           new vscode.CodeLens(range, {
             title: `$(zap) ${node.tag.text}\`...\``,
             command: "typemacro.expandMacro",
             arguments: [document.uri, node.getStart(sourceFile)],
             tooltip: "Click to see macro expansion",
-          }),
+          })
         );
       }
 
       // Labeled block comprehensions
       if (ts.isLabeledStatement(node) && labelNames.has(node.label.text)) {
         // Only show lens on the opening label (let:), not continuations
-        const isOpening = Object.keys(
-          this.manifest.current.macros.labeledBlock,
-        ).includes(node.label.text);
+        const isOpening = Object.keys(this.manifest.current.macros.labeledBlock).includes(
+          node.label.text
+        );
         if (isOpening) {
-          const pos = sourceFile.getLineAndCharacterOfPosition(
-            node.getStart(sourceFile),
-          );
-          const range = new vscode.Range(
-            pos.line,
-            pos.character,
-            pos.line,
-            pos.character,
-          );
+          const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+          const range = new vscode.Range(pos.line, pos.character, pos.line, pos.character);
           lenses.push(
             new vscode.CodeLens(range, {
               title: `$(zap) ${node.label.text}: comprehension`,
               command: "typemacro.expandMacro",
               arguments: [document.uri, node.getStart(sourceFile)],
               tooltip: "Click to see flatMap chain expansion",
-            }),
+            })
           );
         }
       }
@@ -174,9 +141,7 @@ export class MacroCodeLensProvider implements vscode.CodeLensProvider {
   }
 }
 
-function getDecoratorNameNode(
-  decorator: ts.Decorator,
-): ts.Identifier | undefined {
+function getDecoratorNameNode(decorator: ts.Decorator): ts.Identifier | undefined {
   const expr = decorator.expression;
   if (ts.isIdentifier(expr)) return expr;
   if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {

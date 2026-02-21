@@ -34,17 +34,17 @@ describe("React macro integration", () => {
           );
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "Counter");
-      
+
       // Process all macros
       processAllMacros(ctx);
-      
+
       // Verify state metadata was created
       const metadata = getStateMetadata(ctx.sourceFile);
       expect(metadata.has("count")).toBe(true);
-      
+
       // Verify no errors
       expect(ctx.errors.length).toBe(0);
     });
@@ -79,17 +79,17 @@ describe("React macro integration", () => {
           );
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Process all macros
       processAllMacros(ctx);
-      
+
       // Verify state metadata
       const metadata = getStateMetadata(ctx.sourceFile);
       expect(metadata.has("todos")).toBe(true);
       expect(metadata.has("filter")).toBe(true);
-      
+
       // Should not have errors
       expect(ctx.errors.length).toBe(0);
     });
@@ -113,15 +113,15 @@ describe("React macro integration", () => {
           return <div>{count}</div>;
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
       const fn = findFunction(ctx.sourceFile, "BadComponent");
-      
+
       if (fn && ts.isBlock(fn.body!)) {
         // Check for conditional primitives
         const conditionalResult = checkConditionalPrimitives(ctx, fn.body);
         expect(conditionalResult.violations.length).toBeGreaterThan(0);
-        
+
         // Check for direct mutation
         const stateVars = new Set(["count", "x"]);
         const mutationResult = checkDirectMutation(ctx, fn.body, stateVars);
@@ -145,16 +145,16 @@ describe("React macro integration", () => {
           );
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Find the match() call
       const matchCalls = findAllCalls(ctx.sourceFile, "match");
       expect(matchCalls.length).toBe(1);
-      
+
       // Transform it
       const result = matchMacro.expand(ctx, matchCalls[0], [...matchCalls[0].arguments]);
-      
+
       // Should produce a conditional expression
       expect(ts.isConditionalExpression(result)).toBe(true);
     });
@@ -171,16 +171,16 @@ describe("React macro integration", () => {
           );
         }
       `;
-      
+
       const ctx = createMacroTestContext(source);
-      
+
       // Find the each() call
       const eachCalls = findAllCalls(ctx.sourceFile, "each");
       expect(eachCalls.length).toBe(1);
-      
+
       // Transform it
       const result = eachMacro.expand(ctx, eachCalls[0], [...eachCalls[0].arguments]);
-      
+
       // Should produce items.map(...)
       expect(ts.isCallExpression(result)).toBe(true);
       if (ts.isCallExpression(result)) {
@@ -194,12 +194,9 @@ describe("React macro integration", () => {
 
 // Helpers
 
-function findFunction(
-  sourceFile: ts.SourceFile,
-  name: string,
-): ts.FunctionDeclaration | undefined {
+function findFunction(sourceFile: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined {
   let result: ts.FunctionDeclaration | undefined;
-  
+
   function visit(node: ts.Node): void {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
       result = node;
@@ -207,14 +204,14 @@ function findFunction(
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return result;
 }
 
 function findAllCalls(sourceFile: ts.SourceFile, fnName: string): ts.CallExpression[] {
   const results: ts.CallExpression[] = [];
-  
+
   function visit(node: ts.Node): void {
     if (
       ts.isCallExpression(node) &&
@@ -225,7 +222,7 @@ function findAllCalls(sourceFile: ts.SourceFile, fnName: string): ts.CallExpress
     }
     ts.forEachChild(node, visit);
   }
-  
+
   visit(sourceFile);
   return results;
 }
@@ -236,31 +233,31 @@ function processAllMacros(ctx: ReturnType<typeof createMacroTestContext>): void 
   for (const call of stateCalls) {
     stateMacro.expand(ctx, call, [...call.arguments]);
   }
-  
+
   // Process derived() calls
   const derivedCalls = findAllCalls(ctx.sourceFile, "derived");
   for (const call of derivedCalls) {
     derivedMacro.expand(ctx, call, [...call.arguments]);
   }
-  
+
   // Process effect() calls
   const effectCalls = findAllCalls(ctx.sourceFile, "effect");
   for (const call of effectCalls) {
     effectMacro.expand(ctx, call, [...call.arguments]);
   }
-  
+
   // Process component() calls
   const componentCalls = findAllCalls(ctx.sourceFile, "component");
   for (const call of componentCalls) {
     componentMacro.expand(ctx, call, [...call.arguments]);
   }
-  
+
   // Process each() calls
   const eachCalls = findAllCalls(ctx.sourceFile, "each");
   for (const call of eachCalls) {
     eachMacro.expand(ctx, call, [...call.arguments]);
   }
-  
+
   // Process match() calls
   const matchCalls = findAllCalls(ctx.sourceFile, "match");
   for (const call of matchCalls) {

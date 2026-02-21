@@ -21,9 +21,7 @@ import * as ts from "typescript";
 import { preprocess as preprocessCustomSyntax } from "@typesugar/preprocessor";
 
 // Dynamically import the transformer to avoid circular dependencies
-let transformerFactory:
-  | typeof import("@typesugar/transformer").default
-  | undefined;
+let transformerFactory: typeof import("@typesugar/transformer").default | undefined;
 
 /** typesugar package prefixes for import detection */
 const TYPESUGAR_PACKAGE_PREFIXES = [
@@ -38,10 +36,7 @@ const TYPESUGAR_PACKAGE_PREFIXES = [
 /**
  * Check if a lint message is about an unused import from a typesugar package.
  */
-function isTypesugarUnusedImportError(
-  message: Linter.LintMessage,
-  source: string,
-): boolean {
+function isTypesugarUnusedImportError(message: Linter.LintMessage, source: string): boolean {
   // Rules that report unused imports
   const unusedImportRules = [
     "no-unused-vars",
@@ -71,8 +66,7 @@ function isTypesugarUnusedImportError(
 
   const modulePath = importMatch[1];
   return TYPESUGAR_PACKAGE_PREFIXES.some(
-    (prefix) =>
-      modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix),
+    (prefix) => modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix)
   );
 }
 
@@ -94,18 +88,12 @@ interface TransformResult {
 }
 
 // Cache for transformed files (avoids re-transforming unchanged files)
-const transformCache = new Map<
-  string,
-  { source: string; result: TransformResult }
->();
+const transformCache = new Map<string, { source: string; result: TransformResult }>();
 
 /**
  * Create a TypeScript program and run the typesugar transformer
  */
-function transformWithTypesugar(
-  fileName: string,
-  source: string,
-): TransformResult {
+function transformWithTypesugar(fileName: string, source: string): TransformResult {
   // Check cache
   const cached = transformCache.get(fileName);
   if (cached && cached.source === source) {
@@ -191,11 +179,7 @@ function transformWithTypesugar(
   }
 
   // Transform
-  const transformationResult = ts.transform(
-    sourceFile,
-    [transformer],
-    compilerOptions,
-  );
+  const transformationResult = ts.transform(sourceFile, [transformer], compilerOptions);
   const transformedSourceFile = transformationResult.transformed[0];
 
   // Print the transformed AST back to text
@@ -209,11 +193,7 @@ function transformWithTypesugar(
 
   // For now, simple 1:1 mapping for unchanged lines
   // Real implementation would track AST node origins
-  for (
-    let i = 0;
-    i < Math.max(originalLines.length, transformedLines.length);
-    i++
-  ) {
+  for (let i = 0; i < Math.max(originalLines.length, transformedLines.length); i++) {
     sourceMap.set(i + 1, Math.min(i + 1, originalLines.length));
   }
 
@@ -248,10 +228,7 @@ export function createFullProcessor(): Linter.Processor {
 
     supportsAutofix: true,
 
-    preprocess(
-      text: string,
-      filename: string,
-    ): Array<string | { text: string; filename: string }> {
+    preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
       // Skip non-TypeScript files
       if (!filename.endsWith(".ts") && !filename.endsWith(".tsx")) {
         return [text];
@@ -268,10 +245,7 @@ export function createFullProcessor(): Linter.Processor {
       return [transformed];
     },
 
-    postprocess(
-      messages: Linter.LintMessage[][],
-      filename: string,
-    ): Linter.LintMessage[] {
+    postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
       const state = fileStates.get(filename);
       if (!state) {
         return messages.flat();
@@ -279,14 +253,10 @@ export function createFullProcessor(): Linter.Processor {
 
       return messages
         .flat()
-        .filter(
-          (message) =>
-            !isTypesugarUnusedImportError(message, state.originalSource),
-        )
+        .filter((message) => !isTypesugarUnusedImportError(message, state.originalSource))
         .map((message) => {
           if (message.line !== undefined) {
-            const originalLine =
-              state.sourceMap.get(message.line) ?? message.line;
+            const originalLine = state.sourceMap.get(message.line) ?? message.line;
             return {
               ...message,
               line: originalLine,

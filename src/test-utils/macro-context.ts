@@ -58,12 +58,10 @@ export function createMacroTestContext(source: string): TestMacroContext {
     },
 
     createObjectLiteral(
-      properties: Array<{ name: string; value: ts.Expression }>,
+      properties: Array<{ name: string; value: ts.Expression }>
     ): ts.ObjectLiteralExpression {
       return ts.factory.createObjectLiteralExpression(
-        properties.map((p) =>
-          ts.factory.createPropertyAssignment(p.name, p.value),
-        ),
+        properties.map((p) => ts.factory.createPropertyAssignment(p.name, p.value))
       );
     },
 
@@ -73,7 +71,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
         `const __expr = ${code};`,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TSX,
+        ts.ScriptKind.TSX
       );
       const varStmt = tempSource.statements[0] as ts.VariableStatement;
       const decl = varStmt.declarationList.declarations[0];
@@ -86,7 +84,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
         code,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TSX,
+        ts.ScriptKind.TSX
       );
       return [...tempSource.statements];
     },
@@ -121,9 +119,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
 
     reportWarning(node: ts.Node, message: string): void {
       const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart());
-      warnings.push(
-        `Warning at ${pos.line + 1}:${pos.character + 1}: ${message}`,
-      );
+      warnings.push(`Warning at ${pos.line + 1}:${pos.character + 1}: ${message}`);
     },
 
     // Compile-time evaluation
@@ -174,13 +170,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
  * Parse a source code string into a SourceFile
  */
 export function parseSource(source: string): ts.SourceFile {
-  return ts.createSourceFile(
-    "test.tsx",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
+  return ts.createSourceFile("test.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 }
 
 /**

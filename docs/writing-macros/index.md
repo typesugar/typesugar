@@ -54,7 +54,7 @@ defineExpressionMacro("double", {
     return ctx.factory.createBinaryExpression(
       ctx.factory.createParenthesizedExpression(arg),
       ts.SyntaxKind.PlusToken,
-      ctx.factory.createParenthesizedExpression(arg),
+      ctx.factory.createParenthesizedExpression(arg)
     );
   },
 });
@@ -77,10 +77,7 @@ const x = double(21); // Compiles to: (21) + (21)
 ```typescript
 import { assertExpands } from "@typesugar/testing";
 
-assertExpands(
-  `import { double } from "./double"; const x = double(21);`,
-  `const x = (21) + (21);`,
-);
+assertExpands(`import { double } from "./double"; const x = double(21);`, `const x = (21) + (21);`);
 ```
 
 ## MacroContext API

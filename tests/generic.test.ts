@@ -9,21 +9,14 @@
 
 import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
-import {
-  DeriveTypeInfo,
-  DeriveFieldInfo,
-  DeriveVariantInfo,
-} from "../src/core/types.js";
+import { DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "../src/core/types.js";
 import {
   genericDerive,
   getGenericMeta,
   registerGenericMeta,
   GenericMeta,
 } from "../src/macros/generic.js";
-import {
-  builtinDerivations,
-  tryExtractSumType,
-} from "../src/macros/typeclass.js";
+import { builtinDerivations, tryExtractSumType } from "../src/macros/typeclass.js";
 import { globalRegistry } from "../src/core/registry.js";
 import { deriveMacros } from "../src/macros/derive.js";
 
@@ -317,11 +310,7 @@ describe("derive macro code generation for sum types", () => {
   ];
 
   it("Show.deriveSum generates switch-based implementation", () => {
-    const code = builtinDerivations["Show"].deriveSum(
-      "Shape",
-      "kind",
-      variants,
-    );
+    const code = builtinDerivations["Show"].deriveSum("Shape", "kind", variants);
 
     assert(code.includes("switch"));
     assert(code.includes('case "circle"'));
@@ -349,11 +338,7 @@ describe("derive macro code generation for sum types", () => {
   });
 
   it("Hash.deriveSum generates tag-based hashing", () => {
-    const code = builtinDerivations["Hash"].deriveSum(
-      "Shape",
-      "kind",
-      variants,
-    );
+    const code = builtinDerivations["Hash"].deriveSum("Shape", "kind", variants);
 
     assert(code.includes("switch"));
     assert(code.includes("hash"));
@@ -366,10 +351,7 @@ describe("derive macro code generation for sum types", () => {
 
 describe("deriveGenericSum for parameterized sum types", () => {
   // Mock type parameters like [E, A] in Either<E, A>
-  const mockTypeParams = [
-    { name: { text: "E" } } as any,
-    { name: { text: "A" } } as any,
-  ];
+  const mockTypeParams = [{ name: { text: "E" } } as any, { name: { text: "A" } } as any];
 
   // Variants matching Either<E, A> structure
   const eitherVariants: DeriveVariantInfo[] = [
@@ -389,12 +371,7 @@ describe("deriveGenericSum for parameterized sum types", () => {
     const derivation = builtinDerivations["Show"];
     assert(derivation.deriveGenericSum !== undefined);
 
-    const code = derivation.deriveGenericSum!(
-      "Either",
-      "_tag",
-      eitherVariants,
-      mockTypeParams,
-    );
+    const code = derivation.deriveGenericSum!("Either", "_tag", eitherVariants, mockTypeParams);
 
     assert(code !== undefined);
     // Should generate a factory function signature
@@ -411,12 +388,7 @@ describe("deriveGenericSum for parameterized sum types", () => {
     const derivation = builtinDerivations["Eq"];
     assert(derivation.deriveGenericSum !== undefined);
 
-    const code = derivation.deriveGenericSum!(
-      "Either",
-      "_tag",
-      eitherVariants,
-      mockTypeParams,
-    );
+    const code = derivation.deriveGenericSum!("Either", "_tag", eitherVariants, mockTypeParams);
 
     assert(code !== undefined);
     // Should generate a factory function signature
@@ -435,12 +407,7 @@ describe("deriveGenericSum for parameterized sum types", () => {
     const derivation = builtinDerivations["Ord"];
     assert(derivation.deriveGenericSum !== undefined);
 
-    const code = derivation.deriveGenericSum!(
-      "Either",
-      "_tag",
-      eitherVariants,
-      mockTypeParams,
-    );
+    const code = derivation.deriveGenericSum!("Either", "_tag", eitherVariants, mockTypeParams);
 
     assert(code !== undefined);
     // Should generate a factory function signature
@@ -461,7 +428,7 @@ describe("deriveGenericSum for parameterized sum types", () => {
       "Status",
       "_tag",
       [{ tag: "Active", typeName: "Active", fields: [] }],
-      [], // No type parameters - should fall back to regular derivation
+      [] // No type parameters - should fall back to regular derivation
     );
     // Should return undefined when there are no type parameters
     assert(code === undefined);
@@ -521,12 +488,7 @@ describe("derive macros support kind field in DeriveTypeInfo", () => {
 
 describe("type-level assertions", () => {
   it("DeriveTypeInfo includes kind field", () => {
-    typeAssert<
-      Equal<
-        Pick<DeriveTypeInfo, "kind">,
-        { kind: "product" | "sum" | "primitive" }
-      >
-    >();
+    typeAssert<Equal<Pick<DeriveTypeInfo, "kind">, { kind: "product" | "sum" | "primitive" }>>();
   });
 
   it("DeriveVariantInfo has required fields", () => {
@@ -534,11 +496,6 @@ describe("type-level assertions", () => {
   });
 
   it("GenericMeta has kind field", () => {
-    typeAssert<
-      Equal<
-        Pick<GenericMeta, "kind">,
-        { kind: "product" | "sum" | "primitive" }
-      >
-    >();
+    typeAssert<Equal<Pick<GenericMeta, "kind">, { kind: "product" | "sum" | "primitive" }>>();
   });
 });

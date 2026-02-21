@@ -62,7 +62,7 @@ const result = validateUser(data);
 
 result.fold(
   (errors) => console.error("Validation failed:", errors),
-  (user) => console.log("Valid user:", user.name),
+  (user) => console.log("Valid user:", user.name)
 );
 ```
 
@@ -94,8 +94,7 @@ function isUser(value: unknown): value is User {
     value !== null &&
     typeof (value as any).name === "string" &&
     typeof (value as any).age === "number" &&
-    ((value as any).email === undefined ||
-      typeof (value as any).email === "string")
+    ((value as any).email === undefined || typeof (value as any).email === "string")
   );
 }
 ```

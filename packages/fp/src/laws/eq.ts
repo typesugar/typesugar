@@ -50,8 +50,7 @@ export function eqLaws<A>(E: Eq<A>): LawSet {
       name: "transitivity",
       arity: 3,
       proofHint: "transitivity",
-      description:
-        "Equality is transitive: eqv(x, y) && eqv(y, z) implies eqv(x, z)",
+      description: "Equality is transitive: eqv(x, y) && eqv(y, z) implies eqv(x, z)",
       check: (x: A, y: A, z: A): boolean => {
         // If x == y and y == z, then x == z must hold
         if (E.eqv(x, y) && E.eqv(y, z)) {
@@ -111,10 +110,8 @@ export function ordLaws<A>(O: Ord<A>): LawSet {
       name: "totality",
       arity: 2,
       proofHint: "totality",
-      description:
-        "Any two values are comparable: compare(x,y) <= 0 || compare(y,x) <= 0",
-      check: (x: A, y: A): boolean =>
-        O.compare(x, y) <= 0 || O.compare(y, x) <= 0,
+      description: "Any two values are comparable: compare(x,y) <= 0 || compare(y,x) <= 0",
+      check: (x: A, y: A): boolean => O.compare(x, y) <= 0 || O.compare(y, x) <= 0,
     },
     {
       name: "consistency",

@@ -51,7 +51,7 @@ export const zeroCostResultMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
     const expr = callExpr.expression;
@@ -80,7 +80,7 @@ export const zeroCostResultMacro = defineExpressionMacro({
       if (method === "isErr" && args.length === 1) {
         return factory.createPrefixUnaryExpression(
           ts.SyntaxKind.ExclamationToken,
-          factory.createPropertyAccessExpression(args[0], "ok"),
+          factory.createPropertyAccessExpression(args[0], "ok")
         );
       }
     }

@@ -46,13 +46,7 @@ export const DEFAULT_PRELUDE: PreludeEntry[] = [
   {
     name: "Ord",
     module: "@typesugar/std",
-    methods: [
-      "compare",
-      "lessThan",
-      "greaterThan",
-      "lessThanOrEqual",
-      "greaterThanOrEqual",
-    ],
+    methods: ["compare", "lessThan", "greaterThan", "lessThanOrEqual", "greaterThanOrEqual"],
     operators: ["<", ">", "<=", ">="],
   },
   {
@@ -97,18 +91,13 @@ export const DEFAULT_PRELUDE: PreludeEntry[] = [
  * Get the list of prelude typeclasses from configuration.
  */
 export function getPreludeTypeclasses(): string[] {
-  return (
-    config.get<string[]>("resolution.prelude") ??
-    DEFAULT_PRELUDE.map((e) => e.name)
-  );
+  return config.get<string[]>("resolution.prelude") ?? DEFAULT_PRELUDE.map((e) => e.name);
 }
 
 /**
  * Get the full prelude entry for a typeclass.
  */
-export function getPreludeEntry(
-  typeclassName: string,
-): PreludeEntry | undefined {
+export function getPreludeEntry(typeclassName: string): PreludeEntry | undefined {
   return DEFAULT_PRELUDE.find((e) => e.name === typeclassName);
 }
 
@@ -150,9 +139,7 @@ export function generatePreludeDeclaration(): string {
     // Add method declarations as interface augmentations
     // Note: These are hints for the language service, not actual runtime augmentations
     for (const method of entry.methods) {
-      lines.push(
-        `  // ${entry.name}.${method}() available via implicit resolution`,
-      );
+      lines.push(`  // ${entry.name}.${method}() available via implicit resolution`);
     }
 
     if (entry.operators) {
@@ -176,9 +163,7 @@ export function generatePreludeDeclaration(): string {
  * Used for quick lookups during transformation.
  */
 export const METHOD_TO_TYPECLASS: Map<string, string> = new Map(
-  DEFAULT_PRELUDE.flatMap((entry) =>
-    entry.methods.map((method) => [method, entry.name] as const),
-  ),
+  DEFAULT_PRELUDE.flatMap((entry) => entry.methods.map((method) => [method, entry.name] as const))
 );
 
 /**
@@ -187,6 +172,6 @@ export const METHOD_TO_TYPECLASS: Map<string, string> = new Map(
  */
 export const OPERATOR_TO_TYPECLASS: Map<string, string> = new Map(
   DEFAULT_PRELUDE.filter((entry) => entry.operators).flatMap((entry) =>
-    entry.operators!.map((op) => [op, entry.name] as const),
-  ),
+    entry.operators!.map((op) => [op, entry.name] as const)
+  )
 );

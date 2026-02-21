@@ -32,7 +32,7 @@ export function foldableLaws<F, A, M>(
   Fld: Foldable<F>,
   Monoid: Monoid<M>,
   EqM: Eq<M>,
-  toM: (a: A) => M,
+  toM: (a: A) => M
 ): LawSet {
   return [
     {
@@ -42,12 +42,8 @@ export function foldableLaws<F, A, M>(
         "foldLeft and foldRight should produce the same result for commutative operations",
       check: (fa: $<F, A>): boolean => {
         // For a commutative monoid, foldLeft and foldRight should agree
-        const left = Fld.foldLeft(fa, Monoid.empty, (acc, a) =>
-          Monoid.combine(acc, toM(a)),
-        );
-        const right = Fld.foldRight(fa, Monoid.empty, (a, acc) =>
-          Monoid.combine(toM(a), acc),
-        );
+        const left = Fld.foldLeft(fa, Monoid.empty, (acc, a) => Monoid.combine(acc, toM(a)));
+        const right = Fld.foldRight(fa, Monoid.empty, (a, acc) => Monoid.combine(toM(a), acc));
         return EqM.eqv(left, right);
       },
     },
@@ -59,12 +55,10 @@ export function foldableLaws<F, A, M>(
       check: (fa: $<F, A>): boolean => {
         // foldMap implemented via foldRight
         const viaFoldRight = Fld.foldRight(fa, Monoid.empty, (a, acc) =>
-          Monoid.combine(toM(a), acc),
+          Monoid.combine(toM(a), acc)
         );
         // foldMap implemented via foldLeft (should be same for commutative monoids)
-        const viaFoldLeft = Fld.foldLeft(fa, Monoid.empty, (acc, a) =>
-          Monoid.combine(acc, toM(a)),
-        );
+        const viaFoldLeft = Fld.foldLeft(fa, Monoid.empty, (acc, a) => Monoid.combine(acc, toM(a)));
         return EqM.eqv(viaFoldRight, viaFoldLeft);
       },
     },
@@ -88,10 +82,7 @@ export function foldableOrderLaws<F, A>(Fld: Foldable<F>, EqA: Eq<A>): LawSet {
       check: (fa: $<F, A>): boolean => {
         const leftList = Fld.foldLeft<A, A[]>(fa, [], (acc, a) => [...acc, a]);
         // foldRight should give the same order when we cons from the right
-        const rightList = Fld.foldRight<A, A[]>(fa, [], (a, acc) => [
-          a,
-          ...acc,
-        ]);
+        const rightList = Fld.foldRight<A, A[]>(fa, [], (a, acc) => [a, ...acc]);
 
         if (leftList.length !== rightList.length) return false;
         return leftList.every((a, i) => EqA.eqv(a, rightList[i]));

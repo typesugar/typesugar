@@ -192,7 +192,7 @@ describe("Interval", () => {
       const a = interval(2, 6);
       const b = interval(2, 3);
       const quot = intervalDiv(a, b);
-      expect(intervalApproxEquals(quot, interval(2/3, 3))).toBe(true);
+      expect(intervalApproxEquals(quot, interval(2 / 3, 3))).toBe(true);
     });
 
     it("division by interval containing zero", () => {

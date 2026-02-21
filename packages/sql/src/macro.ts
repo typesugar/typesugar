@@ -36,11 +36,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-} from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // SQL Macro Definition
@@ -48,22 +44,18 @@ import {
 
 export const sqlMacro = defineExpressionMacro({
   name: "sql",
-  description:
-    "Doobie-style composable SQL fragments with type-safe parameter binding",
+  description: "Doobie-style composable SQL fragments with type-safe parameter binding",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[],
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const factory = ctx.factory;
 
     // sql`` is invoked as an expression macro wrapping a template literal
     if (args.length !== 1 || !ts.isTemplateLiteral(args[0])) {
-      ctx.reportError(
-        callExpr,
-        "sql expects a tagged template literal: sql`...`",
-      );
+      ctx.reportError(callExpr, "sql expects a tagged template literal: sql`...`");
       return callExpr;
     }
 
@@ -123,19 +115,18 @@ export const sqlMacro = defineExpressionMacro({
 function createFragmentConstructor(
   factory: ts.NodeFactory,
   segments: string[],
-  params: ts.Expression[],
+  params: ts.Expression[]
 ): ts.Expression {
   const segmentsArray = factory.createArrayLiteralExpression(
-    segments.map((s) => factory.createStringLiteral(s)),
+    segments.map((s) => factory.createStringLiteral(s))
   );
 
   const paramsArray = factory.createArrayLiteralExpression(params);
 
-  return factory.createNewExpression(
-    factory.createIdentifier("Fragment"),
-    undefined,
-    [segmentsArray, paramsArray],
-  );
+  return factory.createNewExpression(factory.createIdentifier("Fragment"), undefined, [
+    segmentsArray,
+    paramsArray,
+  ]);
 }
 
 /**
@@ -153,20 +144,18 @@ function createFragmentConstructor(
 function createSqlBuildCall(
   factory: ts.NodeFactory,
   segments: string[],
-  interpolations: ts.Expression[],
+  interpolations: ts.Expression[]
 ): ts.Expression {
   const segmentsArray = factory.createArrayLiteralExpression(
-    segments.map((s) => factory.createStringLiteral(s)),
+    segments.map((s) => factory.createStringLiteral(s))
   );
 
-  const interpolationsArray =
-    factory.createArrayLiteralExpression(interpolations);
+  const interpolationsArray = factory.createArrayLiteralExpression(interpolations);
 
-  return factory.createCallExpression(
-    factory.createIdentifier("__sql_build"),
-    undefined,
-    [segmentsArray, interpolationsArray],
-  );
+  return factory.createCallExpression(factory.createIdentifier("__sql_build"), undefined, [
+    segmentsArray,
+    interpolationsArray,
+  ]);
 }
 
 // ============================================================================

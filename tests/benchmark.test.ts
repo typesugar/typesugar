@@ -24,7 +24,7 @@ function createTestContext(sourceText: string): MacroContextImpl {
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    ts.ScriptKind.TS
   );
 
   const options: ts.CompilerOptions = {
@@ -36,9 +36,7 @@ function createTestContext(sourceText: string): MacroContextImpl {
   const program = ts.createProgram(["bench.ts"], options, {
     ...host,
     getSourceFile: (name) =>
-      name === "bench.ts"
-        ? sourceFile
-        : host.getSourceFile(name, ts.ScriptTarget.Latest),
+      name === "bench.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
 
   const transformContext: ts.TransformationContext = {
@@ -67,7 +65,7 @@ function createTestContext(sourceText: string): MacroContextImpl {
 function bench(
   name: string,
   fn: () => void,
-  iterations: number = 10_000,
+  iterations: number = 10_000
 ): { opsPerSec: number; avgMs: number } {
   // Warmup
   for (let i = 0; i < Math.min(100, iterations / 10); i++) fn();
@@ -94,7 +92,7 @@ describe("Performance benchmarks", () => {
       const node = ts.factory.createNumericLiteral(42);
       const result = bench("numeric literal", () => ctx.evaluate(node));
       console.log(
-        `  numeric literal: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  numeric literal: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(100_000);
     });
@@ -103,11 +101,11 @@ describe("Performance benchmarks", () => {
       const node = ts.factory.createBinaryExpression(
         ts.factory.createNumericLiteral(5),
         ts.SyntaxKind.PlusToken,
-        ts.factory.createNumericLiteral(3),
+        ts.factory.createNumericLiteral(3)
       );
       const result = bench("binary arithmetic", () => ctx.evaluate(node));
       console.log(
-        `  binary arithmetic: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  binary arithmetic: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(30_000);
     });
@@ -120,43 +118,39 @@ describe("Performance benchmarks", () => {
             ts.factory.createBinaryExpression(
               ts.factory.createNumericLiteral(2),
               ts.SyntaxKind.PlusToken,
-              ts.factory.createNumericLiteral(3),
-            ),
+              ts.factory.createNumericLiteral(3)
+            )
           ),
           ts.SyntaxKind.AsteriskToken,
           ts.factory.createParenthesizedExpression(
             ts.factory.createBinaryExpression(
               ts.factory.createNumericLiteral(4),
               ts.SyntaxKind.MinusToken,
-              ts.factory.createNumericLiteral(1),
-            ),
-          ),
+              ts.factory.createNumericLiteral(1)
+            )
+          )
         ),
         ts.SyntaxKind.PlusToken,
         ts.factory.createBinaryExpression(
           ts.factory.createNumericLiteral(10),
           ts.SyntaxKind.SlashToken,
-          ts.factory.createNumericLiteral(2),
-        ),
+          ts.factory.createNumericLiteral(2)
+        )
       );
       const result = bench("nested arithmetic", () => ctx.evaluate(node));
       console.log(
-        `  nested arithmetic: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  nested arithmetic: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(5_000);
     });
 
     it("array literal evaluation", () => {
       const node = ts.factory.createArrayLiteralExpression(
-        Array.from({ length: 20 }, (_, i) =>
-          ts.factory.createNumericLiteral(i),
-        ),
+        Array.from({ length: 20 }, (_, i) => ts.factory.createNumericLiteral(i))
       );
-      const result = bench("array literal (20 elements)", () =>
-        ctx.evaluate(node),
-      );
+      const result = bench("array literal (20 elements)", () => ctx.evaluate(node));
       console.log(
-        `  array literal (20 elements): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  array literal (20 elements): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(5_000);
     });
@@ -164,17 +158,12 @@ describe("Performance benchmarks", () => {
     it("object literal evaluation", () => {
       const node = ts.factory.createObjectLiteralExpression(
         Array.from({ length: 10 }, (_, i) =>
-          ts.factory.createPropertyAssignment(
-            `prop${i}`,
-            ts.factory.createNumericLiteral(i),
-          ),
-        ),
+          ts.factory.createPropertyAssignment(`prop${i}`, ts.factory.createNumericLiteral(i))
+        )
       );
-      const result = bench("object literal (10 props)", () =>
-        ctx.evaluate(node),
-      );
+      const result = bench("object literal (10 props)", () => ctx.evaluate(node));
       console.log(
-        `  object literal (10 props): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  object literal (10 props): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(5_000);
     });
@@ -185,12 +174,12 @@ describe("Performance benchmarks", () => {
         node = ts.factory.createBinaryExpression(
           node,
           ts.SyntaxKind.PlusToken,
-          ts.factory.createStringLiteral(String.fromCharCode(98 + i)),
+          ts.factory.createStringLiteral(String.fromCharCode(98 + i))
         );
       }
       const result = bench("string concat (10 ops)", () => ctx.evaluate(node));
       console.log(
-        `  string concat (10 ops): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  string concat (10 ops): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(5_000);
     });
@@ -200,16 +189,16 @@ describe("Performance benchmarks", () => {
         ts.factory.createBinaryExpression(
           ts.factory.createNumericLiteral(5),
           ts.SyntaxKind.GreaterThanToken,
-          ts.factory.createNumericLiteral(3),
+          ts.factory.createNumericLiteral(3)
         ),
         ts.factory.createToken(ts.SyntaxKind.QuestionToken),
         ts.factory.createStringLiteral("yes"),
         ts.factory.createToken(ts.SyntaxKind.ColonToken),
-        ts.factory.createStringLiteral("no"),
+        ts.factory.createStringLiteral("no")
       );
       const result = bench("ternary expression", () => ctx.evaluate(node));
       console.log(
-        `  ternary expression: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  ternary expression: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(10_000);
     });
@@ -222,10 +211,10 @@ describe("Performance benchmarks", () => {
         () => {
           globalRegistry.getExpression("comptime");
         },
-        100_000,
+        100_000
       );
       console.log(
-        `  expression lookup: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  expression lookup: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(1_000_000);
     });
@@ -236,10 +225,10 @@ describe("Performance benchmarks", () => {
         () => {
           globalRegistry.getByModuleExport("typemacro", "comptime");
         },
-        100_000,
+        100_000
       );
       console.log(
-        `  module-scoped lookup: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  module-scoped lookup: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(1_000_000);
     });
@@ -250,10 +239,10 @@ describe("Performance benchmarks", () => {
         () => {
           globalRegistry.getDerive("NonExistent");
         },
-        100_000,
+        100_000
       );
       console.log(
-        `  derive lookup (miss): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  derive lookup (miss): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(1_000_000);
     });
@@ -266,10 +255,10 @@ describe("Performance benchmarks", () => {
         () => {
           ctx.parseExpression("1 + 2");
         },
-        1_000,
+        1_000
       );
       console.log(
-        `  parse simple expr: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  parse simple expr: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(500);
     });
@@ -280,10 +269,10 @@ describe("Performance benchmarks", () => {
         () => {
           ctx.parseExpression('Show.summon<Point>("Point").show(p, extra)');
         },
-        1_000,
+        1_000
       );
       console.log(
-        `  parse complex expr: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  parse complex expr: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(500);
     });
@@ -297,16 +286,13 @@ describe("Performance benchmarks", () => {
         ctx.comptimeValueToExpression({ kind: "boolean", value: true });
       });
       console.log(
-        `  primitive conversion (3 types): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  primitive conversion (3 types): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(100_000);
     });
 
     it("nested object conversion", () => {
-      const props = new Map<
-        string,
-        import("../src/core/types.js").ComptimeValue
-      >();
+      const props = new Map<string, import("../src/core/types.js").ComptimeValue>();
       for (let i = 0; i < 10; i++) {
         props.set(`key${i}`, { kind: "number", value: i });
       }
@@ -318,7 +304,7 @@ describe("Performance benchmarks", () => {
         ctx.comptimeValueToExpression(value);
       });
       console.log(
-        `  nested object conversion (10 props): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  nested object conversion (10 props): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(10_000);
     });
@@ -329,7 +315,7 @@ describe("Performance benchmarks", () => {
       const node = ts.factory.createNumericLiteral(42);
       const result = bench("isComptime literal", () => ctx.isComptime(node));
       console.log(
-        `  isComptime literal: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  isComptime literal: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(100_000);
     });
@@ -339,29 +325,25 @@ describe("Performance benchmarks", () => {
         ts.factory.createBinaryExpression(
           ts.factory.createNumericLiteral(1),
           ts.SyntaxKind.PlusToken,
-          ts.factory.createNumericLiteral(2),
+          ts.factory.createNumericLiteral(2)
         ),
         ts.SyntaxKind.AsteriskToken,
-        ts.factory.createNumericLiteral(3),
+        ts.factory.createNumericLiteral(3)
       );
       const result = bench("isComptime nested", () => ctx.isComptime(node));
       console.log(
-        `  isComptime nested: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  isComptime nested: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(10_000);
     });
 
     it("array of literals check", () => {
       const node = ts.factory.createArrayLiteralExpression(
-        Array.from({ length: 50 }, (_, i) =>
-          ts.factory.createNumericLiteral(i),
-        ),
+        Array.from({ length: 50 }, (_, i) => ts.factory.createNumericLiteral(i))
       );
-      const result = bench("isComptime array (50 elements)", () =>
-        ctx.isComptime(node),
-      );
+      const result = bench("isComptime array (50 elements)", () => ctx.isComptime(node));
       console.log(
-        `  isComptime array (50 elements): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`,
+        `  isComptime array (50 elements): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
       );
       expect(result.opsPerSec).toBeGreaterThan(5_000);
     });

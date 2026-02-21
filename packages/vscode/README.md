@@ -76,20 +76,20 @@ The manifest contains all macro names, types, and metadata. The extension watche
 
 ### Settings
 
-| Setting                  | Description                | Default |
-| ------------------------ | -------------------------- | ------- |
+| Setting                       | Description                | Default |
+| ----------------------------- | -------------------------- | ------- |
 | `typesugar.enableCodeLens`    | Show expansion previews    | `true`  |
 | `typesugar.enableInlayHints`  | Show inline type hints     | `true`  |
 | `typesugar.enableDiagnostics` | Run background transformer | `true`  |
 
 ## Commands
 
-| Command                 | Description                    |
-| ----------------------- | ------------------------------ |
-| `typesugar.expandMacro`      | Expand macro at cursor         |
-| `typesugar.refreshManifest`  | Reload the manifest file       |
-| `typesugar.generateManifest` | Run `typesugar build --manifest`    |
-| `typesugar.addDerive`        | Add @derive to interface/class |
+| Command                      | Description                      |
+| ---------------------------- | -------------------------------- |
+| `typesugar.expandMacro`      | Expand macro at cursor           |
+| `typesugar.refreshManifest`  | Reload the manifest file         |
+| `typesugar.generateManifest` | Run `typesugar build --manifest` |
+| `typesugar.addDerive`        | Add @derive to interface/class   |
 
 ## Manifest Format
 
@@ -106,16 +106,7 @@ The manifest contains all macro names, types, and metadata. The extension watche
     "decorator": {
       "derive": {
         "module": "@typesugar/derive",
-        "args": [
-          "Eq",
-          "Ord",
-          "Clone",
-          "Debug",
-          "Hash",
-          "Default",
-          "Json",
-          "Builder"
-        ]
+        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder"]
       },
       "operators": {
         "module": "@typesugar/operators"

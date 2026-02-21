@@ -28,21 +28,9 @@ export { WriterModule as Writer };
 export { IdModule as Id };
 
 // Export specific constructors and types that are commonly used directly
-export {
-  type Option as OptionType,
-  Some,
-  None,
-  isSome,
-  isNone,
-} from "./option.js";
+export { type Option as OptionType, Some, None, isSome, isNone } from "./option.js";
 
-export {
-  type Either as EitherType,
-  Left,
-  Right,
-  isLeft,
-  isRight,
-} from "./either.js";
+export { type Either as EitherType, Left, Right, isLeft, isRight } from "./either.js";
 
 export { type List as ListType, Cons, Nil } from "./list.js";
 

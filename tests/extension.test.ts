@@ -143,10 +143,7 @@ describe("standalone extension registry", () => {
     it("should return all extensions for a type", () => {
       const exts = getStandaloneExtensionsForType("number");
       expect(exts).toHaveLength(2);
-      expect(exts.map((e) => e.methodName).sort()).toEqual([
-        "clamp",
-        "isPrime",
-      ]);
+      expect(exts.map((e) => e.methodName).sort()).toEqual(["clamp", "isPrime"]);
     });
 
     it("should return empty array for unknown type", () => {
@@ -191,10 +188,7 @@ describe("buildStandaloneExtensionCall", () => {
     const min = factory.createNumericLiteral(0);
     const max = factory.createNumericLiteral(100);
 
-    const result = buildStandaloneExtensionCall(factory, ext, receiver, [
-      min,
-      max,
-    ]);
+    const result = buildStandaloneExtensionCall(factory, ext, receiver, [min, max]);
 
     expect(ts.isCallExpression(result)).toBe(true);
 
@@ -216,10 +210,7 @@ describe("buildStandaloneExtensionCall", () => {
     const min = factory.createNumericLiteral(0);
     const max = factory.createNumericLiteral(100);
 
-    const result = buildStandaloneExtensionCall(factory, ext, receiver, [
-      min,
-      max,
-    ]);
+    const result = buildStandaloneExtensionCall(factory, ext, receiver, [min, max]);
 
     const printer = ts.createPrinter();
     const sourceFile = ts.createSourceFile("", "", ts.ScriptTarget.Latest);

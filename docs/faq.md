@@ -10,7 +10,7 @@ typesugar is a macro system for TypeScript. It lets you write code that transfor
 
 ### How is this different from Babel macros?
 
-| Feature     | typesugar                    | Babel macros           |
+| Feature     | typesugar               | Babel macros           |
 | ----------- | ----------------------- | ---------------------- |
 | Language    | TypeScript-first        | JavaScript-first       |
 | Type safety | Full type information   | Limited                |
