@@ -1,5 +1,5 @@
 {
-  "name": "typesugar",
+  "name": "@typesugar/vscode",
   "version": "0.1.0",
   "description": "🧊 IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
   "author": "Dean Povey <dean.povey@gmail.com>",
@@ -207,7 +207,7 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "prepackage": "node scripts/bundle-ts-plugin.js",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package --no-dependencies && node scripts/inject-ts-plugin.js",
     "publish": "vsce publish --no-dependencies"
   },
   "devDependencies": {

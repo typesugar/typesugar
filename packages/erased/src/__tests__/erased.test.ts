@@ -345,7 +345,8 @@ describe("Edge cases", () => {
 
   it("clone throws when CloneCapability is missing", () => {
     const e = showable("no-clone", String);
-    expect(() => clone(e as Erased<any>)).toThrow(/CloneCapability/);
+    // @ts-expect-error - intentionally passing wrong type to test runtime error
+    expect(() => clone(e)).toThrow(/CloneCapability/);
   });
 
   it("unwrapErased extracts the raw value", () => {

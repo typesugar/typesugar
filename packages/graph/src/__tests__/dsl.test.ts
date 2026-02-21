@@ -69,7 +69,7 @@ describe("parseStateMachine", () => {
       Idle --start--> Running
       Running --stop--> Idle
     `);
-    expect(sm.states.sort()).toEqual(["Idle", "Running"]);
+    expect([...sm.states].sort()).toEqual(["Idle", "Running"]);
     expect(sm.transitions).toHaveLength(2);
     expect(sm.initial).toBe("Idle");
   });
@@ -153,7 +153,7 @@ describe("stateMachine tagged template", () => {
       Idle --start--> Running
       Running --stop--> Idle
     `;
-    expect(sm.states.sort()).toEqual(["Idle", "Running"]);
+    expect([...sm.states].sort()).toEqual(["Idle", "Running"]);
     expect(sm.transitions).toHaveLength(2);
   });
 

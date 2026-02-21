@@ -20,7 +20,7 @@ describe("defineStateMachine", () => {
       { from: "Idle", event: "start", to: "Running" },
       { from: "Running", event: "stop", to: "Idle" },
     ]);
-    expect(sm.states.sort()).toEqual(["Idle", "Running"]);
+    expect([...sm.states].sort()).toEqual(["Idle", "Running"]);
     expect(sm.transitions).toHaveLength(2);
     expect(sm.initial).toBe("Idle");
   });
@@ -52,7 +52,7 @@ describe("parseStateMachine (DSL)", () => {
       Idle --start--> Running
       Running --stop--> Idle
     `);
-    expect(sm.states.sort()).toEqual(["Idle", "Running"]);
+    expect([...sm.states].sort()).toEqual(["Idle", "Running"]);
     expect(sm.transitions).toHaveLength(2);
   });
 
