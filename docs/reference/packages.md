@@ -61,6 +61,40 @@ getSuggestionsForSymbol;
 getSuggestionsForMethod;
 ```
 
+### @typesugar/macros {#macros}
+
+Built-in macro implementations. Internal package — most users should import from `typesugar` or specific feature packages.
+
+```bash
+npm install @typesugar/macros
+```
+
+**Exports:**
+
+```typescript
+// Typeclass System
+typeclassRegistry;
+instanceRegistry;
+instanceMethodRegistry;
+
+// Derive Infrastructure  
+defineCustomDerive;
+defineFieldDerive;
+extractTypeInfo;
+
+// Extension Methods
+standaloneExtensionRegistry;
+registerExtensions;
+
+// Operators
+syntaxRegistry;
+methodOperatorMappings;
+
+// And many more internal implementations...
+```
+
+**Inspired by:** Rust macro system, Scala 3 metaprogramming
+
 ### @typesugar/transformer {#transformer}
 
 The TypeScript transformer that expands macros.

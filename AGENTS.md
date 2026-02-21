@@ -80,6 +80,7 @@ packages/
 │
 │   ## Build Infrastructure
 ├── core/               # @typesugar/core — macro registration, types, context
+├── macros/             # @typesugar/macros — built-in macro implementations
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin
 ├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)

@@ -40,6 +40,7 @@ const VALID_CATEGORIES = [
 // Packages that don't need individual feature guides (Build Infrastructure + Developer Experience)
 const SKIP_GUIDE_CHECK = new Set([
   "core",
+  "macros",
   "transformer",
   "preprocessor",
   "unplugin-typesugar",

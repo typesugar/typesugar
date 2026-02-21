@@ -50,6 +50,7 @@ alice.toJson(); // JSON serialization
 | ------------------------------------------------- | ------------------------------------------------ |
 | [typesugar](packages/typesugar)                   | Umbrella package                                 |
 | [@typesugar/core](packages/core)                  | Macro registration and types                     |
+| [@typesugar/macros](packages/macros)              | Built-in macro implementations                   |
 | [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch)                |
 | [@typesugar/preprocessor](packages/preprocessor)  | Lexical preprocessor for custom syntax           |
 | [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack) |

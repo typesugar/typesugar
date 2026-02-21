@@ -1019,3 +1019,23 @@ globalRegistry.register(DefaultDerive);
 globalRegistry.register(JsonDerive);
 globalRegistry.register(BuilderDerive);
 globalRegistry.register(TypeGuardDerive);
+
+// Derive name symbols for use in @derive() decorators
+// These are used like: @derive(Eq, Ord)
+export const Eq: unique symbol = Symbol("Eq");
+
+export const Ord: unique symbol = Symbol("Ord");
+
+export const Clone: unique symbol = Symbol("Clone");
+
+export const Debug: unique symbol = Symbol("Debug");
+
+export const Hash: unique symbol = Symbol("Hash");
+
+export const Default: unique symbol = Symbol("Default");
+
+export const Json: unique symbol = Symbol("Json");
+
+export const Builder: unique symbol = Symbol("Builder");
+
+export const TypeGuard: unique symbol = Symbol("TypeGuard");
