@@ -327,9 +327,9 @@ describe("Preprocessor Edge Cases", () => {
       // Related to Finding #9: Source maps not always generated
       // See FINDINGS.md
       const source = `
-        const pipeline1 = __binop__(__binop__(x, "|>", f), "|>", g);
+        const pipeline1 = x |> f |> g;
         
-        const pipeline2 = __binop__(__binop__(y, "|>", h), "|>", i);
+        const pipeline2 = y |> h |> i;
       `;
       const { code, changed, sourceMap } = preprocess(source);
 

@@ -127,26 +127,50 @@ function computeLimitInternal(
   }
 
   if (direction === "left") {
-    if (leftValue !== null && Number.isFinite(leftValue)) {
-      return const_(leftValue);
+    if (leftValue !== null) {
+      if (Number.isFinite(leftValue)) {
+        return const_(leftValue);
+      }
+      // Finding #16: Return symbolic infinity for infinite limits
+      return const_(leftValue > 0 ? Infinity : -Infinity);
     }
-    throw new Error("Left limit does not exist or is infinite");
+    throw new Error("Left limit does not exist");
   }
 
   if (direction === "right") {
-    if (rightValue !== null && Number.isFinite(rightValue)) {
-      return const_(rightValue);
+    if (rightValue !== null) {
+      if (Number.isFinite(rightValue)) {
+        return const_(rightValue);
+      }
+      // Finding #16: Return symbolic infinity for infinite limits
+      return const_(rightValue > 0 ? Infinity : -Infinity);
     }
-    throw new Error("Right limit does not exist or is infinite");
+    throw new Error("Right limit does not exist");
   }
 
   // Both directions
-  if (
-    leftValue !== null &&
-    rightValue !== null &&
-    Number.isFinite(leftValue) &&
-    Number.isFinite(rightValue)
-  ) {
+  if (leftValue !== null && rightValue !== null) {
+    // Finding #16: Handle infinite limits
+    const leftInfinite = !Number.isFinite(leftValue);
+    const rightInfinite = !Number.isFinite(rightValue);
+
+    if (leftInfinite && rightInfinite) {
+      // Both infinite — check if same sign (both +∞ or both -∞)
+      if ((leftValue > 0) === (rightValue > 0)) {
+        return const_(leftValue > 0 ? Infinity : -Infinity);
+      }
+      throw new Error(
+        `Limit does not exist: left limit (${leftValue}) ≠ right limit (${rightValue})`
+      );
+    }
+
+    if (leftInfinite || rightInfinite) {
+      throw new Error(
+        `Limit does not exist: left limit (${leftValue}) ≠ right limit (${rightValue})`
+      );
+    }
+
+    // Both finite
     if (Math.abs(leftValue - rightValue) < epsilon * 1000) {
       return const_((leftValue + rightValue) / 2);
     }

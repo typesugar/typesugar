@@ -302,8 +302,25 @@ function inferDiscriminant(
   value: Record<string, unknown>,
   handlers: Record<string, unknown>
 ): string {
-  // Common discriminant names to try first
-  const commonNames = ["kind", "_tag", "type", "ok", "status", "tag", "discriminant"];
+  // Common discriminant names to try first (ordered by frequency)
+  // Finding #23: Extended list to cover more common patterns
+  const commonNames = [
+    "kind", // FP-TS, typesugar conventions
+    "_tag", // FP-TS convention
+    "type", // Redux actions, DOM events
+    "ok", // Result/Either patterns
+    "status", // HTTP responses, state machines
+    "tag", // Generic discriminant
+    "discriminant", // Explicit discriminant
+    "variant", // Rust-style enums
+    "action", // Redux-style actions
+    "event", // Event systems
+    "case", // Pattern matching
+    "state", // State machines
+    "name", // AST nodes, enums
+    "nodeType", // DOM nodes
+    "message", // Message systems
+  ];
 
   for (const name of commonNames) {
     if (name in value) {
