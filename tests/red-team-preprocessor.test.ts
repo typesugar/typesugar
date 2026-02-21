@@ -326,11 +326,18 @@ describe("Preprocessor Edge Cases", () => {
     it("Multiline with mixed operators", () => {
       // Related to Finding #9: Source maps not always generated
       // See FINDINGS.md
-      const source = `
-        const pipeline1 = x |> f |> g;
-        
-        const pipeline2 = y |> h |> i;
-      `;
+      // Use string concat to avoid prettier transforming the operators
+      const pipe = "|" + ">";
+      const source =
+        "const pipeline1 = x " +
+        pipe +
+        " f " +
+        pipe +
+        " g;\n\nconst pipeline2 = y " +
+        pipe +
+        " h " +
+        pipe +
+        " i;";
       const { code, changed, sourceMap } = preprocess(source);
 
       expect(changed).toBe(true);
