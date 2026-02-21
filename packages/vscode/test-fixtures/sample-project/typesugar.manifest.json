@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "macros": {
+    "expression": {
+      "comptime": { "module": "typesugar", "description": "Compile-time evaluation" },
+      "specialize": { "module": "typesugar", "description": "Zero-cost specialization" },
+      "summon": { "module": "typesugar", "description": "Typeclass instance lookup" }
+    },
+    "decorator": {
+      "derive": {
+        "module": "typesugar",
+        "description": "Auto-derive implementations",
+        "args": ["Eq", "Ord", "Clone", "Debug", "Hash"]
+      },
+      "typeclass": { "module": "typesugar", "description": "Define a typeclass" },
+      "instance": { "module": "typesugar", "description": "Define a typeclass instance" }
+    },
+    "taggedTemplate": {
+      "sql": { "module": "typesugar", "description": "SQL template", "contentType": "sql" },
+      "html": { "module": "typesugar", "description": "HTML template", "contentType": "html" }
+    },
+    "labeledBlock": {
+      "let": {
+        "module": "typesugar",
+        "description": "Monadic do-notation",
+        "continuations": ["yield", "pure"]
+      }
+    },
+    "type": {},
+    "extensionMethods": {
+      "show": { "typeclass": "Show", "description": "String representation", "returnType": "string" },
+      "clone": { "typeclass": "Clone", "description": "Deep copy", "returnType": "self" }
+    }
+  }
+}

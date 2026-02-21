@@ -163,3 +163,18 @@ export {
   type RawSourceMap,
   type ExpansionRecord,
 } from "./source-map.js";
+
+// AST Utilities
+export {
+  stripDecorator,
+  stripPositions,
+  jsValueToExpression,
+  getPrinter,
+  getDummySourceFile,
+  printNode,
+  splitTopLevel,
+  findMatchingParen,
+  getNestedValue,
+  evaluateConditionExpr,
+  type JsValueContext,
+} from "./ast-utils.js";

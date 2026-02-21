@@ -248,3 +248,232 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Summary**: Solid infrastructure package enabling custom TypeScript syntax. Well-tested. Internal plumbing not directly consumed by users.
 
 ---
+
+## @typesugar/prettier-plugin
+**Usefulness**: 5/5 - Essential infrastructure for any project using typesugar custom syntax with Prettier; without it, Prettier crashes on |>, ::, F<_>.
+**Completeness**: 4/5 - Core functionality complete (plugin, round-trip format, CLI, programmatic API), but test coverage thin (~50 lines).
+**Documentation**: 5/5 - Excellent README with clear explanation, CLI examples, API reference, integration guide; JSDoc on every export.
+**Coherence**: 4/5 - Well-integrated with typesugar architecture, uses preprocessor, handles __binop__.
+**Summary**: Essential, well-documented tooling package enabling Prettier on typesugar files. Needs more edge case testing.
+
+---
+
+## @typesugar/react
+**Usefulness**: 5/5 - Addresses real pain points: automatic dependency arrays, embedded component hoisting, compile-time purity checks.
+**Completeness**: 4/5 - Thorough implementation with full macros. However, fine-grained mode is stubbed, stale module name typemacro/react.
+**Documentation**: 4/5 - Well-structured README with transformation examples. Missing dedicated guide in docs/guides/.
+**Coherence**: 4/5 - Correctly uses core infrastructure, follows zero-cost principle. Stale module name needs update.
+**Summary**: Genuinely useful package bringing Vue/Svelte-style reactivity to React. Core functionality solid and production-ready.
+
+---
+
+## @typesugar/reflect
+**Usefulness**: 4/5 - Valuable for form generation, API validation, serialization, ORM mapping. Unique compile-time reflection in TS ecosystem.
+**Completeness**: 3/5 - Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection.
+**Documentation**: 4/5 - Clear README with examples. Good showcase. One example file has API bug.
+**Coherence**: 3/5 - Follows macro-based design, zero-cost. But requires explicit @reflect decorator—doesn't leverage auto-derivation pattern.
+**Summary**: Solid compile-time reflection but needs better complex type handling and auto-derivation integration.
+
+---
+
+## @typesugar/specialize
+**Usefulness**: 3/5 - Valuable for FP codebases but niche. Most projects won't need explicit specialization when @implicits handles it automatically.
+**Completeness**: 2/5 - Package is simplified stub. Real inlining logic in src/macros/specialize.ts (2700+ lines). This creates wrapper functions, not true zero-cost.
+**Documentation**: 4/5 - README well-structured with examples, before/after, performance table. Missing relationship to src/macros/specialize.ts.
+**Coherence**: 3/5 - Uses correct patterns but doesn't deliver on "zero-cost" promise. @implicits is preferred path per AGENTS.md.
+**Summary**: Provides useful API surface but actual zero-cost transformation lives elsewhere. Gap between docs and behavior.
+
+---
+
+## @typesugar/sql
+**Usefulness**: 3/5 - SQL query building is common, but mature alternatives exist (Kysely, Drizzle, Prisma). Doobie-style appeals mainly to Scala developers.
+**Completeness**: 2/5 - Core Fragment system solid, but advertised features incomplete: sql$ macro doesn't exist, @deriving(Read/Write) not working, ConnectionIO.flatMap has bug.
+**Documentation**: 3/5 - README has good basic examples, JSDoc extensive, but promises features not implemented. Showcase has incorrect assertions.
+**Coherence**: 3/5 - Good conceptual alignment but implementation doesn't deliver - macro integration incomplete, auto-derivation not working.
+**Summary**: Well-designed Doobie-style library that oversells macro features that aren't implemented. Needs completion before production-ready.
+
+---
+
+## @typesugar/std
+**Usefulness**: 5/5 - Extremely practical stdlib with 300+ extension methods (clamp, chunk, groupBy, camelCase), pattern matching macro, do-notation.
+**Completeness**: 4/5 - Core functionality production-ready. Some advanced typeclasses are interfaces only. Tests exist but no red-team coverage.
+**Documentation**: 4/5 - Good README with examples and API tables. Excellent showcase. Missing dedicated guide, inconsistent JSDoc on some exports.
+**Coherence**: 4/5 - Uses Op<> typeclass pattern correctly. Match macro compiles to zero-cost code (ternary chains, switch, binary search).
+**Summary**: Solid, high-value standard library. ~1400-line match.ts demonstrates zero-cost philosophy well.
+
+---
+
+## @typesugar/strings
+**Usefulness**: 2/5 - Limited real-world demand. regex marginally useful, html XSS redundant in frameworks, json duplicates object literals, fmt incomplete.
+**Completeness**: 2/5 - fmt macro explicitly incomplete, zero tests in package, uses stale project name (typemacro prefix).
+**Documentation**: 3/5 - README covers all macros with examples, guide exists. Missing JSDoc comments.
+**Coherence**: 2/5 - Stale naming, doesn't leverage typeclass system, html generates runtime helper calls (not truly zero-cost).
+**Summary**: Thin wrapper around basic string operations with limited compile-time value. Consider deprecating or completing fmt.
+
+---
+
+## @typesugar/symbolic
+**Usefulness**: 4/5 - Valuable for CAS, education, physics, LaTeX generation. Niche audience but well-executed.
+**Completeness**: 4/5 - Comprehensive AST, differentiation, basic integration, 3 rendering formats, pattern matching, equation solving.
+**Documentation**: 5/5 - Excellent README with full API coverage, comprehensive showcase with type assertions, thorough JSDoc.
+**Coherence**: 4/5 - Properly uses Op<> typeclass, provides Numeric<Expression<T>> instance, uses Refined<> for division safety. Comprehensive red-team tests (1334 lines).
+**Summary**: Well-implemented symbolic math package following typesugar patterns correctly. Production-ready for intended use cases.
+
+---
+
+## @typesugar/testing
+**Usefulness**: 4/5 - Power assertions with sub-expression capture, compile-time assertions, type-level assertions, property-based testing, parameterized tests.
+**Completeness**: 4/5 - All core features implemented. Missing advanced PBT features (shrinking, generator combinators, refined type integration).
+**Documentation**: 5/5 - Excellent README showing actual failure output, comprehensive API reference, Vitest integration guide. JSDoc on all public APIs.
+**Coherence**: 4/5 - Follows typesugar philosophy: staticAssert/typeAssert have zero runtime cost, uses proper macro infrastructure. @derive(Arbitrary) fits auto-derivation pattern.
+**Summary**: Well-implemented testing macro package bringing power-assert style diagnostics to TypeScript. Solid implementation and thorough documentation.
+
+---
+
+## @typesugar/transformer
+**Usefulness**: 5/5 - Core build infrastructure. Every typesugar user depends on this. Provides engine for all macro expansion, preprocessing, IDE integration.
+**Completeness**: 4/5 - Very comprehensive: full ts-patch transformer (~1500 lines), TransformationPipeline with source map composition, language service plugin, caching, rich CLI.
+**Documentation**: 3/5 - README covers installation, configuration, CLI commands. Missing deeper architectural explanation, troubleshooting, visual examples.
+**Coherence**: 5/5 - As build infrastructure, correctly doesn't use typeclasses itself—it enables them. Fully aligned with zero-cost philosophy. Modern patterns throughout.
+**Summary**: Essential, well-implemented build infrastructure forming backbone of typesugar. Production-ready with comprehensive CLI and IDE integration.
+
+---
+
+## @typesugar/ts-plugin
+**Usefulness**: 5/5 - Essential infrastructure. Without this, custom syntax would show red squiggles in IDEs.
+**Completeness**: 3/5 - Intentionally thin wrapper (23 lines) delegating to transformer/language-service. Good architecture. Missing tests.
+**Documentation**: 4/5 - Strong README with installation, config options, debugging guide, architecture explanation.
+**Coherence**: 4/5 - Follows design principles: single source of truth, CommonJS format as required by TS. Missing standard package files per module-lifecycle.
+**Summary**: Well-designed thin wrapper delegating to canonical implementation. Excellent docs but incomplete per module-lifecycle standards.
+
+---
+
+## @typesugar/type-system
+**Usefulness**: 4/5 - High utility for type-safe TS. Refinement types (Port, Byte, Email), newtypes, HKT encoding, Vec solve real problems.
+**Completeness**: 3/5 - Good API coverage but showcase.ts has API mismatches with implementation. No dedicated test suite.
+**Documentation**: 4/5 - Excellent README with feature organization, branding spectrum table. Some examples don't compile due to API drift.
+**Coherence**: 3/5 - Good zero-cost design (wrap/unwrap compile away). Uses macro infrastructure. Misses deeper integration with Op<> typeclass patterns.
+**Summary**: Well-designed type-level programming library. Zero-cost philosophy honored but operates standalone rather than integrating with typeclass system.
+
+---
+
+## @typesugar/typeclass
+**Usefulness**: 4/5 - Typeclasses are powerful, widely-applicable abstraction pattern for generic programming. Excellent for Scala-style ad-hoc polymorphism.
+**Completeness**: 2/5 - Package is simplified skeleton with gaps. Only 4 hardcoded derivations using naive JSON.stringify. Missing sum type support, transitive derivation, Op<> integration. No tests.
+**Documentation**: 3/5 - README has decent structure but doesn't reflect implementation limitations. Claims features that only work via src/macros/typeclass.ts.
+**Coherence**: 2/5 - Major architectural problem: parallel simplified implementation (~656 lines) duplicating src/macros/typeclass.ts (~2900 lines). JSON.stringify violates zero-cost.
+**Summary**: Concept valuable but appears to be early prototype never integrated with real implementation. Creates confusion between package and src/macros/ versions.
+
+---
+
+## typesugar (umbrella)
+**Usefulness**: 5/5 - Essential entry point for ecosystem. "One import to rule them all" - every user needs this for macros, bundler plugins, CLI.
+**Completeness**: 4/5 - Comprehensive re-exports from all major packages with bundler entry points and CLI. No dedicated test suite (only showcase.ts).
+**Documentation**: 4/5 - Well-structured README with installation, quick start, features table, bundler configs. Showcase (265 lines) excellent.
+**Coherence**: 3/5 - Stale references to "typemacro". README emphasizes @operators class decorator rather than preferred Op<> typeclass approach.
+**Summary**: Solid umbrella package consolidating ecosystem into one import. Main issues are stale references and not showcasing preferred Op<> pattern.
+
+---
+
+## @typesugar/units
+**Usefulness**: 3/5 - Real use case for scientific/engineering domains, but niche for general TypeScript.
+**Completeness**: 2/5 - Core dimension tracking works. README documents .to() method that doesn't exist. Temperature handling incorrect. Many missing features per TODO.md.
+**Documentation**: 3/5 - Well-structured README. Documents non-existent features. Missing required sections per module-lifecycle.
+**Coherence**: 2/5 - Major miss: doesn't use typeclass system at all. Uses .add()/.mul() methods instead of Op<> operators. Feels like standalone library.
+**Summary**: Functional dimension-tracking but doesn't leverage typesugar philosophy. Would benefit from Numeric/Ord typeclasses and Op<> pattern.
+
+---
+
+## unplugin-typesugar
+**Usefulness**: 5/5 - Essential for any real project; provides plugins for all major bundlers (Vite, Webpack, esbuild, Rollup).
+**Completeness**: 4/5 - Covers all major bundlers with include/exclude, verbose mode, syntax extensions, cache invalidation, source maps. Minor example file shows non-existent options.
+**Documentation**: 4/5 - Clear examples for all 4 bundlers, explains lifecycle, documents type-checker limitation. Minor README/implementation drift.
+**Coherence**: 5/5 - Uses unified TransformationPipeline, follows modern unplugin patterns, correctly delegates transformation. Build-time only = zero-cost.
+**Summary**: Well-architected bundler integration. Production-ready for all major bundlers with minor documentation drift.
+
+---
+
+## @typesugar/validate
+**Usefulness**: 3/5 - Solves real need for type-safe validation, but competes with mature alternatives (Zod, Valibot) without significant differentiation.
+**Completeness**: 2/5 - MVP implementation only. README shows Schema DSL that doesn't exist. Missing recursive arrays, discriminated unions, literals, tuples. Console.logs in production code.
+**Documentation**: 2/5 - README actively misleading - shows Schema DSL API not implemented. Missing required sections per module-lifecycle.
+**Coherence**: 3/5 - Correctly uses macro infrastructure and HKT encoding. Integrates with @typesugar/fp. Uses verbose AST factory instead of quote().
+**Summary**: Foundational architecture but significantly incomplete. README promises features that don't exist. Needs substantial work.
+
+---
+
+## @typesugar/vscode
+**Usefulness**: 4/5 - Essential DX for typesugar projects; provides semantic highlighting, CodeLens, inlay hints, code actions, diagnostics.
+**Completeness**: 4/5 - Comprehensive feature set: 7 semantic token types, manifest-driven macro detection, TS language service plugin. Missing test coverage.
+**Documentation**: 4/5 - Excellent README with architecture diagram, settings table, manifest format docs. Source files have file-level JSDoc.
+**Coherence**: 5/5 - Manifest-driven architecture adapts to custom macros without code changes. Properly integrates with transformer/pipeline. Follows VS Code best practices.
+**Summary**: Well-architected VS Code extension providing essential IDE support. Manifest-driven design is elegant. Main gaps: missing tests, heuristic expansion extraction.
+
+---
+
+# SUMMARY
+
+## Score Distribution
+
+| Score | Count | Packages |
+|-------|-------|----------|
+| 5/5   | 2     | eslint-plugin (usefulness), transformer (usefulness), ts-plugin (usefulness), unplugin (usefulness), std (usefulness), umbrella (usefulness), prettier-plugin (usefulness, docs), react (usefulness), effect (usefulness), testing (docs), erased (docs), symbolic (docs), math (docs), comptime (docs, coherence), core (completeness, coherence), transformer (coherence), unplugin (coherence), vscode (coherence) |
+| 4/5   | Many  | (see individual evaluations) |
+| 3/5   | Many  | (see individual evaluations) |
+| 2/5   | Many  | (see individual evaluations) |
+| 1/5   | 2     | macros (completeness, docs), named-args (coherence) |
+
+## Key Patterns Identified
+
+### Strong Packages (avg >= 4.0)
+- **@typesugar/core** — Exemplary infrastructure, well-documented, high coherence
+- **@typesugar/comptime** — Perfect zero-cost implementation, excellent docs
+- **@typesugar/transformer** — Essential, comprehensive, production-ready
+- **@typesugar/std** — High-value stdlib, 300+ methods, good match macro
+- **@typesugar/testing** — Power assertions, compile-time assertions, solid
+- **@typesugar/fp** — Comprehensive FP library, null-based Option is innovative
+- **@typesugar/effect** — High-quality Effect-TS integration
+- **@typesugar/prettier-plugin** — Essential tooling, well-documented
+- **@typesugar/symbolic** — Well-implemented with good Op<> usage and red-team tests
+- **@typesugar/math** — Mature library with proper typeclass integration
+- **@typesugar/vscode** — Well-architected extension with manifest-driven design
+
+### Packages Needing Work (avg <= 2.5)
+- **@typesugar/macros** — Non-functional, missing package.json, duplicates src/macros/
+- **@typesugar/named-args** — Not zero-cost, contradicts philosophy
+- **@typesugar/typeclass** — Stub duplicating canonical implementation
+- **@typesugar/strings** — Limited value, incomplete fmt, stale naming
+- **@typesugar/derive** — Missing sum types, misleading docs about operators
+- **@typesugar/units** — Doesn't use typeclass system, documents non-existent API
+- **@typesugar/validate** — README promises features that don't exist
+- **@typesugar/fusion** — Claims zero-cost but macros are stubs
+
+### Common Issues
+
+1. **Architecture Duplication** — Several packages duplicate src/macros/ instead of wrapping/re-exporting:
+   - @typesugar/macros, @typesugar/typeclass, @typesugar/derive, @typesugar/operators
+
+2. **Stale Project Names** — References to "typemacro" and "@ttfx" still present in:
+   - contracts README, drizzle JSDoc, kysely JSDoc, strings, react, umbrella
+
+3. **Missing Tests** — Many packages lack test directories:
+   - macros, eslint-plugin, derive, drizzle, kysely, operators, strings
+
+4. **Documentation/Implementation Drift** — READMEs promise features not implemented:
+   - validate (Schema DSL), units (.to() method), sql (sql$ macro), specialize (zero-cost)
+
+5. **Not Leveraging Typeclass System** — Several packages don't use Op<>, summon(), auto-derivation:
+   - geometry, graph, hlist, units, fusion, erased
+
+### Recommendations
+
+1. **Delete or complete @typesugar/macros** — It's non-functional and creates confusion
+2. **Consolidate typeclass implementations** — Align package with src/macros/typeclass.ts
+3. **Fix documentation/implementation drift** — Audit all READMEs for promised-but-unimplemented features
+4. **Add Op<> typeclass integration** — geometry, units, fusion should use operators
+5. **Update stale names** — Global find/replace typemacro→typesugar, @ttfx→@typesugar
+6. **Add missing test coverage** — Priority: eslint-plugin, derive, operators
+
+---
+
+*Generated: 2026-02-22*

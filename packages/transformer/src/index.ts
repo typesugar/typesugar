@@ -6,6 +6,10 @@
 
 import * as ts from "typescript";
 import { preprocess } from "@typesugar/preprocessor";
+
+// Import macro packages to register them with the global registry
+import "@typesugar/mapper";
+
 import {
   MacroContextImpl,
   createMacroContext,

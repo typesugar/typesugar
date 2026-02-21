@@ -43,6 +43,7 @@
     "@typesugar/mapper": "workspace:*",
     "@typesugar/contracts-refined": "workspace:*",
     "@typesugar/prettier-plugin": "workspace:*",
+    "@typesugar/strings": "workspace:*",
     "@typesugar/testing": "workspace:*",
     "@typesugar/transformer": "workspace:*",
     "@typesugar/ts-plugin": "workspace:*",

@@ -7,3 +7,9 @@ tsup.config.ts
 .vscode/
 *.log
 *.vsix
+
+# Test files
+test/**
+test-fixtures/**
+.vscode-test.mjs
+vitest.config.ts
