@@ -269,7 +269,7 @@ function transformMemberHKT(
       member.name,
       member.questionToken,
       member.typeParameters,
-      newParams,
+      factory.createNodeArray(newParams),
       member.type ? transformTypeHKT(ctx, member.type, kindParams) : undefined
     );
   }
@@ -332,7 +332,7 @@ function transformTypeHKT(
     return factory.updateFunctionTypeNode(
       type,
       type.typeParameters,
-      newParams,
+      factory.createNodeArray(newParams),
       type.type ? transformTypeHKT(ctx, type.type, kindParams) : type.type
     );
   }
@@ -382,7 +382,7 @@ function transformTypeHKT(
   if (ts.isTypeLiteralNode(type)) {
     return factory.updateTypeLiteralNode(
       type,
-      type.members.map((m) => transformMemberHKT(ctx, m, kindParams))
+      factory.createNodeArray(type.members.map((m) => transformMemberHKT(ctx, m, kindParams)))
     );
   }
 
@@ -402,6 +402,7 @@ function transformTypeHKT(
 export const hktAttribute = defineAttributeMacro({
   name: "hkt",
   description: "Enable HKT syntax (F<_> kind annotations) in an interface or type alias",
+  validTargets: ["interface", "typeAlias"],
   expand(ctx, decorator, node) {
     if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
       return transformHKTDeclaration(ctx, node);
