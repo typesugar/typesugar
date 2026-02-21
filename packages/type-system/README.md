@@ -111,6 +111,28 @@ type Result = $<ArrayF, number>; // number[]
 type AsyncResult = $<PromiseF, string>; // Promise<string>
 ```
 
+#### Warning: Phantom HKT Types
+
+When defining your own type-level functions for HKT, the `_` property **must** reference
+`this["_"]` to be sound. If `$<F, A>` always resolves to the same type regardless of `A`,
+the HKT encoding is phantom/unsound.
+
+```typescript
+// ✓ CORRECT: _ uses this["_"] - $<ArrayF, A> resolves to A[]
+interface ArrayF {
+  _: Array<this["_"]>;
+}
+
+// ✗ WRONG: _ doesn't use this["_"] - $<StringF, A> always resolves to string
+interface StringF {
+  _: string;
+}
+```
+
+Types that cannot be parameterized (e.g., primitives) should NOT implement typeclasses
+like `Functor` that change the element type via `map`. Use read-only typeclasses like
+`Foldable` instead. See Finding #2 in FINDINGS.md.
+
 ### Existential Types
 
 "There exists some type T" with CPS encoding — heterogeneous collections, type-safe plugins.

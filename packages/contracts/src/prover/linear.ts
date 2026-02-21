@@ -30,6 +30,14 @@ import type { ProofResult } from "./index.js";
 import type { ProofStep } from "./certificate.js";
 
 /**
+ * Shared regex patterns for parsing.
+ * Finding #10: Support scientific notation in numbers
+ * Finding #11: Support unicode variable names
+ */
+const NUM_PATTERN = "-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?";
+const VAR_PATTERN = "[\\p{L}\\p{N}_$]+";
+
+/**
  * A linear constraint in normalized form: sum(coeff[i] * var[i]) op constant
  */
 interface LinearConstraint {
@@ -58,6 +66,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
   const coefficients = new Map<string, number>();
 
   // Match patterns like: x > 0, x + y >= 0, 2*x - y <= 10, x == y, etc.
+  // Using shared patterns for unicode vars (Finding #11) and scientific notation (Finding #10)
 
   // Simple patterns
   const patterns: Array<{
@@ -66,7 +75,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
   }> = [
     // x > 0, x >= 0, x < 0, x <= 0
     {
-      regex: /^(\w+)\s*(>|>=|<|<=)\s*0$/,
+      regex: new RegExp(`^(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*0$`, "u"),
       parse: (m) => ({
         coefficients: new Map([[m[1], 1]]),
         operator: m[2] as LinearConstraint["operator"],
@@ -76,7 +85,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // x > y, x >= y, x < y, x <= y
     {
-      regex: /^(\w+)\s*(>|>=|<|<=)\s*(\w+)$/,
+      regex: new RegExp(`^(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*(${VAR_PATTERN})$`, "u"),
       parse: (m) => ({
         coefficients: new Map([
           [m[1], 1],
@@ -89,7 +98,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // x + y > 0, x + y >= 0
     {
-      regex: /^(\w+)\s*\+\s*(\w+)\s*(>|>=|<|<=)\s*0$/,
+      regex: new RegExp(`^(${VAR_PATTERN})\\s*\\+\\s*(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*0$`, "u"),
       parse: (m) => ({
         coefficients: new Map([
           [m[1], 1],
@@ -102,7 +111,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // x - y > 0, x - y >= 0
     {
-      regex: /^(\w+)\s*-\s*(\w+)\s*(>|>=|<|<=)\s*0$/,
+      regex: new RegExp(`^(${VAR_PATTERN})\\s*-\\s*(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*0$`, "u"),
       parse: (m) => ({
         coefficients: new Map([
           [m[1], 1],
@@ -113,9 +122,9 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
         source: pred,
       }),
     },
-    // x > c, x >= c, x < c, x <= c (numeric constant)
+    // x > c, x >= c, x < c, x <= c (numeric constant with scientific notation)
     {
-      regex: /^(\w+)\s*(>|>=|<|<=)\s*(-?\d+(?:\.\d+)?)$/,
+      regex: new RegExp(`^(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*(${NUM_PATTERN})$`, "u"),
       parse: (m) => ({
         coefficients: new Map([[m[1], 1]]),
         operator: m[2] as LinearConstraint["operator"],
@@ -125,7 +134,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // c > x, c >= x, etc.
     {
-      regex: /^(-?\d+(?:\.\d+)?)\s*(>|>=|<|<=)\s*(\w+)$/,
+      regex: new RegExp(`^(${NUM_PATTERN})\\s*(>|>=|<|<=)\\s*(${VAR_PATTERN})$`, "u"),
       parse: (m) => ({
         coefficients: new Map([[m[3], -1]]),
         operator: flipOperator(m[2] as LinearConstraint["operator"]),
@@ -135,7 +144,7 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // x == y
     {
-      regex: /^(\w+)\s*===?\s*(\w+)$/,
+      regex: new RegExp(`^(${VAR_PATTERN})\\s*===?\\s*(${VAR_PATTERN})$`, "u"),
       parse: (m) => ({
         coefficients: new Map([
           [m[1], 1],
@@ -148,7 +157,10 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // x + y > c
     {
-      regex: /^(\w+)\s*\+\s*(\w+)\s*(>|>=|<|<=)\s*(-?\d+(?:\.\d+)?)$/,
+      regex: new RegExp(
+        `^(${VAR_PATTERN})\\s*\\+\\s*(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*(${NUM_PATTERN})$`,
+        "u"
+      ),
       parse: (m) => ({
         coefficients: new Map([
           [m[1], 1],
@@ -161,7 +173,10 @@ function parseLinearConstraint(pred: string): LinearConstraint | undefined {
     },
     // Bounded: x >= a && x <= b
     {
-      regex: /^(\w+)\s*>=\s*(-?\d+(?:\.\d+)?)\s*&&\s*\1\s*<=\s*(-?\d+(?:\.\d+)?)$/,
+      regex: new RegExp(
+        `^(${VAR_PATTERN})\\s*>=\\s*(${NUM_PATTERN})\\s*&&\\s*\\1\\s*<=\\s*(${NUM_PATTERN})$`,
+        "u"
+      ),
       parse: () => undefined, // Handle as two separate constraints
     },
   ];
@@ -461,6 +476,131 @@ export function tryLinearProof(goal: string, facts: TypeFact[]): LinearProofResu
  * Handles common patterns directly.
  */
 export function trySimpleLinearProof(goal: string, facts: TypeFact[]): LinearProofResult {
+  // Pattern: Direct match - goal exactly matches a fact's predicate
+  const normalizedGoal = goal.trim();
+  const directMatch = facts.find((f) => f.predicate.trim() === normalizedGoal);
+  if (directMatch) {
+    return {
+      proven: true,
+      method: "linear",
+      reason: `Linear arithmetic: direct match`,
+      step: {
+        rule: "linear_direct_match",
+        description: `Goal directly matches a known fact`,
+        justification: `${normalizedGoal} is directly stated`,
+        usedFacts: [directMatch],
+        subgoals: [],
+      },
+    };
+  }
+
+  // Pattern: Stricter bound implies weaker bound
+  // e.g., x > 5 implies x > 0, x >= 10 implies x >= 0
+  const boundRegex = new RegExp(`^(${VAR_PATTERN})\\s*(>|>=|<|<=)\\s*(${NUM_PATTERN})$`, "u");
+  const boundMatch = goal.match(boundRegex);
+  if (boundMatch) {
+    const [, varName, goalOp, goalBoundStr] = boundMatch;
+    const goalBound = parseFloat(goalBoundStr);
+
+    // Find facts about this variable with bounds (including equality)
+    for (const fact of facts) {
+      // Check inequality facts
+      const factMatch = fact.predicate.match(boundRegex);
+      if (factMatch && factMatch[1] === varName) {
+        const [, , factOp, factBoundStr] = factMatch;
+        const factBound = parseFloat(factBoundStr);
+
+        // Check if fact implies goal
+        let implies = false;
+        let justification = "";
+
+        if (goalOp === ">" || goalOp === ">=") {
+          // Goal: x > c or x >= c
+          // Fact x > f implies goal if f >= c (for >) or f > c (for >=)
+          // Fact x >= f implies goal if f > c (for >) or f >= c (for >=)
+          if (factOp === ">" && factBound >= goalBound) {
+            implies = true;
+            justification = `${varName} > ${factBound} implies ${varName} ${goalOp} ${goalBound}`;
+          } else if (factOp === ">=" && factBound > goalBound) {
+            implies = true;
+            justification = `${varName} >= ${factBound} implies ${varName} ${goalOp} ${goalBound}`;
+          } else if (goalOp === ">=" && factOp === ">=" && factBound >= goalBound) {
+            implies = true;
+            justification = `${varName} >= ${factBound} implies ${varName} >= ${goalBound}`;
+          }
+        } else if (goalOp === "<" || goalOp === "<=") {
+          // Goal: x < c or x <= c
+          // Fact x < f implies goal if f <= c (for <) or f < c (for <=)
+          // Fact x <= f implies goal if f < c (for <) or f <= c (for <=)
+          if (factOp === "<" && factBound <= goalBound) {
+            implies = true;
+            justification = `${varName} < ${factBound} implies ${varName} ${goalOp} ${goalBound}`;
+          } else if (factOp === "<=" && factBound < goalBound) {
+            implies = true;
+            justification = `${varName} <= ${factBound} implies ${varName} ${goalOp} ${goalBound}`;
+          } else if (goalOp === "<=" && factOp === "<=" && factBound <= goalBound) {
+            implies = true;
+            justification = `${varName} <= ${factBound} implies ${varName} <= ${goalBound}`;
+          }
+        }
+
+        if (implies) {
+          return {
+            proven: true,
+            method: "linear",
+            reason: `Linear arithmetic: stricter bound implies weaker bound`,
+            step: {
+              rule: "linear_bound_implication",
+              description: `A stricter bound implies a weaker bound`,
+              justification,
+              usedFacts: [fact],
+              subgoals: [],
+            },
+          };
+        }
+      }
+
+      // Finding #12: Check equality facts (x == c implies x > d if c > d, etc.)
+      const eqRegex = new RegExp(`^(${VAR_PATTERN})\\s*===?\\s*(${NUM_PATTERN})$`, "u");
+      const eqMatch = fact.predicate.match(eqRegex);
+      if (eqMatch && eqMatch[1] === varName) {
+        const eqVal = parseFloat(eqMatch[2]);
+
+        let implies = false;
+        let justification = "";
+
+        if (goalOp === ">=" && eqVal >= goalBound) {
+          implies = true;
+          justification = `${varName} === ${eqVal} implies ${varName} >= ${goalBound}`;
+        } else if (goalOp === ">" && eqVal > goalBound) {
+          implies = true;
+          justification = `${varName} === ${eqVal} implies ${varName} > ${goalBound}`;
+        } else if (goalOp === "<=" && eqVal <= goalBound) {
+          implies = true;
+          justification = `${varName} === ${eqVal} implies ${varName} <= ${goalBound}`;
+        } else if (goalOp === "<" && eqVal < goalBound) {
+          implies = true;
+          justification = `${varName} === ${eqVal} implies ${varName} < ${goalBound}`;
+        }
+
+        if (implies) {
+          return {
+            proven: true,
+            method: "linear",
+            reason: `Linear arithmetic: equality implies inequality`,
+            step: {
+              rule: "linear_eq_implies_ineq",
+              description: `Equality implies all bounds satisfied by the value`,
+              justification,
+              usedFacts: [fact],
+              subgoals: [],
+            },
+          };
+        }
+      }
+    }
+  }
+
   // Pattern: x >= 0 given x > 0 (positive implies non-negative)
   const nonNegMatch = goal.match(/^(\w+)\s*>=\s*0$/);
   if (nonNegMatch) {
@@ -704,14 +844,34 @@ export function trySimpleLinearProof(goal: string, facts: TypeFact[]): LinearPro
 }
 
 /**
+ * Split compound predicates (e.g., "x >= 0 && x <= 255") into individual facts.
+ * This ensures both simple pattern matching and Fourier-Motzkin see atomic constraints.
+ */
+function splitFacts(facts: TypeFact[]): TypeFact[] {
+  const result: TypeFact[] = [];
+  for (const fact of facts) {
+    const parts = fact.predicate.split("&&").map((p) => p.trim());
+    for (const part of parts) {
+      if (part) {
+        result.push({ ...fact, predicate: part });
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Combined linear arithmetic proof.
  * Tries simple patterns first, then full Fourier-Motzkin.
  */
 export function tryLinearArithmetic(goal: string, facts: TypeFact[]): LinearProofResult {
+  // Normalize compound predicates before either proof strategy runs
+  const normalizedFacts = splitFacts(facts);
+
   // Try simple patterns first (fast)
-  const simple = trySimpleLinearProof(goal, facts);
+  const simple = trySimpleLinearProof(goal, normalizedFacts);
   if (simple.proven) return simple;
 
   // Try full Fourier-Motzkin (slower but more complete)
-  return tryLinearProof(goal, facts);
+  return tryLinearProof(goal, normalizedFacts);
 }

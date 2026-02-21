@@ -132,8 +132,13 @@ export function preprocess(source: string, options: PreprocessOptions = {}): Pre
       );
 
       if (operatorResult.changed) {
-        // Overwrite the entire content with the operator-rewritten result
-        // This loses fine-grained mapping but operators are typically simple transforms
+        // Overwrite the entire content with the operator-rewritten result.
+        // NOTE (Finding #9): This loses fine-grained source mapping because operator
+        // rewriting is iterative - each replacement changes positions of subsequent operators.
+        // A proper fix would require tracking cumulative position offsets or using MagicString
+        // throughout the iterative process. Since operators are typically simple transforms
+        // and source maps still work for HKT and other non-operator extensions, this is
+        // acceptable for now.
         s.overwrite(0, source.length, operatorResult.code);
         changed = true;
       }

@@ -216,11 +216,13 @@ function createComptimeSandbox(): Record<string, unknown> {
 
 /**
  * Convert a JavaScript runtime value to a TypeScript AST expression.
+ * Finding #15: Added circular reference detection
  */
 function jsValueToExpression(
   ctx: MacroContextImpl,
   value: unknown,
-  errorNode: ts.Node
+  errorNode: ts.Node,
+  seen?: WeakSet<object>
 ): ts.Expression {
   if (value === null) {
     return ctx.factory.createNull();
@@ -258,8 +260,19 @@ function jsValueToExpression(
     return ctx.factory.createBigIntLiteral(value.toString());
   }
 
+  // Initialize seen set for circular reference detection
+  const seenSet = seen ?? new WeakSet<object>();
+
   if (Array.isArray(value)) {
-    const elements = value.map((el) => jsValueToExpression(ctx, el, errorNode));
+    if (seenSet.has(value)) {
+      ctx.reportError(
+        errorNode,
+        "Cannot serialize comptime result: circular reference detected in array"
+      );
+      return ctx.factory.createIdentifier("undefined");
+    }
+    seenSet.add(value);
+    const elements = value.map((el) => jsValueToExpression(ctx, el, errorNode, seenSet));
     return ctx.factory.createArrayLiteralExpression(elements);
   }
 
@@ -271,6 +284,14 @@ function jsValueToExpression(
   }
 
   if (typeof value === "object") {
+    if (seenSet.has(value)) {
+      ctx.reportError(
+        errorNode,
+        "Cannot serialize comptime result: circular reference detected in object"
+      );
+      return ctx.factory.createIdentifier("undefined");
+    }
+    seenSet.add(value);
     const properties: ts.PropertyAssignment[] = [];
     for (const [key, val] of Object.entries(value)) {
       properties.push(
@@ -278,7 +299,7 @@ function jsValueToExpression(
           /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
             ? ctx.factory.createIdentifier(key)
             : ctx.factory.createStringLiteral(key),
-          jsValueToExpression(ctx, val, errorNode)
+          jsValueToExpression(ctx, val, errorNode, seenSet)
         )
       );
     }
@@ -301,20 +322,35 @@ function nodeToString(node: ts.Node, ctx: MacroContextImpl): string {
 
 /**
  * Convert a JS value to a ComptimeValue (for interop with the lightweight evaluator).
+ * Finding #14: Added BigInt support
+ * Finding #15: Added circular reference detection
  */
-export function jsToComptimeValue(value: unknown): ComptimeValue {
+export function jsToComptimeValue(value: unknown, seen?: WeakSet<object>): ComptimeValue {
   if (value === null) return { kind: "null" };
   if (value === undefined) return { kind: "undefined" };
   if (typeof value === "number") return { kind: "number", value };
   if (typeof value === "string") return { kind: "string", value };
   if (typeof value === "boolean") return { kind: "boolean", value };
+  if (typeof value === "bigint") return { kind: "bigint", value };
+
+  // Initialize seen set for circular reference detection
+  const seenSet = seen ?? new WeakSet<object>();
+
   if (Array.isArray(value)) {
-    return { kind: "array", elements: value.map(jsToComptimeValue) };
+    if (seenSet.has(value)) {
+      return { kind: "error", message: "Circular reference detected in array" };
+    }
+    seenSet.add(value);
+    return { kind: "array", elements: value.map((v) => jsToComptimeValue(v, seenSet)) };
   }
   if (typeof value === "object") {
+    if (seenSet.has(value)) {
+      return { kind: "error", message: "Circular reference detected in object" };
+    }
+    seenSet.add(value);
     const properties = new Map<string, ComptimeValue>();
     for (const [k, v] of Object.entries(value)) {
-      properties.set(k, jsToComptimeValue(v));
+      properties.set(k, jsToComptimeValue(v, seenSet));
     }
     return { kind: "object", properties };
   }

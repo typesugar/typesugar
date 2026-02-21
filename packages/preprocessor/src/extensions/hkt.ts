@@ -156,6 +156,7 @@ export const hktExtension: SyntaxExtension = {
     }
 
     // Phase 3: Generate replacements
+    // Handle nested HKT usages by composing them into single replacements
     const replacements: Replacement[] = [];
 
     for (const decl of declarations) {
@@ -168,15 +169,56 @@ export const hktExtension: SyntaxExtension = {
       });
     }
 
-    for (const usage of usages) {
-      // Extract args from token positions, handling whitespace correctly
-      // The args are between the end of < and start of >
-      const args = source.slice(usage.lessThanEnd, usage.greaterThanStart);
-      replacements.push({
-        start: usage.identStart,
-        end: usage.greaterThanEnd,
-        text: `$<${usage.param}, ${args}>`,
-      });
+    // Sort usages by span size (smallest first) so we process inner usages first
+    const sortedUsages = [...usages].sort((a, b) => {
+      const spanA = a.greaterThanEnd - a.identStart;
+      const spanB = b.greaterThanEnd - b.identStart;
+      return spanA - spanB;
+    });
+
+    // Build a map of position -> rewritten text for nested composition
+    // Key: "start:end" of the original span
+    const rewrittenSpans = new Map<string, string>();
+
+    for (const usage of sortedUsages) {
+      // Extract args from token positions
+      let args = source.slice(usage.lessThanEnd, usage.greaterThanStart);
+
+      // Check if any inner usages fall within this args range and substitute
+      for (const [spanKey, rewrittenText] of rewrittenSpans) {
+        const [startStr, endStr] = spanKey.split(":");
+        const innerStart = parseInt(startStr, 10);
+        const innerEnd = parseInt(endStr, 10);
+
+        // If inner span is within our args range, substitute it
+        if (innerStart >= usage.lessThanEnd && innerEnd <= usage.greaterThanStart) {
+          const originalInner = source.slice(innerStart, innerEnd);
+          args = args.replace(originalInner, rewrittenText);
+        }
+      }
+
+      const rewrittenText = `$<${usage.param}, ${args}>`;
+      const spanKey = `${usage.identStart}:${usage.greaterThanEnd}`;
+      rewrittenSpans.set(spanKey, rewrittenText);
+    }
+
+    // Only emit replacements for outermost usages (those not contained in another)
+    for (const usage of sortedUsages) {
+      const isNested = sortedUsages.some(
+        (other) =>
+          other !== usage &&
+          other.identStart <= usage.identStart &&
+          other.greaterThanEnd >= usage.greaterThanEnd
+      );
+
+      if (!isNested) {
+        const spanKey = `${usage.identStart}:${usage.greaterThanEnd}`;
+        replacements.push({
+          start: usage.identStart,
+          end: usage.greaterThanEnd,
+          text: rewrittenSpans.get(spanKey)!,
+        });
+      }
     }
 
     return replacements;

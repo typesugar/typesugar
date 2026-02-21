@@ -546,6 +546,8 @@ export class MacroContextImpl implements MacroContext {
         return value.value;
       case "number":
         return value.value !== 0;
+      case "bigint":
+        return value.value !== 0n;
       case "string":
         return value.value !== "";
       case "null":
@@ -568,6 +570,8 @@ export class MacroContextImpl implements MacroContext {
         return String(value.value);
       case "boolean":
         return String(value.value);
+      case "bigint":
+        return `${value.value}n`;
       case "null":
         return "null";
       case "undefined":
@@ -609,6 +613,8 @@ export class MacroContextImpl implements MacroContext {
         return this.createStringLiteral(value.value);
       case "boolean":
         return this.createBooleanLiteral(value.value);
+      case "bigint":
+        return this.factory.createBigIntLiteral(value.value.toString());
       case "null":
         return this.factory.createNull();
       case "undefined":

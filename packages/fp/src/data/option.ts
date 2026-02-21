@@ -25,16 +25,86 @@ import type { Semigroup, Monoid } from "../typeclasses/semigroup.js";
 // ============================================================================
 
 /**
+ * Defined<T> - Wrapper for values that may legitimately include null.
+ *
+ * Use this escape hatch when you need:
+ * - `Option<null>` (e.g., nullable JSON values)
+ * - `Option<string | null>` (e.g., optional nullable fields)
+ * - `Option<Option<T>>` (nested optionality)
+ *
+ * @example
+ * ```ts
+ * // Without Defined, this would cause type collapse
+ * type BadNested = Option<null>;  // Compile error
+ *
+ * // With Defined, it works correctly
+ * type GoodNested = Option<Defined<null>>;  // { value: null } | null
+ *
+ * const present = defined(null);     // { value: null } - Some(null)
+ * const absent: Option<Defined<null>> = None;  // null - None
+ *
+ * if (isSome(present)) {
+ *   const inner = unwrapDefined(present);  // null
+ * }
+ * ```
+ *
+ * @see Finding #1 in FINDINGS.md - Option<null> type collapse fix
+ */
+export type Defined<T> = { readonly value: T };
+
+/**
+ * Wrap a value that may be null in a Defined wrapper.
+ * This preserves the distinction between "no value" (None) and "value is null".
+ */
+export function defined<T>(value: T): Defined<T> {
+  return { value };
+}
+
+/**
+ * Unwrap a Defined value to get the inner value.
+ */
+export function unwrapDefined<T>(d: Defined<T>): T {
+  return d.value;
+}
+
+/**
  * Option data type - either a value A or null
  *
  * This is a true zero-cost abstraction: at runtime, Some(42) is just 42,
  * and None is just null. No wrapper objects are allocated.
+ *
+ * **Important**: A must not include null. If you need to represent nullable values
+ * inside an Option, use `Option<Defined<YourType>>`.
+ *
+ * **Caution with `unknown`**: `Option<unknown>` is degenerate because `unknown | null`
+ * simplifies to `unknown`. Use `Option<Defined<unknown>>` if you need to wrap truly
+ * unknown values. See Finding #5 in FINDINGS.md.
+ *
+ * @example
+ * ```ts
+ * // Good usage
+ * type MaybeNumber = Option<number>;  // number | null
+ *
+ * // Type error - null would collapse the Option
+ * type BadOption = Option<null>;  // Compile error!
+ *
+ * // Use Defined<T> for values that include null
+ * type NullableInside = Option<Defined<null>>;  // { value: null } | null
+ *
+ * // Use Defined<unknown> for truly unknown values
+ * type SafeUnknown = Option<Defined<unknown>>;  // { value: unknown } | null
+ * ```
+ *
+ * @see Defined<T> for the escape hatch when you need Option<null | ...>
+ * @see Finding #1, #5 in FINDINGS.md - Type collapse prevention
  */
 export type Option<A> = A | null;
 
 /**
  * Some type - represents presence of a non-null value
  * This is a type-level alias; at runtime it's just A
+ *
+ * Note: A must not include null.
  */
 export type Some<A> = A;
 

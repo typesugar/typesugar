@@ -171,6 +171,7 @@ export type ComptimeValue =
   | { kind: "number"; value: number }
   | { kind: "string"; value: string }
   | { kind: "boolean"; value: boolean }
+  | { kind: "bigint"; value: bigint } // Finding #14: BigInt support
   | { kind: "null" }
   | { kind: "undefined" }
   | { kind: "array"; elements: ComptimeValue[] }

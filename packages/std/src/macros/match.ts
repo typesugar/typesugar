@@ -42,6 +42,9 @@
  * });
  * // Compiles to: (kind === "circle" || kind === "square") ? handler : ...
  *
+ * // Note: If your discriminant value literally contains `|`, use quoted key names
+ * // and a separate handler for each variant. See Finding #7 in FINDINGS.md.
+ *
  * // Literal dispatch with compile-time exhaustiveness
  * const msg = match(statusCode, {
  *   200: () => "OK",
@@ -181,7 +184,14 @@ export function isType(
  * ```
  */
 export const P = {
-  /** Matches empty arrays: `arr.length === 0` */
+  /**
+   * Matches empty arrays: `arr.length === 0`
+   *
+   * Note: This also works on strings since strings have a `.length` property.
+   * Using `P.empty` on a string will return true for empty strings `""`.
+   * This is intentional - any value with `length === 0` matches.
+   * See Finding #6 in FINDINGS.md.
+   */
   empty: (arr: readonly unknown[]): boolean => arr.length === 0,
 
   /** Matches null or undefined */
@@ -259,12 +269,21 @@ export function match<T, R>(value: T, arms: GuardArm<T, R>[]): R;
 export function match(value: any, handlersOrArms: any, discriminant?: any): any {
   if (Array.isArray(handlersOrArms)) {
     for (const arm of handlersOrArms) {
-      if (arm.predicate(value)) return arm.handler(value);
+      const result = arm.predicate(value);
+      // Finding #4: Detect async predicates and throw helpful error
+      if (result && typeof result === "object" && typeof result.then === "function") {
+        throw new Error(
+          "match() guard predicates must be synchronous. " +
+            "Use await before match() for async logic."
+        );
+      }
+      if (result) return arm.handler(value);
     }
     throw new Error("Non-exhaustive match: no guard matched");
   }
   if (typeof value === "object" && value !== null) {
-    const key = discriminant ?? "kind";
+    // Finding #3: Try common discriminant names, then infer from handler keys
+    const key = discriminant ?? inferDiscriminant(value, handlersOrArms);
     const tag = value[key] as string;
     const handler = handlersOrArms[tag] ?? handlersOrArms._;
     if (!handler) throw new Error(`Non-exhaustive match: no handler for '${String(tag)}'`);
@@ -273,6 +292,45 @@ export function match(value: any, handlersOrArms: any, discriminant?: any): any 
   const handler = handlersOrArms[value] ?? handlersOrArms._;
   if (!handler) throw new Error(`Non-exhaustive match: no handler for '${String(value)}'`);
   return handler(value);
+}
+
+/**
+ * Infer discriminant from value and handler keys.
+ * Tries common discriminant names, then checks if handler keys match any property.
+ */
+function inferDiscriminant(
+  value: Record<string, unknown>,
+  handlers: Record<string, unknown>
+): string {
+  // Common discriminant names to try first
+  const commonNames = ["kind", "_tag", "type", "ok", "status", "tag", "discriminant"];
+
+  for (const name of commonNames) {
+    if (name in value) {
+      const tag = value[name];
+      // Check if handlers have a key matching this discriminant value
+      if (typeof tag === "string" || typeof tag === "number" || typeof tag === "boolean") {
+        const tagKey = String(tag);
+        if (tagKey in handlers || "_" in handlers) {
+          return name;
+        }
+      }
+    }
+  }
+
+  // Fallback: check if handler keys are "true"/"false" and look for boolean property
+  const handlerKeys = Object.keys(handlers).filter((k) => k !== "_");
+  if (handlerKeys.length === 2 && handlerKeys.includes("true") && handlerKeys.includes("false")) {
+    // Look for a boolean property in value
+    for (const [propName, propValue] of Object.entries(value)) {
+      if (typeof propValue === "boolean") {
+        return propName;
+      }
+    }
+  }
+
+  // Default fallback
+  return "kind";
 }
 
 /** @deprecated Use `match()` with literal keys instead */
