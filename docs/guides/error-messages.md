@@ -38,16 +38,17 @@ Every error has:
 
 ## Error Categories
 
-| Range | Category | Examples |
-| --- | --- | --- |
-| TS9001-TS9099 | Typeclass Resolution | No instance, ambiguous instances, coherence conflicts |
-| TS9101-TS9199 | Derive Failures | Missing field instance, unsupported type, circular derivation |
-| TS9201-TS9299 | Macro Syntax | Wrong argument count, invalid target, not compile-time constant |
-| TS9301-TS9399 | HKT | Invalid type-level function, kind mismatch |
-| TS9401-TS9499 | Extension Methods | Method not found, ambiguous extension |
-| TS9501-TS9599 | Comptime | Evaluation failed, permission denied |
-| TS9701-TS9799 | Import Resolution | Missing import, ambiguous resolution |
-| TS9801-TS9899 | Operators | Invalid overload, preprocessor/typeclass overlap |
+| Range         | Category             | Examples                                                        |
+| ------------- | -------------------- | --------------------------------------------------------------- |
+| TS9001-TS9099 | Typeclass Resolution | No instance, ambiguous instances, coherence conflicts           |
+| TS9101-TS9199 | Derive Failures      | Missing field instance, unsupported type, circular derivation   |
+| TS9201-TS9299 | Macro Syntax         | Wrong argument count, invalid target, not compile-time constant |
+| TS9301-TS9399 | HKT                  | Invalid type-level function, kind mismatch                      |
+| TS9401-TS9499 | Extension Methods    | Method not found, ambiguous extension                           |
+| TS9501-TS9599 | Comptime             | Evaluation failed, permission denied                            |
+| TS9601-TS9699 | Specialization       | Dictionary not registered, function body not inlineable         |
+| TS9701-TS9799 | Import Resolution    | Missing import, ambiguous resolution                            |
+| TS9801-TS9899 | Operators            | Invalid overload, preprocessor/typeclass overlap                |
 
 Full reference: [Error Code Reference](/errors/)
 
@@ -69,6 +70,7 @@ error[TS9001]: No instance found for `Show<ApiResponse>`
 ```
 
 **Fixes:**
+
 - Add `@derive(Show)` to both `ApiResponse` and `Headers`
 - Provide a manual `@instance` for the problematic field type
 - If it's a third-party type, create a newtype wrapper
@@ -173,6 +175,39 @@ error[TS9220]: @tailrec: recursive call is not in tail position
      +   if (n <= 1) return acc;
      +   return factorial(n - 1, n * acc);
      + }
+```
+
+### Specialization Fallback Warning (TS9601)
+
+When `specialize()` can't inline a function and falls back to dictionary passing:
+
+```
+warning[TS9601]: specialize(processItems): falling back to dictionary passing — try/catch
+  --> src/process.ts:12:15
+   |
+10 |   function processItems<F>(F: Functor<F>, items: Kind<F, Item>) {
+11 |     try {
+12 |       return F.map(items, validate);
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^
+13 |     } catch (e) { return items; }
+14 |   }
+   |
+   = help: Move error handling outside the specialized function
+```
+
+Common reasons for fallback:
+- **Dictionary not registered**: The instance isn't known to the compiler. Use `@instance` or `registerInstanceMethods()`.
+- **Function body not resolvable**: Can't find the function definition. Use `const fn = ...` or named `function`.
+- **Early return**: Multiple return paths prevent inlining. Extract into helpers.
+- **try/catch**: Error handling blocks inlining. Handle errors at a higher level.
+- **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.
+- **Mutable variables**: `let` bindings prevent inlining. Use `const` or fold/reduce patterns.
+
+Suppress with `// @no-specialize-warn`:
+
+```typescript
+// @no-specialize-warn
+const specialized = specialize(fn, dict);  // No warning emitted
 ```
 
 ## CLI: `--explain`

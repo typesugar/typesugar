@@ -33,6 +33,9 @@ importers:
       '@typesugar/type-system':
         specifier: workspace:*
         version: link:packages/type-system
+      magic-string:
+        specifier: ^0.30.21
+        version: 0.30.21
       react:
         specifier: ^19.2.4
         version: 19.2.4
@@ -326,6 +329,31 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.11)
 
+  packages/math:
+    dependencies:
+      '@typesugar/core':
+        specifier: workspace:*
+        version: link:../core
+      '@typesugar/geometry':
+        specifier: workspace:*
+        version: link:../geometry
+      '@typesugar/std':
+        specifier: workspace:*
+        version: link:../std
+      '@typesugar/units':
+        specifier: workspace:*
+        version: link:../units
+    devDependencies:
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.6)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.11)
+
   packages/named-args:
     dependencies:
       '@typesugar/core':
@@ -373,6 +401,28 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
     devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(postcss@8.5.6)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.11)
+
+  packages/prettier-plugin:
+    dependencies:
+      '@typesugar/preprocessor':
+        specifier: workspace:*
+        version: link:../preprocessor
+      magic-string:
+        specifier: ^0.30.0
+        version: 0.30.21
+    devDependencies:
+      prettier:
+        specifier: ^3.5.0
+        version: 3.8.1
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(postcss@8.5.6)(typescript@5.9.3)
@@ -537,6 +587,9 @@ importers:
 
   packages/unplugin-typesugar:
     dependencies:
+      '@ampproject/remapping':
+        specifier: ^2.3.0
+        version: 2.3.0
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
@@ -546,6 +599,9 @@ importers:
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
+      typesugar:
+        specifier: workspace:*
+        version: link:../typesugar
       unplugin:
         specifier: ^2.0.0
         version: 2.3.11
@@ -671,6 +727,10 @@ packages:
   '@algolia/requester-node-http@5.49.0':
     resolution: {integrity: sha512-S/B94C6piEUXGpN3y5ysmNKMEqdfNVAXYY+FxivEAV5IGJjbEuLZfT8zPPZUWGw9vh6lgP80Hye2G5aVBNIa8Q==}
     engines: {node: '>= 14.0.0'}
+
+  '@ampproject/remapping@2.3.0':
+    resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
+    engines: {node: '>=6.0.0'}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -2169,6 +2229,11 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
+  prettier@3.8.1:
+    resolution: {integrity: sha512-UOnG6LftzbdaHZcKoPFtOcCKztrQ57WkHDeRD9t/PTQtmT0NHSeWWepj6pS0z/N7+08BHFDQVUrfmfMRcZwbMg==}
+    engines: {node: '>=14'}
+    hasBin: true
+
   pretty-format@29.7.0:
     resolution: {integrity: sha512-Pdlw/oPxN+aXdmM9R00JVC9WVFoCLTKJvDVLgmJ+qAffBMxsV85l/Lu7sNx4zSzPyoL2euImuEwHhOXdEgNFZQ==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -2736,6 +2801,11 @@ snapshots:
   '@algolia/requester-node-http@5.49.0':
     dependencies:
       '@algolia/client-common': 5.49.0
+
+  '@ampproject/remapping@2.3.0':
+    dependencies:
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
 
   '@babel/code-frame@7.29.0':
     dependencies:
@@ -4036,6 +4106,8 @@ snapshots:
   preact@10.28.4: {}
 
   prelude-ls@1.2.1: {}
+
+  prettier@3.8.1: {}
 
   pretty-format@29.7.0:
     dependencies:

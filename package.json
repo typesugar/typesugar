@@ -37,6 +37,7 @@
     "@typesugar/testing": "workspace:*",
     "@typesugar/transformer": "workspace:*",
     "@typesugar/type-system": "workspace:*",
+    "magic-string": "^0.30.21",
     "react": "^19.2.4",
     "ts-patch": "^3.3.0",
     "tsup": "^8.5.1",
