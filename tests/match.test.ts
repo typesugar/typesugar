@@ -13,7 +13,7 @@ import {
   matchMacro,
   matchLiteralMacro,
   matchGuardMacro,
-} from "../packages/fp/src/zero-cost/match.js";
+} from "../packages/std/src/macros/match.js";
 
 // ============================================================================
 // Test Helpers
@@ -613,7 +613,7 @@ describe("match() macro", () => {
 
   describe("runtime fallbacks", () => {
     it("match() runtime should handle discriminated unions", async () => {
-      const { match } = await import("../packages/fp/src/zero-cost/match.js");
+      const { match } = await import("../packages/std/src/macros/match.js");
       type Shape =
         | { kind: "circle"; r: number }
         | { kind: "square"; s: number };
@@ -630,7 +630,7 @@ describe("match() macro", () => {
     });
 
     it("match() runtime should handle literal values", async () => {
-      const { match } = await import("../packages/fp/src/zero-cost/match.js");
+      const { match } = await import("../packages/std/src/macros/match.js");
       const result = (match as any)(200, {
         200: (v: number) => "OK",
         _: (v: number) => "other",
@@ -640,7 +640,7 @@ describe("match() macro", () => {
 
     it("match() runtime should handle guard arms", async () => {
       const { match, when, otherwise } =
-        await import("../packages/fp/src/zero-cost/match.js");
+        await import("../packages/std/src/macros/match.js");
       const result = (match as any)(25, [
         when(
           (n: number) => n < 18,
@@ -656,7 +656,7 @@ describe("match() macro", () => {
     });
 
     it("match() runtime should throw on non-exhaustive", async () => {
-      const { match } = await import("../packages/fp/src/zero-cost/match.js");
+      const { match } = await import("../packages/std/src/macros/match.js");
       type T = { kind: "a" } | { kind: "b" };
       const v: T = { kind: "b" };
       expect(() => match(v, { a: () => 1 } as any, "kind" as any)).toThrow(
@@ -666,7 +666,7 @@ describe("match() macro", () => {
 
     it("when() and otherwise() should create proper guard arms", async () => {
       const { when, otherwise } =
-        await import("../packages/fp/src/zero-cost/match.js");
+        await import("../packages/std/src/macros/match.js");
       const arm = when(
         (x: number) => x > 0,
         (x: number) => x * 2,
@@ -682,7 +682,7 @@ describe("match() macro", () => {
 
     it("matchLiteral() runtime should be backwards compatible", async () => {
       const { matchLiteral } =
-        await import("../packages/fp/src/zero-cost/match.js");
+        await import("../packages/std/src/macros/match.js");
       const result = matchLiteral(
         404 as 200 | 404,
         {
@@ -695,7 +695,7 @@ describe("match() macro", () => {
 
     it("matchGuard() runtime should be backwards compatible", async () => {
       const { matchGuard } =
-        await import("../packages/fp/src/zero-cost/match.js");
+        await import("../packages/std/src/macros/match.js");
       const result = matchGuard(42, [
         [(v: number) => v > 100, () => "big"],
         [() => true, () => "small"],
@@ -770,8 +770,7 @@ describe("match() macro", () => {
     });
 
     it("OR pattern runtime fallback should work", async () => {
-      const { match } =
-        await import("../packages/fp/src/zero-cost/match.js");
+      const { match } = await import("../packages/std/src/macros/match.js");
       type Shape =
         | { kind: "circle" }
         | { kind: "square" }
@@ -876,8 +875,7 @@ describe("match() macro", () => {
     });
 
     it("isType() runtime should work for primitives", async () => {
-      const { isType } =
-        await import("../packages/fp/src/zero-cost/match.js");
+      const { isType } = await import("../packages/std/src/macros/match.js");
 
       expect(isType("string")("hello")).toBe(true);
       expect(isType("string")(42)).toBe(false);
@@ -889,8 +887,7 @@ describe("match() macro", () => {
     });
 
     it("isType() runtime should work for classes", async () => {
-      const { isType } =
-        await import("../packages/fp/src/zero-cost/match.js");
+      const { isType } = await import("../packages/std/src/macros/match.js");
 
       expect(isType(Date)(new Date())).toBe(true);
       expect(isType(Date)("not a date")).toBe(false);
@@ -1048,8 +1045,7 @@ describe("match() macro", () => {
     });
 
     it("P runtime helpers should work correctly", async () => {
-      const { P } =
-        await import("../packages/fp/src/zero-cost/match.js");
+      const { P } = await import("../packages/std/src/macros/match.js");
 
       expect(P.empty([])).toBe(true);
       expect(P.empty([1])).toBe(false);
@@ -1066,12 +1062,8 @@ describe("match() macro", () => {
       expect(P.between(1, 10)(15)).toBe(false);
       expect(P.oneOf("a", "b", "c")("b")).toBe(true);
       expect(P.oneOf("a", "b", "c")("d")).toBe(false);
-      expect(
-        P.head((x: number) => x > 0)([5, -1]),
-      ).toBe(true);
-      expect(
-        P.head((x: number) => x > 0)([-1, 5]),
-      ).toBe(false);
+      expect(P.head((x: number) => x > 0)([5, -1])).toBe(true);
+      expect(P.head((x: number) => x > 0)([-1, 5])).toBe(false);
       expect(P.head((x: number) => x > 0)([])).toBe(false);
       expect(P.has("name")({ name: "test" })).toBe(true);
       expect(P.has("name")({ age: 5 })).toBe(false);
@@ -1121,7 +1113,7 @@ describe("match() macro", () => {
 
     it("full pipeline: runtime match with when + P + isType", async () => {
       const { match, when, otherwise, isType, P } =
-        await import("../packages/fp/src/zero-cost/match.js");
+        await import("../packages/std/src/macros/match.js");
       const values = [null, "hello", 42, [1, 2, 3], true];
 
       const results = values.map((v) =>
@@ -1134,13 +1126,7 @@ describe("match() macro", () => {
         ]),
       );
 
-      expect(results).toEqual([
-        "nil",
-        "string",
-        "number",
-        "array",
-        "other",
-      ]);
+      expect(results).toEqual(["nil", "string", "number", "array", "other"]);
     });
   });
 });

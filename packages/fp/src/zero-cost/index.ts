@@ -17,7 +17,8 @@
  *
  * @example
  * ```typescript
- * import { Option, Result, match, when, otherwise } from "@typesugar/fp/zero-cost";
+ * import { Option, Result } from "@typesugar/fp/zero-cost";
+ * import { match } from "@typesugar/std";
  *
  * // Zero-cost Option (compiles to null checks)
  * const name = Option.from(user.name)
@@ -28,15 +29,8 @@
  * const parsed = Result.try(() => JSON.parse(input))
  *   .map(data => data.name)
  *   .unwrapOr("unknown");
- *
- * // Zero-cost pattern matching (compiles to if/else chains)
- * const area = match(shape, {
- *   circle: (s) => Math.PI * s.radius ** 2,
- *   rect: (s) => s.width * s.height,
- * });
  * ```
  */
 
 export * from "./option.js";
 export * from "./result.js";
-export * from "./match.js";

@@ -21,7 +21,7 @@
  *
  * @example
  * ```typescript
- * import { match, when, otherwise, isType, P } from "@typesugar/fp/zero-cost";
+ * import { match, when, otherwise, isType, P } from "@typesugar/std";
  *
  * // Discriminated union with destructuring
  * type Shape =
@@ -125,7 +125,14 @@ export function otherwise<T, R>(handler: (value: T) => R): GuardArm<T, R> {
 // Type Patterns — isType() generates optimal runtime type guards
 // ============================================================================
 
-type PrimitiveTypeName = "string" | "number" | "boolean" | "bigint" | "symbol" | "undefined" | "function";
+type PrimitiveTypeName =
+  | "string"
+  | "number"
+  | "boolean"
+  | "bigint"
+  | "symbol"
+  | "undefined"
+  | "function";
 
 /**
  * Create a type guard predicate for use in match() guard arms.
@@ -145,9 +152,15 @@ type PrimitiveTypeName = "string" | "number" | "boolean" | "bigint" | "symbol" |
  * ]);
  * ```
  */
-export function isType(typeName: PrimitiveTypeName | "null" | "object"): (value: unknown) => boolean;
-export function isType<T>(ctor: new (...args: any[]) => T): (value: unknown) => value is T;
-export function isType(typeOrCtor: string | (new (...args: any[]) => any)): (value: unknown) => boolean {
+export function isType(
+  typeName: PrimitiveTypeName | "null" | "object",
+): (value: unknown) => boolean;
+export function isType<T>(
+  ctor: new (...args: any[]) => T,
+): (value: unknown) => value is T;
+export function isType(
+  typeOrCtor: string | (new (...args: any[]) => any),
+): (value: unknown) => boolean {
   if (typeof typeOrCtor === "string") {
     if (typeOrCtor === "null") return (v) => v === null;
     return (v) => typeof v === typeOrCtor;
@@ -710,7 +723,10 @@ function extractHandlers(
     } else {
       // OR patterns: split "circle|square" into ["circle", "square"]
       const names = rawName.includes("|")
-        ? rawName.split("|").map((s) => s.trim()).filter(Boolean)
+        ? rawName
+            .split("|")
+            .map((s) => s.trim())
+            .filter(Boolean)
         : [rawName];
       entries.push({ names, handler });
     }
@@ -843,41 +859,53 @@ function expandDiscriminantMatch(
         if (i < h.names.length - 1) {
           // Fall-through case (empty statement list)
           switchCases.push(
-            factory.createCaseClause(factory.createStringLiteral(h.names[i]), []),
+            factory.createCaseClause(
+              factory.createStringLiteral(h.names[i]),
+              [],
+            ),
           );
         } else {
           // Last name in the OR group gets the handler
           switchCases.push(
-            factory.createCaseClause(
-              factory.createStringLiteral(h.names[i]),
-              [factory.createReturnStatement(
+            factory.createCaseClause(factory.createStringLiteral(h.names[i]), [
+              factory.createReturnStatement(
                 factory.createCallExpression(h.handler, undefined, [paramId]),
-              )],
-            ),
+              ),
+            ]),
           );
         }
       }
     }
     const defaultBody = analysis.wildcardHandler
-      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [paramId])
+      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [
+          paramId,
+        ])
       : generateThrowIIFE(factory, "Non-exhaustive match");
     switchCases.push(
       factory.createDefaultClause([factory.createReturnStatement(defaultBody)]),
     );
 
-    const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+    const param = factory.createParameterDeclaration(
+      undefined,
+      undefined,
+      paramId,
+    );
     const switchStmt = factory.createSwitchStatement(
       factory.createPropertyAccessExpression(paramId, disc),
       factory.createCaseBlock(switchCases),
     );
     const fn = factory.createArrowFunction(
-      undefined, undefined, [param], undefined,
+      undefined,
+      undefined,
+      [param],
+      undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       factory.createBlock([switchStmt], true),
     );
     return factory.createCallExpression(
       factory.createParenthesizedExpression(fn),
-      undefined, [value],
+      undefined,
+      [value],
     );
   }
 
@@ -922,36 +950,45 @@ function expandIntegerMatch(
           );
         } else {
           switchCases.push(
-            factory.createCaseClause(
-              factory.createNumericLiteral(nums[i]),
-              [factory.createReturnStatement(
+            factory.createCaseClause(factory.createNumericLiteral(nums[i]), [
+              factory.createReturnStatement(
                 factory.createCallExpression(h.handler, undefined, [paramId]),
-              )],
-            ),
+              ),
+            ]),
           );
         }
       }
     }
     const defaultBody = analysis.wildcardHandler
-      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [paramId])
+      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [
+          paramId,
+        ])
       : generateThrowIIFE(factory, "Non-exhaustive match");
     switchCases.push(
       factory.createDefaultClause([factory.createReturnStatement(defaultBody)]),
     );
 
-    const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+    const param = factory.createParameterDeclaration(
+      undefined,
+      undefined,
+      paramId,
+    );
     const switchStmt = factory.createSwitchStatement(
       paramId,
       factory.createCaseBlock(switchCases),
     );
     const fn = factory.createArrowFunction(
-      undefined, undefined, [param], undefined,
+      undefined,
+      undefined,
+      [param],
+      undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       factory.createBlock([switchStmt], true),
     );
     return factory.createCallExpression(
       factory.createParenthesizedExpression(fn),
-      undefined, [value],
+      undefined,
+      [value],
     );
   }
 
@@ -966,27 +1003,30 @@ function expandIntegerMatch(
   // For ternary form, group OR'd integers into || conditions
   const entries = analysis.handlers.map((h) => {
     const nums = h.names.map(Number);
-    const condition = nums.length === 1
-      ? factory.createBinaryExpression(
-          value,
-          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-          factory.createNumericLiteral(nums[0]),
-        )
-      : factory.createParenthesizedExpression(
-          nums.map((n) =>
-            factory.createBinaryExpression(
-              value,
-              factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-              factory.createNumericLiteral(n),
-            ),
-          ).reduce((left, right) =>
-            factory.createBinaryExpression(
-              left,
-              factory.createToken(ts.SyntaxKind.BarBarToken),
-              right,
-            ),
-          ),
-        );
+    const condition =
+      nums.length === 1
+        ? factory.createBinaryExpression(
+            value,
+            factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            factory.createNumericLiteral(nums[0]),
+          )
+        : factory.createParenthesizedExpression(
+            nums
+              .map((n) =>
+                factory.createBinaryExpression(
+                  value,
+                  factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+                  factory.createNumericLiteral(n),
+                ),
+              )
+              .reduce((left, right) =>
+                factory.createBinaryExpression(
+                  left,
+                  factory.createToken(ts.SyntaxKind.BarBarToken),
+                  right,
+                ),
+              ),
+          );
     return {
       condition,
       result: factory.createCallExpression(h.handler, undefined, [value]),
@@ -1015,66 +1055,81 @@ function expandLiteralMatch(
       for (let i = 0; i < h.names.length; i++) {
         if (i < h.names.length - 1) {
           switchCases.push(
-            factory.createCaseClause(factory.createStringLiteral(h.names[i]), []),
+            factory.createCaseClause(
+              factory.createStringLiteral(h.names[i]),
+              [],
+            ),
           );
         } else {
           switchCases.push(
-            factory.createCaseClause(
-              factory.createStringLiteral(h.names[i]),
-              [factory.createReturnStatement(
+            factory.createCaseClause(factory.createStringLiteral(h.names[i]), [
+              factory.createReturnStatement(
                 factory.createCallExpression(h.handler, undefined, [paramId]),
-              )],
-            ),
+              ),
+            ]),
           );
         }
       }
     }
     const defaultBody = analysis.wildcardHandler
-      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [paramId])
+      ? factory.createCallExpression(analysis.wildcardHandler, undefined, [
+          paramId,
+        ])
       : generateThrowIIFE(factory, "Non-exhaustive match");
     switchCases.push(
       factory.createDefaultClause([factory.createReturnStatement(defaultBody)]),
     );
 
-    const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+    const param = factory.createParameterDeclaration(
+      undefined,
+      undefined,
+      paramId,
+    );
     const switchStmt = factory.createSwitchStatement(
       paramId,
       factory.createCaseBlock(switchCases),
     );
     const fn = factory.createArrowFunction(
-      undefined, undefined, [param], undefined,
+      undefined,
+      undefined,
+      [param],
+      undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       factory.createBlock([switchStmt], true),
     );
     return factory.createCallExpression(
       factory.createParenthesizedExpression(fn),
-      undefined, [value],
+      undefined,
+      [value],
     );
   }
 
   // Build ternary chain with OR conditions for multi-name handlers
   const entries = analysis.handlers.map((h) => {
-    const condition = h.names.length === 1
-      ? factory.createBinaryExpression(
-          value,
-          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-          factory.createStringLiteral(h.names[0]),
-        )
-      : factory.createParenthesizedExpression(
-          h.names.map((name) =>
-            factory.createBinaryExpression(
-              value,
-              factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-              factory.createStringLiteral(name),
-            ),
-          ).reduce((left, right) =>
-            factory.createBinaryExpression(
-              left,
-              factory.createToken(ts.SyntaxKind.BarBarToken),
-              right,
-            ),
-          ),
-        );
+    const condition =
+      h.names.length === 1
+        ? factory.createBinaryExpression(
+            value,
+            factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            factory.createStringLiteral(h.names[0]),
+          )
+        : factory.createParenthesizedExpression(
+            h.names
+              .map((name) =>
+                factory.createBinaryExpression(
+                  value,
+                  factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+                  factory.createStringLiteral(name),
+                ),
+              )
+              .reduce((left, right) =>
+                factory.createBinaryExpression(
+                  left,
+                  factory.createToken(ts.SyntaxKind.BarBarToken),
+                  right,
+                ),
+              ),
+          );
     return {
       condition,
       result: factory.createCallExpression(h.handler, undefined, [value]),
@@ -1103,10 +1158,17 @@ function tryOptimizeGuardPredicate(
   node: ts.Expression,
 ): ts.Expression | undefined {
   const paramId = factory.createIdentifier("__x");
-  const param = factory.createParameterDeclaration(undefined, undefined, paramId);
+  const param = factory.createParameterDeclaration(
+    undefined,
+    undefined,
+    paramId,
+  );
   const makeArrow = (body: ts.Expression) =>
     factory.createArrowFunction(
-      undefined, undefined, [param], undefined,
+      undefined,
+      undefined,
+      [param],
+      undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       body,
     );
@@ -1246,7 +1308,9 @@ function tryOptimizeGuardPredicate(
         ),
       );
       return makeArrow(
-        args.length > 1 ? factory.createParenthesizedExpression(combined) : combined,
+        args.length > 1
+          ? factory.createParenthesizedExpression(combined)
+          : combined,
       );
     }
     if (method === "head" && args.length === 1) {
@@ -1259,7 +1323,10 @@ function tryOptimizeGuardPredicate(
           ),
           factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
           factory.createCallExpression(args[0], undefined, [
-            factory.createElementAccessExpression(paramId, factory.createNumericLiteral(0)),
+            factory.createElementAccessExpression(
+              paramId,
+              factory.createNumericLiteral(0),
+            ),
           ]),
         ),
       );
@@ -1318,7 +1385,8 @@ function expandGuardMatch(
       const fnName = element.expression.text;
       if (fnName === "when" && element.arguments.length === 2) {
         const rawPred = element.arguments[0];
-        const predicate = tryOptimizeGuardPredicate(factory, rawPred) ?? rawPred;
+        const predicate =
+          tryOptimizeGuardPredicate(factory, rawPred) ?? rawPred;
         guardArms.push({
           predicate,
           handler: element.arguments[1],
@@ -1434,7 +1502,7 @@ function expandMatch(
 
 export const matchMacro = defineExpressionMacro({
   name: "match",
-  module: "@typesugar/fp",
+  module: "@typesugar/std",
   description:
     "Zero-cost exhaustive pattern matching with compile-time optimization",
   expand: expandMatch,
@@ -1442,14 +1510,14 @@ export const matchMacro = defineExpressionMacro({
 
 export const matchLiteralMacro = defineExpressionMacro({
   name: "matchLiteral",
-  module: "@typesugar/fp",
+  module: "@typesugar/std",
   description: "Zero-cost literal matching (deprecated — use match())",
   expand: expandMatch,
 });
 
 export const matchGuardMacro = defineExpressionMacro({
   name: "matchGuard",
-  module: "@typesugar/fp",
+  module: "@typesugar/std",
   description: "Zero-cost guard matching (deprecated — use match())",
   expand: expandMatch,
 });

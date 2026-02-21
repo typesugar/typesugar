@@ -25,10 +25,18 @@
  * - Pair, Triple (tuple utilities with bimap, swap, curry/uncurry)
  * - Range (Scala/Kotlin-style numeric ranges with iteration, filtering, mapping)
  *
+ * ## Macros
+ *
+ * - `match()` — zero-cost pattern matching with exhaustiveness checking
+ * - `when()` / `otherwise()` — guard arm constructors
+ * - `isType()` — compile-time type guards (typeof/instanceof/null)
+ * - `P` — array/structural pattern helpers (P.empty, P.length, P.between, etc.)
+ * - `let:` / `yield:` — do-notation for monadic types
+ *
  * @example
  * ```ts
  * import { extend } from '@typesugar/core';
- * import '@typesugar/std';
+ * import { match, when, otherwise } from '@typesugar/std';
  *
  * // Extension methods on numbers
  * extend(42).clamp(0, 100);
@@ -46,6 +54,12 @@
  * // Ranges
  * import { range, rangeToArray } from '@typesugar/std';
  * rangeToArray(range(1, 10)); // [1, 2, ..., 9]
+ *
+ * // Pattern matching
+ * const area = match(shape, {
+ *   circle: ({ radius }) => Math.PI * radius ** 2,
+ *   square: ({ side }) => side ** 2,
+ * });
  * ```
  */
 
@@ -58,7 +72,7 @@ export * from "./extensions";
 // Data types
 export * from "./data";
 
-// Macros (let:/yield:)
+// Macros (let:/yield:, match/when/otherwise/isType/P)
 export * from "./macros";
 
 // Specialization support (FlatMap instances registered for specialize() macro)

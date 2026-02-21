@@ -155,14 +155,6 @@ export {
   type ZeroCostOk,
   type ZeroCostErr,
   ZeroCostResultOps,
-  match,
-  when,
-  otherwise,
-  isType,
-  P,
-  type GuardArm,
-  matchLiteral,
-  matchGuard,
 } from "./zero-cost/index.js";
 
 // ============================================================================
