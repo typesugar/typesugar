@@ -161,6 +161,10 @@
         "title": "typesugar: Expand Macro at Cursor"
       },
       {
+        "command": "typesugar.showTransformed",
+        "title": "typesugar: Show Transformed Source"
+      },
+      {
         "command": "typesugar.refreshManifest",
         "title": "typesugar: Refresh Macro Manifest"
       },
@@ -197,6 +201,16 @@
           "type": "string",
           "default": "typesugar.manifest.json",
           "description": "Path to the macro manifest file (relative to workspace root)"
+        },
+        "typesugar.useLegacyPlugin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use legacy language service plugin (error suppression instead of full transformation)"
+        },
+        "typesugar.enableVerboseLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose logging for the language service plugin (useful for debugging)"
         }
       }
     }

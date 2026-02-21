@@ -2,14 +2,36 @@
   "name": "@typesugar/ts-plugin",
   "version": "0.1.0",
   "description": "TypeScript language service plugin for typesugar",
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dpovey/typesugar.git",
+    "directory": "packages/ts-plugin"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "index.js",
-    "index.d.ts",
-    "language-service.cjs"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@typesugar/transformer": "workspace:*"
+  },
   "peerDependencies": {
     "typescript": ">=5.0.0"
-  }
+  },
+  "keywords": [
+    "typescript",
+    "language-service",
+    "plugin",
+    "typesugar",
+    "macros"
+  ]
 }

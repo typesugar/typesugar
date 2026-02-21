@@ -1,5 +1,5 @@
 /**
- * Expansion Service — runs the typemacro transformer to get macro expansions.
+ * Expansion Service — runs the typesugar transformer to get macro expansions.
  *
  * This is the bridge between the VSCode extension and the actual macro system.
  * It manages a TypeScript Program instance, runs the transformer, and caches
@@ -75,7 +75,7 @@ export class ExpansionService {
   }
 
   /**
-   * Expand a single file by running the typemacro transformer.
+   * Expand a single file by running the typesugar transformer.
    * Returns the expansion result with computed values and diagnostics.
    */
   async expandFile(document: vscode.TextDocument): Promise<ExpansionResult | undefined> {
@@ -115,7 +115,7 @@ export class ExpansionService {
 
       // Collect diagnostics
       for (const diag of emitResult.diagnostics) {
-        if (diag.source === "typemacro" || diag.code === 90000) {
+        if (diag.source === "typesugar" || diag.code === 90000) {
           const message = ts.flattenDiagnosticMessageText(diag.messageText, "\n");
           let range: ExpansionDiagnostic["range"];
 
@@ -176,6 +176,69 @@ export class ExpansionService {
     return result.expandedText || undefined;
   }
 
+  /**
+   * Get the fully transformed source for a file.
+   * Uses the TransformationPipeline for preprocessing and macro expansion.
+   * Used by the "Show Transformed" command.
+   */
+  async getTransformedFile(document: vscode.TextDocument): Promise<string | undefined> {
+    try {
+      // Try to load the pipeline from the workspace's node_modules
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders?.length) return undefined;
+
+      const root = workspaceFolders[0].uri.fsPath;
+
+      // Find tsconfig.json
+      const configPath = ts.findConfigFile(
+        root,
+        ts.sys.fileExists,
+        "tsconfig.json"
+      );
+      if (!configPath) return undefined;
+
+      // Try to load the TransformationPipeline
+      const transformerPath = path.join(
+        root,
+        "node_modules",
+        "@typesugar",
+        "transformer",
+        "dist",
+        "pipeline.js"
+      );
+
+      let pipeline: typeof import("@typesugar/transformer/pipeline") | undefined;
+      try {
+        pipeline = await import(transformerPath);
+      } catch {
+        // Try alternative path
+        const altPath = path.join(root, "node_modules", "typesugar", "dist", "pipeline.js");
+        try {
+          pipeline = await import(altPath);
+        } catch {
+          return undefined;
+        }
+      }
+
+      if (!pipeline?.createPipeline) return undefined;
+
+      // Create pipeline and transform the file
+      const p = pipeline.createPipeline(configPath, { verbose: false });
+      const result = p.transform(document.uri.fsPath);
+
+      // Return transformed code if it changed
+      if (result.changed) {
+        return result.code;
+      }
+
+      // If no transformation, return undefined to indicate no changes
+      return undefined;
+    } catch (error) {
+      console.error("[typesugar] getTransformedFile error:", error);
+      return undefined;
+    }
+  }
+
   private getOrCreateProgram(document: vscode.TextDocument): ts.Program | undefined {
     // Find tsconfig.json
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -223,7 +286,7 @@ export class ExpansionService {
       const transformerPath = path.join(
         root,
         "node_modules",
-        "typemacro",
+        "typesugar",
         "dist",
         "transformer.js"
       );

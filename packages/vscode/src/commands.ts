@@ -1,13 +1,15 @@
 /**
  * Commands — user-facing commands registered by the extension.
  *
- * - typemacro.expandMacro: Show macro expansion in a side panel
- * - typemacro.refreshManifest: Reload the manifest from disk
- * - typemacro.generateManifest: Run `typemacro build --manifest`
- * - typemacro.addDerive: Quick-pick derive macros to add to a type
+ * - typesugar.expandMacro: Show macro expansion in a side panel
+ * - typesugar.showTransformed: Show full file transformation in diff view
+ * - typesugar.refreshManifest: Reload the manifest from disk
+ * - typesugar.generateManifest: Run `typesugar build --manifest`
+ * - typesugar.addDerive: Quick-pick derive macros to add to a type
  */
 
 import * as vscode from "vscode";
+import * as path from "path";
 import type { ManifestLoader } from "./manifest.js";
 import type { ExpansionService } from "./expansion.js";
 
@@ -19,7 +21,7 @@ export function registerCommands(
   // --- Expand Macro ---
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "typemacro.expandMacro",
+      "typesugar.expandMacro",
       async (uri?: vscode.Uri, position?: number) => {
         const editor = vscode.window.activeTextEditor;
         if (!editor && !uri) {
@@ -34,13 +36,13 @@ export function registerCommands(
         const expanded = await expansion.getExpansionAtPosition(targetDoc, targetPos);
         if (!expanded) {
           vscode.window.showInformationMessage(
-            "Could not expand macro. Make sure typemacro is installed in this project."
+            "Could not expand macro. Make sure typesugar is installed in this project."
           );
           return;
         }
 
         // Show expansion in a virtual document
-        const expandedUri = vscode.Uri.parse(`typemacro-expansion:${targetUri.fsPath}?expanded`);
+        const expandedUri = vscode.Uri.parse(`typesugar-expansion:${targetUri.fsPath}?expanded`);
 
         const provider = new (class implements vscode.TextDocumentContentProvider {
           provideTextDocumentContent(): string {
@@ -49,7 +51,7 @@ export function registerCommands(
         })();
 
         const registration = vscode.workspace.registerTextDocumentContentProvider(
-          "typemacro-expansion",
+          "typesugar-expansion",
           provider
         );
 
@@ -69,22 +71,80 @@ export function registerCommands(
     )
   );
 
+  // --- Show Transformed Source ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand("typesugar.showTransformed", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage("No active editor");
+        return;
+      }
+
+      const document = editor.document;
+      const fileName = document.fileName;
+
+      // Check if it's a TypeScript file
+      if (!fileName.match(/\.[tj]sx?$/)) {
+        vscode.window.showWarningMessage("typesugar.showTransformed only works on TypeScript/JavaScript files");
+        return;
+      }
+
+      // Get transformed content from the extension
+      const transformed = await expansion.getTransformedFile(document);
+      if (!transformed) {
+        vscode.window.showInformationMessage(
+          "No transformation applied to this file. It may not contain any typesugar syntax or macros."
+        );
+        return;
+      }
+
+      // Create a virtual document for the transformed content
+      const baseName = path.basename(fileName);
+      const transformedUri = vscode.Uri.parse(
+        `typesugar-transformed:${fileName}?transformed&t=${Date.now()}`
+      );
+
+      const provider = new (class implements vscode.TextDocumentContentProvider {
+        provideTextDocumentContent(): string {
+          return transformed;
+        }
+      })();
+
+      const registration = vscode.workspace.registerTextDocumentContentProvider(
+        "typesugar-transformed",
+        provider
+      );
+
+      // Open as diff view: original vs transformed
+      const originalUri = document.uri;
+      await vscode.commands.executeCommand(
+        "vscode.diff",
+        originalUri,
+        transformedUri,
+        `typesugar: ${baseName} (original ↔ transformed)`
+      );
+
+      // Clean up the provider after a delay
+      setTimeout(() => registration.dispose(), 60000);
+    })
+  );
+
   // --- Refresh Manifest ---
   context.subscriptions.push(
-    vscode.commands.registerCommand("typemacro.refreshManifest", async () => {
+    vscode.commands.registerCommand("typesugar.refreshManifest", async () => {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       if (!workspaceFolder) {
         vscode.window.showWarningMessage("No workspace folder open");
         return;
       }
       await manifest.initialize(workspaceFolder);
-      vscode.window.showInformationMessage("typemacro: Manifest refreshed");
+      vscode.window.showInformationMessage("typesugar: Manifest refreshed");
     })
   );
 
   // --- Generate Manifest ---
   context.subscriptions.push(
-    vscode.commands.registerCommand("typemacro.generateManifest", async () => {
+    vscode.commands.registerCommand("typesugar.generateManifest", async () => {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       if (!workspaceFolder) {
         vscode.window.showWarningMessage("No workspace folder open");
@@ -92,18 +152,18 @@ export function registerCommands(
       }
 
       const terminal = vscode.window.createTerminal({
-        name: "typemacro manifest",
+        name: "typesugar manifest",
         cwd: workspaceFolder.uri.fsPath,
       });
       terminal.show();
-      terminal.sendText("npx typemacro build --manifest");
+      terminal.sendText("npx typesugar build --manifest");
     })
   );
 
   // --- Add Derive ---
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "typemacro.addDerive",
+      "typesugar.addDerive",
       async (uri?: vscode.Uri, position?: number) => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {

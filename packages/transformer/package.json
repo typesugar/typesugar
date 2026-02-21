@@ -35,13 +35,39 @@
       "types": "./dist/language-service.d.ts",
       "import": "./dist/language-service.js",
       "require": "./dist/language-service.cjs"
+    },
+    "./pipeline": {
+      "types": "./dist/pipeline.d.ts",
+      "import": "./dist/pipeline.js",
+      "require": "./dist/pipeline.cjs"
+    },
+    "./virtual-host": {
+      "types": "./dist/virtual-host.d.ts",
+      "import": "./dist/virtual-host.js",
+      "require": "./dist/virtual-host.cjs"
+    },
+    "./position-mapper": {
+      "types": "./dist/position-mapper.d.ts",
+      "import": "./dist/position-mapper.js",
+      "require": "./dist/position-mapper.cjs"
+    },
+    "./source-map-utils": {
+      "types": "./dist/source-map-utils.d.ts",
+      "import": "./dist/source-map-utils.js",
+      "require": "./dist/source-map-utils.cjs"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "import": "./dist/cache.js",
+      "require": "./dist/cache.cjs"
     }
   },
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "keywords": [
     "typescript",
@@ -56,7 +82,13 @@
     "@typesugar/reflect": "workspace:*",
     "@typesugar/operators": "workspace:*",
     "@typesugar/typeclass": "workspace:*",
-    "@typesugar/specialize": "workspace:*"
+    "@typesugar/specialize": "workspace:*",
+    "@typesugar/preprocessor": "workspace:*",
+    "@ampproject/remapping": "^2.3.0",
+    "esbuild": "^0.20.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"

@@ -1414,3 +1414,48 @@ class MacroTransformer {
 
 // Also export for programmatic use
 export { MacroTransformer };
+
+// Re-export unified pipeline components
+export {
+  TransformationPipeline,
+  createPipeline,
+  transformCode,
+  type TransformResult,
+  type TransformDiagnostic,
+  type PipelineOptions,
+} from "./pipeline.js";
+
+export {
+  VirtualCompilerHost,
+  type VirtualCompilerHostOptions,
+  type PreprocessedFile,
+} from "./virtual-host.js";
+
+export {
+  type PositionMapper,
+  SourceMapPositionMapper,
+  IdentityPositionMapper,
+  createPositionMapper,
+  type TextRange,
+} from "./position-mapper.js";
+
+export {
+  composeSourceMaps,
+  decodeMappings,
+  decodeSourceMap,
+  findOriginalPosition,
+  findGeneratedPosition,
+  type RawSourceMap,
+  type DecodedSourceMap,
+  type DecodedSegment,
+  type SourcePosition,
+} from "./source-map-utils.js";
+
+export {
+  TransformCache,
+  DependencyGraph,
+  createTransformCache,
+  hashContent,
+  type PreprocessedCacheEntry,
+  type TransformCacheEntry,
+} from "./cache.js";
