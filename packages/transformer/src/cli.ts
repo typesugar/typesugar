@@ -17,6 +17,14 @@ import * as ts from "typescript";
 import * as path from "path";
 import macroTransformerFactory from "./index.js";
 
+// Register built-in macros (auto-registers on import)
+import "@typesugar/derive";
+import "@typesugar/comptime";
+import "@typesugar/reflect";
+import "@typesugar/operators";
+import "@typesugar/typeclass";
+import "@typesugar/specialize";
+
 type Command = "build" | "watch" | "check" | "expand" | "init" | "doctor" | "create";
 
 interface CliOptions {

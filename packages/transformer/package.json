@@ -50,14 +50,21 @@
     "ts-patch"
   ],
   "dependencies": {
-    "@typesugar/core": "workspace:*"
+    "@typesugar/core": "workspace:*",
+    "@typesugar/derive": "workspace:*",
+    "@typesugar/comptime": "workspace:*",
+    "@typesugar/reflect": "workspace:*",
+    "@typesugar/operators": "workspace:*",
+    "@typesugar/typeclass": "workspace:*",
+    "@typesugar/specialize": "workspace:*"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "language-service"
   ],
   "sideEffects": false
 }

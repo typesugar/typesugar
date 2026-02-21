@@ -642,12 +642,14 @@ class MacroTransformer {
         }
       }
 
-      const visited = ts.visitNode(stmt, this.visit.bind(this));
+      // Call visit directly instead of ts.visitNode to handle array returns
+      const visited = this.visit(stmt);
       if (visited) {
         if (Array.isArray(visited)) {
           newStatements.push(...(visited as ts.Node[]).filter(ts.isStatement));
-        } else {
-          newStatements.push(visited as ts.Statement);
+          modified = true;
+        } else if (ts.isStatement(visited)) {
+          newStatements.push(visited);
         }
       }
     }
@@ -898,16 +900,13 @@ class MacroTransformer {
       }
 
       if (macroName === "derive") {
-        const deriveMacroResolved = identNode
-          ? this.resolveMacroFromSymbol(identNode, "derive", "attribute")
-          : globalRegistry.getAttribute("derive");
-        if (deriveMacroResolved) {
-          const derives = this.expandDeriveDecorator(decorator, node, args);
-          if (derives) {
-            extraStatements.push(...derives);
-            wasTransformed = true;
-            continue;
-          }
+        // @derive(Eq, Clone, ...) is always handled specially - no need to check
+        // for a "derive" attribute macro since individual derives are registered
+        const derives = this.expandDeriveDecorator(decorator, node, args);
+        if (derives) {
+          extraStatements.push(...derives);
+          wasTransformed = true;
+          continue;
         }
       }
 
