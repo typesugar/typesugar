@@ -3,6 +3,7 @@
  */
 
 import * as ts from "typescript";
+import type { MacroExpansionCache } from "./cache.js";
 
 // ============================================================================
 // Operator Symbol Types (for Op<> typeclass method annotations)
@@ -90,6 +91,9 @@ export interface MacroContext {
 
   /** Hygiene context for scoped identifier generation */
   hygiene: HygieneContext;
+
+  /** Optional expansion cache for macro result caching */
+  expansionCache?: MacroExpansionCache;
 
   // -------------------------------------------------------------------------
   // Node Creation Utilities

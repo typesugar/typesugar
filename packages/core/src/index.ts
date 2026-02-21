@@ -187,3 +187,9 @@ export {
 
 // Re-export markPure from context
 export { markPure } from "./context.js";
+
+// Macro Expansion Cache
+export {
+  MacroExpansionCache,
+  InMemoryExpansionCache,
+} from "./cache.js";
