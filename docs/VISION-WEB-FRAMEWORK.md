@@ -407,18 +407,18 @@ export function useAuth() {
     user,      // Computed<User | null>
     isLoggedIn,// Computed<boolean>
 
-    login: (creds: Credentials) => fx {
-      result <- http.fetch<AuthResponse>("/api/login", {
-                    method: "POST", body: JSON.stringify(creds)
-                })
-      token.value = result.token  // all subscribers update
-      return result.user
-    },
+    login: (creds: Credentials) => fx(function*() {
+      const result = yield* http.fetch<AuthResponse>("/api/login", {
+        method: "POST", body: JSON.stringify(creds),
+      });
+      token.value = result.token;
+      return result.user;
+    }),
 
     logout: () => {
-      token.value = null
+      token.value = null;
     },
-  }
+  };
 }
 ```
 
@@ -1227,12 +1227,11 @@ The `use` block compiles to try/finally, ensuring cleanup even on errors or
 cancellation. Inspired by Cats Effect's `Resource` and Python's `with`.
 
 ```typescript
-const processFile = fx {
-  // 'use' guarantees cleanup — compiles to try/finally
-  handle <- use(openFile(path), file => file.close())
-  data   <- handle.readAll()
-  return parse(data)
-}
+const processFile = fx(function*() {
+  const handle = yield* use(openFile(path), file => file.close());
+  const data = yield* handle.readAll();
+  return parse(data);
+});
 ```
 
 **Compiles to:**
