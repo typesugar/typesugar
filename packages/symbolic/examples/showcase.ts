@@ -124,12 +124,11 @@ const t = var_("t");
 typeAssert<Equal<typeof x, Expression<number>>>();
 typeAssert<Equal<typeof PI, Expression<number>>>();
 
-// Build complex expressions using type-safe builders
-const quadratic = add(add(pow(x, TWO), mul(const_(3), x)), const_(2));
-// x² + 3x + 2
+// Build complex expressions using operators
+const quadratic = x * x + const_(3) * x + const_(2); // x² + 3x + 2
 
-const velocity = mul(const_(9.8), t); // v = 9.8t
-const position = mul(const_(0.5), mul(const_(9.8), pow(t, TWO))); // s = ½gt²
+const velocity = const_(9.8) * t; // v = 9.8t
+const position = const_(0.5) * const_(9.8) * t * t; // s = ½gt²
 
 // Type guards for pattern matching on AST nodes
 assert(isVariable(x));
@@ -155,7 +154,7 @@ assert(toText(div(ONE, x)) === "1 / x");
 assert(toText(sin(x)) === "sin(x)");
 
 // LaTeX rendering for mathematical documents
-const fraction = div(add(x, ONE), sub(x, ONE));
+const fraction = div(x + ONE, x - ONE);
 assert(toLatex(pow(x, TWO)) === "x^{2}");
 assert(toLatex(sqrt(x)) === "\\sqrt{x}");
 assert(toLatex(fraction) === "\\frac{x + 1}{x - 1}");
@@ -181,7 +180,7 @@ assert(mathml.includes("<mn>2</mn>"));
 // ============================================================================
 
 // Evaluate with variable bindings
-const expr = add(mul(x, x), mul(const_(2), x)); // x² + 2x
+const expr = x * x + const_(2) * x; // x² + 2x
 assert(evaluate(expr, { x: 3 }) === 15); // 9 + 6 = 15
 assert(evaluate(expr, { x: 0 }) === 0);
 assert(evaluate(expr, { x: -1 }) === -1); // 1 - 2 = -1
@@ -197,13 +196,13 @@ assert(Math.abs(evaluate(log(E), {}) - 1) < 1e-10); // log(e) = 1
 assert(Math.abs(evaluate(exp(ONE), {}) - Math.E) < 1e-10); // e¹ = e
 
 // Partial evaluation: substitute known values, keep unknowns symbolic
-const partial = partialEvaluate(add(x, add(const_(1), const_(2))), {});
+const partial = partialEvaluate(x + const_(1) + const_(2), {});
 // Constants folded: x + 3
 
 // Check if expression can be fully evaluated
 assert(!canEvaluate(x, {})); // x unbound
 assert(canEvaluate(x, { x: 5 })); // x bound
-assert(canEvaluate(add(ONE, TWO), {})); // pure constants
+assert(canEvaluate(ONE + TWO, {})); // pure constants
 
 // Summation and product evaluation
 const sumExpr = sum(var_("i"), "i", const_(1), const_(5)); // Σ i from 1 to 5
@@ -305,7 +304,7 @@ assert(hardIntegral.success === false); // Integration by parts not implemented
 // ============================================================================
 
 // Direct substitution
-const limDirect = computeLimit(add(x, ONE), "x", 2);
+const limDirect = computeLimit(x + ONE, "x", 2);
 assert(limDirect.exists);
 if (limDirect.exists) {
   assert(evaluate(limDirect.value, {}) === 3);
@@ -346,11 +345,11 @@ assert(isZero(simplify(sub(x, x)))); // x - x = 0
 assert(isOne(simplify(div(x, x)))); // x / x = 1
 
 // Expand distributive law: (x+1)(x+2) = x² + 3x + 2
-const factored = mul(add(x, ONE), add(x, TWO));
+const factored = (x + ONE) * (x + TWO);
 const expanded = expand(factored);
 
 // Collect like terms: x + x + x = 3x
-const collected = collectTerms(add(x, add(x, x)), "x");
+const collected = collectTerms(x + x + x, "x");
 
 // ============================================================================
 // 8. PATTERN MATCHING - Expression Rewriting
@@ -380,7 +379,7 @@ const rewritten = rewrite(original, [commuteAdd]); // x + 1
 // ============================================================================
 
 // Linear equation: 2x + 3 = 7 → x = 2
-const linear = equation(add(mul(TWO, x), const_(3)), const_(7));
+const linear = equation(TWO * x + const_(3), const_(7));
 const linearSol = solve(linear, "x");
 assert(linearSol.success);
 if (linearSol.success && linearSol.solutions.length > 0) {
@@ -389,7 +388,7 @@ if (linearSol.success && linearSol.solutions.length > 0) {
 }
 
 // Quadratic equation: x² - 5x + 6 = 0 → x = 2 or x = 3
-const quadEq = sub(sub(pow(x, TWO), mul(const_(5), x)), const_(-6));
+const quadEq = x * x - const_(5) * x + const_(6);
 const quadSol = solve(quadEq, "x");
 assert(quadSol.success);
 if (quadSol.success) {
@@ -402,8 +401,8 @@ if (quadSol.success) {
 // Solution: x = 3, y = 2
 const system = solveSystem(
   [
-    { left: add(x, y), right: const_(5) },
-    { left: sub(x, y), right: ONE },
+    { left: x + y, right: const_(5) },
+    { left: x - y, right: ONE },
   ],
   ["x", "y"]
 );
