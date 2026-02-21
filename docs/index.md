@@ -284,11 +284,16 @@ assert(user.age > 18 && user.name.length > 0);
 //          |    16  false |    ""   0      false
 //          { age: 16, name: "" }
 
-class Point { constructor(public x: number, public y: number) {} }
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
 
 // forAll auto-derives Arbitrary generators from field types
 forAll(Point, (p) => p.x + p.y === p.y + p.x);
-forAll(Point, 1000, (p) => p.x * 0 === 0);  // custom iteration count
+forAll(Point, 1000, (p) => p.x * 0 === 0); // custom iteration count
 ```
 
 [Effect Integration](/guides/effect) · [Testing Guide](/guides/testing)
