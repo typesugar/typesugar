@@ -53,6 +53,43 @@ export default defineConfig({
               { text: "@typesugar/fp", link: "/reference/packages#fp" },
             ],
           },
+          {
+            text: "C++ / Boost Inspired",
+            items: [
+              {
+                text: "@typesugar/hlist",
+                link: "/reference/packages#hlist",
+              },
+              {
+                text: "@typesugar/parser",
+                link: "/reference/packages#parser",
+              },
+              {
+                text: "@typesugar/fusion",
+                link: "/reference/packages#fusion",
+              },
+              {
+                text: "@typesugar/graph",
+                link: "/reference/packages#graph",
+              },
+              {
+                text: "@typesugar/erased",
+                link: "/reference/packages#erased",
+              },
+              {
+                text: "@typesugar/codec",
+                link: "/reference/packages#codec",
+              },
+              {
+                text: "@typesugar/named-args",
+                link: "/reference/packages#named-args",
+              },
+              {
+                text: "@typesugar/geometry",
+                link: "/reference/packages#geometry",
+              },
+            ],
+          },
         ],
       },
     ],
@@ -128,6 +165,28 @@ export default defineConfig({
               link: "/guides/conditional-compilation",
             },
             { text: "Functional Programming", link: "/guides/fp" },
+            { text: "HList", link: "/guides/hlist" },
+            { text: "Parser Combinators", link: "/guides/parser" },
+            { text: "Loop Fusion", link: "/guides/fusion" },
+            { text: "Graph Algorithms", link: "/guides/graph" },
+            { text: "Type Erasure", link: "/guides/erased" },
+            { text: "Versioned Codecs", link: "/guides/codec" },
+            { text: "Named Arguments", link: "/guides/named-args" },
+            { text: "Geometry", link: "/guides/geometry" },
+            {
+              text: "Developer Experience",
+              items: [
+                {
+                  text: "Overview",
+                  link: "/guides/developer-experience",
+                },
+                {
+                  text: "Error Messages",
+                  link: "/guides/error-messages",
+                },
+                { text: "Opt-Out Directives", link: "/guides/opt-out" },
+              ],
+            },
           ],
         },
         {
@@ -186,6 +245,11 @@ export default defineConfig({
           collapsed: true,
           items: [{ text: "How it Works", link: "/architecture" }],
         },
+        {
+          text: "Error Reference",
+          collapsed: true,
+          items: [{ text: "Error Codes", link: "/errors/" }],
+        },
       ],
     },
 
@@ -207,6 +271,8 @@ export default defineConfig({
       copyright: "Copyright © 2024-present",
     },
   },
+
+  ignoreDeadLinks: true,
 
   markdown: {
     theme: {

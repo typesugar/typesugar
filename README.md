@@ -287,10 +287,80 @@ See the [docs/](docs/) directory:
 
 ## Developer Experience
 
-- **Rust-style errors** — rich diagnostics with code snippets, labeled spans, and fix suggestions
-- **"Did you mean?"** — import suggestions when symbols aren't in scope
-- **No false positives** — ESLint/language service automatically handle typesugar imports
-- **Opt-out** — disable transformations per-file, per-function, or per-line with `"use no typesugar"` or `// @ts-no-typesugar`
+### Rust-Style Error Messages
+
+When something goes wrong, typesugar tells you exactly what happened, where, and how to fix it:
+
+```
+error[TS9001]: No instance found for `Eq<Color>`
+  --> src/palette.ts:12:5
+   |
+10 |   interface Palette { primary: Color; accent: Color }
+11 |
+12 |   p1 === p2
+   |      ^^^ Eq<Palette> requires Eq for all fields
+   |
+ 8 |   interface Color { r: number; g: number; b: number }
+   |   --------- field `primary` has type `Color`
+   |
+   = note: Auto-derivation requires Eq instances for all fields
+   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+   = suggestion: add-derive-eq
+     + @derive(Eq)
+     + interface Color { r: number; g: number; b: number }
+
+For more information, see: https://typesugar.dev/errors/TS9001
+```
+
+Every error has a code (TS9001-TS9999), an explanation (`npx typesugar --explain TS9001`), and machine-applicable fixes that your IDE can apply automatically.
+
+### "Did You Mean to Import...?"
+
+Forgot an import? typesugar knows what's available and suggests it:
+
+```
+error[TS9061]: Macro `comptime` is not defined
+  --> src/app.ts:3:15
+   |
+ 3 |   const x = comptime(() => 1 + 1);
+   |             ^^^^^^^
+   |
+   = help: Did you mean to import?
+     + import { comptime } from "typesugar";
+```
+
+This works for macros, typeclasses, extension methods — anything in the typesugar ecosystem.
+
+### Opt-Out Escape Hatches
+
+Debugging something? Need to bypass typesugar for one file, one function, or one line?
+
+```typescript
+// Whole file — nothing gets transformed
+"use no typesugar";
+
+// Just this function
+function debugMe() {
+  "use no typesugar";
+  const x = comptime(() => 1 + 1);  // Left as-is
+}
+
+// Just this line
+const slow = specialize(add);  // @ts-no-typesugar
+
+// Just extensions, keep macros working
+"use no typesugar extensions";
+```
+
+Inspired by React Compiler's `"use no memo"`. See the [opt-out guide](docs/guides/opt-out.md) for all options.
+
+### Tooling That Just Works
+
+- **ESLint** — the `@typesugar/eslint-plugin` processor knows that typesugar imports are used by the transformer, so `no-unused-imports` won't flag them
+- **Language service** — the TypeScript plugin suppresses false `TS6133` warnings specifically for typesugar imports (not everything — just typesugar)
+- **Organize imports** — works correctly because the tools understand which imports the transformer consumes
+
+No configuration needed. Install the plugin and everything cooperates.
 
 ## License
 

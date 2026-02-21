@@ -29,9 +29,9 @@ features:
   - icon: 📦
     title: Standard Library
     details: Pattern matching, extension methods on primitives, reflection, validation, derive macros.
-  - icon: 🔌
-    title: Framework Adapters
-    details: Supercharge Effect-TS, Kysely, React, and your test suite with typesugar macros.
+  - icon: 🎯
+    title: Developer Experience
+    details: Rust-style error messages, "did you mean?" import suggestions, opt-out directives, and ESLint/IDE integration that just works.
   - icon: 🦀
     title: Inspired by the Best
     details: Scala 3 typeclasses, Rust derives, Zig comptime, C++ expression templates — brought to TypeScript.
@@ -341,6 +341,57 @@ forAll(Point, 1000, (p) => p.x * 0 === 0); // custom iteration count
 ```
 
 [Effect Integration](/guides/effect) · [Testing Guide](/guides/testing)
+
+---
+
+## Developer Experience
+
+_When something goes wrong, you should know exactly what happened and how to fix it._
+
+### Rust-Style Errors
+
+Every error shows the code, points at the problem, and suggests a fix:
+
+```
+error[TS9101]: Cannot auto-derive Eq<UserProfile>: field `metadata` has type `unknown` which lacks Eq
+  --> src/user.ts:5:3
+   |
+ 3 |   interface UserProfile {
+ 4 |     id: number;
+ 5 |     metadata: unknown;
+   |     ^^^^^^^^ this field prevents auto-derivation
+   |
+   = note: `unknown` cannot implement Eq — it could be anything
+   = help: Use a concrete type instead of `unknown`, or provide @instance Eq<UserProfile>
+```
+
+Look up any error: `npx typesugar --explain TS9101`
+
+### Import Suggestions
+
+Missing an import? typesugar tells you where to find it:
+
+```
+error[TS9062]: Method `clamp` does not exist on type `number`
+  --> src/math.ts:7:20
+   |
+ 7 |   const safe = value.clamp(0, 100);
+   |                      ^^^^^
+   |
+   = help: Did you mean to import?
+     + import { NumberExt } from "@typesugar/std";
+```
+
+### Opt-Out When You Need To
+
+```typescript
+"use no typesugar";                     // whole file
+function debug() { "use no typesugar"; } // one function
+specialize(add); // @ts-no-typesugar     // one line
+"use no typesugar extensions";           // just extensions
+```
+
+[Error Messages Guide](/guides/error-messages) · [Developer Experience Guide](/guides/developer-experience) · [Opt-Out Guide](/guides/opt-out) · [Error Reference](/errors/)
 
 ---
 

@@ -11,6 +11,14 @@ Deep-dive guides for typesugar features.
 | [Typeclasses](./typeclasses.md)          | Scala 3-style ad-hoc polymorphism                |
 | [Operator Overloading](./operators.md)   | Custom operators with `@operators()` and `ops()` |
 
+## Developer Experience
+
+| Guide                                                      | Description                                         |
+| ---------------------------------------------------------- | --------------------------------------------------- |
+| [Developer Experience Overview](./developer-experience.md) | How error messages, import suggestions, and tooling work together |
+| [Error Messages](./error-messages.md)                      | Rust-style errors with labeled spans and auto-fixes |
+| [Opt-Out Directives](./opt-out.md)                         | Disable transformations for debugging/interop       |
+
 ## Advanced Features
 
 | Guide                                                   | Description                                      |
@@ -21,7 +29,6 @@ Deep-dive guides for typesugar features.
 | [Extension Methods](./extension-methods.md)             | Scala 3-style extension methods                  |
 | [Do-Notation](./do-notation.md)                         | Monadic comprehensions with `let:`/`yield:`      |
 | [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`        |
-| [Opt-Out Directives](./opt-out.md)                      | Disable transformations for debugging/interop    |
 
 ## Quick Reference
 
