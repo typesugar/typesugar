@@ -103,10 +103,12 @@ function transformSource(source: string): {
   // 1. comptime() call still in output (transformation didn't run)
   // 2. Error-throwing IIFE pattern: throw new Error("comptime evaluation failed: ...")
   // 3. Permission error pattern
+  // 4. Macro expansion failure (e.g. "expansion of 'comptime' failed")
   const hasError =
     output.includes("comptime(") ||
     output.includes("comptime evaluation failed") ||
-    output.includes("permission denied");
+    output.includes("permission denied") ||
+    output.includes("expansion of");
 
   return { output, hasError };
 }

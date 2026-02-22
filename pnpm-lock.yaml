@@ -357,10 +357,6 @@ importers:
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
-    devDependencies:
-      '@typesugar/testing':
-        specifier: workspace:*
-        version: link:../testing
 
   packages/mapper:
     dependencies:
@@ -371,6 +367,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      unplugin-typesugar:
+        specifier: workspace:*
+        version: link:../unplugin-typesugar
       vitest:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.11)

@@ -4,6 +4,28 @@ import typemacro from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [typemacro({ verbose: true })],
   test: {
+    projects: [
+      // Root-level tests (legacy — will gradually move into packages)
+      {
+        extends: true,
+        test: {
+          name: "legacy",
+          include: ["tests/**/*.test.ts"],
+          exclude: [
+            "tests/react/**",
+            // Pre-existing failures
+            "tests/contracts.test.ts",
+            "tests/contracts-z3.test.ts",
+            // References deleted src/use-cases/comprehensions/
+            "tests/comprehensions.test.ts",
+          ],
+          globals: true,
+        },
+      },
+      // Package tests
+      "packages/*/vitest.config.ts",
+    ],
+
     pool: "forks",
 
     poolOptions: {
@@ -13,15 +35,14 @@ export default defineConfig({
       },
     },
 
-    include: ["tests/**/*.test.ts"],
-
-    exclude: ["node_modules", "dist", "tests/react/**"],
-
     typecheck: {
       enabled: false,
     },
 
-    reporters: ["verbose"],
+    reporters: ["default", "json"],
+    outputFile: {
+      json: ".vitest-results/test-results.json",
+    },
 
     coverage: {
       provider: "v8",

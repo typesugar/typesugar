@@ -146,12 +146,11 @@ describe("Contracts-Refined Edge Cases", () => {
         expect(Negative.is(NaN)).toBe(false);
       });
 
-      it("NonZero rejects NaN (NaN !== 0 is true, but this may be surprising)", () => {
-        // NaN !== 0 evaluates to true in JS, so NonZero would accept it
-        // This documents the potentially surprising behavior
+      it("NonZero rejects NaN (predicate explicitly excludes NaN)", () => {
+        // NonZero predicate is (n) => n !== 0 && !Number.isNaN(n)
+        // Correctly rejects NaN since dividing by NaN produces NaN
         const result = NonZero.is(NaN);
-        // NonZero predicate is (n) => n !== 0, and NaN !== 0 is true
-        expect(result).toBe(true); // Documents: NonZero ACCEPTS NaN
+        expect(result).toBe(false);
       });
 
       it("Int rejects NaN", () => {
@@ -164,18 +163,20 @@ describe("Contracts-Refined Edge Cases", () => {
     });
 
     describe("Infinity handling", () => {
-      it("Positive accepts positive Infinity", () => {
-        // Infinity > 0 is true
-        expect(Positive.is(Infinity)).toBe(true);
+      it("Positive rejects positive Infinity (finite-only)", () => {
+        // Positive is defined as "$ > 0 && Number.isFinite($)" - excludes Infinity
+        // Use NonZero if you need to accept Infinity
+        expect(Positive.is(Infinity)).toBe(false);
       });
 
-      it("Negative accepts negative Infinity", () => {
-        // -Infinity < 0 is true
-        expect(Negative.is(-Infinity)).toBe(true);
+      it("Negative rejects negative Infinity (finite-only)", () => {
+        // Negative is defined as "$ < 0 && Number.isFinite($)" - excludes -Infinity
+        expect(Negative.is(-Infinity)).toBe(false);
       });
 
-      it("NonNegative accepts positive Infinity", () => {
-        expect(NonNegative.is(Infinity)).toBe(true);
+      it("NonNegative rejects positive Infinity (finite-only)", () => {
+        // NonNegative is defined as "$ >= 0 && Number.isFinite($)" - excludes Infinity
+        expect(NonNegative.is(Infinity)).toBe(false);
       });
 
       it("Finite rejects positive Infinity", () => {
@@ -360,7 +361,8 @@ describe("Contracts-Refined Edge Cases", () => {
 
     describe("Predicate string patterns", () => {
       it("Positive predicate uses $ placeholder", () => {
-        expect(getRefinementPredicate("Positive")).toBe("$ > 0");
+        // Positive includes finite check to exclude Infinity
+        expect(getRefinementPredicate("Positive")).toBe("$ > 0 && Number.isFinite($)");
       });
 
       it("Byte predicate uses compound condition", () => {

@@ -89,6 +89,7 @@ jobs:
 
   publish-dry-run:
     name: Publish (dry run)
+    if: false  # Disabled for now; re-enable when ready to publish
     runs-on: ubuntu-latest
     needs: [test, lint, test-vscode]
     steps:

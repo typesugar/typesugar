@@ -43,9 +43,7 @@
     "@typesugar/contracts": "workspace:*",
     "@typesugar/mapper": "workspace:*"
   },
-  "devDependencies": {
-    "@typesugar/testing": "workspace:*"
-  },
+  "devDependencies": {},
   "peerDependencies": {
     "typescript": ">=5.0.0"
   },

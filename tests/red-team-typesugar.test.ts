@@ -16,18 +16,18 @@ import * as typesugar from "typesugar";
 
 // Direct imports of specific exports
 import {
-  // Namespace exports
-  comptime,
-  reflect,
-  deriveMacros,
-  operators,
-  typeclass,
-  specialize,
+  // Namespace exports (current API uses *Namespace suffix)
+  comptimeNamespace,
+  reflectNamespace,
+  deriveNamespace,
+  operatorsNamespace,
+  typeclassNamespace,
+  specializeNamespace,
   // Direct callable exports
   ops,
   pipe,
   compose,
-  comptimeEval,
+  comptime,
   // Derive symbols
   Eq,
   Ord,
@@ -40,7 +40,6 @@ import {
   TypeGuard,
   // Decorator functions
   derive,
-  deriveDecorator,
   // Registration
   registerAllMacros,
 } from "typesugar";
@@ -65,12 +64,12 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // ==========================================================================
   describe("Re-export completeness", () => {
     it("exports all namespace modules", () => {
-      expect(typesugar.comptime).toBeDefined();
-      expect(typesugar.reflect).toBeDefined();
-      expect(typesugar.deriveMacros).toBeDefined();
-      expect(typesugar.operators).toBeDefined();
-      expect(typesugar.typeclass).toBeDefined();
-      expect(typesugar.specialize).toBeDefined();
+      expect(typesugar.comptimeNamespace).toBeDefined();
+      expect(typesugar.reflectNamespace).toBeDefined();
+      expect(typesugar.deriveNamespace).toBeDefined();
+      expect(typesugar.operatorsNamespace).toBeDefined();
+      expect(typesugar.typeclassNamespace).toBeDefined();
+      expect(typesugar.specializeNamespace).toBeDefined();
     });
 
     it("exports all derive symbols as actual symbols", () => {
@@ -115,44 +114,44 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // Attack 2: Namespace vs Direct Export Conflicts
   // ==========================================================================
   describe("Namespace vs direct export conflicts", () => {
-    it("comptime namespace and comptimeEval are distinct exports", () => {
-      // comptime is a namespace (module object)
-      expect(typeof comptime).toBe("object");
-      // comptimeEval is the callable function from within that module
-      expect(typeof comptimeEval).toBe("function");
+    it("comptime namespace and comptime are distinct exports", () => {
+      // comptimeNamespace is the module object
+      expect(typeof comptimeNamespace).toBe("object");
+      // comptime is the callable function
+      expect(typeof comptime).toBe("function");
     });
 
     it("namespace exports preserve their sub-module structure", () => {
-      // deriveMacros should have the derive macro objects
-      expect(deriveMacros.Eq).toBeDefined();
-      expect(deriveMacros.Ord).toBeDefined();
-      expect(deriveMacros.Clone).toBeDefined();
+      // deriveNamespace should have the derive macro objects
+      expect(deriveNamespace.Eq).toBeDefined();
+      expect(deriveNamespace.Ord).toBeDefined();
+      expect(deriveNamespace.Clone).toBeDefined();
 
-      // operators should have the macro definitions and helpers
-      expect(typeof operators.ops).toBe("function");
-      expect(typeof operators.pipe).toBe("function");
-      expect(typeof operators.compose).toBe("function");
-      expect(typeof operators.registerOperators).toBe("function");
+      // operatorsNamespace should have the macro definitions and helpers
+      expect(typeof operatorsNamespace.ops).toBe("function");
+      expect(typeof operatorsNamespace.pipe).toBe("function");
+      expect(typeof operatorsNamespace.compose).toBe("function");
+      expect(typeof operatorsNamespace.registerOperators).toBe("function");
     });
 
     it("direct ops/pipe/compose exports match namespace versions", () => {
       // These should be the same functions
-      expect(ops).toBe(operators.ops);
-      expect(pipe).toBe(operators.pipe);
-      expect(compose).toBe(operators.compose);
+      expect(ops).toBe(operatorsNamespace.ops);
+      expect(pipe).toBe(operatorsNamespace.pipe);
+      expect(compose).toBe(operatorsNamespace.compose);
     });
 
-    it("deriveMacros namespace contains both symbols and macro definitions", () => {
-      // deriveMacros is the full @typesugar/derive namespace
-      // It contains Eq (symbol) and deriveMacros.deriveMacros.Eq (macro definition)
-      expect(typeof deriveMacros.Eq).toBe("symbol"); // Symbol for decorator use
+    it("deriveNamespace contains both symbols and macro definitions", () => {
+      // deriveNamespace is the full @typesugar/derive namespace
+      // It contains Eq (symbol) and deriveMacros (macro definitions)
+      expect(typeof deriveNamespace.Eq).toBe("symbol"); // Symbol for decorator use
       expect(typeof Eq).toBe("symbol"); // Same symbol exported directly
-      expect(deriveMacros.Eq).toBe(Eq); // They should be identical
+      expect(deriveNamespace.Eq).toBe(Eq); // They should be identical
 
-      // The actual macro definitions are nested under deriveMacros.deriveMacros
-      expect(typeof deriveMacros.deriveMacros).toBe("object");
-      expect(typeof deriveMacros.deriveMacros.Eq).toBe("object"); // Macro definition
-      expect(deriveMacros.deriveMacros.Eq.name).toBe("Eq");
+      // The actual macro definitions are under deriveNamespace.deriveMacros
+      expect(typeof deriveNamespace.deriveMacros).toBe("object");
+      expect(typeof deriveNamespace.deriveMacros.Eq).toBe("object"); // Macro definition
+      expect(deriveNamespace.deriveMacros.Eq.name).toBe("Eq");
     });
   });
 
@@ -160,8 +159,8 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // Attack 3: Decorator Function Behavior
   // ==========================================================================
   describe("Decorator function behavior", () => {
-    it("derive and deriveDecorator are the same function", () => {
-      expect(derive).toBe(deriveDecorator);
+    it("derive is the derive decorator function", () => {
+      expect(typeof derive).toBe("function");
     });
 
     it("derive decorator returns a function (class decorator signature)", () => {

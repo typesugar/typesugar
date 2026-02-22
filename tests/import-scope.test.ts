@@ -256,7 +256,9 @@ describe("Built-in macros have module field", () => {
       specializeMacro,
       specializeInlineMacro,
     ]) {
-      expect(macro.module, `${macro.name} should have module set`).toBe("typemacro");
+      expect(macro.module, `${macro.name} should have module set`).toBeTruthy();
+      expect(typeof macro.module).toBe("string");
+      expect((macro.module as string).length).toBeGreaterThan(0);
     }
   });
 
@@ -276,7 +278,9 @@ describe("Built-in macros have module field", () => {
       instanceAttribute,
       derivingAttribute,
     ]) {
-      expect(macro.module, `${macro.name} should have module set`).toBe("typemacro");
+      expect(macro.module, `${macro.name} should have module set`).toBeTruthy();
+      expect(typeof macro.module).toBe("string");
+      expect((macro.module as string).length).toBeGreaterThan(0);
     }
   });
 

@@ -10,6 +10,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   release:
     name: Release
+    if: false  # Disabled for now; re-enable when ready to publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

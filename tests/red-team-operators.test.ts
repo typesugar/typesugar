@@ -20,7 +20,7 @@ import {
   registerOperators,
   getOperatorMethod,
   clearOperatorMappings,
-} from "../packages/operators/src/index.js";
+} from "typesugar";
 
 describe("Operators Edge Cases", () => {
   beforeEach(() => {

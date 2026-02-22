@@ -76,7 +76,7 @@ describe("Typeclass Registry Edge Cases", () => {
       const instances = getInstances();
 
       for (const [key, instance] of instances) {
-        const expectedKey = `${instance.typeclass}<${instance.forType}>`;
+        const expectedKey = `${instance.typeclassName}<${instance.forType}>`;
         expect(key).toBe(expectedKey);
       }
     });
@@ -231,13 +231,13 @@ describe("Typeclass Macro Placeholder Edge Cases", () => {
     it("summon() throws at runtime without transformation", async () => {
       const { summon } = await import("../packages/typeclass/src/index.js");
 
-      expect(() => summon()).toThrow("must be processed by the typemacro transformer");
+      expect(() => summon()).toThrow("must be processed by the typesugar transformer");
     });
 
     it("extend() throws at runtime without transformation", async () => {
       const { extend } = await import("../packages/typeclass/src/index.js");
 
-      expect(() => extend(42)).toThrow("must be processed by the typemacro transformer");
+      expect(() => extend(42)).toThrow("must be processed by the typesugar transformer");
     });
 
     it("typeclass decorator returns target unchanged at runtime", async () => {

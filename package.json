@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/setup-ts-plugin.js",
-    "build": "pnpm -r --filter '!typesugar-example-*' build",
+    "build": "pnpm -r --filter '!typesugar-example-*' --workspace-concurrency=1 build",
     "build:watch": "pnpm -r --parallel --filter '!typesugar-example-*' build:watch",
     "build:all": "pnpm -r build",
     "test": "vitest run",
+    "test:failed": "bash scripts/rerun-failed.sh",
     "test:watch": "vitest",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "typecheck": "pnpm -r --filter '!typesugar-example-*' typecheck",
