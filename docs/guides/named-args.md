@@ -142,4 +142,4 @@ Zero overhead — the object literal never exists at runtime.
 ## What's Next
 
 - [API Reference](/reference/packages#named-args)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/named-args)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/named-args)

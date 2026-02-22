@@ -82,4 +82,4 @@ seconds(1); // Unit<Dimensions<0, 0, 1, ...>>  (time=1)
 ## Learn More
 
 - [API Reference](/reference/packages#units)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/units)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/units)

@@ -57,4 +57,4 @@ The macro analyzes source and target types at compile time:
 ## Learn More
 
 - [API Reference](/reference/packages#mapper)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/mapper)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/mapper)

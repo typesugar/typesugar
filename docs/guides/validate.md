@@ -99,4 +99,4 @@ function isUser(value: unknown): value is User {
 ## Learn More
 
 - [API Reference](/reference/packages#validate)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/validate)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/validate)

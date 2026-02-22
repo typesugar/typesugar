@@ -80,4 +80,4 @@ const suspicious = dsql`SELECT * FROM users; DROP TABLE users`;
 
 - [SQL Guide](/guides/sql)
 - [API Reference](/reference/packages#drizzle)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/drizzle)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/drizzle)

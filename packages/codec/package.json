@@ -5,12 +5,12 @@
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dpovey/typesugar.git",
+    "url": "https://github.com/typesugar/typesugar.git",
     "directory": "packages/codec"
   },
-  "homepage": "https://github.com/dpovey/typesugar/tree/main/packages/codec#readme",
+  "homepage": "https://github.com/typesugar/typesugar/tree/main/packages/codec#readme",
   "bugs": {
-    "url": "https://github.com/dpovey/typesugar/issues"
+    "url": "https://github.com/typesugar/typesugar/issues"
   },
   "license": "MIT",
   "type": "module",

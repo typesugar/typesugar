@@ -64,4 +64,4 @@ const isRound = match(shape, {
 ## Learn More
 
 - [API Reference](/reference/packages#std)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/std)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/std)

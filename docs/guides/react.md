@@ -88,4 +88,4 @@ return match(status, {
 ## Learn More
 
 - [API Reference](/reference/packages#react)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/react)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/react)

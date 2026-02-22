@@ -6,7 +6,7 @@
 export function is<T>(): (value: unknown) => value is T {
   throw new Error(
     "is<T>() is a compile-time macro and requires the typesugar transformer. " +
-      "See https://github.com/dpovey/ttfx for setup instructions."
+      "See https://github.com/typesugar/typesugar for setup instructions."
   );
 }
 

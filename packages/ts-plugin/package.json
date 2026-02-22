@@ -5,7 +5,7 @@
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dpovey/typesugar.git",
+    "url": "https://github.com/typesugar/typesugar.git",
     "directory": "packages/ts-plugin"
   },
   "license": "MIT",

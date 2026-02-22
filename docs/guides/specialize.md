@@ -116,4 +116,4 @@ const sorted = sortWith([3, 1, 2]);
 ## Learn More
 
 - [API Reference](/reference/packages#specialize)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/specialize)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/specialize)

@@ -76,4 +76,4 @@ const bad = sql`SELECT * FROM users WHERE (id = ${1}`;
 ## Learn More
 
 - [API Reference](/reference/packages#sql)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/sql)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/sql)

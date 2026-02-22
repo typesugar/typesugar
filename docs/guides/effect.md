@@ -85,4 +85,4 @@ interface User { id: string; name: string; age: number; }
 ## Learn More
 
 - [API Reference](/reference/packages#effect)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/effect)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/effect)

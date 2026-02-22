@@ -183,4 +183,4 @@ Use `Erased` when you need collections of mixed types with shared behavior. Use 
 ## What's Next
 
 - [API Reference](/reference/packages#erased)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/erased)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/erased)

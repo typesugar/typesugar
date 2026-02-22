@@ -91,4 +91,4 @@ const suspicious = ksql`SELECT * FROM users; DROP TABLE users`;
 
 - [SQL Guide](/guides/sql)
 - [API Reference](/reference/packages#kysely)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/kysely)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/kysely)

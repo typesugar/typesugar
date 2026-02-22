@@ -148,4 +148,4 @@ It checks for:
 ## What's Next
 
 - [API Reference](/reference/packages#codec)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/codec)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/codec)

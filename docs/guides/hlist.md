@@ -124,4 +124,4 @@ HList shines when you need to **transform** heterogeneous sequences while keepin
 ## What's Next
 
 - [API Reference](/reference/packages#hlist)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/hlist)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/hlist)

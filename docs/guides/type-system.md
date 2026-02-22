@@ -89,4 +89,4 @@ type Power = Pow<2, 8>; // 256
 ## Learn More
 
 - [API Reference](/reference/packages#type-system)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/type-system)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/type-system)

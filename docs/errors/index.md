@@ -110,7 +110,7 @@ npx typesugar --explain TS9001
 
 ## Reporting Issues
 
-If you encounter an error that isn't documented here, or if the suggested fixes don't resolve your issue, please [open an issue](https://github.com/dpovey/typesugar/issues) with:
+If you encounter an error that isn't documented here, or if the suggested fixes don't resolve your issue, please [open an issue](https://github.com/typesugar/typesugar/issues) with:
 
 1. The full error message
 2. A minimal reproduction

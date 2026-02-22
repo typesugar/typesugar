@@ -191,4 +191,4 @@ Use the grammar DSL when the structure is known upfront and readability matters.
 ## What's Next
 
 - [API Reference](/reference/packages#parser)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/parser)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/parser)

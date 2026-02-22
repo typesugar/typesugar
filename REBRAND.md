@@ -6,7 +6,7 @@
 
 - [ ] **npm**: Claim `typesugar` package name (publish placeholder)
 - [ ] **npm**: Claim `@typesugar` org scope (create org at npmjs.com)
-- [ ] **GitHub**: Create `typesugar` repo under `dpovey` account
+- [x] **GitHub**: Create `typesugar/typesugar` repo under `typesugar` org
 - [ ] **Domain**: Register `typesugar.dev`
 
 ## Phase 2: Rename Directory & Migrate Cursor

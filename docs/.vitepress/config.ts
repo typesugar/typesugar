@@ -309,14 +309,14 @@ export default defineConfig({
       ],
     },
 
-    socialLinks: [{ icon: "github", link: "https://github.com/dpovey/typesugar" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/typesugar/typesugar" }],
 
     search: {
       provider: "local",
     },
 
     editLink: {
-      pattern: "https://github.com/dpovey/typesugar/edit/main/docs/:path",
+      pattern: "https://github.com/typesugar/typesugar/edit/main/docs/:path",
       text: "Edit this page on GitHub",
     },
 

@@ -201,4 +201,4 @@ No wrapper classes, no prototype chains, no extra allocations. Transforms are fl
 ## What's Next
 
 - [API Reference](/reference/packages#geometry)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/geometry)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/geometry)

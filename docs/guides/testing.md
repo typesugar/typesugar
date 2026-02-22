@@ -101,4 +101,4 @@ export default defineConfig({
 ## Learn More
 
 - [API Reference](/reference/packages#testing)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/testing)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/testing)

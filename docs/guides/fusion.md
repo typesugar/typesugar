@@ -158,4 +158,4 @@ The fused version touches each element at most once and stops early.
 ## What's Next
 
 - [API Reference](/reference/packages#fusion)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/fusion)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/fusion)

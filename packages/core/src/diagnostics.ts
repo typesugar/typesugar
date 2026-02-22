@@ -1178,11 +1178,11 @@ export const TS9999: DiagnosticDescriptor = {
   messageTemplate: "Internal error: {message}",
   explanation: `This is an internal error in typesugar that should not happen.
 
-Please report this issue at https://github.com/dpovey/typesugar/issues with:
+Please report this issue at https://github.com/typesugar/typesugar/issues with:
 - The error message
 - A minimal reproduction
 - Your typesugar version`,
-  seeAlso: "https://github.com/dpovey/typesugar/issues",
+  seeAlso: "https://github.com/typesugar/typesugar/issues",
 };
 
 // ============================================================================

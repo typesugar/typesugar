@@ -52,7 +52,7 @@ All macros in this package compile away completely. At runtime, there is no over
 
 ## API Reference
 
-See the main [typesugar documentation](https://github.com/dpovey/typesugar) for detailed API documentation.
+See the main [typesugar documentation](https://github.com/typesugar/typesugar) for detailed API documentation.
 
 ## License
 

@@ -54,7 +54,7 @@ The prover runs layers in order, stopping at first success:
 The `comptime()` macro evaluates expressions at build time:
 
 ```typescript
-import { requires, comptime } from "@ttfx/contracts";
+import { requires, comptime } from "@typesugar/contracts";
 
 // Complex computations at build time
 const BUFFER_SIZE = comptime(() => 1024 * 16); // Becomes: 16384

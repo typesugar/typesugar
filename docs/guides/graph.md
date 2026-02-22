@@ -195,4 +195,4 @@ This pattern works for build systems, task scheduling, course prerequisites — 
 ## What's Next
 
 - [API Reference](/reference/packages#graph)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/graph)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/graph)

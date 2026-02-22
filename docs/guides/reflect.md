@@ -78,4 +78,4 @@ export const __User_meta__ = { /* metadata */ };
 ## Learn More
 
 - [API Reference](/reference/packages#reflect)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/reflect)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/reflect)

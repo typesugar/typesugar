@@ -63,4 +63,4 @@ const path = raw`C:\Users\name\Documents`;
 ## Learn More
 
 - [API Reference](/reference/packages#strings)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/strings)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/strings)

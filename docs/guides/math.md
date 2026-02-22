@@ -97,4 +97,4 @@ const c = mod(2, 11);
 ## Learn More
 
 - [API Reference](/reference/packages#math)
-- [Package README](https://github.com/dpovey/typesugar/tree/main/packages/math)
+- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/math)

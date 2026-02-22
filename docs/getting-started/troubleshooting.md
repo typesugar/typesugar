@@ -340,7 +340,7 @@ If none of the above solves your issue:
 
 1. Run `npx typesugar doctor --verbose` and note the output
 2. Create a minimal reproduction
-3. Open an issue at https://github.com/dpovey/typesugar/issues
+3. Open an issue at https://github.com/typesugar/typesugar/issues
 
 Include:
 
