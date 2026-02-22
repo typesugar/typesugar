@@ -81,6 +81,26 @@ import {
   MacroExpansionCache,
 } from "@typesugar/core";
 
+// Printer for safe text extraction from nodes (works on synthetic nodes too)
+const nodePrinter = ts.createPrinter();
+
+/**
+ * Safely get the text content of a node.
+ * Unlike node.getText(), this works on synthetic nodes that don't have source positions.
+ */
+function safeGetNodeText(node: ts.Node, sourceFile?: ts.SourceFile): string {
+  if (ts.isIdentifier(node)) {
+    return node.text;
+  }
+  try {
+    return node.getText();
+  } catch {
+    // Fallback for synthetic nodes
+    const sf = sourceFile ?? ts.createSourceFile("temp.ts", "", ts.ScriptTarget.Latest);
+    return nodePrinter.printNode(ts.EmitHint.Unspecified, node, sf);
+  }
+}
+
 /**
  * Configuration for the transformer
  */
@@ -271,8 +291,17 @@ export default function macroTransformerFactory(
       // Report diagnostics through the TS diagnostic pipeline
       const macroDiagnostics = ctx.getDiagnostics();
       for (const diag of macroDiagnostics) {
-        const start = diag.node ? diag.node.getStart(sourceFile) : 0;
-        const length = diag.node ? diag.node.getWidth(sourceFile) : 0;
+        // Safely get start position - synthetic nodes throw on getStart
+        let start = 0;
+        let length = 0;
+        try {
+          start = diag.node ? diag.node.getStart(sourceFile) : 0;
+          length = diag.node ? diag.node.getWidth(sourceFile) : 0;
+        } catch {
+          if (verbose) {
+            console.log(`[typesugar] Warning: diagnostic node has no position: ${diag.message}`);
+          }
+        }
 
         const tsDiag: ts.Diagnostic = {
           file: sourceFile,
@@ -1359,8 +1388,10 @@ class MacroTransformer {
     }
 
     // Check for opt-out comments
-    let suppressWarnings = false;
     const isSyntheticNode = node.pos === -1 || node.end === -1;
+    // Suppress warnings for synthetic nodes (generated code) since there's
+    // no meaningful source location to report
+    let suppressWarnings = isSyntheticNode;
 
     if (!isSyntheticNode) {
       try {
@@ -2527,7 +2558,7 @@ class MacroTransformer {
 
         const memberTypeName = ts.isIdentifier(member.typeName)
           ? member.typeName.text
-          : member.typeName.getText();
+          : safeGetNodeText(member.typeName, this.ctx.sourceFile);
         const variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
         if (!variantInfo) continue;
 
