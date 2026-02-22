@@ -32,6 +32,14 @@ import {
   type Copyable,
   type Sized,
   type Group,
+  type Eq,
+  type Ord,
+  type Ordering,
+  type Semigroup,
+  type Monoid,
+  LT,
+  EQ_ORD,
+  GT,
   boundedNumber,
   enumNumber,
   numericNumber,
@@ -53,6 +61,27 @@ import {
   sizedString,
   sizedArray,
   groupNumber,
+  eqNumber,
+  eqString,
+  eqBoolean,
+  eqDate,
+  eqArray,
+  eqBy,
+  makeEq,
+  ordNumber,
+  ordString,
+  ordBoolean,
+  ordDate,
+  ordArray,
+  ordBy,
+  reverseOrd,
+  makeOrd,
+  semigroupString,
+  semigroupNumber,
+  semigroupArray,
+  monoidString,
+  monoidNumber,
+  monoidArray,
 
   // Extension methods
   NumberExt,
@@ -222,7 +251,100 @@ assert(groupNumber.invert(5) === -5);
 assert(groupNumber.combine(groupNumber.invert(5), 5) === groupNumber.empty());
 
 // ============================================================================
-// 4. NUMBER EXTENSIONS — Arithmetic, predicates, formatting
+// 4. EQUALITY & ORDERING — Eq, Ord with Op<> annotations for operator dispatch
+// ============================================================================
+
+// Eq: equality comparison (supports Op<"==="> and Op<"!==">)
+// The transformer rewrites `a === b` to `eqType.equals(a, b)` for custom types
+assert(eqNumber.equals(42, 42) === true);
+assert(eqNumber.notEquals(1, 2) === true);
+assert(eqString.equals("hello", "hello") === true);
+
+// Eq combinators
+const eqArrayNum = eqArray(eqNumber);
+assert(eqArrayNum.equals([1, 2, 3], [1, 2, 3]) === true);
+assert(eqArrayNum.equals([1, 2], [1, 2, 3]) === false);
+
+// Eq by projection
+interface Point { x: number; y: number }
+const eqPointByX = eqBy((p: Point) => p.x, eqNumber);
+assert(eqPointByX.equals({ x: 1, y: 2 }, { x: 1, y: 99 }) === true);
+
+// Ord: total ordering (supports Op<"<">, Op<"<=">, Op<">">, Op<">=">)
+// The transformer rewrites `a < b` to `ordType.lessThan(a, b)` for custom types
+assert(ordNumber.compare(1, 2) === LT);
+assert(ordNumber.compare(2, 2) === EQ_ORD);
+assert(ordNumber.compare(3, 2) === GT);
+
+assert(ordNumber.lessThan(1, 2) === true);
+assert(ordNumber.lessThanOrEqual(2, 2) === true);
+assert(ordNumber.greaterThan(3, 2) === true);
+assert(ordNumber.greaterThanOrEqual(2, 2) === true);
+
+// Ord for strings (lexicographic)
+assert(ordString.lessThan("apple", "banana") === true);
+
+// Ord combinators
+const ordArrayNum = ordArray(ordNumber);
+assert(ordArrayNum.lessThan([1, 2], [1, 3]) === true);
+assert(ordArrayNum.lessThan([1, 2], [1, 2, 3]) === true);
+
+// Reverse ordering
+const revOrd = reverseOrd(ordNumber);
+assert(revOrd.lessThan(3, 1) === true); // 3 < 1 in reverse order
+
+// Ord by projection
+const ordPointByX = ordBy((p: Point) => p.x, ordNumber);
+assert(ordPointByX.lessThan({ x: 1, y: 99 }, { x: 2, y: 0 }) === true);
+
+// Semigroup: associative combine operation (supports Op<"+">)
+// The transformer rewrites `a + b` to `semigroupType.combine(a, b)` for custom types
+assert(semigroupNumber.combine(3, 4) === 7);
+assert(semigroupString.combine("hello", " world") === "hello world");
+
+const semigroupArr = semigroupArray<number>();
+const combined = semigroupArr.combine([1, 2], [3, 4]);
+assert(combined.length === 4);
+assert(combined[0] === 1 && combined[3] === 4);
+
+// Monoid: Semigroup with identity element
+assert(monoidNumber.empty() === 0);
+assert(monoidString.empty() === "");
+assert(monoidNumber.combine(monoidNumber.empty(), 42) === 42);
+
+const monoidArr = monoidArray<number>();
+assert(monoidArr.empty().length === 0);
+assert(monoidArr.combine(monoidArr.empty(), [1, 2, 3]).length === 3);
+
+// ============================================================================
+// 5. NUMERIC OPERATIONS WITH Op<> — Typeclass-based arithmetic
+// ============================================================================
+
+// The Numeric typeclass supports operator dispatch via Op<> annotations:
+// - `a + b` → `numericType.add(a, b)` via Op<"+">
+// - `a - b` → `numericType.sub(a, b)` via Op<"-">
+// - `a * b` → `numericType.mul(a, b)` via Op<"*">
+// This enables custom numeric types to work with standard operators.
+
+// Integral typeclass for integer division:
+// - `a / b` → `integralType.div(a, b)` via Op<"/"> (floor division)
+// - `a % b` → `integralType.mod(a, b)` via Op<"%">
+
+// Fractional typeclass for real division:
+// - `a / b` → `fractionalType.div(a, b)` via Op<"/"> (true division)
+
+// Example: Using Numeric for generic arithmetic
+function genericSum<A>(xs: A[], N: Numeric<A>): A {
+  let acc = N.zero();
+  for (const x of xs) {
+    acc = N.add(acc, x); // With transformer: acc + x
+  }
+  return acc;
+}
+assert(genericSum([1, 2, 3, 4, 5], numericNumber) === 15);
+
+// ============================================================================
+// 6. NUMBER EXTENSIONS — Arithmetic, predicates, formatting
 // ============================================================================
 
 assert(clamp(150, 0, 100) === 100);
@@ -238,7 +360,7 @@ assert(gcd(12, 8) === 4);
 assert(lcm(4, 6) === 12);
 
 // ============================================================================
-// 5. STRING EXTENSIONS — Case transforms, parsing, predicates
+// 7. STRING EXTENSIONS — Case transforms, parsing, predicates
 // ============================================================================
 
 assert(capitalize("hello") === "Hello");
@@ -254,7 +376,7 @@ const w = words("camelCaseString");
 assert(w.length > 0);
 
 // ============================================================================
-// 6. ARRAY EXTENSIONS — Functional collection operations
+// 8. ARRAY EXTENSIONS — Functional collection operations
 // ============================================================================
 
 assert(head([1, 2, 3]) === 1);
@@ -299,7 +421,7 @@ assert(flatten([[1, 2], [3], [4, 5]]).length === 5);
 assert(compact([1, null, 2, undefined, 3]).length === 3);
 
 // ============================================================================
-// 7. OBJECT EXTENSIONS — pick, omit, deep merge
+// 9. OBJECT EXTENSIONS — pick, omit, deep merge
 // ============================================================================
 
 const obj = { a: 1, b: 2, c: 3, d: 4 };
@@ -322,7 +444,7 @@ assert((merged as any).theme.size === 12);
 assert((merged as any).theme.font === "mono");
 
 // ============================================================================
-// 8. DATA TYPES — Pair, Triple, Range
+// 10. DATA TYPES — Pair, Triple, Range
 // ============================================================================
 
 // Pair: typed 2-tuples with combinators
@@ -365,7 +487,7 @@ const doubled = rangeMap(range(1, 4), (n) => n * 2);
 assert(doubled[0] === 2 && doubled[1] === 4 && doubled[2] === 6);
 
 // ============================================================================
-// 9. PATTERN MATCHING — match(), when(), otherwise(), isType(), P
+// 11. PATTERN MATCHING — match(), when(), otherwise(), isType(), P
 // ============================================================================
 
 // Discriminated union matching (Scala-style)
@@ -417,7 +539,7 @@ const listResult = match([1, 2, 3] as number[], [
 assert(listResult === "starts with 1, 2");
 
 // ============================================================================
-// 10. DO-NOTATION — let:/yield: and par:/yield: comprehensions
+// 12. DO-NOTATION — let:/yield: and par:/yield: comprehensions
 // ============================================================================
 
 // FlatMap is pre-registered for Array, Promise, and other types.
@@ -427,7 +549,7 @@ assert(listResult === "starts with 1, 2");
 // the let:/yield: and par:/yield: syntax requires the typesugar transformer.
 
 // --------------------------------------------------------------------------
-// 10.1 Sequential Comprehensions (let:/yield:)
+// 12.1 Sequential Comprehensions (let:/yield:)
 // --------------------------------------------------------------------------
 
 // Basic array comprehension (cartesian product):
@@ -478,7 +600,7 @@ assert(withPureMap[0] === 3); // (1*2)+1
 // The _ binding executes but its value is ignored
 
 // --------------------------------------------------------------------------
-// 10.2 Parallel Comprehensions (par:/yield:)
+// 12.2 Parallel Comprehensions (par:/yield:)
 // --------------------------------------------------------------------------
 
 // Promise.all (parallel execution):
@@ -521,7 +643,7 @@ assert(applicativeResult.value === 30);
 // Unlike let:, par: accumulates ALL errors from all bindings
 
 // --------------------------------------------------------------------------
-// 10.3 Custom FlatMap Registration
+// 12.3 Custom FlatMap Registration
 // --------------------------------------------------------------------------
 
 // Register a custom monad for use with let:/yield:
@@ -549,13 +671,23 @@ const taskResult = new Task(() => 10).flatMap((x) =>
 assert(taskResult.run() === 20);
 
 // ============================================================================
-// 11. TYPE-LEVEL ASSERTIONS — verifying typeclass shapes
+// 13. TYPE-LEVEL ASSERTIONS — verifying typeclass shapes
 // ============================================================================
 
 typeAssert<Extends<typeof numericNumber, Numeric<number>>>();
 typeAssert<Extends<typeof integralNumber, Integral<number>>>();
 typeAssert<Extends<typeof floatingNumber, Floating<number>>>();
 typeAssert<Extends<typeof groupNumber, Group<number>>>();
+
+typeAssert<Extends<typeof eqNumber, Eq<number>>>();
+typeAssert<Extends<typeof ordNumber, Ord<number>>>();
+typeAssert<Extends<typeof semigroupNumber, Semigroup<number>>>();
+typeAssert<Extends<typeof monoidNumber, Monoid<number>>>();
+
+typeAssert<Equal<Ordering, -1 | 0 | 1>>();
+typeAssert<Extends<typeof LT, Ordering>>();
+typeAssert<Extends<typeof EQ_ORD, Ordering>>();
+typeAssert<Extends<typeof GT, Ordering>>();
 
 // ParseResult is a tagged union
 type NumParsed = ParseResult<number>;

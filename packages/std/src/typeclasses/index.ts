@@ -17,6 +17,336 @@
 
 import type { Op } from "@typesugar/core";
 
+// ============================================================================
+// Eq — Haskell Eq, Rust PartialEq/Eq, Scala CanEqual
+// Types supporting equality comparison.
+// ============================================================================
+
+/**
+ * Eq typeclass - equality comparison with operator support.
+ *
+ * Laws:
+ * - Reflexivity: `equals(x, x) === true`
+ * - Symmetry: `equals(x, y) === equals(y, x)`
+ * - Transitivity: `equals(x, y) && equals(y, z) => equals(x, z)`
+ *
+ * Operators dispatch via Op<> annotations:
+ * - `a === b` → `Eq.equals(a, b)`
+ * - `a !== b` → `Eq.notEquals(a, b)`
+ */
+export interface Eq<A> {
+  equals(a: A, b: A): boolean & Op<"===">;
+  notEquals(a: A, b: A): boolean & Op<"!==">;
+}
+
+export const eqNumber: Eq<number> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+};
+
+export const eqBigInt: Eq<bigint> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+};
+
+export const eqString: Eq<string> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+};
+
+export const eqBoolean: Eq<boolean> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+};
+
+export const eqDate: Eq<Date> = {
+  equals: (a, b) => a.getTime() === b.getTime(),
+  notEquals: (a, b) => a.getTime() !== b.getTime(),
+};
+
+/**
+ * Create an Eq instance from a custom equality function.
+ */
+export function makeEq<A>(eq: (a: A, b: A) => boolean): Eq<A> {
+  return {
+    equals: eq as (a: A, b: A) => boolean & Op<"===">,
+    notEquals: ((a: A, b: A) => !eq(a, b)) as (a: A, b: A) => boolean & Op<"!==">,
+  };
+}
+
+/**
+ * Create an Eq instance by mapping to a comparable value.
+ */
+export function eqBy<A, B>(f: (a: A) => B, E: Eq<B> = eqStrict()): Eq<A> {
+  return {
+    equals: ((a, b) => E.equals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"===">,
+    notEquals: ((a, b) => E.notEquals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"!==">,
+  };
+}
+
+/**
+ * Eq using strict equality (===).
+ */
+export function eqStrict<A>(): Eq<A> {
+  return {
+    equals: ((a, b) => a === b) as (a: A, b: A) => boolean & Op<"===">,
+    notEquals: ((a, b) => a !== b) as (a: A, b: A) => boolean & Op<"!==">,
+  };
+}
+
+/**
+ * Eq for arrays (element-wise comparison).
+ */
+export function eqArray<A>(E: Eq<A>): Eq<A[]> {
+  return {
+    equals: ((xs, ys) => {
+      if (xs.length !== ys.length) return false;
+      return xs.every((x, i) => E.equals(x, ys[i]));
+    }) as (a: A[], b: A[]) => boolean & Op<"===">,
+    notEquals: ((xs, ys) => {
+      if (xs.length !== ys.length) return true;
+      return xs.some((x, i) => E.notEquals(x, ys[i]));
+    }) as (a: A[], b: A[]) => boolean & Op<"!==">,
+  };
+}
+
+// ============================================================================
+// Ord — Haskell Ord, Rust Ord, Scala Ordering
+// Types supporting total ordering.
+// ============================================================================
+
+/**
+ * Ordering result type.
+ */
+export type Ordering = -1 | 0 | 1;
+export const LT: Ordering = -1;
+export const EQ_ORD: Ordering = 0;
+export const GT: Ordering = 1;
+
+/**
+ * Ord typeclass - total ordering with operator support.
+ *
+ * Laws (in addition to Eq laws):
+ * - Antisymmetry: `compare(x, y) <= 0 && compare(y, x) <= 0 => equals(x, y)`
+ * - Transitivity: `compare(x, y) <= 0 && compare(y, z) <= 0 => compare(x, z) <= 0`
+ * - Totality: `compare(x, y) <= 0 || compare(y, x) <= 0`
+ *
+ * Operators dispatch via Op<> annotations:
+ * - `a < b`  → `Ord.lessThan(a, b)`
+ * - `a <= b` → `Ord.lessThanOrEqual(a, b)`
+ * - `a > b`  → `Ord.greaterThan(a, b)`
+ * - `a >= b` → `Ord.greaterThanOrEqual(a, b)`
+ */
+export interface Ord<A> extends Eq<A> {
+  compare(a: A, b: A): Ordering;
+  lessThan(a: A, b: A): boolean & Op<"<">;
+  lessThanOrEqual(a: A, b: A): boolean & Op<"<=">;
+  greaterThan(a: A, b: A): boolean & Op<">">;
+  greaterThanOrEqual(a: A, b: A): boolean & Op<">=">;
+}
+
+export const ordNumber: Ord<number> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+  compare: (a, b) => (a < b ? LT : a > b ? GT : EQ_ORD),
+  lessThan: (a, b) => a < b,
+  lessThanOrEqual: (a, b) => a <= b,
+  greaterThan: (a, b) => a > b,
+  greaterThanOrEqual: (a, b) => a >= b,
+};
+
+export const ordBigInt: Ord<bigint> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+  compare: (a, b) => (a < b ? LT : a > b ? GT : EQ_ORD),
+  lessThan: (a, b) => a < b,
+  lessThanOrEqual: (a, b) => a <= b,
+  greaterThan: (a, b) => a > b,
+  greaterThanOrEqual: (a, b) => a >= b,
+};
+
+export const ordString: Ord<string> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+  compare: (a, b) => (a < b ? LT : a > b ? GT : EQ_ORD),
+  lessThan: (a, b) => a < b,
+  lessThanOrEqual: (a, b) => a <= b,
+  greaterThan: (a, b) => a > b,
+  greaterThanOrEqual: (a, b) => a >= b,
+};
+
+export const ordBoolean: Ord<boolean> = {
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
+  compare: (a, b) => (a === b ? EQ_ORD : a ? GT : LT),
+  lessThan: (a, b) => !a && b,
+  lessThanOrEqual: (a, b) => !a || b,
+  greaterThan: (a, b) => a && !b,
+  greaterThanOrEqual: (a, b) => a || !b,
+};
+
+export const ordDate: Ord<Date> = {
+  equals: (a, b) => a.getTime() === b.getTime(),
+  notEquals: (a, b) => a.getTime() !== b.getTime(),
+  compare: (a, b) => {
+    const ta = a.getTime();
+    const tb = b.getTime();
+    return ta < tb ? LT : ta > tb ? GT : EQ_ORD;
+  },
+  lessThan: (a, b) => a.getTime() < b.getTime(),
+  lessThanOrEqual: (a, b) => a.getTime() <= b.getTime(),
+  greaterThan: (a, b) => a.getTime() > b.getTime(),
+  greaterThanOrEqual: (a, b) => a.getTime() >= b.getTime(),
+};
+
+/**
+ * Create an Ord instance from a compare function.
+ */
+export function makeOrd<A>(compare: (a: A, b: A) => Ordering): Ord<A> {
+  return {
+    equals: ((a, b) => compare(a, b) === EQ_ORD) as (a: A, b: A) => boolean & Op<"===">,
+    notEquals: ((a, b) => compare(a, b) !== EQ_ORD) as (a: A, b: A) => boolean & Op<"!==">,
+    compare,
+    lessThan: ((a, b) => compare(a, b) === LT) as (a: A, b: A) => boolean & Op<"<">,
+    lessThanOrEqual: ((a, b) => compare(a, b) !== GT) as (a: A, b: A) => boolean & Op<"<=">,
+    greaterThan: ((a, b) => compare(a, b) === GT) as (a: A, b: A) => boolean & Op<">">,
+    greaterThanOrEqual: ((a, b) => compare(a, b) !== LT) as (a: A, b: A) => boolean & Op<">=">,
+  };
+}
+
+/**
+ * Create an Ord instance by mapping to a comparable value.
+ */
+export function ordBy<A, B>(f: (a: A) => B, O: Ord<B>): Ord<A> {
+  return {
+    equals: ((a, b) => O.equals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"===">,
+    notEquals: ((a, b) => O.notEquals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"!==">,
+    compare: (a, b) => O.compare(f(a), f(b)),
+    lessThan: ((a, b) => O.lessThan(f(a), f(b))) as (a: A, b: A) => boolean & Op<"<">,
+    lessThanOrEqual: ((a, b) => O.lessThanOrEqual(f(a), f(b))) as (a: A, b: A) => boolean & Op<"<=">,
+    greaterThan: ((a, b) => O.greaterThan(f(a), f(b))) as (a: A, b: A) => boolean & Op<">">,
+    greaterThanOrEqual: ((a, b) => O.greaterThanOrEqual(f(a), f(b))) as (a: A, b: A) => boolean & Op<">=">,
+  };
+}
+
+/**
+ * Reverse an Ord instance.
+ */
+export function reverseOrd<A>(O: Ord<A>): Ord<A> {
+  return {
+    equals: O.equals,
+    notEquals: O.notEquals,
+    compare: (a, b) => O.compare(b, a),
+    lessThan: O.greaterThan,
+    lessThanOrEqual: O.greaterThanOrEqual,
+    greaterThan: O.lessThan,
+    greaterThanOrEqual: O.lessThanOrEqual,
+  };
+}
+
+/**
+ * Ord for arrays (lexicographic comparison).
+ */
+export function ordArray<A>(O: Ord<A>): Ord<A[]> {
+  const E = eqArray({ equals: O.equals, notEquals: O.notEquals });
+  return {
+    equals: E.equals,
+    notEquals: E.notEquals,
+    compare: (xs, ys) => {
+      const len = Math.min(xs.length, ys.length);
+      for (let i = 0; i < len; i++) {
+        const cmp = O.compare(xs[i], ys[i]);
+        if (cmp !== EQ_ORD) return cmp;
+      }
+      return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ_ORD;
+    },
+    lessThan: ((xs, ys) => ordArray(O).compare(xs, ys) === LT) as (a: A[], b: A[]) => boolean & Op<"<">,
+    lessThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== GT) as (a: A[], b: A[]) => boolean & Op<"<=">,
+    greaterThan: ((xs, ys) => ordArray(O).compare(xs, ys) === GT) as (a: A[], b: A[]) => boolean & Op<">">,
+    greaterThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== LT) as (a: A[], b: A[]) => boolean & Op<">=">,
+  };
+}
+
+// ============================================================================
+// Semigroup — Haskell Semigroup, Scala cats Semigroup
+// Types with an associative binary operation.
+// ============================================================================
+
+/**
+ * Semigroup typeclass - types with an associative combine operation.
+ *
+ * Law:
+ * - Associativity: `combine(combine(a, b), c) === combine(a, combine(b, c))`
+ *
+ * Operators dispatch via Op<> annotations:
+ * - `a + b` → `Semigroup.combine(a, b)` (for additive semigroups)
+ */
+export interface Semigroup<A> {
+  combine(a: A, b: A): A & Op<"+">;
+}
+
+export const semigroupString: Semigroup<string> = {
+  combine: (a, b) => a + b,
+};
+
+export const semigroupNumber: Semigroup<number> = {
+  combine: (a, b) => a + b,
+};
+
+export const semigroupBigInt: Semigroup<bigint> = {
+  combine: (a, b) => a + b,
+};
+
+/**
+ * Semigroup for arrays (concatenation).
+ */
+export function semigroupArray<A>(): Semigroup<A[]> {
+  return {
+    combine: ((a, b) => [...a, ...b]) as (a: A[], b: A[]) => A[] & Op<"+">,
+  };
+}
+
+// ============================================================================
+// Monoid — Haskell Monoid, Scala cats Monoid
+// Semigroup with an identity element.
+// ============================================================================
+
+/**
+ * Monoid typeclass - Semigroup with an identity element.
+ *
+ * Laws (in addition to Semigroup laws):
+ * - Left identity: `combine(empty(), a) === a`
+ * - Right identity: `combine(a, empty()) === a`
+ */
+export interface Monoid<A> extends Semigroup<A> {
+  empty(): A;
+}
+
+export const monoidString: Monoid<string> = {
+  combine: (a, b) => a + b,
+  empty: () => "",
+};
+
+export const monoidNumber: Monoid<number> = {
+  combine: (a, b) => a + b,
+  empty: () => 0,
+};
+
+export const monoidBigInt: Monoid<bigint> = {
+  combine: (a, b) => a + b,
+  empty: () => 0n,
+};
+
+/**
+ * Monoid for arrays (concatenation with empty array).
+ */
+export function monoidArray<A>(): Monoid<A[]> {
+  return {
+    combine: ((a, b) => [...a, ...b]) as (a: A[], b: A[]) => A[] & Op<"+">,
+    empty: () => [],
+  };
+}
+
 // Re-export FlatMap typeclass (HKT-based, for let:/yield: macro)
 export * from "./flatmap.js";
 

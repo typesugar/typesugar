@@ -23,7 +23,7 @@
  * ```
  */
 
-import type { Numeric, Integral, Fractional } from "./index.js";
+import type { Numeric, Integral, Fractional, Ord } from "./index.js";
 
 // ============================================================================
 // Aggregation Operations
@@ -157,11 +157,6 @@ export function lcmWith<A>(a: A, b: A, N: Numeric<A>, I: Integral<A>): A {
 // ============================================================================
 // Comparison-Based Operations
 // ============================================================================
-
-/** Simple ordering interface for comparison operations */
-export interface Ord<A> {
-  compare(a: A, b: A): number;
-}
 
 /**
  * Clamp a value to a range [lo, hi].
@@ -311,21 +306,3 @@ export function fromInt<A>(n: number, N: Numeric<A>): A {
   return N.fromNumber(n);
 }
 
-// ============================================================================
-// Ord Instances for Primitives
-// ============================================================================
-
-/** Ord instance for number */
-export const ordNumber: Ord<number> = {
-  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
-};
-
-/** Ord instance for bigint */
-export const ordBigInt: Ord<bigint> = {
-  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
-};
-
-/** Ord instance for string */
-export const ordString: Ord<string> = {
-  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
-};
