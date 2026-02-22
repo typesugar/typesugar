@@ -8,6 +8,7 @@
  * ValidatedNel<E, A> = Validated<NonEmptyList<E>, A> is the most common usage.
  */
 
+import type { Op } from "@typesugar/core";
 import type { NonEmptyList } from "./nonempty-list.js";
 import * as NEL from "./nonempty-list.js";
 import type { Either } from "./either.js";
@@ -520,17 +521,23 @@ export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Validated<E, A>> {
 }
 
 /**
- * Ord instance for Validated (Invalid < Valid)
+ * Ord instance for Validated (Invalid < Valid).
+ * Includes Op<>-annotated comparison methods for operator rewriting.
  */
 export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Validated<E, A>> {
+  const compare = (x: Validated<E, A>, y: Validated<E, A>): Ordering => {
+    if (isValid(x) && isValid(y)) return OA.compare(x.value, y.value);
+    if (isInvalid(x) && isInvalid(y)) return OE.compare(x.error, y.error);
+    if (isInvalid(x)) return -1 as Ordering;
+    return 1 as Ordering;
+  };
   return {
     eqv: getEq(OE, OA).eqv,
-    compare: (x, y) => {
-      if (isValid(x) && isValid(y)) return OA.compare(x.value, y.value);
-      if (isInvalid(x) && isInvalid(y)) return OE.compare(x.error, y.error);
-      if (isInvalid(x)) return -1 as Ordering;
-      return 1 as Ordering;
-    },
+    compare,
+    lessThan: ((x, y) => compare(x, y) === -1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<">=">,
   };
 }
 

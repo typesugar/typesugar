@@ -622,3 +622,132 @@ export function registerFpFlatMapInstances(
   registerFlatMap("List", flatMapList);
   registerFlatMap("Validated", flatMapValidated<unknown>());
 }
+
+// ============================================================================
+// @implicits Examples
+// ============================================================================
+// These functions demonstrate patterns designed for use with the @implicits
+// decorator. When @implicits is applied, the transformer auto-fills typeclass
+// parameters at call sites based on the types involved.
+
+/**
+ * Traverse an array with an effect-producing function.
+ *
+ * This is the canonical @implicits example: when decorated with @implicits,
+ * the G (Applicative) parameter is auto-filled based on the return type of f.
+ *
+ * @example
+ * Without @implicits:
+ * ```ts
+ * // Must pass Applicative explicitly
+ * const result = traverseArray(optionApplicative)([1, 2, 3], n => Some(n * 2));
+ * ```
+ *
+ * With @implicits (when transformer is active):
+ * ```ts
+ * @implicits
+ * function traverseArray<G, A, B>(xs: A[], f: (a: A) => $<G, B>, G: Applicative<G>): $<G, B[]>
+ *
+ * // G is auto-filled from return type of f
+ * const result = traverseArray([1, 2, 3], n => Some(n * 2));
+ * // Transforms to: traverseArray([1, 2, 3], n => Some(n * 2), optionApplicative)
+ * ```
+ *
+ * @param G - The Applicative instance for the effect type
+ */
+export function traverseArray<G>(G: Applicative<G>) {
+  return <A, B>(xs: A[], f: (a: A) => $<G, B>): $<G, B[]> =>
+    arrayTraverse.traverse(G)(xs, f);
+}
+
+/**
+ * Sequence an array of effects into an effect of array.
+ *
+ * @example
+ * Without @implicits:
+ * ```ts
+ * const result = sequenceArray(optionApplicative)([Some(1), Some(2), Some(3)]);
+ * // → Some([1, 2, 3])
+ * ```
+ *
+ * With @implicits:
+ * ```ts
+ * @implicits
+ * function sequenceArray<G, A>(xs: $<G, A>[], G: Applicative<G>): $<G, A[]>
+ *
+ * const result = sequenceArray([Some(1), Some(2), Some(3)]);
+ * // Transforms to: sequenceArray([Some(1), Some(2), Some(3)], optionApplicative)
+ * ```
+ */
+export function sequenceArray<G>(G: Applicative<G>) {
+  return <A>(xs: $<G, A>[]): $<G, A[]> => arrayTraverse.traverse(G)(xs, (x) => x);
+}
+
+/**
+ * Map over a value in a Functor context.
+ *
+ * @example
+ * With @implicits:
+ * ```ts
+ * @implicits
+ * function fmap<F, A, B>(fa: $<F, A>, f: (a: A) => B, F: Functor<F>): $<F, B>
+ *
+ * const result = fmap(Some(1), n => n * 2);
+ * // Transforms to: fmap(Some(1), n => n * 2, optionFunctor) → 2
+ * ```
+ */
+export function fmap<F>(F: Functor<F>) {
+  return <A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B> => F.map(fa, f);
+}
+
+/**
+ * FlatMap (bind) over a value in a Monad context.
+ *
+ * @example
+ * With @implicits:
+ * ```ts
+ * @implicits
+ * function bind<F, A, B>(fa: $<F, A>, f: (a: A) => $<F, B>, F: Monad<F>): $<F, B>
+ *
+ * const result = bind(Some(1), n => n > 0 ? Some(n * 2) : None);
+ * // Transforms to: bind(Some(1), f, optionMonad) → 2
+ * ```
+ */
+export function bind<F>(F: Monad<F>) {
+  return <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>): $<F, B> => F.flatMap(fa, f);
+}
+
+/**
+ * Apply a function in a context to a value in a context.
+ *
+ * @example
+ * With @implicits:
+ * ```ts
+ * @implicits
+ * function ap<F, A, B>(ff: $<F, (a: A) => B>, fa: $<F, A>, F: Applicative<F>): $<F, B>
+ *
+ * const add = (a: number) => (b: number) => a + b;
+ * const result = ap(Some(add(1)), Some(2));
+ * // Transforms to: ap(Some(add(1)), Some(2), optionApplicative) → 3
+ * ```
+ */
+export function applyF<F>(F: Applicative<F>) {
+  return <A, B>(ff: $<F, (a: A) => B>, fa: $<F, A>): $<F, B> => F.ap(ff, fa);
+}
+
+/**
+ * Fold a Foldable structure to a single value.
+ *
+ * @example
+ * With @implicits:
+ * ```ts
+ * @implicits
+ * function foldL<F, A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B, F: Foldable<F>): B
+ *
+ * const result = foldL(Some(5), 0, (acc, n) => acc + n);
+ * // Transforms to: foldL(Some(5), 0, f, optionFoldable) → 5
+ * ```
+ */
+export function foldL<F>(F: Foldable<F>) {
+  return <A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B): B => F.foldLeft(fa, b, f);
+}

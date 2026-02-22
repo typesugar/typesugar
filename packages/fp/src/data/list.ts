@@ -5,6 +5,7 @@
  * Either Cons(head, tail) or Nil (empty).
  */
 
+import type { Op } from "@typesugar/core";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
@@ -630,23 +631,29 @@ export function getEq<A>(E: Eq<A>): Eq<List<A>> {
 }
 
 /**
- * Ord instance for List (lexicographic)
+ * Ord instance for List (lexicographic).
+ * Includes Op<>-annotated comparison methods for operator rewriting.
  */
 export function getOrd<A>(O: Ord<A>): Ord<List<A>> {
+  const compare = (x: List<A>, y: List<A>): Ordering => {
+    let currentX = x;
+    let currentY = y;
+    while (isCons(currentX) && isCons(currentY)) {
+      const cmp = O.compare(currentX.head, currentY.head);
+      if (cmp !== 0) return cmp;
+      currentX = currentX.tail;
+      currentY = currentY.tail;
+    }
+    if (isNil(currentX) && isNil(currentY)) return 0 as Ordering;
+    return isNil(currentX) ? (-1 as Ordering) : (1 as Ordering);
+  };
   return {
     eqv: getEq(O).eqv,
-    compare: (x, y) => {
-      let currentX = x;
-      let currentY = y;
-      while (isCons(currentX) && isCons(currentY)) {
-        const cmp = O.compare(currentX.head, currentY.head);
-        if (cmp !== 0) return cmp;
-        currentX = currentX.tail;
-        currentY = currentY.tail;
-      }
-      if (isNil(currentX) && isNil(currentY)) return 0 as Ordering;
-      return isNil(currentX) ? (-1 as Ordering) : (1 as Ordering);
-    },
+    compare,
+    lessThan: ((x, y) => compare(x, y) === -1) as (x: List<A>, y: List<A>) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: List<A>, y: List<A>) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (x: List<A>, y: List<A>) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: List<A>, y: List<A>) => boolean & Op<">=">,
   };
 }
 

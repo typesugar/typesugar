@@ -147,6 +147,13 @@ export {
   flatMapValidated,
   fpFlatMapInstances,
   registerFpFlatMapInstances,
+  // @implicits example functions
+  traverseArray,
+  sequenceArray,
+  fmap,
+  bind,
+  applyF,
+  foldL,
 } from "./instances.js";
 export {
   type ZeroCostOption,

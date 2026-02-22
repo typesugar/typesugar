@@ -168,15 +168,15 @@ const sum = List.foldLeft(nums, 0, (acc, n) => acc + n);
 assert(sum === 15, "foldLeft accumulates values");
 
 // Cons / Nil constructors
-const manual: ListType<string> = Cons("a", Cons("b", Nil()));
+const manual: ListType<string> = Cons("a", Cons("b", Nil));
 assert(List.length(manual) === 2);
 assert(List.head(manual) === "a");
 
-// reverse, concat
+// reverse, append
 const reversed = List.reverse(nums);
 assert(List.toArray(reversed).join(",") === "5,4,3,2,1");
 
-const combined = List.concat(List.of(1, 2), List.of(3, 4));
+const combined = List.append(List.of(1, 2), List.of(3, 4));
 assert(List.toArray(combined).join(",") === "1,2,3,4");
 
 // ============================================================================
@@ -382,80 +382,315 @@ typeAssert<Equal<$<OptionF, string>, string | null>>();
 // ============================================================================
 // 11. TRANSFORMER FEATURES — Op<>, @implicits, Return-Type Specialization
 // ============================================================================
-// The following features require the typesugar transformer to be active.
-// They demonstrate how @typesugar/fp integrates with transformer features.
+// These features integrate with the typesugar transformer to provide
+// zero-cost abstractions for functional programming.
 
-// --- 11.1 Op<> Operator Rewriting ---
-// The Eq typeclass methods are annotated with Op<"==="> enabling:
-//   optA === optB → eqOption.eqv(optA, optB)
-//
-// This is a future feature — when transformer is active, you can write:
-//   const eqOpt = Option.getEq(eqNumber);
-//   @instance const optionEq: Eq<Option<number>> = eqOpt;
-//   Some(1) === Some(1)  // transformed to: optionEq.eqv(Some(1), Some(1))
-//
-// For now, Eq instances work manually:
-import { eqNumber } from "../src/typeclasses/eq.js";
+// --- 11.1 Op<"==="> Operator Rewriting for Eq ---
+// Eq typeclass methods are annotated with Op<"==="> enabling operator rewriting.
+// When transformer is active: `optA === optB` → `eqOption.eqv(optA, optB)`
+
+import {
+  eqNumber, eqString, makeEq, makeOrd,
+  ordNumber, ordString,
+  type Eq, type Ord
+} from "../src/typeclasses/eq.js";
+
+// Option Eq instance (with Op<"==="> on the eqv method)
 const eqOptNum = Option.getEq(eqNumber);
-assert(eqOptNum.eqv(Some(1), Some(1)) === true, "Eq.eqv for Option works");
-assert(eqOptNum.eqv(Some(1), Some(2)) === false, "Different values are not equal");
-assert(eqOptNum.eqv(Some(1), None) === false, "Some !== None");
-assert(eqOptNum.eqv(None, None) === true, "None === None");
+assert(eqOptNum.eqv(Some(1), Some(1)) === true, "Eq.eqv for Option: equal values");
+assert(eqOptNum.eqv(Some(1), Some(2)) === false, "Eq.eqv for Option: different values");
+assert(eqOptNum.eqv(Some(1), None) === false, "Eq.eqv for Option: Some !== None");
+assert(eqOptNum.eqv(None, None) === true, "Eq.eqv for Option: None === None");
 
-// Either Eq
-import { eqString } from "../src/typeclasses/eq.js";
+// Either Eq instance (with Op<"==="> on the eqv method)
 const eqEitherStrNum = Either.getEq(eqString, eqNumber);
-assert(eqEitherStrNum.eqv(Right(42), Right(42)) === true);
-assert(eqEitherStrNum.eqv(Left("err"), Left("err")) === true);
-assert(eqEitherStrNum.eqv(Right(42), Left("err")) === false);
+assert(eqEitherStrNum.eqv(Right(42), Right(42)) === true, "Either Eq: Right === Right");
+assert(eqEitherStrNum.eqv(Left("err"), Left("err")) === true, "Either Eq: Left === Left");
+assert(eqEitherStrNum.eqv(Right(42), Left("err")) === false, "Either Eq: Right !== Left");
 
-// --- 11.2 Return-Type Specialization: Either → Option ---
-// The transformer can auto-convert Result/Either to Option when needed.
-// This pattern is common: Either.toOption discards the error type.
+// Custom Eq instances also get Op<"==="> support
+interface Point { x: number; y: number }
+const eqPoint: Eq<Point> = makeEq((a, b) => a.x === b.x && a.y === b.y);
+assert(eqPoint.eqv({ x: 1, y: 2 }, { x: 1, y: 2 }) === true, "Custom Eq works");
 
-const eitherSuccess = Right(42);
-const eitherFailure = Left("error");
+// --- 11.1b Op<"<", "<=", ">", ">="> Operator Rewriting for Ord ---
+// Ord typeclass now includes Op<>-annotated methods for comparison operators.
+// When transformer is active: `optA < optB` → `ordOption.lessThan(optA, optB)`
 
+// Option Ord instance (with Op<> on all comparison methods)
+const ordOptNum = Option.getOrd(ordNumber);
+assert(ordOptNum.lessThan(Some(1), Some(2)) === true, "Ord.lessThan: 1 < 2");
+assert(ordOptNum.lessThan(Some(2), Some(1)) === false, "Ord.lessThan: !(2 < 1)");
+assert(ordOptNum.lessThan(None, Some(1)) === true, "Ord.lessThan: None < Some");
+assert(ordOptNum.lessThanOrEqual(Some(1), Some(1)) === true, "Ord.lessThanOrEqual: 1 <= 1");
+assert(ordOptNum.greaterThan(Some(2), Some(1)) === true, "Ord.greaterThan: 2 > 1");
+assert(ordOptNum.greaterThanOrEqual(None, None) === true, "Ord.greaterThanOrEqual: None >= None");
+
+// Either Ord instance (Left < Right)
+const ordEitherStrNum = Either.getOrd(ordString, ordNumber);
+assert(ordEitherStrNum.lessThan(Left("a"), Left("b")) === true, "Either Ord: Left(a) < Left(b)");
+assert(ordEitherStrNum.lessThan(Left("z"), Right(1)) === true, "Either Ord: Left < Right");
+assert(ordEitherStrNum.greaterThan(Right(2), Right(1)) === true, "Either Ord: Right(2) > Right(1)");
+
+// Custom Ord with all comparison methods via makeOrd
+const ordPoint: Ord<Point> = makeOrd((a, b) => {
+  if (a.x !== b.x) return a.x < b.x ? -1 : 1;
+  return a.y < b.y ? -1 : a.y > b.y ? 1 : 0;
+});
+assert(ordPoint.lessThan({ x: 1, y: 2 }, { x: 2, y: 0 }) === true, "Custom Ord: (1,2) < (2,0)");
+assert(ordPoint.greaterThanOrEqual({ x: 1, y: 2 }, { x: 1, y: 2 }) === true, "Custom Ord: (1,2) >= (1,2)");
+
+// With transformer active, you can use operators directly:
+// const p1: Point = { x: 1, y: 2 };
+// const p2: Point = { x: 1, y: 2 };
+// p1 === p2  // → transformed to: eqPoint.eqv(p1, p2) → true
+// p1 < p2    // → transformed to: ordPoint.lessThan(p1, p2)
+
+// --- 11.2 Return-Type Driven Specialization: Either → Option ---
+// The transformer supports automatic type conversion patterns.
+// Either.toOption is the canonical example: discards error, keeps success.
+
+const eitherSuccess: Either.Either<string, number> = Right(42);
+const eitherFailure: Either.Either<string, number> = Left("error");
+
+// toOption: Either<E, A> → Option<A>
 const optFromSuccess = Either.toOption(eitherSuccess);
 const optFromFailure = Either.toOption(eitherFailure);
 
-assert(optFromSuccess === 42, "toOption extracts Right value");
+assert(optFromSuccess === 42, "toOption extracts Right value as Some");
 assert(optFromFailure === null, "toOption converts Left to None");
-
-// Type-level: Either<E, A>.toOption() → Option<A>
 typeAssert<Equal<typeof optFromSuccess, number | null>>();
 
-// --- 11.3 Traverse with Applicative ---
-// The traverse/sequence functions take an Applicative parameter.
-// With @implicits, this could be filled automatically.
+// Chain Either operations with Option fallback
+const maybeResult = pipe(
+  Either.tryCatch(() => JSON.parse('{"value": 42}'), String),
+  e => Either.map(e, (obj: { value: number }) => obj.value),
+  Either.toOption
+);
+assert(maybeResult === 42, "Either→Option pipeline works");
 
-import { optionTraverse, optionMonad, arrayTraverse } from "../src/instances.js";
+// Invalid input converts to None
+const maybeInvalid = pipe(
+  Either.tryCatch(() => JSON.parse('invalid'), String),
+  e => Either.map(e, (obj: { value: number }) => obj.value),
+  Either.toOption
+);
+assert(maybeInvalid === null, "Either→Option: failure becomes None");
+
+// --- 11.3 Traverse with Applicative (ready for @implicits) ---
+// The traverse/sequence functions take an Applicative parameter.
+// With @implicits decorator, this parameter would be auto-filled.
+
+import {
+  optionMonad, arrayTraverse,
+  traverseArray, sequenceArray, fmap, bind, applyF, foldL
+} from "../src/instances.js";
 import type { Applicative } from "../src/typeclasses/applicative.js";
 
-// Manual usage (without @implicits):
-// traverse over an array, returning Option of array
+// Current usage: pass Applicative explicitly
 const traverseResult = arrayTraverse.traverse(optionMonad as unknown as Applicative<OptionF>)(
   [1, 2, 3],
   (n: number) => n > 0 ? Some(n * 2) : None
 );
-// With all positives, we get Some([2, 4, 6])
 assert(
   traverseResult !== null &&
   Array.isArray(traverseResult) &&
   traverseResult.join(",") === "2,4,6",
-  "traverse with Option succeeds"
+  "traverse with Option: all succeed → Some([...])"
 );
 
-// With a None in the mix, the whole thing fails
+// Short-circuiting on None
 const traverseFail = arrayTraverse.traverse(optionMonad as unknown as Applicative<OptionF>)(
   [1, -1, 3],
   (n: number) => n > 0 ? Some(n * 2) : None
 );
-assert(traverseFail === null, "traverse short-circuits on None");
+assert(traverseFail === null, "traverse with Option: any fail → None");
 
-// Future: with @implicits, you could write:
+// --- 11.3b @implicits-Ready Helper Functions ---
+// These functions are designed for use with the @implicits decorator.
+// The Applicative/Functor/Monad parameter comes last for auto-filling.
+
+// traverseArray: explicit Applicative parameter (first)
+const traverseResult2 = traverseArray(optionMonad as unknown as Applicative<OptionF>)(
+  [1, 2, 3],
+  (n: number) => n > 0 ? Some(n * 2) : None
+);
+assert(
+  traverseResult2 !== null && Array.isArray(traverseResult2),
+  "traverseArray helper works"
+);
+
+// sequenceArray: turn [Option<A>] into Option<A[]>
+const sequenceResult = sequenceArray(optionMonad as unknown as Applicative<OptionF>)(
+  [Some(1), Some(2), Some(3)]
+);
+assert(
+  sequenceResult !== null &&
+  Array.isArray(sequenceResult) &&
+  sequenceResult.join(",") === "1,2,3",
+  "sequenceArray: all Some → Some([...])"
+);
+
+const sequenceFail = sequenceArray(optionMonad as unknown as Applicative<OptionF>)(
+  [Some(1), None, Some(3)]
+);
+assert(sequenceFail === null, "sequenceArray: any None → None");
+
+// fmap: Functor.map helper
+import { optionFunctor } from "../src/instances.js";
+const fmapResult = fmap(optionFunctor)(Some(5), n => n * 2);
+assert(fmapResult === 10, "fmap: Some(5) → 10");
+assert(fmap(optionFunctor)(None as number | null, n => n * 2) === null, "fmap: None → None");
+
+// bind: Monad.flatMap helper
+const bindResult = bind(optionMonad)(Some(5), n => n > 0 ? Some(n * 2) : None);
+assert(bindResult === 10, "bind: Some(5) → 10");
+
+// foldL: Foldable.foldLeft helper
+import { optionFoldable } from "../src/instances.js";
+const foldResult = foldL(optionFoldable)(Some(5), 0, (acc, n) => acc + n);
+assert(foldResult === 5, "foldL: Some(5) → 5");
+assert(foldL(optionFoldable)(None as number | null, 0, (acc, n) => acc + n) === 0, "foldL: None → 0");
+
+// --- 11.4 Functor.specialize() Pattern ---
+// Zero-cost specialization via fn.specialize(dict) extension.
+// When transformer is active, the dictionary is inlined at compile time.
+
+// Example: specialized map for Option
+// const optMap = Functor.map.specialize(optionFunctor);
+// optMap(Some(1), x => x * 2)  // Compiles to: Some(1) !== null ? (1) * 2 : null
+
+// The optionFunctor instance is already zero-cost:
+import { optionFunctor } from "../src/instances.js";
+const mappedOpt = optionFunctor.map(Some(5), x => x * 2);
+assert(mappedOpt === 10, "optionFunctor.map is zero-cost: returns 10, not Some(10)");
+const mappedNone = optionFunctor.map(None as number | null, x => x * 2);
+assert(mappedNone === null, "optionFunctor.map(None) returns null");
+
+// --- 11.5 HKT Zero-Cost Verification ---
+// Verify that HKT type-level functions resolve correctly at the type level
+// while maintaining zero runtime overhead.
+
+// OptionF resolves to the null-based representation
+typeAssert<Equal<$<OptionF, number>, number | null>>();
+typeAssert<Equal<$<OptionF, string>, string | null>>();
+
+// At runtime, Some(x) IS x, None IS null
+const optVal: $<OptionF, number> = 42;
+assert(optVal === 42, "HKT: $<OptionF, number> is just number at runtime");
+
+const optNone: $<OptionF, number> = null;
+assert(optNone === null, "HKT: None is just null at runtime");
+
+// ============================================================================
+// 12. NUMERIC OPERATORS VIA @typesugar/std
+// ============================================================================
+// When used with @typesugar/std's Numeric typeclass, types like Rational,
+// BigDecimal, and Interval support arithmetic operators via Op<> annotations.
+//
+// The pattern:
+//   interface Numeric<A> {
+//     add(a: A, b: A): A & Op<"+">;
+//     mul(a: A, b: A): A & Op<"*">;
+//     sub(a: A, b: A): A & Op<"-">;
+//     ...
+//   }
+//
+// Enables: rationalA + rationalB → numericRational.add(rationalA, rationalB)
+//
+// This is demonstrated in @typesugar/math's showcase with Rational, BigDecimal,
+// Interval, and Complex types.
+
+// Example pattern (conceptual — requires @typesugar/std import):
+// import { Numeric, numericNumber } from "@typesugar/std";
+//
+// With the transformer, arithmetic on types with Numeric instances compiles to
+// direct method calls. For example with Rational:
+//
+//   const a = rational(1, 2);
+//   const b = rational(1, 3);
+//   const c = a + b;
+//   // Compiles to: numericRational.add(a, b)
+//   // Which evaluates to: rational(5, 6)
+
+// ============================================================================
+// 13. @implicits PATTERN — Auto-Fill Typeclass Parameters
+// ============================================================================
+// The @implicits decorator marks functions as having implicit typeclass params.
+// The transformer auto-fills these parameters at call sites.
+//
+// Pattern:
 //   @implicits
-//   function myTraverse<F, A, B>(F: Traverse<F>, G: Applicative<G>, fa: $<F, A>, f: (a: A) => $<G, B>): $<G, $<F, B>>
-//   myTraverse(myList, myFunc)  // Applicative auto-resolved
+//   function sorted<A>(xs: A[], O: Ord<A>): A[] {
+//     return [...xs].sort((a, b) => O.compare(a, b));
+//   }
+//
+//   // Call site (O is auto-filled):
+//   const result = sorted([3, 1, 2]);
+//   // Transforms to: sorted([3, 1, 2], ordNumber)
+//
+// With FP typeclasses:
+//
+//   @implicits
+//   function traverseArray<G, A, B>(
+//     xs: A[],
+//     f: (a: A) => $<G, B>,
+//     G: Applicative<G>
+//   ): $<G, B[]> {
+//     return arrayTraverse.traverse(G)(xs, f);
+//   }
+//
+//   // Call site (G is inferred from f's return type):
+//   const result = traverseArray([1, 2, 3], n => Some(n * 2));
+//   // Transforms to: traverseArray([1, 2, 3], n => Some(n * 2), optionApplicative)
+//
+// Benefits:
+// - Cleaner call sites (no explicit instance passing)
+// - Instance resolution at compile time (zero runtime cost)
+// - Propagation through nested @implicits calls
+
+// ============================================================================
+// 14. COMPLETE ZERO-COST FP PIPELINE
+// ============================================================================
+// Combining all features for a complete zero-cost FP workflow:
+
+// 1. Define types with zero-cost representations (Option = A | null)
+// 2. Typeclass instances with Op<> annotations enable operator syntax
+// 3. @implicits auto-fills typeclass params at call sites
+// 4. Auto-specialization inlines instance methods at compile time
+// 5. Return-type specialization handles type conversions (Either → Option)
+
+// Example: A validation pipeline that compiles to optimal code
+type ValidationError = string;
+type ValidationResult<A> = Either.Either<ValidationError, A>;
+
+function validatePositive(n: number): ValidationResult<number> {
+  return n > 0 ? Right(n) : Left("must be positive");
+}
+
+function validateMax(max: number) {
+  return (n: number): ValidationResult<number> =>
+    n <= max ? Right(n) : Left(`must be at most ${max}`);
+}
+
+// Compose validations
+const validateAge = (n: number): ValidationResult<number> =>
+  pipe(
+    validatePositive(n),
+    e => Either.flatMap(e, validateMax(150))
+  );
+
+// Convert to Option when error details don't matter
+const safeAge = (n: number): OptionType =>
+  pipe(validateAge(n), Either.toOption);
+
+assert(safeAge(25) === 25, "Valid age returns Some");
+assert(safeAge(-5) === null, "Invalid age returns None");
+assert(safeAge(200) === null, "Age over max returns None");
+
+// All of this compiles to simple if-else chains at runtime:
+// - No wrapper objects for Option
+// - No Either boxing in hot paths (inlined by transformer)
+// - No function call overhead (specialized away)
 
 console.log("✓ All @typesugar/fp showcase tests passed!");

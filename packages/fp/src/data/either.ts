@@ -432,17 +432,34 @@ export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
 }
 
 /**
- * Ord instance for Either (Left < Right)
+ * Ord instance for Either (Left < Right).
+ *
+ * Enables operator rewriting for comparison operators:
+ * - `eitherA < eitherB` → `getOrd(ordE, ordA).lessThan(eitherA, eitherB)`
+ *
+ * @example
+ * ```typescript
+ * const ordEitherStrNum = getOrd(ordString, ordNumber);
+ * const a = Right(1);
+ * const b = Right(2);
+ *
+ * // With transformer: a < b → ordEitherStrNum.lessThan(a, b) → true
+ * ```
  */
 export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Either<E, A>> {
+  const compare = (x: Either<E, A>, y: Either<E, A>): Ordering => {
+    if (isLeft(x) && isLeft(y)) return OE.compare(x.left, y.left);
+    if (isRight(x) && isRight(y)) return OA.compare(x.right, y.right);
+    if (isLeft(x)) return -1 as Ordering;
+    return 1 as Ordering;
+  };
   return {
     eqv: getEq(OE, OA).eqv,
-    compare: (x, y) => {
-      if (isLeft(x) && isLeft(y)) return OE.compare(x.left, y.left);
-      if (isRight(x) && isRight(y)) return OA.compare(x.right, y.right);
-      if (isLeft(x)) return -1 as Ordering;
-      return 1 as Ordering;
-    },
+    compare,
+    lessThan: ((x, y) => compare(x, y) === -1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<">=">,
   };
 }
 

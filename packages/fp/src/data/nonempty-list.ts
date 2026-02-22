@@ -5,6 +5,7 @@
  * Useful for operations that require a non-empty collection.
  */
 
+import type { Op } from "@typesugar/core";
 import type { List } from "./list.js";
 import * as L from "./list.js";
 import type { Option } from "./option.js";
@@ -420,17 +421,23 @@ export function getEq<A>(E: Eq<A>): Eq<NonEmptyList<A>> {
 }
 
 /**
- * Ord instance for NonEmptyList (lexicographic)
+ * Ord instance for NonEmptyList (lexicographic).
+ * Includes Op<>-annotated comparison methods for operator rewriting.
  */
 export function getOrd<A>(O: Ord<A>): Ord<NonEmptyList<A>> {
   const listOrd = L.getOrd(O);
+  const compare = (x: NonEmptyList<A>, y: NonEmptyList<A>): Ordering => {
+    const headCmp = O.compare(x.head, y.head);
+    if (headCmp !== 0) return headCmp;
+    return listOrd.compare(x.tail, y.tail);
+  };
   return {
     eqv: getEq(O).eqv,
-    compare: (x, y) => {
-      const headCmp = O.compare(x.head, y.head);
-      if (headCmp !== 0) return headCmp;
-      return listOrd.compare(x.tail, y.tail);
-    },
+    compare,
+    lessThan: ((x, y) => compare(x, y) === -1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<">=">,
   };
 }
 

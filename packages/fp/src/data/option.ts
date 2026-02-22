@@ -443,17 +443,34 @@ export function getEq<A>(E: Eq<A>): Eq<Option<A>> {
 }
 
 /**
- * Ord instance for Option (None < Some)
+ * Ord instance for Option (None < Some).
+ *
+ * Enables operator rewriting for comparison operators:
+ * - `optA < optB` → `getOrd(ordA).lessThan(optA, optB)`
+ *
+ * @example
+ * ```typescript
+ * const ordOptNum = getOrd(ordNumber);
+ * const a = Some(1);
+ * const b = Some(2);
+ *
+ * // With transformer: a < b → ordOptNum.lessThan(a, b) → true
+ * ```
  */
 export function getOrd<A>(O: Ord<A>): Ord<Option<A>> {
+  const compare = (x: Option<A>, y: Option<A>): Ordering => {
+    if (x === null && y === null) return 0 as Ordering;
+    if (x === null) return -1 as Ordering;
+    if (y === null) return 1 as Ordering;
+    return O.compare(x, y);
+  };
   return {
     eqv: getEq(O).eqv,
-    compare: (x, y) => {
-      if (x === null && y === null) return 0 as Ordering;
-      if (x === null) return -1 as Ordering;
-      if (y === null) return 1 as Ordering;
-      return O.compare(x, y);
-    },
+    compare,
+    lessThan: ((x, y) => compare(x, y) === -1) as (x: Option<A>, y: Option<A>) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: Option<A>, y: Option<A>) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (x: Option<A>, y: Option<A>) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: Option<A>, y: Option<A>) => boolean & Op<">=">,
   };
 }
 

@@ -76,10 +76,31 @@ export interface PartialOrd<A> extends Eq<A> {
 // ============================================================================
 
 /**
- * Ord typeclass - total ordering
+ * Ord typeclass - total ordering with operator support.
+ *
+ * Methods are annotated with Op<> to enable operator rewriting by the transformer:
+ * - `a < b`  → `ordA.lessThan(a, b)`
+ * - `a <= b` → `ordA.lessThanOrEqual(a, b)`
+ * - `a > b`  → `ordA.greaterThan(a, b)`
+ * - `a >= b` → `ordA.greaterThanOrEqual(a, b)`
+ *
+ * @example
+ * ```typescript
+ * const ord = getOrd(ordNumber);
+ * const a = Some(1);
+ * const b = Some(2);
+ *
+ * // With Op<> annotation, the transformer rewrites:
+ * a < b   // → ord.lessThan(a, b) → true
+ * a >= b  // → ord.greaterThanOrEqual(a, b) → false
+ * ```
  */
 export interface Ord<A> extends Eq<A> {
   readonly compare: (x: A, y: A) => Ordering;
+  readonly lessThan: (x: A, y: A) => boolean & Op<"<">;
+  readonly lessThanOrEqual: (x: A, y: A) => boolean & Op<"<=">;
+  readonly greaterThan: (x: A, y: A) => boolean & Op<">">;
+  readonly greaterThanOrEqual: (x: A, y: A) => boolean & Op<">=">;
 }
 
 // ============================================================================
@@ -205,9 +226,14 @@ export function eqArray<A>(E: Eq<A>): Eq<A[]> {
  * Ord by mapping to a comparable value
  */
 export function ordBy<A, B>(O: Ord<B>, f: (a: A) => B): Ord<A> {
+  const compare = (x: A, y: A) => O.compare(f(x), f(y));
   return {
-    eqv: (x, y) => O.eqv(f(x), f(y)),
-    compare: (x, y) => O.compare(f(x), f(y)),
+    eqv: ((x, y) => O.eqv(f(x), f(y))) as (x: A, y: A) => boolean & Op<"===">,
+    compare,
+    lessThan: ((x, y) => compare(x, y) === LT) as (x: A, y: A) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== GT) as (x: A, y: A) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === GT) as (x: A, y: A) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== LT) as (x: A, y: A) => boolean & Op<">=">,
   };
 }
 
@@ -218,6 +244,10 @@ export function reverse<A>(O: Ord<A>): Ord<A> {
   return {
     eqv: O.eqv,
     compare: (x, y) => O.compare(y, x),
+    lessThan: O.greaterThan,
+    lessThanOrEqual: O.greaterThanOrEqual,
+    greaterThan: O.lessThan,
+    greaterThanOrEqual: O.lessThanOrEqual,
   };
 }
 
@@ -225,12 +255,18 @@ export function reverse<A>(O: Ord<A>): Ord<A> {
  * Combine multiple Ords (lexicographic)
  */
 export function ordTuple<A, B>(OA: Ord<A>, OB: Ord<B>): Ord<[A, B]> {
+  const compare = ([a1, b1]: [A, B], [a2, b2]: [A, B]) => {
+    const cmpA = OA.compare(a1, a2);
+    return cmpA !== EQ ? cmpA : OB.compare(b1, b2);
+  };
   return {
-    eqv: ([a1, b1], [a2, b2]) => OA.eqv(a1, a2) && OB.eqv(b1, b2),
-    compare: ([a1, b1], [a2, b2]) => {
-      const cmpA = OA.compare(a1, a2);
-      return cmpA !== EQ ? cmpA : OB.compare(b1, b2);
-    },
+    eqv: (([a1, b1], [a2, b2]) =>
+      OA.eqv(a1, a2) && OB.eqv(b1, b2)) as (x: [A, B], y: [A, B]) => boolean & Op<"===">,
+    compare,
+    lessThan: ((x, y) => compare(x, y) === LT) as (x: [A, B], y: [A, B]) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== GT) as (x: [A, B], y: [A, B]) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === GT) as (x: [A, B], y: [A, B]) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== LT) as (x: [A, B], y: [A, B]) => boolean & Op<">=">,
   };
 }
 
@@ -238,16 +274,21 @@ export function ordTuple<A, B>(OA: Ord<A>, OB: Ord<B>): Ord<[A, B]> {
  * Ord for arrays (lexicographic)
  */
 export function ordArray<A>(O: Ord<A>): Ord<A[]> {
+  const compare = (xs: A[], ys: A[]) => {
+    const len = Math.min(xs.length, ys.length);
+    for (let i = 0; i < len; i++) {
+      const cmp = O.compare(xs[i], ys[i]);
+      if (cmp !== EQ) return cmp;
+    }
+    return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ;
+  };
   return {
     eqv: eqArray(O).eqv,
-    compare: (xs, ys) => {
-      const len = Math.min(xs.length, ys.length);
-      for (let i = 0; i < len; i++) {
-        const cmp = O.compare(xs[i], ys[i]);
-        if (cmp !== EQ) return cmp;
-      }
-      return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ;
-    },
+    compare,
+    lessThan: ((xs, ys) => compare(xs, ys) === LT) as (x: A[], y: A[]) => boolean & Op<"<">,
+    lessThanOrEqual: ((xs, ys) => compare(xs, ys) !== GT) as (x: A[], y: A[]) => boolean & Op<"<=">,
+    greaterThan: ((xs, ys) => compare(xs, ys) === GT) as (x: A[], y: A[]) => boolean & Op<">">,
+    greaterThanOrEqual: ((xs, ys) => compare(xs, ys) !== LT) as (x: A[], y: A[]) => boolean & Op<">=">,
   };
 }
 
@@ -271,39 +312,55 @@ export const eqNumber: Eq<number> = eqStrict();
 export const eqBoolean: Eq<boolean> = eqStrict();
 
 /**
- * Ord for strings
+ * Ord for strings - enables `str1 < str2` operator rewriting
  */
 export const ordString: Ord<string> = {
-  eqv: (x, y) => x === y,
+  eqv: ((x, y) => x === y) as (x: string, y: string) => boolean & Op<"===">,
   compare: (x, y) => (x < y ? LT : x > y ? GT : EQ),
+  lessThan: ((x, y) => x < y) as (x: string, y: string) => boolean & Op<"<">,
+  lessThanOrEqual: ((x, y) => x <= y) as (x: string, y: string) => boolean & Op<"<=">,
+  greaterThan: ((x, y) => x > y) as (x: string, y: string) => boolean & Op<">">,
+  greaterThanOrEqual: ((x, y) => x >= y) as (x: string, y: string) => boolean & Op<">=">,
 };
 
 /**
- * Ord for numbers
+ * Ord for numbers - enables `n1 < n2` operator rewriting
  */
 export const ordNumber: Ord<number> = {
-  eqv: (x, y) => x === y,
+  eqv: ((x, y) => x === y) as (x: number, y: number) => boolean & Op<"===">,
   compare: (x, y) => (x < y ? LT : x > y ? GT : EQ),
+  lessThan: ((x, y) => x < y) as (x: number, y: number) => boolean & Op<"<">,
+  lessThanOrEqual: ((x, y) => x <= y) as (x: number, y: number) => boolean & Op<"<=">,
+  greaterThan: ((x, y) => x > y) as (x: number, y: number) => boolean & Op<">">,
+  greaterThanOrEqual: ((x, y) => x >= y) as (x: number, y: number) => boolean & Op<">=">,
 };
 
 /**
- * Ord for booleans (false < true)
+ * Ord for booleans (false < true) - enables `b1 < b2` operator rewriting
  */
 export const ordBoolean: Ord<boolean> = {
-  eqv: (x, y) => x === y,
+  eqv: ((x, y) => x === y) as (x: boolean, y: boolean) => boolean & Op<"===">,
   compare: (x, y) => (x === y ? EQ : x ? GT : LT),
+  lessThan: ((x, y) => !x && y) as (x: boolean, y: boolean) => boolean & Op<"<">,
+  lessThanOrEqual: ((x, y) => !x || y) as (x: boolean, y: boolean) => boolean & Op<"<=">,
+  greaterThan: ((x, y) => x && !y) as (x: boolean, y: boolean) => boolean & Op<">">,
+  greaterThanOrEqual: ((x, y) => x || !y) as (x: boolean, y: boolean) => boolean & Op<">=">,
 };
 
 /**
- * Ord for dates
+ * Ord for dates - enables `d1 < d2` operator rewriting
  */
 export const ordDate: Ord<Date> = {
-  eqv: (x, y) => x.getTime() === y.getTime(),
+  eqv: ((x, y) => x.getTime() === y.getTime()) as (x: Date, y: Date) => boolean & Op<"===">,
   compare: (x, y) => {
     const tx = x.getTime();
     const ty = y.getTime();
     return tx < ty ? LT : tx > ty ? GT : EQ;
   },
+  lessThan: ((x, y) => x.getTime() < y.getTime()) as (x: Date, y: Date) => boolean & Op<"<">,
+  lessThanOrEqual: ((x, y) => x.getTime() <= y.getTime()) as (x: Date, y: Date) => boolean & Op<"<=">,
+  greaterThan: ((x, y) => x.getTime() > y.getTime()) as (x: Date, y: Date) => boolean & Op<">">,
+  greaterThanOrEqual: ((x, y) => x.getTime() >= y.getTime()) as (x: Date, y: Date) => boolean & Op<">=">,
 };
 
 // ============================================================================
@@ -321,23 +378,37 @@ export function makeEq<A>(eqv: (x: A, y: A) => boolean): Eq<A> {
 }
 
 /**
- * Create an Ord instance from a compare function
+ * Create an Ord instance from a compare function.
+ * Automatically generates Op<>-annotated comparison methods.
  */
 export function makeOrd<A>(compare: (x: A, y: A) => Ordering): Ord<A> {
   return {
-    eqv: (x, y) => compare(x, y) === EQ,
+    eqv: ((x, y) => compare(x, y) === EQ) as (x: A, y: A) => boolean & Op<"===">,
     compare,
+    lessThan: ((x, y) => compare(x, y) === LT) as (x: A, y: A) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== GT) as (x: A, y: A) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === GT) as (x: A, y: A) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== LT) as (x: A, y: A) => boolean & Op<">=">,
   };
 }
 
 /**
- * Create an Ord instance from a comparator function (returns number)
+ * Create an Ord instance from a comparator function (returns number).
+ * Generates all Op<>-annotated comparison methods automatically.
  */
-export function fromCompare<A>(compare: (x: A, y: A) => number): Ord<A> {
-  return makeOrd((x, y) => {
-    const result = compare(x, y);
+export function fromCompare<A>(comparator: (x: A, y: A) => number): Ord<A> {
+  const compare = (x: A, y: A): Ordering => {
+    const result = comparator(x, y);
     return result < 0 ? LT : result > 0 ? GT : EQ;
-  });
+  };
+  return {
+    eqv: ((x, y) => comparator(x, y) === 0) as (x: A, y: A) => boolean & Op<"===">,
+    compare,
+    lessThan: ((x, y) => comparator(x, y) < 0) as (x: A, y: A) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => comparator(x, y) <= 0) as (x: A, y: A) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => comparator(x, y) > 0) as (x: A, y: A) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => comparator(x, y) >= 0) as (x: A, y: A) => boolean & Op<">=">,
+  };
 }
 
 // ============================================================================
@@ -358,7 +429,11 @@ export function contramapEq<A, B>(E: Eq<A>, f: (b: B) => A): Eq<B> {
  */
 export function contramapOrd<A, B>(O: Ord<A>, f: (b: B) => A): Ord<B> {
   return {
-    eqv: (x, y) => O.eqv(f(x), f(y)),
+    eqv: ((x, y) => O.eqv(f(x), f(y))) as (x: B, y: B) => boolean & Op<"===">,
     compare: (x, y) => O.compare(f(x), f(y)),
+    lessThan: ((x, y) => O.lessThan(f(x), f(y))) as (x: B, y: B) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => O.lessThanOrEqual(f(x), f(y))) as (x: B, y: B) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => O.greaterThan(f(x), f(y))) as (x: B, y: B) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => O.greaterThanOrEqual(f(x), f(y))) as (x: B, y: B) => boolean & Op<">=">,
   };
 }
