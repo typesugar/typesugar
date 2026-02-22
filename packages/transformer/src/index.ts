@@ -13,6 +13,7 @@ import {
   getSyntaxForOperator,
   findInstance,
   getInstanceMethods,
+  isRegisteredInstance,
   createSpecializedFunction,
   isKindAnnotation,
   transformHKTDeclaration,
@@ -21,6 +22,25 @@ import {
   instanceVarName,
   registerExtensionMethods,
   tryExtractSumType,
+  getImplicitsFunction,
+  transformImplicitsCall,
+  buildImplicitScope,
+  SpecializationCache,
+  createHoistedSpecialization,
+  classifyInlineFailureDetailed,
+  getInlineFailureHelp,
+  inlineMethod,
+  getResultAlgebra,
+  analyzeForFlattening,
+  flattenReturnsToExpression,
+  // Config functions
+  setCfgConfig,
+  clearDerivationCaches,
+  type ImplicitScope,
+  type ImplicitsFunctionInfo,
+  type DictMethodMap,
+  type DictMethod,
+  type ResultAlgebra,
 } from "@typesugar/macros";
 
 import {
@@ -52,6 +72,13 @@ import {
   formatSuggestionsMessage,
   // Source map utilities
   preserveSourceMap,
+  // Hygiene system
+  HygieneContext,
+  // Expansion tracking
+  ExpansionTracker,
+  globalExpansionTracker,
+  // Expansion caching
+  MacroExpansionCache,
 } from "@typesugar/core";
 
 /**
@@ -63,6 +90,19 @@ export interface MacroTransformerConfig {
 
   /** Custom macro module paths to load */
   macroModules?: string[];
+
+  /** Conditional compilation configuration (for cfg/cfgAttr macros) */
+  cfgConfig?: Record<string, unknown>;
+
+  /** Enable expansion tracking for source maps and diagnostics */
+  trackExpansions?: boolean;
+
+  /**
+   * Directory for the disk-backed macro expansion cache.
+   * Set to `false` to disable caching entirely.
+   * Defaults to `.typesugar-cache`.
+   */
+  cacheDir?: string | false;
 }
 
 /**
@@ -161,6 +201,26 @@ export default function macroTransformerFactory(
   config?: MacroTransformerConfig
 ): ts.TransformerFactory<ts.SourceFile> {
   const verbose = config?.verbose ?? false;
+  const trackExpansions = config?.trackExpansions ?? false;
+
+  // Apply conditional compilation config if provided
+  if (config?.cfgConfig) {
+    setCfgConfig(config.cfgConfig);
+  }
+
+  // Clear per-compilation caches (stale mirrors/derivations from watch-mode rebuilds)
+  clearDerivationCaches();
+
+  // Create a shared hygiene context for the entire compilation
+  const hygiene = new HygieneContext();
+
+  // Use the global expansion tracker (or a fresh one per compilation)
+  const expansionTracker = trackExpansions ? globalExpansionTracker : undefined;
+
+  // Instantiate the disk-backed expansion cache (one per compilation)
+  const cacheDir = config?.cacheDir;
+  const expansionCache =
+    cacheDir !== false ? new MacroExpansionCache(cacheDir ?? ".typesugar-cache") : undefined;
 
   // Lazily load macro packages based on what the program actually imports.
   // This replaces eager side-effect imports that caused dependency cycles.
@@ -174,6 +234,9 @@ export default function macroTransformerFactory(
         .map((m) => m.name)
         .join(", ")}`
     );
+    if (expansionCache) {
+      console.log(`[typesugar] Expansion cache loaded: ${expansionCache.size} entries`);
+    }
   }
 
   return (context: ts.TransformationContext) => {
@@ -187,7 +250,7 @@ export default function macroTransformerFactory(
       // contain syntax that TypeScript couldn't parse correctly.
       sourceFile = maybePreprocess(sourceFile, verbose);
 
-      const ctx = createMacroContext(program, sourceFile, context);
+      const ctx = createMacroContext(program, sourceFile, context, hygiene);
 
       // Scan for imports and opt-out directives
       scanImportsForScope(sourceFile, globalResolutionScope);
@@ -201,7 +264,7 @@ export default function macroTransformerFactory(
         return sourceFile;
       }
 
-      const transformer = new MacroTransformer(ctx, verbose);
+      const transformer = new MacroTransformer(ctx, verbose, expansionTracker, expansionCache);
 
       const result = ts.visitNode(sourceFile, transformer.visit.bind(transformer));
 
@@ -282,10 +345,177 @@ class MacroTransformer {
     Map<string, StandaloneExtensionInfo | undefined>
   >();
 
+  /**
+   * Stack of implicit scopes from enclosing @implicits functions.
+   * Pushed when entering an @implicits function body, popped on exit.
+   * Inner scopes shadow outer ones.
+   */
+  private implicitScopeStack: ImplicitScope[] = [];
+
+  /**
+   * Per-block deduplication cache for auto-specialization.
+   * When the same function is specialized with the same dictionaries
+   * multiple times in the same block, we generate one hoisted declaration
+   * and reuse the identifier.
+   */
+  private specCache = new SpecializationCache();
+
   constructor(
     private ctx: MacroContextImpl,
-    private verbose: boolean
+    private verbose: boolean,
+    private expansionTracker?: ExpansionTracker,
+    private expansionCache?: MacroExpansionCache
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // Expansion cache helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Check whether a macro definition opts into caching.
+   * Defaults to true unless explicitly set to false.
+   */
+  private isMacroCacheable(macro: MacroDefinition): boolean {
+    return macro.cacheable !== false;
+  }
+
+  /**
+   * Compute a cache key for a macro call site.
+   * Returns undefined if the node text cannot be retrieved (synthetic nodes).
+   */
+  private computeCallSiteCacheKey(
+    macroName: string,
+    node: ts.Node,
+    args: readonly ts.Node[]
+  ): string | undefined {
+    if (!this.expansionCache) return undefined;
+    try {
+      const sourceText = node.getText(this.ctx.sourceFile);
+      const argTexts = args.map((a) => a.getText(this.ctx.sourceFile));
+      return this.expansionCache.computeKey(macroName, sourceText, argTexts);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Try to retrieve a cached single-expression expansion.
+   * Returns the parsed expression on hit, undefined on miss.
+   */
+  private getCachedExpression(cacheKey: string): ts.Expression | undefined {
+    if (!this.expansionCache) return undefined;
+    const cached = this.expansionCache.get(cacheKey);
+    if (cached === undefined) return undefined;
+    try {
+      return this.ctx.parseExpression(cached);
+    } catch {
+      this.expansionCache.invalidate(cacheKey);
+      return undefined;
+    }
+  }
+
+  /**
+   * Store a single-expression expansion result in the cache.
+   */
+  private cacheExpression(cacheKey: string, result: ts.Node): void {
+    if (!this.expansionCache) return;
+    const printed = this.printNodeSafe(result);
+    if (printed) {
+      this.expansionCache.set(cacheKey, printed);
+    }
+  }
+
+  /**
+   * Safely print a node to string. Returns undefined if printing fails.
+   */
+  private printNodeSafe(node: ts.Node): string | undefined {
+    try {
+      const printer = ts.createPrinter();
+      return printer.printNode(ts.EmitHint.Unspecified, node, this.ctx.sourceFile);
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Implicit scope management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get the current implicit scope (combined from all enclosing @implicits functions).
+   * Inner scopes shadow outer ones.
+   */
+  private getCurrentImplicitScope(): ImplicitScope | undefined {
+    if (this.implicitScopeStack.length === 0) return undefined;
+
+    const combined = new Map<string, string>();
+    for (const scope of this.implicitScopeStack) {
+      for (const entry of Array.from(scope.available.entries())) {
+        combined.set(entry[0], entry[1]);
+      }
+    }
+
+    return { available: combined };
+  }
+
+  /**
+   * Visit an @implicits function, tracking its implicit params in scope
+   * so that nested calls can use them (propagation).
+   */
+  private visitImplicitsFunction(
+    node: ts.FunctionDeclaration,
+    funcInfo: ImplicitsFunctionInfo
+  ): ts.Node | ts.Node[] {
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Entering @implicits function: ${funcInfo.functionName} ` +
+          `(${funcInfo.implicitParams.length} implicit params)`
+      );
+    }
+
+    const scope = buildImplicitScope(funcInfo, new Map());
+    this.implicitScopeStack.push(scope);
+
+    try {
+      const transformed = this.tryTransform(node);
+      if (transformed !== undefined) {
+        return transformed;
+      }
+
+      return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    } finally {
+      this.implicitScopeStack.pop();
+    }
+  }
+
+  /**
+   * Try to transform a call to an @implicits function.
+   * If the function has implicit params and not all are provided, fill them in.
+   * Uses the current implicit scope for propagation.
+   */
+  private tryTransformImplicitsCall(node: ts.CallExpression): ts.Expression | undefined {
+    if (this.verbose && ts.isIdentifier(node.expression)) {
+      const fnInfo = getImplicitsFunction(node.expression.text);
+      console.log(`[typesugar] tryTransformImplicitsCall: ${node.expression.text}, registered=${!!fnInfo}`);
+    }
+    const currentScope = this.getCurrentImplicitScope();
+    const result = transformImplicitsCall(this.ctx, node, currentScope);
+    if (result) {
+      if (this.verbose) {
+        let funcName = "";
+        if (ts.isIdentifier(node.expression)) {
+          funcName = node.expression.text;
+        } else if (ts.isPropertyAccessExpression(node.expression)) {
+          funcName = node.expression.name.text;
+        }
+        const fromScope = currentScope ? " (with propagation)" : "";
+        console.log(`[typesugar] Filling implicit parameters for call: ${funcName}()${fromScope}`);
+      }
+      const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    }
+    return undefined;
+  }
 
   // ---------------------------------------------------------------------------
   // Import tracking for macro-import cleanup
@@ -401,6 +631,10 @@ class MacroTransformer {
     methodName: string,
     receiverType: ts.Type
   ): StandaloneExtensionInfo | undefined {
+    // Guard against synthetic source files that lack statements
+    if (!sourceFile || !sourceFile.statements) {
+      return undefined;
+    }
     for (const stmt of sourceFile.statements) {
       if (!ts.isImportDeclaration(stmt)) continue;
 
@@ -594,7 +828,7 @@ class MacroTransformer {
   }
 
   /**
-   * Map a file path back to a module specifier like "typemacro" or "@typesugar/units".
+   * Map a file path back to a module specifier like "typesugar" or "@typesugar/units".
    */
   private resolveModuleSpecifier(fileName: string): string | undefined {
     const normalized = fileName.replace(/\\/g, "/");
@@ -603,42 +837,25 @@ class MacroTransformer {
     const nodeModulesMatch = normalized.match(/\/node_modules\/((?:@[^/]+\/)?[^/]+)/);
     if (nodeModulesMatch) {
       const pkgName = nodeModulesMatch[1];
-      // Check for @typemacro scoped packages
       if (pkgName.startsWith("@typesugar/")) {
         return pkgName;
       }
-      if (pkgName === "typemacro") {
-        return "typemacro";
+      if (pkgName === "typesugar") {
+        return "typesugar";
       }
       return pkgName;
     }
 
-    // Development mode: detect from source tree structure
-    if (normalized.includes("/packages/units/")) return "@typesugar/units";
-    if (normalized.includes("/packages/sql/")) return "@typesugar/sql";
-    if (normalized.includes("/packages/strings/")) return "@typesugar/strings";
-    if (normalized.includes("/packages/fp/")) return "@typesugar/fp";
-    if (normalized.includes("/packages/comptime/")) return "@typesugar/comptime";
-    if (normalized.includes("/packages/reflect/")) return "@typesugar/reflect";
-    if (normalized.includes("/packages/derive/")) return "@typesugar/derive";
-    if (normalized.includes("/packages/mapper/")) return "@typesugar/mapper";
-    if (normalized.includes("/packages/operators/")) return "@typesugar/operators";
-    if (normalized.includes("/packages/typeclass/")) return "@typesugar/typeclass";
-    if (normalized.includes("/packages/specialize/")) return "@typesugar/specialize";
-    if (normalized.includes("/packages/core/")) return "@typesugar/core";
-    if (normalized.includes("/packages/typemacro/")) return "typemacro";
-
-    // Legacy source tree paths (for backwards compatibility during migration)
-    if (normalized.includes("/src/use-cases/units/")) return "@typesugar/units";
-    if (normalized.includes("/src/use-cases/sql/")) return "@typesugar/sql";
-    if (normalized.includes("/src/use-cases/strings/")) return "@typesugar/strings";
-    if (
-      normalized.includes("/src/index.") ||
-      normalized.includes("/src/macros/") ||
-      normalized.includes("/src/core/") ||
-      normalized.includes("/dist/")
-    ) {
-      return "typemacro";
+    // Development mode: detect from source tree structure using generic regex
+    // Matches /packages/<package-name>/ and returns @typesugar/<package-name>
+    const packagesMatch = normalized.match(/\/packages\/([a-z0-9-]+)\//);
+    if (packagesMatch) {
+      const pkgName = packagesMatch[1];
+      // Special case: the main "typesugar" package
+      if (pkgName === "typesugar") {
+        return "typesugar";
+      }
+      return `@typesugar/${pkgName}`;
     }
 
     return undefined;
@@ -688,6 +905,14 @@ class MacroTransformer {
       return this.visitStatementContainer(node);
     }
 
+    // Handle @implicits function scope tracking for propagation
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      const funcInfo = getImplicitsFunction(node.name.text, this.ctx.sourceFile.fileName);
+      if (funcInfo && funcInfo.implicitParams.length > 0) {
+        return this.visitImplicitsFunction(node, funcInfo);
+      }
+    }
+
     const transformed = this.tryTransform(node);
     if (transformed !== undefined) {
       return transformed;
@@ -705,6 +930,10 @@ class MacroTransformer {
     const statements = Array.from(node.statements);
     const newStatements: ts.Statement[] = [];
     let modified = false;
+
+    // Scope SpecializationCache to the current block to preserve closures
+    const prevSpecCache = this.specCache;
+    this.specCache = new SpecializationCache();
 
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i];
@@ -737,7 +966,10 @@ class MacroTransformer {
           }
 
           try {
-            const result = macro.expand(this.ctx, stmt, continuation);
+            // Wrap expansion in a hygiene scope so generated names are isolated
+            const result = this.ctx.hygiene.withScope(() =>
+              macro.expand(this.ctx, stmt, continuation)
+            );
             const expanded = Array.isArray(result) ? result : [result];
 
             for (const s of expanded) {
@@ -777,9 +1009,39 @@ class MacroTransformer {
     }
 
     // Clean up macro imports (only for source files — imports live at top level)
-    const cleanedStatements = ts.isSourceFile(node)
+    let cleanedStatements = ts.isSourceFile(node)
       ? this.cleanupMacroImports(newStatements)
       : newStatements;
+
+    // Prepend hoisted specialization declarations to the current block/file
+    const hoistedDecls = this.specCache.getHoistedDeclarations();
+    if (hoistedDecls.length > 0) {
+      let insertIndex = 0;
+      if (ts.isSourceFile(node)) {
+        for (let i = 0; i < cleanedStatements.length; i++) {
+          if (ts.isImportDeclaration(cleanedStatements[i])) {
+            insertIndex = i + 1;
+          } else {
+            break;
+          }
+        }
+      }
+
+      cleanedStatements = [
+        ...cleanedStatements.slice(0, insertIndex),
+        ...hoistedDecls,
+        ...cleanedStatements.slice(insertIndex),
+      ];
+
+      if (this.verbose) {
+        console.log(
+          `[typesugar] Hoisted ${hoistedDecls.length} specialized function(s) to local scope`
+        );
+      }
+    }
+
+    // Restore previous scope's specialization cache
+    this.specCache = prevSpecCache;
 
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
@@ -899,6 +1161,641 @@ class MacroTransformer {
   }
 
   // ---------------------------------------------------------------------------
+  // Auto-specialization
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get the instance dictionary name from an expression.
+   * Handles direct identifiers, property accesses, and type assertions.
+   */
+  private getInstanceName(expr: ts.Expression): string | undefined {
+    if (ts.isIdentifier(expr)) {
+      return expr.text;
+    }
+    if (ts.isPropertyAccessExpression(expr)) {
+      return expr.name.text;
+    }
+    if (ts.isAsExpression(expr)) {
+      return this.getInstanceName(expr.expression);
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve a function expression to its body for auto-specialization.
+   */
+  private resolveAutoSpecFunctionBody(
+    fnExpr: ts.Expression
+  ): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
+    if (ts.isArrowFunction(fnExpr) || ts.isFunctionExpression(fnExpr)) {
+      return fnExpr;
+    }
+
+    if (ts.isIdentifier(fnExpr)) {
+      try {
+        const symbol = this.ctx.typeChecker.getSymbolAtLocation(fnExpr);
+        if (!symbol) return undefined;
+        const declarations = symbol.getDeclarations();
+        if (!declarations || declarations.length === 0) return undefined;
+
+        for (const decl of declarations) {
+          if (ts.isVariableDeclaration(decl) && decl.initializer) {
+            if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
+              return decl.initializer;
+            }
+          }
+          // Only return function declarations that have a body
+          // (skip ambient declarations like `declare function foo()`)
+          if (ts.isFunctionDeclaration(decl) && decl.body) {
+            return decl;
+          }
+        }
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (ts.isPropertyAccessExpression(fnExpr)) {
+      try {
+        const symbol = this.ctx.typeChecker.getSymbolAtLocation(fnExpr);
+        if (!symbol) return undefined;
+        const declarations = symbol.getDeclarations();
+        if (!declarations || declarations.length === 0) return undefined;
+
+        for (const decl of declarations) {
+          if (ts.isVariableDeclaration(decl) && decl.initializer) {
+            if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
+              return decl.initializer;
+            }
+          }
+          // Only return function declarations that have a body
+          if (ts.isFunctionDeclaration(decl) && decl.body) {
+            return decl;
+          }
+        }
+      } catch {
+        return undefined;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Rewrite dictionary method calls (D.method(args)) with inlined implementations.
+   */
+  private rewriteDictCallsForAutoSpec(
+    node: ts.Node,
+    dictParamMap: Map<string, DictMethodMap>
+  ): ts.Node {
+    const self = this;
+
+    function visit(n: ts.Node): ts.Node {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        ts.isIdentifier(n.expression.expression)
+      ) {
+        const dictParamName = n.expression.expression.text;
+        const dictMethods = dictParamMap.get(dictParamName);
+
+        if (dictMethods) {
+          const methodName = n.expression.name.text;
+          const method = dictMethods.methods.get(methodName);
+
+          if (method) {
+            const inlined = inlineMethod(self.ctx, method, Array.from(n.arguments));
+            if (inlined) {
+              const mapped = preserveSourceMap(inlined, n);
+              return ts.visitEachChild(mapped, visit, self.ctx.transformContext);
+            }
+          }
+        }
+      }
+
+      return ts.visitEachChild(n, visit, self.ctx.transformContext);
+    }
+
+    return ts.visitNode(node, visit) as ts.Node;
+  }
+
+  /**
+   * Inline dictionary method calls for hoisting — returns the specialized function
+   * expression (not a call), which can be hoisted to module scope.
+   */
+  private inlineAutoSpecializeForHoisting(
+    fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+    instanceArgs: { index: number; name: string; methods: DictMethodMap }[],
+    _fnName: string
+  ): ts.Expression | undefined {
+    const params = Array.from(fn.parameters);
+    if (params.length === 0) return undefined;
+
+    const dictParamMap = new Map<string, DictMethodMap>();
+    const dictParamIndices = new Set<number>();
+
+    for (const instArg of instanceArgs) {
+      if (instArg.index < params.length) {
+        const param = params[instArg.index];
+        const paramName = ts.isIdentifier(param.name) ? param.name.text : undefined;
+        if (paramName) {
+          dictParamMap.set(paramName, instArg.methods);
+          dictParamIndices.add(instArg.index);
+        }
+      }
+    }
+
+    if (dictParamMap.size === 0) return undefined;
+
+    const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
+    if (!body) return undefined;
+
+    const remainingParams = params.filter((_, i) => !dictParamIndices.has(i));
+    const specializedBody = this.rewriteDictCallsForAutoSpec(body, dictParamMap);
+
+    if (remainingParams.length === 0) {
+      if (ts.isExpression(specializedBody)) {
+        return this.ctx.factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          specializedBody
+        );
+      }
+      if (ts.isBlock(specializedBody)) {
+        return this.ctx.factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          specializedBody
+        );
+      }
+    }
+
+    return this.ctx.factory.createArrowFunction(
+      undefined,
+      undefined,
+      remainingParams,
+      undefined,
+      this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      specializedBody as ts.ConciseBody
+    );
+  }
+
+  /**
+   * Auto-specialize a function call when arguments are registered typeclass instances.
+   *
+   * When a function call passes a typeclass instance dictionary as an argument,
+   * this method auto-inlines the dictionary methods and hoists a specialized function.
+   * This is the core zero-cost mechanism.
+   */
+  private tryAutoSpecialize(node: ts.CallExpression): ts.Expression | undefined {
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    // Check for opt-out comments
+    let suppressWarnings = false;
+    const isSyntheticNode = node.pos === -1 || node.end === -1;
+
+    if (!isSyntheticNode) {
+      try {
+        const sourceText = node.getSourceFile().text;
+        const nodeStart = node.getStart();
+        const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
+        const lineText = sourceText.slice(lineStart, nodeStart);
+
+        if (lineText.includes("@no-specialize")) {
+          return undefined;
+        }
+        suppressWarnings = lineText.includes("@no-specialize-warn");
+      } catch {
+        // Proceed with auto-specialization if we can't read comments
+      }
+    }
+
+    // Find which arguments are registered instance dictionaries
+    const instanceArgs: {
+      index: number;
+      name: string;
+      methods: DictMethodMap;
+    }[] = [];
+
+    for (let i = 0; i < node.arguments.length; i++) {
+      const arg = node.arguments[i];
+      const argName = this.getInstanceName(arg);
+      if (argName && isRegisteredInstance(argName)) {
+        const methods = getInstanceMethods(argName);
+        if (methods) {
+          instanceArgs.push({ index: i, name: argName, methods });
+        }
+      }
+    }
+
+    if (instanceArgs.length === 0) {
+      return undefined;
+    }
+
+    const fnName = ts.isIdentifier(node.expression)
+      ? node.expression.text
+      : ts.isPropertyAccessExpression(node.expression)
+        ? node.expression.name.text
+        : "<anonymous>";
+
+    // Try to resolve the called function to its body
+    const fnBody = this.resolveAutoSpecFunctionBody(node.expression);
+    if (!fnBody) {
+      if (!suppressWarnings) {
+        this.ctx.reportWarning(
+          node,
+          `[TS9602] Auto-specialization of ${fnName} skipped — ` +
+            `function body not resolvable. ` +
+            `Use explicit specialize() if you need guaranteed inlining.`
+        );
+      }
+      return undefined;
+    }
+
+    // Check if the function body has patterns that prevent inlining
+    const body = ts.isFunctionDeclaration(fnBody) ? fnBody.body : fnBody.body;
+    if (body && ts.isBlock(body)) {
+      const classification = classifyInlineFailureDetailed(body);
+      if (classification.reason && !classification.canFlatten) {
+        if (!suppressWarnings) {
+          const help = getInlineFailureHelp(classification.reason);
+          this.ctx.reportWarning(
+            node,
+            `[TS9602] Auto-specialization of ${fnName} skipped — ` +
+              `${classification.reason}. ${help}`
+          );
+        }
+        return undefined;
+      }
+    }
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Auto-specializing call to ${fnName} with instance: ${instanceArgs.map((a) => a.name).join(", ")}`
+      );
+    }
+
+    // Compute cache key for deduplication
+    let fnSymbolId = fnName;
+    try {
+      const fnSymbol = this.ctx.typeChecker.getSymbolAtLocation(node.expression);
+      if (fnSymbol) {
+        fnSymbolId = (fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName;
+      }
+    } catch {
+      // Use fnName as fallback
+    }
+    const dictBrands = instanceArgs.map((a) => a.methods.brand);
+    const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictBrands);
+
+    // Check if this specialization is already cached
+    const cachedEntry = this.specCache.get(cacheKey);
+    if (cachedEntry) {
+      if (this.verbose) {
+        console.log(`[typesugar] Reusing cached specialization: ${cachedEntry.ident.text}`);
+      }
+      const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
+      const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
+      return this.ctx.factory.createCallExpression(
+        cachedEntry.ident,
+        node.typeArguments,
+        remainingArgs
+      );
+    }
+
+    // Specialize the function body by inlining dictionary method calls
+    try {
+      const specialized = this.inlineAutoSpecializeForHoisting(fnBody, instanceArgs, fnName);
+
+      if (specialized) {
+        const hoistedIdent = SpecializationCache.generateHoistedName(
+          fnName,
+          dictBrands,
+          this.ctx.hygiene
+        );
+        const hoistedDecl = createHoistedSpecialization(
+          this.ctx.factory,
+          hoistedIdent,
+          specialized
+        );
+
+        this.specCache.set(cacheKey, hoistedIdent, hoistedDecl);
+
+        if (this.verbose) {
+          console.log(`[typesugar] Created hoisted specialization: ${hoistedIdent.text}`);
+        }
+
+        const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
+        const remainingArgs = Array.from(node.arguments).filter(
+          (_, i) => !dictParamIndices.has(i)
+        );
+        return this.ctx.factory.createCallExpression(
+          hoistedIdent,
+          node.typeArguments,
+          remainingArgs
+        );
+      } else {
+        if (!suppressWarnings) {
+          this.ctx.reportWarning(
+            node,
+            `[TS9602] Auto-specialization of ${fnName} skipped — ` +
+              `inlining returned no result. ` +
+              `Use explicit specialize() if you need guaranteed inlining.`
+          );
+        }
+      }
+    } catch (error) {
+      if (!suppressWarnings) {
+        this.ctx.reportWarning(
+          node,
+          `[TS9602] Auto-specialization of ${fnName} skipped — ` +
+            `${error}. Use explicit specialize() if you need guaranteed inlining.`
+        );
+      }
+      if (this.verbose) {
+        console.log(`[typesugar] Auto-specialization failed: ${error}`);
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Try to specialize a function call based on the expected return type.
+   *
+   * When a function returning Result<E, T> is called in a context expecting
+   * Option<T>, Either<E, T>, or bare T, this method automatically specializes
+   * the function body by replacing ok()/err() with the target type's constructors.
+   */
+  private tryReturnTypeDrivenSpecialize(node: ts.CallExpression): ts.Expression | undefined {
+    // 1. Get the return type of the called function
+    let fnType: ts.Type;
+    try {
+      fnType = this.ctx.typeChecker.getTypeAtLocation(node.expression);
+    } catch {
+      return undefined;
+    }
+    const callSigs = fnType.getCallSignatures();
+    if (!callSigs.length) return undefined;
+
+    const returnType = callSigs[0].getReturnType();
+
+    // 2. Check if return type is Result-like
+    const returnTypeName = this.getTypeName(returnType);
+    if (returnTypeName !== "Result" && returnTypeName !== "Either" && returnTypeName !== "Validation") {
+      return undefined;
+    }
+
+    // 3. Get the contextual (expected) type
+    const contextualType = this.getContextualTypeForCall(node);
+    if (!contextualType) {
+      return undefined;
+    }
+
+    // 4. Get the target type name
+    const targetTypeName = this.getTypeName(contextualType);
+    if (!targetTypeName) {
+      return undefined;
+    }
+
+    // 5. Check if different from the return type
+    if (returnTypeName === targetTypeName) {
+      return undefined;
+    }
+
+    // 6. Look up the Result algebra for the target type
+    const algebra = getResultAlgebra(targetTypeName);
+    if (!algebra) {
+      return undefined;
+    }
+
+    // 7. Get function name for diagnostics
+    const fnName = ts.isIdentifier(node.expression)
+      ? node.expression.text
+      : ts.isPropertyAccessExpression(node.expression)
+        ? node.expression.name.text
+        : "<anonymous>";
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Return-type-driven specialization: ${fnName} from ${returnTypeName ?? "Result"} to ${targetTypeName}`
+      );
+    }
+
+    // 8. Try to resolve the function body
+    const fnBody = this.resolveAutoSpecFunctionBody(node.expression);
+    if (!fnBody) {
+      return undefined;
+    }
+
+    // 9. Compute cache key for deduplication
+    let fnSymbolId = fnName;
+    try {
+      const fnSymbol = this.ctx.typeChecker.getSymbolAtLocation(node.expression);
+      if (fnSymbol) {
+        fnSymbolId = (fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName;
+      }
+    } catch {
+      // Use fnName as fallback
+    }
+    const cacheKey = SpecializationCache.computeKey(fnSymbolId, [algebra.name]);
+
+    // 10. Check cache
+    const cachedEntry = this.specCache.get(cacheKey);
+    if (cachedEntry) {
+      if (this.verbose) {
+        console.log(
+          `[typesugar] Reusing cached result-type specialization: ${cachedEntry.ident.text}`
+        );
+      }
+      return this.ctx.factory.createCallExpression(
+        cachedEntry.ident,
+        node.typeArguments,
+        Array.from(node.arguments)
+      );
+    }
+
+    // 11. Specialize the function body by rewriting ok()/err() calls
+    const specialized = this.specializeForResultAlgebra(fnBody, algebra);
+    if (!specialized) {
+      return undefined;
+    }
+
+    // 12. Generate a hoisted name and create the declaration
+    const hoistedIdent = SpecializationCache.generateHoistedName(
+      fnName,
+      [algebra.name],
+      this.ctx.hygiene
+    );
+    const hoistedDecl = createHoistedSpecialization(this.ctx.factory, hoistedIdent, specialized);
+
+    // 13. Cache for reuse
+    this.specCache.set(cacheKey, hoistedIdent, hoistedDecl);
+
+    if (this.verbose) {
+      console.log(`[typesugar] Created hoisted result-type specialization: ${hoistedIdent.text}`);
+    }
+
+    // 14. Call the hoisted specialized function
+    return this.ctx.factory.createCallExpression(
+      hoistedIdent,
+      node.typeArguments,
+      Array.from(node.arguments)
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Return-type-driven specialization helpers
+  // ---------------------------------------------------------------------------
+
+  private getTypeName(type: ts.Type): string | undefined {
+    if (type.isUnion()) {
+      for (const t of type.types) {
+        if (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) continue;
+        const name = this.getTypeName(t);
+        if (name) return name;
+      }
+    }
+    const symbol = type.getSymbol() ?? type.aliasSymbol;
+    if (symbol) {
+      return symbol.getName();
+    }
+    const typeStr = this.ctx.typeChecker.typeToString(type);
+    const match = typeStr.match(/^(\w+)(?:<|$)/);
+    return match ? match[1] : undefined;
+  }
+
+  private getContextualTypeForCall(node: ts.CallExpression): ts.Type | undefined {
+    try {
+      const contextual = this.ctx.typeChecker.getContextualType(node);
+      if (contextual) return contextual;
+    } catch {
+      // Fall through to parent-based detection
+    }
+
+    const parent = node.parent;
+    if (ts.isVariableDeclaration(parent) && parent.type) {
+      try {
+        return this.ctx.typeChecker.getTypeFromTypeNode(parent.type);
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (ts.isReturnStatement(parent)) {
+      let current: ts.Node | undefined = parent.parent;
+      while (current) {
+        if (
+          (ts.isFunctionDeclaration(current) ||
+            ts.isArrowFunction(current) ||
+            ts.isFunctionExpression(current) ||
+            ts.isMethodDeclaration(current)) &&
+          current.type
+        ) {
+          try {
+            return this.ctx.typeChecker.getTypeFromTypeNode(current.type);
+          } catch {
+            return undefined;
+          }
+        }
+        current = current.parent;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Specialize a function for a Result algebra by rewriting ok()/err() calls.
+   */
+  private specializeForResultAlgebra(
+    fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+    algebra: ResultAlgebra
+  ): ts.Expression | undefined {
+    const params = Array.from(fn.parameters);
+    const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
+    if (!body) return undefined;
+
+    const rewrittenBody = this.rewriteResultCalls(body, algebra);
+
+    let finalBody: ts.ConciseBody = rewrittenBody as ts.ConciseBody;
+
+    if (ts.isBlock(rewrittenBody)) {
+      const analysis = analyzeForFlattening(rewrittenBody);
+      if (analysis.canFlatten) {
+        const flattened = flattenReturnsToExpression(this.ctx, rewrittenBody);
+        if (flattened) {
+          finalBody = flattened;
+        }
+      }
+    }
+
+    return this.ctx.factory.createArrowFunction(
+      undefined,
+      undefined,
+      params,
+      undefined,
+      this.ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      finalBody
+    );
+  }
+
+  /**
+   * Rewrite ok() and err() calls in a function body using the target algebra.
+   */
+  private rewriteResultCalls(node: ts.Node, algebra: ResultAlgebra): ts.Node {
+    const self = this;
+
+    function visit(n: ts.Node): ts.Node {
+      if (ts.isCallExpression(n)) {
+        if (ts.isIdentifier(n.expression) && n.expression.text === "ok") {
+          if (n.arguments.length >= 1) {
+            const visitedValue = ts.visitNode(n.arguments[0], visit) as ts.Expression;
+            return algebra.rewriteOk(self.ctx, visitedValue);
+          }
+          return algebra.rewriteOk(self.ctx, self.ctx.factory.createIdentifier("undefined"));
+        }
+
+        if (ts.isIdentifier(n.expression) && n.expression.text === "err") {
+          if (n.arguments.length >= 1) {
+            const visitedError = ts.visitNode(n.arguments[0], visit) as ts.Expression;
+            return algebra.rewriteErr(self.ctx, visitedError);
+          }
+          return algebra.rewriteErr(self.ctx, self.ctx.factory.createIdentifier("undefined"));
+        }
+
+        if (ts.isPropertyAccessExpression(n.expression)) {
+          const obj = n.expression.expression;
+          const method = n.expression.name.text;
+
+          if (ts.isIdentifier(obj) && (obj.text === "Result" || obj.text === "R")) {
+            if (method === "ok" && n.arguments.length >= 1) {
+              const visitedValue = ts.visitNode(n.arguments[0], visit) as ts.Expression;
+              return algebra.rewriteOk(self.ctx, visitedValue);
+            }
+            if (method === "err" && n.arguments.length >= 1) {
+              const visitedError = ts.visitNode(n.arguments[0], visit) as ts.Expression;
+              return algebra.rewriteErr(self.ctx, visitedError);
+            }
+          }
+        }
+      }
+
+      return ts.visitEachChild(n, visit, self.ctx.transformContext);
+    }
+
+    return ts.visitNode(node, visit) as ts.Node;
+  }
+
+  // ---------------------------------------------------------------------------
   // Macro expansion
   // ---------------------------------------------------------------------------
 
@@ -924,6 +1821,21 @@ class MacroTransformer {
       const result = this.tryExpandExpressionMacro(node);
       if (result !== undefined) {
         return result;
+      }
+
+      const implicitsResult = this.tryTransformImplicitsCall(node);
+      if (implicitsResult !== undefined) {
+        return implicitsResult;
+      }
+
+      const autoSpecResult = this.tryAutoSpecialize(node);
+      if (autoSpecResult !== undefined) {
+        return autoSpecResult;
+      }
+
+      const returnTypeResult = this.tryReturnTypeDrivenSpecialize(node);
+      if (returnTypeResult !== undefined) {
+        return returnTypeResult;
       }
     }
 
@@ -976,10 +1888,15 @@ class MacroTransformer {
     if (ts.canHaveDecorators(node) && ts.getDecorators(node) !== undefined) {
       return true;
     }
-    // TypeScript's parser creates decorator nodes on interfaces and type aliases
-    // for error recovery, but ts.canHaveDecorators() returns false for them.
-    // We need to detect these to support @derive() on interfaces/type aliases.
-    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
+    // TypeScript's parser creates decorator nodes on interfaces, type aliases,
+    // and function declarations for error recovery, but ts.canHaveDecorators()
+    // returns false for them. We need to detect these to support @derive() on
+    // interfaces/type aliases and @implicits on function declarations.
+    if (
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      ts.isFunctionDeclaration(node)
+    ) {
       const modifiers = node.modifiers;
       if (modifiers) {
         return modifiers.some((m) => m.kind === ts.SyntaxKind.Decorator);
@@ -1023,8 +1940,53 @@ class MacroTransformer {
       console.log(`[typesugar] Expanding expression macro: ${macroName}`);
     }
 
+    // Check disk cache first (if macro is cacheable)
+    const cacheKey =
+      this.isMacroCacheable(macro)
+        ? this.computeCallSiteCacheKey(macroName, node, Array.from(node.arguments))
+        : undefined;
+
+    if (cacheKey) {
+      const cached = this.getCachedExpression(cacheKey);
+      if (cached) {
+        if (this.verbose) {
+          console.log(`[typesugar] Cache hit for macro: ${macroName}`);
+        }
+        // Record expansion even for cache hits (for source map accuracy)
+        if (this.expansionTracker) {
+          const expandedText = this.printNodeSafe(cached);
+          if (expandedText) {
+            this.expansionTracker.recordExpansion(
+              macroName,
+              node,
+              this.ctx.sourceFile,
+              expandedText,
+              true // fromCache
+            );
+          }
+        }
+        const visited = ts.visitNode(cached, this.visit.bind(this)) as ts.Expression;
+        return preserveSourceMap(visited, node);
+      }
+    }
+
     try {
-      const result = macro.expand(this.ctx, node, node.arguments);
+      // Wrap expansion in a hygiene scope so generated names are isolated
+      const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
+
+      // Store in disk cache
+      if (cacheKey) {
+        this.cacheExpression(cacheKey, result);
+      }
+
+      // Record expansion for source maps and diagnostics
+      if (this.expansionTracker) {
+        const expandedText = this.printNodeSafe(result);
+        if (expandedText) {
+          this.expansionTracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);
+        }
+      }
+
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
       return preserveSourceMap(visited, node);
     } catch (error) {
@@ -1036,7 +1998,25 @@ class MacroTransformer {
   }
 
   private tryExpandAttributeMacros(node: ts.HasDecorators): ts.Node | ts.Node[] | undefined {
-    const decorators = ts.getDecorators(node);
+    // ts.getDecorators() returns undefined for function declarations, interfaces,
+    // and type aliases even though decorators may be present in modifiers.
+    // Extract decorators from modifiers for these node types.
+    let decorators = ts.getDecorators(node);
+    if (!decorators || decorators.length === 0) {
+      if (
+        (ts.isFunctionDeclaration(node) ||
+          ts.isInterfaceDeclaration(node) ||
+          ts.isTypeAliasDeclaration(node)) &&
+        node.modifiers
+      ) {
+        const modifierDecorators = node.modifiers.filter(
+          (m): m is ts.Decorator => m.kind === ts.SyntaxKind.Decorator
+        );
+        if (modifierDecorators.length > 0) {
+          decorators = modifierDecorators as unknown as readonly ts.Decorator[];
+        }
+      }
+    }
     if (!decorators || decorators.length === 0) return undefined;
 
     // Check for inline opt-out (using the first decorator as the anchor)
@@ -1085,7 +2065,10 @@ class MacroTransformer {
         }
 
         try {
-          const result = macro.expand(this.ctx, decorator, currentNode as ts.Declaration, args);
+          // Wrap expansion in a hygiene scope so generated names are isolated
+          const result = this.ctx.hygiene.withScope(() =>
+            macro.expand(this.ctx, decorator, currentNode as ts.Declaration, args)
+          );
 
           if (Array.isArray(result)) {
             if (result.length > 0) {
@@ -1351,7 +2334,10 @@ class MacroTransformer {
         }
 
         try {
-          const result = deriveMacro.expand(this.ctx, node, typeInfo);
+          // Wrap expansion in a hygiene scope so generated names are isolated
+          const result = this.ctx.hygiene.withScope(() =>
+            deriveMacro.expand(this.ctx, node, typeInfo)
+          );
           statements.push(...result);
         } catch (error) {
           this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
@@ -1413,7 +2399,10 @@ class MacroTransformer {
           console.log(`[typesugar] Expanding typeclass derive macro: ${deriveName}TC`);
         }
         try {
-          const result = tcDeriveMacro.expand(this.ctx, node, typeInfo);
+          // Wrap expansion in a hygiene scope so generated names are isolated
+          const result = this.ctx.hygiene.withScope(() =>
+            tcDeriveMacro.expand(this.ctx, node, typeInfo)
+          );
           statements.push(...result);
         } catch (error) {
           this.ctx.reportError(
@@ -1631,7 +2620,8 @@ class MacroTransformer {
           );
         }
 
-        const result = taggedMacro.expand(this.ctx, node);
+        // Wrap expansion in a hygiene scope so generated names are isolated
+        const result = this.ctx.hygiene.withScope(() => taggedMacro.expand(this.ctx, node));
         const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
         return preserveSourceMap(visited, node);
       } catch (error) {
@@ -1652,9 +2642,12 @@ class MacroTransformer {
     }
 
     try {
-      const result = exprMacro.expand(this.ctx, node as unknown as ts.CallExpression, [
-        node.template as unknown as ts.Expression,
-      ]);
+      // Wrap expansion in a hygiene scope so generated names are isolated
+      const result = this.ctx.hygiene.withScope(() =>
+        exprMacro.expand(this.ctx, node as unknown as ts.CallExpression, [
+          node.template as unknown as ts.Expression,
+        ])
+      );
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
       return preserveSourceMap(visited, node);
     } catch (error) {
@@ -1697,7 +2690,8 @@ class MacroTransformer {
 
     try {
       const typeArgs = node.typeArguments ? Array.from(node.typeArguments) : [];
-      const result = macro.expand(this.ctx, node, typeArgs);
+      // Wrap expansion in a hygiene scope so generated names are isolated
+      const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, typeArgs));
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.TypeNode;
       return preserveSourceMap(visited, node);
     } catch (error) {
@@ -2187,3 +3181,9 @@ export {
   type PreprocessedCacheEntry,
   type TransformCacheEntry,
 } from "./cache.js";
+
+export {
+  generateManifest,
+  createDefaultManifest,
+  type MacroManifest,
+} from "./manifest.js";
