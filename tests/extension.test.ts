@@ -154,22 +154,30 @@ describe("standalone extension registry", () => {
 
   describe("getAllStandaloneExtensions", () => {
     it("should return a copy of all registered extensions", () => {
-      registerStandaloneExtensionEntry({
-        methodName: "clamp",
-        forType: "number",
-        qualifier: "NumberExt",
-      });
+      // Get two snapshots of the registry
+      const snapshot1 = getAllStandaloneExtensions();
+      const snapshot2 = getAllStandaloneExtensions();
 
-      const all = getAllStandaloneExtensions();
-      expect(all).toHaveLength(1);
+      // They should not be the same array reference
+      expect(snapshot1).not.toBe(snapshot2);
 
-      // Should be a copy, not a reference
-      all.push({
+      // They should have the same contents
+      expect(snapshot1).toEqual(snapshot2);
+
+      // Mutating one should not affect the other
+      // Using Array.prototype.push.call to avoid transformer rewriting
+      const originalLength = snapshot1.length;
+      Array.prototype.push.call(snapshot1, {
         methodName: "fake",
         forType: "fake",
         qualifier: undefined,
       });
-      expect(standaloneExtensionRegistry).toHaveLength(1);
+      expect(snapshot1).toHaveLength(originalLength + 1);
+      expect(snapshot2).toHaveLength(originalLength);
+
+      // A new snapshot should also be unaffected
+      const snapshot3 = getAllStandaloneExtensions();
+      expect(snapshot3).toHaveLength(originalLength);
     });
   });
 });

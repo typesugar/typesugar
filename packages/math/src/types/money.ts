@@ -24,6 +24,7 @@
  */
 
 import type { Numeric, Ord } from "@typesugar/std";
+import { makeOrd } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
 import type { CurrencyDef } from "./currencies.js";
 
@@ -525,11 +526,10 @@ export function moneyEq<C extends CurrencyDef>(): Eq<Money<C>> {
 
 /**
  * Create an Ord typeclass instance for Money<C>.
+ * Uses makeOrd to generate all Op<>-annotated comparison methods.
  */
 export function moneyOrd<C extends CurrencyDef>(): Ord<Money<C>> {
-  return {
-    compare: moneyCompare,
-  };
+  return makeOrd(moneyCompare);
 }
 
 /**

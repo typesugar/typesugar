@@ -21,6 +21,7 @@
  */
 
 import type { Numeric, Integral, Ord } from "@typesugar/std";
+import { makeOrd } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
 import { roundBigInt, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
 
@@ -547,11 +548,10 @@ export function fixedEq<N extends number>(): Eq<FixedDecimal<N>> {
 
 /**
  * Create an Ord typeclass instance for FixedDecimal<N>.
+ * Uses makeOrd to generate all Op<>-annotated comparison methods.
  */
 export function fixedOrd<N extends number>(): Ord<FixedDecimal<N>> {
-  return {
-    compare: fixedCompare,
-  };
+  return makeOrd(fixedCompare);
 }
 
 /**
