@@ -51,7 +51,7 @@ import {
   select,
 } from "../src/index.js";
 
-import { specialize } from "../../../src/macros/specialize.js";
+import { specialize } from "@typesugar/macros";
 
 // ============================================================================
 // 1. Define Schema Types with @derive(Meta)

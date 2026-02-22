@@ -11,14 +11,6 @@ export default defineConfig({
         test: {
           name: "legacy",
           include: ["tests/**/*.test.ts"],
-          exclude: [
-            "tests/react/**",
-            // Pre-existing failures
-            "tests/contracts.test.ts",
-            "tests/contracts-z3.test.ts",
-            // References deleted src/use-cases/comprehensions/
-            "tests/comprehensions.test.ts",
-          ],
           globals: true,
         },
       },
@@ -47,7 +39,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["src/**/*.ts", "packages/*/src/**/*.ts"],
+      include: ["packages/*/src/**/*.ts"],
       exclude: ["**/*.d.ts", "**/*.test.ts"],
     },
 

@@ -24,9 +24,9 @@ import {
   registerGenericDerivation,
   makePrimitiveChecker,
   type GenericDerivation,
-} from "../../../src/macros/auto-derive.js";
-import type { GenericMeta } from "../../../src/macros/generic.js";
-import type { MacroContext } from "../../../src/core/types.js";
+  type GenericMeta,
+} from "@typesugar/macros";
+import type { MacroContext } from "@typesugar/core";
 import { toSnakeCase } from "./typeclasses.js";
 
 // ============================================================================

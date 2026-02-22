@@ -50,6 +50,26 @@ import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl, markPure } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 
+// Printer for safe text extraction from nodes (works on synthetic nodes too)
+const printer = ts.createPrinter();
+
+/**
+ * Safely get the text content of a node.
+ * Unlike node.getText(), this works on synthetic nodes that don't have source positions.
+ */
+function getNodeText(node: ts.Node, sourceFile?: ts.SourceFile): string {
+  if (ts.isIdentifier(node)) {
+    return node.text;
+  }
+  try {
+    return node.getText();
+  } catch {
+    // Fallback for synthetic nodes
+    const sf = sourceFile ?? ts.createSourceFile("temp.ts", "", ts.ScriptTarget.Latest);
+    return printer.printNode(ts.EmitHint.Unspecified, node, sf);
+  }
+}
+
 // ============================================================================
 // Specialization Deduplication Cache
 // ============================================================================
@@ -1127,7 +1147,7 @@ export const specializeInlineMacro = defineExpressionMacro({
 
     // If the expression is a lambda `F => body`, specialize the body
     if (ts.isArrowFunction(exprArg) && exprArg.parameters.length === 1) {
-      const dictParamName = exprArg.parameters[0].name.getText();
+      const dictParamName = getNodeText(exprArg.parameters[0].name);
       const body = ts.isBlock(exprArg.body) ? exprArg.body : exprArg.body;
       return rewriteDictCalls(ctx, body, dictParamName, dictMethods);
     }
@@ -1148,7 +1168,7 @@ function getDictName(expr: ts.Expression): string | undefined {
     return expr.text;
   }
   if (ts.isPropertyAccessExpression(expr)) {
-    return expr.getText();
+    return getNodeText(expr);
   }
   // Handle `X as any` casts
   if (ts.isAsExpression(expr)) {
@@ -1200,7 +1220,7 @@ function findDictParamByType(
 
     // Check if this parameter's type is a known typeclass
     if (ts.isTypeReferenceNode(typeNode)) {
-      const typeName = typeNode.typeName.getText();
+      const typeName = getNodeText(typeNode.typeName);
 
       // Check against known typeclass names
       if (TYPECLASS_NAMES.has(typeName)) {
@@ -1306,7 +1326,7 @@ function specializeFunction(
   // Fall back to first parameter if type-based detection fails
   const dictParamIndex = dictParamInfo?.index ?? 0;
   const dictParam = params[dictParamIndex];
-  const dictParamName = dictParam.name.getText();
+  const dictParamName = getNodeText(dictParam.name);
   const typeParamName =
     dictParamInfo?.typeParamName ?? extractTypeParamFromDictType(dictParam.type);
 
@@ -1381,7 +1401,7 @@ function extractTypeParamFromDictType(typeNode: ts.TypeNode | undefined): string
     if (typeArgs && typeArgs.length > 0) {
       const firstArg = typeArgs[0];
       if (ts.isTypeReferenceNode(firstArg)) {
-        return firstArg.typeName.getText();
+        return getNodeText(firstArg.typeName);
       }
     }
   }
@@ -1402,7 +1422,7 @@ function narrowKindType(
   // Visit the type node and transform Kind references
   function visit(node: ts.Node): ts.Node {
     if (ts.isTypeReferenceNode(node)) {
-      const typeName = node.typeName.getText();
+      const typeName = getNodeText(node.typeName);
 
       // Check for Kind<F, A> or Kind2<F, E, A> patterns
       if ((typeName === "Kind" || typeName === "Kind2") && node.typeArguments) {
@@ -1413,7 +1433,7 @@ function narrowKindType(
           const fArg = args[0];
           if (
             ts.isTypeReferenceNode(fArg) &&
-            (!typeParamName || fArg.typeName.getText() === typeParamName)
+            (!typeParamName || getNodeText(fArg.typeName) === typeParamName)
           ) {
             // Replace with concrete type: brand<A>
             // e.g., Array<number>
@@ -1429,7 +1449,7 @@ function narrowKindType(
           const fArg = args[0];
           if (
             ts.isTypeReferenceNode(fArg) &&
-            (!typeParamName || fArg.typeName.getText() === typeParamName)
+            (!typeParamName || getNodeText(fArg.typeName) === typeParamName)
           ) {
             // Replace with concrete type: brand<E, A>
             // e.g., Either<string, number>
@@ -1567,7 +1587,7 @@ function specializeFunctionTransitive(
   const dictParamInfo = findDictParamByType(ctx, params, dictMethods);
   const dictParamIndex = dictParamInfo?.index ?? 0;
   const dictParam = params[dictParamIndex];
-  const dictParamName = dictParam.name.getText();
+  const dictParamName = getNodeText(dictParam.name);
   const typeParamName =
     dictParamInfo?.typeParamName ?? extractTypeParamFromDictType(dictParam.type);
   const remainingParams = params.filter((_, i) => i !== dictParamIndex);
@@ -1662,7 +1682,7 @@ function specializeFunctionMulti(
       const paramType = param.type;
 
       if (paramType && ts.isTypeReferenceNode(paramType)) {
-        const typeName = paramType.typeName.getText();
+        const typeName = getNodeText(paramType.typeName);
 
         // Check if this param's type suggests it's a typeclass
         if (TYPECLASS_NAMES.has(typeName)) {
@@ -1678,7 +1698,7 @@ function specializeFunctionMulti(
             }
 
             if (matchCount >= Math.min(2, methodNames.size)) {
-              const paramName = param.name.getText();
+              const paramName = getNodeText(param.name);
               const typeParamName = extractTypeParamFromDictType(paramType);
               dictParamMap.set(paramName, {
                 methods: dict.methods,
@@ -1706,9 +1726,9 @@ function specializeFunctionMulti(
 
       // Check if this looks like a typeclass parameter
       if (paramType && ts.isTypeReferenceNode(paramType)) {
-        const typeName = paramType.typeName.getText();
+        const typeName = getNodeText(paramType.typeName);
         if (TYPECLASS_NAMES.has(typeName)) {
-          const paramName = param.name.getText();
+          const paramName = getNodeText(param.name);
           const typeParamName = extractTypeParamFromDictType(paramType);
           dictParamMap.set(paramName, {
             methods: dicts[dictIndex].methods,
@@ -1880,7 +1900,7 @@ function createPartialApplicationMulti(
  *
  * Prefers using the AST node when available, falling back to source string parsing.
  */
-function inlineMethod(
+export function inlineMethod(
   ctx: MacroContext,
   method: DictMethod,
   callArgs: ts.Expression[]

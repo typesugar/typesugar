@@ -39,7 +39,8 @@
     "query-builder"
   ],
   "dependencies": {
-    "@typesugar/core": "workspace:*"
+    "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"

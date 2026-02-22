@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { createMacroTestContext } from "../../../../src/test-utils/macro-context.js";
+import { createMacroTestContext } from "@typesugar/testing";
 import { effectMacro, watchMacro } from "../macros/effect.js";
 import { stateMacro } from "../macros/state.js";
 

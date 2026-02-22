@@ -136,6 +136,7 @@ export {
   classifyInlineFailure,
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
+  inlineMethod,
   createSpecializedFunction,
   flattenReturnsToExpression,
   analyzeForFlattening,

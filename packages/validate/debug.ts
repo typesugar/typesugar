@@ -1,8 +1,8 @@
 import ts from "typescript";
 import fs from "fs";
-import macroTransformerFactory from "../../src/transforms/macro-transformer.js";
+import macroTransformerFactory from "@typesugar/transformer";
 import { register } from "./src/macros.js";
-import { globalRegistry } from "../../src/core/registry.js";
+import { globalRegistry } from "@typesugar/core";
 
 register(globalRegistry);
 

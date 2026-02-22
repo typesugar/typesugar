@@ -50,7 +50,8 @@
     "typescript": "^5.0.0",
     "tsup": "^8.0.0",
     "vitest": "^1.0.0",
-    "unplugin-typesugar": "workspace:*"
+    "unplugin-typesugar": "workspace:*",
+    "@typesugar/transformer": "workspace:*"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"

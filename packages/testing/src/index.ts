@@ -436,3 +436,10 @@ export {
   ArbitraryDerive,
   powerAssertMacro,
 } from "./macro.js";
+
+// Test utilities for macro development
+export {
+  createMacroTestContext,
+  parseSource,
+  type TestMacroContext,
+} from "./macro-context.js";
