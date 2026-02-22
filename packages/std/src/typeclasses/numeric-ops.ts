@@ -305,4 +305,3 @@ export function fromInteger<A>(n: bigint, N: Numeric<A>): A {
 export function fromInt<A>(n: number, N: Numeric<A>): A {
   return N.fromNumber(n);
 }
-

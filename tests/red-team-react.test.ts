@@ -10,14 +10,7 @@
  * - Safety check bypasses (conditional state, direct mutation)
  */
 import { describe, it, expect, vi } from "vitest";
-import {
-  state,
-  derived,
-  effect,
-  watch,
-  match,
-  each,
-} from "../packages/react/src/index.js";
+import { state, derived, effect, watch, match, each } from "../packages/react/src/index.js";
 import {
   createSignal,
   createSignalObject,
@@ -180,7 +173,7 @@ describe("React Integration Edge Cases", () => {
       setRoot(2);
 
       // left and right track root, so they recompute
-      expect(left()).toBe(4);  // 2*2 = 4
+      expect(left()).toBe(4); // 2*2 = 4
       expect(right()).toBe(6); // 2*3 = 6
 
       // BUT: bottom doesn't track the computed-to-computed dependency
@@ -595,8 +588,7 @@ describe("React Integration Edge Cases", () => {
             inner();
             throw new Error("untrack error");
           });
-        } catch {
-        }
+        } catch {}
         effectCount++;
       });
 
@@ -734,7 +726,11 @@ describe("React Integration Edge Cases", () => {
   describe("Each Iterator Edge Cases", () => {
     it("should handle empty array", () => {
       const items: string[] = [];
-      const result = each(items, (item) => item, (item) => item);
+      const result = each(
+        items,
+        (item) => item,
+        (item) => item
+      );
 
       expect(result).toEqual([]);
     });

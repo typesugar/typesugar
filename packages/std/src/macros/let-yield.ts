@@ -77,11 +77,7 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import {
-  findInstance,
-  getFlatMapMethodNames,
-  hasFlatMapInstance,
-} from "@typesugar/macros";
+import { findInstance, getFlatMapMethodNames, hasFlatMapInstance } from "@typesugar/macros";
 import {
   type ComprehensionStep,
   type BindStep,
@@ -134,10 +130,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // Extract steps from the let block
     const steps = extractSteps(ctx, mainBlock.statement);
     if (!steps || steps.length === 0) {
-      ctx.reportError(
-        mainBlock,
-        "let: block must contain at least one binding or guard"
-      );
+      ctx.reportError(mainBlock, "let: block must contain at least one binding or guard");
       return mainBlock;
     }
 
@@ -207,7 +200,13 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         // Only one bind step — just return the expression directly
         return factory.createExpressionStatement(lastBind.effect);
       }
-      const chain = buildChain(ctx, stepsWithoutLast, lastBind.effect, methods, typeConstructorName);
+      const chain = buildChain(
+        ctx,
+        stepsWithoutLast,
+        lastBind.effect,
+        methods,
+        typeConstructorName
+      );
       return factory.createExpressionStatement(chain);
     }
 
@@ -323,10 +322,7 @@ function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] |
     // Plain bind: name << expr
     if (opKind === ts.SyntaxKind.LessThanLessThanToken) {
       if (!ts.isIdentifier(expr.left)) {
-        ctx.reportError(
-          expr.left,
-          "Left side of << must be an identifier (variable name or _)"
-        );
+        ctx.reportError(expr.left, "Left side of << must be an identifier (variable name or _)");
         return undefined;
       }
       steps.push({
@@ -338,10 +334,7 @@ function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] |
       continue;
     }
 
-    ctx.reportError(
-      stmt,
-      "Expected `name << expression`, `name = expression`, or `if (cond) {}`"
-    );
+    ctx.reportError(stmt, "Expected `name << expression`, `name = expression`, or `if (cond) {}`");
     return undefined;
   }
 
@@ -410,7 +403,14 @@ function buildChain(
         }
 
         // Generate the method call
-        inner = generateMethodCall(factory, effectExpr, methodName, step.name, inner, typeConstructor);
+        inner = generateMethodCall(
+          factory,
+          effectExpr,
+          methodName,
+          step.name,
+          inner,
+          typeConstructor
+        );
         break;
       }
 

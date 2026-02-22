@@ -36,11 +36,14 @@ describe("LanguageServiceHarness", () => {
 
     it("provides completions", () => {
       harness = createSimpleHarness("const x = { foo: 1, bar: 2 };\nx.");
-      const completions = harness.getCompletions("test.ts", "const x = { foo: 1, bar: 2 };\nx.".length);
+      const completions = harness.getCompletions(
+        "test.ts",
+        "const x = { foo: 1, bar: 2 };\nx.".length
+      );
       expect(completions).toBeDefined();
       expect(completions!.entries.length).toBeGreaterThan(0);
 
-      const fooEntry = completions!.entries.find(e => e.name === "foo");
+      const fooEntry = completions!.entries.find((e) => e.name === "foo");
       expect(fooEntry).toBeDefined();
     });
 
@@ -67,7 +70,7 @@ describe("LanguageServiceHarness", () => {
 
     it("supports updating files", () => {
       harness = createSimpleHarness("const x: number = 42;");
-      
+
       // Valid code — no errors
       let diagnostics = harness.getSemanticDiagnostics("test.ts");
       expect(diagnostics.length).toBe(0);
@@ -106,10 +109,7 @@ describe("LanguageServiceHarness", () => {
       harness = createSimpleHarness("const x = { a: 1, b: 2 };\nx.");
       await harness.loadPlugin();
 
-      const completions = harness.getCompletions(
-        "test.ts",
-        "const x = { a: 1, b: 2 };\nx.".length
-      );
+      const completions = harness.getCompletions("test.ts", "const x = { a: 1, b: 2 };\nx.".length);
       expect(completions).toBeDefined();
       expect(completions!.entries.length).toBeGreaterThan(0);
     });
@@ -123,7 +123,7 @@ describe("LanguageServiceHarness", () => {
     });
 
     it("handles files with BOM", () => {
-      harness = createSimpleHarness('\uFEFFconst x = 1;');
+      harness = createSimpleHarness("\uFEFFconst x = 1;");
       const diagnostics = harness.getSyntacticDiagnostics("test.ts");
       expect(diagnostics.length).toBe(0);
     });

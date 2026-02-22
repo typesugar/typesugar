@@ -223,9 +223,15 @@ export function ordBy<A, B>(f: (a: A) => B, O: Ord<B>): Ord<A> {
     notEquals: ((a, b) => O.notEquals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"!==">,
     compare: (a, b) => O.compare(f(a), f(b)),
     lessThan: ((a, b) => O.lessThan(f(a), f(b))) as (a: A, b: A) => boolean & Op<"<">,
-    lessThanOrEqual: ((a, b) => O.lessThanOrEqual(f(a), f(b))) as (a: A, b: A) => boolean & Op<"<=">,
+    lessThanOrEqual: ((a, b) => O.lessThanOrEqual(f(a), f(b))) as (
+      a: A,
+      b: A
+    ) => boolean & Op<"<=">,
     greaterThan: ((a, b) => O.greaterThan(f(a), f(b))) as (a: A, b: A) => boolean & Op<">">,
-    greaterThanOrEqual: ((a, b) => O.greaterThanOrEqual(f(a), f(b))) as (a: A, b: A) => boolean & Op<">=">,
+    greaterThanOrEqual: ((a, b) => O.greaterThanOrEqual(f(a), f(b))) as (
+      a: A,
+      b: A
+    ) => boolean & Op<">=">,
   };
 }
 
@@ -260,10 +266,22 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
       }
       return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ_ORD;
     },
-    lessThan: ((xs, ys) => ordArray(O).compare(xs, ys) === LT) as (a: A[], b: A[]) => boolean & Op<"<">,
-    lessThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== GT) as (a: A[], b: A[]) => boolean & Op<"<=">,
-    greaterThan: ((xs, ys) => ordArray(O).compare(xs, ys) === GT) as (a: A[], b: A[]) => boolean & Op<">">,
-    greaterThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== LT) as (a: A[], b: A[]) => boolean & Op<">=">,
+    lessThan: ((xs, ys) => ordArray(O).compare(xs, ys) === LT) as (
+      a: A[],
+      b: A[]
+    ) => boolean & Op<"<">,
+    lessThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== GT) as (
+      a: A[],
+      b: A[]
+    ) => boolean & Op<"<=">,
+    greaterThan: ((xs, ys) => ordArray(O).compare(xs, ys) === GT) as (
+      a: A[],
+      b: A[]
+    ) => boolean & Op<">">,
+    greaterThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== LT) as (
+      a: A[],
+      b: A[]
+    ) => boolean & Op<">=">,
   };
 }
 

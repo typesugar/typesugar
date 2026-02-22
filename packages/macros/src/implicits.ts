@@ -370,10 +370,7 @@ export function transformImplicitsCall(
         for (const implicitParam of funcInfo.implicitParams) {
           if (implicitParam.paramIndex < resolvedParams.length) {
             const paramSymbol = resolvedParams[implicitParam.paramIndex];
-            const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-              paramSymbol,
-              callExpr
-            );
+            const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(paramSymbol, callExpr);
             const paramTypeString = ctx.typeChecker.typeToString(paramType);
 
             // Extract the type argument from "Typeclass<ConcreteType>"

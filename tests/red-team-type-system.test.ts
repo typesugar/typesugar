@@ -195,10 +195,7 @@ describe("Type System Edge Cases", () => {
 
     it("should validate with validatedNewtype", () => {
       type PositiveId = Newtype<number, "PositiveId">;
-      const PositiveId = validatedNewtype<PositiveId>(
-        (n) => n > 0,
-        "ID must be positive"
-      );
+      const PositiveId = validatedNewtype<PositiveId>((n) => n > 0, "ID must be positive");
 
       expect(PositiveId(42)).toBe(42);
       expect(() => PositiveId(-1)).toThrow("ID must be positive");
@@ -629,20 +626,14 @@ describe("Type System Edge Cases", () => {
     it("should validate EmailAddress correctly", () => {
       expect(() => EmailAddress.create("not-an-email")).toThrow();
       expect(EmailAddress.create("user@example.com")).toBeDefined();
-      expect(EmailAddress.domain(EmailAddress.create("user@example.com"))).toBe(
-        "example.com"
-      );
-      expect(EmailAddress.local(EmailAddress.create("user@example.com"))).toBe(
-        "user"
-      );
+      expect(EmailAddress.domain(EmailAddress.create("user@example.com"))).toBe("example.com");
+      expect(EmailAddress.local(EmailAddress.create("user@example.com"))).toBe("user");
     });
 
     it("should validate SafeUrl correctly", () => {
       expect(() => SafeUrl.create("not-a-url")).toThrow();
       expect(SafeUrl.create("https://example.com")).toBeDefined();
-      expect(SafeUrl.hostname(SafeUrl.create("https://example.com"))).toBe(
-        "example.com"
-      );
+      expect(SafeUrl.hostname(SafeUrl.create("https://example.com"))).toBe("example.com");
     });
 
     it("should allow creating custom opaque modules", () => {
@@ -724,9 +715,7 @@ describe("Type System Edge Cases", () => {
         transform: (n) => n * 2,
       });
 
-      const result = useExists(packed, ({ value, transform }) =>
-        transform(transform(value))
-      );
+      const result = useExists(packed, ({ value, transform }) => transform(transform(value)));
       expect(result).toBe(20); // 5 * 2 * 2
     });
   });
@@ -795,10 +784,7 @@ describe("Type System Edge Cases", () => {
         ssl: boolean;
       }
 
-      const partial = createBuilder<Config>()
-        .set("host", "localhost")
-        .set("port", 3000)
-        .partial();
+      const partial = createBuilder<Config>().set("host", "localhost").set("port", 3000).partial();
 
       expect(partial).toEqual({
         host: "localhost",
@@ -847,10 +833,7 @@ describe("Type System Edge Cases", () => {
   describe("Custom Refinement Edge Cases", () => {
     it("should handle refinements with async-like predicates (sync only)", () => {
       // Refinements must be synchronous
-      const EvenNumber = refinement<number, "EvenNumber">(
-        (n) => n % 2 === 0,
-        "EvenNumber"
-      );
+      const EvenNumber = refinement<number, "EvenNumber">((n) => n % 2 === 0, "EvenNumber");
 
       expect(EvenNumber.is(2)).toBe(true);
       expect(EvenNumber.is(3)).toBe(false);
@@ -859,13 +842,10 @@ describe("Type System Edge Cases", () => {
     });
 
     it("should handle refinements that throw", () => {
-      const ThrowingRefinement = refinement<string, "NoThrow">(
-        (s) => {
-          if (s === "throw") throw new Error("boom");
-          return true;
-        },
-        "NoThrow"
-      );
+      const ThrowingRefinement = refinement<string, "NoThrow">((s) => {
+        if (s === "throw") throw new Error("boom");
+        return true;
+      }, "NoThrow");
 
       expect(ThrowingRefinement.is("ok")).toBe(true);
       expect(() => ThrowingRefinement.is("throw")).toThrow("boom");
@@ -873,13 +853,10 @@ describe("Type System Edge Cases", () => {
 
     it("should handle refinements with side effects (not recommended)", () => {
       let callCount = 0;
-      const CountingRefinement = refinement<number, "Counted">(
-        (n) => {
-          callCount++;
-          return n > 0;
-        },
-        "Counted"
-      );
+      const CountingRefinement = refinement<number, "Counted">((n) => {
+        callCount++;
+        return n > 0;
+      }, "Counted");
 
       const initialCount = callCount;
       CountingRefinement.is(5);

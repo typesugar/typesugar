@@ -83,10 +83,7 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import {
-  hasParCombineInstance,
-  getParCombineBuilderFromRegistry,
-} from "@typesugar/macros";
+import { hasParCombineInstance, getParCombineBuilderFromRegistry } from "@typesugar/macros";
 import {
   type BindStep,
   type MapStep,
@@ -206,10 +203,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
  * Extract only bind and map steps from a `par:` block.
  * Guards and orElse are not supported in applicative context.
  */
-function extractParSteps(
-  ctx: MacroContext,
-  block: ts.Block
-): (BindStep | MapStep)[] | undefined {
+function extractParSteps(ctx: MacroContext, block: ts.Block): (BindStep | MapStep)[] | undefined {
   const steps: (BindStep | MapStep)[] = [];
 
   for (const stmt of block.statements) {
@@ -224,10 +218,7 @@ function extractParSteps(
     }
 
     if (!ts.isExpressionStatement(stmt)) {
-      ctx.reportError(
-        stmt,
-        "par: block statements must be `name << expr` or `name = expr`"
-      );
+      ctx.reportError(stmt, "par: block statements must be `name << expr` or `name = expr`");
       return undefined;
     }
 
@@ -257,10 +248,7 @@ function extractParSteps(
     }
 
     // Reject orElse (||, ??) in par: blocks
-    if (
-      opKind === ts.SyntaxKind.BarBarToken ||
-      opKind === ts.SyntaxKind.QuestionQuestionToken
-    ) {
+    if (opKind === ts.SyntaxKind.BarBarToken || opKind === ts.SyntaxKind.QuestionQuestionToken) {
       const lhs = expr.left;
       if (
         ts.isBinaryExpression(lhs) &&
@@ -278,10 +266,7 @@ function extractParSteps(
     // Plain bind: name << expr
     if (opKind === ts.SyntaxKind.LessThanLessThanToken) {
       if (!ts.isIdentifier(expr.left)) {
-        ctx.reportError(
-          expr.left,
-          "Left side of << must be an identifier (variable name)"
-        );
+        ctx.reportError(expr.left, "Left side of << must be an identifier (variable name)");
         return undefined;
       }
       steps.push({

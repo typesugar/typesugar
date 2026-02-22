@@ -158,7 +158,6 @@ export class TransformationPipeline {
       return this.createEmptyResult(normalizedFileName);
     }
 
-
     // Extract dependencies from source file
     const dependencies = this.extractDependencies(sourceFile, normalizedFileName);
 
@@ -351,14 +350,13 @@ export class TransformationPipeline {
       const transformed = printer.printFile(result.transformed[0]);
 
       // Collect diagnostics from the transformation
-      const diagnostics: TransformDiagnostic[] = (result.diagnostics ?? []).map(d => ({
+      const diagnostics: TransformDiagnostic[] = (result.diagnostics ?? []).map((d) => ({
         file: d.file?.fileName ?? sourceFile.fileName,
         start: d.start ?? 0,
         length: d.length ?? 0,
-        message: typeof d.messageText === "string"
-          ? d.messageText
-          : d.messageText.messageText,
-        severity: d.category === ts.DiagnosticCategory.Error ? "error" as const : "warning" as const,
+        message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText,
+        severity:
+          d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
       }));
 
       result.dispose();
@@ -580,8 +578,10 @@ export function transformCode(
   const fileName = path.resolve(options?.fileName ?? "input.ts");
   const pipeline = new TransformationPipeline({ target: ts.ScriptTarget.Latest }, [fileName], {
     ...options,
-    readFile: (f) => (f === fileName || f === (options?.fileName ?? "input.ts") ? code : ts.sys.readFile(f)),
-    fileExists: (f) => f === fileName || f === (options?.fileName ?? "input.ts") || ts.sys.fileExists(f),
+    readFile: (f) =>
+      f === fileName || f === (options?.fileName ?? "input.ts") ? code : ts.sys.readFile(f),
+    fileExists: (f) =>
+      f === fileName || f === (options?.fileName ?? "input.ts") || ts.sys.fileExists(f),
   });
   return pipeline.transform(fileName);
 }

@@ -651,9 +651,15 @@ export function getOrd<A>(O: Ord<A>): Ord<List<A>> {
     eqv: getEq(O).eqv,
     compare,
     lessThan: ((x, y) => compare(x, y) === -1) as (x: List<A>, y: List<A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: List<A>, y: List<A>) => boolean & Op<"<=">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
+      x: List<A>,
+      y: List<A>
+    ) => boolean & Op<"<=">,
     greaterThan: ((x, y) => compare(x, y) === 1) as (x: List<A>, y: List<A>) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: List<A>, y: List<A>) => boolean & Op<">=">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
+      x: List<A>,
+      y: List<A>
+    ) => boolean & Op<">=">,
   };
 }
 

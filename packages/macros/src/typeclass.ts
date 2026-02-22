@@ -2955,10 +2955,7 @@ export function registerInstanceWithMeta(info: InstanceInfo): void {
  * Get instance metadata for a typeclass+type combination.
  * Returns undefined if no instance is found or if it has no metadata.
  */
-export function getInstanceMeta(
-  typeclassName: string,
-  forType: string
-): InstanceMeta | undefined {
+export function getInstanceMeta(typeclassName: string, forType: string): InstanceMeta | undefined {
   const instance = findInstance(typeclassName, forType);
   return instance?.meta;
 }
@@ -3020,7 +3017,10 @@ export function getFlatMapMethodNames(forType: string): {
  */
 export type ParCombineBuilder = (
   ctx: MacroContext,
-  steps: Array<{ kind: "bind"; name: string; effect: ts.Expression; node: ts.Node } | { kind: "map"; name: string; expression: ts.Expression; node: ts.Node }>,
+  steps: Array<
+    | { kind: "bind"; name: string; effect: ts.Expression; node: ts.Node }
+    | { kind: "map"; name: string; expression: ts.Expression; node: ts.Node }
+  >,
   returnExpr: ts.Expression
 ) => ts.Expression;
 
@@ -3031,19 +3031,14 @@ const parCombineBuilderRegistry = new Map<string, ParCombineBuilder>();
  * Register a ParCombine builder for a type constructor.
  * The builder generates optimized AST instead of generic .map()/.ap() chains.
  */
-export function registerParCombineBuilder(
-  forType: string,
-  builder: ParCombineBuilder
-): void {
+export function registerParCombineBuilder(forType: string, builder: ParCombineBuilder): void {
   parCombineBuilderRegistry.set(forType, builder);
 }
 
 /**
  * Get the ParCombine builder for a type constructor.
  */
-export function getParCombineBuilderFromRegistry(
-  forType: string
-): ParCombineBuilder | undefined {
+export function getParCombineBuilderFromRegistry(forType: string): ParCombineBuilder | undefined {
   return parCombineBuilderRegistry.get(forType);
 }
 

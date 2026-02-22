@@ -28,7 +28,11 @@
     },
     "type": {},
     "extensionMethods": {
-      "show": { "typeclass": "Show", "description": "String representation", "returnType": "string" },
+      "show": {
+        "typeclass": "Show",
+        "description": "String representation",
+        "returnType": "string"
+      },
       "clone": { "typeclass": "Clone", "description": "Deep copy", "returnType": "self" }
     }
   }

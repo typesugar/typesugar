@@ -534,10 +534,22 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Validated<E, A>> {
   return {
     eqv: getEq(OE, OA).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: Validated<E, A>, y: Validated<E, A>) => boolean & Op<">=">,
+    lessThan: ((x, y) => compare(x, y) === -1) as (
+      x: Validated<E, A>,
+      y: Validated<E, A>
+    ) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
+      x: Validated<E, A>,
+      y: Validated<E, A>
+    ) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (
+      x: Validated<E, A>,
+      y: Validated<E, A>
+    ) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
+      x: Validated<E, A>,
+      y: Validated<E, A>
+    ) => boolean & Op<">=">,
   };
 }
 

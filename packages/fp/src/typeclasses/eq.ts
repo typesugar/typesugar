@@ -201,8 +201,10 @@ export function eqBy<A, B>(E: Eq<B>, f: (a: A) => B): Eq<A> {
  */
 export function eqTuple<A, B>(EA: Eq<A>, EB: Eq<B>): Eq<[A, B]> {
   return {
-    eqv: (([a1, b1], [a2, b2]) =>
-      EA.eqv(a1, a2) && EB.eqv(b1, b2)) as (x: [A, B], y: [A, B]) => boolean & Op<"===">,
+    eqv: (([a1, b1], [a2, b2]) => EA.eqv(a1, a2) && EB.eqv(b1, b2)) as (
+      x: [A, B],
+      y: [A, B]
+    ) => boolean & Op<"===">,
   };
 }
 
@@ -260,13 +262,21 @@ export function ordTuple<A, B>(OA: Ord<A>, OB: Ord<B>): Ord<[A, B]> {
     return cmpA !== EQ ? cmpA : OB.compare(b1, b2);
   };
   return {
-    eqv: (([a1, b1], [a2, b2]) =>
-      OA.eqv(a1, a2) && OB.eqv(b1, b2)) as (x: [A, B], y: [A, B]) => boolean & Op<"===">,
+    eqv: (([a1, b1], [a2, b2]) => OA.eqv(a1, a2) && OB.eqv(b1, b2)) as (
+      x: [A, B],
+      y: [A, B]
+    ) => boolean & Op<"===">,
     compare,
     lessThan: ((x, y) => compare(x, y) === LT) as (x: [A, B], y: [A, B]) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== GT) as (x: [A, B], y: [A, B]) => boolean & Op<"<=">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== GT) as (
+      x: [A, B],
+      y: [A, B]
+    ) => boolean & Op<"<=">,
     greaterThan: ((x, y) => compare(x, y) === GT) as (x: [A, B], y: [A, B]) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== LT) as (x: [A, B], y: [A, B]) => boolean & Op<">=">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== LT) as (
+      x: [A, B],
+      y: [A, B]
+    ) => boolean & Op<">=">,
   };
 }
 
@@ -288,7 +298,10 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
     lessThan: ((xs, ys) => compare(xs, ys) === LT) as (x: A[], y: A[]) => boolean & Op<"<">,
     lessThanOrEqual: ((xs, ys) => compare(xs, ys) !== GT) as (x: A[], y: A[]) => boolean & Op<"<=">,
     greaterThan: ((xs, ys) => compare(xs, ys) === GT) as (x: A[], y: A[]) => boolean & Op<">">,
-    greaterThanOrEqual: ((xs, ys) => compare(xs, ys) !== LT) as (x: A[], y: A[]) => boolean & Op<">=">,
+    greaterThanOrEqual: ((xs, ys) => compare(xs, ys) !== LT) as (
+      x: A[],
+      y: A[]
+    ) => boolean & Op<">=">,
   };
 }
 
@@ -358,9 +371,15 @@ export const ordDate: Ord<Date> = {
     return tx < ty ? LT : tx > ty ? GT : EQ;
   },
   lessThan: ((x, y) => x.getTime() < y.getTime()) as (x: Date, y: Date) => boolean & Op<"<">,
-  lessThanOrEqual: ((x, y) => x.getTime() <= y.getTime()) as (x: Date, y: Date) => boolean & Op<"<=">,
+  lessThanOrEqual: ((x, y) => x.getTime() <= y.getTime()) as (
+    x: Date,
+    y: Date
+  ) => boolean & Op<"<=">,
   greaterThan: ((x, y) => x.getTime() > y.getTime()) as (x: Date, y: Date) => boolean & Op<">">,
-  greaterThanOrEqual: ((x, y) => x.getTime() >= y.getTime()) as (x: Date, y: Date) => boolean & Op<">=">,
+  greaterThanOrEqual: ((x, y) => x.getTime() >= y.getTime()) as (
+    x: Date,
+    y: Date
+  ) => boolean & Op<">=">,
 };
 
 // ============================================================================
@@ -432,8 +451,14 @@ export function contramapOrd<A, B>(O: Ord<A>, f: (b: B) => A): Ord<B> {
     eqv: ((x, y) => O.eqv(f(x), f(y))) as (x: B, y: B) => boolean & Op<"===">,
     compare: (x, y) => O.compare(f(x), f(y)),
     lessThan: ((x, y) => O.lessThan(f(x), f(y))) as (x: B, y: B) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => O.lessThanOrEqual(f(x), f(y))) as (x: B, y: B) => boolean & Op<"<=">,
+    lessThanOrEqual: ((x, y) => O.lessThanOrEqual(f(x), f(y))) as (
+      x: B,
+      y: B
+    ) => boolean & Op<"<=">,
     greaterThan: ((x, y) => O.greaterThan(f(x), f(y))) as (x: B, y: B) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => O.greaterThanOrEqual(f(x), f(y))) as (x: B, y: B) => boolean & Op<">=">,
+    greaterThanOrEqual: ((x, y) => O.greaterThanOrEqual(f(x), f(y))) as (
+      x: B,
+      y: B
+    ) => boolean & Op<">=">,
   };
 }

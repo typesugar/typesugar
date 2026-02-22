@@ -35,9 +35,7 @@ describe("Named Args Edge Cases", () => {
         { name: "greeting", type: "string", required: true, position: 1 },
       ];
 
-      expect(() => callWithNamedArgs(greet, params, { greeting: "Hello" })).toThrow(
-        NamedArgsError
-      );
+      expect(() => callWithNamedArgs(greet, params, { greeting: "Hello" })).toThrow(NamedArgsError);
 
       try {
         callWithNamedArgs(greet, params, { greeting: "Hello" });
@@ -93,9 +91,7 @@ describe("Named Args Edge Cases", () => {
         { name: "b", type: "number", required: true, position: 1 },
       ];
 
-      expect(() =>
-        callWithNamedArgs(add, params, { a: 1, b: 2, c: 3 })
-      ).toThrow(NamedArgsError);
+      expect(() => callWithNamedArgs(add, params, { a: 1, b: 2, c: 3 })).toThrow(NamedArgsError);
 
       try {
         callWithNamedArgs(add, params, { a: 1, b: 2, typo: 3 });
@@ -112,9 +108,7 @@ describe("Named Args Edge Cases", () => {
         return x;
       }
 
-      const params: ParamMeta[] = [
-        { name: "x", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "number", required: true, position: 0 }];
 
       const args = Object.create({ inherited: "value" });
       args.x = 42;
@@ -138,9 +132,9 @@ describe("Named Args Edge Cases", () => {
 
       // Verify that __proto__ triggers missing_required (not unknown_param)
       // because hasOwnProperty returns false for __proto__
-      expect(() =>
-        callWithNamedArgs(fn, params, { __proto__: { evil: true } })
-      ).toThrow(NamedArgsError);
+      expect(() => callWithNamedArgs(fn, params, { __proto__: { evil: true } })).toThrow(
+        NamedArgsError
+      );
 
       try {
         callWithNamedArgs(fn, params, { __proto__: { evil: true } });
@@ -217,7 +211,13 @@ describe("Named Args Edge Cases", () => {
       }
 
       const params: ParamMeta[] = [
-        { name: "x", type: "number | undefined", required: false, defaultValue: undefined, position: 0 },
+        {
+          name: "x",
+          type: "number | undefined",
+          required: false,
+          defaultValue: undefined,
+          position: 0,
+        },
       ];
 
       const result = callWithNamedArgs(fn, params, {});
@@ -276,9 +276,7 @@ describe("Named Args Edge Cases", () => {
         return reserved;
       }
 
-      const params: ParamMeta[] = [
-        { name: "class", type: "string", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "class", type: "string", required: true, position: 0 }];
 
       const result = callWithNamedArgs(fn, params, { class: "MyClass" });
       expect(result).toBe("MyClass");
@@ -303,9 +301,7 @@ describe("Named Args Edge Cases", () => {
         return x;
       }
 
-      const params: ParamMeta[] = [
-        { name: "", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "", type: "number", required: true, position: 0 }];
 
       const result = callWithNamedArgs(fn, params, { "": 42 });
       expect(result).toBe(42);
@@ -355,15 +351,9 @@ describe("Named Args Edge Cases", () => {
         return x;
       }
 
-      const params: ParamMeta[] = [
-        { name: "x", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "number", required: true, position: 0 }];
 
-      const result = createBuilder(fn, params)
-        .set("x", 1)
-        .set("x", 2)
-        .set("x", 3)
-        .build();
+      const result = createBuilder(fn, params).set("x", 1).set("x", 2).set("x", 3).build();
 
       expect(result).toBe(3);
     });
@@ -395,9 +385,7 @@ describe("Named Args Edge Cases", () => {
         return x;
       }
 
-      const params: ParamMeta[] = [
-        { name: "x", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "number", required: true, position: 0 }];
 
       const builder = createBuilder(fn, params);
 
@@ -409,9 +397,7 @@ describe("Named Args Edge Cases", () => {
         return x;
       }
 
-      const params: ParamMeta[] = [
-        { name: "x", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "number", required: true, position: 0 }];
 
       const builder = createBuilder(fn, params).set("x", 10);
       const snapshot = builder.values();
@@ -430,9 +416,7 @@ describe("Named Args Edge Cases", () => {
     it("handles anonymous functions gracefully", () => {
       const fn = (x: number): number => x * 2;
 
-      const params: ParamMeta[] = [
-        { name: "x", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "number", required: true, position: 0 }];
 
       expect(() => callWithNamedArgs(fn, params, {})).toThrow(NamedArgsError);
 
@@ -486,9 +470,7 @@ describe("Named Args Edge Cases", () => {
 
       const params: ParamMeta[] = [];
 
-      expect(() => callWithNamedArgs(noParams, params, { extra: 1 })).toThrow(
-        NamedArgsError
-      );
+      expect(() => callWithNamedArgs(noParams, params, { extra: 1 })).toThrow(NamedArgsError);
     });
   });
 
@@ -518,9 +500,7 @@ describe("Named Args Edge Cases", () => {
         return x;
       }
 
-      const params: ParamMeta[] = [
-        { name: "x", type: "number", required: true, position: 0 },
-      ];
+      const params: ParamMeta[] = [{ name: "x", type: "number", required: true, position: 0 }];
 
       const builder = createBuilder(fn, params).set("x", 10);
       const values = builder.values();

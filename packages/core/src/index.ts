@@ -189,19 +189,13 @@ export {
 } from "./ast-utils.js";
 
 // Hygiene System
-export {
-  HygieneContext,
-  globalHygiene,
-} from "./hygiene.js";
+export { HygieneContext, globalHygiene } from "./hygiene.js";
 
 // Re-export markPure from context
 export { markPure } from "./context.js";
 
 // Macro Expansion Cache
-export {
-  MacroExpansionCache,
-  InMemoryExpansionCache,
-} from "./cache.js";
+export { MacroExpansionCache, InMemoryExpansionCache } from "./cache.js";
 
 // Macro Composition Pipeline
 export {

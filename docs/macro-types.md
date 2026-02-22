@@ -169,33 +169,34 @@ import "@typesugar/std";
 
 // let:/yield: — monadic do-notation (sequential, dependent)
 let: {
-  user  << fetchUser(id)
-  posts << getPosts(user.id)   // Can depend on previous bindings
-  if (posts.length > 0) {}     // Guards for filtering
-  first = posts[0]             // Pure map step
+  user << fetchUser(id);
+  posts << getPosts(user.id); // Can depend on previous bindings
+  if (posts.length > 0) {
+  } // Guards for filtering
+  first = posts[0]; // Pure map step
 }
-yield: ({ user, first })
+yield: ({ user, first });
 
 // par:/yield: — applicative comprehension (parallel, independent)
 par: {
-  user   << fetchUser(id)      // All bindings must be independent
-  config << loadConfig()
-  posts  << fetchPosts()
+  user << fetchUser(id); // All bindings must be independent
+  config << loadConfig();
+  posts << fetchPosts();
 }
-yield: ({ user, config, posts })
+yield: ({ user, config, posts });
 // Compiles to Promise.all([...]).then(([user, config, posts]) => ...)
 ```
 
 ### Syntax in `let:` Blocks
 
-| Syntax | Description | Output |
-| ------ | ----------- | ------ |
-| `x << expr` | Monadic bind | `.flatMap(x => ...)` |
-| `x << expr \|\| fallback` | Bind with fallback | `expr.orElse(() => fallback).flatMap(...)` |
-| `x << expr ?? fallback` | Nullish coalescing fallback | Same as `\|\|` |
-| `_ << expr` | Discard binding | `.flatMap(_ => ...)` |
-| `x = expr` | Pure map (no unwrap) | `((x) => ...)(expr)` |
-| `if (cond) {}` | Guard/filter | `cond ? ... : undefined` |
+| Syntax                    | Description                 | Output                                     |
+| ------------------------- | --------------------------- | ------------------------------------------ |
+| `x << expr`               | Monadic bind                | `.flatMap(x => ...)`                       |
+| `x << expr \|\| fallback` | Bind with fallback          | `expr.orElse(() => fallback).flatMap(...)` |
+| `x << expr ?? fallback`   | Nullish coalescing fallback | Same as `\|\|`                             |
+| `_ << expr`               | Discard binding             | `.flatMap(_ => ...)`                       |
+| `x = expr`                | Pure map (no unwrap)        | `((x) => ...)(expr)`                       |
+| `if (cond) {}`            | Guard/filter                | `cond ? ... : undefined`                   |
 
 ### Restrictions in `par:` Blocks
 

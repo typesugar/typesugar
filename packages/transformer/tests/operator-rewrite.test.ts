@@ -21,7 +21,11 @@ beforeEach(() => {
 });
 
 function setupNumericInstance(typeName: string, instanceName: string) {
-  registerTypeclassSyntax("Numeric", [["+", "add"], ["-", "sub"], ["*", "mul"]]);
+  registerTypeclassSyntax("Numeric", [
+    ["+", "add"],
+    ["-", "sub"],
+    ["*", "mul"],
+  ]);
   registerInstanceWithMeta({
     typeclassName: "Numeric",
     forType: typeName,
@@ -31,7 +35,10 @@ function setupNumericInstance(typeName: string, instanceName: string) {
 }
 
 function setupEqInstance(typeName: string, instanceName: string) {
-  registerTypeclassSyntax("Eq", [["===", "equals"], ["!==", "notEquals"]]);
+  registerTypeclassSyntax("Eq", [
+    ["===", "equals"],
+    ["!==", "notEquals"],
+  ]);
   registerInstanceWithMeta({
     typeclassName: "Eq",
     forType: typeName,
@@ -41,7 +48,12 @@ function setupEqInstance(typeName: string, instanceName: string) {
 }
 
 function setupOrdInstance(typeName: string, instanceName: string) {
-  registerTypeclassSyntax("Ord", [["<", "compare"], ["<=", "compare"], [">", "compare"], [">=", "compare"]]);
+  registerTypeclassSyntax("Ord", [
+    ["<", "compare"],
+    ["<=", "compare"],
+    [">", "compare"],
+    [">=", "compare"],
+  ]);
   registerInstanceWithMeta({
     typeclassName: "Ord",
     forType: typeName,

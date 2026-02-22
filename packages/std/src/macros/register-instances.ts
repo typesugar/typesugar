@@ -101,14 +101,20 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     methods: [
       {
         name: "equals",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "boolean",
         isSelfMethod: true,
         operatorSymbol: "===",
       },
       {
         name: "notEquals",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "boolean",
         isSelfMethod: true,
         operatorSymbol: "!==",
@@ -116,7 +122,10 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     ],
     canDeriveProduct: true,
     canDeriveSum: true,
-    syntax: new Map([["===", "equals"], ["!==", "notEquals"]]),
+    syntax: new Map([
+      ["===", "equals"],
+      ["!==", "notEquals"],
+    ]),
   },
   {
     name: "Ord",
@@ -124,34 +133,49 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     methods: [
       {
         name: "compare",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "Ordering",
         isSelfMethod: true,
       },
       {
         name: "lessThan",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "boolean",
         isSelfMethod: true,
         operatorSymbol: "<",
       },
       {
         name: "lessThanOrEqual",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "boolean",
         isSelfMethod: true,
         operatorSymbol: "<=",
       },
       {
         name: "greaterThan",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "boolean",
         isSelfMethod: true,
         operatorSymbol: ">",
       },
       {
         name: "greaterThanOrEqual",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "boolean",
         isSelfMethod: true,
         operatorSymbol: ">=",
@@ -159,7 +183,12 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     ],
     canDeriveProduct: true,
     canDeriveSum: true,
-    syntax: new Map([["<", "lessThan"], ["<=", "lessThanOrEqual"], [">", "greaterThan"], [">=", "greaterThanOrEqual"]]),
+    syntax: new Map([
+      ["<", "lessThan"],
+      ["<=", "lessThanOrEqual"],
+      [">", "greaterThan"],
+      [">=", "greaterThanOrEqual"],
+    ]),
   },
   {
     name: "Semigroup",
@@ -167,7 +196,10 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     methods: [
       {
         name: "combine",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "+",
@@ -189,7 +221,10 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
       },
       {
         name: "combine",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "+",
@@ -211,7 +246,10 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
       },
       {
         name: "combine",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "+",
@@ -233,21 +271,30 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     methods: [
       {
         name: "add",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "+",
       },
       {
         name: "sub",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "-",
       },
       {
         name: "mul",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "*",
@@ -255,7 +302,11 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     ],
     canDeriveProduct: false,
     canDeriveSum: false,
-    syntax: new Map([["+", "add"], ["-", "sub"], ["*", "mul"]]),
+    syntax: new Map([
+      ["+", "add"],
+      ["-", "sub"],
+      ["*", "mul"],
+    ]),
   },
   {
     name: "Integral",
@@ -263,14 +314,20 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     methods: [
       {
         name: "div",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "/",
       },
       {
         name: "mod",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "%",
@@ -278,7 +335,10 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     ],
     canDeriveProduct: false,
     canDeriveSum: false,
-    syntax: new Map([["/", "div"], ["%", "mod"]]),
+    syntax: new Map([
+      ["/", "div"],
+      ["%", "mod"],
+    ]),
   },
   {
     name: "Fractional",
@@ -286,7 +346,10 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
     methods: [
       {
         name: "div",
-        params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }],
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
         returnType: "A",
         isSelfMethod: true,
         operatorSymbol: "/",
@@ -307,63 +370,238 @@ const TYPECLASS_DEFS: TypeclassInfo[] = [
  */
 const STD_INSTANCES: InstanceReg[] = [
   // Eq instances
-  { typeclass: "Eq", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "eqNumber" },
-  { typeclass: "Eq", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "eqString" },
-  { typeclass: "Eq", forType: "boolean", importPath: "@typesugar/std/typeclasses", exportName: "eqBoolean" },
-  { typeclass: "Eq", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "eqBigInt" },
-  { typeclass: "Eq", forType: "Date", importPath: "@typesugar/std/typeclasses", exportName: "eqDate" },
+  {
+    typeclass: "Eq",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "eqNumber",
+  },
+  {
+    typeclass: "Eq",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "eqString",
+  },
+  {
+    typeclass: "Eq",
+    forType: "boolean",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "eqBoolean",
+  },
+  {
+    typeclass: "Eq",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "eqBigInt",
+  },
+  {
+    typeclass: "Eq",
+    forType: "Date",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "eqDate",
+  },
 
   // Ord instances
-  { typeclass: "Ord", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "ordNumber" },
-  { typeclass: "Ord", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "ordString" },
-  { typeclass: "Ord", forType: "boolean", importPath: "@typesugar/std/typeclasses", exportName: "ordBoolean" },
-  { typeclass: "Ord", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "ordBigInt" },
-  { typeclass: "Ord", forType: "Date", importPath: "@typesugar/std/typeclasses", exportName: "ordDate" },
+  {
+    typeclass: "Ord",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "ordNumber",
+  },
+  {
+    typeclass: "Ord",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "ordString",
+  },
+  {
+    typeclass: "Ord",
+    forType: "boolean",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "ordBoolean",
+  },
+  {
+    typeclass: "Ord",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "ordBigInt",
+  },
+  {
+    typeclass: "Ord",
+    forType: "Date",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "ordDate",
+  },
 
   // Semigroup instances
-  { typeclass: "Semigroup", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "semigroupNumber" },
-  { typeclass: "Semigroup", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "semigroupString" },
-  { typeclass: "Semigroup", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "semigroupBigInt" },
+  {
+    typeclass: "Semigroup",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "semigroupNumber",
+  },
+  {
+    typeclass: "Semigroup",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "semigroupString",
+  },
+  {
+    typeclass: "Semigroup",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "semigroupBigInt",
+  },
 
   // Monoid instances
-  { typeclass: "Monoid", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "monoidNumber" },
-  { typeclass: "Monoid", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "monoidString" },
-  { typeclass: "Monoid", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "monoidBigInt" },
+  {
+    typeclass: "Monoid",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "monoidNumber",
+  },
+  {
+    typeclass: "Monoid",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "monoidString",
+  },
+  {
+    typeclass: "Monoid",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "monoidBigInt",
+  },
 
   // Group instances
-  { typeclass: "Group", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "groupNumber" },
-  { typeclass: "Group", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "groupBigInt" },
+  {
+    typeclass: "Group",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "groupNumber",
+  },
+  {
+    typeclass: "Group",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "groupBigInt",
+  },
 
   // Bounded instances
-  { typeclass: "Bounded", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "boundedNumber" },
-  { typeclass: "Bounded", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "boundedBigInt" },
-  { typeclass: "Bounded", forType: "boolean", importPath: "@typesugar/std/typeclasses", exportName: "boundedBoolean" },
-  { typeclass: "Bounded", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "boundedString" },
+  {
+    typeclass: "Bounded",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedNumber",
+  },
+  {
+    typeclass: "Bounded",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedBigInt",
+  },
+  {
+    typeclass: "Bounded",
+    forType: "boolean",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedBoolean",
+  },
+  {
+    typeclass: "Bounded",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "boundedString",
+  },
 
   // Enum instances
-  { typeclass: "Enum", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "enumNumber" },
-  { typeclass: "Enum", forType: "boolean", importPath: "@typesugar/std/typeclasses", exportName: "enumBoolean" },
-  { typeclass: "Enum", forType: "string", importPath: "@typesugar/std/typeclasses", exportName: "enumString" },
+  {
+    typeclass: "Enum",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "enumNumber",
+  },
+  {
+    typeclass: "Enum",
+    forType: "boolean",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "enumBoolean",
+  },
+  {
+    typeclass: "Enum",
+    forType: "string",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "enumString",
+  },
 
   // Numeric instances (Ring with Op<+>, Op<->, Op<*>)
-  { typeclass: "Numeric", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "numericNumber" },
-  { typeclass: "Numeric", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "numericBigInt" },
+  {
+    typeclass: "Numeric",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "numericNumber",
+  },
+  {
+    typeclass: "Numeric",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "numericBigInt",
+  },
 
   // Integral instances (Euclidean Ring with Op</>, Op<%>)
-  { typeclass: "Integral", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "integralNumber" },
-  { typeclass: "Integral", forType: "bigint", importPath: "@typesugar/std/typeclasses", exportName: "integralBigInt" },
+  {
+    typeclass: "Integral",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "integralNumber",
+  },
+  {
+    typeclass: "Integral",
+    forType: "bigint",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "integralBigInt",
+  },
 
   // Fractional instances (Field with Op</>)
-  { typeclass: "Fractional", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "fractionalNumber" },
+  {
+    typeclass: "Fractional",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "fractionalNumber",
+  },
 
   // Floating instances (transcendental functions)
-  { typeclass: "Floating", forType: "number", importPath: "@typesugar/std/typeclasses", exportName: "floatingNumber" },
+  {
+    typeclass: "Floating",
+    forType: "number",
+    importPath: "@typesugar/std/typeclasses",
+    exportName: "floatingNumber",
+  },
 
   // FlatMap instances (HKT)
-  { typeclass: "FlatMap", forType: "Array", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapArray" },
-  { typeclass: "FlatMap", forType: "Promise", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapPromise" },
-  { typeclass: "FlatMap", forType: "Iterable", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapIterable" },
-  { typeclass: "FlatMap", forType: "AsyncIterable", importPath: "@typesugar/std/typeclasses/flatmap", exportName: "flatMapAsyncIterable" },
+  {
+    typeclass: "FlatMap",
+    forType: "Array",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapArray",
+  },
+  {
+    typeclass: "FlatMap",
+    forType: "Promise",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapPromise",
+  },
+  {
+    typeclass: "FlatMap",
+    forType: "Iterable",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapIterable",
+  },
+  {
+    typeclass: "FlatMap",
+    forType: "AsyncIterable",
+    importPath: "@typesugar/std/typeclasses/flatmap",
+    exportName: "flatMapAsyncIterable",
+  },
 
   // Data type instances
   { typeclass: "Eq", forType: "Range", importPath: "@typesugar/std/data", exportName: "eqRange" },
@@ -419,7 +657,8 @@ performRegistration();
 export const registerStdInstancesMacro: ExpressionMacro = defineExpressionMacro({
   name: "registerStdInstances",
   module: "@typesugar/std/macros",
-  description: "Register all @typesugar/std typeclass instances for summon<>() and operator dispatch",
+  description:
+    "Register all @typesugar/std typeclass instances for summon<>() and operator dispatch",
 
   expand(
     ctx: MacroContext,

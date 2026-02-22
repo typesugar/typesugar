@@ -185,9 +185,7 @@ export function registerExtension<F extends Function>(_typeName: string, _fn: F)
  * show(42, customShow);  // Uses customShow
  * ```
  */
-export function implicits(
-  ...paramNames: string[]
-): (target: any, context?: any) => any {
+export function implicits(...paramNames: string[]): (target: any, context?: any) => any {
   // Placeholder - processed by transformer
   return (target) => target;
 }
@@ -291,10 +289,12 @@ export function pipe<T, R>(value: T, ...fns: Function[]): R {
  */
 export function compose<T extends Function[]>(...fns: T): Function {
   return (...args: unknown[]) =>
-    fns.slice(0, -1).reduceRight(
-      (acc, fn) => fn(acc),
-      (fns[fns.length - 1] as (...a: unknown[]) => unknown)(...args)
-    );
+    fns
+      .slice(0, -1)
+      .reduceRight(
+        (acc, fn) => fn(acc),
+        (fns[fns.length - 1] as (...a: unknown[]) => unknown)(...args)
+      );
 }
 
 /**
@@ -310,9 +310,7 @@ export function compose<T extends Function[]>(...fns: T): Function {
  * transform(5); // "11"
  * ```
  */
-export function flow<A extends readonly unknown[], B>(
-  ab: (...a: A) => B
-): (...a: A) => B;
+export function flow<A extends readonly unknown[], B>(ab: (...a: A) => B): (...a: A) => B;
 export function flow<A extends readonly unknown[], B, C>(
   ab: (...a: A) => B,
   bc: (b: B) => C
@@ -534,9 +532,7 @@ export function includeJson<T = unknown>(_path: string): T {
  * ```
  */
 export function static_assert(_condition: boolean, _message: string): void {
-  throw new Error(
-    "static_assert() must be processed by the typesugar transformer at compile time"
-  );
+  throw new Error("static_assert() must be processed by the typesugar transformer at compile time");
 }
 
 // ============================================================================

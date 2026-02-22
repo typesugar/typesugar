@@ -6,12 +6,12 @@ Deep-dive guides for typesugar features, organized by category.
 
 Everyday features from `@typesugar/std`:
 
-| Guide                                        | Description                                    |
-| -------------------------------------------- | ---------------------------------------------- |
-| [Extension Methods](./extension-methods.md)  | Scala 3-style methods on primitives            |
-| [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions |
+| Guide                                        | Description                                             |
+| -------------------------------------------- | ------------------------------------------------------- |
+| [Extension Methods](./extension-methods.md)  | Scala 3-style methods on primitives                     |
+| [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions          |
 | [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:` |
-| [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Show, Monoid, FlatMap                 |
+| [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Show, Monoid, FlatMap                          |
 
 ## Typeclasses & Derivation
 

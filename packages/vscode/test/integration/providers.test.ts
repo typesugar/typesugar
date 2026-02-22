@@ -103,9 +103,7 @@ suite("Provider Integration", () => {
     assert.ok(codeLenses.length > 0, "Should have at least one CodeLens for macro file");
 
     // Verify at least one lens has the typesugar command
-    const typesugarLens = codeLenses.find(
-      (l) => l.command?.command === "typesugar.expandMacro"
-    );
+    const typesugarLens = codeLenses.find((l) => l.command?.command === "typesugar.expandMacro");
     assert.ok(typesugarLens, "Should have a typesugar.expandMacro CodeLens");
   });
 

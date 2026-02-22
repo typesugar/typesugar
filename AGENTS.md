@@ -756,12 +756,15 @@ registerFlatMap<MyMonad<unknown>>("MyMonad", {
 import { Option, Some, None } from "@typesugar/fp";
 
 let: {
-  x << Some(1)
-  y << Some(x * 2)    // Can depend on previous bindings
-  if (y > 0) {}       // Guards for filtering
-  z = y + 10          // Pure map step (no unwrap)
+  x << Some(1);
+  y << Some(x * 2); // Can depend on previous bindings
+  if (y > 0) {
+  } // Guards for filtering
+  z = y + 10; // Pure map step (no unwrap)
 }
-yield: { x + z }
+yield: {
+  x + z;
+}
 // Compiles to: Some(1).flatMap(x => Some(x*2).map(y => y > 0 ? ((z) => x + z)(y + 10) : undefined))
 ```
 
@@ -769,11 +772,11 @@ yield: { x + z }
 
 ```typescript
 par: {
-  user   << fetchUser(id)      // All bindings must be independent
-  config << loadConfig()
-  posts  << fetchPosts()
+  user << fetchUser(id); // All bindings must be independent
+  config << loadConfig();
+  posts << fetchPosts();
 }
-yield: ({ user, config, posts })
+yield: ({ user, config, posts });
 // Compiles to: Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
 //                .then(([user, config, posts]) => ({ user, config, posts }))
 ```
@@ -912,20 +915,20 @@ The export index is pre-populated with known typesugar exports and can be extend
 
 Understanding what goes where prevents architecture confusion:
 
-| Package                  | Contents                                                                                                               | Does NOT contain              |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@instance`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro`           | Typeclass definitions         |
+| Package                  | Contents                                                                                                                                 | Does NOT contain              |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@instance`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro`                             | Typeclass definitions         |
 | `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Semigroup, FlatMap), built-in type extensions, `let:/yield:` and `par:/yield:` do-notation, `match` | FP data types                 |
-| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                           | General-purpose utilities     |
-| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike)                                         | Data type implementations     |
-| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                | Typeclass instances           |
-| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                             | Compile-time code gen         |
-| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                       | Matrix operations             |
-| `@typesugar/graph`       | Graph construction/algorithms (topo sort, SCC, Dijkstra), state machine definition/verification                        | Visual rendering              |
-| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                 | Typeclass definitions         |
-| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                               | Transport/network layer       |
-| `@typesugar/named-args`  | Named argument wrappers, builder pattern for complex functions                                                         | Call-site rewriting (Phase 2) |
-| `@typesugar/geometry`    | Points, vectors, transforms with coordinate system and dimension safety                                                | Physics simulation            |
+| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                             | General-purpose utilities     |
+| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike)                                                           | Data type implementations     |
+| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                                  | Typeclass instances           |
+| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                               | Compile-time code gen         |
+| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                         | Matrix operations             |
+| `@typesugar/graph`       | Graph construction/algorithms (topo sort, SCC, Dijkstra), state machine definition/verification                                          | Visual rendering              |
+| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                   | Typeclass definitions         |
+| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                                 | Transport/network layer       |
+| `@typesugar/named-args`  | Named argument wrappers, builder pattern for complex functions                                                                           | Call-site rewriting (Phase 2) |
+| `@typesugar/geometry`    | Points, vectors, transforms with coordinate system and dimension safety                                                                  | Physics simulation            |
 
 **Key clarifications:**
 

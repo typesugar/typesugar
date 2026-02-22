@@ -133,14 +133,8 @@ describe("Parser Edge Cases", () => {
 
     it("handles long alternation chains efficiently", () => {
       const parser = alt(
-        alt(
-          alt(literal("aaa"), literal("bbb")),
-          alt(literal("ccc"), literal("ddd"))
-        ),
-        alt(
-          alt(literal("eee"), literal("fff")),
-          literal("ggg")
-        )
+        alt(alt(literal("aaa"), literal("bbb")), alt(literal("ccc"), literal("ddd"))),
+        alt(alt(literal("eee"), literal("fff")), literal("ggg"))
       );
       const result = parser.parse("ggg");
       expect(result.ok).toBe(true);
@@ -233,24 +227,30 @@ describe("Parser Edge Cases", () => {
   // ==========================================================================
   describe("Left recursion detection", () => {
     it("detects direct left recursion", () => {
-      expect(() => parseGrammarDef(`
+      expect(() =>
+        parseGrammarDef(`
         expr = expr '+' term
         term = '1'
-      `)).toThrow(/[Ll]eft recursion/);
+      `)
+      ).toThrow(/[Ll]eft recursion/);
     });
 
     it("detects indirect left recursion", () => {
-      expect(() => parseGrammarDef(`
+      expect(() =>
+        parseGrammarDef(`
         a = b 'x'
         b = a 'y'
-      `)).toThrow(/[Ll]eft recursion/);
+      `)
+      ).toThrow(/[Ll]eft recursion/);
     });
 
     it("detects left recursion through alternation", () => {
-      expect(() => parseGrammarDef(`
+      expect(() =>
+        parseGrammarDef(`
         expr = expr '+' term | term
         term = '1'
-      `)).toThrow(/[Ll]eft recursion/);
+      `)
+      ).toThrow(/[Ll]eft recursion/);
     });
 
     it("allows right recursion", () => {
@@ -412,9 +412,11 @@ describe("Parser Edge Cases", () => {
     });
 
     it("grammar errors include rule context", () => {
-      expect(() => parseGrammarDef(`
+      expect(() =>
+        parseGrammarDef(`
         foo = bar
-      `)).toThrow(/bar/);
+      `)
+      ).toThrow(/bar/);
     });
 
     it("combines expected from alternation", () => {
@@ -454,10 +456,12 @@ describe("Parser Edge Cases", () => {
     });
 
     it("rejects undefined rule reference", () => {
-      expect(() => parseGrammarDef(`
+      expect(() =>
+        parseGrammarDef(`
         foo = bar baz
         bar = 'x'
-      `)).toThrow(/[Uu]ndefined.*baz/);
+      `)
+      ).toThrow(/[Uu]ndefined.*baz/);
     });
 
     it("rejects invalid characters in rule names", () => {
@@ -558,8 +562,8 @@ describe("Parser Edge Cases", () => {
       `);
       const parser = buildParser(rules);
       expect(parser.parse('{"a":1}').ok).toBe(true);
-      expect(parser.parse('[1,2,3]').ok).toBe(true);
-      expect(parser.parse('null').ok).toBe(true);
+      expect(parser.parse("[1,2,3]").ok).toBe(true);
+      expect(parser.parse("null").ok).toBe(true);
     });
 
     it("grammar tagged template works at runtime", () => {
@@ -575,10 +579,7 @@ describe("Parser Edge Cases", () => {
       type Expr = string | Expr[];
       const expr: ReturnType<typeof lazy<Expr>> = lazy(() =>
         alt(
-          map(
-            seq3(char("("), many(expr), char(")")),
-            ([, inner]) => inner
-          ),
+          map(seq3(char("("), many(expr), char(")")), ([, inner]) => inner),
           map(letter(), (c) => c)
         )
       );

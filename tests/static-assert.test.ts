@@ -5,11 +5,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
-import {
-  staticAssertMacro,
-  compileErrorMacro,
-  compileWarningMacro,
-} from "@typesugar/macros";
+import { staticAssertMacro, compileErrorMacro, compileWarningMacro } from "@typesugar/macros";
 
 describe("static assertion and diagnostic macros", () => {
   let ctx: MacroContextImpl;

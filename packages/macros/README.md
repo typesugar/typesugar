@@ -38,7 +38,10 @@ import { derive, comptime, pipe } from "typesugar";
 
 @derive(Eq, Clone)
 class Point {
-  constructor(public x: number, public y: number) {}
+  constructor(
+    public x: number,
+    public y: number
+  ) {}
 }
 
 const config = comptime(() => JSON.parse(fs.readFileSync("./config.json", "utf8")));

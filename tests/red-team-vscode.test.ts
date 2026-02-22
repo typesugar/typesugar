@@ -41,7 +41,9 @@ describe("VSCode Extension Configuration Edge Cases", () => {
       expect(activationEvents.length).toBeGreaterThan(0);
 
       for (const event of activationEvents) {
-        expect(event).toMatch(/^(workspaceContains:|onLanguage:|onCommand:|onView:|onUri:|onWebviewPanel:|onCustomEditor:|onAuthenticationRequest:|onStartupFinished|\*)/);
+        expect(event).toMatch(
+          /^(workspaceContains:|onLanguage:|onCommand:|onView:|onUri:|onWebviewPanel:|onCustomEditor:|onAuthenticationRequest:|onStartupFinished|\*)/
+        );
       }
     });
 
@@ -396,8 +398,8 @@ describe("VSCode Extension Configuration Edge Cases", () => {
     }>("syntaxes/typesugar-units.tmLanguage.json");
 
     it("handles negative numbers in units", () => {
-      const numberPattern = unitsGrammar.patterns[0]?.patterns?.find(
-        (p) => p.match?.includes("-?\\d+")
+      const numberPattern = unitsGrammar.patterns[0]?.patterns?.find((p) =>
+        p.match?.includes("-?\\d+")
       );
       expect(numberPattern).toBeDefined();
 

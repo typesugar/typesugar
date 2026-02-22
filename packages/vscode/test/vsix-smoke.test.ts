@@ -44,19 +44,13 @@ describe("VSIX Packaging Smoke Tests", () => {
     });
 
     it(".vscodeignore excludes test directories", () => {
-      const content = fs.readFileSync(
-        path.join(VSCODE_PKG_PATH, ".vscodeignore"),
-        "utf-8"
-      );
+      const content = fs.readFileSync(path.join(VSCODE_PKG_PATH, ".vscodeignore"), "utf-8");
       expect(content).toContain("test/**");
       expect(content).toContain("test-fixtures/**");
     });
 
     it(".vscodeignore excludes config files", () => {
-      const content = fs.readFileSync(
-        path.join(VSCODE_PKG_PATH, ".vscodeignore"),
-        "utf-8"
-      );
+      const content = fs.readFileSync(path.join(VSCODE_PKG_PATH, ".vscodeignore"), "utf-8");
       expect(content).toContain("vitest.config.ts");
       expect(content).toContain(".vscode-test.mjs");
     });

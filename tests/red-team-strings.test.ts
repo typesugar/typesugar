@@ -45,18 +45,14 @@ describe("Strings Edge Cases", () => {
 
     it("handles null byte injection attempts", () => {
       // Null bytes can sometimes bypass filters
-      expect(__typemacro_escapeHtml("foo\0<script>")).toBe(
-        "foo\0&lt;script&gt;"
-      );
+      expect(__typemacro_escapeHtml("foo\0<script>")).toBe("foo\0&lt;script&gt;");
     });
 
     it("converts non-string values to strings", () => {
       expect(__typemacro_escapeHtml(null)).toBe("null");
       expect(__typemacro_escapeHtml(undefined)).toBe("undefined");
       expect(__typemacro_escapeHtml(123)).toBe("123");
-      expect(__typemacro_escapeHtml({ toString: () => "<bad>" })).toBe(
-        "&lt;bad&gt;"
-      );
+      expect(__typemacro_escapeHtml({ toString: () => "<bad>" })).toBe("&lt;bad&gt;");
     });
 
     it("handles mixed content with newlines", () => {
@@ -277,9 +273,7 @@ describe("Strings Edge Cases", () => {
       expect(__typemacro_escapeHtml("<")).toBe("&lt;");
 
       // Maximum safe integer as string
-      expect(__typemacro_escapeHtml(Number.MAX_SAFE_INTEGER)).toBe(
-        "9007199254740991"
-      );
+      expect(__typemacro_escapeHtml(Number.MAX_SAFE_INTEGER)).toBe("9007199254740991");
     });
   });
 
@@ -290,17 +284,13 @@ describe("Strings Edge Cases", () => {
     it("handles template strings with backticks in content", () => {
       // Backticks inside template need escaping in source, but result is literal
       const withBacktick = "code: `const x = 1`";
-      expect(__typemacro_escapeHtml(withBacktick)).toBe(
-        "code: `const x = 1`"
-      );
+      expect(__typemacro_escapeHtml(withBacktick)).toBe("code: `const x = 1`");
     });
 
     it("handles template strings with ${} that look like interpolation", () => {
       // Escaped interpolation syntax in a string literal
       const fakeInterp = "template: ${notActuallyInterpolated}";
-      expect(__typemacro_escapeHtml(fakeInterp)).toBe(
-        "template: ${notActuallyInterpolated}"
-      );
+      expect(__typemacro_escapeHtml(fakeInterp)).toBe("template: ${notActuallyInterpolated}");
     });
 
     it("handles nested quotes", () => {

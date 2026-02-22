@@ -434,10 +434,22 @@ export function getOrd<A>(O: Ord<A>): Ord<NonEmptyList<A>> {
   return {
     eqv: getEq(O).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: NonEmptyList<A>, y: NonEmptyList<A>) => boolean & Op<">=">,
+    lessThan: ((x, y) => compare(x, y) === -1) as (
+      x: NonEmptyList<A>,
+      y: NonEmptyList<A>
+    ) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
+      x: NonEmptyList<A>,
+      y: NonEmptyList<A>
+    ) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (
+      x: NonEmptyList<A>,
+      y: NonEmptyList<A>
+    ) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
+      x: NonEmptyList<A>,
+      y: NonEmptyList<A>
+    ) => boolean & Op<">=">,
   };
 }
 

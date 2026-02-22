@@ -318,18 +318,7 @@ describe("Specialize Edge Cases", () => {
     });
 
     it("should handle boundary case N=9", () => {
-      type LargeFn = (
-        a: 1,
-        b: 2,
-        c: 3,
-        d: 4,
-        e: 5,
-        f: 6,
-        g: 7,
-        h: 8,
-        i: 9,
-        j: 10
-      ) => number;
+      type LargeFn = (a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8, i: 9, j: 10) => number;
       type Result = Specialized<LargeFn, 9>;
 
       const fn: Result = (a: 1) => 1;
@@ -358,10 +347,7 @@ describe("Specialize Edge Cases", () => {
   // ==========================================================================
   describe("Specialized Type with Complex Parameter Types", () => {
     it("should handle destructured object parameters", () => {
-      type FnWithDestructured = (
-        point: { x: number; y: number },
-        dict: object
-      ) => number;
+      type FnWithDestructured = (point: { x: number; y: number }, dict: object) => number;
       type Result = Specialized<FnWithDestructured, 1>;
 
       const fn: Result = (point: { x: number; y: number }) => point.x + point.y;
@@ -384,8 +370,7 @@ describe("Specialize Edge Cases", () => {
       ) => string[];
       type Result = Specialized<FnWithCallback, 1>;
 
-      const fn: Result = (data: number[], mapper: (x: number) => string) =>
-        data.map(mapper);
+      const fn: Result = (data: number[], mapper: (x: number) => string) => data.map(mapper);
       expect(fn([1, 2], String)).toEqual(["1", "2"]);
     });
 
@@ -409,8 +394,7 @@ describe("Specialize Edge Cases", () => {
       type FnWithMapped = (obj: Mapped<{ a: number; b: string }>, dict: object) => string;
       type Result = Specialized<FnWithMapped, 1>;
 
-      const fn: Result = (obj: Mapped<{ a: number; b: string }>) =>
-        `${obj.a}-${obj.b}`;
+      const fn: Result = (obj: Mapped<{ a: number; b: string }>) => `${obj.a}-${obj.b}`;
       expect(fn({ a: 1, b: "test" })).toBe("1-test");
     });
 

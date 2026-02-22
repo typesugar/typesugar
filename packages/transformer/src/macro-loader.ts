@@ -175,7 +175,11 @@ function collectImportedModules(program: ts.Program): Set<string> {
       }
 
       // Also check re-exports: export { foo } from "pkg"
-      if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      if (
+        ts.isExportDeclaration(stmt) &&
+        stmt.moduleSpecifier &&
+        ts.isStringLiteral(stmt.moduleSpecifier)
+      ) {
         const mod = stmt.moduleSpecifier.text;
         if (!mod.startsWith(".") && !mod.startsWith("/")) {
           const basePkg = getBasePackageName(mod);

@@ -241,7 +241,7 @@ const result: Option<number> = parseAge("42");
 
     // Should either create a hoisted specialization OR inline the result
     // The key check: the code should compile and not throw
-    expect(result.diagnostics.filter(d => d.severity === "error")).toHaveLength(0);
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
   it("does not specialize when return type matches contextual type", () => {

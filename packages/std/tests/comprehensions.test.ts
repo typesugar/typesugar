@@ -869,7 +869,10 @@ describe("par:/yield: AsyncIterable support (ParCombine)", () => {
 
     const { getParCombine } = await import("@typesugar/std");
     const pc = getParCombine("AsyncIterable")!;
-    const result = (await pc.map(pc.all([nums()]), ([ns]: unknown[]) => ns as number[])) as number[];
+    const result = (await pc.map(
+      pc.all([nums()]),
+      ([ns]: unknown[]) => ns as number[]
+    )) as number[];
 
     expect(result).toEqual([1, 2, 3]);
   });

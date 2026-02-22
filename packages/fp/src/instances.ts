@@ -656,8 +656,7 @@ export function registerFpFlatMapInstances(
  * @param G - The Applicative instance for the effect type
  */
 export function traverseArray<G>(G: Applicative<G>) {
-  return <A, B>(xs: A[], f: (a: A) => $<G, B>): $<G, B[]> =>
-    arrayTraverse.traverse(G)(xs, f);
+  return <A, B>(xs: A[], f: (a: A) => $<G, B>): $<G, B[]> => arrayTraverse.traverse(G)(xs, f);
 }
 
 /**

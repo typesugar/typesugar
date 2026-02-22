@@ -43,10 +43,7 @@ suite("Extension Activation", () => {
     ];
 
     for (const cmd of expectedCommands) {
-      assert.ok(
-        commands.includes(cmd),
-        `Command '${cmd}' should be registered`
-      );
+      assert.ok(commands.includes(cmd), `Command '${cmd}' should be registered`);
     }
   });
 

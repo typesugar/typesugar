@@ -37,7 +37,12 @@
 export { reflect, typeInfo, fieldNames, validator } from "@typesugar/macros";
 
 // Macro definitions
-export { reflectAttribute, typeInfoMacro, fieldNamesMacro, validatorMacro } from "@typesugar/macros";
+export {
+  reflectAttribute,
+  typeInfoMacro,
+  fieldNamesMacro,
+  validatorMacro,
+} from "@typesugar/macros";
 
 // Type exports
 export type {

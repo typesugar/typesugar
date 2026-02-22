@@ -29,8 +29,7 @@ import {
 // Test Validators
 // =============================================================================
 
-const isString: Validator<string> = (value: unknown): value is string =>
-  typeof value === "string";
+const isString: Validator<string> = (value: unknown): value is string => typeof value === "string";
 
 const isNumber: Validator<number> = (value: unknown): value is number =>
   typeof value === "number" && !Number.isNaN(value);
@@ -66,9 +65,7 @@ describe("Validate Edge Cases", () => {
       // Validator correctly rejects - the object is NOT a string despite toString
       expect(isString(malicious)).toBe(false);
       // parse should throw for invalid data
-      expect(() => nativeSchema.parse(isString, malicious as unknown)).toThrow(
-        "Validation failed"
-      );
+      expect(() => nativeSchema.parse(isString, malicious as unknown)).toThrow("Validation failed");
     });
 
     it("should reject objects with valueOf that returns a number", () => {
@@ -115,14 +112,12 @@ describe("Validate Edge Cases", () => {
       expect(isPositiveNumber(-Infinity)).toBe(false);
 
       // Standard isNumber accepts Infinity (design choice - test documents behavior)
-      const basicIsNumber: Validator<number> = (v): v is number =>
-        typeof v === "number";
+      const basicIsNumber: Validator<number> = (v): v is number => typeof v === "number";
       expect(basicIsNumber(Infinity)).toBe(true);
     });
 
     it("should handle negative zero correctly", () => {
-      const isPositive: Validator<number> = (v): v is number =>
-        typeof v === "number" && v > 0;
+      const isPositive: Validator<number> = (v): v is number => typeof v === "number" && v > 0;
 
       // -0 is NOT greater than 0
       expect(isPositive(-0)).toBe(false);
@@ -396,14 +391,12 @@ describe("Validate Edge Cases", () => {
         throw new Error("Validator error");
       };
 
-      expect(() => nativeSchema.parse(throwingValidator, "test")).toThrow(
-        "Validator error"
-      );
+      expect(() => nativeSchema.parse(throwingValidator, "test")).toThrow("Validator error");
     });
 
     it("should handle validator that returns truthy non-boolean", () => {
       // TypeScript enforces boolean return, but at runtime...
-      const badValidator = ((v: unknown) => v ? 1 : 0) as unknown as Validator<string>;
+      const badValidator = ((v: unknown) => (v ? 1 : 0)) as unknown as Validator<string>;
 
       // This should still work because 1 is truthy
       const result = nativeSchema.safeParse(badValidator, "test");

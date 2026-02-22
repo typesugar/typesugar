@@ -162,9 +162,7 @@ describe("ExpansionService", () => {
       // Test the escapeRegex function indirectly through the service
       // The function escapes special regex characters
       const service = new ExpansionService();
-      const escapeRegex = (service as any).__proto__.constructor
-        .toString()
-        .includes("escapeRegex");
+      const escapeRegex = (service as any).__proto__.constructor.toString().includes("escapeRegex");
       // The function exists in the module
       expect(true).toBe(true);
     });

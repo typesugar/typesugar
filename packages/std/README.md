@@ -92,12 +92,13 @@ Bindings can depend on previous bindings. Supports guards, fallbacks, discard bi
 
 ```typescript
 let: {
-  user  << fetchUser(id)         // Monadic bind
-  posts << fetchPosts(user.id)   // Depends on user
-  if (posts.length > 0) {}       // Guard
-  first = posts[0]               // Pure map step
+  user << fetchUser(id); // Monadic bind
+  posts << fetchPosts(user.id); // Depends on user
+  if (posts.length > 0) {
+  } // Guard
+  first = posts[0]; // Pure map step
 }
-yield: ({ user, first })
+yield: ({ user, first });
 
 // Compiles to:
 // fetchUser(id).then(user =>
@@ -111,19 +112,23 @@ yield: ({ user, first })
 
 ```typescript
 let: {
-  config << loadConfig() || defaultConfig()  // Fallback on error
+  config << loadConfig() || defaultConfig(); // Fallback on error
 }
-yield: { config }
+yield: {
+  config;
+}
 ```
 
 #### Discard Binding
 
 ```typescript
 let: {
-  _ << log("Starting...")  // Execute but discard result
-  x << computation()
+  _ << log("Starting..."); // Execute but discard result
+  x << computation();
 }
-yield: { x }
+yield: {
+  x;
+}
 ```
 
 ### `par:/yield:` — Parallel Comprehensions
@@ -132,11 +137,11 @@ All bindings must be independent. Uses `Promise.all` for Promises, `.map()/.ap()
 
 ```typescript
 par: {
-  user   << fetchUser(id)
-  config << loadConfig()
-  posts  << fetchPosts()
+  user << fetchUser(id);
+  config << loadConfig();
+  posts << fetchPosts();
 }
-yield: ({ user, config, posts })
+yield: ({ user, config, posts });
 
 // Compiles to:
 // Promise.all([fetchUser(id), loadConfig(), fetchPosts()])

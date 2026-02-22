@@ -135,15 +135,15 @@ import { EQ_ORD, LT, GT } from "../typeclasses/index.js";
  */
 export const eqRange: Eq<Range> = {
   equals: ((a, b) =>
-    a.start === b.start &&
-    a.end === b.end &&
-    a.step === b.step &&
-    a.inclusive === b.inclusive) as (a: Range, b: Range) => boolean & Op<"===">,
+    a.start === b.start && a.end === b.end && a.step === b.step && a.inclusive === b.inclusive) as (
+    a: Range,
+    b: Range
+  ) => boolean & Op<"===">,
   notEquals: ((a, b) =>
-    a.start !== b.start ||
-    a.end !== b.end ||
-    a.step !== b.step ||
-    a.inclusive !== b.inclusive) as (a: Range, b: Range) => boolean & Op<"!==">,
+    a.start !== b.start || a.end !== b.end || a.step !== b.step || a.inclusive !== b.inclusive) as (
+    a: Range,
+    b: Range
+  ) => boolean & Op<"!==">,
 };
 
 /**

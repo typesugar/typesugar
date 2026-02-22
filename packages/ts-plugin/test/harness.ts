@@ -80,9 +80,7 @@ export class LanguageServiceHarness {
    */
   async loadPlugin(): Promise<boolean> {
     try {
-      const pluginInit = require(
-        path.resolve(__dirname, "../dist/index.js")
-      );
+      const pluginInit = require(path.resolve(__dirname, "../dist/index.js"));
       const initFn = typeof pluginInit === "function" ? pluginInit : pluginInit.default;
 
       if (!initFn) return false;
@@ -130,10 +128,7 @@ export class LanguageServiceHarness {
   }
 
   /** Get completions at position */
-  getCompletions(
-    fileName: string,
-    position: number
-  ): ts.CompletionInfo | undefined {
+  getCompletions(fileName: string, position: number): ts.CompletionInfo | undefined {
     return this.getService().getCompletionsAtPosition(
       this.normalizePath(fileName),
       position,
@@ -143,21 +138,12 @@ export class LanguageServiceHarness {
 
   /** Get quick info at position */
   getQuickInfo(fileName: string, position: number): ts.QuickInfo | undefined {
-    return this.getService().getQuickInfoAtPosition(
-      this.normalizePath(fileName),
-      position
-    );
+    return this.getService().getQuickInfoAtPosition(this.normalizePath(fileName), position);
   }
 
   /** Get definition at position */
-  getDefinition(
-    fileName: string,
-    position: number
-  ): readonly ts.DefinitionInfo[] | undefined {
-    return this.getService().getDefinitionAtPosition(
-      this.normalizePath(fileName),
-      position
-    );
+  getDefinition(fileName: string, position: number): readonly ts.DefinitionInfo[] | undefined {
+    return this.getService().getDefinitionAtPosition(this.normalizePath(fileName), position);
   }
 
   dispose(): void {
@@ -168,10 +154,7 @@ export class LanguageServiceHarness {
 /**
  * Create a simple harness with a single test file.
  */
-export function createSimpleHarness(
-  content: string,
-  fileName = "test.ts"
-): LanguageServiceHarness {
+export function createSimpleHarness(content: string, fileName = "test.ts"): LanguageServiceHarness {
   return new LanguageServiceHarness({
     files: [{ name: fileName, content }],
   });

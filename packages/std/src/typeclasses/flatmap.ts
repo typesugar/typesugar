@@ -38,11 +38,7 @@
  */
 
 import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
-import {
-  registerInstanceWithMeta,
-  findInstance,
-  type InstanceMeta,
-} from "@typesugar/macros";
+import { registerInstanceWithMeta, findInstance, type InstanceMeta } from "@typesugar/macros";
 
 // ============================================================================
 // FlatMap Typeclass
@@ -265,11 +261,7 @@ registerInUnifiedRegistry("AsyncIterable");
  * @deprecated Use @instance decorator or registerInstanceWithMeta() from @typesugar/macros
  * for new code. This function is maintained for backward compatibility.
  */
-export function registerFlatMap<F>(
-  name: string,
-  instance: FlatMap<F>,
-  meta?: InstanceMeta
-): void {
+export function registerFlatMap<F>(name: string, instance: FlatMap<F>, meta?: InstanceMeta): void {
   if (flatMapInstances.has(name)) {
     console.warn(`[typesugar] FlatMap instance for '${name}' is already registered. Overriding.`);
   }

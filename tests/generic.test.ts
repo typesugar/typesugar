@@ -10,12 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
 import { DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
-import {
-  genericDerive,
-  getGenericMeta,
-  registerGenericMeta,
-  GenericMeta,
-} from "@typesugar/macros";
+import { genericDerive, getGenericMeta, registerGenericMeta, GenericMeta } from "@typesugar/macros";
 import { builtinDerivations, tryExtractSumType } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
 import { deriveMacros } from "@typesugar/macros";

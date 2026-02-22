@@ -10,11 +10,7 @@ import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
 import { deriveMacros, createDerivedFunctionName } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
-import {
-  builtinDerivations,
-  typeclassRegistry,
-  derivingAttribute,
-} from "@typesugar/macros";
+import { builtinDerivations, typeclassRegistry, derivingAttribute } from "@typesugar/macros";
 
 describe("derive macro definitions", () => {
   it("should have Eq derive macro", () => {

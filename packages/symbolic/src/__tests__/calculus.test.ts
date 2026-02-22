@@ -1,16 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  var_,
-  const_,
-  add,
-  mul,
-  div,
-  pow,
-  sin,
-  cos,
-  exp,
-  ln,
-} from "../builders.js";
+import { var_, const_, add, mul, div, pow, sin, cos, exp, ln } from "../builders.js";
 import { diff, nthDiff } from "../calculus/diff.js";
 import { integrate, tryIntegrate } from "../calculus/integrate.js";
 import { computeLimit, leftLimit, rightLimit } from "../calculus/limit.js";

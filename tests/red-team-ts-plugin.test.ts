@@ -66,7 +66,7 @@ describe("TS Plugin Position Mapper Edge Cases", () => {
         mappings: "",
       };
       const mapper = new SourceMapPositionMapper(sourceMap, "const x = 1;", "const x = 1;");
-      
+
       // With empty mappings, positions may not map
       const result = mapper.toOriginal(0);
       // Should handle gracefully without crashing
@@ -84,7 +84,7 @@ describe("TS Plugin Position Mapper Edge Cases", () => {
       const original = "x";
       const transformed = "x";
       const mapper = new SourceMapPositionMapper(sourceMap, original, transformed);
-      
+
       // Position way beyond file
       const result = mapper.toOriginal(1000);
       // Should return null or handle gracefully
@@ -103,7 +103,7 @@ describe("TS Plugin Position Mapper Edge Cases", () => {
       const original = "line1\nline2";
       const transformed = "line1\nline2";
       const mapper = new SourceMapPositionMapper(sourceMap, original, transformed);
-      
+
       // Position at start of second line
       const pos = mapper.toOriginal(6);
       expect(typeof pos === "number" || pos === null).toBe(true);
@@ -242,7 +242,7 @@ describe("TS Plugin Cache Behavior", () => {
 
       pipeline.invalidateAll();
       pipeline.transform("file.ts");
-      
+
       // Should have re-read the file after invalidateAll
       expect(callCount).toBeGreaterThan(countAfterFirst);
     });

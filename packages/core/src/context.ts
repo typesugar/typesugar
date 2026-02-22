@@ -192,10 +192,7 @@ export class MacroContextImpl implements MacroContext {
     }
 
     // Handle true/false keywords as literal expressions
-    if (
-      node.kind === ts.SyntaxKind.TrueKeyword ||
-      node.kind === ts.SyntaxKind.FalseKeyword
-    ) {
+    if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
       return true;
     }
 

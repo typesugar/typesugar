@@ -442,10 +442,7 @@ export const Positive = refinement<number, "Positive">(
 );
 
 export type NonZero = Refined<number, "NonZero">;
-export const NonZero = refinement<number, "NonZero">(
-  (n) => n !== 0 && !Number.isNaN(n),
-  "NonZero"
-);
+export const NonZero = refinement<number, "NonZero">((n) => n !== 0 && !Number.isNaN(n), "NonZero");
 
 /**
  * A number that is valid as a divisor: non-zero and not NaN.

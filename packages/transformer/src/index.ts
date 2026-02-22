@@ -525,7 +525,9 @@ class MacroTransformer {
   private tryTransformImplicitsCall(node: ts.CallExpression): ts.Expression | undefined {
     if (this.verbose && ts.isIdentifier(node.expression)) {
       const fnInfo = getImplicitsFunction(node.expression.text);
-      console.log(`[typesugar] tryTransformImplicitsCall: ${node.expression.text}, registered=${!!fnInfo}`);
+      console.log(
+        `[typesugar] tryTransformImplicitsCall: ${node.expression.text}, registered=${!!fnInfo}`
+      );
     }
     const currentScope = this.getCurrentImplicitScope();
     const result = transformImplicitsCall(this.ctx, node, currentScope);
@@ -1640,9 +1642,7 @@ class MacroTransformer {
         }
 
         const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
-        const remainingArgs = Array.from(node.arguments).filter(
-          (_, i) => !dictParamIndices.has(i)
-        );
+        const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
         return this.ctx.factory.createCallExpression(
           hoistedIdent,
           node.typeArguments,
@@ -1696,7 +1696,11 @@ class MacroTransformer {
 
     // 2. Check if return type is Result-like
     const returnTypeName = this.getTypeName(returnType);
-    if (returnTypeName !== "Result" && returnTypeName !== "Either" && returnTypeName !== "Validation") {
+    if (
+      returnTypeName !== "Result" &&
+      returnTypeName !== "Either" &&
+      returnTypeName !== "Validation"
+    ) {
       return undefined;
     }
 
@@ -2087,10 +2091,9 @@ class MacroTransformer {
     }
 
     // Check disk cache first (if macro is cacheable)
-    const cacheKey =
-      this.isMacroCacheable(macro)
-        ? this.computeCallSiteCacheKey(macroName, node, Array.from(node.arguments))
-        : undefined;
+    const cacheKey = this.isMacroCacheable(macro)
+      ? this.computeCallSiteCacheKey(macroName, node, Array.from(node.arguments))
+      : undefined;
 
     if (cacheKey) {
       const cached = this.getCachedExpression(cacheKey);
@@ -2154,7 +2157,10 @@ class MacroTransformer {
         ts.isInterfaceDeclaration(node) ||
         ts.isTypeAliasDeclaration(node)
       ) {
-        const nodeWithModifiers = node as ts.FunctionDeclaration | ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+        const nodeWithModifiers = node as
+          | ts.FunctionDeclaration
+          | ts.InterfaceDeclaration
+          | ts.TypeAliasDeclaration;
         if (nodeWithModifiers.modifiers) {
           const modifierDecorators = nodeWithModifiers.modifiers.filter(
             (m): m is ts.Decorator => m.kind === ts.SyntaxKind.Decorator
@@ -2532,10 +2538,7 @@ class MacroTransformer {
 
           registerExtensionMethods(typeName, deriveName);
         } catch (error) {
-          this.ctx.reportError(
-            arg,
-            `Typeclass auto-derivation failed for ${deriveName}: ${error}`
-          );
+          this.ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
         }
         continue;
       }
@@ -2553,10 +2556,7 @@ class MacroTransformer {
           );
           statements.push(...result);
         } catch (error) {
-          this.ctx.reportError(
-            arg,
-            `Typeclass derive macro expansion failed: ${error}`
-          );
+          this.ctx.reportError(arg, `Typeclass derive macro expansion failed: ${error}`);
         }
         continue;
       }
@@ -2881,9 +2881,7 @@ class MacroTransformer {
 
     if (this.verbose) {
       const fnName = ts.isIdentifier(fnExpr) ? fnExpr.text : "<expr>";
-      const dictNames = dictArgs
-        .map((d) => (ts.isIdentifier(d) ? d.text : "<expr>"))
-        .join(", ");
+      const dictNames = dictArgs.map((d) => (ts.isIdentifier(d) ? d.text : "<expr>")).join(", ");
       console.log(`[typesugar] Rewriting ${fnName}.specialize(${dictNames})`);
     }
 
@@ -3346,8 +3344,4 @@ export {
   type TransformCacheEntry,
 } from "./cache.js";
 
-export {
-  generateManifest,
-  createDefaultManifest,
-  type MacroManifest,
-} from "./manifest.js";
+export { generateManifest, createDefaultManifest, type MacroManifest } from "./manifest.js";

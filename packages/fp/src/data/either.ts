@@ -456,10 +456,22 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Either<E, A>> {
   return {
     eqv: getEq(OE, OA).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<">=">,
+    lessThan: ((x, y) => compare(x, y) === -1) as (
+      x: Either<E, A>,
+      y: Either<E, A>
+    ) => boolean & Op<"<">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
+      x: Either<E, A>,
+      y: Either<E, A>
+    ) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (
+      x: Either<E, A>,
+      y: Either<E, A>
+    ) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
+      x: Either<E, A>,
+      y: Either<E, A>
+    ) => boolean & Op<">=">,
   };
 }
 

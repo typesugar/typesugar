@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { resetMockState, createMockTextDocument, workspace, Uri, Range, Position } from "./mocks/vscode-mock";
+import {
+  resetMockState,
+  createMockTextDocument,
+  workspace,
+  Uri,
+  Range,
+  Position,
+} from "./mocks/vscode-mock";
 import { MacroDiagnosticsManager } from "../src/diagnostics";
 import { MacroSemanticTokensProvider, TOKEN_TYPES } from "../src/semantic-tokens";
 import { MacroCodeLensProvider } from "../src/codelens";
@@ -13,10 +20,12 @@ function createMockCancellationToken() {
   return new CancellationTokenSource().token;
 }
 
-function createMockExpansionService(overrides?: Partial<{
-  getExpansionResult: () => Promise<ExpansionResult | undefined>;
-  expandFile: () => Promise<ExpansionResult | undefined>;
-}>): ExpansionService {
+function createMockExpansionService(
+  overrides?: Partial<{
+    getExpansionResult: () => Promise<ExpansionResult | undefined>;
+    expandFile: () => Promise<ExpansionResult | undefined>;
+  }>
+): ExpansionService {
   return {
     getExpansionResult: overrides?.getExpansionResult ?? (async () => undefined),
     expandFile: overrides?.expandFile ?? (async () => undefined),
@@ -92,7 +101,9 @@ describe("Error Scenarios", () => {
 
     it("clears diagnostics when expansion throws", async () => {
       const expansion = createMockExpansionService({
-        expandFile: async () => { throw new Error("Transformer crashed"); },
+        expandFile: async () => {
+          throw new Error("Transformer crashed");
+        },
       });
 
       const manager = new MacroDiagnosticsManager(expansion);
@@ -161,10 +172,7 @@ describe("Error Scenarios", () => {
     it("SemanticTokens handles malformed code without throwing", () => {
       const loader = new ManifestLoader();
       const provider = new MacroSemanticTokensProvider(loader);
-      const doc = createMockTextDocument(
-        "@@@ !!! ??? ((( ))) {{{ }}}",
-        "test.ts"
-      );
+      const doc = createMockTextDocument("@@@ !!! ??? ((( ))) {{{ }}}", "test.ts");
 
       expect(() => {
         provider.provideDocumentSemanticTokens(doc, createMockCancellationToken());
@@ -175,10 +183,7 @@ describe("Error Scenarios", () => {
       const loader = new ManifestLoader();
       const expansion = createMockExpansionService();
       const provider = new MacroCodeLensProvider(loader, expansion);
-      const doc = createMockTextDocument(
-        "@@@ !!! ??? ((( ))) {{{ }}}",
-        "test.ts"
-      );
+      const doc = createMockTextDocument("@@@ !!! ??? ((( ))) {{{ }}}", "test.ts");
 
       expect(() => {
         provider.provideCodeLenses(doc, createMockCancellationToken());
@@ -189,16 +194,18 @@ describe("Error Scenarios", () => {
       const loader = new ManifestLoader();
       const expansion = createMockExpansionService();
       const provider = new MacroCodeActionsProvider(loader, expansion);
-      const doc = createMockTextDocument(
-        "@@@ !!! ??? ((( ))) {{{ }}}",
-        "test.ts"
-      );
+      const doc = createMockTextDocument("@@@ !!! ??? ((( ))) {{{ }}}", "test.ts");
 
       const range = new Range(0, 0, 0, 5);
       const context = { diagnostics: [], only: undefined, triggerKind: 1 };
 
       expect(() => {
-        provider.provideCodeActions(doc, range as any, context as any, createMockCancellationToken());
+        provider.provideCodeActions(
+          doc,
+          range as any,
+          context as any,
+          createMockCancellationToken()
+        );
       }).not.toThrow();
     });
 
@@ -218,7 +225,7 @@ describe("Error Scenarios", () => {
       const expansion = createMockExpansionService();
       const provider = new MacroCodeLensProvider(loader, expansion);
       const doc = createMockTextDocument(
-        '@derive(Eq)\n@derive(Ord)\n@derive(Clone)\nclass A {}',
+        "@derive(Eq)\n@derive(Ord)\n@derive(Clone)\nclass A {}",
         "test.ts"
       );
 
@@ -247,10 +254,12 @@ describe("Error Scenarios", () => {
 
     it("handles manifest with null macros", async () => {
       (workspace as any)._setFsReadFile(async () => {
-        return new TextEncoder().encode(JSON.stringify({
-          version: 1,
-          macros: null,
-        }));
+        return new TextEncoder().encode(
+          JSON.stringify({
+            version: 1,
+            macros: null,
+          })
+        );
       });
 
       const loader = new ManifestLoader();

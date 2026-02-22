@@ -15,19 +15,21 @@ import { Option, Some, None } from "@typesugar/fp";
 
 // Sequential: each binding can depend on previous bindings
 let: {
-  x << Some(10)
-  y << Some(x * 2)  // Uses x
+  x << Some(10);
+  y << Some(x * 2); // Uses x
 }
-yield: { x + y }
+yield: {
+  x + y;
+}
 // Result: Some(30)
 
 // Parallel: all bindings must be independent
 par: {
-  user   << fetchUser(id)
-  config << loadConfig()
-  posts  << fetchPosts()
+  user << fetchUser(id);
+  config << loadConfig();
+  posts << fetchPosts();
 }
-yield: ({ user, config, posts })
+yield: ({ user, config, posts });
 // All three run concurrently via Promise.all
 ```
 
@@ -39,20 +41,19 @@ The `<<` operator binds the result of a monadic expression:
 
 ```typescript
 let: {
-  a << Some(10)
-  b << Some(20)
-  c << Some(30)
+  a << Some(10);
+  b << Some(20);
+  c << Some(30);
 }
-yield: { a + b + c }
+yield: {
+  a + b + c;
+}
 ```
 
 This compiles to:
 
 ```typescript
-Some(10).flatMap(a =>
-  Some(20).flatMap(b =>
-    Some(30).map(c =>
-      a + b + c)))
+Some(10).flatMap((a) => Some(20).flatMap((b) => Some(30).map((c) => a + b + c)));
 ```
 
 ### Dependent Bindings
@@ -61,10 +62,10 @@ Later bindings can reference earlier bindings:
 
 ```typescript
 let: {
-  user  << fetchUser(id)
-  posts << fetchPosts(user.id)  // Uses user
+  user << fetchUser(id);
+  posts << fetchPosts(user.id); // Uses user
 }
-yield: ({ user, posts })
+yield: ({ user, posts });
 ```
 
 ### Guards with `if`
@@ -73,10 +74,13 @@ Filter values with `if` statements:
 
 ```typescript
 let: {
-  x << [1, 2, 3, 4, 5]
-  if (x % 2 === 0) {}  // Keep only even numbers
+  x << [1, 2, 3, 4, 5];
+  if (x % 2 === 0) {
+  } // Keep only even numbers
 }
-yield: { x }
+yield: {
+  x;
+}
 // Result: [2, 4]
 ```
 
@@ -84,8 +88,7 @@ Guards emit a ternary that short-circuits on false:
 
 ```typescript
 // Compiles to:
-[1, 2, 3, 4, 5].map(x =>
-  x % 2 === 0 ? x : undefined)
+[1, 2, 3, 4, 5].map((x) => (x % 2 === 0 ? x : undefined));
 ```
 
 ### Fallback with `||` and `??`
@@ -94,18 +97,25 @@ Provide a fallback value when the primary effect fails:
 
 ```typescript
 let: {
-  config << loadConfig() || defaultConfig()  // Fallback on error
-  value  << parseValue(config) ?? Some(0)    // Nullish coalescing fallback
+  config << loadConfig() || defaultConfig(); // Fallback on error
+  value << parseValue(config) ?? Some(0); // Nullish coalescing fallback
 }
-yield: { value }
+yield: {
+  value;
+}
 ```
 
 This wraps the expression with `.orElse()`:
 
 ```typescript
 // Compiles to:
-loadConfig().orElse(() => defaultConfig()).flatMap(config =>
-  parseValue(config).orElse(() => Some(0)).map(value => value))
+loadConfig()
+  .orElse(() => defaultConfig())
+  .flatMap((config) =>
+    parseValue(config)
+      .orElse(() => Some(0))
+      .map((value) => value)
+  );
 ```
 
 ### Discard Bindings with `_`
@@ -114,11 +124,13 @@ Execute an effect for side effects without using its result:
 
 ```typescript
 let: {
-  _ << log("Starting...")
-  x << computation()
-  _ << log("Done!")
+  _ << log("Starting...");
+  x << computation();
+  _ << log("Done!");
 }
-yield: { x }
+yield: {
+  x;
+}
 ```
 
 ### Pure Map with `=`
@@ -127,11 +139,13 @@ Compute a pure value without unwrapping an effect:
 
 ```typescript
 let: {
-  x << Some(10)
-  doubled = x * 2       // Pure computation, no flatMap
-  y << Some(doubled)
+  x << Some(10);
+  doubled = x * 2; // Pure computation, no flatMap
+  y << Some(doubled);
 }
-yield: { y }
+yield: {
+  y;
+}
 // Result: Some(20)
 ```
 
@@ -139,10 +153,7 @@ Pure map steps compile to IIFEs:
 
 ```typescript
 // Compiles to:
-Some(10).flatMap(x =>
-  ((doubled) =>
-    Some(doubled).map(y => y)
-  )(x * 2))
+Some(10).flatMap((x) => ((doubled) => Some(doubled).map((y) => y))(x * 2));
 ```
 
 ### Implicit Yield
@@ -151,8 +162,8 @@ Omit `yield:` to return the last binding directly:
 
 ```typescript
 let: {
-  a << Some(10)
-  b << Some(20)
+  a << Some(10);
+  b << Some(20);
 }
 // No yield: — returns Some(20)
 ```
@@ -163,10 +174,12 @@ Use parentheses for object literals (due to block syntax ambiguity):
 
 ```typescript
 // Correct:
-yield: ({ name, age })
+yield: ({ name, age });
 
 // Wrong (parses as label, not object):
-yield: { name, age }  // Error: comma expression, not object literal
+yield: {
+  (name, age);
+} // Error: comma expression, not object literal
 ```
 
 ## The `par:/yield:` Macro
@@ -183,18 +196,18 @@ For independent operations that can run in parallel.
 
 ```typescript
 par: {
-  name << validateName(input.name)
-  age  << validateAge(input.age)
+  name << validateName(input.name);
+  age << validateAge(input.age);
 }
-yield: ({ name, age })
+yield: ({ name, age });
 ```
 
 For non-Promise types, this compiles to:
 
 ```typescript
 validateName(input.name)
-  .map(name => age => ({ name, age }))
-  .ap(validateAge(input.age))
+  .map((name) => (age) => ({ name, age }))
+  .ap(validateAge(input.age));
 ```
 
 ### Promise.all for Parallel Execution
@@ -203,18 +216,21 @@ For Promises, `par:` emits `Promise.all`:
 
 ```typescript
 par: {
-  user   << fetchUser(id)
-  config << loadConfig()
-  posts  << fetchPosts()
+  user << fetchUser(id);
+  config << loadConfig();
+  posts << fetchPosts();
 }
-yield: ({ user, config, posts })
+yield: ({ user, config, posts });
 ```
 
 Compiles to:
 
 ```typescript
-Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
-  .then(([user, config, posts]) => ({ user, config, posts }))
+Promise.all([fetchUser(id), loadConfig(), fetchPosts()]).then(([user, config, posts]) => ({
+  user,
+  config,
+  posts,
+}));
 ```
 
 **Parallel execution visualized:**
@@ -233,11 +249,11 @@ Unlike monadic `let:` which stops at the first error, applicative `par:` collect
 ```typescript
 // Using a Validation type that accumulates errors
 par: {
-  name  << validateName("")       // Error: "name required"
-  email << validateEmail("bad")   // Error: "invalid email"
-  age   << validateAge(-5)        // Error: "age must be positive"
+  name << validateName(""); // Error: "name required"
+  email << validateEmail("bad"); // Error: "invalid email"
+  age << validateAge(-5); // Error: "age must be positive"
 }
-yield: ({ name, email, age })
+yield: ({ name, email, age });
 
 // Result: Failure(["name required", "invalid email", "age must be positive"])
 ```
@@ -253,8 +269,9 @@ The macro reports helpful errors:
 
 ```typescript
 par: {
-  x << getX()
-  if (x > 0) {}  // Error: par: blocks do not support guards. Use let: for sequential bindings.
+  x << getX();
+  if (x > 0) {
+  } // Error: par: blocks do not support guards. Use let: for sequential bindings.
 }
 ```
 
@@ -264,9 +281,9 @@ The macro catches dependencies at compile time:
 
 ```typescript
 par: {
-  user  << fetchUser(id)
-  posts << fetchPosts(user.id)  // Error: 'posts' references 'user' from a previous binding.
-}                                //        Use let: for sequential/dependent bindings.
+  user << fetchUser(id);
+  posts << fetchPosts(user.id); // Error: 'posts' references 'user' from a previous binding.
+} //        Use let: for sequential/dependent bindings.
 ```
 
 ## Supported Types
@@ -275,12 +292,12 @@ par: {
 
 Built-in `FlatMap` instances:
 
-| Type            | Method Used       |
-| --------------- | ----------------- |
-| `Array`         | `.flatMap()`      |
-| `Promise`       | `.then()`         |
-| `Iterable`      | `.flatMap()`      |
-| `AsyncIterable` | `.flatMap()`      |
+| Type            | Method Used  |
+| --------------- | ------------ |
+| `Array`         | `.flatMap()` |
+| `Promise`       | `.then()`    |
+| `Iterable`      | `.flatMap()` |
+| `AsyncIterable` | `.flatMap()` |
 
 ### par: (ParCombine typeclass)
 
@@ -290,7 +307,7 @@ Built-in `FlatMap` instances:
 | `AsyncIterable` | Collect each via async iteration, then `Promise.all` |
 | `Array`         | Cartesian product via `.reduce().map()`              |
 | `Iterable`      | Collect to arrays, then cartesian product            |
-| Other           | `.map().ap()` fallback (Option, Either, Validation)   |
+| Other           | `.map().ap()` fallback (Option, Either, Validation)  |
 
 ### AsyncIterable with par:
 
@@ -298,10 +315,10 @@ For `par:` blocks, AsyncIterables are collected concurrently and combined via `P
 
 ```typescript
 par: {
-  users  << streamUsers()
-  events << streamEvents()
+  users << streamUsers();
+  events << streamEvents();
 }
-yield: ({ users, events })
+yield: ({ users, events });
 
 // Compiles to: collect each async iterable, then:
 // Promise.all([...]).then(([users, events]) => ({ users, events }))
@@ -328,7 +345,7 @@ class Task<T> {
   }
 
   flatMap<U>(f: (t: T) => Task<U>): Task<U> {
-    return new Task(() => this.run().then(t => f(t).run()));
+    return new Task(() => this.run().then((t) => f(t).run()));
   }
 
   ap<U>(this: Task<(t: T) => U>, ta: Task<T>): Task<U> {
@@ -346,10 +363,12 @@ registerFlatMap("Task", {
 
 // Now works with do-notation
 let: {
-  x << new Task(() => Promise.resolve(10))
-  y << new Task(() => Promise.resolve(20))
+  x << new Task(() => Promise.resolve(10));
+  y << new Task(() => Promise.resolve(20));
 }
-yield: { x + y }
+yield: {
+  x + y;
+}
 ```
 
 #### Custom Method Names
@@ -359,15 +378,19 @@ Some types use different method names (e.g., `Promise` uses `then` instead of `f
 ```typescript
 import { registerFlatMap } from "@typesugar/std";
 
-registerFlatMap("MyMonad", {
-  map: (ma, f) => ma.transform(f),
-  flatMap: (ma, f) => ma.chain(f),
-}, {
-  methodNames: {
-    bind: "chain",  // Use .chain() instead of .flatMap()
-    map: "transform",  // Use .transform() instead of .map()
+registerFlatMap(
+  "MyMonad",
+  {
+    map: (ma, f) => ma.transform(f),
+    flatMap: (ma, f) => ma.chain(f),
+  },
+  {
+    methodNames: {
+      bind: "chain", // Use .chain() instead of .flatMap()
+      map: "transform", // Use .transform() instead of .map()
+    },
   }
-});
+);
 ```
 
 ### ParCombine (for par:)
@@ -384,10 +407,10 @@ registerParCombine("MyEffect", {
 
 // Now par: works with MyEffect
 par: {
-  a << myEffect1()
-  b << myEffect2()
+  a << myEffect1();
+  b << myEffect2();
 }
-yield: ({ a, b })
+yield: ({ a, b });
 ```
 
 #### Zero-Cost Builders
@@ -431,41 +454,38 @@ This unified approach means `FlatMap` and `ParCombine` instances are consistent 
 
 ```typescript
 // Without do-notation:
-fetchUser(id)
-  .then(user =>
-    fetchPosts(user.id)
-      .then(posts =>
-        fetchComments(posts[0].id)
-          .then(comments =>
-            ({ user, posts, comments }))))
+fetchUser(id).then((user) =>
+  fetchPosts(user.id).then((posts) =>
+    fetchComments(posts[0].id).then((comments) => ({ user, posts, comments }))
+  )
+);
 
 // With do-notation:
 let: {
-  user     << fetchUser(id)
-  posts    << fetchPosts(user.id)
-  comments << fetchComments(posts[0].id)
+  user << fetchUser(id);
+  posts << fetchPosts(user.id);
+  comments << fetchComments(posts[0].id);
 }
-yield: ({ user, posts, comments })
+yield: ({ user, posts, comments });
 ```
 
 ### Parallel Fetch
 
 ```typescript
 // Without do-notation:
-Promise.all([
-  fetchUser(id),
-  loadConfig(),
-  fetchPosts()
-]).then(([user, config, posts]) =>
-  ({ user, config, posts }))
+Promise.all([fetchUser(id), loadConfig(), fetchPosts()]).then(([user, config, posts]) => ({
+  user,
+  config,
+  posts,
+}));
 
 // With do-notation:
 par: {
-  user   << fetchUser(id)
-  config << loadConfig()
-  posts  << fetchPosts()
+  user << fetchUser(id);
+  config << loadConfig();
+  posts << fetchPosts();
 }
-yield: ({ user, config, posts })
+yield: ({ user, config, posts });
 ```
 
 ### Validation Accumulation
@@ -473,17 +493,17 @@ yield: ({ user, config, posts })
 ```typescript
 // Without do-notation (manual applicative):
 validateName(name)
-  .map(n => e => a => ({ name: n, email: e, age: a }))
+  .map((n) => (e) => (a) => ({ name: n, email: e, age: a }))
   .ap(validateEmail(email))
-  .ap(validateAge(age))
+  .ap(validateAge(age));
 
 // With do-notation:
 par: {
-  n << validateName(name)
-  e << validateEmail(email)
-  a << validateAge(age)
+  n << validateName(name);
+  e << validateEmail(email);
+  a << validateAge(age);
 }
-yield: ({ name: n, email: e, age: a })
+yield: ({ name: n, email: e, age: a });
 ```
 
 ## Best Practices
@@ -509,10 +529,10 @@ Types flow through comprehensions:
 
 ```typescript
 let: {
-  x << Some(42)        // x: number
-  y << Some("hello")   // y: string
+  x << Some(42); // x: number
+  y << Some("hello"); // y: string
 }
-yield: ({ x, y })      // { x: number; y: string }
+yield: ({ x, y }); // { x: number; y: string }
 // Result: Option<{ x: number; y: string }>
 ```
 

@@ -123,9 +123,7 @@ interface Point { x: number; y: number; }
     expect(result.code).toContain("eq:");
     expect(result.changed).toBe(true);
 
-    const entry = instanceRegistry.find(
-      (e) => e.typeclassName === "Eq" && e.forType === "Point"
-    );
+    const entry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Point");
     expect(entry).toBeDefined();
     expect(entry?.derived).toBe(true);
   });
@@ -180,9 +178,7 @@ interface Pair { a: number; b: number; }
     expect(result.code).toContain("eqPair");
     expect(result.code).toContain("showPair");
 
-    const eqEntry = instanceRegistry.find(
-      (e) => e.typeclassName === "Eq" && e.forType === "Pair"
-    );
+    const eqEntry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Pair");
     const showEntry = instanceRegistry.find(
       (e) => e.typeclassName === "Show" && e.forType === "Pair"
     );
@@ -501,8 +497,8 @@ interface Foo { x: number; }
 
     const result = transformCode(code, { fileName: "derive-unknown.ts" });
 
-    const errorDiag = result.diagnostics.find((d) =>
-      d.message.includes("Unknown derive") && d.message.includes("NonExistent")
+    const errorDiag = result.diagnostics.find(
+      (d) => d.message.includes("Unknown derive") && d.message.includes("NonExistent")
     );
     expect(errorDiag).toBeDefined();
   });
@@ -690,9 +686,10 @@ interface Oops { v: number; }
 
     const result = transformCode(code, { fileName: "derive-broken.ts" });
 
-    const errorDiag = result.diagnostics.find((d) =>
-      d.message.includes("Derive macro expansion failed") &&
-      d.message.includes("intentional failure")
+    const errorDiag = result.diagnostics.find(
+      (d) =>
+        d.message.includes("Derive macro expansion failed") &&
+        d.message.includes("intentional failure")
     );
     expect(errorDiag).toBeDefined();
   });

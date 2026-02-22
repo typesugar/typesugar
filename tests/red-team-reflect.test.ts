@@ -312,13 +312,7 @@ describe("Reflect Field Names Edge Cases", () => {
   // ==========================================================================
   describe("Special property names", () => {
     it("Kebab-case property names are captured", () => {
-      const fieldNames: string[] = [
-        "kebab-case",
-        "with spaces",
-        "123",
-        "constructor",
-        "prototype",
-      ];
+      const fieldNames: string[] = ["kebab-case", "with spaces", "123", "constructor", "prototype"];
 
       expect(fieldNames).toContain("kebab-case");
       expect(fieldNames).toContain("with spaces");

@@ -468,9 +468,18 @@ export function getOrd<A>(O: Ord<A>): Ord<Option<A>> {
     eqv: getEq(O).eqv,
     compare,
     lessThan: ((x, y) => compare(x, y) === -1) as (x: Option<A>, y: Option<A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (x: Option<A>, y: Option<A>) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (x: Option<A>, y: Option<A>) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (x: Option<A>, y: Option<A>) => boolean & Op<">=">,
+    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
+      x: Option<A>,
+      y: Option<A>
+    ) => boolean & Op<"<=">,
+    greaterThan: ((x, y) => compare(x, y) === 1) as (
+      x: Option<A>,
+      y: Option<A>
+    ) => boolean & Op<">">,
+    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
+      x: Option<A>,
+      y: Option<A>
+    ) => boolean & Op<">=">,
   };
 }
 

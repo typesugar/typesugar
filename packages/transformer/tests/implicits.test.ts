@@ -54,9 +54,7 @@ function setupOrdTypeclass() {
   registerTypeclassDef({
     name: "Ord",
     typeParams: ["T"],
-    methods: [
-      { name: "compare", params: ["a", "b"], returnType: "number" },
-    ],
+    methods: [{ name: "compare", params: ["a", "b"], returnType: "number" }],
     syntax: new Map(),
   });
 }
@@ -65,9 +63,7 @@ function setupShowTypeclass() {
   registerTypeclassDef({
     name: "Show",
     typeParams: ["T"],
-    methods: [
-      { name: "show", params: ["a"], returnType: "string" },
-    ],
+    methods: [{ name: "show", params: ["a"], returnType: "string" }],
     syntax: new Map(),
   });
 }

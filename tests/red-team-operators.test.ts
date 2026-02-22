@@ -34,18 +34,12 @@ describe("Operators Edge Cases", () => {
   // ==========================================================================
   describe("pipe() with special values", () => {
     it("handles null as initial value", () => {
-      const result = pipe(
-        null,
-        (x) => x ?? "default"
-      );
+      const result = pipe(null, (x) => x ?? "default");
       expect(result).toBe("default");
     });
 
     it("handles undefined as initial value", () => {
-      const result = pipe(
-        undefined,
-        (x) => x ?? "fallback"
-      );
+      const result = pipe(undefined, (x) => x ?? "fallback");
       expect(result).toBe("fallback");
     });
 
@@ -68,10 +62,7 @@ describe("Operators Edge Cases", () => {
     });
 
     it("handles -0 vs +0", () => {
-      const result = pipe(
-        -0,
-        (x: number) => 1 / x
-      );
+      const result = pipe(-0, (x: number) => 1 / x);
       expect(result).toBe(-Infinity);
     });
 
@@ -344,10 +335,7 @@ describe("Operators Edge Cases", () => {
     it("flow() with async functions creates async composed function", async () => {
       const asyncDouble = async (x: number) => x * 2;
 
-      const composed = flow(
-        asyncDouble,
-        async (p) => (await p) + 10
-      );
+      const composed = flow(asyncDouble, async (p) => (await p) + 10);
 
       const result = await composed(5);
       expect(result).toBe(20);
@@ -356,10 +344,7 @@ describe("Operators Edge Cases", () => {
     it("compose() with async functions", async () => {
       const asyncIncrement = async (x: number) => x + 1;
 
-      const composed = compose(
-        async (p: Promise<number>) => (await p) * 2,
-        asyncIncrement
-      );
+      const composed = compose(async (p: Promise<number>) => (await p) * 2, asyncIncrement);
 
       const result = await composed(5);
       expect(result).toBe(12); // (5 + 1) * 2

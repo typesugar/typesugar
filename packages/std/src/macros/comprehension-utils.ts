@@ -96,7 +96,10 @@ function looksLikeIntendedObjectLiteral(expr: ts.Expression): boolean {
   const parts: ts.Expression[] = [];
   let current: ts.Expression = expr;
 
-  while (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+  while (
+    ts.isBinaryExpression(current) &&
+    current.operatorToken.kind === ts.SyntaxKind.CommaToken
+  ) {
     parts.push(current.right);
     current = current.left;
   }
@@ -278,13 +281,7 @@ export function createArrowFn(
   return factory.createArrowFunction(
     undefined,
     undefined,
-    [
-      factory.createParameterDeclaration(
-        undefined,
-        undefined,
-        factory.createIdentifier(paramName)
-      ),
-    ],
+    [factory.createParameterDeclaration(undefined, undefined, factory.createIdentifier(paramName))],
     undefined,
     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     body

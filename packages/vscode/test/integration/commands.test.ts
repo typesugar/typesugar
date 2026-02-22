@@ -63,10 +63,7 @@ suite("Command Execution", () => {
     const editor = await vscode.window.showTextDocument(doc);
 
     // Move cursor to the beginning (near a macro)
-    editor.selection = new vscode.Selection(
-      new vscode.Position(0, 0),
-      new vscode.Position(0, 0)
-    );
+    editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, 0));
 
     await assert.doesNotReject(
       vscode.commands.executeCommand("typesugar.expandMacro"),

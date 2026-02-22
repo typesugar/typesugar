@@ -250,15 +250,17 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/prettier-plugin
-**Usefulness**: 5/5 - Essential infrastructure for any project using typesugar custom syntax with Prettier; without it, Prettier crashes on |>, ::, F<_>.
+
+**Usefulness**: 5/5 - Essential infrastructure for any project using typesugar custom syntax with Prettier; without it, Prettier crashes on |>, ::, F<\_>.
 **Completeness**: 4/5 - Core functionality complete (plugin, round-trip format, CLI, programmatic API), but test coverage thin (~50 lines).
 **Documentation**: 5/5 - Excellent README with clear explanation, CLI examples, API reference, integration guide; JSDoc on every export.
-**Coherence**: 4/5 - Well-integrated with typesugar architecture, uses preprocessor, handles __binop__.
+**Coherence**: 4/5 - Well-integrated with typesugar architecture, uses preprocessor, handles **binop**.
 **Summary**: Essential, well-documented tooling package enabling Prettier on typesugar files. Needs more edge case testing.
 
 ---
 
 ## @typesugar/react
+
 **Usefulness**: 5/5 - Addresses real pain points: automatic dependency arrays, embedded component hoisting, compile-time purity checks.
 **Completeness**: 4/5 - Thorough implementation with full macros. However, fine-grained mode is stubbed, stale module name typemacro/react.
 **Documentation**: 4/5 - Well-structured README with transformation examples. Missing dedicated guide in docs/guides/.
@@ -268,6 +270,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/reflect
+
 **Usefulness**: 4/5 - Valuable for form generation, API validation, serialization, ORM mapping. Unique compile-time reflection in TS ecosystem.
 **Completeness**: 3/5 - Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection.
 **Documentation**: 4/5 - Clear README with examples. Good showcase. One example file has API bug.
@@ -277,6 +280,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/specialize
+
 **Usefulness**: 3/5 - Valuable for FP codebases but niche. Most projects won't need explicit specialization when @implicits handles it automatically.
 **Completeness**: 2/5 - Package is simplified stub. Real inlining logic in src/macros/specialize.ts (2700+ lines). This creates wrapper functions, not true zero-cost.
 **Documentation**: 4/5 - README well-structured with examples, before/after, performance table. Missing relationship to src/macros/specialize.ts.
@@ -286,6 +290,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/sql
+
 **Usefulness**: 3/5 - SQL query building is common, but mature alternatives exist (Kysely, Drizzle, Prisma). Doobie-style appeals mainly to Scala developers.
 **Completeness**: 2/5 - Core Fragment system solid, but advertised features incomplete: sql$ macro doesn't exist, @deriving(Read/Write) not working, ConnectionIO.flatMap has bug.
 **Documentation**: 3/5 - README has good basic examples, JSDoc extensive, but promises features not implemented. Showcase has incorrect assertions.
@@ -295,6 +300,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/std
+
 **Usefulness**: 5/5 - Extremely practical stdlib with 300+ extension methods (clamp, chunk, groupBy, camelCase), pattern matching macro, do-notation.
 **Completeness**: 4/5 - Core functionality production-ready. Some advanced typeclasses are interfaces only. Tests exist but no red-team coverage.
 **Documentation**: 4/5 - Good README with examples and API tables. Excellent showcase. Missing dedicated guide, inconsistent JSDoc on some exports.
@@ -304,6 +310,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/strings
+
 **Usefulness**: 2/5 - Limited real-world demand. regex marginally useful, html XSS redundant in frameworks, json duplicates object literals, fmt incomplete.
 **Completeness**: 2/5 - fmt macro explicitly incomplete, zero tests in package, uses stale project name (typemacro prefix).
 **Documentation**: 3/5 - README covers all macros with examples, guide exists. Missing JSDoc comments.
@@ -313,6 +320,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/symbolic
+
 **Usefulness**: 4/5 - Valuable for CAS, education, physics, LaTeX generation. Niche audience but well-executed.
 **Completeness**: 4/5 - Comprehensive AST, differentiation, basic integration, 3 rendering formats, pattern matching, equation solving.
 **Documentation**: 5/5 - Excellent README with full API coverage, comprehensive showcase with type assertions, thorough JSDoc.
@@ -322,6 +330,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/testing
+
 **Usefulness**: 4/5 - Power assertions with sub-expression capture, compile-time assertions, type-level assertions, property-based testing, parameterized tests.
 **Completeness**: 4/5 - All core features implemented. Missing advanced PBT features (shrinking, generator combinators, refined type integration).
 **Documentation**: 5/5 - Excellent README showing actual failure output, comprehensive API reference, Vitest integration guide. JSDoc on all public APIs.
@@ -331,6 +340,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/transformer
+
 **Usefulness**: 5/5 - Core build infrastructure. Every typesugar user depends on this. Provides engine for all macro expansion, preprocessing, IDE integration.
 **Completeness**: 4/5 - Very comprehensive: full ts-patch transformer (~1500 lines), TransformationPipeline with source map composition, language service plugin, caching, rich CLI.
 **Documentation**: 3/5 - README covers installation, configuration, CLI commands. Missing deeper architectural explanation, troubleshooting, visual examples.
@@ -340,6 +350,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/ts-plugin
+
 **Usefulness**: 5/5 - Essential infrastructure. Without this, custom syntax would show red squiggles in IDEs.
 **Completeness**: 3/5 - Intentionally thin wrapper (23 lines) delegating to transformer/language-service. Good architecture. Missing tests.
 **Documentation**: 4/5 - Strong README with installation, config options, debugging guide, architecture explanation.
@@ -349,6 +360,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/type-system
+
 **Usefulness**: 4/5 - High utility for type-safe TS. Refinement types (Port, Byte, Email), newtypes, HKT encoding, Vec solve real problems.
 **Completeness**: 3/5 - Good API coverage but showcase.ts has API mismatches with implementation. No dedicated test suite.
 **Documentation**: 4/5 - Excellent README with feature organization, branding spectrum table. Some examples don't compile due to API drift.
@@ -358,6 +370,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/typeclass
+
 **Usefulness**: 4/5 - Typeclasses are powerful, widely-applicable abstraction pattern for generic programming. Excellent for Scala-style ad-hoc polymorphism.
 **Completeness**: 2/5 - Package is simplified skeleton with gaps. Only 4 hardcoded derivations using naive JSON.stringify. Missing sum type support, transitive derivation, Op<> integration. No tests.
 **Documentation**: 3/5 - README has decent structure but doesn't reflect implementation limitations. Claims features that only work via src/macros/typeclass.ts.
@@ -367,6 +380,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## typesugar (umbrella)
+
 **Usefulness**: 5/5 - Essential entry point for ecosystem. "One import to rule them all" - every user needs this for macros, bundler plugins, CLI.
 **Completeness**: 4/5 - Comprehensive re-exports from all major packages with bundler entry points and CLI. No dedicated test suite (only showcase.ts).
 **Documentation**: 4/5 - Well-structured README with installation, quick start, features table, bundler configs. Showcase (265 lines) excellent.
@@ -376,6 +390,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/units
+
 **Usefulness**: 3/5 - Real use case for scientific/engineering domains, but niche for general TypeScript.
 **Completeness**: 2/5 - Core dimension tracking works. README documents .to() method that doesn't exist. Temperature handling incorrect. Many missing features per TODO.md.
 **Documentation**: 3/5 - Well-structured README. Documents non-existent features. Missing required sections per module-lifecycle.
@@ -385,6 +400,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## unplugin-typesugar
+
 **Usefulness**: 5/5 - Essential for any real project; provides plugins for all major bundlers (Vite, Webpack, esbuild, Rollup).
 **Completeness**: 4/5 - Covers all major bundlers with include/exclude, verbose mode, syntax extensions, cache invalidation, source maps. Minor example file shows non-existent options.
 **Documentation**: 4/5 - Clear examples for all 4 bundlers, explains lifecycle, documents type-checker limitation. Minor README/implementation drift.
@@ -394,6 +410,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/validate
+
 **Usefulness**: 3/5 - Solves real need for type-safe validation, but competes with mature alternatives (Zod, Valibot) without significant differentiation.
 **Completeness**: 2/5 - MVP implementation only. README shows Schema DSL that doesn't exist. Missing recursive arrays, discriminated unions, literals, tuples. Console.logs in production code.
 **Documentation**: 2/5 - README actively misleading - shows Schema DSL API not implemented. Missing required sections per module-lifecycle.
@@ -403,6 +420,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 ## @typesugar/vscode
+
 **Usefulness**: 4/5 - Essential DX for typesugar projects; provides semantic highlighting, CodeLens, inlay hints, code actions, diagnostics.
 **Completeness**: 4/5 - Comprehensive feature set: 7 semantic token types, manifest-driven macro detection, TS language service plugin. Missing test coverage.
 **Documentation**: 4/5 - Excellent README with architecture diagram, settings table, manifest format docs. Source files have file-level JSDoc.
@@ -417,17 +435,18 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## Score Distribution
 
-| Score | Count | Packages |
-|-------|-------|----------|
+| Score | Count | Packages                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 5/5   | 2     | eslint-plugin (usefulness), transformer (usefulness), ts-plugin (usefulness), unplugin (usefulness), std (usefulness), umbrella (usefulness), prettier-plugin (usefulness, docs), react (usefulness), effect (usefulness), testing (docs), erased (docs), symbolic (docs), math (docs), comptime (docs, coherence), core (completeness, coherence), transformer (coherence), unplugin (coherence), vscode (coherence) |
-| 4/5   | Many  | (see individual evaluations) |
-| 3/5   | Many  | (see individual evaluations) |
-| 2/5   | Many  | (see individual evaluations) |
-| 1/5   | 2     | macros (completeness, docs), named-args (coherence) |
+| 4/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
+| 3/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
+| 1/5   | 2     | macros (completeness, docs), named-args (coherence)                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## Key Patterns Identified
 
 ### Strong Packages (avg >= 4.0)
+
 - **@typesugar/core** — Exemplary infrastructure, well-documented, high coherence
 - **@typesugar/comptime** — Perfect zero-cost implementation, excellent docs
 - **@typesugar/transformer** — Essential, comprehensive, production-ready
@@ -441,6 +460,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 - **@typesugar/vscode** — Well-architected extension with manifest-driven design
 
 ### Packages Needing Work (avg <= 2.5)
+
 - **@typesugar/macros** — Non-functional, missing package.json, duplicates src/macros/
 - **@typesugar/named-args** — Not zero-cost, contradicts philosophy
 - **@typesugar/typeclass** — Stub duplicating canonical implementation
@@ -478,4 +498,4 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-*Generated: 2026-02-22*
+_Generated: 2026-02-22_

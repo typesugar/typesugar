@@ -8,11 +8,7 @@
  * - Bundler-specific export correctness
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  unplugin,
-  unpluginFactory,
-  type TypesugarPluginOptions,
-} from "unplugin-typesugar";
+import { unplugin, unpluginFactory, type TypesugarPluginOptions } from "unplugin-typesugar";
 
 // ==========================================================================
 // Attack 1: File Filtering Edge Cases

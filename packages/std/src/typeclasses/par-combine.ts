@@ -157,7 +157,11 @@ function registerBuiltin(
 
 // Register built-in instances with their zero-cost builders (local registry for backward compat)
 registerBuiltin("Promise", parCombinePromise as ParCombine<unknown>, buildPromiseAll);
-registerBuiltin("AsyncIterable", parCombineAsyncIterable as ParCombine<unknown>, buildAsyncIterableAll);
+registerBuiltin(
+  "AsyncIterable",
+  parCombineAsyncIterable as ParCombine<unknown>,
+  buildAsyncIterableAll
+);
 registerBuiltin("Array", parCombineArray as ParCombine<unknown>, buildArrayParCombine);
 registerBuiltin("Iterable", parCombineIterable as ParCombine<unknown>, buildIterableParCombine);
 
@@ -357,7 +361,10 @@ function buildAsyncIterableAll(
     const returnStmt = factory.createReturnStatement(factory.createIdentifier("__r"));
     const block = factory.createBlock(
       [
-        factory.createVariableStatement(undefined, factory.createVariableDeclarationList([resultVar], ts.NodeFlags.Const)),
+        factory.createVariableStatement(
+          undefined,
+          factory.createVariableDeclarationList([resultVar], ts.NodeFlags.Const)
+        ),
         forOfStmt,
         returnStmt,
       ],
@@ -474,7 +481,13 @@ function buildArrayParCombine(
         factory.createArrowFunction(
           undefined,
           undefined,
-          [factory.createParameterDeclaration(undefined, undefined, factory.createIdentifier("combo"))],
+          [
+            factory.createParameterDeclaration(
+              undefined,
+              undefined,
+              factory.createIdentifier("combo")
+            ),
+          ],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createCallExpression(
@@ -487,7 +500,13 @@ function buildArrayParCombine(
               factory.createArrowFunction(
                 undefined,
                 undefined,
-                [factory.createParameterDeclaration(undefined, undefined, factory.createIdentifier("item"))],
+                [
+                  factory.createParameterDeclaration(
+                    undefined,
+                    undefined,
+                    factory.createIdentifier("item")
+                  ),
+                ],
                 undefined,
                 factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                 spreadComboAndItem
@@ -502,7 +521,10 @@ function buildArrayParCombine(
   const reduceCall = factory.createCallExpression(
     factory.createPropertyAccessExpression(effectsArray, factory.createIdentifier("reduce")),
     undefined,
-    [reduceCallback, factory.createArrayLiteralExpression([factory.createArrayLiteralExpression([])])]
+    [
+      reduceCallback,
+      factory.createArrayLiteralExpression([factory.createArrayLiteralExpression([])]),
+    ]
   );
 
   // .map(([a, b, c]) => yieldExpr)
@@ -616,7 +638,13 @@ function buildIterableParCombine(
         factory.createArrowFunction(
           undefined,
           undefined,
-          [factory.createParameterDeclaration(undefined, undefined, factory.createIdentifier("combo"))],
+          [
+            factory.createParameterDeclaration(
+              undefined,
+              undefined,
+              factory.createIdentifier("combo")
+            ),
+          ],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createCallExpression(
@@ -629,7 +657,13 @@ function buildIterableParCombine(
               factory.createArrowFunction(
                 undefined,
                 undefined,
-                [factory.createParameterDeclaration(undefined, undefined, factory.createIdentifier("item"))],
+                [
+                  factory.createParameterDeclaration(
+                    undefined,
+                    undefined,
+                    factory.createIdentifier("item")
+                  ),
+                ],
                 undefined,
                 factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                 spreadComboAndItem
@@ -644,7 +678,10 @@ function buildIterableParCombine(
   const reduceCall = factory.createCallExpression(
     factory.createPropertyAccessExpression(arraysExpr, factory.createIdentifier("reduce")),
     undefined,
-    [reduceCallback, factory.createArrayLiteralExpression([factory.createArrayLiteralExpression([])])]
+    [
+      reduceCallback,
+      factory.createArrayLiteralExpression([factory.createArrayLiteralExpression([])]),
+    ]
   );
 
   const destructuredParam = factory.createParameterDeclaration(
@@ -715,11 +752,9 @@ function createGenericParCombineBuilder(name: string): ParCombineBuilder {
       undefined,
       undefined,
       factory.createNonNullExpression(
-        factory.createCallExpression(
-          factory.createIdentifier("getParCombine"),
-          undefined,
-          [nameLiteral]
-        )
+        factory.createCallExpression(factory.createIdentifier("getParCombine"), undefined, [
+          nameLiteral,
+        ])
       )
     );
     const allCall = factory.createCallExpression(
@@ -741,7 +776,10 @@ function createGenericParCombineBuilder(name: string): ParCombineBuilder {
     const returnStmt = factory.createReturnStatement(mapCall);
     const block = factory.createBlock(
       [
-        factory.createVariableStatement(undefined, factory.createVariableDeclarationList([pcDecl], ts.NodeFlags.Const)),
+        factory.createVariableStatement(
+          undefined,
+          factory.createVariableDeclarationList([pcDecl], ts.NodeFlags.Const)
+        ),
         returnStmt,
       ],
       true

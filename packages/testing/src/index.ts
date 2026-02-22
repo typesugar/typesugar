@@ -438,8 +438,4 @@ export {
 } from "./macro.js";
 
 // Test utilities for macro development
-export {
-  createMacroTestContext,
-  parseSource,
-  type TestMacroContext,
-} from "./macro-context.js";
+export { createMacroTestContext, parseSource, type TestMacroContext } from "./macro-context.js";

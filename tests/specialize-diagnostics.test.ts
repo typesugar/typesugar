@@ -8,11 +8,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
-import {
-  classifyInlineFailure,
-  getInlineFailureHelp,
-  specializeMacro,
-} from "@typesugar/macros";
+import { classifyInlineFailure, getInlineFailureHelp, specializeMacro } from "@typesugar/macros";
 
 describe("classifyInlineFailure", () => {
   function parseBlock(code: string): ts.Block {

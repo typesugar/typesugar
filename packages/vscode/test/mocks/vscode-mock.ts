@@ -9,12 +9,12 @@
 // --- Core Types ---
 
 export class Position {
-  constructor(public readonly line: number, public readonly character: number) {}
+  constructor(
+    public readonly line: number,
+    public readonly character: number
+  ) {}
   translate(lineDelta?: number, characterDelta?: number): Position {
-    return new Position(
-      this.line + (lineDelta ?? 0),
-      this.character + (characterDelta ?? 0)
-    );
+    return new Position(this.line + (lineDelta ?? 0), this.character + (characterDelta ?? 0));
   }
   isEqual(other: Position): boolean {
     return this.line === other.line && this.character === other.character;
@@ -45,10 +45,7 @@ export class Range {
   }
   contains(positionOrRange: Position | Range): boolean {
     if (positionOrRange instanceof Position) {
-      return (
-        positionOrRange.line >= this.start.line &&
-        positionOrRange.line <= this.end.line
-      );
+      return positionOrRange.line >= this.start.line && positionOrRange.line <= this.end.line;
     }
     return this.contains(positionOrRange.start) && this.contains(positionOrRange.end);
   }
@@ -138,7 +135,10 @@ export class Disposable {
 // --- Cancellation ---
 
 export class CancellationTokenSource {
-  token: CancellationToken = { isCancellationRequested: false, onCancellationRequested: () => new Disposable(() => {}) };
+  token: CancellationToken = {
+    isCancellationRequested: false,
+    onCancellationRequested: () => new Disposable(() => {}),
+  };
   cancel(): void {
     (this.token as any).isCancellationRequested = true;
   }
@@ -171,7 +171,13 @@ export class SemanticTokensBuilder {
   constructor(private readonly legend?: SemanticTokensLegend) {}
 
   push(range: Range, tokenType: string, tokenModifiers?: string[]): void;
-  push(line: number, char: number, length: number, tokenType: number, tokenModifiers?: number): void;
+  push(
+    line: number,
+    char: number,
+    length: number,
+    tokenType: number,
+    tokenModifiers?: number
+  ): void;
   push(
     rangeOrLine: Range | number,
     tokenTypeOrChar: string | number,
@@ -180,9 +186,7 @@ export class SemanticTokensBuilder {
     tokenModifiers?: number
   ): void {
     if (rangeOrLine instanceof Range) {
-      const typeIndex = this.legend
-        ? this.legend.tokenTypes.indexOf(tokenTypeOrChar as string)
-        : 0;
+      const typeIndex = this.legend ? this.legend.tokenTypes.indexOf(tokenTypeOrChar as string) : 0;
       let modBits = 0;
       if (Array.isArray(tokenModifiersOrLength) && this.legend) {
         for (const mod of tokenModifiersOrLength) {
@@ -520,7 +524,9 @@ class MockOutputChannel {
 
   show(): void {}
   hide(): void {}
-  clear(): void { this._lines = []; }
+  clear(): void {
+    this._lines = [];
+  }
   dispose(): void {}
 
   /** Test helper: get all output */
@@ -585,7 +591,7 @@ let _workspaceFolders: Array<{ uri: Uri; name: string; index: number }> | undefi
 
 export const workspace = {
   getConfiguration(section?: string): MockConfiguration {
-    return new MockConfiguration(section ? _configData[section] ?? {} : {});
+    return new MockConfiguration(section ? (_configData[section] ?? {}) : {});
   },
 
   createFileSystemWatcher(_pattern: any): MockFileSystemWatcher {
@@ -668,11 +674,7 @@ export const workspace = {
 };
 
 export const languages = {
-  registerDocumentSemanticTokensProvider(
-    _selector: any,
-    _provider: any,
-    _legend: any
-  ): Disposable {
+  registerDocumentSemanticTokensProvider(_selector: any, _provider: any, _legend: any): Disposable {
     return new Disposable(() => {});
   },
 
@@ -779,12 +781,12 @@ export function createMockTextDocument(
     lineCount: lines.length,
     getText(range?: Range): string {
       if (!range) return content;
-      const startOffset = lines
-        .slice(0, range.start.line)
-        .reduce((acc, l) => acc + l.length + 1, 0) + range.start.character;
-      const endOffset = lines
-        .slice(0, range.end.line)
-        .reduce((acc, l) => acc + l.length + 1, 0) + range.end.character;
+      const startOffset =
+        lines.slice(0, range.start.line).reduce((acc, l) => acc + l.length + 1, 0) +
+        range.start.character;
+      const endOffset =
+        lines.slice(0, range.end.line).reduce((acc, l) => acc + l.length + 1, 0) +
+        range.end.character;
       return content.slice(startOffset, endOffset);
     },
     positionAt(offset: number): Position {

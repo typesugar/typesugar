@@ -77,7 +77,7 @@ typeclassRegistry;
 instanceRegistry;
 instanceMethodRegistry;
 
-// Derive Infrastructure  
+// Derive Infrastructure
 defineCustomDerive;
 defineFieldDerive;
 extractTypeInfo;

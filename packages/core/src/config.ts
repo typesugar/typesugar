@@ -216,7 +216,10 @@ function loadConfigFromFiles(): TypesugarConfig {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { cosmiconfigSync } = require("cosmiconfig") as {
-      cosmiconfigSync: (name: string, options: { searchPlaces: string[] }) => {
+      cosmiconfigSync: (
+        name: string,
+        options: { searchPlaces: string[] }
+      ) => {
         search: () => { filepath?: string; config?: TypesugarConfig; isEmpty?: boolean } | null;
       };
     };

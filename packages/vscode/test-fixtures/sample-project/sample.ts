@@ -5,13 +5,18 @@ const pi = comptime(() => Math.PI);
 // Decorator macros
 @derive(Eq, Ord, Clone)
 class Point {
-  constructor(public x: number, public y: number) {}
+  constructor(
+    public x: number,
+    public y: number
+  ) {}
 }
 
 @derive(Debug, Hash)
-interface Config {
-  host: string;
-  port: number;
+class Config {
+  constructor(
+    public host: string,
+    public port: number
+  ) {}
 }
 
 // Tagged template macros
