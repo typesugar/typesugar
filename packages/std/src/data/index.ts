@@ -1,5 +1,5 @@
-export { TupleExt } from "./tuple";
-export { RangeExt } from "./range";
+export { TupleExt, eqPair, ordPair, eqTriple, ordTriple } from "./tuple";
+export { RangeExt, eqRange, ordRange } from "./range";
 
 export * from "./tuple";
 export * from "./range";

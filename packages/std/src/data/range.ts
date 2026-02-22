@@ -122,6 +122,62 @@ export function rangeIsEmpty(r: Range): boolean {
 }
 
 // ============================================================================
+// Typeclass Instances
+// ============================================================================
+
+import type { Op } from "@typesugar/core";
+import type { Eq, Ord, Ordering } from "../typeclasses/index.js";
+import { EQ_ORD, LT, GT } from "../typeclasses/index.js";
+
+/**
+ * Eq instance for Range.
+ * Two ranges are equal if they have the same start, end, step, and inclusive flag.
+ */
+export const eqRange: Eq<Range> = {
+  equals: ((a, b) =>
+    a.start === b.start &&
+    a.end === b.end &&
+    a.step === b.step &&
+    a.inclusive === b.inclusive) as (a: Range, b: Range) => boolean & Op<"===">,
+  notEquals: ((a, b) =>
+    a.start !== b.start ||
+    a.end !== b.end ||
+    a.step !== b.step ||
+    a.inclusive !== b.inclusive) as (a: Range, b: Range) => boolean & Op<"!==">,
+};
+
+/**
+ * Ord instance for Range.
+ * Compares lexicographically by: start, end, step, inclusive.
+ */
+export const ordRange: Ord<Range> = (() => {
+  const compare = (a: Range, b: Range): Ordering => {
+    if (a.start < b.start) return LT;
+    if (a.start > b.start) return GT;
+    if (a.end < b.end) return LT;
+    if (a.end > b.end) return GT;
+    if (a.step < b.step) return LT;
+    if (a.step > b.step) return GT;
+    if (a.inclusive && !b.inclusive) return GT;
+    if (!a.inclusive && b.inclusive) return LT;
+    return EQ_ORD;
+  };
+
+  return {
+    equals: eqRange.equals,
+    notEquals: eqRange.notEquals,
+    compare,
+    lessThan: ((a, b) => compare(a, b) === LT) as (a: Range, b: Range) => boolean & Op<"<">,
+    lessThanOrEqual: ((a, b) => compare(a, b) !== GT) as (a: Range, b: Range) => boolean & Op<"<=">,
+    greaterThan: ((a, b) => compare(a, b) === GT) as (a: Range, b: Range) => boolean & Op<">">,
+    greaterThanOrEqual: ((a, b) => compare(a, b) !== LT) as (
+      a: Range,
+      b: Range
+    ) => boolean & Op<">=">,
+  };
+})();
+
+// ============================================================================
 // Aggregate
 // ============================================================================
 
