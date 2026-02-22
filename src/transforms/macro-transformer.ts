@@ -5,9 +5,11 @@
  */
 
 import * as ts from "typescript";
-import { MacroContextImpl, createMacroContext, markPure } from "../core/context.js";
-import { globalRegistry } from "../core/registry.js";
 import {
+  MacroContextImpl,
+  createMacroContext,
+  markPure,
+  globalRegistry,
   ExpressionMacro,
   AttributeMacro,
   DeriveMacro,
@@ -16,20 +18,18 @@ import {
   DeriveFieldInfo,
   DeriveVariantInfo,
   LabeledBlockMacro,
-} from "../core/types.js";
-import { HygieneContext } from "../core/hygiene.js";
-import { ExpansionTracker, globalExpansionTracker, preserveSourceMap } from "../core/source-map.js";
-import {
+  HygieneContext,
+  ExpansionTracker,
+  globalExpansionTracker,
+  preserveSourceMap,
   MacroCapabilities,
   resolveCapabilities,
   createRestrictedContext,
-} from "../core/capabilities.js";
-import { MacroExpansionCache } from "../core/cache.js";
-import {
+  MacroExpansionCache,
   formatResolutionTrace,
   type ResolutionAttempt,
   type ResolutionTrace,
-} from "../core/resolution-trace.js";
+} from "@typesugar/core";
 
 // Import from @typesugar/macros for macro functionality
 // This also registers all built-in macros with the global registry
@@ -181,7 +181,7 @@ export default function macroTransformerFactory(
         console.log(`[typemacro] Processing: ${sourceFile.fileName}`);
       }
 
-      const ctx = createMacroContext(program, sourceFile, context, hygiene, expansionCache);
+      const ctx = createMacroContext(program, sourceFile, context, hygiene);
       const transformer = new MacroTransformer(ctx, verbose, expansionTracker, expansionCache);
 
       const result = ts.visitNode(sourceFile, transformer.visit.bind(transformer));
@@ -741,9 +741,8 @@ class MacroTransformer {
       if (normalized.includes("/testing/")) return "typemacro/testing";
     }
     if (
-      normalized.includes("/src/index.") ||
+      normalized.includes("/src/index") ||
       normalized.includes("/src/macros/") ||
-      normalized.includes("/src/core/") ||
       normalized.includes("/dist/")
     ) {
       return "typemacro";
@@ -1854,7 +1853,10 @@ class MacroTransformer {
     if (ts.isBlock(rewrittenBody)) {
       const analysis = analyzeForFlattening(rewrittenBody);
       if (analysis.canFlatten) {
-        finalBody = flattenReturnsToExpression(this.ctx, rewrittenBody);
+        const flattened = flattenReturnsToExpression(this.ctx, rewrittenBody);
+        if (flattened) {
+          finalBody = flattened;
+        }
       }
     }
 
@@ -2974,7 +2976,7 @@ class MacroTransformer {
 
     // First check the dedicated tagged template registry -- resolve through imports
     const taggedMacro = this.resolveMacroFromSymbol(node.tag, tagName, "tagged-template") as
-      | import("../core/types.js").TaggedTemplateMacroDef
+      | import("@typesugar/core").TaggedTemplateMacroDef
       | undefined;
     if (taggedMacro) {
       if (this.verbose) {
@@ -3070,7 +3072,7 @@ class MacroTransformer {
     if (!macroName || !identNode) return undefined;
 
     const macro = this.resolveMacroFromSymbol(identNode, macroName, "type") as
-      | import("../core/types.js").TypeMacro
+      | import("@typesugar/core").TypeMacro
       | undefined;
     if (!macro) return undefined;
 

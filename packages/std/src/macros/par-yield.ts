@@ -84,6 +84,10 @@ import {
   globalRegistry,
 } from "@typesugar/core";
 import {
+  hasParCombineInstance,
+  getParCombineBuilderFromRegistry,
+} from "@typesugar/macros";
+import {
   type BindStep,
   type MapStep,
   extractReturnExpr,
@@ -93,7 +97,6 @@ import {
   createMethodCall,
   createIIFE,
 } from "./comprehension-utils.js";
-import { getParCombineBuilder } from "../typeclasses/par-combine.js";
 
 // ============================================================================
 // par:/yield: Labeled Block Macro
@@ -178,8 +181,15 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Use ParCombine builder if registered, else fall back to applicative chain
-    const parCombineBuilder = getParCombineBuilder(typeConstructorName);
+    // Check if ParCombine instance exists in unified registry
+    if (!hasParCombineInstance(typeConstructorName)) {
+      // Fall back to applicative chain if no ParCombine instance
+      const result = buildApplicativeChain(ctx, steps, returnExpr);
+      return factory.createExpressionStatement(result);
+    }
+
+    // Use ParCombine builder from unified registry if available
+    const parCombineBuilder = getParCombineBuilderFromRegistry(typeConstructorName);
     const result = parCombineBuilder
       ? parCombineBuilder(ctx, steps, returnExpr)
       : buildApplicativeChain(ctx, steps, returnExpr);

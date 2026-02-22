@@ -452,6 +452,40 @@ interface InstanceInfo {
   instanceName: string;
   /** Whether this was auto-derived */
   derived: boolean;
+  /**
+   * Optional metadata for macro-specific use.
+   * Used by comprehension macros (let:/yield:, par:/yield:) to store:
+   * - methodNames: Override method names (e.g., Promise uses "then" instead of "flatMap")
+   * - builder: Zero-cost AST builder function for par:/yield:
+   */
+  meta?: InstanceMeta;
+}
+
+/**
+ * Metadata associated with a typeclass instance for macro use.
+ * Allows comprehension macros to access type-specific information
+ * without maintaining separate registries.
+ */
+interface InstanceMeta {
+  /**
+   * Override method names for this instance.
+   * E.g., Promise uses { bind: "then", map: "then", orElse: "catch" }
+   */
+  methodNames?: {
+    bind?: string;
+    map?: string;
+    orElse?: string;
+  };
+  /**
+   * Zero-cost AST builder for par:/yield: macro.
+   * If provided, generates optimized code instead of generic .map()/.ap() chains.
+   * Stored as a reference to a builder function registered elsewhere.
+   */
+  builderName?: string;
+  /**
+   * Arbitrary additional metadata.
+   */
+  [key: string]: unknown;
 }
 
 /** Tracks which extension methods are available for which types */
@@ -684,6 +718,36 @@ function getAllExtensionMethods(): ExtensionMethodInfo[] {
   return [...extensionMethodRegistry];
 }
 
+/**
+ * Get a copy of the typeclass registry.
+ * Returns a new Map so mutations don't affect the internal registry.
+ */
+export function getTypeclasses(): Map<string, TypeclassInfo> {
+  return new Map(typeclassRegistry);
+}
+
+/**
+ * Get a copy of the instance registry as a Map keyed by "Typeclass<Type>".
+ * Returns a new Map so mutations don't affect the internal registry.
+ */
+export function getInstances(): Map<string, InstanceInfo> {
+  const map = new Map<string, InstanceInfo>();
+  for (const inst of instanceRegistry) {
+    map.set(`${inst.typeclassName}<${inst.forType}>`, inst);
+  }
+  return map;
+}
+
+/**
+ * Clear all typeclass-related registries.
+ * Useful for testing to ensure clean state between tests.
+ */
+export function clearRegistries(): void {
+  typeclassRegistry.clear();
+  instanceRegistry.length = 0;
+  extensionMethodRegistry.length = 0;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -878,7 +942,7 @@ function getTypeclass(name: string): TypeclassInfo | undefined {
 
 export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
-  module: "typemacro",
+  module: "@typesugar/typeclass",
   cacheable: false,
   description: "Define a typeclass from an interface, enabling derivation and extension methods",
   validTargets: ["interface"],
@@ -1125,7 +1189,7 @@ function ${uncapitalize(name)}${capitalize(method.name)}<A>(${paramList}): ${met
 
 export const instanceAttribute = defineAttributeMacro({
   name: "instance",
-  module: "typemacro",
+  module: "@typesugar/typeclass",
   cacheable: false,
   description: "Register a typeclass instance for a specific type",
   validTargets: ["property", "class"],
@@ -2180,7 +2244,7 @@ const functorTCDerive = createTypeclassDeriveMacro("Functor");
 
 export const derivingAttribute = defineAttributeMacro({
   name: "deriving",
-  module: "typemacro",
+  module: "@typesugar/typeclass",
   cacheable: false,
   description: "Auto-derive typeclass instances for a type (Scala 3-like derives clause)",
   validTargets: ["interface", "class", "type"],
@@ -2421,7 +2485,7 @@ export const derivingAttribute = defineAttributeMacro({
 
 export const summonMacro = defineExpressionMacro({
   name: "summon",
-  module: "typemacro",
+  module: "@typesugar/typeclass",
   description:
     "Resolve a typeclass instance at compile time with Scala 3-style auto-derivation via Mirror",
 
@@ -2541,7 +2605,7 @@ export const summonMacro = defineExpressionMacro({
 
 export const extendMacro = defineExpressionMacro({
   name: "extend",
-  module: "typemacro",
+  module: "@typesugar/typeclass",
   description: "Call extension methods on a value via typeclass instances",
 
   expand(
@@ -2850,6 +2914,213 @@ ${fieldCombines}
 };
 
 // ============================================================================
+// Comprehension Typeclass Support (FlatMap, ParCombine)
+// ============================================================================
+// These functions allow the comprehension macros (let:/yield:, par:/yield:)
+// to use the unified typeclass registry instead of maintaining separate
+// registries for FlatMap and ParCombine instances.
+
+/**
+ * Register a typeclass programmatically (without @typeclass decorator).
+ * Used to register FlatMap, ParCombine, and similar HKT typeclasses
+ * that are defined as plain interfaces.
+ */
+export function registerTypeclassDef(info: TypeclassInfo): void {
+  typeclassRegistry.set(info.name, info);
+  if (info.syntax && info.syntax.size > 0) {
+    registerTypeclassSyntax(info.name, info.syntax);
+  }
+}
+
+/**
+ * Register a typeclass instance with optional metadata.
+ * Used by comprehension macros to register FlatMap/ParCombine instances
+ * for standard types (Promise, Array, etc.).
+ *
+ * @param info The instance information including optional metadata
+ */
+export function registerInstanceWithMeta(info: InstanceInfo): void {
+  // Check for existing instance and update if found
+  const existingIndex = instanceRegistry.findIndex(
+    (i) => i.typeclassName === info.typeclassName && i.forType === info.forType
+  );
+  if (existingIndex >= 0) {
+    instanceRegistry[existingIndex] = info;
+  } else {
+    instanceRegistry.push(info);
+  }
+}
+
+/**
+ * Get instance metadata for a typeclass+type combination.
+ * Returns undefined if no instance is found or if it has no metadata.
+ */
+export function getInstanceMeta(
+  typeclassName: string,
+  forType: string
+): InstanceMeta | undefined {
+  const instance = findInstance(typeclassName, forType);
+  return instance?.meta;
+}
+
+/**
+ * Get the method names for a FlatMap instance.
+ * Falls back to defaults if no custom method names are specified.
+ *
+ * @param forType The type constructor name (e.g., "Promise", "Array")
+ * @returns Method names for bind, map, and orElse operations
+ */
+export function getFlatMapMethodNames(forType: string): {
+  bind: string;
+  map: string;
+  orElse?: string;
+} {
+  const instance = findInstance("FlatMap", forType);
+  const meta = instance?.meta;
+  const methodNames = meta?.methodNames;
+
+  // Defaults
+  const defaults = {
+    bind: "flatMap",
+    map: "map",
+    orElse: "orElse",
+  };
+
+  // Special case for Promise (uses .then())
+  if (forType === "Promise") {
+    return { bind: "then", map: "then", orElse: "catch" };
+  }
+
+  // Special case for Effect (static methods)
+  if (forType === "Effect") {
+    return { bind: "flatMap", map: "map", orElse: "catchAll" };
+  }
+
+  if (methodNames) {
+    return {
+      bind: methodNames.bind ?? defaults.bind,
+      map: methodNames.map ?? defaults.map,
+      orElse: methodNames.orElse ?? defaults.orElse,
+    };
+  }
+
+  return defaults;
+}
+
+// ============================================================================
+// ParCombine Builder Registry
+// ============================================================================
+// Builders for zero-cost AST generation are stored separately from instances
+// because they are function values (can't be stored in InstanceInfo which
+// needs to be serializable for caching).
+
+/**
+ * Type for a ParCombine builder function.
+ * Generates optimized AST for par:/yield: comprehensions.
+ */
+export type ParCombineBuilder = (
+  ctx: MacroContext,
+  steps: Array<{ kind: "bind"; name: string; effect: ts.Expression; node: ts.Node } | { kind: "map"; name: string; expression: ts.Expression; node: ts.Node }>,
+  returnExpr: ts.Expression
+) => ts.Expression;
+
+/** Registry mapping type constructor names to ParCombine builders */
+const parCombineBuilderRegistry = new Map<string, ParCombineBuilder>();
+
+/**
+ * Register a ParCombine builder for a type constructor.
+ * The builder generates optimized AST instead of generic .map()/.ap() chains.
+ */
+export function registerParCombineBuilder(
+  forType: string,
+  builder: ParCombineBuilder
+): void {
+  parCombineBuilderRegistry.set(forType, builder);
+}
+
+/**
+ * Get the ParCombine builder for a type constructor.
+ */
+export function getParCombineBuilderFromRegistry(
+  forType: string
+): ParCombineBuilder | undefined {
+  return parCombineBuilderRegistry.get(forType);
+}
+
+/**
+ * Check if a FlatMap instance exists for a type.
+ * Used by let:/yield: macro to validate type support.
+ */
+export function hasFlatMapInstance(forType: string): boolean {
+  return findInstance("FlatMap", forType) !== undefined;
+}
+
+/**
+ * Check if a ParCombine instance exists for a type.
+ * Used by par:/yield: macro to validate type support.
+ */
+export function hasParCombineInstance(forType: string): boolean {
+  return findInstance("ParCombine", forType) !== undefined;
+}
+
+// ============================================================================
+// Register FlatMap and ParCombine typeclasses
+// ============================================================================
+
+// Register FlatMap typeclass definition
+registerTypeclassDef({
+  name: "FlatMap",
+  typeParam: "F",
+  methods: [
+    {
+      name: "map",
+      params: [
+        { name: "fa", typeString: "F" },
+        { name: "f", typeString: "(a: A) => B" },
+      ],
+      returnType: "F",
+      isSelfMethod: true,
+    },
+    {
+      name: "flatMap",
+      params: [
+        { name: "fa", typeString: "F" },
+        { name: "f", typeString: "(a: A) => F" },
+      ],
+      returnType: "F",
+      isSelfMethod: true,
+    },
+  ],
+  canDeriveProduct: false,
+  canDeriveSum: false,
+});
+
+// Register ParCombine typeclass definition
+registerTypeclassDef({
+  name: "ParCombine",
+  typeParam: "F",
+  methods: [
+    {
+      name: "all",
+      params: [{ name: "effects", typeString: "readonly F[]" }],
+      returnType: "F",
+      isSelfMethod: false,
+    },
+    {
+      name: "map",
+      params: [
+        { name: "combined", typeString: "F" },
+        { name: "f", typeString: "(results: unknown[]) => unknown" },
+      ],
+      returnType: "F",
+      isSelfMethod: false,
+    },
+  ],
+  canDeriveProduct: false,
+  canDeriveSum: false,
+});
+
+// ============================================================================
 // Register all macros with the global registry
 // ============================================================================
 
@@ -2872,6 +3143,7 @@ export type {
   TypeclassInfo,
   TypeclassMethod,
   InstanceInfo,
+  InstanceMeta,
   ExtensionMethodInfo,
   BuiltinTypeclassDerivation,
   SyntaxEntry,
@@ -2895,4 +3167,6 @@ export {
   registerTypeclassSyntax,
   clearSyntaxRegistry,
   extractOpFromReturnType,
+  // Comprehension typeclass support (exported via export function declarations above)
+  parCombineBuilderRegistry,
 };

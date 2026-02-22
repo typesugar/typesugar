@@ -10,6 +10,14 @@ export * from "./types.js";
 export * from "./registry.js";
 export * from "./context.js";
 
+// Macro Capabilities
+export {
+  resolveCapabilities,
+  createRestrictedContext,
+  DEFAULT_CAPABILITIES,
+  type MacroCapabilities,
+} from "./capabilities.js";
+
 // Runtime Safety Primitives
 export {
   invariant,

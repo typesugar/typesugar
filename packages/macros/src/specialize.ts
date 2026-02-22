@@ -1011,7 +1011,7 @@ function getFunctionDisplayName(fnArg: ts.Expression): string {
 
 export const specializeMacro = defineExpressionMacro({
   name: "specialize",
-  module: "typemacro",
+  module: "@typesugar/specialize",
   description: "Specialize a generic function by inlining typeclass dictionaries at compile time",
 
   expand(
@@ -1059,9 +1059,53 @@ export const specializeMacro = defineExpressionMacro({
  * const result = [1,2,3].map(x => x * 2);
  * ```
  */
+/**
+ * mono<T>(fn) — Monomorphize a generic function for specific type arguments.
+ * Stub: returns the function unchanged (full implementation would narrow types).
+ */
+export const monoMacro = defineExpressionMacro({
+  name: "mono",
+  module: "@typesugar/specialize",
+  description: "Monomorphize a generic function for specific type arguments",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    if (args.length < 1) {
+      ctx.reportError(callExpr, "mono expects at least 1 argument: mono<Type>(fn)");
+      return callExpr;
+    }
+    return args[0];
+  },
+});
+
+/**
+ * inlineCall(expr) — Inline a function call at compile time.
+ * Stub: returns the expression unchanged (full implementation would evaluate/inline).
+ */
+export const inlineCallMacro = defineExpressionMacro({
+  name: "inlineCall",
+  module: "@typesugar/specialize",
+  description: "Inline a function call at compile time",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    if (args.length !== 1) {
+      ctx.reportError(callExpr, "inlineCall expects 1 argument: inlineCall(expr)");
+      return callExpr;
+    }
+    return args[0];
+  },
+});
+
 export const specializeInlineMacro = defineExpressionMacro({
   name: "specialize$",
-  module: "typemacro",
+  module: "@typesugar/specialize",
   description: "Inline-specialize an expression by replacing dictionary method calls",
 
   expand(
@@ -2699,3 +2743,5 @@ function createPartialApplication(
 
 globalRegistry.register(specializeMacro);
 globalRegistry.register(specializeInlineMacro);
+globalRegistry.register(monoMacro);
+globalRegistry.register(inlineCallMacro);

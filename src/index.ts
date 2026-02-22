@@ -56,9 +56,9 @@ export type {
   TypeMacro,
   OperatorSymbol,
   Op,
-} from "./core/types.js";
+} from "@typesugar/core";
 
-export { OPERATOR_SYMBOLS } from "./core/types.js";
+export { OPERATOR_SYMBOLS } from "@typesugar/core";
 
 // ============================================================================
 // Registry & Definition Helpers
@@ -73,34 +73,41 @@ export {
   defineTaggedTemplateMacro,
   defineTypeMacro,
   registerMacros,
-} from "./core/registry.js";
+} from "@typesugar/core";
 
 // ============================================================================
 // Context
 // ============================================================================
 
-export { MacroContextImpl, createMacroContext } from "./core/context.js";
+export { MacroContextImpl, createMacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Core Utilities
 // ============================================================================
 
-export { HygieneContext, globalHygiene } from "./core/hygiene.js";
+export { HygieneContext, globalHygiene } from "@typesugar/core";
+export { resolveCapabilities, createRestrictedContext } from "@typesugar/core";
+export type { MacroCapabilities } from "@typesugar/core";
+export { MacroExpansionCache, InMemoryExpansionCache } from "@typesugar/core";
+export { ExpansionTracker, globalExpansionTracker } from "@typesugar/core";
+export type { ExpansionRecord } from "@typesugar/core";
 export {
-  MacroCapabilities,
-  resolveCapabilities,
-  createRestrictedContext,
-} from "./core/capabilities.js";
-export { MacroExpansionCache, InMemoryExpansionCache } from "./core/cache.js";
-export { ExpansionTracker, globalExpansionTracker } from "./core/source-map.js";
-export type { ExpansionRecord } from "./core/source-map.js";
-export { pipeline } from "./core/pipeline.js";
+  pipeline,
+  parenthesize,
+  voidify,
+  awaitify,
+  assertType,
+  debugStep,
+  MacroPipeline,
+} from "@typesugar/core";
+export type { PipelineStep } from "@typesugar/core";
 
 // ============================================================================
 // Configuration System
 // ============================================================================
 
-export { config, defineConfig, type TypesugarConfig, type ContractsConfig } from "./core/config.js";
+export { config, defineConfig } from "@typesugar/core";
+export type { TypesugarConfig, ContractsConfig } from "@typesugar/core";
 
 // ============================================================================
 // Built-in Macros

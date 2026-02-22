@@ -77,7 +77,11 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { getFlatMap } from "../typeclasses/flatmap.js";
+import {
+  findInstance,
+  getFlatMapMethodNames,
+  hasFlatMapInstance,
+} from "@typesugar/macros";
 import {
   type ComprehensionStep,
   type BindStep,
@@ -89,6 +93,16 @@ import {
   createMethodCall,
   createIIFE,
 } from "./comprehension-utils.js";
+
+/**
+ * Method names for FlatMap operations.
+ * Different types may use different method names (e.g., Promise uses "then").
+ */
+interface MethodNames {
+  bind: string;
+  map: string;
+  orElse?: string;
+}
 
 // ============================================================================
 // let:/yield: Labeled Block Macro
@@ -150,20 +164,18 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Look up the FlatMap instance
-    const flatMapInstance = getFlatMap(typeConstructorName);
-
-    if (!flatMapInstance) {
+    // Look up the FlatMap instance in unified registry
+    if (!hasFlatMapInstance(typeConstructorName)) {
       ctx.reportError(
         firstBind.effect,
         `No FlatMap instance registered for '${typeConstructorName}'. ` +
-          "Use registerFlatMap() to register an instance."
+          "Use @instance decorator or registerFlatMap() to register an instance."
       );
       return mainBlock;
     }
 
-    // Determine method names
-    const methods = resolveMethodNames(typeConstructorName);
+    // Determine method names from unified registry
+    const methods = getFlatMapMethodNames(typeConstructorName);
 
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;
@@ -337,31 +349,11 @@ function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] |
 }
 
 // ============================================================================
-// Method Name Resolution
+// Method Name Resolution (now uses unified registry)
 // ============================================================================
 
-interface MethodNames {
-  bind: string;
-  map: string;
-  orElse?: string;
-}
-
-/**
- * Resolve method names for a type constructor.
- *
- * - Promise uses `.then()` for both map and flatMap
- * - Effect uses static `Effect.map`/`Effect.flatMap` methods
- * - Others use `.map()` and `.flatMap()`
- */
-function resolveMethodNames(typeConstructor: string): MethodNames {
-  if (typeConstructor === "Promise") {
-    return { bind: "then", map: "then", orElse: "catch" };
-  }
-  if (typeConstructor === "Effect") {
-    return { bind: "flatMap", map: "map", orElse: "catchAll" };
-  }
-  return { bind: "flatMap", map: "map", orElse: "orElse" };
-}
+// Method names are now resolved via getFlatMapMethodNames() from @typesugar/macros
+// which looks up the InstanceMeta in the unified typeclass registry.
 
 // ============================================================================
 // Chain Building

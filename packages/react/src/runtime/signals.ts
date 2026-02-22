@@ -45,8 +45,11 @@ let currentComputed: ComputedImpl<any> | null = null;
 /** Currently executing effect (for automatic dependency tracking) */
 let currentEffect: EffectImpl | null = null;
 
-/** Batch update queue */
-let batchQueue: Set<() => void> | null = null;
+/** Batch update queue - tracks effects and computeds to run (deduplicated) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let batchedComputeds: Set<ComputedImpl<any>> | null = null;
+let batchedEffects: Set<EffectImpl> | null = null;
+let batchedSubscribers: Array<() => void> | null = null;
 let batchDepth = 0;
 
 // ============================================================================
@@ -99,10 +102,20 @@ class SignalImpl<T> implements Signal<T> {
   }
 
   private notify(): void {
-    // Notify all dependents
-    const notify = () => {
+    if (batchDepth > 0) {
+      // During batch: collect items to process later (deduplicated)
+      for (const computed of this.computedDependents) {
+        batchedComputeds!.add(computed);
+      }
+      for (const effect of this.effectDependents) {
+        batchedEffects!.add(effect);
+      }
+      for (const callback of this.subscribers) {
+        batchedSubscribers!.push(() => callback(this.value));
+      }
+    } else {
+      // Not batching: run immediately
       // Snapshot sets to avoid modification during iteration
-      // (recompute() removes/re-adds computed to the set, which would cause infinite loop)
       const computeds = [...this.computedDependents];
       const effects = [...this.effectDependents];
 
@@ -120,12 +133,6 @@ class SignalImpl<T> implements Signal<T> {
       for (const effect of effects) {
         effect.run();
       }
-    };
-
-    if (batchQueue) {
-      batchQueue.add(notify);
-    } else {
-      notify();
     }
   }
 
@@ -344,18 +351,39 @@ export function createEffect(effectFn: () => void | Cleanup): () => void {
 export function batch(fn: () => void): void {
   batchDepth++;
   if (batchDepth === 1) {
-    batchQueue = new Set();
+    batchedComputeds = new Set();
+    batchedEffects = new Set();
+    batchedSubscribers = [];
   }
 
   try {
     fn();
   } finally {
     batchDepth--;
-    if (batchDepth === 0 && batchQueue) {
-      const queue = batchQueue;
-      batchQueue = null;
-      for (const notify of queue) {
-        notify();
+    if (batchDepth === 0) {
+      // Process all batched updates once
+      const computeds = batchedComputeds!;
+      const effects = batchedEffects!;
+      const subscribers = batchedSubscribers!;
+
+      // Clear before processing to avoid issues with nested batches from recompute
+      batchedComputeds = null;
+      batchedEffects = null;
+      batchedSubscribers = null;
+
+      // Run subscribers
+      for (const callback of subscribers) {
+        callback();
+      }
+
+      // Recompute all affected computeds (deduplicated)
+      for (const computed of computeds) {
+        computed.recompute();
+      }
+
+      // Run all affected effects (deduplicated)
+      for (const effect of effects) {
+        effect.run();
       }
     }
   }

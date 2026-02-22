@@ -62,6 +62,18 @@ export * from "@typesugar/core";
 // Re-export specific items to avoid conflicts with @typesugar/core exports
 import "@typesugar/macros";
 
+/**
+ * Register all built-in macros to the global registry.
+ * Idempotent - can be called multiple times without side effects.
+ *
+ * This is useful for testing or manual macro registration.
+ */
+export function registerAllMacros(): void {
+  // Importing @typesugar/macros automatically registers all built-in macros
+  // This function exists for explicit registration in test setups
+  // The actual registration happens when the module loads
+}
+
 // Re-export runtime stubs (these are what users typically import)
 export {
   // Typeclass runtime stubs
@@ -82,6 +94,12 @@ export {
   ops,
   pipe,
   compose,
+  flow,
+  // Operator registration and lookup
+  registerOperators,
+  getOperatorMethod,
+  getOperatorString,
+  clearOperatorMappings,
   // Specialize
   specialize,
   // Reflect

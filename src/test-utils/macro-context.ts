@@ -3,7 +3,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext, ComptimeValue } from "../core/types.js";
+import type { MacroContext, ComptimeValue } from "@typesugar/core";
 
 /** Test context with additional test-specific properties */
 export interface TestMacroContext extends MacroContext {

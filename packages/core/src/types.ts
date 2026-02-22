@@ -230,6 +230,22 @@ export interface MacroDefinitionBase {
   exportName?: string;
 
   /**
+   * Names of macros that must expand before this one on the same node.
+   *
+   * When multiple attribute/derive macros decorate the same declaration,
+   * the transformer uses this to topologically sort them. If macro A
+   * declares `expandAfter: ["B"]`, then B's decorator is processed first.
+   *
+   * This does NOT affect cross-node ordering (the transformer is single-pass,
+   * top-to-bottom). For cross-node dependencies, the re-visit mechanism
+   * handles macro-generated macro calls automatically.
+   *
+   * Example: A typeclass-aware derive might declare `expandAfter: ["typeclass"]`
+   * to ensure the typeclass companion namespace exists before derivation runs.
+   */
+  expandAfter?: string[];
+
+  /**
    * Whether the macro's result can be cached based on input text.
    * Set to false for macros that depend on external state (files, env, etc.).
    * Defaults to true.

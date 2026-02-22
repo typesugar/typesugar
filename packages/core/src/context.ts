@@ -5,6 +5,7 @@
 import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene } from "./hygiene.js";
+import { stripPositions } from "./ast-utils.js";
 
 export class MacroContextImpl implements MacroContext {
   private diagnostics: MacroDiagnostic[] = [];
@@ -90,12 +91,20 @@ export class MacroContextImpl implements MacroContext {
       ts.ScriptKind.TS
     );
 
+    // Check for parse errors
+    const diags = (tempSource as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics;
+    if (diags && diags.length > 0) {
+      throw new Error(`Failed to parse expression: ${code}`);
+    }
+
     // Extract the expression from the variable declaration
     const statement = tempSource.statements[0];
     if (ts.isVariableStatement(statement)) {
       const declaration = statement.declarationList.declarations[0];
       if (declaration.initializer) {
-        return declaration.initializer;
+        // Strip positions so the printer generates fresh text instead of
+        // extracting from the wrong source file
+        return stripPositions(declaration.initializer);
       }
     }
 
@@ -110,7 +119,9 @@ export class MacroContextImpl implements MacroContext {
       true,
       ts.ScriptKind.TS
     );
-    return Array.from(tempSource.statements);
+    // Strip positions so the printer generates fresh text instead of
+    // extracting from the wrong source file
+    return Array.from(tempSource.statements).map((stmt) => stripPositions(stmt));
   }
 
   // -------------------------------------------------------------------------
@@ -177,6 +188,14 @@ export class MacroContextImpl implements MacroContext {
   isComptime(node: ts.Node): boolean {
     // Check if a node can be evaluated at compile time
     if (ts.isLiteralExpression(node)) {
+      return true;
+    }
+
+    // Handle true/false keywords as literal expressions
+    if (
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword
+    ) {
       return true;
     }
 

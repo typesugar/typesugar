@@ -13,7 +13,7 @@ import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
 import macroTransformerFactory from "../transforms/macro-transformer.js";
-import { globalRegistry } from "../core/registry.js";
+import { globalRegistry } from "@typesugar/core";
 import { generateManifest } from "./manifest-generator.js";
 import { runExpand } from "./expand.js";
 

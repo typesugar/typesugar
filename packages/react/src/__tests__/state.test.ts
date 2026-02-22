@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { createMacroTestContext } from "../../../test-utils/macro-context.js";
+import { createMacroTestContext } from "../../../../src/test-utils/macro-context.js";
 import {
   stateMacro,
   getStateMetadata,
@@ -50,8 +50,9 @@ describe("state() macro", () => {
           const extracted = extractStateFromMarker(result);
           expect(extracted).toBeTruthy();
           expect(extracted?.name).toBe("count");
-          expect(extracted?.valueIdent).toBe("__count_val");
-          expect(extracted?.setterIdent).toBe("__count_set");
+          // Hygienic names include counter suffix to avoid collisions
+          expect(extracted?.valueIdent).toMatch(/^count_val_\d+$/);
+          expect(extracted?.setterIdent).toMatch(/^count_set_\d+$/);
         }
       }
     });

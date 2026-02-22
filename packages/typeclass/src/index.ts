@@ -61,6 +61,9 @@ export {
   getExtensionMethodsForType,
   getAllExtensionMethods,
   registerExtensionMethods,
+  clearRegistries,
+  getTypeclasses,
+  getInstances,
 } from "@typesugar/macros";
 
 // Derivation utilities

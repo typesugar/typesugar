@@ -38,6 +38,11 @@
  */
 
 import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
+import {
+  registerInstanceWithMeta,
+  findInstance,
+  type InstanceMeta,
+} from "@typesugar/macros";
 
 // ============================================================================
 // FlatMap Typeclass
@@ -225,23 +230,52 @@ const flatMapInstances: GenericRegistry<string, FlatMap<unknown>> = createGeneri
   duplicateStrategy: "replace",
 });
 
-// Initialize built-in instances
+// Initialize built-in instances in local registry (for backward compat)
 flatMapInstances.set("Array", flatMapArray as FlatMap<unknown>);
 flatMapInstances.set("Promise", flatMapPromise as FlatMap<unknown>);
 flatMapInstances.set("Iterable", flatMapIterable as FlatMap<unknown>);
 flatMapInstances.set("AsyncIterable", flatMapAsyncIterable as FlatMap<unknown>);
+
+// Also register in the unified typeclass registry
+function registerInUnifiedRegistry(name: string, meta?: InstanceMeta): void {
+  registerInstanceWithMeta({
+    typeclassName: "FlatMap",
+    forType: name,
+    instanceName: `flatMap${name}`,
+    derived: false,
+    meta,
+  });
+}
+
+// Register built-in instances in unified registry with method name overrides
+registerInUnifiedRegistry("Array");
+registerInUnifiedRegistry("Promise", {
+  methodNames: { bind: "then", map: "then", orElse: "catch" },
+});
+registerInUnifiedRegistry("Iterable");
+registerInUnifiedRegistry("AsyncIterable");
 
 /**
  * Register a FlatMap instance for a type constructor.
  *
  * @param name The name of the type constructor (e.g., "Option", "Effect")
  * @param instance The FlatMap instance
+ * @param meta Optional metadata (e.g., method name overrides)
+ *
+ * @deprecated Use @instance decorator or registerInstanceWithMeta() from @typesugar/macros
+ * for new code. This function is maintained for backward compatibility.
  */
-export function registerFlatMap<F>(name: string, instance: FlatMap<F>): void {
+export function registerFlatMap<F>(
+  name: string,
+  instance: FlatMap<F>,
+  meta?: InstanceMeta
+): void {
   if (flatMapInstances.has(name)) {
     console.warn(`[typesugar] FlatMap instance for '${name}' is already registered. Overriding.`);
   }
   flatMapInstances.set(name, instance as FlatMap<unknown>);
+  // Also register in unified registry
+  registerInUnifiedRegistry(name, meta);
 }
 
 /**
@@ -249,7 +283,18 @@ export function registerFlatMap<F>(name: string, instance: FlatMap<F>): void {
  *
  * @param name The name of the type constructor
  * @returns The FlatMap instance, or undefined if not found
+ *
+ * @deprecated Use findInstance("FlatMap", name) from @typesugar/macros for new code.
+ * This function is maintained for backward compatibility.
  */
 export function getFlatMap(name: string): FlatMap<unknown> | undefined {
   return flatMapInstances.get(name);
+}
+
+/**
+ * Check if a FlatMap instance exists for a type constructor.
+ * Uses the unified registry.
+ */
+export function hasFlatMap(name: string): boolean {
+  return findInstance("FlatMap", name) !== undefined;
 }

@@ -231,8 +231,8 @@ export function operators(
  * // Compiles to: a.add(b.mul(c))
  * ```
  */
-export function ops<T>(_expr: T): T {
-  throw new Error("ops() must be processed by the typesugar transformer at compile time");
+export function ops<T>(expr: T): T {
+  return expr;
 }
 
 /**
@@ -244,8 +244,8 @@ export function ops<T>(_expr: T): T {
  * // Compiles to: h(g(f(x)))
  * ```
  */
-export function pipe<T, R>(_value: T, ..._fns: Function[]): R {
-  throw new Error("pipe() must be processed by the typesugar transformer at compile time");
+export function pipe<T, R>(value: T, ...fns: Function[]): R {
+  return fns.reduce((acc, fn) => fn(acc), value as unknown) as R;
 }
 
 /**
@@ -257,8 +257,100 @@ export function pipe<T, R>(_value: T, ..._fns: Function[]): R {
  * // Equivalent to: (x) => f(g(h(x)))
  * ```
  */
-export function compose<T extends Function[]>(..._fns: T): Function {
-  throw new Error("compose() must be processed by the typesugar transformer at compile time");
+export function compose<T extends Function[]>(...fns: T): Function {
+  return (...args: unknown[]) =>
+    fns.slice(0, -1).reduceRight(
+      (acc, fn) => fn(acc),
+      (fns[fns.length - 1] as (...a: unknown[]) => unknown)(...args)
+    );
+}
+
+/**
+ * Compose functions left-to-right
+ *
+ * @example
+ * ```typescript
+ * const transform = flow(
+ *   (x: number) => x * 2,
+ *   x => x + 1,
+ *   x => x.toString()
+ * );
+ * transform(5); // "11"
+ * ```
+ */
+export function flow<A extends readonly unknown[], B>(
+  ab: (...a: A) => B
+): (...a: A) => B;
+export function flow<A extends readonly unknown[], B, C>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C
+): (...a: A) => C;
+export function flow<A extends readonly unknown[], B, C, D>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D
+): (...a: A) => D;
+export function flow<A extends readonly unknown[], B, C, D, E>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D,
+  de: (d: D) => E
+): (...a: A) => E;
+export function flow<A extends readonly unknown[], B, C, D, E, F>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D,
+  de: (d: D) => E,
+  ef: (e: E) => F
+): (...a: A) => F;
+export function flow<A extends readonly unknown[], B, C, D, E, F, G>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D,
+  de: (d: D) => E,
+  ef: (e: E) => F,
+  fg: (f: F) => G
+): (...a: A) => G;
+export function flow<A extends readonly unknown[], B, C, D, E, F, G, H>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D,
+  de: (d: D) => E,
+  ef: (e: E) => F,
+  fg: (f: F) => G,
+  gh: (g: G) => H
+): (...a: A) => H;
+export function flow<A extends readonly unknown[], B, C, D, E, F, G, H, I>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D,
+  de: (d: D) => E,
+  ef: (e: E) => F,
+  fg: (f: F) => G,
+  gh: (g: G) => H,
+  hi: (h: H) => I
+): (...a: A) => I;
+export function flow<A extends readonly unknown[], B, C, D, E, F, G, H, I, J>(
+  ab: (...a: A) => B,
+  bc: (b: B) => C,
+  cd: (c: C) => D,
+  de: (d: D) => E,
+  ef: (e: E) => F,
+  fg: (f: F) => G,
+  gh: (g: G) => H,
+  hi: (h: H) => I,
+  ij: (i: I) => J
+): (...a: A) => J;
+export function flow(
+  ...fns: Array<(...args: unknown[]) => unknown>
+): (...args: unknown[]) => unknown {
+  return (...args: unknown[]) => {
+    let result: unknown = fns[0](...args);
+    for (let i = 1; i < fns.length; i++) {
+      result = fns[i](result);
+    }
+    return result;
+  };
 }
 
 // ============================================================================
@@ -276,6 +368,22 @@ export function compose<T extends Function[]>(..._fns: T): Function {
  */
 export function specialize<T extends Function>(_fn: T, _dicts?: unknown[]): T {
   throw new Error("specialize() must be processed by the typesugar transformer at compile time");
+}
+
+/**
+ * Monomorphize a generic function for specific type arguments.
+ * Processed by transformer; stub returns the function.
+ */
+export function mono<T>(fn: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
+  return fn as (...args: unknown[]) => unknown;
+}
+
+/**
+ * Inline a function call at compile time.
+ * Processed by transformer; stub returns the expression result.
+ */
+export function inlineCall<T>(expr: T): T {
+  return expr;
 }
 
 // ============================================================================

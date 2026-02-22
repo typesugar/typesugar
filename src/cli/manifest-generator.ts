@@ -9,7 +9,7 @@
  *   typemacro build --manifest out.json # writes to custom path
  */
 
-import type { MacroRegistry } from "../core/types.js";
+import type { MacroRegistry } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
 // Manifest Types (duplicated from the extension to avoid cross-dependency)

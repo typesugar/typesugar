@@ -20,6 +20,7 @@ import "./generic.js"; // Generic programming (Product/Sum) for structural deriv
 import "./auto-derive.js"; // Scala 3-style typeclass derivation via Mirror/Generic
 import "./static-assert.js";
 import "./cfg.js";
+import "./config-when.js";
 import "./include.js";
 import "./module-graph.js";
 import "./tailrec.js";
@@ -100,6 +101,9 @@ export {
   getExtensionMethodsForType,
   getAllExtensionMethods,
   registerExtensionMethods,
+  clearRegistries,
+  getTypeclasses,
+  getInstances,
   instanceVarName,
   createTypeclassDeriveMacro,
   generateStandardTypeclasses,
@@ -109,16 +113,29 @@ export {
   registerTypeclassSyntax,
   clearSyntaxRegistry,
   extractOpFromReturnType,
+  registerTypeclassDef,
+  registerInstanceWithMeta,
+  getInstanceMeta,
+  getFlatMapMethodNames,
+  registerParCombineBuilder,
+  getParCombineBuilderFromRegistry,
+  hasFlatMapInstance,
+  hasParCombineInstance,
+  parCombineBuilderRegistry,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
+  type InstanceMeta,
   type ExtensionMethodInfo,
   type BuiltinTypeclassDerivation,
   type SyntaxEntry,
+  type ParCombineBuilder,
 } from "./typeclass.js";
 export {
   specializeMacro,
   specializeInlineMacro,
+  monoMacro,
+  inlineCallMacro,
   registerInstanceMethods,
   getInstanceMethods,
   isRegisteredInstance,
@@ -128,9 +145,17 @@ export {
   createSpecializedFunction,
   flattenReturnsToExpression,
   analyzeForFlattening,
+  canFlattenToExpression,
   SpecializationCache,
   createHoistedSpecialization,
   getResultAlgebra,
+  hasResultAlgebra,
+  getAllResultAlgebras,
+  registerResultAlgebra,
+  optionResultAlgebra,
+  eitherResultAlgebra,
+  promiseResultAlgebra,
+  unsafeResultAlgebra,
   type ResultAlgebra,
   type DictMethodMap,
   type DictMethod,
@@ -408,8 +433,11 @@ export {
   ops,
   pipe,
   compose,
-  // Specialize stub
+  flow,
+  // Specialize stubs
   specialize,
+  mono,
+  inlineCall,
   // Reflect stubs
   reflect,
   typeInfo,

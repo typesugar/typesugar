@@ -19,4 +19,9 @@
  */
 
 // Re-export everything from @typesugar/macros that relates to comptime
-export { comptime, comptimeMacro } from "@typesugar/macros";
+export {
+  comptime,
+  comptimeMacro,
+  jsToComptimeValue,
+  type ComptimePermissions,
+} from "@typesugar/macros";

@@ -83,6 +83,7 @@ export interface TypesugarConfig {
 
 let configStore: TypesugarConfig = {};
 let configLoaded = false;
+let configFilePath: string | undefined;
 
 // ============================================================================
 // Environment Variable Loading
@@ -202,6 +203,52 @@ function deepMerge(
 }
 
 // ============================================================================
+// Config File Loading (optional cosmiconfig)
+// ============================================================================
+
+const MODULE_NAME = "typesugar";
+
+/**
+ * Load configuration from files when cosmiconfig is available.
+ * Uses dynamic import to avoid adding cosmiconfig as a required dependency.
+ */
+function loadConfigFromFiles(): TypesugarConfig {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { cosmiconfigSync } = require("cosmiconfig") as {
+      cosmiconfigSync: (name: string, options: { searchPlaces: string[] }) => {
+        search: () => { filepath?: string; config?: TypesugarConfig; isEmpty?: boolean } | null;
+      };
+    };
+    const explorer = cosmiconfigSync(MODULE_NAME, {
+      searchPlaces: [
+        "package.json",
+        `.${MODULE_NAME}rc`,
+        `.${MODULE_NAME}rc.json`,
+        `.${MODULE_NAME}rc.yaml`,
+        `.${MODULE_NAME}rc.yml`,
+        `.${MODULE_NAME}rc.js`,
+        `.${MODULE_NAME}rc.cjs`,
+        `.${MODULE_NAME}rc.mjs`,
+        `.${MODULE_NAME}rc.ts`,
+        `${MODULE_NAME}.config.js`,
+        `${MODULE_NAME}.config.cjs`,
+        `${MODULE_NAME}.config.mjs`,
+        `${MODULE_NAME}.config.ts`,
+      ],
+    });
+    const result = explorer.search();
+    if (result && !result.isEmpty && result.config) {
+      configFilePath = result.filepath;
+      return result.config as TypesugarConfig;
+    }
+  } catch {
+    // cosmiconfig not installed or config file error — use empty
+  }
+  return {};
+}
+
+// ============================================================================
 // Config Initialization
 // ============================================================================
 
@@ -221,10 +268,11 @@ function initializeConfig(): void {
     features: {},
   };
 
+  const fileConfig = loadConfigFromFiles();
   const envConfig = loadConfigFromEnv();
 
-  // Merge: defaults < envConfig
-  configStore = deepMerge(defaults, envConfig) as TypesugarConfig;
+  // Merge: defaults < fileConfig < envConfig
+  configStore = deepMerge(deepMerge(defaults, fileConfig), envConfig) as TypesugarConfig;
   configLoaded = true;
 }
 
@@ -264,11 +312,20 @@ function getAll(): Readonly<TypesugarConfig> {
 }
 
 /**
+ * Get the path to the loaded config file (if any).
+ */
+function getConfigFilePath(): string | undefined {
+  initializeConfig();
+  return configFilePath;
+}
+
+/**
  * Reset configuration to defaults (mainly for testing).
  */
 function reset(): void {
   configStore = {};
   configLoaded = false;
+  configFilePath = undefined;
 }
 
 /**
@@ -449,6 +506,7 @@ export const config = {
   set,
   has,
   getAll,
+  getConfigFilePath,
   reset,
   evaluate,
   when,

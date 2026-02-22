@@ -32,7 +32,7 @@
 // Re-export everything from @typesugar/macros that relates to operators
 
 // Runtime stubs
-export { operators, ops, pipe, compose } from "@typesugar/macros";
+export { operators, ops, pipe, compose, flow } from "@typesugar/macros";
 
 // Macro definitions
 export { operatorsAttribute, opsMacro, pipeMacro, composeMacro } from "@typesugar/macros";

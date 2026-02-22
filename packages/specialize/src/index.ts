@@ -29,7 +29,18 @@
 export { specialize } from "@typesugar/macros";
 
 // Macro definitions
-export { specializeMacro, specializeInlineMacro } from "@typesugar/macros";
+export {
+  specializeMacro,
+  specializeInlineMacro,
+  monoMacro,
+  inlineCallMacro,
+} from "@typesugar/macros";
+
+// Runtime stubs for mono and inlineCall
+export { mono, inlineCall } from "@typesugar/macros";
+
+// Specialized type utility
+export type { Specialized } from "./specialized-type.js";
 
 // Instance method registration (for inlining)
 export {

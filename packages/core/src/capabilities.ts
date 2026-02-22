@@ -23,8 +23,7 @@
  * ```
  */
 
-import * as ts from "typescript";
-import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
+import type { MacroContext } from "./types.js";
 
 // =============================================================================
 // Capability Flags

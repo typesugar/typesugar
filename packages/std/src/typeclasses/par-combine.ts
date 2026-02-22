@@ -32,6 +32,12 @@ import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 import type { BindStep, MapStep } from "../macros/comprehension-utils.js";
 import { createArrowFn, createIIFE } from "../macros/comprehension-utils.js";
+import {
+  registerInstanceWithMeta,
+  findInstance,
+  registerParCombineBuilder,
+  getParCombineBuilderFromRegistry,
+} from "@typesugar/macros";
 
 // ============================================================================
 // ParCombine Typeclass
@@ -149,14 +155,42 @@ function registerBuiltin(
   parCombineRegistry.set(name, { instance, builder });
 }
 
-// Register built-in instances with their zero-cost builders
+// Register built-in instances with their zero-cost builders (local registry for backward compat)
 registerBuiltin("Promise", parCombinePromise as ParCombine<unknown>, buildPromiseAll);
 registerBuiltin("AsyncIterable", parCombineAsyncIterable as ParCombine<unknown>, buildAsyncIterableAll);
 registerBuiltin("Array", parCombineArray as ParCombine<unknown>, buildArrayParCombine);
 registerBuiltin("Iterable", parCombineIterable as ParCombine<unknown>, buildIterableParCombine);
 
+// Also register in the unified typeclass registry
+function registerInUnifiedRegistry(name: string): void {
+  registerInstanceWithMeta({
+    typeclassName: "ParCombine",
+    forType: name,
+    instanceName: `parCombine${name}`,
+    derived: false,
+    meta: {
+      builderName: name, // Reference to builder in parCombineBuilderRegistry
+    },
+  });
+}
+
+// Register built-in instances in unified registry
+registerInUnifiedRegistry("Promise");
+registerInUnifiedRegistry("AsyncIterable");
+registerInUnifiedRegistry("Array");
+registerInUnifiedRegistry("Iterable");
+
+// Register builders in the unified builder registry
+registerParCombineBuilder("Promise", buildPromiseAll);
+registerParCombineBuilder("AsyncIterable", buildAsyncIterableAll);
+registerParCombineBuilder("Array", buildArrayParCombine);
+registerParCombineBuilder("Iterable", buildIterableParCombine);
+
 /**
  * Get a ParCombine instance by type constructor name.
+ *
+ * @deprecated Use findInstance("ParCombine", name) from @typesugar/macros for new code.
+ * This function is maintained for backward compatibility.
  */
 export function getParCombine(name: string): ParCombine<unknown> | undefined {
   return parCombineRegistry.get(name)?.instance;
@@ -164,24 +198,39 @@ export function getParCombine(name: string): ParCombine<unknown> | undefined {
 
 /**
  * Get the zero-cost builder for a type constructor, if registered.
+ *
+ * @deprecated Use getParCombineBuilderFromRegistry(name) from @typesugar/macros for new code.
+ * This function is maintained for backward compatibility.
  */
 export function getParCombineBuilder(name: string): ParCombineBuilder | undefined {
+  // First check unified registry, fall back to local registry
+  const unifiedBuilder = getParCombineBuilderFromRegistry(name);
+  if (unifiedBuilder) {
+    return unifiedBuilder;
+  }
   return parCombineRegistry.get(name)?.builder;
 }
 
 /**
  * Register a ParCombine instance for a type constructor.
  * Provide a builder for zero-cost macro expansion, or omit to use runtime dispatch.
+ *
+ * @deprecated Use @instance decorator or registerInstanceWithMeta() + registerParCombineBuilder()
+ * from @typesugar/macros for new code. This function is maintained for backward compatibility.
  */
 export function registerParCombine<F>(
   name: string,
   instance: ParCombine<F>,
   builder?: ParCombineBuilder
 ): void {
+  const actualBuilder = builder ?? createGenericParCombineBuilder(name);
   parCombineRegistry.set(name, {
     instance: instance as ParCombine<unknown>,
-    builder: builder ?? createGenericParCombineBuilder(name),
+    builder: actualBuilder,
   });
+  // Also register in unified registry
+  registerInUnifiedRegistry(name);
+  registerParCombineBuilder(name, actualBuilder);
 }
 
 // ============================================================================

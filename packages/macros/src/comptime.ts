@@ -403,7 +403,8 @@ function evaluateViaVm(
   callExpr: ts.CallExpression,
   permissions: ComptimePermissions = {}
 ): ts.Expression {
-  const sourceText = node.getText ? node.getText() : nodeToString(node, ctx);
+  // Use printer to avoid "Node must have a real position" on synthetic nodes (TS < 5.8)
+  const sourceText = nodeToString(node, ctx);
 
   // Wrap in an IIFE if it's a function — call it immediately
   const isFunction = ts.isArrowFunction(node) || ts.isFunctionExpression(node);
@@ -481,11 +482,16 @@ function formatComptimeError(
 ): string {
   const rawMessage = error instanceof Error ? error.message : String(error);
 
-  // Get source location
-  const sourceFile = ctx.sourceFile;
-  const start = callExpr.getStart(sourceFile);
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(start);
-  const location = `${sourceFile.fileName}:${line + 1}:${character + 1}`;
+  // Get source location (may fail for synthetic nodes)
+  let location = "unknown";
+  try {
+    const sourceFile = ctx.sourceFile;
+    const start = callExpr.getStart(sourceFile);
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(start);
+    location = `${sourceFile.fileName}:${line + 1}:${character + 1}`;
+  } catch {
+    // Synthetic nodes have pos/end = -1, skip location
+  }
 
   // Truncate long source snippets
   const maxSnippetLen = 200;
@@ -596,20 +602,33 @@ function nodeToString(node: ts.Node, ctx: MacroContextImpl): string {
 
 /**
  * Convert a JS value to a ComptimeValue (for interop with the lightweight evaluator).
+ * Handles circular references gracefully by tracking seen objects.
  */
-export function jsToComptimeValue(value: unknown): ComptimeValue {
+export function jsToComptimeValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet()
+): ComptimeValue {
   if (value === null) return { kind: "null" };
   if (value === undefined) return { kind: "undefined" };
   if (typeof value === "number") return { kind: "number", value };
   if (typeof value === "string") return { kind: "string", value };
   if (typeof value === "boolean") return { kind: "boolean", value };
+  if (typeof value === "bigint") return { kind: "bigint", value };
   if (Array.isArray(value)) {
-    return { kind: "array", elements: value.map(jsToComptimeValue) };
+    if (seen.has(value)) {
+      return { kind: "error", message: "Circular reference detected in array" };
+    }
+    seen.add(value);
+    return { kind: "array", elements: value.map((v) => jsToComptimeValue(v, seen)) };
   }
   if (typeof value === "object") {
+    if (seen.has(value)) {
+      return { kind: "error", message: "Circular reference detected in object" };
+    }
+    seen.add(value);
     const properties = new Map<string, ComptimeValue>();
     for (const [k, v] of Object.entries(value)) {
-      properties.set(k, jsToComptimeValue(v));
+      properties.set(k, jsToComptimeValue(v, seen));
     }
     return { kind: "object", properties };
   }
