@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { CancellationTokenSource, resetMockState } from "../test/mocks/vscode-mock";
-import { createMockTextDocument } from "../test/mocks/vscode-mock";
+import {
+  CancellationTokenSource,
+  resetMockState,
+  createMockTextDocument,
+} from "./mocks/vscode-mock";
 import { MacroSemanticTokensProvider, TOKEN_TYPES } from "../src/semantic-tokens";
 import { ManifestLoader } from "../src/manifest";
+import type * as vscode from "vscode";
 
-function createMockCancellationToken() {
-  return new CancellationTokenSource().token;
+function createMockCancellationToken(): vscode.CancellationToken {
+  return new CancellationTokenSource().token as unknown as vscode.CancellationToken;
 }
 
 /**

@@ -64,12 +64,12 @@ suite("Extension Activation", () => {
 
     // These should not throw, just show warnings
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.expandMacro"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.expandMacro")),
       "expandMacro should not throw without editor"
     );
 
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.showTransformed"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.showTransformed")),
       "showTransformed should not throw without editor"
     );
   });

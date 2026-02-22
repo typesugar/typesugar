@@ -62,7 +62,7 @@
     "typesugar": "workspace:*",
     "unplugin-typesugar": "workspace:*",
     "vitepress": "^1.6.4",
-    "vitest": "^3.2.2"
+    "vitest": "^2.1.9"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {

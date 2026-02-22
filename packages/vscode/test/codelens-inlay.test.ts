@@ -13,8 +13,17 @@ import { ManifestLoader } from "../src/manifest";
 import type { ExpansionService, ExpansionResult } from "../src/expansion";
 import type * as vscode from "vscode";
 
-function createMockCancellationToken() {
-  return new CancellationTokenSource().token;
+function createMockCancellationToken(): vscode.CancellationToken {
+  return new CancellationTokenSource().token as unknown as vscode.CancellationToken;
+}
+
+function createMockRange(
+  startLine: number,
+  startChar: number,
+  endLine: number,
+  endChar: number
+): vscode.Range {
+  return new Range(startLine, startChar, endLine, endChar) as unknown as vscode.Range;
 }
 
 function createMockExpansionService(result?: Partial<ExpansionResult>): ExpansionService {
@@ -178,7 +187,7 @@ describe("MacroInlayHintsProvider", () => {
       const provider = new MacroInlayHintsProvider(loader, expansion);
       const doc = createMockTextDocument(code, "test.ts");
 
-      const range = new Range(0, 0, 0, code.length);
+      const range = createMockRange(0, 0, 0, code.length);
       const hints = await provider.provideInlayHints(doc, range, createMockCancellationToken());
 
       expect(hints.length).toBeGreaterThan(0);
@@ -196,7 +205,7 @@ describe("MacroInlayHintsProvider", () => {
       const provider = new MacroInlayHintsProvider(loader, expansion);
       const doc = createMockTextDocument("const x = comptime(() => 42);", "test.ts");
 
-      const range = new Range(0, 0, 0, 50);
+      const range = createMockRange(0, 0, 0, 50);
       const hints = await provider.provideInlayHints(doc, range, createMockCancellationToken());
 
       expect(hints.length).toBe(0);
@@ -216,7 +225,7 @@ describe("MacroInlayHintsProvider", () => {
       const provider = new MacroInlayHintsProvider(loader, expansion);
       const doc = createMockTextDocument(code, "test.ts");
 
-      const range = new Range(0, 0, 3, 0);
+      const range = createMockRange(0, 0, 3, 0);
       const hints = await provider.provideInlayHints(doc, range, createMockCancellationToken());
 
       const typeHint = hints.find((h: vscode.InlayHint) =>
@@ -232,7 +241,7 @@ describe("MacroInlayHintsProvider", () => {
       const provider = new MacroInlayHintsProvider(loader, expansion);
       const doc = createMockTextDocument("", "test.ts");
 
-      const range = new Range(0, 0, 0, 0);
+      const range = createMockRange(0, 0, 0, 0);
       const hints = await provider.provideInlayHints(doc, range, createMockCancellationToken());
 
       expect(hints.length).toBe(0);
@@ -247,7 +256,7 @@ describe("MacroInlayHintsProvider", () => {
       const provider = new MacroInlayHintsProvider(loader, expansion);
       const doc = createMockTextDocument("const x = comptime(() => 42);", "test.ts");
 
-      const range = new Range(0, 0, 0, 50);
+      const range = createMockRange(0, 0, 0, 50);
       const hints = await provider.provideInlayHints(doc, range, createMockCancellationToken());
       expect(hints.length).toBe(0);
     });
@@ -261,7 +270,7 @@ describe("MacroInlayHintsProvider", () => {
       const provider = new MacroInlayHintsProvider(loader, expansion);
       const doc = createMockTextDocument("const x = comptime(() => 42);", "test.ts");
 
-      const range = new Range(0, 0, 0, 50);
+      const range = createMockRange(0, 0, 0, 50);
       // Should not throw
       await expect(
         provider.provideInlayHints(doc, range, createMockCancellationToken())

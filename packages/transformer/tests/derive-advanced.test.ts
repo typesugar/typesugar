@@ -14,6 +14,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
+import { loadMacroPackage, resetLoadedPackages } from "../src/index.js";
 import {
   clearRegistries,
   clearSyntaxRegistry,
@@ -27,6 +28,9 @@ beforeEach(() => {
   clearSyntaxRegistry();
   clearRegistries();
   globalRegistry.clear();
+  // After clearing registries, re-load macro packages so @derive etc. work
+  resetLoadedPackages();
+  loadMacroPackage("@typesugar/macros", false);
 });
 
 // ============================================================================

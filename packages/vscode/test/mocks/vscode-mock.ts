@@ -43,11 +43,31 @@ export class Range {
   get isEmpty(): boolean {
     return this.start.isEqual(this.end);
   }
+  get isSingleLine(): boolean {
+    return this.start.line === this.end.line;
+  }
   contains(positionOrRange: Position | Range): boolean {
     if (positionOrRange instanceof Position) {
       return positionOrRange.line >= this.start.line && positionOrRange.line <= this.end.line;
     }
     return this.contains(positionOrRange.start) && this.contains(positionOrRange.end);
+  }
+  isEqual(other: Range): boolean {
+    return this.start.isEqual(other.start) && this.end.isEqual(other.end);
+  }
+  intersection(other: Range): Range | undefined {
+    const start = this.start.line > other.start.line ? this.start : other.start;
+    const end = this.end.line < other.end.line ? this.end : other.end;
+    if (start.line > end.line) return undefined;
+    return new Range(start, end);
+  }
+  union(other: Range): Range {
+    const start = this.start.line < other.start.line ? this.start : other.start;
+    const end = this.end.line > other.end.line ? this.end : other.end;
+    return new Range(start, end);
+  }
+  with(start?: Position, end?: Position): Range {
+    return new Range(start ?? this.start, end ?? this.end);
   }
 }
 
@@ -134,20 +154,30 @@ export class Disposable {
 
 // --- Cancellation ---
 
+export type Event<T> = (
+  listener: (e: T) => any,
+  thisArgs?: any,
+  disposables?: Disposable[]
+) => Disposable;
+
 export class CancellationTokenSource {
+  private _emitter = new EventEmitter<any>();
   token: CancellationToken = {
     isCancellationRequested: false,
-    onCancellationRequested: () => new Disposable(() => {}),
+    onCancellationRequested: this._emitter.event,
   };
   cancel(): void {
     (this.token as any).isCancellationRequested = true;
+    this._emitter.fire(undefined);
   }
-  dispose(): void {}
+  dispose(): void {
+    this._emitter.dispose();
+  }
 }
 
 export interface CancellationToken {
   isCancellationRequested: boolean;
-  onCancellationRequested: (listener: () => void) => Disposable;
+  onCancellationRequested: Event<any>;
 }
 
 // --- Semantic Tokens ---

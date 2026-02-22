@@ -21,7 +21,7 @@ suite("Command Execution", () => {
     this.timeout(10000);
 
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.refreshManifest"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.refreshManifest")),
       "refreshManifest should complete without error"
     );
   });
@@ -33,7 +33,7 @@ suite("Command Execution", () => {
 
     // Should show a warning, not throw
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.expandMacro"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.expandMacro")),
       "expandMacro should not throw without editor"
     );
   });
@@ -44,7 +44,7 @@ suite("Command Execution", () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
 
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.showTransformed"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.showTransformed")),
       "showTransformed should not throw without editor"
     );
   });
@@ -66,7 +66,7 @@ suite("Command Execution", () => {
     editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(0, 0));
 
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.expandMacro"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.expandMacro")),
       "expandMacro should not throw with editor open"
     );
   });
@@ -85,7 +85,7 @@ suite("Command Execution", () => {
     await vscode.window.showTextDocument(doc);
 
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.showTransformed"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.showTransformed")),
       "showTransformed should not throw with file open"
     );
   });
@@ -102,7 +102,7 @@ suite("Command Execution", () => {
 
     // Should show warning, not throw
     await assert.doesNotReject(
-      vscode.commands.executeCommand("typesugar.showTransformed"),
+      Promise.resolve(vscode.commands.executeCommand("typesugar.showTransformed")),
       "showTransformed should handle non-TS files gracefully"
     );
   });

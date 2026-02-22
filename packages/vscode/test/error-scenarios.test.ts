@@ -6,6 +6,7 @@ import {
   Uri,
   Range,
   Position,
+  CancellationTokenSource,
 } from "./mocks/vscode-mock";
 import { MacroDiagnosticsManager } from "../src/diagnostics";
 import { MacroSemanticTokensProvider, TOKEN_TYPES } from "../src/semantic-tokens";
@@ -14,10 +15,10 @@ import { MacroInlayHintsProvider } from "../src/inlay-hints";
 import { MacroCodeActionsProvider } from "../src/code-actions";
 import { ManifestLoader } from "../src/manifest";
 import type { ExpansionService, ExpansionResult, ExpansionDiagnostic } from "../src/expansion";
-import { CancellationTokenSource } from "./mocks/vscode-mock";
+import type * as vscode from "vscode";
 
-function createMockCancellationToken() {
-  return new CancellationTokenSource().token;
+function createMockCancellationToken(): vscode.CancellationToken {
+  return new CancellationTokenSource().token as unknown as vscode.CancellationToken;
 }
 
 function createMockExpansionService(
