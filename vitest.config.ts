@@ -14,8 +14,9 @@ export default defineConfig({
           globals: true,
         },
       },
-      // Package tests
+      // Package tests (exclude vscode due to Node 18 ESM/CJS issues - it uses @vscode/test-electron)
       "packages/*/vitest.config.ts",
+      "!packages/vscode/vitest.config.ts",
     ],
 
     pool: "forks",
