@@ -973,7 +973,19 @@ class MacroTransformer {
   }
 
   private hasDecorators(node: ts.Node): node is ts.HasDecorators {
-    return ts.canHaveDecorators(node) && ts.getDecorators(node) !== undefined;
+    if (ts.canHaveDecorators(node) && ts.getDecorators(node) !== undefined) {
+      return true;
+    }
+    // TypeScript's parser creates decorator nodes on interfaces and type aliases
+    // for error recovery, but ts.canHaveDecorators() returns false for them.
+    // We need to detect these to support @derive() on interfaces/type aliases.
+    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
+      const modifiers = node.modifiers;
+      if (modifiers) {
+        return modifiers.some((m) => m.kind === ts.SyntaxKind.Decorator);
+      }
+    }
+    return false;
   }
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
@@ -1211,6 +1223,96 @@ class MacroTransformer {
     return sorted;
   }
 
+  /**
+   * Known dependency relationships between builtin typeclasses.
+   * If Ord depends on Eq, then Eq must be derived before Ord.
+   */
+  private static readonly BUILTIN_DERIVE_DEPS: Record<string, string[]> = {
+    Ord: ["Eq"],
+    Monoid: ["Semigroup"],
+  };
+
+  /**
+   * Sort derive arguments by dependency order using Kahn's algorithm.
+   * Respects both registered derive macro `expandAfter` declarations
+   * and builtin typeclass dependency relationships.
+   */
+  private sortDeriveArgsByDependency(args: ts.Expression[]): ts.Expression[] {
+    const identArgs = args.filter(ts.isIdentifier);
+    if (identArgs.length < 2) return [...args];
+
+    const nameToIndex = new Map<string, number>();
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (ts.isIdentifier(a)) nameToIndex.set(a.text, i);
+    }
+
+    let hasDeps = false;
+    const n = args.length;
+    const inDegree = new Array<number>(n).fill(0);
+    const adj: number[][] = [];
+    for (let i = 0; i < n; i++) adj.push([]);
+
+    for (let i = 0; i < n; i++) {
+      const a = args[i];
+      if (!ts.isIdentifier(a)) continue;
+      const name = a.text;
+
+      const deps: string[] = [];
+
+      // Check registered derive macro expandAfter
+      const deriveMacro = globalRegistry.getDerive(name);
+      if (deriveMacro?.expandAfter) {
+        deps.push(...deriveMacro.expandAfter);
+      }
+
+      // Check {Name}TC convention macro
+      const tcMacro = globalRegistry.getDerive(`${name}TC`);
+      if (tcMacro?.expandAfter) {
+        deps.push(...tcMacro.expandAfter);
+      }
+
+      // Check builtin typeclass dependencies
+      const builtinDeps = MacroTransformer.BUILTIN_DERIVE_DEPS[name];
+      if (builtinDeps) {
+        deps.push(...builtinDeps);
+      }
+
+      for (const dep of deps) {
+        const depIdx = nameToIndex.get(dep);
+        if (depIdx !== undefined) {
+          adj[depIdx].push(i);
+          inDegree[i]++;
+          hasDeps = true;
+        }
+      }
+    }
+
+    if (!hasDeps) return [...args];
+
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (inDegree[i] === 0) queue.push(i);
+    }
+
+    const sorted: ts.Expression[] = [];
+    while (queue.length > 0) {
+      queue.sort((a, b) => a - b);
+      const idx = queue.shift()!;
+      sorted.push(args[idx]);
+      for (const next of adj[idx]) {
+        inDegree[next]--;
+        if (inDegree[next] === 0) queue.push(next);
+      }
+    }
+
+    if (sorted.length < n) {
+      return [...args];
+    }
+
+    return sorted;
+  }
+
   private expandDeriveDecorator(
     decorator: ts.Decorator,
     node: ts.Node,
@@ -1228,11 +1330,12 @@ class MacroTransformer {
       return undefined;
     }
 
+    const sortedArgs = this.sortDeriveArgsByDependency(args);
     const statements: ts.Statement[] = [];
     const typeInfo = this.extractTypeInfo(node);
     const typeName = node.name?.text ?? "Anonymous";
 
-    for (const arg of args) {
+    for (const arg of sortedArgs) {
       if (!ts.isIdentifier(arg)) {
         this.ctx.reportError(arg, "derive arguments must be identifiers");
         continue;
@@ -2006,7 +2109,28 @@ class MacroTransformer {
     }
 
     if (ts.isInterfaceDeclaration(node)) {
-      return node;
+      return factory.updateInterfaceDeclaration(
+        node,
+        modifiers
+          ? [...modifiers, ...(node.modifiers?.filter((m) => !ts.isDecorator(m)) ?? [])]
+          : node.modifiers?.filter((m) => !ts.isDecorator(m)),
+        node.name,
+        node.typeParameters,
+        node.heritageClauses,
+        node.members
+      );
+    }
+
+    if (ts.isTypeAliasDeclaration(node)) {
+      return factory.updateTypeAliasDeclaration(
+        node,
+        modifiers
+          ? [...modifiers, ...(node.modifiers?.filter((m) => !ts.isDecorator(m)) ?? [])]
+          : node.modifiers?.filter((m) => !ts.isDecorator(m)),
+        node.name,
+        node.typeParameters,
+        node.type
+      );
     }
 
     return node;
