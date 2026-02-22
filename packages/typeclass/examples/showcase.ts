@@ -297,3 +297,89 @@ assert(msg!.includes("api.example.com"));
 
 const noChange = logIfChanged(dev, devCopy, configEq, configShow);
 assert(noChange === null);
+
+// ============================================================================
+// 9. ZERO-COST SPECIALIZATION — fn.specialize(dict) extension method
+// ============================================================================
+
+// The `.specialize()` extension method creates a specialized function that
+// has the typeclass instance "baked in" — no dictionary passing at call sites.
+//
+// At compile time:
+//   sortWith.specialize(numberOrd)
+// Becomes:
+//   (items) => items.slice().sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+//
+// This is ZERO-COST: no runtime dictionary lookup, no indirect dispatch.
+
+function sortWith<A>(items: A[], ord: Ord<A>): A[] {
+  return [...items].sort((a, b) => ord.compare(a, b));
+}
+
+function maxWith<A>(items: A[], ord: Ord<A>): A {
+  return items.reduce((a, b) => (ord.compare(a, b) >= 0 ? a : b));
+}
+
+// Create specialized functions using the extension method syntax
+// These are reusable functions with the instance already applied
+const sortNumbers = sortWith.specialize(numberOrd);
+const maxNumber = maxWith.specialize(numberOrd);
+
+// Use the specialized functions — no instance argument needed
+const sorted = sortNumbers([3, 1, 4, 1, 5, 9, 2, 6]);
+assert(sorted[0] === 1 && sorted[7] === 9);
+
+const biggest = maxNumber([3, 1, 4, 1, 5, 9, 2, 6]);
+assert(biggest === 9);
+
+// ============================================================================
+// 10. MULTI-DICTIONARY SPECIALIZATION — fn.specialize(dict1, dict2, ...)
+// ============================================================================
+
+// Functions with multiple typeclass constraints can be specialized with
+// all dictionaries at once.
+
+function sortAndShowItems<A>(items: A[], ord: Ord<A>, show: Show<A>): string {
+  const sortedItems = [...items].sort((a, b) => ord.compare(a, b));
+  return sortedItems.map((item) => show.show(item)).join(", ");
+}
+
+// Specialize with both Ord and Show instances
+const sortAndShowNumbers = sortAndShowItems.specialize(numberOrd, numberShow);
+
+const displaySorted = sortAndShowNumbers([3, 1, 2]);
+assert(displaySorted === "1, 2, 3");
+
+// ============================================================================
+// 11. COMPARING SPECIALIZATION APPROACHES
+// ============================================================================
+
+// There are multiple ways to achieve zero-cost typeclass abstraction:
+//
+// 1. MANUAL INSTANCE PASSING — Pass dictionaries explicitly
+//    sortWith([3, 1, 2], numberOrd)
+//    → Still has dictionary parameter at call site
+//
+// 2. fn.specialize(dict) — Create a named specialized function
+//    const sortNumbers = sortWith.specialize(numberOrd);
+//    sortNumbers([3, 1, 2])
+//    → Dictionary baked in, reusable function
+//
+// 3. summon<TC<T>>() — Get instance for generic code
+//    sortWith([3, 1, 2], summon<Ord<number>>())
+//    → Compile-time resolution, explicit at call site
+//
+// All approaches result in efficient code — .specialize() is preferred when
+// you want a named, reusable specialized function.
+
+// Manual dictionary passing
+const manualResult = sortWith([5, 3, 7], numberOrd);
+assert(manualResult[0] === 3);
+
+// Using summon for inline resolution
+const summonResult = sortWith([5, 3, 7], summon<Ord<number>>());
+assert(summonResult[0] === 3);
+
+// Using specialized function (no dict arg)
+const specializedResult = sortNumbers([5, 3, 7]);
+assert(specializedResult[0] === 3);
