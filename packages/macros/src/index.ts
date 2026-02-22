@@ -402,6 +402,8 @@ export {
   // Extension registration stubs
   registerExtensions,
   registerExtension,
+  // Implicits stub
+  implicits,
   // Comptime stub
   comptime,
   // Derive stub

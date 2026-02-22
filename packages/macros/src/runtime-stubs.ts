@@ -161,6 +161,38 @@ export function registerExtension<F extends Function>(_typeName: string, _fn: F)
 }
 
 // ============================================================================
+// Implicits Runtime Stub
+// ============================================================================
+
+/**
+ * Decorator to mark a function as having implicit typeclass parameters.
+ * The transformer auto-fills missing typeclass instance arguments at call sites.
+ *
+ * @param paramNames - Optional parameter names to treat as implicit. If omitted,
+ *                     auto-detects parameters typed as `TypeclassName<T>`.
+ *
+ * @example
+ * ```typescript
+ * @implicits
+ * function show<A>(a: A, S: Show<A>): string {
+ *   return S.show(a);
+ * }
+ *
+ * // Call site - implicit param auto-filled:
+ * show(42);  // → show(42, Show.summon<number>("number"))
+ *
+ * // Explicit still works:
+ * show(42, customShow);  // Uses customShow
+ * ```
+ */
+export function implicits(
+  ...paramNames: string[]
+): (target: any, context?: any) => any {
+  // Placeholder - processed by transformer
+  return (target) => target;
+}
+
+// ============================================================================
 // Comptime Stubs
 // ============================================================================
 

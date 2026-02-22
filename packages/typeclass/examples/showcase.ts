@@ -23,6 +23,7 @@ import {
   deriving,
   summon,
   extend,
+  implicits,
   type TypeclassInfo,
   type InstanceInfo,
   findExtensionMethod,
@@ -312,10 +313,7 @@ assert(noChange === null);
 //
 // This is ZERO-COST: no runtime dictionary lookup, no indirect dispatch.
 
-function sortWith<A>(items: A[], ord: Ord<A>): A[] {
-  return [...items].sort((a, b) => ord.compare(a, b));
-}
-
+// Reuse sortWith from section 6
 function maxWith<A>(items: A[], ord: Ord<A>): A {
   return items.reduce((a, b) => (ord.compare(a, b) >= 0 ? a : b));
 }
@@ -326,8 +324,8 @@ const sortNumbers = sortWith.specialize(numberOrd);
 const maxNumber = maxWith.specialize(numberOrd);
 
 // Use the specialized functions — no instance argument needed
-const sorted = sortNumbers([3, 1, 4, 1, 5, 9, 2, 6]);
-assert(sorted[0] === 1 && sorted[7] === 9);
+const sortedNumbers = sortNumbers([3, 1, 4, 1, 5, 9, 2, 6]);
+assert(sortedNumbers[0] === 1 && sortedNumbers[7] === 9);
 
 const biggest = maxNumber([3, 1, 4, 1, 5, 9, 2, 6]);
 assert(biggest === 9);
@@ -351,28 +349,48 @@ const displaySorted = sortAndShowNumbers([3, 1, 2]);
 assert(displaySorted === "1, 2, 3");
 
 // ============================================================================
-// 11. COMPARING SPECIALIZATION APPROACHES
+// 11. AUTO-SPECIALIZATION — zero-cost calls with registered instances
+// ============================================================================
+
+// When you call a function with a registered typeclass instance as an argument,
+// the transformer automatically specializes the call site. This happens
+// transparently — you don't need to use .specialize() explicitly.
+//
+// At compile time:
+//   sortWith([1, 2, 3], numberOrd)
+// Becomes (if numberOrd is registered):
+//   [1, 2, 3].slice().sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+
+// These calls are auto-specialized because numberOrd is a registered instance
+const autoSpec1 = sortWith([5, 3, 7], numberOrd);
+assert(autoSpec1[0] === 3);
+
+const autoSpec2 = maxWith([5, 3, 7], numberOrd);
+assert(autoSpec2 === 7);
+
+// The transformer hoists the specialized function and reuses it for identical
+// call patterns, ensuring zero runtime overhead.
+
+// ============================================================================
+// 12. COMPARING SPECIALIZATION APPROACHES
 // ============================================================================
 
 // There are multiple ways to achieve zero-cost typeclass abstraction:
 //
-// 1. MANUAL INSTANCE PASSING — Pass dictionaries explicitly
+// 1. AUTO-SPECIALIZATION — Automatic when passing registered instance
 //    sortWith([3, 1, 2], numberOrd)
-//    → Still has dictionary parameter at call site
+//    → Dictionary inlined automatically (RECOMMENDED for most cases)
 //
 // 2. fn.specialize(dict) — Create a named specialized function
 //    const sortNumbers = sortWith.specialize(numberOrd);
 //    sortNumbers([3, 1, 2])
-//    → Dictionary baked in, reusable function
+//    → Dictionary baked in, reusable function (RECOMMENDED for reuse)
 //
 // 3. summon<TC<T>>() — Get instance for generic code
 //    sortWith([3, 1, 2], summon<Ord<number>>())
 //    → Compile-time resolution, explicit at call site
-//
-// All approaches result in efficient code — .specialize() is preferred when
-// you want a named, reusable specialized function.
 
-// Manual dictionary passing
+// Manual dictionary passing (auto-specialized)
 const manualResult = sortWith([5, 3, 7], numberOrd);
 assert(manualResult[0] === 3);
 
@@ -380,6 +398,75 @@ assert(manualResult[0] === 3);
 const summonResult = sortWith([5, 3, 7], summon<Ord<number>>());
 assert(summonResult[0] === 3);
 
-// Using specialized function (no dict arg)
+// Using named specialized function (no dict arg)
 const specializedResult = sortNumbers([5, 3, 7]);
 assert(specializedResult[0] === 3);
+
+// ============================================================================
+// 13. IMPLICIT PARAMETERS — @implicits auto-fill
+// ============================================================================
+
+// The @implicits decorator marks functions as having implicit typeclass
+// parameters. At call sites, the transformer automatically fills in missing
+// typeclass instance arguments — like Scala 3's `using` clauses.
+//
+// This provides the convenience of auto-resolution while keeping the
+// function signature explicit for tooling and documentation.
+
+@implicits
+function showItem<A>(item: A, S: Show<A>): string {
+  return S.show(item);
+}
+
+@implicits
+function compareItems<A>(a: A, b: A, O: Ord<A>): -1 | 0 | 1 {
+  return O.compare(a, b);
+}
+
+// Call without explicit instance — auto-filled from registry
+const shown = showItem(42);
+assert(shown === "42");
+
+const cmp = compareItems(1, 2);
+assert(cmp === -1);
+
+// Explicit instance still works — overrides auto-fill
+const customShown = showItem("hello", stringShow);
+assert(customShown === '"hello"');
+
+// @implicits with multiple instances
+@implicits
+function showSorted<A>(items: A[], O: Ord<A>, S: Show<A>): string {
+  const sortedItems = [...items].sort((a, b) => O.compare(a, b));
+  return sortedItems.map((item) => S.show(item)).join(", ");
+}
+
+const sortedDisplay = showSorted([3, 1, 2]);
+assert(sortedDisplay === "1, 2, 3");
+
+// ============================================================================
+// 14. IMPLICIT PROPAGATION — nested @implicits calls
+// ============================================================================
+
+// When inside an @implicits function, resolved instances automatically
+// propagate to nested @implicits calls. This enables implicit chaining
+// without manual threading.
+
+@implicits
+function outer<A>(item: A, S: Show<A>): string {
+  // showItem is also @implicits — S is automatically passed!
+  return `Outer: ${showItem(item)}`;
+}
+
+// The Show<number> instance is resolved once and flows through
+const nested = outer(100);
+assert(nested === "Outer: 100");
+
+// Custom instance flows through too
+@instance(Show, Boolean)
+const booleanShow: Show<boolean> = {
+  show: (b) => (b ? "yes" : "no"),
+};
+
+const nestedBool = outer(true);
+assert(nestedBool === "Outer: yes");
