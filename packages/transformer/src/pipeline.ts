@@ -158,6 +158,7 @@ export class TransformationPipeline {
       return this.createEmptyResult(normalizedFileName);
     }
 
+
     // Extract dependencies from source file
     const dependencies = this.extractDependencies(sourceFile, normalizedFileName);
 
@@ -348,6 +349,18 @@ export class TransformationPipeline {
 
       const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
       const transformed = printer.printFile(result.transformed[0]);
+
+      // Collect diagnostics from the transformation
+      const diagnostics: TransformDiagnostic[] = (result.diagnostics ?? []).map(d => ({
+        file: d.file?.fileName ?? sourceFile.fileName,
+        start: d.start ?? 0,
+        length: d.length ?? 0,
+        message: typeof d.messageText === "string"
+          ? d.messageText
+          : d.messageText.messageText,
+        severity: d.category === ts.DiagnosticCategory.Error ? "error" as const : "warning" as const,
+      }));
+
       result.dispose();
 
       // Generate source map from expansion records
@@ -359,7 +372,7 @@ export class TransformationPipeline {
       return {
         code: transformed,
         map,
-        diagnostics: [], // TODO: Collect diagnostics from transformation
+        diagnostics,
       };
     } catch (error) {
       if (this.verbose) {
@@ -557,17 +570,18 @@ export function createPipeline(
 /**
  * Simple single-file transformation (no type info)
  *
- * Use this for quick transformations when you don't need type-aware features.
+ * Use this for quick transformations. Falls through to the real filesystem
+ * for lib files so the TypeScript type checker works correctly.
  */
 export function transformCode(
   code: string,
   options?: { fileName?: string } & PipelineOptions
 ): TransformResult {
-  const fileName = options?.fileName ?? "input.ts";
+  const fileName = path.resolve(options?.fileName ?? "input.ts");
   const pipeline = new TransformationPipeline({ target: ts.ScriptTarget.Latest }, [fileName], {
     ...options,
-    readFile: (f) => (f === fileName ? code : undefined),
-    fileExists: (f) => f === fileName,
+    readFile: (f) => (f === fileName || f === (options?.fileName ?? "input.ts") ? code : ts.sys.readFile(f)),
+    fileExists: (f) => f === fileName || f === (options?.fileName ?? "input.ts") || ts.sys.fileExists(f),
   });
   return pipeline.transform(fileName);
 }

@@ -9,6 +9,13 @@ import { preprocess } from "@typesugar/preprocessor";
 import { loadMacroPackages } from "./macro-loader.js";
 
 import {
+  getOperatorString,
+  getSyntaxForOperator,
+  findInstance,
+  getInstanceMethods,
+} from "@typesugar/macros";
+
+import {
   MacroContextImpl,
   createMacroContext,
   globalRegistry,
@@ -900,6 +907,13 @@ class MacroTransformer {
       }
     }
 
+    if (ts.isBinaryExpression(node)) {
+      const result = this.tryRewriteTypeclassOperator(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
     return undefined;
   }
 
@@ -1402,6 +1416,86 @@ class MacroTransformer {
       this.ctx.reportError(node, `Extension method rewrite failed: ${error}`);
       return undefined;
     }
+  }
+
+  /**
+   * Rewrite a binary expression using typeclass operator overloading.
+   *
+   * When a typeclass method is annotated with `& Op<"+">`, any usage of `+`
+   * on types that have an instance of that typeclass gets rewritten to a
+   * direct method call (or inlined for zero-cost).
+   */
+  private tryRewriteTypeclassOperator(node: ts.BinaryExpression): ts.Expression | undefined {
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "extensions")) {
+      return undefined;
+    }
+
+    const opString = getOperatorString(node.operatorToken.kind);
+    if (!opString) return undefined;
+
+    const entries = getSyntaxForOperator(opString);
+    if (!entries || entries.length === 0) return undefined;
+
+    const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
+    const typeName = this.ctx.typeChecker.typeToString(leftType);
+    const baseTypeName = typeName.replace(/<.*>$/, "");
+
+    let matchedEntry: { typeclass: string; method: string } | undefined;
+    let matchedInstance:
+      | { typeclassName: string; forType: string; instanceName: string }
+      | undefined;
+
+    for (const entry of entries) {
+      const inst =
+        findInstance(entry.typeclass, typeName) ?? findInstance(entry.typeclass, baseTypeName);
+      if (inst) {
+        if (matchedEntry) {
+          this.ctx.reportError(
+            node,
+            `Ambiguous operator '${opString}' for type '${typeName}': ` +
+              `both ${matchedEntry.typeclass}.${matchedEntry.method} and ` +
+              `${entry.typeclass}.${entry.method} apply. ` +
+              `Use explicit method calls to disambiguate.`
+          );
+          return undefined;
+        }
+        matchedEntry = entry;
+        matchedInstance = inst;
+      }
+    }
+
+    if (!matchedEntry || !matchedInstance) {
+      return undefined;
+    }
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Rewriting operator: ${typeName} ${opString} → ` +
+          `${matchedEntry.typeclass}.${matchedEntry.method}()`
+      );
+    }
+
+    const factory = this.ctx.factory;
+    const left = ts.visitNode(node.left, this.visit.bind(this)) as ts.Expression;
+    const right = ts.visitNode(node.right, this.visit.bind(this)) as ts.Expression;
+
+    // Try zero-cost inlining if instance methods are available
+    const dictMethodMap = getInstanceMethods(matchedInstance.instanceName);
+    if (dictMethodMap) {
+      const dictMethod = dictMethodMap.methods.get(matchedEntry.method);
+      if (dictMethod && dictMethod.source) {
+        // TODO: Full inlining will be added in Step 6 (auto-specialization).
+        // For now, fall through to the method call below.
+      }
+    }
+
+    // Emit instanceVar.method(left, right)
+    const methodAccess = factory.createPropertyAccessExpression(
+      factory.createIdentifier(matchedInstance.instanceName),
+      matchedEntry.method
+    );
+    const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
+    return preserveSourceMap(rewritten, node);
   }
 
   private createMacroErrorExpression(message: string): ts.Expression {

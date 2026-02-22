@@ -158,7 +158,18 @@ export class VirtualCompilerHost implements ts.CompilerHost {
       );
     }
 
-    // Fall back to base host
+    // For virtual files served by customReadFile that don't need preprocessing,
+    // the base host can't find them on disk. Create from customReadFile content.
+    const customContent = this.customReadFile(fileName);
+    if (customContent !== undefined) {
+      const languageVersion =
+        typeof languageVersionOrOptions === "number"
+          ? languageVersionOrOptions
+          : languageVersionOrOptions.languageVersion;
+      return ts.createSourceFile(fileName, customContent, languageVersion, true);
+    }
+
+    // Fall back to base host for real filesystem files
     return this.baseHost.getSourceFile(
       fileName,
       languageVersionOrOptions,
