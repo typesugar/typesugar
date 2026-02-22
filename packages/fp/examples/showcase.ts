@@ -378,3 +378,84 @@ typeAssert<Equal<$<OptionF, number>, number | null>>();
 // function map<F>(F: Functor<F>): <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>
 // When F = OptionF, $<OptionF, A> = A | null (zero-cost!)
 typeAssert<Equal<$<OptionF, string>, string | null>>();
+
+// ============================================================================
+// 11. TRANSFORMER FEATURES — Op<>, @implicits, Return-Type Specialization
+// ============================================================================
+// The following features require the typesugar transformer to be active.
+// They demonstrate how @typesugar/fp integrates with transformer features.
+
+// --- 11.1 Op<> Operator Rewriting ---
+// The Eq typeclass methods are annotated with Op<"==="> enabling:
+//   optA === optB → eqOption.eqv(optA, optB)
+//
+// This is a future feature — when transformer is active, you can write:
+//   const eqOpt = Option.getEq(eqNumber);
+//   @instance const optionEq: Eq<Option<number>> = eqOpt;
+//   Some(1) === Some(1)  // transformed to: optionEq.eqv(Some(1), Some(1))
+//
+// For now, Eq instances work manually:
+import { eqNumber } from "../src/typeclasses/eq.js";
+const eqOptNum = Option.getEq(eqNumber);
+assert(eqOptNum.eqv(Some(1), Some(1)) === true, "Eq.eqv for Option works");
+assert(eqOptNum.eqv(Some(1), Some(2)) === false, "Different values are not equal");
+assert(eqOptNum.eqv(Some(1), None) === false, "Some !== None");
+assert(eqOptNum.eqv(None, None) === true, "None === None");
+
+// Either Eq
+import { eqString } from "../src/typeclasses/eq.js";
+const eqEitherStrNum = Either.getEq(eqString, eqNumber);
+assert(eqEitherStrNum.eqv(Right(42), Right(42)) === true);
+assert(eqEitherStrNum.eqv(Left("err"), Left("err")) === true);
+assert(eqEitherStrNum.eqv(Right(42), Left("err")) === false);
+
+// --- 11.2 Return-Type Specialization: Either → Option ---
+// The transformer can auto-convert Result/Either to Option when needed.
+// This pattern is common: Either.toOption discards the error type.
+
+const eitherSuccess = Right(42);
+const eitherFailure = Left("error");
+
+const optFromSuccess = Either.toOption(eitherSuccess);
+const optFromFailure = Either.toOption(eitherFailure);
+
+assert(optFromSuccess === 42, "toOption extracts Right value");
+assert(optFromFailure === null, "toOption converts Left to None");
+
+// Type-level: Either<E, A>.toOption() → Option<A>
+typeAssert<Equal<typeof optFromSuccess, number | null>>();
+
+// --- 11.3 Traverse with Applicative ---
+// The traverse/sequence functions take an Applicative parameter.
+// With @implicits, this could be filled automatically.
+
+import { optionTraverse, optionMonad, arrayTraverse } from "../src/instances.js";
+import type { Applicative } from "../src/typeclasses/applicative.js";
+
+// Manual usage (without @implicits):
+// traverse over an array, returning Option of array
+const traverseResult = arrayTraverse.traverse(optionMonad as unknown as Applicative<OptionF>)(
+  [1, 2, 3],
+  (n: number) => n > 0 ? Some(n * 2) : None
+);
+// With all positives, we get Some([2, 4, 6])
+assert(
+  traverseResult !== null &&
+  Array.isArray(traverseResult) &&
+  traverseResult.join(",") === "2,4,6",
+  "traverse with Option succeeds"
+);
+
+// With a None in the mix, the whole thing fails
+const traverseFail = arrayTraverse.traverse(optionMonad as unknown as Applicative<OptionF>)(
+  [1, -1, 3],
+  (n: number) => n > 0 ? Some(n * 2) : None
+);
+assert(traverseFail === null, "traverse short-circuits on None");
+
+// Future: with @implicits, you could write:
+//   @implicits
+//   function myTraverse<F, A, B>(F: Traverse<F>, G: Applicative<G>, fa: $<F, A>, f: (a: A) => $<G, B>): $<G, $<F, B>>
+//   myTraverse(myList, myFunc)  // Applicative auto-resolved
+
+console.log("✓ All @typesugar/fp showcase tests passed!");

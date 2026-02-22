@@ -16,6 +16,7 @@
  * ```
  */
 
+import type { Op } from "@typesugar/core";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
 import type { Show } from "../typeclasses/show.js";
 import type { Semigroup, Monoid } from "../typeclasses/semigroup.js";
@@ -418,15 +419,26 @@ export function isEmpty<A>(opt: Option<A>): boolean {
 // ============================================================================
 
 /**
- * Eq instance for Option
+ * Eq instance for Option.
+ *
+ * Enables operator rewriting: `optA === optB` → `getEq(eqA).eqv(optA, optB)`
+ *
+ * @example
+ * ```typescript
+ * const eqOptNum = getEq(eqNumber);
+ * const a = Some(1);
+ * const b = Some(1);
+ *
+ * // With transformer: a === b → eqOptNum.eqv(a, b) → true
+ * ```
  */
 export function getEq<A>(E: Eq<A>): Eq<Option<A>> {
   return {
-    eqv: (x, y) => {
+    eqv: ((x, y) => {
       if (x === null && y === null) return true;
       if (x !== null && y !== null) return E.eqv(x, y);
       return false;
-    },
+    }) as (x: Option<A>, y: Option<A>) => boolean & Op<"===">,
   };
 }
 

@@ -6,6 +6,7 @@
  * By convention, Right is the "right" (correct/success) case.
  */
 
+import type { Op } from "@typesugar/core";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
@@ -416,15 +417,17 @@ export function partition<A, E, B>(
 // ============================================================================
 
 /**
- * Eq instance for Either
+ * Eq instance for Either.
+ *
+ * Enables operator rewriting: `eitherA === eitherB` → `getEq(eqE, eqA).eqv(eitherA, eitherB)`
  */
 export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
   return {
-    eqv: (x, y) => {
+    eqv: ((x, y) => {
       if (isLeft(x) && isLeft(y)) return EE.eqv(x.left, y.left);
       if (isRight(x) && isRight(y)) return EA.eqv(x.right, y.right);
       return false;
-    },
+    }) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"===">,
   };
 }
 

@@ -43,17 +43,14 @@ var __runInitializers = (this && this.__runInitializers) || function (thisArg, i
  * - Reflection with typeInfo() and fieldNames()
  */
 // Import from the typemacro umbrella package
-// All built-in macros are available as namespaced exports
-import { comptime, operators,
-// Individual macros can also be accessed via namespace
-// e.g., operators.ops, operators.pipe, operators.compose
- } from "typemacro";
+// Callable macros are exported directly, namespaces also available
+import { comptimeEval as comptime, ops, pipe,
+// Namespaces are also available:
+// comptime, derive, operators, reflect, typeclass, specialize
+ } from "typesugar";
 // Alternatively, you can import directly from specific packages:
-// import { comptime } from "@typemacro/comptime";
-// import { derive } from "@typemacro/derive";
-// import { ops, pipe, compose } from "@typemacro/operators";
-// For this example, we destructure from the namespaced imports
-const { ops, pipe } = operators;
+// import { comptime } from "@typesugar/comptime";
+// import { ops, pipe, compose } from "@typesugar/operators";
 // ============================================================================
 // 1. Compile-Time Evaluation
 // ============================================================================

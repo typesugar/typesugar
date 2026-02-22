@@ -1,0 +1,23 @@
+isRegistered: true
+methods: {
+  brand: 'Array',
+  methods: Map(1) {
+    'map' => { source: '(fa, f) => fa.map(f)', params: [Array] }
+  }
+}
+[typesugar] Creating TypeScript program with 1 files
+[typesugar] Initializing transformer
+[typesugar] Registered macros: invariant, unreachable, debugOnly, comptime, registerExtensions, registerExtension, specialize, specialize$, mono, inlineCall, summon, extend, __binop__, ops, pipe, compose, typeInfo, fieldNames, validator, summonHKT, derive, implicit, summonAll, staticAssert, compileError, compileWarning, cfg, config.when, includeStr, includeBytes, includeJson, includeText, collectTypes, moduleIndex, typeclass, instance, deriving, operators, operator, reflect, implicits, Generic, cfgAttr, config.when, tailrec, verifyLaws, Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard, ShowTC, EqTC, OrdTC, HashTC, FunctorTC
+[typesugar] Processing: test-debug.ts
+[typesugar] Transformed test-debug.ts (changed: true)
+[typesugar]   Dependencies: 0
+[typesugar]   Diagnostics: 0
+=== OUTPUT ===
+const double = (F: {
+    map(fa: any, f: any): any;
+}, xs: number[]) => F.map(xs, (x: number) => x * 2);
+declare const arrayFunctor: any;
+const result = double(arrayFunctor, [1, 2, 3]);
+
+=== DIAGNOSTICS ===
+[]

@@ -12,6 +12,8 @@
  * 6. Visitor overhead: large files with zero macros
  */
 
+"use no typesugar";
+
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as ts from "typescript";
 import * as path from "path";

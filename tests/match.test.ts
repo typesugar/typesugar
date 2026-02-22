@@ -424,46 +424,25 @@ describe("match() macro", () => {
 
   describe("error handling", () => {
     it("should report error for too few arguments", () => {
-      const { ctx, printExpr } = createTestContext("const x = 1;");
-      const errors: string[] = [];
-      const origReport = ctx.reportError.bind(ctx);
-      ctx.reportError = (_node: ts.Node, message: string) => {
-        errors.push(message);
-        return origReport(_node, message);
-      };
-
+      const { ctx } = createTestContext("const x = 1;");
       const callExpr = makeCall("match", [ts.factory.createIdentifier("x")]);
       matchMacro.expand(ctx, callExpr, [ts.factory.createIdentifier("x")]);
 
-      expect(errors.some((e) => e.includes("at least 2 arguments"))).toBe(true);
+      expect(ctx.diagnostics.some((d) => d.message.includes("at least 2 arguments"))).toBe(true);
     });
 
     it("should report error for non-object non-array second argument", () => {
       const { ctx } = createTestContext("const x = 1;");
-      const errors: string[] = [];
-      const origReport = ctx.reportError.bind(ctx);
-      ctx.reportError = (_node: ts.Node, message: string) => {
-        errors.push(message);
-        return origReport(_node, message);
-      };
-
       const value = ts.factory.createIdentifier("x");
       const bad = ts.factory.createNumericLiteral(42);
       const callExpr = makeCall("match", [value, bad]);
       matchMacro.expand(ctx, callExpr, [value, bad]);
 
-      expect(errors.some((e) => e.includes("object literal or array"))).toBe(true);
+      expect(ctx.diagnostics.some((d) => d.message.includes("object literal or array"))).toBe(true);
     });
 
     it("should report error for invalid guard arm", () => {
       const { ctx } = createTestContext("const x = 1;");
-      const errors: string[] = [];
-      const origReport = ctx.reportError.bind(ctx);
-      ctx.reportError = (_node: ts.Node, message: string) => {
-        errors.push(message);
-        return origReport(_node, message);
-      };
-
       const value = ts.factory.createIdentifier("x");
       const arms = ts.factory.createArrayLiteralExpression([
         ts.factory.createStringLiteral("not a valid arm"),
@@ -472,25 +451,18 @@ describe("match() macro", () => {
       const callExpr = makeCall("match", [value, arms]);
       matchMacro.expand(ctx, callExpr, [value, arms]);
 
-      expect(errors.some((e) => e.includes("Invalid match arm"))).toBe(true);
+      expect(ctx.diagnostics.some((d) => d.message.includes("Invalid match arm"))).toBe(true);
     });
 
     it("should report error for empty guard arms", () => {
       const { ctx } = createTestContext("const x = 1;");
-      const errors: string[] = [];
-      const origReport = ctx.reportError.bind(ctx);
-      ctx.reportError = (_node: ts.Node, message: string) => {
-        errors.push(message);
-        return origReport(_node, message);
-      };
-
       const value = ts.factory.createIdentifier("x");
       const arms = ts.factory.createArrayLiteralExpression([]);
 
       const callExpr = makeCall("match", [value, arms]);
       matchMacro.expand(ctx, callExpr, [value, arms]);
 
-      expect(errors.some((e) => e.includes("at least one arm"))).toBe(true);
+      expect(ctx.diagnostics.some((d) => d.message.includes("at least one arm"))).toBe(true);
     });
   });
 

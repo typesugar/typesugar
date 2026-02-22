@@ -1,0 +1,20 @@
+[typesugar] Loaded config from /Users/deapovey/src/typesugar/tsconfig.json
+[typesugar] Program has 78 files
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[typesugar] Loaded config from /Users/deapovey/src/typesugar/tsconfig.json
+[typesugar] Program has 78 files
+
+ RUN  v3.2.4 /Users/deapovey/src/typesugar
+
+Sourcemap for "/Users/deapovey/src/typesugar/packages/core/dist/index.js" points to missing source files
+ ✓ |@typesugar/contracts| tests/contracts.test.ts (29 tests | 1 skipped) 1896ms
+   ✓ requires() macro > should strip in none mode  559ms
+   ✓ requires() macro > should skip when condition is statically true  391ms
+   ✓ ensures() macro > should generate a check expression in full mode  301ms
+
+ Test Files  1 passed (1)
+      Tests  28 passed | 1 skipped (29)
+   Start at  22:08:31
+   Duration  2.86s (transform 250ms, setup 0ms, collect 593ms, tests 1.90s, environment 0ms, prepare 92ms)
+
+JSON report written to /Users/deapovey/src/typesugar/.vitest-results/test-results.json

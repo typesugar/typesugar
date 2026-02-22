@@ -12,7 +12,15 @@
  *   - Ord Antisymmetry: compare(x, y) <= 0 && compare(y, x) <= 0 => eqv(x, y)
  *   - Ord Transitivity: compare(x, y) <= 0 && compare(y, z) <= 0 => compare(x, z) <= 0
  *   - Ord Totality: compare(x, y) <= 0 || compare(y, x) <= 0
+ *
+ * ## Operator Support (Op<> annotations)
+ *
+ * Methods are annotated with Op<> to enable operator rewriting by the transformer:
+ * - `a === b` → `Eq<A>.eqv(a, b)` when A has an Eq instance
+ * - `a < b`  → `Ord<A>.compare(a, b) < 0` when A has an Ord instance
  */
+
+import type { Op } from "@typesugar/core";
 
 // ============================================================================
 // Ordering
@@ -32,10 +40,23 @@ export const GT: Ordering = 1;
 // ============================================================================
 
 /**
- * Eq typeclass - equality comparison
+ * Eq typeclass - equality comparison with operator support.
+ *
+ * The `eqv` method is annotated with `Op<"===">` to enable:
+ * - `optA === optB` → `eqOption.eqv(optA, optB)` when Option has an Eq instance
+ *
+ * @example
+ * ```typescript
+ * const eq = getEq(eqNumber);
+ * const a = Some(1);
+ * const b = Some(1);
+ *
+ * // With Op<> annotation, the transformer rewrites:
+ * a === b  // → eq.eqv(a, b) → true
+ * ```
  */
 export interface Eq<A> {
-  readonly eqv: (x: A, y: A) => boolean;
+  readonly eqv: (x: A, y: A) => boolean & Op<"===">;
 }
 
 // ============================================================================
@@ -141,7 +162,7 @@ export function between<A>(O: Ord<A>): (value: A, lo: A, hi: A) => boolean {
  */
 export function eqStrict<A>(): Eq<A> {
   return {
-    eqv: (x, y) => x === y,
+    eqv: ((x, y) => x === y) as (x: A, y: A) => boolean & Op<"===">,
   };
 }
 
@@ -150,7 +171,7 @@ export function eqStrict<A>(): Eq<A> {
  */
 export function eqBy<A, B>(E: Eq<B>, f: (a: A) => B): Eq<A> {
   return {
-    eqv: (x, y) => E.eqv(f(x), f(y)),
+    eqv: ((x, y) => E.eqv(f(x), f(y))) as (x: A, y: A) => boolean & Op<"===">,
   };
 }
 
@@ -159,7 +180,8 @@ export function eqBy<A, B>(E: Eq<B>, f: (a: A) => B): Eq<A> {
  */
 export function eqTuple<A, B>(EA: Eq<A>, EB: Eq<B>): Eq<[A, B]> {
   return {
-    eqv: ([a1, b1], [a2, b2]) => EA.eqv(a1, a2) && EB.eqv(b1, b2),
+    eqv: (([a1, b1], [a2, b2]) =>
+      EA.eqv(a1, a2) && EB.eqv(b1, b2)) as (x: [A, B], y: [A, B]) => boolean & Op<"===">,
   };
 }
 
@@ -168,10 +190,10 @@ export function eqTuple<A, B>(EA: Eq<A>, EB: Eq<B>): Eq<[A, B]> {
  */
 export function eqArray<A>(E: Eq<A>): Eq<A[]> {
   return {
-    eqv: (xs, ys) => {
+    eqv: ((xs, ys) => {
       if (xs.length !== ys.length) return false;
       return xs.every((x, i) => E.eqv(x, ys[i]));
-    },
+    }) as (x: A[], y: A[]) => boolean & Op<"===">,
   };
 }
 
@@ -234,17 +256,17 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
 // ============================================================================
 
 /**
- * Eq for strings
+ * Eq for strings - enables `str1 === str2` operator rewriting
  */
 export const eqString: Eq<string> = eqStrict();
 
 /**
- * Eq for numbers
+ * Eq for numbers - enables `n1 === n2` operator rewriting
  */
 export const eqNumber: Eq<number> = eqStrict();
 
 /**
- * Eq for booleans
+ * Eq for booleans - enables `b1 === b2` operator rewriting
  */
 export const eqBoolean: Eq<boolean> = eqStrict();
 
@@ -289,10 +311,13 @@ export const ordDate: Ord<Date> = {
 // ============================================================================
 
 /**
- * Create an Eq instance
+ * Create an Eq instance from a custom equality function.
+ *
+ * The resulting instance supports operator rewriting:
+ * `a === b` → `customEq.eqv(a, b)`
  */
 export function makeEq<A>(eqv: (x: A, y: A) => boolean): Eq<A> {
-  return { eqv };
+  return { eqv: eqv as (x: A, y: A) => boolean & Op<"==="> };
 }
 
 /**
@@ -324,7 +349,7 @@ export function fromCompare<A>(compare: (x: A, y: A) => number): Ord<A> {
  */
 export function contramapEq<A, B>(E: Eq<A>, f: (b: B) => A): Eq<B> {
   return {
-    eqv: (x, y) => E.eqv(f(x), f(y)),
+    eqv: ((x, y) => E.eqv(f(x), f(y))) as (x: B, y: B) => boolean & Op<"===">,
   };
 }
 
