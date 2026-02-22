@@ -20,6 +20,9 @@ import type { Op } from "@typesugar/core";
 // Re-export FlatMap typeclass (HKT-based, for let:/yield: macro)
 export * from "./flatmap.js";
 
+// Re-export ParCombine typeclass (for par:/yield: macro)
+export * from "./par-combine.js";
+
 // Re-export generic numeric operations
 export * from "./numeric-ops.js";
 

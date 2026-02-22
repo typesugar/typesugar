@@ -93,6 +93,7 @@ import {
   createMethodCall,
   createIIFE,
 } from "./comprehension-utils.js";
+import { getParCombineBuilder } from "../typeclasses/par-combine.js";
 
 // ============================================================================
 // par:/yield: Labeled Block Macro
@@ -177,11 +178,10 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Determine parallel strategy
-    const usePromiseAll = typeConstructorName === "Promise";
-
-    const result = usePromiseAll
-      ? buildPromiseAll(ctx, steps, returnExpr)
+    // Use ParCombine builder if registered, else fall back to applicative chain
+    const parCombineBuilder = getParCombineBuilder(typeConstructorName);
+    const result = parCombineBuilder
+      ? parCombineBuilder(ctx, steps, returnExpr)
       : buildApplicativeChain(ctx, steps, returnExpr);
 
     return factory.createExpressionStatement(result);
@@ -387,84 +387,6 @@ function buildApplicativeChain(
   }
 
   return chain;
-}
-
-// ============================================================================
-// Promise.all Chain Building
-// ============================================================================
-
-/**
- * Build the applicative combination for Promises using Promise.all.
- *
- * Given binds [a << fa, b << fb, c << fc] and yield expr:
- *   Promise.all([fa, fb, fc]).then(([a, b, c]) => expr)
- */
-function buildPromiseAll(
-  ctx: MacroContext,
-  steps: (BindStep | MapStep)[],
-  returnExpr: ts.Expression
-): ts.Expression {
-  const { factory } = ctx;
-
-  const bindSteps = steps.filter((s): s is BindStep => s.kind === "bind");
-  const mapSteps = steps.filter((s): s is MapStep => s.kind === "map");
-
-  // Wrap the return expression with IIFE bindings for map steps
-  let yieldExpr = returnExpr;
-  for (let i = mapSteps.length - 1; i >= 0; i--) {
-    const step = mapSteps[i];
-    yieldExpr = createIIFE(factory, step.name, yieldExpr, step.expression);
-  }
-
-  if (bindSteps.length === 0) {
-    return yieldExpr;
-  }
-
-  if (bindSteps.length === 1) {
-    // Single Promise — just .then()
-    return createMethodCall(
-      factory,
-      bindSteps[0].effect,
-      "then",
-      createArrowFn(factory, bindSteps[0].name, yieldExpr)
-    );
-  }
-
-  // Promise.all([fa, fb, fc])
-  const allCall = factory.createCallExpression(
-    factory.createPropertyAccessExpression(
-      factory.createIdentifier("Promise"),
-      factory.createIdentifier("all")
-    ),
-    undefined,
-    [factory.createArrayLiteralExpression(bindSteps.map((s) => s.effect))]
-  );
-
-  // .then(([a, b, c]) => yieldExpr)
-  const destructuredParam = factory.createParameterDeclaration(
-    undefined,
-    undefined,
-    factory.createArrayBindingPattern(
-      bindSteps.map((s) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-      )
-    )
-  );
-
-  return factory.createCallExpression(
-    factory.createPropertyAccessExpression(allCall, factory.createIdentifier("then")),
-    undefined,
-    [
-      factory.createArrowFunction(
-        undefined,
-        undefined,
-        [destructuredParam],
-        undefined,
-        factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        yieldExpr
-      ),
-    ]
-  );
 }
 
 // ============================================================================

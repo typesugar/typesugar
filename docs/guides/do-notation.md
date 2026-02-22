@@ -3,9 +3,10 @@
 Typesugar provides two labeled block macros for effect-based programming:
 
 - **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
-- **`par:/yield:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()` chains
+- **`par:/yield:`** — Parallel (applicative) comprehensions via the `ParCombine` typeclass
 
-Both macros work with any type that has a registered `FlatMap` instance.
+- `let:` uses the `FlatMap` registry
+- `par:` uses the `ParCombine` registry (Promise, AsyncIterable, Array, Iterable, or `.map()/.ap()` fallback)
 
 ## Quick Start
 
@@ -270,20 +271,45 @@ par: {
 
 ## Supported Types
 
-Built-in support for these type constructors:
+### let: (FlatMap registry)
 
-| Type            | Method Used       | `par:` Behavior      |
-| --------------- | ----------------- | -------------------- |
-| `Array`         | `.flatMap()`      | `.map().ap()`        |
-| `Promise`       | `.then()`         | `Promise.all()`      |
-| `Option`        | `.flatMap()`      | `.map().ap()`        |
-| `Either`        | `.flatMap()`      | `.map().ap()`        |
-| `IO`            | `.flatMap()`      | `.map().ap()`        |
-| `Effect`        | `Effect.flatMap`  | `Effect.all()`       |
-| `Iterable`      | `.flatMap()`      | `.map().ap()`        |
-| `AsyncIterable` | `.flatMap()`      | `.map().ap()`        |
+| Type            | Method Used       |
+| --------------- | ----------------- |
+| `Array`         | `.flatMap()`      |
+| `Promise`       | `.then()`         |
+| `Iterable`      | `.flatMap()`      |
+| `AsyncIterable` | `.flatMap()`      |
+
+### par: (ParCombine registry)
+
+| Type            | `par:` Behavior                                      |
+| --------------- | ---------------------------------------------------- |
+| `Promise`       | `Promise.all([...]).then(([a,b,c]) => expr)`         |
+| `AsyncIterable` | Collect each via async iteration, then `Promise.all` |
+| `Array`         | Cartesian product via `.reduce().map()`              |
+| `Iterable`      | Collect to arrays, then cartesian product            |
+| Other           | `.map().ap()` fallback (Option, Either, Validation)   |
+
+### AsyncIterable with par:
+
+For `par:` blocks, AsyncIterables are collected concurrently and combined via `Promise.all`:
+
+```typescript
+par: {
+  users  << streamUsers()
+  events << streamEvents()
+}
+yield: ({ users, events })
+
+// Compiles to: collect each async iterable, then:
+// Promise.all([...]).then(([users, events]) => ({ users, events }))
+```
+
+**Note:** The result is a `Promise`, not an `AsyncIterable`. The entire stream is materialized into arrays. For element-wise streaming combination, use a zip combinator instead.
 
 ## Registering Custom Types
+
+### FlatMap (for let:)
 
 Use `registerFlatMap` for custom monadic types:
 
@@ -321,6 +347,28 @@ let: {
 }
 yield: { x + y }
 ```
+
+### ParCombine (for par:)
+
+Use `registerParCombine` for custom parallel combination:
+
+```typescript
+import { registerParCombine } from "@typesugar/std";
+
+registerParCombine("MyEffect", {
+  all: (effects) => MyEffect.all(effects),
+  map: (combined, f) => combined.map(f),
+});
+
+// Now par: works with MyEffect
+par: {
+  a << myEffect1()
+  b << myEffect2()
+}
+yield: ({ a, b })
+```
+
+Types with a registered ParCombine instance get optimized code generation. Types without one fall back to `.map().ap()` chains.
 
 ## Before/After Comparison
 

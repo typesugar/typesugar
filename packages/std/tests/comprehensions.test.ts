@@ -835,6 +835,96 @@ describe("par:/yield: Promise support (Promise.all)", () => {
 });
 
 // ============================================================================
+// par: with AsyncIterable (ParCombine typeclass)
+// ============================================================================
+
+describe("par:/yield: AsyncIterable support (ParCombine)", () => {
+  it("should collect and combine async iterables", async () => {
+    async function* nums() {
+      yield 1;
+      yield 2;
+      yield 3;
+    }
+    async function* strs() {
+      yield "a";
+      yield "b";
+    }
+
+    const { getParCombine } = await import("@typesugar/std");
+    const pc = getParCombine("AsyncIterable")!;
+    const result = (await pc.map(pc.all([nums(), strs()]), ([ns, ss]: unknown[]) => ({
+      ns,
+      ss,
+    }))) as { ns: number[]; ss: string[] };
+
+    expect(result).toEqual({ ns: [1, 2, 3], ss: ["a", "b"] });
+  });
+
+  it("should handle single async iterable", async () => {
+    async function* nums() {
+      yield 1;
+      yield 2;
+      yield 3;
+    }
+
+    const { getParCombine } = await import("@typesugar/std");
+    const pc = getParCombine("AsyncIterable")!;
+    const result = (await pc.map(pc.all([nums()]), ([ns]: unknown[]) => ns as number[])) as number[];
+
+    expect(result).toEqual([1, 2, 3]);
+  });
+
+  it("should run async iterables concurrently", async () => {
+    const order: string[] = [];
+    async function* delayed(label: string, values: number[]) {
+      for (const v of values) {
+        await new Promise((r) => setTimeout(r, v * 10));
+        order.push(label);
+        yield v;
+      }
+    }
+
+    const { getParCombine } = await import("@typesugar/std");
+    const pc = getParCombine("AsyncIterable")!;
+    const result = (await pc.map(
+      pc.all([delayed("a", [1]), delayed("b", [2]), delayed("c", [3])]),
+      ([a, b, c]: unknown[]) => [(a as number[])[0], (b as number[])[0], (c as number[])[0]]
+    )) as [number, number, number];
+
+    expect(result).toEqual([1, 2, 3]);
+    // All three run concurrently, so completion order depends on timing
+    expect(order).toContain("a");
+    expect(order).toContain("b");
+    expect(order).toContain("c");
+  });
+});
+
+// ============================================================================
+// ParCombine registry
+// ============================================================================
+
+describe("ParCombine registry", () => {
+  it("should return instances for built-in types", () => {
+    const { getParCombine } = require("@typesugar/std");
+    expect(getParCombine("Promise")).toBeDefined();
+    expect(getParCombine("AsyncIterable")).toBeDefined();
+    expect(getParCombine("Array")).toBeDefined();
+    expect(getParCombine("Iterable")).toBeDefined();
+  });
+
+  it("should allow registering custom ParCombine instances", () => {
+    const { getParCombine, registerParCombine } = require("@typesugar/std");
+    const customInstance = {
+      all: (effects: unknown[]) => effects,
+      map: (combined: unknown, f: (r: unknown[]) => unknown) => f(combined as unknown[]),
+    };
+    registerParCombine("TestCombine", customInstance);
+    const retrieved = getParCombine("TestCombine");
+    expect(retrieved).toBe(customInstance);
+  });
+});
+
+// ============================================================================
 // Applicative laws
 // ============================================================================
 
