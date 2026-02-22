@@ -10,7 +10,7 @@ Everyday features from `@typesugar/std`:
 | -------------------------------------------- | ---------------------------------------------- |
 | [Extension Methods](./extension-methods.md)  | Scala 3-style methods on primitives            |
 | [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions |
-| [Do-Notation](./do-notation.md)              | Monadic comprehensions with `let:`/`yield:`    |
+| [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:` |
 | [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Show, Monoid, FlatMap                 |
 
 ## Typeclasses & Derivation
@@ -141,5 +141,6 @@ import { assert, staticAssert, typeAssert, forAll } from "@typesugar/testing";
 | `sql`           | `@typesugar/sql`       | Tagged Template |
 | `requires:`     | `@typesugar/contracts` | Labeled Block   |
 | `let:`/`yield:` | `@typesugar/std`       | Labeled Block   |
+| `par:`/`yield:` | `@typesugar/std`       | Labeled Block   |
 | `cfg()`         | `@typesugar/core`      | Expression      |
 | `assert()`      | `@typesugar/testing`   | Expression      |

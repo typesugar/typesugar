@@ -165,49 +165,54 @@ continuation: {
 ### Examples
 
 ```typescript
-import "@typesugar/effect";
+import "@typesugar/std";
 
-// let: yield: — monadic do-notation
+// let:/yield: — monadic do-notation (sequential, dependent)
 let: {
-  user << fetchUser(id);
-  posts << getPosts(user.id);
+  user  << fetchUser(id)
+  posts << getPosts(user.id)   // Can depend on previous bindings
+  if (posts.length > 0) {}     // Guards for filtering
+  first = posts[0]             // Pure map step
 }
-yield: {
-  {
-    (user, posts);
-  }
-}
+yield: ({ user, first })
 
-// par: yield: — applicative (parallel) comprehension
+// par:/yield: — applicative comprehension (parallel, independent)
 par: {
-  user << fetchUser(id);
-  config << loadConfig();
+  user   << fetchUser(id)      // All bindings must be independent
+  config << loadConfig()
+  posts  << fetchPosts()
 }
-yield: {
-  {
-    (user, config);
-  }
-}
-
-// Effect-TS adapter
-let: {
-  user << getUserById(id);
-  posts << getPostsForUser(user.id);
-}
-yield: {
-  {
-    (user, posts);
-  }
-}
+yield: ({ user, config, posts })
+// Compiles to Promise.all([...]).then(([user, config, posts]) => ...)
 ```
+
+### Syntax in `let:` Blocks
+
+| Syntax | Description | Output |
+| ------ | ----------- | ------ |
+| `x << expr` | Monadic bind | `.flatMap(x => ...)` |
+| `x << expr \|\| fallback` | Bind with fallback | `expr.orElse(() => fallback).flatMap(...)` |
+| `x << expr ?? fallback` | Nullish coalescing fallback | Same as `\|\|` |
+| `_ << expr` | Discard binding | `.flatMap(_ => ...)` |
+| `x = expr` | Pure map (no unwrap) | `((x) => ...)(expr)` |
+| `if (cond) {}` | Guard/filter | `cond ? ... : undefined` |
+
+### Restrictions in `par:` Blocks
+
+- **No guards**: `if (cond) {}` is not allowed (applicative can't short-circuit)
+- **No fallbacks**: `|| fallback` is not allowed
+- **Independence required**: Bindings cannot reference previous bindings
 
 ### How They Work
 
 The transformer:
 
-1. Finds labeled statements with registered labels
-2. Parses the block contents according to the macro's grammar
-3. Transforms into standard JavaScript (flatMap chains, etc.)
+1. Finds labeled statements with registered labels (`let:`, `par:`)
+2. Parses the block contents (bindings, guards, pure maps)
+3. Validates constraints (e.g., independence for `par:`)
+4. Transforms into standard JavaScript:
+   - `let:` → `flatMap`/`map` chains
+   - `par:` → `Promise.all` for Promises, `.map().ap()` for other types
 
 ## Derive Macros
 

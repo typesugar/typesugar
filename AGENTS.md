@@ -731,7 +731,12 @@ interface Point { x: number; y: number; }
 
 ### FlatMap & Do-Notation (`@typesugar/std`)
 
-The `FlatMap` typeclass and `let:/yield:` macros provide zero-cost do-notation for monadic types.
+The `FlatMap` typeclass and comprehension macros provide zero-cost do-notation for monadic and applicative types.
+
+**Two comprehension macros:**
+
+- **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
+- **`par:/yield:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`
 
 **FlatMap typeclass:**
 
@@ -745,28 +750,56 @@ registerFlatMap<MyMonad<unknown>>("MyMonad", {
 });
 ```
 
-**Do-notation with labeled blocks:**
+**Sequential comprehensions with `let:/yield:`:**
 
 ```typescript
 import { Option, Some, None } from "@typesugar/fp";
 
-// let: binds the result, yield: returns the final value
 let: {
-  x << Some(1);
-  y << Some(2);
+  x << Some(1)
+  y << Some(x * 2)    // Can depend on previous bindings
+  if (y > 0) {}       // Guards for filtering
+  z = y + 10          // Pure map step (no unwrap)
 }
-yield: {
-  x + y;
+yield: { x + z }
+// Compiles to: Some(1).flatMap(x => Some(x*2).map(y => y > 0 ? ((z) => x + z)(y + 10) : undefined))
+```
+
+**Parallel comprehensions with `par:/yield:`:**
+
+```typescript
+par: {
+  user   << fetchUser(id)      // All bindings must be independent
+  config << loadConfig()
+  posts  << fetchPosts()
 }
-// Compiles to: Some(1).flatMap(x => Some(2).map(y => x + y))
+yield: ({ user, config, posts })
+// Compiles to: Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
+//                .then(([user, config, posts]) => ({ user, config, posts }))
 ```
 
 | Macro/Function      | Kind          | Purpose                                                    |
 | ------------------- | ------------- | ---------------------------------------------------------- |
-| `let: { ... }`      | Labeled Block | Binds monadic values using `<<` operator                   |
+| `let: { ... }`      | Labeled Block | Sequential bindings with `<<`, guards, and pure maps       |
+| `par: { ... }`      | Labeled Block | Parallel/independent bindings (Promise.all or .map().ap()) |
 | `yield: { ... }`    | Labeled Block | Returns the final expression (uses `map` for last binding) |
 | `registerFlatMap()` | Function      | Registers a custom `FlatMap` instance for a type           |
 | `FlatMap<F>`        | Typeclass     | Provides `map` and `flatMap` for monadic sequencing        |
+
+**`let:` block syntax:**
+
+- `x << expr` — monadic bind (flatMap)
+- `x << expr || fallback` — bind with orElse fallback
+- `x << expr ?? fallback` — nullish coalescing fallback
+- `_ << expr` — discard binding (execute for side effect)
+- `x = expr` — pure map step (IIFE, no unwrap)
+- `if (cond) {}` — guard/filter
+
+**`par:` restrictions:**
+
+- No guards (`if`) — applicative can't short-circuit
+- No fallbacks (`||`/`??`) — use `let:` for error recovery
+- Independence required — macro validates at compile time
 
 **Key functions:**
 
@@ -882,7 +915,7 @@ Understanding what goes where prevents architecture confusion:
 | Package                  | Contents                                                                                                               | Does NOT contain              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `@typesugar/typeclass`   | Machinery: `@typeclass`, `@instance`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro`           | Typeclass definitions         |
-| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Semigroup, FlatMap), built-in type extensions, `let:/yield:` do-notation, `match` | FP data types                 |
+| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Semigroup, FlatMap), built-in type extensions, `let:/yield:` and `par:/yield:` do-notation, `match` | FP data types                 |
 | `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                           | General-purpose utilities     |
 | `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike)                                         | Data type implementations     |
 | `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                | Typeclass instances           |

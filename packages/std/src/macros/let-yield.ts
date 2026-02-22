@@ -4,7 +4,20 @@
  * Generic do-notation style syntax that works with any type that has a
  * FlatMap instance. Desugars `let: { x << expr }` blocks into flatMap chains.
  *
- * ## Usage
+ * ## Syntax
+ *
+ * ```typescript
+ * let: {
+ *   x << expr1           // Monadic bind: flatMap
+ *   y = x * 2            // Pure map: inline computation
+ *   _ << sideEffect()    // Discard: bind but ignore result
+ *   z << expr2 || alt    // orElse: fallback on failure
+ *   if (condition) {}    // Guard: short-circuit on false
+ * }
+ * yield: { resultExpr }
+ * ```
+ *
+ * ## Examples
  *
  * ```typescript
  * // With Array
@@ -23,15 +36,27 @@
  * yield: ({ user, posts })
  * // Compiles to: fetchUser(id).then(user => fetchPosts(user.id).then(posts => ({ user, posts })))
  *
- * // With Option, Effect, IO, etc. — any type with a registered FlatMap instance
+ * // With guards and orElse
+ * let: {
+ *   x << someOption
+ *   if (x > 0) {}           // Guards: short-circuit if false
+ *   y << getY() || default  // orElse: fallback on failure
+ * }
+ * yield: (x + y)
+ *
+ * // Implicit yield (returns last binding)
+ * let: {
+ *   x << Some(42)
+ * }
+ * // Returns Some(42) directly
  * ```
  *
  * ## How it works
  *
- * 1. The macro parses bindings from the `let:` block (using `<<` operator)
- * 2. It infers the type constructor from the first binding's expression
+ * 1. The macro parses steps from the `let:` block (binds, maps, guards)
+ * 2. It infers the type constructor from the first bind's expression
  * 3. It looks up the FlatMap instance for that type constructor
- * 4. It generates a chain of flatMap calls, with map for the final binding
+ * 4. It generates a chain: flatMap for intermediate binds, map for the last
  *
  * ## Registering custom types
  *
@@ -53,6 +78,17 @@ import {
   globalRegistry,
 } from "@typesugar/core";
 import { getFlatMap } from "../typeclasses/flatmap.js";
+import {
+  type ComprehensionStep,
+  type BindStep,
+  type MapStep,
+  type GuardStep,
+  extractReturnExpr,
+  inferTypeConstructor,
+  createArrowFn,
+  createMethodCall,
+  createIIFE,
+} from "./comprehension-utils.js";
 
 // ============================================================================
 // let:/yield: Labeled Block Macro
@@ -75,36 +111,39 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   ): ts.Statement | ts.Statement[] {
     const { factory, typeChecker } = ctx;
 
-    if (!continuation) {
+    // The main block must be a Block
+    if (!ts.isBlock(mainBlock.statement)) {
+      ctx.reportError(mainBlock, "let: must be followed by a block { ... }");
+      return mainBlock;
+    }
+
+    // Extract steps from the let block
+    const steps = extractSteps(ctx, mainBlock.statement);
+    if (!steps || steps.length === 0) {
       ctx.reportError(
         mainBlock,
-        "let: block requires a 'yield:', 'pure:', or 'return:' block after it"
+        "let: block must contain at least one binding or guard"
       );
       return mainBlock;
     }
 
-    // Parse bindings from the let block
-    const bindings = parseBindingsFromBlock(mainBlock.statement, ctx);
-
-    if (bindings.length === 0) {
-      ctx.reportError(mainBlock, "let: block must contain at least one binding (x << expression)");
+    // Must have at least one bind step
+    const hasBindStep = steps.some((s): s is BindStep => s.kind === "bind");
+    if (!hasBindStep) {
+      ctx.reportError(
+        mainBlock,
+        "let: block must contain at least one `name << expression` binding"
+      );
       return mainBlock;
     }
 
-    // Get the yield expression
-    const yieldExpr = extractYieldExpression(continuation.statement, ctx);
-    if (!yieldExpr) {
-      ctx.reportError(continuation, "yield: block must contain an expression");
-      return mainBlock;
-    }
-
-    // Infer the type constructor from the first binding
-    const firstEffect = bindings[0].effect;
-    const typeConstructorName = inferTypeConstructor(firstEffect, typeChecker);
+    // Infer the type constructor from the first bind step
+    const firstBind = steps.find((s): s is BindStep => s.kind === "bind")!;
+    const typeConstructorName = inferTypeConstructor(firstBind.effect, typeChecker);
 
     if (!typeConstructorName) {
       ctx.reportError(
-        firstEffect,
+        firstBind.effect,
         "Could not infer type constructor from expression. " +
           "Make sure the expression has a known type (Array, Promise, Option, etc.)"
       );
@@ -116,330 +155,296 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     if (!flatMapInstance) {
       ctx.reportError(
-        firstEffect,
+        firstBind.effect,
         `No FlatMap instance registered for '${typeConstructorName}'. ` +
           "Use registerFlatMap() to register an instance."
       );
       return mainBlock;
     }
 
-    // Generate the flatMap chain based on the type constructor
-    const result = generateFlatMapChain(ctx, bindings, yieldExpr, typeConstructorName);
+    // Determine method names
+    const methods = resolveMethodNames(typeConstructorName);
+
+    // Handle yield expression or implicit return
+    let returnExpr: ts.Expression;
+    if (continuation) {
+      if (!ts.isBlock(continuation.statement)) {
+        ctx.reportError(
+          continuation,
+          `${continuation.label.text}: must be followed by a block { ... }`
+        );
+        return mainBlock;
+      }
+
+      const extracted = extractReturnExpr(ctx, continuation.statement);
+      if (!extracted) {
+        return mainBlock;
+      }
+      returnExpr = extracted;
+    } else {
+      // No yield/pure block — return the last bind step's result directly
+      const lastBind = [...steps].reverse().find((s): s is BindStep => s.kind === "bind");
+      if (!lastBind) {
+        ctx.reportError(mainBlock, "No bind step found for implicit return");
+        return mainBlock;
+      }
+
+      // Remove the last bind from steps and use its expression as the tail
+      const stepsWithoutLast = steps.slice(0, steps.lastIndexOf(lastBind));
+      if (stepsWithoutLast.length === 0) {
+        // Only one bind step — just return the expression directly
+        return factory.createExpressionStatement(lastBind.effect);
+      }
+      const chain = buildChain(ctx, stepsWithoutLast, lastBind.effect, methods, typeConstructorName);
+      return factory.createExpressionStatement(chain);
+    }
+
+    // Build the chain
+    const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName);
 
     return factory.createExpressionStatement(result);
   },
 });
 
 // ============================================================================
-// Helper Types
-// ============================================================================
-
-interface Binding {
-  name: string;
-  effect: ts.Expression;
-}
-
-// ============================================================================
-// Parsing Helpers
+// Step Extraction
 // ============================================================================
 
 /**
- * Parse bindings from a block statement.
- * Expects expressions with << operator: { x << getX(); y << getY(x); }
- */
-function parseBindingsFromBlock(stmt: ts.Statement, ctx: MacroContext): Binding[] {
-  const bindings: Binding[] = [];
-
-  if (ts.isBlock(stmt)) {
-    for (const s of stmt.statements) {
-      const binding = parseBindingStatement(s, ctx);
-      if (binding) {
-        bindings.push(binding);
-      }
-    }
-  } else if (ts.isExpressionStatement(stmt)) {
-    const binding = parseBindingFromExpression(stmt.expression, ctx);
-    if (binding) {
-      bindings.push(binding);
-    }
-  }
-
-  return bindings;
-}
-
-/**
- * Parse a single binding from a statement.
- */
-function parseBindingStatement(stmt: ts.Statement, ctx: MacroContext): Binding | undefined {
-  if (ts.isExpressionStatement(stmt)) {
-    return parseBindingFromExpression(stmt.expression, ctx);
-  }
-
-  if (ts.isVariableStatement(stmt)) {
-    const decl = stmt.declarationList.declarations[0];
-    if (decl && decl.initializer && ts.isIdentifier(decl.name)) {
-      // Check if initializer is _ << effect — use the declaration name, not the left of <<
-      if (
-        ts.isBinaryExpression(decl.initializer) &&
-        decl.initializer.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
-      ) {
-        return {
-          name: decl.name.text,
-          effect: decl.initializer.right,
-        };
-      }
-      // Or just a regular expression (use var name as binding name)
-      return {
-        name: decl.name.text,
-        effect: decl.initializer,
-      };
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Parse binding from expression (x << effect format).
- */
-function parseBindingFromExpression(expr: ts.Expression, ctx: MacroContext): Binding | undefined {
-  if (
-    ts.isBinaryExpression(expr) &&
-    expr.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
-  ) {
-    const left = expr.left;
-    if (ts.isIdentifier(left)) {
-      return {
-        name: left.text,
-        effect: expr.right,
-      };
-    } else {
-      ctx.reportError(left, "Left side of << must be an identifier");
-    }
-  }
-  return undefined;
-}
-
-/**
- * Check if an expression is a comma expression (e.g., `a, b, c`).
- * Comma expressions evaluate all operands but return only the last value.
- */
-function isCommaExpression(expr: ts.Expression): boolean {
-  return ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.CommaToken;
-}
-
-/**
- * Check if an expression looks like it was intended to be an object literal
- * but was parsed as a comma expression due to missing parentheses.
+ * Extract comprehension steps from a block statement.
  *
- * Common mistake: `yield: { user, posts }` parses as `{ user, posts }` where
- * `user, posts` is a comma expression returning just `posts`, NOT an object literal.
+ * Handles:
+ * - `name << expr` — bind step
+ * - `name << expr || alt` — bind with orElse
+ * - `name << expr ?? alt` — bind with nullish coalescing fallback
+ * - `_ << expr` — discard binding
+ * - `name = expr` — pure map step
+ * - `if (cond) {}` — guard step
  */
-function looksLikeIntendedObjectLiteral(expr: ts.Expression): boolean {
-  if (!isCommaExpression(expr)) return false;
+function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] | undefined {
+  const steps: ComprehensionStep[] = [];
 
-  // Check if all parts of the comma expression are simple identifiers
-  // This pattern strongly suggests the user meant to write an object literal shorthand
-  const parts: ts.Expression[] = [];
-  let current: ts.Expression = expr;
-
-  while (
-    ts.isBinaryExpression(current) &&
-    current.operatorToken.kind === ts.SyntaxKind.CommaToken
-  ) {
-    parts.push(current.right);
-    current = current.left;
-  }
-  parts.push(current);
-
-  // If all parts are identifiers, this is almost certainly meant to be { a, b, c }
-  return parts.every((p) => ts.isIdentifier(p));
-}
-
-/**
- * Extract the yield expression from a block.
- */
-function extractYieldExpression(stmt: ts.Statement, ctx: MacroContext): ts.Expression | undefined {
-  if (ts.isBlock(stmt)) {
-    const lastStmt = stmt.statements[stmt.statements.length - 1];
-    if (stmt.statements.length > 1) {
-      ctx.reportWarning(
-        stmt,
-        "yield: block has multiple statements; only the last expression is used. " +
-          "Preceding statements will be discarded."
-      );
-    }
-    if (lastStmt && ts.isExpressionStatement(lastStmt)) {
-      const expr = lastStmt.expression;
-
-      // Detect common mistake: `yield: { user, posts }` where user meant object literal
-      if (looksLikeIntendedObjectLiteral(expr)) {
-        ctx.reportError(
-          lastStmt,
-          "yield: block contains a comma expression, not an object literal. " +
-            "Did you mean `yield: ({ user, posts })`? Use parentheses to create an object literal."
-        );
-        // Still return the expression so compilation can continue with a warning
-        return expr;
-      }
-
-      return expr;
-    }
-    if (lastStmt && ts.isReturnStatement(lastStmt) && lastStmt.expression) {
-      return lastStmt.expression;
+  for (const stmt of block.statements) {
+    // Guard: if (condition) {}
+    if (ts.isIfStatement(stmt)) {
+      steps.push({
+        kind: "guard",
+        condition: stmt.expression,
+        node: stmt,
+      });
+      continue;
     }
 
-    // Detect nested block - user might have tried `yield: { { user, posts } }`
-    // thinking double braces would create an object literal
-    if (lastStmt && ts.isBlock(lastStmt)) {
+    if (!ts.isExpressionStatement(stmt)) {
       ctx.reportError(
-        lastStmt,
-        "yield: contains a nested block, not an object literal. " +
-          "To return an object, use `yield: ({ user, posts })` with parentheses."
+        stmt,
+        "let: block statements must be `name << expr`, `name = expr`, or `if (cond) {}`"
       );
       return undefined;
     }
 
-    ctx.reportError(stmt, "yield: block should contain a single expression or object literal");
+    const expr = stmt.expression;
+
+    if (!ts.isBinaryExpression(expr)) {
+      ctx.reportError(stmt, "Expected `name << expression` or `name = expression`");
+      return undefined;
+    }
+
+    const opKind = expr.operatorToken.kind;
+
+    // Pure map: name = expr
+    // Note: EqualsToken (63) === FirstAssignment - they're the same value
+    if (opKind === ts.SyntaxKind.FirstAssignment) {
+      if (!ts.isIdentifier(expr.left)) {
+        ctx.reportError(expr.left, "Left side of = must be an identifier");
+        return undefined;
+      }
+      steps.push({
+        kind: "map",
+        name: expr.left.text,
+        expression: expr.right,
+        node: stmt,
+      });
+      continue;
+    }
+
+    // Monadic bind with orElse: name << expr || fallback
+    // Due to operator precedence, `name << expr || fallback` parses as
+    // (name << expr) || fallback — a BinaryExpression with || at the top.
+    if (opKind === ts.SyntaxKind.BarBarToken) {
+      const lhs = expr.left;
+      if (
+        ts.isBinaryExpression(lhs) &&
+        lhs.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken &&
+        ts.isIdentifier(lhs.left)
+      ) {
+        steps.push({
+          kind: "bind",
+          name: lhs.left.text,
+          effect: lhs.right,
+          orElse: expr.right,
+          node: stmt,
+        });
+        continue;
+      }
+    }
+
+    // Monadic bind with nullish coalescing: name << expr ?? fallback
+    if (opKind === ts.SyntaxKind.QuestionQuestionToken) {
+      const lhs = expr.left;
+      if (
+        ts.isBinaryExpression(lhs) &&
+        lhs.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken &&
+        ts.isIdentifier(lhs.left)
+      ) {
+        steps.push({
+          kind: "bind",
+          name: lhs.left.text,
+          effect: lhs.right,
+          orElse: expr.right,
+          node: stmt,
+        });
+        continue;
+      }
+    }
+
+    // Plain bind: name << expr
+    if (opKind === ts.SyntaxKind.LessThanLessThanToken) {
+      if (!ts.isIdentifier(expr.left)) {
+        ctx.reportError(
+          expr.left,
+          "Left side of << must be an identifier (variable name or _)"
+        );
+        return undefined;
+      }
+      steps.push({
+        kind: "bind",
+        name: expr.left.text,
+        effect: expr.right,
+        node: stmt,
+      });
+      continue;
+    }
+
+    ctx.reportError(
+      stmt,
+      "Expected `name << expression`, `name = expression`, or `if (cond) {}`"
+    );
     return undefined;
   }
 
-  if (ts.isExpressionStatement(stmt)) {
-    return stmt.expression;
-  }
-
-  return undefined;
+  return steps;
 }
 
 // ============================================================================
-// Type Inference
+// Method Name Resolution
 // ============================================================================
 
+interface MethodNames {
+  bind: string;
+  map: string;
+  orElse?: string;
+}
+
 /**
- * Infer the type constructor name from an expression's type.
+ * Resolve method names for a type constructor.
+ *
+ * - Promise uses `.then()` for both map and flatMap
+ * - Effect uses static `Effect.map`/`Effect.flatMap` methods
+ * - Others use `.map()` and `.flatMap()`
  */
-function inferTypeConstructor(
-  expr: ts.Expression,
-  typeChecker: ts.TypeChecker
-): string | undefined {
-  const type = typeChecker.getTypeAtLocation(expr);
-  const typeString = typeChecker.typeToString(type);
-
-  // Handle Array<T> or T[]
-  if (type.symbol?.name === "Array" || /^[A-Za-z_]\w*\[\]$/.test(typeString)) {
-    return "Array";
+function resolveMethodNames(typeConstructor: string): MethodNames {
+  if (typeConstructor === "Promise") {
+    return { bind: "then", map: "then", orElse: "catch" };
   }
-
-  // Handle Promise<T>
-  if (type.symbol?.name === "Promise" || typeString.startsWith("Promise<")) {
-    return "Promise";
+  if (typeConstructor === "Effect") {
+    return { bind: "flatMap", map: "map", orElse: "catchAll" };
   }
-
-  // Handle Effect.Effect<A, E, R>
-  // Effect types are branded and may appear as "Effect<A, E, R>" in the type string
-  if (
-    type.symbol?.name === "Effect" ||
-    typeString.startsWith("Effect<") ||
-    typeString.includes("Effect.Effect<")
-  ) {
-    return "Effect";
-  }
-
-  // Handle Iterable<T>
-  if (type.symbol?.name === "Iterable" || typeString.startsWith("Iterable<")) {
-    return "Iterable";
-  }
-
-  // Handle AsyncIterable<T>
-  if (type.symbol?.name === "AsyncIterable" || typeString.startsWith("AsyncIterable<")) {
-    return "AsyncIterable";
-  }
-
-  // For other types, try to get the symbol name
-  if (type.symbol?.name) {
-    return type.symbol.name;
-  }
-
-  // Try to extract from type string (e.g., "Option<number>" -> "Option")
-  const match = typeString.match(/^(\w+)</);
-  if (match) {
-    return match[1];
-  }
-
-  return undefined;
+  return { bind: "flatMap", map: "map", orElse: "orElse" };
 }
 
 // ============================================================================
-// Code Generation
+// Chain Building
 // ============================================================================
 
 /**
- * Generate the flatMap chain for the bindings.
+ * Build the comprehension chain from steps and a return expression.
  *
- * For n bindings, generates:
- * - flatMap for bindings 0 to n-2
- * - map for binding n-1 (the last one)
- *
- * This produces: fa.flatMap(a => fb.flatMap(b => fc.map(c => yieldExpr)))
- *
- * **Design decision**: The last binding uses `map` (not `flatMap`), meaning the
- * yield expression is always "pure" — the result is automatically lifted into
- * the type constructor. This differs from Haskell/Scala do-notation where the
- * final expression is monadic. If users need flatMap semantics for the final
- * expression, they should add an extra binding:
- *
- * ```
- * let: { x << fa; result << monadicExpr(x) }
- * yield: result
- * ```
- *
- * ## Effect-TS Integration
- *
- * For Effect.Effect types, we use Effect's native flatMap/map methods which have
- * proper type inference for E (error) and R (requirements) accumulation:
- *
- * ```typescript
- * Effect.flatMap<A, B, E2, R2>(self: Effect<A, E, R>, f: (a: A) => Effect<B, E2, R2>): Effect<B, E | E2, R | R2>
- * ```
- *
- * This means the resulting type correctly shows the union of all errors and
- * requirements from all bound effects:
- *
- * ```typescript
- * let: {
- *   user << fetchUser(id);     // Effect<User, HttpError, HttpClient>
- *   posts << fetchPosts(user); // Effect<Post[], DbError, Database>
- * }
- * yield: ({ user, posts })
- * // Resulting type: Effect<{user: User, posts: Post[]}, HttpError | DbError, HttpClient | Database>
- * ```
+ * Handles:
+ * - bind steps → `.flatMap(name => ...)` or `.then(name => ...)` for intermediates,
+ *                `.map(name => ...)` for the last bind
+ * - map steps → inlined as IIFEs `((name) => inner)(expr)`
+ * - guard steps → ternary `cond ? inner : undefined`
+ * - orElse → wraps the bind expression with `.orElse(() => fallback)`
  */
-function generateFlatMapChain(
+function buildChain(
   ctx: MacroContext,
-  bindings: Binding[],
-  yieldExpr: ts.Expression,
+  steps: ComprehensionStep[],
+  returnExpr: ts.Expression,
+  methods: MethodNames,
   typeConstructor: string
 ): ts.Expression {
   const { factory } = ctx;
 
-  // Build the chain from inside out, starting with the yield expression
-  // wrapped in the innermost map call
-  let result: ts.Expression = yieldExpr;
-
-  // Process bindings from last to first
-  for (let i = bindings.length - 1; i >= 0; i--) {
-    const { name, effect } = bindings[i];
-    const isLast = i === bindings.length - 1;
-
-    // For the last binding, use map; for others, use flatMap
-    const methodName = isLast ? "map" : "flatMap";
-
-    // Generate: effect.methodName(name => result)
-    // or for Array: effect.methodName(name => result)
-    result = generateMethodCall(factory, effect, methodName, name, result, typeConstructor);
+  if (steps.length === 0) {
+    return returnExpr;
   }
 
-  return result;
+  // Build from inside out: start with the return expression and wrap
+  // each step around it, going from the last step to the first.
+  let inner: ts.Expression = returnExpr;
+
+  // Process steps from last to first
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+
+    switch (step.kind) {
+      case "bind": {
+        // Determine method: last bind before return uses map, others use flatMap
+        const remainingBinds = steps.slice(i + 1).filter((s) => s.kind === "bind");
+        const isLastBind = remainingBinds.length === 0;
+        const methodName = isLastBind ? methods.map : methods.bind;
+
+        let effectExpr = step.effect;
+
+        // Wrap with orElse if present
+        if (step.orElse && methods.orElse) {
+          effectExpr = createMethodCall(
+            factory,
+            effectExpr,
+            methods.orElse,
+            createArrowFn(factory, "_", step.orElse)
+          );
+        }
+
+        // Generate the method call
+        inner = generateMethodCall(factory, effectExpr, methodName, step.name, inner, typeConstructor);
+        break;
+      }
+
+      case "map": {
+        // Pure map step: wrap inner in an IIFE that binds the computed value.
+        // ((name) => inner)(expr)
+        inner = createIIFE(factory, step.name, inner, step.expression);
+        break;
+      }
+
+      case "guard": {
+        // Guard step: emit a ternary `cond ? inner : undefined`
+        // The short-circuit happens at runtime; undefined propagates as empty/failure
+        inner = factory.createConditionalExpression(
+          step.condition,
+          factory.createToken(ts.SyntaxKind.QuestionToken),
+          inner,
+          factory.createToken(ts.SyntaxKind.ColonToken),
+          factory.createIdentifier("undefined")
+        );
+        break;
+      }
+    }
+  }
+
+  return inner;
 }
 
 /**
@@ -459,29 +464,7 @@ function generateMethodCall(
 ): ts.Expression {
   // For Array and Promise, use native methods directly
   if (typeConstructor === "Array" || typeConstructor === "Promise") {
-    // Promise uses .then() for both map and flatMap
-    const actualMethod = typeConstructor === "Promise" ? "then" : methodName;
-
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(expr, factory.createIdentifier(actualMethod)),
-      undefined,
-      [
-        factory.createArrowFunction(
-          undefined,
-          undefined,
-          [
-            factory.createParameterDeclaration(
-              undefined,
-              undefined,
-              factory.createIdentifier(paramName)
-            ),
-          ],
-          undefined,
-          factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          body
-        ),
-      ]
-    );
+    return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
   }
 
   // For Effect, use Effect.flatMap/Effect.map static methods
@@ -494,63 +477,13 @@ function generateMethodCall(
         factory.createIdentifier(methodName)
       ),
       undefined,
-      [
-        expr,
-        factory.createArrowFunction(
-          undefined,
-          undefined,
-          [
-            factory.createParameterDeclaration(
-              undefined,
-              undefined,
-              factory.createIdentifier(paramName)
-            ),
-          ],
-          undefined,
-          factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          body
-        ),
-      ]
+      [expr, createArrowFn(factory, paramName, body)]
     );
   }
 
-  // For custom types, generate: require("@typesugar/std/typeclasses/flatmap").getFlatMap("Type")!.method(expr, param => body)
-  // Uses inline require() to avoid needing to inject import statements in macro output.
-  return factory.createCallExpression(
-    factory.createPropertyAccessExpression(
-      factory.createNonNullExpression(
-        factory.createCallExpression(
-          factory.createPropertyAccessExpression(
-            factory.createCallExpression(factory.createIdentifier("require"), undefined, [
-              factory.createStringLiteral("@typesugar/std/typeclasses/flatmap"),
-            ]),
-            factory.createIdentifier("getFlatMap")
-          ),
-          undefined,
-          [factory.createStringLiteral(typeConstructor)]
-        )
-      ),
-      factory.createIdentifier(methodName)
-    ),
-    undefined,
-    [
-      expr,
-      factory.createArrowFunction(
-        undefined,
-        undefined,
-        [
-          factory.createParameterDeclaration(
-            undefined,
-            undefined,
-            factory.createIdentifier(paramName)
-          ),
-        ],
-        undefined,
-        factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        body
-      ),
-    ]
-  );
+  // For other types with FlatMap instances, use native method calls
+  // (most types like Option, Either, IO have .map()/.flatMap() methods)
+  return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
 }
 
 // ============================================================================
@@ -560,9 +493,9 @@ function generateMethodCall(
 /**
  * Register the let:/yield: macro with the global registry.
  */
-export function register(): void {
+export function registerLetYield(): void {
   globalRegistry.register(letYieldMacro);
 }
 
 // Auto-register on import
-register();
+registerLetYield();

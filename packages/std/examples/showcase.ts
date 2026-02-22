@@ -417,28 +417,136 @@ const listResult = match([1, 2, 3] as number[], [
 assert(listResult === "starts with 1, 2");
 
 // ============================================================================
-// 10. DO-NOTATION — let:/yield: for monadic sequencing
+// 10. DO-NOTATION — let:/yield: and par:/yield: comprehensions
 // ============================================================================
 
-// FlatMap is pre-registered for Array and Promise.
-// The let:/yield: macro desugars to flatMap chains at compile time.
+// FlatMap is pre-registered for Array, Promise, and other types.
+// The comprehension macros desugar to flatMap/map chains at compile time.
 //
-// Example (requires transformer — shown here as pseudocode):
-//
-//   let: {
-//     x << [1, 2, 3]
-//     y << [x * 10, x * 20]
-//   }
+// NOTE: These examples show the *output* of the transformations, since
+// the let:/yield: and par:/yield: syntax requires the typesugar transformer.
+
+// --------------------------------------------------------------------------
+// 10.1 Sequential Comprehensions (let:/yield:)
+// --------------------------------------------------------------------------
+
+// Basic array comprehension (cartesian product):
+//   let: { x << [1, 2, 3]; y << [x * 10, x * 20] }
 //   yield: ({ x, y })
-//
 // Compiles to:
-//   [1,2,3].flatMap(x => [x*10, x*20].map(y => ({ x, y })))
-//
-// Custom types can be registered:
-//   registerFlatMap("MyMonad", { map: ..., flatMap: ... });
-//
-// This is demonstrated as comments because let:/yield: requires the
-// typesugar transformer to expand the labeled block macros.
+const arrayComprehension = [1, 2, 3].flatMap((x) =>
+  [x * 10, x * 20].map((y) => ({ x, y }))
+);
+assert(arrayComprehension.length === 6);
+assert(arrayComprehension[0].x === 1 && arrayComprehension[0].y === 10);
+
+// Promise chaining (sequential):
+//   let: { user << fetchUser(id); posts << fetchPosts(user.id) }
+//   yield: ({ user, posts })
+// Compiles to:
+async function sequentialFetch() {
+  const result = await Promise.resolve({ id: 1, name: "Alice" }).then((user) =>
+    Promise.resolve([{ userId: user.id, title: "Post" }]).then((posts) => ({
+      user,
+      posts,
+    }))
+  );
+  assert(result.user.name === "Alice");
+  assert(result.posts.length === 1);
+}
+
+// Guards (filtering):
+//   let: { x << [1, 2, 3, 4, 5]; if (x % 2 === 0) {} }
+//   yield: { x }
+// Compiles to:
+const filtered = [1, 2, 3, 4, 5].map((x) => (x % 2 === 0 ? x : undefined)).filter((x) => x !== undefined);
+assert(filtered.length === 2);
+assert(filtered[0] === 2 && filtered[1] === 4);
+
+// Pure map step (IIFE):
+//   let: { x << [1, 2, 3]; doubled = x * 2; y << [doubled + 1] }
+//   yield: { y }
+// Compiles to:
+const withPureMap = [1, 2, 3].flatMap((x) =>
+  ((doubled) => [doubled + 1].map((y) => y))(x * 2)
+);
+assert(withPureMap[0] === 3); // (1*2)+1
+
+// Discard binding:
+//   let: { _ << sideEffect(); x << getValue() }
+//   yield: { x }
+// The _ binding executes but its value is ignored
+
+// --------------------------------------------------------------------------
+// 10.2 Parallel Comprehensions (par:/yield:)
+// --------------------------------------------------------------------------
+
+// Promise.all (parallel execution):
+//   par: { a << fetchA(); b << fetchB(); c << fetchC() }
+//   yield: ({ a, b, c })
+// Compiles to:
+async function parallelFetch() {
+  const result = await Promise.all([
+    Promise.resolve("Alice"),
+    Promise.resolve(30),
+    Promise.resolve(["admin"]),
+  ]).then(([name, age, roles]) => ({ name, age, roles }));
+  assert(result.name === "Alice");
+  assert(result.age === 30);
+  assert(result.roles[0] === "admin");
+}
+
+// Applicative combination (.map/.ap):
+//   par: { a << Box(10); b << Box(20) }
+//   yield: { a + b }
+// Compiles to:
+class Box<A> {
+  constructor(public readonly value: A) {}
+  map<B>(f: (a: A) => B): Box<B> {
+    return new Box(f(this.value));
+  }
+  ap<B>(this: Box<(a: A) => B>, boxA: Box<A>): Box<B> {
+    return new Box(this.value(boxA.value));
+  }
+}
+
+const applicativeResult = new Box(10)
+  .map((a: number) => (b: number) => a + b)
+  .ap(new Box(20));
+assert(applicativeResult.value === 30);
+
+// Error accumulation with Validation:
+//   par: { name << valid("Alice"); age << invalid("age required") }
+//   yield: ({ name, age })
+// Unlike let:, par: accumulates ALL errors from all bindings
+
+// --------------------------------------------------------------------------
+// 10.3 Custom FlatMap Registration
+// --------------------------------------------------------------------------
+
+// Register a custom monad for use with let:/yield:
+class Task<T> {
+  constructor(public readonly run: () => T) {}
+  map<U>(f: (t: T) => U): Task<U> {
+    return new Task(() => f(this.run()));
+  }
+  flatMap<U>(f: (t: T) => Task<U>): Task<U> {
+    return new Task(() => f(this.run()).run());
+  }
+}
+
+registerFlatMap("Task", {
+  map: (ta: Task<unknown>, f: (a: unknown) => unknown) => ta.map(f),
+  flatMap: (ta: Task<unknown>, f: (a: unknown) => Task<unknown>) => ta.flatMap(f),
+});
+
+// Now Task works with let:/yield:
+//   let: { x << new Task(() => 10); y << new Task(() => x * 2) }
+//   yield: { y }
+const taskResult = new Task(() => 10).flatMap((x) =>
+  new Task(() => x * 2).map((y) => y)
+);
+assert(taskResult.run() === 20);
 
 // ============================================================================
 // 11. TYPE-LEVEL ASSERTIONS — verifying typeclass shapes

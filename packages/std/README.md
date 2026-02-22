@@ -64,7 +64,7 @@ rangeToArray(range(1, 10)); // [1, 2, ..., 9]
 
 ## FlatMap Typeclass
 
-The `FlatMap` typeclass provides sequencing/chaining operations for type constructors. It's the minimal typeclass required for the `let:/yield:` do-notation macro.
+The `FlatMap` typeclass provides sequencing/chaining operations for type constructors. It's the minimal typeclass required for the `let:/yield:` and `par:/yield:` do-notation macros.
 
 ```typescript
 import { registerFlatMap, getFlatMap } from "@typesugar/std";
@@ -79,40 +79,79 @@ registerFlatMap("Option", {
 });
 ```
 
-## let:/yield: Do-Notation Macro
+## Do-Notation Macros
 
-Generic do-notation syntax that works with any type that has a `FlatMap` instance. Desugars `let: { x << expr }` blocks into flatMap chains.
+Two labeled block macros for effect-based programming:
 
-### With Array
+- **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
+- **`par:/yield:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`
 
-```typescript
-let: {
-  x << [1, 2, 3];
-  y << [x * 10, x * 20];
-}
-yield: ({ x, y });
+### `let:/yield:` — Sequential Comprehensions
 
-// Compiles to:
-// [1, 2, 3].flatMap(x => [x * 10, x * 20].map(y => ({ x, y })))
-// → [{ x: 1, y: 10 }, { x: 1, y: 20 }, { x: 2, y: 20 }, ...]
-```
-
-### With Promise
+Bindings can depend on previous bindings. Supports guards, fallbacks, discard bindings, and pure map steps.
 
 ```typescript
 let: {
-  user << fetchUser(id);
-  posts << fetchPosts(user.id);
+  user  << fetchUser(id)         // Monadic bind
+  posts << fetchPosts(user.id)   // Depends on user
+  if (posts.length > 0) {}       // Guard
+  first = posts[0]               // Pure map step
 }
-yield: ({ user, posts });
+yield: ({ user, first })
 
 // Compiles to:
-// fetchUser(id).then(user => fetchPosts(user.id).then(posts => ({ user, posts })))
+// fetchUser(id).then(user =>
+//   fetchPosts(user.id).then(posts =>
+//     posts.length > 0
+//       ? ((first) => ({ user, first }))(posts[0])
+//       : undefined))
 ```
+
+#### orElse Fallback
+
+```typescript
+let: {
+  config << loadConfig() || defaultConfig()  // Fallback on error
+}
+yield: { config }
+```
+
+#### Discard Binding
+
+```typescript
+let: {
+  _ << log("Starting...")  // Execute but discard result
+  x << computation()
+}
+yield: { x }
+```
+
+### `par:/yield:` — Parallel Comprehensions
+
+All bindings must be independent. Uses `Promise.all` for Promises, `.map()/.ap()` for other applicative types.
+
+```typescript
+par: {
+  user   << fetchUser(id)
+  config << loadConfig()
+  posts  << fetchPosts()
+}
+yield: ({ user, config, posts })
+
+// Compiles to:
+// Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
+//   .then(([user, config, posts]) => ({ user, config, posts }))
+```
+
+**Why `par:` instead of `let:`?**
+
+1. **Parallel execution**: Promises run concurrently via `Promise.all`
+2. **Error accumulation**: Validation types collect ALL errors, not just the first
+3. **Compile-time independence check**: The macro catches dependencies at build time
 
 ### With Custom Types
 
-Any type with a registered `FlatMap` instance works with `let:/yield:`:
+Any type with a registered `FlatMap` instance works with both macros:
 
 ```typescript
 import { registerFlatMap } from "@typesugar/std";
@@ -185,7 +224,8 @@ rangeToArray(range(0, 10, 2)); // [0, 2, 4, 6, 8]
 
 ### Macros
 
-- `let:/yield:` — Do-notation for any type with a FlatMap instance
+- `let:/yield:` — Sequential (monadic) do-notation with guards, fallbacks, and discard bindings
+- `par:/yield:` — Parallel (applicative) comprehensions with Promise.all / .map().ap()
 
 ### Data Types
 
