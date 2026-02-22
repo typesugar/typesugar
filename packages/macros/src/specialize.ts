@@ -619,13 +619,10 @@ export function createSpecializedFunction(
 
   // Try to resolve the function body for full inlining
   const fnBody = resolveFunctionBody(ctx, fnExpr);
-  if (fnBody) {
-    // Check if the function body can be inlined
-    const body = ts.isFunctionDeclaration(fnBody) ? fnBody.body : fnBody.body;
-
-    if (body && ts.isBlock(body)) {
-      const classification = classifyInlineFailureDetailed(body);
-      // Only warn if there's a failure reason AND it's not flattenable
+  const fnBodyBlock = fnBody?.body;
+  if (fnBody && fnBodyBlock) {
+    if (ts.isBlock(fnBodyBlock)) {
+      const classification = classifyInlineFailureDetailed(fnBodyBlock);
       if (classification.reason && !classification.canFlatten && !suppressWarnings) {
         const help = getInlineFailureHelp(classification.reason);
         ctx.reportWarning(
@@ -637,10 +634,8 @@ export function createSpecializedFunction(
     }
 
     if (resolvedDicts.length === 1) {
-      // Single dictionary - use the simpler path
       return specializeFunction(ctx, fnBody, resolvedDicts[0].methods, resolvedDicts[0].name);
     } else {
-      // Multiple dictionaries
       return specializeFunctionMulti(ctx, fnBody, resolvedDicts);
     }
   }

@@ -296,6 +296,9 @@ export function hasInlineOptOut(
   node: ts.Node,
   feature?: string
 ): boolean {
+  // Synthetic nodes (pos === -1) have no source position — no comment to check
+  if (node.pos === -1) return false;
+
   const nodeStart = node.getStart(sourceFile);
   const lineStarts = sourceFile.getLineStarts();
 
