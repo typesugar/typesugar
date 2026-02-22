@@ -1,0 +1,4 @@
+
+> @typesugar/fp@0.1.0 typecheck /Users/deapovey/src/typesugar/packages/fp
+> tsc --noEmit
+

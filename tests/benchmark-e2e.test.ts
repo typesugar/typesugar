@@ -27,6 +27,8 @@ import macroTransformerFactory from "@typesugar/transformer";
 // Test infrastructure
 // ---------------------------------------------------------------------------
 
+const IS_CI = !!process.env.CI;
+
 let tmpDir: string;
 
 /**
@@ -272,27 +274,29 @@ function generateMixedFile(macroCount: number, plainLines: number): string {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
+// In CI, timing assertions are skipped because they're machine-dependent and flaky.
+// The benchmarks still run and log results for observability.
 describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
   describe("Baseline: full pipeline (program creation + transform)", () => {
     it("small file (50 lines, no macros)", () => {
       const source = generatePlainTypeScript(50);
       const stats = benchTransform(source, 5);
       console.log(`  50-line plain TS:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(5000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(5000);
     });
 
     it("medium file (200 lines, no macros)", () => {
       const source = generatePlainTypeScript(200);
       const stats = benchTransform(source, 5);
       console.log(`  200-line plain TS:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(8000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(8000);
     });
 
     it("large file (1000 lines, no macros)", () => {
       const source = generatePlainTypeScript(1000);
       const stats = benchTransform(source, 3);
       console.log(`  1000-line plain TS:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(3000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(3000);
     });
   });
 
@@ -301,42 +305,42 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
       const source = generatePlainTypeScript(50);
       const stats = benchTransformOnly(source, 20);
       console.log(`  50-line plain TS (transform only): ${formatStats(stats)}`);
-      expect(stats.medianMs).toBeLessThan(50);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(50);
     });
 
     it("medium file (200 lines, no macros)", () => {
       const source = generatePlainTypeScript(200);
       const stats = benchTransformOnly(source, 20);
       console.log(`  200-line plain TS (transform only): ${formatStats(stats)}`);
-      expect(stats.medianMs).toBeLessThan(100);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(100);
     });
 
     it("large file (1000 lines, no macros)", () => {
       const source = generatePlainTypeScript(1000);
       const stats = benchTransformOnly(source, 10);
       console.log(`  1000-line plain TS (transform only): ${formatStats(stats)}`);
-      expect(stats.medianMs).toBeLessThan(200);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(200);
     });
 
     it("50 macro calls (transform only)", () => {
       const source = generateComptimeCalls(50);
       const stats = benchTransformOnly(source, 20);
       console.log(`  50 macro calls (transform only): ${formatStats(stats)}`);
-      expect(stats.medianMs).toBeLessThan(50);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(50);
     });
 
     it("100 macro calls (transform only)", () => {
       const source = generateComptimeCalls(100);
       const stats = benchTransformOnly(source, 10);
       console.log(`  100 macro calls (transform only): ${formatStats(stats)}`);
-      expect(stats.medianMs).toBeLessThan(100);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(100);
     });
 
     it("1000 lines + 100 macros (transform only)", () => {
       const source = generateMixedFile(100, 1000);
       const stats = benchTransformOnly(source, 10);
       console.log(`  1000 lines + 100 macros (transform only): ${formatStats(stats)}`);
-      expect(stats.medianMs).toBeLessThan(200);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(200);
     });
   });
 
@@ -345,28 +349,28 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
       const source = generateComptimeCalls(1);
       const stats = benchTransform(source, 5);
       console.log(`  1 macro call:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(2000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(2000);
     });
 
     it("10 macro calls", () => {
       const source = generateComptimeCalls(10);
       const stats = benchTransform(source, 5);
       console.log(`  10 macro calls:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(2000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(2000);
     });
 
     it("50 macro calls", () => {
       const source = generateComptimeCalls(50);
       const stats = benchTransform(source, 5);
       console.log(`  50 macro calls:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(5000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(5000);
     });
 
     it("100 macro calls", () => {
       const source = generateComptimeCalls(100);
       const stats = benchTransform(source, 3);
       console.log(`  100 macro calls:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(10000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(10000);
     });
   });
 
@@ -375,21 +379,21 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
       const source = generateMixedFile(10, 500);
       const stats = benchTransform(source, 5);
       console.log(`  500 lines + 10 macros:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(5000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(5000);
     });
 
     it("500 lines, 50 macros", () => {
       const source = generateMixedFile(50, 500);
       const stats = benchTransform(source, 5);
       console.log(`  500 lines + 50 macros:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(5000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(5000);
     });
 
     it("1000 lines, 100 macros", () => {
       const source = generateMixedFile(100, 1000);
       const stats = benchTransform(source, 3);
       console.log(`  1000 lines + 100 macros:\n    ${formatFullStats(stats)}`);
-      expect(stats.total.medianMs).toBeLessThan(10000);
+      if (!IS_CI) expect(stats.total.medianMs).toBeLessThan(10000);
     });
   });
 
@@ -421,7 +425,7 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
       const last = results[results.length - 1];
       const perMacroCost = (last.medianMs - baselineMs) / last.count;
       console.log(`\n  Per-macro marginal cost: ${(perMacroCost * 1000).toFixed(1)}μs`);
-      expect(perMacroCost).toBeLessThan(2);
+      if (!IS_CI) expect(perMacroCost).toBeLessThan(2);
     });
   });
 
@@ -450,7 +454,7 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
 
       const ratio = results[results.length - 1].medianMs / results[0].medianMs;
       console.log(`\n  1000-line / 50-line ratio: ${ratio.toFixed(1)}x (ideal ≈ 20x)`);
-      expect(ratio).toBeLessThan(100);
+      if (!IS_CI) expect(ratio).toBeLessThan(100);
     });
   });
 });

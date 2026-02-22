@@ -249,12 +249,18 @@ export const fractionalRational: Fractional<Rational> = {
  * Compares by cross-multiplication to avoid floating-point.
  */
 export const ordRational: Ord<Rational> = {
+  equals: (a, b) => a.num === b.num && a.den === b.den,
+  notEquals: (a, b) => a.num !== b.num || a.den !== b.den,
   compare: (a, b) => {
     // a/b vs c/d => compare a*d vs c*b
     const lhs = a.num * b.den;
     const rhs = b.num * a.den;
     return lhs < rhs ? -1 : lhs > rhs ? 1 : 0;
   },
+  lessThan: (a, b) => a.num * b.den < b.num * a.den,
+  lessThanOrEqual: (a, b) => a.num * b.den <= b.num * a.den,
+  greaterThan: (a, b) => a.num * b.den > b.num * a.den,
+  greaterThanOrEqual: (a, b) => a.num * b.den >= b.num * a.den,
 };
 
 /**

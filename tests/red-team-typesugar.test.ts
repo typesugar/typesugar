@@ -8,7 +8,10 @@
  * - Derive symbol export correctness (Eq, Ord, Clone, etc.)
  * - Decorator function behavior (derive, deriveDecorator)
  * - registerAllMacros idempotency and side effects
+ *
+ * NOTE: This file tests runtime behavior of macros, so we opt out of macro expansion.
  */
+"use no typesugar";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Main umbrella import

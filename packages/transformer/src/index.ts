@@ -772,11 +772,11 @@ class MacroTransformer {
       symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
     } catch {
       // Type checker may fail on nodes from preprocessed source files
-      // that aren't part of the original program. Fall back to name lookup.
-      return this.fallbackNameLookup(macroName, kind);
+      // that aren't part of the original program. Fall back to import-aware name lookup.
+      return this.fallbackNameLookupWithImports(macroName, kind);
     }
     if (!symbol) {
-      return this.fallbackNameLookup(macroName, kind);
+      return this.fallbackNameLookupWithImports(macroName, kind);
     }
 
     const symbolId = (symbol as unknown as { id?: number }).id;
@@ -818,7 +818,7 @@ class MacroTransformer {
 
     const declarations = resolved.getDeclarations();
     if (!declarations || declarations.length === 0) {
-      return this.fallbackNameLookup(macroName, kind);
+      return this.fallbackNameLookupWithImports(macroName, kind);
     }
 
     for (const decl of declarations) {
@@ -844,12 +844,12 @@ class MacroTransformer {
     // Symbol resolved but didn't match a macro module -- try name-based
     // lookup. Use the local call-site name first, then the resolved
     // (original export) name for renamed imports like `import { foo as bar }`.
-    const byLocalName = this.fallbackNameLookup(macroName, kind);
+    const byLocalName = this.fallbackNameLookupWithImports(macroName, kind);
     if (byLocalName) return byLocalName;
 
     const originalName = resolved.name;
     if (originalName !== macroName) {
-      const byOriginalName = this.fallbackNameLookup(originalName, kind);
+      const byOriginalName = this.fallbackNameLookupWithImports(originalName, kind);
       if (byOriginalName) return byOriginalName;
     }
 
@@ -924,6 +924,121 @@ class MacroTransformer {
     }
 
     return macro;
+  }
+
+  /**
+   * Fall back to name-based lookup with import verification.
+   * When symbol resolution fails but the name is imported from a known
+   * typesugar module, allow macros that require specific modules.
+   */
+  private fallbackNameLookupWithImports(
+    name: string,
+    kind: MacroDefinition["kind"]
+  ): MacroDefinition | undefined {
+    let macro: MacroDefinition | undefined;
+    switch (kind) {
+      case "expression":
+        macro = globalRegistry.getExpression(name);
+        break;
+      case "attribute":
+        macro = globalRegistry.getAttribute(name);
+        break;
+      case "derive":
+        macro = globalRegistry.getDerive(name);
+        break;
+      case "tagged-template":
+        macro = globalRegistry.getTaggedTemplate(name);
+        break;
+      case "type":
+        macro = globalRegistry.getType(name);
+        break;
+      case "labeled-block":
+        macro = globalRegistry.getLabeledBlock(name);
+        break;
+    }
+
+    if (!macro) return undefined;
+
+    // If macro doesn't require a specific module, allow it
+    if (!macro.module) {
+      return macro;
+    }
+
+    // Macro requires a specific module - check if the name is imported
+    // from a matching module
+    const importedModule = this.findImportModuleForName(name);
+    if (!importedModule) {
+      return undefined;
+    }
+
+    // Check if the imported module matches the macro's required module
+    if (this.moduleMatchesMacro(importedModule, macro.module)) {
+      return macro;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Scan the source file's imports to find the module specifier for a name.
+   */
+  private findImportModuleForName(name: string): string | undefined {
+    const sourceFile = this.ctx.sourceFile;
+
+    for (const stmt of sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+
+      const moduleSpecifier = stmt.moduleSpecifier;
+      if (!ts.isStringLiteral(moduleSpecifier)) continue;
+
+      const moduleName = moduleSpecifier.text;
+      const importClause = stmt.importClause;
+      if (!importClause) continue;
+
+      // Named imports: import { comptime } from "typesugar"
+      if (importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
+        for (const element of importClause.namedBindings.elements) {
+          const localName = element.name.text;
+          if (localName === name) {
+            return moduleName;
+          }
+        }
+      }
+
+      // Namespace import: import * as ts from "typesugar"
+      // In this case, the name would be accessed as ts.comptime, which we
+      // handle separately via property access expression
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Check if an imported module matches the macro's required module.
+   * Handles aliases like "typesugar" matching "typemacro".
+   */
+  private moduleMatchesMacro(importedModule: string, macroModule: string): boolean {
+    // Direct match
+    if (importedModule === macroModule) return true;
+
+    // Known aliases: typesugar is the public name for typemacro
+    const aliases: Record<string, string[]> = {
+      typesugar: ["typemacro", "ttfx", "macrots"],
+      typemacro: ["typesugar", "ttfx", "macrots"],
+    };
+
+    const importAliases = aliases[importedModule];
+    if (importAliases?.includes(macroModule)) return true;
+
+    // @typesugar/* packages should match their package name
+    if (importedModule.startsWith("@typesugar/")) {
+      const pkgName = importedModule.slice("@typesugar/".length);
+      if (macroModule === pkgName || macroModule === `@typesugar/${pkgName}`) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -2823,12 +2938,21 @@ class MacroTransformer {
     //
     // We check if an explicit extension is available in scope (via import scanning).
     // If so, we prioritize the extension over the (likely empty) interface augmentation.
+    //
+    // Exception: if the extension is found on the same object as the receiver (e.g.,
+    // `config.set(...)` where `config` is an imported object with a `set` method), we
+    // should NOT rewrite, as that would incorrectly pass the receiver as the first argument.
     let forceRewrite = false;
     if (existingProp) {
-      // Check if we have an import-scoped extension that matches
       const potentialExt = this.resolveExtensionFromImports(node, methodName, receiverType);
       if (potentialExt) {
-        forceRewrite = true;
+        // Check if the extension is on the same object as the receiver.
+        // If receiver is `config` and potentialExt.qualifier is "config", skip rewriting.
+        const receiverText = ts.isIdentifier(receiver) ? receiver.text : null;
+        const isSameObject = receiverText && potentialExt.qualifier === receiverText;
+        if (!isSameObject) {
+          forceRewrite = true;
+        }
       }
     }
 
@@ -2865,6 +2989,13 @@ class MacroTransformer {
     // path — any undefined method triggers a search of what's in scope.
     if (!standaloneExt) {
       standaloneExt = this.resolveExtensionFromImports(node, methodName, receiverType);
+      // Avoid rewriting if the extension is on the same object as the receiver
+      if (standaloneExt) {
+        const receiverText = ts.isIdentifier(receiver) ? receiver.text : null;
+        if (receiverText && standaloneExt.qualifier === receiverText) {
+          standaloneExt = undefined;
+        }
+      }
     }
 
     if (standaloneExt) {

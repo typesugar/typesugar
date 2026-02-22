@@ -11,6 +11,8 @@
  * - Operator symbol registration edge cases
  * - Prefix unary operator handling
  */
+"use no typesugar";
+
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   pipe,

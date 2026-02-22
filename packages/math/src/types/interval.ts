@@ -287,10 +287,28 @@ export const numericInterval: Numeric<Interval> = {
  * Ord instance for intervals (by lower bound, then upper bound).
  */
 export const ordInterval: Ord<Interval> = {
+  equals: (a, b) => a.lo === b.lo && a.hi === b.hi,
+  notEquals: (a, b) => a.lo !== b.lo || a.hi !== b.hi,
   compare: (a, b) => {
     if (a.lo !== b.lo) return a.lo < b.lo ? -1 : 1;
     if (a.hi !== b.hi) return a.hi < b.hi ? -1 : 1;
     return 0;
+  },
+  lessThan: (a, b) => {
+    if (a.lo !== b.lo) return a.lo < b.lo;
+    return a.hi < b.hi;
+  },
+  lessThanOrEqual: (a, b) => {
+    if (a.lo !== b.lo) return a.lo < b.lo;
+    return a.hi <= b.hi;
+  },
+  greaterThan: (a, b) => {
+    if (a.lo !== b.lo) return a.lo > b.lo;
+    return a.hi > b.hi;
+  },
+  greaterThanOrEqual: (a, b) => {
+    if (a.lo !== b.lo) return a.lo > b.lo;
+    return a.hi >= b.hi;
   },
 };
 

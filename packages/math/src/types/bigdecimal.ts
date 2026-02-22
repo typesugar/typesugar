@@ -335,9 +335,33 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
  * Ord instance for BigDecimal.
  */
 export const ordBigDecimal: Ord<BigDecimal> = {
+  equals: (a, b) => {
+    const [aa, bb] = alignScales(a, b);
+    return aa.unscaled === bb.unscaled;
+  },
+  notEquals: (a, b) => {
+    const [aa, bb] = alignScales(a, b);
+    return aa.unscaled !== bb.unscaled;
+  },
   compare: (a, b) => {
     const [aa, bb] = alignScales(a, b);
     return aa.unscaled < bb.unscaled ? -1 : aa.unscaled > bb.unscaled ? 1 : 0;
+  },
+  lessThan: (a, b) => {
+    const [aa, bb] = alignScales(a, b);
+    return aa.unscaled < bb.unscaled;
+  },
+  lessThanOrEqual: (a, b) => {
+    const [aa, bb] = alignScales(a, b);
+    return aa.unscaled <= bb.unscaled;
+  },
+  greaterThan: (a, b) => {
+    const [aa, bb] = alignScales(a, b);
+    return aa.unscaled > bb.unscaled;
+  },
+  greaterThanOrEqual: (a, b) => {
+    const [aa, bb] = alignScales(a, b);
+    return aa.unscaled >= bb.unscaled;
   },
 };
 
