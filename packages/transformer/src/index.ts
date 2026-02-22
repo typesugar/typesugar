@@ -14,6 +14,13 @@ import {
   findInstance,
   getInstanceMethods,
   createSpecializedFunction,
+  isKindAnnotation,
+  transformHKTDeclaration,
+  builtinDerivations,
+  instanceRegistry,
+  instanceVarName,
+  registerExtensionMethods,
+  tryExtractSumType,
 } from "@typesugar/macros";
 
 import {
@@ -30,6 +37,7 @@ import {
   MacroDefinition,
   DeriveTypeInfo,
   DeriveFieldInfo,
+  DeriveVariantInfo,
   LabeledBlockMacro,
   TaggedTemplateMacroDef,
   TypeMacro,
@@ -124,6 +132,24 @@ function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.Source
     }
     return sourceFile;
   }
+}
+
+function isPrimitiveType(type: ts.Type): boolean {
+  const flags = type.flags;
+  return !!(
+    flags & ts.TypeFlags.Number ||
+    flags & ts.TypeFlags.String ||
+    flags & ts.TypeFlags.Boolean ||
+    flags & ts.TypeFlags.BigInt ||
+    flags & ts.TypeFlags.Null ||
+    flags & ts.TypeFlags.Undefined ||
+    flags & ts.TypeFlags.Void ||
+    flags & ts.TypeFlags.Never ||
+    flags & ts.TypeFlags.NumberLiteral ||
+    flags & ts.TypeFlags.StringLiteral ||
+    flags & ts.TypeFlags.BooleanLiteral ||
+    flags & ts.TypeFlags.BigIntLiteral
+  );
 }
 
 /**
@@ -478,7 +504,14 @@ class MacroTransformer {
     macroName: string,
     kind: MacroDefinition["kind"]
   ): MacroDefinition | undefined {
-    const symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
+    let symbol: ts.Symbol | undefined;
+    try {
+      symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
+    } catch {
+      // Type checker may fail on nodes from preprocessed source files
+      // that aren't part of the original program. Fall back to name lookup.
+      return this.fallbackNameLookup(macroName, kind);
+    }
     if (!symbol) {
       return this.fallbackNameLookup(macroName, kind);
     }
@@ -929,6 +962,13 @@ class MacroTransformer {
       }
     }
 
+    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
+      const result = this.tryTransformHKTDeclaration(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
     return undefined;
   }
 
@@ -992,12 +1032,14 @@ class MacroTransformer {
       return undefined;
     }
 
+    const sortedDecorators = this.sortDecoratorsByDependency(decorators);
+
     let currentNode: ts.Node = node;
     const extraStatements: ts.Statement[] = [];
     const remainingDecorators: ts.Decorator[] = [];
     let wasTransformed = false;
 
-    for (const decorator of decorators) {
+    for (const decorator of sortedDecorators) {
       const { macroName, args, identNode } = this.parseDecorator(decorator);
 
       // Check for derive-specific opt-out
@@ -1097,6 +1139,78 @@ class MacroTransformer {
     return { macroName: "", args: [], identNode: undefined };
   }
 
+  /**
+   * Topologically sort decorators based on their macros' `expandAfter` declarations.
+   * Decorators whose macros declare `expandAfter: ["X"]` are moved after the
+   * decorator for macro "X". Uses Kahn's algorithm. Falls back to original
+   * order on cycles or when no dependencies exist.
+   */
+  private sortDecoratorsByDependency(decorators: readonly ts.Decorator[]): ts.Decorator[] {
+    const parsed = decorators.map((d) => ({
+      decorator: d,
+      ...this.parseDecorator(d),
+    }));
+
+    const nameToIndex = new Map<string, number>();
+    for (let i = 0; i < parsed.length; i++) {
+      const name = parsed[i].macroName;
+      if (name) nameToIndex.set(name, i);
+    }
+
+    let hasDeps = false;
+    for (const p of parsed) {
+      if (!p.macroName) continue;
+      const macro =
+        globalRegistry.getAttribute(p.macroName) ?? globalRegistry.getDerive(p.macroName);
+      if (macro?.expandAfter && macro.expandAfter.length > 0) {
+        hasDeps = true;
+        break;
+      }
+    }
+    if (!hasDeps) return [...decorators];
+
+    const n = parsed.length;
+    const inDegree = new Array<number>(n).fill(0);
+    const adj: number[][] = [];
+    for (let i = 0; i < n; i++) adj.push([]);
+
+    for (let i = 0; i < n; i++) {
+      const name = parsed[i].macroName;
+      if (!name) continue;
+      const macro = globalRegistry.getAttribute(name) ?? globalRegistry.getDerive(name);
+      if (!macro?.expandAfter) continue;
+      for (const dep of macro.expandAfter) {
+        const depIdx = nameToIndex.get(dep);
+        if (depIdx !== undefined) {
+          adj[depIdx].push(i);
+          inDegree[i]++;
+        }
+      }
+    }
+
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (inDegree[i] === 0) queue.push(i);
+    }
+
+    const sorted: ts.Decorator[] = [];
+    while (queue.length > 0) {
+      queue.sort((a, b) => a - b);
+      const idx = queue.shift()!;
+      sorted.push(parsed[idx].decorator);
+      for (const next of adj[idx]) {
+        inDegree[next]--;
+        if (inDegree[next] === 0) queue.push(next);
+      }
+    }
+
+    if (sorted.length < n) {
+      return [...decorators];
+    }
+
+    return sorted;
+  }
+
   private expandDeriveDecorator(
     decorator: ts.Decorator,
     node: ts.Node,
@@ -1116,6 +1230,7 @@ class MacroTransformer {
 
     const statements: ts.Statement[] = [];
     const typeInfo = this.extractTypeInfo(node);
+    const typeName = node.name?.text ?? "Anonymous";
 
     for (const arg of args) {
       if (!ts.isIdentifier(arg)) {
@@ -1124,29 +1239,99 @@ class MacroTransformer {
       }
 
       const deriveName = arg.text;
-      const macro = globalRegistry.getDerive(deriveName);
 
-      if (!macro) {
-        // Provide import suggestions
-        const suggestions = getSuggestionsForSymbol(deriveName);
-        const suggestionMsg = formatSuggestionsMessage(suggestions);
-        const message = suggestionMsg
-          ? `Unknown derive macro: ${deriveName}\n\n${suggestionMsg}`
-          : `Unknown derive macro: ${deriveName}`;
-        this.ctx.reportError(arg, message);
+      // 1. Check for a registered derive macro (code-gen derives)
+      const deriveMacro = globalRegistry.getDerive(deriveName);
+      if (deriveMacro) {
+        if (this.verbose) {
+          console.log(`[typesugar] Expanding derive macro: ${deriveName}`);
+        }
+
+        try {
+          const result = deriveMacro.expand(this.ctx, node, typeInfo);
+          statements.push(...result);
+        } catch (error) {
+          this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
+        }
         continue;
       }
 
-      if (this.verbose) {
-        console.log(`[typesugar] Expanding derive macro: ${deriveName}`);
+      // 2. Check for a built-in typeclass derivation strategy (auto-derivation)
+      const typeclassDerivation = builtinDerivations[deriveName];
+      if (typeclassDerivation) {
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Auto-deriving typeclass instance: ${deriveName} for ${typeName}`
+          );
+        }
+        try {
+          let code: string;
+
+          if (ts.isTypeAliasDeclaration(node)) {
+            const sumInfo = tryExtractSumType(this.ctx, node);
+            if (sumInfo) {
+              code = typeclassDerivation.deriveSum(
+                typeName,
+                sumInfo.discriminant,
+                sumInfo.variants
+              );
+            } else {
+              code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
+            }
+          } else {
+            code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
+          }
+
+          const parsedStmts = this.ctx.parseStatements(code);
+          statements.push(...parsedStmts);
+
+          const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
+          instanceRegistry.push({
+            typeclassName: deriveName,
+            forType: typeName,
+            instanceName: instanceVarName(uncap, typeName),
+            derived: true,
+          });
+
+          registerExtensionMethods(typeName, deriveName);
+        } catch (error) {
+          this.ctx.reportError(
+            arg,
+            `Typeclass auto-derivation failed for ${deriveName}: ${error}`
+          );
+        }
+        continue;
       }
 
-      try {
-        const result = macro.expand(this.ctx, node, typeInfo);
-        statements.push(...result);
-      } catch (error) {
-        this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
+      // 3. Check for a "{Name}TC" derive macro (typeclass derive convention)
+      const tcDeriveMacro = globalRegistry.getDerive(`${deriveName}TC`);
+      if (tcDeriveMacro) {
+        if (this.verbose) {
+          console.log(`[typesugar] Expanding typeclass derive macro: ${deriveName}TC`);
+        }
+        try {
+          const result = tcDeriveMacro.expand(this.ctx, node, typeInfo);
+          statements.push(...result);
+        } catch (error) {
+          this.ctx.reportError(
+            arg,
+            `Typeclass derive macro expansion failed: ${error}`
+          );
+        }
+        continue;
       }
+
+      // 4. Nothing found — provide import suggestions
+      const suggestions = getSuggestionsForSymbol(deriveName);
+      const suggestionMsg = formatSuggestionsMessage(suggestions);
+      const message = suggestionMsg
+        ? `Unknown derive: '${deriveName}'. Not a registered derive macro, ` +
+          `typeclass with auto-derivation, or typeclass derive macro ` +
+          `('${deriveName}TC').\n\n${suggestionMsg}`
+        : `Unknown derive: '${deriveName}'. Not a registered derive macro, ` +
+          `typeclass with auto-derivation, or typeclass derive macro ` +
+          `('${deriveName}TC').`;
+      this.ctx.reportError(arg, message);
     }
 
     return statements.length > 0 ? statements : undefined;
@@ -1156,19 +1341,62 @@ class MacroTransformer {
     node: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
   ): DeriveTypeInfo {
     const name = node.name?.text ?? "Anonymous";
-    const type = this.ctx.typeChecker.getTypeAtLocation(node);
     const typeParameters = node.typeParameters ? Array.from(node.typeParameters) : [];
 
-    const fields: DeriveFieldInfo[] = [];
-    const properties = this.ctx.typeChecker.getPropertiesOfType(type);
+    let type: ts.Type;
+    try {
+      type = this.ctx.typeChecker.getTypeAtLocation(node);
+    } catch {
+      return {
+        name,
+        fields: [],
+        typeParameters,
+        type: undefined as unknown as ts.Type,
+        kind: "product",
+      };
+    }
 
+    // Check for sum type (discriminated union)
+    if (ts.isTypeAliasDeclaration(node)) {
+      const sumInfo = tryExtractSumType(this.ctx, node);
+      if (sumInfo) {
+        return this.extractSumTypeInfo(node, name, typeParameters, type, sumInfo);
+      }
+    }
+
+    // Check for primitive type alias
+    if (ts.isTypeAliasDeclaration(node) && isPrimitiveType(type)) {
+      return { name, fields: [], typeParameters, type, kind: "primitive" };
+    }
+
+    // Product type (interface, class, or non-union type alias)
+    const fields: DeriveFieldInfo[] = [];
+    let properties: ts.Symbol[];
+    try {
+      properties = this.ctx.typeChecker.getPropertiesOfType(type);
+    } catch {
+      return { name, fields: [], typeParameters, type, kind: "product" };
+    }
+
+    let isRecursive = false;
     for (const prop of properties) {
       const declarations = prop.getDeclarations();
       if (!declarations || declarations.length === 0) continue;
 
       const decl = declarations[0];
-      const propType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-      const propTypeString = this.ctx.typeChecker.typeToString(propType);
+      let propType: ts.Type;
+      let propTypeString: string;
+      try {
+        propType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+        propTypeString = this.ctx.typeChecker.typeToString(propType);
+      } catch {
+        propType = type;
+        propTypeString = "unknown";
+      }
+
+      if (propTypeString === name || propTypeString.includes(`${name}<`)) {
+        isRecursive = true;
+      }
 
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
       const readonly =
@@ -1182,13 +1410,96 @@ class MacroTransformer {
         type: propType,
         optional,
         readonly,
+        symbol: prop,
       });
     }
 
-    // Note: This simplified transformer defaults to "product" kind.
-    // The main transformer in src/transforms/macro-transformer.ts has
-    // full sum type detection via tryExtractSumType().
-    return { name, fields, typeParameters, type, kind: "product" };
+    return { name, fields, typeParameters, type, kind: "product", isRecursive };
+  }
+
+  private extractSumTypeInfo(
+    node: ts.TypeAliasDeclaration,
+    name: string,
+    typeParameters: ts.TypeParameterDeclaration[],
+    type: ts.Type,
+    sumInfo: { discriminant: string; variants: Array<{ tag: string; typeName: string }> }
+  ): DeriveTypeInfo {
+    const variants: DeriveVariantInfo[] = [];
+    let isRecursive = false;
+
+    if (ts.isUnionTypeNode(node.type)) {
+      for (const member of node.type.types) {
+        if (!ts.isTypeReferenceNode(member)) continue;
+
+        const memberTypeName = ts.isIdentifier(member.typeName)
+          ? member.typeName.text
+          : member.typeName.getText();
+        const variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
+        if (!variantInfo) continue;
+
+        const memberType = this.ctx.typeChecker.getTypeFromTypeNode(member);
+        const fields: DeriveFieldInfo[] = [];
+
+        try {
+          const props = this.ctx.typeChecker.getPropertiesOfType(memberType);
+          for (const prop of props) {
+            if (prop.name === sumInfo.discriminant) continue;
+
+            const declarations = prop.getDeclarations();
+            if (!declarations || declarations.length === 0) continue;
+
+            const decl = declarations[0];
+            let propType: ts.Type;
+            let propTypeString: string;
+            try {
+              propType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+              propTypeString = this.ctx.typeChecker.typeToString(propType);
+            } catch {
+              propType = memberType;
+              propTypeString = "unknown";
+            }
+
+            if (propTypeString === name || propTypeString.includes(`${name}<`)) {
+              isRecursive = true;
+            }
+
+            const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+            const readonly =
+              ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
+                ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
+                : false;
+
+            fields.push({
+              name: prop.name,
+              typeString: propTypeString,
+              type: propType,
+              optional,
+              readonly,
+              symbol: prop,
+            });
+          }
+        } catch {
+          // Skip variant if we can't get its properties
+        }
+
+        variants.push({
+          tag: variantInfo.tag,
+          typeName: variantInfo.typeName,
+          fields,
+        });
+      }
+    }
+
+    return {
+      name,
+      fields: [],
+      typeParameters,
+      type,
+      kind: "sum",
+      variants,
+      discriminant: sumInfo.discriminant,
+      isRecursive,
+    };
   }
 
   private tryExpandTaggedTemplate(node: ts.TaggedTemplateExpression): ts.Expression | undefined {
@@ -1484,6 +1795,51 @@ class MacroTransformer {
       return preserveSourceMap(visited, node);
     } catch (error) {
       this.ctx.reportError(node, `Extension method rewrite failed: ${error}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Transform HKT declarations with F<_> kind syntax.
+   *
+   * Auto-detects interface/type declarations that use F<_> to denote
+   * type constructor parameters, and transforms F<A> usages to $<F, A>.
+   *
+   * If the preprocessor already rewrote the F<_> syntax at the text level,
+   * isKindAnnotation() won't find the <_> pattern in the source text
+   * and this method returns undefined — no double-rewrite.
+   */
+  private tryTransformHKTDeclaration(
+    node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+  ): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | undefined {
+    const typeParams = node.typeParameters;
+    if (!typeParams) return undefined;
+
+    let hasKindAnnotation = false;
+    for (const param of typeParams) {
+      if (isKindAnnotation(param)) {
+        hasKindAnnotation = true;
+        break;
+      }
+    }
+
+    if (!hasKindAnnotation) return undefined;
+
+    if (this.verbose) {
+      const name = node.name?.text ?? "Anonymous";
+      console.log(`[typesugar] Transforming HKT declaration: ${name}`);
+    }
+
+    try {
+      const transformed = transformHKTDeclaration(this.ctx, node);
+      const visited = ts.visitEachChild(
+        transformed,
+        this.visit.bind(this),
+        this.ctx.transformContext
+      ) as ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+      return preserveSourceMap(visited, node);
+    } catch (error) {
+      this.ctx.reportError(node, `HKT transformation failed: ${error}`);
       return undefined;
     }
   }

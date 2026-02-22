@@ -46,6 +46,7 @@ export type {
   MacroRegistry,
   DeriveTypeInfo,
   DeriveFieldInfo,
+  DeriveVariantInfo,
   ExtensionMethodInfo,
   ExtensionMethodRegistry,
   StandaloneExtensionInfo,
