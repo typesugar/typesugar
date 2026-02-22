@@ -2004,16 +2004,18 @@ class MacroTransformer {
     let decorators = ts.getDecorators(node);
     if (!decorators || decorators.length === 0) {
       if (
-        (ts.isFunctionDeclaration(node) ||
-          ts.isInterfaceDeclaration(node) ||
-          ts.isTypeAliasDeclaration(node)) &&
-        node.modifiers
+        ts.isFunctionDeclaration(node) ||
+        ts.isInterfaceDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node)
       ) {
-        const modifierDecorators = node.modifiers.filter(
-          (m): m is ts.Decorator => m.kind === ts.SyntaxKind.Decorator
-        );
-        if (modifierDecorators.length > 0) {
-          decorators = modifierDecorators as unknown as readonly ts.Decorator[];
+        const nodeWithModifiers = node as ts.FunctionDeclaration | ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+        if (nodeWithModifiers.modifiers) {
+          const modifierDecorators = nodeWithModifiers.modifiers.filter(
+            (m): m is ts.Decorator => m.kind === ts.SyntaxKind.Decorator
+          );
+          if (modifierDecorators.length > 0) {
+            decorators = modifierDecorators as unknown as readonly ts.Decorator[];
+          }
         }
       }
     }

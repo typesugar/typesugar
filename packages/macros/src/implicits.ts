@@ -186,7 +186,7 @@ export function resolveImplicit(
 
 export const implicitsAttribute = defineAttributeMacro({
   name: "implicits",
-  module: "typemacro",
+  // No module constraint - @implicits is used as a bare decorator without importing
   description: "Mark a function as having implicit parameters that are auto-resolved",
   validTargets: ["function"],
 
@@ -347,7 +347,11 @@ export function transformImplicitsCall(
   const factory = ctx.factory;
   const newArgs: ts.Expression[] = [...callExpr.arguments];
 
-  // Infer type parameter mappings from provided args
+  // Infer type parameter mappings from provided args.
+  // Strategy:
+  //   1. Explicit type arguments: use them directly
+  //   2. Resolved signature: let TypeScript infer type params from arguments
+  //   3. Per-implicit fallback: extract concrete type from the resolved param type
   const typeParamMap = new Map<string, string>();
 
   if (callExpr.typeArguments) {
@@ -356,12 +360,39 @@ export function transformImplicitsCall(
         typeParamMap.set(funcInfo.typeParams[i], callExpr.typeArguments[i].getText());
       }
     }
-  } else if (callExpr.arguments.length > 0 && funcInfo.typeParams.length > 0) {
-    // Infer from first argument's type
-    const firstArg = callExpr.arguments[0];
-    const argType = ctx.typeChecker.getTypeAtLocation(firstArg);
-    const argTypeString = ctx.typeChecker.typeToString(argType);
-    typeParamMap.set(funcInfo.typeParams[0], argTypeString);
+  } else {
+    // Use getResolvedSignature to let TypeScript infer type params correctly.
+    // This handles cases like T[] matching number[] → T = number.
+    try {
+      const resolvedSig = ctx.typeChecker.getResolvedSignature(callExpr);
+      if (resolvedSig) {
+        const resolvedParams = resolvedSig.getParameters();
+        for (const implicitParam of funcInfo.implicitParams) {
+          if (implicitParam.paramIndex < resolvedParams.length) {
+            const paramSymbol = resolvedParams[implicitParam.paramIndex];
+            const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+              paramSymbol,
+              callExpr
+            );
+            const paramTypeString = ctx.typeChecker.typeToString(paramType);
+
+            // Extract the type argument from "Typeclass<ConcreteType>"
+            const match = paramTypeString.match(/^\w+<(.+)>$/);
+            if (match) {
+              typeParamMap.set(implicitParam.typeParamName, match[1]);
+            }
+          }
+        }
+      }
+    } catch {
+      // Fall back to naive inference if getResolvedSignature fails
+      if (callExpr.arguments.length > 0 && funcInfo.typeParams.length > 0) {
+        const firstArg = callExpr.arguments[0];
+        const argType = ctx.typeChecker.getTypeAtLocation(firstArg);
+        const argTypeString = ctx.typeChecker.typeToString(argType);
+        typeParamMap.set(funcInfo.typeParams[0], argTypeString);
+      }
+    }
   }
 
   // Fill in missing implicit parameters
