@@ -345,15 +345,9 @@ importers:
 
   packages/macros:
     dependencies:
-      '@typesugar/contracts':
-        specifier: workspace:*
-        version: link:../contracts
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
-      '@typesugar/mapper':
-        specifier: workspace:*
-        version: link:../mapper
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
@@ -591,33 +585,12 @@ importers:
       '@ampproject/remapping':
         specifier: ^2.3.0
         version: 2.3.0
-      '@typesugar/comptime':
-        specifier: workspace:*
-        version: link:../comptime
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
-      '@typesugar/derive':
-        specifier: workspace:*
-        version: link:../derive
-      '@typesugar/mapper':
-        specifier: workspace:*
-        version: link:../mapper
-      '@typesugar/operators':
-        specifier: workspace:*
-        version: link:../operators
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
-      '@typesugar/reflect':
-        specifier: workspace:*
-        version: link:../reflect
-      '@typesugar/specialize':
-        specifier: workspace:*
-        version: link:../specialize
-      '@typesugar/typeclass':
-        specifier: workspace:*
-        version: link:../typeclass
       esbuild:
         specifier: ^0.20.0
         version: 0.20.2
@@ -625,6 +598,9 @@ importers:
         specifier: '>=5.0.0'
         version: 5.9.3
     devDependencies:
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.11)

@@ -3,6 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    "macro-loader": "src/macro-loader.ts",
     cli: "src/cli.ts",
     init: "src/init.ts",
     doctor: "src/doctor.ts",

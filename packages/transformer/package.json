@@ -77,18 +77,12 @@
   ],
   "dependencies": {
     "@typesugar/core": "workspace:*",
-    "@typesugar/derive": "workspace:*",
-    "@typesugar/comptime": "workspace:*",
-    "@typesugar/reflect": "workspace:*",
-    "@typesugar/operators": "workspace:*",
-    "@typesugar/typeclass": "workspace:*",
-    "@typesugar/specialize": "workspace:*",
-    "@typesugar/mapper": "workspace:*",
     "@typesugar/preprocessor": "workspace:*",
     "@ampproject/remapping": "^2.3.0",
     "esbuild": "^0.20.0"
   },
   "devDependencies": {
+    "@typesugar/macros": "workspace:*",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {

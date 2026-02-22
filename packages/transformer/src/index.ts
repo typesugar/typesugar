@@ -6,9 +6,7 @@
 
 import * as ts from "typescript";
 import { preprocess } from "@typesugar/preprocessor";
-
-// Import macro packages to register them with the global registry
-import "@typesugar/mapper";
+import { loadMacroPackages } from "./macro-loader.js";
 
 import {
   MacroContextImpl,
@@ -129,6 +127,10 @@ export default function macroTransformerFactory(
   config?: MacroTransformerConfig
 ): ts.TransformerFactory<ts.SourceFile> {
   const verbose = config?.verbose ?? false;
+
+  // Lazily load macro packages based on what the program actually imports.
+  // This replaces eager side-effect imports that caused dependency cycles.
+  loadMacroPackages(program, verbose);
 
   if (verbose) {
     console.log("[typesugar] Initializing transformer");
@@ -1493,6 +1495,9 @@ class MacroTransformer {
 
 // Also export for programmatic use
 export { MacroTransformer };
+
+// Lazy macro loading utilities
+export { loadMacroPackages, loadMacroPackage, resetLoadedPackages } from "./macro-loader.js";
 
 // Re-export unified pipeline components
 export {

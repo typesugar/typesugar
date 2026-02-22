@@ -51,7 +51,10 @@ import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 import { config } from "@typesugar/core";
 import { stripDecorator } from "@typesugar/core";
-import type { VerificationMode, UndecidableAction } from "@typesugar/contracts";
+// Inlined from @typesugar/contracts to avoid a cross-package dependency.
+// Keep in sync with packages/contracts/src/laws/types.ts.
+type VerificationMode = false | "compile-time" | "property-test";
+type UndecidableAction = "error" | "warn" | "fallback" | "ignore";
 
 // ============================================================================
 // Types

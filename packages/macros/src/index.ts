@@ -28,12 +28,6 @@ import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
 import "./verify-laws.js"; // Typeclass law verification
 import "./extension.js"; // Standalone extension methods for concrete types
 
-// --- Contract macros ---
-import "@typesugar/contracts";
-
-// --- Mapper macros ---
-import "@typesugar/mapper";
-
 // --- Testing macros ---
 // NOTE: @typesugar/testing/macros is NOT imported here to avoid duplicate
 // registration of typeInfo macro. Import it separately when needed.
@@ -385,23 +379,6 @@ export {
   kindParamRegistry,
   type KindParamInfo,
 } from "./hkt.js";
-
-// --- Contract macros ---
-export {
-  requiresMacro,
-  ensuresMacro,
-  oldMacro,
-  contractAttribute,
-  invariantAttribute,
-  type ContractConfig,
-  setContractConfig,
-  getContractConfig,
-  shouldEmitCheck,
-  type ProofResult,
-  type ProverPlugin,
-  tryProve,
-  registerProverPlugin,
-} from "@typesugar/contracts";
 
 // --- Testing macros ---
 // NOTE: Testing macros (powerAssertMacro, comptimeAssertMacro, etc.) are

@@ -20,14 +20,6 @@ import * as fs from "fs";
 import macroTransformerFactory from "./index.js";
 import { preprocess } from "@typesugar/preprocessor";
 
-// Register built-in macros (auto-registers on import)
-import "@typesugar/derive";
-import "@typesugar/comptime";
-import "@typesugar/reflect";
-import "@typesugar/operators";
-import "@typesugar/typeclass";
-import "@typesugar/specialize";
-
 type Command = "build" | "watch" | "check" | "expand" | "run" | "init" | "doctor" | "create";
 
 interface CliOptions {

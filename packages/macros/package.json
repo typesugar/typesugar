@@ -39,9 +39,7 @@
     "derive"
   ],
   "dependencies": {
-    "@typesugar/core": "workspace:*",
-    "@typesugar/contracts": "workspace:*",
-    "@typesugar/mapper": "workspace:*"
+    "@typesugar/core": "workspace:*"
   },
   "devDependencies": {},
   "peerDependencies": {
