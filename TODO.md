@@ -35,7 +35,11 @@
    - **What:** A preprocessor feature that allows calling functions with named arguments (e.g., `fn(a=1, b=2)`).
    - **Why:** The macro rewrites them into positional arguments at compile time based on the function signature, bringing Python/C#-style named arguments to TS with zero runtime cost.
 
-7. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
+7. **`transformInto` Macro Expansion (`@typesugar/mapper`)**
+   - **What:** Implement `transformInto<S, T>()` as a compile-time macro in the transformer. Currently it throws at runtime; the macro must expand to zero-cost object mapping code.
+   - **Why:** Mapper tests are skipped until this is implemented. See `packages/mapper/src/__tests__/mapper.test.ts`.
+
+8. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
    - **What:** Add recursive deep-type compatibility checking to the `transformInto` macro.
    - **Why:** To ensure nested objects and complex mappings strictly adhere to the target type without runtime mapping errors.
 

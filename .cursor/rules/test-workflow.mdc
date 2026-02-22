@@ -1,0 +1,57 @@
+---
+description: Test execution workflow — targeted runs, tee, and re-run-failed
+alwaysApply: true
+---
+
+# When you encounter a bug
+
+If there are no failing tests, add one, then make it pass.
+
+# Test Workflow
+
+## Run targeted tests, not the full suite
+
+When fixing a specific test or file, run only the relevant subset:
+
+```bash
+# Single file
+pnpm vitest run tests/cfg.test.ts 2>&1 | tee test-output.txt
+
+# Name substring (matches cfg.test.ts, cfg-advanced.test.ts, etc.)
+pnpm vitest run cfg 2>&1 | tee test-output.txt
+
+# Multiple files/patterns
+pnpm vitest run cfg derive operators 2>&1 | tee test-output.txt
+```
+
+Only run the full suite (`pnpm test`) as a final check before committing.
+
+## Re-run only what failed last time
+
+After a full run, re-run only the files that failed:
+
+```bash
+# All failures from last run
+pnpm test:failed 2>&1 | tee test-output.txt
+
+# Failures whose path contains "cfg"
+pnpm test:failed cfg 2>&1 | tee test-output.txt
+
+# With extra vitest flags (after --)
+pnpm test:failed cfg -- --bail 1 2>&1 | tee test-output.txt
+```
+
+Requires `.vitest-results/test-results.json` — produced automatically by `pnpm test`.
+
+## Always use tee
+
+Never pipe test output to `head` or `tail`. Always use `tee` so the full output streams to the terminal and is also captured:
+
+```bash
+# ✅ GOOD
+pnpm test 2>&1 | tee test-output.txt
+
+# ❌ BAD
+pnpm test | head -100
+pnpm test | tail -50
+```

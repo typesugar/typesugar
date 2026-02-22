@@ -5,8 +5,8 @@ Typesugar provides two labeled block macros for effect-based programming:
 - **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
 - **`par:/yield:`** — Parallel (applicative) comprehensions via the `ParCombine` typeclass
 
-- `let:` uses the `FlatMap` registry
-- `par:` uses the `ParCombine` registry (Promise, AsyncIterable, Array, Iterable, or `.map()/.ap()` fallback)
+- `let:` uses the `FlatMap` typeclass (registered in the unified instance registry)
+- `par:` uses the `ParCombine` typeclass (registered in the unified instance registry)
 
 ## Quick Start
 
@@ -271,7 +271,9 @@ par: {
 
 ## Supported Types
 
-### let: (FlatMap registry)
+### let: (FlatMap typeclass)
+
+Built-in `FlatMap` instances:
 
 | Type            | Method Used       |
 | --------------- | ----------------- |
@@ -280,7 +282,7 @@ par: {
 | `Iterable`      | `.flatMap()`      |
 | `AsyncIterable` | `.flatMap()`      |
 
-### par: (ParCombine registry)
+### par: (ParCombine typeclass)
 
 | Type            | `par:` Behavior                                      |
 | --------------- | ---------------------------------------------------- |
@@ -309,9 +311,11 @@ yield: ({ users, events })
 
 ## Registering Custom Types
 
+Both `FlatMap` and `ParCombine` are now part of the unified typeclass instance registry. The macros use `findInstance()` from `@typesugar/macros` to look up instances.
+
 ### FlatMap (for let:)
 
-Use `registerFlatMap` for custom monadic types:
+Register a `FlatMap` instance for custom monadic types using `registerFlatMap`:
 
 ```typescript
 import { registerFlatMap } from "@typesugar/std";
@@ -348,9 +352,27 @@ let: {
 yield: { x + y }
 ```
 
+#### Custom Method Names
+
+Some types use different method names (e.g., `Promise` uses `then` instead of `flatMap`). You can specify custom method names:
+
+```typescript
+import { registerFlatMap } from "@typesugar/std";
+
+registerFlatMap("MyMonad", {
+  map: (ma, f) => ma.transform(f),
+  flatMap: (ma, f) => ma.chain(f),
+}, {
+  methodNames: {
+    bind: "chain",  // Use .chain() instead of .flatMap()
+    map: "transform",  // Use .transform() instead of .map()
+  }
+});
+```
+
 ### ParCombine (for par:)
 
-Use `registerParCombine` for custom parallel combination:
+Register a `ParCombine` instance for custom parallel combination using `registerParCombine`:
 
 ```typescript
 import { registerParCombine } from "@typesugar/std";
@@ -368,7 +390,40 @@ par: {
 yield: ({ a, b })
 ```
 
-Types with a registered ParCombine instance get optimized code generation. Types without one fall back to `.map().ap()` chains.
+#### Zero-Cost Builders
+
+For optimal code generation, `ParCombine` instances can provide a custom builder function that generates optimized AST directly. This is how the built-in Promise, Array, and AsyncIterable instances achieve zero-cost abstraction:
+
+```typescript
+import { registerParCombine, registerParCombineBuilder } from "@typesugar/std";
+import type { ParCombineBuilder } from "@typesugar/macros";
+
+// Register the typeclass instance
+registerParCombine("MyEffect", {
+  all: (effects) => MyEffect.all(effects),
+  map: (combined, f) => combined.map(f),
+});
+
+// Optionally register a custom builder for zero-cost code generation
+const myEffectBuilder: ParCombineBuilder = (ctx, bindings, returnExpr) => {
+  // Generate optimized AST directly
+  // ... custom code generation logic ...
+};
+registerParCombineBuilder("MyEffect", myEffectBuilder);
+```
+
+Types with a registered `ParCombine` instance get optimized code generation. Types without one fall back to `.map().ap()` chains.
+
+### How It Works Under the Hood
+
+Both `FlatMap` and `ParCombine` are registered as formal typeclasses in the unified instance registry (`instanceRegistry` from `@typesugar/macros`). The comprehension macros use:
+
+- `findInstance("FlatMap", "TypeName")` — to check if a `FlatMap` instance exists
+- `findInstance("ParCombine", "TypeName")` — to check if a `ParCombine` instance exists
+- `getFlatMapMethodNames("TypeName")` — to resolve method names (with fallbacks for built-in types)
+- `getParCombineBuilderFromRegistry("TypeName")` — to retrieve zero-cost builders
+
+This unified approach means `FlatMap` and `ParCombine` instances are consistent with all other typeclasses in typesugar.
 
 ## Before/After Comparison
 

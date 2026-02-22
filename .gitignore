@@ -26,6 +26,19 @@ pnpm-debug.log*
 # Test coverage
 coverage/
 
+# Vitest results (for re-running failed tests)
+.vitest-results/
+
+# Build/test output captures (tee targets)
+build-output.txt
+std-build*.txt
+test-comp.txt
+test-full.txt
+test-output.txt
+
+# tsup temp artifacts
+**/tsup.config.bundled*.mjs
+
 # VitePress
 docs/.vitepress/cache/
 docs/.vitepress/dist/
