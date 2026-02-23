@@ -173,7 +173,7 @@ assert(toLatex(fraction) === "\\frac{x + 1}{x - 1}");
 // Greek letters automatically converted
 const theta = var_("theta");
 const alpha = var_("alpha");
-assert(toLatex(sin(theta)) === "\\sin{\\theta}");
+assert(toLatex(sin(theta)) === "\\sin\\left(\\theta\\right)");
 assert(toLatex(alpha) === "\\alpha");
 
 // Subscript notation: x_1 → x₁
@@ -498,7 +498,7 @@ const schrodinger = neg((hbar ** TWO) / (TWO * mass)) * diff(diff(psi, "x"), "x"
 
 // Quadratic formula discriminant
 const discriminantRender = (b ** TWO) - FOUR * a * c;
-assert(toLatex(discriminantRender) === "b^{2} - 4 a c");
+assert(toLatex(discriminantRender) === "b^2 - 4 a \\times c");
 
 // Euler's identity setup: e^(iπ) + 1 = 0
 const i = var_("i");

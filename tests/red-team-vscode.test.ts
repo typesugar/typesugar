@@ -28,7 +28,7 @@ describe("VSCode Extension Configuration Edge Cases", () => {
     const pkg = readJson<Record<string, unknown>>("package.json");
 
     it("has required VS Code extension fields", () => {
-      expect(pkg.name).toBe("@typesugar/vscode");
+      expect(pkg.name).toBe("typesugar-vscode");
       expect(pkg.displayName).toBe("typesugar");
       expect(pkg.publisher).toBe("typesugar");
       expect(pkg.engines).toHaveProperty("vscode");
