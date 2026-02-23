@@ -14,6 +14,7 @@
 
 import type { Numeric, Fractional, Floating } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
+import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
  * Complex number with real and imaginary parts.
@@ -160,6 +161,13 @@ export const numericComplex: Numeric<Complex> = {
 
   one: () => ({ re: 1, im: 0 }),
 };
+
+registerInstanceWithMeta({
+  typeclassName: "Numeric",
+  forType: "Complex",
+  instanceName: "numericComplex",
+  derived: false,
+});
 
 /**
  * Fractional instance for Complex numbers.

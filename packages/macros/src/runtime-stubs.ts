@@ -14,45 +14,91 @@
 // ============================================================================
 
 /**
- * Decorator to mark an interface as a typeclass.
- * Generates companion namespace with summon/register utilities.
+ * Declare a typeclass interface.
+ *
+ * **With transformer:** Extracts metadata (methods, Op<> syntax, type params)
+ * and registers in the typeclass registry for summon(), operator overloading,
+ * and auto-derivation.
+ *
+ * **Without transformer (fallback):** No-op. The interface is unchanged.
+ * Operator overloading and summon() won't work, but the interface is still
+ * usable as a plain TypeScript type.
  *
  * @example
  * ```typescript
+ * // As decorator (preferred, requires preprocessor):
  * @typeclass
- * interface Show<A> {
- *   show(a: A): string;
+ * interface Eq<A> {
+ *   equals(a: A, b: A): boolean & Op<"===">;
  * }
+ *
+ * // After preprocessor (what TypeScript sees):
+ * interface Eq<A> { ... }
+ * typeclass("Eq");
+ *
+ * // With options:
+ * @typeclass({ defaultDerive: true })
+ * interface Show<A> { show(a: A): string; }
  * ```
+ *
+ * @param nameOrTarget - Typeclass name string OR decorator target (interface/class)
+ * @param optionsOrContext - Optional configuration (expression form) or decorator context
+ * @returns void (expression form) or the target unchanged (decorator form)
  */
-export function typeclass(target: any, _context?: ClassDecoratorContext): any {
-  // Placeholder - processed by transformer
-  return target;
+export function typeclass(name: string, options?: object): void;
+export function typeclass(target: any, context?: ClassDecoratorContext): any;
+export function typeclass(
+  nameOrTarget: string | any,
+  optionsOrContext?: object | ClassDecoratorContext
+): any {
+  if (typeof nameOrTarget === "string") return; // Expression form: no-op
+  return nameOrTarget; // Decorator form: return target unchanged
 }
 
 /**
- * Decorator to register a typeclass instance for a specific type.
- * Supports multiple syntaxes:
- * - @instance(Typeclass, Type) - identifier form
- * - @instance("Typeclass<Type>") - string form for HKT
+ * Register a typeclass instance.
+ *
+ * **With transformer:** Registers the instance in instanceRegistry, enables
+ * summon<TC<T>>() resolution, operator overloading, and zero-cost
+ * specialization via method extraction.
+ *
+ * **Without transformer (fallback):** Expression form returns the object
+ * unchanged. Decorator form is a no-op. The instance is usable as a plain
+ * value but won't be discovered by summon() or operator rewriting.
  *
  * @example
  * ```typescript
+ * // As decorator on const (preferred, requires preprocessor):
+ * @instance("Numeric<Complex>")
+ * export const numericComplex: Numeric<Complex> = { ... };
+ *
+ * // After preprocessor (what TypeScript sees):
+ * export const numericComplex: Numeric<Complex> = instance("Numeric<Complex>", { ... });
+ *
+ * // As decorator on class (standard TS, no preprocessor needed):
+ * @instance("Show<MyClass>")
+ * class MyClassShow implements Show<MyClass> { ... }
+ *
+ * // Identifier form (alternative to string):
  * @instance(Show, Number)
- * const numberShow: Show<number> = {
- *   show: (n) => String(n),
- * };
+ * const numberShow: Show<number> = { show: (n) => String(n) };
  *
  * // For HKT typeclasses:
  * @instance("FlatMap<Array>")
  * const flatMapArray: FlatMap<ArrayTag> = { ... };
  * ```
+ *
+ * @param descOrTarget - Description string like "Numeric<Complex>" OR decorator target
+ * @param obj - The instance object (expression form only)
+ * @returns The instance object unchanged (expression form) or decorator function (decorator form)
  */
+export function instance<T>(desc: string, obj: T): T;
 export function instance(
-  ..._args: unknown[]
-): PropertyDecorator & ClassDecorator & MethodDecorator {
-  // Placeholder - processed by transformer
-  return () => {};
+  ...args: unknown[]
+): PropertyDecorator & ClassDecorator & MethodDecorator;
+export function instance(...args: unknown[]): any {
+  if (args.length >= 2) return args[1]; // Expression form: return object unchanged
+  return () => {}; // Decorator form: no-op
 }
 
 /**

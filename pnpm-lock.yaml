@@ -376,6 +376,9 @@ importers:
       '@typesugar/geometry':
         specifier: workspace:*
         version: link:../geometry
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std
@@ -554,6 +557,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std

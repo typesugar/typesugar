@@ -84,6 +84,14 @@ export function loadMacroPackages(program: ts.Program, verbose?: boolean): void 
     }
   }
 
+  // Always load @typesugar/std first if ANY @typesugar/* package is used.
+  // This ensures core typeclass definitions (Numeric, Eq, Ord, etc.) and their
+  // Op<> syntax mappings are registered before domain-specific instances.
+  const hasTypesugarImport = [...toLoad].some((pkg) => pkg.startsWith("@typesugar/"));
+  if (hasTypesugarImport) {
+    loadPackage("@typesugar/std", verbose);
+  }
+
   for (const pkg of toLoad) {
     loadPackage(pkg, verbose);
   }
@@ -95,6 +103,43 @@ export function loadMacroPackages(program: ts.Program, verbose?: boolean): void 
  */
 export function loadMacroPackage(packageName: string, verbose?: boolean): boolean {
   return loadPackage(packageName, verbose);
+}
+
+/**
+ * Load macro packages based on imports in a single source file.
+ * Called per-file during transformation to ensure packages are loaded
+ * even when the initial program doesn't include all files.
+ */
+export function loadMacroPackagesFromFile(sourceFile: ts.SourceFile, verbose?: boolean): void {
+  const toLoad = new Set<string>();
+
+  for (const stmt of sourceFile.statements) {
+    if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      const mod = stmt.moduleSpecifier.text;
+      if (!mod.startsWith(".") && !mod.startsWith("/")) {
+        const basePkg = getBasePackageName(mod);
+        if (basePkg) {
+          // Map facade packages to their actual provider
+          const provider = FACADE_TO_PROVIDER[basePkg];
+          if (provider) {
+            toLoad.add(provider);
+          } else if (KNOWN_MACRO_PACKAGES.has(basePkg) || basePkg.startsWith("@typesugar/")) {
+            toLoad.add(basePkg);
+          }
+        }
+      }
+    }
+  }
+
+  // Always load @typesugar/std first if ANY @typesugar/* package is used
+  const hasTypesugarImport = [...toLoad].some((pkg) => pkg.startsWith("@typesugar/"));
+  if (hasTypesugarImport) {
+    loadPackage("@typesugar/std", verbose);
+  }
+
+  for (const pkg of toLoad) {
+    loadPackage(pkg, verbose);
+  }
 }
 
 /**

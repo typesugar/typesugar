@@ -18,6 +18,8 @@ export default defineConfig({
   noExternal: [
     "@typesugar/core",
     "@typesugar/preprocessor",
+    "@typesugar/macros",
+    "@typesugar/std",
     "@ampproject/remapping",
     "magic-string",
   ],

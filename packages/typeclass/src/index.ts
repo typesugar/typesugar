@@ -42,6 +42,7 @@ export { typeclass, instance, deriving, summon, extend, implicits } from "@types
 export {
   typeclassAttribute,
   instanceAttribute,
+  instanceMacro,
   derivingAttribute,
   summonMacro,
   extendMacro,

@@ -24,6 +24,12 @@ import * as path from "path";
 import { TransformationPipeline, type TransformResult } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 
+// Static import of @typesugar/std to ensure core typeclass definitions (Numeric, Eq, Ord)
+// and their Op<> syntax mappings are registered when the language service loads.
+// This is necessary because the VS Code extension runs in isolation and can't
+// dynamically require packages from the user's workspace.
+import "@typesugar/std";
+
 /**
  * Cache entry for transformed files
  */

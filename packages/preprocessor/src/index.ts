@@ -59,3 +59,4 @@ export { isCustomOperatorExtension } from "./extensions/types.js";
 export { hktExtension } from "./extensions/hkt.js";
 export { pipelineExtension } from "./extensions/pipeline.js";
 export { consExtension } from "./extensions/cons.js";
+export { decoratorRewriteExtension } from "./extensions/decorator-rewrite.js";

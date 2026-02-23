@@ -14,6 +14,7 @@
 
 import type { Numeric, Ord } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
+import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
  * Arbitrary precision decimal number.
@@ -331,6 +332,13 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
   one: () => ({ unscaled: 1n, scale: 0 }),
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Numeric",
+  forType: "BigDecimal",
+  instanceName: "numericBigDecimal",
+  derived: false,
+});
+
 /**
  * Ord instance for BigDecimal.
  */
@@ -364,6 +372,13 @@ export const ordBigDecimal: Ord<BigDecimal> = {
     return aa.unscaled >= bb.unscaled;
   },
 };
+
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "BigDecimal",
+  instanceName: "ordBigDecimal",
+  derived: false,
+});
 
 /**
  * Check if two BigDecimals are equal in value.

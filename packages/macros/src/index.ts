@@ -81,7 +81,9 @@ export {
 } from "./reflect.js";
 export {
   typeclassAttribute,
+  typeclassMacro,
   instanceAttribute,
+  instanceMacro,
   derivingAttribute,
   summonMacro,
   extendMacro,

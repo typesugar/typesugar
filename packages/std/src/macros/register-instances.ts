@@ -1,9 +1,12 @@
 /**
  * Register Standard Library Instances Macro
  *
- * This macro registers all @typesugar/std typeclass instances in the compile-time
- * registry, enabling summon<>() resolution for standard types AND operator
- * dispatch via Op<> annotations.
+ * This macro registers additional @typesugar/std typeclass instances that cannot
+ * use the @instance decorator (e.g., HKT-based typeclasses, instances in other files).
+ *
+ * NOTE: Most primitive typeclass instances are now registered via @instance
+ * decorators directly on the const declarations in @typesugar/std/typeclasses/index.ts.
+ * This macro only handles the remaining instances.
  *
  * @example
  * ```typescript
@@ -28,26 +31,9 @@
  * // a + b  → semigroupNumber.combine(a, b) or numericNumber.add(a, b)
  * ```
  *
- * ## Why is this needed?
- *
- * The @instance decorator cannot be used on const declarations in library
- * code because TypeScript's type declaration generator (tsc) doesn't accept
- * decorators on variable declarations. This macro provides an alternative
- * way to register instances at compile time.
- *
  * ## What gets registered?
  *
- * **Typeclasses (with Op<> syntax for operator dispatch):**
- * - Eq (Op<"===">, Op<"!==">) — equality comparison
- * - Ord (Op<"<">, Op<"<=">, Op<">">, Op<">=">) — ordering
- * - Semigroup (Op<"+">) — associative combine
- * - Monoid (extends Semigroup) — with identity
- * - Group (extends Monoid) — with inverse
- * - Numeric (Op<"+">, Op<"-">, Op<"*">) — ring arithmetic
- * - Integral (Op<"/">, Op<"%">) — integer division
- * - Fractional (Op<"/">) — real division
- *
- * **Instances:**
+ * **Via @instance decorators (in @typesugar/std/typeclasses/index.ts):**
  * - Eq<number>, Eq<string>, Eq<boolean>, Eq<bigint>, Eq<Date>
  * - Ord<number>, Ord<string>, Ord<boolean>, Ord<bigint>, Ord<Date>
  * - Semigroup<number>, Semigroup<string>, Semigroup<bigint>
@@ -59,7 +45,10 @@
  * - Integral<number>, Integral<bigint>
  * - Fractional<number>
  * - Floating<number>
+ *
+ * **Via this macro (instances in other files):**
  * - FlatMap<Array>, FlatMap<Promise>, FlatMap<Iterable>, FlatMap<AsyncIterable>
+ * - Eq<Range>, Ord<Range>
  */
 
 import * as ts from "typescript";
@@ -69,12 +58,7 @@ import {
   defineExpressionMacro,
   globalRegistry,
 } from "@typesugar/core";
-import {
-  registerTypeclassDef,
-  registerInstanceWithMeta,
-  type TypeclassInfo,
-  type InstanceInfo,
-} from "@typesugar/macros";
+import { registerInstanceWithMeta, type InstanceInfo } from "@typesugar/macros";
 
 /**
  * Instance registration info for the macro.
@@ -87,497 +71,30 @@ interface InstanceReg {
 }
 
 // ============================================================================
-// Typeclass Definitions with Op<> Syntax
+// Typeclass Definitions
 // ============================================================================
 
-/**
- * Typeclass definitions with their Op<> operator mappings.
- * These are registered in the syntax registry for operator dispatch.
- */
-const TYPECLASS_DEFS: TypeclassInfo[] = [
-  {
-    name: "Eq",
-    typeParam: "A",
-    methods: [
-      {
-        name: "equals",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "boolean",
-        isSelfMethod: true,
-        operatorSymbol: "===",
-      },
-      {
-        name: "notEquals",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "boolean",
-        isSelfMethod: true,
-        operatorSymbol: "!==",
-      },
-    ],
-    canDeriveProduct: true,
-    canDeriveSum: true,
-    syntax: new Map([
-      ["===", "equals"],
-      ["!==", "notEquals"],
-    ]),
-  },
-  {
-    name: "Ord",
-    typeParam: "A",
-    methods: [
-      {
-        name: "compare",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "Ordering",
-        isSelfMethod: true,
-      },
-      {
-        name: "lessThan",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "boolean",
-        isSelfMethod: true,
-        operatorSymbol: "<",
-      },
-      {
-        name: "lessThanOrEqual",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "boolean",
-        isSelfMethod: true,
-        operatorSymbol: "<=",
-      },
-      {
-        name: "greaterThan",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "boolean",
-        isSelfMethod: true,
-        operatorSymbol: ">",
-      },
-      {
-        name: "greaterThanOrEqual",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "boolean",
-        isSelfMethod: true,
-        operatorSymbol: ">=",
-      },
-    ],
-    canDeriveProduct: true,
-    canDeriveSum: true,
-    syntax: new Map([
-      ["<", "lessThan"],
-      ["<=", "lessThanOrEqual"],
-      [">", "greaterThan"],
-      [">=", "greaterThanOrEqual"],
-    ]),
-  },
-  {
-    name: "Semigroup",
-    typeParam: "A",
-    methods: [
-      {
-        name: "combine",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "+",
-      },
-    ],
-    canDeriveProduct: true,
-    canDeriveSum: false,
-    syntax: new Map([["+", "combine"]]),
-  },
-  {
-    name: "Monoid",
-    typeParam: "A",
-    methods: [
-      {
-        name: "empty",
-        params: [],
-        returnType: "A",
-        isSelfMethod: false,
-      },
-      {
-        name: "combine",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "+",
-      },
-    ],
-    canDeriveProduct: true,
-    canDeriveSum: false,
-    syntax: new Map([["+", "combine"]]),
-  },
-  {
-    name: "Group",
-    typeParam: "A",
-    methods: [
-      {
-        name: "empty",
-        params: [],
-        returnType: "A",
-        isSelfMethod: false,
-      },
-      {
-        name: "combine",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "+",
-      },
-      {
-        name: "invert",
-        params: [{ name: "a", typeString: "A" }],
-        returnType: "A",
-        isSelfMethod: true,
-      },
-    ],
-    canDeriveProduct: false,
-    canDeriveSum: false,
-    syntax: new Map([["+", "combine"]]),
-  },
-  {
-    name: "Numeric",
-    typeParam: "A",
-    methods: [
-      {
-        name: "add",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "+",
-      },
-      {
-        name: "sub",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "-",
-      },
-      {
-        name: "mul",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "*",
-      },
-    ],
-    canDeriveProduct: false,
-    canDeriveSum: false,
-    syntax: new Map([
-      ["+", "add"],
-      ["-", "sub"],
-      ["*", "mul"],
-    ]),
-  },
-  {
-    name: "Integral",
-    typeParam: "A",
-    methods: [
-      {
-        name: "div",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "/",
-      },
-      {
-        name: "mod",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "%",
-      },
-    ],
-    canDeriveProduct: false,
-    canDeriveSum: false,
-    syntax: new Map([
-      ["/", "div"],
-      ["%", "mod"],
-    ]),
-  },
-  {
-    name: "Fractional",
-    typeParam: "A",
-    methods: [
-      {
-        name: "div",
-        params: [
-          { name: "a", typeString: "A" },
-          { name: "b", typeString: "A" },
-        ],
-        returnType: "A",
-        isSelfMethod: true,
-        operatorSymbol: "/",
-      },
-    ],
-    canDeriveProduct: false,
-    canDeriveSum: false,
-    syntax: new Map([["/", "div"]]),
-  },
-];
+// Typeclass definitions with Op<> syntax are now registered via @typeclass
+// decorators on the interface definitions in @typesugar/std/typeclasses.
+// See: Eq, Ord, Semigroup, Monoid, Group, Numeric, Integral, Fractional
 
 // ============================================================================
 // Instance Definitions
 // ============================================================================
 
 /**
- * All standard library instances that should be registered.
+ * Standard library instances that need to be registered via this macro.
+ *
+ * NOTE: Most primitive typeclass instances (Eq, Ord, Semigroup, Monoid, Group,
+ * Bounded, Enum, Numeric, Integral, Fractional, Floating) are now registered
+ * via @instance decorators directly on the const declarations in
+ * @typesugar/std/typeclasses/index.ts.
+ *
+ * This array only contains instances that cannot use @instance (e.g., HKT-based
+ * typeclasses, instances defined in other files).
  */
 const STD_INSTANCES: InstanceReg[] = [
-  // Eq instances
-  {
-    typeclass: "Eq",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "eqNumber",
-  },
-  {
-    typeclass: "Eq",
-    forType: "string",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "eqString",
-  },
-  {
-    typeclass: "Eq",
-    forType: "boolean",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "eqBoolean",
-  },
-  {
-    typeclass: "Eq",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "eqBigInt",
-  },
-  {
-    typeclass: "Eq",
-    forType: "Date",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "eqDate",
-  },
-
-  // Ord instances
-  {
-    typeclass: "Ord",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "ordNumber",
-  },
-  {
-    typeclass: "Ord",
-    forType: "string",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "ordString",
-  },
-  {
-    typeclass: "Ord",
-    forType: "boolean",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "ordBoolean",
-  },
-  {
-    typeclass: "Ord",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "ordBigInt",
-  },
-  {
-    typeclass: "Ord",
-    forType: "Date",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "ordDate",
-  },
-
-  // Semigroup instances
-  {
-    typeclass: "Semigroup",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "semigroupNumber",
-  },
-  {
-    typeclass: "Semigroup",
-    forType: "string",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "semigroupString",
-  },
-  {
-    typeclass: "Semigroup",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "semigroupBigInt",
-  },
-
-  // Monoid instances
-  {
-    typeclass: "Monoid",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "monoidNumber",
-  },
-  {
-    typeclass: "Monoid",
-    forType: "string",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "monoidString",
-  },
-  {
-    typeclass: "Monoid",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "monoidBigInt",
-  },
-
-  // Group instances
-  {
-    typeclass: "Group",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "groupNumber",
-  },
-  {
-    typeclass: "Group",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "groupBigInt",
-  },
-
-  // Bounded instances
-  {
-    typeclass: "Bounded",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "boundedNumber",
-  },
-  {
-    typeclass: "Bounded",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "boundedBigInt",
-  },
-  {
-    typeclass: "Bounded",
-    forType: "boolean",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "boundedBoolean",
-  },
-  {
-    typeclass: "Bounded",
-    forType: "string",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "boundedString",
-  },
-
-  // Enum instances
-  {
-    typeclass: "Enum",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "enumNumber",
-  },
-  {
-    typeclass: "Enum",
-    forType: "boolean",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "enumBoolean",
-  },
-  {
-    typeclass: "Enum",
-    forType: "string",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "enumString",
-  },
-
-  // Numeric instances (Ring with Op<+>, Op<->, Op<*>)
-  {
-    typeclass: "Numeric",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "numericNumber",
-  },
-  {
-    typeclass: "Numeric",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "numericBigInt",
-  },
-
-  // Integral instances (Euclidean Ring with Op</>, Op<%>)
-  {
-    typeclass: "Integral",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "integralNumber",
-  },
-  {
-    typeclass: "Integral",
-    forType: "bigint",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "integralBigInt",
-  },
-
-  // Fractional instances (Field with Op</>)
-  {
-    typeclass: "Fractional",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "fractionalNumber",
-  },
-
-  // Floating instances (transcendental functions)
-  {
-    typeclass: "Floating",
-    forType: "number",
-    importPath: "@typesugar/std/typeclasses",
-    exportName: "floatingNumber",
-  },
-
-  // FlatMap instances (HKT)
+  // FlatMap instances (HKT) — defined in separate flatmap.ts file
   {
     typeclass: "FlatMap",
     forType: "Array",
@@ -603,7 +120,7 @@ const STD_INSTANCES: InstanceReg[] = [
     exportName: "flatMapAsyncIterable",
   },
 
-  // Data type instances
+  // Data type instances — defined in @typesugar/std/data
   { typeclass: "Eq", forType: "Range", importPath: "@typesugar/std/data", exportName: "eqRange" },
   { typeclass: "Ord", forType: "Range", importPath: "@typesugar/std/data", exportName: "ordRange" },
 ];
@@ -615,17 +132,15 @@ const STD_INSTANCES: InstanceReg[] = [
 let _registered = false;
 
 /**
- * Perform the actual registration of typeclasses and instances.
+ * Perform the actual registration of instances.
  * This is called at module load time and also can be triggered by the macro.
+ *
+ * Note: Typeclass definitions are now registered via @typeclass decorators
+ * on the interface definitions in @typesugar/std/typeclasses.
  */
 function performRegistration(): void {
   if (_registered) return;
   _registered = true;
-
-  // Register typeclass definitions with Op<> syntax mappings
-  for (const tcDef of TYPECLASS_DEFS) {
-    registerTypeclassDef(tcDef);
-  }
 
   // Register all primitive instances
   for (const inst of STD_INSTANCES) {

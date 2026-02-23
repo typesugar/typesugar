@@ -22,6 +22,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./runtime": {
+      "types": "./dist/runtime-stubs.d.ts",
+      "import": "./dist/runtime-stubs.js",
+      "require": "./dist/runtime-stubs.cjs"
     }
   },
   "scripts": {

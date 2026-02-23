@@ -14,6 +14,7 @@
 
 import type { Numeric, Fractional, Ord } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
+import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
  * Exact rational number represented as num/den.
@@ -222,6 +223,13 @@ export const numericRational: Numeric<Rational> = {
   one: () => ({ num: 1n, den: 1n }),
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Numeric",
+  forType: "Rational",
+  instanceName: "numericRational",
+  derived: false,
+});
+
 /**
  * Fractional instance for Rational numbers.
  * Supports exact division.
@@ -244,6 +252,13 @@ export const fractionalRational: Fractional<Rational> = {
   fromRational: (num, den) => rational(BigInt(Math.trunc(num)), BigInt(Math.trunc(den))),
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Fractional",
+  forType: "Rational",
+  instanceName: "fractionalRational",
+  derived: false,
+});
+
 /**
  * Ord instance for Rational numbers.
  * Compares by cross-multiplication to avoid floating-point.
@@ -262,6 +277,13 @@ export const ordRational: Ord<Rational> = {
   greaterThan: (a, b) => a.num * b.den > b.num * a.den,
   greaterThanOrEqual: (a, b) => a.num * b.den >= b.num * a.den,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "Rational",
+  instanceName: "ordRational",
+  derived: false,
+});
 
 /**
  * Check equality of two rationals.

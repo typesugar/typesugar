@@ -1,18 +1,20 @@
 import { defineConfig } from "tsup";
-import typesugar from "unplugin-typesugar/esbuild";
 
 export default defineConfig({
   entry: {
-    index: "src/index.ts",
-    "data/index": "src/data/index.ts",
-    "io/index": "src/io/index.ts",
-    "typeclasses/index": "src/typeclasses/index.ts",
-    "syntax/index": "src/syntax/index.ts",
+    index: ".typesugar/index.ts",
+    "data/index": ".typesugar/data/index.ts",
+    "io/index": ".typesugar/io/index.ts",
+    "typeclasses/index": ".typesugar/typeclasses/index.ts",
+    "syntax/index": ".typesugar/syntax/index.ts",
   },
   format: ["cjs", "esm"],
-  dts: true,
+  dts: {
+    compilerOptions: {
+      rootDir: "./.typesugar",
+    },
+  },
   sourcemap: true,
   clean: true,
   external: ["typescript", "@typesugar/type-system"],
-  esbuildPlugins: [typesugar()],
 });

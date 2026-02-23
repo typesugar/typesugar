@@ -10,6 +10,8 @@
  *   - Monoid Right Identity: combine(x, empty) === x
  */
 
+import { registerInstanceWithMeta } from "@typesugar/macros";
+
 // ============================================================================
 // Semigroup
 // ============================================================================
@@ -146,6 +148,13 @@ export const semigroupString: Semigroup<string> = {
   combine: (x, y) => x + y,
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Semigroup",
+  forType: "string",
+  instanceName: "semigroupString",
+  derived: false,
+});
+
 /**
  * Monoid for string concatenation
  */
@@ -154,12 +163,26 @@ export const monoidString: Monoid<string> = {
   empty: "",
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Monoid",
+  forType: "string",
+  instanceName: "monoidString",
+  derived: false,
+});
+
 /**
  * Semigroup for number addition
  */
 export const semigroupSum: Semigroup<number> = {
   combine: (x, y) => x + y,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "Semigroup",
+  forType: "number",
+  instanceName: "semigroupSum",
+  derived: false,
+});
 
 /**
  * Monoid for number addition
@@ -169,12 +192,26 @@ export const monoidSum: Monoid<number> = {
   empty: 0,
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Monoid",
+  forType: "number",
+  instanceName: "monoidSum",
+  derived: false,
+});
+
 /**
  * Semigroup for number multiplication
  */
 export const semigroupProduct: Semigroup<number> = {
   combine: (x, y) => x * y,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "SemigroupProduct",
+  forType: "number",
+  instanceName: "semigroupProduct",
+  derived: false,
+});
 
 /**
  * Monoid for number multiplication
@@ -184,12 +221,26 @@ export const monoidProduct: Monoid<number> = {
   empty: 1,
 };
 
+registerInstanceWithMeta({
+  typeclassName: "MonoidProduct",
+  forType: "number",
+  instanceName: "monoidProduct",
+  derived: false,
+});
+
 /**
  * Semigroup for boolean AND
  */
 export const semigroupAll: Semigroup<boolean> = {
   combine: (x, y) => x && y,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "SemigroupAll",
+  forType: "boolean",
+  instanceName: "semigroupAll",
+  derived: false,
+});
 
 /**
  * Monoid for boolean AND
@@ -199,12 +250,26 @@ export const monoidAll: Monoid<boolean> = {
   empty: true,
 };
 
+registerInstanceWithMeta({
+  typeclassName: "MonoidAll",
+  forType: "boolean",
+  instanceName: "monoidAll",
+  derived: false,
+});
+
 /**
  * Semigroup for boolean OR
  */
 export const semigroupAny: Semigroup<boolean> = {
   combine: (x, y) => x || y,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "SemigroupAny",
+  forType: "boolean",
+  instanceName: "semigroupAny",
+  derived: false,
+});
 
 /**
  * Monoid for boolean OR
@@ -213,6 +278,13 @@ export const monoidAny: Monoid<boolean> = {
   ...semigroupAny,
   empty: false,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "MonoidAny",
+  forType: "boolean",
+  instanceName: "monoidAny",
+  derived: false,
+});
 
 /**
  * Semigroup for arrays (concatenation)

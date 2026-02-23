@@ -1,9 +1,13 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: [".typesugar/index.ts"],
   format: ["esm", "cjs"],
-  dts: true,
+  dts: {
+    compilerOptions: {
+      rootDir: "./.typesugar",
+    },
+  },
   clean: true,
   sourcemap: true,
 });

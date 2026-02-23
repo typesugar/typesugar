@@ -420,22 +420,13 @@ export function forAll<T>(
 }
 
 // ============================================================================
-// Macro Definitions (for tooling)
+// Macro Definitions
 // ============================================================================
-
-export {
-  assertMacro,
-  staticAssertMacro,
-  comptimeAssertMacro,
-  assertSnapshotMacro,
-  typeAssertMacro,
-  assertTypeMacro,
-  typeInfoMacro,
-  forAllMacro,
-  testCasesAttribute,
-  ArbitraryDerive,
-  powerAssertMacro,
-} from "./macro.js";
-
-// Test utilities for macro development
-export { createMacroTestContext, parseSource, type TestMacroContext } from "./macro-context.js";
+// 
+// Macro definitions that import TypeScript are NOT exported from the main entry
+// point. This avoids bundling TypeScript into user code at runtime.
+//
+// Import from "@typesugar/testing/macros" if you need access to:
+//   - assertMacro, staticAssertMacro, typeAssertMacro, etc.
+//   - createMacroTestContext, parseSource
+//   - ArbitraryDerive
