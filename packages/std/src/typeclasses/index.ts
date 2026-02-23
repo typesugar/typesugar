@@ -16,6 +16,8 @@
  */
 
 import type { Op } from "@typesugar/core";
+import { typeclass } from "@typesugar/macros/runtime";
+import { registerInstanceWithMeta } from "@typesugar/macros";
 
 // ============================================================================
 // Eq — Haskell Eq, Rust PartialEq/Eq, Scala CanEqual
@@ -34,6 +36,7 @@ import type { Op } from "@typesugar/core";
  * - `a === b` → `Eq.equals(a, b)`
  * - `a !== b` → `Eq.notEquals(a, b)`
  */
+@typeclass
 export interface Eq<A> {
   equals(a: A, b: A): boolean & Op<"===">;
   notEquals(a: A, b: A): boolean & Op<"!==">;
@@ -43,26 +46,56 @@ export const eqNumber: Eq<number> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Eq",
+  forType: "number",
+  instanceName: "eqNumber",
+  derived: false,
+});
 
 export const eqBigInt: Eq<bigint> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Eq",
+  forType: "bigint",
+  instanceName: "eqBigInt",
+  derived: false,
+});
 
 export const eqString: Eq<string> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Eq",
+  forType: "string",
+  instanceName: "eqString",
+  derived: false,
+});
 
 export const eqBoolean: Eq<boolean> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Eq",
+  forType: "boolean",
+  instanceName: "eqBoolean",
+  derived: false,
+});
 
 export const eqDate: Eq<Date> = {
   equals: (a, b) => a.getTime() === b.getTime(),
   notEquals: (a, b) => a.getTime() !== b.getTime(),
 };
+registerInstanceWithMeta({
+  typeclassName: "Eq",
+  forType: "Date",
+  instanceName: "eqDate",
+  derived: false,
+});
 
 /**
  * Create an Eq instance from a custom equality function.
@@ -137,6 +170,7 @@ export const GT: Ordering = 1;
  * - `a > b`  → `Ord.greaterThan(a, b)`
  * - `a >= b` → `Ord.greaterThanOrEqual(a, b)`
  */
+@typeclass
 export interface Ord<A> extends Eq<A> {
   compare(a: A, b: A): Ordering;
   lessThan(a: A, b: A): boolean & Op<"<">;
@@ -154,6 +188,12 @@ export const ordNumber: Ord<number> = {
   greaterThan: (a, b) => a > b,
   greaterThanOrEqual: (a, b) => a >= b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "number",
+  instanceName: "ordNumber",
+  derived: false,
+});
 
 export const ordBigInt: Ord<bigint> = {
   equals: (a, b) => a === b,
@@ -164,6 +204,12 @@ export const ordBigInt: Ord<bigint> = {
   greaterThan: (a, b) => a > b,
   greaterThanOrEqual: (a, b) => a >= b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "bigint",
+  instanceName: "ordBigInt",
+  derived: false,
+});
 
 export const ordString: Ord<string> = {
   equals: (a, b) => a === b,
@@ -174,6 +220,12 @@ export const ordString: Ord<string> = {
   greaterThan: (a, b) => a > b,
   greaterThanOrEqual: (a, b) => a >= b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "string",
+  instanceName: "ordString",
+  derived: false,
+});
 
 export const ordBoolean: Ord<boolean> = {
   equals: (a, b) => a === b,
@@ -184,6 +236,12 @@ export const ordBoolean: Ord<boolean> = {
   greaterThan: (a, b) => a && !b,
   greaterThanOrEqual: (a, b) => a || !b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "boolean",
+  instanceName: "ordBoolean",
+  derived: false,
+});
 
 export const ordDate: Ord<Date> = {
   equals: (a, b) => a.getTime() === b.getTime(),
@@ -198,6 +256,12 @@ export const ordDate: Ord<Date> = {
   greaterThan: (a, b) => a.getTime() > b.getTime(),
   greaterThanOrEqual: (a, b) => a.getTime() >= b.getTime(),
 };
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "Date",
+  instanceName: "ordDate",
+  derived: false,
+});
 
 /**
  * Create an Ord instance from a compare function.
@@ -299,6 +363,7 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
  * Operators dispatch via Op<> annotations:
  * - `a + b` → `Semigroup.combine(a, b)` (for additive semigroups)
  */
+@typeclass
 export interface Semigroup<A> {
   combine(a: A, b: A): A & Op<"+">;
 }
@@ -306,14 +371,32 @@ export interface Semigroup<A> {
 export const semigroupString: Semigroup<string> = {
   combine: (a, b) => a + b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Semigroup",
+  forType: "string",
+  instanceName: "semigroupString",
+  derived: false,
+});
 
 export const semigroupNumber: Semigroup<number> = {
   combine: (a, b) => a + b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Semigroup",
+  forType: "number",
+  instanceName: "semigroupNumber",
+  derived: false,
+});
 
 export const semigroupBigInt: Semigroup<bigint> = {
   combine: (a, b) => a + b,
 };
+registerInstanceWithMeta({
+  typeclassName: "Semigroup",
+  forType: "bigint",
+  instanceName: "semigroupBigInt",
+  derived: false,
+});
 
 /**
  * Semigroup for arrays (concatenation).
@@ -336,6 +419,7 @@ export function semigroupArray<A>(): Semigroup<A[]> {
  * - Left identity: `combine(empty(), a) === a`
  * - Right identity: `combine(a, empty()) === a`
  */
+@typeclass
 export interface Monoid<A> extends Semigroup<A> {
   empty(): A;
 }
@@ -344,16 +428,34 @@ export const monoidString: Monoid<string> = {
   combine: (a, b) => a + b,
   empty: () => "",
 };
+registerInstanceWithMeta({
+  typeclassName: "Monoid",
+  forType: "string",
+  instanceName: "monoidString",
+  derived: false,
+});
 
 export const monoidNumber: Monoid<number> = {
   combine: (a, b) => a + b,
   empty: () => 0,
 };
+registerInstanceWithMeta({
+  typeclassName: "Monoid",
+  forType: "number",
+  instanceName: "monoidNumber",
+  derived: false,
+});
 
 export const monoidBigInt: Monoid<bigint> = {
   combine: (a, b) => a + b,
   empty: () => 0n,
 };
+registerInstanceWithMeta({
+  typeclassName: "Monoid",
+  forType: "bigint",
+  instanceName: "monoidBigInt",
+  derived: false,
+});
 
 /**
  * Monoid for arrays (concatenation with empty array).
@@ -392,21 +494,45 @@ export const boundedNumber: Bounded<number> = {
   minBound: () => Number.MIN_SAFE_INTEGER,
   maxBound: () => Number.MAX_SAFE_INTEGER,
 };
+registerInstanceWithMeta({
+  typeclassName: "Bounded",
+  forType: "number",
+  instanceName: "boundedNumber",
+  derived: false,
+});
 
 export const boundedBigInt: Bounded<bigint> = {
   minBound: () => BigInt("-9007199254740991"),
   maxBound: () => BigInt("9007199254740991"),
 };
+registerInstanceWithMeta({
+  typeclassName: "Bounded",
+  forType: "bigint",
+  instanceName: "boundedBigInt",
+  derived: false,
+});
 
 export const boundedBoolean: Bounded<boolean> = {
   minBound: () => false,
   maxBound: () => true,
 };
+registerInstanceWithMeta({
+  typeclassName: "Bounded",
+  forType: "boolean",
+  instanceName: "boundedBoolean",
+  derived: false,
+});
 
 export const boundedString: Bounded<string> = {
   minBound: () => "",
   maxBound: () => "\uFFFF".repeat(256),
 };
+registerInstanceWithMeta({
+  typeclassName: "Bounded",
+  forType: "string",
+  instanceName: "boundedString",
+  derived: false,
+});
 
 // ============================================================================
 // Enum — Haskell Enum, Rust: not built-in, Scala: Enumeration
@@ -430,6 +556,12 @@ export const enumNumber: Enum<number> = {
   toEnum: (n) => n,
   fromEnum: (a) => a,
 };
+registerInstanceWithMeta({
+  typeclassName: "Enum",
+  forType: "number",
+  instanceName: "enumNumber",
+  derived: false,
+});
 
 export const enumBoolean: Enum<boolean> = {
   succ: (a) => !a,
@@ -437,6 +569,12 @@ export const enumBoolean: Enum<boolean> = {
   toEnum: (n) => n !== 0,
   fromEnum: (a) => (a ? 1 : 0),
 };
+registerInstanceWithMeta({
+  typeclassName: "Enum",
+  forType: "boolean",
+  instanceName: "enumBoolean",
+  derived: false,
+});
 
 export const enumString: Enum<string> = {
   succ: (a) =>
@@ -446,6 +584,12 @@ export const enumString: Enum<string> = {
   toEnum: (n) => String.fromCharCode(n),
   fromEnum: (a) => (a.length > 0 ? a.charCodeAt(0) : 0),
 };
+registerInstanceWithMeta({
+  typeclassName: "Enum",
+  forType: "string",
+  instanceName: "enumString",
+  derived: false,
+});
 
 // ============================================================================
 // Numeric — Haskell Num, Scala Numeric, Kotlin: Number
@@ -463,10 +607,13 @@ export const enumString: Enum<string> = {
  * - `a - b` → `Numeric.sub(a, b)`
  * - `a * b` → `Numeric.mul(a, b)`
  */
+@typeclass
 export interface Numeric<A> {
   add(a: A, b: A): A & Op<"+">;
   sub(a: A, b: A): A & Op<"-">;
   mul(a: A, b: A): A & Op<"*">;
+  div(a: A, b: A): A & Op<"/">;
+  pow(a: A, b: A): A & Op<"**">;
   negate(a: A): A;
   abs(a: A): A;
   signum(a: A): A;
@@ -480,6 +627,8 @@ export const numericNumber: Numeric<number> = {
   add: (a, b) => a + b,
   sub: (a, b) => a - b,
   mul: (a, b) => a * b,
+  div: (a, b) => a / b,
+  pow: (a, b) => a ** b,
   negate: (a) => -a,
   abs: (a) => Math.abs(a),
   signum: (a) => Math.sign(a) as number,
@@ -488,11 +637,19 @@ export const numericNumber: Numeric<number> = {
   zero: () => 0,
   one: () => 1,
 };
+registerInstanceWithMeta({
+  typeclassName: "Numeric",
+  forType: "number",
+  instanceName: "numericNumber",
+  derived: false,
+});
 
 export const numericBigInt: Numeric<bigint> = {
   add: (a, b) => a + b,
   sub: (a, b) => a - b,
   mul: (a, b) => a * b,
+  div: (a, b) => a / b,
+  pow: (a, b) => a ** b,
   negate: (a) => -a,
   abs: (a) => (a < 0n ? -a : a),
   signum: (a) => (a < 0n ? -1n : a > 0n ? 1n : 0n),
@@ -501,6 +658,12 @@ export const numericBigInt: Numeric<bigint> = {
   zero: () => 0n,
   one: () => 1n,
 };
+registerInstanceWithMeta({
+  typeclassName: "Numeric",
+  forType: "bigint",
+  instanceName: "numericBigInt",
+  derived: false,
+});
 
 // ============================================================================
 // Integral — Haskell Integral
@@ -516,6 +679,7 @@ export const numericBigInt: Numeric<bigint> = {
  * - `a / b` → `Integral.div(a, b)` (floor division)
  * - `a % b` → `Integral.mod(a, b)` (modulo)
  */
+@typeclass
 export interface Integral<A> {
   div(a: A, b: A): A & Op<"/">;
   mod(a: A, b: A): A & Op<"%">;
@@ -536,6 +700,12 @@ export const integralNumber: Integral<number> = {
   rem: (a, b) => a % b,
   toInteger: (a) => BigInt(Math.trunc(a)),
 };
+registerInstanceWithMeta({
+  typeclassName: "Integral",
+  forType: "number",
+  instanceName: "integralNumber",
+  derived: false,
+});
 
 export const integralBigInt: Integral<bigint> = {
   div: (a, b) => {
@@ -551,6 +721,12 @@ export const integralBigInt: Integral<bigint> = {
   rem: (a, b) => a % b,
   toInteger: (a) => a,
 };
+registerInstanceWithMeta({
+  typeclassName: "Integral",
+  forType: "bigint",
+  instanceName: "integralBigInt",
+  derived: false,
+});
 
 // ============================================================================
 // Fractional — Haskell Fractional
@@ -565,6 +741,7 @@ export const integralBigInt: Integral<bigint> = {
  * Operators dispatch via Op<> annotations (for fractional types):
  * - `a / b` → `Fractional.div(a, b)` (true division)
  */
+@typeclass
 export interface Fractional<A> {
   div(a: A, b: A): A & Op<"/">;
   recip(a: A): A;
@@ -576,6 +753,12 @@ export const fractionalNumber: Fractional<number> = {
   recip: (a) => 1 / a,
   fromRational: (num, den) => num / den,
 };
+registerInstanceWithMeta({
+  typeclassName: "Fractional",
+  forType: "number",
+  instanceName: "fractionalNumber",
+  derived: false,
+});
 
 // ============================================================================
 // Floating — Haskell Floating
@@ -617,6 +800,12 @@ export const floatingNumber: Floating<number> = {
   cosh: Math.cosh,
   tanh: Math.tanh,
 };
+registerInstanceWithMeta({
+  typeclassName: "Floating",
+  forType: "number",
+  instanceName: "floatingNumber",
+  derived: false,
+});
 
 // ============================================================================
 // Parseable — Haskell Read, Rust FromStr, Scala: not built-in
@@ -941,6 +1130,7 @@ export interface Searchable<F> {
  * };
  * ```
  */
+@typeclass
 export interface Group<A> {
   /** The identity element */
   empty(): A;
@@ -956,6 +1146,12 @@ export const groupNumber: Group<number> = {
   combine: (a, b) => a + b,
   invert: (a) => -a,
 };
+registerInstanceWithMeta({
+  typeclassName: "Group",
+  forType: "number",
+  instanceName: "groupNumber",
+  derived: false,
+});
 
 /** Additive group for bigint */
 export const groupBigInt: Group<bigint> = {
@@ -963,3 +1159,9 @@ export const groupBigInt: Group<bigint> = {
   combine: (a, b) => a + b,
   invert: (a) => -a,
 };
+registerInstanceWithMeta({
+  typeclassName: "Group",
+  forType: "bigint",
+  instanceName: "groupBigInt",
+  derived: false,
+});

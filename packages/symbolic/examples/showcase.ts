@@ -166,7 +166,7 @@ assert(toText(sin(x)) === "sin(x)");
 
 // LaTeX rendering for mathematical documents
 const fraction = (x + ONE) / (x - ONE);
-assert(toLatex(x ** TWO) === "x^{2}");
+assert(toLatex(x ** TWO) === "x^2"); // Single-digit exponents don't need braces
 assert(toLatex(sqrt(x)) === "\\sqrt{x}");
 assert(toLatex(fraction) === "\\frac{x + 1}{x - 1}");
 

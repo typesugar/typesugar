@@ -15,6 +15,7 @@
 import type { Numeric } from "@typesugar/std";
 import type { Op } from "@typesugar/core";
 import type { Refined } from "@typesugar/type-system";
+import { instance } from "@typesugar/macros/runtime";
 import type {
   Expression,
   Constant,
@@ -434,28 +435,27 @@ export function recip<A>(arg: Expression<A>): BinaryOp<number, A, Div<number, A>
 // ============================================================================
 
 /**
- * Numeric instance for Expression<T>.
+ * Numeric instance for Expression<number>.
  *
  * This enables expressions to be used with typesugar's operator overloading:
  * `a + b` becomes `add(a, b)` when both are expressions.
  */
-export function numericExpression<T>(): Numeric<Expression<T>> {
-  return {
-    add: (a, b) => add(a, b) as Expression<T> & Op<"+">,
-    sub: (a, b) => sub(a, b) as Expression<T> & Op<"-">,
-    mul: (a, b) => mul(a, b) as Expression<T> & Op<"*">,
-    negate: (a) => neg(a),
-    abs: (a) => abs(a),
-    signum: (a) => signum(a) as Expression<T>,
-    fromNumber: (n) => const_(n) as Expression<T>,
-    toNumber: (a) => {
-      if (a.kind === "constant") return a.value;
-      throw new Error("Cannot convert non-constant expression to number");
-    },
-    zero: () => const_(0) as Expression<T>,
-    one: () => const_(1) as Expression<T>,
-  };
-}
-
-/** Default Numeric instance for Expression<number> */
-export const numericExpr: Numeric<Expression<number>> = numericExpression<number>();
+@instance("Numeric<Expression<number>>")
+@instance("Numeric<Expression>")
+export const numericExpr: Numeric<Expression<number>> = {
+  add: (a, b) => add(a, b) as Expression<number> & Op<"+">,
+  sub: (a, b) => sub(a, b) as Expression<number> & Op<"-">,
+  mul: (a, b) => mul(a, b) as Expression<number> & Op<"*">,
+  div: (a, b) => div(a, b) as Expression<number> & Op<"/">,
+  pow: (a, b) => pow(a, b) as Expression<number> & Op<"**">,
+  negate: (a) => neg(a),
+  abs: (a) => abs(a),
+  signum: (a) => signum(a) as Expression<number>,
+  fromNumber: (n) => const_(n) as Expression<number>,
+  toNumber: (a) => {
+    if (a.kind === "constant") return a.value;
+    throw new Error("Cannot convert non-constant expression to number");
+  },
+  zero: () => const_(0) as Expression<number>,
+  one: () => const_(1) as Expression<number>,
+};

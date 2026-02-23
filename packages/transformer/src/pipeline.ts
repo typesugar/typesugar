@@ -57,7 +57,7 @@ export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
   /** Syntax extensions to enable (defaults to all) */
-  extensions?: ("hkt" | "pipeline" | "cons")[];
+  extensions?: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   /** Macro transformer config */
   transformerConfig?: MacroTransformerConfig;
   /** Custom file reader (defaults to ts.sys.readFile) */
@@ -89,7 +89,7 @@ export class TransformationPipeline {
   private program: ts.Program | null = null;
   private cache: TransformCache;
   private verbose: boolean;
-  private extensions: ("hkt" | "pipeline" | "cons")[];
+  private extensions: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   private transformerConfig: MacroTransformerConfig;
   private customReadFile: (fileName: string) => string | undefined;
   private fileNames: string[];
@@ -102,7 +102,7 @@ export class TransformationPipeline {
     private options: PipelineOptions = {}
   ) {
     this.verbose = options.verbose ?? false;
-    this.extensions = options.extensions ?? ["hkt", "pipeline", "cons"];
+    this.extensions = options.extensions ?? ["hkt", "pipeline", "cons", "decorator-rewrite"];
     this.transformerConfig = options.transformerConfig ?? { verbose: this.verbose };
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.fileNames = fileNames;

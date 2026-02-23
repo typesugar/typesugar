@@ -555,6 +555,69 @@ function clearSyntaxRegistry(): void {
   syntaxRegistry.clear();
 }
 
+// ============================================================================
+// Standard Typeclass Syntax Registration (Zero-Cost)
+// ============================================================================
+// These are registered when @typesugar/macros loads (at transform time).
+// This ensures standard typeclass operators work without runtime registration.
+
+const STANDARD_TYPECLASS_SYNTAX: Array<{ typeclass: string; ops: Map<string, string> }> = [
+  {
+    typeclass: "Eq",
+    ops: new Map([
+      ["===", "equals"],
+      ["!==", "notEquals"],
+    ]),
+  },
+  {
+    typeclass: "Ord",
+    ops: new Map([
+      ["<", "lessThan"],
+      ["<=", "lessThanOrEqual"],
+      [">", "greaterThan"],
+      [">=", "greaterThanOrEqual"],
+    ]),
+  },
+  {
+    typeclass: "Semigroup",
+    ops: new Map([["+", "combine"]]),
+  },
+  {
+    typeclass: "Monoid",
+    ops: new Map([["+", "combine"]]),
+  },
+  {
+    typeclass: "Group",
+    ops: new Map([["+", "combine"]]),
+  },
+  {
+    typeclass: "Numeric",
+    ops: new Map([
+      ["+", "add"],
+      ["-", "sub"],
+      ["*", "mul"],
+      ["/", "div"],
+      ["**", "pow"],
+    ]),
+  },
+  {
+    typeclass: "Integral",
+    ops: new Map([
+      ["/", "div"],
+      ["%", "mod"],
+    ]),
+  },
+  {
+    typeclass: "Fractional",
+    ops: new Map([["/", "div"]]),
+  },
+];
+
+// Register on module load (transform time, not runtime)
+for (const { typeclass, ops } of STANDARD_TYPECLASS_SYNTAX) {
+  registerTypeclassSyntax(typeclass, ops);
+}
+
 const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as readonly string[]);
 
 /**
@@ -2683,6 +2746,310 @@ export const extendMacro = defineExpressionMacro({
 });
 
 // ============================================================================
+// instance() - Expression Macro for Preprocessor-Rewritten @instance
+// ============================================================================
+// Handles calls like:
+//   const numericExpr = instance("Numeric<Expression<number>>", { add: ..., mul: ... });
+//
+// The preprocessor rewrites `@instance("...")` decorators to this form.
+// This macro registers the instance and returns the object literal unchanged.
+// ============================================================================
+
+/**
+ * Parse a typeclass instantiation string like "Numeric<Expression<number>>"
+ * into its components: typeclassName and forType.
+ *
+ * Handles nested generics by matching the outermost angle brackets.
+ */
+function parseTypeclassInstantiation(text: string): { typeclassName: string; forType: string } | null {
+  // Match typeclass name followed by <...>
+  const openBracket = text.indexOf("<");
+  if (openBracket === -1) {
+    return null;
+  }
+
+  const typeclassName = text.slice(0, openBracket).trim();
+  if (!typeclassName) {
+    return null;
+  }
+
+  // Find matching closing bracket, handling nested generics
+  let depth = 0;
+  let closeBracket = -1;
+  for (let i = openBracket; i < text.length; i++) {
+    if (text[i] === "<") {
+      depth++;
+    } else if (text[i] === ">") {
+      depth--;
+      if (depth === 0) {
+        closeBracket = i;
+        break;
+      }
+    }
+  }
+
+  if (closeBracket === -1) {
+    return null;
+  }
+
+  const forType = text.slice(openBracket + 1, closeBracket).trim();
+  if (!forType) {
+    return null;
+  }
+
+  return { typeclassName, forType };
+}
+
+/**
+ * Walk up the AST to find the enclosing VariableDeclaration.
+ */
+function findEnclosingVariableDeclaration(node: ts.Node): ts.VariableDeclaration | null {
+  let current: ts.Node | undefined = node;
+  while (current) {
+    if (ts.isVariableDeclaration(current)) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+export const instanceMacro = defineExpressionMacro({
+  name: "instance",
+  module: "@typesugar/typeclass",
+  description: "Register a typeclass instance from preprocessor-rewritten @instance decorator",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    // Expect: instance("Typeclass<Type>", { ... })
+    if (args.length < 2) {
+      ctx.reportError(
+        callExpr,
+        'instance() requires two arguments: instance("Typeclass<Type>", { ... })'
+      );
+      return callExpr;
+    }
+
+    const descriptionArg = args[0];
+    const objectLiteralArg = args[1];
+
+    // Parse the description string
+    if (!ts.isStringLiteral(descriptionArg)) {
+      ctx.reportError(
+        descriptionArg,
+        'First argument to instance() must be a string literal like "Numeric<Expression<number>>"'
+      );
+      return objectLiteralArg;
+    }
+
+    const parsed = parseTypeclassInstantiation(descriptionArg.text);
+    if (!parsed) {
+      ctx.reportError(
+        descriptionArg,
+        `Invalid typeclass instantiation format: "${descriptionArg.text}". Expected "Typeclass<Type>".`
+      );
+      return objectLiteralArg;
+    }
+
+    const { typeclassName, forType } = parsed;
+
+    // Find the enclosing VariableDeclaration to get the instance name
+    const varDecl = findEnclosingVariableDeclaration(callExpr);
+    if (!varDecl || !ts.isIdentifier(varDecl.name)) {
+      ctx.reportWarning(
+        callExpr,
+        "instance() called outside a variable declaration; skipping registration"
+      );
+      return objectLiteralArg;
+    }
+
+    const instanceName = varDecl.name.text;
+
+    // Register idempotently using registerInstanceWithMeta
+    const existingInstance = findInstance(typeclassName, forType);
+    if (!existingInstance) {
+      registerInstanceWithMeta({
+        typeclassName,
+        forType,
+        instanceName,
+        derived: false,
+      });
+
+      // Register extension methods for this type+typeclass
+      registerExtensionMethods(forType, typeclassName);
+
+      // Notify coverage system
+      notifyPrimitiveRegistered(forType, typeclassName);
+    }
+
+    // Extract and register methods for specialization (if object literal)
+    if (ts.isObjectLiteralExpression(objectLiteralArg)) {
+      const methods = extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene);
+      if (methods.size > 0) {
+        registerInstanceMethodsFromAST(instanceName, forType, methods);
+      }
+    }
+
+    // Return the object literal unchanged — strip the instance() wrapper
+    return objectLiteralArg;
+  },
+});
+
+// ============================================================================
+// typeclass("Name") - Expression Macro for Preprocessor-Rewritten Form
+// ============================================================================
+// Handles the preprocessor-rewritten form:
+//   interface Eq<A> { equals(a: A, b: A): boolean & Op<"===">; }
+//   typeclass("Eq");
+//
+// This registers the typeclass metadata and generates companion code.
+// ============================================================================
+
+export const typeclassMacro = defineExpressionMacro({
+  name: "typeclass",
+  module: "@typesugar/typeclass",
+  description:
+    "Register a typeclass from a preceding interface declaration (preprocessor-rewritten form)",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    // Expect: typeclass("TypeclassName") or typeclass("TypeclassName", { options })
+    if (args.length < 1) {
+      ctx.reportError(callExpr, 'typeclass() requires at least one argument: typeclass("Name")');
+      return ctx.factory.createVoidZero();
+    }
+
+    const nameArg = args[0];
+    if (!ts.isStringLiteral(nameArg)) {
+      ctx.reportError(nameArg, "First argument to typeclass() must be a string literal");
+      return ctx.factory.createVoidZero();
+    }
+
+    const tcName = nameArg.text;
+    const sourceFile = callExpr.getSourceFile();
+
+    // Find the interface declaration with this name in the source file
+    let targetInterface: ts.InterfaceDeclaration | undefined;
+    for (const statement of sourceFile.statements) {
+      if (ts.isInterfaceDeclaration(statement) && statement.name.text === tcName) {
+        targetInterface = statement;
+        break;
+      }
+    }
+
+    if (!targetInterface) {
+      ctx.reportError(
+        callExpr,
+        `No interface named "${tcName}" found in this file. ` +
+          `typeclass("${tcName}") must follow an interface declaration.`
+      );
+      return ctx.factory.createVoidZero();
+    }
+
+    const typeParams = targetInterface.typeParameters;
+    if (!typeParams || typeParams.length === 0) {
+      ctx.reportError(
+        targetInterface,
+        `Interface ${tcName} must have at least one type parameter (e.g., interface ${tcName}<A>)`
+      );
+      return ctx.factory.createVoidZero();
+    }
+
+    const typeParam = typeParams[0].name.text;
+
+    // Extract methods from the interface (same logic as typeclassAttribute)
+    const methods: TypeclassMethod[] = [];
+    const memberTexts: string[] = [];
+
+    for (const member of targetInterface.members) {
+      // Capture raw source text of each member for HKT expansion
+      try {
+        const memberText = member.getText(sourceFile);
+        memberTexts.push(memberText);
+      } catch {
+        // Node may not have real position (synthetic) - skip
+      }
+
+      if (ts.isMethodSignature(member) && member.name) {
+        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
+
+        const params: Array<{ name: string; typeString: string }> = [];
+        let isSelfMethod = false;
+
+        for (let i = 0; i < member.parameters.length; i++) {
+          const param = member.parameters[i];
+          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
+          const paramType = param.type ? param.type.getText() : "unknown";
+
+          // Check if this parameter uses the typeclass's type param
+          if (i === 0 && paramType === typeParam) {
+            isSelfMethod = true;
+          }
+
+          params.push({ name: paramName, typeString: paramType });
+        }
+
+        const { operatorSymbol, cleanReturnType } = extractOpFromReturnType(member.type);
+
+        methods.push({
+          name: methodName,
+          params,
+          returnType: cleanReturnType,
+          isSelfMethod,
+          operatorSymbol,
+        });
+      } else if (ts.isPropertySignature(member) && member.name) {
+        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
+
+        methods.push({
+          name: methodName,
+          params: [],
+          returnType: member.type ? member.type.getText() : "unknown",
+          isSelfMethod: false,
+        });
+      }
+    }
+
+    // Build the full interface body text for HKT expansion
+    const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
+
+    // Build syntax map from Op<> annotations on methods
+    const syntax = new Map<string, string>();
+    for (const method of methods) {
+      if (method.operatorSymbol) {
+        syntax.set(method.operatorSymbol, method.name);
+      }
+    }
+
+    // Register the typeclass
+    const tcInfo: TypeclassInfo = {
+      name: tcName,
+      typeParam,
+      methods,
+      canDeriveProduct: true,
+      canDeriveSum: true,
+      fullSignatureText,
+      syntax: syntax.size > 0 ? syntax : undefined,
+    };
+    typeclassRegistry.set(tcName, tcInfo);
+
+    // Register operator syntax in the global registry
+    if (syntax.size > 0) {
+      registerTypeclassSyntax(tcName, syntax);
+    }
+
+    // The call compiles away to nothing - registration is the side effect
+    return ctx.factory.createVoidZero();
+  },
+});
+
+// ============================================================================
 // Built-in Typeclass Interfaces (for reference/documentation)
 // ============================================================================
 // These are the standard typeclass interfaces that users should define
@@ -3120,7 +3487,9 @@ registerTypeclassDef({
 // ============================================================================
 
 globalRegistry.register(typeclassAttribute);
+globalRegistry.register(typeclassMacro);
 globalRegistry.register(instanceAttribute);
+globalRegistry.register(instanceMacro);
 globalRegistry.register(derivingAttribute);
 globalRegistry.register(summonMacro);
 globalRegistry.register(extendMacro);

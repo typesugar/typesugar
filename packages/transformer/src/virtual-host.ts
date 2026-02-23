@@ -35,7 +35,7 @@ export interface VirtualCompilerHostOptions {
   /** File existence checker (defaults to ts.sys.fileExists) */
   fileExists?: (fileName: string) => boolean;
   /** Syntax extensions to enable (defaults to all) */
-  extensions?: ("hkt" | "pipeline" | "cons")[];
+  extensions?: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
 }
 
 /**
@@ -69,7 +69,7 @@ export class VirtualCompilerHost implements ts.CompilerHost {
 
   constructor(private options: VirtualCompilerHostOptions) {
     this.baseHost = options.baseHost ?? ts.createCompilerHost(options.compilerOptions);
-    this.extensions = options.extensions ?? ["hkt", "pipeline", "cons"];
+    this.extensions = options.extensions ?? ["hkt", "pipeline", "cons", "decorator-rewrite"];
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.customFileExists = options.fileExists ?? ts.sys.fileExists;
   }

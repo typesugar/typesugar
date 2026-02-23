@@ -19,8 +19,9 @@ import * as path from "path";
 import * as fs from "fs";
 import macroTransformerFactory from "./index.js";
 import { preprocess } from "@typesugar/preprocessor";
+import { VirtualCompilerHost } from "./virtual-host.js";
 
-type Command = "build" | "watch" | "check" | "expand" | "run" | "init" | "doctor" | "create";
+type Command = "build" | "watch" | "check" | "expand" | "run" | "init" | "doctor" | "create" | "preprocess";
 
 interface CliOptions {
   command: Command;
@@ -30,6 +31,9 @@ interface CliOptions {
   diff?: boolean;
   ast?: boolean;
   createArgs?: string[];
+  preprocessSources?: string[];
+  outDir?: string;
+  inPlace?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -43,11 +47,12 @@ function parseArgs(args: string[]): CliOptions {
     "init",
     "doctor",
     "create",
+    "preprocess",
   ];
 
   if (!validCommands.includes(command)) {
     console.error(
-      `Unknown command: ${command}\nUsage: typesugar <build|watch|check|expand|init|doctor|create> [options]`
+      `Unknown command: ${command}\nUsage: typesugar <build|watch|check|expand|init|doctor|create|preprocess> [options]`
     );
     process.exit(1);
   }
@@ -56,6 +61,44 @@ function parseArgs(args: string[]): CliOptions {
   if (command === "create") {
     const createArgs = args.slice(1);
     return { command, project: "tsconfig.json", verbose: false, createArgs };
+  }
+
+  // For preprocess command, collect sources and handle specific flags
+  if (command === "preprocess") {
+    const sources: string[] = [];
+    let outDir: string | undefined;
+    let inPlace = false;
+    let verbose = false;
+
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === "--outDir" || arg === "-o") {
+        outDir = args[++i];
+      } else if (arg === "--inPlace" || arg === "--in-place") {
+        inPlace = true;
+      } else if (arg === "--verbose" || arg === "-v") {
+        verbose = true;
+      } else if (arg === "--help" || arg === "-h") {
+        printHelp();
+        process.exit(0);
+      } else if (!arg.startsWith("-")) {
+        sources.push(arg);
+      }
+    }
+
+    if (inPlace && outDir) {
+      console.error("Error: --inPlace and --outDir are mutually exclusive");
+      process.exit(1);
+    }
+
+    return {
+      command,
+      project: "tsconfig.json",
+      verbose,
+      preprocessSources: sources.length > 0 ? sources : undefined,
+      outDir,
+      inPlace,
+    };
   }
 
   let project = "tsconfig.json";
@@ -101,6 +144,7 @@ COMMANDS:
   init               Interactive setup wizard for existing projects
   doctor             Diagnose configuration issues
   create [template]  Create a new project from a template
+  preprocess <files|dirs>  Preprocess files (custom syntax only, no macro expansion)
 
 OPTIONS:
   -p, --project <path>   Path to tsconfig.json (default: tsconfig.json)
@@ -110,6 +154,10 @@ OPTIONS:
 EXPAND OPTIONS:
   --diff                 Show unified diff between original and expanded
   --ast                  Show expanded AST as JSON
+
+PREPROCESS OPTIONS:
+  --outDir <dir>         Output directory (default: .typesugar)
+  --inPlace              Preprocess files in place (overwrites originals)
 
 CREATE TEMPLATES:
   app                Vite application with comptime, derive, and sql
@@ -129,6 +177,9 @@ EXAMPLES:
   typesugar create app my-app
   typesugar create library my-lib
   typesugar create macro-plugin my-macros
+  typesugar preprocess src/ --outDir .typesugar
+  typesugar preprocess src/index.ts src/types.ts --outDir dist
+  typesugar preprocess src/ --inPlace
 `);
 }
 
@@ -342,7 +393,10 @@ function expand(options: CliOptions): void {
     noEmit: true,
   };
 
-  const program = ts.createProgram([filePath], compilerOptions);
+  // VirtualCompilerHost preprocesses all files (including imports)
+  const host = new VirtualCompilerHost({ compilerOptions });
+
+  const program = ts.createProgram([filePath], compilerOptions, host);
   const sourceFile = program.getSourceFile(filePath);
 
   if (!sourceFile) {
@@ -416,34 +470,21 @@ function expand(options: CliOptions): void {
 
 /**
  * Transform a single file using the unplugin-style two-stage pipeline:
- * 1. Preprocess custom syntax (HKT F<_>, |>, ::)
+ * 1. Preprocess custom syntax (HKT F<_>, |>, ::, @instance, @typeclass)
  * 2. Run macro transformer
+ *
+ * Uses VirtualCompilerHost so ALL files in the program (including imports)
+ * get preprocessed before the macro transformer sees them.
  */
 function transformFile(
   filePath: string,
   config: ts.ParsedCommandLine,
   options: { verbose?: boolean }
 ): string {
-  const originalSource = fs.readFileSync(filePath, "utf-8");
-
-  // Stage 1: Preprocess custom syntax
-  const preprocessed = preprocess(originalSource, { fileName: filePath });
-  const sourceCode = preprocessed.changed ? preprocessed.code : originalSource;
-
-  if (options.verbose && preprocessed.changed) {
-    console.log(`🧊 Preprocessed custom syntax in ${filePath}`);
-  }
-
-  // Stage 2: Create program and run macro transformer
-  // Create a virtual compiler host that serves preprocessed content
-  const host = ts.createCompilerHost(config.options);
-  const originalReadFile = host.readFile.bind(host);
-  host.readFile = (fileName) => {
-    if (path.resolve(fileName) === path.resolve(filePath)) {
-      return sourceCode;
-    }
-    return originalReadFile(fileName);
-  };
+  // VirtualCompilerHost preprocesses all files (including imports) on demand
+  const host = new VirtualCompilerHost({
+    compilerOptions: config.options,
+  });
 
   const allFiles = [...config.fileNames];
   if (!allFiles.includes(filePath)) {
@@ -455,6 +496,13 @@ function transformFile(
 
   if (!sourceFile) {
     throw new Error(`Could not load source file: ${filePath}`);
+  }
+
+  if (options.verbose) {
+    const preprocessed = host.hasPreprocessed(filePath);
+    if (preprocessed) {
+      console.log(`🧊 Preprocessed custom syntax in ${filePath}`);
+    }
   }
 
   const transformerFactory = macroTransformerFactory(program, {
@@ -510,6 +558,21 @@ async function run(options: CliOptions): Promise<void> {
   fs.writeFileSync(tempInputFile, transformedCode);
 
   try {
+    // Create an esbuild plugin to preprocess TypeScript files
+    const preprocessPlugin = {
+      name: "typesugar-preprocess",
+      setup(build: { onLoad: (opts: { filter: RegExp }, cb: (args: { path: string }) => Promise<{ contents: string; loader: "ts" | "tsx" }>) => void }) {
+        build.onLoad({ filter: /\.tsx?$/ }, async (args: { path: string }) => {
+          const source = await fs.promises.readFile(args.path, "utf-8");
+          const result = preprocess(source, { fileName: args.path });
+          return {
+            contents: result.code,
+            loader: args.path.endsWith(".tsx") ? "tsx" as const : "ts" as const,
+          };
+        });
+      },
+    };
+    
     // Bundle with esbuild (resolves all imports relative to source location)
     await esbuild.build({
       entryPoints: [tempInputFile],
@@ -520,6 +583,8 @@ async function run(options: CliOptions): Promise<void> {
       outfile: tempFile,
       logLevel: options.verbose ? "info" : "silent",
       absWorkingDir: fileDir,
+      plugins: [preprocessPlugin],
+      external: ["typescript"],
     });
   } finally {
     // Clean up input file
@@ -554,6 +619,146 @@ async function run(options: CliOptions): Promise<void> {
     console.error("Failed to execute:", err);
     process.exit(1);
   });
+}
+
+/**
+ * Recursively collect all .ts/.tsx files from the given sources (files or directories)
+ */
+function collectTypeScriptFiles(sources: string[]): string[] {
+  const files: string[] = [];
+
+  for (const source of sources) {
+    const resolved = path.resolve(source);
+
+    if (!fs.existsSync(resolved)) {
+      console.error(`Warning: ${source} does not exist, skipping`);
+      continue;
+    }
+
+    const stat = fs.statSync(resolved);
+
+    if (stat.isFile()) {
+      if (/\.[jt]sx?$/.test(resolved)) {
+        files.push(resolved);
+      }
+    } else if (stat.isDirectory()) {
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      for (const entry of entries) {
+        const entryPath = path.join(resolved, entry.name);
+        if (entry.isDirectory() && entry.name !== "node_modules" && !entry.name.startsWith(".")) {
+          files.push(...collectTypeScriptFiles([entryPath]));
+        } else if (entry.isFile() && /\.[jt]sx?$/.test(entry.name)) {
+          files.push(entryPath);
+        }
+      }
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Compute output path preserving directory structure relative to the source root
+ */
+function computeOutputPath(file: string, sources: string[], outDir: string): string {
+  const resolvedFile = path.resolve(file);
+  const resolvedOutDir = path.resolve(outDir);
+
+  // Find which source this file belongs to
+  for (const source of sources) {
+    const resolvedSource = path.resolve(source);
+    const sourceStat = fs.existsSync(resolvedSource) ? fs.statSync(resolvedSource) : null;
+
+    if (sourceStat?.isDirectory()) {
+      // File is under this source directory
+      if (resolvedFile.startsWith(resolvedSource + path.sep)) {
+        const relativePath = path.relative(resolvedSource, resolvedFile);
+        return path.join(resolvedOutDir, relativePath);
+      }
+    } else if (sourceStat?.isFile()) {
+      // Source is a file, put it directly in outDir
+      if (resolvedFile === resolvedSource) {
+        return path.join(resolvedOutDir, path.basename(file));
+      }
+    }
+  }
+
+  // Fallback: put file directly in outDir
+  return path.join(resolvedOutDir, path.basename(file));
+}
+
+/**
+ * Ensure directory exists (mkdir -p equivalent)
+ */
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+/**
+ * Preprocess TypeScript files (custom syntax only, no macro expansion)
+ */
+function preprocessCommand(options: CliOptions): void {
+  const sources = options.preprocessSources ?? ["src"];
+  const outDir = options.outDir ?? ".typesugar";
+  const inPlace = options.inPlace ?? false;
+
+  const files = collectTypeScriptFiles(sources);
+
+  if (files.length === 0) {
+    console.error("No TypeScript files found in the specified sources");
+    process.exit(1);
+  }
+
+  if (options.verbose) {
+    console.log(`🧊 Found ${files.length} TypeScript files to preprocess`);
+  }
+
+  let processedCount = 0;
+  let changedCount = 0;
+
+  for (const file of files) {
+    try {
+      const source = fs.readFileSync(file, "utf-8");
+      const result = preprocess(source, { fileName: file });
+
+      processedCount++;
+
+      if (result.changed) {
+        changedCount++;
+        const outputPath = inPlace ? file : computeOutputPath(file, sources, outDir);
+        ensureDir(path.dirname(outputPath));
+        fs.writeFileSync(outputPath, result.code);
+
+        // Write source map if available
+        if (result.map) {
+          fs.writeFileSync(outputPath + ".map", JSON.stringify(result.map));
+        }
+
+        if (options.verbose) {
+          console.log(`  ✓ ${path.relative(process.cwd(), file)} → ${path.relative(process.cwd(), outputPath)}`);
+        }
+      } else if (!inPlace) {
+        // Copy unchanged files to output directory
+        const outputPath = computeOutputPath(file, sources, outDir);
+        ensureDir(path.dirname(outputPath));
+        fs.writeFileSync(outputPath, source);
+
+        if (options.verbose) {
+          console.log(`  → ${path.relative(process.cwd(), file)} (unchanged)`);
+        }
+      }
+    } catch (err) {
+      console.error(`Error processing ${file}:`, err);
+    }
+  }
+
+  if (inPlace) {
+    console.log(`✨ Preprocessed ${changedCount} of ${processedCount} files in place`);
+  } else {
+    console.log(`✨ Preprocessed ${processedCount} files to ${outDir} (${changedCount} changed)`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -595,6 +800,9 @@ async function main(): Promise<void> {
       await runCreate(options.createArgs ?? []);
       break;
     }
+    case "preprocess":
+      preprocessCommand(options);
+      break;
   }
 }
 

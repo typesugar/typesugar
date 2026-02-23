@@ -5,8 +5,9 @@
  */
 
 import * as ts from "typescript";
+import * as path from "path";
 import { preprocess } from "@typesugar/preprocessor";
-import { loadMacroPackages } from "./macro-loader.js";
+import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
 
 import {
   getOperatorString,
@@ -36,6 +37,10 @@ import {
   // Config functions
   setCfgConfig,
   clearDerivationCaches,
+  // Registration functions for AST-based extraction
+  registerInstanceWithMeta,
+  registerTypeclassSyntax,
+  extractOpFromReturnType,
   type ImplicitScope,
   type ImplicitsFunctionInfo,
   type DictMethodMap,
@@ -194,6 +199,404 @@ function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.Source
   }
 }
 
+/**
+ * Parse a typeclass instantiation string like "Numeric<Expression<number>>"
+ * into { typeclassName, forType }.
+ */
+function parseTypeclassInstantiation(text: string): { typeclassName: string; forType: string } | null {
+  const openBracket = text.indexOf("<");
+  if (openBracket === -1) return null;
+
+  const typeclassName = text.slice(0, openBracket).trim();
+  if (!typeclassName) return null;
+
+  let depth = 0;
+  let closeBracket = -1;
+  for (let i = openBracket; i < text.length; i++) {
+    if (text[i] === "<") depth++;
+    else if (text[i] === ">") {
+      depth--;
+      if (depth === 0) {
+        closeBracket = i;
+        break;
+      }
+    }
+  }
+  if (closeBracket === -1) return null;
+
+  const forType = text.slice(openBracket + 1, closeBracket).trim();
+  if (!forType) return null;
+
+  return { typeclassName, forType };
+}
+
+/**
+ * Resolve a relative module import to an absolute file path.
+ * Probes extensions: .ts, .tsx, .js, .jsx, then /index variants.
+ */
+function resolveRelativeImport(modulePath: string, baseDir: string): string | undefined {
+  const extensions = [".ts", ".tsx", ".js", ".jsx", ""];
+
+  // Strip .js/.jsx extension for TypeScript ESM compatibility
+  // (imports like "./foo.js" should resolve to "./foo.ts")
+  let basePath = path.resolve(baseDir, modulePath);
+  if (basePath.endsWith(".js") || basePath.endsWith(".jsx")) {
+    const stripped = basePath.replace(/\.jsx?$/, "");
+    for (const ext of extensions) {
+      const candidate = stripped + ext;
+      if (ts.sys.fileExists(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  for (const ext of extensions) {
+    const candidate = basePath + ext;
+    if (ts.sys.fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const ext of extensions) {
+    if (ext === "") continue;
+    const indexCandidate = path.join(basePath, "index" + ext);
+    if (ts.sys.fileExists(indexCandidate)) {
+      return indexCandidate;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract an ops map from an object literal like { ops: { "===": "equals", ... } }
+ */
+function extractOpsFromOptions(optionsArg: ts.Expression): Map<string, string> | undefined {
+  if (!ts.isObjectLiteralExpression(optionsArg)) return undefined;
+
+  for (const prop of optionsArg.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const name = ts.isIdentifier(prop.name) ? prop.name.text : undefined;
+    if (name !== "ops") continue;
+
+    const opsObj = prop.initializer;
+    if (!ts.isObjectLiteralExpression(opsObj)) continue;
+
+    const result = new Map<string, string>();
+    for (const opProp of opsObj.properties) {
+      if (!ts.isPropertyAssignment(opProp)) continue;
+      const key = ts.isStringLiteral(opProp.name)
+        ? opProp.name.text
+        : ts.isIdentifier(opProp.name)
+          ? opProp.name.text
+          : undefined;
+      const value = ts.isStringLiteral(opProp.initializer)
+        ? opProp.initializer.text
+        : undefined;
+      if (key && value) {
+        result.set(key, value);
+      }
+    }
+    return result.size > 0 ? result : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Extract operator syntax from an interface definition by scanning for Op<> in return types.
+ * This is the zero-cost path: syntax is extracted at transform time, not runtime.
+ */
+function extractOpsFromInterface(
+  sourceFile: ts.SourceFile,
+  interfaceName: string
+): Map<string, string> | undefined {
+  // Find the interface declaration
+  let targetInterface: ts.InterfaceDeclaration | undefined;
+  for (const stmt of sourceFile.statements) {
+    if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === interfaceName) {
+      targetInterface = stmt;
+      break;
+    }
+  }
+
+  if (!targetInterface) return undefined;
+
+  const result = new Map<string, string>();
+
+  // Scan method signatures for Op<> return type annotations
+  for (const member of targetInterface.members) {
+    if (!ts.isMethodSignature(member)) continue;
+    if (!member.name || !ts.isIdentifier(member.name)) continue;
+
+    const methodName = member.name.text;
+    const { operatorSymbol } = extractOpFromReturnType(member.type);
+
+    if (operatorSymbol) {
+      result.set(operatorSymbol, methodName);
+    }
+  }
+
+  return result.size > 0 ? result : undefined;
+}
+
+/**
+ * Extract and pre-register `instance()` and `typeclass()` calls from imported workspace files.
+ *
+ * This ensures typeclass instances and syntax mappings are registered BEFORE the transformer
+ * processes files that use operator overloading on imported types.
+ *
+ * @param sourceFile The current file to scan imports from
+ * @param program The TypeScript program (provides access to imported source files)
+ * @param scannedFiles Set of already-scanned file paths (prevents cycles)
+ * @param verbose Enable logging
+ */
+function ensureImportedRegistrations(
+  sourceFile: ts.SourceFile,
+  program: ts.Program,
+  scannedFiles: Set<string>,
+  verbose: boolean
+): void {
+  const baseDir = path.dirname(sourceFile.fileName);
+
+  // Collect module paths from both imports and re-exports
+  const modulePaths: string[] = [];
+
+  for (const stmt of sourceFile.statements) {
+    // Handle: import { ... } from "./module.js"
+    if (ts.isImportDeclaration(stmt)) {
+      const moduleSpecifier = stmt.moduleSpecifier;
+      if (ts.isStringLiteral(moduleSpecifier)) {
+        modulePaths.push(moduleSpecifier.text);
+      }
+    }
+
+    // Handle: export * from "./module.js" and export { ... } from "./module.js"
+    if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier) {
+      if (ts.isStringLiteral(stmt.moduleSpecifier)) {
+        modulePaths.push(stmt.moduleSpecifier.text);
+      }
+    }
+  }
+
+  for (const modulePath of modulePaths) {
+    // Only process relative/workspace imports
+    if (!modulePath.startsWith(".") && !modulePath.startsWith("/")) {
+      continue;
+    }
+
+    const resolved = resolveRelativeImport(modulePath, baseDir);
+    if (!resolved) continue;
+
+    // Skip if already scanned (prevents cycles)
+    if (scannedFiles.has(resolved)) continue;
+    scannedFiles.add(resolved);
+
+    // Get the source file from the program (will have preprocessed content via VirtualCompilerHost)
+    const importedSf = program.getSourceFile(resolved);
+    if (!importedSf) continue;
+
+    if (verbose) {
+      console.log(`[typesugar] Pre-scanning registrations in: ${resolved}`);
+    }
+
+    // Walk the AST looking for registration calls
+    const scanNode = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = node.expression;
+        if (ts.isIdentifier(callee)) {
+          const fnName = callee.text;
+
+          // Handle instance("Typeclass<Type>", ...)
+          if (fnName === "instance" && node.arguments.length >= 1) {
+            const descArg = node.arguments[0];
+            if (ts.isStringLiteral(descArg)) {
+              const parsed = parseTypeclassInstantiation(descArg.text);
+              if (parsed) {
+                // Find the enclosing variable declaration to get the instance name
+                let instanceName: string | undefined;
+                let parent: ts.Node | undefined = node.parent;
+                while (parent) {
+                  if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+                    instanceName = parent.name.text;
+                    break;
+                  }
+                  parent = parent.parent;
+                }
+
+                if (instanceName && !findInstance(parsed.typeclassName, parsed.forType)) {
+                  if (verbose) {
+                    console.log(
+                      `[typesugar] Pre-registered instance: ${parsed.typeclassName}<${parsed.forType}> = ${instanceName}`
+                    );
+                  }
+                  registerInstanceWithMeta({
+                    typeclassName: parsed.typeclassName,
+                    forType: parsed.forType,
+                    instanceName,
+                    derived: false,
+                  });
+                }
+              }
+            }
+          }
+
+          // Handle typeclass("Name", { ops: {...} })
+          if (fnName === "typeclass" && node.arguments.length >= 1) {
+            const nameArg = node.arguments[0];
+            if (ts.isStringLiteral(nameArg)) {
+              const tcName = nameArg.text;
+
+              // Extract ops from second argument if present
+              if (node.arguments.length >= 2) {
+                const opsMap = extractOpsFromOptions(node.arguments[1]);
+                if (opsMap && opsMap.size > 0) {
+                  if (verbose) {
+                    console.log(
+                      `[typesugar] Pre-registered syntax for ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
+                    );
+                  }
+                  registerTypeclassSyntax(tcName, opsMap);
+                }
+              } else {
+                // No explicit ops argument — extract Op<> from interface definition
+                // This is the zero-cost path: syntax is extracted at transform time
+                const opsMap = extractOpsFromInterface(importedSf, tcName);
+                if (opsMap && opsMap.size > 0) {
+                  if (verbose) {
+                    console.log(
+                      `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
+                    );
+                  }
+                  registerTypeclassSyntax(tcName, opsMap);
+                }
+              }
+            }
+          }
+
+          // Handle registerInstanceWithMeta({ ... })
+          if (fnName === "registerInstanceWithMeta" && node.arguments.length >= 1) {
+            const arg = node.arguments[0];
+            if (ts.isObjectLiteralExpression(arg)) {
+              const info = extractInstanceInfoFromLiteral(arg);
+              if (info && !findInstance(info.typeclassName, info.forType)) {
+                if (verbose) {
+                  console.log(
+                    `[typesugar] Pre-registered instance (meta): ${info.typeclassName}<${info.forType}> = ${info.instanceName}`
+                  );
+                }
+                registerInstanceWithMeta(info);
+              }
+            }
+          }
+
+          // Handle registerTypeclassSyntax("Name", ...)
+          if (fnName === "registerTypeclassSyntax" && node.arguments.length >= 2) {
+            const nameArg = node.arguments[0];
+            const syntaxArg = node.arguments[1];
+
+            if (ts.isStringLiteral(nameArg)) {
+              const tcName = nameArg.text;
+              const syntaxMap = extractSyntaxMapFromArg(syntaxArg);
+              if (syntaxMap && syntaxMap.size > 0) {
+                if (verbose) {
+                  console.log(
+                    `[typesugar] Pre-registered syntax (call): ${tcName}: ${[...syntaxMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
+                  );
+                }
+                registerTypeclassSyntax(tcName, syntaxMap);
+              }
+            }
+          }
+        }
+      }
+
+      ts.forEachChild(node, scanNode);
+    };
+
+    scanNode(importedSf);
+
+    // Recurse into this file's imports
+    ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
+  }
+}
+
+/**
+ * Extract InstanceInfo from an object literal expression.
+ */
+function extractInstanceInfoFromLiteral(
+  obj: ts.ObjectLiteralExpression
+): { typeclassName: string; forType: string; instanceName: string; derived: boolean } | null {
+  let typeclassName: string | undefined;
+  let forType: string | undefined;
+  let instanceName: string | undefined;
+  let derived = false;
+
+  for (const prop of obj.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+
+    const name = ts.isIdentifier(prop.name)
+      ? prop.name.text
+      : ts.isStringLiteral(prop.name)
+        ? prop.name.text
+        : undefined;
+    if (!name) continue;
+
+    const value = prop.initializer;
+
+    if (name === "typeclassName" && ts.isStringLiteral(value)) {
+      typeclassName = value.text;
+    } else if (name === "forType" && ts.isStringLiteral(value)) {
+      forType = value.text;
+    } else if (name === "instanceName" && ts.isStringLiteral(value)) {
+      instanceName = value.text;
+    } else if (name === "derived") {
+      derived = value.kind === ts.SyntaxKind.TrueKeyword;
+    }
+  }
+
+  if (typeclassName && forType && instanceName) {
+    return { typeclassName, forType, instanceName, derived };
+  }
+  return null;
+}
+
+/**
+ * Extract a Map<string, string> from a new Map([...]) or array literal argument.
+ */
+function extractSyntaxMapFromArg(arg: ts.Expression): Map<string, string> | undefined {
+  // Handle new Map([["op", "method"], ...])
+  if (ts.isNewExpression(arg) && arg.arguments?.length === 1) {
+    const initArg = arg.arguments[0];
+    if (ts.isArrayLiteralExpression(initArg)) {
+      return extractMapFromArray(initArg);
+    }
+  }
+
+  // Handle array literal [["op", "method"], ...]
+  if (ts.isArrayLiteralExpression(arg)) {
+    return extractMapFromArray(arg);
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract Map entries from an array literal like [["op", "method"], ...]
+ */
+function extractMapFromArray(arr: ts.ArrayLiteralExpression): Map<string, string> | undefined {
+  const result = new Map<string, string>();
+  for (const elem of arr.elements) {
+    if (ts.isArrayLiteralExpression(elem) && elem.elements.length >= 2) {
+      const key = elem.elements[0];
+      const val = elem.elements[1];
+      if (ts.isStringLiteral(key) && ts.isStringLiteral(val)) {
+        result.set(key.text, val.text);
+      }
+    }
+  }
+  return result.size > 0 ? result : undefined;
+}
+
 function isPrimitiveType(type: ts.Type): boolean {
   const flags = type.flags;
   return !!(
@@ -246,6 +649,9 @@ export default function macroTransformerFactory(
   // This replaces eager side-effect imports that caused dependency cycles.
   loadMacroPackages(program, verbose);
 
+  // Track which files have been scanned for registrations (prevents cycles)
+  const scannedFiles = new Set<string>();
+
   if (verbose) {
     console.log("[typesugar] Initializing transformer");
     console.log(
@@ -274,6 +680,15 @@ export default function macroTransformerFactory(
 
       // Scan for imports and opt-out directives
       scanImportsForScope(sourceFile, globalResolutionScope);
+
+      // Load macro packages based on this file's imports.
+      // This is important for the language service where the initial program
+      // may not include all files that will be transformed.
+      loadMacroPackagesFromFile(sourceFile, verbose);
+
+      // Pre-scan imported workspace files for instance() and typeclass() registrations.
+      // This ensures instances are registered before operator rewriting encounters them.
+      ensureImportedRegistrations(sourceFile, program, scannedFiles, verbose);
 
       // Check for file-level opt-out
       const fileScope = globalResolutionScope.getScope(sourceFile.fileName);
@@ -3110,6 +3525,112 @@ class MacroTransformer {
    * on types that have an instance of that typeclass gets rewritten to a
    * direct method call (or inlined for zero-cost).
    */
+  /**
+   * Infer the result type of an identifier by looking at its initializer.
+   * If the variable was assigned from a binary expression that would be rewritten,
+   * returns the instance's forType instead of the TypeChecker's inferred type.
+   */
+  private inferIdentifierResultType(node: ts.Identifier): string | undefined {
+    const symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
+    if (!symbol) return undefined;
+
+    const decls = symbol.getDeclarations();
+    if (!decls || decls.length === 0) return undefined;
+
+    for (const decl of decls) {
+      if (ts.isVariableDeclaration(decl) && decl.initializer) {
+        // Unwrap parentheses
+        let init: ts.Expression = decl.initializer;
+        while (ts.isParenthesizedExpression(init)) {
+          init = init.expression;
+        }
+
+        if (ts.isBinaryExpression(init)) {
+          const inferred = this.inferBinaryExprResultType(init);
+          if (inferred) return inferred;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Infer the result type of a binary expression, accounting for potential typeclass rewriting.
+   * If the expression would be rewritten to a typeclass method call, returns the instance's forType.
+   */
+  private inferBinaryExprResultType(node: ts.BinaryExpression): string | undefined {
+    const opString = getOperatorString(node.operatorToken.kind);
+    if (!opString) return undefined;
+
+    const entries = getSyntaxForOperator(opString);
+    if (!entries || entries.length === 0) return undefined;
+
+    // Unwrap parenthesized expressions
+    let unwrappedLeft: ts.Expression = node.left;
+    while (ts.isParenthesizedExpression(unwrappedLeft)) {
+      unwrappedLeft = unwrappedLeft.expression;
+    }
+
+    // Get the type of the left operand, recursively inferring if it's also a binary expression
+    let leftTypeName: string;
+    if (ts.isBinaryExpression(unwrappedLeft)) {
+      const inferred = this.inferBinaryExprResultType(unwrappedLeft);
+      leftTypeName = inferred ?? this.ctx.typeChecker.typeToString(
+        this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft)
+      );
+    } else {
+      leftTypeName = this.ctx.typeChecker.typeToString(
+        this.ctx.typeChecker.getTypeAtLocation(node.left)
+      );
+    }
+
+    const baseTypeName = leftTypeName.replace(/<.*>$/, "");
+    const typeArg = leftTypeName.match(/<(.+)>$/)?.[1] ?? "";
+
+    // Check if there's an instance for this type and operator
+    for (const entry of entries) {
+      let inst = findInstance(entry.typeclass, leftTypeName) ?? findInstance(entry.typeclass, baseTypeName);
+
+      // Check union membership if no direct match
+      if (!inst) {
+        const candidateInstances = instanceRegistry.filter((i) => i.typeclassName === entry.typeclass);
+        for (const candidate of candidateInstances) {
+          const candidateBase = candidate.forType.replace(/<.*>$/, "");
+          const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+
+          for (const sf of this.ctx.program.getSourceFiles()) {
+            if (sf.isDeclarationFile) continue;
+            for (const stmt of sf.statements) {
+              if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
+                const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
+                if (aliasType.isUnion?.()) {
+                  for (const unionMember of aliasType.types) {
+                    const memberName = this.ctx.typeChecker.typeToString(unionMember);
+                    const memberBase = memberName.replace(/<.*>$/, "");
+                    if (memberBase === baseTypeName && (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)) {
+                      inst = candidate;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            if (inst) break;
+          }
+          if (inst) break;
+        }
+      }
+
+      if (inst) {
+        // Found an instance - the result type is the instance's forType
+        return inst.forType;
+      }
+    }
+
+    return undefined;
+  }
+
   private tryRewriteTypeclassOperator(node: ts.BinaryExpression): ts.Expression | undefined {
     if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "extensions")) {
       return undefined;
@@ -3121,9 +3642,40 @@ class MacroTransformer {
     const entries = getSyntaxForOperator(opString);
     if (!entries || entries.length === 0) return undefined;
 
-    const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-    const typeName = this.ctx.typeChecker.typeToString(leftType);
+    // Get the type of the left operand, inferring from nested binary expressions if needed
+    // Unwrap parenthesized expressions to find the underlying expression
+    let unwrappedLeft: ts.Expression = node.left;
+    while (ts.isParenthesizedExpression(unwrappedLeft)) {
+      unwrappedLeft = unwrappedLeft.expression;
+    }
+
+    let typeName: string;
+    if (ts.isBinaryExpression(unwrappedLeft)) {
+      const inferred = this.inferBinaryExprResultType(unwrappedLeft);
+      typeName = inferred ?? this.ctx.typeChecker.typeToString(
+        this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft)
+      );
+    } else if (ts.isIdentifier(unwrappedLeft)) {
+      // For variable references, check if the initializer is a binary expression we'd rewrite
+      const inferred = this.inferIdentifierResultType(unwrappedLeft);
+      typeName = inferred ?? this.ctx.typeChecker.typeToString(
+        this.ctx.typeChecker.getTypeAtLocation(node.left)
+      );
+    } else {
+      const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
+      typeName = this.ctx.typeChecker.typeToString(leftType);
+    }
+    // Strip intersection types with Op<> - these are return type annotations that shouldn't affect instance lookup
+    typeName = typeName.replace(/\s*&\s*Op<[^>]+>/, "");
     const baseTypeName = typeName.replace(/<.*>$/, "");
+    const typeArg = typeName.match(/<(.+)>$/)?.[1] ?? "";
+
+    // Skip primitive types - native JS operators work correctly and we don't want to
+    // generate unnecessary method calls or require imports
+    const PRIMITIVE_TYPES = new Set(["number", "string", "boolean", "bigint", "null", "undefined", "any", "unknown"]);
+    if (PRIMITIVE_TYPES.has(baseTypeName)) {
+      return undefined;
+    }
 
     let matchedEntry: { typeclass: string; method: string } | undefined;
     let matchedInstance:
@@ -3131,8 +3683,46 @@ class MacroTransformer {
       | undefined;
 
     for (const entry of entries) {
-      const inst =
+      // First try exact match
+      let inst =
         findInstance(entry.typeclass, typeName) ?? findInstance(entry.typeclass, baseTypeName);
+
+      // If no exact match, try to find an instance via structural subtyping
+      // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)
+      if (!inst) {
+        // Check if this type is a member of a registered union type
+        const candidateInstances = instanceRegistry.filter((i) => i.typeclassName === entry.typeclass);
+        for (const candidate of candidateInstances) {
+          const candidateBase = candidate.forType.replace(/<.*>$/, "");
+          const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+
+          // Look up the candidate type alias in source files
+          for (const sf of this.ctx.program.getSourceFiles()) {
+            if (sf.isDeclarationFile) continue;
+            for (const stmt of sf.statements) {
+              if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
+                // Found the type alias - get its type from the checker
+                const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
+
+                // Check if it's a union and the actual type is one of its members
+                if (aliasType.isUnion?.()) {
+                  for (const unionMember of aliasType.types) {
+                    const memberName = this.ctx.typeChecker.typeToString(unionMember);
+                    const memberBase = memberName.replace(/<.*>$/, "");
+                    if (memberBase === baseTypeName && (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)) {
+                      inst = candidate;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            if (inst) break;
+          }
+          if (inst) break;
+        }
+      }
+
       if (inst) {
         if (matchedEntry) {
           this.ctx.reportError(
