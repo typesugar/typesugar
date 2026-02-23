@@ -603,6 +603,9 @@ importers:
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
+      '@typesugar/std':
+        specifier: workspace:*
+        version: link:../std
       esbuild:
         specifier: ^0.20.0
         version: 0.20.2

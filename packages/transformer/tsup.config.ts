@@ -20,7 +20,7 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   splitting: false,
-  external: ["typescript", "@typesugar/core"],
+  external: ["typescript", "@typesugar/core", "@typesugar/std"],
   cjsInterop: true,
   shims: true,
 });
