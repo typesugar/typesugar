@@ -39,8 +39,6 @@ import {
   requiresRuntimeCheck,
   getAllDecidabilityInfo,
   // Vec support
-  type Vec,
-  type VecBrand,
   type Add,
   VecConstructors,
   isVec,
@@ -48,12 +46,11 @@ import {
   generateVecPredicate,
   // Re-exported widening
   widen,
-  widenTo,
-  isSubtype,
 } from "../src/index.js";
 
 import { requires, tryProve, type TypeFact, trySimpleLinearProof } from "@typesugar/contracts";
-import { Positive, NonNegative, Byte, Port, Percentage, Int, NonEmpty } from "@typesugar/type-system";
+// Byte, Int, NonEmpty used only as brand strings in hasRefinementPredicate() calls
+import { Positive, NonNegative, Port, Percentage } from "@typesugar/type-system";
 
 // ============================================================================
 // 1. AUTO-REGISTRATION - Import Activates the Bridge

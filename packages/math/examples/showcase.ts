@@ -35,7 +35,7 @@ import {
   // Money - currency-safe finance
   money, moneyFormat,
   moneyAllocate, moneyAddPercentage, moneyConvert, type Money,
-  USD, EUR, GBP, JPY,
+  USD, EUR, JPY,
 
   // Matrix - type-safe dimensions
   matrix, matMul, det, matrixInverse, type Matrix,

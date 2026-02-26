@@ -20,8 +20,6 @@ import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesug
 import {
   // Unit class and dimension types
   Unit,
-  type Dimensions,
-  type DimExp,
   type Dimensionless,
   type Length,
   type Mass,
@@ -31,11 +29,6 @@ import {
   type Force,
   type Energy,
   type Power,
-  type Temperature,
-  type Pressure,
-  type Area,
-  type Volume,
-  type Frequency,
 
   // Dimension arithmetic
   type MulDimensions,

@@ -59,7 +59,7 @@ assert(userSchemaV1.fields.length === 2);
 const userSchemaV3 = defineSchema("User", {
   version: 3,
   fields: [
-    { name: "name", type: "string" },
+    { name: "name", type: "string", removed: 3 }, // Renamed to displayName in v3
     { name: "age", type: "number" },
     { name: "email", type: "string", since: 2, defaultValue: "" },
     { name: "displayName", type: "string", since: 3, renamed: { version: 3, oldName: "name" }, defaultValue: "" },
@@ -137,7 +137,7 @@ for (const step of history.migrations) {
 }
 
 assert(record.email === "");
-assert(record.displayName === "");
+assert(record.displayName === "Alice"); // Renamed from "name" field, preserves value
 assert(!("legacyField" in record));
 
 // ============================================================================
@@ -170,7 +170,6 @@ assert(decoded.age === 25);
 
 // A v3 codec can decode v1 data by applying migration chain
 interface UserV3 {
-  name: string;
   age: number;
   email: string;
   displayName: string;
@@ -182,15 +181,14 @@ const v3Codec = createJsonCodec<UserV3>(userSchemaV3);
 const v1Data = JSON.stringify({ __v: 1, name: "Charlie", age: 40, legacyField: "x" });
 
 const migrated = v3Codec.decodeAny(v1Data);
-assert(migrated.name === "Charlie");
 assert(migrated.age === 40);
 assert(migrated.email === "");
-assert(migrated.displayName === "");
+assert(migrated.displayName === "Charlie"); // Renamed from "name" field
 
 // decodeAny also works on current-version data
-const v3Data = v3Codec.encode({ name: "Diana", age: 35, email: "d@x.co", displayName: "Di" });
+const v3Data = v3Codec.encode({ age: 35, email: "d@x.co", displayName: "Di" });
 const roundTripped = v3Codec.decodeAny(v3Data);
-assert(roundTripped.name === "Diana");
+assert(roundTripped.displayName === "Di");
 assert(roundTripped.email === "d@x.co");
 
 // ============================================================================

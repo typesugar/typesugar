@@ -2,43 +2,56 @@
  * Data Types Index
  *
  * Re-exports all data types for the @typesugar/fp system.
- * Uses namespace imports to avoid naming conflicts between data types.
+ *
+ * Clean API design:
+ * - Type: `Option<A>`, `Either<E, A>`, etc.
+ * - Operations: `Option.map(...)`, `Either.flatMap(...)`, etc.
+ * - Constructors: `Some(...)`, `None`, `Left(...)`, `Right(...)`, etc.
  */
 
-// Import as namespaces to avoid conflicts (each data type has map, flatMap, etc.)
-import * as OptionModule from "./option.js";
-import * as EitherModule from "./either.js";
-import * as ListModule from "./list.js";
-import * as NonEmptyListModule from "./nonempty-list.js";
-import * as ValidatedModule from "./validated.js";
-import * as StateModule from "./state.js";
-import * as ReaderModule from "./reader.js";
-import * as WriterModule from "./writer.js";
-import * as IdModule from "./id.js";
+// ============================================================================
+// Option — Zero-cost optional values (null-based)
+// ============================================================================
 
-// Re-export namespaces
-export { OptionModule as Option };
-export { EitherModule as Either };
-export { ListModule as List };
-export { NonEmptyListModule as NonEmptyList };
-export { ValidatedModule as Validated };
-export { StateModule as State };
-export { ReaderModule as Reader };
-export { WriterModule as Writer };
-export { IdModule as Id };
+// Option is both a type (Option<A> = A | null) and a namespace object
+export {
+  Option,
+  Some,
+  None,
+  isSome,
+  isNone,
+  defined,
+  unwrapDefined,
+} from "./option.js";
+export type { Defined } from "./option.js";
 
-// Export specific constructors and types that are commonly used directly
-export { type Option as OptionType, Some, None, isSome, isNone } from "./option.js";
+// ============================================================================
+// Either — Typed error handling
+// ============================================================================
 
-export { type Either as EitherType, Left, Right, isLeft, isRight } from "./either.js";
+export { Either, Left, Right, isLeft, isRight } from "./either.js";
 
-export { type List as ListType, Cons, Nil } from "./list.js";
+// ============================================================================
+// List — Persistent linked list
+// ============================================================================
 
-export { type NonEmptyList as NonEmptyListType } from "./nonempty-list.js";
+export { List, Cons, Nil, isCons, isNil } from "./list.js";
+
+// ============================================================================
+// NonEmptyList — List with at least one element
+// ============================================================================
+
+// Type: NonEmptyList<A>
+// Namespace: NEL.of(), NEL.map(), NEL.cons()
+export type { NonEmptyList } from "./nonempty-list.js";
+export { NEL } from "./nonempty-list.js";
+
+// ============================================================================
+// Validated — Error accumulation
+// ============================================================================
 
 export {
-  type Validated as ValidatedType,
-  type ValidatedNel,
+  Validated,
   Valid,
   Invalid,
   valid,
@@ -48,17 +61,37 @@ export {
   isValid,
   isInvalid,
 } from "./validated.js";
+export type { ValidatedNel } from "./validated.js";
 
-export { type State as StateType, IndexedState } from "./state.js";
+// ============================================================================
+// State — Stateful computation
+// ============================================================================
 
-export { type Reader as ReaderType, Kleisli } from "./reader.js";
+export { State, IndexedState } from "./state.js";
+
+// ============================================================================
+// Reader — Environment/dependency injection
+// ============================================================================
+
+export { Reader, Kleisli } from "./reader.js";
+
+// ============================================================================
+// Writer — Logging/accumulation
+// ============================================================================
 
 export {
-  type Writer as WriterType,
+  Writer,
   LogWriter,
   LogWriterMonoid,
   SumWriter,
   SumWriterMonoid,
+  ProductWriter,
+  ProductWriterMonoid,
 } from "./writer.js";
 
-export { type Id as IdType } from "./id.js";
+// ============================================================================
+// Id — Identity functor
+// ============================================================================
+
+// Id is a class (both type and constructor)
+export { Id } from "./id.js";

@@ -15,7 +15,9 @@
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal } from "@typesugar/testing";
+// Note: Extends and Not are available from @typesugar/testing for negative assertions
+// but this showcase only demonstrates positive type equality checks
 import { transformInto, type TransformConfig } from "../src/index.js";
 
 // ============================================================================

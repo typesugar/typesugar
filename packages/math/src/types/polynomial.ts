@@ -420,6 +420,8 @@ const numericNumberLocal: Numeric<number> = {
   add: (a, b) => a + b,
   sub: (a, b) => a - b,
   mul: (a, b) => a * b,
+  div: (a, b) => a / b,
+  pow: (a, b) => a ** b,
   negate: (a) => -a,
   abs: Math.abs,
   signum: Math.sign,
@@ -442,6 +444,15 @@ export function numericPolynomial<F>(N: Numeric<F>): Numeric<Polynomial<F>> {
     add: (a, b) => addPoly(a, b, N) as Polynomial<F> & Op<"+">,
     sub: (a, b) => subPoly(a, b, N) as Polynomial<F> & Op<"-">,
     mul: (a, b) => mulPoly(a, b, N) as Polynomial<F> & Op<"*">,
+    div: (_a, _b) => {
+      throw new RangeError("Polynomial division requires Euclidean division (use divPoly)");
+    },
+    pow: (a, b) => {
+      const n = N.toNumber(b.coeffs.length > 0 ? b.coeffs[0] : N.zero());
+      let result: Polynomial<F> = onePoly(N);
+      for (let i = 0; i < Math.round(Math.abs(n)); i++) result = mulPoly(result, a, N);
+      return result as Polynomial<F> & Op<"**">;
+    },
     negate: (a) => negatePoly(a, N),
     abs: (a) => a, // no meaningful abs for polynomials
     signum: (a) => (isZero(a) ? zeroPoly() : onePoly(N)),

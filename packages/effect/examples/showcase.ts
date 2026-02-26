@@ -15,25 +15,27 @@
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal, type Extends } from "@typesugar/testing";
+// Note: `Not` type is available but not used in this showcase (only appears in doc comments)
 
 import {
   // @service macro
-  serviceRegistry,
+  // Note: serviceRegistry is exported but not demonstrated here (used internally by @service macro)
   registerService,
   getService,
   type ServiceInfo,
   type ServiceMethodInfo,
 
   // @layer macro
-  layerRegistry,
+  // Note: layerRegistry is exported but not demonstrated here (used internally by @layer macro)
   registerLayer,
   getLayer,
   getLayersForService,
   type LayerInfo,
 
-  // resolveLayer macro
-  resolveLayer,
+  // resolveLayer macro (demonstrated in comments section 10, requires macro transformer)
+  // Note: resolveLayer is a macro that compiles to Layer composition - cannot be called directly
+  // resolveLayer,
 
   // @derive macros
   EffectSchema,
@@ -68,10 +70,10 @@ import {
   chunkTraverse,
   effectOptionFunctor,
   effectOptionMonad,
-  effectOptionMonadError,
+  // Note: effectOptionMonadError and effectEitherMonadError are exported but mirror
+  // effectOptionMonad/effectEitherMonad with handleError - not separately demonstrated
   effectEitherFunctor,
   effectEitherMonad,
-  effectEitherMonadError,
   effectInstances,
 
   // FlatMap registration
@@ -116,14 +118,18 @@ typeAssert<Extends<ServiceInfo, { name: string; methods: ServiceMethodInfo[] }>>
 
 const dbLayerInfo: LayerInfo = {
   name: "databaseLive",
-  serviceName: "Database",
+  provides: "Database",
   requires: [],
+  sourceFile: "showcase.ts",
+  layerType: "succeed",
 };
 
 const userRepoLayerInfo: LayerInfo = {
   name: "userRepoLive",
-  serviceName: "UserRepo",
+  provides: "UserRepo",
   requires: ["Database"],
+  sourceFile: "showcase.ts",
+  layerType: "effect",
 };
 
 registerLayer(dbLayerInfo);
@@ -202,12 +208,13 @@ const monad = effectMonad<never, never>();
 assert(typeof monad.flatMap === "function", "Monad should have flatMap");
 
 const monadError = effectMonadError<never, never>();
-assert(typeof monadError.handleError === "function", "MonadError should have handleError");
+assert(typeof monadError.handleErrorWith === "function", "MonadError should have handleErrorWith");
 
 // Chunk instances
 assert(typeof chunkFunctor.map === "function", "Chunk Functor should have map");
 assert(typeof chunkFoldable.foldLeft === "function", "Chunk Foldable should have foldLeft");
-assert(typeof chunkTraverse.traverse === "function", "Chunk Traverse should have traverse");
+const traverse = chunkTraverse(); // chunkTraverse is a function, not a constant
+assert(typeof traverse.traverse === "function", "Chunk Traverse should have traverse");
 
 // Option instances
 const optFunctor = effectOptionFunctor;

@@ -16,7 +16,9 @@
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Extends } from "@typesugar/testing";
+// Note: Equal and Not are available from @typesugar/testing but not needed in this showcase
+// since we only demonstrate interface extension (Extends), not type equality checks.
 
 import {
   z3ProverPlugin,

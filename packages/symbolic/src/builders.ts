@@ -12,10 +12,34 @@
  * ```
  */
 
-import type { Numeric } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
-import type { Refined } from "@typesugar/type-system";
-import { instance } from "@typesugar/macros/runtime";
+// Local type definitions to avoid loading heavy dependencies
+// (@typesugar/std and @typesugar/type-system bundle macro code that imports 'typescript')
+
+// Op<> marker type for operator overloading (from @typesugar/core)
+declare const __op__: unique symbol;
+type Op<S extends string> = { readonly [__op__]: S };
+
+// Numeric typeclass interface (from @typesugar/std)
+interface Numeric<A> {
+  add(a: A, b: A): A & Op<"+">;
+  sub(a: A, b: A): A & Op<"-">;
+  mul(a: A, b: A): A & Op<"*">;
+  div(a: A, b: A): A & Op<"/">;
+  pow(a: A, b: A): A & Op<"**">;
+  negate(a: A): A;
+  abs(a: A): A;
+  signum(a: A): A;
+  fromNumber(n: number): A;
+  toNumber(a: A): number;
+  zero(): A;
+  one(): A;
+}
+
+// Refined type (from @typesugar/type-system)
+declare const __refined__: unique symbol;
+type Refined<Base, Brand extends string> = Base & {
+  readonly [__refined__]: Brand;
+};
 import type {
   Expression,
   Constant,
@@ -439,9 +463,10 @@ export function recip<A>(arg: Expression<A>): BinaryOp<number, A, Div<number, A>
  *
  * This enables expressions to be used with typesugar's operator overloading:
  * `a + b` becomes `add(a, b)` when both are expressions.
+ *
+ * Note: Instance registration for Numeric<Expression> happens via the
+ * typesugar transformer. For direct tsc compilation, use this const directly.
  */
-@instance("Numeric<Expression<number>>")
-@instance("Numeric<Expression>")
 export const numericExpr: Numeric<Expression<number>> = {
   add: (a, b) => add(a, b) as Expression<number> & Op<"+">,
   sub: (a, b) => sub(a, b) as Expression<number> & Op<"-">,

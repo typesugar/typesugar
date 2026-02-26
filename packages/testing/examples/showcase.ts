@@ -18,16 +18,17 @@ import {
   staticAssert,
   typeAssert,
   assertType,
-  assertSnapshot,
   typeInfo,
   forAll,
-  testCases,
   type Equal,
   type Extends,
   type Not,
   type IsNever,
   type IsAny,
   type IsUnknown,
+  // Not used in standalone showcase (require test framework):
+  // - assertSnapshot: needs vitest/jest `expect` global
+  // - testCases: decorator for test files, shown in comments only
 } from "@typesugar/testing";
 
 // ============================================================================
@@ -179,8 +180,14 @@ function formatUser(u: User): string {
   return `${u.name} (#${u.id})`;
 }
 
-assertSnapshot(formatUser({ id: 1, name: "Alice" }));
-assertSnapshot(formatUser({ id: 2, name: "Bob" }), "admin user format");
+// Note: assertSnapshot requires a test framework (vitest/jest) to provide `expect`.
+// In a test file, you would use:
+//   assertSnapshot(formatUser({ id: 1, name: "Alice" }));
+//   assertSnapshot(formatUser({ id: 2, name: "Bob" }), "admin user format");
+//
+// For standalone execution, we verify the function works:
+assert(formatUser({ id: 1, name: "Alice" }) === "Alice (#1)");
+assert(formatUser({ id: 2, name: "Bob" }) === "Bob (#2)");
 
 // ============================================================================
 // 7. PROPERTY-BASED TESTING — @derive(Arbitrary) + forAll()

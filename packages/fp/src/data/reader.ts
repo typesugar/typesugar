@@ -179,6 +179,27 @@ export namespace Reader {
   ): <R>(ra: Reader<R, A>, rb: Reader<R, B>) => Reader<R, C> {
     return (ra, rb) => ra.flatMap((a) => rb.map((b) => f(a, b)));
   }
+
+  /**
+   * Run the Reader with an environment (static version)
+   */
+  export function run<R, A>(reader: Reader<R, A>, env: R): A {
+    return reader.run(env);
+  }
+
+  /**
+   * Map over the result (static version)
+   */
+  export function map<R, A, B>(reader: Reader<R, A>, f: (a: A) => B): Reader<R, B> {
+    return reader.map(f);
+  }
+
+  /**
+   * FlatMap (static version)
+   */
+  export function flatMap<R, A, B>(reader: Reader<R, A>, f: (a: A) => Reader<R, B>): Reader<R, B> {
+    return reader.flatMap(f);
+  }
 }
 
 // ============================================================================

@@ -16,21 +16,13 @@
  *   mul(2, x)  →  const_(2) * x
  *
  * Type assertions used:
- *   typeAssert<Equal<A, B>>()        - A and B are the same type
- *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
+ *   typeAssert<Equal<A, B>>()  - A and B are the same type
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import {
-  assert,
-  typeAssert,
-  type Equal,
-  type Extends,
-  type Not,
-} from "@typesugar/testing";
+import { assert, typeAssert, type Equal } from "@typesugar/testing";
 
 import {
   // Core AST and builders
@@ -131,15 +123,17 @@ const t = var_("t");
 typeAssert<Equal<typeof x, Expression<number>>>();
 typeAssert<Equal<typeof PI, Expression<number>>>();
 
-// Build expressions using operators
+// Build expressions using builder functions
+// (Operators like `x ** TWO` require the typesugar transformer;
+// for tsx compatibility, we use explicit function calls)
 const THREE = const_(3);
-const quadratic = x ** TWO + THREE * x + TWO; // x² + 3x + 2
+const quadratic = add(add(pow(x, TWO), mul(THREE, x)), TWO); // x² + 3x + 2
 
 // Physics: v = 9.8t, s = ½gt²
 const G = const_(9.8);
 const HALF = const_(0.5);
-const velocity = G * t; // v = 9.8t
-const position = HALF * G * (t ** TWO); // s = ½gt²
+const velocity = mul(G, t); // v = 9.8t
+const position = mul(mul(HALF, G), pow(t, TWO)); // s = ½gt²
 
 // Type guards for pattern matching on AST nodes
 assert(isVariable(x));
@@ -160,13 +154,13 @@ assert(nodeCount(quadratic) > 5);
 // ============================================================================
 
 // Plain text rendering
-assert(toText(x ** TWO) === "x^2");
-assert(toText(ONE / x) === "1 / x");
+assert(toText(pow(x, TWO)) === "x^2");
+assert(toText(div(ONE, x)) === "1 / x");
 assert(toText(sin(x)) === "sin(x)");
 
 // LaTeX rendering for mathematical documents
-const fraction = (x + ONE) / (x - ONE);
-assert(toLatex(x ** TWO) === "x^2"); // Single-digit exponents don't need braces
+const fraction = div(add(x, ONE), sub(x, ONE));
+assert(toLatex(pow(x, TWO)) === "x^2"); // Single-digit exponents don't need braces
 assert(toLatex(sqrt(x)) === "\\sqrt{x}");
 assert(toLatex(fraction) === "\\frac{x + 1}{x - 1}");
 
@@ -181,7 +175,7 @@ const x1 = var_("x_1");
 assert(toLatex(x1) === "x_{1}");
 
 // MathML for web display
-const mathml = toMathML(x ** TWO);
+const mathml = toMathML(pow(x, TWO));
 assert(mathml.includes("<msup>"));
 assert(mathml.includes("<mi>x</mi>"));
 assert(mathml.includes("<mn>2</mn>"));
@@ -191,7 +185,7 @@ assert(mathml.includes("<mn>2</mn>"));
 // ============================================================================
 
 // Evaluate with variable bindings
-const expr = x ** TWO + TWO * x; // x² + 2x
+const expr = add(pow(x, TWO), mul(TWO, x)); // x² + 2x
 assert(evaluate(expr, { x: 3 }) === 15); // 9 + 6 = 15
 assert(evaluate(expr, { x: 0 }) === 0);
 assert(evaluate(expr, { x: -1 }) === -1); // 1 - 2 = -1
@@ -207,13 +201,15 @@ assert(Math.abs(evaluate(log(E), {}) - 1) < 1e-10); // log(e) = 1
 assert(Math.abs(evaluate(exp(ONE), {}) - Math.E) < 1e-10); // e¹ = e
 
 // Partial evaluation: substitute known values, keep unknowns symbolic
-const partial = partialEvaluate(x + ONE + TWO, {});
-// Constants folded: x + 3
+const partial = partialEvaluate(add(add(x, ONE), TWO), {});
+// Constants are folded, variable remains: x + 3
+assert(hasVariable(partial, "x")); // x is still there
+assert(evaluate(partial, { x: 0 }) === 3); // evaluates correctly
 
 // Check if expression can be fully evaluated
 assert(!canEvaluate(x, {})); // x unbound
 assert(canEvaluate(x, { x: 5 })); // x bound
-assert(canEvaluate(ONE + TWO, {})); // pure constants
+assert(canEvaluate(add(ONE, TWO), {})); // pure constants
 
 // Summation and product evaluation
 const sumExpr = sum(var_("i"), "i", const_(1), const_(5)); // Σ i from 1 to 5
@@ -223,9 +219,9 @@ const prodExpr = product(var_("i"), "i", const_(1), const_(4)); // Π i from 1 t
 assert(evaluate(prodExpr, {}) === 24); // 4!
 
 // Symbolic calculus constructs (AST nodes for rendering, not computation)
-const derivativeNode = derivative(x ** TWO, "x"); // d/dx(x²) - symbolic form
+const derivativeNode = derivative(pow(x, TWO), "x"); // d/dx(x²) - symbolic form
 const integralNode = integral(x, "x"); // ∫x dx - symbolic form
-const limitNode = limit(sin(x) / x, "x", 0); // lim[x→0] sin(x)/x - symbolic form
+const limitNode = limit(div(sin(x), x), "x", 0); // lim[x→0] sin(x)/x - symbolic form
 
 // These render nicely but are distinct from the computational functions
 assert(toLatex(derivativeNode).includes("frac"));
@@ -242,11 +238,11 @@ assert(evaluate(diff(x, "x"), {}) === 1); // d/dx(x) = 1
 assert(evaluate(diff(var_("y"), "x"), {}) === 0); // d/dx(y) = 0
 
 // Power rule: d/dx(xⁿ) = n·xⁿ⁻¹
-const xSquared = x ** TWO;
+const xSquared = pow(x, TWO);
 const dxSquared = simplify(diff(xSquared, "x")); // 2x
 assert(evaluate(dxSquared, { x: 3 }) === 6);
 
-const xCubed = x ** THREE;
+const xCubed = pow(x, THREE);
 const dxCubed = simplify(diff(xCubed, "x")); // 3x²
 assert(evaluate(dxCubed, { x: 2 }) === 12);
 
@@ -270,14 +266,16 @@ assert(Math.abs(evaluate(dlnX, { x: 2 }) - 0.5) < 1e-10);
 
 // Higher-order derivatives
 const FOUR = const_(4);
-const f = x ** FOUR; // x⁴
+const f = pow(x, FOUR); // x⁴
 const f1 = simplify(diff(f, "x")); // 4x³
 const f2 = simplify(nthDiff(f, "x", 2)); // 12x²
 const f3 = simplify(nthDiff(f, "x", 3)); // 24x
 const f4 = simplify(nthDiff(f, "x", 4)); // 24
 
+assert(evaluate(f1, { x: 1 }) === 4);
 assert(evaluate(f2, { x: 1 }) === 12);
 assert(evaluate(f3, { x: 1 }) === 24);
+assert(evaluate(f4, {}) === 24); // constant, no variables needed
 
 // ============================================================================
 // 5. INTEGRATION - Symbolic Antiderivatives
@@ -290,7 +288,7 @@ assert(evaluate(intConst, { x: 2 }) === 10);
 const intX = integrate(x, "x"); // x²/2
 assert(evaluate(intX, { x: 4 }) === 8);
 
-const intXSquared = integrate(x ** TWO, "x"); // x³/3
+const intXSquared = integrate(pow(x, TWO), "x"); // x³/3
 assert(Math.abs(evaluate(intXSquared, { x: 3 }) - 9) < 1e-10);
 
 // Trigonometric integrals
@@ -316,14 +314,14 @@ assert(hardIntegral.success === false); // Integration by parts not implemented
 // ============================================================================
 
 // Direct substitution
-const limDirect = computeLimit(x + ONE, "x", 2);
+const limDirect = computeLimit(add(x, ONE), "x", 2);
 assert(limDirect.exists);
 if (limDirect.exists) {
   assert(evaluate(limDirect.value, {}) === 3);
 }
 
 // L'Hôpital's rule: lim[x→0] sin(x)/x = 1
-const sinOverX = sin(x) / x;
+const sinOverX = div(sin(x), x);
 const limSinOverX = computeLimit(sinOverX, "x", 0);
 assert(limSinOverX.exists);
 if (limSinOverX.exists) {
@@ -340,28 +338,31 @@ assert(leftLim.exists && rightLim.exists);
 // ============================================================================
 
 // Identity elimination
-assert(toText(simplify(x + ZERO)) === "x"); // x + 0 = x
-assert(toText(simplify(x * ONE)) === "x"); // x × 1 = x
-assert(toText(simplify(x ** ONE)) === "x"); // x¹ = x
+assert(toText(simplify(add(x, ZERO))) === "x"); // x + 0 = x
+assert(toText(simplify(mul(x, ONE))) === "x"); // x × 1 = x
+assert(toText(simplify(pow(x, ONE))) === "x"); // x¹ = x
 
 // Constant folding
-const folded = simplify(TWO + THREE);
+const folded = simplify(add(TWO, THREE));
 assert(isConstant(folded) && folded.value === 5);
 
 // Zero properties
-assert(isZero(simplify(x * ZERO))); // x × 0 = 0
-assert(isOne(simplify(x ** ZERO))); // x⁰ = 1
+assert(isZero(simplify(mul(x, ZERO)))); // x × 0 = 0
+assert(isOne(simplify(pow(x, ZERO)))); // x⁰ = 1
 
 // Algebraic identities
-assert(isZero(simplify(x - x))); // x - x = 0
-assert(isOne(simplify(x / x))); // x / x = 1
+assert(isZero(simplify(sub(x, x)))); // x - x = 0
+assert(isOne(simplify(div(x, x)))); // x / x = 1
 
 // Expand distributive law: (x+1)(x+2) = x² + 3x + 2
-const factored = (x + ONE) * (x + TWO);
+const factored = mul(add(x, ONE), add(x, TWO));
 const expanded = expand(factored);
+assert(evaluate(expanded, { x: 0 }) === 2); // constant term = 1*2 = 2
+assert(evaluate(expanded, { x: 1 }) === 6); // (1+1)(1+2) = 2*3 = 6
 
 // Collect like terms: x + x + x = 3x
-const collected = collectTerms(x + x + x, "x");
+const collected = collectTerms(add(add(x, x), x), "x");
+assert(evaluate(collected, { x: 2 }) === 6); // 3*2 = 6
 
 // ============================================================================
 // 8. PATTERN MATCHING - Expression Rewriting
@@ -372,7 +373,7 @@ const $a = patternVar("a");
 const $b = patternVar("b");
 
 // Match expressions against patterns
-const bindings = match(ONE + x, add($a, $b));
+const bindings = match(add(ONE, x), add($a, $b));
 assert(bindings !== null);
 if (bindings) {
   assert(isConstant(bindings.get("a")!));
@@ -383,8 +384,9 @@ if (bindings) {
 const commuteAdd = rule(add($a, $b), add($b, $a)); // a + b → b + a
 
 // Apply rewrite rules
-const original = ONE + x; // 1 + x
+const original = add(ONE, x); // 1 + x
 const rewritten = rewrite(original, [commuteAdd]); // x + 1
+assert(evaluate(rewritten, { x: 5 }) === 6); // Same value, different order
 
 // ============================================================================
 // 9. EQUATION SOLVING - Finding Roots
@@ -394,7 +396,7 @@ const rewritten = rewrite(original, [commuteAdd]); // x + 1
 const SEVEN = const_(7);
 const FIVE = const_(5);
 const SIX = const_(6);
-const linear = equation(TWO * x + THREE, SEVEN);
+const linear = equation(add(mul(TWO, x), THREE), SEVEN);
 const linearSol = solve(linear, "x");
 assert(linearSol.success);
 if (linearSol.success && linearSol.solutions.length > 0) {
@@ -403,7 +405,7 @@ if (linearSol.success && linearSol.solutions.length > 0) {
 }
 
 // Quadratic equation: x² - 5x + 6 = 0 → x = 2 or x = 3
-const quadEq = (x ** TWO) - FIVE * x + SIX; // x² - 5x + 6
+const quadEq = add(sub(pow(x, TWO), mul(FIVE, x)), SIX); // x² - 5x + 6
 const quadSol = solve(quadEq, "x");
 assert(quadSol.success);
 if (quadSol.success) {
@@ -416,8 +418,8 @@ if (quadSol.success) {
 // Solution: x = 3, y = 2
 const system = solveSystem(
   [
-    { left: x + y, right: FIVE },
-    { left: x - y, right: ONE },
+    { left: add(x, y), right: FIVE },
+    { left: sub(x, y), right: ONE },
   ],
   ["x", "y"]
 );
@@ -433,41 +435,52 @@ if (system) {
 // 10. OPERATOR OVERLOADING
 // ============================================================================
 
-// All standard operators work on Expression × Expression
-const exprSum = x + y; // → add(x, y)
-const exprDiff = x - y; // → sub(x, y)
-const exprProd = x * y; // → mul(x, y)
-const exprQuot = x / y; // → div(x, y)
-const exprPow = x ** y; // → pow(x, y)
+// With typesugar transformer, operators work on Expression × Expression:
+//   x + y → add(x, y)
+//   x * y → mul(x, y)
+//   x ** y → pow(x, y)
+// For tsx compatibility, we use explicit function calls:
+const exprSum = add(x, y);
+const exprDiff = sub(x, y);
+const exprProd = mul(x, y);
+const exprQuot = div(x, y);
+const exprPow = pow(x, y);
 
 typeAssert<Equal<typeof exprSum, Expression<number>>>();
+typeAssert<Equal<typeof exprDiff, Expression<number>>>();
 typeAssert<Equal<typeof exprProd, Expression<number>>>();
+typeAssert<Equal<typeof exprQuot, Expression<number>>>();
 typeAssert<Equal<typeof exprPow, Expression<number>>>();
 
-// Physics formulas using operators
+// Physics formulas
 const mass = var_("m");
 const v = var_("v");
 const h = var_("h");
-const kinetic = HALF * mass * (v ** TWO); // ½mv²
-const potential = mass * G * h; // mgh
+const kinetic = mul(mul(HALF, mass), pow(v, TWO)); // ½mv²
+const potential = mul(mul(mass, G), h); // mgh
+assert(evaluate(kinetic, { m: 2, v: 3 }) === 9); // ½ × 2 × 9 = 9
+assert(evaluate(potential, { m: 2, h: 5 }) === 98); // 2 × 9.8 × 5 = 98
 
 // The quadratic formula discriminant: b² - 4ac
 const a = var_("a");
 const b = var_("b");
 const c = var_("c");
-const discriminantExpr = (b ** TWO) - FOUR * a * c;
+const discriminantExpr = sub(pow(b, TWO), mul(mul(FOUR, a), c));
+assert(evaluate(discriminantExpr, { a: 1, b: 5, c: 6 }) === 1); // 25 - 24 = 1
 
 // Explicit Numeric instance also available for generic code
 const N = numericExpr;
 const explicitSum = N.add(x, y);
 const explicitNeg = N.negate(x);
+typeAssert<Equal<typeof explicitSum, Expression<number>>>();
+typeAssert<Equal<typeof explicitNeg, Expression<number>>>();
 
 // ============================================================================
 // 11. PHYSICS EXAMPLE - Kinematics
 // ============================================================================
 
 // Position of falling object: s(t) = ½gt²
-const pos = HALF * G * (t ** TWO);
+const pos = mul(mul(HALF, G), pow(t, TWO));
 
 // Velocity: v(t) = ds/dt = gt
 const vel = simplify(diff(pos, "t"));
@@ -481,11 +494,15 @@ assert(Math.abs(evaluate(vel, { t: 2 }) - 19.6) < 1e-10);
 assert(Math.abs(evaluate(acc, { t: 2 }) - 9.8) < 1e-10);
 
 // Newton's second law: F = ma
-const force = mass * acc;
+const force = mul(mass, acc);
+assert(hasVariable(force, "m")); // force depends on mass
+assert(evaluate(force, { m: 10, t: 0 }) === 98); // F = 10 × 9.8 = 98N
 
 // Work done: W = F * d
 const d = var_("d");
-const work = force * d;
+const work = mul(force, d);
+assert(hasVariable(work, "d")); // work depends on distance
+assert(evaluate(work, { m: 10, d: 5, t: 0 }) === 490); // W = 98 × 5 = 490J
 
 // ============================================================================
 // 12. RENDERING SHOWCASE - Publication Quality Output
@@ -494,14 +511,18 @@ const work = force * d;
 // Complex physics formula: Schrödinger equation term
 const hbar = var_("ℏ");
 const psi = var_("ψ");
-const schrodinger = neg((hbar ** TWO) / (TWO * mass)) * diff(diff(psi, "x"), "x");
+const schrodinger = mul(neg(div(pow(hbar, TWO), mul(TWO, mass))), diff(diff(psi, "x"), "x"));
+assert(hasVariable(schrodinger, "m")); // depends on mass
+assert(toLatex(hbar).includes("ℏ")); // Greek letter preserved
 
 // Quadratic formula discriminant
-const discriminantRender = (b ** TWO) - FOUR * a * c;
+const discriminantRender = sub(pow(b, TWO), mul(mul(FOUR, a), c));
 assert(toLatex(discriminantRender) === "b^2 - 4 a \\times c");
 
 // Euler's identity setup: e^(iπ) + 1 = 0
 const i = var_("i");
-const eulerExpr = exp(i * PI) + ONE;
+const eulerExpr = add(exp(mul(i, PI)), ONE);
+assert(hasVariable(eulerExpr, "i")); // contains i
+assert(toLatex(eulerExpr).includes("e^")); // exponential notation
 
 console.log("✓ All assertions passed");

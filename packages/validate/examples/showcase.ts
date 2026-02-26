@@ -6,49 +6,31 @@
  * assert<T>(), validate<T>() macros plus a Schema typeclass that
  * abstracts over Zod, Valibot, ArkType, and native validators.
  *
- * Type assertions used:
- *   typeAssert<Equal<A, B>>()        - A and B are the same type
- *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
- *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ * This showcase demonstrates runtime validation — all assertions use
+ * assert() for runtime checks. The validation types are inferred
+ * correctly by TypeScript without needing explicit type assertions.
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert } from "@typesugar/testing";
 
 import {
-  // Validation macros (compile-time, need transformer)
-  // is,       // is<T>() — generates type guard
-  // assert,   // assert<T>() — generates assertion
-  // validate, // validate<T>() — generates validated result
-
-  // Schema typeclass
-  type Schema,
-  type NativeSchema,
+  // Core types
   type Validator,
-  type ValidatorF,
-  type AssertF,
+  type ValidationError,
+
+  // Native Schema instance
   nativeSchema,
 
-  // Derived operations (generic HKT)
-  parseOrElse,
-  parseMap,
-  parseChain,
-  parseAll,
-
-  // Derived operations (native validators)
+  // Derived operations for native validators
   nativeParseOrElse,
   nativeParseMap,
   nativeParseAll,
 
   // Schema constructors
-  makeSchema,
   makeNativeSchema,
-
-  // Error types
-  type ValidationError,
 } from "../src/index.js";
 
 // ============================================================================

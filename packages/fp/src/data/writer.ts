@@ -228,6 +228,31 @@ export namespace Writer {
   ): (wa: Writer<W, A>, wb: Writer<W, B>) => Writer<W, C> {
     return (wa, wb) => wa.flatMap((a) => wb.map((b) => f(a, b)), W);
   }
+
+  /**
+   * Run the Writer, returning [value, log] (static version)
+   */
+  export function run<W, A>(writer: Writer<W, A>): [A, W] {
+    return writer.run();
+  }
+
+  /**
+   * Map over the value (static version)
+   */
+  export function map<W, A, B>(writer: Writer<W, A>, f: (a: A) => B): Writer<W, B> {
+    return writer.map(f);
+  }
+
+  /**
+   * FlatMap (static version)
+   */
+  export function flatMap<W, A, B>(
+    writer: Writer<W, A>,
+    f: (a: A) => Writer<W, B>,
+    W: Monoid<W>
+  ): Writer<W, B> {
+    return writer.flatMap(f, W);
+  }
 }
 
 // ============================================================================

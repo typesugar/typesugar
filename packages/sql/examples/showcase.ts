@@ -24,45 +24,26 @@ import {
   Update,
   type SqlParam,
 
-  // SQL typeclasses
-  Get,
-  Put,
-  Meta,
-  Read as SqlRead,
-  Write as SqlWrite,
-  Codec,
+  // SQL typeclasses (Get, Put, Meta, Read, Write, Codec are available but not
+  // demonstrated directly - they're used internally by deriveRead/Write/Codec)
   toSnakeCase,
   deriveRead,
   deriveWrite,
   deriveCodec,
-
-  // Typeclass registries
-  getRegistry,
-  putRegistry,
-  metaRegistry,
 
   // Primitive Meta instances
   stringMeta,
   numberMeta,
   intMeta,
   booleanMeta,
-  dateMeta,
   nullable,
   optional,
   arrayMeta,
 
-  // Typed fragments
+  // Typed fragments (TypedQuery, TypedUpdate, and combinators like andTyped,
+  // orTyped, commasTyped, etc. are available for advanced composition)
   TypedFragment,
-  TypedQuery,
-  TypedUpdate,
   emptyTyped,
-  andTyped,
-  orTyped,
-  commasTyped,
-  inListTyped,
-  valuesTyped,
-  whenTyped,
-  whereAndTyped,
 
   // ConnectionIO
   ConnectionIO,
@@ -78,10 +59,6 @@ import {
 
   // Macros
   sql,
-  __sql_build,
-
-  // Utilities
-  validateSqlSyntax,
 } from "../src/index.js";
 
 // ============================================================================
@@ -438,9 +415,11 @@ const seqProgram = sequence([
   ConnectionIO.pure(2),
   ConnectionIO.pure(3),
 ]);
+assert(seqProgram._tag === "FlatMap" || seqProgram._tag === "Pure");
 
 // traverse() maps over a list and sequences the results
 const travProgram = traverse([1, 2, 3], (n) => ConnectionIO.pure(n * 10));
+assert(travProgram._tag === "FlatMap" || travProgram._tag === "Pure");
 
 // when() conditionally runs a program
 const conditionalProgram = when(true, ConnectionIO.pure("ran"));

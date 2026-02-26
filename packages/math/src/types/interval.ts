@@ -271,6 +271,15 @@ export const numericInterval: Numeric<Interval> = {
   add: (a, b) => add(a, b) as Interval & Op<"+">,
   sub: (a, b) => sub(a, b) as Interval & Op<"-">,
   mul: (a, b) => mul(a, b) as Interval & Op<"*">,
+  div: (a, b) => div(a, b) as Interval & Op<"/">,
+  pow: (a, b) => {
+    const n = Math.round(midpoint(b));
+    if (n === 0) return point(1) as Interval & Op<"**">;
+    let result: Interval = a;
+    for (let i = 1; i < Math.abs(n); i++) result = mul(result, a);
+    if (n < 0) result = div(point(1), result);
+    return result as Interval & Op<"**">;
+  },
   negate,
   abs,
   signum: (i) => {

@@ -35,12 +35,14 @@ import { registerInstanceWithMeta } from "@typesugar/macros";
  * Operators dispatch via Op<> annotations:
  * - `a === b` → `Eq.equals(a, b)`
  * - `a !== b` → `Eq.notEquals(a, b)`
+ *
+ * @typeclass
  */
-@typeclass
 export interface Eq<A> {
   equals(a: A, b: A): boolean & Op<"===">;
   notEquals(a: A, b: A): boolean & Op<"!==">;
 }
+typeclass("Eq");
 
 export const eqNumber: Eq<number> = {
   equals: (a, b) => a === b,
@@ -169,8 +171,9 @@ export const GT: Ordering = 1;
  * - `a <= b` → `Ord.lessThanOrEqual(a, b)`
  * - `a > b`  → `Ord.greaterThan(a, b)`
  * - `a >= b` → `Ord.greaterThanOrEqual(a, b)`
+ *
+ * @typeclass
  */
-@typeclass
 export interface Ord<A> extends Eq<A> {
   compare(a: A, b: A): Ordering;
   lessThan(a: A, b: A): boolean & Op<"<">;
@@ -178,6 +181,7 @@ export interface Ord<A> extends Eq<A> {
   greaterThan(a: A, b: A): boolean & Op<">">;
   greaterThanOrEqual(a: A, b: A): boolean & Op<">=">;
 }
+typeclass("Ord");
 
 export const ordNumber: Ord<number> = {
   equals: (a, b) => a === b,
@@ -362,11 +366,13 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
  *
  * Operators dispatch via Op<> annotations:
  * - `a + b` → `Semigroup.combine(a, b)` (for additive semigroups)
+ *
+ * @typeclass
  */
-@typeclass
 export interface Semigroup<A> {
   combine(a: A, b: A): A & Op<"+">;
 }
+typeclass("Semigroup");
 
 export const semigroupString: Semigroup<string> = {
   combine: (a, b) => a + b,
@@ -418,11 +424,13 @@ export function semigroupArray<A>(): Semigroup<A[]> {
  * Laws (in addition to Semigroup laws):
  * - Left identity: `combine(empty(), a) === a`
  * - Right identity: `combine(a, empty()) === a`
+ *
+ * @typeclass
  */
-@typeclass
 export interface Monoid<A> extends Semigroup<A> {
   empty(): A;
 }
+typeclass("Monoid");
 
 export const monoidString: Monoid<string> = {
   combine: (a, b) => a + b,
@@ -606,8 +614,9 @@ registerInstanceWithMeta({
  * - `a + b` → `Numeric.add(a, b)`
  * - `a - b` → `Numeric.sub(a, b)`
  * - `a * b` → `Numeric.mul(a, b)`
+ *
+ * @typeclass
  */
-@typeclass
 export interface Numeric<A> {
   add(a: A, b: A): A & Op<"+">;
   sub(a: A, b: A): A & Op<"-">;
@@ -622,6 +631,7 @@ export interface Numeric<A> {
   zero(): A;
   one(): A;
 }
+typeclass("Numeric");
 
 export const numericNumber: Numeric<number> = {
   add: (a, b) => a + b,
@@ -678,8 +688,9 @@ registerInstanceWithMeta({
  * Operators dispatch via Op<> annotations (for integer types):
  * - `a / b` → `Integral.div(a, b)` (floor division)
  * - `a % b` → `Integral.mod(a, b)` (modulo)
+ *
+ * @typeclass
  */
-@typeclass
 export interface Integral<A> {
   div(a: A, b: A): A & Op<"/">;
   mod(a: A, b: A): A & Op<"%">;
@@ -688,6 +699,7 @@ export interface Integral<A> {
   rem(a: A, b: A): A;
   toInteger(a: A): bigint;
 }
+typeclass("Integral");
 
 export const integralNumber: Integral<number> = {
   div: (a, b) => Math.floor(a / b),
@@ -740,13 +752,15 @@ registerInstanceWithMeta({
  *
  * Operators dispatch via Op<> annotations (for fractional types):
  * - `a / b` → `Fractional.div(a, b)` (true division)
+ *
+ * @typeclass
  */
-@typeclass
 export interface Fractional<A> {
   div(a: A, b: A): A & Op<"/">;
   recip(a: A): A;
   fromRational(num: number, den: number): A;
 }
+typeclass("Fractional");
 
 export const fractionalNumber: Fractional<number> = {
   div: (a, b) => a / b,
@@ -1129,8 +1143,9 @@ export interface Searchable<F> {
  *   invert: (a) => -a,
  * };
  * ```
+ *
+ * @typeclass
  */
-@typeclass
 export interface Group<A> {
   /** The identity element */
   empty(): A;
@@ -1139,6 +1154,7 @@ export interface Group<A> {
   /** Inverse operation: combine(invert(a), a) === empty() */
   invert(a: A): A;
 }
+typeclass("Group");
 
 /** Additive group for numbers (identity: 0, operation: +, inverse: negation) */
 export const groupNumber: Group<number> = {

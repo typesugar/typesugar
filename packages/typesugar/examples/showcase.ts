@@ -39,11 +39,22 @@ import {
   OPERATOR_SYMBOLS,
 
   // ======================================================================
-  // Macro namespace re-exports — access each subsystem
+  // Namespace re-exports — access each macro subsystem
+  // These are the full module namespaces with registration functions
+  // ======================================================================
+  comptimeNamespace,
+  reflectNamespace,
+  deriveNamespace,
+  operatorsNamespace,
+  typeclassNamespace,
+  specializeNamespace,
+
+  // ======================================================================
+  // Runtime stub re-exports — decorator/function placeholders
+  // These are replaced by the transformer at compile time
   // ======================================================================
   comptime,
   reflect,
-  deriveMacros,
   operators,
   typeclass,
   specialize,
@@ -54,13 +65,11 @@ import {
   ops,
   pipe,
   compose,
-  comptimeEval,
 
   // ======================================================================
   // Decorator placeholder
   // ======================================================================
   derive,
-  deriveDecorator,
 
   // ======================================================================
   // Registration
@@ -98,21 +107,22 @@ typeAssert<Extends<{ debug?: boolean }, TypesugarConfig>>();
 // 2. MACRO NAMESPACES - Organized Access to Each Subsystem
 // ============================================================================
 
-// Each built-in macro module is available as a namespace
-assert(comptime !== undefined, "comptime namespace");
-assert(reflect !== undefined, "reflect namespace");
-assert(deriveMacros !== undefined, "derive macros namespace");
-assert(operators !== undefined, "operators namespace");
-assert(typeclass !== undefined, "typeclass namespace");
-assert(specialize !== undefined, "specialize namespace");
+// Each built-in macro module is available as a full namespace
+// These provide access to internals, registration functions, and types
+assert(comptimeNamespace !== undefined, "comptime namespace");
+assert(reflectNamespace !== undefined, "reflect namespace");
+assert(deriveNamespace !== undefined, "derive namespace");
+assert(operatorsNamespace !== undefined, "operators namespace");
+assert(typeclassNamespace !== undefined, "typeclass namespace");
+assert(specializeNamespace !== undefined, "specialize namespace");
 
-// Each namespace has a register() function
-assert(typeof comptime.register === "function");
-assert(typeof reflect.register === "function");
-assert(typeof deriveMacros.register === "function");
-assert(typeof operators.register === "function");
-assert(typeof typeclass.register === "function");
-assert(typeof specialize.register === "function");
+// Runtime stubs are also available as direct imports
+// These are placeholders that the transformer replaces at compile time
+assert(typeof comptime === "function", "comptime runtime stub");
+assert(typeof reflect === "function", "reflect runtime stub");
+assert(typeof operators === "function", "operators runtime stub");
+assert(typeof typeclass === "function", "typeclass runtime stub");
+assert(typeof specialize === "function", "specialize runtime stub");
 
 // ============================================================================
 // 3. REGISTER ALL MACROS - One Call to Enable Everything
@@ -146,8 +156,9 @@ const addOne = (x: number) => x + 1;
 const composed = compose(addOne, double);
 assert(composed(5) === 11); // addOne(double(5)) = 11
 
-// comptimeEval — direct reference to the comptime function
-assert(typeof comptimeEval === "function");
+// comptime — runtime stub for compile-time evaluation
+// At compile time, comptime(() => expr) evaluates expr and inlines the result
+assert(typeof comptime === "function");
 
 // ============================================================================
 // 5. DERIVE DECORATOR PLACEHOLDER - Runtime Stub for Compile-Time
@@ -155,7 +166,6 @@ assert(typeof comptimeEval === "function");
 
 // The derive() function is a runtime placeholder that the transformer replaces
 assert(typeof derive === "function");
-assert(typeof deriveDecorator === "function");
 
 // At compile time, @derive(Eq, Clone) triggers macro expansion
 // At runtime, the decorator is a no-op (returns the class unchanged)

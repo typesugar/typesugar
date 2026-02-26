@@ -26,7 +26,6 @@ import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesug
 import {
   // Main entry point
   preprocess,
-  type PreprocessOptions,
 
   // Scanner
   tokenize,
@@ -35,8 +34,6 @@ import {
   isCloseBracket,
   getMatchingClose,
   type Token,
-  type CustomOperatorDef,
-  type ScannerOptions,
 
   // Token stream
   TokenStream,
@@ -45,10 +42,8 @@ import {
   isCustomOperatorExtension,
   type SyntaxExtension,
   type CustomOperatorExtension,
-  type Replacement,
   type RawSourceMap,
   type PreprocessResult,
-  type RewriteOptions,
 
   // Built-in extensions
   hktExtension,

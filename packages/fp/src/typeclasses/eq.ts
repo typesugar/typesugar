@@ -407,7 +407,6 @@ registerInstanceWithMeta({
 /**
  * Ord for dates - enables `d1 < d2` operator rewriting
  */
-@instance("Ord<Date>")
 export const ordDate: Ord<Date> = {
   eqv: ((x, y) => x.getTime() === y.getTime()) as (x: Date, y: Date) => boolean & Op<"===">,
   compare: (x, y) => {
@@ -426,6 +425,13 @@ export const ordDate: Ord<Date> = {
     y: Date
   ) => boolean & Op<">=">,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "Ord",
+  forType: "Date",
+  instanceName: "ordDate",
+  derived: false,
+});
 
 // ============================================================================
 // Instance Creators

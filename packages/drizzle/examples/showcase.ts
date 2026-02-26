@@ -5,17 +5,19 @@
  * dsql tagged template macro, ref$, id$, join$, raw$ helper macros,
  * DrizzleQueryable for ConnectionIO integration, and registration.
  *
- * Type assertions used:
- *   typeAssert<Equal<A, B>>()        - A and B are the same type
- *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
- *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ * This showcase tests runtime behavior (macro definitions, error messages,
+ * registration). Type-level assertions are not used because the Drizzle
+ * adapter primarily provides string-based SQL templates rather than
+ * type-transforming operations.
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert } from "@typesugar/testing";
+// Note: typeAssert, Equal, Extends, Not are available from @typesugar/testing
+// for type-level assertions but not needed in this showcase since the Drizzle
+// adapter primarily deals with runtime macro behavior and string-based SQL.
 
 import {
   // Macros (compile-time transforms, runtime placeholders)

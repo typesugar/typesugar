@@ -35,13 +35,14 @@ import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 import { shouldEmitCheck } from "../config.js";
 import { normalizeExpression } from "../parser/predicate.js";
+import { PostconditionError } from "../runtime/errors.js";
 
 /**
  * Runtime ensures function — used without the transformer.
  */
 export function ensures(condition: boolean, message?: string): void {
   if (!condition) {
-    throw new Error(message ?? "Postcondition failed");
+    throw new PostconditionError(message ?? "Postcondition failed");
   }
 }
 

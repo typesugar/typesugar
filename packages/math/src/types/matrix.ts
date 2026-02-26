@@ -541,8 +541,17 @@ export function numericMatrix<N extends number>(n: N): Numeric<Matrix<N, N>> {
     add: (a, b) => add(a, b) as Matrix<N, N> & Op<"+">,
     sub: (a, b) => sub(a, b) as Matrix<N, N> & Op<"-">,
     mul: (a, b) => matMul(a, b) as Matrix<N, N> & Op<"*">,
+    div: (a, b) => matMul(a, inverse(b)) as Matrix<N, N> & Op<"/">,
+    pow: (a, b) => {
+      const exp = Math.round(trace(b));
+      if (exp === 0) return identity(n) as Matrix<N, N> & Op<"**">;
+      let result: Matrix<N, N> = identity(n);
+      const base = exp > 0 ? a : inverse(a);
+      for (let i = 0; i < Math.abs(exp); i++) result = matMul(result, base);
+      return result as Matrix<N, N> & Op<"**">;
+    },
     negate: (a) => negate(a),
-    abs: (a) => a, // no meaningful abs for matrices
+    abs: (a) => a,
     signum: (a) => {
       const d = det(a);
       return d > 0 ? identity(n) : d < 0 ? scale(identity(n), -1) : zeros(n, n);

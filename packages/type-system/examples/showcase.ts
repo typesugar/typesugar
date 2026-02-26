@@ -29,12 +29,10 @@ import {
 
   // HKT
   type $,
-  type Kind,
   type ArrayF,
   type PromiseF,
   type SetF,
   type MapF,
-  unsafeCoerce,
 
   // Existential types
   type Exists,
@@ -51,18 +49,12 @@ import {
   composeRefinements,
   Positive,
   NonNegative,
-  Negative,
   Int,
   Byte,
   Port,
   Percentage,
   NonEmpty,
   Email,
-  Url,
-  Uuid,
-  NonEmptyArray,
-  MaxLength,
-  MinLength,
 
   // Subtyping coercions
   declareSubtyping,
@@ -71,7 +63,6 @@ import {
 
   // Newtype
   type Newtype,
-  type UnwrapNewtype,
   wrap,
   unwrap,
   newtypeCtor,
@@ -83,17 +74,13 @@ import {
   NonEmptyString,
   EmailAddress,
 
-  // Phantom types / state machines
-  type Phantom,
-  createStateMachine,
+  // Phantom types / typed builder
   createBuilder,
-  transition,
 
   // Effect system
   type Pure,
   type IO,
   type Async,
-  type EffectsOf,
   type HasEffect,
   type CombineEffects,
   effectRegistry,
@@ -105,7 +92,6 @@ import {
   isVec,
   type Add,
   type Sub,
-  type Min,
 } from "../src/index.js";
 
 // ============================================================================
@@ -197,8 +183,8 @@ const goodPort = Port.from(443);
 assert(goodPort === 443);
 
 // Custom refinements via composition
-const PositiveInt = composeRefinements(Int, Positive);
-const val = PositiveInt.refine(7);
+const PositiveInteger = composeRefinements(Int, Positive);
+const val = PositiveInteger.refine(7);
 assert(val === 7);
 
 // Custom refinement from scratch
@@ -238,18 +224,25 @@ assert(unwrap(orderId) === 42);
 typeAssert<Not<Equal<UserId, OrderId>>>();
 typeAssert<Not<Extends<UserId, OrderId>>>();
 
-// newtypeCtor creates reusable constructor/destructor pairs
-const [mkUserId, getUserId] = newtypeCtor<UserId>();
+// newtypeCtor creates a reusable constructor (unwrap with unwrap())
+const mkUserId = newtypeCtor<UserId>();
 const user = mkUserId(100);
-assert(getUserId(user) === 100);
+assert(unwrap(user) === 100);
 
-// validatedNewtype adds a predicate
+// validatedNewtype adds a predicate (throws on invalid input)
 type NonNegativeId = Newtype<number, "NonNegativeId">;
 const NonNegId = validatedNewtype<NonNegativeId>((n) => n >= 0);
-const goodId = NonNegId.create(5);
-assert(goodId !== undefined);
-const badId = NonNegId.create(-1);
-assert(badId === undefined);
+const goodId = NonNegId(5); // Returns the value if valid
+assert(unwrap(goodId) === 5);
+
+// Invalid input throws — use try/catch or opaqueModule for safe API
+let badIdThrew = false;
+try {
+  NonNegId(-1);
+} catch {
+  badIdThrew = true;
+}
+assert(badIdThrew);
 
 console.log("4. Newtype branding: UserId !== OrderId at type level, same at runtime");
 
@@ -258,86 +251,72 @@ console.log("4. Newtype branding: UserId !== OrderId at type level, same at runt
 // ============================================================================
 
 // Opaque modules hide the representation and expose only safe operations
-const PositiveIntMod = PositiveInt; // Re-exported from opaque.ts
-const posInt = PositiveIntMod.create(42);
+const posInt = PositiveInt.tryCreate(42); // tryCreate returns T | undefined
 assert(posInt !== undefined);
 
-const nonEmptyStr = NonEmptyString.create("hello");
+const nonEmptyStr = NonEmptyString.tryCreate("hello");
 assert(nonEmptyStr !== undefined);
 
-const emailAddr = EmailAddress.create("test@example.com");
+const emailAddr = EmailAddress.tryCreate("test@example.com");
 assert(emailAddr !== undefined);
 
-const badEmail = EmailAddress.create("not-an-email");
+const badEmail = EmailAddress.tryCreate("not-an-email");
 assert(badEmail === undefined);
 
-// Custom opaque module
-const SafeAge = opaqueModule<number, "SafeAge">({
-  brand: "SafeAge",
-  validate: (n) => Number.isInteger(n) && n >= 0 && n <= 150,
+// Custom opaque module (curried API: opaqueModule<Repr>(brand, validate)(ops))
+const SafeAge = opaqueModule<number>(
+  "SafeAge",
+  (n) => Number.isInteger(n) && n >= 0 && n <= 150
+)({
+  toNumber: (n: number) => n,
 });
-const age = SafeAge.create(25);
+const age = SafeAge.tryCreate(25); // tryCreate returns T | undefined
 assert(age !== undefined);
-const badAge = SafeAge.create(-5);
+const badAge = SafeAge.tryCreate(-5);
 assert(badAge === undefined);
 
 console.log("5. Opaque modules: PositiveInt, NonEmptyString, EmailAddress, custom SafeAge");
 
 // ============================================================================
-// 6. PHANTOM TYPE STATE MACHINES - Compile-Time State Transition Safety
+// 6. PHANTOM TYPES & TYPED BUILDER - Compile-Time Safety Patterns
 // ============================================================================
 
-// Define a door state machine with typed transitions
-type DoorState = "open" | "closed" | "locked";
+// Phantom types tag values with type-level state without runtime cost
+// The Phantom<Data, State> type brands data with a state marker
 
-const Door = createStateMachine<DoorState>()
-  .state("closed", { open: "open", lock: "locked" })
-  .state("open", { close: "closed" })
-  .state("locked", { unlock: "closed" })
-  .build();
-
-// Only valid transitions compile
-const closed = Door.initial("closed");
-assert(Door.getState(closed) === "closed");
-
-const opened = Door.transition(closed, "open");
-assert(Door.getState(opened) === "open");
-
-const closedAgain = Door.transition(opened, "close");
-assert(Door.getState(closedAgain) === "closed");
-
-const locked = Door.transition(closedAgain, "lock");
-assert(Door.getState(locked) === "locked");
-
-const unlocked = Door.transition(locked, "unlock");
-assert(Door.getState(unlocked) === "closed");
-
-// Invalid transitions are type errors:
-// Door.transition(opened, "lock");   // Can't lock an open door
-// Door.transition(locked, "open");   // Must unlock first
-
-// Typed builder pattern
-interface FormData {
-  name?: string;
-  email?: string;
-  age?: number;
+// Type-safe builder pattern — tracks which fields have been set at type level
+interface UserFields {
+  name: string;
+  email: string;
+  age: number;
 }
 
-const FormBuilder = createBuilder<FormData>()
-  .field("name", (v: string) => v)
-  .field("email", (v: string) => v)
-  .field("age", (v: number) => v)
-  .build();
-
-const form = FormBuilder.create()
+const userBuilder = createBuilder<UserFields>()
   .set("name", "Alice")
   .set("email", "alice@example.com")
   .set("age", 30);
 
-assert(form.get("name") === "Alice");
-assert(form.get("age") === 30);
+const partialUser = userBuilder.partial();
+assert(partialUser.name === "Alice");
+assert(partialUser.age === 30);
 
-console.log("6. Phantom state machines: Door (open/closed/locked), typed builder");
+// The builder tracks set fields at type level
+// .build() is only available when all required fields are set (TypedBuilder type)
+const completedUser = userBuilder.build();
+assert(completedUser.name === "Alice");
+assert(completedUser.email === "alice@example.com");
+assert(completedUser.age === 30);
+
+// State machine types are defined but runtime tracking requires transformer
+// The type-level definition enables compile-time transition validation
+type DoorDef = {
+  closed: { open: "open"; lock: "locked" };
+  open: { close: "closed" };
+  locked: { unlock: "closed" };
+};
+type _DoorStates = keyof DoorDef; // "closed" | "open" | "locked"
+
+console.log("6. Phantom types & typed builder: type-level state tracking");
 
 // ============================================================================
 // 7. EXISTENTIAL TYPES - Heterogeneous Collections with Capabilities
@@ -365,13 +344,9 @@ const packed = packExists({ length: 5, data: [1, 2, 3, 4, 5] });
 const len = useExists(packed, (val) => val.length);
 assert(len === 5);
 
-// mapExists transforms the packed value
-const doubled = mapExists(packed, (val) => ({
-  ...val,
-  length: val.length * 2,
-}));
-const newLen = useExists(doubled, (val) => val.length);
-assert(newLen === 10);
+// mapExists extracts and transforms: (ex, extract, transform) => transform(extract(ex))
+const doubled = mapExists(packed, (val) => val.length, (n) => n * 2);
+assert(doubled === 10);
 
 console.log("7. Existential types: heterogeneous Showable[], packExists/useExists");
 

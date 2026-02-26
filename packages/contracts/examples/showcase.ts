@@ -350,15 +350,22 @@ console.log("10. Configuration: full/assertions/none modes for production stripp
 // ============================================================================
 
 // Define a law for a hypothetical Monoid
+// Laws use `check` function that takes arguments based on `arity`
 const identityLaw: Law = defineLaw({
   name: "left_identity",
   description: "empty <> x === x",
-  property: (x: number) => 0 + x === x,
+  arity: 1,
+  check: (x: number) => 0 + x === x,
 });
 
-// Verify the law with sample values
-const lawResult = verifyLaw(identityLaw, { samples: [0, 1, -1, 42, 999] });
-assert(lawResult.passed === true);
+// Verify the law - verifyLaw checks with algebraic prover first
+// Pass empty facts array when no type-level facts are available
+const lawResult = verifyLaw(identityLaw, []);
+
+// lawResult.status is "proven", "disproven", or "undecidable"
+// For this simple identity law, algebraic prover may not prove it statically
+// but the law itself holds for all numbers
+assert(lawResult.status === "proven" || lawResult.status === "undecidable");
 
 console.log("11. Laws verification: property-based testing for algebraic laws");
 

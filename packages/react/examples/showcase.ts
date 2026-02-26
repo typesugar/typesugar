@@ -22,7 +22,8 @@ import {
   derived,
   effect,
   watch,
-  component,
+  // component is not called directly - only its types are used for type assertions
+  // component,
   each,
   match,
   DEFAULT_CONFIG,

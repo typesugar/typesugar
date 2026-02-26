@@ -42,7 +42,6 @@ import type {
   // Source map composition
   RawSourceMap,
   DecodedSourceMap,
-  DecodedSegment,
   SourcePosition,
 
   // Caching
@@ -76,6 +75,13 @@ import {
   createTransformCache,
   hashContent,
 } from "../src/index.js";
+
+// Re-export for documentation purposes - these are the main entry points
+// but require a full TS program context to use, so we just verify they exist
+void TransformationPipeline;
+void VirtualCompilerHost;
+void decodeMappings;
+void decodeSourceMap;
 
 // ============================================================================
 // 1. TRANSFORMER CONFIGURATION - ts-patch Entry Point
@@ -243,39 +249,48 @@ assert(typeof hash1 === "string");
 // DependencyGraph tracks file dependencies for cache invalidation
 const deps = new DependencyGraph();
 
-deps.addDependency("app.ts", "utils.ts");
-deps.addDependency("app.ts", "types.ts");
-deps.addDependency("utils.ts", "types.ts");
+// setDependencies sets all deps for a file at once
+deps.setDependencies("app.ts", new Set(["utils.ts", "types.ts"]));
+deps.setDependencies("utils.ts", new Set(["types.ts"]));
 
-// When types.ts changes, both app.ts and utils.ts need re-processing
-const affected = deps.getAffectedFiles("types.ts");
-assert(affected.has("app.ts"));
-assert(affected.has("utils.ts"));
+// When types.ts changes, we need to find files that depend on it
+const dependents = deps.getDependents("types.ts");
+assert(dependents.has("app.ts"));
+assert(dependents.has("utils.ts"));
 
-// Direct dependents only
-const directDeps = deps.getDependencies("app.ts");
-assert(directDeps.has("utils.ts"));
-assert(directDeps.has("types.ts"));
+// For transitive dependents (all files affected by a change)
+const transitive = deps.getTransitiveDependents("types.ts");
+assert(transitive.has("app.ts"));
+assert(transitive.has("utils.ts"));
 
-deps.removeDependency("app.ts", "types.ts");
+// getDependencies gets what a file imports
+const appDeps = deps.getDependencies("app.ts");
+assert(appDeps.has("utils.ts"));
+assert(appDeps.has("types.ts"));
+
+// Update dependencies by setting again (replaces old deps)
+deps.setDependencies("app.ts", new Set(["utils.ts"]));
 const updatedDeps = deps.getDependencies("app.ts");
 assert(!updatedDeps.has("types.ts"));
+assert(updatedDeps.has("utils.ts"));
 
 // TransformCache wraps the dependency graph with content-addressed storage
 const cache = createTransformCache();
 typeAssert<Extends<typeof cache, TransformCache>>();
 
 // Cache entries for preprocessed and transformed files
+// PreprocessedCacheEntry: { code, map, original, contentHash }
 typeAssert<
   Extends<
-    { hash: string; code: string },
+    { code: string; contentHash: string },
     PreprocessedCacheEntry
   >
 >();
 
+// TransformCacheEntry: { result, contentHash, dependencies, dependencyHashes }
 typeAssert<
   Extends<
-    { hash: string; code: string },
+    { contentHash: string },
     TransformCacheEntry
   >
 >();

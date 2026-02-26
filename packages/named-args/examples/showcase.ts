@@ -5,16 +5,14 @@
  * validation, builder pattern, and error handling.
  *
  * Type assertions used:
- *   typeAssert<Equal<A, B>>()        - A and B are the same type
- *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
- *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ *   typeAssert<Equal<A, B>>()   - A and B are the same type
+ *   typeAssert<Extends<A, B>>() - A is assignable to B
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal, type Extends } from "@typesugar/testing";
 
 import {
   namedArgs,
@@ -30,6 +28,9 @@ import {
   type RequiredKeys,
   type OptionalKeys,
 } from "../src/index.js";
+
+// All types are demonstrated below - NamedArgsFunctionMeta, WithNamedArgs, and Builder
+// are used in type assertions to verify the API contracts.
 
 // ============================================================================
 // 1. NAMED ARGS BASICS - Object-Style Function Calling
@@ -239,7 +240,7 @@ assert(builderUnknownError !== null, "builder rejects unknown params");
 assert(builderUnknownError!.reason === "unknown_param", "builder unknown_param error");
 
 // ============================================================================
-// 9. TYPE UTILITIES - RequiredKeys and OptionalKeys
+// 9. TYPE UTILITIES - RequiredKeys, OptionalKeys, and WithNamedArgs
 // ============================================================================
 
 interface UserConfig {
@@ -252,8 +253,21 @@ interface UserConfig {
 typeAssert<Equal<RequiredKeys<UserConfig>, "name" | "age">>();
 typeAssert<Equal<OptionalKeys<UserConfig>, "nickname" | "bio">>();
 
-// WithNamedArgs preserves the original function type
+// WithNamedArgs type extends the original function with .namedCall()
+type GreetFn = typeof greet;
+typeAssert<Extends<typeof greetNamed, WithNamedArgs<GreetFn>>>();
 typeAssert<Extends<typeof greetNamed, (...args: any[]) => any>>();
+
+// NamedArgsFunctionMeta describes the metadata structure
+const metaForGreet = getNamedArgsMeta("greet");
+typeAssert<Extends<NonNullable<typeof metaForGreet>, NamedArgsFunctionMeta>>();
+
+// Builder type describes the builder interface
+type EmailBuilder = Builder<typeof sendEmail>;
+const typedBuilder: EmailBuilder = createBuilder(sendEmail, emailParams);
+assert(typeof typedBuilder.set === "function", "Builder has .set() method");
+assert(typeof typedBuilder.build === "function", "Builder has .build() method");
+assert(typeof typedBuilder.values === "function", "Builder has .values() method");
 
 // ============================================================================
 // 10. REAL-WORLD EXAMPLE - API Client Configuration

@@ -138,6 +138,25 @@ export const numericComplex: Numeric<Complex> = {
       im: a.re * b.im + a.im * b.re,
     }) as Complex & Op<"*">,
 
+  div: (a, b) => {
+    const denom = b.re * b.re + b.im * b.im;
+    if (denom === 0) throw new RangeError("Complex division by zero");
+    return {
+      re: (a.re * b.re + a.im * b.im) / denom,
+      im: (a.im * b.re - a.re * b.im) / denom,
+    } as Complex & Op<"/">;
+  },
+
+  pow: (a, b) => {
+    if (a.re === 0 && a.im === 0) return { re: 0, im: 0 } as Complex & Op<"**">;
+    const r = Math.sqrt(a.re * a.re + a.im * a.im);
+    const theta = Math.atan2(a.im, a.re);
+    const logR = Math.log(r);
+    const newR = Math.exp(b.re * logR - b.im * theta);
+    const newTheta = b.im * logR + b.re * theta;
+    return { re: newR * Math.cos(newTheta), im: newR * Math.sin(newTheta) } as Complex & Op<"**">;
+  },
+
   negate: (a) => ({ re: -a.re, im: -a.im }),
 
   abs: (a) => ({ re: magnitude(a), im: 0 }),

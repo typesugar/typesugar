@@ -169,10 +169,10 @@ export function formatCertificate(cert: ProofCertificate): string {
       const step = cert.steps[i];
       lines.push(`  ${i + 1}. ${step.rule}`);
       lines.push(`     ${step.description}`);
-      if (step.usedFacts.length > 0) {
+      if (step.usedFacts && step.usedFacts.length > 0) {
         lines.push(`     Using: ${step.usedFacts.map((f) => f.predicate).join(", ")}`);
       }
-      if (step.subgoals.length > 0) {
+      if (step.subgoals && step.subgoals.length > 0) {
         lines.push(`     Subgoals: ${step.subgoals.join(", ")}`);
       }
     }

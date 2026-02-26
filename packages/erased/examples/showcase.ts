@@ -7,24 +7,21 @@
  * with vtable dispatch.
  *
  * Type assertions used:
- *   typeAssert<Equal<A, B>>()        - A and B are the same type
- *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
- *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ *   typeAssert<Equal<A, B>>()  - A and B are the same type
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal } from "@typesugar/testing";
 
 import {
   // Construction
-  eraseWith, showable, equatable, showableEq,
+  eraseWith, showable, showableEq,
   unwrapErased, callMethod,
 
   // Convenience dispatch
-  show, equals, compare, hash, clone, debug,
+  show, equals, hash, clone, debug,
 
   // Collection utilities
   mapErased, filterErased, showAll, sortErased, dedup, groupByHash,
@@ -33,11 +30,8 @@ import {
   widen, narrow, extendCapabilities, hasCapability,
 
   // Types
-  type Erased, type Capability, type Vtable,
-  type WithShow, type WithEq, type WithOrd, type WithHash, type WithClone, type WithDebug,
-  type ShowCapability, type EqCapability, type OrdCapability,
-  type HashCapability, type CloneCapability, type DebugCapability,
-  type ErasedList,
+  type Erased, type WithShow,
+  type ShowCapability, type EqCapability, type OrdCapability, type HashCapability,
 } from "../src/index.js";
 
 // ============================================================================
@@ -336,15 +330,16 @@ function eraseEvent(event: EventData) {
 
 const events = [
   eraseEvent({ type: "click", x: 10, y: 20 }),
+  eraseEvent({ type: "click", x: 10, y: 20 }),  // Consecutive duplicate
   eraseEvent({ type: "keypress", key: "Enter" }),
-  eraseEvent({ type: "click", x: 10, y: 20 }),
   eraseEvent({ type: "scroll", offset: 100 }),
   eraseEvent({ type: "keypress", key: "Enter" }),
 ];
 
 const eventLog = showAll(events);
 assert(eventLog[0] === "Click(10, 20)");
-assert(eventLog[1] === 'Key("Enter")');
+assert(eventLog[1] === "Click(10, 20)");  // Second click
+assert(eventLog[2] === 'Key("Enter")');
 assert(eventLog[3] === "Scroll(100)");
 
 // dedup removes consecutive identical events

@@ -2,8 +2,13 @@
  * @typesugar/reflect Showcase
  *
  * Self-documenting examples of compile-time reflection: @reflect,
- * typeInfo<T>(), fieldNames<T>(), validator<T>(), sizeof<T>(), and
- * the TypeInfo/FieldInfo/MethodInfo metadata structures.
+ * typeInfo<T>(), fieldNames<T>(), validator<T>(), and the
+ * TypeInfo/FieldInfo/MethodInfo metadata structures.
+ *
+ * NOTE: This showcase requires the typesugar transformer to run.
+ * The macros (typeInfo, fieldNames, validator) are compile-time
+ * constructs that get replaced with literal values by the transformer.
+ * Running with plain tsx/ts-node will throw runtime errors.
  *
  * Type assertions used:
  *   typeAssert<Equal<A, B>>()        - A and B are the same type
@@ -22,7 +27,6 @@ import {
   typeInfo,
   fieldNames,
   validator,
-  sizeof,
   type TypeInfo,
   type FieldInfo,
   type MethodInfo,
@@ -31,23 +35,18 @@ import {
 } from "@typesugar/reflect";
 
 // ============================================================================
-// 1. @reflect DECORATOR — Compile-time metadata generation
+// 1. INTERFACES — typeInfo<T>() extracts metadata directly
 // ============================================================================
 
-// @reflect generates a companion metadata constant alongside the type.
-// The generated constant is named __TypeName_meta__ and contains
-// the full TypeInfo structure.
+// typeInfo<T>() extracts type metadata directly from TypeScript's type checker.
+// No decorator needed - the macro introspects the type at compile time.
 
-@reflect
 interface User {
   id: number;
   name: string;
   email: string;
   age?: number;
 }
-
-// The transformer generates: export const __User_meta__ = { ... }
-// This metadata is available at runtime for dynamic operations.
 
 // ============================================================================
 // 2. typeInfo<T>() — Get complete type structure
@@ -81,7 +80,6 @@ typeAssert<Extends<typeof userInfo, { name: string; kind: string; fields: FieldI
 
 // Works on interfaces, classes, and type aliases.
 
-@reflect
 interface Config {
   host: string;
   port: number;
@@ -199,25 +197,7 @@ typeAssert<Equal<
 >>();
 
 // ============================================================================
-// 6. sizeof<T>() — Compile-time property count
-// ============================================================================
-
-// sizeof<T>() returns the number of properties on a type as a numeric literal.
-// Useful for compile-time assertions about type structure.
-
-assert(sizeof<User>() === 4);
-assert(sizeof<Config>() === 3);
-assert(sizeof<ApiPayload>() === 3);
-
-// Can be used in compile-time size checks
-interface SmallType {
-  x: number;
-  y: number;
-}
-assert(sizeof<SmallType>() === 2);
-
-// ============================================================================
-// 7. METADATA STRUCTURES — TypeInfo, FieldInfo, MethodInfo
+// 6. METADATA STRUCTURES — TypeInfo, FieldInfo, MethodInfo
 // ============================================================================
 
 // The reflection types form a complete metadata model.
@@ -254,13 +234,12 @@ typeAssert<Equal<ParameterInfo, {
 }>>();
 
 // ============================================================================
-// 8. REAL-WORLD EXAMPLE — Generic form generator
+// 7. REAL-WORLD EXAMPLE — Generic form generator
 // ============================================================================
 
 // Reflection enables metaprogramming patterns like form generation,
 // ORM mapping, API documentation generation, etc.
 
-@reflect
 interface ContactForm {
   name: string;
   email: string;
@@ -286,12 +265,11 @@ assert(fields[0].type === "text");
 assert(fields[0].required === true);
 
 // ============================================================================
-// 9. REAL-WORLD EXAMPLE — API response validation pipeline
+// 8. REAL-WORLD EXAMPLE — API response validation pipeline
 // ============================================================================
 
 // Combine validator with type info for a complete validation pipeline.
 
-@reflect
 interface OrderResponse {
   orderId: string;
   total: number;
@@ -335,7 +313,7 @@ assert(badResponse.errors !== undefined);
 assert(badResponse.errors!.length > 0);
 
 // ============================================================================
-// 10. REAL-WORLD EXAMPLE — diff two objects using reflection
+// 9. REAL-WORLD EXAMPLE — diff two objects using reflection
 // ============================================================================
 
 function diff<T>(a: T, b: T, info: TypeInfo): Array<{ field: string; from: unknown; to: unknown }> {

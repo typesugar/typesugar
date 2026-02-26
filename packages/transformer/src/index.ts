@@ -1438,19 +1438,26 @@ class MacroTransformer {
     // Direct match
     if (importedModule === macroModule) return true;
 
+    // Legacy project names that should match any @typesugar/* import
+    const legacyAliases = ["typemacro", "ttfx", "macrots"];
+
     // Known aliases: typesugar is the public name for typemacro
     const aliases: Record<string, string[]> = {
-      typesugar: ["typemacro", "ttfx", "macrots"],
+      typesugar: legacyAliases,
       typemacro: ["typesugar", "ttfx", "macrots"],
     };
 
     const importAliases = aliases[importedModule];
     if (importAliases?.includes(macroModule)) return true;
 
-    // @typesugar/* packages should match their package name
+    // @typesugar/* packages should match their package name AND legacy aliases
     if (importedModule.startsWith("@typesugar/")) {
       const pkgName = importedModule.slice("@typesugar/".length);
       if (macroModule === pkgName || macroModule === `@typesugar/${pkgName}`) {
+        return true;
+      }
+      // Also match legacy project names (typemacro, ttfx, macrots)
+      if (legacyAliases.includes(macroModule)) {
         return true;
       }
     }

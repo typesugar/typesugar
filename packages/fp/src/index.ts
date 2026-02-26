@@ -1,79 +1,56 @@
 /**
  * @typesugar/fp — Functional Programming for TypeScript
  *
- * A complete functional programming system inspired by Scala's Cats library.
- *
- * Features:
- * - Complete typeclass hierarchy (Functor, Monad, Applicative, etc.)
- * - Core data types (Option, Either, List, Validated)
- * - Monad transformers (State, Reader, Writer)
- * - IO monad with stack-safe interpreter
- * - IO runtime utilities (Ref, Deferred, Resource)
- * - Do-comprehension support
- * - Pipe/flow composition helpers
+ * Zero-cost FP with implicit extension methods.
  *
  * @example
  * ```typescript
- * import {
- *   Option, Some, None,
- *   Either, Left, Right,
- *   IO, runIO,
- *   pipe, flow
- * } from '@typesugar/fp';
+ * // Import constructors and utilities from main package
+ * import { Some, None, Right, Left, pipe } from '@typesugar/fp';
  *
- * // Option example
- * const result = Option.flatMap(Some(2), x => Some(x * 3));
+ * // Import operation namespaces for extension syntax
+ * import * as O from '@typesugar/fp/data/option';
+ * import * as E from '@typesugar/fp/data/either';
  *
- * // Either example
- * const validated = Either.map(Right(42), x => x.toString());
+ * // Extension methods work via namespace imports
+ * // x.map(f) → O.map(x, f) when O is in scope
  *
- * // IO example
- * const program = IO.flatMap(
- *   IO.delay(() => "Hello"),
- *   msg => IO.delay(() => console.log(msg))
- * );
- * await runIO(program);
- *
- * // Pipe example
- * const transformed = pipe(
- *   5,
- *   x => x * 2,
- *   x => x + 1,
- *   x => x.toString()
+ * const output = pipe(
+ *   Some(5),
+ *   x => O.map(x, n => n * 2),
+ *   x => O.filter(x, n => n > 5),
+ *   x => O.getOrElse(x, () => 0)
  * );
  * ```
  */
 
 // ============================================================================
-// HKT Foundation - export core types directly
+// HKT Foundation
 // ============================================================================
 
-export {
-  type $,
-  type Kind,
-  unsafeCoerce,
-  // Type-level functions for data types
-  type OptionF,
-  type EitherF,
-  type ListF,
-  type NonEmptyListF,
-  type ValidatedF,
-  type StateF,
-  type ReaderF,
-  type WriterF,
-  type IOF,
-  type IdF,
-  type ResourceF,
-  // Re-exported interface types (for structural typing)
-  type Resource,
+export { unsafeCoerce } from "./hkt.js";
+export type {
+  $,
+  Kind,
+  OptionF,
+  EitherF,
+  ListF,
+  NonEmptyListF,
+  ValidatedF,
+  StateF,
+  ReaderF,
+  WriterF,
+  IOF,
+  IdF,
+  ResourceF,
+  Resource,
 } from "./hkt.js";
 
 // ============================================================================
-// Typeclasses - namespace export to avoid collisions
+// Typeclasses
 // ============================================================================
 
 export * as TC from "./typeclasses/index.js";
-// Also export commonly used typeclass interfaces directly
 export type {
   Functor,
   Apply,
@@ -96,25 +73,109 @@ export type {
 } from "./typeclasses/index.js";
 
 // ============================================================================
-// Data Types - namespace export to avoid collisions
+// Option — Zero-cost (null-based)
 // ============================================================================
 
-export * as Option from "./data/option.js";
-export * as Either from "./data/either.js";
-export * as List from "./data/list.js";
-export * as NonEmptyList from "./data/nonempty-list.js";
-export * as Validated from "./data/validated.js";
-export * as State from "./data/state.js";
-export * as Reader from "./data/reader.js";
-export * as Writer from "./data/writer.js";
-export * as Id from "./data/id.js";
+export type { Option, Defined } from "./data/option.js";
+export { Some, None, isSome, isNone, defined, unwrapDefined } from "./data/option.js";
+export {
+  getEq as getOptionEq,
+  getOrd as getOptionOrd,
+  getShow as getOptionShow,
+  getSemigroup as getOptionSemigroup,
+  getMonoid as getOptionMonoid,
+  getFirstMonoid as getOptionFirstMonoid,
+  getLastMonoid as getOptionLastMonoid,
+} from "./data/option.js";
 
 // ============================================================================
-// IO & Runtime - namespace export to avoid collisions
+// Either — Typed error handling
 // ============================================================================
 
-export * as IO from "./io/io.js";
-export { runIO, runIOSync, IODo } from "./io/io.js";
+export type { Either } from "./data/either.js";
+export { Left, Right, isLeft, isRight } from "./data/either.js";
+export {
+  getEq as getEitherEq,
+  getOrd as getEitherOrd,
+  getShow as getEitherShow,
+  getSemigroup as getEitherSemigroup,
+} from "./data/either.js";
+
+// ============================================================================
+// List — Persistent linked list
+// ============================================================================
+
+export type { List } from "./data/list.js";
+export { Cons, Nil, isCons, isNil } from "./data/list.js";
+export {
+  of as listOf,
+  fromArray as listFromArray,
+  getEq as getListEq,
+  getOrd as getListOrd,
+  getShow as getListShow,
+  getSemigroup as getListSemigroup,
+  getMonoid as getListMonoid,
+} from "./data/list.js";
+
+// ============================================================================
+// NonEmptyList — List with at least one element
+// ============================================================================
+
+export type { NonEmptyList } from "./data/nonempty-list.js";
+export {
+  of as nelOf,
+  singleton as nelSingleton,
+  fromArray as nelFromArray,
+  fromList as nelFromList,
+  getEq as getNelEq,
+  getOrd as getNelOrd,
+  getShow as getNelShow,
+  getSemigroup as getNelSemigroup,
+} from "./data/nonempty-list.js";
+
+// ============================================================================
+// Validated — Error accumulation
+// ============================================================================
+
+export type { Validated, ValidatedNel } from "./data/validated.js";
+export { Valid, Invalid, valid, invalid, validNel, invalidNel, isValid, isInvalid } from "./data/validated.js";
+export {
+  getEq as getValidatedEq,
+  getOrd as getValidatedOrd,
+  getShow as getValidatedShow,
+  getSemigroup as getValidatedSemigroup,
+} from "./data/validated.js";
+
+// ============================================================================
+// State — Stateful computation
+// ============================================================================
+
+export { State, IndexedState } from "./data/state.js";
+
+// ============================================================================
+// Reader — Environment/dependency injection
+// ============================================================================
+
+export { Reader, Kleisli } from "./data/reader.js";
+
+// ============================================================================
+// Writer — Logging/accumulation
+// ============================================================================
+
+export { Writer, LogWriterMonoid, SumWriterMonoid } from "./data/writer.js";
+export type { LogWriter, SumWriter, ProductWriter } from "./data/writer.js";
+
+// ============================================================================
+// Id — Identity functor
+// ============================================================================
+
+export { Id } from "./data/id.js";
+
+// ============================================================================
+// IO & Runtime
+// ============================================================================
+
+export { IO, runIO, runIOSync, IODo } from "./io/io.js";
 export * as Ref from "./io/ref.js";
 export * as Deferred from "./io/deferred.js";
 export * as ResourceIO from "./io/resource.js";
@@ -128,16 +189,16 @@ export * as IOApp from "./io/io-app.js";
 export * from "./syntax/index.js";
 
 // ============================================================================
-// Zero-Cost Abstractions (compile-time-optimized versions)
+// Zero-Cost Abstractions
 // ============================================================================
 
 export * as ZeroCost from "./zero-cost/index.js";
+export { ZeroCostOptionOps, ZeroCostResultOps } from "./zero-cost/index.js";
+export type { ZeroCostOption, ZeroCostResult, ZeroCostOk, ZeroCostErr } from "./zero-cost/index.js";
 
 // ============================================================================
-// @typesugar/std FlatMap Bridge
+// Typeclass Instances (for explicit usage)
 // ============================================================================
-// FlatMap instances compatible with @typesugar/std's FlatMap typeclass.
-// Use registerFpFlatMapInstances() to register with @typesugar/std.
 
 export {
   flatMapOption,
@@ -147,73 +208,20 @@ export {
   flatMapValidated,
   fpFlatMapInstances,
   registerFpFlatMapInstances,
-  // @implicits example functions
   traverseArray,
   sequenceArray,
   fmap,
   bind,
   applyF,
   foldL,
+  optionFunctor,
+  optionMonad,
+  optionFoldable,
+  arrayTraverse,
 } from "./instances.js";
-export {
-  type ZeroCostOption,
-  ZeroCostOptionOps,
-  type ZeroCostResult,
-  type ZeroCostOk,
-  type ZeroCostErr,
-  ZeroCostResultOps,
-} from "./zero-cost/index.js";
 
 // ============================================================================
-// Re-export commonly used constructors directly for convenience
-// ============================================================================
-
-// From data/index.js (namespace exports handle the operations)
-export {
-  // Option constructors
-  Some,
-  None,
-  isSome,
-  isNone,
-  type OptionType,
-  // Either constructors
-  Left,
-  Right,
-  isLeft,
-  isRight,
-  type EitherType,
-  // List constructors
-  Cons,
-  Nil,
-  type ListType,
-  // NonEmptyList
-  type NonEmptyListType,
-  // Validated constructors
-  Valid,
-  Invalid,
-  valid,
-  invalid,
-  validNel,
-  invalidNel,
-  isValid,
-  isInvalid,
-  type ValidatedType,
-  type ValidatedNel,
-  // Monad transformers
-  IndexedState,
-  type StateType,
-  Kleisli,
-  type ReaderType,
-  LogWriter,
-  LogWriterMonoid,
-  SumWriter,
-  SumWriterMonoid,
-  type WriterType,
-  type IdType,
-} from "./data/index.js";
-
-// ============================================================================
-// Typeclass Laws (for verification and property testing)
+// Typeclass Laws
 // ============================================================================
 
 export * as Laws from "./laws/index.js";
@@ -228,14 +236,12 @@ export type {
   VerifyLawsOptions,
 } from "./laws/index.js";
 export {
-  // Value-level typeclass laws
   eqLaws,
   ordLaws,
   semigroupLaws,
   monoidLaws,
   showLaws,
   showLawsWithEq,
-  // HKT typeclass laws
   functorLaws,
   functorCompositionLaws,
   applyLaws,

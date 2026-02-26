@@ -510,6 +510,17 @@ export function fixedNumeric<N extends number>(
     add: (a, b) => fixedAdd(a, b) as FixedDecimal<N> & Op<"+">,
     sub: (a, b) => fixedSub(a, b) as FixedDecimal<N> & Op<"-">,
     mul: (a, b) => fixedMul(a, b, scale, mode) as FixedDecimal<N> & Op<"*">,
+    div: (a, b) => fixedDiv(a, b, scale, mode) as FixedDecimal<N> & Op<"/">,
+    pow: (a, b) => {
+      const n = Number(b / 10n ** BigInt(scale));
+      const intN = Math.round(n);
+      if (intN === 0) return fixedOne(scale) as FixedDecimal<N> & Op<"**">;
+      let result = fixedOne(scale) as FixedDecimal<N>;
+      for (let i = 0; i < Math.abs(intN); i++) {
+        result = fixedMul(result, intN > 0 ? a : fixedDiv(fixedOne(scale), a, scale, mode), scale, mode);
+      }
+      return result as FixedDecimal<N> & Op<"**">;
+    },
     negate: fixedNegate,
     abs: fixedAbs,
     signum: (a) => fixed(fixedSignum(a), scale),

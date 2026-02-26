@@ -86,8 +86,7 @@
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0",
-    "@typesugar/std": "workspace:*"
+    "typescript": ">=5.0.0"
   },
   "files": [
     "dist",

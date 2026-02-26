@@ -46,6 +46,9 @@ export { toInt as boolToInt } from "./boolean";
 
 // Array utilities
 export {
+  head,
+  tail,
+  last,
   chunk,
   compact,
   flatten,

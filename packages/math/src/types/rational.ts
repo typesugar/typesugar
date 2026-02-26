@@ -207,6 +207,20 @@ export const numericRational: Numeric<Rational> = {
 
   mul: (a, b) => normalize(a.num * b.num, a.den * b.den) as Rational & Op<"*">,
 
+  div: (a, b) => {
+    if (b.num === 0n) throw new RangeError("Rational division by zero");
+    return normalize(a.num * b.den, a.den * b.num) as Rational & Op<"/">;
+  },
+
+  pow: (a, b) => {
+    const n = b.num / b.den;
+    if (n >= 0n) {
+      return normalize(a.num ** n, a.den ** n) as Rational & Op<"**">;
+    }
+    const posN = -n;
+    return normalize(a.den ** posN, a.num ** posN) as Rational & Op<"**">;
+  },
+
   negate: (a) => ({ num: -a.num, den: a.den }),
 
   abs: (a) => ({ num: a.num < 0n ? -a.num : a.num, den: a.den }),

@@ -5,6 +5,10 @@
  * @typeclass, @instance, @deriving, summon(), extend(), and
  * extension method resolution.
  *
+ * NOTE: This showcase uses decorators on interfaces and compile-time
+ * macro transformations. It requires the typesugar transformer and
+ * CANNOT be run with plain tsx/ts-node/esbuild.
+ *
  * Type assertions used:
  *   typeAssert<Equal<A, B>>()        - A and B are the same type
  *   typeAssert<Extends<A, B>>()      - A is assignable to B
@@ -25,11 +29,11 @@ import {
   extend,
   implicits,
   type TypeclassInfo,
-  type InstanceInfo,
+  // type InstanceInfo — not used in showcase, available for instance introspection
   findExtensionMethod,
   getTypeclasses,
   getInstances,
-  clearRegistries,
+  // clearRegistries — not used in showcase, available for test isolation
 } from "@typesugar/typeclass";
 
 // ============================================================================

@@ -34,6 +34,7 @@ import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 import { shouldEmitCheck } from "../config.js";
 import { normalizeExpression } from "../parser/predicate.js";
+import { PreconditionError } from "../runtime/errors.js";
 
 /**
  * Runtime requires function — used without the transformer.
@@ -41,7 +42,7 @@ import { normalizeExpression } from "../parser/predicate.js";
  */
 export function requires(condition: boolean, message?: string): void {
   if (!condition) {
-    throw new Error(message ?? "Precondition failed");
+    throw new PreconditionError(message ?? "Precondition failed");
   }
 }
 

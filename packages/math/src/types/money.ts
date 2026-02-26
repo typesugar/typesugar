@@ -501,9 +501,16 @@ export function moneyNumeric<C extends CurrencyDef>(currency: C): Numeric<Money<
     add: (a, b) => moneyAdd(a, b) as Money<C> & Op<"+">,
     sub: (a, b) => moneySub(a, b) as Money<C> & Op<"-">,
     mul: (a, b) => {
-      // Treat as scaling by b's minor unit count (unusual but type-safe)
       return (((a as bigint) * (b as bigint)) / currencyScaleFactor(currency)) as Money<C> &
         Op<"*">;
+    },
+    div: (a, b) => {
+      if ((b as bigint) === 0n) throw new RangeError("Money division by zero");
+      return (((a as bigint) * currencyScaleFactor(currency)) / (b as bigint)) as Money<C> &
+        Op<"/">;
+    },
+    pow: (_a, _b) => {
+      throw new RangeError("Exponentiation is not meaningful for monetary values");
     },
     negate: moneyNegate,
     abs: moneyAbs,

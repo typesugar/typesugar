@@ -2,25 +2,21 @@
  * @typesugar/specialize Showcase
  *
  * Self-documenting examples of zero-cost typeclass specialization:
- * specialize(), fn.specialize(), specialize$(), mono(), inlineCall(),
+ * specialize(), fn.specialize(), mono(), inlineCall(),
  * and the Specialized<F, N> type utility.
  *
  * Type assertions used:
- *   typeAssert<Equal<A, B>>()        - A and B are the same type
- *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
- *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
+ *   typeAssert<Equal<A, B>>() - A and B are the same type
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal } from "@typesugar/testing";
 
 import {
   type Specialized,
   specialize,
-  specialize$,
   mono,
   inlineCall,
 } from "@typesugar/specialize";
@@ -161,13 +157,13 @@ assert(showNumbersLegacy([4, 5, 6]) === "[4, 5, 6]");
 assert(sortNumbersLegacy([5, 2, 8])[0] === 2);
 
 // ============================================================================
-// 6. INLINE SPECIALIZATION — specialize$() for one-off calls
+// 6. INLINE SPECIALIZATION — Direct call with instance (no wrapper needed)
 // ============================================================================
 
-// specialize$() inlines the specialization at a single call site.
-// Useful when you don't need a named specialized function.
+// For one-off calls, you don't need a specialized function.
+// Just call the generic function directly with the instance.
 
-const result = specialize$(sortWith([5, 2, 8, 1, 9], numberOrd));
+const result = sortWith([5, 2, 8, 1, 9], numberOrd);
 assert(result[0] === 1);
 assert(result[4] === 9);
 

@@ -534,6 +534,89 @@ export function let_<N extends string, E, A extends object, B>(
 // Fluent API (Either class)
 // ============================================================================
 
+// ============================================================================
+// Either Namespace Object
+// ============================================================================
+
+/**
+ * Either namespace - groups all Either operations for clean API access.
+ *
+ * @example
+ * ```typescript
+ * import { Either, Left, Right } from "@typesugar/fp";
+ *
+ * const e: Either<string, number> = Right(42);
+ * Either.map(e, n => n * 2);           // Right(84)
+ * Either.flatMap(e, n => Right(n));    // Right(42)
+ * Either.getOrElse(Left("err"), () => 0); // 0
+ * ```
+ */
+export const Either = {
+  // Constructors
+  of,
+  right,
+  left,
+  fromNullable,
+  fromPredicate,
+  fromOption,
+  tryCatch,
+
+  // Type guards
+  isLeft,
+  isRight,
+
+  // Core operations
+  map,
+  mapLeft,
+  bimap,
+  flatMap,
+  ap,
+  fold,
+  match,
+  swap,
+  getOrElse,
+  getOrElseStrict,
+  getOrThrow,
+  getOrThrowWith,
+  orElse,
+  filterOrElse,
+  flatten,
+  tap,
+  tapLeft,
+  handleError,
+  handleErrorWith,
+  ensure,
+  exists,
+  forall,
+  contains,
+  merge,
+
+  // Conversions
+  toOption,
+  toValidated,
+  toArray,
+
+  // Combinators
+  traverse,
+  sequence,
+  partition,
+
+  // Typeclass instances
+  getEq,
+  getOrd,
+  getShow,
+  getSemigroup,
+
+  // Do-notation
+  Do,
+  bind,
+  let_,
+} as const;
+
+// ============================================================================
+// Fluent API (Either class)
+// ============================================================================
+
 /**
  * Either with fluent methods
  */

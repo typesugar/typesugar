@@ -98,6 +98,27 @@ export type { TypeFact } from "./type-facts.js";
 // ============================================================================
 
 /**
+ * Runtime-only tryProve — proves a goal string against known facts.
+ *
+ * This simplified version works without MacroContext, making it usable
+ * in runtime scenarios (testing, showcase examples, etc.).
+ *
+ * Runs proof layers:
+ * 1. Constant evaluation (literal "true"/"false")
+ * 2. Type-based deduction (fact matching)
+ * 3. Algebraic rules (registered patterns)
+ * 4. Linear arithmetic (Fourier-Motzkin)
+ *
+ * @example
+ * ```typescript
+ * const facts = [{ variable: "x", predicate: "x > 0" }];
+ * const result = tryProve("x > 0", facts);
+ * assert(result.proven === true);
+ * ```
+ */
+export function tryProve(goal: string, facts: TypeFact[]): ProofResult;
+
+/**
  * Try to prove a contract condition at compile time (synchronous).
  *
  * Runs through proof layers in order, returning as soon as one succeeds.
@@ -107,6 +128,76 @@ export type { TypeFact } from "./type-facts.js";
  * decidable, emits a warning based on the decidability configuration.
  */
 export function tryProve(
+  ctx: MacroContext,
+  condition: ContractCondition,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
+): ProofResult;
+
+export function tryProve(
+  ctxOrGoal: MacroContext | string,
+  conditionOrFacts: ContractCondition | TypeFact[],
+  fn?: ts.FunctionDeclaration | ts.MethodDeclaration
+): ProofResult {
+  // Runtime overload: tryProve(goal: string, facts: TypeFact[])
+  if (typeof ctxOrGoal === "string") {
+    const goal = ctxOrGoal;
+    const facts = conditionOrFacts as TypeFact[];
+    return tryProveRuntime(goal, facts);
+  }
+
+  // Compile-time overload: tryProve(ctx, condition, fn)
+  const ctx = ctxOrGoal;
+  const condition = conditionOrFacts as ContractCondition;
+  return tryProveCompileTime(ctx, condition, fn!);
+}
+
+/**
+ * Runtime-only proof attempt — no MacroContext required.
+ */
+function tryProveRuntime(goal: string, facts: TypeFact[]): ProofResult {
+  // Layer 1: Constant evaluation (simple cases)
+  const trimmed = goal.trim().toLowerCase();
+  if (trimmed === "true") {
+    return { proven: true, method: "constant", reason: "statically true" };
+  }
+  if (trimmed === "false") {
+    return { proven: false, reason: "statically false" };
+  }
+
+  // Layer 2: Type-based deduction
+  const typeProof = tryTypeDeduction(goal, facts);
+  if (typeProof.proven) return typeProof;
+
+  // Layer 3: Algebraic rules
+  const algebraProof = tryAlgebraicProof(goal, facts);
+  if (algebraProof.proven) return algebraProof;
+
+  // Layer 4: Linear arithmetic
+  const linearProof = tryLinearArithmetic(goal, facts);
+  if (linearProof.proven) return linearProof;
+
+  // Layer 5: Prover plugins (sync only)
+  const config = getContractConfig();
+  for (const plugin of config.proverPlugins) {
+    const pluginResult = plugin.prove(goal, facts);
+    if (pluginResult && !(pluginResult instanceof Promise)) {
+      if (pluginResult.proven) {
+        return {
+          proven: true,
+          method: "plugin",
+          reason: `${plugin.name}: ${pluginResult.reason ?? "proven"}`,
+        };
+      }
+    }
+  }
+
+  return { proven: false };
+}
+
+/**
+ * Compile-time proof attempt — requires MacroContext.
+ */
+function tryProveCompileTime(
   ctx: MacroContext,
   condition: ContractCondition,
   fn: ts.FunctionDeclaration | ts.MethodDeclaration

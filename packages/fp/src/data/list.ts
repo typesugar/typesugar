@@ -829,3 +829,108 @@ export function partition<A>(list: List<A>, predicate: (a: A) => boolean): [List
   });
   return [fromArray(matching), fromArray(nonMatching)];
 }
+
+// ============================================================================
+// List Namespace Object
+// ============================================================================
+
+/**
+ * List namespace - groups all List operations for clean API access.
+ *
+ * @example
+ * ```typescript
+ * import { List, Cons, Nil } from "@typesugar/fp";
+ *
+ * const xs = List.of(1, 2, 3);
+ * List.map(xs, n => n * 2);      // List(2, 4, 6)
+ * List.filter(xs, n => n > 1);   // List(2, 3)
+ * List.foldLeft(xs, 0, (a, b) => a + b); // 6
+ * ```
+ */
+export const List = {
+  // Constructors
+  of,
+  fromArray,
+  fromIterable,
+  singleton,
+  replicate,
+  range,
+  empty,
+
+  // Type guards
+  isCons,
+  isNil,
+  isEmpty,
+  nonEmpty,
+
+  // Basic operations
+  head,
+  tail,
+  last,
+  init,
+  get,
+  length,
+
+  // Transformations
+  map,
+  flatMap,
+  filter,
+  filterMap,
+  reverse,
+  prepend,
+  append,
+  appendOne,
+  flatten,
+  take,
+  drop,
+  dropLast,
+  takeWhile,
+  dropWhile,
+  zip,
+  zipWith,
+  unzip,
+  intersperse,
+
+  // Folds
+  foldLeft,
+  foldRight,
+  reduce,
+
+  // Search
+  find,
+  findIndex,
+  exists,
+  forall,
+  contains,
+  count,
+
+  // Conversions
+  toArray,
+  mkString,
+  mkStringShow,
+
+  // Traverse
+  traverse,
+  sequence,
+
+  // Typeclass instances
+  getEq,
+  getOrd,
+  getShow,
+  getSemigroup,
+  getMonoid,
+
+  // Do-notation
+  Do,
+  bind,
+  let_,
+
+  // Utilities
+  forEach,
+  mapWithIndex,
+  sort,
+  sortBy,
+  groupBy,
+  distinct,
+  partition,
+} as const;

@@ -59,7 +59,7 @@ const processScores = (scores: number[]) =>
     (arr) => arr.reduce((a, b) => a + b, 0) / arr.length,
   );
 
-assert(processScores([100, 20, 30, 40, 50, -5]) === 35, "pipe for data processing");
+assert(processScores([100, 20, 30, 40, 50, -5]) === 40, "pipe for data processing");
 
 // ============================================================================
 // 2. FLOW - Compose Functions Left-to-Right

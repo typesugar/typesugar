@@ -184,6 +184,41 @@ export namespace State {
   export function gets<S, A>(f: (s: S) => A): State<S, A> {
     return inspect(f);
   }
+
+  /**
+   * Run the stateful computation (static version)
+   */
+  export function run<S, A>(state: State<S, A>, initial: S): [A, S] {
+    return state.run(initial);
+  }
+
+  /**
+   * Run and return only the result value (static version)
+   */
+  export function runA<S, A>(state: State<S, A>, initial: S): A {
+    return state.runA(initial);
+  }
+
+  /**
+   * Run and return only the final state (static version)
+   */
+  export function runS<S, A>(state: State<S, A>, initial: S): S {
+    return state.runS(initial);
+  }
+
+  /**
+   * FlatMap (static version)
+   */
+  export function flatMap<S, A, B>(state: State<S, A>, f: (a: A) => State<S, B>): State<S, B> {
+    return state.flatMap(f);
+  }
+
+  /**
+   * Map (static version)
+   */
+  export function map<S, A, B>(state: State<S, A>, f: (a: A) => B): State<S, B> {
+    return state.map(f);
+  }
 }
 
 // ============================================================================

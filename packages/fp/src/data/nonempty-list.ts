@@ -576,3 +576,98 @@ export function groupBy<A, K>(
   // We know groups is non-empty because nel is non-empty
   return unsafeFromList(L.filterMap(groups, fromList));
 }
+
+// ============================================================================
+// NonEmptyList Namespace Object
+// ============================================================================
+
+/**
+ * NonEmptyList namespace - groups all NonEmptyList operations for clean API access.
+ *
+ * @example
+ * ```typescript
+ * import { NonEmptyList } from "@typesugar/fp";
+ *
+ * const nel = NonEmptyList.of(1, 2, 3);
+ * NonEmptyList.map(nel, n => n * 2);      // NonEmptyList(2, 4, 6)
+ * NonEmptyList.reduce(nel, (a, b) => a + b); // 6
+ * NonEmptyList.head(nel);                 // 1 (always succeeds)
+ * ```
+ */
+export const NEL = {
+  // Constructors - cons creates from head + tail List
+  cons: NonEmptyList,
+  of,
+  singleton,
+  fromArray,
+  fromList,
+  unsafeFromArray,
+  replicate,
+
+  // Basic operations
+  head,
+  tail,
+  last,
+  init,
+  length,
+  get,
+  toList,
+  toArray,
+
+  // Transformations
+  map,
+  flatMap,
+  ap,
+  reverse,
+  prepend,
+  append,
+  concat,
+  take,
+  drop,
+  filter,
+  zip,
+  zipWith,
+  intersperse,
+
+  // Folds
+  foldLeft,
+  foldRight,
+  reduce,
+  reduceRight,
+
+  // Search
+  find,
+  exists,
+  forall,
+  contains,
+
+  // Min/Max
+  minimum,
+  maximum,
+  minimumBy,
+  maximumBy,
+
+  // Traverse
+  traverse,
+  sequence,
+
+  // Typeclass instances
+  getEq,
+  getOrd,
+  getShow,
+  getSemigroup,
+
+  // Do-notation
+  Do,
+  bind,
+  let_,
+
+  // Utilities
+  forEach,
+  mapWithIndex,
+  sort,
+  sortBy,
+  distinct,
+  mkString,
+  groupBy,
+} as const;

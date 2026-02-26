@@ -16,15 +16,14 @@
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal } from "@typesugar/testing";
 
 import {
   // Lazy pipeline
   lazy, range, iterate, repeat, generate,
-  LazyPipeline,
 
   // Vector operations
-  vec, vecOf, add, sub, mul, div, scale, dot,
+  vec, add, sub, mul, scale, dot,
   magnitude, normalize, mapVec, zipVec, toArray,
 
   type FusedVec,

@@ -7,14 +7,12 @@
  * Type assertions used:
  *   typeAssert<Equal<A, B>>()        - A and B are the same type
  *   typeAssert<Extends<A, B>>()      - A is assignable to B
- *   typeAssert<Not<Equal<A, B>>>()   - A and B are DIFFERENT
- *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
  *
  * Run:   typesugar run examples/showcase.ts
  * Build: npx tspc && node dist/examples/showcase.js
  */
 
-import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
+import { assert, typeAssert, type Equal, type Extends } from "@typesugar/testing";
 
 import { __typemacro_escapeHtml } from "../src/index.js";
 

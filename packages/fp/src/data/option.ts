@@ -576,6 +576,92 @@ export function let_<N extends string, A extends object, B>(
 // Fluent API (Option class)
 // ============================================================================
 
+// ============================================================================
+// Option Namespace Object
+// ============================================================================
+
+/**
+ * Option namespace - groups all Option operations for clean API access.
+ *
+ * @example
+ * ```typescript
+ * import { Option, Some, None } from "@typesugar/fp";
+ *
+ * const x: Option<number> = Some(42);
+ * Option.map(x, n => n * 2);        // Some(84)
+ * Option.flatMap(x, n => Some(n));  // Some(42)
+ * Option.getOrElse(None, () => 0);  // 0
+ * ```
+ */
+export const Option = {
+  // Constructors
+  some,
+  none,
+  of,
+  fromNullable,
+  fromPredicate,
+  tryCatch,
+
+  // Type guards
+  isSome,
+  isNone,
+  isDefined,
+  isEmpty,
+
+  // Core operations
+  map,
+  flatMap,
+  ap,
+  fold,
+  match,
+  getOrElse,
+  getOrElseStrict,
+  getOrThrow,
+  orElse,
+  filter,
+  filterNot,
+  exists,
+  forall,
+  contains,
+  flatten,
+  tap,
+
+  // Conversions
+  toEither,
+  toArray,
+  toNullable,
+  toUndefined,
+
+  // Combinators
+  zip,
+  zipWith,
+  unzip,
+  traverse,
+  sequence,
+
+  // Typeclass instances
+  getEq,
+  getOrd,
+  getShow,
+  getSemigroup,
+  getMonoid,
+  getFirstMonoid,
+  getLastMonoid,
+
+  // Do-notation
+  Do,
+  bind,
+  let_,
+
+  // Defined wrapper (for Option<null>)
+  defined,
+  unwrapDefined,
+} as const;
+
+// ============================================================================
+// Fluent API (Option class)
+// ============================================================================
+
 /**
  * Option with fluent methods
  *

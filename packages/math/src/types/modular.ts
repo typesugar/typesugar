@@ -239,8 +239,14 @@ export function numericMod<N extends number>(modulus: N): Numeric<Mod<N>> {
     add: (a, b) => modAdd(a, b) as Mod<N> & Op<"+">,
     sub: (a, b) => modSub(a, b) as Mod<N> & Op<"-">,
     mul: (a, b) => modMul(a, b) as Mod<N> & Op<"*">,
+    div: (a, b) => {
+      const result = modDiv(a, b);
+      if (result === null) throw new RangeError(`Division not defined: ${b.value} has no inverse mod ${modulus}`);
+      return result as Mod<N> & Op<"/">;
+    },
+    pow: (a, b) => modPow(a, b.value) as Mod<N> & Op<"**">,
     negate: modNegate,
-    abs: (a) => a, // no meaningful abs in Z/nZ
+    abs: (a) => a,
     signum: (a) => (a.value === 0 ? zero(modulus) : one(modulus)),
     fromNumber: (n) => mod(Math.floor(n), modulus),
     toNumber: (a) => a.value,

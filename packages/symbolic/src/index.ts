@@ -17,9 +17,15 @@
  * ```
  */
 
-// Re-export Refined type and ValidDivisor used in public signatures (ZERO, div)
-export type { Refined } from "@typesugar/type-system";
-export { ValidDivisor } from "@typesugar/type-system";
+// Local definition of Refined type to avoid loading @typesugar/type-system's macro code
+// (The type-system package bundles macro code that imports 'typescript', causing import hangs)
+declare const __refined__: unique symbol;
+export type Refined<Base, Brand extends string> = Base & {
+  readonly [__refined__]: Brand;
+};
+
+// Local definition of ValidDivisor to avoid @typesugar/type-system import
+export type ValidDivisor = Refined<number, "ValidDivisor">;
 
 // Core types
 export * from "./types.js";

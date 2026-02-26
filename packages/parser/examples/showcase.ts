@@ -226,16 +226,22 @@ assert(letter().parseAll("Z") === "Z");
 // lazy() enables recursive grammar definitions
 type SExpr = string | SExpr[];
 
-const sExpr: Parser<SExpr> = lazy(() =>
-  alt(
-    map(many1(letter()), chars => chars.join("")),
-    between(
+// S-expression parser: atoms (identifiers) or lists in parentheses
+// We use token() wrappers uniformly to handle whitespace, avoiding
+// the sepBy+whitespace conflict that occurs when sepBy's separator
+// competes with token()'s whitespace consumption
+const sExprAtom: Parser<SExpr> = map(many1(letter()), chars => chars.join(""));
+const sExprList: Parser<SExpr> = lazy(() =>
+  map(
+    seq3(
       token(char("(")),
-      sepBy(sExpr, whitespace()),
+      many(token(sExpr)),
       token(char(")"))
-    )
+    ),
+    ([, items]) => items
   )
 );
+const sExpr: Parser<SExpr> = lazy(() => alt(sExprAtom, sExprList));
 
 const atom = sExpr.parseAll("hello");
 assert(atom === "hello");
