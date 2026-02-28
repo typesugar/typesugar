@@ -517,7 +517,12 @@ export function fixedNumeric<N extends number>(
       if (intN === 0) return fixedOne(scale) as FixedDecimal<N> & Op<"**">;
       let result = fixedOne(scale) as FixedDecimal<N>;
       for (let i = 0; i < Math.abs(intN); i++) {
-        result = fixedMul(result, intN > 0 ? a : fixedDiv(fixedOne(scale), a, scale, mode), scale, mode);
+        result = fixedMul(
+          result,
+          intN > 0 ? a : fixedDiv(fixedOne(scale), a, scale, mode),
+          scale,
+          mode
+        );
       }
       return result as FixedDecimal<N> & Op<"**">;
     },

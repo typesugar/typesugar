@@ -14,15 +14,7 @@
 // ============================================================================
 
 // Option is both a type (Option<A> = A | null) and a namespace object
-export {
-  Option,
-  Some,
-  None,
-  isSome,
-  isNone,
-  defined,
-  unwrapDefined,
-} from "./option.js";
+export { Option, Some, None, isSome, isNone, defined, unwrapDefined } from "./option.js";
 export type { Defined } from "./option.js";
 
 // ============================================================================

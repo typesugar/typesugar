@@ -123,7 +123,10 @@ function findInstanceDeclarations(tokens: readonly Token[], source: string): Ins
       continue;
     }
 
-    const lastDecoratorEndIndex = findTokenIndexAt(tokens, decorators[decorators.length - 1].endPos);
+    const lastDecoratorEndIndex = findTokenIndexAt(
+      tokens,
+      decorators[decorators.length - 1].endPos
+    );
     if (lastDecoratorEndIndex === -1) {
       i++;
       continue;
@@ -443,11 +446,7 @@ function skipTypeAnnotation(tokens: readonly Token[], startIndex: number): numbe
   return -1;
 }
 
-function findInitializerEnd(
-  tokens: readonly Token[],
-  startIndex: number,
-  _source: string
-): number {
+function findInitializerEnd(tokens: readonly Token[], startIndex: number, _source: string): number {
   let depth = 0;
   let i = startIndex;
   let lastEnd = -1;

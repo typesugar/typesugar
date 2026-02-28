@@ -327,10 +327,7 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
     const intN = Math.round(n);
     if (intN === 0) return { unscaled: 1n, scale: 0 } as BigDecimal & Op<"**">;
     let result: BigDecimal = { unscaled: 1n, scale: 0 };
-    const base = intN > 0 ? a : numericBigDecimal.div(
-      { unscaled: 1n, scale: 0 } as BigDecimal,
-      a
-    );
+    const base = intN > 0 ? a : numericBigDecimal.div({ unscaled: 1n, scale: 0 } as BigDecimal, a);
     for (let i = 0; i < Math.abs(intN); i++) {
       result = normalize({
         unscaled: result.unscaled * base.unscaled,

@@ -138,7 +138,16 @@ export {
 // ============================================================================
 
 export type { Validated, ValidatedNel } from "./data/validated.js";
-export { Valid, Invalid, valid, invalid, validNel, invalidNel, isValid, isInvalid } from "./data/validated.js";
+export {
+  Valid,
+  Invalid,
+  valid,
+  invalid,
+  validNel,
+  invalidNel,
+  isValid,
+  isInvalid,
+} from "./data/validated.js";
 export {
   getEq as getValidatedEq,
   getOrd as getValidatedOrd,

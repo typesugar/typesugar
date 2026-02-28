@@ -422,7 +422,7 @@ export function forAll<T>(
 // ============================================================================
 // Macro Definitions
 // ============================================================================
-// 
+//
 // Macro definitions that import TypeScript are NOT exported from the main entry
 // point. This avoids bundling TypeScript into user code at runtime.
 //

@@ -275,10 +275,7 @@ export const hktExtension: SyntaxExtension = {
 
       // Map from position span to { original, resolved } for nested substitution
       // We need both to handle multi-level nesting where intermediate forms differ
-      const resolvedSpans = new Map<
-        string,
-        { original: string; resolved: string }
-      >();
+      const resolvedSpans = new Map<string, { original: string; resolved: string }>();
 
       // Process innermost first (already sorted by span size)
       for (const app of hktApplications) {
@@ -318,10 +315,7 @@ export const hktExtension: SyntaxExtension = {
 
           // Check if original form appears in varying arg
           if (resolvedVaryingArg.includes(spanInfo.original)) {
-            resolvedVaryingArg = resolvedVaryingArg.replace(
-              spanInfo.original,
-              spanInfo.resolved
-            );
+            resolvedVaryingArg = resolvedVaryingArg.replace(spanInfo.original, spanInfo.resolved);
           }
         }
 
@@ -344,8 +338,7 @@ export const hktExtension: SyntaxExtension = {
 
         // Check if this is contained within another application
         const isNested = sortedByPosition.some(
-          (other) =>
-            other !== app && other.start < app.start && other.end > app.end
+          (other) => other !== app && other.start < app.start && other.end > app.end
         );
 
         if (!isNested) {

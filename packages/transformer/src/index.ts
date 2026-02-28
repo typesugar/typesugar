@@ -203,7 +203,9 @@ function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.Source
  * Parse a typeclass instantiation string like "Numeric<Expression<number>>"
  * into { typeclassName, forType }.
  */
-function parseTypeclassInstantiation(text: string): { typeclassName: string; forType: string } | null {
+function parseTypeclassInstantiation(
+  text: string
+): { typeclassName: string; forType: string } | null {
   const openBracket = text.indexOf("<");
   if (openBracket === -1) return null;
 
@@ -290,9 +292,7 @@ function extractOpsFromOptions(optionsArg: ts.Expression): Map<string, string> |
         : ts.isIdentifier(opProp.name)
           ? opProp.name.text
           : undefined;
-      const value = ts.isStringLiteral(opProp.initializer)
-        ? opProp.initializer.text
-        : undefined;
+      const value = ts.isStringLiteral(opProp.initializer) ? opProp.initializer.text : undefined;
       if (key && value) {
         result.set(key, value);
       }
@@ -3583,9 +3583,9 @@ class MacroTransformer {
     let leftTypeName: string;
     if (ts.isBinaryExpression(unwrappedLeft)) {
       const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-      leftTypeName = inferred ?? this.ctx.typeChecker.typeToString(
-        this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft)
-      );
+      leftTypeName =
+        inferred ??
+        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
     } else {
       leftTypeName = this.ctx.typeChecker.typeToString(
         this.ctx.typeChecker.getTypeAtLocation(node.left)
@@ -3597,11 +3597,14 @@ class MacroTransformer {
 
     // Check if there's an instance for this type and operator
     for (const entry of entries) {
-      let inst = findInstance(entry.typeclass, leftTypeName) ?? findInstance(entry.typeclass, baseTypeName);
+      let inst =
+        findInstance(entry.typeclass, leftTypeName) ?? findInstance(entry.typeclass, baseTypeName);
 
       // Check union membership if no direct match
       if (!inst) {
-        const candidateInstances = instanceRegistry.filter((i) => i.typeclassName === entry.typeclass);
+        const candidateInstances = instanceRegistry.filter(
+          (i) => i.typeclassName === entry.typeclass
+        );
         for (const candidate of candidateInstances) {
           const candidateBase = candidate.forType.replace(/<.*>$/, "");
           const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
@@ -3615,7 +3618,12 @@ class MacroTransformer {
                   for (const unionMember of aliasType.types) {
                     const memberName = this.ctx.typeChecker.typeToString(unionMember);
                     const memberBase = memberName.replace(/<.*>$/, "");
-                    if (memberBase === baseTypeName && (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)) {
+                    if (
+                      memberBase === baseTypeName &&
+                      (candidateArg === typeArg ||
+                        candidateArg === typeArg.split("<")[0] ||
+                        !candidateArg)
+                    ) {
                       inst = candidate;
                       break;
                     }
@@ -3659,15 +3667,15 @@ class MacroTransformer {
     let typeName: string;
     if (ts.isBinaryExpression(unwrappedLeft)) {
       const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-      typeName = inferred ?? this.ctx.typeChecker.typeToString(
-        this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft)
-      );
+      typeName =
+        inferred ??
+        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
     } else if (ts.isIdentifier(unwrappedLeft)) {
       // For variable references, check if the initializer is a binary expression we'd rewrite
       const inferred = this.inferIdentifierResultType(unwrappedLeft);
-      typeName = inferred ?? this.ctx.typeChecker.typeToString(
-        this.ctx.typeChecker.getTypeAtLocation(node.left)
-      );
+      typeName =
+        inferred ??
+        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(node.left));
     } else {
       const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
       typeName = this.ctx.typeChecker.typeToString(leftType);
@@ -3679,7 +3687,16 @@ class MacroTransformer {
 
     // Skip primitive types - native JS operators work correctly and we don't want to
     // generate unnecessary method calls or require imports
-    const PRIMITIVE_TYPES = new Set(["number", "string", "boolean", "bigint", "null", "undefined", "any", "unknown"]);
+    const PRIMITIVE_TYPES = new Set([
+      "number",
+      "string",
+      "boolean",
+      "bigint",
+      "null",
+      "undefined",
+      "any",
+      "unknown",
+    ]);
     if (PRIMITIVE_TYPES.has(baseTypeName)) {
       return undefined;
     }
@@ -3698,7 +3715,9 @@ class MacroTransformer {
       // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)
       if (!inst) {
         // Check if this type is a member of a registered union type
-        const candidateInstances = instanceRegistry.filter((i) => i.typeclassName === entry.typeclass);
+        const candidateInstances = instanceRegistry.filter(
+          (i) => i.typeclassName === entry.typeclass
+        );
         for (const candidate of candidateInstances) {
           const candidateBase = candidate.forType.replace(/<.*>$/, "");
           const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
@@ -3716,7 +3735,12 @@ class MacroTransformer {
                   for (const unionMember of aliasType.types) {
                     const memberName = this.ctx.typeChecker.typeToString(unionMember);
                     const memberBase = memberName.replace(/<.*>$/, "");
-                    if (memberBase === baseTypeName && (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)) {
+                    if (
+                      memberBase === baseTypeName &&
+                      (candidateArg === typeArg ||
+                        candidateArg === typeArg.split("<")[0] ||
+                        !candidateArg)
+                    ) {
                       inst = candidate;
                       break;
                     }

@@ -21,7 +21,16 @@ import macroTransformerFactory from "./index.js";
 import { preprocess } from "@typesugar/preprocessor";
 import { VirtualCompilerHost } from "./virtual-host.js";
 
-type Command = "build" | "watch" | "check" | "expand" | "run" | "init" | "doctor" | "create" | "preprocess";
+type Command =
+  | "build"
+  | "watch"
+  | "check"
+  | "expand"
+  | "run"
+  | "init"
+  | "doctor"
+  | "create"
+  | "preprocess";
 
 interface CliOptions {
   command: Command;
@@ -561,18 +570,23 @@ async function run(options: CliOptions): Promise<void> {
     // Create an esbuild plugin to preprocess TypeScript files
     const preprocessPlugin = {
       name: "typesugar-preprocess",
-      setup(build: { onLoad: (opts: { filter: RegExp }, cb: (args: { path: string }) => Promise<{ contents: string; loader: "ts" | "tsx" }>) => void }) {
+      setup(build: {
+        onLoad: (
+          opts: { filter: RegExp },
+          cb: (args: { path: string }) => Promise<{ contents: string; loader: "ts" | "tsx" }>
+        ) => void;
+      }) {
         build.onLoad({ filter: /\.tsx?$/ }, async (args: { path: string }) => {
           const source = await fs.promises.readFile(args.path, "utf-8");
           const result = preprocess(source, { fileName: args.path });
           return {
             contents: result.code,
-            loader: args.path.endsWith(".tsx") ? "tsx" as const : "ts" as const,
+            loader: args.path.endsWith(".tsx") ? ("tsx" as const) : ("ts" as const),
           };
         });
       },
     };
-    
+
     // Bundle with esbuild (resolves all imports relative to source location)
     await esbuild.build({
       entryPoints: [tempInputFile],
@@ -737,7 +751,9 @@ function preprocessCommand(options: CliOptions): void {
         }
 
         if (options.verbose) {
-          console.log(`  ✓ ${path.relative(process.cwd(), file)} → ${path.relative(process.cwd(), outputPath)}`);
+          console.log(
+            `  ✓ ${path.relative(process.cwd(), file)} → ${path.relative(process.cwd(), outputPath)}`
+          );
         }
       } else if (!inPlace) {
         // Copy unchanged files to output directory

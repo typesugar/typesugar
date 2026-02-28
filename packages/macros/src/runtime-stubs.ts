@@ -93,9 +93,7 @@ export function typeclass(
  * @returns The instance object unchanged (expression form) or decorator function (decorator form)
  */
 export function instance<T>(desc: string, obj: T): T;
-export function instance(
-  ...args: unknown[]
-): PropertyDecorator & ClassDecorator & MethodDecorator;
+export function instance(...args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator;
 export function instance(...args: unknown[]): any {
   if (args.length >= 2) return args[1]; // Expression form: return object unchanged
   return () => {}; // Decorator form: no-op

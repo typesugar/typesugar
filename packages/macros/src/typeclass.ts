@@ -2761,7 +2761,9 @@ export const extendMacro = defineExpressionMacro({
  *
  * Handles nested generics by matching the outermost angle brackets.
  */
-function parseTypeclassInstantiation(text: string): { typeclassName: string; forType: string } | null {
+function parseTypeclassInstantiation(
+  text: string
+): { typeclassName: string; forType: string } | null {
   // Match typeclass name followed by <...>
   const openBracket = text.indexOf("<");
   if (openBracket === -1) {
@@ -3067,48 +3069,55 @@ export function generateStandardTypeclasses(): string {
 // ============================================================================
 
 /** Equality typeclass - Scala 3: trait Eq[A] */
-@typeclass
+
 interface Eq<A> {
   eq(a: A, b: A): boolean & Op<"===">;
   neq(a: A, b: A): boolean & Op<"!==">;
 }
+typeclass("Eq");
 
 /** Ordering typeclass - Scala 3: trait Ord[A] extends Eq[A] */
-@typeclass
+
 interface Ord<A> {
   compare(a: A, b: A): (-1 | 0 | 1) & Op<"<">;
 }
+typeclass("Ord");
 
 /** Show typeclass - Scala 3: trait Show[A] */
-@typeclass
+
 interface Show<A> {
   show(a: A): string;
 }
+typeclass("Show");
 
 /** Hash typeclass */
-@typeclass
+
 interface Hash<A> {
   hash(a: A): number;
 }
+typeclass("Hash");
 
 /** Semigroup typeclass - Scala 3: trait Semigroup[A] */
-@typeclass
+
 interface Semigroup<A> {
   combine(a: A, b: A): A & Op<"+">;
 }
+typeclass("Semigroup");
 
 /** Monoid typeclass - Scala 3: trait Monoid[A] extends Semigroup[A] */
-@typeclass
+
 interface Monoid<A> {
   empty(): A;
   combine(a: A, b: A): A & Op<"+">;
 }
+typeclass("Monoid");
 
 /** Functor typeclass - Scala 3: trait Functor[F[_]] */
-@typeclass
+
 interface Functor<F> {
   map<A, B>(fa: F, f: (a: A) => B): F;
 }
+typeclass("Functor");
 
 // ============================================================================
 // Primitive Instances

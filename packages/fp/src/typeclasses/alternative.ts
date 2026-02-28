@@ -85,7 +85,10 @@ export function combineAllOptionK<F>(F: MonoidK<F>): <A>(fas: $<F, A>[]) => $<F,
  */
 export function unite<F>(F: MonoidK<F>): <A>(ffa: $<F, $<F, A>>[]) => $<F, A> {
   return <A>(ffa: $<F, $<F, A>>[]): $<F, A> =>
-    ffa.reduce<$<F, A>>((acc, ffa_i) => F.combineK(acc, ffa_i as unknown as $<F, A>), F.emptyK<A>());
+    ffa.reduce<$<F, A>>(
+      (acc, ffa_i) => F.combineK(acc, ffa_i as unknown as $<F, A>),
+      F.emptyK<A>()
+    );
 }
 
 // ============================================================================

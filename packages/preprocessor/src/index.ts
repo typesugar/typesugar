@@ -73,8 +73,4 @@ export {
   type HKTTypeFunction,
 } from "./hkt-registry.js";
 
-export {
-  scanImports,
-  type TrackedImports,
-  type TrackedTypeFunction,
-} from "./import-tracker.js";
+export { scanImports, type TrackedImports, type TrackedTypeFunction } from "./import-tracker.js";

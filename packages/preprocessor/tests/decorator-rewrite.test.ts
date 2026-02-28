@@ -286,7 +286,9 @@ const pointEq = createEq((a, b) => (a.x === b.x) && (a.y === b.y));`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Point>", createEq((a, b) => (a.x === b.x) && (a.y === b.y)))');
+      expect(result.code).toContain(
+        'instance("Eq<Point>", createEq((a, b) => (a.x === b.x) && (a.y === b.y)))'
+      );
     });
   });
 });

@@ -24,7 +24,6 @@ import * as path from "path";
 import { TransformationPipeline, type TransformResult } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 
-
 /**
  * Cache entry for transformed files
  */
