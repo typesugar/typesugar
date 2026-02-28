@@ -122,6 +122,7 @@ Single-pass (lazy):
 ### Current (Phase 1): Runtime Fusion
 
 The `LazyPipeline` class provides runtime fusion:
+
 - **Single-pass iteration** — each element flows through all steps before the next
 - **No intermediate arrays** — `filter().map().take()` doesn't allocate between steps
 - **Early termination** — `take(5)` stops after 5 elements, doesn't process the rest

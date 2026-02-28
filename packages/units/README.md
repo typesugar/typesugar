@@ -159,8 +159,8 @@ const mps = metersPerSecond(speed.value); // Convert via the raw value
 
 ```typescript
 class Unit<D extends Dimensions> {
-  readonly value: number;   // Value in SI base units
-  readonly symbol: string;  // Display symbol (e.g., "km", "m/s")
+  readonly value: number; // Value in SI base units
+  readonly symbol: string; // Display symbol (e.g., "km", "m/s")
 
   // Same-dimension operations
   add(other: Unit<D>): Unit<D>;
@@ -178,7 +178,7 @@ class Unit<D extends Dimensions> {
   equals(other: Unit<D>, tolerance?: number): boolean;
 
   // Display
-  toString(): string;  // "value symbol"
+  toString(): string; // "value symbol"
 }
 ```
 
@@ -202,13 +202,13 @@ function units(strings: TemplateStringsArray): Unit<Dimensions>;
 
 The Unit class methods are annotated with `Op<>` return types, enabling the typesugar transformer to rewrite operators:
 
-| Operator | Method   | Type Behavior                   |
-| -------- | -------- | ------------------------------- |
-| `+`      | `add`    | Same dimensions required        |
-| `-`      | `sub`    | Same dimensions required        |
-| `*`      | `mul`    | Dimensions multiply (L × T = LT)|
-| `/`      | `div`    | Dimensions divide (L / T = L/T) |
-| `===`    | `equals` | Same dimensions, tolerance check|
+| Operator | Method   | Type Behavior                    |
+| -------- | -------- | -------------------------------- |
+| `+`      | `add`    | Same dimensions required         |
+| `-`      | `sub`    | Same dimensions required         |
+| `*`      | `mul`    | Dimensions multiply (L × T = LT) |
+| `/`      | `div`    | Dimensions divide (L / T = L/T)  |
+| `===`    | `equals` | Same dimensions, tolerance check |
 
 Note: Unlike a simple Numeric typeclass, `mul` and `div` change the dimension type, which is the whole point of unit safety.
 

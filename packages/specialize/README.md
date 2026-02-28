@@ -41,12 +41,12 @@ import { specialize$ } from "@typesugar/specialize";
 
 // Inline specialization for an expression
 // The lambda parameter receives the dictionary, and all method calls are inlined
-const result = specialize$(arrayMonad, F => F.map([1, 2, 3], x => x * 2));
+const result = specialize$(arrayMonad, (F) => F.map([1, 2, 3], (x) => x * 2));
 // Compiles to: [1, 2, 3].map(x => x * 2)
 
 // More complex example with flatMap
-const nested = specialize$(arrayMonad, F =>
-  F.flatMap([1, 2], x => F.map([x, x + 1], y => y * 2))
+const nested = specialize$(arrayMonad, (F) =>
+  F.flatMap([1, 2], (x) => F.map([x, x + 1], (y) => y * 2))
 );
 // Compiles to: [1, 2].flatMap(x => [x, x + 1].map(y => y * 2))
 ```

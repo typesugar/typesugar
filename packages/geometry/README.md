@@ -170,20 +170,20 @@ const myNumeric = numericVector<Polar, Dim2>(2);
 
 ### Available Instances
 
-| Type  | Numeric | Eq  |
-| ----- | ------- | --- |
-| Vec2  | ✓       | ✓   |
-| Vec3  | ✓       | ✓   |
+| Type | Numeric | Eq  |
+| ---- | ------- | --- |
+| Vec2 | ✓       | ✓   |
+| Vec3 | ✓       | ✓   |
 
 ### Operator Mappings
 
-| Operator | Typeclass Method    | Result            |
-| -------- | ------------------- | ----------------- |
-| `+`      | `Numeric.add`       | Component-wise    |
-| `-`      | `Numeric.sub`       | Component-wise    |
-| `*`      | `Numeric.mul`       | Component-wise    |
-| `/`      | `Numeric.div`       | Component-wise    |
-| `===`    | `Eq.eqv`            | All components    |
+| Operator | Typeclass Method | Result         |
+| -------- | ---------------- | -------------- |
+| `+`      | `Numeric.add`    | Component-wise |
+| `-`      | `Numeric.sub`    | Component-wise |
+| `*`      | `Numeric.mul`    | Component-wise |
+| `/`      | `Numeric.div`    | Component-wise |
+| `===`    | `Eq.eqv`         | All components |
 
 ## Type Safety Examples
 

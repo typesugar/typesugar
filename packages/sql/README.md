@@ -41,10 +41,9 @@ const findUser = sql$<User>`
 `;
 
 // Build a pure database program
-const program = ConnectionIO.query(findUser.toQuery(), UserRead)
-  .flatMap(user => user 
-    ? ConnectionIO.pure(user)
-    : ConnectionIO.raw("INSERT INTO users DEFAULT VALUES RETURNING *"));
+const program = ConnectionIO.query(findUser.toQuery(), UserRead).flatMap((user) =>
+  user ? ConnectionIO.pure(user) : ConnectionIO.raw("INSERT INTO users DEFAULT VALUES RETURNING *")
+);
 
 // Execute with a transactor
 const transactor = Transactor.fromPool(pool);
@@ -67,7 +66,7 @@ const age = 30;
 
 const query = sql`SELECT * FROM users WHERE name = ${name} AND age > ${age}`;
 
-console.log(query.text);   // "SELECT * FROM users WHERE name = $1 AND age > $2"
+console.log(query.text); // "SELECT * FROM users WHERE name = $1 AND age > $2"
 console.log(query.params); // ["Alice", 30]
 ```
 
@@ -100,7 +99,7 @@ import { sql, Fragment } from "@typesugar/sql";
 
 const buildQuery = (filters: { name?: string; age?: number; active?: boolean }) => {
   let query = sql`SELECT * FROM users WHERE 1=1`;
-  
+
   if (filters.name) {
     query = sql`${query} AND name = ${filters.name}`;
   }
@@ -110,7 +109,7 @@ const buildQuery = (filters: { name?: string; age?: number; active?: boolean }) 
   if (filters.active !== undefined) {
     query = sql`${query} AND active = ${filters.active}`;
   }
-  
+
   return query;
 };
 
@@ -173,7 +172,7 @@ class TypedFragment<P extends readonly unknown[], R> {
   append<P2, R2>(other: TypedFragment<P2, R2>): TypedFragment<[...P, ...P2], R>;
   prepend<P2, R2>(other: TypedFragment<P2, R2>): TypedFragment<[...P2, ...P], R2>;
   parens(): TypedFragment<P, R>;
-  
+
   // Conversion
   toQuery(): TypedQuery<P, R>;
   toUpdate(): TypedUpdate<P>;
@@ -189,14 +188,14 @@ class TypedFragment<P extends readonly unknown[], R> {
 class TypedQuery<P extends readonly unknown[], R> {
   // Transform result type
   map<R2>(f: (row: R) => R2): TypedQuery<P, R2>;
-  
+
   // Apply a Read instance
   to<R2>(read: Read<R2>): TypedQuery<P, R2>;
-  
+
   // Cardinality modifiers
-  unique(): TypedQuery<P, R>;           // Expect exactly one row
-  option(): TypedQuery<P, R | null>;    // Expect zero or one row
-  
+  unique(): TypedQuery<P, R>; // Expect exactly one row
+  option(): TypedQuery<P, R | null>; // Expect zero or one row
+
   // Get SQL
   toSql(): { sql: string; params: readonly SqlParam[] };
 }
@@ -210,10 +209,10 @@ class TypedQuery<P extends readonly unknown[], R> {
 class TypedUpdate<P extends readonly unknown[]> {
   // Execute and return affected count
   run(): TypedUpdate<P>;
-  
+
   // Execute with RETURNING clause for generated keys
   withGeneratedKeys<K extends string>(...columns: K[]): TypedQuery<P, Record<K, unknown>>;
-  
+
   // Get SQL
   toSql(): { sql: string; params: readonly SqlParam[] };
 }
@@ -245,17 +244,11 @@ import {
 } from "@typesugar/sql";
 
 // Join conditions with AND
-const conditions = andTyped(
-  sql$`name = ${"Alice"}`,
-  sql$`age > ${21}`,
-);
+const conditions = andTyped(sql$`name = ${"Alice"}`, sql$`age > ${21}`);
 // SQL: "name = ? AND age > ?"
 
 // Join conditions with OR
-const alternatives = orTyped(
-  sql$`status = ${"active"}`,
-  sql$`role = ${"admin"}`,
-);
+const alternatives = orTyped(sql$`status = ${"active"}`, sql$`role = ${"admin"}`);
 // SQL: "status = ? OR role = ?"
 
 // Type-safe IN clause
@@ -285,7 +278,7 @@ const maybeFilter = whenTyped(showInactive, sql$`active = ${false}`);
 const where = whereAndTyped(
   sql$`name = ${"Alice"}`,
   showInactive ? sql$`active = ${false}` : null,
-  minAge ? sql$`age >= ${minAge}` : null,
+  minAge ? sql$`age >= ${minAge}` : null
 );
 // SQL: "WHERE name = ? AND active = ? AND age >= ?"
 // Only includes non-null conditions
@@ -426,46 +419,46 @@ interface Meta<A> {
 import {
   // Meta instances (Get + Put)
   Meta,
-  
+
   // Individual Get/Put for finer control
   Get,
   Put,
 } from "@typesugar/sql";
 
 // Primitive Meta instances
-Meta.string     // TEXT, VARCHAR, CHAR
-Meta.number     // NUMERIC, REAL, DOUBLE PRECISION
-Meta.int        // INTEGER, INT (truncates to integer)
-Meta.bigint     // BIGINT
-Meta.boolean    // BOOLEAN
-Meta.date       // TIMESTAMP, TIMESTAMPTZ
-Meta.dateOnly   // DATE (without time)
-Meta.uuid       // UUID
-Meta.json       // JSON, JSONB
-Meta.buffer     // BYTEA
+Meta.string; // TEXT, VARCHAR, CHAR
+Meta.number; // NUMERIC, REAL, DOUBLE PRECISION
+Meta.int; // INTEGER, INT (truncates to integer)
+Meta.bigint; // BIGINT
+Meta.boolean; // BOOLEAN
+Meta.date; // TIMESTAMP, TIMESTAMPTZ
+Meta.dateOnly; // DATE (without time)
+Meta.uuid; // UUID
+Meta.json; // JSON, JSONB
+Meta.buffer; // BYTEA
 
 // Combinators
-Meta.nullable(Meta.string)      // string | null
-Meta.optional(Meta.string)      // string | undefined
-Meta.array(Meta.int)            // number[]
-Meta.jsonAs<MyType>()           // Typed JSON
-Meta.imap(Meta.string, parse, serialize)  // Transform both directions
+Meta.nullable(Meta.string); // string | null
+Meta.optional(Meta.string); // string | undefined
+Meta.array(Meta.int); // number[]
+Meta.jsonAs<MyType>(); // Typed JSON
+Meta.imap(Meta.string, parse, serialize); // Transform both directions
 ```
 
 ### Get/Put Combinators
 
 ```typescript
 // Get combinators (covariant functor)
-Get.map(Get.string, s => s.toUpperCase())    // Transform output
-Get.nullable(Get.int)                         // Handle NULL
-Get.optional(Get.int)                         // NULL → undefined
-Get.array(Get.string)                         // Array of elements
+Get.map(Get.string, (s) => s.toUpperCase()); // Transform output
+Get.nullable(Get.int); // Handle NULL
+Get.optional(Get.int); // NULL → undefined
+Get.array(Get.string); // Array of elements
 
 // Put combinators (contravariant functor)
-Put.contramap(Put.string, (id: UserId) => id.value)  // Transform input
-Put.nullable(Put.int)                                  // Allow null
-Put.optional(Put.int)                                  // Allow undefined
-Put.array(Put.string)                                  // Array of elements
+Put.contramap(Put.string, (id: UserId) => id.value); // Transform input
+Put.nullable(Put.int); // Allow null
+Put.optional(Put.int); // Allow undefined
+Put.array(Put.string); // Array of elements
 ```
 
 ### Read/Write — Row-Level Mapping
@@ -494,20 +487,20 @@ interface Codec<A> extends Read<A>, Write<A> {}
 
 ```typescript
 // Read combinators
-Read.map(ReadUser, user => ({ ...user, displayName: user.name }))
-Read.product(ReadUser, ReadProfile)  // Read<[User, Profile]>
-Read.tuple(ReadUser, ReadProfile, ReadSettings)  // Read<[User, Profile, Settings]>
-Read.optional(ReadUser)              // Read<User | undefined>
-Read.column("name", Get.string)      // Read single column
+Read.map(ReadUser, (user) => ({ ...user, displayName: user.name }));
+Read.product(ReadUser, ReadProfile); // Read<[User, Profile]>
+Read.tuple(ReadUser, ReadProfile, ReadSettings); // Read<[User, Profile, Settings]>
+Read.optional(ReadUser); // Read<User | undefined>
+Read.column("name", Get.string); // Read single column
 
 // Write combinators
-Write.contramap(WriteUser, (dto: UserDTO) => toUser(dto))
-Write.product(WriteUser, WriteProfile)  // Write<[User, Profile]>
-Write.tuple(WriteUser, WriteProfile)    // Write<[User, Profile]>
+Write.contramap(WriteUser, (dto: UserDTO) => toUser(dto));
+Write.product(WriteUser, WriteProfile); // Write<[User, Profile]>
+Write.tuple(WriteUser, WriteProfile); // Write<[User, Profile]>
 
 // Codec combinators
-Codec.fromReadWrite(ReadUser, WriteUser)
-Codec.imap(UserCodec, toDTO, fromDTO)
+Codec.fromReadWrite(ReadUser, WriteUser);
+Codec.imap(UserCodec, toDTO, fromDTO);
 ```
 
 ### Auto-Derivation with @deriving
@@ -577,9 +570,9 @@ const UserIdMeta = Meta.imap(
 import { toSnakeCase } from "@typesugar/sql";
 
 // Automatically convert camelCase fields to snake_case columns
-toSnakeCase("createdAt");  // "created_at"
-toSnakeCase("userId");     // "user_id"
-toSnakeCase("firstName");  // "first_name"
+toSnakeCase("createdAt"); // "created_at"
+toSnakeCase("userId"); // "user_id"
+toSnakeCase("firstName"); // "first_name"
 ```
 
 ### Instance Registries
@@ -672,10 +665,7 @@ const insert = ConnectionIO.executeWithKeys(
 // ConnectionIO<{ id: unknown; created_at: unknown }[]>
 
 // Raw SQL execution
-const raw = ConnectionIO.raw(
-  "SELECT * FROM users WHERE id = $1",
-  [userId]
-);
+const raw = ConnectionIO.raw("SELECT * FROM users WHERE id = $1", [userId]);
 // ConnectionIO<SqlRow[]>
 ```
 
@@ -683,20 +673,23 @@ const raw = ConnectionIO.raw(
 
 ```typescript
 // map — Transform the result
-const program = ConnectionIO.query(findUserQuery, UserRead)
-  .map(user => user?.name ?? "Anonymous");
+const program = ConnectionIO.query(findUserQuery, UserRead).map(
+  (user) => user?.name ?? "Anonymous"
+);
 // ConnectionIO<string>
 
 // flatMap — Chain operations
-const program = ConnectionIO.query(findUserQuery, UserRead)
-  .flatMap(user => user 
+const program = ConnectionIO.query(findUserQuery, UserRead).flatMap((user) =>
+  user
     ? ConnectionIO.pure(user)
-    : ConnectionIO.execute(createDefaultUser)
-        .flatMap(() => ConnectionIO.query(findUserQuery, UserRead)));
+    : ConnectionIO.execute(createDefaultUser).flatMap(() =>
+        ConnectionIO.query(findUserQuery, UserRead)
+      )
+);
 // ConnectionIO<User | null>
 
 // chain — Alias for flatMap
-const program = findUser(id).chain(user => updateLastLogin(user.id));
+const program = findUser(id).chain((user) => updateLastLogin(user.id));
 
 // andThen — Sequence, ignoring first result
 const program = logAccess(userId).andThen(findUser(userId));
@@ -713,13 +706,12 @@ const program = findUser(userId).zip(findProfile(userId));
 const program = findUser(userId).zipLeft(logAccess(userId));
 // ConnectionIO<User | null>
 
-// zipRight — Combine, keeping right result  
+// zipRight — Combine, keeping right result
 const program = logAccess(userId).zipRight(findUser(userId));
 // ConnectionIO<User | null>
 
 // ap — Applicative apply
-const program = ConnectionIO.pure((u: User) => u.name)
-  .ap(findUser(userId));
+const program = ConnectionIO.pure((u: User) => u.name).ap(findUser(userId));
 // ConnectionIO<string | undefined>
 ```
 
@@ -733,7 +725,7 @@ const safe = riskyOperation.attempt();
 // ConnectionIO<Either<Error, Result>>
 
 // handleError — Recover from errors
-const withFallback = riskyOperation.handleError(err => {
+const withFallback = riskyOperation.handleError((err) => {
   console.error("Operation failed:", err);
   return ConnectionIO.pure(defaultValue);
 });
@@ -766,7 +758,7 @@ const kyselyQueryable: Queryable<KyselyQuery> = {
   execute: async (query, conn) => {
     // Execute the Kysely query using the connection
     return await query.execute(conn);
-  }
+  },
 };
 
 // Use ORM queries in ConnectionIO
@@ -789,7 +781,7 @@ const all = sequence(programs);
 
 // traverse — Map then sequence
 const userIds = [1, 2, 3];
-const users = traverse(userIds, id => findUser(id));
+const users = traverse(userIds, (id) => findUser(id));
 // ConnectionIO<(User | null)[]>
 
 // parZip — Run two operations (potentially in parallel)
@@ -810,8 +802,9 @@ const maybeUser = whenA(shouldFetch, findUser(userId));
 
 // unfold — Loop with accumulator
 const paginate = unfold(0, (page) =>
-  ConnectionIO.query(getPage(page), PageRead)
-    .map(results => results.length > 0 ? [page + 1, results] : null)
+  ConnectionIO.query(getPage(page), PageRead).map((results) =>
+    results.length > 0 ? [page + 1, results] : null
+  )
 );
 // ConnectionIO<Page[]>
 ```
@@ -851,8 +844,7 @@ const user = await transactor.run(findUser(userId));
 
 // transact — Execute in a transaction (auto-rollback on error)
 const result = await transactor.transact(
-  ConnectionIO.execute(debitAccount)
-    .flatMap(() => ConnectionIO.execute(creditAccount))
+  ConnectionIO.execute(debitAccount).flatMap(() => ConnectionIO.execute(creditAccount))
 );
 ```
 
@@ -892,7 +884,7 @@ const kyselyQueryable: Queryable<CompiledQuery> = {
   async execute(query, conn) {
     const { sql, parameters } = query;
     return await conn.query(sql, parameters);
-  }
+  },
 };
 
 // Now use Kysely query builders in ConnectionIO
@@ -911,14 +903,11 @@ const drizzleQueryable: Queryable<DrizzleQuery> = {
   async execute(query, conn) {
     const { sql, params } = query.toSQL();
     return await conn.query(sql, params);
-  }
+  },
 };
 
 // Use Drizzle queries in ConnectionIO
-const findUsers = ConnectionIO.fromQueryable(
-  db.select().from(users),
-  drizzleQueryable
-);
+const findUsers = ConnectionIO.fromQueryable(db.select().from(users), drizzleQueryable);
 ```
 
 ---
@@ -934,7 +923,7 @@ When used with the typesugar transformer, additional compile-time features are a
 const bad = sql`SELECT * FROM users WHERE (id = ${1}`;
 
 // Compile-time warning: potentially dangerous pattern
-const risky = sql`DELETE FROM users`;  // Warning: DELETE without WHERE
+const risky = sql`DELETE FROM users`; // Warning: DELETE without WHERE
 ```
 
 ### Type Inference
@@ -952,91 +941,91 @@ const query = sql$`SELECT * FROM users WHERE id = ${userId} AND name = ${name}`;
 
 ### Fragment Building
 
-| Function | Description |
-|----------|-------------|
-| `sql\`...\`` | Basic SQL fragment |
-| `sql$\`...\`` | Typed SQL fragment (macro) |
+| Function         | Description                              |
+| ---------------- | ---------------------------------------- |
+| `sql\`...\``     | Basic SQL fragment                       |
+| `sql$\`...\``    | Typed SQL fragment (macro)               |
 | `sql$<R>\`...\`` | Typed fragment with explicit result type |
 
 ### TypedFragment Combinators
 
-| Function | Description |
-|----------|-------------|
-| `emptyTyped` | Empty fragment |
-| `andTyped(...frags)` | Join with AND |
-| `orTyped(...frags)` | Join with OR |
-| `commasTyped(...frags)` | Join with commas |
-| `intercalateTyped(sep, frags)` | Join with custom separator |
-| `inListTyped(col, values)` | IN clause |
-| `valuesTyped(write, value)` | Single VALUES row |
-| `valuesManyTyped(write, values)` | Multiple VALUES rows |
-| `setTyped(write, partial)` | SET clause |
-| `whenTyped(cond, frag)` | Conditional fragment |
-| `whereAndTyped(...frags)` | WHERE with AND (filters nulls) |
+| Function                         | Description                    |
+| -------------------------------- | ------------------------------ |
+| `emptyTyped`                     | Empty fragment                 |
+| `andTyped(...frags)`             | Join with AND                  |
+| `orTyped(...frags)`              | Join with OR                   |
+| `commasTyped(...frags)`          | Join with commas               |
+| `intercalateTyped(sep, frags)`   | Join with custom separator     |
+| `inListTyped(col, values)`       | IN clause                      |
+| `valuesTyped(write, value)`      | Single VALUES row              |
+| `valuesManyTyped(write, values)` | Multiple VALUES rows           |
+| `setTyped(write, partial)`       | SET clause                     |
+| `whenTyped(cond, frag)`          | Conditional fragment           |
+| `whereAndTyped(...frags)`        | WHERE with AND (filters nulls) |
 
 ### ConnectionIO Constructors
 
-| Function | Description |
-|----------|-------------|
-| `ConnectionIO.pure(a)` | Lift a value |
-| `ConnectionIO.unit` | Void value |
-| `ConnectionIO.delay(f)` | Delayed computation |
-| `ConnectionIO.async(f)` | Async computation |
-| `ConnectionIO.query(q, read)` | Single result query |
-| `ConnectionIO.queryMany(q, read)` | Multiple results query |
-| `ConnectionIO.execute(update)` | Execute update |
-| `ConnectionIO.executeWithKeys(u, cols)` | Update with RETURNING |
-| `ConnectionIO.raw(sql, params)` | Raw SQL |
-| `ConnectionIO.fromQueryable(q, qbl)` | ORM query |
+| Function                                | Description            |
+| --------------------------------------- | ---------------------- |
+| `ConnectionIO.pure(a)`                  | Lift a value           |
+| `ConnectionIO.unit`                     | Void value             |
+| `ConnectionIO.delay(f)`                 | Delayed computation    |
+| `ConnectionIO.async(f)`                 | Async computation      |
+| `ConnectionIO.query(q, read)`           | Single result query    |
+| `ConnectionIO.queryMany(q, read)`       | Multiple results query |
+| `ConnectionIO.execute(update)`          | Execute update         |
+| `ConnectionIO.executeWithKeys(u, cols)` | Update with RETURNING  |
+| `ConnectionIO.raw(sql, params)`         | Raw SQL                |
+| `ConnectionIO.fromQueryable(q, qbl)`    | ORM query              |
 
 ### ConnectionIO Methods
 
-| Method | Description |
-|--------|-------------|
-| `.map(f)` | Transform result |
-| `.flatMap(f)` | Chain operations |
-| `.chain(f)` | Alias for flatMap |
-| `.andThen(next)` | Sequence |
-| `.zip(other)` | Combine results |
-| `.zipLeft(other)` | Combine, keep left |
-| `.zipRight(other)` | Combine, keep right |
-| `.ap(fab)` | Applicative apply |
-| `.attempt()` | Catch as Either |
-| `.handleError(f)` | Error recovery |
-| `.orElse(fallback)` | Simple fallback |
-| `.transact()` | Run in transaction |
+| Method              | Description         |
+| ------------------- | ------------------- |
+| `.map(f)`           | Transform result    |
+| `.flatMap(f)`       | Chain operations    |
+| `.chain(f)`         | Alias for flatMap   |
+| `.andThen(next)`    | Sequence            |
+| `.zip(other)`       | Combine results     |
+| `.zipLeft(other)`   | Combine, keep left  |
+| `.zipRight(other)`  | Combine, keep right |
+| `.ap(fab)`          | Applicative apply   |
+| `.attempt()`        | Catch as Either     |
+| `.handleError(f)`   | Error recovery      |
+| `.orElse(fallback)` | Simple fallback     |
+| `.transact()`       | Run in transaction  |
 
 ### Typeclass Instances
 
-| Instance | Type | SQL Types |
-|----------|------|-----------|
-| `Meta.string` | `string` | TEXT, VARCHAR, CHAR |
-| `Meta.number` | `number` | NUMERIC, REAL, etc. |
-| `Meta.int` | `number` | INTEGER, INT |
-| `Meta.bigint` | `bigint` | BIGINT |
-| `Meta.boolean` | `boolean` | BOOLEAN |
-| `Meta.date` | `Date` | TIMESTAMP, TIMESTAMPTZ |
-| `Meta.dateOnly` | `Date` | DATE |
-| `Meta.uuid` | `string` | UUID |
-| `Meta.json` | `unknown` | JSON, JSONB |
-| `Meta.buffer` | `Buffer` | BYTEA |
+| Instance        | Type      | SQL Types              |
+| --------------- | --------- | ---------------------- |
+| `Meta.string`   | `string`  | TEXT, VARCHAR, CHAR    |
+| `Meta.number`   | `number`  | NUMERIC, REAL, etc.    |
+| `Meta.int`      | `number`  | INTEGER, INT           |
+| `Meta.bigint`   | `bigint`  | BIGINT                 |
+| `Meta.boolean`  | `boolean` | BOOLEAN                |
+| `Meta.date`     | `Date`    | TIMESTAMP, TIMESTAMPTZ |
+| `Meta.dateOnly` | `Date`    | DATE                   |
+| `Meta.uuid`     | `string`  | UUID                   |
+| `Meta.json`     | `unknown` | JSON, JSONB            |
+| `Meta.buffer`   | `Buffer`  | BYTEA                  |
 
 ### Typeclass Combinators
 
-| Combinator | Description |
-|------------|-------------|
-| `Meta.nullable(m)` | Allow NULL |
-| `Meta.optional(m)` | NULL → undefined |
-| `Meta.array(m)` | Array type |
-| `Meta.imap(m, f, g)` | Bidirectional transform |
-| `Meta.jsonAs<T>()` | Typed JSON |
-| `Get.map(g, f)` | Transform output |
-| `Put.contramap(p, f)` | Transform input |
-| `Read.map(r, f)` | Transform row |
-| `Read.product(r1, r2)` | Combine reads |
-| `Read.tuple(...rs)` | Multi-read |
-| `Write.contramap(w, f)` | Transform input |
-| `Write.product(w1, w2)` | Combine writes |
+| Combinator              | Description             |
+| ----------------------- | ----------------------- |
+| `Meta.nullable(m)`      | Allow NULL              |
+| `Meta.optional(m)`      | NULL → undefined        |
+| `Meta.array(m)`         | Array type              |
+| `Meta.imap(m, f, g)`    | Bidirectional transform |
+| `Meta.jsonAs<T>()`      | Typed JSON              |
+| `Get.map(g, f)`         | Transform output        |
+| `Put.contramap(p, f)`   | Transform input         |
+| `Read.map(r, f)`        | Transform row           |
+| `Read.product(r1, r2)`  | Combine reads           |
+| `Read.tuple(...rs)`     | Multi-read              |
+| `Write.contramap(w, f)` | Transform input         |
+| `Write.product(w1, w2)` | Combine writes          |
 
 ---
 

@@ -454,10 +454,10 @@ Evaluation of all typesugar modules across 4 dimensions:
 | Score | Count | Packages                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 5/5   | Many  | eslint-plugin (usefulness), transformer (usefulness), ts-plugin (usefulness), unplugin (usefulness), std (usefulness), umbrella (usefulness), prettier-plugin (usefulness, docs), react (usefulness), effect (usefulness), testing (docs), erased (docs), symbolic (docs), math (docs), comptime (docs, coherence), core (completeness, coherence), transformer (coherence), unplugin (coherence), vscode (coherence) |
-| 4/5   | Many  | sql (completeness, coherence, docs) *(docs improved from 2)*, validate (docs) *(corrected from 1)*, (see individual evaluations)                                                                                                                                                                                                                                                                                                          |
-| 3/5   | Many  | macros (completeness) *(improved from 1)*, typeclass (coherence) *(improved from 2)*, derive (completeness) *(improved from 2)*, strings (completeness) *(improved from 2)*, units (coherence) *(improved from 2)*, (see individual evaluations)                                                                                                                                                                                                                                                                                          |
-| 2/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                          |
-| 1/5   | 1     | named-args (coherence)                                                                                                                                                                                                                                                                                                                                                                   |
+| 4/5   | Many  | sql (completeness, coherence, docs) _(docs improved from 2)_, validate (docs) _(corrected from 1)_, (see individual evaluations)                                                                                                                                                                                                                                                                                      |
+| 3/5   | Many  | macros (completeness) _(improved from 1)_, typeclass (coherence) _(improved from 2)_, derive (completeness) _(improved from 2)_, strings (completeness) _(improved from 2)_, units (coherence) _(improved from 2)_, (see individual evaluations)                                                                                                                                                                      |
+| 2/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
+| 1/5   | 1     | named-args (coherence)                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ## Key Patterns Identified
 
@@ -474,19 +474,19 @@ Evaluation of all typesugar modules across 4 dimensions:
 - **@typesugar/symbolic** — Well-implemented with good Op<> usage and red-team tests
 - **@typesugar/math** — Mature library with proper typeclass integration
 - **@typesugar/vscode** — Well-architected extension with manifest-driven design, tests confirmed
-- **@typesugar/sql** — *(Updated 2026-02-28)* README rewritten to document all features; now comprehensive docs (4/5)
+- **@typesugar/sql** — _(Updated 2026-02-28)_ README rewritten to document all features; now comprehensive docs (4/5)
 
 ### Packages Needing Work (avg <= 2.5)
 
-- ~~**@typesugar/macros**~~ *(Removed 2026-02-28)* — Now functional and buildable
+- ~~**@typesugar/macros**~~ _(Removed 2026-02-28)_ — Now functional and buildable
 - **@typesugar/named-args** — Not zero-cost, contradicts philosophy
-- ~~**@typesugar/typeclass**~~ *(Removed 2026-02-28)* — Architecture fixed, now re-exports from macros
-- ~~**@typesugar/strings**~~ *(Removed 2026-02-28)* — Tests added (28), macros fixed, completeness now 3/5
-- ~~**@typesugar/derive**~~ *(Removed 2026-02-28)* — Sum types now implemented
-- ~~**@typesugar/units**~~ *(Removed 2026-02-28)* — Auto-derive bug fixed, now works with typeclass system
-- ~~**@typesugar/validate**~~ *(Removed 2026-02-28)* — README was correct all along (not builder DSL), docs 4/5
+- ~~**@typesugar/typeclass**~~ _(Removed 2026-02-28)_ — Architecture fixed, now re-exports from macros
+- ~~**@typesugar/strings**~~ _(Removed 2026-02-28)_ — Tests added (28), macros fixed, completeness now 3/5
+- ~~**@typesugar/derive**~~ _(Removed 2026-02-28)_ — Sum types now implemented
+- ~~**@typesugar/units**~~ _(Removed 2026-02-28)_ — Auto-derive bug fixed, now works with typeclass system
+- ~~**@typesugar/validate**~~ _(Removed 2026-02-28)_ — README was correct all along (not builder DSL), docs 4/5
 - **@typesugar/fusion** — Claims zero-cost but macros are stubs
-- ~~**@typesugar/specialize**~~ *(Removed 2026-02-28)* — `specialize$` IS exported, signature matches docs
+- ~~**@typesugar/specialize**~~ _(Removed 2026-02-28)_ — `specialize$` IS exported, signature matches docs
 
 ### Common Issues
 
@@ -495,7 +495,7 @@ Evaluation of all typesugar modules across 4 dimensions:
    - ~~@typesugar/typeclass~~ — Now properly re-exports from macros
    - **Remaining**: @typesugar/operators still duplicates rather than re-exporting
 
-2. **Stale Project Names** — *(Resolved 2026-02-28)*
+2. **Stale Project Names** — _(Resolved 2026-02-28)_
    - Already migrated to `typesugar` throughout codebase
    - Remaining `typemacro`/`ttfx` references are intentional for backwards compatibility (transformer/ESLint recognize old imports)
 
@@ -518,13 +518,13 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ### Recommendations
 
-1. ~~**Delete or complete @typesugar/macros**~~ — *(Done)* Package is now functional
-2. ~~**Consolidate typeclass implementations**~~ — *(Done)* Package now re-exports from macros
-3. ~~**Fix documentation/implementation drift**~~ — *(Done 2026-02-28)* sql README rewritten, validate/specialize were correct
+1. ~~**Delete or complete @typesugar/macros**~~ — _(Done)_ Package is now functional
+2. ~~**Consolidate typeclass implementations**~~ — _(Done)_ Package now re-exports from macros
+3. ~~**Fix documentation/implementation drift**~~ — _(Done 2026-02-28)_ sql README rewritten, validate/specialize were correct
 4. **Add Op<> typeclass integration** — geometry, fusion should use operators (units now works via auto-derive)
-5. ~~**Update stale names**~~ — *(Done)* Already migrated, remaining refs intentional for backwards compat
-6. ~~**Add missing test coverage for strings**~~ — *(Done 2026-02-28)* 28 tests added
-7. ~~**Fix specialize exports**~~ — *(Not needed)* `specialize$` IS exported with correct signature
+5. ~~**Update stale names**~~ — _(Done)_ Already migrated, remaining refs intentional for backwards compat
+6. ~~**Add missing test coverage for strings**~~ — _(Done 2026-02-28)_ 28 tests added
+7. ~~**Fix specialize exports**~~ — _(Not needed)_ `specialize$` IS exported with correct signature
 8. **Add tests for remaining packages** — derive, drizzle, kysely, operators still have empty tests/ directories
 
 ---

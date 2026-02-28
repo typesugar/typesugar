@@ -224,33 +224,33 @@ const user = schema.parse(data);
 
 ### Macros
 
-| Macro | Description |
-| --- | --- |
-| `is<T>()` | Generate a type guard `(x: unknown) => x is T` |
-| `assert<T>()` | Generate an assertion `(x: unknown) => T` that throws on failure |
+| Macro           | Description                                                       |
+| --------------- | ----------------------------------------------------------------- |
+| `is<T>()`       | Generate a type guard `(x: unknown) => x is T`                    |
+| `assert<T>()`   | Generate an assertion `(x: unknown) => T` that throws on failure  |
 | `validate<T>()` | Generate a validator returning `ValidatedNel<ValidationError, T>` |
 
 ### Types
 
-| Type | Description |
-| --- | --- |
-| `Schema<F>` | Typeclass for validation libraries |
-| `NativeSchema` | Specialized Schema for native validators |
-| `Validator<A>` | Type guard function `(x: unknown) => x is A` |
-| `ValidationError` | Error with `path` and `message` fields |
+| Type              | Description                                  |
+| ----------------- | -------------------------------------------- |
+| `Schema<F>`       | Typeclass for validation libraries           |
+| `NativeSchema`    | Specialized Schema for native validators     |
+| `Validator<A>`    | Type guard function `(x: unknown) => x is A` |
+| `ValidationError` | Error with `path` and `message` fields       |
 
 ### Functions
 
-| Function | Description |
-| --- | --- |
-| `nativeSchema` | Pre-built Schema instance for native validators |
-| `makeSchema<F>(parse, safeParse)` | Create a Schema instance |
-| `makeNativeSchema(parse, safeParse)` | Create a NativeSchema instance |
-| `parseOrElse(S)` | Parse with fallback value |
-| `parseMap(S)` | Parse and transform result |
-| `parseChain(S)` | Chain two parsers |
-| `parseAll(S)` | Parse array of values |
-| `safeParseAll(S)` | Parse array with error accumulation |
+| Function                             | Description                                     |
+| ------------------------------------ | ----------------------------------------------- |
+| `nativeSchema`                       | Pre-built Schema instance for native validators |
+| `makeSchema<F>(parse, safeParse)`    | Create a Schema instance                        |
+| `makeNativeSchema(parse, safeParse)` | Create a NativeSchema instance                  |
+| `parseOrElse(S)`                     | Parse with fallback value                       |
+| `parseMap(S)`                        | Parse and transform result                      |
+| `parseChain(S)`                      | Chain two parsers                               |
+| `parseAll(S)`                        | Parse array of values                           |
+| `safeParseAll(S)`                    | Parse array with error accumulation             |
 
 ## License
 

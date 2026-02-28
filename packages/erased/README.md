@@ -196,13 +196,13 @@ The vtable is shared across all values created with the same method implementati
 
 The capability system mirrors typesugar's typeclass system. The `erased()` macro automatically resolves vtables from registered typeclass instances:
 
-| Capability        | Typeclass | Method Mapping       |
-| ----------------- | --------- | -------------------- |
-| `ShowCapability`  | `Show`    | `show` → `show`      |
-| `EqCapability`    | `Eq`      | `equals` → `equals`  |
-| `OrdCapability`   | `Ord`     | `compare` → `compare`|
-| `HashCapability`  | `Hash`    | `hash` → `hash`      |
-| `CloneCapability` | `Clone`   | `clone` → `clone`    |
+| Capability        | Typeclass | Method Mapping        |
+| ----------------- | --------- | --------------------- |
+| `ShowCapability`  | `Show`    | `show` → `show`       |
+| `EqCapability`    | `Eq`      | `equals` → `equals`   |
+| `OrdCapability`   | `Ord`     | `compare` → `compare` |
+| `HashCapability`  | `Hash`    | `hash` → `hash`       |
+| `CloneCapability` | `Clone`   | `clone` → `clone`     |
 
 ## Auto-Derivation with `erased()`
 

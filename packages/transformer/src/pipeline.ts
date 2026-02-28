@@ -342,7 +342,10 @@ export class TransformationPipeline {
     try {
       // Use cached transformer factory - only create once per program
       if (!this.cachedTransformerFactory) {
-        this.cachedTransformerFactory = macroTransformerFactory(this.program!, this.transformerConfig);
+        this.cachedTransformerFactory = macroTransformerFactory(
+          this.program!,
+          this.transformerConfig
+        );
       }
 
       const result = ts.transform(sourceFile, [this.cachedTransformerFactory]);

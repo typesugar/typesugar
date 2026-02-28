@@ -291,11 +291,10 @@ export const erasedMacro = defineExpressionMacro({
     // Generate: eraseWith(value, { show: ..., equals: ... })
     const vtableObj = factory.createObjectLiteralExpression(vtableProperties, true);
 
-    return factory.createCallExpression(
-      factory.createIdentifier("eraseWith"),
-      undefined,
-      [valueExpr, vtableObj]
-    );
+    return factory.createCallExpression(factory.createIdentifier("eraseWith"), undefined, [
+      valueExpr,
+      vtableObj,
+    ]);
   },
 });
 
