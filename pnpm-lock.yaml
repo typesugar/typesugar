@@ -229,6 +229,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
     devDependencies:
       tsup:
         specifier: ^8.0.0
