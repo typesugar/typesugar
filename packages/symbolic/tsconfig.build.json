@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./.typesugar"
+    "rootDir": "./src"
   },
-  "include": [".typesugar/**/*"]
+  "include": ["src/**/*"]
 }

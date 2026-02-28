@@ -2,18 +2,14 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: {
-    index: ".typesugar/index.ts",
-    "data/index": ".typesugar/data/index.ts",
-    "io/index": ".typesugar/io/index.ts",
-    "typeclasses/index": ".typesugar/typeclasses/index.ts",
-    "syntax/index": ".typesugar/syntax/index.ts",
+    index: "src/index.ts",
+    "data/index": "src/data/index.ts",
+    "io/index": "src/io/index.ts",
+    "typeclasses/index": "src/typeclasses/index.ts",
+    "syntax/index": "src/syntax/index.ts",
   },
   format: ["cjs", "esm"],
-  dts: {
-    compilerOptions: {
-      rootDir: "./.typesugar",
-    },
-  },
+  dts: true,
   sourcemap: true,
   clean: true,
   external: ["typescript", "@typesugar/type-system"],

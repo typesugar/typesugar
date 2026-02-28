@@ -50,10 +50,9 @@
     }
   },
   "scripts": {
-    "prebuild": "typesugar preprocess src --outDir .typesugar",
-    "build": "tsup && rm -rf .typesugar",
+    "build": "tsup",
     "build:watch": "tsup --watch",
-    "clean": "rm -rf dist .typesugar",
+    "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
