@@ -15,33 +15,113 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
+import {
+  defineTaggedTemplateMacro,
+  globalRegistry,
+  type MacroContext,
+  type TaggedTemplateMacroDef,
+} from "@typesugar/core";
+
+// ============================================================================
+// Runtime Stubs (throw if transformer not applied)
+// ============================================================================
+
+/**
+ * Create a compile-time validated regular expression.
+ * This is a runtime placeholder that throws if the transformer is not applied.
+ *
+ * @example
+ * ```typescript
+ * const email = regex`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`;
+ * ```
+ */
+export function regex(_strings: TemplateStringsArray, ..._values: unknown[]): RegExp {
+  throw new Error(
+    "regex`...` was not transformed at compile time. " +
+      "Make sure the typesugar transformer is configured."
+  );
+}
+
+/**
+ * Create HTML with automatic XSS escaping for interpolated values.
+ * This is a runtime placeholder that throws if the transformer is not applied.
+ *
+ * @example
+ * ```typescript
+ * const safe = html`<div>${userInput}</div>`;
+ * ```
+ */
+export function html(_strings: TemplateStringsArray, ..._values: unknown[]): string {
+  throw new Error(
+    "html`...` was not transformed at compile time. " +
+      "Make sure the typesugar transformer is configured."
+  );
+}
+
+/**
+ * Printf-style string formatting with type checking.
+ * This is a runtime placeholder that throws if the transformer is not applied.
+ *
+ * @example
+ * ```typescript
+ * const message = fmt`Hello, ${name}! You are ${age} years old.`;
+ * ```
+ */
+export function fmt(_strings: TemplateStringsArray, ..._values: unknown[]): string {
+  throw new Error(
+    "fmt`...` was not transformed at compile time. " +
+      "Make sure the typesugar transformer is configured."
+  );
+}
+
+/**
+ * Parse and validate JSON at compile time.
+ * This is a runtime placeholder that throws if the transformer is not applied.
+ *
+ * @example
+ * ```typescript
+ * const config = json`{"name": "app", "version": "1.0.0"}`;
+ * ```
+ */
+export function json(_strings: TemplateStringsArray, ..._values: unknown[]): unknown {
+  throw new Error(
+    "json`...` was not transformed at compile time. " +
+      "Make sure the typesugar transformer is configured."
+  );
+}
+
+/**
+ * Raw string without escape processing.
+ * This is a runtime placeholder that throws if the transformer is not applied.
+ *
+ * @example
+ * ```typescript
+ * const path = raw`C:\Users\name\Documents`;
+ * ```
+ */
+export function raw(_strings: TemplateStringsArray, ..._values: unknown[]): string {
+  throw new Error(
+    "raw`...` was not transformed at compile time. " +
+      "Make sure the typesugar transformer is configured."
+  );
+}
 
 // ============================================================================
 // Regex Tagged Template
 // ============================================================================
 
-export const regexMacro = defineExpressionMacro({
+export const regexMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "regex",
+  module: "@typesugar/strings",
   description: "Create compile-time validated regular expressions",
 
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
+  expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
     const factory = ctx.factory;
-
-    if (args.length !== 1 || !ts.isTemplateLiteral(args[0])) {
-      ctx.reportError(callExpr, "regex expects a template literal");
-      return callExpr;
-    }
-
-    const template = args[0];
+    const template = node.template;
 
     if (!ts.isNoSubstitutionTemplateLiteral(template)) {
-      ctx.reportError(callExpr, "regex does not support interpolations");
-      return callExpr;
+      ctx.reportError(node, "regex does not support interpolations");
+      return node;
     }
 
     const pattern = template.text;
@@ -51,8 +131,8 @@ export const regexMacro = defineExpressionMacro({
       new RegExp(pattern);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      ctx.reportError(callExpr, `Invalid regular expression: ${msg}`);
-      return callExpr;
+      ctx.reportError(node, `Invalid regular expression: ${msg}`);
+      return node;
     }
 
     // Return: new RegExp("pattern")
@@ -66,23 +146,14 @@ export const regexMacro = defineExpressionMacro({
 // HTML Tagged Template with XSS Protection
 // ============================================================================
 
-export const htmlMacro = defineExpressionMacro({
+export const htmlMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "html",
+  module: "@typesugar/strings",
   description: "Create HTML with automatic XSS escaping",
 
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
+  expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
     const factory = ctx.factory;
-
-    if (args.length !== 1 || !ts.isTemplateLiteral(args[0])) {
-      ctx.reportError(callExpr, "html expects a template literal");
-      return callExpr;
-    }
-
-    const template = args[0];
+    const template = node.template;
 
     // Simple template - return as-is
     if (ts.isNoSubstitutionTemplateLiteral(template)) {
@@ -122,7 +193,7 @@ export const htmlMacro = defineExpressionMacro({
       return result;
     }
 
-    return callExpr;
+    return node;
   },
 });
 
@@ -130,30 +201,22 @@ export const htmlMacro = defineExpressionMacro({
 // Printf-style Format Macro
 // ============================================================================
 
-export const fmtMacro = defineExpressionMacro({
+export const fmtMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "fmt",
+  module: "@typesugar/strings",
   description: "Printf-style formatting with type checking",
 
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
+  expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
     const factory = ctx.factory;
+    const template = node.template;
 
-    if (args.length !== 1 || !ts.isTemplateLiteral(args[0])) {
-      ctx.reportError(callExpr, "fmt expects a template literal");
-      return callExpr;
+    // No interpolations - return as-is
+    if (ts.isNoSubstitutionTemplateLiteral(template)) {
+      return factory.createStringLiteral(template.text);
     }
 
-    const template = args[0];
-
     if (!ts.isTemplateExpression(template)) {
-      // No interpolations - return as-is
-      if (ts.isNoSubstitutionTemplateLiteral(template)) {
-        return factory.createStringLiteral(template.text);
-      }
-      return callExpr;
+      return node;
     }
 
     // Parse format specifiers from the template head and middles
@@ -219,30 +282,18 @@ function concatStrings(
 // JSON Tagged Template with Schema Validation
 // ============================================================================
 
-export const jsonMacro = defineExpressionMacro({
+export const jsonMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "json",
+  module: "@typesugar/strings",
   description: "Parse and validate JSON at compile time",
 
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
+  expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
     const factory = ctx.factory;
-
-    if (args.length !== 1 || !ts.isTemplateLiteral(args[0])) {
-      ctx.reportError(callExpr, "json expects a template literal");
-      return callExpr;
-    }
-
-    const template = args[0];
+    const template = node.template;
 
     if (!ts.isNoSubstitutionTemplateLiteral(template)) {
-      ctx.reportError(
-        callExpr,
-        "json does not support interpolations - use a regular object literal"
-      );
-      return callExpr;
+      ctx.reportError(node, "json does not support interpolations - use a regular object literal");
+      return node;
     }
 
     const jsonString = template.text;
@@ -253,8 +304,8 @@ export const jsonMacro = defineExpressionMacro({
       parsed = JSON.parse(jsonString);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      ctx.reportError(callExpr, `Invalid JSON: ${msg}`);
-      return callExpr;
+      ctx.reportError(node, `Invalid JSON: ${msg}`);
+      return node;
     }
 
     // Convert to AST
@@ -302,23 +353,14 @@ function jsonToAst(factory: ts.NodeFactory, value: unknown): ts.Expression {
 // Raw String (no escape processing)
 // ============================================================================
 
-export const rawMacro = defineExpressionMacro({
+export const rawMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "raw",
+  module: "@typesugar/strings",
   description: "Raw string without escape processing",
 
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
+  expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
     const factory = ctx.factory;
-
-    if (args.length !== 1 || !ts.isTemplateLiteral(args[0])) {
-      ctx.reportError(callExpr, "raw expects a template literal");
-      return callExpr;
-    }
-
-    const template = args[0];
+    const template = node.template;
 
     if (ts.isNoSubstitutionTemplateLiteral(template)) {
       // Get the raw text (with escape sequences preserved)
@@ -343,7 +385,7 @@ export const rawMacro = defineExpressionMacro({
       return result;
     }
 
-    return callExpr;
+    return node;
   },
 });
 
