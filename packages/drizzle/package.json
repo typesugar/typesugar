@@ -1,6 +1,7 @@
 {
   "name": "@typesugar/drizzle-adapter",
   "version": "0.1.0",
+  "private": true,
   "description": "🧊 Drizzle adapter for typesugar - type-safe SQL tagged templates that compile to Drizzle's sql template",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

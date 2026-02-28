@@ -1,6 +1,7 @@
 {
   "name": "@typesugar/kysely-adapter",
   "version": "0.1.0",
+  "private": true,
   "description": "🧊 Kysely adapter for typesugar - type-safe SQL tagged templates that compile to Kysely's RawBuilder",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
