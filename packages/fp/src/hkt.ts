@@ -2,25 +2,37 @@
  * Higher-Kinded Types for @typesugar/fp
  *
  * This module defines type-level functions for @typesugar/fp data types using the
- * indexed-access HKT encoding from `@typesugar/type-system`.
+ * phantom kind marker encoding from `@typesugar/type-system`.
  *
  * ## Zero-Cost Philosophy
  *
  * The HKT encoding exists only at the type level. At runtime:
  * - Type-level functions (`OptionF`, `EitherF`) are erased completely
- * - `$<OptionF, number>` resolves to `Option<number>` (no wrapper)
+ * - `Kind<OptionF, number>` resolves to `Option<number>` via preprocessor
  * - The `specialize` macro inlines dictionary methods at call sites
  * - No closures, no indirect dispatch, no dictionary objects in hot paths
  *
- * ## How it works
+ * ## Three-Layer Architecture
  *
- * ```typescript
- * // Define a type-level function
- * interface OptionF { _: Option<this["_"]> }
+ * 1. **Lexical** (`F<A>` with `F<_>` declaration):
+ *    ```typescript
+ *    interface Functor<F<_>> {
+ *      map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+ *    }
+ *    ```
  *
- * // $<OptionF, number> evaluates to Option<number>
- * // by intersecting OptionF with { readonly _: number } and looking up ["_"]
- * ```
+ * 2. **Intermediate** (`Kind<F, A>`):
+ *    ```typescript
+ *    interface Functor<F> {
+ *      map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
+ *    }
+ *    ```
+ *
+ * 3. **Final** (resolved for known type functions):
+ *    ```typescript
+ *    // Kind<OptionF, A> → Option<A>
+ *    map<A, B>(fa: Option<A>, f: (a: A) => B): Option<B>;
+ *    ```
  *
  * ## Multi-arity type constructors
  *
@@ -28,14 +40,17 @@
  * but one parameter and vary the rightmost:
  *
  * ```typescript
- * interface EitherF<E> { _: Either<E, this["_"]> }
- * // $<EitherF<string>, number> = Either<string, number>
+ * interface EitherF<E> { _: Either<E, this["__kind__"]> }
+ * // Kind<EitherF<string>, number> → Either<string, number>
  * ```
  */
 
 // Re-export core HKT infrastructure from type-system
-export type { $, Kind } from "@typesugar/type-system";
+export type { $, Kind, Apply, TypeFunction } from "@typesugar/type-system";
 export { unsafeCoerce } from "@typesugar/type-system";
+
+// Import TypeFunction for use in interface definitions
+import type { TypeFunction } from "@typesugar/type-system";
 
 // ============================================================================
 // Import actual data types from their modules
@@ -69,11 +84,12 @@ export type { State, Reader, Writer, IO, Resource };
  *
  * @example
  * ```typescript
- * type NumberArray = $<ArrayF, number>; // Array<number>
+ * type NumberArray = Kind<ArrayF, number>; // → Array<number>
  * ```
  */
-export interface ArrayF {
-  _: Array<this["_"]>;
+export interface ArrayF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Array<this["__kind__"]>;
 }
 
 /**
@@ -81,11 +97,12 @@ export interface ArrayF {
  *
  * @example
  * ```typescript
- * type AsyncNumber = $<PromiseF, number>; // Promise<number>
+ * type AsyncNumber = Kind<PromiseF, number>; // → Promise<number>
  * ```
  */
-export interface PromiseF {
-  _: Promise<this["_"]>;
+export interface PromiseF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Promise<this["__kind__"]>;
 }
 
 // ============================================================================
@@ -97,11 +114,12 @@ export interface PromiseF {
  *
  * @example
  * ```typescript
- * type MaybeNumber = $<OptionF, number>; // Option<number>
+ * type MaybeNumber = Kind<OptionF, number>; // → Option<number>
  * ```
  */
-export interface OptionF {
-  _: Option<this["_"]>;
+export interface OptionF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Option<this["__kind__"]>;
 }
 
 /**
@@ -109,11 +127,12 @@ export interface OptionF {
  *
  * @example
  * ```typescript
- * type StringResult<A> = $<EitherF<string>, A>; // Either<string, A>
+ * type StringResult<A> = Kind<EitherF<string>, A>; // → Either<string, A>
  * ```
  */
-export interface EitherF<E> {
-  _: Either<E, this["_"]>;
+export interface EitherF<E> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Either<E, this["__kind__"]>;
 }
 
 /**
@@ -121,11 +140,12 @@ export interface EitherF<E> {
  *
  * @example
  * ```typescript
- * type NumberList = $<ListF, number>; // List<number>
+ * type NumberList = Kind<ListF, number>; // → List<number>
  * ```
  */
-export interface ListF {
-  _: List<this["_"]>;
+export interface ListF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: List<this["__kind__"]>;
 }
 
 /**
@@ -133,11 +153,12 @@ export interface ListF {
  *
  * @example
  * ```typescript
- * type NonEmptyNumbers = $<NonEmptyListF, number>; // NonEmptyList<number>
+ * type NonEmptyNumbers = Kind<NonEmptyListF, number>; // → NonEmptyList<number>
  * ```
  */
-export interface NonEmptyListF {
-  _: NonEmptyList<this["_"]>;
+export interface NonEmptyListF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: NonEmptyList<this["__kind__"]>;
 }
 
 /**
@@ -145,11 +166,12 @@ export interface NonEmptyListF {
  *
  * @example
  * ```typescript
- * type ValidationResult<A> = $<ValidatedF<string[]>, A>; // Validated<string[], A>
+ * type ValidationResult<A> = Kind<ValidatedF<string[]>, A>; // → Validated<string[], A>
  * ```
  */
-export interface ValidatedF<E> {
-  _: Validated<E, this["_"]>;
+export interface ValidatedF<E> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Validated<E, this["__kind__"]>;
 }
 
 /**
@@ -157,11 +179,12 @@ export interface ValidatedF<E> {
  *
  * @example
  * ```typescript
- * type CounterState<A> = $<StateF<number>, A>; // State<number, A>
+ * type CounterState<A> = Kind<StateF<number>, A>; // → State<number, A>
  * ```
  */
-export interface StateF<S> {
-  _: State<S, this["_"]>;
+export interface StateF<S> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: State<S, this["__kind__"]>;
 }
 
 /**
@@ -169,11 +192,12 @@ export interface StateF<S> {
  *
  * @example
  * ```typescript
- * type ConfigReader<A> = $<ReaderF<Config>, A>; // Reader<Config, A>
+ * type ConfigReader<A> = Kind<ReaderF<Config>, A>; // → Reader<Config, A>
  * ```
  */
-export interface ReaderF<R> {
-  _: Reader<R, this["_"]>;
+export interface ReaderF<R> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Reader<R, this["__kind__"]>;
 }
 
 /**
@@ -181,11 +205,12 @@ export interface ReaderF<R> {
  *
  * @example
  * ```typescript
- * type LogWriter<A> = $<WriterF<string[]>, A>; // Writer<string[], A>
+ * type LogWriter<A> = Kind<WriterF<string[]>, A>; // → Writer<string[], A>
  * ```
  */
-export interface WriterF<W> {
-  _: Writer<W, this["_"]>;
+export interface WriterF<W> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Writer<W, this["__kind__"]>;
 }
 
 /**
@@ -193,11 +218,12 @@ export interface WriterF<W> {
  *
  * @example
  * ```typescript
- * type IOAction = $<IOF, string>; // IO<string>
+ * type IOAction = Kind<IOF, string>; // → IO<string>
  * ```
  */
-export interface IOF {
-  _: IO<this["_"]>;
+export interface IOF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: IO<this["__kind__"]>;
 }
 
 /**
@@ -205,11 +231,12 @@ export interface IOF {
  *
  * @example
  * ```typescript
- * type Identity = $<IdF, number>; // number (Id is transparent)
+ * type Identity = Kind<IdF, number>; // → number (Id is transparent)
  * ```
  */
-export interface IdF {
-  _: Id<this["_"]>;
+export interface IdF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Id<this["__kind__"]>;
 }
 
 /**
@@ -217,11 +244,12 @@ export interface IdF {
  *
  * @example
  * ```typescript
- * type ResourceHandle = $<ResourceF, FileHandle>; // Resource<FileHandle>
+ * type ResourceHandle = Kind<ResourceF, FileHandle>; // → Resource<FileHandle>
  * ```
  */
-export interface ResourceF {
-  _: Resource<this["_"]>;
+export interface ResourceF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Resource<this["__kind__"]>;
 }
 
 // ============================================================================

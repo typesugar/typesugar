@@ -60,3 +60,21 @@ export { hktExtension } from "./extensions/hkt.js";
 export { pipelineExtension } from "./extensions/pipeline.js";
 export { consExtension } from "./extensions/cons.js";
 export { decoratorRewriteExtension } from "./extensions/decorator-rewrite.js";
+
+// HKT Registry and Import Tracking
+export {
+  HKT_OPERATOR_PACKAGES,
+  HKT_TYPE_FUNCTIONS,
+  isKnownTypeFunction,
+  getTypeFunction,
+  getConcreteType,
+  isHKTOperatorPackage,
+  isExportedFrom,
+  type HKTTypeFunction,
+} from "./hkt-registry.js";
+
+export {
+  scanImports,
+  type TrackedImports,
+  type TrackedTypeFunction,
+} from "./import-tracker.js";

@@ -40,7 +40,7 @@
  * - `LayerF<RIn, E>` - Type constructor for Layer with fixed input/error
  */
 
-import type { $ } from "../hkt.js";
+import type { $, TypeFunction } from "../hkt.js";
 import type { Functor } from "../typeclasses/functor.js";
 import type { Applicative } from "../typeclasses/applicative.js";
 import type { Monad } from "../typeclasses/monad.js";
@@ -102,27 +102,30 @@ type LayerTypeId = typeof LayerTypeId;
  *
  * Usage:
  * ```typescript
- * type MyEffect = $<EffectF<never, Error>, number>;
+ * type MyEffect = Kind<EffectF<never, Error>, number>;
  * // Resolves to: Effect<number, Error, never>
  * ```
  */
-export interface EffectF<R = never, E = never> {
-  _: Effect<this["_"], E, R>;
+export interface EffectF<R = never, E = never> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Effect<this["__kind__"], E, R>;
 }
 
 /**
  * Type-level function for Stream with fixed R and E.
  */
-export interface StreamF<R = never, E = never> {
-  _: Stream<this["_"], E, R>;
+export interface StreamF<R = never, E = never> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Stream<this["__kind__"], E, R>;
 }
 
 /**
  * Type-level function for Layer with fixed RIn and E.
  * The output type R varies.
  */
-export interface LayerF<RIn = never, E = never> {
-  _: Layer<this["_"], E, RIn>;
+export interface LayerF<RIn = never, E = never> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Layer<this["__kind__"], E, RIn>;
 }
 
 // ============================================================================

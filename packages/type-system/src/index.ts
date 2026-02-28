@@ -56,10 +56,12 @@ export {
   type Equals, // deprecated alias
 } from "./type-utils.js";
 
-// Higher-Kinded Types (via indexed-access encoding)
+// Higher-Kinded Types (via phantom kind marker encoding)
 export {
   type $,
   type Kind,
+  type Apply,
+  type TypeFunction,
   type ArrayF,
   type PromiseF,
   type SetF,

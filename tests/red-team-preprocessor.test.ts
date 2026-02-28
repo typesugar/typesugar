@@ -202,10 +202,10 @@ describe("Preprocessor Edge Cases", () => {
 
       expect(changed).toBe(true);
       // F<_> and G<_> declarations should be stripped
-      // F<G<A>> should become $<F, $<G, A>> (nested composition)
-      // G<F<A>> should become $<G, $<F, A>>
-      expect(code).toContain("$<F, $<G, A>>");
-      expect(code).toContain("$<G, $<F, A>>");
+      // F<G<A>> should become Kind<F, Kind<G, A>> (nested composition)
+      // G<F<A>> should become Kind<G, Kind<F, A>>
+      expect(code).toContain("Kind<F, Kind<G, A>>");
+      expect(code).toContain("Kind<G, Kind<F, A>>");
       expect(code).not.toContain("F<_>");
       expect(code).not.toContain("G<_>");
     });

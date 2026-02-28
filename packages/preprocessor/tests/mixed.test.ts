@@ -13,8 +13,8 @@ const result = value |> transform;`;
       const { code, changed } = preprocess(source);
       expect(changed).toBe(true);
       expect(code).toContain("Functor<F>");
-      expect(code).toContain("$<F, A>");
-      expect(code).toContain("$<F, B>");
+      expect(code).toContain("Kind<F, A>");
+      expect(code).toContain("Kind<F, B>");
       expect(code).toContain('__binop__(value, "|>", transform)');
     });
 
@@ -28,7 +28,7 @@ const list = 1 :: 2 :: [];`;
       const { code, changed } = preprocess(source);
       expect(changed).toBe(true);
       expect(code).toContain("IterableOnce<F>");
-      expect(code).toContain("$<F, A>");
+      expect(code).toContain("Kind<F, A>");
       expect(code).toContain('__binop__(1, "::", __binop__(2, "::", []))');
     });
   });
@@ -70,7 +70,7 @@ const x = a |> b :: c;`;
       const { code, changed } = preprocess(source);
       expect(changed).toBe(true);
       expect(code).toContain("F<X>");
-      expect(code).toContain("$<X, A>");
+      expect(code).toContain("Kind<X, A>");
       expect(code).toContain("__binop__");
     });
   });
@@ -151,8 +151,8 @@ export function lift<F<_>>(F: Functor<F>): <A, B>(f: (a: A) => B) => (fa: F<A>) 
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("Functor<F>");
-      expect(code).toContain("$<F, A>");
-      expect(code).toContain("$<F, B>");
+      expect(code).toContain("Kind<F, A>");
+      expect(code).toContain("Kind<F, B>");
     });
 
     it("should handle functional pipeline composition", () => {

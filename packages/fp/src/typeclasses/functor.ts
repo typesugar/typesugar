@@ -114,11 +114,14 @@ export function makeFunctor<F>(map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, 
 // ============================================================================
 
 /**
- * Compose two functors
+ * Compose two functors.
+ *
+ * Note: Uses `unknown` coercion because tuple-based type function composition
+ * (`[F, G]`) doesn't have a proper HKT encoding. This is a known limitation.
  */
 export function composeFunctor<F, G>(F: Functor<F>, G: Functor<G>): Functor<[F, G]> {
   return {
     map: <A, B>(fga: $<[F, G], A>, f: (a: A) => B): $<[F, G], B> =>
-      F.map(fga as $<F, $<G, A>>, (ga: $<G, A>) => G.map(ga, f)) as $<[F, G], B>,
+      F.map(fga as unknown as $<F, $<G, A>>, (ga: $<G, A>) => G.map(ga, f)) as unknown as $<[F, G], B>,
   };
 }

@@ -2,13 +2,13 @@
  * Higher-Kinded Types for Effect-TS
  *
  * This module defines type-level functions for Effect-TS types using the
- * indexed-access HKT encoding from `@typesugar/type-system`.
+ * phantom kind marker encoding from `@typesugar/type-system`.
  *
  * ## Zero-Cost Philosophy
  *
  * The HKT encoding exists only at the type level. At runtime:
  * - Type-level functions (`EffectF`, `ChunkF`) are erased completely
- * - `$<EffectF<never, never>, number>` resolves to `Effect<number, never, never>`
+ * - `Kind<EffectF<never, never>, number>` resolves to `Effect<number, never, never>`
  * - The `specialize` macro inlines dictionary methods at call sites
  *
  * ## Multi-arity type constructors
@@ -16,17 +16,18 @@
  * Effect has three type parameters (A, E, R). We fix E and R and vary A:
  *
  * ```typescript
- * interface EffectF<E, R> { _: Effect<this["_"], E, R> }
- * // $<EffectF<HttpError, HttpClient>, User> = Effect<User, HttpError, HttpClient>
+ * interface EffectF<E, R> extends TypeFunction { _: Effect<this["__kind__"], E, R> }
+ * // Kind<EffectF<HttpError, HttpClient>, User> → Effect<User, HttpError, HttpClient>
  * ```
  *
  * @module
  */
 
 import type { Effect, Chunk, Option, Either, Stream } from "effect";
+import type { TypeFunction } from "@typesugar/type-system";
 
 // Re-export core HKT infrastructure
-export type { $ } from "@typesugar/type-system";
+export type { $, Kind, TypeFunction } from "@typesugar/type-system";
 
 // ============================================================================
 // Type-Level Functions for Effect Types
@@ -42,12 +43,13 @@ export type { $ } from "@typesugar/type-system";
  *
  * @example
  * ```typescript
- * type HttpResult<A> = $<EffectF<HttpError, HttpClient>, A>;
+ * type HttpResult<A> = Kind<EffectF<HttpError, HttpClient>, A>;
  * // Resolves to: Effect<A, HttpError, HttpClient>
  * ```
  */
-export interface EffectF<E = never, R = never> {
-  _: Effect.Effect<this["_"], E, R>;
+export interface EffectF<E = never, R = never> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Effect.Effect<this["__kind__"], E, R>;
 }
 
 /**
@@ -57,11 +59,12 @@ export interface EffectF<E = never, R = never> {
  *
  * @example
  * ```typescript
- * type NumberChunk = $<ChunkF, number>; // Chunk<number>
+ * type NumberChunk = Kind<ChunkF, number>; // → Chunk<number>
  * ```
  */
-export interface ChunkF {
-  _: Chunk.Chunk<this["_"]>;
+export interface ChunkF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Chunk.Chunk<this["__kind__"]>;
 }
 
 /**
@@ -69,11 +72,12 @@ export interface ChunkF {
  *
  * @example
  * ```typescript
- * type MaybeNumber = $<EffectOptionF, number>; // Option<number>
+ * type MaybeNumber = Kind<EffectOptionF, number>; // → Option<number>
  * ```
  */
-export interface EffectOptionF {
-  _: Option.Option<this["_"]>;
+export interface EffectOptionF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Option.Option<this["__kind__"]>;
 }
 
 /**
@@ -81,11 +85,12 @@ export interface EffectOptionF {
  *
  * @example
  * ```typescript
- * type StringResult<A> = $<EffectEitherF<string>, A>; // Either<string, A>
+ * type StringResult<A> = Kind<EffectEitherF<string>, A>; // → Either<string, A>
  * ```
  */
-export interface EffectEitherF<E> {
-  _: Either.Either<this["_"], E>;
+export interface EffectEitherF<E> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Either.Either<this["__kind__"], E>;
 }
 
 /**
@@ -96,11 +101,12 @@ export interface EffectEitherF<E> {
  *
  * @example
  * ```typescript
- * type UserStream<A> = $<StreamF<Error, HttpClient>, A>; // Stream<A, Error, HttpClient>
+ * type UserStream<A> = Kind<StreamF<Error, HttpClient>, A>; // → Stream<A, Error, HttpClient>
  * ```
  */
-export interface StreamF<E = never, R = never> {
-  _: Stream.Stream<this["_"], E, R>;
+export interface StreamF<E = never, R = never> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Stream.Stream<this["__kind__"], E, R>;
 }
 
 // ============================================================================

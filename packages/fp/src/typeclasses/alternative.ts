@@ -77,11 +77,15 @@ export function combineAllOptionK<F>(F: MonoidK<F>): <A>(fas: $<F, A>[]) => $<F,
 }
 
 /**
- * Filter and collect values
+ * Filter and collect values.
+ *
+ * Note: This function uses `unknown` coercion because the type relationship
+ * between `$<F, $<F, A>>` and `$<F, A>` is not directly expressible with the
+ * phantom kind marker encoding. A proper implementation would need FlatMap.
  */
 export function unite<F>(F: MonoidK<F>): <A>(ffa: $<F, $<F, A>>[]) => $<F, A> {
   return <A>(ffa: $<F, $<F, A>>[]): $<F, A> =>
-    ffa.reduce<$<F, A>>((acc, ffa_i) => F.combineK(acc, ffa_i), F.emptyK<A>());
+    ffa.reduce<$<F, A>>((acc, ffa_i) => F.combineK(acc, ffa_i as unknown as $<F, A>), F.emptyK<A>());
 }
 
 // ============================================================================

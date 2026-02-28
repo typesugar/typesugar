@@ -1,52 +1,62 @@
 /**
- * Higher-Kinded Types (HKT) via Indexed Access Encoding
+ * Higher-Kinded Types (HKT) via Phantom Kind Markers
  *
  * This module provides a lightweight, zero-cost HKT encoding for TypeScript
- * using the indexed-access pattern. Unlike the old URI-branding approach,
- * this encoding:
+ * using phantom type markers. The encoding is designed for:
  *
- * - Is natively understood by TypeScript (no registry, no module augmentation)
- * - Requires no `as unknown as` casts
- * - Has zero runtime overhead (types only, no brand objects)
- * - Works seamlessly with IDE tooling
+ * - Fast type checking (no recursive type instantiation)
+ * - Valid TypeScript (works without macros, just slower error messages)
+ * - Zero runtime overhead (types only, no brand objects)
+ * - Seamless macro expansion (preprocessor resolves to concrete types)
+ *
+ * ## Three-Layer Architecture
+ *
+ * 1. **Lexical** (`F<A>` with `F<_>` declaration):
+ *    Custom syntax, requires preprocessor
+ *
+ * 2. **Intermediate** (`Kind<F, A>`):
+ *    Valid TypeScript, fast to type-check (just an intersection)
+ *    This is what the preprocessor emits
+ *
+ * 3. **Final** (`Option<A>`):
+ *    Concrete type, after preprocessor resolution for known type functions
  *
  * ## How it works
  *
- * The core insight is that TypeScript can use indexed access on intersection
- * types to simulate type-level function application:
+ * `Kind<F, A>` is a phantom type marker - it carries the type function F
+ * and argument A without forcing TypeScript to compute the result:
  *
  * ```typescript
- * type $<F, A> = (F & { readonly _: A })["_"];
+ * type Kind<F, A> = F & { readonly __kind__: A };
  * ```
  *
- * A "type-level function" is an interface with a `_` property that uses
- * `this["_"]` to reference the type argument:
+ * This is just an intersection type - TypeScript stores it without
+ * recursive computation. The preprocessor then resolves:
  *
- * ```typescript
- * interface ArrayF { _: Array<this["_"]> }
- * interface OptionF { _: Option<this["_"]> }
- * ```
- *
- * Then `$<ArrayF, number>` evaluates to `Array<number>`:
- * 1. `ArrayF & { readonly _: number }` creates `{ _: Array<this["_"]> } & { readonly _: number }`
- * 2. Looking up `["_"]` on this intersection yields `Array<number>`
+ * - `Kind<OptionF, number>` → `Option<number>` (known type function)
+ * - `Kind<F, A>` → unchanged (F is a type parameter)
  *
  * ## Usage
  *
  * ```typescript
- * import { $, Kind } from "@typesugar/type-system";
+ * import { Kind } from "@typesugar/type-system";
  *
  * // Define a type-level function for your type
- * interface OptionF { _: Option<this["_"]> }
+ * interface OptionF { _: Option<this["__kind__"]> }
  *
- * // Use in typeclass definitions
- * interface Functor<F> {
- *   map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
+ * // Use in typeclass definitions (with F<_> syntax)
+ * interface Functor<F<_>> {
+ *   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
  * }
  *
- * // Use in generic functions
- * function double<F>(F: Functor<F>, fa: $<F, number>): $<F, number> {
- *   return F.map(fa, x => x * 2);
+ * // Preprocessor converts to:
+ * interface Functor<F> {
+ *   map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
+ * }
+ *
+ * // When instantiated with OptionF, resolves to:
+ * interface Functor<OptionF> {
+ *   map<A, B>(fa: Option<A>, f: (a: A) => B): Option<B>;
  * }
  * ```
  *
@@ -56,10 +66,9 @@
  *
  * ```typescript
  * // Either<E, A> - fix E, vary A
- * interface EitherF<E> { _: Either<E, this["_"]> }
+ * interface EitherF<E> { _: Either<E, this["__kind__"]> }
  *
- * // Map<K, V> - fix K, vary V
- * interface MapF<K> { _: Map<K, this["_"]> }
+ * // Kind<EitherF<string>, number> → Either<string, number>
  * ```
  */
 
@@ -68,25 +77,57 @@
 // ============================================================================
 
 /**
- * Type-level function application.
+ * Base interface for type-level functions.
  *
- * `$<F, A>` applies the type-level function `F` to the type argument `A`.
- * `F` must be an interface with a `_` property that uses `this["_"]`.
+ * All type-level functions (like `OptionF`, `ArrayF`) should extend this
+ * interface to properly support the phantom kind marker encoding.
+ */
+export interface TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: unknown;
+}
+
+/**
+ * Phantom kind marker for HKT.
+ *
+ * `Kind<F, A>` represents "the type function F applied to A" without
+ * forcing TypeScript to compute the result. This is fast to type-check
+ * because it's just an intersection type.
+ *
+ * The preprocessor resolves `Kind<OptionF, A>` → `Option<A>` for known
+ * type functions, leaving generic usages like `Kind<F, A>` unchanged.
  *
  * @example
  * ```typescript
- * interface ArrayF { _: Array<this["_"]> }
- * type Numbers = $<ArrayF, number>; // Array<number>
+ * // After preprocessor:
+ * const x: Kind<OptionF, number> = Some(1);  // Resolves to Option<number>
+ * function id<F>(fa: Kind<F, number>): Kind<F, number> { return fa; }  // Stays as Kind<F, number>
  * ```
  */
-export type $<F, A> = (F & { readonly _: A })["_"];
+export type Kind<F, A> = F & { readonly __kind__: A };
 
 /**
- * Alias for `$<F, A>` — provided for familiarity with fp-ts style.
+ * Alias for `Kind<F, A>` — shorthand syntax.
  *
- * Both `Kind<F, A>` and `$<F, A>` are identical; use whichever you prefer.
+ * Both `$<F, A>` and `Kind<F, A>` are identical.
+ * The preprocessor uses `Kind` internally, but `$` is available for brevity.
  */
-export type Kind<F, A> = $<F, A>;
+export type $<F, A> = Kind<F, A>;
+
+/**
+ * Apply a type-level function to get the concrete type.
+ *
+ * This extracts the result type from a type-level function by looking up
+ * the `_` property. Use this when you need the actual computed type:
+ *
+ * ```typescript
+ * type Result = Apply<OptionF, number>;  // Option<number>
+ * ```
+ *
+ * Note: The preprocessor automatically resolves `Kind<OptionF, A>` to
+ * `Option<A>` for known type functions, so you rarely need `Apply` directly.
+ */
+export type Apply<F extends TypeFunction, A> = (F & { readonly __kind__: A })["_"];
 
 // ============================================================================
 // Built-in Type-Level Functions for Standard TypeScript Types
@@ -97,11 +138,14 @@ export type Kind<F, A> = $<F, A>;
  *
  * @example
  * ```typescript
- * type Numbers = $<ArrayF, number>; // Array<number>
+ * type Numbers = Apply<ArrayF, number>; // Array<number>
+ * // Or after preprocessor resolution:
+ * type Numbers = Kind<ArrayF, number>;  // → Array<number>
  * ```
  */
-export interface ArrayF {
-  _: Array<this["_"]>;
+export interface ArrayF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Array<this["__kind__"]>;
 }
 
 /**
@@ -109,11 +153,12 @@ export interface ArrayF {
  *
  * @example
  * ```typescript
- * type AsyncNumber = $<PromiseF, number>; // Promise<number>
+ * type AsyncNumber = Apply<PromiseF, number>; // Promise<number>
  * ```
  */
-export interface PromiseF {
-  _: Promise<this["_"]>;
+export interface PromiseF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Promise<this["__kind__"]>;
 }
 
 /**
@@ -121,11 +166,12 @@ export interface PromiseF {
  *
  * @example
  * ```typescript
- * type NumberSet = $<SetF, number>; // Set<number>
+ * type NumberSet = Apply<SetF, number>; // Set<number>
  * ```
  */
-export interface SetF {
-  _: Set<this["_"]>;
+export interface SetF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Set<this["__kind__"]>;
 }
 
 /**
@@ -133,11 +179,12 @@ export interface SetF {
  *
  * @example
  * ```typescript
- * type RONumbers = $<ReadonlyArrayF, number>; // readonly number[]
+ * type RONumbers = Apply<ReadonlyArrayF, number>; // readonly number[]
  * ```
  */
-export interface ReadonlyArrayF {
-  _: ReadonlyArray<this["_"]>;
+export interface ReadonlyArrayF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: ReadonlyArray<this["__kind__"]>;
 }
 
 /**
@@ -145,11 +192,12 @@ export interface ReadonlyArrayF {
  *
  * @example
  * ```typescript
- * type StringToNumber = $<MapF<string>, number>; // Map<string, number>
+ * type StringToNumber = Apply<MapF<string>, number>; // Map<string, number>
  * ```
  */
-export interface MapF<K> {
-  _: Map<K, this["_"]>;
+export interface MapF<K> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Map<K, this["__kind__"]>;
 }
 
 // ============================================================================

@@ -25,7 +25,7 @@
  * @module @typesugar/validate/schema
  */
 
-import type { $ } from "@typesugar/type-system";
+import type { $, TypeFunction } from "@typesugar/type-system";
 import type { ValidatedNel } from "@typesugar/fp";
 import { Valid, invalidNel } from "@typesugar/fp";
 import type { ValidationError } from "./types.js";
@@ -91,10 +91,11 @@ export interface NativeSchema {
 
 /**
  * Type-level function for assertion validators.
- * `$<AssertF, A>` resolves to an assertion function `(x: unknown) => A`.
+ * `Kind<AssertF, A>` resolves to an assertion function `(x: unknown) => A`.
  */
-export interface AssertF {
-  _: (value: unknown) => this["_"];
+export interface AssertF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: (value: unknown) => this["__kind__"];
 }
 
 // ============================================================================
