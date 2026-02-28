@@ -1450,6 +1450,12 @@ class MacroTransformer {
     const importAliases = aliases[importedModule];
     if (importAliases?.includes(macroModule)) return true;
 
+    // Umbrella package "typesugar" re-exports from all @typesugar/* packages
+    // so importing from "typesugar" should match any @typesugar/* macro module
+    if (importedModule === "typesugar" && macroModule.startsWith("@typesugar/")) {
+      return true;
+    }
+
     // @typesugar/* packages should match their package name AND legacy aliases
     if (importedModule.startsWith("@typesugar/")) {
       const pkgName = importedModule.slice("@typesugar/".length);

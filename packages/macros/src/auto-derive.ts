@@ -527,9 +527,16 @@ function extractMetaFromTypeChecker(ctx: MacroContext, typeName: string): Generi
       prop.valueDeclaration ?? sourceFile
     );
 
+    // Skip methods — they're behavior, not data.
+    // Structural typeclasses (Eq, Ord, Show) only operate on data properties.
+    if (propType.getCallSignatures().length > 0) continue;
+
     fieldNames.push(prop.name);
     fieldTypes.push(typeChecker.typeToString(propType));
   }
+
+  // If all properties were methods (no data fields), derivation isn't possible
+  if (fieldNames.length === 0) return null;
 
   return {
     kind: "product",
