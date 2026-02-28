@@ -10,11 +10,8 @@ import {
   meters,
   kilometers,
   seconds,
-  minutes,
   hours,
   kilograms,
-  newtons,
-  joules,
   metersPerSecond,
   kilometersPerHour,
   units,
@@ -45,22 +42,24 @@ const force = mass.mul(acceleration);
 console.log(`Force: ${force.value} ${force.symbol}`);
 
 // --- Unit Conversions ---
+// All units store values in SI base units internally (.value property).
+// To display in different units, divide by the appropriate conversion factor.
 
 console.log("\n--- Conversions ---");
 
 const distanceKm = kilometers(1);
-const distanceM = distanceKm.to(meters);
-console.log(`1 km = ${distanceM.value} m`);
+// distanceKm.value is already in meters (SI base unit)
+console.log(`1 km = ${distanceKm.value} m`);
 
 const speedKmh = kilometersPerHour(100);
-const speedMs = speedKmh.to(metersPerSecond);
-console.log(`100 km/h = ${speedMs.value.toFixed(2)} m/s`);
+// speedKmh.value is in m/s (SI base unit for velocity)
+console.log(`100 km/h = ${speedKmh.value.toFixed(2)} m/s`);
 
 const timeHours = hours(2);
-const timeMinutes = timeHours.to(minutes);
-const timeSeconds = timeHours.to(seconds);
+// timeHours.value is in seconds (SI base unit)
+// Convert for display: divide by 60 for minutes
 console.log(
-  `2 hours = ${timeMinutes.value} minutes = ${timeSeconds.value} seconds`,
+  `2 hours = ${timeHours.value / 60} minutes = ${timeHours.value} seconds`,
 );
 
 // --- Same-Unit Arithmetic ---

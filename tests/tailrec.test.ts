@@ -140,7 +140,7 @@ describe("tailrec macro registration", () => {
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("tailrec");
     expect(macro!.kind).toBe("attribute");
-    expect(macro!.module).toBe("typemacro");
+    expect(macro!.module).toBe("typesugar");
   });
 
   it("should have correct metadata", () => {
@@ -151,7 +151,7 @@ describe("tailrec macro registration", () => {
   });
 
   it("should be discoverable by module export", () => {
-    const macro = globalRegistry.getByModuleExport("typemacro", "tailrec");
+    const macro = globalRegistry.getByModuleExport("typesugar", "tailrec");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("tailrec");
   });
@@ -469,8 +469,8 @@ describe("tailrec transformation", () => {
     `);
 
     // Should have let declarations for mutable copies (hygienic names)
-    expect(output).toMatch(/let __typemacro_tr_n_\d+__ = n/);
-    expect(output).toMatch(/let __typemacro_tr_acc_\d+__ = acc/);
+    expect(output).toMatch(/let __typesugar_tr_n_\d+__ = n/);
+    expect(output).toMatch(/let __typesugar_tr_acc_\d+__ = acc/);
   });
 
   it("should use temporaries for argument evaluation", () => {
@@ -483,8 +483,8 @@ describe("tailrec transformation", () => {
 
     // Should use temporaries to avoid order-of-evaluation issues
     // when parameters reference each other (swap pattern) - hygienic names
-    expect(output).toMatch(/__typemacro_tr_next_a_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_next_b_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_a_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_b_\d+__/);
   });
 
   it("should replace parameter references in the body", () => {
@@ -496,9 +496,9 @@ describe("tailrec transformation", () => {
     `);
 
     // The body should reference hygienic variable names
-    expect(output).toMatch(/__typemacro_tr_n_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_acc_\d+__/);
-    expect(output).toMatch(/return __typemacro_tr_acc_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_n_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_acc_\d+__/);
+    expect(output).toMatch(/return __typesugar_tr_acc_\d+__/);
   });
 
   it("should end trampoline block with continue", () => {
@@ -586,7 +586,7 @@ describe("tailrec edge cases", () => {
 
     expect(diagnostics).toHaveLength(0);
     expect(output).toContain("while (true)");
-    expect(output).toMatch(/__typemacro_tr_n_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_n_\d+__/);
   });
 
   it("should handle many parameters", () => {
@@ -598,10 +598,10 @@ describe("tailrec edge cases", () => {
     `);
 
     expect(diagnostics).toHaveLength(0);
-    expect(output).toMatch(/__typemacro_tr_a_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_b_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_c_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_d_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_a_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_b_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_c_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_d_\d+__/);
   });
 
   it("should handle multiple return points with tail calls", () => {
@@ -632,8 +632,8 @@ describe("tailrec edge cases", () => {
 
     expect(diagnostics).toHaveLength(0);
     // Must use temporaries for correct swap semantics (hygienic names)
-    expect(output).toMatch(/__typemacro_tr_next_a_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_next_b_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_a_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_b_\d+__/);
   });
 
   it("should accept recursive call in RHS of logical && (tail position)", () => {
@@ -728,13 +728,13 @@ describe("tailrec functional correctness", () => {
     // 2. Check condition, return if so
     // 3. Compute new values with _tr_next_* temporaries
     // 4. Assign and continue
-    // Names are now hygienic: __typemacro_tr_<name>_<counter>__
-    expect(output).toMatch(/let __typemacro_tr_n_\d+__ = n/);
-    expect(output).toMatch(/let __typemacro_tr_acc_\d+__ = acc/);
-    expect(output).toMatch(/return __typemacro_tr_acc_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_next_n_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_next_acc_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_n_\d+__ \* __typemacro_tr_acc_\d+__/);
+    // Names are now hygienic: __typesugar_tr_<name>_<counter>__
+    expect(output).toMatch(/let __typesugar_tr_n_\d+__ = n/);
+    expect(output).toMatch(/let __typesugar_tr_acc_\d+__ = acc/);
+    expect(output).toMatch(/return __typesugar_tr_acc_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_n_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_acc_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_n_\d+__ \* __typesugar_tr_acc_\d+__/);
     expect(output).toContain("continue");
   });
 
@@ -746,13 +746,13 @@ describe("tailrec functional correctness", () => {
       }
     `);
 
-    // Names are now hygienic: __typemacro_tr_<name>_<counter>__
-    expect(output).toMatch(/let __typemacro_tr_a_\d+__ = a/);
-    expect(output).toMatch(/let __typemacro_tr_b_\d+__ = b/);
-    expect(output).toMatch(/return __typemacro_tr_a_\d+__/);
+    // Names are now hygienic: __typesugar_tr_<name>_<counter>__
+    expect(output).toMatch(/let __typesugar_tr_a_\d+__ = a/);
+    expect(output).toMatch(/let __typesugar_tr_b_\d+__ = b/);
+    expect(output).toMatch(/return __typesugar_tr_a_\d+__/);
     // New values for the recursive step
-    expect(output).toMatch(/__typemacro_tr_next_a_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_next_b_\d+__/);
-    expect(output).toMatch(/__typemacro_tr_a_\d+__ % __typemacro_tr_b_\d+__/); // new b = old a % old b
+    expect(output).toMatch(/__typesugar_tr_next_a_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_next_b_\d+__/);
+    expect(output).toMatch(/__typesugar_tr_a_\d+__ % __typesugar_tr_b_\d+__/); // new b = old a % old b
   });
 });

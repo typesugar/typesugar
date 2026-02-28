@@ -1,7 +1,7 @@
 /**
  * specialize macro — Zero-cost typeclass abstraction via compile-time inlining
  *
- * The core philosophy of typemacro is zero-cost abstractions: you write generic,
+ * The core philosophy of typesugar is zero-cost abstractions: you write generic,
  * typeclass-polymorphic code, and the macro system eliminates the abstraction
  * overhead at compile time — no dictionary passing, no indirect dispatch, no
  * closure allocation at runtime.

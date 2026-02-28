@@ -2,7 +2,7 @@
  * Integration tests for HKT F<_> declaration transformation.
  *
  * Verifies that interface/type declarations using F<_> kind syntax
- * get rewritten so that F<A> usages become $<F, A>.
+ * get rewritten so that F<A> usages become Kind<F, A>.
  *
  * The AST-level transform is a fallback for the ts-patch path where
  * the preprocessor may not have run. Tests use extensions: [] to
@@ -27,10 +27,10 @@ interface Functor<F<_>> {
     const result = transformWithoutPreprocessor(code);
     // F<_> should be stripped to just F in type params
     expect(result.code).toContain("Functor<F>");
-    // F<A> should become $<F, A>
-    expect(result.code).toContain("$<F, A>");
-    // F<B> should become $<F, B>
-    expect(result.code).toContain("$<F, B>");
+    // F<A> should become Kind<F, A>
+    expect(result.code).toContain("Kind<F, A>");
+    // F<B> should become Kind<F, B>
+    expect(result.code).toContain("Kind<F, B>");
     // Original F<A> syntax should not remain
     expect(result.code).not.toMatch(/\bF<A>/);
     expect(result.code).not.toMatch(/\bF<B>/);
@@ -43,7 +43,7 @@ type Apply<F<_>, A> = F<A>;
 
     const result = transformWithoutPreprocessor(code);
     expect(result.code).toContain("Apply<F, A>");
-    expect(result.code).toContain("$<F, A>");
+    expect(result.code).toContain("Kind<F, A>");
     expect(result.code).not.toMatch(/\bF<A>/);
   });
 
@@ -58,7 +58,7 @@ interface Container<T> {
     const result = transformWithoutPreprocessor(code);
     expect(result.code).toContain("Container<T>");
     expect(result.code).toContain("readonly value: T");
-    expect(result.code).not.toContain("$<");
+    expect(result.code).not.toContain("Kind<");
   });
 
   it("handles multiple type params where only some are HKT", () => {
@@ -70,7 +70,7 @@ interface MapLike<F<_>, K> {
 
     const result = transformWithoutPreprocessor(code);
     expect(result.code).toContain("MapLike<F, K>");
-    expect(result.code).toContain("$<F, V>");
+    expect(result.code).toContain("Kind<F, V>");
     expect(result.code).not.toMatch(/\bF<V>/);
     // K is not HKT, so K references should remain unchanged
     expect(result.code).toContain("key: K");
@@ -86,7 +86,7 @@ interface Monad<F<_>> {
 
     const result = transformWithoutPreprocessor(code);
     expect(result.code).toContain("Monad<F>");
-    expect(result.code).toContain("$<F,");
+    expect(result.code).toContain("Kind<F,");
     expect(result.code).not.toMatch(/\bF<A>/);
     expect(result.code).not.toMatch(/\bF<B>/);
   });
@@ -106,11 +106,11 @@ interface Functor<F<_>> {
     // With preprocessor disabled (AST transform only)
     const resultASTOnly = transformWithoutPreprocessor(code, "hkt-ast.ts");
 
-    // Both should produce equivalent results with $<F, ...>
-    expect(resultWithPreproc.code).toContain("$<F, A>");
-    expect(resultWithPreproc.code).toContain("$<F, B>");
-    expect(resultASTOnly.code).toContain("$<F, A>");
-    expect(resultASTOnly.code).toContain("$<F, B>");
+    // Both should produce equivalent results with Kind<F, ...>
+    expect(resultWithPreproc.code).toContain("Kind<F, A>");
+    expect(resultWithPreproc.code).toContain("Kind<F, B>");
+    expect(resultASTOnly.code).toContain("Kind<F, A>");
+    expect(resultASTOnly.code).toContain("Kind<F, B>");
 
     // Neither should contain raw F<A>
     expect(resultWithPreproc.code).not.toMatch(/\bF<A>/);
@@ -126,6 +126,6 @@ interface HasDefault<F<_>> {
 
     const result = transformWithoutPreprocessor(code);
     expect(result.code).toContain("HasDefault<F>");
-    expect(result.code).toContain("$<F, never>");
+    expect(result.code).toContain("Kind<F, never>");
   });
 });

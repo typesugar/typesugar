@@ -36,6 +36,8 @@ const force = mass.mul(velocity.div(time));
 
 ### Type-Safe Arithmetic
 
+With the typesugar transformer, use natural operator syntax:
+
 ```typescript
 import { meters, seconds } from "@typesugar/units";
 
@@ -43,10 +45,19 @@ const d1 = meters(100);
 const d2 = meters(50);
 const t = seconds(10);
 
-// Same-unit operations work
-const total = d1.add(d2); // ✓ 150 meters
+// Operator syntax (requires typesugar transformer)
+const total = d1 + d2; // 150 meters
+const diff = d1 - d2; // 50 meters
+const velocity = d1 / t; // Unit<Velocity>
 
-// Different-unit operations caught at compile time
+// Different-dimension operations caught at compile time
+// const invalid = d1 + t; // ✗ Compile error: can't add meters and seconds
+```
+
+Or use explicit method calls:
+
+```typescript
+const total = d1.add(d2); // ✓ 150 meters
 const invalid = d1.add(t); // ✗ Compile error: can't add meters and seconds
 ```
 
@@ -61,14 +72,39 @@ const mass = units`5.5 kg`; // Type: Unit<Mass>
 const energy = units`1000 J`; // Type: Unit<Energy>
 ```
 
-### Conversion
+### Unit Values and Display
+
+All units store values internally in SI base units. Access the raw value with `.value`:
 
 ```typescript
 import { meters, kilometers, feet } from "@typesugar/units";
 
 const d = kilometers(1);
-const inMeters = d.to(meters); // 1000 meters
-const inFeet = d.to(feet); // ~3280.84 feet
+console.log(d.value); // 1000 (stored as meters internally)
+console.log(d.symbol); // "km"
+console.log(d.toString()); // "1000 km"
+
+const f = feet(1);
+console.log(f.value); // 0.3048 (stored as meters)
+```
+
+### Arithmetic Conversion
+
+Convert between units of the same dimension through arithmetic:
+
+```typescript
+import { meters, kilometers } from "@typesugar/units";
+
+// Convert kilometers to a number in meters
+const km = kilometers(5);
+const metersValue = km.value; // 5000
+
+// Create a new unit with specific representation
+const inMeters = meters(km.value); // Unit<Length> with value 5000, symbol "m"
+
+// Velocity conversion
+const speed = kilometersPerHour(100);
+const mps = metersPerSecond(speed.value); // Convert via the raw value
 ```
 
 ## Available Units
@@ -123,18 +159,26 @@ const inFeet = d.to(feet); // ~3280.84 feet
 
 ```typescript
 class Unit<D extends Dimensions> {
-  readonly value: number;
-  readonly dimensions: D;
+  readonly value: number;   // Value in SI base units
+  readonly symbol: string;  // Display symbol (e.g., "km", "m/s")
 
+  // Same-dimension operations
   add(other: Unit<D>): Unit<D>;
   sub(other: Unit<D>): Unit<D>;
+
+  // Cross-dimension operations (dimensions combine)
   mul<D2>(other: Unit<D2>): Unit<MulDimensions<D, D2>>;
   div<D2>(other: Unit<D2>): Unit<DivDimensions<D, D2>>;
 
+  // Scalar operations
   scale(factor: number): Unit<D>;
-  abs(): Unit<D>;
+  neg(): Unit<D>;
 
-  to<D2 extends D>(target: (n: number) => Unit<D2>): Unit<D2>;
+  // Comparison
+  equals(other: Unit<D>, tolerance?: number): boolean;
+
+  // Display
+  toString(): string;  // "value symbol"
 }
 ```
 
@@ -153,6 +197,20 @@ type Dimensions<
 ```typescript
 function units(strings: TemplateStringsArray): Unit<Dimensions>;
 ```
+
+## Typeclass Integration
+
+The Unit class methods are annotated with `Op<>` return types, enabling the typesugar transformer to rewrite operators:
+
+| Operator | Method   | Type Behavior                   |
+| -------- | -------- | ------------------------------- |
+| `+`      | `add`    | Same dimensions required        |
+| `-`      | `sub`    | Same dimensions required        |
+| `*`      | `mul`    | Dimensions multiply (L × T = LT)|
+| `/`      | `div`    | Dimensions divide (L / T = L/T) |
+| `===`    | `equals` | Same dimensions, tolerance check|
+
+Note: Unlike a simple Numeric typeclass, `mul` and `div` change the dimension type, which is the whole point of unit safety.
 
 ## How It Works
 

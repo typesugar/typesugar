@@ -32,7 +32,7 @@ import { MacroContextImpl } from "@typesugar/core";
 
 export const staticAssertMacro = defineExpressionMacro({
   name: "staticAssert",
-  module: "typemacro",
+  module: "typesugar",
   description:
     "Assert a condition at compile time. Fails compilation with a message if the condition is false.",
 
@@ -112,7 +112,7 @@ export const staticAssertMacro = defineExpressionMacro({
 
 export const compileErrorMacro = defineExpressionMacro({
   name: "compileError",
-  module: "typemacro",
+  module: "typesugar",
   description:
     "Unconditionally emit a compile-time error. Useful for marking unreachable code or deprecated APIs.",
 
@@ -139,7 +139,7 @@ export const compileErrorMacro = defineExpressionMacro({
 
 export const compileWarningMacro = defineExpressionMacro({
   name: "compileWarning",
-  module: "typemacro",
+  module: "typesugar",
   description:
     "Unconditionally emit a compile-time warning. Useful for deprecation notices or performance hints.",
 

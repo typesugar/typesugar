@@ -1432,7 +1432,7 @@ class MacroTransformer {
 
   /**
    * Check if an imported module matches the macro's required module.
-   * Handles aliases like "typesugar" matching "typemacro".
+   * Handles aliases and legacy project names (typemacro, ttfx, macrots).
    */
   private moduleMatchesMacro(importedModule: string, macroModule: string): boolean {
     // Direct match
@@ -1441,7 +1441,7 @@ class MacroTransformer {
     // Legacy project names that should match any @typesugar/* import
     const legacyAliases = ["typemacro", "ttfx", "macrots"];
 
-    // Known aliases: typesugar is the public name for typemacro
+    // Known aliases: support legacy project names for backwards compatibility
     const aliases: Record<string, string[]> = {
       typesugar: legacyAliases,
       typemacro: ["typesugar", "ttfx", "macrots"],
@@ -3241,7 +3241,10 @@ class MacroTransformer {
       macroName = node.typeName.text;
       identNode = node.typeName;
     } else if (ts.isQualifiedName(node.typeName)) {
-      if (ts.isIdentifier(node.typeName.left) && node.typeName.left.text === "typemacro") {
+      if (
+        ts.isIdentifier(node.typeName.left) &&
+        (node.typeName.left.text === "typesugar" || node.typeName.left.text === "typemacro")
+      ) {
         macroName = node.typeName.right.text;
         identNode = node.typeName;
       }

@@ -46,4 +46,4 @@ docs/.vitepress/dist/
 
 # VSCode extension packaging
 *.vsix
-.typemacro-cache/
+.typesugar-cache/

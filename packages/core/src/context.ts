@@ -647,7 +647,7 @@ export class MacroContextImpl implements MacroContext {
     if (this.hygiene.isInScope()) {
       return this.hygiene.createIdentifier(prefix);
     }
-    const name = `__typemacro_${prefix}_${this.uniqueNameCounter++}__`;
+    const name = `__typesugar_${prefix}_${this.uniqueNameCounter++}__`;
     return this.factory.createIdentifier(name);
   }
 

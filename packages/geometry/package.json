@@ -30,6 +30,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*",
+    "@typesugar/std": "workspace:*"
+  },
   "devDependencies": {
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",

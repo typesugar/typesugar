@@ -75,8 +75,8 @@ function transformSource(source: string): {
     baseUrl: projectRoot,
     paths: {
       typesugar: ["./src/index.ts"],
-      typemacro: ["./src/index.ts"],
-      "typemacro/*": ["./src/*"],
+      typesugar: ["./src/index.ts"],
+      "typesugar/*": ["./src/*"],
     },
   };
 

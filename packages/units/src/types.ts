@@ -16,6 +16,9 @@
  * - Force = Mass * Acceleration = M^1 * L^1 * T^-2
  */
 
+import type { Op } from "@typesugar/core";
+import { registerOperators } from "@typesugar/macros";
+
 // ============================================================================
 // Dimension Exponent Types (using type-level integers)
 // ============================================================================
@@ -313,35 +316,39 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
   ) {}
 
   /**
-   * Add two quantities with the same dimensions
+   * Add two quantities with the same dimensions.
+   * Enables `unit1 + unit2` syntax via transformer operator rewriting.
    */
-  add(other: Unit<D>): Unit<D> {
-    return new Unit(this.value + other.value, this.symbol);
+  add(other: Unit<D>): Unit<D> & Op<"+"> {
+    return new Unit(this.value + other.value, this.symbol) as Unit<D> & Op<"+">;
   }
 
   /**
-   * Subtract two quantities with the same dimensions
+   * Subtract two quantities with the same dimensions.
+   * Enables `unit1 - unit2` syntax via transformer operator rewriting.
    */
-  sub(other: Unit<D>): Unit<D> {
-    return new Unit(this.value - other.value, this.symbol);
+  sub(other: Unit<D>): Unit<D> & Op<"-"> {
+    return new Unit(this.value - other.value, this.symbol) as Unit<D> & Op<"-">;
   }
 
   /**
-   * Multiply by another unit (dimensions add)
+   * Multiply by another unit (dimensions add).
+   * Enables `unit1 * unit2` syntax via transformer operator rewriting.
    */
   mul<D2 extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>(
     other: Unit<D2>
-  ): Unit<MulDimensions<D, D2>> {
-    return new Unit(this.value * other.value);
+  ): Unit<MulDimensions<D, D2>> & Op<"*"> {
+    return new Unit(this.value * other.value) as Unit<MulDimensions<D, D2>> & Op<"*">;
   }
 
   /**
-   * Divide by another unit (dimensions subtract)
+   * Divide by another unit (dimensions subtract).
+   * Enables `unit1 / unit2` syntax via transformer operator rewriting.
    */
   div<D2 extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>(
     other: Unit<D2>
-  ): Unit<DivDimensions<D, D2>> {
-    return new Unit(this.value / other.value);
+  ): Unit<DivDimensions<D, D2>> & Op<"/"> {
+    return new Unit(this.value / other.value) as Unit<DivDimensions<D, D2>> & Op<"/">;
   }
 
   /**
@@ -359,10 +366,11 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
   }
 
   /**
-   * Check equality with tolerance
+   * Check equality with tolerance.
+   * Enables `unit1 === unit2` syntax via transformer operator rewriting.
    */
-  equals(other: Unit<D>, tolerance: number = 1e-10): boolean {
-    return Math.abs(this.value - other.value) < tolerance;
+  equals(other: Unit<D>, tolerance: number = 1e-10): boolean & Op<"==="> {
+    return (Math.abs(this.value - other.value) < tolerance) as boolean & Op<"===">;
   }
 
   /**
@@ -428,6 +436,20 @@ export const celsius = (v: number): Unit<Temperature> => new Unit(v, "°C");
 export const pascals = (v: number): Unit<Pressure> => new Unit(v, "Pa");
 export const kilopascals = (v: number): Unit<Pressure> => new Unit(v * 1000, "kPa");
 export const atmospheres = (v: number): Unit<Pressure> => new Unit(v * 101325, "atm");
+
+// ============================================================================
+// Operator Registration
+// ============================================================================
+// Register Unit's arithmetic methods for operator rewriting.
+// This enables: unit1 + unit2, unit1 * unit2, etc.
+
+registerOperators("Unit", {
+  "+": "add",
+  "-": "sub",
+  "*": "mul",
+  "/": "div",
+  "===": "equals",
+});
 
 // ============================================================================
 // Type Guards and Utilities

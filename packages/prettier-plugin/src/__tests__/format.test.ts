@@ -31,7 +31,7 @@ describe("preFormat", () => {
     expect(result.changed).toBe(true);
     expect(result.code).toContain("/*@ts:hkt*/");
     expect(result.code).not.toContain("<_>");
-    expect(result.code).toContain("$<F,");
+    expect(result.code).toContain("Kind<F,");
   });
 
   it("passes through plain TypeScript unchanged", () => {
@@ -79,8 +79,8 @@ describe("postFormat", () => {
     expect(result).not.toContain("/*@ts:hkt*/");
   });
 
-  it("reverses HKT usages ($<F, A> to F<A>)", () => {
-    const formatted = `interface Functor<F /*@ts:hkt*/> { map: (fa: $<F, number>) => $<F, string>; }`;
+  it("reverses HKT usages (Kind<F, A> to F<A>)", () => {
+    const formatted = `interface Functor<F /*@ts:hkt*/> { map: (fa: Kind<F, number>) => Kind<F, string>; }`;
     const metadata = {
       changed: true,
       hktParams: [{ name: "F", scope: { start: 0, end: 100 } }],
@@ -89,7 +89,7 @@ describe("postFormat", () => {
 
     expect(result).toContain("F<number>");
     expect(result).toContain("F<string>");
-    expect(result).not.toContain("$<F,");
+    expect(result).not.toContain("Kind<F,");
   });
 
   it("passes through unchanged code", () => {
@@ -124,7 +124,7 @@ describe("format (round-trip)", () => {
 
     expect(result).toContain("F<_>");
     expect(result).not.toContain("/*@ts:hkt*/");
-    expect(result).not.toContain("$<F,");
+    expect(result).not.toContain("Kind<F,");
   });
 
   it("is idempotent (format(format(x)) === format(x))", async () => {

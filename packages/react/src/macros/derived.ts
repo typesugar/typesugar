@@ -30,7 +30,7 @@ import { getStateMetadata } from "./state.js";
 /**
  * Module name for import-scoped activation
  */
-const MODULE_NAME = "typemacro/react";
+const MODULE_NAME = "typesugar/react";
 
 /**
  * derived() expression macro

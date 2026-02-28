@@ -38,7 +38,7 @@ let tmpDir: string;
 let testMacro: ExpressionMacro;
 
 beforeAll(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typemacro-bench-e2e-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-bench-e2e-"));
 
   testMacro = defineExpressionMacro({
     name: "benchMacro",

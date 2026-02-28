@@ -1,5 +1,5 @@
 /**
- * typemacro Basic Example
+ * typesugar Basic Example
  *
  * Demonstrates core macro features:
  * - comptime() for compile-time evaluation
@@ -9,7 +9,7 @@
  * - Reflection with typeInfo() and fieldNames()
  */
 
-// Import from the typemacro umbrella package
+// Import from the typesugar umbrella package
 // Callable macros are exported directly, namespaces also available
 import {
   comptimeEval as comptime,

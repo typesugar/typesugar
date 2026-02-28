@@ -1,5 +1,5 @@
 /**
- * typemacro/react - Macro-Powered React
+ * typesugar/react - Macro-Powered React
  *
  * Compile-time macros that bring Vue/Svelte-style reactivity to React.
  *
@@ -16,7 +16,7 @@
  * ## Usage
  *
  * ```typescript
- * import { state, derived, effect, component, each, match } from "typemacro/react";
+ * import { state, derived, effect, component, each, match } from "typesugar/react";
  *
  * function Counter() {
  *   const count = state(0);

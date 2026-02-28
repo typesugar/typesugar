@@ -1,9 +1,15 @@
 /**
  * @typesugar/fusion — Expression templates and loop fusion
  *
- * Zero-cost iterator and array operations. Iterator chains like
- * `.filter().map().reduce()` compile to single-pass loops with
- * no intermediate allocations.
+ * Iterator and array operations with single-pass fusion.
+ * Chains like `.filter().map().reduce()` execute in one pass
+ * with no intermediate array allocations.
+ *
+ * **Current Status (Phase 1):** Runtime fusion via LazyPipeline class.
+ * Single-pass iteration is achieved, but the pipeline object exists at runtime.
+ *
+ * **Future (Phase 2):** Compile-time fusion will eliminate the pipeline class
+ * entirely, compiling to hand-optimized for-loops.
  *
  * @example
  * ```typescript

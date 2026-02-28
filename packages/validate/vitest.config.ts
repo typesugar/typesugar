@@ -1,8 +1,8 @@
 import { defineConfig } from "vitest/config";
-import typemacro from "unplugin-typesugar/vite";
+import typesugar from "unplugin-typesugar/vite";
 
 export default defineConfig({
-  plugins: [typemacro()],
+  plugins: [typesugar()],
   test: {
     name: "@typesugar/validate",
     globals: true,

@@ -12,7 +12,7 @@
  * specialize it to eliminate dictionary passing:
  *
  * ```typescript
- * import { specialize } from "typemacro";
+ * import { specialize } from "typesugar";
  * import { stdFlatMapArray, stdFlatMapPromise } from "@typesugar/std/specialize";
  *
  * // Generic function using FlatMap

@@ -385,8 +385,8 @@ const d = 4;`;
       expect(() => postFormat(formatted, metadata)).not.toThrow();
     });
 
-    it("handles $<F, ComplexType<A, B, C>> reversal", () => {
-      const formatted = `interface X<F /*@ts:hkt*/> { method: () => $<F, Map<string, Array<number>>>; }`;
+    it("handles Kind<F, ComplexType<A, B, C>> reversal", () => {
+      const formatted = `interface X<F /*@ts:hkt*/> { method: () => Kind<F, Map<string, Array<number>>>; }`;
       const metadata = {
         changed: true,
         hktParams: [{ name: "F", scope: { start: 0, end: 200 } }],
@@ -394,7 +394,7 @@ const d = 4;`;
       const result = postFormat(formatted, metadata);
 
       expect(result).toContain("F<Map<string, Array<number>>>");
-      expect(result).not.toContain("$<F,");
+      expect(result).not.toContain("Kind<F,");
     });
   });
 

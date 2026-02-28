@@ -5,7 +5,7 @@
  *
  * 1. **Prettier Plugin** (default export) - Prevents Prettier from crashing on custom syntax.
  *    Use this when you just need Prettier to work (e.g., in CI format checks).
- *    Output will contain preprocessor artifacts (__binop__, $<F, A>) but is valid TS.
+ *    Output will contain preprocessor artifacts (__binop__, Kind<F, A>) but is valid TS.
  *
  * 2. **Full Round-Trip Format** (format function) - Formats and preserves custom syntax.
  *    Use this for actual formatting where you want |>, ::, F<_> preserved.

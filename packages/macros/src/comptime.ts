@@ -344,7 +344,7 @@ function parsePermissions(ctx: MacroContextImpl, expr: ts.Expression): ComptimeP
 
 export const comptimeMacro = defineExpressionMacro({
   name: "comptime",
-  module: "typemacro",
+  module: "typesugar",
   description: "Evaluate an expression at compile time",
   cacheable: false, // Can read files/env, results depend on execution context
 

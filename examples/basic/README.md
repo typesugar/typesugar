@@ -1,6 +1,6 @@
-# typemacro Basic Example
+# typesugar Basic Example
 
-Demonstrates core typemacro features: compile-time evaluation, derive macros,
+Demonstrates core typesugar features: compile-time evaluation, derive macros,
 operator overloading, and tagged template macros.
 
 ## Setup
@@ -11,17 +11,17 @@ npm install
 
 ## Usage
 
-### With the typemacro CLI
+### With the typesugar CLI
 
 ```bash
 # Compile with macro expansion
-npx typemacro build
+npx typesugar build
 
 # Type-check only (no output)
-npx typemacro check
+npx typesugar check
 
 # Verbose mode to see macro expansion
-npx typemacro build --verbose
+npx typesugar build --verbose
 ```
 
 ### With ts-patch (alternative)

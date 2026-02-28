@@ -48,6 +48,22 @@ Four coordinate systems are supported, each as a type-level brand:
 
 ### Point/Vector Arithmetic
 
+With typeclass integration, you can use natural operator syntax:
+
+```typescript
+import { vec2, vec3 } from "@typesugar/geometry";
+
+const v1 = vec2(1, 2);
+const v2 = vec2(3, 4);
+
+// Operator syntax (requires typesugar transformer)
+const sum = v1 + v2; // Vec2 [4, 6]
+const diff = v1 - v2; // Vec2 [-2, -2]
+v1 === v2; // false (component-wise equality)
+```
+
+Or use explicit function calls:
+
 ```typescript
 import { translate, displacement, addVec, scale, negate } from "@typesugar/geometry";
 
@@ -134,6 +150,40 @@ applyToVector(t, vec2(1, 0)); // [1, 0] — translation doesn't affect vectors
 const combined = compose(r, t); // rotate, then translate
 const undone = inverse(r); // reverse the rotation
 ```
+
+## Typeclass Integration
+
+The package provides typeclass instances that enable operator overloading via the typesugar transformer:
+
+```typescript
+import { numericVec2, numericVec3, eqVec2, eqVec3 } from "@typesugar/geometry";
+import { summon } from "@typesugar/std";
+
+// Pre-built instances for common types
+const N = summon<Numeric<Vec2>>(); // resolves to numericVec2
+N.add(v1, v2); // explicit typeclass call
+
+// Factory functions for custom vector types
+import { numericVector, eqVector } from "@typesugar/geometry";
+const myNumeric = numericVector<Polar, Dim2>(2);
+```
+
+### Available Instances
+
+| Type  | Numeric | Eq  |
+| ----- | ------- | --- |
+| Vec2  | ✓       | ✓   |
+| Vec3  | ✓       | ✓   |
+
+### Operator Mappings
+
+| Operator | Typeclass Method    | Result            |
+| -------- | ------------------- | ----------------- |
+| `+`      | `Numeric.add`       | Component-wise    |
+| `-`      | `Numeric.sub`       | Component-wise    |
+| `*`      | `Numeric.mul`       | Component-wise    |
+| `/`      | `Numeric.div`       | Component-wise    |
+| `===`    | `Eq.eqv`            | All components    |
 
 ## Type Safety Examples
 

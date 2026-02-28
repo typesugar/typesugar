@@ -45,7 +45,7 @@ describe("macro hygiene system", () => {
     it("should mangle names inside a scope", () => {
       hygiene.withScope(() => {
         const name = hygiene.mangleName("temp");
-        expect(name).toMatch(/^__typemacro_temp_s\d+_\d+__$/);
+        expect(name).toMatch(/^__typesugar_temp_s\d+_\d+__$/);
       });
     });
 
@@ -83,7 +83,7 @@ describe("macro hygiene system", () => {
     it("should mangle names outside scope with global counter", () => {
       const name1 = hygiene.mangleName("x");
       const name2 = hygiene.mangleName("x");
-      expect(name1).toMatch(/^__typemacro_x_\d+__$/);
+      expect(name1).toMatch(/^__typesugar_x_\d+__$/);
       expect(name1).not.toBe(name2); // Different because no scope caching
     });
   });
@@ -92,7 +92,7 @@ describe("macro hygiene system", () => {
     it("should create hygienic identifiers", () => {
       hygiene.withScope(() => {
         const id = hygiene.createIdentifier("result");
-        expect(id.text).toMatch(/^__typemacro_result_s\d+_\d+__$/);
+        expect(id.text).toMatch(/^__typesugar_result_s\d+_\d+__$/);
       });
     });
 
@@ -134,7 +134,7 @@ describe("macro hygiene system", () => {
       // After reset, scope counter starts from 0 again
       hygiene.withScope(() => {
         const name = hygiene.mangleName("x");
-        expect(name).toBe("__typemacro_x_s0_0__");
+        expect(name).toBe("__typesugar_x_s0_0__");
       });
     });
   });
@@ -168,7 +168,7 @@ describe("macro hygiene system", () => {
         const trName = hygiene.mangleName("tr_n");
         // The mangled name should NOT be "_tr_n" which could collide with user code
         expect(trName).not.toBe("_tr_n");
-        expect(trName).toMatch(/^__typemacro_tr_n_s\d+_\d+__$/);
+        expect(trName).toMatch(/^__typesugar_tr_n_s\d+_\d+__$/);
       });
     });
 
@@ -177,7 +177,7 @@ describe("macro hygiene system", () => {
         const argsName = hygiene.mangleName("args");
         // The mangled name should NOT be "__args" which could collide with user code
         expect(argsName).not.toBe("__args");
-        expect(argsName).toMatch(/^__typemacro_args_s\d+_\d+__$/);
+        expect(argsName).toMatch(/^__typesugar_args_s\d+_\d+__$/);
       });
     });
 
@@ -188,8 +188,8 @@ describe("macro hygiene system", () => {
         // The mangled names should NOT be "__p0", "__p1" which could collide with user code
         expect(p0Name).not.toBe("__p0");
         expect(p1Name).not.toBe("__p1");
-        expect(p0Name).toMatch(/^__typemacro_p0_s\d+_\d+__$/);
-        expect(p1Name).toMatch(/^__typemacro_p1_s\d+_\d+__$/);
+        expect(p0Name).toMatch(/^__typesugar_p0_s\d+_\d+__$/);
+        expect(p1Name).toMatch(/^__typesugar_p1_s\d+_\d+__$/);
       });
     });
   });

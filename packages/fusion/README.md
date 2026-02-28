@@ -4,6 +4,8 @@ Expression templates and loop fusion for TypeScript. Iterator chains like `.filt
 
 Inspired by Blitz++/Eigen expression templates and Rust's zero-cost iterator adapters.
 
+> **Current Status:** Runtime fusion via `LazyPipeline` class. Single-pass iteration with no intermediate arrays is achieved, but the pipeline object itself exists at runtime. Phase 2 will add compile-time macro analysis to eliminate the pipeline class entirely.
+
 ## The Problem
 
 Standard array method chains allocate intermediate arrays at every step:
@@ -115,9 +117,20 @@ Single-pass (lazy):
   Total: 1 partial pass, 0 intermediate allocations
 ```
 
-## Future: Compile-Time Fusion
+## Current vs Future Fusion
 
-Phase 2 will add compile-time analysis via the typesugar macro system. The `lazy` macro will inspect the full method chain at compile time and emit a hand-optimized loop — no `LazyPipeline` class at runtime at all.
+### Current (Phase 1): Runtime Fusion
+
+The `LazyPipeline` class provides runtime fusion:
+- **Single-pass iteration** — each element flows through all steps before the next
+- **No intermediate arrays** — `filter().map().take()` doesn't allocate between steps
+- **Early termination** — `take(5)` stops after 5 elements, doesn't process the rest
+
+The pipeline object itself exists at runtime (allocation overhead), but the fusion benefit comes from avoiding intermediate arrays on large datasets.
+
+### Future (Phase 2): Compile-Time Fusion
+
+The `lazy` macro will inspect the full method chain at compile time and emit a hand-optimized loop — no `LazyPipeline` class at runtime at all.
 
 ```typescript
 // Phase 2 (future): macro rewrites this to a single for-loop
@@ -133,3 +146,5 @@ const result = lazy(users)
 // }
 // const result = __sum;
 ```
+
+This will be true zero-cost abstraction: write high-level pipeline code, get hand-optimized loops.

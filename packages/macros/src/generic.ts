@@ -298,7 +298,7 @@ export function registerGenericMeta(typeName: string, meta: GenericMeta): void {
 
 export const genericDerive = defineAttributeMacro({
   name: "Generic",
-  module: "typemacro",
+  module: "typesugar",
   description: "Derive Generic instance for structural programming",
   validTargets: ["interface", "class", "type"],
 

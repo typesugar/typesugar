@@ -106,7 +106,7 @@ export interface ParameterInfo {
 
 export const reflectAttribute = defineAttributeMacro({
   name: "reflect",
-  module: "typemacro",
+  module: "typesugar",
   description: "Enable compile-time reflection for a type",
   validTargets: ["interface", "class", "type"] as AttributeTarget[],
 
@@ -453,7 +453,7 @@ function generateTypeInfoDeclaration(
 
 export const typeInfoMacro = defineExpressionMacro({
   name: "typeInfo",
-  module: "typemacro",
+  module: "typesugar",
   description: "Get compile-time type information",
 
   expand(
@@ -543,7 +543,7 @@ export const typeInfoMacro = defineExpressionMacro({
 
 export const fieldNamesMacro = defineExpressionMacro({
   name: "fieldNames",
-  module: "typemacro",
+  module: "typesugar",
   description: "Get field names of a type as an array",
 
   expand(
@@ -574,7 +574,7 @@ export const fieldNamesMacro = defineExpressionMacro({
 
 export const validatorMacro = defineExpressionMacro({
   name: "validator",
-  module: "typemacro",
+  module: "typesugar",
   description: "Generate a runtime validator for a type",
 
   expand(

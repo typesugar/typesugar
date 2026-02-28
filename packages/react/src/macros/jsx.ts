@@ -15,7 +15,7 @@ import type { ReactMacroMode } from "../types.js";
 /**
  * Module name for import-scoped activation
  */
-const MODULE_NAME = "typemacro/react";
+const MODULE_NAME = "typesugar/react";
 
 // ============================================================================
 // each() Macro - Keyed iteration

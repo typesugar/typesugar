@@ -35,11 +35,11 @@ const result = comptime(() => fibonacci(10));
 const result = macro.comptime(() => ...);
 
 // Via namespace import
-import * as M from "typemacro";
+import * as M from "typesugar";
 M.comptime(() => ...);
 
 // Via renamed import
-import { comptime as ct } from "typemacro";
+import { comptime as ct } from "typesugar";
 ct(() => ...);
 ```
 
@@ -48,7 +48,7 @@ ct(() => ...);
 ```typescript
 defineExpressionMacro({
   name: "comptime",
-  module: "typemacro",
+  module: "typesugar",
   expand(ctx, callExpr, args) {
     // callExpr is the full CallExpression node
     // args are the arguments to the call
@@ -89,7 +89,7 @@ const showPoint = {
 ```typescript
 defineAttributeMacro({
   name: "typeclass",
-  module: "typemacro",
+  module: "typesugar",
   validTargets: ["interface"],
   expand(ctx, decorator, target, args) {
     // decorator is the Decorator node
@@ -157,7 +157,7 @@ const msg = fmt`Hello, ${name}!`;
 ```typescript
 defineTaggedTemplateMacro({
   name: "sql",
-  module: "typemacro/sql",
+  module: "typesugar/sql",
   expand(ctx, node) {
     // node is TaggedTemplateExpression
     // Access template parts via node.template
@@ -191,7 +191,7 @@ type Joined = Concat<"Hello", "World">; // → "HelloWorld"
 ```typescript
 defineTypeMacro({
   name: "Add",
-  module: "typemacro",
+  module: "typesugar",
   expand(ctx, typeRef, args) {
     // typeRef is TypeReferenceNode
     // args are the type arguments

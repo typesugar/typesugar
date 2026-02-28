@@ -28,7 +28,11 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
   },
   "keywords": [
     "typescript",

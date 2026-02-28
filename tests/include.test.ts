@@ -27,7 +27,7 @@ describe("compile-time file I/O macros", () => {
 
   beforeEach(() => {
     // Create a temp directory with test files
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typemacro-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-test-"));
 
     fs.writeFileSync(path.join(tmpDir, "hello.txt"), "Hello, World!");
     fs.writeFileSync(

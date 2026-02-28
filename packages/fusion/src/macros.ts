@@ -1,9 +1,12 @@
 /**
  * Expression macro registrations for @typesugar/fusion
  *
- * Phase 1: pass through to runtime LazyPipeline construction.
- * Phase 2 (future): analyze method chains at compile time and
- * emit fused single-pass loops directly.
+ * **Phase 1 (current):** Pass through to runtime LazyPipeline construction.
+ * The LazyPipeline class handles fusion at runtime (single-pass iteration,
+ * no intermediate arrays).
+ *
+ * **Phase 2 (future):** Analyze method chains at compile time and emit
+ * fused single-pass loops directly — no LazyPipeline object at runtime.
  */
 
 import { defineExpressionMacro } from "@typesugar/core";

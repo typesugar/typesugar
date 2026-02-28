@@ -52,7 +52,7 @@ describe("Hygiene context", () => {
     // Different names should be different
     expect(names[0]).not.toBe(names[2]);
     // Should be mangled
-    expect(names[0]).toMatch(/__typemacro_temp_s\d+_\d+__/);
+    expect(names[0]).toMatch(/__typesugar_temp_s\d+_\d+__/);
   });
 
   it("isolates names across scopes", () => {
@@ -310,7 +310,7 @@ describe("Integration: hygiene in macro expansion", () => {
     expect(tempFromMacro1).not.toBe(tempFromMacro2);
 
     // Both should be valid JS identifiers (mangled)
-    expect(tempFromMacro1).toMatch(/^__typemacro_temp_s\d+_\d+__$/);
-    expect(tempFromMacro2).toMatch(/^__typemacro_temp_s\d+_\d+__$/);
+    expect(tempFromMacro1).toMatch(/^__typesugar_temp_s\d+_\d+__$/);
+    expect(tempFromMacro2).toMatch(/^__typesugar_temp_s\d+_\d+__$/);
   });
 });

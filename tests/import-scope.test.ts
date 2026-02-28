@@ -28,13 +28,13 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should index macros by module+exportName", () => {
       const macro = defineExpressionMacro({
         name: "comptime",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
       registry.register(macro);
 
-      const byModule = registry.getByModuleExport("typemacro", "comptime");
+      const byModule = registry.getByModuleExport("typesugar", "comptime");
       expect(byModule).toBeDefined();
       expect(byModule?.name).toBe("comptime");
     });
@@ -42,7 +42,7 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should use exportName when it differs from name", () => {
       const macro = defineExpressionMacro({
         name: "internalName",
-        module: "typemacro",
+        module: "typesugar",
         exportName: "publicName",
         expand: (_ctx, callExpr) => callExpr,
       });
@@ -50,19 +50,19 @@ describe("Import-scoped macro resolution - Registry", () => {
       registry.register(macro);
 
       // Should be found by exportName
-      const byExport = registry.getByModuleExport("typemacro", "publicName");
+      const byExport = registry.getByModuleExport("typesugar", "publicName");
       expect(byExport).toBeDefined();
       expect(byExport?.name).toBe("internalName");
 
       // Should NOT be found by internal name via module lookup
-      const byName = registry.getByModuleExport("typemacro", "internalName");
+      const byName = registry.getByModuleExport("typesugar", "internalName");
       expect(byName).toBeUndefined();
     });
 
     it("should return undefined for wrong module", () => {
       const macro = defineExpressionMacro({
         name: "comptime",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
@@ -75,13 +75,13 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should return undefined for wrong export name", () => {
       const macro = defineExpressionMacro({
         name: "comptime",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
       registry.register(macro);
 
-      const result = registry.getByModuleExport("typemacro", "wrongName");
+      const result = registry.getByModuleExport("typesugar", "wrongName");
       expect(result).toBeUndefined();
     });
   });
@@ -90,7 +90,7 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should return true for macros with module field", () => {
       const macro = defineExpressionMacro({
         name: "comptime",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
@@ -117,26 +117,26 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should work for all macro kinds", () => {
       const expr = defineExpressionMacro({
         name: "scopedExpr",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
       const attr = defineAttributeMacro({
         name: "scopedAttr",
-        module: "typemacro",
+        module: "typesugar",
         validTargets: ["class"],
         expand: (_ctx, _decorator, target) => target,
       });
 
       const tagged = defineTaggedTemplateMacro({
         name: "scopedTag",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, node) => node.tag,
       });
 
       const typeMacro = defineTypeMacro({
         name: "ScopedType",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, typeRef) => typeRef,
       });
 
@@ -156,16 +156,16 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should clear module-scoped index too", () => {
       const macro = defineExpressionMacro({
         name: "comptime",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
       registry.register(macro);
-      expect(registry.getByModuleExport("typemacro", "comptime")).toBeDefined();
+      expect(registry.getByModuleExport("typesugar", "comptime")).toBeDefined();
 
       (registry as any).clear();
 
-      expect(registry.getByModuleExport("typemacro", "comptime")).toBeUndefined();
+      expect(registry.getByModuleExport("typesugar", "comptime")).toBeUndefined();
       expect(registry.getExpression("comptime")).toBeUndefined();
     });
   });
@@ -174,7 +174,7 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should still allow name-based lookup for all macros", () => {
       const scoped = defineExpressionMacro({
         name: "scopedMacro",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
@@ -191,8 +191,8 @@ describe("Import-scoped macro resolution - Registry", () => {
       expect(registry.getExpression("unscopedMacro")).toBeDefined();
 
       // Only scoped one should be findable by module
-      expect(registry.getByModuleExport("typemacro", "scopedMacro")).toBeDefined();
-      expect(registry.getByModuleExport("typemacro", "unscopedMacro")).toBeUndefined();
+      expect(registry.getByModuleExport("typesugar", "scopedMacro")).toBeDefined();
+      expect(registry.getByModuleExport("typesugar", "unscopedMacro")).toBeUndefined();
     });
   });
 
@@ -200,31 +200,31 @@ describe("Import-scoped macro resolution - Registry", () => {
     it("should support macros from different modules", () => {
       const coreMacro = defineExpressionMacro({
         name: "comptime",
-        module: "typemacro",
+        module: "typesugar",
         expand: (_ctx, callExpr) => callExpr,
       });
 
       const unitsMacro = defineTaggedTemplateMacro({
         name: "units",
-        module: "typemacro/units",
+        module: "typesugar/units",
         expand: (_ctx, node) => node.tag,
       });
 
       registry.register(coreMacro);
       registry.register(unitsMacro);
 
-      expect(registry.getByModuleExport("typemacro", "comptime")).toBeDefined();
-      expect(registry.getByModuleExport("typemacro/units", "units")).toBeDefined();
+      expect(registry.getByModuleExport("typesugar", "comptime")).toBeDefined();
+      expect(registry.getByModuleExport("typesugar/units", "units")).toBeDefined();
 
       // Cross-module lookups should fail
-      expect(registry.getByModuleExport("typemacro", "units")).toBeUndefined();
-      expect(registry.getByModuleExport("typemacro/units", "comptime")).toBeUndefined();
+      expect(registry.getByModuleExport("typesugar", "units")).toBeUndefined();
+      expect(registry.getByModuleExport("typesugar/units", "comptime")).toBeUndefined();
     });
   });
 });
 
 describe("Built-in macros have module field", () => {
-  // Verify that all built-in macros from the typemacro package
+  // Verify that all built-in macros from the typesugar package
   // declare their module for import-scoped resolution
 
   it("should have module set on all core expression macros", async () => {

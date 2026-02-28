@@ -24,7 +24,7 @@ import type { ReactMacroMode } from "../types.js";
 /**
  * Module name for import-scoped activation
  */
-const MODULE_NAME = "typemacro/react";
+const MODULE_NAME = "typesugar/react";
 
 /**
  * Metadata attached to state declarations for use by other macros
@@ -133,9 +133,9 @@ export const stateMacro = defineExpressionMacro({
     // For now, return an IIFE that will be processed by the statement transformer
     // This is a marker pattern - the real transformation happens elsewhere
     return factory.createObjectLiteralExpression([
-      // __typemacro_state marker
+      // __typesugar_state marker
       factory.createPropertyAssignment(
-        factory.createIdentifier("__typemacro_state"),
+        factory.createIdentifier("__typesugar_state"),
         factory.createTrue()
       ),
       // Original variable name
@@ -277,7 +277,7 @@ export function isStateMarker(expr: ts.Expression): boolean {
     (prop) =>
       ts.isPropertyAssignment(prop) &&
       ts.isIdentifier(prop.name) &&
-      prop.name.text === "__typemacro_state"
+      prop.name.text === "__typesugar_state"
   );
 }
 

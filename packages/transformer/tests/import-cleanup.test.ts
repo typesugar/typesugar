@@ -5,7 +5,7 @@
  * when their specifiers resolve to macros during expansion.
  *
  * Uses a name-based (non-module-scoped) test macro so that the full
- * transformer pipeline can resolve it without needing the real typemacro
+ * transformer pipeline can resolve it without needing the real typesugar
  * package in node_modules. The import cleanup logic is the same regardless
  * of whether the macro was resolved by module or by name.
  */
@@ -50,7 +50,7 @@ afterAll(() => {
  * the printed output.
  */
 function transformSource(source: string, extraFiles: Record<string, string> = {}): string {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typemacro-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-test-"));
   const mainFile = path.join(tmpDir, "input.ts");
 
   try {

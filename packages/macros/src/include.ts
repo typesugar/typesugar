@@ -125,7 +125,7 @@ function extractPathArg(
 
 export const includeStrMacro = defineExpressionMacro({
   name: "includeStr",
-  module: "typemacro",
+  module: "typesugar",
   description: "Read a file at compile time and embed its contents as a string literal.",
 
   expand(
@@ -165,7 +165,7 @@ export const includeStrMacro = defineExpressionMacro({
 
 export const includeBytesMacro = defineExpressionMacro({
   name: "includeBytes",
-  module: "typemacro",
+  module: "typesugar",
   description: "Read a file at compile time and embed its contents as a Uint8Array literal.",
 
   expand(
@@ -214,7 +214,7 @@ export const includeBytesMacro = defineExpressionMacro({
 
 export const includeJsonMacro = defineExpressionMacro({
   name: "includeJson",
-  module: "typemacro",
+  module: "typesugar",
   description:
     "Read and parse a JSON file at compile time, embedding the result as an object literal.",
 
@@ -263,7 +263,7 @@ export const includeJsonMacro = defineExpressionMacro({
 
 export const includeTextMacro = defineExpressionMacro({
   name: "includeText",
-  module: "typemacro",
+  module: "typesugar",
   description: "Read a text file at compile time with optional encoding. Alias for includeStr.",
 
   expand(

@@ -133,7 +133,7 @@ registerInstance("Monad", "PromiseF", "promiseMonad");
  */
 export const summonHKTMacro = defineExpressionMacro({
   name: "summonHKT",
-  module: "typemacro",
+  module: "typesugar",
   description: "Summon an HKT-based typeclass instance at compile time based on type argument",
 
   expand(
@@ -229,7 +229,7 @@ export const summonHKTMacro = defineExpressionMacro({
  */
 export const deriveMacro = defineExpressionMacro({
   name: "derive",
-  module: "typemacro",
+  module: "typesugar",
   description: "Create a wrapper that auto-summons and specializes a generic function",
 
   expand(
@@ -282,7 +282,7 @@ export const deriveMacro = defineExpressionMacro({
  */
 export const implicitMacro = defineExpressionMacro({
   name: "implicit",
-  module: "typemacro",
+  module: "typesugar",
   description: "Implicit instance resolution and specialization for a call",
 
   expand(

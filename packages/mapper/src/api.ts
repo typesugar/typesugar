@@ -32,7 +32,7 @@ export interface TransformConfig<From, To> {
 /**
  * Transforms an object of type `From` into an object of type `To` at compile time.
  *
- * This function is evaluated by the typemacro transformer and replaced with a direct
+ * This function is evaluated by the typesugar transformer and replaced with a direct
  * object literal, resulting in zero runtime overhead.
  *
  * @param source The source object to transform.

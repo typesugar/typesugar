@@ -89,3 +89,12 @@ export {
   identity3d,
   inverse,
 } from "./transforms.js";
+
+export {
+  numericVector,
+  numericVec2,
+  numericVec3,
+  eqVector,
+  eqVec2,
+  eqVec3,
+} from "./typeclasses.js";

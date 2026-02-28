@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import "../src/macros/let-yield.js";
 import "../src/macros/par-yield.js";
 import { globalRegistry } from "@typesugar/core";
+import { getParCombine, registerParCombine } from "../src/typeclasses/par-combine.js";
 
 // ============================================================================
 // Test helper: Option type with .map() and .flatMap() for testing
@@ -850,7 +851,6 @@ describe("par:/yield: AsyncIterable support (ParCombine)", () => {
       yield "b";
     }
 
-    const { getParCombine } = await import("@typesugar/std");
     const pc = getParCombine("AsyncIterable")!;
     const result = (await pc.map(pc.all([nums(), strs()]), ([ns, ss]: unknown[]) => ({
       ns,
@@ -867,7 +867,6 @@ describe("par:/yield: AsyncIterable support (ParCombine)", () => {
       yield 3;
     }
 
-    const { getParCombine } = await import("@typesugar/std");
     const pc = getParCombine("AsyncIterable")!;
     const result = (await pc.map(
       pc.all([nums()]),
@@ -887,7 +886,6 @@ describe("par:/yield: AsyncIterable support (ParCombine)", () => {
       }
     }
 
-    const { getParCombine } = await import("@typesugar/std");
     const pc = getParCombine("AsyncIterable")!;
     const result = (await pc.map(
       pc.all([delayed("a", [1]), delayed("b", [2]), delayed("c", [3])]),
@@ -908,7 +906,6 @@ describe("par:/yield: AsyncIterable support (ParCombine)", () => {
 
 describe("ParCombine registry", () => {
   it("should return instances for built-in types", () => {
-    const { getParCombine } = require("@typesugar/std");
     expect(getParCombine("Promise")).toBeDefined();
     expect(getParCombine("AsyncIterable")).toBeDefined();
     expect(getParCombine("Array")).toBeDefined();
@@ -916,7 +913,6 @@ describe("ParCombine registry", () => {
   });
 
   it("should allow registering custom ParCombine instances", () => {
-    const { getParCombine, registerParCombine } = require("@typesugar/std");
     const customInstance = {
       all: (effects: unknown[]) => effects,
       map: (combined: unknown, f: (r: unknown[]) => unknown) => f(combined as unknown[]),

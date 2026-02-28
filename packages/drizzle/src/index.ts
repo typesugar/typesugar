@@ -1,7 +1,7 @@
 /**
  * @typesugar/drizzle-adapter
  *
- * Drizzle adapter for typemacro - type-safe SQL tagged templates that compile
+ * Drizzle adapter for typesugar - type-safe SQL tagged templates that compile
  * to Drizzle's sql tagged template.
  *
  * ## Usage

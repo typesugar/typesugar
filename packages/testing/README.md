@@ -221,10 +221,10 @@ To use `@typesugar/testing` macros in your vitest tests, add the typesugar trans
 
 ```typescript
 import { defineConfig } from "vitest/config";
-import typemacro from "unplugin-typesugar/vite";
+import typesugar from "unplugin-typesugar/vite";
 
 export default defineConfig({
-  plugins: [typemacro()],
+  plugins: [typesugar()],
   test: {
     // your test config
   },

@@ -55,7 +55,8 @@
     }
   },
   "devDependencies": {
-    "drizzle-orm": "^0.30.0"
+    "drizzle-orm": "^0.30.0",
+    "vitest": "^2.0.0"
   },
   "files": [
     "dist",

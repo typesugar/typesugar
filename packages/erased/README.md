@@ -192,13 +192,44 @@ No classes, no prototypes, no hidden state. `widen()` is literally identity.
 
 The vtable is shared across all values created with the same method implementations, so there is no per-element overhead for the method pointers themselves.
 
-## Phase 2 (Future)
+## Typeclass Integration
 
-The `erased()` macro will resolve vtables automatically from the typeclass registry at compile time:
+The capability system mirrors typesugar's typeclass system. The `erased()` macro automatically resolves vtables from registered typeclass instances:
+
+| Capability        | Typeclass | Method Mapping       |
+| ----------------- | --------- | -------------------- |
+| `ShowCapability`  | `Show`    | `show` → `show`      |
+| `EqCapability`    | `Eq`      | `equals` → `equals`  |
+| `OrdCapability`   | `Ord`     | `compare` → `compare`|
+| `HashCapability`  | `Hash`    | `hash` → `hash`      |
+| `CloneCapability` | `Clone`   | `clone` → `clone`    |
+
+## Auto-Derivation with `erased()`
+
+The `erased()` macro resolves vtables automatically from the typeclass registry at compile time:
 
 ```typescript
-// Future: auto-resolved vtable from typeclass instances
-const e = erased<[Show, Eq]>(myValue);
+import { erased } from "@typesugar/erased";
+
+@derive(Show, Eq)
+interface Point { x: number; y: number; }
+
+const p = { x: 1, y: 2 };
+const e = erased<[Show, Eq]>(p);
+// Automatically generates vtable from Show<Point> and Eq<Point> instances!
 ```
 
-Currently, vtables must be supplied explicitly.
+**How it works:**
+
+1. Parse type arguments: `erased<[Show, Eq]>(value)` → capabilities = [Show, Eq]
+2. Infer value's type: TypeChecker determines `typeof value`
+3. Resolve instances: Look up `Show<T>`, `Eq<T>` from the registry
+4. Generate vtable: Build `{ show: ..., equals: ... }` at compile time
+
+**Benefits:**
+
+- **No boilerplate**: Skip manual vtable construction
+- **Type safety**: Compile error if capability instance doesn't exist
+- **Consistent**: Same instances used for operators and erased values
+
+**Fallback:** For types without registered instances, use `eraseWith()`, `showable()`, etc. for manual vtable construction.

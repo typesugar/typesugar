@@ -1,7 +1,7 @@
 /**
  * @typesugar/kysely-adapter
  *
- * Kysely adapter for typemacro - type-safe SQL tagged templates that compile
+ * Kysely adapter for typesugar - type-safe SQL tagged templates that compile
  * to Kysely's RawBuilder for use with Kysely query builder.
  *
  * ## Usage

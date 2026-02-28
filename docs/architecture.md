@@ -277,7 +277,7 @@ import { globalHygiene } from "../core/hygiene.js";
 
 globalHygiene.withScope(() => {
   const id = globalHygiene.createIdentifier("temp");
-  // id.text === "__typemacro_temp_s0_0__" (mangled)
+  // id.text === "__typesugar_temp_s0_0__" (mangled)
 });
 ```
 

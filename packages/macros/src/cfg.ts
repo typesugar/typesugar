@@ -138,7 +138,7 @@ export function evaluateCfgCondition(condition: string): boolean {
 
 export const cfgMacro = defineExpressionMacro({
   name: "cfg",
-  module: "typemacro",
+  module: "typesugar",
   description:
     "Conditional compilation: include an expression only when a condition is true at compile time.",
 
@@ -204,7 +204,7 @@ export const cfgMacro = defineExpressionMacro({
 
 export const cfgAttrMacro = defineAttributeMacro({
   name: "cfgAttr",
-  module: "typemacro",
+  module: "typesugar",
   description: "Conditionally include a declaration based on a compile-time condition.",
   validTargets: ["class", "method", "property", "function"] as AttributeTarget[],
 

@@ -95,10 +95,10 @@ export const htmlMacro = defineExpressionMacro({
       let result: ts.Expression = factory.createStringLiteral(template.head.text);
 
       for (const span of template.templateSpans) {
-        // INTENTIONALLY UNHYGIENIC: __typemacro_escapeHtml is a runtime helper
+        // INTENTIONALLY UNHYGIENIC: __typesugar_escapeHtml is a runtime helper
         // exported from @typesugar/strings. Users must import it for generated code to work.
         const escapedValue = factory.createCallExpression(
-          factory.createIdentifier("__typemacro_escapeHtml"),
+          factory.createIdentifier("__typesugar_escapeHtml"),
           undefined,
           [span.expression]
         );
@@ -369,7 +369,7 @@ register();
 /**
  * HTML escape function - used by the html macro
  */
-export function __typemacro_escapeHtml(str: unknown): string {
+export function __typesugar_escapeHtml(str: unknown): string {
   const s = String(str);
   return s
     .replace(/&/g, "&amp;")

@@ -257,17 +257,35 @@ class MacroRegistryImpl implements MacroRegistry {
   private moduleScopedMacros = new Map<string, MacroDefinition>();
 
   /**
-   * Check if two macros are semantically the same (same name and module).
+   * Check if two macros are semantically the same.
    * Used to allow idempotent registration in ESM environments where
    * module re-imports can create new object instances.
+   *
+   * Two macros are considered the same if they have:
+   * - Same name (or label for labeled blocks)
+   * - Same kind
+   * - Compatible modules (same, both undefined, or both from typesugar packages)
    */
   private isSameMacro(existing: MacroDefinition, incoming: MacroDefinition): boolean {
     // Same object reference
     if (existing === incoming) return true;
-    // Same name and same module (or both have no module)
+    // Must be same kind
+    if (existing.kind !== incoming.kind) return false;
+    // Same name (or label for labeled blocks)
     const key = "label" in existing ? existing.label : existing.name;
     const incomingKey = "label" in incoming ? incoming.label : incoming.name;
-    return key === incomingKey && existing.module === incoming.module;
+    if (key !== incomingKey) return false;
+    // Same module (or both have no module)
+    if (existing.module === incoming.module) return true;
+    // If both have no module, they're the same
+    if (existing.module === undefined && incoming.module === undefined) return true;
+    // Allow typesugar packages to be equivalent (handles ESM/CJS resolution differences)
+    const isTypeSugarModule = (m: string | undefined) =>
+      m === "typesugar" || m?.startsWith("@typesugar/");
+    if (isTypeSugarModule(existing.module) && isTypeSugarModule(incoming.module)) {
+      return true;
+    }
+    return false;
   }
 
   register(macro: MacroDefinition): void {
@@ -277,7 +295,10 @@ class MacroRegistryImpl implements MacroRegistry {
         if (existing) {
           // Idempotent: skip if semantically same macro
           if (this.isSameMacro(existing, macro)) return;
-          throw new Error(`Expression macro '${macro.name}' is already registered`);
+          throw new Error(
+            `Expression macro '${macro.name}' is already registered ` +
+              `(existing module: ${existing.module}, incoming module: ${macro.module})`
+          );
         }
         this.expressionMacros.set(macro.name, macro);
         break;

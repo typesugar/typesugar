@@ -1,5 +1,5 @@
 /**
- * Core types for the typemacro macro system
+ * Core types for the typesugar macro system
  */
 
 import * as ts from "typescript";
@@ -216,7 +216,7 @@ export interface MacroDefinitionBase {
    * When set, the macro is only activated when the user imports the
    * placeholder from this module (or from a barrel that re-exports it).
    *
-   * Examples: "typemacro", "typemacro/units"
+   * Examples: "typesugar", "typesugar/units"
    *
    * When undefined, the macro is activated by name alone (legacy behavior).
    */

@@ -34,14 +34,21 @@ const sortNumbers = specialize(sortWith, [numberOrd]);
 const sorted = sortNumbers([3, 1, 2]); // [1, 2, 3]
 ```
 
-### specialize$() — Inline Single Calls
+### specialize$() — Inline Single Expressions
 
 ```typescript
 import { specialize$ } from "@typesugar/specialize";
 
-// Inline specialization for a single call
-const result = specialize$(sortWith([3, 1, 2], numberOrd));
-// Compiles with the instance inlined
+// Inline specialization for an expression
+// The lambda parameter receives the dictionary, and all method calls are inlined
+const result = specialize$(arrayMonad, F => F.map([1, 2, 3], x => x * 2));
+// Compiles to: [1, 2, 3].map(x => x * 2)
+
+// More complex example with flatMap
+const nested = specialize$(arrayMonad, F =>
+  F.flatMap([1, 2], x => F.map([x, x + 1], y => y * 2))
+);
+// Compiles to: [1, 2].flatMap(x => [x, x + 1].map(y => y * 2))
 ```
 
 ### mono() — Monomorphize Generics
@@ -97,8 +104,8 @@ const sorted2 = sortNumbers([5, 4]);
 
 ### Expression Macros
 
-- `specialize(fn, [instances])` — Create a specialized function with instances pre-applied
-- `specialize$(call)` — Inline specialization for a single call
+- `specialize(fn, dict1, dict2?, ...)` — Create a specialized function with dictionaries pre-applied
+- `specialize$(dict, expr)` — Inline specialization: `expr` is a lambda `F => body` where `F.method()` calls get inlined
 - `mono<T1, ...>(fn)` — Monomorphize a generic function for specific types
 - `inlineCall(call)` — Attempt to inline a function call
 

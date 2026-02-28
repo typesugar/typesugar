@@ -1,12 +1,12 @@
 /**
- * Manifest Generator — produces typemacro.manifest.json from the registry.
+ * Manifest Generator — produces typesugar.manifest.json from the registry.
  *
  * This module has NO dependency on vscode. It reads the global macro registry
  * and serializes it into the manifest format consumed by the VSCode extension.
  *
  * Usage:
- *   typemacro build --manifest          # writes typemacro.manifest.json
- *   typemacro build --manifest out.json # writes to custom path
+ *   typesugar build --manifest          # writes typesugar.manifest.json
+ *   typesugar build --manifest out.json # writes to custom path
  */
 
 import type { MacroRegistry } from "@typesugar/core";

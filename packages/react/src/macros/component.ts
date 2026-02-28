@@ -44,7 +44,7 @@ import { getStateMetadata, type StateMetadata } from "./state.js";
 /**
  * Module name for import-scoped activation
  */
-const MODULE_NAME = "typemacro/react";
+const MODULE_NAME = "typesugar/react";
 
 /**
  * Metadata for hoisted components
@@ -173,7 +173,7 @@ export const componentMacro = defineExpressionMacro({
     return factory.createObjectLiteralExpression([
       // Marker
       factory.createPropertyAssignment(
-        factory.createIdentifier("__typemacro_component"),
+        factory.createIdentifier("__typesugar_component"),
         factory.createTrue()
       ),
       // Component name
@@ -329,7 +329,7 @@ export function isComponentMarker(expr: ts.Expression): boolean {
     (prop) =>
       ts.isPropertyAssignment(prop) &&
       ts.isIdentifier(prop.name) &&
-      prop.name.text === "__typemacro_component"
+      prop.name.text === "__typesugar_component"
   );
 }
 

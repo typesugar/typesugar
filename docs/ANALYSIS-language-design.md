@@ -219,7 +219,7 @@ More broadly, the dependency on ts-patch (a third-party compiler patching mechan
 
 ### 4.5 Hygiene Limitations
 
-The hygiene system, while functional, is simpler than what the literature considers adequate. typesugar uses name mangling (`__typemacro_temp_s0_0__`) to avoid collisions, which is closer to `gensym` than to true lexical hygiene.
+The hygiene system, while functional, is simpler than what the literature considers adequate. typesugar uses name mangling (`__typesugar_temp_s0_0__`) to avoid collisions, which is closer to `gensym` than to true lexical hygiene.
 
 True lexical hygiene, as implemented in Racket or the Scheme `syntax-case` system, tracks the lexical environment in which identifiers were introduced. This allows macros to refer to bindings from their definition site, not their expansion site. typesugar's mangling approach prevents capture of user variables by macro-generated code, but does not handle the reverse direction: macro code cannot reliably refer to bindings from the macro definition site when expanded into a different scope.
 

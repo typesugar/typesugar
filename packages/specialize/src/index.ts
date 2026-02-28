@@ -36,8 +36,31 @@ export {
   inlineCallMacro,
 } from "@typesugar/macros";
 
-// Runtime stubs for mono and inlineCall
+// Runtime stubs for specialize$, mono, and inlineCall
 export { mono, inlineCall } from "@typesugar/macros";
+
+/**
+ * Inline-specialize an expression by replacing dictionary method calls.
+ *
+ * @example
+ * ```typescript
+ * // Before:
+ * const result = specialize$(arrayMonad, F => F.map([1,2,3], x => x * 2));
+ *
+ * // After:
+ * const result = [1,2,3].map(x => x * 2);
+ * ```
+ *
+ * @param dict - The typeclass dictionary to use for specialization
+ * @param expr - A lambda `F => body` where F.method() calls get inlined
+ * @returns The specialized result
+ */
+export function specialize$<T, R>(dict: T, expr: (d: T) => R): R {
+  throw new Error(
+    "specialize$() is a compile-time macro and requires the typesugar transformer. " +
+      "See https://github.com/typesugar/typesugar for setup instructions."
+  );
+}
 
 // Specialized type utility
 export type { Specialized } from "./specialized-type.js";

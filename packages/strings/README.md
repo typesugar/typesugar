@@ -103,7 +103,7 @@ const regex = raw`\d+\.\d+`;
 
 ```typescript
 // Used internally by html macro
-function __typemacro_escapeHtml(str: unknown): string;
+function __typesugar_escapeHtml(str: unknown): string;
 ```
 
 ## Compile-Time Benefits

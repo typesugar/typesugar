@@ -2,7 +2,7 @@
  * Pipeline End-to-End Tests
  *
  * Verifies the full TransformationPipeline on realistic typesugar code:
- * - HKT syntax (F<_> → $<F, A>)
+ * - HKT syntax (F<_> → Kind<F, A>)
  * - Pipeline operator (|> → __binop__)
  * - Cons operator (:: → __binop__)
  * - Source map round-trip accuracy
@@ -51,9 +51,9 @@ interface Functor<F<_>> {
     expect(result.code).toBeDefined();
     expect(result.changed).toBe(true);
 
-    // F<_> is rewritten to plain F, and F<A>/F<B> become $<F, A>/$<F, B>
-    expect(result.code).toContain("$<F, A>");
-    expect(result.code).toContain("$<F, B>");
+    // F<_> is rewritten to plain F, and F<A>/F<B> become Kind<F, A>/Kind<F, B>
+    expect(result.code).toContain("Kind<F, A>");
+    expect(result.code).toContain("Kind<F, B>");
     // The HKT parameter sugar F<_> should be gone
     expect(result.code).not.toContain("F<_>");
   });

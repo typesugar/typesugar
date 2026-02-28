@@ -19,10 +19,10 @@
  *
  * hygiene.withScope(() => {
  *   const temp = hygiene.createIdentifier("temp");
- *   // temp.text === "__typemacro_temp_s0_0__"
+ *   // temp.text === "__typesugar_temp_s0_0__"
  *
  *   const sameTemp = hygiene.createIdentifier("temp");
- *   // sameTemp.text === "__typemacro_temp_s0_0__" (same scope, same name)
+ *   // sameTemp.text === "__typesugar_temp_s0_0__" (same scope, same name)
  * });
  *
  * // Unhygienic escape:
@@ -120,13 +120,13 @@ export class HygieneContext {
       const existing = this.currentScope.nameMap.get(name);
       if (existing) return existing;
 
-      const mangled = `__typemacro_${name}_s${this.currentScope.id}_${this.currentScope.counter++}__`;
+      const mangled = `__typesugar_${name}_s${this.currentScope.id}_${this.currentScope.counter++}__`;
       this.currentScope.nameMap.set(name, mangled);
       return mangled;
     }
 
     // No scope — generate a globally unique name
-    return `__typemacro_${name}_${this.globalCounter++}__`;
+    return `__typesugar_${name}_${this.globalCounter++}__`;
   }
 
   /**

@@ -10,7 +10,7 @@
  * @example
  * ```typescript
  * // In transformer setup:
- * const cache = new MacroExpansionCache(".typemacro-cache");
+ * const cache = new MacroExpansionCache(".typesugar-cache");
  *
  * // Before expanding:
  * const cacheKey = cache.computeKey(macroName, sourceText, argTexts);
@@ -75,7 +75,7 @@ export class MacroExpansionCache {
     evictions: 0,
   };
 
-  constructor(cacheDir: string = ".typemacro-cache") {
+  constructor(cacheDir: string = ".typesugar-cache") {
     this.cacheFilePath = path.resolve(cacheDir, "expansions.json");
     this.load();
   }

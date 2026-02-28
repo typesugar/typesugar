@@ -223,7 +223,7 @@ describe("Performance benchmarks", () => {
       const result = bench(
         "module-scoped lookup",
         () => {
-          globalRegistry.getByModuleExport("typemacro", "comptime");
+          globalRegistry.getByModuleExport("typesugar", "comptime");
         },
         100_000
       );

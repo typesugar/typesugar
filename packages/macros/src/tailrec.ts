@@ -647,7 +647,7 @@ function liftTernaryTailCalls(
 
 export const tailrecAttribute = defineAttributeMacro({
   name: "tailrec",
-  module: "typemacro",
+  module: "typesugar",
   exportName: "tailrec",
   description:
     "Verify and optimize tail-recursive functions into stack-safe while loops (following Scala's @tailrec rules)",

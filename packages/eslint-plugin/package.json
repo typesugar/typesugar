@@ -29,7 +29,8 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run"
   },
   "keywords": [
     "eslint",
@@ -50,7 +51,8 @@
     "@types/eslint": "^8.56.0",
     "eslint": "^9.0.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^2.0.0"
   },
   "sideEffects": false
 }

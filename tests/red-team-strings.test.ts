@@ -10,7 +10,7 @@
  * - Raw string escape sequence handling
  */
 import { describe, it, expect } from "vitest";
-import { __typemacro_escapeHtml } from "@typesugar/strings";
+import { __typesugar_escapeHtml } from "@typesugar/strings";
 
 describe("Strings Edge Cases", () => {
   // ==========================================================================
@@ -18,48 +18,48 @@ describe("Strings Edge Cases", () => {
   // ==========================================================================
   describe("HTML XSS Escaping", () => {
     it("escapes basic HTML special characters", () => {
-      expect(__typemacro_escapeHtml("<script>alert('xss')</script>")).toBe(
+      expect(__typesugar_escapeHtml("<script>alert('xss')</script>")).toBe(
         "&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;"
       );
     });
 
     it("escapes all five critical characters", () => {
-      expect(__typemacro_escapeHtml("&")).toBe("&amp;");
-      expect(__typemacro_escapeHtml("<")).toBe("&lt;");
-      expect(__typemacro_escapeHtml(">")).toBe("&gt;");
-      expect(__typemacro_escapeHtml('"')).toBe("&quot;");
-      expect(__typemacro_escapeHtml("'")).toBe("&#039;");
+      expect(__typesugar_escapeHtml("&")).toBe("&amp;");
+      expect(__typesugar_escapeHtml("<")).toBe("&lt;");
+      expect(__typesugar_escapeHtml(">")).toBe("&gt;");
+      expect(__typesugar_escapeHtml('"')).toBe("&quot;");
+      expect(__typesugar_escapeHtml("'")).toBe("&#039;");
     });
 
     it("handles double encoding attempts", () => {
       // Attacker tries: &lt; hoping it becomes < after double decode
-      expect(__typemacro_escapeHtml("&lt;")).toBe("&amp;lt;");
-      expect(__typemacro_escapeHtml("&amp;")).toBe("&amp;amp;");
+      expect(__typesugar_escapeHtml("&lt;")).toBe("&amp;lt;");
+      expect(__typesugar_escapeHtml("&amp;")).toBe("&amp;amp;");
     });
 
     it("handles unicode escapes that look like HTML", () => {
       // \u003C is < in unicode - should still be escaped
       const unicodeLt = "\u003C";
-      expect(__typemacro_escapeHtml(unicodeLt)).toBe("&lt;");
+      expect(__typesugar_escapeHtml(unicodeLt)).toBe("&lt;");
     });
 
     it("handles null byte injection attempts", () => {
       // Null bytes can sometimes bypass filters
-      expect(__typemacro_escapeHtml("foo\0<script>")).toBe("foo\0&lt;script&gt;");
+      expect(__typesugar_escapeHtml("foo\0<script>")).toBe("foo\0&lt;script&gt;");
     });
 
     it("converts non-string values to strings", () => {
-      expect(__typemacro_escapeHtml(null)).toBe("null");
-      expect(__typemacro_escapeHtml(undefined)).toBe("undefined");
-      expect(__typemacro_escapeHtml(123)).toBe("123");
-      expect(__typemacro_escapeHtml({ toString: () => "<bad>" })).toBe("&lt;bad&gt;");
+      expect(__typesugar_escapeHtml(null)).toBe("null");
+      expect(__typesugar_escapeHtml(undefined)).toBe("undefined");
+      expect(__typesugar_escapeHtml(123)).toBe("123");
+      expect(__typesugar_escapeHtml({ toString: () => "<bad>" })).toBe("&lt;bad&gt;");
     });
 
     it("handles mixed content with newlines", () => {
       const input = `<div>
         "Hello" & 'World'
       </div>`;
-      const result = __typemacro_escapeHtml(input);
+      const result = __typesugar_escapeHtml(input);
       expect(result).not.toContain("<");
       expect(result).not.toContain(">");
       expect(result).toContain("&lt;");
@@ -73,7 +73,7 @@ describe("Strings Edge Cases", () => {
   describe("Unicode Edge Cases", () => {
     it("preserves emoji in escaped output", () => {
       const emoji = "Hello 👋 World <script>";
-      const result = __typemacro_escapeHtml(emoji);
+      const result = __typesugar_escapeHtml(emoji);
       expect(result).toContain("👋");
       expect(result).toContain("&lt;script&gt;");
     });
@@ -82,35 +82,35 @@ describe("Strings Edge Cases", () => {
       // 𝌆 is U+1D306 (requires surrogate pair in UTF-16)
       const tetragram = "𝌆";
       expect(tetragram.length).toBe(2); // surrogate pair
-      expect(__typemacro_escapeHtml(tetragram)).toBe("𝌆");
+      expect(__typesugar_escapeHtml(tetragram)).toBe("𝌆");
     });
 
     it("handles combining characters", () => {
       // é can be e + combining acute accent
       const combining = "e\u0301"; // e + combining acute
-      expect(__typemacro_escapeHtml(combining)).toBe("e\u0301");
+      expect(__typesugar_escapeHtml(combining)).toBe("e\u0301");
     });
 
     it("handles zero-width characters", () => {
       const zeroWidth = "foo\u200Bbar"; // zero-width space
-      expect(__typemacro_escapeHtml(zeroWidth)).toBe("foo\u200Bbar");
+      expect(__typesugar_escapeHtml(zeroWidth)).toBe("foo\u200Bbar");
 
       // Zero-width joiner in emoji sequences
       const familyEmoji = "👨‍👩‍👧"; // family emoji with ZWJ
-      expect(__typemacro_escapeHtml(familyEmoji)).toBe(familyEmoji);
+      expect(__typesugar_escapeHtml(familyEmoji)).toBe(familyEmoji);
     });
 
     it("handles right-to-left override characters", () => {
       // RLO can be used to visually disguise URLs
       const rlo = "\u202E<script>";
-      const result = __typemacro_escapeHtml(rlo);
+      const result = __typesugar_escapeHtml(rlo);
       expect(result).toContain("&lt;");
     });
 
     it("handles homoglyph attacks (lookalike chars)", () => {
       // Cyrillic 'а' looks like Latin 'a'
       const homoglyph = "<script>"; // Uses Cyrillic characters
-      const result = __typemacro_escapeHtml(homoglyph);
+      const result = __typesugar_escapeHtml(homoglyph);
       // Even with homoglyphs, < and > should be escaped
       expect(result).toContain("&lt;");
     });
@@ -244,23 +244,23 @@ describe("Strings Edge Cases", () => {
   // ==========================================================================
   describe("Empty and Boundary Cases", () => {
     it("handles empty string input to escapeHtml", () => {
-      expect(__typemacro_escapeHtml("")).toBe("");
+      expect(__typesugar_escapeHtml("")).toBe("");
     });
 
     it("handles whitespace-only strings", () => {
-      expect(__typemacro_escapeHtml("   ")).toBe("   ");
-      expect(__typemacro_escapeHtml("\t\n\r")).toBe("\t\n\r");
+      expect(__typesugar_escapeHtml("   ")).toBe("   ");
+      expect(__typesugar_escapeHtml("\t\n\r")).toBe("\t\n\r");
     });
 
     it("handles strings with only special characters", () => {
-      expect(__typemacro_escapeHtml("<><>")).toBe("&lt;&gt;&lt;&gt;");
-      expect(__typemacro_escapeHtml('"""')).toBe("&quot;&quot;&quot;");
+      expect(__typesugar_escapeHtml("<><>")).toBe("&lt;&gt;&lt;&gt;");
+      expect(__typesugar_escapeHtml('"""')).toBe("&quot;&quot;&quot;");
     });
 
     it("handles very long strings efficiently", () => {
       const long = "<".repeat(10000);
       const start = performance.now();
-      const result = __typemacro_escapeHtml(long);
+      const result = __typesugar_escapeHtml(long);
       const elapsed = performance.now() - start;
 
       expect(result).toBe("&lt;".repeat(10000));
@@ -270,10 +270,10 @@ describe("Strings Edge Cases", () => {
 
     it("handles strings at character boundaries", () => {
       // Single character
-      expect(__typemacro_escapeHtml("<")).toBe("&lt;");
+      expect(__typesugar_escapeHtml("<")).toBe("&lt;");
 
       // Maximum safe integer as string
-      expect(__typemacro_escapeHtml(Number.MAX_SAFE_INTEGER)).toBe("9007199254740991");
+      expect(__typesugar_escapeHtml(Number.MAX_SAFE_INTEGER)).toBe("9007199254740991");
     });
   });
 
@@ -284,18 +284,18 @@ describe("Strings Edge Cases", () => {
     it("handles template strings with backticks in content", () => {
       // Backticks inside template need escaping in source, but result is literal
       const withBacktick = "code: `const x = 1`";
-      expect(__typemacro_escapeHtml(withBacktick)).toBe("code: `const x = 1`");
+      expect(__typesugar_escapeHtml(withBacktick)).toBe("code: `const x = 1`");
     });
 
     it("handles template strings with ${} that look like interpolation", () => {
       // Escaped interpolation syntax in a string literal
       const fakeInterp = "template: ${notActuallyInterpolated}";
-      expect(__typemacro_escapeHtml(fakeInterp)).toBe("template: ${notActuallyInterpolated}");
+      expect(__typesugar_escapeHtml(fakeInterp)).toBe("template: ${notActuallyInterpolated}");
     });
 
     it("handles nested quotes", () => {
       const nested = `"outer 'inner "nested" inner' outer"`;
-      const result = __typemacro_escapeHtml(nested);
+      const result = __typesugar_escapeHtml(nested);
       expect(result).toContain("&quot;");
       expect(result).toContain("&#039;");
     });
@@ -303,12 +303,12 @@ describe("Strings Edge Cases", () => {
     it("handles control characters", () => {
       // Bell, backspace, form feed
       const controls = "\x07\x08\x0C";
-      expect(__typemacro_escapeHtml(controls)).toBe(controls);
+      expect(__typesugar_escapeHtml(controls)).toBe(controls);
     });
 
     it("handles strings with only escape sequences", () => {
       const escapes = "\n\t\r\\";
-      expect(__typemacro_escapeHtml(escapes)).toBe("\n\t\r\\");
+      expect(__typesugar_escapeHtml(escapes)).toBe("\n\t\r\\");
     });
   });
 });

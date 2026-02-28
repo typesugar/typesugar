@@ -44,7 +44,7 @@ interface CollectedType {
 
 export const collectTypesMacro = defineExpressionMacro({
   name: "collectTypes",
-  module: "typemacro",
+  module: "typesugar",
   description:
     "Collect all exported types matching a glob pattern across the project at compile time.",
 
@@ -290,7 +290,7 @@ function hasExportModifier(node: ts.Node): boolean {
 
 export const moduleIndexMacro = defineExpressionMacro({
   name: "moduleIndex",
-  module: "typemacro",
+  module: "typesugar",
   description: "Get a compile-time index of all modules and their exported symbols in the project.",
 
   expand(

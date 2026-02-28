@@ -14,39 +14,39 @@
 
 import { assert, typeAssert, type Equal, type Extends } from "@typesugar/testing";
 
-import { __typemacro_escapeHtml } from "../src/index.js";
+import { __typesugar_escapeHtml } from "../src/index.js";
 
 // ============================================================================
 // 1. HTML ESCAPING - XSS Protection Runtime Helper
 // ============================================================================
 
-// The html`` tagged template macro wraps interpolations in __typemacro_escapeHtml()
+// The html`` tagged template macro wraps interpolations in __typesugar_escapeHtml()
 // at compile time. Here we verify the runtime helper directly.
 
-const safe = __typemacro_escapeHtml("<script>alert('xss')</script>");
+const safe = __typesugar_escapeHtml("<script>alert('xss')</script>");
 assert(
   safe === "&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;",
   "script tags are escaped"
 );
 
-const ampersands = __typemacro_escapeHtml("Tom & Jerry");
+const ampersands = __typesugar_escapeHtml("Tom & Jerry");
 assert(ampersands === "Tom &amp; Jerry", "ampersands escaped");
 
-const quotes = __typemacro_escapeHtml('She said "hello"');
+const quotes = __typesugar_escapeHtml('She said "hello"');
 assert(quotes === "She said &quot;hello&quot;", "double quotes escaped");
 
-const singleQuotes = __typemacro_escapeHtml("It's fine");
+const singleQuotes = __typesugar_escapeHtml("It's fine");
 assert(singleQuotes === "It&#039;s fine", "single quotes escaped");
 
-const angles = __typemacro_escapeHtml("a < b > c");
+const angles = __typesugar_escapeHtml("a < b > c");
 assert(angles === "a &lt; b &gt; c", "angle brackets escaped");
 
 // Non-string values are coerced
-assert(__typemacro_escapeHtml(42) === "42", "numbers pass through as strings");
-assert(__typemacro_escapeHtml(null) === "null", "null coerced to string");
-assert(__typemacro_escapeHtml(undefined) === "undefined", "undefined coerced to string");
+assert(__typesugar_escapeHtml(42) === "42", "numbers pass through as strings");
+assert(__typesugar_escapeHtml(null) === "null", "null coerced to string");
+assert(__typesugar_escapeHtml(undefined) === "undefined", "undefined coerced to string");
 
-typeAssert<Equal<ReturnType<typeof __typemacro_escapeHtml>, string>>();
+typeAssert<Equal<ReturnType<typeof __typesugar_escapeHtml>, string>>();
 
 // ============================================================================
 // 2. REGEX MACRO - Compile-Time Validated Regular Expressions
@@ -165,23 +165,23 @@ assert(rawWithInterp.includes("C:\\builds"), "escapes preserved around interpola
 // ============================================================================
 
 // Empty string
-assert(__typemacro_escapeHtml("") === "", "empty string unchanged");
+assert(__typesugar_escapeHtml("") === "", "empty string unchanged");
 
 // No special characters
 assert(
-  __typemacro_escapeHtml("Hello World 123") === "Hello World 123",
+  __typesugar_escapeHtml("Hello World 123") === "Hello World 123",
   "plain text unchanged"
 );
 
 // All special characters combined
-const allSpecial = __typemacro_escapeHtml(`<div class="test">&'`);
+const allSpecial = __typesugar_escapeHtml(`<div class="test">&'`);
 assert(
   allSpecial === "&lt;div class=&quot;test&quot;&gt;&amp;&#039;",
   "all HTML special chars escaped"
 );
 
 // Nested HTML
-const nested = __typemacro_escapeHtml("<b><i>bold italic</i></b>");
+const nested = __typesugar_escapeHtml("<b><i>bold italic</i></b>");
 assert(
   nested === "&lt;b&gt;&lt;i&gt;bold italic&lt;/i&gt;&lt;/b&gt;",
   "nested HTML fully escaped"
@@ -193,9 +193,9 @@ assert(
 
 // Building safe HTML from user data using the escape helper
 function renderUserCard(user: { name: string; bio: string; url: string }): string {
-  const safeName = __typemacro_escapeHtml(user.name);
-  const safeBio = __typemacro_escapeHtml(user.bio);
-  const safeUrl = __typemacro_escapeHtml(user.url);
+  const safeName = __typesugar_escapeHtml(user.name);
+  const safeBio = __typesugar_escapeHtml(user.bio);
+  const safeUrl = __typesugar_escapeHtml(user.url);
   return `<div class="card"><h2>${safeName}</h2><p>${safeBio}</p><a href="${safeUrl}">Profile</a></div>`;
 }
 

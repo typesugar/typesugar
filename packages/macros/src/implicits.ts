@@ -534,7 +534,7 @@ export function processImplicitsFunctionBody(
 
 export const summonAllMacro = defineExpressionMacro({
   name: "summonAll",
-  module: "typemacro",
+  module: "typesugar",
   description: "Summon multiple typeclass instances as a tuple",
 
   expand(

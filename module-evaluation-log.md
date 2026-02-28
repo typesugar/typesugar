@@ -72,10 +72,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/derive
 
 **Usefulness**: 4/5 - Derive macros for Eq, Clone, Debug, Hash, Json, Builder address extremely common boilerplate patterns.
-**Completeness**: 2/5 - Several issues: missing sum type support, Clone is shallow (not deep), Eq/Hash use JSON.stringify (breaks on circular refs, NaN), no tests.
+**Completeness**: 3/5 - Sum type support now implemented (all derives have expandXxxForSumType functions). Clone is shallow (not deep), Eq/Hash use JSON.stringify. Tests exist in root tests/derive.test.ts but not package-local.
 **Documentation**: 3/5 - Well-structured README but makes misleading claims about operator support (requires typeclass system).
-**Coherence**: 2/5 - Duplicates src/macros/derive.ts rather than delegating. Per AGENTS.md, should favor auto-derivation via summon() but requires explicit @derive().
-**Summary**: Useful functionality but incomplete copy of canonical implementation. Misleading docs about operators.
+**Coherence**: 2/5 - Per AGENTS.md, should favor auto-derivation via summon() but requires explicit @derive().
+**Summary**: Core functionality improved with sum type support. Tests in root tests/ rather than package-local.
+
+**Update (2026-02-28):** Sum type support added — all derive macros now handle discriminated unions via expandXxxForSumType functions.
 
 ---
 
@@ -181,11 +183,13 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/macros
 
-**Usefulness**: 2/5 - Would be highly useful but this package is non-functional. Duplicates src/macros/ and lacks package.json.
-**Completeness**: 1/5 - Missing all critical files: no package.json, tsconfig.json, tsup.config.ts, vitest.config.ts, tests, examples. Cannot be built.
-**Documentation**: 1/5 - No README.md exists. Not mentioned in docs anywhere.
-**Coherence**: 2/5 - Source code follows typesugar patterns but duplicates canonical src/macros/ location. Creates architectural confusion.
-**Summary**: Incomplete attempt to factor macros into standalone package. Should be completed or deleted.
+**Usefulness**: 3/5 - Central macro package providing all built-in macros. Essential for the ecosystem but primarily consumed indirectly via umbrella package.
+**Completeness**: 3/5 - Now buildable with proper package.json, tsup.config.ts, vitest.config.ts. Contains 27 source files with comprehensive macro implementations. Still missing dedicated tests directory.
+**Documentation**: 2/5 - Has proper package structure but no README.md. Not documented in docs/ anywhere.
+**Coherence**: 3/5 - Source code follows typesugar patterns. Now serves as canonical location for macros rather than duplicating.
+**Summary**: Now functional and buildable. Main gaps: missing README and dedicated test suite.
+
+**Update (2026-02-28):** Package is now buildable with proper package.json and build configuration. No longer non-functional.
 
 ---
 
@@ -282,20 +286,24 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/specialize
 
 **Usefulness**: 3/5 - Valuable for FP codebases but niche. Most projects won't need explicit specialization when @implicits handles it automatically.
-**Completeness**: 2/5 - Package is simplified stub. Real inlining logic in src/macros/specialize.ts (2700+ lines). This creates wrapper functions, not true zero-cost.
-**Documentation**: 4/5 - README well-structured with examples, before/after, performance table. Missing relationship to src/macros/specialize.ts.
+**Completeness**: 2/5 - Package re-exports from @typesugar/macros. Real inlining logic in packages/macros/src/specialize.ts. **Export gap**: `specialize$` macro exists but runtime stub not exported — imports would fail.
+**Documentation**: 3/5 - README well-structured but has issues: (1) `specialize$` not exported so examples fail, (2) signature mismatch — README shows `specialize$(call)` but macro takes `specialize$(dict, expr)`.
 **Coherence**: 3/5 - Uses correct patterns but doesn't deliver on "zero-cost" promise. @implicits is preferred path per AGENTS.md.
-**Summary**: Provides useful API surface but actual zero-cost transformation lives elsewhere. Gap between docs and behavior.
+**Summary**: Export and signature issues discovered. `specialize$` macro exists but can't be imported. Documentation shows wrong signature.
+
+**Update (2026-02-28):** New issues found — `specialize$` runtime stub missing from exports, signature mismatch between docs and implementation.
 
 ---
 
 ## @typesugar/sql
 
 **Usefulness**: 3/5 - SQL query building is common, but mature alternatives exist (Kysely, Drizzle, Prisma). Doobie-style appeals mainly to Scala developers.
-**Completeness**: 2/5 - Core Fragment system solid, but advertised features incomplete: sql$ macro doesn't exist, @deriving(Read/Write) not working, ConnectionIO.flatMap has bug.
-**Documentation**: 3/5 - README has good basic examples, JSDoc extensive, but promises features not implemented. Showcase has incorrect assertions.
-**Coherence**: 3/5 - Good conceptual alignment but implementation doesn't deliver - macro integration incomplete, auto-derivation not working.
-**Summary**: Well-designed Doobie-style library that oversells macro features that aren't implemented. Needs completion before production-ready.
+**Completeness**: 4/5 - Comprehensive implementation: sql$ macro exists (in infer-macro.ts), @deriving(Read/Write/Codec) fully implemented, TypedFragment/TypedQuery/TypedUpdate system, Meta/Get/Put typeclass hierarchy, select().from().where() query builder DSL.
+**Documentation**: 2/5 - README is now **outdated** — significantly under-documents features that exist. Many implemented features (sql$, TypedFragment, schema decorator) not documented.
+**Coherence**: 4/5 - Good conceptual alignment. Macro integration now complete. Auto-derivation working for Read/Write/Codec.
+**Summary**: More complete than previously assessed. README needs updating to reflect implemented features.
+
+**Update (2026-02-28):** Previous assessment incorrect — sql$ macro and @deriving(Read/Write/Codec) ARE implemented. README is outdated (under-documents), not overselling.
 
 ---
 
@@ -372,10 +380,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/typeclass
 
 **Usefulness**: 4/5 - Typeclasses are powerful, widely-applicable abstraction pattern for generic programming. Excellent for Scala-style ad-hoc polymorphism.
-**Completeness**: 2/5 - Package is simplified skeleton with gaps. Only 4 hardcoded derivations using naive JSON.stringify. Missing sum type support, transitive derivation, Op<> integration. No tests.
-**Documentation**: 3/5 - README has decent structure but doesn't reflect implementation limitations. Claims features that only work via src/macros/typeclass.ts.
-**Coherence**: 2/5 - Major architectural problem: parallel simplified implementation (~656 lines) duplicating src/macros/typeclass.ts (~2900 lines). JSON.stringify violates zero-cost.
-**Summary**: Concept valuable but appears to be early prototype never integrated with real implementation. Creates confusion between package and src/macros/ versions.
+**Completeness**: 2/5 - Package is now a re-export facade. Delegates to @typesugar/macros for actual implementations. Still missing comprehensive tests.
+**Documentation**: 3/5 - README has decent structure but doesn't reflect implementation limitations.
+**Coherence**: 3/5 - Architectural issue resolved: now properly re-exports from @typesugar/macros rather than duplicating. Single source of truth maintained.
+**Summary**: Re-export facade for typeclass macros. Architecture improved — no longer duplicates implementation.
+
+**Update (2026-02-28):** Architectural duplication resolved. Package now correctly re-exports from @typesugar/macros.
 
 ---
 
@@ -412,10 +422,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/validate
 
 **Usefulness**: 3/5 - Solves real need for type-safe validation, but competes with mature alternatives (Zod, Valibot) without significant differentiation.
-**Completeness**: 2/5 - MVP implementation only. README shows Schema DSL that doesn't exist. Missing recursive arrays, discriminated unions, literals, tuples. Console.logs in production code.
-**Documentation**: 2/5 - README actively misleading - shows Schema DSL API not implemented. Missing required sections per module-lifecycle.
+**Completeness**: 2/5 - Has Schema typeclass abstraction (for Zod/Valibot/native integration) and tests. However, README shows Zod-like builder DSL (`Schema.object()`, `Schema.string().minLength()`) that doesn't exist. Console.logs still in production code (4 locations).
+**Documentation**: 1/5 - README **severely misleading** — shows builder DSL API that doesn't exist at all. Actual implementation is a typeclass abstraction over validation libraries, not a DSL itself. Missing required sections per module-lifecycle.
 **Coherence**: 3/5 - Correctly uses macro infrastructure and HKT encoding. Integrates with @typesugar/fp. Uses verbose AST factory instead of quote().
-**Summary**: Foundational architecture but significantly incomplete. README promises features that don't exist. Needs substantial work.
+**Summary**: Has functional Schema typeclass but README documents a completely different API (builder DSL) that was never implemented. Major documentation/implementation mismatch.
+
+**Update (2026-02-28):** Documentation score lowered — README shows builder DSL that doesn't exist. Schema typeclass exists but is NOT the builder pattern shown in README.
 
 ---
 
@@ -437,11 +449,11 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 | Score | Count | Packages                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 5/5   | 2     | eslint-plugin (usefulness), transformer (usefulness), ts-plugin (usefulness), unplugin (usefulness), std (usefulness), umbrella (usefulness), prettier-plugin (usefulness, docs), react (usefulness), effect (usefulness), testing (docs), erased (docs), symbolic (docs), math (docs), comptime (docs, coherence), core (completeness, coherence), transformer (coherence), unplugin (coherence), vscode (coherence) |
-| 4/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
-| 3/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
-| 2/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
-| 1/5   | 2     | macros (completeness, docs), named-args (coherence)                                                                                                                                                                                                                                                                                                                                                                   |
+| 5/5   | Many  | eslint-plugin (usefulness), transformer (usefulness), ts-plugin (usefulness), unplugin (usefulness), std (usefulness), umbrella (usefulness), prettier-plugin (usefulness, docs), react (usefulness), effect (usefulness), testing (docs), erased (docs), symbolic (docs), math (docs), comptime (docs, coherence), core (completeness, coherence), transformer (coherence), unplugin (coherence), vscode (coherence) |
+| 4/5   | Many  | sql (completeness, coherence) *(improved)*, (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                          |
+| 3/5   | Many  | macros (completeness) *(improved from 1)*, typeclass (coherence) *(improved from 2)*, derive (completeness) *(improved from 2)*, (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2/5   | Many  | sql (docs) *(worsened from 3)*, (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                          |
+| 1/5   | 2     | ~~macros (completeness, docs)~~ *(now 3/5, 2/5)*, named-args (coherence), validate (docs) *(worsened from 2)*                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## Key Patterns Identified
 
@@ -457,45 +469,63 @@ Evaluation of all typesugar modules across 4 dimensions:
 - **@typesugar/prettier-plugin** — Essential tooling, well-documented
 - **@typesugar/symbolic** — Well-implemented with good Op<> usage and red-team tests
 - **@typesugar/math** — Mature library with proper typeclass integration
-- **@typesugar/vscode** — Well-architected extension with manifest-driven design
+- **@typesugar/vscode** — Well-architected extension with manifest-driven design, tests confirmed
+- **@typesugar/sql** — *(Added 2026-02-28)* More complete than assessed; sql$, @deriving(Read/Write/Codec), TypedFragment implemented
 
 ### Packages Needing Work (avg <= 2.5)
 
-- **@typesugar/macros** — Non-functional, missing package.json, duplicates src/macros/
+- ~~**@typesugar/macros**~~ *(Removed 2026-02-28)* — Now functional and buildable
 - **@typesugar/named-args** — Not zero-cost, contradicts philosophy
-- **@typesugar/typeclass** — Stub duplicating canonical implementation
+- ~~**@typesugar/typeclass**~~ *(Removed 2026-02-28)* — Architecture fixed, now re-exports from macros
 - **@typesugar/strings** — Limited value, incomplete fmt, stale naming
-- **@typesugar/derive** — Missing sum types, misleading docs about operators
+- ~~**@typesugar/derive**~~ *(Removed 2026-02-28)* — Sum types now implemented
 - **@typesugar/units** — Doesn't use typeclass system, documents non-existent API
-- **@typesugar/validate** — README promises features that don't exist
+- **@typesugar/validate** — README shows builder DSL that doesn't exist (worse than previously assessed)
 - **@typesugar/fusion** — Claims zero-cost but macros are stubs
+- **@typesugar/specialize** — *(Added 2026-02-28)* Export missing (`specialize$`), signature mismatch
 
 ### Common Issues
 
-1. **Architecture Duplication** — Several packages duplicate src/macros/ instead of wrapping/re-exporting:
-   - @typesugar/macros, @typesugar/typeclass, @typesugar/derive, @typesugar/operators
+1. **Architecture Duplication** — Status improved (2026-02-28):
+   - ~~@typesugar/macros~~ — Now serves as canonical location
+   - ~~@typesugar/typeclass~~ — Now properly re-exports from macros
+   - **Remaining**: @typesugar/operators still duplicates rather than re-exporting
 
-2. **Stale Project Names** — References to "typemacro" and "@ttfx" still present in:
-   - contracts README, drizzle JSDoc, kysely JSDoc, strings, react, umbrella
+2. **Stale Project Names** — References to "typemacro" and "@ttfx" more widespread than documented:
+   - **Previously noted**: contracts README, drizzle JSDoc, kysely JSDoc, strings, react, umbrella
+   - **Core macro registration**: `module: "typemacro"` in implicits.ts, comptime.ts, many test fixtures
+   - **Root config files**: vitest.config.ts variable name, .gitignore cache directory
+   - **Cache system defaults**: `.typemacro-cache/` hardcoded in packages/core/src/cache.ts
+   - **Hygiene system**: generates `__typemacro_*` identifiers (packages/core/src/hygiene.ts)
+   - **examples/basic/**: Entire README and source files use old name
+   - **JSDoc in core packages**: specialize.ts, quote.ts, types.ts still reference "typemacro"
 
-3. **Missing Tests** — Many packages lack test directories:
-   - macros, eslint-plugin, derive, drizzle, kysely, operators, strings
+3. **Missing Tests** — Status updated (2026-02-28):
+   - **@typesugar/vscode**: Tests confirmed — 9 test files with 2,014 lines of coverage
+   - **@typesugar/eslint-plugin**: No tests/ directory at all
+   - **Empty tests/ directories** (have vitest.config.ts but no test files): derive, drizzle, kysely, operators, strings
+   - **@typesugar/macros**: Now buildable but still lacks tests
 
-4. **Documentation/Implementation Drift** — READMEs promise features not implemented:
-   - validate (Schema DSL), units (.to() method), sql (sql$ macro), specialize (zero-cost)
+4. **Documentation/Implementation Drift** — Updated assessment (2026-02-28):
+   - **validate**: README shows builder DSL that doesn't exist (SEVERE drift)
+   - **units**: .to() method documented but not implemented
+   - **sql**: ~~sql$ macro~~ CORRECTED — sql$ macro EXISTS, README is outdated (under-documents)
+   - **specialize**: `specialize$` not exported, signature mismatch in README
 
 5. **Not Leveraging Typeclass System** — Several packages don't use Op<>, summon(), auto-derivation:
    - geometry, graph, hlist, units, fusion, erased
 
 ### Recommendations
 
-1. **Delete or complete @typesugar/macros** — It's non-functional and creates confusion
-2. **Consolidate typeclass implementations** — Align package with src/macros/typeclass.ts
-3. **Fix documentation/implementation drift** — Audit all READMEs for promised-but-unimplemented features
+1. ~~**Delete or complete @typesugar/macros**~~ — *(Done)* Package is now functional
+2. ~~**Consolidate typeclass implementations**~~ — *(Done)* Package now re-exports from macros
+3. **Fix documentation/implementation drift** — Priority: validate (severe), specialize (export/signature), sql (under-documented)
 4. **Add Op<> typeclass integration** — geometry, units, fusion should use operators
-5. **Update stale names** — Global find/replace typemacro→typesugar, @ttfx→@typesugar
-6. **Add missing test coverage** — Priority: eslint-plugin, derive, operators
+5. **Update stale names** — Scope larger than expected: core macro registration, cache system, hygiene, vitest config, examples/basic
+6. **Add missing test coverage** — Priority: eslint-plugin (no tests/ at all), then derive, drizzle, kysely, operators, strings (empty tests/)
+7. **Fix specialize exports** — Add `specialize$` runtime stub to exports, fix signature documentation
 
 ---
 
 _Generated: 2026-02-22_
+_Updated: 2026-02-28_
