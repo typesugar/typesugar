@@ -100,7 +100,7 @@ In `tsconfig.json`:
 Or via environment variable:
 
 ```bash
-TYPEMACRO_CONTRACTS_MODE=none npm run build  # Production
+TYPESUGAR_CONTRACTS_MODE=none npm run build  # Production
 ```
 
 | Mode           | Preconditions | Postconditions | Invariants |

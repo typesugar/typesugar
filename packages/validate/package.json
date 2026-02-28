@@ -43,8 +43,7 @@
   "dependencies": {
     "@typesugar/core": "workspace:*",
     "@typesugar/fp": "workspace:*",
-    "@typesugar/type-system": "workspace:*",
-    "@typesugar/mapper": "workspace:*"
+    "@typesugar/type-system": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

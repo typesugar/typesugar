@@ -116,7 +116,8 @@ const result = nativeSchema.safeParse(isUser, data);
 Write validation code that works with any library:
 
 ```typescript
-import { Schema, specialize } from "@typesugar/validate";
+import { Schema } from "@typesugar/validate";
+import { specialize } from "@typesugar/specialize";
 
 // Generic validation function
 function processBody<F, A>(S: Schema<F>, schema: $<F, A>, data: unknown): A {

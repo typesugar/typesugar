@@ -109,10 +109,6 @@ const sorted2 = sortNumbers([5, 4]);
 - `mono<T1, ...>(fn)` — Monomorphize a generic function for specific types
 - `inlineCall(call)` — Attempt to inline a function call
 
-### Functions
-
-- `register()` — Register macros (called automatically on import)
-
 ## Performance Benefits
 
 | Pattern                        | Runtime Cost                     |

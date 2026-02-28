@@ -185,10 +185,6 @@ function generateValidationChecks(
     }
   }
 
-  console.log(
-    "Returning checks:",
-    checks.map((c) => c?.kind)
-  );
   return checks.filter(Boolean);
 }
 
@@ -387,14 +383,6 @@ export const isMacro = defineExpressionMacro({
       )
     );
 
-    console.log("isMacro generated AST successfully. Printing:");
-    try {
-      console.log(
-        ts.createPrinter().printNode(ts.EmitHint.Unspecified, result, callExpr.getSourceFile())
-      );
-    } catch (printErr: any) {
-      console.log("PRINTER CRASHED:", printErr.stack);
-    }
     return result;
   },
 });
