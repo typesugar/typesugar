@@ -29,6 +29,9 @@ import {
   type AttributeTarget,
 } from "@typesugar/core";
 
+// Re-export test utilities from macro-context
+export { createMacroTestContext, parseSource, type TestMacroContext } from "./macro-context.js";
+
 // ============================================================================
 // powerAssert() — Power Assertions with Sub-Expression Capture
 // ============================================================================

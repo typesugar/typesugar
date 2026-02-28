@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { createMacroTestContext } from "@typesugar/testing";
+import { createMacroTestContext } from "@typesugar/testing/macros";
 import { stateMacro, getStateMetadata } from "../macros/state.js";
 import { derivedMacro } from "../macros/derived.js";
 import { effectMacro } from "../macros/effect.js";

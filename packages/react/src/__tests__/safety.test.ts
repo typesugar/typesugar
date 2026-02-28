@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { createMacroTestContext, parseSource } from "@typesugar/testing";
+import { createMacroTestContext, parseSource } from "@typesugar/testing/macros";
 import {
   checkConditionalPrimitives,
   checkDirectMutation,
