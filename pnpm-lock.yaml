@@ -743,9 +743,6 @@ importers:
       '@typesugar/fp':
         specifier: workspace:*
         version: link:../fp
-      '@typesugar/mapper':
-        specifier: workspace:*
-        version: link:../mapper
       '@typesugar/type-system':
         specifier: workspace:*
         version: link:../type-system
