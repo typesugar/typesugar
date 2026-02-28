@@ -32,7 +32,7 @@ interface BinopCallInfo {
 }
 
 /**
- * Information about a $<F, A> type reference that needs reversal
+ * Information about a Kind<F, A> type reference that needs reversal
  */
 interface HKTUsageInfo {
   /** The TypeReferenceNode */
@@ -50,7 +50,7 @@ interface HKTUsageInfo {
 /**
  * Reverse the preprocessor transformations in Prettier-formatted code.
  *
- * @param formatted - Prettier-formatted code (contains __binop__, /*@ts:hkt*\/, $<F, A>)
+ * @param formatted - Prettier-formatted code (contains __binop__, /*@ts:hkt*\/, Kind<F, A>)
  * @param metadata - Metadata from preFormat about HKT parameters
  * @returns Code with custom syntax restored
  */
@@ -89,7 +89,7 @@ export function postFormat(formatted: string, metadata: FormatMetadata): string 
   // Pattern: "F /*@ts:hkt*/" means F is an HKT parameter
   const hktParamNames = extractHKTParamNamesFromMarkers(current);
 
-  // 3. Reverse HKT usages ($<F, A> → F<A>) using AST
+  // 3. Reverse HKT usages (Kind<F, A> → F<A>) using AST
   // Must happen BEFORE we remove markers, since F<_> is not valid TS
   if (hktParamNames.size > 0) {
     const sourceFile2 = ts.createSourceFile(
@@ -297,7 +297,7 @@ function reverseHKTUsages(
 }
 
 /**
- * Collect all $<F, A> type references where F is an HKT parameter.
+ * Collect all Kind<F, A> type references where F is an HKT parameter.
  */
 function collectHKTUsages(
   sourceFile: ts.SourceFile,
@@ -311,10 +311,10 @@ function collectHKTUsages(
 
   function visit(node: ts.Node): void {
     if (ts.isTypeReferenceNode(node)) {
-      // Check if this is a $<F, A> reference
+      // Check if this is a Kind<F, A> reference
       if (
         ts.isIdentifier(node.typeName) &&
-        node.typeName.text === "$" &&
+        node.typeName.text === "Kind" &&
         node.typeArguments &&
         node.typeArguments.length === 2
       ) {
@@ -410,7 +410,7 @@ function extractHKTParamNamesFromCode(code: string): Set<string> {
 
 /**
  * Reverse HKT usages without relying on scope metadata.
- * Simply reverse all $<F, A> where F is a known HKT param name.
+ * Simply reverse all Kind<F, A> where F is a known HKT param name.
  */
 function reverseHKTUsagesSimple(
   s: MagicString,
@@ -422,10 +422,10 @@ function reverseHKTUsagesSimple(
 
   function visit(node: ts.Node): void {
     if (ts.isTypeReferenceNode(node)) {
-      // Check if this is a $<F, A> reference
+      // Check if this is a Kind<F, A> reference
       if (
         ts.isIdentifier(node.typeName) &&
-        node.typeName.text === "$" &&
+        node.typeName.text === "Kind" &&
         node.typeArguments &&
         node.typeArguments.length === 2
       ) {

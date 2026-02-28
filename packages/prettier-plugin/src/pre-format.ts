@@ -9,7 +9,7 @@ import { preprocess, type PreprocessResult } from "@typesugar/preprocessor";
 
 /**
  * Metadata about HKT parameters found during pre-format.
- * Used by postFormat to know which $<F, A> references to reverse.
+ * Used by postFormat to know which Kind<F, A> references to reverse.
  */
 export interface HKTParamInfo {
   /** The HKT parameter name (e.g., "F") */
@@ -24,7 +24,7 @@ export interface HKTParamInfo {
 export interface FormatMetadata {
   /** Whether any transformations were applied */
   changed: boolean;
-  /** HKT parameter declarations found (used for $<F, A> reversal) */
+  /** HKT parameter declarations found (used for Kind<F, A> reversal) */
   hktParams: HKTParamInfo[];
 }
 
@@ -55,7 +55,7 @@ export interface PreFormatOptions {
  * - `a |> b` becomes `__binop__(a, "|>", b)`
  * - `a :: b` becomes `__binop__(a, "::", b)`
  * - `F\<_\>` (HKT decl) becomes `F` followed by the marker comment
- * - `F\<A\>` (HKT usage) becomes `$\<F, A\>`
+ * - `F\<A\>` (HKT usage) becomes `Kind\<F, A\>`
  *
  * @param source - Source code with custom syntax
  * @param options - Pre-format options

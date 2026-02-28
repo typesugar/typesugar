@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import typemacro from "unplugin-typesugar/vite";
+import typesugar from "unplugin-typesugar/vite";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -7,8 +7,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
-    typemacro({
-      verbose: true,
+    typesugar({
+      verbose: false,
       exclude: [
         // Don't transform transformer package tests - they test the transformer itself
         "packages/transformer",
@@ -56,6 +56,8 @@ export default defineConfig({
     poolOptions: {
       forks: {
         execArgv: ["--max-old-space-size=2048"],
+        // Use single fork so the transformer is initialized once and reused
+        singleFork: true,
       },
     },
 

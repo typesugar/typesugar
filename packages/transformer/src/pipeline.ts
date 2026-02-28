@@ -95,6 +95,8 @@ export class TransformationPipeline {
   private fileNames: string[];
   /** Content hash cache for dependency validation */
   private contentHashes = new Map<string, string>();
+  /** Cached transformer factory - reused across all file transforms */
+  private cachedTransformerFactory: ts.TransformerFactory<ts.SourceFile> | null = null;
 
   constructor(
     private compilerOptions: ts.CompilerOptions,
@@ -242,6 +244,7 @@ export class TransformationPipeline {
     this.cache.clear();
     this.contentHashes.clear();
     this.program = null;
+    this.cachedTransformerFactory = null;
   }
 
   /**
@@ -337,9 +340,12 @@ export class TransformationPipeline {
     globalExpansionTracker.clear();
 
     try {
-      const result = ts.transform(sourceFile, [
-        macroTransformerFactory(this.program!, this.transformerConfig),
-      ]);
+      // Use cached transformer factory - only create once per program
+      if (!this.cachedTransformerFactory) {
+        this.cachedTransformerFactory = macroTransformerFactory(this.program!, this.transformerConfig);
+      }
+
+      const result = ts.transform(sourceFile, [this.cachedTransformerFactory]);
 
       if (result.transformed.length === 0) {
         result.dispose();
