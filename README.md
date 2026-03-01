@@ -73,10 +73,10 @@ alice.toJson(); // JSON serialization
 
 ### Syntax Sugar
 
-| Package                                      | Description                              |
-| -------------------------------------------- | ---------------------------------------- |
-| [@typesugar/strings](packages/strings)       | `regex`, `html`, `raw` tagged templates  |
-| [@typesugar/comptime](packages/comptime)     | `comptime()` compile-time evaluation     |
+| Package                                  | Description                             |
+| ---------------------------------------- | --------------------------------------- |
+| [@typesugar/strings](packages/strings)   | `regex`, `html`, `raw` tagged templates |
+| [@typesugar/comptime](packages/comptime) | `comptime()` compile-time evaluation    |
 
 ### Type Safety & Contracts
 
@@ -105,11 +105,11 @@ alice.toJson(); // JSON serialization
 
 ### Ecosystem Integrations
 
-| Package                                        | Description                 |
-| ---------------------------------------------- | --------------------------- |
-| [@typesugar/effect](packages/effect)           | Effect-TS adapter           |
-| [@typesugar/react](packages/react)             | Vue/Svelte-style reactivity |
-| [@typesugar/sql](packages/sql)                 | Doobie-like SQL DSL         |
+| Package                              | Description                 |
+| ------------------------------------ | --------------------------- |
+| [@typesugar/effect](packages/effect) | Effect-TS adapter           |
+| [@typesugar/react](packages/react)   | Vue/Svelte-style reactivity |
+| [@typesugar/sql](packages/sql)       | Doobie-like SQL DSL         |
 
 ### Developer Experience
 

@@ -143,7 +143,9 @@ import { dijkstraWith } from "@typesugar/graph";
 import type { Monoid, Ord } from "@typesugar/std";
 
 // Duration-based routing
-interface Duration { totalMs: number }
+interface Duration {
+  totalMs: number;
+}
 
 const durationMonoid: Monoid<Duration> = {
   combine: (a, b) => ({ totalMs: a.totalMs + b.totalMs }),
@@ -168,6 +170,7 @@ const result = dijkstraWith(networkGraph, "server-a", "server-b", {
 ```
 
 This enables:
+
 - **Multi-criteria optimization** — costs as tuples with lexicographic comparison
 - **Probability paths** — combine via multiplication, find max via reversed Ord
 - **Symbolic weights** — exact arithmetic without floating-point errors

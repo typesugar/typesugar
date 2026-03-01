@@ -117,9 +117,7 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
     } else if ("templateSpans" in template) {
       // TemplateExpression - check if all spans are static
       const tplExpr = template as ts.TemplateExpression;
-      const hasInterpolations = tplExpr.templateSpans.some(
-        (span) => !("text" in span.expression)
-      );
+      const hasInterpolations = tplExpr.templateSpans.some((span) => !("text" in span.expression));
       if (hasInterpolations) {
         // Fall back to runtime if there are dynamic interpolations
         return node;
@@ -214,10 +212,7 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
     return factory.createObjectLiteralExpression([
       factory.createPropertyAssignment("states", statesArray),
       factory.createPropertyAssignment("transitions", transitionsArray),
-      factory.createPropertyAssignment(
-        "initial",
-        factory.createStringLiteral(definition.initial)
-      ),
+      factory.createPropertyAssignment("initial", factory.createStringLiteral(definition.initial)),
       factory.createPropertyAssignment("terminal", terminalArray),
       factory.createPropertyAssignment(
         "create",
@@ -245,18 +240,9 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
         )
       ),
       // Include verification metadata for debugging
-      factory.createPropertyAssignment(
-        "__verified",
-        factory.createTrue()
-      ),
-      factory.createPropertyAssignment(
-        "__stateCount",
-        factory.createNumericLiteral(states.length)
-      ),
-      factory.createPropertyAssignment(
-        "__eventCount",
-        factory.createNumericLiteral(events.length)
-      ),
+      factory.createPropertyAssignment("__verified", factory.createTrue()),
+      factory.createPropertyAssignment("__stateCount", factory.createNumericLiteral(states.length)),
+      factory.createPropertyAssignment("__eventCount", factory.createNumericLiteral(events.length)),
     ]);
   },
 });

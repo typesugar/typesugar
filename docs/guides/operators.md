@@ -16,8 +16,8 @@ const a = rational(1n, 2n);
 const b = rational(1n, 3n);
 
 // Operators work automatically through Numeric typeclass
-const sum = a + b;        // Compiles to: numericRational.add(a, b)
-const product = a * b;    // Compiles to: numericRational.mul(a, b)
+const sum = a + b; // Compiles to: numericRational.add(a, b)
+const product = a * b; // Compiles to: numericRational.mul(a, b)
 const comparison = a < b; // Compiles to: ordRational.compare(a, b) < 0
 ```
 
@@ -25,8 +25,8 @@ Typeclasses define methods with `Op<>` return type annotations, which the transf
 
 ```typescript
 interface Numeric<A> {
-  add(a: A, b: A): A & Op<"+">;  // a + b dispatches to add()
-  mul(a: A, b: A): A & Op<"*">;  // a * b dispatches to mul()
+  add(a: A, b: A): A & Op<"+">; // a + b dispatches to add()
+  mul(a: A, b: A): A & Op<"*">; // a * b dispatches to mul()
   // ...
 }
 ```

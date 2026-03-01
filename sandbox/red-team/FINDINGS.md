@@ -8,40 +8,40 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 
 ### Summary Table
 
-| #   | Finding                                 | Module                         | Severity | Type                  |
-| --- | --------------------------------------- | ------------------------------ | -------- | --------------------- |
-| 1   | Option<null> Type Collapse              | `@typesugar/fp`                | Medium   | Design limitation     |
-| 2   | Phantom HKT Type-Level Functions        | `@typesugar/type-system`       | Low      | User error            |
-| 3   | match() Boolean Discriminant Mismatch   | `@typesugar/std`               | Medium   | Runtime fallback bug  |
-| 4   | Async Predicates in Guard Arms          | `@typesugar/std`               | Medium   | Silent bug            |
-| 5   | Option<unknown> Loses Structure         | `@typesugar/fp`                | Low      | Type system edge case |
-| 6   | P.empty Works on Strings                | `@typesugar/std`               | Very Low | Surprising behavior   |
-| 7   | OR Pattern vs Literal Discriminants     | `@typesugar/std`               | Low      | Edge case             |
-| 8   | Nested HKT Types Crash Preprocessor     | `@typesugar/preprocessor`      | **High** | **FIXED**             |
-| 9   | Source Maps Not Always Generated        | `@typesugar/preprocessor`      | Low      | Missing feature       |
-| 10  | Scientific Notation in Prover           | `@typesugar/contracts`         | Medium   | Parsing limitation    |
-| 11  | ASCII-Only Variable Names in Prover     | `@typesugar/contracts`         | Low      | Parsing limitation    |
-| 12  | Equality Doesn't Imply Inequalities     | `@typesugar/contracts`         | Medium   | Proof incomplete      |
-| 13  | Compound Predicates Don't Split         | `@typesugar/contracts`         | **High** | **FIXED**             |
-| 14  | Comptime Cannot Serialize BigInt        | `@typesugar/comptime`          | Low      | FIXED                 |
-| 15  | Comptime Circular Reference Detection   | `@typesugar/comptime`          | Medium   | FIXED                 |
-| 16  | Symbolic Limit Returns Infinity         | `@typesugar/symbolic`          | Low      | FIXED                 |
-| 17  | Complex Division by Zero Throws         | `@typesugar/math`              | Low      | Design choice         |
-| 18  | Complex Log(0) Throws                   | `@typesugar/math`              | Low      | Design choice         |
-| 19  | Rational fromNumber Precision Limits    | `@typesugar/math`              | Low      | Algorithm limitation  |
-| 20  | HList splitAt Negative Index Behavior   | `@typesugar/hlist`             | Very Low | Undocumented behavior |
-| 21  | LabeledHList **proto** Key Blocked      | `@typesugar/hlist`             | Low      | JavaScript quirk      |
-| 22  | Vec Operations Return FusedVec Object   | `@typesugar/fusion`            | Very Low | API awareness         |
-| 23  | match() Discriminant Name List Extended | `@typesugar/std`               | Low      | IMPROVED              |
-| 24  | NonZero.is(NaN) Returns True            | `@typesugar/contracts-refined` | Low      | JavaScript semantics  |
-| 25  | ~~Z3 Parser: Scientific Notation Missing~~| ~~`@typesugar/contracts-z3`~~  | —        | Package removed       |
-| 26  | Synthetic Nodes Crash ExpansionTracker  | `@typesugar/core`              | Low      | Known limitation      |
-| 27  | Signal Function Values as Updaters      | `@typesugar/react`             | Medium   | Design limitation     |
-| 28  | Computed Diamond Deps Not Tracked       | `@typesugar/react`             | Medium   | Bug                   |
-| 29  | Phantom State Machine Runtime State     | `@typesugar/type-system`       | Medium   | Bug                   |
-| 30  | Sparse Array Validation Vulnerability   | `@typesugar/validate`          | Medium   | Bug                   |
-| 31  | Async Validators Pass (Promise Truthy)  | `@typesugar/validate`          | Medium   | Bug                   |
-| 32  | Parser regex() Loses Flags              | `@typesugar/parser`            | Low      | Bug                   |
+| #   | Finding                                    | Module                         | Severity | Type                  |
+| --- | ------------------------------------------ | ------------------------------ | -------- | --------------------- |
+| 1   | Option<null> Type Collapse                 | `@typesugar/fp`                | Medium   | Design limitation     |
+| 2   | Phantom HKT Type-Level Functions           | `@typesugar/type-system`       | Low      | User error            |
+| 3   | match() Boolean Discriminant Mismatch      | `@typesugar/std`               | Medium   | Runtime fallback bug  |
+| 4   | Async Predicates in Guard Arms             | `@typesugar/std`               | Medium   | Silent bug            |
+| 5   | Option<unknown> Loses Structure            | `@typesugar/fp`                | Low      | Type system edge case |
+| 6   | P.empty Works on Strings                   | `@typesugar/std`               | Very Low | Surprising behavior   |
+| 7   | OR Pattern vs Literal Discriminants        | `@typesugar/std`               | Low      | Edge case             |
+| 8   | Nested HKT Types Crash Preprocessor        | `@typesugar/preprocessor`      | **High** | **FIXED**             |
+| 9   | Source Maps Not Always Generated           | `@typesugar/preprocessor`      | Low      | Missing feature       |
+| 10  | Scientific Notation in Prover              | `@typesugar/contracts`         | Medium   | Parsing limitation    |
+| 11  | ASCII-Only Variable Names in Prover        | `@typesugar/contracts`         | Low      | Parsing limitation    |
+| 12  | Equality Doesn't Imply Inequalities        | `@typesugar/contracts`         | Medium   | Proof incomplete      |
+| 13  | Compound Predicates Don't Split            | `@typesugar/contracts`         | **High** | **FIXED**             |
+| 14  | Comptime Cannot Serialize BigInt           | `@typesugar/comptime`          | Low      | FIXED                 |
+| 15  | Comptime Circular Reference Detection      | `@typesugar/comptime`          | Medium   | FIXED                 |
+| 16  | Symbolic Limit Returns Infinity            | `@typesugar/symbolic`          | Low      | FIXED                 |
+| 17  | Complex Division by Zero Throws            | `@typesugar/math`              | Low      | Design choice         |
+| 18  | Complex Log(0) Throws                      | `@typesugar/math`              | Low      | Design choice         |
+| 19  | Rational fromNumber Precision Limits       | `@typesugar/math`              | Low      | Algorithm limitation  |
+| 20  | HList splitAt Negative Index Behavior      | `@typesugar/hlist`             | Very Low | Undocumented behavior |
+| 21  | LabeledHList **proto** Key Blocked         | `@typesugar/hlist`             | Low      | JavaScript quirk      |
+| 22  | Vec Operations Return FusedVec Object      | `@typesugar/fusion`            | Very Low | API awareness         |
+| 23  | match() Discriminant Name List Extended    | `@typesugar/std`               | Low      | IMPROVED              |
+| 24  | NonZero.is(NaN) Returns True               | `@typesugar/contracts-refined` | Low      | JavaScript semantics  |
+| 25  | ~~Z3 Parser: Scientific Notation Missing~~ | ~~`@typesugar/contracts-z3`~~  | —        | Package removed       |
+| 26  | Synthetic Nodes Crash ExpansionTracker     | `@typesugar/core`              | Low      | Known limitation      |
+| 27  | Signal Function Values as Updaters         | `@typesugar/react`             | Medium   | Design limitation     |
+| 28  | Computed Diamond Deps Not Tracked          | `@typesugar/react`             | Medium   | Bug                   |
+| 29  | Phantom State Machine Runtime State        | `@typesugar/type-system`       | Medium   | Bug                   |
+| 30  | Sparse Array Validation Vulnerability      | `@typesugar/validate`          | Medium   | Bug                   |
+| 31  | Async Validators Pass (Promise Truthy)     | `@typesugar/validate`          | Medium   | Bug                   |
+| 32  | Parser regex() Loses Flags                 | `@typesugar/parser`            | Low      | Bug                   |
 
 ### Statistics
 

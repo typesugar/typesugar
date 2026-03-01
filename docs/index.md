@@ -406,10 +406,10 @@ specialize(add); // @ts-no-typesugar     // one line
 
 ### Syntax Sugar
 
-| Package                                                 | Description                              |
-| ------------------------------------------------------- | ---------------------------------------- |
-| [@typesugar/strings](/reference/packages#strings)       | `regex`, `html`, `raw` tagged templates  |
-| [@typesugar/comptime](/reference/packages#comptime)     | `comptime()` compile-time evaluation     |
+| Package                                             | Description                             |
+| --------------------------------------------------- | --------------------------------------- |
+| [@typesugar/strings](/reference/packages#strings)   | `regex`, `html`, `raw` tagged templates |
+| [@typesugar/comptime](/reference/packages#comptime) | `comptime()` compile-time evaluation    |
 
 ### Type Safety & Contracts
 
@@ -423,25 +423,25 @@ specialize(add); // @ts-no-typesugar     // one line
 
 ### Data Structures & Algorithms
 
-| Package                                             | Description                           |
-| --------------------------------------------------- | ------------------------------------- |
-| [@typesugar/fp](/reference/packages#fp)             | Option, Either, IO, Result, List      |
-| [@typesugar/hlist](/reference/packages#hlist)       | Heterogeneous lists                   |
-| [@typesugar/fusion](/reference/packages#fusion)     | Iterator fusion, expression templates |
-| [@typesugar/parser](/reference/packages#parser)     | PEG parser generation                 |
-| [@typesugar/graph](/reference/packages#graph)       | Graph algorithms, state machines      |
-| [@typesugar/erased](/reference/packages#erased)     | Type erasure / dyn Trait              |
-| [@typesugar/codec](/reference/packages#codec)       | Versioned codecs, schema evolution    |
-| [@typesugar/math](/reference/packages#math)         | Math types and typeclasses            |
-| [@typesugar/mapper](/reference/packages#mapper)     | Zero-cost object mapping              |
+| Package                                         | Description                           |
+| ----------------------------------------------- | ------------------------------------- |
+| [@typesugar/fp](/reference/packages#fp)         | Option, Either, IO, Result, List      |
+| [@typesugar/hlist](/reference/packages#hlist)   | Heterogeneous lists                   |
+| [@typesugar/fusion](/reference/packages#fusion) | Iterator fusion, expression templates |
+| [@typesugar/parser](/reference/packages#parser) | PEG parser generation                 |
+| [@typesugar/graph](/reference/packages#graph)   | Graph algorithms, state machines      |
+| [@typesugar/erased](/reference/packages#erased) | Type erasure / dyn Trait              |
+| [@typesugar/codec](/reference/packages#codec)   | Versioned codecs, schema evolution    |
+| [@typesugar/math](/reference/packages#math)     | Math types and typeclasses            |
+| [@typesugar/mapper](/reference/packages#mapper) | Zero-cost object mapping              |
 
 ### Ecosystem Integrations
 
-| Package                                                   | Description                 |
-| --------------------------------------------------------- | --------------------------- |
-| [@typesugar/effect](/reference/packages#effect)           | Effect-TS adapter           |
-| [@typesugar/react](/reference/packages#react)             | Vue/Svelte-style reactivity |
-| [@typesugar/sql](/reference/packages#sql)                 | Doobie-like SQL DSL         |
+| Package                                         | Description                 |
+| ----------------------------------------------- | --------------------------- |
+| [@typesugar/effect](/reference/packages#effect) | Effect-TS adapter           |
+| [@typesugar/react](/reference/packages#react)   | Vue/Svelte-style reactivity |
+| [@typesugar/sql](/reference/packages#sql)       | Doobie-like SQL DSL         |
 
 ### Developer Experience
 
@@ -459,13 +459,13 @@ specialize(add); // @ts-no-typesugar     // one line
 
 typesugar draws from the best ideas across language ecosystems:
 
-| Language     | What it brings                                             | Packages                                                  |
-| ------------ | ---------------------------------------------------------- | --------------------------------------------------------- |
-| Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                     |
-| Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, specialize, codec, erased, validate               |
-| Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                           |
-| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, hlist, graph, parser, units |
-| Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math  |
+| Language     | What it brings                                             | Packages                                                 |
+| ------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
+| Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                    |
+| Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, specialize, codec, erased, validate              |
+| Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                          |
+| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, hlist, graph, parser, units                      |
+| Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math |
 
 ---
 
