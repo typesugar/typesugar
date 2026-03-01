@@ -12,10 +12,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/codec
 
 **Usefulness**: 3/5 - Solves a real problem (schema versioning/migration) relevant for wire protocols, persistent storage, and APIs. However, most TypeScript projects use simpler JSON or zod/superjson. Niche but valuable where needed.
-**Completeness**: 3/5 - JSON and binary codecs work well with solid test coverage. But macros are pass-through stubs ("Phase 2"), no nested schema composition, no streaming codec.
+**Completeness**: 4/5 - JSON and binary codecs work well. All 5 macros now registered. @codec macro extracts type structure and generates defineSchema() call. @since/@removed/@renamed/@defaultValue still stubs.
 **Documentation**: 3/5 - README has clear problem statement, quick start, evolution rules table. Missing required sections (zero-cost guarantee, package integration), sparse JSDoc.
-**Coherence**: 2/5 - Uses defineAttributeMacro but all 5 macros are no-op stubs. No typeclass integration. Essentially a plain runtime library that doesn't leverage typesugar's zero-cost philosophy.
-**Summary**: Functional versioned serialization library but doesn't meaningfully integrate with typesugar's core value proposition.
+**Coherence**: 3/5 - Macros registered; @codec generates defineSchema at compile time. Field-level metadata macros still Phase 2 stubs.
+**Summary**: Functional versioned serialization with macro-driven schema generation.
+
+**Update (2026-03-01):** Registered all 5 macros with globalRegistry; @codec now extracts class/interface fields and emits defineSchema() call; added macro tests.
 
 ---
 
@@ -134,10 +136,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/fusion
 
 **Usefulness**: 4/5 - Addresses real performance concern (intermediate array allocations in method chains). Similar to Rust iterators, Java Streams, lodash/lazy.
-**Completeness**: 3/5 - Good lazy pipeline foundation. However, macro integration is entirely stub - lazyMacro and fusedMacro just pass-through. Missing zip, distinct, scan, partition.
+**Completeness**: 4/5 - Good lazy pipeline foundation with zip, scan, distinct, partition. Macros now registered with globalRegistry (lazyMacro, fusedMacro). Phase 2 compile-time fusion still pass-through.
 **Documentation**: 4/5 - Excellent README with clear problem/solution framing, API tables. Missing required "Integration" and "Zero-cost guarantee" sections.
-**Coherence**: 2/5 - Claims "zero-cost" but doesn't deliver. Runtime LazyPipeline class allocates objects; macros are stubs. No Op<> integration, no auto-derivation.
-**Summary**: Well-implemented runtime lazy iterator but contradicts zero-cost principle. Macro integration is stub code.
+**Coherence**: 3/5 - Macros registered. Runtime LazyPipeline achieves single-pass fusion. Phase 2 compile-time fusion still stub. No Op<> integration.
+**Summary**: Well-implemented runtime lazy iterator with full operation set. Macros registered; Phase 2 compile-time fusion deferred.
+
+**Update (2026-03-01):** Added zip, scan, distinct, partition operations; registered lazyMacro and fusedMacro with globalRegistry.
 
 ---
 
@@ -146,8 +150,10 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 2/5 - Niche utility; only relevant for projects doing 2D/3D geometry. Most use three.js or gl-matrix with richer ecosystems.
 **Completeness**: 3/5 - Solid basics (points, vectors, transforms, coordinate conversions) but missing quaternions, projection matrices, intersection tests.
 **Documentation**: 4/5 - Well-structured README showing type safety benefits. Comprehensive showcase. JSDoc on all exports.
-**Coherence**: 2/5 - Achieves zero-cost via branded number[], but **ignores typesugar's core value**: no Op<> operators, no typeclass integration, no extension methods.
-**Summary**: Competent standalone geometry library but fails to demonstrate typesugar's capabilities (operators, typeclasses).
+**Coherence**: 3/5 - Has Numeric/Eq/Show typeclass instances, registerExtensions for Vec2/Vec3/Point2D/Point3D. Zero-cost via branded number[].
+**Summary**: Competent geometry library with typeclass integration and extension methods.
+
+**Update (2026-03-01):** Added Show typeclass for Vec2, Vec3, Point2D, Point3D; added extension methods (Vec2Ext, Vec3Ext, Point2DExt, Point3DExt) via registerExtensions.
 
 ---
 
@@ -196,10 +202,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/mapper
 
 **Usefulness**: 4/5 - Object mapping is ubiquitous. Genuinely solves common problem, though basic compared to Chimney/AutoMapper.
-**Completeness**: 2/5 - Basic mapping works but critical features missing: nested objects (TODO), collection mapping, ignore config not implemented. Only 2 tests.
+**Completeness**: 3/5 - Basic mapping works with rename, const, compute, and ignore.target. Tests in packages/mapper/tests/. Nested objects and collection mapping still TODO.
 **Documentation**: 3/5 - Clear README, excellent showcase. Missing required sections per module-lifecycle.
 **Coherence**: 2/5 - Achieves zero-cost but doesn't integrate with typeclass system. Could be redesigned as @derive(Mapper<Target>).
-**Summary**: Functional proof-of-concept. Misses opportunity to integrate with typesugar's derivation system.
+**Summary**: Functional mapper with ignore config. Package-local tests added.
+
+**Update (2026-03-01):** Implemented ignore.target config; moved tests to packages/mapper/tests/; added 6 macro unit tests.
 
 ---
 
@@ -485,7 +493,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 - ~~**@typesugar/derive**~~ _(Removed 2026-02-28)_ — Sum types now implemented
 - ~~**@typesugar/units**~~ _(Removed 2026-02-28)_ — Auto-derive bug fixed, now works with typeclass system
 - ~~**@typesugar/validate**~~ _(Removed 2026-02-28)_ — README was correct all along (not builder DSL), docs 4/5
-- **@typesugar/fusion** — Claims zero-cost but macros are stubs
+- ~~**@typesugar/fusion**~~ _(Removed 2026-03-01)_ — zip/scan/distinct/partition added, macros registered
 - ~~**@typesugar/specialize**~~ _(Removed 2026-02-28)_ — `specialize$` IS exported, signature matches docs
 
 ### Common Issues
@@ -513,7 +521,8 @@ Evaluation of all typesugar modules across 4 dimensions:
    - ~~**specialize**~~: `specialize$` IS exported with correct signature
 
 5. **Not Leveraging Typeclass System** — Several packages don't use Op<>, summon(), auto-derivation:
-   - geometry, graph, hlist, fusion, erased
+   - graph, hlist, erased
+   - ~~geometry~~ — Show + extension methods added (2026-03-01)
    - ~~units~~ — auto-derive bug fixed, now works with typeclass system
 
 ### Recommendations
@@ -521,7 +530,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 1. ~~**Delete or complete @typesugar/macros**~~ — _(Done)_ Package is now functional
 2. ~~**Consolidate typeclass implementations**~~ — _(Done)_ Package now re-exports from macros
 3. ~~**Fix documentation/implementation drift**~~ — _(Done 2026-02-28)_ sql README rewritten, validate/specialize were correct
-4. **Add Op<> typeclass integration** — geometry, fusion should use operators (units now works via auto-derive)
+4. ~~**Add Op<> typeclass integration**~~ — geometry now has Show + extension methods (2026-03-01); fusion still Phase 2 stub
 5. ~~**Update stale names**~~ — _(Done)_ Already migrated, remaining refs intentional for backwards compat
 6. ~~**Add missing test coverage for strings**~~ — _(Done 2026-02-28)_ 28 tests added
 7. ~~**Fix specialize exports**~~ — _(Not needed)_ `specialize$` IS exported with correct signature
@@ -530,4 +539,4 @@ Evaluation of all typesugar modules across 4 dimensions:
 ---
 
 _Generated: 2026-02-22_
-_Updated: 2026-02-28_
+_Updated: 2026-03-01_

@@ -55,4 +55,7 @@ export {
   toArray,
 } from "./vec.js";
 
-export { lazyMacro, fusedMacro } from "./macros.js";
+export { lazyMacro, fusedMacro, register } from "./macros.js";
+
+import { register } from "./macros.js";
+register();

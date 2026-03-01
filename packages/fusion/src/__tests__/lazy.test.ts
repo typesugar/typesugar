@@ -132,6 +132,69 @@ describe("LazyPipeline — chained operations", () => {
 });
 
 // ===========================================================================
+// zip, scan, distinct, partition
+// ===========================================================================
+
+describe("LazyPipeline — zip, scan, distinct, partition", () => {
+  it("zip pairs elements from two iterables", () => {
+    expect(lazy([1, 2, 3]).zip([10, 20, 30]).toArray()).toEqual([
+      [1, 10],
+      [2, 20],
+      [3, 30],
+    ]);
+  });
+
+  it("zip stops when shorter iterable is exhausted", () => {
+    expect(lazy([1, 2, 3, 4]).zip([10, 20]).toArray()).toEqual([
+      [1, 10],
+      [2, 20],
+    ]);
+  });
+
+  it("scan emits running accumulated values", () => {
+    expect(lazy([1, 2, 3, 4]).scan((acc, x) => acc + x, 0).toArray()).toEqual([
+      1, 3, 6, 10,
+    ]);
+  });
+
+  it("distinct removes duplicates", () => {
+    expect(lazy([1, 2, 2, 3, 1, 3, 2]).distinct().toArray()).toEqual([1, 2, 3]);
+  });
+
+  it("distinct with keyFn uses key for uniqueness", () => {
+    expect(
+      lazy([{ id: 1 }, { id: 2 }, { id: 1 }, { id: 3 }])
+        .distinct((x) => x.id)
+        .toArray()
+    ).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
+  });
+
+  it("partition splits into pass and fail arrays", () => {
+    const [evens, odds] = lazy([1, 2, 3, 4, 5]).partition((x) => x % 2 === 0);
+    expect(evens).toEqual([2, 4]);
+    expect(odds).toEqual([1, 3, 5]);
+  });
+
+  it("zip then map", () => {
+    expect(
+      lazy([1, 2, 3])
+        .zip([10, 20, 30])
+        .map(([a, b]) => a + b)
+        .toArray()
+    ).toEqual([11, 22, 33]);
+  });
+
+  it("filter then distinct", () => {
+    expect(
+      lazy([1, 2, 2, 3, 1, 4])
+        .filter((x) => x > 1)
+        .distinct()
+        .toArray()
+    ).toEqual([2, 3, 4]);
+  });
+});
+
+// ===========================================================================
 // Terminal operations
 // ===========================================================================
 

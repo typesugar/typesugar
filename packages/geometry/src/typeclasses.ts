@@ -1,16 +1,17 @@
 /**
  * Typeclass instances for geometry types.
  *
- * Provides Numeric and Eq instances for Vector types, enabling:
+ * Provides Numeric, Eq, and Show instances for Vector and Point types, enabling:
  * - `v1 + v2` → addVec(v1, v2)
  * - `v1 - v2` → subVec(v1, v2)
  * - `v1 === v2` → component-wise equality
+ * - `v.show()` → human-readable string representation
  */
 
 import { type Op } from "@typesugar/core";
 import { registerInstanceWithMeta } from "@typesugar/macros";
 import { type Eq, type Numeric, makeEq } from "@typesugar/std";
-import type { CoordSys, Dim, Vec2, Vec3, Vector } from "./types.js";
+import type { CoordSys, Dim, Point2D, Point3D, Vec2, Vec3, Vector } from "./types.js";
 
 // ============================================================================
 // Numeric instances for Vectors
@@ -118,5 +119,66 @@ registerInstanceWithMeta({
   typeclassName: "Eq",
   forType: "Vec3",
   instanceName: "eqVec3",
+  derived: false,
+});
+
+// ============================================================================
+// Show instances — human-readable string representation
+// ============================================================================
+
+function showVector<CS extends CoordSys, D extends Dim<number>>(
+  v: Vector<CS, D>,
+  prefix: string
+): string {
+  const parts = v.map((c) => String(c)).join(", ");
+  return `${prefix}(${parts})`;
+}
+
+/** Show instance for Vec2 */
+export const showVec2 = {
+  show: (v: Vec2) => showVector(v, "Vec2"),
+};
+
+/** Show instance for Vec3 */
+export const showVec3 = {
+  show: (v: Vec3) => showVector(v, "Vec3"),
+};
+
+/** Show instance for Point2D */
+export const showPoint2D = {
+  show: (p: Point2D) => showVector(p as Vector<CoordSys, Dim<number>>, "Point2D"),
+};
+
+/** Show instance for Point3D */
+export const showPoint3D = {
+  show: (p: Point3D) => showVector(p as Vector<CoordSys, Dim<number>>, "Point3D"),
+};
+
+// Register Show instances
+registerInstanceWithMeta({
+  typeclassName: "Show",
+  forType: "Vec2",
+  instanceName: "showVec2",
+  derived: false,
+});
+
+registerInstanceWithMeta({
+  typeclassName: "Show",
+  forType: "Vec3",
+  instanceName: "showVec3",
+  derived: false,
+});
+
+registerInstanceWithMeta({
+  typeclassName: "Show",
+  forType: "Point2D",
+  instanceName: "showPoint2D",
+  derived: false,
+});
+
+registerInstanceWithMeta({
+  typeclassName: "Show",
+  forType: "Point3D",
+  instanceName: "showPoint3D",
   derived: false,
 });

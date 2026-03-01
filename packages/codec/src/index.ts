@@ -7,6 +7,9 @@
  * @packageDocumentation
  */
 
+import { register } from "./macros.js";
+register();
+
 export type {
   FieldMeta,
   Schema,
@@ -24,4 +27,11 @@ export { createBinaryCodec, type FieldLayout } from "./binary-codec.js";
 
 export { SchemaBuilder, schema } from "./decorators.js";
 
-export { codecMacro, sinceMacro, removedMacro, renamedMacro, defaultValueMacro } from "./macros.js";
+export {
+  codecMacro,
+  sinceMacro,
+  removedMacro,
+  renamedMacro,
+  defaultValueMacro,
+  register,
+} from "./macros.js";

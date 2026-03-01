@@ -71,6 +71,21 @@ export class LazyPipeline<T> {
     return this.chain({ type: "dropWhile", predicate });
   }
 
+  /** Zip with another iterable, yielding pairs [this[i], other[i]] */
+  zip<U>(other: Iterable<U>): LazyPipeline<[T, U]> {
+    return this.chain({ type: "zip", other }) as LazyPipeline<[T, U]>;
+  }
+
+  /** Emit accumulated values: init, f(init,x1), f(f(init,x1),x2), ... */
+  scan<Acc>(f: (acc: Acc, value: T) => Acc, init: Acc): LazyPipeline<Acc> {
+    return this.chain({ type: "scan", f, init }) as LazyPipeline<Acc>;
+  }
+
+  /** Emit only distinct elements (by value or by keyFn) */
+  distinct(keyFn?: (value: T) => unknown): LazyPipeline<T> {
+    return this.chain({ type: "distinct", keyFn });
+  }
+
   // ---------------------------------------------------------------------------
   // Terminal operations — these drive the single-pass execution
   // ---------------------------------------------------------------------------
@@ -174,6 +189,20 @@ export class LazyPipeline<T> {
     return groups;
   }
 
+  /** Partition elements into [pass, fail] based on predicate */
+  partition(predicate: (value: T) => boolean): [T[], T[]] {
+    const pass: T[] = [];
+    const fail: T[] = [];
+    for (const value of this.execute()) {
+      if (predicate(value)) {
+        pass.push(value);
+      } else {
+        fail.push(value);
+      }
+    }
+    return [pass, fail];
+  }
+
   /** Minimum element (uses optional comparator, defaults to < ) */
   min(compare?: (a: T, b: T) => number): T | null {
     const cmp =
@@ -248,12 +277,17 @@ export class LazyPipeline<T> {
     const dropCounters = new Array<number>(len);
     const takeCounters = new Array<number>(len);
     const dropWhilePassed = new Array<boolean>(len);
+    const zipIterators = new Map<number, Iterator<unknown>>();
+    const scanAccumulators = new Map<number, unknown>();
+    const distinctSeen = new Map<number, Set<unknown>>();
 
     for (let i = 0; i < len; i++) {
       const step = steps[i];
       if (step.type === "drop") dropCounters[i] = step.count;
       if (step.type === "take") takeCounters[i] = step.count;
       if (step.type === "dropWhile") dropWhilePassed[i] = false;
+      if (step.type === "scan") scanAccumulators.set(i, step.init);
+      if (step.type === "distinct") distinctSeen.set(i, new Set());
     }
 
     for (const raw of this.source) {
@@ -325,6 +359,37 @@ export class LazyPipeline<T> {
                 }
               }
               break;
+
+            case "zip": {
+              let iter = zipIterators.get(i);
+              if (!iter) {
+                iter = step.other[Symbol.iterator]();
+                zipIterators.set(i, iter);
+              }
+              const next = iter.next();
+              if (next.done) return;
+              value = [value, next.value];
+              break;
+            }
+
+            case "scan": {
+              const acc = scanAccumulators.get(i)!;
+              const nextAcc = step.f(acc, value);
+              scanAccumulators.set(i, nextAcc);
+              value = nextAcc;
+              break;
+            }
+
+            case "distinct": {
+              const key = step.keyFn ? step.keyFn(value) : value;
+              const seen = distinctSeen.get(i)!;
+              if (seen.has(key)) {
+                skip = true;
+              } else {
+                seen.add(key);
+              }
+              break;
+            }
           }
 
           if (skip) break;

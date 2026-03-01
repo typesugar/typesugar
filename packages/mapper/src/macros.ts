@@ -50,6 +50,11 @@ export const transformIntoMacro = defineExpressionMacro({
     for (const toProp of toProps) {
       const name = toProp.name;
 
+      // Skip ignored target fields
+      if (config.ignoreTarget.has(name)) {
+        continue;
+      }
+
       // Is it a constant?
       if (config.const.has(name)) {
         resultProperties.push(ctx.factory.createPropertyAssignment(name, config.const.get(name)!));
@@ -155,11 +160,21 @@ function isSimpleLiteral(expr: ts.Expression): boolean {
   );
 }
 
-function parseConfig(ctx: MacroContext, configExpr?: ts.Expression) {
-  const config = {
+interface ParsedConfig {
+  rename: Map<string, string>;
+  compute: Map<string, ts.Expression>;
+  const: Map<string, ts.Expression>;
+  ignoreTarget: Set<string>;
+  ignoreSource: Set<string>;
+}
+
+function parseConfig(ctx: MacroContext, configExpr?: ts.Expression): ParsedConfig {
+  const config: ParsedConfig = {
     rename: new Map<string, string>(),
     compute: new Map<string, ts.Expression>(),
     const: new Map<string, ts.Expression>(),
+    ignoreTarget: new Set<string>(),
+    ignoreSource: new Set<string>(),
   };
 
   if (!configExpr || !ts.isObjectLiteralExpression(configExpr)) {
@@ -187,6 +202,25 @@ function parseConfig(ctx: MacroContext, configExpr?: ts.Expression) {
                   config.compute.set(targetKey, subProp.initializer);
                 } else if (key === "const") {
                   config.const.set(targetKey, subProp.initializer);
+                }
+              }
+            }
+          }
+        }
+      } else if (key === "ignore" && ts.isObjectLiteralExpression(prop.initializer)) {
+        for (const subProp of prop.initializer.properties) {
+          if (ts.isPropertyAssignment(subProp) && ts.isIdentifier(subProp.name)) {
+            const subKey = subProp.name.text;
+            if (
+              (subKey === "source" || subKey === "target") &&
+              ts.isArrayLiteralExpression(subProp.initializer)
+            ) {
+              const set = subKey === "target" ? config.ignoreTarget : config.ignoreSource;
+              for (const elem of subProp.initializer.elements) {
+                if (ts.isStringLiteral(elem)) {
+                  set.add(elem.text);
+                } else if (ts.isIdentifier(elem)) {
+                  set.add(elem.text);
                 }
               }
             }

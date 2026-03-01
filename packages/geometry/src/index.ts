@@ -8,6 +8,15 @@
  * @packageDocumentation
  */
 
+import { registerExtensions } from "@typesugar/macros";
+import { Vec2Ext, Vec3Ext, Point2DExt, Point3DExt } from "./extensions.js";
+
+// Register extension methods for geometry types
+registerExtensions("Vec2", Vec2Ext);
+registerExtensions("Vec3", Vec3Ext);
+registerExtensions("Point2D", Point2DExt);
+registerExtensions("Point3D", Point3DExt);
+
 export type {
   Cartesian,
   Polar,
@@ -97,4 +106,10 @@ export {
   eqVector,
   eqVec2,
   eqVec3,
+  showVec2,
+  showVec3,
+  showPoint2D,
+  showPoint3D,
 } from "./typeclasses.js";
+
+export { Vec2Ext, Vec3Ext, Point2DExt, Point3DExt } from "./extensions.js";

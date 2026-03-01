@@ -16,7 +16,14 @@ export type PipelineStep =
   | {
       readonly type: "dropWhile";
       readonly predicate: (value: any) => boolean;
-    };
+    }
+  | { readonly type: "zip"; readonly other: Iterable<unknown> }
+  | {
+      readonly type: "scan";
+      readonly f: (acc: any, value: any) => any;
+      readonly init: any;
+    }
+  | { readonly type: "distinct"; readonly keyFn?: (value: any) => unknown };
 
 /** A vector wrapper for element-wise operations */
 export interface FusedVec<T> {

@@ -9,7 +9,7 @@
  * fused single-pass loops directly — no LazyPipeline object at runtime.
  */
 
-import { defineExpressionMacro } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 
 /**
  * The `lazy` expression macro.
@@ -41,3 +41,9 @@ export const fusedMacro = defineExpressionMacro({
     return callExpr;
   },
 });
+
+/** Register fusion macros with the global registry. Called on package import. */
+export function register(): void {
+  globalRegistry.register(lazyMacro);
+  globalRegistry.register(fusedMacro);
+}
