@@ -2,7 +2,7 @@
  * Tests for conditional compilation macros (cfg, cfgAttr)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import { cfgMacro, setCfgConfig, evaluateCfgCondition } from "@typesugar/macros";
@@ -10,7 +10,7 @@ import { cfgMacro, setCfgConfig, evaluateCfgCondition } from "@typesugar/macros"
 describe("conditional compilation", () => {
   let ctx: MacroContextImpl;
 
-  beforeEach(() => {
+  beforeAll(() => {
     const sourceText = "const x = 1;";
     const sourceFile = ts.createSourceFile(
       "test.ts",

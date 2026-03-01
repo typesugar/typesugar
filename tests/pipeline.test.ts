@@ -2,7 +2,7 @@
  * Tests for the macro composition pipeline
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import { pipeline, parenthesize, voidify, awaitify } from "@typesugar/core";
@@ -15,7 +15,7 @@ describe("macro composition pipeline", () => {
     return printer.printNode(ts.EmitHint.Expression, node, ctx.sourceFile);
   }
 
-  beforeEach(() => {
+  beforeAll(() => {
     const sourceText = "const x = 1;";
     const sourceFile = ts.createSourceFile(
       "test.ts",

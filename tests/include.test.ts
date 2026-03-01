@@ -2,7 +2,7 @@
  * Tests for compile-time file I/O macros (includeStr, includeBytes, includeJson)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
@@ -20,13 +20,15 @@ describe("compile-time file I/O macros", () => {
   let ctx: MacroContextImpl;
   let tmpDir: string;
   let printer: ts.Printer;
+  let program: ts.Program;
+  let sourceFile: ts.SourceFile;
+  let transformContext: ts.TransformationContext;
 
   function printExpr(node: ts.Expression): string {
     return printer.printNode(ts.EmitHint.Expression, node, ctx.sourceFile);
   }
 
-  beforeEach(() => {
-    // Create a temp directory with test files
+  beforeAll(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-test-"));
 
     fs.writeFileSync(path.join(tmpDir, "hello.txt"), "Hello, World!");
@@ -38,7 +40,7 @@ describe("compile-time file I/O macros", () => {
 
     const sourceFilePath = path.join(tmpDir, "test.ts");
     const sourceText = "const x = 1;";
-    const sourceFile = ts.createSourceFile(
+    sourceFile = ts.createSourceFile(
       sourceFilePath,
       sourceText,
       ts.ScriptTarget.Latest,
@@ -52,14 +54,14 @@ describe("compile-time file I/O macros", () => {
     };
 
     const host = ts.createCompilerHost(options);
-    const program = ts.createProgram([sourceFilePath], options, {
+    program = ts.createProgram([sourceFilePath], options, {
       ...host,
       getCurrentDirectory: () => tmpDir,
       getSourceFile: (name) =>
         name === sourceFilePath ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
-    const transformContext: ts.TransformationContext = {
+    transformContext = {
       factory: ts.factory,
       getCompilerOptions: () => options,
       startLexicalEnvironment: () => {},
@@ -79,14 +81,16 @@ describe("compile-time file I/O macros", () => {
       addDiagnostic: () => {},
     };
 
-    ctx = createMacroContext(program, sourceFile, transformContext);
     printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    clearFileDependencies();
   });
 
-  afterEach(() => {
-    // Clean up temp directory
+  afterAll(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    ctx = createMacroContext(program, sourceFile, transformContext);
+    clearFileDependencies();
   });
 
   describe("includeStr", () => {

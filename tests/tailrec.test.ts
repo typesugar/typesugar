@@ -33,6 +33,47 @@ import { tailrec } from "typesugar";
 // Helper: Create a macro context for testing
 // ============================================================================
 
+let _cachedProgram: ts.Program | undefined;
+let _cachedTransformContext: ts.TransformationContext | undefined;
+
+function getSharedProgram(): ts.Program {
+  if (!_cachedProgram) {
+    const sf = ts.createSourceFile(
+      "test.ts",
+      "const x = 1;",
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      strict: true,
+    };
+    const host = ts.createCompilerHost(options);
+    _cachedProgram = ts.createProgram(["test.ts"], options, {
+      ...host,
+      getSourceFile: (name) =>
+        name === "test.ts" ? sf : host.getSourceFile(name, ts.ScriptTarget.Latest),
+    });
+  }
+  return _cachedProgram;
+}
+
+function getSharedTransformContext(): ts.TransformationContext {
+  if (!_cachedTransformContext) {
+    const dummySf = ts.createSourceFile("__ctx.ts", "", ts.ScriptTarget.Latest, false);
+    const transformResult = ts.transform(dummySf, [
+      (context) => {
+        _cachedTransformContext = context;
+        return (sf) => sf;
+      },
+    ]);
+    transformResult.dispose();
+  }
+  return _cachedTransformContext!;
+}
+
 function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
   const sourceFile = ts.createSourceFile(
     "test.ts",
@@ -41,34 +82,7 @@ function createTestContext(sourceText = "const x = 1;"): MacroContextImpl {
     true,
     ts.ScriptKind.TS
   );
-
-  const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-    strict: true,
-  };
-
-  const host = ts.createCompilerHost(options);
-  const program = ts.createProgram(["test.ts"], options, {
-    ...host,
-    getSourceFile: (name) =>
-      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-  });
-
-  // Use ts.transform to get a real TransformationContext that has all
-  // required methods (including startBlockScope for iteration statements).
-  let capturedContext: ts.TransformationContext | undefined;
-  const dummySf = ts.createSourceFile("__ctx.ts", "", ts.ScriptTarget.Latest, false);
-  const transformResult = ts.transform(dummySf, [
-    (context) => {
-      capturedContext = context;
-      return (sf) => sf;
-    },
-  ]);
-  transformResult.dispose();
-  const transformContext = capturedContext!;
-
-  return createMacroContext(program, sourceFile, transformContext);
+  return createMacroContext(getSharedProgram(), sourceFile, getSharedTransformContext());
 }
 
 /** Print an AST node to a string for assertion */

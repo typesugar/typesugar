@@ -10,7 +10,7 @@
  * - "use no typesugar" opt-out skips implicit resolution
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
 import {
   clearRegistries,
@@ -25,13 +25,15 @@ import { globalRegistry } from "@typesugar/core";
 
 import { getImplicitsFunction } from "@typesugar/macros";
 
+beforeAll(() => {
+  globalRegistry.clear();
+  globalRegistry.register(implicitsAttribute);
+});
+
 beforeEach(() => {
   clearSyntaxRegistry();
   clearRegistries();
   implicitsFunctions.clear();
-  globalRegistry.clear();
-
-  globalRegistry.register(implicitsAttribute);
 });
 
 describe("@implicits registry sanity", () => {

@@ -302,7 +302,7 @@ function generateMixedFile(macroCount: number, plainLines: number): string {
 
 // In CI, timing assertions are skipped because they're machine-dependent and flaky.
 // The benchmarks still run and log results for observability.
-describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
+describe.skipIf(process.env.CI)("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
   describe("Baseline: full pipeline (program creation + transform)", () => {
     it("small file (50 lines, no macros)", () => {
       const source = generatePlainTypeScript(50);

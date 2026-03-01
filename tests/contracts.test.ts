@@ -2,7 +2,7 @@
  * Tests for @typesugar/contracts — Design by Contract macros
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
@@ -23,49 +23,58 @@ import { tryAlgebraicProof, type TypeFact } from "@typesugar/contracts";
 // Test Helpers
 // ============================================================================
 
-function createTestContext(): MacroContextImpl {
-  const sourceText = "const x = 1;";
+const contractsOptions: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.ESNext,
+};
+
+const contractsTransformContext: ts.TransformationContext = {
+  factory: ts.factory,
+  getCompilerOptions: () => contractsOptions,
+  startLexicalEnvironment: () => {},
+  suspendLexicalEnvironment: () => {},
+  resumeLexicalEnvironment: () => {},
+  endLexicalEnvironment: () => undefined,
+  hoistFunctionDeclaration: () => {},
+  hoistVariableDeclaration: () => {},
+  requestEmitHelper: () => {},
+  readEmitHelpers: () => undefined,
+  enableSubstitution: () => {},
+  enableEmitNotification: () => {},
+  isSubstitutionEnabled: () => false,
+  isEmitNotificationEnabled: () => false,
+  onSubstituteNode: (_hint, node) => node,
+  onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
+  addDiagnostic: () => {},
+};
+
+let sharedProgram: ts.Program;
+
+beforeAll(() => {
   const sourceFile = ts.createSourceFile(
     "test.ts",
-    sourceText,
+    "const x = 1;",
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS
   );
-
-  const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-  };
-
-  const host = ts.createCompilerHost(options);
-  const program = ts.createProgram(["test.ts"], options, {
+  const host = ts.createCompilerHost(contractsOptions);
+  sharedProgram = ts.createProgram(["test.ts"], contractsOptions, {
     ...host,
     getSourceFile: (name) =>
       name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
+});
 
-  const transformContext: ts.TransformationContext = {
-    factory: ts.factory,
-    getCompilerOptions: () => options,
-    startLexicalEnvironment: () => {},
-    suspendLexicalEnvironment: () => {},
-    resumeLexicalEnvironment: () => {},
-    endLexicalEnvironment: () => undefined,
-    hoistFunctionDeclaration: () => {},
-    hoistVariableDeclaration: () => {},
-    requestEmitHelper: () => {},
-    readEmitHelpers: () => undefined,
-    enableSubstitution: () => {},
-    enableEmitNotification: () => {},
-    isSubstitutionEnabled: () => false,
-    isEmitNotificationEnabled: () => false,
-    onSubstituteNode: (_hint, node) => node,
-    onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-    addDiagnostic: () => {},
-  };
-
-  return createMacroContext(program, sourceFile, transformContext);
+function createTestContext(): MacroContextImpl {
+  const sourceFile = ts.createSourceFile(
+    "test.ts",
+    "const x = 1;",
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  return createMacroContext(sharedProgram, sourceFile, contractsTransformContext);
 }
 
 function printNode(node: ts.Node): string {
@@ -151,8 +160,11 @@ describe("contract configuration", () => {
 describe("requires() macro", () => {
   let ctx: MacroContextImpl;
 
-  beforeEach(() => {
+  beforeAll(() => {
     ctx = createTestContext();
+  });
+
+  beforeEach(() => {
     setContractConfig({
       mode: "full",
       proveAtCompileTime: false,
@@ -237,8 +249,11 @@ describe("requires() macro", () => {
 describe("ensures() macro", () => {
   let ctx: MacroContextImpl;
 
-  beforeEach(() => {
+  beforeAll(() => {
     ctx = createTestContext();
+  });
+
+  beforeEach(() => {
     setContractConfig({
       mode: "full",
       proveAtCompileTime: false,
@@ -305,7 +320,7 @@ describe("ensures() macro", () => {
 describe("old() macro", () => {
   let ctx: MacroContextImpl;
 
-  beforeEach(() => {
+  beforeAll(() => {
     ctx = createTestContext();
   });
 

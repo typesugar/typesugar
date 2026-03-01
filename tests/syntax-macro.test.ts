@@ -2,7 +2,7 @@
  * Tests for pattern-based / declarative macros
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import { globalRegistry } from "@typesugar/core";
@@ -16,7 +16,7 @@ describe("pattern-based / declarative macros", () => {
     return printer.printNode(ts.EmitHint.Expression, node, ctx.sourceFile);
   }
 
-  beforeEach(() => {
+  beforeAll(() => {
     const sourceText = "const x = 1;";
     const sourceFile = ts.createSourceFile(
       "test.ts",

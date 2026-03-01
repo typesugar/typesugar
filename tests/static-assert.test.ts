@@ -2,17 +2,20 @@
  * Tests for staticAssert, compileError, compileWarning macros
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import { staticAssertMacro, compileErrorMacro, compileWarningMacro } from "@typesugar/macros";
 
 describe("static assertion and diagnostic macros", () => {
   let ctx: MacroContextImpl;
+  let program: ts.Program;
+  let sourceFile: ts.SourceFile;
+  let transformContext: ts.TransformationContext;
 
-  beforeEach(() => {
+  beforeAll(() => {
     const sourceText = "const x = 1;";
-    const sourceFile = ts.createSourceFile(
+    sourceFile = ts.createSourceFile(
       "test.ts",
       sourceText,
       ts.ScriptTarget.Latest,
@@ -26,13 +29,13 @@ describe("static assertion and diagnostic macros", () => {
     };
 
     const host = ts.createCompilerHost(options);
-    const program = ts.createProgram(["test.ts"], options, {
+    program = ts.createProgram(["test.ts"], options, {
       ...host,
       getSourceFile: (name) =>
         name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
     });
 
-    const transformContext: ts.TransformationContext = {
+    transformContext = {
       factory: ts.factory,
       getCompilerOptions: () => options,
       startLexicalEnvironment: () => {},
@@ -51,7 +54,9 @@ describe("static assertion and diagnostic macros", () => {
       onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
       addDiagnostic: () => {},
     };
+  });
 
+  beforeEach(() => {
     ctx = createMacroContext(program, sourceFile, transformContext);
   });
 

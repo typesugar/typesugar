@@ -6,7 +6,7 @@
  * (binary search, switch IIFE).
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
@@ -18,6 +18,32 @@ import {
 // ============================================================================
 // Test Helpers
 // ============================================================================
+
+let _cachedProgram: ts.Program | undefined;
+const _options: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.ESNext,
+  strict: true,
+};
+
+function getSharedProgram(): ts.Program {
+  if (!_cachedProgram) {
+    const sf = ts.createSourceFile(
+      "test.ts",
+      "const x = 1;",
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    const host = ts.createCompilerHost(_options);
+    _cachedProgram = ts.createProgram(["test.ts"], _options, {
+      ...host,
+      getSourceFile: (name) =>
+        name === "test.ts" ? sf : host.getSourceFile(name, ts.ScriptTarget.Latest),
+    });
+  }
+  return _cachedProgram;
+}
 
 function createTestContext(sourceText: string): {
   ctx: MacroContextImpl;
@@ -32,22 +58,9 @@ function createTestContext(sourceText: string): {
     ts.ScriptKind.TS
   );
 
-  const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-    strict: true,
-  };
-
-  const host = ts.createCompilerHost(options);
-  const program = ts.createProgram(["test.ts"], options, {
-    ...host,
-    getSourceFile: (name) =>
-      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-  });
-
   const transformContext: ts.TransformationContext = {
     factory: ts.factory,
-    getCompilerOptions: () => options,
+    getCompilerOptions: () => _options,
     startLexicalEnvironment: () => {},
     suspendLexicalEnvironment: () => {},
     resumeLexicalEnvironment: () => {},
@@ -65,7 +78,7 @@ function createTestContext(sourceText: string): {
     addDiagnostic: () => {},
   };
 
-  const ctx = createMacroContext(program, sourceFile, transformContext);
+  const ctx = createMacroContext(getSharedProgram(), sourceFile, transformContext);
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
   return {

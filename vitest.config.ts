@@ -53,11 +53,13 @@ export default defineConfig({
 
     pool: "forks",
 
+    // Locally: serialize everything to avoid OOM (each fork gets 2GB heap).
+    // CI: parallelize across files for speed.
+    fileParallelism: !!process.env.CI,
+
     poolOptions: {
       forks: {
         execArgv: ["--max-old-space-size=2048"],
-        // Use single fork so the transformer is initialized once and reused
-        singleFork: true,
       },
     },
 

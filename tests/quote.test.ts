@@ -2,7 +2,7 @@
  * Tests for the quasiquoting system (quote, quoteStatements, quoteType, etc.)
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
@@ -41,7 +41,7 @@ describe("quasiquoting system", () => {
     return printer.printNode(ts.EmitHint.Unspecified, node, ctx.sourceFile);
   }
 
-  beforeEach(() => {
+  beforeAll(() => {
     const sourceText = "const x = 1;";
     const sourceFile = ts.createSourceFile(
       "test.ts",

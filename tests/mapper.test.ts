@@ -5,6 +5,32 @@ import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 // Register macros manually
 import { transformIntoMacro } from "../packages/mapper/src/macros.js";
 
+const options: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.ESNext,
+  strict: true,
+};
+
+const transformContext: ts.TransformationContext = {
+  factory: ts.factory,
+  getCompilerOptions: () => options,
+  startLexicalEnvironment: () => {},
+  suspendLexicalEnvironment: () => {},
+  resumeLexicalEnvironment: () => {},
+  endLexicalEnvironment: () => undefined,
+  hoistFunctionDeclaration: () => {},
+  hoistVariableDeclaration: () => {},
+  requestEmitHelper: () => {},
+  readEmitHelpers: () => undefined,
+  enableSubstitution: () => {},
+  enableEmitNotification: () => {},
+  isSubstitutionEnabled: () => false,
+  isEmitNotificationEnabled: () => false,
+  onSubstituteNode: (_hint, node) => node,
+  onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
+  addDiagnostic: () => {},
+};
+
 function createTestContext(sourceText: string): MacroContextImpl {
   const sourceFile = ts.createSourceFile(
     "test.ts",
@@ -14,38 +40,12 @@ function createTestContext(sourceText: string): MacroContextImpl {
     ts.ScriptKind.TS
   );
 
-  const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-    strict: true,
-  };
-
   const host = ts.createCompilerHost(options);
   const program = ts.createProgram(["test.ts"], options, {
     ...host,
     getSourceFile: (name) =>
       name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
   });
-
-  const transformContext: ts.TransformationContext = {
-    factory: ts.factory,
-    getCompilerOptions: () => options,
-    startLexicalEnvironment: () => {},
-    suspendLexicalEnvironment: () => {},
-    resumeLexicalEnvironment: () => {},
-    endLexicalEnvironment: () => undefined,
-    hoistFunctionDeclaration: () => {},
-    hoistVariableDeclaration: () => {},
-    requestEmitHelper: () => {},
-    readEmitHelpers: () => undefined,
-    enableSubstitution: () => {},
-    enableEmitNotification: () => {},
-    isSubstitutionEnabled: () => false,
-    isEmitNotificationEnabled: () => false,
-    onSubstituteNode: (_hint, node) => node,
-    onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-    addDiagnostic: () => {},
-  };
 
   return createMacroContext(program, sourceFile, transformContext);
 }

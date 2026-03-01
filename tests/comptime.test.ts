@@ -2,15 +2,14 @@
  * Tests for the comptime macro
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 
 describe("comptime macro - compile-time evaluation", () => {
   let ctx: MacroContextImpl;
 
-  beforeEach(() => {
-    // Create a minimal context for testing
+  beforeAll(() => {
     const sourceText = "const x = 1;";
     const sourceFile = ts.createSourceFile(
       "test.ts",
@@ -300,7 +299,7 @@ describe("comptime macro - compile-time evaluation", () => {
 describe("MacroContext utilities", () => {
   let ctx: MacroContextImpl;
 
-  beforeEach(() => {
+  beforeAll(() => {
     const sourceFile = ts.createSourceFile(
       "test.ts",
       "",

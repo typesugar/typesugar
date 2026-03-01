@@ -5,7 +5,7 @@
  * - Phase 3: Return-type-driven auto-specialization with Result algebras
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
@@ -27,6 +27,61 @@ import {
   type ResultAlgebra,
 } from "@typesugar/macros";
 import { globalHygiene, HygieneContext } from "@typesugar/core";
+
+// Shared program and transform context — ts.createProgram() is expensive (~1-2s),
+// so we create it once and reuse across all describe blocks.
+const sharedOptions: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.ESNext,
+};
+
+const sharedTransformContext: ts.TransformationContext = {
+  factory: ts.factory,
+  getCompilerOptions: () => sharedOptions,
+  startLexicalEnvironment: () => {},
+  suspendLexicalEnvironment: () => {},
+  resumeLexicalEnvironment: () => {},
+  endLexicalEnvironment: () => undefined,
+  hoistFunctionDeclaration: () => {},
+  hoistVariableDeclaration: () => {},
+  requestEmitHelper: () => {},
+  readEmitHelpers: () => undefined,
+  enableSubstitution: () => {},
+  enableEmitNotification: () => {},
+  isSubstitutionEnabled: () => false,
+  isEmitNotificationEnabled: () => false,
+  onSubstituteNode: (_hint, node) => node,
+  onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
+};
+
+let sharedProgram: ts.Program;
+
+beforeAll(() => {
+  const sourceFile = ts.createSourceFile(
+    "test.ts",
+    "const x = 1;",
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const host = ts.createCompilerHost(sharedOptions);
+  sharedProgram = ts.createProgram(["test.ts"], sharedOptions, {
+    ...host,
+    getSourceFile: (name) =>
+      name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
+  });
+});
+
+function createSharedCtx(): MacroContextImpl {
+  const sourceFile = ts.createSourceFile(
+    "test.ts",
+    "",
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  return createMacroContext(sharedProgram, sourceFile, sharedTransformContext);
+}
 
 // ============================================================================
 // Phase 1: Early-Return Flattening Tests
@@ -161,47 +216,8 @@ describe("Phase 1: Early-Return Flattening", () => {
   describe("flattenReturnsToExpression", () => {
     let ctx: MacroContextImpl;
 
-    beforeEach(() => {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        "const x = 1;",
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-
-      const options: ts.CompilerOptions = {
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-      };
-
-      const host = ts.createCompilerHost(options);
-      const program = ts.createProgram(["test.ts"], options, {
-        ...host,
-        getSourceFile: (name) =>
-          name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-      });
-
-      const transformContext: ts.TransformationContext = {
-        factory: ts.factory,
-        getCompilerOptions: () => options,
-        startLexicalEnvironment: () => {},
-        suspendLexicalEnvironment: () => {},
-        resumeLexicalEnvironment: () => {},
-        endLexicalEnvironment: () => undefined,
-        hoistFunctionDeclaration: () => {},
-        hoistVariableDeclaration: () => {},
-        requestEmitHelper: () => {},
-        readEmitHelpers: () => undefined,
-        enableSubstitution: () => {},
-        enableEmitNotification: () => {},
-        isSubstitutionEnabled: () => false,
-        isEmitNotificationEnabled: () => false,
-        onSubstituteNode: (_hint, node) => node,
-        onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-      };
-
-      ctx = createMacroContext(program, sourceFile, transformContext);
+    beforeAll(() => {
+      ctx = createSharedCtx();
     });
 
     it("should flatten simple guard clause to ternary", () => {
@@ -449,47 +465,8 @@ describe("Phase 3: Result Algebra", () => {
   describe("Option algebra rewrite rules", () => {
     let ctx: MacroContextImpl;
 
-    beforeEach(() => {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        "",
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-
-      const options: ts.CompilerOptions = {
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-      };
-
-      const host = ts.createCompilerHost(options);
-      const program = ts.createProgram(["test.ts"], options, {
-        ...host,
-        getSourceFile: (name) =>
-          name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-      });
-
-      const transformContext: ts.TransformationContext = {
-        factory: ts.factory,
-        getCompilerOptions: () => options,
-        startLexicalEnvironment: () => {},
-        suspendLexicalEnvironment: () => {},
-        resumeLexicalEnvironment: () => {},
-        endLexicalEnvironment: () => undefined,
-        hoistFunctionDeclaration: () => {},
-        hoistVariableDeclaration: () => {},
-        requestEmitHelper: () => {},
-        readEmitHelpers: () => undefined,
-        enableSubstitution: () => {},
-        enableEmitNotification: () => {},
-        isSubstitutionEnabled: () => false,
-        isEmitNotificationEnabled: () => false,
-        onSubstituteNode: (_hint, node) => node,
-        onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-      };
-
-      ctx = createMacroContext(program, sourceFile, transformContext);
+    beforeAll(() => {
+      ctx = createSharedCtx();
     });
 
     it("should rewrite ok(value) to value", () => {
@@ -512,47 +489,8 @@ describe("Phase 3: Result Algebra", () => {
   describe("Either algebra rewrite rules", () => {
     let ctx: MacroContextImpl;
 
-    beforeEach(() => {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        "",
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-
-      const options: ts.CompilerOptions = {
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-      };
-
-      const host = ts.createCompilerHost(options);
-      const program = ts.createProgram(["test.ts"], options, {
-        ...host,
-        getSourceFile: (name) =>
-          name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-      });
-
-      const transformContext: ts.TransformationContext = {
-        factory: ts.factory,
-        getCompilerOptions: () => options,
-        startLexicalEnvironment: () => {},
-        suspendLexicalEnvironment: () => {},
-        resumeLexicalEnvironment: () => {},
-        endLexicalEnvironment: () => undefined,
-        hoistFunctionDeclaration: () => {},
-        hoistVariableDeclaration: () => {},
-        requestEmitHelper: () => {},
-        readEmitHelpers: () => undefined,
-        enableSubstitution: () => {},
-        enableEmitNotification: () => {},
-        isSubstitutionEnabled: () => false,
-        isEmitNotificationEnabled: () => false,
-        onSubstituteNode: (_hint, node) => node,
-        onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-      };
-
-      ctx = createMacroContext(program, sourceFile, transformContext);
+    beforeAll(() => {
+      ctx = createSharedCtx();
     });
 
     it("should rewrite ok(value) to { _tag: 'Right', right: value }", () => {
@@ -579,47 +517,8 @@ describe("Phase 3: Result Algebra", () => {
   describe("Promise algebra rewrite rules", () => {
     let ctx: MacroContextImpl;
 
-    beforeEach(() => {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        "",
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-
-      const options: ts.CompilerOptions = {
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-      };
-
-      const host = ts.createCompilerHost(options);
-      const program = ts.createProgram(["test.ts"], options, {
-        ...host,
-        getSourceFile: (name) =>
-          name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-      });
-
-      const transformContext: ts.TransformationContext = {
-        factory: ts.factory,
-        getCompilerOptions: () => options,
-        startLexicalEnvironment: () => {},
-        suspendLexicalEnvironment: () => {},
-        resumeLexicalEnvironment: () => {},
-        endLexicalEnvironment: () => undefined,
-        hoistFunctionDeclaration: () => {},
-        hoistVariableDeclaration: () => {},
-        requestEmitHelper: () => {},
-        readEmitHelpers: () => undefined,
-        enableSubstitution: () => {},
-        enableEmitNotification: () => {},
-        isSubstitutionEnabled: () => false,
-        isEmitNotificationEnabled: () => false,
-        onSubstituteNode: (_hint, node) => node,
-        onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-      };
-
-      ctx = createMacroContext(program, sourceFile, transformContext);
+    beforeAll(() => {
+      ctx = createSharedCtx();
     });
 
     it("should rewrite ok(value) to Promise.resolve(value)", () => {
@@ -646,47 +545,8 @@ describe("Phase 3: Result Algebra", () => {
   describe("Unsafe algebra rewrite rules", () => {
     let ctx: MacroContextImpl;
 
-    beforeEach(() => {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        "",
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-
-      const options: ts.CompilerOptions = {
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-      };
-
-      const host = ts.createCompilerHost(options);
-      const program = ts.createProgram(["test.ts"], options, {
-        ...host,
-        getSourceFile: (name) =>
-          name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-      });
-
-      const transformContext: ts.TransformationContext = {
-        factory: ts.factory,
-        getCompilerOptions: () => options,
-        startLexicalEnvironment: () => {},
-        suspendLexicalEnvironment: () => {},
-        resumeLexicalEnvironment: () => {},
-        endLexicalEnvironment: () => undefined,
-        hoistFunctionDeclaration: () => {},
-        hoistVariableDeclaration: () => {},
-        requestEmitHelper: () => {},
-        readEmitHelpers: () => undefined,
-        enableSubstitution: () => {},
-        enableEmitNotification: () => {},
-        isSubstitutionEnabled: () => false,
-        isEmitNotificationEnabled: () => false,
-        onSubstituteNode: (_hint, node) => node,
-        onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-      };
-
-      ctx = createMacroContext(program, sourceFile, transformContext);
+    beforeAll(() => {
+      ctx = createSharedCtx();
     });
 
     it("should rewrite ok(value) to value", () => {
