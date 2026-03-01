@@ -44,7 +44,7 @@ src/
 │   ├── types.ts        # MacroContext, MacroDefinition, ComptimeValue, DeriveTypeInfo
 │   ├── registry.ts     # globalRegistry, defineExpressionMacro, defineAttributeMacro, etc.
 │   ├── context.ts      # MacroContextImpl — node creation, type queries, evaluate()
-│   ├── hygiene.ts      # Lexical hygiene — globalHygiene.withScope(), createIdentifier()
+│   ├── hygiene.ts      # Lexical hygiene — globalHygiene.withScope(), createIdentifier(), FileBindingCache.safeRef()
 │   ├── capabilities.ts # MacroCapabilities, createRestrictedContext()
 │   ├── cache.ts        # MacroExpansionCache for incremental builds
 │   ├── pipeline.ts     # Composable macro pipelines — pipeline().pipe().build()
@@ -197,6 +197,7 @@ Every macro's `expand` function receives a `MacroContext` (`ctx`) with:
 **Hygiene:**
 
 - `ctx.generateUniqueName(prefix)` → `ts.Identifier` (avoids name collisions)
+- `ctx.safeRef(symbol, from)` → `ts.Identifier` (reference hygiene — detects conflicts with user names)
 
 ### Quasiquoting (`src/macros/quote.ts`)
 
@@ -244,6 +245,8 @@ pipeline("myMacro", "my-module")
 
 Prevents name collisions in macro-generated code:
 
+**Introduced-name hygiene** — mangles names introduced by macros:
+
 ```typescript
 import { globalHygiene } from "../core/hygiene.js";
 
@@ -252,6 +255,21 @@ globalHygiene.withScope(() => {
   // ... use id in generated code ...
 });
 ```
+
+**Reference hygiene** — ensures external symbol references resolve correctly:
+
+```typescript
+// In a macro's expand() function:
+const eqRef = ctx.safeRef("Eq", "@typesugar/std");
+// If user has `const Eq = 42;`, returns "__Eq_ts0__" and records aliased import
+// Otherwise, returns "Eq" directly
+```
+
+Three-tier resolution (O(1) conflict detection):
+
+- Tier 0: Known globals (Error, Array, JSON) — always safe
+- Tier 1: Import map — safe if from same module
+- Tier 2: Local declarations — conflict if declared at file level
 
 ### Expansion Tracking (`src/core/source-map.ts`)
 
@@ -878,6 +896,7 @@ The export index is pre-populated with known typesugar exports and can be extend
 | Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `core/context.ts`            |
 | Report compile error            | `ctx.reportError(node, message)`                                     | `core/context.ts`            |
 | Generate unique names           | `ctx.generateUniqueName(prefix)`                                     | `core/context.ts`            |
+| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                          | `core/context.ts`            |
 | Avoid name collisions           | `globalHygiene.withScope(() => { ... })`                             | `core/hygiene.ts`            |
 | Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `macros/typeclass.ts`        |
 | Register standalone extensions  | `registerStandaloneExtensionEntry(info)`                             | `macros/extension.ts`        |

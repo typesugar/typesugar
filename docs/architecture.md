@@ -270,7 +270,9 @@ typesugar supports six kinds of macros:
 
 ### Lexical Hygiene
 
-The hygiene system prevents name collisions in macro-generated code:
+The hygiene system has two parts:
+
+**1. Introduced-name hygiene** — Prevents capture of user variables by macro-generated code:
 
 ```typescript
 import { globalHygiene } from "../core/hygiene.js";
@@ -281,7 +283,24 @@ globalHygiene.withScope(() => {
 });
 ```
 
-Unhygienic escapes are available for intentional capture (e.g., when a macro needs to reference user-defined variables).
+**2. Reference hygiene** — Ensures macro-emitted references to external symbols resolve correctly even when users shadow those names:
+
+```typescript
+// In a macro's expand() function:
+const eqRef = ctx.safeRef("Eq", "@typesugar/std");
+// If user has `const Eq = 42;`, returns "__Eq_ts0__" (alias)
+// Otherwise, returns "Eq" (bare identifier)
+```
+
+The `safeRef` system uses three-tier resolution for O(1) conflict detection:
+
+- **Tier 0**: Known JS globals (Error, Array, etc.) — always safe
+- **Tier 1**: File import map — safe if same module, conflict otherwise
+- **Tier 2**: Local declarations — conflict if name is declared at file level
+
+When a conflict is detected, `safeRef` generates an aliased import that the transformer injects into the file.
+
+Unhygienic escapes (`raw()`) are available for intentional capture (e.g., when a macro needs to reference user-defined variables).
 
 ### Expansion Cache
 

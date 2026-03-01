@@ -348,4 +348,141 @@ describe("Performance benchmarks", () => {
       expect(result.opsPerSec).toBeGreaterThan(5_000);
     });
   });
+
+  describe("Reference Hygiene (safeRef)", () => {
+    it("Tier 0: known global (Error)", () => {
+      const result = bench("safeRef tier0", () => ctx.safeRef("Error", "@typesugar/std"), 50_000);
+      console.log(
+        `  safeRef tier0 (global): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(500_000);
+    });
+
+    it("Tier 1: same module import (no conflict)", () => {
+      // Create a context with imports
+      const sourceWithImports = `
+        import { Eq, Ord, Show } from "@typesugar/std";
+        import { Option } from "@typesugar/fp";
+        const x = 1;
+      `;
+      const ctxWithImports = createTestContext(sourceWithImports);
+      const result = bench(
+        "safeRef tier1",
+        () => ctxWithImports.safeRef("Eq", "@typesugar/std"),
+        50_000
+      );
+      console.log(
+        `  safeRef tier1 (same module): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(300_000);
+    });
+
+    it("Tier 2: no conflict (name not in scope)", () => {
+      const result = bench(
+        "safeRef tier2",
+        () => ctx.safeRef("SomeUnusedName", "@typesugar/std"),
+        50_000
+      );
+      console.log(
+        `  safeRef tier2 (not in scope): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(300_000);
+    });
+
+    it("Conflict path: local declaration shadows", () => {
+      // Create a context where "Eq" is a local declaration
+      const sourceWithLocalEq = `
+        const Eq = 42;
+        const x = 1;
+      `;
+      const ctxWithLocalEq = createTestContext(sourceWithLocalEq);
+      // First call creates the alias
+      ctxWithLocalEq.safeRef("Eq", "@typesugar/std");
+      // Subsequent calls should hit the dedup cache
+      const result = bench(
+        "safeRef conflict (dedup)",
+        () => ctxWithLocalEq.safeRef("Eq", "@typesugar/std"),
+        50_000
+      );
+      console.log(
+        `  safeRef conflict (dedup): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(300_000);
+    });
+
+    it("FileBindingCache construction (small file)", () => {
+      const smallSource = `
+        import { a, b, c } from "module-a";
+        import { d, e } from "module-b";
+        const x = 1;
+        function foo() {}
+        class Bar {}
+      `;
+      const sourceFile = ts.createSourceFile(
+        "small.ts",
+        smallSource,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+      );
+      const { FileBindingCache } = require("@typesugar/core");
+      const result = bench(
+        "FileBindingCache small",
+        () => new FileBindingCache(sourceFile),
+        10_000
+      );
+      console.log(
+        `  FileBindingCache small (5 imports, 3 decls): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(10_000);
+    });
+
+    it("FileBindingCache construction (medium file)", () => {
+      const imports = Array.from(
+        { length: 50 },
+        (_, i) => `import { sym${i} } from "mod${i}";`
+      ).join("\n");
+      const decls = Array.from({ length: 20 }, (_, i) => `const decl${i} = ${i};`).join("\n");
+      const mediumSource = `${imports}\n${decls}`;
+      const sourceFile = ts.createSourceFile(
+        "medium.ts",
+        mediumSource,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+      );
+      const { FileBindingCache } = require("@typesugar/core");
+      const result = bench(
+        "FileBindingCache medium",
+        () => new FileBindingCache(sourceFile),
+        5_000
+      );
+      console.log(
+        `  FileBindingCache medium (50 imports, 20 decls): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(2_000);
+    });
+
+    it("FileBindingCache construction (large file)", () => {
+      const imports = Array.from(
+        { length: 100 },
+        (_, i) => `import { sym${i} } from "mod${i}";`
+      ).join("\n");
+      const decls = Array.from({ length: 50 }, (_, i) => `const decl${i} = ${i};`).join("\n");
+      const largeSource = `${imports}\n${decls}`;
+      const sourceFile = ts.createSourceFile(
+        "large.ts",
+        largeSource,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+      );
+      const { FileBindingCache } = require("@typesugar/core");
+      const result = bench("FileBindingCache large", () => new FileBindingCache(sourceFile), 2_000);
+      console.log(
+        `  FileBindingCache large (100 imports, 50 decls): ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(500);
+    });
+  });
 });

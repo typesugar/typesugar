@@ -1588,11 +1588,18 @@ class MacroTransformer {
       ? this.cleanupMacroImports(newStatements)
       : newStatements;
 
-    // Prepend hoisted specialization declarations to the current block/file
-    const hoistedDecls = this.specCache.getHoistedDeclarations();
-    if (hoistedDecls.length > 0) {
-      let insertIndex = 0;
-      if (ts.isSourceFile(node)) {
+    // For source files: inject pending aliased imports from reference hygiene
+    // and hoisted specialization declarations
+    if (ts.isSourceFile(node)) {
+      // Get pending aliased imports from FileBindingCache (for reference hygiene)
+      const pendingImports = this.ctx.fileBindingCache.getPendingImports();
+
+      // Get hoisted specialization declarations
+      const hoistedDecls = this.specCache.getHoistedDeclarations();
+
+      if (pendingImports.length > 0 || hoistedDecls.length > 0) {
+        // Find insertion point after existing imports
+        let insertIndex = 0;
         for (let i = 0; i < cleanedStatements.length; i++) {
           if (ts.isImportDeclaration(cleanedStatements[i])) {
             insertIndex = i + 1;
@@ -1600,18 +1607,42 @@ class MacroTransformer {
             break;
           }
         }
+
+        // Inject: [existing imports..., aliased imports, hoisted decls, rest of file...]
+        cleanedStatements = [
+          ...cleanedStatements.slice(0, insertIndex),
+          ...pendingImports,
+          ...hoistedDecls,
+          ...cleanedStatements.slice(insertIndex),
+        ];
+
+        if (this.verbose) {
+          if (pendingImports.length > 0) {
+            console.log(
+              `[typesugar] Injected ${pendingImports.length} aliased import(s) for reference hygiene`
+            );
+          }
+          if (hoistedDecls.length > 0) {
+            console.log(
+              `[typesugar] Hoisted ${hoistedDecls.length} specialized function(s) to local scope`
+            );
+          }
+        }
+
+        // Log hygiene stats if verbose
+        this.ctx.fileBindingCache.logStats(this.ctx.sourceFile.fileName);
       }
+    } else {
+      // For blocks (not source files), only inject hoisted declarations
+      const hoistedDecls = this.specCache.getHoistedDeclarations();
+      if (hoistedDecls.length > 0) {
+        cleanedStatements = [...hoistedDecls, ...cleanedStatements];
 
-      cleanedStatements = [
-        ...cleanedStatements.slice(0, insertIndex),
-        ...hoistedDecls,
-        ...cleanedStatements.slice(insertIndex),
-      ];
-
-      if (this.verbose) {
-        console.log(
-          `[typesugar] Hoisted ${hoistedDecls.length} specialized function(s) to local scope`
-        );
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Hoisted ${hoistedDecls.length} specialized function(s) to local scope`
+          );
+        }
       }
     }
 

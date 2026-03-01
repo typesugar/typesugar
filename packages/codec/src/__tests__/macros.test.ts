@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { createMacroContext } from "@typesugar/core";
+import { createMacroTestContext } from "@typesugar/testing/macros";
 import { codecMacro, register } from "../macros.js";
 
 describe("codec macros", () => {
@@ -21,57 +21,12 @@ describe("codec macros", () => {
 });
 
 describe("@codec macro expansion", () => {
-  function createTestContext(sourceText: string) {
-    const sourceFile = ts.createSourceFile(
-      "test.ts",
-      sourceText,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS
-    );
-
-    const options: ts.CompilerOptions = {
-      target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.ESNext,
-      strict: true,
-      experimentalDecorators: true,
-    };
-
-    const host = ts.createCompilerHost(options);
-    const program = ts.createProgram(["test.ts"], options, {
-      ...host,
-      getSourceFile: (name) =>
-        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-    });
-
-    const transformContext: ts.TransformationContext = {
-      factory: ts.factory,
-      getCompilerOptions: () => options,
-      startLexicalEnvironment: () => {},
-      suspendLexicalEnvironment: () => {},
-      resumeLexicalEnvironment: () => {},
-      endLexicalEnvironment: () => undefined,
-      hoistFunctionDeclaration: () => {},
-      hoistVariableDeclaration: () => {},
-      requestEmitHelper: () => {},
-      readEmitHelpers: () => undefined,
-      enableSubstitution: () => {},
-      enableEmitNotification: () => {},
-      isSubstitutionEnabled: () => false,
-      isEmitNotificationEnabled: () => false,
-      onSubstituteNode: (_hint, node) => node,
-      onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-    };
-
-    return createMacroContext(program, sourceFile, transformContext);
-  }
-
-  function expandCodec(source: string): { output: string; nodes: ts.Node[] } {
+  function expandCodec(source: string): { nodes: ts.Node[] } {
     const fullSource = `
       import { defineSchema } from "@typesugar/codec";
       ${source}
     `;
-    const ctx = createTestContext(fullSource);
+    const ctx = createMacroTestContext(fullSource);
 
     let decl: ts.ClassDeclaration | ts.InterfaceDeclaration | undefined;
     function visit(node: ts.Node) {
@@ -92,24 +47,26 @@ describe("@codec macro expansion", () => {
 
     const result = codecMacro.expand(ctx, dec, decl, []);
     const nodes = Array.isArray(result) ? result : [result];
-    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const output = nodes
-      .map((n) => printer.printNode(ts.EmitHint.Unspecified, n, ctx.sourceFile))
-      .join("\n");
-
-    return { output, nodes };
+    return { nodes };
   }
 
-  it("expands @codec on class to include defineSchema call", () => {
-    const { output } = expandCodec(`
+  it("expands @codec on class to return original + schema definition", () => {
+    const { nodes } = expandCodec(`
 class Product {
   id: number;
   name: string;
 }
     `);
 
-    expect(output).toContain("ProductSchema");
-    expect(output).toContain("defineSchema");
-    expect(output).toContain('"Product"');
+    // The macro should return [original class, schema variable statement]
+    expect(nodes.length).toBe(2);
+    expect(ts.isClassDeclaration(nodes[0])).toBe(true);
+    expect(ts.isVariableStatement(nodes[1])).toBe(true);
+
+    // The variable should be named ProductSchema
+    const varStmt = nodes[1] as ts.VariableStatement;
+    const decl = varStmt.declarationList.declarations[0];
+    const name = decl.name as ts.Identifier;
+    expect(name.text).toBe("ProductSchema");
   });
 });

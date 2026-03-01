@@ -227,9 +227,25 @@ More broadly, the dependency on ts-patch (a third-party compiler patching mechan
 
 ### 4.5 Hygiene Limitations
 
-The hygiene system, while functional, is simpler than what the literature considers adequate. typesugar uses name mangling (`__typesugar_temp_s0_0__`) to avoid collisions, which is closer to `gensym` than to true lexical hygiene.
+The hygiene system uses two complementary mechanisms:
 
-True lexical hygiene, as implemented in Racket or the Scheme `syntax-case` system, tracks the lexical environment in which identifiers were introduced. This allows macros to refer to bindings from their definition site, not their expansion site. typesugar's mangling approach prevents capture of user variables by macro-generated code, but does not handle the reverse direction: macro code cannot reliably refer to bindings from the macro definition site when expanded into a different scope.
+1. **Introduced-name hygiene (gensym-style)**: Names introduced by macros are mangled (`__typesugar_temp_s0_0__`) to prevent capture of user variables by macro-generated code. This is closer to `gensym` than to true lexical hygiene.
+
+2. **Reference hygiene (via `safeRef`)**: When macros emit references to external symbols (like `Eq`, `Show` from `@typesugar/std`), they can use `ctx.safeRef(symbol, module)` to detect conflicts with user-defined names and automatically generate aliased imports when needed.
+
+The `safeRef` system uses a three-tier resolution strategy for O(1) conflict detection:
+
+- **Tier 0**: Known JS globals (Error, Array, JSON, etc.) — always safe, never conflict with imports
+- **Tier 1**: File import map — safe if the symbol is imported from the same module
+- **Tier 2**: Local declarations — conflict if the name is declared at file level
+
+When a conflict is detected, `safeRef` generates an aliased import (e.g., `import { Eq as __Eq_ts0__ } from "@typesugar/std"`) and returns the alias. The transformer injects these pending imports alongside other hoisted declarations.
+
+**Current limitations:**
+
+- Reference hygiene only covers file-level scope — nested scope shadowing (inside function bodies) is not detected
+- Full migration of existing macro callsites requires adding module tracking to the instance registry
+- True lexical hygiene (as in Racket's `syntax-case`) would track the lexical environment across macro boundaries; typesugar's approach is pragmatic but not as general
 
 The `raw()` escape hatch (unhygienic identifiers) is necessary but introduces the same risks as `#` in Template Haskell or `$raw` in ts-macros: intentional capture can break when the expansion context changes.
 
@@ -385,7 +401,7 @@ typesugar represents a serious and technically sophisticated attempt to bring ze
 - No coherence enforcement for typeclass instances
 - Specialization is incomplete and fails silently
 - The two-phase compilation creates a type-checker/preprocessor desynchronization
-- Hygiene is name-mangling, not true lexical hygiene
+- Hygiene is name-mangling for introduced names; reference hygiene (`safeRef`) covers file-level scope but not nested function scopes
 - The dependency on ts-patch creates a fragile integration point with TypeScript's internals
 - Well-designed subsystems (refined types, contracts prover, validation macros) lack integration with each other — the whole is not yet greater than the parts
 - Cross-cutting concern infrastructure exists without a library that exploits it — no `defineWrappingMacro()`, no call-site analysis, no taint tracking
@@ -406,7 +422,7 @@ Based on the weaknesses identified above, these are areas where targeted work co
 2. **Coherence enforcement** — Implement orphan instance detection and duplicate instance warnings, even if not as strict as Haskell's rules.
 3. **Specialization diagnostics** — Emit compile-time warnings when specialization falls back to dictionary passing, so users know when zero-cost guarantees don't hold.
 4. **Binding-time analysis** — Replace the ad-hoc "can we inline this?" checks with a proper binding-time analysis pass that statically determines specialization feasibility.
-5. **True lexical hygiene** — Investigate whether TypeScript's Symbol API can support scope-aware identifier tracking rather than name mangling.
+5. **True lexical hygiene** — The `safeRef` system provides reference hygiene at file level; investigate extending to nested scopes (via `typeChecker.resolveName()` per-call) and true scope-aware identifier tracking using TypeScript's Symbol API.
 6. **`===` semantics** — Consider whether structural equality should use a distinct operator (e.g., `==` or a custom operator via the preprocessor) rather than overloading `===`.
 7. **Cross-cutting concern library** — The infrastructure for AOP-style macros exists but no production macros exploit it. Three concrete directions:
    - A `defineWrappingMacro()` helper in `@typesugar/core` that handles async/generator/arrow/method cases uniformly and integrates with `cfg()` for conditional compilation.

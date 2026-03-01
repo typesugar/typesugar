@@ -170,6 +170,11 @@ export function createMacroTestContext(source: string): TestMacroContext {
       ts.addSyntheticLeadingComment(node, ts.SyntaxKind.MultiLineCommentTrivia, "#__PURE__", false);
       return node;
     },
+
+    // Safe reference generation (test implementation just returns bare identifier)
+    safeRef(symbol: string, _from: string): ts.Identifier {
+      return ts.factory.createIdentifier(symbol);
+    },
   };
 
   return ctx;
