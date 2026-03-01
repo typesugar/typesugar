@@ -1,7 +1,8 @@
 /**
  * Effect Macros
  *
- * Attribute macros for defining Effect services and layers.
+ * Attribute macros for defining Effect services and layers,
+ * and optimization macros for zero-cost abstraction.
  *
  * @module
  */
@@ -27,3 +28,24 @@ export {
 } from "./layer.js";
 
 export { resolveLayerMacro, resolveLayer } from "./resolve-layer.js";
+
+export {
+  compiledAttribute,
+  compileGenExpression,
+  compileGen,
+  compiled,
+} from "./compiled.js";
+
+export {
+  fusedAttribute,
+  fusePipelineExpression,
+  fusePipeline,
+  fused,
+} from "./fused.js";
+
+export {
+  specializeSchemaExpression,
+  specializeSchemaUnsafeExpression,
+  specializeSchema,
+  specializeSchemaUnsafe,
+} from "./schema-specialize.js";

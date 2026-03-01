@@ -420,6 +420,181 @@ export function forAll<T>(
 }
 
 // ============================================================================
+// Mock Utilities
+// ============================================================================
+
+/**
+ * Type representing a mock implementation of T with call tracking and stubbing.
+ */
+export type MockOf<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R ? MockFn<A, R> & T[K] : T[K];
+} & {
+  _calls: { [K in keyof T]: T[K] extends (...args: any[]) => any ? Parameters<T[K]>[] : never };
+  _reset: () => void;
+};
+
+/**
+ * Type representing a mock function with call tracking and stubbing.
+ */
+export interface MockFn<Args extends any[] = any[], Return = any> {
+  (...args: Args): Return;
+  mockReturnValue(value: Return): this;
+  mockReturnValueOnce(value: Return): this;
+  mockResolvedValue<T>(value: T): this;
+  mockResolvedValueOnce<T>(value: T): this;
+  mockRejectedValue(error: unknown): this;
+  mockRejectedValueOnce(error: unknown): this;
+  mockImplementation(fn: (...args: Args) => Return): this;
+  mockImplementationOnce(fn: (...args: Args) => Return): this;
+  mockReset(): this;
+  mockClear(): this;
+  calls: Args[];
+}
+
+/**
+ * Creates a mock function with vitest/jest-compatible API.
+ * This is a runtime helper that works without the transformer.
+ *
+ * @example
+ * ```typescript
+ * const mockGetUser = createMockFn<(id: string) => Promise<User>>();
+ * mockGetUser.mockResolvedValue({ id: "1", name: "Alice" });
+ *
+ * await mockGetUser("123");
+ * expect(mockGetUser.calls).toEqual([["123"]]);
+ * ```
+ */
+export function createMockFn<T extends (...args: any[]) => any>(): MockFn<
+  Parameters<T>,
+  ReturnType<T>
+> {
+  type Args = Parameters<T>;
+  type Return = ReturnType<T>;
+
+  let impl: ((...args: Args) => Return) | undefined;
+  let returnValues: Return[] = [];
+  let onceReturnValues: Return[] = [];
+  let onceImpls: ((...args: Args) => Return)[] = [];
+  const calls: Args[] = [];
+
+  const mockFn = ((...args: Args): Return => {
+    calls.push(args);
+    mockFn.calls = calls;
+
+    // Check for one-time implementation
+    if (onceImpls.length > 0) {
+      const onceFn = onceImpls.shift()!;
+      return onceFn(...args);
+    }
+
+    // Check for one-time return value
+    if (onceReturnValues.length > 0) {
+      return onceReturnValues.shift()!;
+    }
+
+    // Use implementation if set
+    if (impl) {
+      return impl(...args);
+    }
+
+    // Use return value if set
+    if (returnValues.length > 0) {
+      return returnValues[0];
+    }
+
+    return undefined as Return;
+  }) as MockFn<Args, Return>;
+
+  mockFn.calls = calls;
+
+  mockFn.mockReturnValue = (value: Return) => {
+    returnValues = [value];
+    return mockFn;
+  };
+
+  mockFn.mockReturnValueOnce = (value: Return) => {
+    onceReturnValues.push(value);
+    return mockFn;
+  };
+
+  mockFn.mockResolvedValue = <T>(value: T) => {
+    returnValues = [Promise.resolve(value) as unknown as Return];
+    return mockFn;
+  };
+
+  mockFn.mockResolvedValueOnce = <T>(value: T) => {
+    onceReturnValues.push(Promise.resolve(value) as unknown as Return);
+    return mockFn;
+  };
+
+  mockFn.mockRejectedValue = (error: unknown) => {
+    impl = (() => Promise.reject(error)) as unknown as (...args: Args) => Return;
+    return mockFn;
+  };
+
+  mockFn.mockRejectedValueOnce = (error: unknown) => {
+    onceImpls.push((() => Promise.reject(error)) as unknown as (...args: Args) => Return);
+    return mockFn;
+  };
+
+  mockFn.mockImplementation = (fn: (...args: Args) => Return) => {
+    impl = fn;
+    return mockFn;
+  };
+
+  mockFn.mockImplementationOnce = (fn: (...args: Args) => Return) => {
+    onceImpls.push(fn);
+    return mockFn;
+  };
+
+  mockFn.mockReset = () => {
+    impl = undefined;
+    returnValues = [];
+    onceReturnValues = [];
+    onceImpls = [];
+    calls.length = 0;
+    mockFn.calls = calls;
+    return mockFn;
+  };
+
+  mockFn.mockClear = () => {
+    calls.length = 0;
+    mockFn.calls = calls;
+    return mockFn;
+  };
+
+  return mockFn;
+}
+
+/**
+ * Runtime placeholder for mock<T>() expression macro.
+ *
+ * When the typesugar transformer is configured, this call is replaced
+ * at compile time with a fully typed mock object that tracks all method
+ * calls and supports stubbing.
+ *
+ * @example
+ * ```typescript
+ * interface UserService {
+ *   getUser(id: string): Promise<User>;
+ * }
+ *
+ * const mockUserService = mock<UserService>();
+ * mockUserService.getUser.mockResolvedValue({ id: "1", name: "Alice" });
+ *
+ * await mockUserService.getUser("123");
+ * expect(mockUserService._calls.getUser).toEqual([["123"]]);
+ * ```
+ */
+export function mock<T>(_defaults?: Partial<T>): MockOf<T> {
+  throw new Error(
+    "mock<T>() was called at runtime. " +
+      "This indicates the typesugar transformer is not configured correctly. " +
+      "Use createMockFn() directly for runtime mocking."
+  );
+}
+
+// ============================================================================
 // Macro Definitions
 // ============================================================================
 //
@@ -430,3 +605,4 @@ export function forAll<T>(
 //   - assertMacro, staticAssertMacro, typeAssertMacro, etc.
 //   - createMacroTestContext, parseSource
 //   - ArbitraryDerive
+//   - mockAttribute, mockExpressionMacro

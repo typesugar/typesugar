@@ -140,6 +140,30 @@ import {
 
 import { resolveLayerMacro, resolveLayer } from "./macros/resolve-layer.js";
 
+// Import @compiled and compileGen macros
+import {
+  compiledAttribute,
+  compileGenExpression,
+  compileGen,
+  compiled,
+} from "./macros/compiled.js";
+
+// Import @fused and fusePipeline macros
+import {
+  fusedAttribute,
+  fusePipelineExpression,
+  fusePipeline,
+  fused,
+} from "./macros/fused.js";
+
+// Import schema specialization macros
+import {
+  specializeSchemaExpression,
+  specializeSchemaUnsafeExpression,
+  specializeSchema,
+  specializeSchemaUnsafe,
+} from "./macros/schema-specialize.js";
+
 // Import derive macros
 import {
   EffectSchemaDerive,
@@ -149,6 +173,45 @@ import {
   EffectHashDerive,
   EffectHash,
 } from "./derive/index.js";
+
+// Import diagnostics
+import {
+  EFFECT001,
+  EFFECT002,
+  EFFECT003,
+  EFFECT010,
+  EFFECT011,
+  EFFECT020,
+  EFFECT021,
+  EFFECT030,
+  EFFECT040,
+  effectDiagnostics,
+  getEffectDiagnostic,
+  EffectDiagnosticBuilder,
+  EffectDiagnosticCategory,
+  formatEffectDiagnosticCLI,
+  toTsDiagnostic,
+  type EffectDiagnosticDescriptor,
+  type EffectLabeledSpan,
+  type EffectCodeSuggestion,
+  type EffectRichDiagnostic,
+} from "./diagnostics.js";
+
+// Import testing utilities
+import {
+  mockService,
+  testLayer,
+  combineLayers,
+  succeedMock,
+  failMock,
+  dieMock,
+  assertCalled,
+  assertNotCalled,
+  assertCalledTimes,
+  type MockService,
+  type MockMethodConfig,
+  type TestLayerOptions,
+} from "./testing.js";
 
 // Import extension namespaces
 import { EffectExt, OptionExt, EitherExt } from "./extensions.js";
@@ -174,6 +237,21 @@ export {
   // resolveLayer<R>() macro
   resolveLayerMacro,
   resolveLayer,
+  // @compiled and compileGen() macros
+  compiledAttribute,
+  compileGenExpression,
+  compileGen,
+  compiled,
+  // @fused and fusePipeline() macros
+  fusedAttribute,
+  fusePipelineExpression,
+  fusePipeline,
+  fused,
+  // Schema specialization macros
+  specializeSchemaExpression,
+  specializeSchemaUnsafeExpression,
+  specializeSchema,
+  specializeSchemaUnsafe,
   // @derive macros
   EffectSchemaDerive,
   EffectSchema,
@@ -185,6 +263,39 @@ export {
   EffectExt,
   OptionExt,
   EitherExt,
+  // Diagnostics
+  EFFECT001,
+  EFFECT002,
+  EFFECT003,
+  EFFECT010,
+  EFFECT011,
+  EFFECT020,
+  EFFECT021,
+  EFFECT030,
+  EFFECT040,
+  effectDiagnostics,
+  getEffectDiagnostic,
+  EffectDiagnosticBuilder,
+  EffectDiagnosticCategory,
+  formatEffectDiagnosticCLI,
+  toTsDiagnostic,
+  type EffectDiagnosticDescriptor,
+  type EffectLabeledSpan,
+  type EffectCodeSuggestion,
+  type EffectRichDiagnostic,
+  // Testing utilities
+  mockService,
+  testLayer,
+  combineLayers,
+  succeedMock,
+  failMock,
+  dieMock,
+  assertCalled,
+  assertNotCalled,
+  assertCalledTimes,
+  type MockService,
+  type MockMethodConfig,
+  type TestLayerOptions,
 };
 
 // HKT types for Effect
@@ -249,8 +360,7 @@ function getEffectModule(): any {
       _Effect = require("effect").Effect;
     } catch {
       throw new Error(
-        "@typesugar/effect requires 'effect' as a peer dependency. " +
-          "Install it with: npm install effect"
+        "Effect module not found. Install 'effect' as a dependency."
       );
     }
   }
@@ -283,6 +393,18 @@ export function register(): void {
 
   // Register resolveLayer<R>() expression macro
   globalRegistry.register(resolveLayerMacro);
+
+  // Register @compiled attribute and compileGen() expression macros
+  globalRegistry.register(compiledAttribute);
+  globalRegistry.register(compileGenExpression);
+
+  // Register @fused attribute and fusePipeline() expression macros
+  globalRegistry.register(fusedAttribute);
+  globalRegistry.register(fusePipelineExpression);
+
+  // Register schema specialization expression macros
+  globalRegistry.register(specializeSchemaExpression);
+  globalRegistry.register(specializeSchemaUnsafeExpression);
 
   // Register @derive macros for Effect Schema, Equal, Hash
   globalRegistry.register(EffectSchemaDerive);

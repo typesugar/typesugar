@@ -969,6 +969,110 @@ registerInstanceMethods("flatMapAsyncIterable", "AsyncIterable", {
 });
 
 // ============================================================================
+// Effect Instances — for @typesugar/effect integration
+// ============================================================================
+
+/**
+ * Effect instances enable specialize() to inline Effect operations.
+ * These delegate to Effect.map, Effect.flatMap, etc.
+ *
+ * Note: Effect must be available as an import in the source file.
+ * The source strings reference `Effect` directly.
+ */
+
+// Effect Functor instance
+registerInstanceMethods("effectFunctor", "Effect", {
+  map: {
+    source: "(fa, f) => Effect.map(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Effect Monad instance
+registerInstanceMethods("effectMonad", "Effect", {
+  map: {
+    source: "(fa, f) => Effect.map(fa, f)",
+    params: ["fa", "f"],
+  },
+  pure: {
+    source: "(a) => Effect.succeed(a)",
+    params: ["a"],
+  },
+  ap: {
+    source: "(fab, fa) => Effect.flatMap(fab, f => Effect.map(fa, f))",
+    params: ["fab", "fa"],
+  },
+  flatMap: {
+    source: "(fa, f) => Effect.flatMap(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Effect FlatMap instance (for let:/yield: do-notation)
+registerInstanceMethods("flatMapEffect", "Effect", {
+  map: {
+    source: "(fa, f) => Effect.map(fa, f)",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => Effect.flatMap(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Chunk Functor instance
+registerInstanceMethods("chunkFunctor", "Chunk", {
+  map: {
+    source: "(fa, f) => Chunk.map(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Stream FlatMap instance (for let:/yield: with streams)
+registerInstanceMethods("flatMapStream", "Stream", {
+  map: {
+    source: "(fa, f) => Stream.map(fa, f)",
+    params: ["fa", "f"],
+  },
+  flatMap: {
+    source: "(fa, f) => Stream.flatMap(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Effect Option Monad instance
+registerInstanceMethods("effectOptionMonad", "Option", {
+  map: {
+    source: "(fa, f) => Option.map(fa, f)",
+    params: ["fa", "f"],
+  },
+  pure: {
+    source: "(a) => Option.some(a)",
+    params: ["a"],
+  },
+  flatMap: {
+    source: "(fa, f) => Option.flatMap(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// Effect Either Monad instance
+registerInstanceMethods("effectEitherMonad", "Either", {
+  map: {
+    source: "(fa, f) => Either.map(fa, f)",
+    params: ["fa", "f"],
+  },
+  pure: {
+    source: "(a) => Either.right(a)",
+    params: ["a"],
+  },
+  flatMap: {
+    source: "(fa, f) => Either.flatMap(fa, f)",
+    params: ["fa", "f"],
+  },
+});
+
+// ============================================================================
 // specialize expression macro
 // ============================================================================
 

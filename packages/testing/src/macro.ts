@@ -1049,6 +1049,266 @@ export const assertTypeMacro = defineExpressionMacro({
 export { typeInfoMacro } from "@typesugar/macros";
 
 // ============================================================================
+// @mock — Generate Mock Implementations from Interfaces
+// ============================================================================
+
+/**
+ * `@mock` decorator that generates a mock implementation from an interface
+ * or class declaration. The mock tracks all method calls and allows stubbing
+ * return values.
+ *
+ * @example
+ * ```typescript
+ * interface UserService {
+ *   getUser(id: string): Promise<User>;
+ *   createUser(data: UserInput): Promise<User>;
+ * }
+ *
+ * @mock
+ * interface UserService {}
+ *
+ * // Generates:
+ * // const mockUserService: MockOf<UserService> = {
+ * //   getUser: createMockFn<(id: string) => Promise<User>>(),
+ * //   createUser: createMockFn<(data: UserInput) => Promise<User>>(),
+ * //   _calls: { getUser: [], createUser: [] },
+ * //   _reset: () => { ... }
+ * // }
+ *
+ * // Usage in tests:
+ * mockUserService.getUser.mockReturnValue(Promise.resolve(testUser));
+ * await service.getUser("123");
+ * expect(mockUserService.getUser).toHaveBeenCalledWith("123");
+ * ```
+ */
+export const mockAttribute = defineAttributeMacro({
+  name: "mock",
+  module: "@typesugar/testing",
+  description:
+    "Generate a mock implementation from an interface or class with call tracking and stubbing support",
+  validTargets: ["interface", "class"] as AttributeTarget[],
+
+  expand(
+    ctx: MacroContext,
+    _decorator: ts.Decorator,
+    target: ts.Declaration,
+    args: readonly ts.Expression[]
+  ): ts.Node | ts.Node[] {
+    const factory = ctx.factory;
+    const typeChecker = ctx.typeChecker;
+
+    // Get the name of the interface/class
+    let typeName: string;
+    let type: ts.Type;
+
+    if (ts.isInterfaceDeclaration(target)) {
+      typeName = target.name.text;
+      type = typeChecker.getTypeAtLocation(target);
+    } else if (ts.isClassDeclaration(target) && target.name) {
+      typeName = target.name.text;
+      type = typeChecker.getTypeAtLocation(target);
+    } else {
+      ctx.reportError(target, "@mock can only be applied to named interfaces or classes");
+      return target;
+    }
+
+    // Extract method information from the type
+    const properties = typeChecker.getPropertiesOfType(type);
+    const methods: Array<{
+      name: string;
+      signature: string;
+      params: string;
+      returnType: string;
+    }> = [];
+
+    for (const prop of properties) {
+      const propType = typeChecker.getTypeOfSymbolAtLocation(prop, target);
+      const signatures = propType.getCallSignatures();
+
+      if (signatures.length > 0) {
+        const sig = signatures[0];
+        const params = sig.parameters
+          .map((p) => {
+            const paramType = typeChecker.getTypeOfSymbolAtLocation(p, target);
+            return `${p.name}: ${typeChecker.typeToString(paramType)}`;
+          })
+          .join(", ");
+        const returnType = typeChecker.typeToString(sig.getReturnType());
+
+        methods.push({
+          name: prop.name,
+          signature: `(${params}) => ${returnType}`,
+          params,
+          returnType,
+        });
+      }
+    }
+
+    // Check for custom mock name in args
+    let mockVarName = `mock${typeName}`;
+    if (args.length > 0 && ts.isStringLiteral(args[0])) {
+      mockVarName = args[0].text;
+    }
+
+    // Generate mock method implementations
+    const methodImpls = methods
+      .map(
+        (m) =>
+          `  ${m.name}: createMockFn<${m.signature}>(),`
+      )
+      .join("\n");
+
+    // Generate _calls tracking object
+    const callsInit = methods.map((m) => `    ${m.name}: [] as any[],`).join("\n");
+
+    // Generate _reset implementation
+    const resetCalls = methods.map((m) => `    mock._calls.${m.name} = [];`).join("\n");
+    const resetMocks = methods
+      .map((m) => `    (mock.${m.name} as any).mockReset?.();`)
+      .join("\n");
+
+    // Generate the mock object
+    const code = `
+// Mock implementation for ${typeName}
+const ${mockVarName}: MockOf<${typeName}> = (() => {
+  const mock = {
+${methodImpls}
+    _calls: {
+${callsInit}
+    },
+    _reset(): void {
+${resetCalls}
+${resetMocks}
+    },
+  } as unknown as MockOf<${typeName}>;
+
+  // Wire up call tracking
+${methods.map((m) => `  const _orig_${m.name} = mock.${m.name};
+  mock.${m.name} = ((...args: any[]) => {
+    mock._calls.${m.name}.push(args);
+    return (_orig_${m.name} as any)(...args);
+  }) as any;
+  Object.assign(mock.${m.name}, _orig_${m.name});`).join("\n")}
+
+  return mock;
+})();
+`;
+
+    // Return both the original declaration and the mock variable
+    return [target, ...ctx.parseStatements(code)];
+  },
+});
+
+/**
+ * Expression macro to create a mock implementation of a type at runtime.
+ *
+ * @example
+ * ```typescript
+ * const mockUser = mock<UserService>();
+ * mockUser.getUser.mockReturnValue(Promise.resolve(testUser));
+ * ```
+ */
+export const mockExpressionMacro = defineExpressionMacro({
+  name: "mock",
+  module: "@typesugar/testing",
+  description: "Create a mock implementation of a type with call tracking and stubbing support",
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    const factory = ctx.factory;
+    const typeChecker = ctx.typeChecker;
+    const typeArgs = callExpr.typeArguments;
+
+    if (!typeArgs || typeArgs.length !== 1) {
+      ctx.reportError(callExpr, "mock<T>() requires exactly one type argument");
+      return callExpr;
+    }
+
+    const typeArg = typeArgs[0];
+    const type = typeChecker.getTypeFromTypeNode(typeArg);
+    const typeName = typeChecker.typeToString(type);
+
+    // Extract method information
+    const properties = typeChecker.getPropertiesOfType(type);
+    const methods: Array<{
+      name: string;
+      signature: string;
+    }> = [];
+
+    for (const prop of properties) {
+      const propType = typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
+      const signatures = propType.getCallSignatures();
+
+      if (signatures.length > 0) {
+        const sig = signatures[0];
+        const params = sig.parameters
+          .map((p) => {
+            const paramType = typeChecker.getTypeOfSymbolAtLocation(p, callExpr);
+            return `${p.name}: ${typeChecker.typeToString(paramType)}`;
+          })
+          .join(", ");
+        const returnType = typeChecker.typeToString(sig.getReturnType());
+
+        methods.push({
+          name: prop.name,
+          signature: `(${params}) => ${returnType}`,
+        });
+      }
+    }
+
+    // Check for custom default values in args
+    const defaultsArg = args.length > 0 ? args[0] : undefined;
+
+    // Generate mock method implementations
+    const methodImpls = methods
+      .map((m) => `    ${m.name}: createMockFn<${m.signature}>(),`)
+      .join("\n");
+
+    // Generate _calls tracking
+    const callsInit = methods.map((m) => `      ${m.name}: [] as any[],`).join("\n");
+
+    // Generate the mock IIFE
+    const code = `(() => {
+  const mock = {
+${methodImpls}
+    _calls: {
+${callsInit}
+    },
+    _reset(): void {
+${methods.map((m) => `      mock._calls.${m.name} = [];`).join("\n")}
+${methods.map((m) => `      (mock.${m.name} as any).mockReset?.();`).join("\n")}
+    },
+  } as unknown as MockOf<${typeName}>;
+
+  // Wire up call tracking
+${methods
+  .map(
+    (m) => `  const _orig_${m.name} = mock.${m.name};
+  mock.${m.name} = ((...args: any[]) => {
+    mock._calls.${m.name}.push(args);
+    return (_orig_${m.name} as any)(...args);
+  }) as any;
+  Object.assign(mock.${m.name}, _orig_${m.name});`
+  )
+  .join("\n")}
+
+  return mock;
+})()`;
+
+    return ctx.parseExpression(code);
+  },
+});
+
+// ============================================================================
+// Mock Helper Types and Functions — re-exported from index.ts (canonical)
+// ============================================================================
+
+export { type MockOf, type MockFn, createMockFn, mock } from "./index.js";
+
+// ============================================================================
 // Backward Compatibility Aliases
 // ============================================================================
 
@@ -1075,6 +1335,8 @@ globalRegistry.register(typeAssertMacro);
 globalRegistry.register(forAllMacro);
 globalRegistry.register(assertTypeMacro);
 // Note: typeInfoMacro is re-exported from @typesugar/macros and already registered there
+globalRegistry.register(mockAttribute);
+globalRegistry.register(mockExpressionMacro);
 
 // Backward compatibility aliases
 globalRegistry.register(powerAssertMacro);
