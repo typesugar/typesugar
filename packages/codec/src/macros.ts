@@ -30,9 +30,7 @@ export const codecMacro = defineAttributeMacro({
     if (!ts.isClassDeclaration(target) && !ts.isInterfaceDeclaration(target)) {
       return target;
     }
-    const name = ts.isClassDeclaration(target)
-      ? target.name?.text
-      : target.name?.text;
+    const name = ts.isClassDeclaration(target) ? target.name?.text : target.name?.text;
     if (!name) {
       ctx.reportError(target, "@codec requires a named class or interface");
       return target;
@@ -68,8 +66,7 @@ export const codecMacro = defineAttributeMacro({
 
     const schemaName = `${name}Schema`;
     const fieldProps = fields.map(
-      (f) =>
-        `{ name: ${JSON.stringify(f.name)}, type: ${JSON.stringify(f.type)} }`
+      (f) => `{ name: ${JSON.stringify(f.name)}, type: ${JSON.stringify(f.type)} }`
     );
     const defineSchemaCall = `defineSchema(${JSON.stringify(name)}, { version: 1, fields: [${fieldProps.join(", ")}] })`;
     const stmt = ctx.factory.createVariableStatement(

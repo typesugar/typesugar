@@ -152,9 +152,11 @@ describe("LazyPipeline — zip, scan, distinct, partition", () => {
   });
 
   it("scan emits running accumulated values", () => {
-    expect(lazy([1, 2, 3, 4]).scan((acc, x) => acc + x, 0).toArray()).toEqual([
-      1, 3, 6, 10,
-    ]);
+    expect(
+      lazy([1, 2, 3, 4])
+        .scan((acc, x) => acc + x, 0)
+        .toArray()
+    ).toEqual([1, 3, 6, 10]);
   });
 
   it("distinct removes duplicates", () => {

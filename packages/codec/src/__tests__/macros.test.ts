@@ -94,7 +94,9 @@ describe("@codec macro expansion", () => {
     const result = codecMacro.expand(ctx, dec, decl, []);
     const nodes = Array.isArray(result) ? result : [result];
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const output = nodes.map((n) => printer.printNode(ts.EmitHint.Unspecified, n, ctx.sourceFile)).join("\n");
+    const output = nodes
+      .map((n) => printer.printNode(ts.EmitHint.Unspecified, n, ctx.sourceFile))
+      .join("\n");
 
     return { output, nodes };
   }
