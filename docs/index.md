@@ -374,7 +374,7 @@ specialize(add); // @ts-no-typesugar     // one line
 ("use no typesugar extensions"); // just extensions
 ```
 
-[Error Messages Guide](/guides/error-messages) · [Developer Experience Guide](/guides/developer-experience) · [Opt-Out Guide](/guides/opt-out) · [Error Reference](/errors/)
+[Error Messages Guide](/guides/error-messages) · [Developer Experience Guide](/guides/developer-experience) · [Opt-Out Guide](/guides/opt-out) · [Error Reference](/errors/) · [Performance Architecture](/PERFORMANCE)
 
 ---
 

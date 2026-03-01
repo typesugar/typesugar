@@ -14,7 +14,7 @@ All paths share core infrastructure for caching and transformation.
 
 ## Caching Architecture
 
-### Three-Layer Cache Hierarchy
+### Four-Layer Cache Hierarchy
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

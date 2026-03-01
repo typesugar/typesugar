@@ -36,7 +36,7 @@ The `specialize` macro is the gold standard for zero-cost — study it before im
 
 ## Architecture
 
-For a detailed explanation of the macro compilation pipeline, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For a detailed explanation of the macro compilation pipeline, see [docs/architecture.md](docs/architecture.md).
 
 ```
 src/
@@ -919,7 +919,7 @@ The export index is pre-populated with known typesugar exports and can be extend
 ## When Adding Features
 
 1. **Check PHILOSOPHY.md** for design principles
-2. **Check [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the compilation pipeline overview
+2. **Check [docs/architecture.md](docs/architecture.md)** for the compilation pipeline overview
 3. **Check existing macros** in `src/macros/` for patterns to follow
 4. **Reuse `specialize.ts`** infrastructure for inlining
 5. **Use `quote()`** for AST construction instead of raw `factory` calls

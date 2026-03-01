@@ -72,16 +72,27 @@ export default {
 All plugins accept the same options:
 
 ```typescript
-interface TypeMacroPluginOptions {
+interface TypesugarPluginOptions {
+  /** Path to tsconfig.json (default: auto-detected) */
+  tsconfig?: string;
+
+  /** File patterns to include (default: /\.[jt]sx?$/) */
+  include?: RegExp | string[];
+
+  /** File patterns to exclude (default: /node_modules/) */
+  exclude?: RegExp | string[];
+
   /** Enable verbose logging */
   verbose?: boolean;
 
-  /** Include/exclude patterns */
-  include?: string | string[];
-  exclude?: string | string[];
+  /** Syntax extensions to enable (default: all) */
+  extensions?: ("hkt" | "pipeline" | "cons")[];
 
-  /** Custom macro modules to load */
-  macroModules?: string[];
+  /** Enable disk-backed transform cache for faster rebuilds */
+  diskCache?: boolean | string;
+
+  /** Enable strict mode - typecheck expanded output at build end */
+  strict?: boolean;
 }
 ```
 
@@ -95,8 +106,10 @@ export default {
   plugins: [
     typesugar({
       verbose: true,
-      include: ["src/**/*.ts"],
-      exclude: ["**/*.test.ts"],
+      include: /src\/.*\.tsx?$/,
+      exclude: /\.test\.ts$/,
+      diskCache: true, // Enable disk cache for faster rebuilds
+      strict: true, // Typecheck expanded output
     }),
   ],
 };
@@ -126,13 +139,18 @@ This means macros are fully expanded before your code reaches the bundler's opti
 ### Types
 
 ```typescript
-interface TypeMacroPluginOptions {
+interface TypesugarPluginOptions {
+  tsconfig?: string;
+  include?: RegExp | string[];
+  exclude?: RegExp | string[];
   verbose?: boolean;
-  include?: string | string[];
-  exclude?: string | string[];
-  macroModules?: string[];
+  extensions?: ("hkt" | "pipeline" | "cons")[];
+  diskCache?: boolean | string;
+  strict?: boolean;
 }
 ```
+
+See [Performance Architecture](../../docs/PERFORMANCE.md) for details on caching and strict mode.
 
 ## License
 

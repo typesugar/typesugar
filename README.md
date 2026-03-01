@@ -123,7 +123,7 @@ alice.toJson(); // JSON serialization
 ## Getting Started
 
 ```bash
-npm install @typesugar/typesugar @typesugar/transformer
+npm install typesugar @typesugar/transformer
 ```
 
 ### Vite

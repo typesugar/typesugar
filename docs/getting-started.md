@@ -8,10 +8,10 @@ This guide will help you set up typesugar in your TypeScript project.
 
 ```bash
 # Core packages
-npm install @typesugar/typesugar @typesugar/transformer
+npm install typesugar @typesugar/transformer
 
 # Or with pnpm
-pnpm add @typesugar/typesugar @typesugar/transformer
+pnpm add typesugar @typesugar/transformer
 ```
 
 ### 2. Configure your build tool
