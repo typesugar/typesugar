@@ -12,8 +12,9 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { createDigraph, topoSort, detectCycles } from "@typesugar/graph";
-import type { Graph } from "@typesugar/graph";
+import { createDigraph, detectCycles, topoSortG } from "@typesugar/graph";
+import type { Graph, GraphLike } from "@typesugar/graph";
+import { eqString, hashString } from "@typesugar/std";
 import type { LayerInfo } from "./layer.js";
 
 /**
@@ -52,6 +53,56 @@ export class CircularDependencyError extends Error {
   }
 }
 
+// ============================================================================
+// Layer dependency graph as a GraphLike instance
+// ============================================================================
+
+/**
+ * Lightweight structure for layer dependency resolution.
+ * Nodes are service names, edges are "requires" relationships.
+ */
+interface LayerGraph {
+  layers: LayerInfo[];
+  services: Set<string>;
+}
+
+interface LayerEdge {
+  from: string;
+  to: string;
+}
+
+/**
+ * GraphLike instance for the layer dependency graph.
+ * Operates directly on LayerInfo[] — no intermediate Graph conversion needed.
+ */
+export const layerGraphLike: GraphLike<LayerGraph, string, LayerEdge> = {
+  nodes(g) {
+    return g.services;
+  },
+  edges(g) {
+    const result: LayerEdge[] = [];
+    for (const l of g.layers) {
+      for (const dep of l.requires) {
+        result.push({ from: l.provides, to: dep });
+      }
+    }
+    return result;
+  },
+  successors(g, node) {
+    const layer = g.layers.find((l) => l.provides === node);
+    return layer ? layer.requires : [];
+  },
+  edgeSource(e) {
+    return e.from;
+  },
+  edgeTarget(e) {
+    return e.to;
+  },
+  isDirected() {
+    return true;
+  },
+};
+
 /**
  * Build a ResolvedLayer map from layer metadata.
  */
@@ -68,8 +119,7 @@ function buildResolvedMap(layers: LayerInfo[]): Map<string, ResolvedLayer> {
 
 /**
  * Convert layer metadata into a @typesugar/graph Graph for analysis.
- *
- * Nodes = service names, edges = "requires" relationships (from dependent → dependency).
+ * Kept for backward compatibility (rawGraph field in GraphResolution).
  */
 function layersToGraph(layers: LayerInfo[]): Graph {
   const nodeSet = new Set<string>();
@@ -135,10 +185,13 @@ export function resolveGraph(
   );
 
   const resolvedMap = buildResolvedMap(resolvedLayers);
-  const rawGraph = layersToGraph(resolvedLayers);
 
-  // Use @typesugar/graph's topoSort with cycle detection
-  const sortResult = topoSort(rawGraph);
+  // Build a LayerGraph and resolve order via topoSortG (uses GraphLike directly)
+  const lg: LayerGraph = { layers: resolvedLayers, services: allRequired };
+  const sortResult = topoSortG(lg, layerGraphLike, eqString, hashString);
+
+  // Also build the raw Graph for backward-compat (rawGraph field)
+  const rawGraph = layersToGraph(resolvedLayers);
 
   let sorted: string[];
   if (sortResult.ok) {
