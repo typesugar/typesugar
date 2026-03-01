@@ -42,6 +42,7 @@
   ],
   "dependencies": {
     "@typesugar/core": "workspace:*",
+    "@typesugar/graph": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/testing": "workspace:*",
     "@typesugar/type-system": "workspace:*"

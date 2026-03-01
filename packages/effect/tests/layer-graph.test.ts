@@ -3,17 +3,20 @@
  *
  * Tests for the shared dependency graph resolution used by both
  * layerMake<R>() (explicit wiring) and resolveLayer<R>() (implicit wiring).
+ *
+ * Uses @typesugar/graph under the hood for topoSort/cycle detection.
  */
 import { describe, it, expect } from "vitest";
 import {
-  buildDependencyGraph,
-  topologicalSort,
   resolveGraph,
   formatDebugTree,
   CircularDependencyError,
   type GraphResolution,
 } from "../src/macros/layer-graph.js";
 import type { LayerInfo } from "../src/macros/layer.js";
+
+// Also verify we can import the @typesugar/graph algorithms directly
+import { topoSort, createDigraph, detectCycles } from "@typesugar/graph";
 
 // ============================================================================
 // Helpers
@@ -33,117 +36,76 @@ function makeLayer(
   };
 }
 
-// ============================================================================
-// buildDependencyGraph
-// ============================================================================
-
-describe("buildDependencyGraph", () => {
-  it("should build graph from layers", () => {
-    const layers = [
-      makeLayer("dbLive", "Database"),
-      makeLayer("userRepoLive", "UserRepo", ["Database"]),
-    ];
-
-    const graph = buildDependencyGraph(layers);
-    expect(graph.size).toBe(2);
-    expect(graph.get("Database")?.layer.name).toBe("dbLive");
-    expect(graph.get("UserRepo")?.dependencies).toEqual(["Database"]);
-  });
-
-  it("should handle layers with no dependencies", () => {
-    const layers = [makeLayer("loggerLive", "Logger")];
-    const graph = buildDependencyGraph(layers);
-    expect(graph.get("Logger")?.dependencies).toEqual([]);
-  });
-});
+function makeLookup(
+  layers: LayerInfo[]
+): (service: string) => LayerInfo[] {
+  const byService = new Map<string, LayerInfo[]>();
+  for (const l of layers) {
+    const existing = byService.get(l.provides) ?? [];
+    existing.push(l);
+    byService.set(l.provides, existing);
+  }
+  return (s) => byService.get(s) ?? [];
+}
 
 // ============================================================================
-// topologicalSort
+// @typesugar/graph integration (sanity checks)
 // ============================================================================
 
-describe("topologicalSort", () => {
-  it("should sort simple dependency chain", () => {
-    const layers = [
-      makeLayer("dbLive", "Database"),
-      makeLayer("userRepoLive", "UserRepo", ["Database"]),
-    ];
-    const graph = buildDependencyGraph(layers);
-    const { sorted, missing } = topologicalSort(
-      ["UserRepo", "Database"],
-      graph
+describe("@typesugar/graph integration", () => {
+  it("should create a digraph from layer dependencies", () => {
+    const g = createDigraph(
+      ["Database", "UserRepo"],
+      [["UserRepo", "Database"]]
     );
-
-    expect(missing).toEqual([]);
-    expect(sorted.indexOf("Database")).toBeLessThan(
-      sorted.indexOf("UserRepo")
-    );
+    expect(g.nodes.length).toBe(2);
+    expect(g.edges.length).toBe(1);
+    expect(g.directed).toBe(true);
   });
 
-  it("should sort diamond dependency", () => {
-    const layers = [
-      makeLayer("spoonLive", "Spoon"),
-      makeLayer("chocolateLive", "Chocolate", ["Spoon"]),
-      makeLayer("flourLive", "Flour", ["Spoon"]),
-      makeLayer("cakeLive", "Cake", ["Chocolate", "Flour"]),
-    ];
-    const graph = buildDependencyGraph(layers);
-    const { sorted, missing } = topologicalSort(
-      ["Cake", "Chocolate", "Flour", "Spoon"],
-      graph
+  it("should topologically sort a DAG", () => {
+    // Edges point from dependent → dependency (Cake needs Chocolate, etc.)
+    const g = createDigraph(
+      ["Spoon", "Chocolate", "Flour", "Cake"],
+      [
+        ["Cake", "Chocolate"],
+        ["Cake", "Flour"],
+        ["Chocolate", "Spoon"],
+        ["Flour", "Spoon"],
+      ]
     );
-
-    expect(missing).toEqual([]);
-    expect(sorted.indexOf("Spoon")).toBeLessThan(
-      sorted.indexOf("Chocolate")
-    );
-    expect(sorted.indexOf("Spoon")).toBeLessThan(
-      sorted.indexOf("Flour")
-    );
-    expect(sorted.indexOf("Chocolate")).toBeLessThan(
-      sorted.indexOf("Cake")
-    );
-    expect(sorted.indexOf("Flour")).toBeLessThan(
-      sorted.indexOf("Cake")
-    );
-  });
-
-  it("should report missing services", () => {
-    const graph = buildDependencyGraph([]);
-    const { sorted, missing } = topologicalSort(["Missing"], graph);
-    expect(missing).toContain("Missing");
-    expect(sorted).toContain("Missing");
-  });
-
-  it("should detect circular dependencies", () => {
-    const layers = [
-      makeLayer("aLive", "A", ["B"]),
-      makeLayer("bLive", "B", ["A"]),
-    ];
-    const graph = buildDependencyGraph(layers);
-
-    expect(() => topologicalSort(["A"], graph)).toThrow(
-      CircularDependencyError
-    );
-  });
-
-  it("should include cycle path in error", () => {
-    const layers = [
-      makeLayer("aLive", "A", ["B"]),
-      makeLayer("bLive", "B", ["C"]),
-      makeLayer("cLive", "C", ["A"]),
-    ];
-    const graph = buildDependencyGraph(layers);
-
-    try {
-      topologicalSort(["A"], graph);
-      expect.fail("Should have thrown");
-    } catch (e) {
-      expect(e).toBeInstanceOf(CircularDependencyError);
-      const err = e as CircularDependencyError;
-      expect(err.cycle).toContain("A");
-      expect(err.cycle).toContain("B");
-      expect(err.cycle).toContain("C");
+    const result = topoSort(g);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Kahn's processes in-degree-0 first, so Cake (no incoming) comes first
+      // and Spoon (most depended-on) comes last.
+      // resolveGraph reverses this to get dependencies-first order.
+      expect(result.order.indexOf("Cake")).toBeLessThan(
+        result.order.indexOf("Chocolate")
+      );
+      expect(result.order.indexOf("Cake")).toBeLessThan(
+        result.order.indexOf("Flour")
+      );
+      expect(result.order.indexOf("Chocolate")).toBeLessThan(
+        result.order.indexOf("Spoon")
+      );
     }
+  });
+
+  it("should detect cycles", () => {
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B"],
+        ["B", "C"],
+        ["C", "A"],
+      ]
+    );
+    const result = topoSort(g);
+    expect(result.ok).toBe(false);
+
+    const cycles = detectCycles(g);
+    expect(cycles.length).toBeGreaterThan(0);
   });
 });
 
@@ -158,20 +120,25 @@ describe("resolveGraph", () => {
       makeLayer("userRepoLive", "UserRepo", ["Database"]),
     ];
 
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
-
-    const resolution = resolveGraph(
-      ["UserRepo"],
-      (s) => byService.get(s) ?? []
-    );
+    const resolution = resolveGraph(["UserRepo"], makeLookup(layers));
 
     expect(resolution.missing).toEqual([]);
     expect(resolution.sorted).toContain("Database");
     expect(resolution.sorted).toContain("UserRepo");
     expect(resolution.graph.size).toBe(2);
+  });
+
+  it("should produce correct topological order", () => {
+    const layers = [
+      makeLayer("dbLive", "Database"),
+      makeLayer("userRepoLive", "UserRepo", ["Database"]),
+    ];
+
+    const resolution = resolveGraph(["UserRepo"], makeLookup(layers));
+
+    expect(resolution.sorted.indexOf("Database")).toBeLessThan(
+      resolution.sorted.indexOf("UserRepo")
+    );
   });
 
   it("should resolve transitive dependencies automatically", () => {
@@ -182,16 +149,8 @@ describe("resolveGraph", () => {
       makeLayer("cakeLive", "Cake", ["Chocolate", "Flour"]),
     ];
 
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
-
     // Only request Cake — should pull in Chocolate, Flour, Spoon transitively
-    const resolution = resolveGraph(
-      ["Cake"],
-      (s) => byService.get(s) ?? []
-    );
+    const resolution = resolveGraph(["Cake"], makeLookup(layers));
 
     expect(resolution.missing).toEqual([]);
     expect(resolution.graph.size).toBe(4);
@@ -201,19 +160,27 @@ describe("resolveGraph", () => {
     expect(resolution.sorted).toContain("Cake");
   });
 
-  it("should report missing dependencies", () => {
+  it("should maintain dependency ordering in diamond graph", () => {
     const layers = [
-      makeLayer("userRepoLive", "UserRepo", ["Database"]),
+      makeLayer("spoonLive", "Spoon"),
+      makeLayer("chocolateLive", "Chocolate", ["Spoon"]),
+      makeLayer("flourLive", "Flour", ["Spoon"]),
+      makeLayer("cakeLive", "Cake", ["Chocolate", "Flour"]),
     ];
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
 
-    const resolution = resolveGraph(
-      ["UserRepo"],
-      (s) => byService.get(s) ?? []
-    );
+    const resolution = resolveGraph(["Cake"], makeLookup(layers));
+    const idx = (s: string) => resolution.sorted.indexOf(s);
+
+    expect(idx("Spoon")).toBeLessThan(idx("Chocolate"));
+    expect(idx("Spoon")).toBeLessThan(idx("Flour"));
+    expect(idx("Chocolate")).toBeLessThan(idx("Cake"));
+    expect(idx("Flour")).toBeLessThan(idx("Cake"));
+  });
+
+  it("should report missing dependencies", () => {
+    const layers = [makeLayer("userRepoLive", "UserRepo", ["Database"])];
+
+    const resolution = resolveGraph(["UserRepo"], makeLookup(layers));
 
     expect(resolution.missing).toContain("Database");
   });
@@ -225,14 +192,9 @@ describe("resolveGraph", () => {
       makeLayer("userRepoLive", "UserRepo", ["Database"]),
     ];
 
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
-
     const resolution = resolveGraph(
       ["UserRepo"],
-      (s) => byService.get(s) ?? [],
+      makeLookup(layers),
       layers
     );
 
@@ -245,12 +207,9 @@ describe("resolveGraph", () => {
     const dbTest = makeLayer("dbTest", "Database");
     dbTest.sourceFile = "test.ts";
 
-    const byService = new Map<string, LayerInfo[]>();
-    byService.set("Database", [dbLive, dbTest]);
-
     const resolution = resolveGraph(
       ["Database"],
-      (s) => byService.get(s) ?? [],
+      makeLookup([dbLive, dbTest]),
       undefined,
       "test.ts"
     );
@@ -263,14 +222,41 @@ describe("resolveGraph", () => {
       makeLayer("aLive", "A", ["B"]),
       makeLayer("bLive", "B", ["A"]),
     ];
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
 
     expect(() =>
-      resolveGraph(["A"], (s) => byService.get(s) ?? [])
+      resolveGraph(["A"], makeLookup(layers))
     ).toThrow(CircularDependencyError);
+  });
+
+  it("should throw CircularDependencyError with cycle path", () => {
+    const layers = [
+      makeLayer("aLive", "A", ["B"]),
+      makeLayer("bLive", "B", ["C"]),
+      makeLayer("cLive", "C", ["A"]),
+    ];
+
+    try {
+      resolveGraph(["A"], makeLookup(layers));
+      expect.fail("Should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(CircularDependencyError);
+      const err = e as CircularDependencyError;
+      expect(err.cycle.length).toBeGreaterThan(2);
+    }
+  });
+
+  it("should expose the raw @typesugar/graph Graph", () => {
+    const layers = [
+      makeLayer("dbLive", "Database"),
+      makeLayer("userRepoLive", "UserRepo", ["Database"]),
+    ];
+
+    const resolution = resolveGraph(["UserRepo"], makeLookup(layers));
+
+    expect(resolution.rawGraph).toBeDefined();
+    expect(resolution.rawGraph.directed).toBe(true);
+    expect(resolution.rawGraph.nodes.length).toBe(2);
+    expect(resolution.rawGraph.edges.length).toBe(1);
   });
 });
 
@@ -284,15 +270,8 @@ describe("formatDebugTree", () => {
       makeLayer("dbLive", "Database"),
       makeLayer("userRepoLive", "UserRepo", ["Database"]),
     ];
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
 
-    const resolution = resolveGraph(
-      ["UserRepo"],
-      (s) => byService.get(s) ?? []
-    );
+    const resolution = resolveGraph(["UserRepo"], makeLookup(layers));
     const tree = formatDebugTree(resolution);
 
     expect(tree).toContain("Layer Wiring Graph");
@@ -307,15 +286,8 @@ describe("formatDebugTree", () => {
       makeLayer("flourLive", "Flour", ["Spoon"]),
       makeLayer("cakeLive", "Cake", ["Chocolate", "Flour"]),
     ];
-    const byService = new Map<string, LayerInfo[]>();
-    for (const l of layers) {
-      byService.set(l.provides, [l]);
-    }
 
-    const resolution = resolveGraph(
-      ["Cake"],
-      (s) => byService.get(s) ?? []
-    );
+    const resolution = resolveGraph(["Cake"], makeLookup(layers));
     const tree = formatDebugTree(resolution);
 
     expect(tree).toContain("cakeLive");
@@ -330,6 +302,7 @@ describe("formatDebugTree", () => {
       missing: [],
       graph: new Map(),
       unused: [],
+      rawGraph: createDigraph([], []),
     };
     const tree = formatDebugTree(resolution);
     expect(tree).toContain("(empty)");

@@ -1,14 +1,19 @@
 /**
  * Shared Layer Dependency Graph Utilities
  *
- * Used by both `Layer.make<R>(...)` (explicit wiring) and
+ * Used by both `layerMake<R>(...)` (explicit wiring) and
  * `resolveLayer<R>()` (implicit wiring from registry).
+ *
+ * Built on `@typesugar/graph` — uses its `topoSort`, `detectCycles`,
+ * and `createDigraph` rather than reimplementing graph algorithms.
  *
  * @module
  */
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
+import { createDigraph, topoSort, detectCycles } from "@typesugar/graph";
+import type { Graph } from "@typesugar/graph";
 import type { LayerInfo } from "./layer.js";
 
 /**
@@ -33,72 +38,8 @@ export interface GraphResolution {
   graph: Map<string, ResolvedLayer>;
   /** Layers that were provided but not needed */
   unused: LayerInfo[];
-}
-
-/**
- * Build a dependency graph from layer metadata.
- */
-export function buildDependencyGraph(
-  layers: LayerInfo[]
-): Map<string, ResolvedLayer> {
-  const graph = new Map<string, ResolvedLayer>();
-
-  for (const layer of layers) {
-    graph.set(layer.provides, {
-      layer,
-      dependencies: layer.requires,
-    });
-  }
-
-  return graph;
-}
-
-/**
- * Topological sort of service names based on dependencies.
- * Returns services in order such that dependencies come before dependents.
- * Throws on circular dependencies with the cycle path.
- */
-export function topologicalSort(
-  services: string[],
-  graph: Map<string, ResolvedLayer>
-): { sorted: string[]; missing: string[] } {
-  const visited = new Set<string>();
-  const visiting = new Set<string>();
-  const path: string[] = [];
-  const sorted: string[] = [];
-  const missing: string[] = [];
-
-  function visit(service: string): void {
-    if (visited.has(service)) return;
-    if (visiting.has(service)) {
-      const cycleStart = path.indexOf(service);
-      const cycle = [...path.slice(cycleStart), service];
-      throw new CircularDependencyError(cycle);
-    }
-
-    visiting.add(service);
-    path.push(service);
-
-    const entry = graph.get(service);
-    if (entry) {
-      for (const dep of entry.dependencies) {
-        visit(dep);
-      }
-    } else {
-      missing.push(service);
-    }
-
-    path.pop();
-    visiting.delete(service);
-    visited.add(service);
-    sorted.push(service);
-  }
-
-  for (const service of services) {
-    visit(service);
-  }
-
-  return { sorted, missing };
+  /** The underlying @typesugar/graph Graph (for further analysis) */
+  rawGraph: Graph;
 }
 
 /**
@@ -109,6 +50,42 @@ export class CircularDependencyError extends Error {
     super(`Circular dependency detected: ${cycle.join(" → ")}`);
     this.name = "CircularDependencyError";
   }
+}
+
+/**
+ * Build a ResolvedLayer map from layer metadata.
+ */
+function buildResolvedMap(
+  layers: LayerInfo[]
+): Map<string, ResolvedLayer> {
+  const map = new Map<string, ResolvedLayer>();
+  for (const layer of layers) {
+    map.set(layer.provides, {
+      layer,
+      dependencies: layer.requires,
+    });
+  }
+  return map;
+}
+
+/**
+ * Convert layer metadata into a @typesugar/graph Graph for analysis.
+ *
+ * Nodes = service names, edges = "requires" relationships (from dependent → dependency).
+ */
+function layersToGraph(layers: LayerInfo[]): Graph {
+  const nodeSet = new Set<string>();
+  const edges: [string, string][] = [];
+
+  for (const layer of layers) {
+    nodeSet.add(layer.provides);
+    for (const dep of layer.requires) {
+      nodeSet.add(dep);
+      edges.push([layer.provides, dep]);
+    }
+  }
+
+  return createDigraph([...nodeSet], edges);
 }
 
 /**
@@ -138,9 +115,8 @@ export function resolveGraph(
     }
 
     const selected =
-      (preferFile
-        ? candidates.find((l) => l.sourceFile === preferFile)
-        : undefined) ?? candidates[0];
+      (preferFile && candidates.find((l) => l.sourceFile === preferFile)) ??
+      candidates[0];
     selectedLayers.set(service, selected);
 
     for (const dep of selected.requires) {
@@ -159,18 +135,36 @@ export function resolveGraph(
   const resolvedLayers = Array.from(selectedLayers.values()).filter(
     (l): l is LayerInfo => l !== null
   );
-  const graph = buildDependencyGraph(resolvedLayers);
 
-  let sorted: string[] = [];
-  try {
-    const result = topologicalSort(Array.from(allRequired), graph);
-    sorted = result.sorted;
-    missing.push(...result.missing.filter((m) => !missing.includes(m)));
-  } catch (e) {
-    if (e instanceof CircularDependencyError) {
-      throw e;
+  const resolvedMap = buildResolvedMap(resolvedLayers);
+  const rawGraph = layersToGraph(resolvedLayers);
+
+  // Use @typesugar/graph's topoSort with cycle detection
+  const sortResult = topoSort(rawGraph);
+
+  let sorted: string[];
+  if (sortResult.ok) {
+    // topoSort gives dependencies-first order, but we need to
+    // reverse since our edges point from dependent → dependency
+    sorted = [...sortResult.order].reverse();
+  } else {
+    // Cycle detected — get the cycle from detectCycles for a better message
+    const cycles = detectCycles(rawGraph);
+    const cycle = cycles[0] ?? sortResult.cycle;
+    throw new CircularDependencyError(
+      cycle.length > 0 ? [...cycle, cycle[0]] : sortResult.cycle
+    );
+  }
+
+  // Add any services that are required but have no layer (missing)
+  // so callers can report them
+  for (const service of allRequired) {
+    if (!sorted.includes(service)) {
+      sorted.push(service);
+      if (!missing.includes(service)) {
+        missing.push(service);
+      }
     }
-    throw e;
   }
 
   const unused: LayerInfo[] = [];
@@ -183,7 +177,7 @@ export function resolveGraph(
     }
   }
 
-  return { sorted, missing, graph, unused };
+  return { sorted, missing, graph: resolvedMap, unused, rawGraph };
 }
 
 /**
@@ -283,6 +277,7 @@ export function formatDebugTree(resolution: GraphResolution): string {
   const { sorted, graph } = resolution;
   const lines: string[] = ["Layer Wiring Graph", ""];
 
+  // Find top-level services (not depended on by anything in the graph)
   const topLevel = sorted.filter((s) => {
     for (const [, entry] of graph) {
       if (entry.dependencies.includes(s)) return false;

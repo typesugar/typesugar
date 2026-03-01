@@ -182,6 +182,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/graph':
+        specifier: workspace:*
+        version: link:../graph
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std

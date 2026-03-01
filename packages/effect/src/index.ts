@@ -143,8 +143,6 @@ import { layerMakeMacro, layerMake } from "./macros/layer-make.js";
 
 // Import shared graph utilities
 import {
-  buildDependencyGraph,
-  topologicalSort,
   resolveGraph,
   generateLayerComposition as generateLayerCompositionFn,
   formatDebugTree,
@@ -249,9 +247,7 @@ export {
   // layerMake<R>(...layers) macro — ZIO-style explicit wiring
   layerMakeMacro,
   layerMake,
-  // Shared graph utilities
-  buildDependencyGraph,
-  topologicalSort,
+  // Shared graph utilities (built on @typesugar/graph)
   resolveGraph,
   generateLayerCompositionFn,
   formatDebugTree,

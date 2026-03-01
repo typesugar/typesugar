@@ -32,8 +32,6 @@ export { resolveLayerMacro, resolveLayer } from "./resolve-layer.js";
 export { layerMakeMacro, layerMake } from "./layer-make.js";
 
 export {
-  buildDependencyGraph,
-  topologicalSort,
   resolveGraph,
   generateLayerComposition,
   formatDebugTree,
