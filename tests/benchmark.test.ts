@@ -80,7 +80,9 @@ function bench(
   return { opsPerSec, avgMs };
 }
 
-describe("Performance benchmarks", () => {
+// Skip benchmarks in CI - they have hardcoded thresholds that are machine-dependent
+// Run locally with: pnpm vitest run benchmark
+describe.skipIf(process.env.CI)("Performance benchmarks", () => {
   let ctx: MacroContextImpl;
 
   beforeAll(() => {
