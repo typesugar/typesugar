@@ -180,7 +180,9 @@ describe("assertCalled", () => {
     mock.getUser("123");
 
     expect(() => assertCalled(mock, "getUser", ["123"])).not.toThrow();
-    expect(() => assertCalled(mock, "getUser", ["456"])).toThrow(/Expected getUser to be called with/);
+    expect(() => assertCalled(mock, "getUser", ["456"])).toThrow(
+      /Expected getUser to be called with/
+    );
   });
 });
 

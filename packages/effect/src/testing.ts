@@ -84,7 +84,9 @@ export type MockService<T> = MockOf<T> & {
  * ```
  */
 export function mockService<T extends object>(
-  defaults?: Partial<{ [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => R : T[K] }>
+  defaults?: Partial<{
+    [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => R : T[K];
+  }>
 ): MockService<T> {
   const methods: Record<string, MockFn> = {};
   const calls: Record<string, any[][]> = {};

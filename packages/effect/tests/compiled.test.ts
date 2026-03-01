@@ -5,7 +5,12 @@
  * These tests verify the runtime placeholder functionality and exports.
  */
 import { describe, it, expect } from "vitest";
-import { compileGen, compiled, compiledAttribute, compileGenExpression } from "../src/macros/compiled.js";
+import {
+  compileGen,
+  compiled,
+  compiledAttribute,
+  compileGenExpression,
+} from "../src/macros/compiled.js";
 
 describe("compileGen() expression macro", () => {
   it("should export the compileGen runtime placeholder", () => {
@@ -44,7 +49,7 @@ describe("@compiled attribute macro", () => {
 describe("Compiled macro structure", () => {
   it("should export all necessary symbols from macros/compiled.js", async () => {
     const compiled = await import("../src/macros/compiled.js");
-    
+
     expect(compiled.compileGen).toBeDefined();
     expect(compiled.compiled).toBeDefined();
     expect(compiled.compiledAttribute).toBeDefined();
@@ -53,7 +58,7 @@ describe("Compiled macro structure", () => {
 
   it("should export all necessary symbols from main index", async () => {
     const index = await import("../src/index.js");
-    
+
     expect(index.compileGen).toBeDefined();
     expect(index.compiled).toBeDefined();
     expect(index.compiledAttribute).toBeDefined();

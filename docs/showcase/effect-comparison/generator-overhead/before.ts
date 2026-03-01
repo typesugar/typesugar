@@ -60,9 +60,7 @@ const UserService = {
     }),
   findByEmail: (email: string) =>
     Effect.succeed<User | null>(
-      email === "test@example.com"
-        ? { id: "user_1", name: "Test User", email }
-        : null
+      email === "test@example.com" ? { id: "user_1", name: "Test User", email } : null
     ),
 };
 
@@ -133,14 +131,12 @@ const getUserWithAccount = (userId: string) =>
 // Total: 4 allocations + 7 method calls
 
 // Deep nesting: even more overhead
-const processPayment = (
-  userId: string,
-  amount: number
-) =>
+const processPayment = (userId: string, amount: number) =>
   Effect.gen(function* () {
     // Nested generators compound
-    const { user, account } = yield* getUserWithAccount(userId)
-      .pipe(Effect.map(({ user, account }) => ({ user, account })));
+    const { user, account } = yield* getUserWithAccount(userId).pipe(
+      Effect.map(({ user, account }) => ({ user, account }))
+    );
 
     // Validate balance
     if (account.balance < amount) {
@@ -152,10 +148,7 @@ const processPayment = (
 
     // Update balance
     const newBalance = account.balance - amount;
-    const updatedAccount = yield* AccountService.updateBalance(
-      account.id,
-      newBalance
-    );
+    const updatedAccount = yield* AccountService.updateBalance(account.id, newBalance);
 
     return { user, transaction, updatedAccount };
   });
@@ -173,12 +166,16 @@ const transformUserData = (userId: string) =>
   pipe(
     UserService.findById(userId),
     Effect.map((user) => ({ ...user, displayName: user.name.toUpperCase() })),
-    Effect.map((user) => ({ ...user, initials: user.name.split(" ").map(n => n[0]).join("") })),
+    Effect.map((user) => ({
+      ...user,
+      initials: user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join(""),
+    })),
     Effect.map((user) => ({ ...user, slug: user.name.toLowerCase().replace(/\s+/g, "-") })),
     Effect.flatMap((user) =>
-      AccountService.findByUserId(user.id).pipe(
-        Effect.map((account) => ({ user, account }))
-      )
+      AccountService.findByUserId(user.id).pipe(Effect.map((account) => ({ user, account })))
     )
   );
 // 4 intermediate Effect objects allocated

@@ -61,9 +61,7 @@ const UserService = {
     }),
   findByEmail: (email: string) =>
     Effect.succeed<User | null>(
-      email === "test@example.com"
-        ? { id: "user_1", name: "Test User", email }
-        : null
+      email === "test@example.com" ? { id: "user_1", name: "Test User", email } : null
     ),
 };
 
@@ -154,8 +152,9 @@ class PaymentService {
   @compiled
   static processPayment(userId: string, amount: number) {
     return Effect.gen(function* () {
-      const { user, account } = yield* UserAccountService.getUserWithAccount(userId)
-        .pipe(Effect.map(({ user, account }) => ({ user, account })));
+      const { user, account } = yield* UserAccountService.getUserWithAccount(userId).pipe(
+        Effect.map(({ user, account }) => ({ user, account }))
+      );
 
       if (account.balance < amount) {
         return yield* Effect.fail(new Error("Insufficient funds"));
@@ -163,10 +162,7 @@ class PaymentService {
 
       const transaction = yield* TransactionService.create(account.id, -amount);
       const newBalance = account.balance - amount;
-      const updatedAccount = yield* AccountService.updateBalance(
-        account.id,
-        newBalance
-      );
+      const updatedAccount = yield* AccountService.updateBalance(account.id, newBalance);
 
       return { user, transaction, updatedAccount };
     });
@@ -204,12 +200,16 @@ class UserTransformService {
     return pipe(
       UserService.findById(userId),
       Effect.map((user) => ({ ...user, displayName: user.name.toUpperCase() })),
-      Effect.map((user) => ({ ...user, initials: user.name.split(" ").map(n => n[0]).join("") })),
+      Effect.map((user) => ({
+        ...user,
+        initials: user.name
+          .split(" ")
+          .map((n) => n[0])
+          .join(""),
+      })),
       Effect.map((user) => ({ ...user, slug: user.name.toLowerCase().replace(/\s+/g, "-") })),
       Effect.flatMap((user) =>
-        AccountService.findByUserId(user.id).pipe(
-          Effect.map((account) => ({ user, account }))
-        )
+        AccountService.findByUserId(user.id).pipe(Effect.map((account) => ({ user, account })))
       )
     );
   }

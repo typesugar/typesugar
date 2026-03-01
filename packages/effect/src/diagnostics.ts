@@ -538,9 +538,10 @@ export function formatEffectDiagnosticCLI(diag: EffectRichDiagnostic): string {
 
     // Show the source line with annotation
     const lineStart = sourceFile.getLineStarts()[line];
-    const lineEnd = line + 1 < sourceFile.getLineStarts().length
-      ? sourceFile.getLineStarts()[line + 1]
-      : sourceFile.text.length;
+    const lineEnd =
+      line + 1 < sourceFile.getLineStarts().length
+        ? sourceFile.getLineStarts()[line + 1]
+        : sourceFile.text.length;
     const lineText = sourceFile.text.slice(lineStart, lineEnd).trimEnd();
 
     const lineNum = String(line + 1).padStart(4, " ");
@@ -575,8 +576,8 @@ export function toTsDiagnostic(diag: EffectRichDiagnostic): ts.Diagnostic {
     diag.severity === "error"
       ? 1 // ts.DiagnosticCategory.Error
       : diag.severity === "warning"
-      ? 0 // ts.DiagnosticCategory.Warning
-      : 2; // ts.DiagnosticCategory.Message
+        ? 0 // ts.DiagnosticCategory.Warning
+        : 2; // ts.DiagnosticCategory.Message
 
   const start = diag.primarySpan?.node.getStart() ?? 0;
   const length = diag.primarySpan?.node.getWidth() ?? 0;

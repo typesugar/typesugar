@@ -6,11 +6,11 @@ This showcase demonstrates the **zero-cost optimizations** and **developer exper
 
 ## What's Inside
 
-| Example | What it Shows |
-|---------|---------------|
-| [http-server/](./http-server/) | Service definitions, layers, and automatic composition |
-| [validation/](./validation/) | Schema validation with compile-time specialization |
-| [generator-overhead/](./generator-overhead/) | Effect.gen optimization with `@compiled` |
+| Example                                      | What it Shows                                          |
+| -------------------------------------------- | ------------------------------------------------------ |
+| [http-server/](./http-server/)               | Service definitions, layers, and automatic composition |
+| [validation/](./validation/)                 | Schema validation with compile-time specialization     |
+| [generator-overhead/](./generator-overhead/) | Effect.gen optimization with `@compiled`               |
 
 ---
 
@@ -23,8 +23,8 @@ This showcase demonstrates the **zero-cost optimizations** and **developer exper
 class UserRepo extends Context.Tag("UserRepo")<
   UserRepo,
   {
-    readonly findById: (id: string) => Effect.Effect<User | null, DbError>
-    readonly save: (user: User) => Effect.Effect<User, DbError>
+    readonly findById: (id: string) => Effect.Effect<User | null, DbError>;
+    readonly save: (user: User) => Effect.Effect<User, DbError>;
   }
 >() {}
 
@@ -32,19 +32,16 @@ class UserRepo extends Context.Tag("UserRepo")<
 const UserRepoLive = Layer.effect(
   UserRepo,
   Effect.gen(function* () {
-    const db = yield* Database
+    const db = yield* Database;
     return {
       findById: (id) => db.query(`SELECT * FROM users WHERE id = $1`, [id]),
       save: (user) => db.query(`INSERT INTO users ...`, [user]),
-    }
+    };
   })
-)
+);
 
 // Manual layer composition
-const AppLayer = UserRepoLive.pipe(
-  Layer.provide(DatabaseLive),
-  Layer.provide(LoggerLive)
-)
+const AppLayer = UserRepoLive.pipe(Layer.provide(DatabaseLive), Layer.provide(LoggerLive));
 ```
 
 ### After: With @typesugar/effect
@@ -78,13 +75,13 @@ const AppLayer = resolveLayer<UserRepo | Logger>()
 
 Every optimization compiles away completely:
 
-| Feature | Before (runtime) | After (compiled) |
-|---------|-----------------|------------------|
-| `@compiled` | Generator protocol, `.next()` calls | Direct `flatMap` chain |
-| `@fused` | Intermediate Effect allocations | Single fused operation |
-| `specializeSchema()` | Combinator tree walk | Direct type checks |
-| `@service` | Same as plain Effect | Same as plain Effect |
-| `@layer` | Same as plain Effect | Same as plain Effect |
+| Feature              | Before (runtime)                    | After (compiled)       |
+| -------------------- | ----------------------------------- | ---------------------- |
+| `@compiled`          | Generator protocol, `.next()` calls | Direct `flatMap` chain |
+| `@fused`             | Intermediate Effect allocations     | Single fused operation |
+| `specializeSchema()` | Combinator tree walk                | Direct type checks     |
+| `@service`           | Same as plain Effect                | Same as plain Effect   |
+| `@layer`             | Same as plain Effect                | Same as plain Effect   |
 
 The macros transform your code at compile time. **At runtime, there's no typesugar — just optimized Effect code.**
 
@@ -129,6 +126,7 @@ error[EFFECT020]: Circular layer dependency detected
 **[http-server/after.ts](./http-server/after.ts)** — Same functionality with @typesugar/effect
 
 Shows:
+
 - `@service` eliminates Context.Tag boilerplate
 - `@layer` with declarative dependencies
 - `resolveLayer<R>()` for automatic composition
@@ -140,6 +138,7 @@ Shows:
 **[validation/after.ts](./validation/after.ts)** — Compile-time specialized validators
 
 Shows:
+
 - `specializeSchema()` generates direct type checks
 - No combinator tree walk at runtime
 - Same types, zero overhead
@@ -150,6 +149,7 @@ Shows:
 **[generator-overhead/after.ts](./generator-overhead/after.ts)** — `@compiled` direct flatMap chains
 
 Shows:
+
 - `@compiled` eliminates generator object allocation
 - Nested generators become nested flatMap
 - `@fused` combines consecutive operations
@@ -176,11 +176,11 @@ npx typesugar compile http-server/after.ts --emit
 
 The optimizations eliminate specific categories of overhead:
 
-| Optimization | What's Eliminated | Expected Impact |
-|-------------|-------------------|-----------------|
-| `@compiled` | Generator protocol (iterator objects, `.next()` calls) | Reduced allocation per `Effect.gen` call |
-| `@fused` | Intermediate Effect objects in pipeline chains | Fewer allocations proportional to chain length |
-| `specializeSchema()` | Combinator tree walk for each validation | Direct field checks instead of tree traversal |
+| Optimization         | What's Eliminated                                      | Expected Impact                                |
+| -------------------- | ------------------------------------------------------ | ---------------------------------------------- |
+| `@compiled`          | Generator protocol (iterator objects, `.next()` calls) | Reduced allocation per `Effect.gen` call       |
+| `@fused`             | Intermediate Effect objects in pipeline chains         | Fewer allocations proportional to chain length |
+| `specializeSchema()` | Combinator tree walk for each validation               | Direct field checks instead of tree traversal  |
 
 Actual improvement depends on your workload. CPU-bound code with tight Effect loops benefits most; I/O-bound code where network latency dominates will see minimal difference.
 
@@ -189,11 +189,13 @@ Actual improvement depends on your workload. CPU-bound code with tight Effect lo
 ## When to Use @typesugar/effect
 
 **Use it when:**
+
 - You want cleaner service/layer definitions
 - Performance matters (high-throughput APIs, hot paths)
 - You want better error messages during development
 
 **Skip it if:**
+
 - You're just prototyping (plain Effect is fine)
 - Your app is I/O bound (network latency dominates)
 - You prefer explicit over implicit

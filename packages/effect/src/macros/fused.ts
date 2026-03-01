@@ -35,19 +35,12 @@
  */
 
 import * as ts from "typescript";
-import {
-  type MacroContext,
-  defineAttributeMacro,
-  defineExpressionMacro,
-} from "@typesugar/core";
+import { type MacroContext, defineAttributeMacro, defineExpressionMacro } from "@typesugar/core";
 
 /**
  * Check if a call is Effect.method(...)
  */
-function isEffectCall(
-  node: ts.Node,
-  methodName: string
-): node is ts.CallExpression {
+function isEffectCall(node: ts.Node, methodName: string): node is ts.CallExpression {
   if (!ts.isCallExpression(node)) return false;
   const callee = node.expression;
   if (!ts.isPropertyAccessExpression(callee)) return false;
@@ -105,11 +98,7 @@ function extractEffectCallArgs(
 /**
  * Compose two functions: (x) => g(f(x))
  */
-function composeFunctions(
-  ctx: MacroContext,
-  f: ts.Expression,
-  g: ts.Expression
-): ts.Expression {
+function composeFunctions(ctx: MacroContext, f: ts.Expression, g: ts.Expression): ts.Expression {
   const factory = ctx.factory;
 
   // Generate a unique parameter name

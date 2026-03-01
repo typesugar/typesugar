@@ -6,11 +6,11 @@ Make Effect-TS faster at compile time with zero-cost optimizations and Rust-qual
 
 Effect-TS provides structured concurrency, typed errors, and dependency injection — but abstractions have overhead:
 
-| Abstraction | Runtime Cost |
-| --- | --- |
-| `Effect.gen` | Generator protocol: iterator objects, `.next()` calls |
-| Schema combinators | Tree walk for every validation |
-| Pipeline chains | Intermediate Effect allocations |
+| Abstraction        | Runtime Cost                                          |
+| ------------------ | ----------------------------------------------------- |
+| `Effect.gen`       | Generator protocol: iterator objects, `.next()` calls |
+| Schema combinators | Tree walk for every validation                        |
+| Pipeline chains    | Intermediate Effect allocations                       |
 
 `@typesugar/effect` eliminates this overhead at compile time while preserving full fiber runtime semantics.
 
@@ -58,9 +58,7 @@ Effect.gen(function* () {
 });
 
 // After @compiled: Zero generator overhead
-Effect.flatMap(getX(), (x) =>
-  Effect.map(getY(x), (y) => x + y)
-);
+Effect.flatMap(getX(), (x) => Effect.map(getY(x), (y) => x + y));
 ```
 
 ### Pipeline Fusion
@@ -72,7 +70,10 @@ The `@fused` decorator combines consecutive operations:
 pipe(getData(), Effect.map(f), Effect.map(g), Effect.map(h));
 
 // After @fused: Single Effect
-pipe(getData(), Effect.map((x) => h(g(f(x)))));
+pipe(
+  getData(),
+  Effect.map((x) => h(g(f(x))))
+);
 ```
 
 ### Schema Specialization
@@ -193,9 +194,7 @@ const mockUserRepo = mockService<UserRepo>({
 });
 
 // Override per test
-mockUserRepo.getUser.mockImplementation(() =>
-  Effect.fail(new NotFound())
-);
+mockUserRepo.getUser.mockImplementation(() => Effect.fail(new NotFound()));
 
 // Use in test
 const result = await Effect.runPromise(
@@ -214,7 +213,7 @@ Enhanced do-notation with proper E/R type accumulation:
 
 ```typescript
 let: {
-  user << getUserById(id);    // Effect<User, NotFound, UserRepo>
+  user << getUserById(id); // Effect<User, NotFound, UserRepo>
   posts << getPosts(user.id); // Effect<Post[], DbError, PostRepo>
 }
 yield: ({ user, posts });

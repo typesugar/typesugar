@@ -27,6 +27,7 @@ docs/.vitepress/cache/
 # Example and template files (may use typesugar syntax that Prettier can't parse)
 examples/
 templates/
+docs/showcase/
 
 # Generated files
 *.generated.ts

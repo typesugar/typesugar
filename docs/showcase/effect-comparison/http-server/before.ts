@@ -32,7 +32,10 @@ class DbError {
 
 class NotFoundError {
   readonly _tag = "NotFoundError";
-  constructor(readonly resource: string, readonly id: string) {}
+  constructor(
+    readonly resource: string,
+    readonly id: string
+  ) {}
 }
 
 // ============================================================================
@@ -86,7 +89,10 @@ class UserRepo extends Context.Tag("UserRepo")<
     readonly findById: (id: string) => Effect.Effect<User | null, DbError>;
     readonly findByEmail: (email: string) => Effect.Effect<User | null, DbError>;
     readonly save: (user: Omit<User, "id" | "createdAt">) => Effect.Effect<User, DbError>;
-    readonly update: (id: string, data: Partial<User>) => Effect.Effect<User, DbError | NotFoundError>;
+    readonly update: (
+      id: string,
+      data: Partial<User>
+    ) => Effect.Effect<User, DbError | NotFoundError>;
   }
 >() {}
 
@@ -161,9 +167,7 @@ const UserRepoLive = Layer.effect(
       findById: (id) =>
         pipe(
           logger.debug(`Finding user by id: ${id}`),
-          Effect.flatMap(() =>
-            db.query<User | null>(`SELECT * FROM users WHERE id = $1`, [id])
-          )
+          Effect.flatMap(() => db.query<User | null>(`SELECT * FROM users WHERE id = $1`, [id]))
         ),
 
       findByEmail: (email) =>
@@ -192,9 +196,7 @@ const UserRepoLive = Layer.effect(
             db.query<User | null>(`UPDATE users SET ... WHERE id = $1 RETURNING *`, [id])
           ),
           Effect.flatMap((user) =>
-            user
-              ? Effect.succeed(user)
-              : Effect.fail(new NotFoundError("User", id))
+            user ? Effect.succeed(user) : Effect.fail(new NotFoundError("User", id))
           )
         ),
     };
@@ -212,9 +214,7 @@ const PostRepoLive = Layer.effect(
       findById: (id) =>
         pipe(
           logger.debug(`Finding post by id: ${id}`),
-          Effect.flatMap(() =>
-            db.query<Post | null>(`SELECT * FROM posts WHERE id = $1`, [id])
-          )
+          Effect.flatMap(() => db.query<Post | null>(`SELECT * FROM posts WHERE id = $1`, [id]))
         ),
 
       findByAuthor: (authorId) =>
@@ -246,9 +246,7 @@ const PostRepoLive = Layer.effect(
             )
           ),
           Effect.flatMap((post) =>
-            post
-              ? Effect.succeed(post)
-              : Effect.fail(new NotFoundError("Post", id))
+            post ? Effect.succeed(post) : Effect.fail(new NotFoundError("Post", id))
           )
         ),
     };
@@ -266,8 +264,7 @@ const HttpClientLive = Layer.succeed(HttpClient, {
         }
         return response.json() as T;
       },
-      catch: (e) =>
-        e instanceof HttpError ? e : new HttpError(500, String(e)),
+      catch: (e) => (e instanceof HttpError ? e : new HttpError(500, String(e))),
     }),
 
   post: <T>(url: string, body: unknown) =>
@@ -283,8 +280,7 @@ const HttpClientLive = Layer.succeed(HttpClient, {
         }
         return response.json() as T;
       },
-      catch: (e) =>
-        e instanceof HttpError ? e : new HttpError(500, String(e)),
+      catch: (e) => (e instanceof HttpError ? e : new HttpError(500, String(e))),
     }),
 });
 
@@ -305,12 +301,7 @@ const AppLayer = pipe(
 // ============================================================================
 
 // Creating a user with their first post — lots of Effect.gen boilerplate
-const createUserWithPost = (
-  name: string,
-  email: string,
-  postTitle: string,
-  postContent: string
-) =>
+const createUserWithPost = (name: string, email: string, postTitle: string, postContent: string) =>
   Effect.gen(function* () {
     const userRepo = yield* UserRepo;
     const postRepo = yield* PostRepo;
@@ -362,18 +353,9 @@ const getUserProfile = (userId: string) =>
 // ============================================================================
 
 const program = pipe(
-  createUserWithPost(
-    "Alice",
-    "alice@example.com",
-    "Hello World",
-    "This is my first post!"
-  ),
-  Effect.tap(({ user, post }) =>
-    Effect.sync(() => console.log("Created:", { user, post }))
-  ),
-  Effect.catchAll((error) =>
-    Effect.sync(() => console.error("Error:", error))
-  )
+  createUserWithPost("Alice", "alice@example.com", "Hello World", "This is my first post!"),
+  Effect.tap(({ user, post }) => Effect.sync(() => console.log("Created:", { user, post }))),
+  Effect.catchAll((error) => Effect.sync(() => console.error("Error:", error)))
 );
 
 // Must provide the composed layer manually

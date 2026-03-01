@@ -50,10 +50,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  type MacroContext,
-  defineExpressionMacro,
-} from "@typesugar/core";
+import { type MacroContext, defineExpressionMacro } from "@typesugar/core";
 
 /**
  * Schema kind for compile-time analysis.
@@ -242,7 +239,7 @@ function generateValidationCode(
   schema: ParsedSchema,
   input: ts.Expression,
   path: string,
-  schemaExpr: ts.Expression,
+  schemaExpr: ts.Expression
 ): ts.Expression {
   const factory = ctx.factory;
 
@@ -362,7 +359,7 @@ function generateNullableValidation(
   schema: ParsedSchema,
   input: ts.Expression,
   path: string,
-  schemaExpr: ts.Expression,
+  schemaExpr: ts.Expression
 ): ts.Expression {
   const factory = ctx.factory;
   const innerValidation = generateValidationCode(ctx, schema.element!, input, path, schemaExpr);
@@ -412,7 +409,12 @@ function generateLiteralValidation(
     factory.createToken(ts.SyntaxKind.QuestionToken),
     input,
     factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, `Expected literal ${JSON.stringify(literalValue)}`, input)
+    generateThrowParseError(
+      factory,
+      path,
+      `Expected literal ${JSON.stringify(literalValue)}`,
+      input
+    )
   );
 }
 
@@ -424,7 +426,7 @@ function generateStructValidation(
   schema: ParsedSchema,
   input: ts.Expression,
   path: string,
-  schemaExpr: ts.Expression,
+  schemaExpr: ts.Expression
 ): ts.Expression {
   const factory = ctx.factory;
   const fields = schema.fields!;
@@ -456,7 +458,13 @@ function generateStructValidation(
     );
 
     if (fieldSchema.optional) {
-      const fieldValidation = generateValidationCode(ctx, fieldSchema, fieldAccess, fieldPath, schemaExpr);
+      const fieldValidation = generateValidationCode(
+        ctx,
+        fieldSchema,
+        fieldAccess,
+        fieldPath,
+        schemaExpr
+      );
       fieldAssignments.push(
         factory.createPropertyAssignment(
           factory.createIdentifier(fieldName),
@@ -464,7 +472,10 @@ function generateStructValidation(
             factory.createBinaryExpression(
               factory.createStringLiteral(fieldName),
               factory.createToken(ts.SyntaxKind.InKeyword),
-              factory.createAsExpression(input, factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword))
+              factory.createAsExpression(
+                input,
+                factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
+              )
             ),
             factory.createToken(ts.SyntaxKind.QuestionToken),
             fieldValidation,
@@ -474,7 +485,13 @@ function generateStructValidation(
         )
       );
     } else {
-      const fieldValidation = generateValidationCode(ctx, fieldSchema, fieldAccess, fieldPath, schemaExpr);
+      const fieldValidation = generateValidationCode(
+        ctx,
+        fieldSchema,
+        fieldAccess,
+        fieldPath,
+        schemaExpr
+      );
       fieldAssignments.push(
         factory.createPropertyAssignment(factory.createIdentifier(fieldName), fieldValidation)
       );
@@ -499,7 +516,7 @@ function generateArrayValidation(
   schema: ParsedSchema,
   input: ts.Expression,
   path: string,
-  schemaExpr: ts.Expression,
+  schemaExpr: ts.Expression
 ): ts.Expression {
   const factory = ctx.factory;
   const element = schema.element!;
@@ -512,7 +529,7 @@ function generateArrayValidation(
     element,
     mapParam,
     `${path}[i]`,
-    schemaExpr,
+    schemaExpr
   );
 
   return factory.createConditionalExpression(
@@ -555,7 +572,7 @@ function generateTupleValidation(
   schema: ParsedSchema,
   input: ts.Expression,
   path: string,
-  schemaExpr: ts.Expression,
+  schemaExpr: ts.Expression
 ): ts.Expression {
   const factory = ctx.factory;
   const elements = schema.elements!;
@@ -579,8 +596,17 @@ function generateTupleValidation(
   // Build tuple validations
   const elementExprs: ts.Expression[] = [];
   for (let i = 0; i < elements.length; i++) {
-    const elementAccess = factory.createElementAccessExpression(input, factory.createNumericLiteral(i));
-    const elementValidation = generateValidationCode(ctx, elements[i], elementAccess, `${path}[${i}]`, schemaExpr);
+    const elementAccess = factory.createElementAccessExpression(
+      input,
+      factory.createNumericLiteral(i)
+    );
+    const elementValidation = generateValidationCode(
+      ctx,
+      elements[i],
+      elementAccess,
+      `${path}[${i}]`,
+      schemaExpr
+    );
     elementExprs.push(elementValidation);
   }
 
@@ -605,7 +631,7 @@ function generateUnionValidation(
   schema: ParsedSchema,
   input: ts.Expression,
   path: string,
-  schemaExpr: ts.Expression,
+  schemaExpr: ts.Expression
 ): ts.Expression {
   const factory = ctx.factory;
   const variants = schema.variants!;
@@ -631,7 +657,7 @@ function generateThrowParseError(
   factory: ts.NodeFactory,
   path: string,
   message: string,
-  valueExpr: ts.Expression,
+  valueExpr: ts.Expression
 ): ts.Expression {
   return factory.createCallExpression(
     factory.createParenthesizedExpression(
@@ -644,21 +670,17 @@ function generateThrowParseError(
         factory.createBlock(
           [
             factory.createThrowStatement(
-              factory.createNewExpression(
-                factory.createIdentifier("Error"),
-                undefined,
-                [
-                  factory.createTemplateExpression(
-                    factory.createTemplateHead(`Parse error at ${path}: ${message}, got `),
-                    [
-                      factory.createTemplateSpan(
-                        factory.createTypeOfExpression(valueExpr),
-                        factory.createTemplateTail("")
-                      ),
-                    ]
-                  ),
-                ]
-              )
+              factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
+                factory.createTemplateExpression(
+                  factory.createTemplateHead(`Parse error at ${path}: ${message}, got `),
+                  [
+                    factory.createTemplateSpan(
+                      factory.createTypeOfExpression(valueExpr),
+                      factory.createTemplateTail("")
+                    ),
+                  ]
+                ),
+              ])
             ),
           ],
           false
@@ -676,7 +698,7 @@ function generateThrowParseError(
 function generateRuntimeFallback(
   factory: ts.NodeFactory,
   schemaExpr: ts.Expression,
-  input: ts.Expression,
+  input: ts.Expression
 ): ts.Expression {
   return factory.createCallExpression(
     factory.createCallExpression(
@@ -708,7 +730,10 @@ export const specializeSchemaExpression = defineExpressionMacro({
 
   expand(ctx, call, args) {
     if (args.length !== 1) {
-      ctx.reportError(call, "specializeSchema() expects exactly one argument: specializeSchema(schema)");
+      ctx.reportError(
+        call,
+        "specializeSchema() expects exactly one argument: specializeSchema(schema)"
+      );
       return call;
     }
 
@@ -819,7 +844,7 @@ export function specializeSchema<A, I, R>(
 ): (input: unknown) => A {
   throw new Error(
     "specializeSchema() is a compile-time macro and requires the typesugar transformer. " +
-    "See: https://github.com/dpovey/typesugar#setup"
+      "See: https://github.com/dpovey/typesugar#setup"
   );
 }
 
@@ -833,6 +858,6 @@ export function specializeSchemaUnsafe<A, I, R>(
 ): A {
   throw new Error(
     "specializeSchemaUnsafe() is a compile-time macro and requires the typesugar transformer. " +
-    "See: https://github.com/dpovey/typesugar#setup"
+      "See: https://github.com/dpovey/typesugar#setup"
   );
 }

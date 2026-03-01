@@ -1152,10 +1152,7 @@ export const mockAttribute = defineAttributeMacro({
 
     // Generate mock method implementations
     const methodImpls = methods
-      .map(
-        (m) =>
-          `  ${m.name}: createMockFn<${m.signature}>(),`
-      )
+      .map((m) => `  ${m.name}: createMockFn<${m.signature}>(),`)
       .join("\n");
 
     // Generate _calls tracking object
@@ -1163,9 +1160,7 @@ export const mockAttribute = defineAttributeMacro({
 
     // Generate _reset implementation
     const resetCalls = methods.map((m) => `    mock._calls.${m.name} = [];`).join("\n");
-    const resetMocks = methods
-      .map((m) => `    (mock.${m.name} as any).mockReset?.();`)
-      .join("\n");
+    const resetMocks = methods.map((m) => `    (mock.${m.name} as any).mockReset?.();`).join("\n");
 
     // Generate the mock object
     const code = `
@@ -1183,12 +1178,16 @@ ${resetMocks}
   } as unknown as MockOf<${typeName}>;
 
   // Wire up call tracking
-${methods.map((m) => `  const _orig_${m.name} = mock.${m.name};
+${methods
+  .map(
+    (m) => `  const _orig_${m.name} = mock.${m.name};
   mock.${m.name} = ((...args: any[]) => {
     mock._calls.${m.name}.push(args);
     return (_orig_${m.name} as any)(...args);
   }) as any;
-  Object.assign(mock.${m.name}, _orig_${m.name});`).join("\n")}
+  Object.assign(mock.${m.name}, _orig_${m.name});`
+  )
+  .join("\n")}
 
   return mock;
 })();

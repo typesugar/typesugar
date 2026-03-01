@@ -77,11 +77,13 @@ const effectFunctor: Functor<Effect<_, E, R>> = {
 - Familiar to Scala/Haskell users (`_` is a common wildcard)
 
 **Pros:**
+
 - Visually clear which position varies
 - Type parameters are implicit (inferred from annotation)
 - Matches Scala syntax
 
 **Cons:**
+
 - `_` is a valid identifier in TypeScript
 - May conflict with lodash import convention
 
@@ -101,11 +103,13 @@ const effectFunctor: Functor<EffectF<E, R>> = {
 - No new syntax (uses existing HKT encoding)
 
 **Pros:**
+
 - No new syntax constructs
 - Works with existing HKT types
 - Explicit is clear
 
 **Cons:**
+
 - Requires pre-defined type-level functions (`EffectF`, `ChunkF`)
 - Duplicate declaration of type params (on decorator and in type)
 
@@ -124,10 +128,12 @@ const effectFunctor: Functor<Effect<$A, E, R>> = {
 - Avoids collision with `_` identifier
 
 **Pros:**
+
 - Unambiguous syntax
 - Can name the kind slot
 
 **Cons:**
+
 - New syntax to learn
 - May look unusual
 
@@ -160,6 +166,7 @@ Functor<Effect<_, E, R>>
 #### 2. Code Generation
 
 **Input:**
+
 ```typescript
 @instance
 const effectFunctor: Functor<Effect<_, E, R>> = {
@@ -168,6 +175,7 @@ const effectFunctor: Functor<Effect<_, E, R>> = {
 ```
 
 **Generated Output:**
+
 ```typescript
 // Factory function with type parameters
 function effectFunctor<E = never, R = never>(): Functor<EffectF<E, R>> {
@@ -199,6 +207,7 @@ When resolving `summon<Functor<Effect<_, Error, Deps>>>()`:
 5. Generate: `effectFunctor<Error, Deps>()`
 
 **Unification algorithm:**
+
 ```
 Target: Functor<Effect<A, Error, Deps>>  (where A varies)
 Pattern: Functor<Effect<_, E, R>>
@@ -230,24 +239,26 @@ No changes to `registerInstanceMethods` are required — the key is recognizing 
 ### Instance Registry Changes
 
 Current registry structure:
+
 ```typescript
 interface InstanceEntry {
   typeclassName: string;
-  forType: string;      // "number", "Array", "Effect"
+  forType: string; // "number", "Array", "Effect"
   instanceName: string; // variable name
   derived: boolean;
 }
 ```
 
 New structure for parameterized instances:
+
 ```typescript
 interface InstanceEntry {
   typeclassName: string;
   forType: string;
   instanceName: string;
   derived: boolean;
-  typeParams?: string[];  // ["E", "R"] for parameterized instances
-  factory?: boolean;      // true if this is a factory function
+  typeParams?: string[]; // ["E", "R"] for parameterized instances
+  factory?: boolean; // true if this is a factory function
 }
 ```
 
@@ -274,6 +285,7 @@ const effectBifunctor: Bifunctor<Effect<_A, _E, R>> = {
 ```
 
 Here `_A` and `_E` both vary. The macro extracts:
+
 - Kind positions: 0 (`_A`), 1 (`_E`)
 - Instance parameters: R
 
@@ -289,6 +301,7 @@ const taskEitherFunctor: Functor<Task<Either<E, _>>> = {
 ```
 
 The `_` is inside `Either`, but the outer type is `Task<Either<E, _>>`. The macro should:
+
 - Identify the full pattern
 - Generate appropriate HKT type function if needed
 

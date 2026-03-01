@@ -37,11 +37,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  type MacroContext,
-  defineAttributeMacro,
-  defineExpressionMacro,
-} from "@typesugar/core";
+import { type MacroContext, defineAttributeMacro, defineExpressionMacro } from "@typesugar/core";
 
 /**
  * Information about a yield* statement in the generator.
@@ -67,10 +63,7 @@ function parseGeneratorBody(
 
   for (const statement of body.statements) {
     // Handle: const x = yield* effect
-    if (
-      ts.isVariableStatement(statement) &&
-      statement.declarationList.declarations.length === 1
-    ) {
+    if (ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1) {
       const decl = statement.declarationList.declarations[0];
       if (
         ts.isIdentifier(decl.name) &&
@@ -204,19 +197,14 @@ function isEffectGenCall(node: ts.Node): node is ts.CallExpression {
   const prop = callee.name;
 
   return (
-    ts.isIdentifier(obj) &&
-    obj.text === "Effect" &&
-    ts.isIdentifier(prop) &&
-    prop.text === "gen"
+    ts.isIdentifier(obj) && obj.text === "Effect" && ts.isIdentifier(prop) && prop.text === "gen"
   );
 }
 
 /**
  * Extract the generator function from an Effect.gen call.
  */
-function extractGeneratorFunction(
-  call: ts.CallExpression
-): ts.FunctionExpression | null {
+function extractGeneratorFunction(call: ts.CallExpression): ts.FunctionExpression | null {
   if (call.arguments.length === 0) return null;
 
   const arg = call.arguments[0];
@@ -230,10 +218,7 @@ function extractGeneratorFunction(
 /**
  * Transform an Effect.gen call into a flatMap chain.
  */
-function transformEffectGen(
-  ctx: MacroContext,
-  call: ts.CallExpression
-): ts.Expression | null {
+function transformEffectGen(ctx: MacroContext, call: ts.CallExpression): ts.Expression | null {
   const genFn = extractGeneratorFunction(call);
   if (!genFn || !genFn.body) {
     ctx.reportError(
@@ -246,10 +231,7 @@ function transformEffectGen(
   const { bindings, returnExpr } = parseGeneratorBody(ctx, genFn.body);
 
   if (!returnExpr) {
-    ctx.reportError(
-      call,
-      "@compiled: Effect.gen must have a return statement"
-    );
+    ctx.reportError(call, "@compiled: Effect.gen must have a return statement");
     return null;
   }
 
@@ -259,10 +241,7 @@ function transformEffectGen(
 /**
  * Recursively transform all Effect.gen calls in an expression tree.
  */
-function transformExpression(
-  ctx: MacroContext,
-  node: ts.Node
-): ts.Node {
+function transformExpression(ctx: MacroContext, node: ts.Node): ts.Node {
   // If this is an Effect.gen call, transform it
   if (isEffectGenCall(node)) {
     const transformed = transformEffectGen(ctx, node);
@@ -336,10 +315,7 @@ export const compileGenExpression = defineExpressionMacro({
 
     // Check if argument is an Effect.gen call
     if (!isEffectGenCall(arg)) {
-      ctx.reportError(
-        arg,
-        "compileGen() argument must be an Effect.gen(function*() { ... }) call"
-      );
+      ctx.reportError(arg, "compileGen() argument must be an Effect.gen(function*() { ... }) call");
       return call;
     }
 

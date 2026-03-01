@@ -40,11 +40,7 @@ const UserSchema = Schema.Struct({
   ),
   name: Schema.String.pipe(Schema.minLength(1)),
   age: Schema.Number.pipe(Schema.int(), Schema.between(0, 150)),
-  role: Schema.Union(
-    Schema.Literal("admin"),
-    Schema.Literal("user"),
-    Schema.Literal("guest")
-  ),
+  role: Schema.Union(Schema.Literal("admin"), Schema.Literal("user"), Schema.Literal("guest")),
   address: AddressSchema,
   tags: Schema.Array(Schema.String),
   createdAt: Schema.Date,
@@ -60,11 +56,7 @@ const CreateUserRequestSchema = Schema.Struct({
   ),
   name: Schema.String.pipe(Schema.minLength(1)),
   age: Schema.Number.pipe(Schema.int(), Schema.between(0, 150)),
-  role: Schema.Union(
-    Schema.Literal("admin"),
-    Schema.Literal("user"),
-    Schema.Literal("guest")
-  ),
+  role: Schema.Union(Schema.Literal("admin"), Schema.Literal("user"), Schema.Literal("guest")),
   address: AddressSchema,
   tags: Schema.optional(Schema.Array(Schema.String)),
 });

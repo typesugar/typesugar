@@ -115,8 +115,9 @@ export function resolveGraph(
     }
 
     const selected =
-      (preferFile && candidates.find((l) => l.sourceFile === preferFile)) ??
-      candidates[0];
+      (preferFile
+        ? candidates.find((l) => l.sourceFile === preferFile)
+        : undefined) ?? candidates[0];
     selectedLayers.set(service, selected);
 
     for (const dep of selected.requires) {
