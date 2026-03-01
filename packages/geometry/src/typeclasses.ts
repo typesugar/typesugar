@@ -126,32 +126,29 @@ registerInstanceWithMeta({
 // Show instances — human-readable string representation
 // ============================================================================
 
-function showVector<CS extends CoordSys, D extends Dim<number>>(
-  v: Vector<CS, D>,
-  prefix: string
-): string {
-  const parts = v.map((c) => String(c)).join(", ");
+function showNumericArray(arr: number[], prefix: string): string {
+  const parts = arr.map((c) => String(c)).join(", ");
   return `${prefix}(${parts})`;
 }
 
 /** Show instance for Vec2 */
 export const showVec2 = {
-  show: (v: Vec2) => showVector(v, "Vec2"),
+  show: (v: Vec2) => showNumericArray(v, "Vec2"),
 };
 
 /** Show instance for Vec3 */
 export const showVec3 = {
-  show: (v: Vec3) => showVector(v, "Vec3"),
+  show: (v: Vec3) => showNumericArray(v, "Vec3"),
 };
 
 /** Show instance for Point2D */
 export const showPoint2D = {
-  show: (p: Point2D) => showVector(p as Vector<CoordSys, Dim<number>>, "Point2D"),
+  show: (p: Point2D) => showNumericArray(p, "Point2D"),
 };
 
 /** Show instance for Point3D */
 export const showPoint3D = {
-  show: (p: Point3D) => showVector(p as Vector<CoordSys, Dim<number>>, "Point3D"),
+  show: (p: Point3D) => showNumericArray(p, "Point3D"),
 };
 
 // Register Show instances
