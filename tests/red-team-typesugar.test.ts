@@ -23,7 +23,7 @@ import {
   comptimeNamespace,
   reflectNamespace,
   deriveNamespace,
-  operatorsNamespace,
+  // Note: operatorsNamespace doesn't exist - operators are in @typesugar/macros
   typeclassNamespace,
   specializeNamespace,
   // Direct callable exports
@@ -70,7 +70,7 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typesugar.comptimeNamespace).toBeDefined();
       expect(typesugar.reflectNamespace).toBeDefined();
       expect(typesugar.deriveNamespace).toBeDefined();
-      expect(typesugar.operatorsNamespace).toBeDefined();
+      // Note: operatorsNamespace doesn't exist - operators are exported directly from @typesugar/macros
       expect(typesugar.typeclassNamespace).toBeDefined();
       expect(typesugar.specializeNamespace).toBeDefined();
     });
@@ -130,18 +130,17 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(deriveNamespace.Ord).toBeDefined();
       expect(deriveNamespace.Clone).toBeDefined();
 
-      // operatorsNamespace should have the macro definitions and helpers
-      expect(typeof operatorsNamespace.ops).toBe("function");
-      expect(typeof operatorsNamespace.pipe).toBe("function");
-      expect(typeof operatorsNamespace.compose).toBe("function");
-      expect(typeof operatorsNamespace.registerOperators).toBe("function");
+      // operators are exported directly from @typesugar/macros, not as a namespace
+      expect(typeof ops).toBe("function");
+      expect(typeof pipe).toBe("function");
+      expect(typeof compose).toBe("function");
     });
 
-    it("direct ops/pipe/compose exports match namespace versions", () => {
-      // These should be the same functions
-      expect(ops).toBe(operatorsNamespace.ops);
-      expect(pipe).toBe(operatorsNamespace.pipe);
-      expect(compose).toBe(operatorsNamespace.compose);
+    it("direct ops/pipe/compose exports are functions", () => {
+      // These are exported directly from @typesugar/macros
+      expect(typeof ops).toBe("function");
+      expect(typeof pipe).toBe("function");
+      expect(typeof compose).toBe("function");
     });
 
     it("deriveNamespace contains both symbols and macro definitions", () => {
