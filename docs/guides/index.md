@@ -11,7 +11,7 @@ Everyday features from `@typesugar/std`:
 | [Extension Methods](./extension-methods.md)  | Scala 3-style methods on primitives                     |
 | [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions          |
 | [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:` |
-| [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Show, Monoid, FlatMap                          |
+| [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Hash, Show, Monoid, FlatMap                    |
 
 ## Typeclasses & Derivation
 
@@ -52,18 +52,19 @@ Compile-time correctness guarantees:
 
 Powerful abstractions with zero runtime cost:
 
-| Guide                             | Description                             |
-| --------------------------------- | --------------------------------------- |
-| [Functional Programming](./fp.md) | Option, Either, IO, and HKT             |
-| [HList](./hlist.md)               | Heterogeneous lists (Boost.Fusion)      |
-| [Type Erasure](./erased.md)       | dyn Trait for heterogeneous collections |
-| [Loop Fusion](./fusion.md)        | Single-pass iterator pipelines          |
-| [Parser Combinators](./parser.md) | PEG grammar to parser (Boost.Spirit)    |
-| [Graph Algorithms](./graph.md)    | BFS, DFS, Dijkstra, state machines      |
-| [Versioned Codecs](./codec.md)    | Schema evolution (serde)                |
-| [Math](./math.md)                 | Rational, complex, matrix, interval     |
-| [Object Mapping](./mapper.md)     | Zero-cost struct transformation         |
-| [Symbolic Math](./symbolic.md)    | Calculus, simplification, rendering     |
+| Guide                             | Description                                             |
+| --------------------------------- | ------------------------------------------------------- |
+| [Functional Programming](./fp.md) | Option, Either, IO, and HKT                             |
+| [HList](./hlist.md)               | Heterogeneous lists (Boost.Fusion)                      |
+| [Type Erasure](./erased.md)       | dyn Trait for heterogeneous collections                 |
+| [Loop Fusion](./fusion.md)        | Single-pass iterator pipelines                          |
+| [Parser Combinators](./parser.md) | PEG grammar to parser (Boost.Spirit)                    |
+| [Collections](./collections.md)   | Typeclasses for collections, HashSet, HashMap           |
+| [Graph Algorithms](./graph.md)    | GraphLike typeclass, BFS, DFS, Dijkstra, state machines |
+| [Versioned Codecs](./codec.md)    | Schema evolution (serde)                                |
+| [Math](./math.md)                 | Rational, complex, matrix, interval                     |
+| [Object Mapping](./mapper.md)     | Zero-cost struct transformation                         |
+| [Symbolic Math](./symbolic.md)    | Calculus, simplification, rendering                     |
 
 ## Ecosystem Integrations
 

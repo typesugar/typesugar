@@ -1,3 +1,6 @@
+// Re-export Eq and Hash so users don't need a separate @typesugar/std import
+export type { Eq, Hash } from "@typesugar/std";
+
 // Typeclasses
 export type {
   IterableOnce,

@@ -62,6 +62,36 @@ import { range, rangeToArray } from "@typesugar/std";
 rangeToArray(range(1, 10)); // [1, 2, ..., 9]
 ```
 
+## Standard Typeclasses
+
+`@typesugar/std` exports core typeclasses that power operator dispatch and auto-derivation:
+
+| Typeclass      | Purpose                                              |
+| -------------- | ---------------------------------------------------- |
+| `Eq<A>`        | Equality with `===` / `!==` operator dispatch        |
+| `Hash<A>`      | Hashing for HashMap/HashSet                          |
+| `Ord<A>`       | Total ordering with `<` / `<=` / `>` / `>=` dispatch |
+| `Semigroup<A>` | Associative combine with `+` dispatch                |
+| `Monoid<A>`    | Semigroup with identity element                      |
+| `Numeric<A>`   | Full arithmetic with `+` / `-` / `*` / `/` dispatch  |
+| `FlatMap<F>`   | Sequencing for do-notation                           |
+
+### Hash (NEW)
+
+`Hash` produces hash codes for use in hash-based collections. It enables `@typesugar/collections` (HashSet, HashMap).
+
+```typescript
+interface Hash<A> {
+  hash(a: A): number;
+}
+```
+
+**Law:** `Eq.equals(a, b) => Hash.hash(a) === Hash.hash(b)` — equal values must have equal hashes.
+
+**Primitive instances:** `hashNumber`, `hashString`, `hashBoolean`, `hashBigInt`, `hashDate`
+
+**Combinators:** `makeHash(fn)`, `hashBy(f, H)`, `hashArray(H)`
+
 ## FlatMap Typeclass
 
 The `FlatMap` typeclass provides sequencing/chaining operations for type constructors. It's the minimal typeclass required for the `let:/yield:` and `par:/yield:` do-notation macros.
@@ -222,6 +252,14 @@ rangeToArray(range(0, 10, 2)); // [0, 2, 4, 6, 8]
 
 ### Typeclasses
 
+- `Eq<A>` — Equality comparison (`===` / `!==`)
+- `Hash<A>` — Hash codes for hash-based collections
+- `Ord<A>` — Total ordering (`<` / `<=` / `>` / `>=`)
+- `Semigroup<A>` — Associative binary operation (`+`)
+- `Monoid<A>` — Semigroup with identity
+- `Numeric<A>` — Full arithmetic operations
+- `hashNumber`, `hashString`, `hashBoolean`, `hashBigInt`, `hashDate` — Primitive Hash instances
+- `makeHash(fn)`, `hashBy(f, H)`, `hashArray(H)` — Hash combinators
 - `FlatMap<F>` — Sequencing for type constructors (map, flatMap)
 - `flatMapArray`, `flatMapPromise`, `flatMapIterable`, `flatMapAsyncIterable` — Built-in instances
 - `registerFlatMap(name, instance)` — Register a custom FlatMap instance

@@ -1,35 +1,53 @@
 # @typesugar/effect
 
-> Make Effect-TS faster at compile time. Rich diagnostics. Zero runtime cost.
+> Zero-boilerplate services, automatic layer wiring, and compile-time optimization for Effect-TS.
 
 ## Why @typesugar/effect?
 
-Effect-TS provides structured concurrency, typed errors, and dependency injection — but these abstractions have runtime overhead:
+Effect-TS gives you structured concurrency, typed errors, and dependency injection. `@typesugar/effect` makes it easier to use and faster at runtime:
 
-- **Generator protocol** in `Effect.gen` creates iterator objects and calls `.next()`
-- **Combinator trees** in Schema walk nested structures at runtime
-- **Pipeline chains** allocate intermediate Effect objects
-
-`@typesugar/effect` eliminates this overhead **at compile time**, while providing Rust-quality error messages when something goes wrong.
+- **`@service`** — Define services without Context.Tag boilerplate
+- **`@layer`** — Declare dependencies; the compiler wires them
+- **`layerMake` / `resolveLayer`** — ZIO-style layer composition with clear errors when something's missing
+- **`@compiled`** — Eliminate generator overhead in `Effect.gen` at compile time
 
 ### What You Get
 
 ```typescript
-// Before: Generator overhead, intermediate allocations
-const program = Effect.gen(function* () {
-  const user = yield* getUser(id);
-  const posts = yield* getPosts(user.id);
-  return { user, posts };
+// @service — one decorator, you get the Tag and accessors
+@service
+interface UserRepo {
+  findById(id: string): Effect.Effect<User, NotFound>;
+}
+
+// @layer — declare what you need, compiler figures out the wiring
+@layer(UserRepo, { requires: [Database] })
+const userRepoLive = let: { db << Database } yield: ({
+  findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`),
 });
 
-// After @compiled: Direct flatMap chain, no generator object
-const program = Effect.flatMap(getUser(id), (user) =>
-  Effect.map(getPosts(user.id), (posts) => ({ user, posts }))
-);
+// layerMake — you list layers, typesugar composes them
+const appLayer = layerMake<UserRepo | Database>(userRepoLive, databaseLive);
 ```
 
+```typescript
+// @compiled — bonus: Effect.gen without generator overhead
+class UserService {
+  @compiled
+  getWithPosts(id: string) {
+    return Effect.gen(function* () {
+      const user = yield* getUser(id);
+      const posts = yield* getPosts(user.id);
+      return { user, posts };
+    });
+  }
+}
+// Compiles to direct flatMap chain, no iterator objects
 ```
-// Clear error messages when layers are missing:
+
+When layers are missing, you get clear errors:
+
+```
 error[EFFECT001]: No layer provides `UserRepo`
   --> src/app.ts:15:5
    |
@@ -52,6 +70,204 @@ pnpm add @typesugar/effect effect
 ```
 
 **Build tooling required**: `@typesugar/effect` runs as a TypeScript compiler plugin. You'll need to configure the transformer in your build tool (Vite, esbuild, webpack) and the language service plugin for IDE support. For teams with existing build systems this is straightforward, but it's not zero-configuration.
+
+---
+
+## Service & Layer System
+
+The main value: define services and layers with minimal boilerplate, let the compiler handle wiring.
+
+### `@service` — Zero-Boilerplate Services
+
+```typescript
+import { service } from "@typesugar/effect";
+
+@service
+interface HttpClient {
+  get(url: string): Effect.Effect<Response, HttpError>;
+  post(url: string, body: unknown): Effect.Effect<Response, HttpError>;
+}
+
+// Generates:
+// - HttpClientTag (Context.Tag)
+// - HttpClient namespace with accessor functions
+```
+
+### `@layer` — Declarative Dependencies
+
+```typescript
+import { layer } from "@typesugar/effect";
+
+@layer(HttpClient)
+const httpClientLive = {
+  get: (url) => Effect.tryPromise(() => fetch(url)),
+  post: (url, body) => Effect.tryPromise(() =>
+    fetch(url, { method: "POST", body: JSON.stringify(body) })
+  ),
+};
+
+@layer(UserRepo, { requires: [Database] })
+const userRepoLive =
+let: {
+  db << Database;
+}
+yield: ({
+  findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`)
+});
+```
+
+### Layer Wiring — Two Approaches
+
+Inspired by ZIO's `ZLayer.make`, `@typesugar/effect` offers two ways to compose layers:
+
+#### `layerMake<R>(...)` — Explicit (ZIO-style)
+
+List the layer values explicitly. The compiler resolves the dependency graph:
+
+```typescript
+import { layerMake } from "@typesugar/effect";
+
+// You provide the ingredients, typesugar figures out the wiring
+const appLayer = layerMake<UserRepo | HttpClient>(
+  userRepoLive, // requires Database
+  databaseLive, // no requirements
+  httpClientLive // no requirements
+);
+
+// Compiles to:
+// Layer.merge(
+//   userRepoLive.pipe(Layer.provide(databaseLive)),
+//   httpClientLive
+// )
+```
+
+Missing dependencies produce clear errors:
+
+```
+error: Missing layers for:
+  - Database (required by userRepoLive)
+Add the missing layers to layerMake<R>() arguments.
+```
+
+#### `resolveLayer<R>()` — Implicit (from registered layers)
+
+The compiler resolves layers automatically from `@layer` registrations
+visible in your import scope:
+
+```typescript
+import { resolveLayer } from "@typesugar/effect";
+
+const program: Effect<void, Error, UserRepo | HttpClient> = ...;
+
+// Automatically finds and composes all required layers:
+const runnable = program.pipe(
+  Effect.provide(resolveLayer<UserRepo | HttpClient>())
+);
+```
+
+Only layers from files in your import graph are considered — no global
+action-at-a-distance.
+
+#### Layer Dependency Resolution
+
+Layer wiring is built on a dependency graph. The `layer-graph` module defines a `layerGraphLike` — a `GraphLike` instance for the layer dependency graph — and uses `topoSortG` from `@typesugar/graph` to resolve the correct composition order. Cycles are detected via `detectCycles` before composition. Both `layerMake` and `resolveLayer` use this shared graph logic.
+
+#### Debug Tree
+
+Both approaches support `{ debug: true }` to emit the resolved wiring
+graph at compile time (like ZIO's `ZLayer.Debug.tree`):
+
+```typescript
+// See what the compiler resolved
+const appLayer = layerMake<UserRepo | HttpClient>(userRepoLive, databaseLive, httpClientLive, {
+  debug: true,
+});
+
+// Emits at compile time:
+// Layer Wiring Graph
+//
+// ◑ userRepoLive
+// ╰─◉ databaseLive
+// ◉ httpClientLive
+```
+
+#### When to Use Which
+
+| Approach            | Best for                                                           |
+| ------------------- | ------------------------------------------------------------------ |
+| `layerMake<R>(...)` | Tests, app entry points, when you want to see exactly what's wired |
+| `resolveLayer<R>()` | Large apps, rapid prototyping, when listing every layer is tedious |
+
+---
+
+## Rich Diagnostics
+
+### Service Resolution Errors
+
+When a program requires services that aren't provided:
+
+```
+error[EFFECT001]: No layer provides `UserRepo`
+  --> src/app.ts:15:5
+   |
+15 |   Effect.provide(program, appLayer)
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ requires UserRepo
+   |
+   = note: Effect<void, Error, UserRepo | Database> needs:
+           - UserRepo (no layer found)
+           - Database (provided by databaseLive at src/layers.ts:8)
+   = help: Add a layer with @layer(UserRepo)
+```
+
+### Layer Dependency Cycles
+
+Circular dependencies are detected at compile time:
+
+```
+error[EFFECT020]: Circular layer dependency detected
+  --> src/layers.ts
+   |
+   = note: Dependency cycle:
+           AuthService → UserRepo → Database → AuthService
+                                               ^^^^^^^^^^^ cycle
+   |
+ 5 | @layer(AuthService, { requires: [UserRepo] })
+   |        ^^^^^^^^^^^ depends on UserRepo
+12 | @layer(UserRepo, { requires: [Database] })
+   |        ^^^^^^^^ depends on Database
+18 | @layer(Database, { requires: [AuthService] })
+   |        ^^^^^^^^ depends on AuthService (creates cycle)
+```
+
+### Error Handler Completeness
+
+Warns when error handlers don't cover all error types:
+
+```
+warning[EFFECT010]: Error handler doesn't cover all error types
+  --> src/handler.ts:22:3
+   |
+22 |   Effect.catchTag("NotFound", () => Effect.succeed(null))
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: Unhandled: DbError, ValidationError
+           from getUser() at line 12, validateInput() at line 14
+   = help: Add handlers for DbError, ValidationError
+```
+
+### Schema Type Drift
+
+Detects when types and schemas diverge:
+
+```
+error[EFFECT030]: Schema `UserSchema` is out of sync with type `User`
+  --> src/models.ts:5:3
+   |
+ 5 |   email: string;  // field added to interface
+   |   ^^^^^ new field not in UserSchema
+   |
+   = help: Regenerate with @derive(EffectSchema) or update manually
+```
 
 ---
 
@@ -174,200 +390,6 @@ const validateFast = (input: unknown): User => {
 
 ---
 
-## Rich Diagnostics
-
-### Service Resolution Errors
-
-When a program requires services that aren't provided:
-
-```
-error[EFFECT001]: No layer provides `UserRepo`
-  --> src/app.ts:15:5
-   |
-15 |   Effect.provide(program, appLayer)
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ requires UserRepo
-   |
-   = note: Effect<void, Error, UserRepo | Database> needs:
-           - UserRepo (no layer found)
-           - Database (provided by databaseLive at src/layers.ts:8)
-   = help: Add a layer with @layer(UserRepo)
-```
-
-### Layer Dependency Cycles
-
-Circular dependencies are detected at compile time:
-
-```
-error[EFFECT020]: Circular layer dependency detected
-  --> src/layers.ts
-   |
-   = note: Dependency cycle:
-           AuthService → UserRepo → Database → AuthService
-                                               ^^^^^^^^^^^ cycle
-   |
- 5 | @layer(AuthService, { requires: [UserRepo] })
-   |        ^^^^^^^^^^^ depends on UserRepo
-12 | @layer(UserRepo, { requires: [Database] })
-   |        ^^^^^^^^ depends on Database
-18 | @layer(Database, { requires: [AuthService] })
-   |        ^^^^^^^^ depends on AuthService (creates cycle)
-```
-
-### Error Handler Completeness
-
-Warns when error handlers don't cover all error types:
-
-```
-warning[EFFECT010]: Error handler doesn't cover all error types
-  --> src/handler.ts:22:3
-   |
-22 |   Effect.catchTag("NotFound", () => Effect.succeed(null))
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: Unhandled: DbError, ValidationError
-           from getUser() at line 12, validateInput() at line 14
-   = help: Add handlers for DbError, ValidationError
-```
-
-### Schema Type Drift
-
-Detects when types and schemas diverge:
-
-```
-error[EFFECT030]: Schema `UserSchema` is out of sync with type `User`
-  --> src/models.ts:5:3
-   |
- 5 |   email: string;  // field added to interface
-   |   ^^^^^ new field not in UserSchema
-   |
-   = help: Regenerate with @derive(EffectSchema) or update manually
-```
-
----
-
-## Service & Layer System
-
-Beyond optimization, `@typesugar/effect` simplifies service definitions:
-
-### `@service` — Zero-Boilerplate Services
-
-```typescript
-import { service } from "@typesugar/effect";
-
-@service
-interface HttpClient {
-  get(url: string): Effect.Effect<Response, HttpError>;
-  post(url: string, body: unknown): Effect.Effect<Response, HttpError>;
-}
-
-// Generates:
-// - HttpClientTag (Context.Tag)
-// - HttpClient namespace with accessor functions
-```
-
-### `@layer` — Declarative Dependencies
-
-```typescript
-import { layer } from "@typesugar/effect";
-
-@layer(HttpClient)
-const httpClientLive = {
-  get: (url) => Effect.tryPromise(() => fetch(url)),
-  post: (url, body) => Effect.tryPromise(() =>
-    fetch(url, { method: "POST", body: JSON.stringify(body) })
-  ),
-};
-
-@layer(UserRepo, { requires: [Database] })
-const userRepoLive =
-let: {
-  db << Database;
-}
-yield: ({
-  findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`)
-});
-```
-
-### Layer Wiring — Two Approaches
-
-Inspired by ZIO's `ZLayer.make`, `@typesugar/effect` offers two ways to compose layers:
-
-#### `layerMake<R>(...)` — Explicit (ZIO-style)
-
-List the layer values explicitly. The compiler resolves the dependency graph:
-
-```typescript
-import { layerMake } from "@typesugar/effect";
-
-// You provide the ingredients, typesugar figures out the wiring
-const appLayer = layerMake<UserRepo | HttpClient>(
-  userRepoLive, // requires Database
-  databaseLive, // no requirements
-  httpClientLive // no requirements
-);
-
-// Compiles to:
-// Layer.merge(
-//   userRepoLive.pipe(Layer.provide(databaseLive)),
-//   httpClientLive
-// )
-```
-
-Missing dependencies produce clear errors:
-
-```
-error: Missing layers for:
-  - Database (required by userRepoLive)
-Add the missing layers to layerMake<R>() arguments.
-```
-
-#### `resolveLayer<R>()` — Implicit (from registered layers)
-
-The compiler resolves layers automatically from `@layer` registrations
-visible in your import scope:
-
-```typescript
-import { resolveLayer } from "@typesugar/effect";
-
-const program: Effect<void, Error, UserRepo | HttpClient> = ...;
-
-// Automatically finds and composes all required layers:
-const runnable = program.pipe(
-  Effect.provide(resolveLayer<UserRepo | HttpClient>())
-);
-```
-
-Only layers from files in your import graph are considered — no global
-action-at-a-distance.
-
-#### Debug Tree
-
-Both approaches support `{ debug: true }` to emit the resolved wiring
-graph at compile time (like ZIO's `ZLayer.Debug.tree`):
-
-```typescript
-// See what the compiler resolved
-const appLayer = layerMake<UserRepo | HttpClient>(userRepoLive, databaseLive, httpClientLive, {
-  debug: true,
-});
-
-// Emits at compile time:
-// Layer Wiring Graph
-//
-// ◑ userRepoLive
-// ╰─◉ databaseLive
-// ◉ httpClientLive
-```
-
-#### When to Use Which
-
-| Approach            | Best for                                                           |
-| ------------------- | ------------------------------------------------------------------ |
-| `layerMake<R>(...)` | Tests, app entry points, when you want to see exactly what's wired |
-| `resolveLayer<R>()` | Large apps, rapid prototyping, when listing every layer is tedious |
-
----
-
 ## Testing Utilities
 
 Mock Effect services with full type safety:
@@ -439,6 +461,18 @@ interface Point {
 
 ## API Reference
 
+### Service & Layer
+
+| Export                    | Description                                                 |
+| ------------------------- | ----------------------------------------------------------- |
+| `@service`                | Generate Context.Tag and accessors                          |
+| `@layer(Service, opts?)`  | Create layer with dependency tracking                       |
+| `layerMake<R>(...layers)` | ZIO-style explicit wiring from listed layers                |
+| `resolveLayer<R>(opts?)`  | Implicit wiring from `@layer` registrations in import scope |
+| `formatDebugTree()`       | Format resolved graph as a tree string                      |
+| `serviceRegistry`         | Registered services                                         |
+| `layerRegistry`           | Registered layers                                           |
+
 ### Zero-Cost Macros
 
 | Macro                      | Description                                       |
@@ -463,18 +497,6 @@ interface Point {
 | EFFECT021 | Layer Dependency    | info     | Unused layer in composition          |
 | EFFECT030 | Schema Drift        | error    | Schema/type drift detected           |
 | EFFECT040 | Type Simplification | info     | Type could be simplified             |
-
-### Service & Layer
-
-| Export                    | Description                                                 |
-| ------------------------- | ----------------------------------------------------------- |
-| `@service`                | Generate Context.Tag and accessors                          |
-| `@layer(Service, opts?)`  | Create layer with dependency tracking                       |
-| `layerMake<R>(...layers)` | ZIO-style explicit wiring from listed layers                |
-| `resolveLayer<R>(opts?)`  | Implicit wiring from `@layer` registrations in import scope |
-| `formatDebugTree()`       | Format resolved graph as a tree string                      |
-| `serviceRegistry`         | Registered services                                         |
-| `layerRegistry`           | Registered layers                                           |
 
 ### Testing
 

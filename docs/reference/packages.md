@@ -240,7 +240,11 @@ FlatMap;
 registerFlatMap();
 
 // Standard typeclasses
-(Eq, Ord, Show, Semigroup, Monoid);
+(Eq, Ord, Show, Hash, Semigroup, Monoid);
+
+// Hash instances and combinators
+(hashNumber, hashString, hashBoolean, hashBigInt, hashDate);
+(makeHash, hashBy, hashArray);
 ```
 
 **Inspired by:** Scala 3 extension methods, Rust derives, Kotlin stdlib
@@ -624,6 +628,13 @@ digraph`...`; // tagged template
 (topoSort(), bfs(), dfs(), dijkstra());
 (stronglyConnectedComponents(), detectCycles());
 (defineStateMachine(), verify());
+
+// GraphLike typeclass
+(GraphLike, WeightedGraphLike);
+(graphLike, weightedGraphLike);
+
+// Generic algorithms (parameterized over GraphLike + Eq + Hash)
+(topoSortG, hasCyclesG, bfsG, dfsG, reachableG, hasPathG, shortestPathG, dijkstraWithG, sccG);
 ```
 
 **Inspired by:** Boost.Graph
@@ -671,6 +682,42 @@ generateMigrations();
 **Inspired by:** serde, Boost.Serialization, Protocol Buffers
 
 [Guide](/guides/codec)
+
+### @typesugar/collections {#collections}
+
+Collection typeclasses and hash-based data structures.
+
+```bash
+npm install @typesugar/collections
+```
+
+**Exports:**
+
+```typescript
+// Typeclasses
+(IterableOnce, Iterable, Seq, SetLike, MapLike);
+(PersistentSetLike, PersistentMapLike, MutableSetLike, MutableMapLike);
+
+// Data structures
+(HashSet, HashMap);
+
+// Instances
+(arrayIterableOnce, arrayIterable, arraySeq, arraySeqOf);
+(nativeSetLike, nativeMutableSetLike, nativeMapLike, nativeMutableMapLike);
+(stringIterable, stringSeq);
+(hashSetLike, hashMutableSetLike, hashMapLike, hashMutableMapLike);
+(mutableSetFor, mutableMapFor);
+
+// Derived operations
+(forEach, toArray, find, exists, forAll, count, sum);
+(head, last, take, drop, sorted, seqContains);
+(union, intersection, difference, isSubsetOf);
+(getOrElse, mapValues, filterEntries, mapEntries);
+```
+
+**Inspired by:** Scala collections, Haskell Data.Set/Data.Map, Rust std::collections
+
+[Guide](/guides/collections)
 
 ### @typesugar/math {#math}
 
@@ -764,12 +811,21 @@ npm install @typesugar/effect effect
 **Exports:**
 
 ```typescript
+// Service & Layer (primary)
 service(); // decorator
 layer(); // decorator
-resolveLayer<R>();
-(EffectSchema, EffectEqual, EffectHash); // derives
-(EffectExt, OptionExt, EitherExt); // extensions
-(effectFunctor, effectMonad); // typeclass instances
+layerMake<R>(); // ZIO-style explicit wiring
+resolveLayer<R>(); // implicit wiring from import scope
+formatDebugTree(); // resolved graph visualization
+
+// Derives
+(EffectSchema, EffectEqual, EffectHash);
+
+// Extensions
+(EffectExt, OptionExt, EitherExt);
+
+// Typeclass instances
+(effectFunctor, effectMonad);
 ```
 
 **Inspired by:** Scala ZIO

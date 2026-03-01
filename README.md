@@ -90,26 +90,27 @@ alice.toJson(); // JSON serialization
 
 ### Data Structures & Algorithms
 
-| Package                                  | Description                                     |
-| ---------------------------------------- | ----------------------------------------------- |
-| [@typesugar/fp](packages/fp)             | Option, Either, IO, Result, List                |
-| [@typesugar/hlist](packages/hlist)       | Heterogeneous lists (Boost.Fusion)              |
-| [@typesugar/fusion](packages/fusion)     | Iterator fusion, expression templates (Blitz++) |
-| [@typesugar/parser](packages/parser)     | PEG parser generation (Boost.Spirit)            |
-| [@typesugar/graph](packages/graph)       | Graph algorithms, state machines (Boost.Graph)  |
-| [@typesugar/erased](packages/erased)     | Type erasure / dyn Trait                        |
-| [@typesugar/codec](packages/codec)       | Versioned codecs, schema evolution              |
-| [@typesugar/math](packages/math)         | Math types and typeclasses                      |
-| [@typesugar/mapper](packages/mapper)     | Zero-cost object mapping                        |
-| [@typesugar/symbolic](packages/symbolic) | Symbolic math, calculus, simplification         |
+| Package                                        | Description                                     |
+| ---------------------------------------------- | ----------------------------------------------- |
+| [@typesugar/fp](packages/fp)                   | Option, Either, IO, Result, List                |
+| [@typesugar/hlist](packages/hlist)             | Heterogeneous lists (Boost.Fusion)              |
+| [@typesugar/fusion](packages/fusion)           | Iterator fusion, expression templates (Blitz++) |
+| [@typesugar/parser](packages/parser)           | PEG parser generation (Boost.Spirit)            |
+| [@typesugar/collections](packages/collections) | Collection typeclasses, HashSet, HashMap        |
+| [@typesugar/graph](packages/graph)             | GraphLike typeclass, algorithms, state machines |
+| [@typesugar/erased](packages/erased)           | Type erasure / dyn Trait                        |
+| [@typesugar/codec](packages/codec)             | Versioned codecs, schema evolution              |
+| [@typesugar/math](packages/math)               | Math types and typeclasses                      |
+| [@typesugar/mapper](packages/mapper)           | Zero-cost object mapping                        |
+| [@typesugar/symbolic](packages/symbolic)       | Symbolic math, calculus, simplification         |
 
 ### Ecosystem Integrations
 
-| Package                              | Description                 |
-| ------------------------------------ | --------------------------- |
-| [@typesugar/effect](packages/effect) | Effect-TS adapter           |
-| [@typesugar/react](packages/react)   | Vue/Svelte-style reactivity |
-| [@typesugar/sql](packages/sql)       | Doobie-like SQL DSL         |
+| Package                              | Description                              |
+| ------------------------------------ | ---------------------------------------- |
+| [@typesugar/effect](packages/effect) | Effect-TS services, layers, optimization |
+| [@typesugar/react](packages/react)   | Vue/Svelte-style reactivity              |
+| [@typesugar/sql](packages/sql)       | Doobie-like SQL DSL                      |
 
 ### Developer Experience
 
