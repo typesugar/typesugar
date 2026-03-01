@@ -146,6 +146,109 @@ export function eqArray<A>(E: Eq<A>): Eq<A[]> {
 }
 
 // ============================================================================
+// Hash — Haskell Hashable, Rust Hash, Scala hashCode, Swift Hashable
+// Types that can produce a hash value for use in hash-based collections.
+// ============================================================================
+
+/**
+ * Hash typeclass - types that can be hashed for use in HashMap/HashSet.
+ *
+ * Law:
+ * - Consistency with Eq: `Eq.equals(a, b) => Hash.hash(a) === Hash.hash(b)`
+ *   (equal values MUST have equal hashes; unequal values MAY collide)
+ *
+ * @typeclass
+ */
+export interface Hash<A> {
+  hash(a: A): number;
+}
+typeclass("Hash");
+
+export const hashNumber: Hash<number> = {
+  hash: (a) => a | 0,
+};
+registerInstanceWithMeta({
+  typeclassName: "Hash",
+  forType: "number",
+  instanceName: "hashNumber",
+  derived: false,
+});
+
+export const hashString: Hash<string> = {
+  hash: (a) => {
+    let h = 5381;
+    for (let i = 0; i < a.length; i++) h = ((h << 5) + h + a.charCodeAt(i)) | 0;
+    return h;
+  },
+};
+registerInstanceWithMeta({
+  typeclassName: "Hash",
+  forType: "string",
+  instanceName: "hashString",
+  derived: false,
+});
+
+export const hashBoolean: Hash<boolean> = {
+  hash: (a) => (a ? 1 : 0),
+};
+registerInstanceWithMeta({
+  typeclassName: "Hash",
+  forType: "boolean",
+  instanceName: "hashBoolean",
+  derived: false,
+});
+
+export const hashBigInt: Hash<bigint> = {
+  hash: (a) => Number(a & 0x7fffffffn) | 0,
+};
+registerInstanceWithMeta({
+  typeclassName: "Hash",
+  forType: "bigint",
+  instanceName: "hashBigInt",
+  derived: false,
+});
+
+export const hashDate: Hash<Date> = {
+  hash: (a) => a.getTime() | 0,
+};
+registerInstanceWithMeta({
+  typeclassName: "Hash",
+  forType: "Date",
+  instanceName: "hashDate",
+  derived: false,
+});
+
+/**
+ * Create a Hash instance from a custom hash function.
+ */
+export function makeHash<A>(hash: (a: A) => number): Hash<A> {
+  return { hash };
+}
+
+/**
+ * Create a Hash instance by mapping to a hashable value.
+ */
+export function hashBy<A, B>(f: (a: A) => B, H: Hash<B>): Hash<A> {
+  return { hash: (a) => H.hash(f(a)) };
+}
+
+/**
+ * Hash for arrays (combines element hashes).
+ */
+export function hashArray<A>(H: Hash<A>): Hash<A[]> {
+  return {
+    hash: (arr) => {
+      let h = 0x811c9dc5;
+      for (let i = 0; i < arr.length; i++) {
+        h ^= H.hash(arr[i]);
+        h = (h * 0x01000193) | 0;
+      }
+      return h;
+    },
+  };
+}
+
+// ============================================================================
 // Ord — Haskell Ord, Rust Ord, Scala Ordering
 // Types supporting total ordering.
 // ============================================================================
