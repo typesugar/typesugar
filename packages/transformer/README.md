@@ -122,17 +122,20 @@ npx typesugar expand src/file.ts
 
 # Run a file directly (like ts-node but with macros)
 npx typesugar run src/script.ts
+
+# Run with cache (useful when iterating)
+npx typesugar run src/script.ts --cache
 ```
 
 ### CLI Options
 
-| Option            | Description                                                                    |
-| ----------------- | ------------------------------------------------------------------------------ |
-| `--cache [dir]`   | Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`) |
-| `--no-cache`      | Disable disk cache                                                             |
-| `--strict`        | Typecheck expanded output (catches macro bugs)                                 |
-| `--verbose`, `-v` | Enable verbose logging                                                         |
-| `--project`, `-p` | Path to tsconfig.json                                                          |
+| Option            | Description                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `--cache [dir]`   | Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`) [build/run] |
+| `--no-cache`      | Disable disk cache                                                                         |
+| `--strict`        | Typecheck expanded output (catches macro bugs) [build/check]                               |
+| `--verbose`, `-v` | Enable verbose logging                                                                     |
+| `--project`, `-p` | Path to tsconfig.json                                                                      |
 
 See [Performance Architecture](../../docs/PERFORMANCE.md) for details on caching and optimization.
 

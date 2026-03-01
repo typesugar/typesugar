@@ -184,9 +184,9 @@ COMMANDS:
 OPTIONS:
   -p, --project <path>   Path to tsconfig.json (default: tsconfig.json)
   -v, --verbose          Enable verbose logging
-  --cache [dir]          Enable disk cache (default: .typesugar-cache/transforms)
+  --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
-  --strict               Typecheck expanded output (catches macro bugs)
+  --strict               Typecheck expanded output (catches macro bugs) [build/check]
   -h, --help             Show this help message
 
 EXPAND OPTIONS:
@@ -204,12 +204,15 @@ CREATE TEMPLATES:
 
 EXAMPLES:
   typesugar build
+  typesugar build --cache                      # Enable disk cache
   typesugar build --project tsconfig.build.json
+  typesugar build --strict                     # Typecheck expanded output
   typesugar watch --verbose
-  typesugar check
+  typesugar check --strict
   typesugar expand src/main.ts
   typesugar expand src/main.ts --diff
   typesugar run examples/showcase.ts
+  typesugar run examples/showcase.ts --cache   # Cache for repeated runs
   typesugar init
   typesugar doctor
   typesugar create app my-app
@@ -750,8 +753,31 @@ async function run(options: CliOptions): Promise<void> {
     console.log(`🧊 Running ${filePath}...`);
   }
 
-  // Transform using the two-stage pipeline
-  const transformedCode = transformFile(filePath, config, { verbose: options.verbose });
+  let transformedCode: string;
+
+  // Use pipeline with caching if --cache is enabled
+  if (options.cache) {
+    // Initialize hasher for faster content hashing
+    await initHasher();
+
+    // Create pipeline for just this file (works even if file isn't in tsconfig)
+    const fileContent = fs.readFileSync(filePath, "utf-8");
+    const pipeline = new TransformationPipeline(config.options, [filePath], {
+      verbose: options.verbose,
+      diskCache: options.cache,
+      readFile: (f) => (f === filePath ? fileContent : ts.sys.readFile(f)),
+      fileExists: (f) => (f === filePath ? true : ts.sys.fileExists(f)),
+    });
+
+    const result = pipeline.transform(filePath);
+    transformedCode = result.code;
+
+    // Save caches for next run
+    pipeline.cleanup();
+  } else {
+    // Original direct transform (no caching)
+    transformedCode = transformFile(filePath, config, { verbose: options.verbose });
+  }
 
   // Bundle with esbuild (handles TS transpilation and dependency resolution)
   const esbuild = await import("esbuild");

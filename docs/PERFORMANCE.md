@@ -98,6 +98,9 @@ typesugar build --cache /tmp/typesugar-cache
 
 # Disable explicitly
 typesugar build --no-cache
+
+# Also works for `run` - useful when iterating on a script
+typesugar run examples/showcase.ts --cache
 ```
 
 **Vite (unplugin):**
