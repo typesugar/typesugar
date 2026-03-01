@@ -1,52 +1,273 @@
 # @typesugar/effect
 
-> Deep Effect-TS integration with typesugar's compile-time macro system.
+> Make Effect-TS faster at compile time. Rich diagnostics. Zero runtime cost.
 
-## Overview
+## Why @typesugar/effect?
 
-`@typesugar/effect` provides comprehensive integration between typesugar and Effect-TS:
+Effect-TS provides structured concurrency, typed errors, and dependency injection — but these abstractions have runtime overhead:
 
-- **@service** — Zero-boilerplate service definitions with Context.Tag generation
-- **@layer** — Declarative dependency injection with automatic registration
-- **resolveLayer<R>()** — Automatic layer composition from dependency graph
-- **Enhanced do-notation** — `let:/yield:` syntax with proper E/R type inference
-- **@derive macros** — Auto-generate Schema, Equal, Hash implementations
-- **Extension methods** — Fluent API for Effect types
-- **Typeclass instances** — Bridge Effect to typesugar's generic FP typeclasses
+- **Generator protocol** in `Effect.gen` creates iterator objects and calls `.next()`
+- **Combinator trees** in Schema walk nested structures at runtime
+- **Pipeline chains** allocate intermediate Effect objects
+
+`@typesugar/effect` eliminates this overhead **at compile time**, while providing Rust-quality error messages when something goes wrong.
+
+### What You Get
+
+```typescript
+// Before: Generator overhead, intermediate allocations
+const program = Effect.gen(function* () {
+  const user = yield* getUser(id);
+  const posts = yield* getPosts(user.id);
+  return { user, posts };
+});
+
+// After @compiled: Direct flatMap chain, no generator object
+const program = Effect.flatMap(getUser(id), (user) =>
+  Effect.map(getPosts(user.id), (posts) => ({ user, posts }))
+);
+```
+
+```
+// Clear error messages when layers are missing:
+error[EFFECT001]: No layer provides `UserRepo`
+  --> src/app.ts:15:5
+   |
+15 |   const result = program.pipe(Effect.provide(appLayer))
+   |                  ^^^^^^^ requires UserRepo
+   |
+   = note: Effect<void, Error, UserRepo | Database> needs layers for:
+           - UserRepo (no layer found)
+           - Database (provided by `databaseLive` at src/layers.ts:8)
+   = help: Add a layer:
+           @layer(UserRepo) const userRepoLive = { ... }
+```
 
 ## Installation
 
 ```bash
-npm install @typesugar/effect
+npm install @typesugar/effect effect
 # or
-pnpm add @typesugar/effect
+pnpm add @typesugar/effect effect
 ```
 
-Requires Effect-TS as a peer dependency:
+**Build tooling required**: `@typesugar/effect` runs as a TypeScript compiler plugin. You'll need to configure the transformer in your build tool (Vite, esbuild, webpack) and the language service plugin for IDE support. For teams with existing build systems this is straightforward, but it's not zero-configuration.
 
-```bash
-npm install effect
+---
+
+## Zero-Cost Optimizations
+
+### `@compiled` — Eliminate Generator Overhead
+
+The `@compiled` decorator transforms `Effect.gen` calls into direct `flatMap` chains:
+
+```typescript
+import { compiled } from "@typesugar/effect";
+
+class UserService {
+  @compiled
+  getWithPosts(id: string) {
+    return Effect.gen(function* () {
+      const user = yield* getUser(id);
+      const posts = yield* getPosts(user.id);
+      return { user, posts };
+    });
+  }
+}
+
+// Compiles to:
+class UserService {
+  getWithPosts(id: string) {
+    return Effect.flatMap(getUser(id), (user) =>
+      Effect.map(getPosts(user.id), (posts) => ({ user, posts }))
+    );
+  }
+}
 ```
 
-## Quick Start
+Or use `compileGen()` directly:
 
-### @service — Define Services
+```typescript
+import { compileGen } from "@typesugar/effect";
+
+const program = compileGen(Effect.gen(function* () {
+  const x = yield* getX();
+  const y = yield* getY(x);
+  return x + y;
+}));
+```
+
+### `@fused` — Pipeline Fusion
+
+The `@fused` decorator detects and fuses consecutive Effect operations:
+
+```typescript
+import { fused } from "@typesugar/effect";
+
+class DataPipeline {
+  @fused
+  process(data: Data) {
+    return pipe(
+      getData(data),
+      Effect.map(parse),
+      Effect.map(validate),
+      Effect.map(transform),
+    );
+  }
+}
+
+// Compiles to (map∘map fusion):
+class DataPipeline {
+  process(data: Data) {
+    return pipe(
+      getData(data),
+      Effect.map((x) => transform(validate(parse(x)))),
+    );
+  }
+}
+```
+
+Fusion rules applied:
+- `map(map(fa, f), g)` → `map(fa, x => g(f(x)))`
+- `flatMap(succeed(a), f)` → `f(a)`
+- `flatMap(map(fa, f), g)` → `flatMap(fa, x => g(f(x)))`
+
+### `specializeSchema` — Compile-Time Validation
+
+Generate specialized validators from Effect Schema at compile time:
+
+```typescript
+import { specializeSchema } from "@typesugar/effect";
+import { Schema } from "effect";
+
+const UserSchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  age: Schema.Number,
+});
+
+// Generic combinator walk at runtime
+const validateSlow = Schema.decodeSync(UserSchema);
+
+// Direct field checks, no combinator overhead
+const validateFast = specializeSchema(UserSchema);
+```
+
+The specialized validator compiles to direct type checks:
+
+```typescript
+const validateFast = (input: unknown): User => {
+  if (typeof input !== "object" || input === null) {
+    throw new Error("Expected object");
+  }
+  const obj = input as Record<string, unknown>;
+  if (typeof obj.id !== "string") {
+    throw new Error("Field 'id': expected string");
+  }
+  if (typeof obj.name !== "string") {
+    throw new Error("Field 'name': expected string");
+  }
+  if (typeof obj.age !== "number") {
+    throw new Error("Field 'age': expected number");
+  }
+  return input as User;
+};
+```
+
+---
+
+## Rich Diagnostics
+
+### Service Resolution Errors
+
+When a program requires services that aren't provided:
+
+```
+error[EFFECT001]: No layer provides `UserRepo`
+  --> src/app.ts:15:5
+   |
+15 |   Effect.provide(program, appLayer)
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ requires UserRepo
+   |
+   = note: Effect<void, Error, UserRepo | Database> needs:
+           - UserRepo (no layer found)
+           - Database (provided by databaseLive at src/layers.ts:8)
+   = help: Add a layer with @layer(UserRepo)
+```
+
+### Layer Dependency Cycles
+
+Circular dependencies are detected at compile time:
+
+```
+error[EFFECT020]: Circular layer dependency detected
+  --> src/layers.ts
+   |
+   = note: Dependency cycle:
+           AuthService → UserRepo → Database → AuthService
+                                               ^^^^^^^^^^^ cycle
+   |
+ 5 | @layer(AuthService, { requires: [UserRepo] })
+   |        ^^^^^^^^^^^ depends on UserRepo
+12 | @layer(UserRepo, { requires: [Database] })
+   |        ^^^^^^^^ depends on Database
+18 | @layer(Database, { requires: [AuthService] })
+   |        ^^^^^^^^ depends on AuthService (creates cycle)
+```
+
+### Error Handler Completeness
+
+Warns when error handlers don't cover all error types:
+
+```
+warning[EFFECT010]: Error handler doesn't cover all error types
+  --> src/handler.ts:22:3
+   |
+22 |   Effect.catchTag("NotFound", () => Effect.succeed(null))
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: Unhandled: DbError, ValidationError
+           from getUser() at line 12, validateInput() at line 14
+   = help: Add handlers for DbError, ValidationError
+```
+
+### Schema Type Drift
+
+Detects when types and schemas diverge:
+
+```
+error[EFFECT030]: Schema `UserSchema` is out of sync with type `User`
+  --> src/models.ts:5:3
+   |
+ 5 |   email: string;  // field added to interface
+   |   ^^^^^ new field not in UserSchema
+   |
+   = help: Regenerate with @derive(EffectSchema) or update manually
+```
+
+---
+
+## Service & Layer System
+
+Beyond optimization, `@typesugar/effect` simplifies service definitions:
+
+### `@service` — Zero-Boilerplate Services
 
 ```typescript
 import { service } from "@typesugar/effect";
 
 @service
 interface HttpClient {
-  get(url: string): Effect.Effect<Response, HttpError>
-  post(url: string, body: unknown): Effect.Effect<Response, HttpError>
+  get(url: string): Effect.Effect<Response, HttpError>;
+  post(url: string, body: unknown): Effect.Effect<Response, HttpError>;
 }
 
 // Generates:
-// - HttpClientTag (Context.Tag class)
-// - HttpClient.get, HttpClient.post (accessor functions)
+// - HttpClientTag (Context.Tag)
+// - HttpClient namespace with accessor functions
 ```
 
-### @layer — Define Layers
+### `@layer` — Declarative Dependencies
 
 ```typescript
 import { layer } from "@typesugar/effect";
@@ -54,156 +275,179 @@ import { layer } from "@typesugar/effect";
 @layer(HttpClient)
 const httpClientLive = {
   get: (url) => Effect.tryPromise(() => fetch(url)),
-  post: (url, body) => Effect.tryPromise(() => fetch(url, { method: "POST", body })),
+  post: (url, body) => Effect.tryPromise(() =>
+    fetch(url, { method: "POST", body: JSON.stringify(body) })
+  ),
 };
-// Generates: Layer.succeed(HttpClientTag, { ... })
 
 @layer(UserRepo, { requires: [Database] })
 const userRepoLive =
 let: {
   db << Database;
 }
-yield: ({ findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`) })
-// Generates: Layer.effect(UserRepoTag, ...)
-// + registers dependency for automatic resolution
+yield: ({
+  findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`)
+});
 ```
 
-### resolveLayer<R>() — Automatic Layer Composition
+### `resolveLayer<R>()` — Automatic Composition
 
 ```typescript
 import { resolveLayer } from "@typesugar/effect";
 
 const program: Effect<void, Error, UserRepo | HttpClient> = ...;
 
-// Automatically resolve and compose all required layers:
+// Automatically resolves and composes all required layers:
 const runnable = program.pipe(
   Effect.provide(resolveLayer<UserRepo | HttpClient>())
 );
 ```
 
-### Do-Notation with E/R Inference
+---
+
+## Testing Utilities
+
+Mock Effect services with full type safety:
 
 ```typescript
-// Error and requirement types are correctly accumulated:
+import { mockService, testLayer, assertCalled } from "@typesugar/effect";
+
+// Create typed mock
+const mockUserRepo = mockService<UserRepo>({
+  getUser: (id) => Effect.succeed({ id, name: "Test User" }),
+});
+
+// Override for specific test
+mockUserRepo.getUser.mockImplementation(() =>
+  Effect.fail(new NotFound())
+);
+
+// Create test layer
+const TestUserRepo = testLayer(UserRepo, mockUserRepo);
+
+// Run test
+const result = await Effect.runPromise(
+  pipe(program, Effect.provide(TestUserRepo))
+);
+
+// Verify calls
+assertCalled(mockUserRepo, "getUser", ["123"]);
+```
+
+---
+
+## Do-Notation
+
+Enhanced do-notation with proper E/R type inference:
+
+```typescript
+// Error and requirement types accumulate correctly:
 let: {
-  user << getUserById(id); // Effect<User, NotFound, UserRepo>
-  posts << getPostsForUser(user.id); // Effect<Post[], DbError, PostRepo>
+  user << getUserById(id);  // Effect<User, NotFound, UserRepo>
+  posts << getPosts(user.id); // Effect<Post[], DbError, PostRepo>
 }
 yield: ({ user, posts });
 
-// Result type: Effect<{ user: User, posts: Post[] }, NotFound | DbError, UserRepo | PostRepo>
+// Result: Effect<{ user, posts }, NotFound | DbError, UserRepo | PostRepo>
 ```
 
-### @derive Macros
+---
+
+## Derive Macros
+
+Auto-generate Effect implementations:
 
 ```typescript
 import { EffectSchema, EffectEqual, EffectHash } from "@typesugar/effect";
 
 @derive(EffectSchema)
-interface User { id: string; name: string; age: number; }
+interface User {
+  id: string;
+  name: string;
+  age: number;
+}
 // Generates: export const UserSchema = Schema.Struct({ ... })
 
-@derive(EffectEqual)
-interface Point { x: number; y: number; }
-// Generates: export const PointEqual: Equal.Equal<Point> = { ... }
-
-@derive(EffectHash)
-interface Point { x: number; y: number; }
-// Generates: export const PointHash: Hash.Hash<Point> = { ... }
+@derive(EffectEqual, EffectHash)
+interface Point {
+  x: number;
+  y: number;
+}
+// Generates: PointEqual and PointHash implementations
 ```
 
-### Extension Methods
-
-```typescript
-import { EffectExt, OptionExt, EitherExt } from "@typesugar/effect";
-
-// Fluent method chaining (transformer rewrites to direct calls)
-effect
-  .map((x) => x + 1)
-  .flatMap((x) => Effect.succeed(x * 2))
-  .tap((x) => Effect.log(`Got: ${x}`))
-  .orElseSucceed(() => 0);
-```
-
-### Typeclass Instances
-
-```typescript
-import { effectFunctor, effectMonad, effectMonadError, chunkFoldable } from "@typesugar/effect";
-
-// Use with generic FP functions
-const mapped = genericMap(effectFunctor<never, never>(), effect, f);
-```
+---
 
 ## API Reference
 
-### Attribute Macros
+### Zero-Cost Macros
 
-| Macro                    | Description                                                  |
-| ------------------------ | ------------------------------------------------------------ |
-| `@service`               | Generate Context.Tag and accessor namespace for an interface |
-| `@layer(Service, opts?)` | Wrap a const in Layer.succeed/effect/scoped                  |
-| `@derive(EffectSchema)`  | Generate Effect Schema.Struct for a type                     |
-| `@derive(EffectEqual)`   | Generate Equal.Equal instance for a type                     |
-| `@derive(EffectHash)`    | Generate Hash.Hash instance for a type                       |
+| Macro | Description |
+| --- | --- |
+| `@compiled` | Transform `Effect.gen` to direct `flatMap` chains |
+| `compileGen()` | Expression-level generator compilation |
+| `@fused` | Fuse consecutive Effect operations |
+| `fusePipeline()` | Expression-level pipeline fusion |
+| `specializeSchema()` | Compile Schema to direct validation |
+| `specializeSchemaUnsafe()` | Compile Schema without error wrapping |
 
-### Expression Macros
+### Diagnostics
 
-| Macro               | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| `resolveLayer<R>()` | Automatically compose layers for requirements R |
+| Code | Category | Severity | Description |
+| --- | --- | --- | --- |
+| EFFECT001 | Service Resolution | error | No layer provides required service |
+| EFFECT002 | Service Resolution | error | Layer provides wrong service type |
+| EFFECT003 | Service Resolution | warning | Multiple layers provide same service |
+| EFFECT010 | Error Completeness | warning | Unhandled error types |
+| EFFECT011 | Error Completeness | info | Redundant error handler |
+| EFFECT020 | Layer Dependency | error | Circular layer dependency |
+| EFFECT021 | Layer Dependency | info | Unused layer in composition |
+| EFFECT030 | Schema Drift | error | Schema/type drift detected |
+| EFFECT040 | Type Simplification | info | Type could be simplified |
 
-### Registries
+### Service & Layer
 
-| Export                      | Description                        |
-| --------------------------- | ---------------------------------- |
-| `serviceRegistry`           | Map of registered services         |
-| `layerRegistry`             | Map of registered layers           |
-| `registerService(info)`     | Manually register a service        |
-| `registerLayer(info)`       | Manually register a layer          |
-| `getService(name)`          | Look up service metadata           |
-| `getLayer(name)`            | Look up layer metadata             |
-| `getLayersForService(name)` | Get all layers providing a service |
+| Export | Description |
+| --- | --- |
+| `@service` | Generate Context.Tag and accessors |
+| `@layer(Service, opts?)` | Create layer with dependency tracking |
+| `resolveLayer<R>()` | Auto-compose layers for requirements |
+| `serviceRegistry` | Registered services |
+| `layerRegistry` | Registered layers |
 
-### Extension Namespaces
+### Testing
 
-| Export      | Description                           |
-| ----------- | ------------------------------------- |
-| `EffectExt` | Extension methods for Effect.Effect   |
-| `OptionExt` | Extension methods for Effect's Option |
-| `EitherExt` | Extension methods for Effect's Either |
+| Export | Description |
+| --- | --- |
+| `mockService<T>()` | Create typed mock with call tracking |
+| `testLayer(tag, mock)` | Create test layer from mock |
+| `combineLayers(...layers)` | Combine test layers |
+| `assertCalled(mock, method)` | Verify method was called |
+| `assertNotCalled(mock, method)` | Verify method was not called |
+| `assertCalledTimes(mock, method, n)` | Verify call count |
 
-### Typeclass Instances
+### Derive Macros
 
-| Export                      | Description                   |
-| --------------------------- | ----------------------------- |
-| `effectFunctor<E, R>()`     | Functor for Effect.Effect     |
-| `effectApplicative<E, R>()` | Applicative for Effect.Effect |
-| `effectMonad<E, R>()`       | Monad for Effect.Effect       |
-| `effectMonadError<E, R>()`  | MonadError for Effect.Effect  |
-| `chunkFunctor`              | Functor for Chunk             |
-| `chunkFoldable`             | Foldable for Chunk            |
-| `chunkTraverse`             | Traverse for Chunk            |
-| `effectOptionFunctor`       | Functor for Option            |
-| `effectOptionMonad`         | Monad for Option              |
-| `effectEitherFunctor<E>()`  | Functor for Either            |
-| `effectEitherMonad<E>()`    | Monad for Either              |
+| Export | Description |
+| --- | --- |
+| `@derive(EffectSchema)` | Generate Schema.Struct |
+| `@derive(EffectEqual)` | Generate Equal instance |
+| `@derive(EffectHash)` | Generate Hash instance |
 
-### HKT Types
+---
 
-| Export                   | Description                    |
-| ------------------------ | ------------------------------ |
-| `EffectF<E, R>`          | HKT for Effect.Effect          |
-| `ChunkF`                 | HKT for Chunk                  |
-| `EffectOptionF<E, R>`    | HKT for Effect wrapping Option |
-| `EffectEitherF<L, E, R>` | HKT for Effect wrapping Either |
-| `StreamF<E, R>`          | HKT for Stream                 |
+## How It Works
 
-## Vision
+`@typesugar/effect` uses TypeScript's compiler API to:
 
-See the [Effect Integration Vision Doc](../../docs/vision/effect-integration.md) for the full design including:
+1. **Analyze** Effect patterns at compile time
+2. **Transform** abstractions into direct code
+3. **Emit** diagnostics with source locations and suggestions
+4. **Preserve** Effect's runtime semantics (fibers, interruption, scheduling)
 
-- Track 1: Deep Effect-TS integration (current implementation)
-- Track 2: Fx compile-away system (future)
+The optimization removes **abstraction overhead** while keeping **runtime behavior** intact. Your code runs on Effect's full fiber runtime — just faster.
+
+---
 
 ## License
 

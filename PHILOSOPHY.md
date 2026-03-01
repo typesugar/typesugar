@@ -82,7 +82,7 @@ TypeScript's type system is more capable than it appears. Before reaching for co
 
 ### The HKT lesson
 
-HKT encoding in typesugar has evolved through three generations, each simpler than the last.
+HKT (Higher-Kinded Types) encoding in typesugar has evolved through three generations, each simpler than the last.
 
 **First generation** (URI branding -- fp-ts style):
 
@@ -140,6 +140,26 @@ interface Functor<F> {
 ```
 
 **Lesson**: Each generation fought TypeScript less. The current design is just an intersection type -- the simplest possible encoding. Complex encodings usually mean we're fighting the language instead of using it.
+
+### The Build-Tooling Trade-off
+
+typesugar's `F<_>` syntax is cleaner than fp-ts or Effect-TS's HKT encodings, but it comes with a trade-off: **it requires build tooling**.
+
+Libraries like fp-ts and Effect-TS work in vanilla TypeScript with no preprocessing. Their HKT encodings are more verbose, but:
+
+- They work in the TypeScript playground
+- They require no build configuration
+- They integrate with any TypeScript toolchain out of the box
+
+typesugar's HKT requires a preprocessor to transform `F<_>` syntax into valid TypeScript. This is simpler to _write_ but harder to _adopt_. Users must configure:
+
+- The preprocessor in their build tool (Vite, esbuild, webpack, etc.)
+- The language service plugin for IDE support
+- The transformer for `tsc` (via ts-patch or ttypescript)
+
+For most production codebases with existing build systems, this integration is straightforward. But it's not zero-configuration -- there's a setup cost.
+
+**Honest assessment**: typesugar's HKT syntax is more ergonomic than alternatives, but it's not strictly superior. It's a trade-off between author-time ergonomics and adoption friction. fp-ts's URI branding works everywhere; typesugar's `F<_>` requires tooling.
 
 ---
 
