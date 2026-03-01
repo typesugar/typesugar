@@ -96,35 +96,35 @@ This module provides three levels of type branding:
 
 ### Higher-Kinded Types (HKT)
 
-Type constructors as type parameters via indexed-access encoding.
+Type constructors as type parameters via phantom kind markers.
 
 ```typescript
-import { type $, type Kind, type ArrayF, type PromiseF } from "@typesugar/type-system";
+import { type $, type Kind, type TypeFunction, type ArrayF, type PromiseF } from "@typesugar/type-system";
 
 // F is a type constructor (Array, Promise, etc.)
-interface Functor<F extends Kind> {
-  map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
+interface Functor<F> {
+  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
 }
 
-// Apply a type constructor
-type Result = $<ArrayF, number>; // number[]
-type AsyncResult = $<PromiseF, string>; // Promise<string>
+// Apply a type constructor — preprocessor resolves known type functions
+type Result = Kind<ArrayF, number>; // → number[]
+type AsyncResult = Kind<PromiseF, string>; // → Promise<string>
 ```
 
 #### Warning: Phantom HKT Types
 
 When defining your own type-level functions for HKT, the `_` property **must** reference
-`this["_"]` to be sound. If `$<F, A>` always resolves to the same type regardless of `A`,
-the HKT encoding is phantom/unsound.
+`this["__kind__"]` to be sound. If `Kind<F, A>` always resolves to the same type regardless
+of `A`, the HKT encoding is phantom/unsound.
 
 ```typescript
-// ✓ CORRECT: _ uses this["_"] - $<ArrayF, A> resolves to A[]
-interface ArrayF {
-  _: Array<this["_"]>;
+// ✓ CORRECT: _ uses this["__kind__"] - Kind<ArrayF, A> resolves to A[]
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>;
 }
 
-// ✗ WRONG: _ doesn't use this["_"] - $<StringF, A> always resolves to string
-interface StringF {
+// ✗ WRONG: _ doesn't use this["__kind__"] - Kind<StringF, A> always resolves to string
+interface StringF extends TypeFunction {
   _: string;
 }
 ```
@@ -294,9 +294,10 @@ assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
 
 ### HKT
 
-- `$<F, A>` — Apply type constructor F to type A
-- `Kind` — Base type for type constructors
-- `ArrayF`, `PromiseF`, `SetF`, `MapF` — Built-in type-level functions
+- `Kind<F, A>` / `$<F, A>` — Phantom kind marker: type constructor F applied to type A
+- `TypeFunction` — Base interface for type-level functions
+- `Apply<F, A>` — Eagerly resolve a type-level function (rarely needed)
+- `ArrayF`, `PromiseF`, `SetF`, `MapF`, `ReadonlyArrayF` — Built-in type-level functions
 
 ### Existential Types
 

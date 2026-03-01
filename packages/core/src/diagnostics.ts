@@ -947,17 +947,17 @@ export const TS9301: DiagnosticDescriptor = {
   code: 9301,
   severity: "error",
   category: DiagnosticCategory.HKT,
-  messageTemplate: 'Higher-kinded type {type} must define a \`_\` property that uses \`this["_"]\`',
-  explanation: `Type-level functions for HKT must be parameterized via the \`_\` property.
+  messageTemplate: 'Higher-kinded type {type} must define a \`_\` property that uses \`this["__kind__"]\`',
+  explanation: `Type-level functions for HKT must be parameterized via the \`_\` property using \`this["__kind__"]\`.
 
 Correct:
-  interface ArrayF { _: Array<this["_"]> }
-  interface MapF<K> { _: Map<K, this["_"]> }
+  interface ArrayF extends TypeFunction { _: Array<this["__kind__"]> }
+  interface MapF<K> extends TypeFunction { _: Map<K, this["__kind__"]> }
 
 Incorrect:
-  interface StringF { _: string }  // Not parameterized!
+  interface StringF extends TypeFunction { _: string }  // Not parameterized!
 
-If $<F, A> always resolves to the same type regardless of A,
+If Kind<F, A> always resolves to the same type regardless of A,
 the HKT encoding is phantom/unsound.`,
   seeAlso: "https://typesugar.dev/errors/TS9301",
 };

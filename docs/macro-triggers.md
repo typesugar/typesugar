@@ -295,7 +295,7 @@ This enables Scala 3-style implicit extension methods. When the transformer sees
 
 **Requirements:**
 
-- The type must have a registered typeclass instance (via `@instance` or `@derive`)
+- The type must have a typeclass instance (auto-derived, or explicitly via `@instance` or `@deriving`)
 - The method must be declared in the typeclass
 
 **Transformer Location:** `tryRewriteExtensionMethod()` in `macro-transformer.ts:2668`

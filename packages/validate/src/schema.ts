@@ -62,7 +62,7 @@ export interface Schema<F> {
 /**
  * Type-level function marker for native validators.
  *
- * Note: TypeScript's HKT encoding via indexed access types doesn't handle
+ * Note: TypeScript's HKT encoding via phantom kind markers doesn't handle
  * type predicates well. We use a phantom marker type here and provide
  * specialized `NativeSchema` interface for proper typing.
  */

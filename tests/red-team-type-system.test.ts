@@ -108,10 +108,10 @@ describe("Type System Edge Cases", () => {
     });
 
     it("should detect phantom type-level functions (unsound)", () => {
-      // A phantom type-level function that doesn't use this["_"]
-      // This is UNSOUND - $<PhantomF, A> always resolves to string regardless of A
+      // A phantom type-level function that doesn't use this["__kind__"]
+      // This is UNSOUND - Kind<PhantomF, A> always resolves to string regardless of A
       interface PhantomF {
-        _: string; // BUG: Should be `_: SomeType<this["_"]>`
+        _: string; // BUG: Should be `_: SomeType<this["__kind__"]>`
       }
 
       // Both resolve to string - the type parameter is lost

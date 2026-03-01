@@ -16,7 +16,7 @@ Source Code with Custom Syntax
 ┌─────────────────────────────────┐
 │  1. PREPROCESSOR (text-level)   │
 │  - Tokenize with custom ops     │
-│  - HKT: F<_> → $<F, A>         │
+│  - HKT: F<_> → Kind<F, A>      │
 │  - Operators: |> → __binop__    │
 │  - Generate source map          │
 └─────────────────────────────────┘
@@ -55,7 +55,7 @@ packages/preprocessor/src/
 ├── token-stream.ts    # Cursor-based token stream with lookahead
 └── extensions/
     ├── types.ts       # SyntaxExtension, CustomOperatorExtension interfaces
-    ├── hkt.ts         # F<_> → $<F, A> rewriting
+    ├── hkt.ts         # F<_> → Kind<F, A> rewriting
     ├── pipeline.ts    # |> operator transformation
     └── cons.ts        # :: operator transformation
 ```
@@ -68,7 +68,7 @@ The preprocessor runs in two phases:
 
 - Pattern-based text rewriting
 - Transforms `F<_>` declarations to just `F`
-- Rewrites `F<A>` usages to `$<F, A>` within the declaration scope
+- Rewrites `F<A>` usages to `Kind<F, A>` within the declaration scope
 
 **Phase 2: Operator Extensions (Pipeline, Cons)**
 
@@ -382,21 +382,22 @@ When the transformer encounters `__binop__(left, op, right)`:
 
 ### HKT Conventions
 
-typesugar uses indexed-access types for higher-kinded type encoding:
+typesugar uses phantom kind markers for higher-kinded type encoding:
 
 ```typescript
-type $<F, A> = (F & { readonly _: A })["_"];
+type Kind<F, A> = F & { readonly __kind__: A };
+type $<F, A> = Kind<F, A>; // shorthand alias
 
 // Type-level function
-interface ArrayF {
-  _: Array<this["_"]>; // MUST use this["_"]
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>; // MUST use this["__kind__"]
 }
 
-// Usage
-type ArrayOfNumber = $<ArrayF, number>; // = Array<number>
+// Usage — preprocessor resolves known type functions
+type ArrayOfNumber = Kind<ArrayF, number>; // resolves to Array<number>
 ```
 
-**Important:** The `_` property MUST reference `this["_"]` for the encoding to be sound.
+**Important:** The `_` property MUST reference `this["__kind__"]` for the encoding to be sound.
 
 ---
 
@@ -640,7 +641,7 @@ packages/unplugin-typesugar/src/unplugin.ts
 
 ### Known Limitation
 
-Currently, the `ts.Program` is created with original source files, but preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<_>`), not preprocessed content (`$<F, A>`).
+Currently, the `ts.Program` is created with original source files, but preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<_>`), not preprocessed content (`Kind<F, A>`).
 
 See `docs/PLAN-implicit-operators.md` for the planned fix using a custom `CompilerHost`.
 
@@ -708,7 +709,7 @@ This section documents known limitations and planned enhancements.
 
 ### unplugin Type-Aware Transformation
 
-**Current State:** The `unplugin-typesugar` creates the `ts.Program` at `buildStart` with original source files. Preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<_>`) rather than preprocessed content (`$<F, A>`).
+**Current State:** The `unplugin-typesugar` creates the `ts.Program` at `buildStart` with original source files. Preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<_>`) rather than preprocessed content (`Kind<F, A>`).
 
 **Impact:** Macros that rely on accurate type information may produce incorrect results when custom syntax is involved.
 

@@ -372,21 +372,21 @@ describe("Effect Integration Edge Cases", () => {
   // Attack 4: HKT Type Extraction Edge Cases
   // ==========================================================================
   describe("HKT Type Soundness", () => {
-    it("should have EffectF use this['_'] for parameterization", () => {
-      // Type-level test: EffectF must use this["_"] to be sound
+    it("should have EffectF use this['__kind__'] for parameterization", () => {
+      // Type-level test: EffectF must use this["__kind__"] to be sound
       // We can't really test this at runtime, but we document the expectation
       // The implementation should be:
-      // interface EffectF<E, R> { _: Effect<this["_"], E, R> }
+      // interface EffectF<E, R> extends TypeFunction { _: Effect<this["__kind__"], E, R> }
       //
       // A phantom type would be:
-      // interface EffectF<E, R> { _: Effect<never, E, R> }  // WRONG
+      // interface EffectF<E, R> extends TypeFunction { _: Effect<never, E, R> }  // WRONG
       //
       // This is verified by code review of hkt.ts
 
       expect(true).toBe(true); // Placeholder for type-level verification
     });
 
-    it("should have ChunkF use this['_'] for parameterization", () => {
+    it("should have ChunkF use this['__kind__'] for parameterization", () => {
       // Same verification for ChunkF
       expect(true).toBe(true);
     });

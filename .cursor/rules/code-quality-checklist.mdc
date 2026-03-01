@@ -60,7 +60,7 @@ alwaysApply: false
 | -------------------------------------------------------- | ----------------------------------------- |
 | `v !== undefined ? v : fallback()` for map lookups       | `has(key) ? get(key) : fallback()`        |
 | `as unknown as TargetType`                               | Fix the generic types instead             |
-| `interface FooF { _: Foo }` (no `this["_"]`)             | `interface FooF { _: Foo<this["_"]> }`    |
+| `interface FooF { _: Foo }` (no `this["__kind__"]`)      | `interface FooF extends TypeFunction { _: Foo<this["__kind__"]> }` |
 | `import ... from "..."` in middle of file                | Move all imports to top                   |
 | Implementing `map`/`flatMap` for non-parameterized types | Only implement read-only typeclasses      |
 | `filter(p)` + `filter(!p)` for partition                 | Single-pass with accumulator              |

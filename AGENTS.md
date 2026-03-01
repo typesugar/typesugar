@@ -376,7 +376,7 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 | `fn.specialize(dict)` | Extension  | Create specialized function (preferred explicit syntax)         |
 | `specialize(fn,dict)` | Expression | Legacy explicit specialization (array syntax)                   |
 | `@implicits`          | Attribute  | Auto-fills instance params + auto-specializes at call sites     |
-| `@hkt`                | Attribute  | Higher-kinded type parameter support (`F<_>` → `$<F, A>`)       |
+| `@hkt`                | Attribute  | Higher-kinded type parameter support (`F<_>` → `Kind<F, A>`)    |
 | `summonHKT<TC<F>>()`  | Expression | Resolves HKT typeclass instances                                |
 
 **Key registries:**
@@ -445,48 +445,59 @@ value.clone();
 
 **IMPORTANT: TypeScript HKT uses `F<_>`, NOT Scala's `F[_]`.** Never use square bracket syntax in code or types.
 
-The HKT encoding in typesugar is based on indexed-access types (`packages/type-system/src/hkt.ts`):
+The HKT encoding in typesugar uses phantom kind markers (`packages/type-system/src/hkt.ts`):
 
 ```typescript
-type $<F, A> = (F & { readonly _: A })["_"];
+type Kind<F, A> = F & { readonly __kind__: A };
+type $<F, A> = Kind<F, A>; // shorthand alias
 ```
+
+`Kind<F, A>` is just an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages (`Kind<F, A>`) unchanged.
 
 **Defining type-level functions:**
 
 ```typescript
-// Good: parameterized via this["_"]
-interface ArrayF {
-  _: Array<this["_"]>;
+// Good: parameterized via this["__kind__"]
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>;
 }
-interface MapF<K> {
-  _: Map<K, this["_"]>;
+interface MapF<K> extends TypeFunction {
+  _: Map<K, this["__kind__"]>;
 }
 
-// BAD: not parameterized — $<StringF, B> always resolves to string
-interface StringF {
+// BAD: not parameterized — Kind<StringF, B> always resolves to string
+interface StringF extends TypeFunction {
   _: string;
 } // ← phantom type, unsound for Functor/map
 ```
 
 **Rules for type-level functions:**
 
-1. The `_` property MUST reference `this["_"]` to be sound. If `$<F, B>` always equals the same type regardless of `B`, the HKT encoding is phantom/unsound
+1. The `_` property MUST reference `this["__kind__"]` to be sound. If `Kind<F, B>` always resolves to the same type regardless of `B`, the HKT encoding is phantom/unsound
 2. Types that cannot be parameterized (e.g., `string`, `Int8Array`) should NOT implement typeclasses that change the element type (`map`, `flatMap`). Limit them to read-only typeclasses (`IterableOnce`, `Foldable`)
 3. Never use `as unknown as` to paper over HKT type mismatches — it means the type-level function is wrong
 
 **Writing HKT typeclasses:**
 
-The project convention is to write `$<F, A>` explicitly in typeclass definitions. The `F<_>` sugar exists (auto-detected by the transformer) but is NOT used in `@typesugar/fp` or `@typesugar/collections`:
+Users write natural `F<_>` syntax. The preprocessor converts `F<A>` usages to `Kind<F, A>`:
 
 ```typescript
-// Current convention: explicit $<F, A>
-interface Functor<F> {
-  readonly map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>;
+// You write (F<_> sugar):
+interface Functor<F<_>> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
 
-// Also valid but not used yet: F<_> sugar (transformer rewrites F<A> to $<F, A>)
-interface Functor<F<_>> {
-  readonly map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>;
+// Preprocessor emits:
+interface Functor<F> {
+  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
+}
+```
+
+The `$<F, A>` alias is available for brevity in hand-written code:
+
+```typescript
+interface Functor<F> {
+  map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
 }
 ```
 
@@ -943,11 +954,14 @@ Understanding what goes where prevents architecture confusion:
 
 | Mechanism                    | What it does                                                             | When to use                                  |
 | ---------------------------- | ------------------------------------------------------------------------ | -------------------------------------------- |
+| Auto-derivation (default)    | Automatically synthesizes instances for product/sum types                | **Always** — this is the default behavior    |
+| `@deriving(TC)`              | Same as auto-derivation, but documents intent explicitly                 | Documentation — makes capabilities visible   |
 | `@derive(TC)`                | Generates standalone functions                                           | Rarely — doesn't integrate with `summon`     |
-| `@deriving(TC)`              | Integrates with typeclass system, supports `summon()` and `specialize()` | When explicit derivation is needed           |
-| Auto-derivation via `summon` | Automatically synthesizes instances for product/sum types                | **Preferred** when all fields have instances |
+| `@instance`                  | Custom hand-written instance, overrides auto-derivation                  | When auto-derived behavior isn't what you want |
 
-**Favor auto-derivation**: when a type's fields all have the required instances, prefer letting `summon` auto-derive rather than requiring explicit annotations. Users should not need to annotate types that can be derived automatically.
+**Auto-derivation is the default, not opt-in.** When the compiler sees `p1 === p2` on a type, it auto-derives `Eq` from the type's fields without any annotation. `@deriving(Eq)` is documentation, not activation — it says "this type supports Eq" to human readers, but the compiler would derive it anyway. Users should never need to annotate types just to get basic typeclass support.
+
+**Auto-specialization is also the default.** When an instance is resolved (whether explicit or auto-derived), the compiler inlines the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not to `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely.
 
 ---
 
@@ -963,8 +977,8 @@ Before considering any code complete, verify:
 
 ### HKT soundness
 
-- Every `interface FooF { _: ... }` type-level function MUST use `this["_"]` in its `_` property
-- If `$<FooF, string>` and `$<FooF, number>` resolve to the same type, the encoding is phantom/unsound
+- Every `interface FooF { _: ... }` type-level function MUST use `this["__kind__"]` in its `_` property
+- If `Kind<FooF, string>` and `Kind<FooF, number>` resolve to the same type, the encoding is phantom/unsound
 - Unsound HKT types must NOT implement typeclasses that change the element type (Functor, Monad, etc.)
 
 ### Performance

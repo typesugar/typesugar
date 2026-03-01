@@ -1,21 +1,22 @@
 /**
  * Red Team Tests for HKT (Higher-Kinded Types) Encoding
  *
- * Attack surface: The encoding `$<F, A> = (F & { readonly _: A })["_"]`
- * relies on TypeScript's intersection type behavior. Let's probe for edge cases.
+ * Attack surface: The encoding `Kind<F, A> = F & { readonly __kind__: A }`
+ * uses phantom kind markers. Type-level functions define `_: T<this["__kind__"]>`.
+ * The preprocessor resolves known type functions; `Apply<F, A>` does eager resolution.
  */
 import { describe, it, expect } from "vitest";
-import type { $, Kind, ArrayF, PromiseF, MapF } from "../packages/type-system/src/hkt.js";
+import type { $, Kind, ArrayF, PromiseF, MapF, TypeFunction } from "../packages/type-system/src/hkt.js";
 import { unsafeCoerce } from "../packages/type-system/src/hkt.js";
 
 // Test type-level functions
-interface OptionF {
-  _: Option<this["_"]>;
+interface OptionF extends TypeFunction {
+  _: Option<this["__kind__"]>;
 }
 type Option<A> = A | null;
 
-interface EitherF<E> {
-  _: Either<E, this["_"]>;
+interface EitherF<E> extends TypeFunction {
+  _: Either<E, this["__kind__"]>;
 }
 type Either<E, A> = { _tag: "Left"; left: E } | { _tag: "Right"; right: A };
 
@@ -28,7 +29,7 @@ describe("HKT Encoding Edge Cases", () => {
       // A "type-level function" that ignores its argument is unsound
       // This should NOT be allowed but TypeScript accepts it
       interface PhantomF {
-        _: string; // Always string, ignores this["_"]
+        _: string; // Always string, ignores this["__kind__"]
       }
 
       // $<PhantomF, number> should be number-related, but it's always string
@@ -51,9 +52,9 @@ describe("HKT Encoding Edge Cases", () => {
     });
 
     it("Partially phantom type-level function", () => {
-      // Uses this["_"] but in a way that loses information
+      // Uses _ but in a way that loses information
       interface PartiallyPhantomF {
-        _: Array<string>; // Always Array<string>, not Array<this["_"]>
+        _: Array<string>; // Always Array<string>, not Array<this["__kind__"]>
       }
 
       type R1 = $<PartiallyPhantomF, number>; // Array<string>
@@ -69,16 +70,16 @@ describe("HKT Encoding Edge Cases", () => {
   // ==========================================================================
   describe("Intersection type edge cases", () => {
     it("What happens when F has a conflicting _ property?", () => {
-      // The HKT encoding is: (F & { readonly _: A })["_"]
-      // What if F already has a _ property?
+      // The HKT encoding is: Kind<F, A> = F & { readonly __kind__: A }
+      // Apply<F, A> resolves via (F & { readonly __kind__: A })["_"]
+      // What if F already has a _ property that conflicts?
 
       interface ConflictingF {
-        _: string; // Conflicts with the injected { readonly _: A }
+        _: string; // Static _ property, doesn't use this["__kind__"]
       }
 
-      // $<ConflictingF, number> = (ConflictingF & { readonly _: number })["_"]
-      // This creates { _: string } & { readonly _: number } = { _: string & number }
-      // string & number = never
+      // Apply<ConflictingF, number> resolves _ with __kind__ set to number
+      // But _ is just `string`, so result is always string regardless of A
 
       type Result = $<ConflictingF, number>;
       // Result is `never` because string & number = never
@@ -90,7 +91,7 @@ describe("HKT Encoding Edge Cases", () => {
 
     it("HKT with union types produces unexpected results", () => {
       interface UnionF {
-        _: this["_"] | string; // Always includes string
+        _: this["__kind__"] | string; // Always includes string
       }
 
       type R1 = $<UnionF, number>; // number | string
@@ -106,7 +107,7 @@ describe("HKT Encoding Edge Cases", () => {
     it("HKT with conditional types", () => {
       // What if the type-level function uses conditional types?
       interface ConditionalF {
-        _: this["_"] extends string ? string[] : number[];
+        _: this["__kind__"] extends string ? string[] : number[];
       }
 
       type R1 = $<ConditionalF, string>; // string[]
@@ -191,7 +192,7 @@ describe("HKT Encoding Edge Cases", () => {
     it("Self-referential type-level function", () => {
       // A type-level function that references itself
       interface RecursiveF {
-        _: [this["_"], RecursiveF]; // Infinite type!
+        _: [this["__kind__"], RecursiveF]; // Infinite type!
       }
 
       // $<RecursiveF, number> = [number, RecursiveF]
@@ -207,10 +208,10 @@ describe("HKT Encoding Edge Cases", () => {
 
     it("Mutually recursive type-level functions", () => {
       interface FooF {
-        _: { foo: $<BarF, this["_"]> };
+        _: { foo: $<BarF, this["__kind__"]> };
       }
       interface BarF {
-        _: { bar: $<FooF, this["_"]> };
+        _: { bar: $<FooF, this["__kind__"]> };
       }
 
       // $<FooF, number> = { foo: { bar: { foo: { bar: ... } } } }

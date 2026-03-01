@@ -11,7 +11,7 @@
  *    (Equal, Extends, Not, And, Or, IsNever, IsAny, IsUnknown)
  *
  * 2. **Higher-Kinded Types (HKT)** — Type constructors as type parameters
- *    via indexed-access encoding (`$<F, A>`, zero-cost, no registry)
+ *    via phantom kind markers (`Kind<F, A>`, zero-cost, no registry)
  *
  * 3. **Existential Types** — "There exists some type T" with CPS encoding
  *    (heterogeneous collections, type-safe plugins)

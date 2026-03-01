@@ -60,20 +60,28 @@ This is analogous to C++ template instantiation, Rust monomorphization, or MLton
 
 The simplicity is both a strength (predictable behavior, easy to reason about) and a limitation (discussed in Section 4).
 
-### 2.3 HKT Encoding via Indexed Access
+### 2.3 HKT Encoding via Phantom Kind Markers
 
-The HKT encoding `type $<F, A> = (F & { readonly _: A })["_"]` is an elegant exploitation of TypeScript's structural type system. It achieves type-level function application without module augmentation, without brand types, and without `as unknown as` casts.
+The HKT encoding `type Kind<F, A> = F & { readonly __kind__: A }` is a lightweight exploitation of TypeScript's structural type system. It achieves type-level function application without module augmentation, without brand types, and without `as unknown as` casts.
 
-The key insight: TypeScript's intersection type `F & { readonly _: A }` creates a type where `_` is the intersection of `F`'s `_` member and `A`. When `F` is an interface like `{ _: Array<this["_"]> }`, the `this` reference resolves through the intersection, making `$<ArrayF, number>` evaluate to `Array<number>`.
+`Kind<F, A>` is just an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (e.g., `Kind<ArrayF, number>` → `Array<number>`) while leaving generic usages unchanged. Type-level functions define a `_` property that references `this["__kind__"]`:
 
-This encoding is strictly superior to the URI-branding approach used by fp-ts and similar libraries. It eliminates:
+```typescript
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>;
+}
+```
+
+This evolved from an earlier indexed-access encoding (`type $<F, A> = (F & { readonly _: A })["_"]`) which forced TypeScript to eagerly compute the result type, slowing type checking on large codebases. The phantom kind marker approach defers resolution to the preprocessor.
+
+The encoding is strictly superior to the URI-branding approach used by fp-ts and similar libraries. It eliminates:
 
 - Global registries (`HKTRegistry`)
 - Module augmentation (`declare module`)
 - Runtime brand objects
 - Unsound casts between branded and concrete types
 
-The encoding has a known soundness condition: the `_` property must reference `this["_"]`. Phantom types (where `_` does not depend on `this["_"]`) create unsound type-level functions. The project enforces this as a convention rather than through a type-level check.
+The encoding has a known soundness condition: the `_` property must reference `this["__kind__"]`. Phantom types (where `_` does not depend on `this["__kind__"]`) create unsound type-level functions. The project enforces this as a convention rather than through a type-level check.
 
 ### 2.4 Infrastructure for Cross-Cutting Concerns
 
@@ -211,9 +219,9 @@ The five-step resolution flow (explicit instance -> explicit derive -> auto-deri
 
 ### 4.4 Phase Separation and Build Tool Integration
 
-The two-phase compilation model (lexical preprocessing + AST transformation) creates a phase separation problem. The preprocessor rewrites `F<_>` to `$<F, A>` at the text level, but the type checker sees the original source. This means type information available during AST transformation may not match the actual code being compiled.
+The two-phase compilation model (lexical preprocessing + AST transformation) creates a phase separation problem. The preprocessor rewrites `F<_>` to `Kind<F, A>` at the text level, but the type checker sees the original source. This means type information available during AST transformation may not match the actual code being compiled.
 
-The ARCHITECTURE.md acknowledges this: "the type checker sees original content (`F<_>`), not preprocessed content (`$<F, A>`)" in the unplugin path. This is a correctness gap that can cause macros relying on type information to produce incorrect results when custom syntax is involved.
+The ARCHITECTURE.md acknowledges this: "the type checker sees original content (`F<_>`), not preprocessed content (`Kind<F, A>`)" in the unplugin path. This is a correctness gap that can cause macros relying on type information to produce incorrect results when custom syntax is involved.
 
 More broadly, the dependency on ts-patch (a third-party compiler patching mechanism) creates a fragile integration point. TypeScript does not officially support custom transformers with type checker access, and this API surface could change without notice in future TypeScript versions.
 
@@ -293,7 +301,7 @@ Zig's advantage is uniformity: there is no distinction between "macro language" 
 
 fp-ts and Effect-TS are the incumbent FP libraries for TypeScript. They achieve HKT through module augmentation (fp-ts) or branded types (Effect). Neither provides compile-time specialization or implicit typeclass resolution.
 
-typesugar's HKT encoding (`$<F, A>` via indexed access) is strictly simpler than fp-ts's URI-based approach. The zero-cost specialization is genuinely novel in the TypeScript ecosystem. However, fp-ts and Effect operate within standard TypeScript — they require no compiler plugins, no build tool integration, and no changes to developer tooling. This is a significant practical advantage for adoption.
+typesugar's HKT encoding (`Kind<F, A>` via phantom kind markers) is strictly simpler than fp-ts's URI-based approach. The zero-cost specialization is genuinely novel in the TypeScript ecosystem. However, fp-ts and Effect operate within standard TypeScript — they require no compiler plugins, no build tool integration, and no changes to developer tooling. This is a significant practical advantage for adoption.
 
 ### 5.5 vs. Aspect-Oriented Programming (AspectJ, Python decorators)
 

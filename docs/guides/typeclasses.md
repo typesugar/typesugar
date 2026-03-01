@@ -87,7 +87,20 @@ print("hello"); // "\"hello\""
 
 ## Deriving Instances
 
-### From @derive
+### Auto-Derivation (Default)
+
+Typeclass instances are auto-derived by default — no annotation needed. When the compiler sees a typeclass operation on a type, it inspects the type's fields and synthesizes an implementation:
+
+```typescript
+interface Point { x: number; y: number }
+
+const p = { x: 1, y: 2 };
+p.show(); // "Point(x = 1, y = 2)" — auto-derived from field structure
+```
+
+### Explicit @deriving (Documentation)
+
+`@deriving` documents which typeclasses a type supports. The compiler would auto-derive them anyway, but the annotation makes intent visible to human readers:
 
 ```typescript
 import { deriving } from "@typesugar/typeclass";
@@ -217,13 +230,13 @@ interface Functor<F> {
 
 ## Higher-Kinded Types
 
-typesugar supports HKTs for typeclasses over type constructors:
+typesugar supports HKTs for typeclasses over type constructors using phantom kind markers:
 
 ```typescript
-import { $, summonHKT } from "@typesugar/type-system";
+import { Kind, type TypeFunction, summonHKT } from "@typesugar/type-system";
 
-interface ArrayF {
-  _: Array<this["_"]>;
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>;
 }
 
 @instance

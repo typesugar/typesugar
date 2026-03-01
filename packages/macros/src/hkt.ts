@@ -36,7 +36,7 @@
  * ## The TypeScript Challenge
  *
  * TypeScript doesn't natively support HKT, so we use an encoding:
- * - `$<F, A>` expands to the concrete type via indexed access
+ * - `Kind<F, A>` is a phantom kind marker; the preprocessor resolves known type functions
  * - This encoding triggers "Type instantiation is excessively deep" errors
  *
  * The `@instance` macro handles this by auto-generating concrete expanded

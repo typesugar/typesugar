@@ -17,7 +17,7 @@ Cursor rules handle active enforcement. Refer to these for details:
 | ---------------- | ------------------------------------------------------------------------- | ------------------------------------------ |
 | Test workflow    | Targeted test runs, `pnpm test:failed`, always use `tee`                  | `.cursor/rules/test-workflow.mdc`          |
 | Collections      | Typeclass hierarchy, MapLike `undefined` handling (never `!== undefined`) | `.cursor/rules/collections-patterns.mdc`   |
-| HKT conventions  | Use `F<_>` not `F[_]`, type-level functions must use `this["_"]`          | `.cursor/rules/hkt-conventions.mdc`        |
+| HKT conventions  | Use `F<_>` not `F[_]`, type-level functions must use `this["__kind__"]`   | `.cursor/rules/hkt-conventions.mdc`        |
 | Zero-cost        | `summon()` must be compile-time, favor autoderivation                     | `.cursor/rules/zero-cost-guidelines.mdc`   |
 | Code quality     | No `as unknown as`, mid-file imports, double iteration                    | `.cursor/rules/code-quality-checklist.mdc` |
 | Design first     | Confirm approach for macros/transformer changes                           | `.cursor/rules/design-before-building.mdc` |

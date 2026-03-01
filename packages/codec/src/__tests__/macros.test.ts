@@ -61,7 +61,6 @@ describe("@codec macro expansion", () => {
       isEmitNotificationEnabled: () => false,
       onSubstituteNode: (_hint, node) => node,
       onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-      addDiagnostic: () => {},
     };
 
     return createMacroContext(program, sourceFile, transformContext);

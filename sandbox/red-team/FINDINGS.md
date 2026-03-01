@@ -208,18 +208,18 @@ But sacrifices:
 **Status:** CONFIRMED
 
 **Description:**
-The HKT encoding `$<F, A> = (F & { readonly _: A })["_"]` allows "phantom" type-level functions that ignore their argument. These produce unsound Functor/Monad instances where `map` doesn't actually transform the type.
+The HKT encoding (`Kind<F, A> = F & { readonly __kind__: A }`, with type-level functions defining `_: T<this["__kind__"]>`) allows "phantom" type-level functions that ignore their argument. These produce unsound Functor/Monad instances where `map` doesn't actually transform the type.
 
 **Reproduction:**
 
 ```typescript
 // Phantom type-level function - always returns string
 interface PhantomF {
-  _: string; // Should be `this["_"]` but isn't
+  _: string; // Should be `this["__kind__"]` but isn't
 }
 
-// $<PhantomF, number> = string
-// $<PhantomF, boolean> = string
+// Kind<PhantomF, number> resolves to string
+// Kind<PhantomF, boolean> resolves to string
 // All the same type!
 
 // This Functor is "type-correct" but semantically wrong
@@ -233,9 +233,9 @@ phantomFunctor.map("hello", (n: number) => n * 2); // Returns string, not number
 ```
 
 **Analysis:**
-TypeScript can't enforce that type-level functions use `this["_"]`. Lint rules or documentation should warn users.
+TypeScript can't enforce that type-level functions use `this["__kind__"]`. Lint rules or documentation should warn users.
 
-**Recommendation:** Add a lint rule that checks HKT type-level functions reference `this["_"]`.
+**Recommendation:** Add a lint rule that checks HKT type-level functions reference `this["__kind__"]`.
 
 ---
 

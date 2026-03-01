@@ -9,35 +9,46 @@ alwaysApply: false
 ## Syntax
 
 - TypeScript HKT uses angle brackets: `F<_>` — NEVER Scala's square brackets `F[_]`
-- The `@hkt` macro and transformer auto-detect `F<_>` syntax and rewrite `F<A>` to `$<F, A>`
-- Current codebase convention: write `$<F, A>` explicitly (both `@typesugar/fp` and `@typesugar/collections` do this)
+- The `@hkt` macro and preprocessor auto-detect `F<_>` syntax and rewrite `F<A>` to `Kind<F, A>`
+- `$<F, A>` is a shorthand alias for `Kind<F, A>` — both are valid, prefer `Kind` in new code
+
+## Core Encoding
+
+The HKT encoding uses phantom kind markers:
+
+```typescript
+type Kind<F, A> = F & { readonly __kind__: A };
+type $<F, A> = Kind<F, A>; // shorthand alias
+```
+
+`Kind<F, A>` is just an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
 
 ## Type-Level Functions
 
-A type-level function is an interface whose `_` property uses `this["_"]`:
+A type-level function is an interface extending `TypeFunction` whose `_` property uses `this["__kind__"]`:
 
 ```typescript
 // CORRECT — parameterized, sound
-interface ArrayF {
-  _: Array<this["_"]>;
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>;
 }
-interface SetF {
-  _: Set<this["_"]>;
+interface SetF extends TypeFunction {
+  _: Set<this["__kind__"]>;
 }
-interface MapF<K> {
-  _: Map<K, this["_"]>;
+interface MapF<K> extends TypeFunction {
+  _: Map<K, this["__kind__"]>;
 }
 
-// WRONG — phantom type, $<StringF, B> = string for ALL B
-interface StringF {
+// WRONG — phantom type, Kind<StringF, B> = string for ALL B
+interface StringF extends TypeFunction {
   _: string;
 }
 ```
 
 ### Rules
 
-1. The `_` property MUST reference `this["_"]` for the encoding to be sound
-2. If `$<F, A>` resolves to the same type for all `A`, the type is phantom/unsound
+1. The `_` property MUST reference `this["__kind__"]` for the encoding to be sound
+2. If `Kind<F, A>` resolves to the same type for all `A`, the type is phantom/unsound
 3. Phantom HKT types must NOT implement typeclasses that change the element type (Functor.map, Monad.flatMap, Iterable.map, Seq.zip, etc.)
 4. Phantom HKT types MAY implement read-only typeclasses (IterableOnce, Foldable) where the output type doesn't depend on HKT application
 5. Never use `as unknown as` to paper over HKT type mismatches — it means the type-level function definition is wrong
@@ -48,12 +59,12 @@ All derived operations take the typeclass dictionary as the first argument:
 
 ```typescript
 // CORRECT — works with specialize() for zero-cost
-function map<F>(F: Functor<F>): <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B> {
+function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> {
   return (fa, f) => F.map(fa, f);
 }
 
 // WRONG — can't be specialized, dictionary not explicit
-function map<F, A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B> { ... }
+function map<F, A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B> { ... }
 ```
 
 ## Multi-Arity Type Constructors
@@ -61,18 +72,18 @@ function map<F, A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B> { ... }
 Fix all type parameters except one (the one that varies):
 
 ```typescript
-interface MapF<K> {
-  _: Map<K, this["_"]>;
+interface MapF<K> extends TypeFunction {
+  _: Map<K, this["__kind__"]>;
 } // varies V
-interface EitherF<E> {
-  _: Either<E, this["_"]>;
+interface EitherF<E> extends TypeFunction {
+  _: Either<E, this["__kind__"]>;
 } // varies A
 ```
 
 ## Common Mistakes
 
 1. Writing `F[_]` instead of `F<_>` (Scala vs TypeScript syntax)
-2. Forgetting `this["_"]` in type-level function definitions
+2. Forgetting `this["__kind__"]` in type-level function definitions (using `this["_"]` is the old encoding)
 3. Implementing Functor/map for types that can't change their element type
 4. Using `as unknown as` casts instead of fixing the HKT encoding
-5. Not testing that `$<F, DifferentType>` actually resolves to a different concrete type
+5. Not testing that `Kind<F, DifferentType>` actually resolves to a different concrete type
