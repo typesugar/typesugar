@@ -53,9 +53,7 @@ export default defineConfig({
           {
             text: "Syntax Sugar",
             items: [
-              { text: "@typesugar/operators", link: "/reference/packages#operators" },
               { text: "@typesugar/strings", link: "/reference/packages#strings" },
-              { text: "@typesugar/named-args", link: "/reference/packages#named-args" },
               { text: "@typesugar/comptime", link: "/reference/packages#comptime" },
             ],
           },
@@ -83,8 +81,6 @@ export default defineConfig({
             items: [
               { text: "@typesugar/effect", link: "/reference/packages#effect" },
               { text: "@typesugar/react", link: "/reference/packages#react" },
-              { text: "@typesugar/kysely-adapter", link: "/reference/packages#kysely" },
-              { text: "@typesugar/drizzle-adapter", link: "/reference/packages#drizzle" },
             ],
           },
           {
@@ -190,7 +186,6 @@ export default defineConfig({
                 { text: "String Macros", link: "/guides/strings" },
                 { text: "Compile-Time Eval", link: "/guides/comptime" },
                 { text: "Conditional Compilation", link: "/guides/conditional-compilation" },
-                { text: "Named Arguments", link: "/guides/named-args" },
               ],
             },
             {
@@ -199,7 +194,6 @@ export default defineConfig({
               items: [
                 { text: "Contracts", link: "/guides/contracts" },
                 { text: "Refined Types", link: "/guides/contracts-refined" },
-                { text: "Z3 Proofs", link: "/guides/contracts-z3" },
                 { text: "Type System", link: "/guides/type-system" },
                 { text: "Validation", link: "/guides/validate" },
                 { text: "Units of Measure", link: "/guides/units" },
@@ -216,7 +210,6 @@ export default defineConfig({
                 { text: "Parser Combinators", link: "/guides/parser" },
                 { text: "Graph Algorithms", link: "/guides/graph" },
                 { text: "Versioned Codecs", link: "/guides/codec" },
-                { text: "Geometry", link: "/guides/geometry" },
                 { text: "Math", link: "/guides/math" },
                 { text: "Object Mapping", link: "/guides/mapper" },
               ],
@@ -228,8 +221,6 @@ export default defineConfig({
                 { text: "Effect-TS", link: "/guides/effect" },
                 { text: "React", link: "/guides/react" },
                 { text: "SQL", link: "/guides/sql" },
-                { text: "Kysely", link: "/guides/kysely" },
-                { text: "Drizzle", link: "/guides/drizzle" },
               ],
             },
             {

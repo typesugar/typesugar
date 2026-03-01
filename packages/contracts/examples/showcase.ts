@@ -297,10 +297,10 @@ registerDecidability({
 });
 
 registerDecidability({
-  brand: "SMTNeeded",
+  brand: "AlgebraicDecidable",
   predicate: "$ * $ + 1 > 0",
   decidability: "decidable",
-  preferredStrategy: "z3",
+  preferredStrategy: "algebra",
 });
 
 // Query decidability

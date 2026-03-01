@@ -58,16 +58,14 @@ shows only 4 files actually exist:
 | `tests/units.test.ts`          | No      | Remove from exclusion list                                                           |
 | `tests/contracts.test.ts`      | Yes     | Has stale `../src/core/` imports                                                     |
 | `tests/contracts-coq.test.ts`  | Yes     | Uses `@typesugar/contracts` (new paths)                                              |
-| `tests/contracts-z3.test.ts`   | Yes     | Uses `../packages/` paths (new)                                                      |
 
 **Fix:**
 
 1. Remove 8 non-existent entries from the workspace exclusion list.
-2. For the 4 existing files:
+2. For the 3 existing files:
    - `comprehensions.test.ts` → Delete. `packages/std/tests/yield-syntax.test.ts` already covers this.
    - `contracts.test.ts` → Move to `packages/contracts/tests/`, fix `../src/core/` imports.
    - `contracts-coq.test.ts` → Move to `packages/contracts/tests/`.
-   - `contracts-z3.test.ts` → Move to `packages/contracts-z3/tests/`.
 3. Remove the `exclude` block entirely from `vitest.workspace.ts` (no more exclusions needed).
 
 ## Phase 3: Fix `vitest.config.ts` Coverage Paths (Low)

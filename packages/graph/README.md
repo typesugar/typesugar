@@ -24,7 +24,7 @@ const path = shortestPath(g, "task-a", "task-d");
 
 ## State Machines
 
-Define, verify, and run state machines:
+Define, verify, and run state machines with **compile-time verification**:
 
 ```typescript
 import { stateMachine, verify, createInstance } from "@typesugar/graph";
@@ -40,20 +40,45 @@ const order = stateMachine`
   Shipped --deliver--> Delivered
 `;
 
-const result = verify(order);
-// {
-//   valid: false,
-//   unreachableStates: [],
-//   deadEndStates: ["Rejected"],  // not declared terminal
-//   nondeterministic: [],
-//   cycles: []
-// }
+// ⚠️ With typesugar transformer, this emits a compile-time error:
+// "Dead-end states detected: Rejected. These states have no outgoing
+//  transitions and are not marked as terminal."
 
 const inst = order.create();
 const shipped = inst.transition("submit").transition("approve").transition("ship");
 shipped.current; // "Shipped"
 shipped.availableEvents(); // ["deliver"]
 ```
+
+### Compile-Time Verification
+
+When used with the typesugar transformer, `stateMachine` validates your state machine at compile time:
+
+```typescript
+// ❌ Compile error: Unreachable states detected: Orphan
+const bad = stateMachine`
+  @initial A
+  A --go--> B
+  Orphan --never--> Used
+`;
+
+// ❌ Compile error: Dead-end states detected: C
+const deadEnd = stateMachine`
+  @initial A
+  @terminal B
+  A --go--> B, C
+`;
+
+// ❌ Compile error: Nondeterministic transitions detected:
+//    State "A" on event "go" → [B, C]
+const nondet = stateMachine`
+  @initial A
+  A --go--> B
+  A --go--> C
+`;
+```
+
+Runtime verification is still available via `verify()` for dynamic state machines.
 
 ## Graph Construction
 
@@ -103,10 +128,49 @@ const g3 = addEdge(g2, "c", "d", "next", 5);
 | Reachability                  | `reachable(g, start)`, `hasPath(g, a, b)` | O(V + E)        |
 | Shortest path (unweighted)    | `shortestPath(g, a, b)`                   | O(V + E)        |
 | Shortest path (weighted)      | `dijkstra(g, a, b)`                       | O(V^2)          |
+| Shortest path (custom weight) | `dijkstraWith(g, a, b, config)`           | O(V^2)          |
 | Strongly connected components | `stronglyConnectedComponents(g)`          | O(V + E)        |
 | DAG check                     | `isDAG(g)`                                | O(V + E)        |
 | Transitive closure            | `transitiveClosure(g)`                    | O(V \* (V + E)) |
 | Reverse graph                 | `reverseGraph(g)`                         | O(V + E)        |
+
+### Custom Weight Types with Monoid
+
+`dijkstraWith` accepts any weight type with a `Monoid<W>` (for combining costs) and `Ord<W>` (for comparing them):
+
+```typescript
+import { dijkstraWith } from "@typesugar/graph";
+import type { Monoid, Ord } from "@typesugar/std";
+
+// Duration-based routing
+interface Duration { totalMs: number }
+
+const durationMonoid: Monoid<Duration> = {
+  combine: (a, b) => ({ totalMs: a.totalMs + b.totalMs }),
+  empty: () => ({ totalMs: 0 }),
+};
+
+const durationOrd: Ord<Duration> = {
+  equals: (a, b) => a.totalMs === b.totalMs,
+  compare: (a, b) => a.totalMs - b.totalMs,
+  lessThan: (a, b) => a.totalMs < b.totalMs,
+  lessThanOrEqual: (a, b) => a.totalMs <= b.totalMs,
+  greaterThan: (a, b) => a.totalMs > b.totalMs,
+  greaterThanOrEqual: (a, b) => a.totalMs >= b.totalMs,
+};
+
+const result = dijkstraWith(networkGraph, "server-a", "server-b", {
+  monoid: durationMonoid,
+  ord: durationOrd,
+  getWeight: (e) => ({ totalMs: parseInt(e.label ?? "0") }),
+});
+// result.weight is Duration, not number
+```
+
+This enables:
+- **Multi-criteria optimization** — costs as tuples with lexicographic comparison
+- **Probability paths** — combine via multiplication, find max via reversed Ord
+- **Symbolic weights** — exact arithmetic without floating-point errors
 
 ## State Machine Verification
 
@@ -127,8 +191,16 @@ FromState --event--> ToState
 
 Lines starting with `#` are comments. Blank lines are ignored.
 
+## Zero-Cost Guarantee
+
+When using the typesugar transformer:
+
+- **Compile-time parsing** — the DSL is parsed at compile time, not runtime
+- **Compile-time verification** — structural issues are caught before your code runs
+- **Inlined definitions** — the generated code contains literal state/transition arrays
+- **Type-safe instances** — state and event types are inferred from the definition
+
 ## Future
 
-- **Compile-time verification** — run `verify()` via `comptime()` during compilation
 - **Effect layer integration** — state machine as an Effect service layer
 - **Visualization** — DOT/Mermaid output for graph rendering

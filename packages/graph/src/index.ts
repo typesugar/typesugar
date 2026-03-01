@@ -24,6 +24,8 @@ export {
   removeEdge,
 } from "./graph.js";
 
+export type { PathCostConfig } from "./algorithms.js";
+
 export {
   topoSort,
   detectCycles,
@@ -34,6 +36,9 @@ export {
   hasPath,
   shortestPath,
   dijkstra,
+  dijkstraWith,
+  numberMonoid,
+  numberOrd,
   stronglyConnectedComponents,
   isDAG,
   transitiveClosure,
@@ -52,4 +57,11 @@ export {
 
 export { parseDigraph, parseStateMachine } from "./dsl.js";
 
-export { digraph, graph, stateMachine } from "./macros.js";
+export {
+  digraph,
+  graph,
+  stateMachine,
+  stateMachineMacro,
+  __typesugar_createStateMachineInstance,
+  register,
+} from "./macros.js";

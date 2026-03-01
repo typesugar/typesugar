@@ -1,6 +1,6 @@
 # String Macros
 
-Compile-time validated string templates: regex validation, HTML XSS escaping, JSON parsing, and raw strings.
+Compile-time validated string templates: regex validation, HTML XSS escaping, and raw strings.
 
 ## Quick Start
 
@@ -9,7 +9,7 @@ npm install @typesugar/strings
 ```
 
 ```typescript
-import { regex, html, json, raw } from "@typesugar/strings";
+import { regex, html, raw } from "@typesugar/strings";
 
 // Validated at compile time
 const email = regex`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`;
@@ -37,20 +37,6 @@ const bad = regex`[invalid`;
 const userInput = "<script>alert('xss')</script>";
 const safe = html`<div>${userInput}</div>`;
 // Result: "<div>&lt;script&gt;alert('xss')&lt;/script&gt;</div>"
-```
-
-### json — Compile-Time JSON Parsing
-
-```typescript
-const config = json`{
-  "name": "my-app",
-  "version": "1.0.0"
-}`;
-// Compiles to: { name: "my-app", version: "1.0.0" }
-
-// Invalid JSON causes compile-time error
-const bad = json`{ invalid }`;
-// Error: Invalid JSON
 ```
 
 ### raw — Raw Strings (No Escape Processing)

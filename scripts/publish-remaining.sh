@@ -7,14 +7,11 @@ set -e
 PACKAGES=(
   "testing"
   "contracts-refined"
-  "contracts-z3"
   "fp"
   "std"
   "macros"
   "effect"
   "validate"
-  "drizzle"
-  "kysely"
 )
 
 echo "Publishing remaining @typesugar packages..."

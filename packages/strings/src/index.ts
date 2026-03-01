@@ -8,7 +8,6 @@
  * - regex`...` - Compile-time validated regular expressions
  * - html`...` - HTML with XSS protection
  * - fmt`...` - Printf-style formatting with type checking
- * - json`...` - Compile-time JSON parsing
  * - raw`...` - Raw strings without escape processing
  *
  * Note: For SQL queries, use @typesugar/sql instead.
@@ -70,22 +69,6 @@ export function html(_strings: TemplateStringsArray, ..._values: unknown[]): str
 export function fmt(_strings: TemplateStringsArray, ..._values: unknown[]): string {
   throw new Error(
     "fmt`...` was not transformed at compile time. " +
-      "Make sure the typesugar transformer is configured."
-  );
-}
-
-/**
- * Parse and validate JSON at compile time.
- * This is a runtime placeholder that throws if the transformer is not applied.
- *
- * @example
- * ```typescript
- * const config = json`{"name": "app", "version": "1.0.0"}`;
- * ```
- */
-export function json(_strings: TemplateStringsArray, ..._values: unknown[]): unknown {
-  throw new Error(
-    "json`...` was not transformed at compile time. " +
       "Make sure the typesugar transformer is configured."
   );
 }
@@ -279,77 +262,6 @@ function concatStrings(
 }
 
 // ============================================================================
-// JSON Tagged Template with Schema Validation
-// ============================================================================
-
-export const jsonMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
-  name: "json",
-  module: "@typesugar/strings",
-  description: "Parse and validate JSON at compile time",
-
-  expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
-    const factory = ctx.factory;
-    const template = node.template;
-
-    if (!ts.isNoSubstitutionTemplateLiteral(template)) {
-      ctx.reportError(node, "json does not support interpolations - use a regular object literal");
-      return node;
-    }
-
-    const jsonString = template.text;
-
-    // Validate and parse JSON at compile time
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonString);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      ctx.reportError(node, `Invalid JSON: ${msg}`);
-      return node;
-    }
-
-    // Convert to AST
-    return jsonToAst(factory, parsed);
-  },
-});
-
-function jsonToAst(factory: ts.NodeFactory, value: unknown): ts.Expression {
-  if (value === null) {
-    return factory.createNull();
-  }
-
-  if (typeof value === "string") {
-    return factory.createStringLiteral(value);
-  }
-
-  if (typeof value === "number") {
-    return factory.createNumericLiteral(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? factory.createTrue() : factory.createFalse();
-  }
-
-  if (Array.isArray(value)) {
-    return factory.createArrayLiteralExpression(value.map((v) => jsonToAst(factory, v)));
-  }
-
-  if (typeof value === "object") {
-    const properties = Object.entries(value as Record<string, unknown>).map(([key, val]) =>
-      factory.createPropertyAssignment(
-        /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
-          ? factory.createIdentifier(key)
-          : factory.createStringLiteral(key),
-        jsonToAst(factory, val)
-      )
-    );
-    return factory.createObjectLiteralExpression(properties, true);
-  }
-
-  return factory.createIdentifier("undefined");
-}
-
-// ============================================================================
 // Raw String (no escape processing)
 // ============================================================================
 
@@ -397,7 +309,6 @@ export function register(): void {
   globalRegistry.register(regexMacro);
   globalRegistry.register(htmlMacro);
   globalRegistry.register(fmtMacro);
-  globalRegistry.register(jsonMacro);
   globalRegistry.register(rawMacro);
 }
 

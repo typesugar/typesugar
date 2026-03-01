@@ -32,10 +32,9 @@ New language features — the "typesugar" in typesugar:
 | ------------------------------------------------------- | ------------------------------------------------ |
 | [Operators](./operators.md)                             | Custom operators with `@operators()` and `ops()` |
 | [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units            |
-| [String Macros](./strings.md)                           | `regex`, `html`, `json`, `raw` templates         |
+| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates                 |
 | [Compile-Time Eval](./comptime.md)                      | Run code at build time with `comptime()`         |
 | [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`        |
-| [Named Arguments](./named-args.md)                      | Kotlin-style named function arguments            |
 
 ## Type Safety & Contracts
 
@@ -45,7 +44,6 @@ Compile-time correctness guarantees:
 | --------------------------------------- | ---------------------------------------------- |
 | [Contracts](./contracts.md)             | Design by contract with `requires:`/`ensures:` |
 | [Refined Types](./contracts-refined.md) | Integration with refinement types              |
-| [Z3 Proofs](./contracts-z3.md)          | SMT solver for complex verification            |
 | [Type System](./type-system.md)         | Refined types, newtype, HKT, phantom types     |
 | [Validation](./validate.md)             | Schema validation macros                       |
 | [Units of Measure](./units.md)          | Type-safe physical units                       |
@@ -63,7 +61,6 @@ Powerful abstractions with zero runtime cost:
 | [Parser Combinators](./parser.md) | PEG grammar to parser (Boost.Spirit)    |
 | [Graph Algorithms](./graph.md)    | BFS, DFS, Dijkstra, state machines      |
 | [Versioned Codecs](./codec.md)    | Schema evolution (serde)                |
-| [Geometry](./geometry.md)         | Type-safe geometry (Boost.Geometry)     |
 | [Math](./math.md)                 | Rational, complex, matrix, interval     |
 | [Object Mapping](./mapper.md)     | Zero-cost struct transformation         |
 | [Symbolic Math](./symbolic.md)    | Calculus, simplification, rendering     |
@@ -77,8 +74,6 @@ Supercharge your existing tools:
 | [Effect-TS](./effect.md) | `@service`, `@layer`, `resolveLayer<R>()` |
 | [React](./react.md)      | Vue/Svelte-style reactivity               |
 | [SQL](./sql.md)          | Doobie-like type-safe SQL                 |
-| [Kysely](./kysely.md)    | Kysely adapter                            |
-| [Drizzle](./drizzle.md)  | Drizzle adapter                           |
 
 ## Developer Experience
 
@@ -108,8 +103,8 @@ import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";
 // Typeclasses
 import { typeclass, instance, deriving, summon } from "@typesugar/typeclass";
 
-// Operators
-import { operators, ops, pipe } from "@typesugar/operators";
+// Operators (legacy pattern, prefer Op<> typeclass)
+import { operators, ops, pipe } from "typesugar";
 
 // Compile-time
 import { comptime, includeStr, static_assert } from "@typesugar/comptime";
@@ -134,8 +129,8 @@ import { assert, staticAssert, typeAssert, forAll } from "@typesugar/testing";
 | `comptime()`    | `@typesugar/comptime`  | Expression      |
 | `@derive()`     | `@typesugar/derive`    | Attribute       |
 | `@typeclass`    | `@typesugar/typeclass` | Attribute       |
-| `@operators()`  | `@typesugar/operators` | Attribute       |
-| `ops()`         | `@typesugar/operators` | Expression      |
+| `@operators()`  | `typesugar` (legacy)   | Attribute       |
+| `ops()`         | `typesugar` (legacy)   | Expression      |
 | `summon<T>()`   | `@typesugar/typeclass` | Expression      |
 | `match()`       | `@typesugar/std`       | Expression      |
 | `sql`           | `@typesugar/sql`       | Tagged Template |

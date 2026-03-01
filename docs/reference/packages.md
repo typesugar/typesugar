@@ -341,27 +341,6 @@ validator<T>();
 
 ## Syntax Sugar
 
-### @typesugar/operators {#operators}
-
-Operator overloading.
-
-```bash
-npm install @typesugar/operators
-```
-
-**Exports:**
-
-```typescript
-operators(); // decorator
-ops();
-pipe();
-compose();
-```
-
-**Inspired by:** Scala operators, Rust operator traits
-
-[Guide](/guides/operators)
-
 ### @typesugar/strings {#strings}
 
 String validation macros with compile-time checking.
@@ -375,7 +354,6 @@ npm install @typesugar/strings
 ```typescript
 regex`...`; // tagged template
 html`...`; // tagged template
-json`...`; // tagged template
 raw`...`; // tagged template
 fmt`...`; // tagged template
 ```
@@ -403,26 +381,6 @@ static_assert();
 **Inspired by:** Zig comptime
 
 [Guide](/guides/comptime)
-
-### @typesugar/named-args {#named-args}
-
-Named function arguments with compile-time validation.
-
-```bash
-npm install @typesugar/named-args
-```
-
-**Exports:**
-
-```typescript
-namedArgs();
-callWithNamedArgs();
-createBuilder();
-```
-
-**Inspired by:** Kotlin, Swift, Boost.Parameter
-
-[Guide](/guides/named-args)
 
 ---
 
@@ -500,25 +458,6 @@ getRegisteredPredicates();
 ```
 
 [Guide](/guides/contracts-refined)
-
-### @typesugar/contracts-z3 {#contracts-z3}
-
-Z3 SMT solver integration for complex proofs.
-
-```bash
-npm install @typesugar/contracts-z3
-```
-
-**Exports:**
-
-```typescript
-z3ProverPlugin();
-proveWithZ3Async();
-```
-
-**Inspired by:** Dafny, F\*
-
-[Guide](/guides/contracts-z3)
 
 ### @typesugar/validate {#validate}
 
@@ -733,27 +672,6 @@ generateMigrations();
 
 [Guide](/guides/codec)
 
-### @typesugar/geometry {#geometry}
-
-Type-safe geometry with coordinate system safety.
-
-```bash
-npm install @typesugar/geometry
-```
-
-**Exports:**
-
-```typescript
-(point2d(), point3d(), vec2(), vec3());
-(polar(), spherical(), cylindrical());
-(translate(), distance(), dot(), cross(), normalize());
-(rotation2d(), translation3d(), compose());
-```
-
-**Inspired by:** Boost.Geometry
-
-[Guide](/guides/geometry)
-
 ### @typesugar/math {#math}
 
 Math types and typeclasses.
@@ -902,41 +820,6 @@ Transactor;
 **Inspired by:** Scala Doobie
 
 [Guide](/guides/sql)
-
-### @typesugar/kysely-adapter {#kysely}
-
-Kysely integration.
-
-```bash
-npm install @typesugar/kysely-adapter kysely
-```
-
-**Exports:**
-
-```typescript
-ksql`...`;
-(ref$(), table$(), id$(), lit$(), join$(), raw$());
-```
-
-[Guide](/guides/kysely)
-
-### @typesugar/drizzle-adapter {#drizzle}
-
-Drizzle ORM integration.
-
-```bash
-npm install @typesugar/drizzle-adapter drizzle-orm
-```
-
-**Exports:**
-
-```typescript
-dsql`...`;
-(ref$(), id$(), join$(), raw$());
-DrizzleQueryable;
-```
-
-[Guide](/guides/drizzle)
 
 ---
 

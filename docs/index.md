@@ -22,7 +22,7 @@ features:
     details: 6 macro kinds to extend TypeScript with custom syntax that compiles away completely.
   - icon: λ
     title: FP & Type Theory
-    details: Typeclasses, monads, do-notation, refined types, and Coq-like contracts with Z3 proofs.
+    details: Typeclasses, monads, do-notation, refined types, and Coq-like contracts with compile-time proofs.
   - icon: ⚡
     title: Compile-Time Powers
     details: Run code at build time, embed files, tail-call optimization, conditional compilation.
@@ -107,7 +107,7 @@ If you're into FP, typesugar has you covered:
 - **Do-notation** via `let:/yield:` labeled blocks — works with any monad
 - **HKT** with `F<_>` syntax — write generic code over type constructors
 - **Refined types** — `Positive`, `Port`, `Email`, `NonEmpty<T>` with compile-time validation
-- **Design by Contract** — `requires()`, `ensures()`, `@invariant` with Z3 SMT solver proofs
+- **Design by Contract** — `requires()`, `ensures()`, `@invariant` with compile-time proof elimination
 
 ```typescript
 // HKT with F<_> syntax
@@ -224,8 +224,6 @@ Advanced data structures and algorithms following typesugar's zero-cost philosop
 - **Graph** — Graph algorithms and state machine verification (Boost.Graph)
 - **Erased** — Typeclass-based type erasure for heterogeneous collections (dyn Trait)
 - **Codec** — Versioned serialization with schema evolution (Boost.Serialization)
-- **Named Args** — Named function arguments with compile-time validation (Boost.Parameter)
-- **Geometry** — Type-safe geometry with coordinate system safety (Boost.Geometry)
 
 ```typescript
 // Lazy iterator fusion — single pass, no intermediate arrays
@@ -244,11 +242,6 @@ const csv = grammar`
   quoted = '"' (!'"' .)* '"'
   unquoted = (!',' !'\\n' .)*
 `;
-
-// Type-safe geometry — can't mix 2D/3D or coordinate systems
-const p = point2d(1, 2);
-const v = vec2(3, 4);
-const moved = translate(p, v); // Point2D
 ```
 
 [HList Guide](/guides/hlist) · [Parser Guide](/guides/parser) · [Fusion Guide](/guides/fusion) · [Graph Guide](/guides/graph)
@@ -282,18 +275,6 @@ const program = let: {
   posts << PostService.getPosts(user.id);
 }
 yield: { posts.length };
-```
-
-### Kysely
-
-Type-safe SQL with the `ksql` tagged template:
-
-```typescript
-const query = ksql<DB>`
-  SELECT ${ref$("id")}, ${ref$("name")}
-  FROM ${table$("users")}
-  WHERE ${ref$("age")} > ${lit$(18)}
-`;
 ```
 
 ### React
@@ -427,9 +408,7 @@ specialize(add); // @ts-no-typesugar     // one line
 
 | Package                                                 | Description                              |
 | ------------------------------------------------------- | ---------------------------------------- |
-| [@typesugar/operators](/reference/packages#operators)   | `@operators()`, `ops()`, `pipe()`        |
-| [@typesugar/strings](/reference/packages#strings)       | `regex`, `html`, `json` tagged templates |
-| [@typesugar/named-args](/reference/packages#named-args) | Kotlin-style named function arguments    |
+| [@typesugar/strings](/reference/packages#strings)       | `regex`, `html`, `raw` tagged templates  |
 | [@typesugar/comptime](/reference/packages#comptime)     | `comptime()` compile-time evaluation     |
 
 ### Type Safety & Contracts
@@ -439,7 +418,6 @@ specialize(add); // @ts-no-typesugar     // one line
 | [@typesugar/type-system](/reference/packages#type-system)             | Refined types, newtype, HKT, phantom types |
 | [@typesugar/contracts](/reference/packages#contracts)                 | `requires:`, `ensures:`, `@invariant`      |
 | [@typesugar/contracts-refined](/reference/packages#contracts-refined) | Refinement type integration                |
-| [@typesugar/contracts-z3](/reference/packages#contracts-z3)           | Z3 SMT solver proofs                       |
 | [@typesugar/validate](/reference/packages#validate)                   | Schema validation macros                   |
 | [@typesugar/units](/reference/packages#units)                         | Type-safe physical units                   |
 
@@ -454,7 +432,6 @@ specialize(add); // @ts-no-typesugar     // one line
 | [@typesugar/graph](/reference/packages#graph)       | Graph algorithms, state machines      |
 | [@typesugar/erased](/reference/packages#erased)     | Type erasure / dyn Trait              |
 | [@typesugar/codec](/reference/packages#codec)       | Versioned codecs, schema evolution    |
-| [@typesugar/geometry](/reference/packages#geometry) | Type-safe geometry                    |
 | [@typesugar/math](/reference/packages#math)         | Math types and typeclasses            |
 | [@typesugar/mapper](/reference/packages#mapper)     | Zero-cost object mapping              |
 
@@ -465,8 +442,6 @@ specialize(add); // @ts-no-typesugar     // one line
 | [@typesugar/effect](/reference/packages#effect)           | Effect-TS adapter           |
 | [@typesugar/react](/reference/packages#react)             | Vue/Svelte-style reactivity |
 | [@typesugar/sql](/reference/packages#sql)                 | Doobie-like SQL DSL         |
-| [@typesugar/kysely-adapter](/reference/packages#kysely)   | Kysely integration          |
-| [@typesugar/drizzle-adapter](/reference/packages#drizzle) | Drizzle integration         |
 
 ### Developer Experience
 
@@ -489,8 +464,8 @@ typesugar draws from the best ideas across language ecosystems:
 | Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                     |
 | Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, specialize, codec, erased, validate               |
 | Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                           |
-| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, hlist, graph, geometry, parser, named-args, units |
-| Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-z3, type-system, testing, math       |
+| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, hlist, graph, parser, units |
+| Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math  |
 
 ---
 

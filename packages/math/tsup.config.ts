@@ -11,6 +11,5 @@ export default defineConfig({
     "@typesugar/core",
     "@typesugar/std",
     "@typesugar/units",
-    "@typesugar/geometry",
   ],
 });

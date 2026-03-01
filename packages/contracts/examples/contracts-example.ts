@@ -12,7 +12,6 @@
  * 4. Property chains need runtime checks — obj.nested.value can't be proven
  * 5. Async/generics work — Contracts apply normally
  * 6. Multiple invariants compose — Each checked after every public method
- * 7. Z3 extends proof power — But WASM init is async, may miss first file
  */
 
 /**
@@ -559,9 +558,9 @@ function examplePropertyChain(obj: { nested: { value: number } }): void {
   console.log("Nested value is positive");
 }
 
-// 3. Non-linear arithmetic — even Z3 may struggle
+// 3. Non-linear arithmetic — harder to prove
 function exampleNonLinear(x: Positive, y: Positive): number {
-  // x*x + y*y > 0 is TRUE but harder to prove without full SMT
+  // x*x + y*y > 0 is TRUE but harder to prove
   ensures(x * x + y * y > 0); // May need RUNTIME check
   return x * x + y * y;
 }
@@ -915,10 +914,10 @@ registerDecidability({
 });
 
 registerDecidability({
-  brand: "MayNeedSMT",
-  predicate: "$ * $ + 1 > 0",  // Non-linear, decidable via SMT
+  brand: "Algebraic",
+  predicate: "$ * $ + 1 > 0",  // Non-linear, decidable via algebra
   decidability: "decidable",
-  preferredStrategy: "z3",
+  preferredStrategy: "algebra",
 });
 
 // Query decidability
@@ -1073,7 +1072,7 @@ console.log(formatCertificate(failedCert));
  * 3. Try type deduction (does a type fact match the goal?)
  * 4. Try algebraic rules (do known patterns apply?)
  * 5. Try linear arithmetic (can FM elimination prove it?)
- * 6. Try prover plugins (Z3 SMT solver)
+ * 6. Try prover plugins (if any registered)
  * 7. If all fail and decidability is "compile-time", emit warning
  * 8. If all fail, emit runtime check
  *
@@ -1143,11 +1142,9 @@ Edge cases to remember:
   - Async functions work — checks at entry and resolution
   - Generics work — but no type facts from generic params
   - Multiple invariants all checked after each method
-  - Z3 extends proof power but has async init delay
 
 Package architecture:
   @typesugar/type-system       — Defines Refined<T, Brand> types + predicates
   @typesugar/contracts         — Contract macros + prover (no built-in predicates)
   @typesugar/contracts-refined — Bridges the two (import to activate)
-  @typesugar/contracts-z3      — Optional Z3 SMT solver plugin
 `);

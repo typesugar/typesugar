@@ -51,13 +51,9 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-## @typesugar/contracts-z3
+## ~~@typesugar/contracts-z3~~ (REMOVED)
 
-**Usefulness**: 2/5 - Very niche; SMT-level proof verification is rarely needed. Heavy Z3 WASM dependency (~40MB+, 100-500ms init).
-**Completeness**: 3/5 - Solid predicate parser supporting arithmetic, comparisons, logical operators. Good test coverage. Doesn't leverage Z3's full power.
-**Documentation**: 4/5 - Clear README with usage patterns, API reference, and performance notes. Comprehensive showcase (262 lines).
-**Coherence**: 2/5 - Doesn't align with zero-cost philosophy; SMT solving is inherently expensive. Types inlined "to avoid build issues" (code smell).
-**Summary**: Technically sound Z3 integration, but very specialized niche. Heavy dependency and compile-time cost conflict with zero-cost principles.
+**Status**: Package removed (2026-03-01). Z3 SMT solver integration conflicts with zero-cost philosophy due to heavy WASM dependency (~40MB+, 100-500ms init). Compile-time verification capabilities retained in `@typesugar/contracts` without Z3.
 
 ---
 
@@ -83,13 +79,9 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-## @typesugar/drizzle
+## ~~@typesugar/drizzle~~ (REMOVED)
 
-**Usefulness**: 3/5 - Drizzle already has good type safety; main value is compile-time SQL validation and ConnectionIO-style integration.
-**Completeness**: 2/5 - Functional but minimal. Has macros but no tests, fewer helpers than Kysely adapter.
-**Documentation**: 4/5 - Well documented: README, dedicated guide, example files. Small issue: JSDoc header says "typemacro" (old name).
-**Coherence**: 3/5 - Follows macro patterns correctly. Doesn't leverage deeper typesugar features (no auto-derivation for schemas).
-**Summary**: Thin but functional adapter. Documentation solid but implementation lacks tests.
+**Status**: Package removed (2026-03-01). Drizzle already has excellent type safety; the adapter added minimal value. Users can use `@typesugar/sql`'s DSL directly with Drizzle's raw SQL APIs.
 
 ---
 
@@ -145,25 +137,21 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-## @typesugar/geometry
+## ~~@typesugar/geometry~~ (REMOVED)
 
-**Usefulness**: 2/5 - Niche utility; only relevant for projects doing 2D/3D geometry. Most use three.js or gl-matrix with richer ecosystems.
-**Completeness**: 3/5 - Solid basics (points, vectors, transforms, coordinate conversions) but missing quaternions, projection matrices, intersection tests.
-**Documentation**: 4/5 - Well-structured README showing type safety benefits. Comprehensive showcase. JSDoc on all exports.
-**Coherence**: 3/5 - Has Numeric/Eq/Show typeclass instances, registerExtensions for Vec2/Vec3/Point2D/Point3D. Zero-cost via branded number[].
-**Summary**: Competent geometry library with typeclass integration and extension methods.
-
-**Update (2026-03-01):** Added Show typeclass for Vec2, Vec3, Point2D, Point3D; added extension methods (Vec2Ext, Vec3Ext, Point2DExt, Point3DExt) via registerExtensions.
+**Status**: Package removed (2026-03-01). Niche utility competing with mature ecosystems (three.js, gl-matrix). Didn't provide sufficient value over existing solutions.
 
 ---
 
 ## @typesugar/graph
 
-**Usefulness**: 3/5 - Solid graph/state machine library with nice DSL, but competes with xstate, graphlib. Verification features are differentiator.
-**Completeness**: 4/5 - Comprehensive algorithms (topoSort, BFS, DFS, Dijkstra, SCC), thorough tests (~540 lines). Missing: visualization, generic node typing.
-**Documentation**: 3/5 - Good README with algorithm complexity table. Missing dedicated guide page, "Zero-cost guarantee" section.
-**Coherence**: 2/5 - Uses modern patterns but doesn't leverage typesugar's core value: no typeclass integration, no comptime(), "compile-time" claim is misleading.
-**Summary**: Well-implemented standalone graph library but disconnected from typesugar philosophy.
+**Usefulness**: 4/5 - Solid graph/state machine library with nice DSL, compile-time verification differentiates from xstate/graphlib.
+**Completeness**: 4/5 - Comprehensive algorithms (topoSort, BFS, DFS, Dijkstra with Monoid weights, SCC), thorough tests (~540 lines).
+**Documentation**: 4/5 - Good README with algorithm complexity table, Zero-cost guarantee section, compile-time verification examples.
+**Coherence**: 4/5 - Now leverages typesugar philosophy: compile-time FSM verification via defineTaggedTemplateMacro, Monoid<W>/Ord<W> for generic path costs.
+**Summary**: Well-integrated graph library with compile-time verification and typeclass-based algorithms.
+
+**Update (2026-03-01):** Added compile-time FSM verification via stateMachineMacro; generalized Dijkstra to use Monoid<W> and Ord<W> for path costs.
 
 ---
 
@@ -177,13 +165,9 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-## @typesugar/kysely
+## ~~@typesugar/kysely~~ (REMOVED)
 
-**Usefulness**: 3/5 - Niche audience (Kysely + typesugar users). ConnectionIO integration for FP-style database code is main value-add.
-**Completeness**: 2/5 - Basic macros present but no tests directory, no red-team tests. Macros are thin wrappers.
-**Documentation**: 3/5 - Good README with examples, API reference. Missing guide in docs/guides/. JSDoc still says "typemacro" (stale).
-**Coherence**: 3/5 - Zero-cost macros that compile away. ConnectionIO follows Doobie patterns. No typeclass integration or auto-derivation.
-**Summary**: Minimal adapter providing macro wrappers. Undertested and adds limited value over native Kysely.
+**Status**: Package removed (2026-03-01). Kysely already has excellent type safety; the adapter added minimal value. Users can use `@typesugar/sql`'s DSL directly with Kysely's raw SQL APIs.
 
 ---
 
@@ -221,23 +205,15 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-## @typesugar/named-args
+## ~~@typesugar/named-args~~ (REMOVED)
 
-**Usefulness**: 2/5 - Solves real problem but manual ParamMeta arrays are more boilerplate than problem they fix. Native TS destructured objects are simpler.
-**Completeness**: 2/5 - Runtime wrapper works, builder solid, good tests. Phase 2 (compile-time rewriting) is vaporware — macro is no-op.
-**Documentation**: 3/5 - README well-structured. Missing required sections: zero-cost guarantee, integration, no guide, no API table.
-**Coherence**: 1/5 - **Not zero-cost**: allocates wrappers, Map lookups, array sorting at runtime. **No auto-derivation**. "Compile-time validation" claim is misleading.
-**Summary**: Well-tested runtime library that contradicts zero-cost principles. Native TS patterns are strictly better.
+**Status**: Package removed (2026-03-01). Not zero-cost: allocates wrappers, Map lookups, array sorting at runtime. Native TypeScript destructured objects are simpler and more idiomatic.
 
 ---
 
-## @typesugar/operators
+## ~~@typesugar/operators~~ (REMOVED)
 
-**Usefulness**: 3/5 - pipe/flow/compose are useful, but @operators/ops() is explicitly "legacy pattern" in AGENTS.md. Preferred is Op<> on typeclass returns.
-**Completeness**: 2/5 - No unit tests exist. showcase.ts substitutes but isn't proper coverage. Missing red-team tests.
-**Documentation**: 4/5 - README well-structured with examples, API reference, supported operators list.
-**Coherence**: 2/5 - Explicitly labeled "legacy pattern". Op<> typeclass system is preferred. Duplicates src/macros/operators.ts rather than re-exporting.
-**Summary**: Competently-implemented but architecturally outdated. Consider deprecating operator mapping in favor of Op<> typeclass integration.
+**Status**: Package removed (2026-03-01). pipe/flow/compose now re-exported from umbrella package via `@typesugar/macros`. @operators/ops() pattern deprecated in favor of Op<> typeclass approach.
 
 ---
 
@@ -327,13 +303,13 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/strings
 
-**Usefulness**: 2/5 - Limited real-world demand. regex marginally useful, html XSS redundant in frameworks, json duplicates object literals, fmt incomplete.
-**Completeness**: 3/5 - All 5 macros properly defined as tagged-template macros with correct metadata. 28 tests covering exports, runtime stubs, macro definitions, and HTML escaping.
+**Usefulness**: 3/5 - regex compile-time validation is genuinely useful. html XSS escaping valuable for server-rendered content. raw and fmt are utilities.
+**Completeness**: 3/5 - 4 macros (regex, html, fmt, raw) properly defined as tagged-template macros with correct metadata. Tests covering exports, runtime stubs, macro definitions, and HTML escaping.
 **Documentation**: 3/5 - README covers all macros with examples, guide exists. Missing JSDoc comments.
-**Coherence**: 3/5 - Fixed stale naming (now @typesugar/strings), proper tagged-template macro kind. Still doesn't leverage typeclass system.
-**Summary**: Thin wrapper around basic string operations. Tests and macro definitions now complete.
+**Coherence**: 3/5 - Fixed stale naming (now @typesugar/strings), proper tagged-template macro kind. Focused on web/string utilities.
+**Summary**: Compile-time string validation macros. json macro removed (duplicated object literals).
 
-**Update (2026-02-28):** Added 28 tests, fixed macro definitions to use correct `kind: "tagged-template"` and `module: "@typesugar/strings"`. Completeness improved from 2/5 to 3/5.
+**Update (2026-03-01):** Removed json macro. Package now focused on regex validation and html escaping.
 
 ---
 
@@ -465,7 +441,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 | 4/5   | Many  | sql (completeness, coherence, docs) _(docs improved from 2)_, validate (docs) _(corrected from 1)_, (see individual evaluations)                                                                                                                                                                                                                                                                                      |
 | 3/5   | Many  | macros (completeness) _(improved from 1)_, typeclass (coherence) _(improved from 2)_, derive (completeness) _(improved from 2)_, strings (completeness) _(improved from 2)_, units (coherence) _(improved from 2)_, (see individual evaluations)                                                                                                                                                                      |
 | 2/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
-| 1/5   | 1     | named-args (coherence)                                                                                                                                                                                                                                                                                                                                                                                                |
+| 1/5   | 0     | _(named-args removed)_                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ## Key Patterns Identified
 
@@ -483,35 +459,42 @@ Evaluation of all typesugar modules across 4 dimensions:
 - **@typesugar/math** — Mature library with proper typeclass integration
 - **@typesugar/vscode** — Well-architected extension with manifest-driven design, tests confirmed
 - **@typesugar/sql** — _(Updated 2026-02-28)_ README rewritten to document all features; now comprehensive docs (4/5)
+- **@typesugar/graph** — _(Updated 2026-03-01)_ Compile-time FSM verification, Monoid-based Dijkstra; coherence improved (4/5)
 
 ### Packages Needing Work (avg <= 2.5)
 
-- ~~**@typesugar/macros**~~ _(Removed 2026-02-28)_ — Now functional and buildable
-- **@typesugar/named-args** — Not zero-cost, contradicts philosophy
-- ~~**@typesugar/typeclass**~~ _(Removed 2026-02-28)_ — Architecture fixed, now re-exports from macros
-- ~~**@typesugar/strings**~~ _(Removed 2026-02-28)_ — Tests added (28), macros fixed, completeness now 3/5
-- ~~**@typesugar/derive**~~ _(Removed 2026-02-28)_ — Sum types now implemented
-- ~~**@typesugar/units**~~ _(Removed 2026-02-28)_ — Auto-derive bug fixed, now works with typeclass system
-- ~~**@typesugar/validate**~~ _(Removed 2026-02-28)_ — README was correct all along (not builder DSL), docs 4/5
-- ~~**@typesugar/fusion**~~ _(Removed 2026-03-01)_ — zip/scan/distinct/partition added, macros registered
-- ~~**@typesugar/specialize**~~ _(Removed 2026-02-28)_ — `specialize$` IS exported, signature matches docs
+- ~~**@typesugar/macros**~~ _(Resolved 2026-02-28)_ — Now functional and buildable
+- ~~**@typesugar/named-args**~~ _(Removed 2026-03-01)_ — Package deleted, not zero-cost
+- ~~**@typesugar/typeclass**~~ _(Resolved 2026-02-28)_ — Architecture fixed, now re-exports from macros
+- ~~**@typesugar/strings**~~ _(Resolved 2026-02-28)_ — Tests added (28), macros fixed, completeness now 3/5
+- ~~**@typesugar/derive**~~ _(Resolved 2026-02-28)_ — Sum types now implemented
+- ~~**@typesugar/units**~~ _(Resolved 2026-02-28)_ — Auto-derive bug fixed, now works with typeclass system
+- ~~**@typesugar/validate**~~ _(Resolved 2026-02-28)_ — README was correct all along (not builder DSL), docs 4/5
+- ~~**@typesugar/fusion**~~ _(Resolved 2026-03-01)_ — zip/scan/distinct/partition added, macros registered
+- ~~**@typesugar/specialize**~~ _(Resolved 2026-02-28)_ — `specialize$` IS exported, signature matches docs
+- ~~**@typesugar/contracts-z3**~~ _(Removed 2026-03-01)_ — Package deleted, Z3 too heavy
+- ~~**@typesugar/geometry**~~ _(Removed 2026-03-01)_ — Package deleted, niche utility
+- ~~**@typesugar/kysely**~~ _(Removed 2026-03-01)_ — Package deleted, minimal value over native Kysely
+- ~~**@typesugar/drizzle**~~ _(Removed 2026-03-01)_ — Package deleted, minimal value over native Drizzle
+- ~~**@typesugar/operators**~~ _(Removed 2026-03-01)_ — Package deleted, re-exported from umbrella via macros
 
 ### Common Issues
 
-1. **Architecture Duplication** — Status improved (2026-02-28):
+1. **Architecture Duplication** — _(Resolved 2026-03-01)_:
    - ~~@typesugar/macros~~ — Now serves as canonical location
    - ~~@typesugar/typeclass~~ — Now properly re-exports from macros
-   - **Remaining**: @typesugar/operators still duplicates rather than re-exporting
+   - ~~@typesugar/operators~~ — Package deleted, umbrella re-exports from macros
 
 2. **Stale Project Names** — _(Resolved 2026-02-28)_
    - Already migrated to `typesugar` throughout codebase
    - Remaining `typemacro`/`ttfx` references are intentional for backwards compatibility (transformer/ESLint recognize old imports)
 
-3. **Missing Tests** — Status updated (2026-02-28):
+3. **Missing Tests** — Status updated (2026-03-01):
    - **@typesugar/vscode**: Tests confirmed — 9 test files with 2,014 lines of coverage
    - **@typesugar/eslint-plugin**: Tests confirmed — 3 test files with 945 lines of coverage (processor.test.ts, full-processor.test.ts, position-mapping.test.ts)
    - **@typesugar/strings**: Tests added — 28 tests covering exports, runtime stubs, macro definitions
-   - **Empty tests/ directories** (have vitest.config.ts but no test files): derive, drizzle, kysely, operators
+   - ~~drizzle, kysely, operators~~ — Packages deleted (2026-03-01)
+   - **derive**: Empty tests/ directory (has vitest.config.ts but no test files)
    - **@typesugar/macros**: Now buildable but still lacks package-local tests (tested via root tests/)
 
 4. **Documentation/Implementation Drift** — Updated assessment (2026-02-28):
@@ -521,8 +504,9 @@ Evaluation of all typesugar modules across 4 dimensions:
    - ~~**specialize**~~: `specialize$` IS exported with correct signature
 
 5. **Not Leveraging Typeclass System** — Several packages don't use Op<>, summon(), auto-derivation:
-   - graph, hlist, erased
-   - ~~geometry~~ — Show + extension methods added (2026-03-01)
+   - hlist, erased
+   - ~~geometry~~ — Package deleted (2026-03-01)
+   - ~~graph~~ — Now uses Monoid/Ord for Dijkstra, compile-time FSM verification (2026-03-01)
    - ~~units~~ — auto-derive bug fixed, now works with typeclass system
 
 ### Recommendations
@@ -530,13 +514,13 @@ Evaluation of all typesugar modules across 4 dimensions:
 1. ~~**Delete or complete @typesugar/macros**~~ — _(Done)_ Package is now functional
 2. ~~**Consolidate typeclass implementations**~~ — _(Done)_ Package now re-exports from macros
 3. ~~**Fix documentation/implementation drift**~~ — _(Done 2026-02-28)_ sql README rewritten, validate/specialize were correct
-4. ~~**Add Op<> typeclass integration**~~ — geometry now has Show + extension methods (2026-03-01); fusion still Phase 2 stub
+4. ~~**Add Op<> typeclass integration**~~ — graph now uses Monoid/Ord (2026-03-01); fusion still Phase 2 stub
 5. ~~**Update stale names**~~ — _(Done)_ Already migrated, remaining refs intentional for backwards compat
 6. ~~**Add missing test coverage for strings**~~ — _(Done 2026-02-28)_ 28 tests added
 7. ~~**Fix specialize exports**~~ — _(Not needed)_ `specialize$` IS exported with correct signature
-8. **Add tests for remaining packages** — derive, drizzle, kysely, operators still have empty tests/ directories
+8. ~~**Add tests for remaining packages**~~ — drizzle, kysely, operators packages deleted; derive still needs tests
 
 ---
 
 _Generated: 2026-02-22_
-_Updated: 2026-03-01_
+_Updated: 2026-03-01 — Major pruning: removed @typesugar/named-args, @typesugar/contracts-z3, @typesugar/geometry, @typesugar/kysely, @typesugar/drizzle, @typesugar/operators. Improved @typesugar/graph (compile-time FSM, Monoid Dijkstra) and @typesugar/strings (removed json macro)._

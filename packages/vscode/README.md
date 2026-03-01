@@ -109,7 +109,7 @@ The manifest contains all macro names, types, and metadata. The extension watche
         "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder"]
       },
       "operators": {
-        "module": "@typesugar/operators"
+        "module": "@typesugar/macros"
       }
     },
     "taggedTemplate": {

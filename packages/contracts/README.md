@@ -47,7 +47,6 @@ The prover runs layers in order, stopping at first success:
 2. **Type deduction** — Facts from `Refined<T, Brand>` types
 3. **Algebraic rules** — Pattern matching (`a > 0 ∧ b > 0 → a + b > 0`)
 4. **Linear arithmetic** — Fourier-Motzkin elimination
-5. **Prover plugins** — External solvers (Z3)
 
 ### Compile-Time Evaluation
 
@@ -360,7 +359,6 @@ packages/contracts/src/
 ## See Also
 
 - `@typesugar/contracts-refined` — Bridges contracts with type-system
-- `@typesugar/contracts-z3` — Z3 SMT solver plugin
 - `@typesugar/type-system` — Refined types (Positive, Byte, etc.)
 
 ## License

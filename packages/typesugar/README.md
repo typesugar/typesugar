@@ -80,9 +80,11 @@ Auto-generate implementations: Eq, Ord, Clone, Debug, Hash, Default, Json, Build
 
 Compile-time type introspection: `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`.
 
-### Operator Overloading (`@typesugar/operators`)
+### Operator Overloading (`@typesugar/macros`)
 
 Transform `+`, `-`, `*`, `/` into method calls on your custom types.
+
+**Note:** The preferred approach is using `Op<>` return type annotations on typeclass methods. The legacy `@operators`/`ops()` pattern is still supported but deprecated.
 
 ### Typeclasses (`@typesugar/typeclass`)
 
@@ -102,7 +104,6 @@ Eliminate typeclass dictionary passing at compile time for true zero-cost abstra
 | `@typesugar/comptime`    | Compile-time evaluation             |
 | `@typesugar/derive`      | Derive macros                       |
 | `@typesugar/reflect`     | Type reflection                     |
-| `@typesugar/operators`   | Operator overloading                |
 | `@typesugar/typeclass`   | Typeclass system                    |
 | `@typesugar/specialize`  | Zero-cost specialization            |
 | `unplugin-typesugar`     | Bundler plugins                     |
@@ -151,7 +152,6 @@ All core types: `MacroKind`, `MacroContext`, `MacroDefinition`, etc.
 - `comptime` — from `@typesugar/comptime`
 - `reflect` — from `@typesugar/reflect`
 - `derive` — from `@typesugar/derive`
-- `operators` — from `@typesugar/operators`
 - `typeclass` — from `@typesugar/typeclass`
 - `specialize` — from `@typesugar/specialize`
 

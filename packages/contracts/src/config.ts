@@ -73,7 +73,7 @@ export interface ContractConfig {
   };
 
   /**
-   * Registered prover plugins (e.g., Z3).
+   * Registered prover plugins.
    * Plugins are tried after the built-in proof layers.
    */
   proverPlugins: ProverPlugin[];
@@ -258,7 +258,7 @@ export function setContractConfig(contractConfig: Partial<ContractConfig>): void
 }
 
 /**
- * Register a prover plugin (e.g., Z3).
+ * Register a prover plugin.
  */
 export function registerProverPlugin(plugin: ProverPlugin): void {
   proverPlugins.push(plugin);
@@ -322,10 +322,10 @@ export function emitDecidabilityWarning(info: DecidabilityFallbackInfo): void {
     level = decidabilityWarnings.warnOnFallback;
     message = `Predicate "${info.brand}" marked as compile-time decidable fell back to ${info.actualStrategy}`;
     if (info.reason) message += `: ${info.reason}`;
-  } else if (info.actualStrategy === "z3" || info.actualStrategy === "plugin") {
-    // Had to use SMT solver
+  } else if (info.actualStrategy === "plugin") {
+    // Had to use external prover plugin
     level = decidabilityWarnings.warnOnSMT;
-    message = `Predicate "${info.brand}" required SMT solver for verification`;
+    message = `Predicate "${info.brand}" required external prover for verification`;
     if (info.reason) message += `: ${info.reason}`;
   }
 

@@ -8,7 +8,6 @@
  * 2. **Type-based deduction** — Refined type facts (e.g., Positive implies > 0)
  * 3. **Algebraic rules** — Pattern matching (transitivity, arithmetic identities)
  * 4. **Linear arithmetic** — Fourier-Motzkin variable elimination
- * 5. **Prover plugins** — External solvers (e.g., Z3 via @typesugar/contracts-z3)
  *
  * If any layer proves the condition, no runtime check is emitted.
  * If all layers fail, a runtime check is generated.
@@ -76,7 +75,7 @@ export interface ProofResult {
 }
 
 /**
- * Plugin interface for external provers (e.g., Z3).
+ * Plugin interface for external provers.
  * Plugins are registered via registerProverPlugin() in config.ts.
  */
 export interface ProverPlugin {
@@ -85,7 +84,7 @@ export interface ProverPlugin {
   /**
    * Attempt to prove a goal given known facts.
    * Return proven: true if the goal is provably true.
-   * Can return a Promise for async provers like Z3.
+   * Can return a Promise for async provers.
    */
   prove(goal: string, facts: TypeFact[], timeout?: number): ProofResult | Promise<ProofResult>;
 }
@@ -238,10 +237,8 @@ function tryProveCompileTime(
     // Handle sync results only
     if (pluginResult && !(pluginResult instanceof Promise)) {
       if (pluginResult.proven) {
-        // Track if SMT solver was used (for decidability warnings)
-        if (plugin.name.toLowerCase().includes("z3") || plugin.name.toLowerCase().includes("smt")) {
-          usedSMT = true;
-        }
+        // Track if external prover was used (for decidability warnings)
+        usedSMT = true;
         return {
           proven: true,
           method: "plugin",
@@ -320,7 +317,7 @@ function extractBrandsFromFacts(facts: TypeFact[]): string[] {
 /**
  * Try to prove a contract condition at compile time (async).
  *
- * Like tryProve, but properly awaits async plugins like Z3.
+ * Like tryProve, but properly awaits async plugins.
  * Use this when you can afford async operations.
  */
 export async function tryProveAsync(

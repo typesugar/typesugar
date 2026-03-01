@@ -50,17 +50,6 @@ const whereClause = sql`WHERE status = ${status}`;
 const query = sql`SELECT * FROM users ${whereClause}`;
 ```
 
-### With Kysely
-
-```typescript
-import { kyselySql } from "@typesugar/kysely-adapter";
-
-const result = await db
-  .selectFrom("users")
-  .where(kyselySql`id = ${userId}`)
-  .execute();
-```
-
 ## Regex
 
 ### Basic Usage
@@ -149,31 +138,6 @@ const kilometers = meters.to("km"); // 1 km
 - Temperature: C, F, K
 - And more...
 
-## JSON
-
-### Validated JSON
-
-```typescript
-import { json } from "@typesugar/strings";
-
-// Validated at compile time
-const config = json`
-  {
-    "host": "localhost",
-    "port": 3000,
-    "debug": true
-  }
-`;
-// Type: { host: string; port: number; debug: boolean }
-```
-
-### Compile-Time Parsing
-
-```typescript
-// Build error: Invalid JSON
-const bad = json`{ "key": }`;
-```
-
 ## Creating Custom Tagged Templates
 
 ```typescript
@@ -213,10 +177,6 @@ Tagged templates provide full type inference:
 ```typescript
 // sql returns SqlQuery<[number, string]>
 const query = sql`SELECT * FROM users WHERE id = ${42} AND name = ${"Alice"}`;
-
-// json infers the structure
-const config = json`{ "port": 3000 }`;
-// Type: { port: number }
 ```
 
 ## Best Practices
@@ -226,7 +186,6 @@ const config = json`{ "port": 3000 }`;
 - Use `sql` for all database queries
 - Use `regex` for patterns (compile-time validation)
 - Use `html` for user-generated content
-- Use `json` for static configuration
 
 ### Don't
 

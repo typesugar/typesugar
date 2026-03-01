@@ -79,7 +79,6 @@
     "@typesugar/comptime": "workspace:*",
     "@typesugar/reflect": "workspace:*",
     "@typesugar/derive": "workspace:*",
-    "@typesugar/operators": "workspace:*",
     "@typesugar/typeclass": "workspace:*",
     "@typesugar/specialize": "workspace:*",
     "unplugin-typesugar": "workspace:*"

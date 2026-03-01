@@ -4,14 +4,14 @@
  * This package provides:
  * - **Numeric types**: Rational, Complex, BigDecimal, Matrix, Interval, Mod, Polynomial
  * - **Typeclasses**: VectorSpace, InnerProduct, Normed
- * - **Bridge modules**: Integration with @typesugar/units and @typesugar/geometry
+ * - **Bridge modules**: Integration with @typesugar/units
  *
  * All types implement the standard typeclasses from @typesugar/std (Numeric, Fractional, etc.)
  * with Op<> operator support.
  *
  * @example
  * ```typescript
- * import { rational, complex, matrix, interval, vec2, vectorSpaceVec2 } from "@typesugar/math";
+ * import { rational, complex, matrix, interval } from "@typesugar/math";
  *
  * // Exact rational arithmetic
  * const half = rational(1n, 2n);
@@ -25,10 +25,6 @@
  * // Type-safe matrices
  * const m = matrix(2, 2, [1, 2, 3, 4]);
  * det(m); // -2
- *
- * // Vector space operations on geometry types
- * const v = vec2(3, 4);
- * const scaled = vectorSpaceVec2.vScale(2, v); // vec2(6, 8)
  * ```
  *
  * @packageDocumentation
@@ -535,22 +531,6 @@ export {
   rationalToUnit,
   unitToRationalPrecise,
   scaleByRational,
-  // Geometry bridge - Vec2
-  vectorSpaceVec2,
-  innerProductVec2,
-  normedVec2,
-  normalizeVec2,
-  distanceVec2,
-  isOrthogonalVec2,
-  projectVec2,
-  // Geometry bridge - Vec3
-  vectorSpaceVec3,
-  innerProductVec3,
-  normedVec3,
-  normalizeVec3,
-  distanceVec3,
-  isOrthogonalVec3,
-  projectVec3,
 } from "./bridge/index.js";
 
 // ============================================================================

@@ -1,6 +1,6 @@
 # @typesugar/math
 
-Comprehensive math types and typeclasses for TypeScript. Combines exact numeric types, linear algebra typeclasses, and seamless integration with `@typesugar/units` and `@typesugar/geometry`.
+Comprehensive math types and typeclasses for TypeScript. Combines exact numeric types, linear algebra typeclasses, and seamless integration with `@typesugar/units`.
 
 ## Installation
 
@@ -34,10 +34,6 @@ import {
   // Polynomials
   polynomial,
   evaluate,
-  // Geometry with typeclasses
-  vec2,
-  vectorSpaceVec2,
-  innerProductVec2,
   // Units
   meters,
   seconds,
@@ -56,10 +52,6 @@ console.log(complexMagnitude(z)); // 5
 // Type-safe matrices
 const m = matrix(2, 2, [1, 2, 3, 4]);
 console.log(det(m)); // -2
-
-// Vector space operations
-const v = vec2(3, 4);
-const scaled = vectorSpaceVec2.vScale(2, v); // vec2(6, 8)
 ```
 
 ---
@@ -414,7 +406,7 @@ interface VectorSpace<V, F> {
 }
 ```
 
-Instances: `vectorSpaceVec2`, `vectorSpaceVec3`, `vectorSpaceArray(F)`.
+Instances: `vectorSpaceArray(F)`.
 
 ### InnerProduct
 
@@ -426,7 +418,7 @@ interface InnerProduct<V, F> extends VectorSpace<V, F> {
 }
 ```
 
-Instances: `innerProductVec2`, `innerProductVec3`, `innerProductArray(F)`.
+Instances: `innerProductArray(F)`.
 
 ### Normed
 
@@ -451,45 +443,6 @@ import {
   isOrthogonal, // Check perpendicularity
   project, // Project a onto b
 } from "@typesugar/math";
-```
-
----
-
-## Integration with @typesugar/geometry
-
-The bridge module provides typeclass instances for `Vec2` and `Vec3`:
-
-```typescript
-import {
-  vec2,
-  vec3,
-  vectorSpaceVec2,
-  innerProductVec2,
-  normedVec2,
-  vectorSpaceVec3,
-  innerProductVec3,
-  normedVec3,
-  normalizeVec2,
-  distanceVec2,
-  projectVec2,
-} from "@typesugar/math";
-
-// Check orthogonality
-const a = vec2(1, 0);
-const b = vec2(0, 1);
-innerProductVec2.dot(a, b); // 0 — perpendicular
-
-// Normalize
-const v = vec2(3, 4);
-normedVec2.norm(v); // 5
-normalizeVec2(v); // vec2(0.6, 0.8)
-
-// Generic algorithms work on any VectorSpace
-function linearCombo<V, F extends number>(VS: VectorSpace<V, F>, v1: V, c1: F, v2: V, c2: F): V {
-  return VS.vAdd(VS.vScale(c1, v1), VS.vScale(c2, v2));
-}
-
-linearCombo(vectorSpaceVec2, vec2(1, 0), 3, vec2(0, 1), 4); // vec2(3, 4)
 ```
 
 ---
@@ -519,7 +472,7 @@ const thirdMeter = scaleByRational(meters(1), third);
 
 ## Single Import
 
-`@typesugar/math` re-exports everything from `@typesugar/units` and `@typesugar/geometry`:
+`@typesugar/math` re-exports everything from `@typesugar/units`:
 
 ```typescript
 import {
@@ -527,11 +480,6 @@ import {
   meters,
   seconds,
   newtons,
-  // Geometry
-  vec2,
-  vec3,
-  point2d,
-  rotation2d,
   // Math types
   rational,
   complex,
@@ -540,8 +488,6 @@ import {
   mod,
   polynomial,
   // Typeclasses
-  vectorSpaceVec2,
-  innerProductVec3,
   numericRational,
 } from "@typesugar/math";
 ```
@@ -595,12 +541,6 @@ a / b; // → fractionalRational.div(a, b)
 | `fractionalMod(p)`     | `Mod<P>`        | `Fractional` (prime p) |
 | `numericMatrix(n)`     | `Matrix<N,N>`   | `Numeric`              |
 | `numericPolynomial(F)` | `Polynomial<F>` | `Numeric`              |
-| `vectorSpaceVec2`      | `Vec2`          | `VectorSpace`          |
-| `innerProductVec2`     | `Vec2`          | `InnerProduct`         |
-| `normedVec2`           | `Vec2`          | `Normed`               |
-| `vectorSpaceVec3`      | `Vec3`          | `VectorSpace`          |
-| `innerProductVec3`     | `Vec3`          | `InnerProduct`         |
-| `normedVec3`           | `Vec3`          | `Normed`               |
 
 ## License
 

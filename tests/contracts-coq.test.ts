@@ -174,7 +174,7 @@ describe("decidability annotations", () => {
     registerDecidability({
       brand: "DecidableTest",
       decidability: "decidable",
-      preferredStrategy: "z3",
+      preferredStrategy: "algebra",
     });
 
     expect(requiresRuntimeCheck("RuntimeRequiredTest")).toBe(true);

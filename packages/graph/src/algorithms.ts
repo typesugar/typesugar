@@ -1,5 +1,19 @@
 import type { Graph, GraphEdge } from "./types.js";
 import { adjacencyList } from "./graph.js";
+import type { Monoid, Ord } from "@typesugar/std";
+
+/**
+ * Configuration for generic shortest path algorithms.
+ * Enables Dijkstra to work with custom weight types (e.g., durations, costs, probabilities).
+ */
+export interface PathCostConfig<W> {
+  /** Monoid for combining weights along a path */
+  readonly monoid: Monoid<W>;
+  /** Ordering for comparing path costs */
+  readonly ord: Ord<W>;
+  /** Extract weight from an edge (defaults to edge.weight if present) */
+  readonly getWeight: (edge: GraphEdge) => W;
+}
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -232,47 +246,80 @@ function reconstructPath(parent: Map<string, string>, from: string, to: string):
 }
 
 /**
- * Dijkstra's algorithm for weighted shortest path.
- * Edges without explicit weight are treated as weight 1.
+ * Generic Dijkstra's algorithm with custom weight type.
+ *
+ * Uses Monoid<W> for combining path costs and Ord<W> for comparing them.
+ * This enables shortest-path computation with custom cost types like:
+ * - Durations (combine: add, compare: less-than)
+ * - Probabilities (combine: multiply, compare: greater-than for max probability)
+ * - Multi-criteria costs (lexicographic ordering)
+ *
+ * @example
+ * ```ts
+ * // Duration-based shortest path
+ * const result = dijkstraWith(graph, "A", "B", {
+ *   monoid: durationMonoid,
+ *   ord: durationOrd,
+ *   getWeight: (e) => Duration.parse(e.label ?? "0s"),
+ * });
+ *
+ * // Probability-based maximum reliability path
+ * const result = dijkstraWith(graph, "A", "B", {
+ *   monoid: probabilityMonoid, // combine = multiply
+ *   ord: reverseOrd(probabilityOrd), // reverse for max instead of min
+ *   getWeight: (e) => e.weight ?? 1,
+ * });
+ * ```
  */
-export function dijkstra(
+export function dijkstraWith<W>(
   graph: Graph,
   from: string,
-  to: string
-): { path: string[]; weight: number } | null {
-  if (from === to) return { path: [from], weight: 0 };
+  to: string,
+  config: PathCostConfig<W>
+): { path: string[]; weight: W } | null {
+  const { monoid, ord, getWeight } = config;
+  const identity = monoid.empty();
 
-  const weightedAdj = new Map<string, Array<{ to: string; weight: number }>>();
+  if (from === to) return { path: [from], weight: identity };
+
+  type WeightedEdge = { to: string; weight: W };
+  const weightedAdj = new Map<string, WeightedEdge[]>();
   for (const n of graph.nodes) weightedAdj.set(n.id, []);
   for (const e of graph.edges) {
-    weightedAdj.get(e.from)?.push({ to: e.to, weight: e.weight ?? 1 });
+    const w = getWeight(e);
+    weightedAdj.get(e.from)?.push({ to: e.to, weight: w });
     if (!graph.directed) {
-      weightedAdj.get(e.to)?.push({ to: e.from, weight: e.weight ?? 1 });
+      weightedAdj.get(e.to)?.push({ to: e.from, weight: w });
     }
   }
 
-  const dist = new Map<string, number>();
+  const dist = new Map<string, W | null>();
   const prev = new Map<string, string>();
   const visited = new Set<string>();
 
-  for (const n of graph.nodes) dist.set(n.id, Infinity);
-  dist.set(from, 0);
+  for (const n of graph.nodes) dist.set(n.id, null);
+  dist.set(from, identity);
 
   while (true) {
     let minNode: string | null = null;
-    let minDist = Infinity;
+    let minDist: W | null = null;
     for (const [id, d] of dist) {
-      if (!visited.has(id) && d < minDist) {
-        minDist = d;
-        minNode = id;
+      if (!visited.has(id) && d !== null) {
+        if (minDist === null || ord.lessThan(d, minDist)) {
+          minDist = d;
+          minNode = id;
+        }
       }
     }
     if (minNode === null || minNode === to) break;
 
     visited.add(minNode);
+    const currentDist = dist.get(minNode);
+    if (currentDist === null || currentDist === undefined) continue;
     for (const { to: neighbor, weight } of weightedAdj.get(minNode) ?? []) {
-      const alt = minDist + weight;
-      if (alt < (dist.get(neighbor) ?? Infinity)) {
+      const alt = monoid.combine(currentDist, weight);
+      const neighborDist = dist.get(neighbor);
+      if (neighborDist === undefined || neighborDist === null || ord.lessThan(alt, neighborDist)) {
         dist.set(neighbor, alt);
         prev.set(neighbor, minNode);
       }
@@ -280,7 +327,7 @@ export function dijkstra(
   }
 
   const totalWeight = dist.get(to);
-  if (totalWeight === undefined || totalWeight === Infinity) return null;
+  if (totalWeight === null || totalWeight === undefined) return null;
 
   const path: string[] = [];
   let cur: string | undefined = to;
@@ -291,6 +338,46 @@ export function dijkstra(
   }
   path.reverse();
   return { path, weight: totalWeight };
+}
+
+/**
+ * Default number-based Monoid for path costs.
+ * Combines via addition, identity is 0.
+ */
+export const numberMonoid: Monoid<number> = {
+  combine: (a, b) => a + b,
+  empty: () => 0,
+};
+
+/**
+ * Default number-based Ord for path costs.
+ * Standard numeric ordering.
+ */
+export const numberOrd: Ord<number> = {
+  equals: (a, b) => a === b,
+  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+  lessThan: (a, b) => a < b,
+  lessThanOrEqual: (a, b) => a <= b,
+  greaterThan: (a, b) => a > b,
+  greaterThanOrEqual: (a, b) => a >= b,
+} as Ord<number>;
+
+/**
+ * Dijkstra's algorithm for weighted shortest path (number weights).
+ * Edges without explicit weight are treated as weight 1.
+ *
+ * For custom weight types, use `dijkstraWith` with appropriate Monoid and Ord.
+ */
+export function dijkstra(
+  graph: Graph,
+  from: string,
+  to: string
+): { path: string[]; weight: number } | null {
+  return dijkstraWith(graph, from, to, {
+    monoid: numberMonoid,
+    ord: numberOrd,
+    getWeight: (e) => e.weight ?? 1,
+  });
 }
 
 /** Tarjan's algorithm for strongly connected components. */

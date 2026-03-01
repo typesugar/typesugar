@@ -22,7 +22,6 @@
  * 2. **Type deduction** — From Refined<T, Brand> types (e.g., Positive implies > 0)
  * 3. **Algebraic rules** — Mathematical identities and transitivity
  * 4. **Linear arithmetic** — Fourier-Motzkin elimination for linear constraints
- * 5. **Prover plugins** — External solvers (e.g., Z3 via @typesugar/contracts-z3)
  *
  * ## Compile-Time Evaluation with comptime()
  *

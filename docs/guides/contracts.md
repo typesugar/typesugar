@@ -189,25 +189,6 @@ ContractViolation: requires: amount must be positive
   Values: { amount: -50 }
 ```
 
-## Advanced: Proof Engine
-
-For static verification, use `@typesugar/contracts-z3`:
-
-```typescript
-import { prove } from "@typesugar/contracts-z3";
-
-function abs(n: number): number {
-  requires: {
-    prove: true; // Enable static verification
-  }
-  ensures: {
-    result >= 0;
-  }
-  return n < 0 ? -n : n;
-}
-// Z3 proves the postcondition holds for all inputs
-```
-
 ## Refinement Types
 
 Combine with refinement types for stronger guarantees:
@@ -274,5 +255,5 @@ Zero runtime overhead.
 | Postconditions      | Yes       | Yes     | Yes | Yes       |
 | Invariants          | Yes       | Yes     | Yes | Yes       |
 | `old()`             | Yes       | Yes     | Yes | Yes       |
-| Static verification | Yes (Z3)  | Partial | No  | Yes       |
+| Static verification | Yes       | Partial | No  | Yes       |
 | Zero-cost disable   | Yes       | No      | Yes | Yes       |

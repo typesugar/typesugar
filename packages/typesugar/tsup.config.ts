@@ -18,11 +18,11 @@ export default defineConfig({
   external: [
     "typescript",
     "@typesugar/core",
+    "@typesugar/macros",
     "@typesugar/transformer",
     "@typesugar/comptime",
     "@typesugar/reflect",
     "@typesugar/derive",
-    "@typesugar/operators",
     "@typesugar/typeclass",
     "@typesugar/specialize",
     "unplugin-typesugar",

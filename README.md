@@ -75,9 +75,7 @@ alice.toJson(); // JSON serialization
 
 | Package                                      | Description                              |
 | -------------------------------------------- | ---------------------------------------- |
-| [@typesugar/operators](packages/operators)   | `@operators()`, `ops()`, `pipe()`        |
-| [@typesugar/strings](packages/strings)       | `regex`, `html`, `json` tagged templates |
-| [@typesugar/named-args](packages/named-args) | Kotlin-style named function arguments    |
+| [@typesugar/strings](packages/strings)       | `regex`, `html`, `raw` tagged templates  |
 | [@typesugar/comptime](packages/comptime)     | `comptime()` compile-time evaluation     |
 
 ### Type Safety & Contracts
@@ -87,7 +85,6 @@ alice.toJson(); // JSON serialization
 | [@typesugar/type-system](packages/type-system)             | Refined types, newtype, HKT, phantom types |
 | [@typesugar/contracts](packages/contracts)                 | `requires:`, `ensures:`, `@invariant`      |
 | [@typesugar/contracts-refined](packages/contracts-refined) | Refinement type integration                |
-| [@typesugar/contracts-z3](packages/contracts-z3)           | Z3 SMT solver proofs                       |
 | [@typesugar/validate](packages/validate)                   | Schema validation macros                   |
 | [@typesugar/units](packages/units)                         | Type-safe physical units                   |
 
@@ -102,7 +99,6 @@ alice.toJson(); // JSON serialization
 | [@typesugar/graph](packages/graph)       | Graph algorithms, state machines (Boost.Graph)  |
 | [@typesugar/erased](packages/erased)     | Type erasure / dyn Trait                        |
 | [@typesugar/codec](packages/codec)       | Versioned codecs, schema evolution              |
-| [@typesugar/geometry](packages/geometry) | Type-safe geometry (Boost.Geometry)             |
 | [@typesugar/math](packages/math)         | Math types and typeclasses                      |
 | [@typesugar/mapper](packages/mapper)     | Zero-cost object mapping                        |
 | [@typesugar/symbolic](packages/symbolic) | Symbolic math, calculus, simplification         |
@@ -114,8 +110,6 @@ alice.toJson(); // JSON serialization
 | [@typesugar/effect](packages/effect)           | Effect-TS adapter           |
 | [@typesugar/react](packages/react)             | Vue/Svelte-style reactivity |
 | [@typesugar/sql](packages/sql)                 | Doobie-like SQL DSL         |
-| [@typesugar/kysely-adapter](packages/kysely)   | Kysely integration          |
-| [@typesugar/drizzle-adapter](packages/drizzle) | Drizzle integration         |
 
 ### Developer Experience
 
@@ -206,7 +200,7 @@ const validate = validator<User>(); // Runtime validator from types
 
 ```typescript
 import { sql } from "@typesugar/sql";
-import { regex, html, json } from "@typesugar/strings";
+import { regex, html } from "@typesugar/strings";
 import { units } from "@typesugar/units";
 
 const query = sql`SELECT * FROM ${table} WHERE id = ${id}`;

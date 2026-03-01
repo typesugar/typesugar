@@ -102,16 +102,13 @@ packages/
 ├── reflect/            # @typesugar/reflect — compile-time reflection
 │
 │   ## Syntax Sugar
-├── operators/          # @typesugar/operators — operator overloading
 ├── strings/            # @typesugar/strings — string manipulation macros
 ├── comptime/           # @typesugar/comptime — compile-time evaluation
-├── named-args/         # @typesugar/named-args — named function arguments (Boost.Parameter)
 │
 │   ## Type Safety & Contracts
 ├── type-system/        # @typesugar/type-system — refined types, newtype, vec
 ├── contracts/          # @typesugar/contracts — requires/ensures/invariant
 ├── contracts-refined/  # @typesugar/contracts-refined — refinement types
-├── contracts-z3/       # @typesugar/contracts-z3 — Z3 SMT solver integration
 ├── validate/           # @typesugar/validate — schema validation macros
 ├── units/              # @typesugar/units — units of measure
 │
@@ -123,7 +120,6 @@ packages/
 ├── graph/              # @typesugar/graph — graph algorithms, state machines (Boost.Graph)
 ├── erased/             # @typesugar/erased — typeclass-based type erasure (dyn Trait)
 ├── codec/              # @typesugar/codec — versioned codecs, schema evolution (serde)
-├── geometry/           # @typesugar/geometry — coordinate system safety (Boost.Geometry)
 ├── math/               # @typesugar/math — math types and typeclasses
 ├── mapper/             # @typesugar/mapper — zero-cost object mapping
 ├── symbolic/           # @typesugar/symbolic — symbolic math, calculus, simplification
@@ -131,9 +127,7 @@ packages/
 │   ## Ecosystem Integrations
 ├── effect/             # @typesugar/effect — Effect TS integration (@service, @layer, resolveLayer, derives)
 ├── react/              # @typesugar/react — reactive signals, JSX macros
-├── sql/                # @typesugar/sql — typed SQL fragments
-├── kysely/             # @typesugar/kysely-adapter — Kysely integration
-└── drizzle/            # @typesugar/drizzle-adapter — Drizzle integration
+└── sql/                # @typesugar/sql — typed SQL fragments
 ```
 
 ---
@@ -957,8 +951,6 @@ Understanding what goes where prevents architecture confusion:
 | `@typesugar/graph`       | Graph construction/algorithms (topo sort, SCC, Dijkstra), state machine definition/verification                                          | Visual rendering              |
 | `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                   | Typeclass definitions         |
 | `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                                 | Transport/network layer       |
-| `@typesugar/named-args`  | Named argument wrappers, builder pattern for complex functions                                                                           | Call-site rewriting (Phase 2) |
-| `@typesugar/geometry`    | Points, vectors, transforms with coordinate system and dimension safety                                                                  | Physics simulation            |
 
 **Key clarifications:**
 
@@ -967,7 +959,6 @@ Understanding what goes where prevents architecture confusion:
 - Extensions on built-in types (`number`, `string`, `Array`) go in `std`
 - `@typesugar/hlist` does NOT depend on Generic/macros — it's a peer, not a dependency
 - `@typesugar/fusion`'s `lazy()` is always single-pass — it MUST NOT create intermediate arrays
-- `@typesugar/geometry` types (Point, Vector) are branded arrays — brands are type-only, zero runtime cost
 
 ### `@derive` vs `@deriving` vs Auto-derivation
 

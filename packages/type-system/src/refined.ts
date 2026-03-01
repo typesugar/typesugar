@@ -639,8 +639,7 @@ export type ProofStrategy =
   | "constant" // Compile-time constant evaluation
   | "type" // Type-based deduction
   | "algebra" // Algebraic rules
-  | "linear" // Linear arithmetic
-  | "z3"; // SMT solver
+  | "linear"; // Linear arithmetic
 
 /**
  * Predicate definition for contracts integration.

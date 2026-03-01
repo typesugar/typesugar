@@ -2,7 +2,7 @@
  * Linear Arithmetic Solver (Coq-inspired)
  *
  * Fast built-in solver for linear inequalities using Fourier-Motzkin
- * variable elimination. This avoids Z3 overhead for common cases.
+ * variable elimination.
  *
  * ## Algorithm: Fourier-Motzkin Elimination
  *

@@ -18,10 +18,6 @@
  * // - Prefer constant evaluation strategy
  * // - Warn if falling back to runtime
  *
- * // Mark as decidable but may need SMT solver
- * @decidable("decidable", "z3")
- * type ComplexConstraint = Refined<number, "ComplexConstraint">;
- *
  * // Mark as runtime-only (no warnings on fallback)
  * @decidable("runtime", "algebra")
  * type DynamicCheck = Refined<string, "DynamicCheck">;
@@ -54,7 +50,7 @@ const VALID_DECIDABILITY: readonly Decidability[] = [
 /**
  * Valid proof strategies.
  */
-const VALID_STRATEGIES: readonly ProofStrategy[] = ["constant", "type", "algebra", "linear", "z3"];
+const VALID_STRATEGIES: readonly ProofStrategy[] = ["constant", "type", "algebra", "linear"];
 
 export const decidableAttribute = defineAttributeMacro({
   name: "decidable",

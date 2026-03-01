@@ -36,6 +36,9 @@ var transformIntoMacro = defineExpressionMacro({
     }
     for (const toProp of toProps) {
       const name = toProp.name;
+      if (config.ignoreTarget.has(name)) {
+        continue;
+      }
       if (config.const.has(name)) {
         resultProperties.push(ctx.factory.createPropertyAssignment(name, config.const.get(name)));
         continue;
@@ -112,7 +115,9 @@ function parseConfig(ctx, configExpr) {
   const config = {
     rename: /* @__PURE__ */ new Map(),
     compute: /* @__PURE__ */ new Map(),
-    const: /* @__PURE__ */ new Map()
+    const: /* @__PURE__ */ new Map(),
+    ignoreTarget: /* @__PURE__ */ new Set(),
+    ignoreSource: /* @__PURE__ */ new Set()
   };
   if (!configExpr || !ts.isObjectLiteralExpression(configExpr)) {
     return config;
@@ -137,6 +142,22 @@ function parseConfig(ctx, configExpr) {
                   config.compute.set(targetKey, subProp.initializer);
                 } else if (key === "const") {
                   config.const.set(targetKey, subProp.initializer);
+                }
+              }
+            }
+          }
+        }
+      } else if (key === "ignore" && ts.isObjectLiteralExpression(prop.initializer)) {
+        for (const subProp of prop.initializer.properties) {
+          if (ts.isPropertyAssignment(subProp) && ts.isIdentifier(subProp.name)) {
+            const subKey = subProp.name.text;
+            if ((subKey === "source" || subKey === "target") && ts.isArrayLiteralExpression(subProp.initializer)) {
+              const set = subKey === "target" ? config.ignoreTarget : config.ignoreSource;
+              for (const elem of subProp.initializer.elements) {
+                if (ts.isStringLiteral(elem)) {
+                  set.add(elem.text);
+                } else if (ts.isIdentifier(elem)) {
+                  set.add(elem.text);
                 }
               }
             }

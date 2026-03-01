@@ -73,6 +73,46 @@ const result = await transactor.run(program);
 const bad = sql`SELECT * FROM users WHERE (id = ${1}`;
 ```
 
+## Using with Query Builders
+
+`@typesugar/sql` works well alongside popular query builders like Kysely and Drizzle ORM. The `sql` tagged template produces a `{ text, params }` object that can be used with their raw SQL APIs.
+
+### With Kysely
+
+```typescript
+import { sql as kyselySql, Kysely } from "kysely";
+import { sql } from "@typesugar/sql";
+
+// Build a fragment with typesugar/sql
+const userId = 42;
+const fragment = sql`id = ${userId}`;
+
+// Use with Kysely's sql helper
+const result = await db
+  .selectFrom("users")
+  .where(kyselySql.raw(fragment.text, fragment.params))
+  .execute();
+```
+
+### With Drizzle ORM
+
+```typescript
+import { sql as drizzleSql } from "drizzle-orm";
+import { sql } from "@typesugar/sql";
+
+// Build a fragment with typesugar/sql
+const minAge = 18;
+const fragment = sql`age >= ${minAge}`;
+
+// Use with Drizzle's sql helper
+const result = await db
+  .select()
+  .from(users)
+  .where(drizzleSql.raw(fragment.text, ...fragment.params));
+```
+
+Both integrations use the native raw SQL capabilities of each library, giving you type safety from typesugar/sql's compile-time validation while preserving compatibility with your existing query builder.
+
 ## Learn More
 
 - [API Reference](/reference/packages#sql)

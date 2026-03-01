@@ -1,6 +1,6 @@
 # Design by Contract for typesugar
 
-> **Status**: Implemented (Phase 1-4). Z3 integration scaffolded. Coq-inspired extensions complete.
+> **Status**: Implemented (Phase 1-4). Coq-inspired extensions complete.
 
 ## Overview
 
@@ -13,7 +13,6 @@
 - **`@invariant`** — Class invariant (checked after public methods)
 - **Configurable stripping** — `mode: "full" | "assertions" | "none"`
 - **Compile-time proofs** — Constant eval, type deduction, algebraic rules
-- **Z3 plugin** — `@typesugar/contracts-z3` (separate package)
 
 ## Terminology
 
@@ -117,7 +116,6 @@ Layers run in order, stopping at first success:
 2. **Type deduction** — Extract facts from `Refined<T, Brand>` parameters
 3. **Algebraic rules** — Pattern-match on normalized predicates
 4. **Linear arithmetic** — Fourier-Motzkin elimination for inequalities
-5. **Prover plugins** — SMT solver for complex formulas (via `@typesugar/contracts-z3`)
 
 ## Coq-Inspired Extensions
 
@@ -289,9 +287,6 @@ packages/contracts/src/
 
 packages/contracts-refined/src/
   index.ts              # Registers built-in predicates for type-system
-
-packages/contracts-z3/src/
-  index.ts              # Z3 ProverPlugin implementation
 ```
 
 ## Related Packages
@@ -300,7 +295,6 @@ packages/contracts-z3/src/
 | ------------------------------ | ------------------------------------------------ |
 | `@typesugar/contracts`         | Core contracts, prover, decidability             |
 | `@typesugar/contracts-refined` | Bridge to `@typesugar/type-system` refined types |
-| `@typesugar/contracts-z3`      | Z3 SMT solver prover plugin                      |
 | `@typesugar/type-system`       | Refined types (Positive, Byte, Port, etc.)       |
 
 ## References
@@ -308,4 +302,3 @@ packages/contracts-z3/src/
 - [Eiffel Design by Contract](https://www.eiffel.org/doc/eiffel/ET-_Design_by_Contract)
 - [Dafny Verification](https://dafny.org/)
 - [SPARK Ada Contracts](https://docs.adacore.com/spark2014-docs/html/ug/en/source/subprogram_contracts.html)
-- [Z3 TypeScript Bindings](https://www.npmjs.com/package/z3-solver)

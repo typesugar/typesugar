@@ -4,7 +4,7 @@
 
 ## Overview
 
-`@typesugar/strings` provides tagged template macros for string processing with compile-time validation: regex validation, HTML XSS escaping, printf-style formatting, JSON parsing, and raw strings.
+`@typesugar/strings` provides tagged template macros for string processing with compile-time validation: regex validation, HTML XSS escaping, printf-style formatting, and raw strings.
 
 ## Installation
 
@@ -54,24 +54,6 @@ const message = fmt`Hello, ${name}! You are ${age} years old.`;
 // Result: "Hello, Alice! You are 30 years old."
 ```
 
-### json — Compile-Time JSON Parsing
-
-```typescript
-import { json } from "@typesugar/strings";
-
-// Parsed and validated at compile time
-const config = json`{
-  "name": "my-app",
-  "version": "1.0.0",
-  "features": ["auth", "logging"]
-}`;
-// Compiles to: { name: "my-app", version: "1.0.0", features: ["auth", "logging"] }
-
-// Invalid JSON causes compile-time error
-const bad = json`{ invalid json }`;
-// Error: Invalid JSON: Unexpected token 'i'
-```
-
 ### raw — Raw Strings (No Escape Processing)
 
 ```typescript
@@ -92,7 +74,6 @@ const regex = raw`\d+\.\d+`;
 - `regex` — Compile-time validated regular expressions
 - `html` — HTML with automatic XSS escaping
 - `fmt` — Printf-style string formatting
-- `json` — Compile-time JSON parsing
 - `raw` — Raw strings without escape processing
 
 ### Functions
@@ -113,7 +94,6 @@ function __typesugar_escapeHtml(str: unknown): string;
 | `regex` | Syntax validation, catches invalid patterns |
 | `html`  | Auto-injection of escape calls              |
 | `fmt`   | Could be extended for type checking         |
-| `json`  | Parse errors, valid AST generation          |
 | `raw`   | Escape sequence preservation                |
 
 ## License

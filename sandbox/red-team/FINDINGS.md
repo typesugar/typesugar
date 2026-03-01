@@ -34,7 +34,7 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | 22  | Vec Operations Return FusedVec Object   | `@typesugar/fusion`            | Very Low | API awareness         |
 | 23  | match() Discriminant Name List Extended | `@typesugar/std`               | Low      | IMPROVED              |
 | 24  | NonZero.is(NaN) Returns True            | `@typesugar/contracts-refined` | Low      | JavaScript semantics  |
-| 25  | Z3 Parser: Scientific Notation Missing  | `@typesugar/contracts-z3`      | Medium   | Parsing limitation    |
+| 25  | ~~Z3 Parser: Scientific Notation Missing~~| ~~`@typesugar/contracts-z3`~~  | —        | Package removed       |
 | 26  | Synthetic Nodes Crash ExpansionTracker  | `@typesugar/core`              | Low      | Known limitation      |
 | 27  | Signal Function Values as Updaters      | `@typesugar/react`             | Medium   | Design limitation     |
 | 28  | Computed Diamond Deps Not Tracked       | `@typesugar/react`             | Medium   | Bug                   |
@@ -59,7 +59,6 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 - `@typesugar/preprocessor` (pipeline, HKT syntax)
 - `@typesugar/contracts` (prover, requires/ensures)
 - `@typesugar/contracts-refined` (refined type predicates)
-- `@typesugar/contracts-z3` (Z3 SMT solver integration)
 - `@typesugar/comptime` (compile-time evaluation)
 - `@typesugar/derive` (manual simulation)
 - `@typesugar/symbolic` (expression trees, evaluation, differentiation)
@@ -69,9 +68,7 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 - `@typesugar/codec` (versioned codecs, schema evolution)
 - `@typesugar/core` (macro infrastructure)
 - `@typesugar/erased` (type erasure)
-- `@typesugar/geometry` (coordinate systems)
 - `@typesugar/graph` (graph algorithms)
-- `@typesugar/operators` (operator overloading)
 - `@typesugar/parser` (PEG parser)
 - `@typesugar/react` (reactive signals)
 - `@typesugar/type-system` (HKT, newtype, refined types)
@@ -104,18 +101,12 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | `red-team-std.test.ts`                | 46    | match patterns, P helpers, Unicode             |
 | `red-team-codec.test.ts`              | 36    | Schema validation, migration, serialization    |
 | `red-team-contracts-refined.test.ts`  | 89    | Refined type predicates, subtyping             |
-| `red-team-contracts-z3.test.ts`       | 42    | Z3 solver integration, constraint parsing      |
 | `red-team-core.test.ts`               | 67    | Registry, config, capabilities, hygiene        |
-| `red-team-drizzle.test.ts`            | 59    | SQL injection, type mapping, templates         |
 | `red-team-effect.test.ts`             | 29    | Service registry, layers, HKT integration      |
 | `red-team-erased.test.ts`             | 41    | VTable, capabilities, type erasure             |
 | `red-team-eslint-plugin.test.ts`      | 53    | Preprocessor, file handling, config            |
-| `red-team-geometry.test.ts`           | 46    | Coordinates, transforms, precision             |
 | `red-team-graph.test.ts`              | 70    | Graph algorithms, state machines               |
-| `red-team-kysely.test.ts`             | 38    | SQL validation, type helpers                   |
 | `red-team-mapper.test.ts`             | 38    | Object mapping edge cases                      |
-| `red-team-named-args.test.ts`         | 29    | Parameter validation, builder pattern          |
-| `red-team-operators.test.ts`          | 51    | pipe, compose, operator registration           |
 | `red-team-parser.test.ts`             | 76    | PEG parsing, grammar edge cases                |
 | `red-team-prettier-plugin.test.ts`    | 40    | Custom syntax formatting                       |
 | `red-team-react.test.ts`              | 39    | Signals, computed, effects, batching           |

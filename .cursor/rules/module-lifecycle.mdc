@@ -26,8 +26,8 @@ If you're about to create a new package, run through check-existing-first and de
 
 | Element | Convention | Example |
 | ------- | ---------- | ------- |
-| Package name | `@typesugar/<kebab-case>` | `@typesugar/math`, `@typesugar/contracts-z3` |
-| Directory | `packages/<kebab-case>/` | `packages/math/`, `packages/contracts-z3/` |
+| Package name | `@typesugar/<kebab-case>` | `@typesugar/math`, `@typesugar/contracts-refined` |
+| Directory | `packages/<kebab-case>/` | `packages/math/`, `packages/contracts-refined/` |
 | Vitest project | Matches package name | `name: "@typesugar/math"` in `vitest.config.ts` |
 | Description | Includes emoji prefix | `"🧊 Math types and typeclasses"` |
 

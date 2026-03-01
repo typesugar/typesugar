@@ -147,8 +147,15 @@ import * as deriveNs from "@typesugar/derive";
 export { deriveNs as deriveNamespace };
 
 // Operator overloading (@operators, ops, pipe, compose)
-import * as operatorsNs from "@typesugar/operators";
-export { operatorsNs as operatorsNamespace };
+// Note: The legacy @operators/ops() pattern is deprecated in favor of Op<> typeclass returns
+// Main exports (operators, ops, pipe, compose, flow, registerOperators, etc.) are already
+// exported above from @typesugar/macros. These additional exports are for the macro definitions.
+export {
+  operatorsAttribute,
+  opsMacro,
+  pipeMacro,
+  composeMacro,
+} from "@typesugar/macros";
 
 // Scala 3-style typeclasses (@typeclass, @instance, @deriving, summon, extend)
 import * as typeclassNs from "@typesugar/typeclass";

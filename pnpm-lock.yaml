@@ -155,18 +155,6 @@ importers:
         specifier: '>=5.0.0'
         version: 5.9.3
 
-  packages/contracts-z3:
-    dependencies:
-      '@typesugar/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-      z3-solver:
-        specifier: ^4.13.4
-        version: 4.16.0
-
   packages/core:
     dependencies:
       magic-string:
@@ -185,25 +173,6 @@ importers:
         specifier: '>=5.0.0'
         version: 5.9.3
     devDependencies:
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9(@types/node@22.19.13)
-
-  packages/drizzle:
-    dependencies:
-      '@typesugar/core':
-        specifier: workspace:*
-        version: link:../core
-      '@typesugar/sql':
-        specifier: workspace:*
-        version: link:../sql
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      drizzle-orm:
-        specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(kysely@0.27.6)(react@19.2.4)
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.13)
@@ -303,29 +272,14 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)
 
-  packages/geometry:
+  packages/graph:
     dependencies:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
-      '@typesugar/macros':
-        specifier: workspace:*
-        version: link:../macros
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std
-    devDependencies:
-      tsup:
-        specifier: ^8.0.0
-        version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)
-
-  packages/graph:
     devDependencies:
       tsup:
         specifier: ^8.0.0
@@ -352,25 +306,6 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)
-
-  packages/kysely:
-    dependencies:
-      '@typesugar/core':
-        specifier: workspace:*
-        version: link:../core
-      '@typesugar/sql':
-        specifier: workspace:*
-        version: link:../sql
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      kysely:
-        specifier: ^0.27.0
-        version: 0.27.6
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9(@types/node@22.19.13)
 
   packages/macros:
     dependencies:
@@ -402,9 +337,6 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
-      '@typesugar/geometry':
-        specifier: workspace:*
-        version: link:../geometry
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
@@ -424,35 +356,6 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)
-
-  packages/named-args:
-    dependencies:
-      '@typesugar/core':
-        specifier: workspace:*
-        version: link:../core
-    devDependencies:
-      tsup:
-        specifier: ^8.0.0
-        version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)
-
-  packages/operators:
-    dependencies:
-      '@typesugar/macros':
-        specifier: workspace:*
-        version: link:../macros
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9(@types/node@22.19.13)
 
   packages/parser:
     dependencies:
@@ -686,9 +589,6 @@ importers:
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
-      '@typesugar/operators':
-        specifier: workspace:*
-        version: link:../operators
       '@typesugar/reflect':
         specifier: workspace:*
         version: link:../reflect
@@ -2200,9 +2100,6 @@ packages:
     resolution: {integrity: sha512-Z7tMw1ytTXt5jqMcOP+OQteU1VuNK9Y02uuJtKQ1Sv69jXQKKg5cibLwGJow8yzZP+eAc18EmLGPal0bp36rvQ==}
     engines: {node: '>=8'}
 
-  async-mutex@0.3.2:
-    resolution: {integrity: sha512-HuTK7E7MT7jZEh1P9GtRW9+aTWiDWWi9InbZ5hjxrnRa39KS4BW04+xLBhYNS2aXhHUIKZSw3gj4Pn1pj+qGAA==}
-
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
 
@@ -2534,86 +2431,6 @@ packages:
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
-
-  drizzle-orm@0.30.10:
-    resolution: {integrity: sha512-IRy/QmMWw9lAQHpwbUh1b8fcn27S/a9zMIzqea1WNOxK9/4EB8gIo+FZWLiPXzl2n9ixGSv8BhsLZiOppWEwBw==}
-    peerDependencies:
-      '@aws-sdk/client-rds-data': '>=3'
-      '@cloudflare/workers-types': '>=3'
-      '@electric-sql/pglite': '>=0.1.1'
-      '@libsql/client': '*'
-      '@neondatabase/serverless': '>=0.1'
-      '@op-engineering/op-sqlite': '>=2'
-      '@opentelemetry/api': ^1.4.1
-      '@planetscale/database': '>=1'
-      '@types/better-sqlite3': '*'
-      '@types/pg': '*'
-      '@types/react': '>=18'
-      '@types/sql.js': '*'
-      '@vercel/postgres': '>=0.8.0'
-      '@xata.io/client': '*'
-      better-sqlite3: '>=7'
-      bun-types: '*'
-      expo-sqlite: '>=13.2.0'
-      knex: '*'
-      kysely: '*'
-      mysql2: '>=2'
-      pg: '>=8'
-      postgres: '>=3'
-      react: '>=18'
-      sql.js: '>=1'
-      sqlite3: '>=5'
-    peerDependenciesMeta:
-      '@aws-sdk/client-rds-data':
-        optional: true
-      '@cloudflare/workers-types':
-        optional: true
-      '@electric-sql/pglite':
-        optional: true
-      '@libsql/client':
-        optional: true
-      '@neondatabase/serverless':
-        optional: true
-      '@op-engineering/op-sqlite':
-        optional: true
-      '@opentelemetry/api':
-        optional: true
-      '@planetscale/database':
-        optional: true
-      '@types/better-sqlite3':
-        optional: true
-      '@types/pg':
-        optional: true
-      '@types/react':
-        optional: true
-      '@types/sql.js':
-        optional: true
-      '@vercel/postgres':
-        optional: true
-      '@xata.io/client':
-        optional: true
-      better-sqlite3:
-        optional: true
-      bun-types:
-        optional: true
-      expo-sqlite:
-        optional: true
-      knex:
-        optional: true
-      kysely:
-        optional: true
-      mysql2:
-        optional: true
-      pg:
-        optional: true
-      postgres:
-        optional: true
-      react:
-        optional: true
-      sql.js:
-        optional: true
-      sqlite3:
-        optional: true
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -3250,10 +3067,6 @@ packages:
   kind-of@6.0.3:
     resolution: {integrity: sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==}
     engines: {node: '>=0.10.0'}
-
-  kysely@0.27.6:
-    resolution: {integrity: sha512-FIyV/64EkKhJmjgC0g2hygpBv5RNWVPyNCqSAD7eTCv6eFWNIi4PN1UvdSJGicN/o35bnevgis4Y0UDC0qi8jQ==}
-    engines: {node: '>=14.0.0'}
 
   leven@3.1.0:
     resolution: {integrity: sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==}
@@ -4600,10 +4413,6 @@ packages:
   yocto-queue@1.2.2:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
-
-  z3-solver@4.16.0:
-    resolution: {integrity: sha512-vWT+I5Yz0dXtseLVZsnkwAIrRmbxw0rCX5a6Xglc6n1CyPESNMnHB3iAWh7XTQQHZRlpWYnKJXTJ0ahTTNHZEg==}
-    engines: {node: '>=16'}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -6056,10 +5865,6 @@ snapshots:
 
   astral-regex@2.0.0: {}
 
-  async-mutex@0.3.2:
-    dependencies:
-      tslib: 2.8.1
-
   asynckit@0.4.0: {}
 
   azure-devops-node-api@12.5.0:
@@ -6390,12 +6195,6 @@ snapshots:
       dom-serializer: 2.0.0
       domelementtype: 2.3.0
       domhandler: 5.0.3
-
-  drizzle-orm@0.30.10(@types/react@19.2.14)(kysely@0.27.6)(react@19.2.4):
-    optionalDependencies:
-      '@types/react': 19.2.14
-      kysely: 0.27.6
-      react: 19.2.4
 
   dunder-proto@1.0.1:
     dependencies:
@@ -7124,8 +6923,6 @@ snapshots:
       json-buffer: 3.0.1
 
   kind-of@6.0.3: {}
-
-  kysely@0.27.6: {}
 
   leven@3.1.0: {}
 
@@ -8573,9 +8370,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   yocto-queue@1.2.2: {}
-
-  z3-solver@4.16.0:
-    dependencies:
-      async-mutex: 0.3.2
 
   zwitch@2.0.4: {}

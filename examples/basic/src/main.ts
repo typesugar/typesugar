@@ -21,7 +21,7 @@ import {
 
 // Alternatively, you can import directly from specific packages:
 // import { comptime } from "@typesugar/comptime";
-// import { ops, pipe, compose } from "@typesugar/operators";
+// import { ops, pipe, compose } from "@typesugar/macros";
 
 // ============================================================================
 // 1. Compile-Time Evaluation

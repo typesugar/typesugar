@@ -216,12 +216,11 @@ npx typesugar doctor
 | `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `Builder`, `TypeGuard` |
 | `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                              |
 | `@typesugar/sql`       | `sql` tagged template                                                                         |
-| `@typesugar/operators` | `@operators()`, `ops()`, `pipe()`                                                             |
 | `@typesugar/typeclass` | `@typeclass`, `@instance`, `@deriving`, `summon<T>()`                                         |
 | `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                         |
 | `@typesugar/std`       | `match()`, `when()`, `otherwise()`, `isType()`, `P`, extension methods                        |
 | `@typesugar/fp`        | `Option`, `Result`, `IO`                                                                      |
-| `@typesugar/strings`   | `regex`, `html`, `json` tagged templates                                                      |
+| `@typesugar/strings`   | `regex`, `html`, `raw` tagged templates                                                       |
 | `@typesugar/units`     | `units` tagged template for dimensional analysis                                              |
 
 ## What's Next?

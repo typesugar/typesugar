@@ -1,11 +1,48 @@
 # Operator Overloading
 
-typesugar provides operator overloading through `@operators()` and `ops()`.
+typesugar provides operator overloading through two mechanisms:
 
-## Basic Usage
+1. **Op\<\> typeclass return types (recommended)** — Operators automatically dispatch to typeclass methods
+2. **`@operators()` and `ops()` (legacy)** — Explicit wrapper for class-specific operators
+
+## Recommended: Op\<\> Typeclass Approach
+
+The preferred way to enable operators is through typeclass instances with `Op<>` return types:
 
 ```typescript
-import { operators, ops } from "@typesugar/operators";
+import { Numeric, numericRational, rational } from "@typesugar/std";
+
+const a = rational(1n, 2n);
+const b = rational(1n, 3n);
+
+// Operators work automatically through Numeric typeclass
+const sum = a + b;        // Compiles to: numericRational.add(a, b)
+const product = a * b;    // Compiles to: numericRational.mul(a, b)
+const comparison = a < b; // Compiles to: ordRational.compare(a, b) < 0
+```
+
+Typeclasses define methods with `Op<>` return type annotations, which the transformer uses to dispatch operators:
+
+```typescript
+interface Numeric<A> {
+  add(a: A, b: A): A & Op<"+">;  // a + b dispatches to add()
+  mul(a: A, b: A): A & Op<"*">;  // a * b dispatches to mul()
+  // ...
+}
+```
+
+This approach is **zero-cost** — the operator is transformed directly to the method call with no wrapper.
+
+---
+
+## Legacy: @operators() and ops()
+
+For class-specific operators without typeclasses, you can still use the legacy pattern:
+
+### Basic Usage
+
+```typescript
+import { operators, ops } from "typesugar";
 
 @operators({ "+": "add", "*": "scale", "==": "equals" })
 class Vec2 {
@@ -102,7 +139,7 @@ ops(vec * other)   // Vec2.scale(Vec2)
 The `pipe()` function chains operations:
 
 ```typescript
-import { pipe } from "@typesugar/operators";
+import { pipe } from "typesugar";
 
 const result = pipe(
   5,
@@ -129,7 +166,7 @@ const processed = pipe(
 Compose functions right-to-left:
 
 ```typescript
-import { compose } from "@typesugar/operators";
+import { compose } from "typesugar";
 
 const f = (x: number) => x * 2;
 const g = (x: number) => x + 1;

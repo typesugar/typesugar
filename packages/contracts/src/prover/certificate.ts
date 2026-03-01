@@ -44,8 +44,7 @@ export type ProofMethod =
   | "type" // Type-based deduction from Refined types
   | "algebra" // Algebraic proof rules
   | "linear" // Linear arithmetic solver (Fourier-Motzkin)
-  | "z3" // Z3 SMT solver
-  | "plugin"; // Other prover plugin
+  | "plugin"; // External prover plugin
 
 /**
  * A proof certificate — structured record of a proof attempt.

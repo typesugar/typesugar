@@ -76,7 +76,7 @@ export type Decidability = "compile-time" | "decidable" | "runtime" | "undecidab
 /**
  * Preferred proof strategy for a predicate.
  */
-export type ProofStrategy = "constant" | "type" | "algebra" | "linear" | "z3";
+export type ProofStrategy = "constant" | "type" | "algebra" | "linear";
 
 /**
  * Decidability information for a refinement predicate.

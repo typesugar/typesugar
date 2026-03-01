@@ -263,7 +263,7 @@ export function verifyLaws(
 }
 
 /**
- * Verify laws asynchronously (supports async prover plugins like Z3).
+ * Verify laws asynchronously (supports async prover plugins).
  *
  * @param laws - The laws to verify
  * @param facts - Known type facts from context

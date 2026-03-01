@@ -26,8 +26,7 @@
     "@typesugar/core": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "@typesugar/std": "workspace:*",
-    "@typesugar/units": "workspace:*",
-    "@typesugar/geometry": "workspace:*"
+    "@typesugar/units": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

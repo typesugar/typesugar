@@ -11,12 +11,10 @@ import {
   regex,
   html,
   fmt,
-  json,
   raw,
   regexMacro,
   htmlMacro,
   fmtMacro,
-  jsonMacro,
   rawMacro,
   register,
 } from "../src/index.js";
@@ -31,7 +29,6 @@ describe("@typesugar/strings", () => {
       expect(typeof regex).toBe("function");
       expect(typeof html).toBe("function");
       expect(typeof fmt).toBe("function");
-      expect(typeof json).toBe("function");
       expect(typeof raw).toBe("function");
     });
 
@@ -48,11 +45,6 @@ describe("@typesugar/strings", () => {
     it("fmt stub should throw with helpful error message", () => {
       expect(() => fmt`test`).toThrow("fmt`...` was not transformed at compile time");
       expect(() => fmt`test`).toThrow("typesugar transformer is configured");
-    });
-
-    it("json stub should throw with helpful error message", () => {
-      expect(() => json`{"a": 1}`).toThrow("json`...` was not transformed at compile time");
-      expect(() => json`{"a": 1}`).toThrow("typesugar transformer is configured");
     });
 
     it("raw stub should throw with helpful error message", () => {
@@ -77,7 +69,6 @@ describe("@typesugar/strings", () => {
       expect(regexMacro).toBeDefined();
       expect(htmlMacro).toBeDefined();
       expect(fmtMacro).toBeDefined();
-      expect(jsonMacro).toBeDefined();
       expect(rawMacro).toBeDefined();
     });
 
@@ -85,7 +76,6 @@ describe("@typesugar/strings", () => {
       expect(regexMacro.name).toBe("regex");
       expect(htmlMacro.name).toBe("html");
       expect(fmtMacro.name).toBe("fmt");
-      expect(jsonMacro.name).toBe("json");
       expect(rawMacro.name).toBe("raw");
     });
 
@@ -93,7 +83,6 @@ describe("@typesugar/strings", () => {
       expect(regexMacro.module).toBe("@typesugar/strings");
       expect(htmlMacro.module).toBe("@typesugar/strings");
       expect(fmtMacro.module).toBe("@typesugar/strings");
-      expect(jsonMacro.module).toBe("@typesugar/strings");
       expect(rawMacro.module).toBe("@typesugar/strings");
     });
 
@@ -101,7 +90,6 @@ describe("@typesugar/strings", () => {
       expect(regexMacro.kind).toBe("tagged-template");
       expect(htmlMacro.kind).toBe("tagged-template");
       expect(fmtMacro.kind).toBe("tagged-template");
-      expect(jsonMacro.kind).toBe("tagged-template");
       expect(rawMacro.kind).toBe("tagged-template");
     });
 
@@ -109,7 +97,6 @@ describe("@typesugar/strings", () => {
       expect(typeof regexMacro.expand).toBe("function");
       expect(typeof htmlMacro.expand).toBe("function");
       expect(typeof fmtMacro.expand).toBe("function");
-      expect(typeof jsonMacro.expand).toBe("function");
       expect(typeof rawMacro.expand).toBe("function");
     });
 
@@ -117,7 +104,6 @@ describe("@typesugar/strings", () => {
       expect(regexMacro.description).toContain("regular expression");
       expect(htmlMacro.description).toContain("XSS");
       expect(fmtMacro.description).toContain("formatting");
-      expect(jsonMacro.description).toContain("JSON");
       expect(rawMacro.description).toContain("escape");
     });
   });
@@ -217,14 +203,12 @@ describe("@typesugar/strings", () => {
       expect(exports.regex).toBeDefined();
       expect(exports.html).toBeDefined();
       expect(exports.fmt).toBeDefined();
-      expect(exports.json).toBeDefined();
       expect(exports.raw).toBeDefined();
 
       // Macro definitions
       expect(exports.regexMacro).toBeDefined();
       expect(exports.htmlMacro).toBeDefined();
       expect(exports.fmtMacro).toBeDefined();
-      expect(exports.jsonMacro).toBeDefined();
       expect(exports.rawMacro).toBeDefined();
 
       // Register function

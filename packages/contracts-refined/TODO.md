@@ -11,4 +11,3 @@
 ### Decidability Improvements
 
 - [ ] [2026-02-21] Emit warnings when a "compile-time" decidable predicate falls back to runtime — currently the decidability annotations exist but aren't used for diagnostics
-- [ ] [2026-02-21] Z3 integration for "decidable" predicates — predicates marked as `decidable` should be dispatched to `@typesugar/contracts-z3` when available

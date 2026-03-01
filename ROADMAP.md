@@ -383,19 +383,6 @@ Functions declare implicit parameters, and a macro auto-threads context through 
 - [ ] Compile error when context is missing (not silently `undefined`)
 - [ ] Scope boundaries: where does implicit resolution stop?
 
-### Named Arguments (Phase 2 — preprocessor)
-
-**Difficulty: 3 · Impact: 4**
-
-Phase 1 (runtime wrapper) exists. Phase 2 rewrites `f(port: 8080, host: "localhost")` to positional calls at compile time via the preprocessor.
-
-- [ ] Preprocessor rewrite: `name: value` → positional arguments
-- [ ] Handle mixed positional + named
-- [ ] Fill defaults for missing optional parameters
-- [ ] Compile error for unknown/duplicate parameter names
-
-**Where:** `packages/named-args/`, `packages/preprocessor/`
-
 ### Erased Type Auto-Resolution (Phase 2)
 
 **Difficulty: 4 · Impact: 4**
@@ -432,7 +419,7 @@ Lower priority. Either the audience is narrow, the problem is solved elsewhere, 
 | **Taint tracking** (`@tainted`/`@sanitized`)       |     4      | Intellectually elegant but TS injection surfaces are narrow. Frameworks solve this.                             |
 | **Capability tracking** (`@requires`/`@provides`)  |     4      | Effect-system-for-TS has been attempted many times. Small audience, already served by Effect.                   |
 | **Cross-function contract propagation**            |     4      | Inter-procedural analysis is a research project. Basic contracts are good enough for now.                       |
-| **Z3 integration for decidable predicates**        |     4      | Cool tech demo, impractical dependency. Keep the basic algebraic prover.                                        |
+| ~~**Z3 integration for decidable predicates**~~    |     —      | Removed. Basic algebraic prover is sufficient.                                                                  |
 | **Compile-time graph algorithms (Dijkstra, etc.)** |     4      | When will someone run shortest-path at compile time? State machine verification (P5) covers the practical case. |
 | **`@profiled` / `@timeout` / `@retry` macros**     |     2      | Easy but not differentiating. These exist as npm packages. Build after `defineWrappingMacro()` as examples.     |
 | **Debug mode with expansion comments**             |     2      | Source maps (P0) solve this better.                                                                             |
