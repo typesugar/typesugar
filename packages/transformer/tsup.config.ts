@@ -14,6 +14,7 @@ export default defineConfig({
     "position-mapper": "src/position-mapper.ts",
     "source-map-utils": "src/source-map-utils.ts",
     cache: "src/cache.ts",
+    profiling: "src/profiling.ts",
   },
   format: ["cjs", "esm"],
   dts: true,

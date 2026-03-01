@@ -27,6 +27,12 @@ export interface TypesugarPluginOptions {
 
   /** Syntax extensions to enable (default: all) */
   extensions?: ("hkt" | "pipeline" | "cons")[];
+
+  /** Enable disk-backed transform cache */
+  diskCache?: boolean | string;
+
+  /** Enable strict mode - typecheck expanded output at build end */
+  strict?: boolean;
 }
 
 function findTsConfig(cwd: string, explicit?: string): string {
@@ -89,6 +95,8 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
         pipeline = createPipeline(configPath, {
           verbose,
           extensions: options?.extensions,
+          diskCache: options?.diskCache,
+          strict: options?.strict,
         });
         if (verbose) {
           console.log(`[typesugar] Loaded config from ${configPath}`);
@@ -141,6 +149,29 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
         if (verbose) {
           console.log(`[typesugar] Invalidated cache for ${id}`);
         }
+      }
+    },
+
+    // Cleanup at end of build: save caches, print profiling report, run strict typecheck
+    buildEnd() {
+      if (pipeline) {
+        // Run strict mode typecheck if enabled
+        if (options?.strict) {
+          const diagnostics = pipeline.strictTypecheck();
+          if (diagnostics.length > 0) {
+            console.error(`[typesugar] Strict mode found ${diagnostics.length} type errors in expanded output:`);
+            for (const diag of diagnostics) {
+              const file = diag.file?.fileName ?? "<unknown>";
+              const msg = ts.flattenDiagnosticMessageText(diag.messageText, "\n");
+              const pos = diag.start
+                ? diag.file?.getLineAndCharacterOfPosition(diag.start)
+                : undefined;
+              const loc = pos ? `:${pos.line + 1}:${pos.character + 1}` : "";
+              console.error(`  ${file}${loc}: ${msg}`);
+            }
+          }
+        }
+        pipeline.cleanup();
       }
     },
   };

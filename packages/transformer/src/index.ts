@@ -86,6 +86,7 @@ import {
   // Expansion caching
   MacroExpansionCache,
 } from "@typesugar/core";
+import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
 // Printer for safe text extraction from nodes (works on synthetic nodes too)
 const nodePrinter = ts.createPrinter();
@@ -129,6 +130,127 @@ export interface MacroTransformerConfig {
    * Defaults to `.typesugar-cache`.
    */
   cacheDir?: string | false;
+}
+
+/**
+ * The most recently created expansion cache.
+ * Used by saveExpansionCache() to persist cache at cleanup time.
+ */
+let activeExpansionCache: MacroExpansionCache | undefined;
+
+/**
+ * Save the macro expansion cache to disk.
+ * Call this at cleanup time (buildEnd, CLI exit, etc.) to persist
+ * expansion results for future builds.
+ */
+export function saveExpansionCache(): void {
+  if (activeExpansionCache) {
+    activeExpansionCache.save();
+  }
+}
+
+/**
+ * Get statistics about the expansion cache for diagnostics.
+ */
+export function getExpansionCacheStats(): string | undefined {
+  return activeExpansionCache?.getStatsString();
+}
+
+/**
+ * Holds state that can be reused across multiple factory invocations.
+ *
+ * In watch mode, creating a new factory on each rebuild discards all caches.
+ * By passing a TransformerState to subsequent factory calls, expensive setup
+ * work is preserved:
+ * - Hygiene context (alias generation)
+ * - Expansion cache (disk-backed)
+ * - Scanned files set (registration scanning)
+ * - Macro packages already loaded
+ *
+ * @example
+ * ```typescript
+ * // CLI watch mode: create state once, reuse across rebuilds
+ * const state = new TransformerState({ cacheDir: '.typesugar-cache' });
+ * afterProgramCreate((program) => {
+ *   const factory = macroTransformerFactory(program, config, state);
+ *   program.emit(undefined, undefined, undefined, false, { before: [factory] });
+ * });
+ * // On exit:
+ * state.save();
+ * ```
+ */
+export class TransformerState {
+  /** Shared hygiene context for alias management */
+  readonly hygiene: HygieneContext;
+
+  /** Disk-backed expansion cache */
+  readonly expansionCache: MacroExpansionCache | undefined;
+
+  /** Files that have been scanned for instance/typeclass registrations */
+  readonly scannedFiles: Set<string>;
+
+  /** Track which programs have had macro packages loaded */
+  private loadedPrograms = new WeakSet<ts.Program>();
+
+  constructor(options: { cacheDir?: string | false; verbose?: boolean } = {}) {
+    this.hygiene = new HygieneContext();
+    this.expansionCache =
+      options.cacheDir !== false
+        ? new MacroExpansionCache(options.cacheDir ?? ".typesugar-cache")
+        : undefined;
+    this.scannedFiles = new Set();
+
+    if (options.verbose) {
+      console.log("[typesugar] Created TransformerState");
+      if (this.expansionCache) {
+        console.log(`[typesugar] Expansion cache loaded: ${this.expansionCache.size} entries`);
+      }
+    }
+  }
+
+  /**
+   * Check if macro packages have been loaded for this program.
+   * Returns true if already loaded (skip loading), false if not.
+   */
+  hasLoadedMacroPackages(program: ts.Program): boolean {
+    return this.loadedPrograms.has(program);
+  }
+
+  /**
+   * Mark that macro packages have been loaded for this program.
+   */
+  markMacroPackagesLoaded(program: ts.Program): void {
+    this.loadedPrograms.add(program);
+  }
+
+  /**
+   * Invalidate scanned files that match a predicate.
+   * Use this when a source file changes to allow re-scanning.
+   */
+  invalidateScannedFiles(predicate: (fileName: string) => boolean): void {
+    for (const fileName of this.scannedFiles) {
+      if (predicate(fileName)) {
+        this.scannedFiles.delete(fileName);
+      }
+    }
+  }
+
+  /**
+   * Save the expansion cache to disk.
+   */
+  save(): void {
+    this.expansionCache?.save();
+  }
+
+  /**
+   * Get cache statistics.
+   */
+  getStats(): { expansionCacheSize: number; scannedFilesCount: number } {
+    return {
+      expansionCacheSize: this.expansionCache?.size ?? 0,
+      scannedFilesCount: this.scannedFiles.size,
+    };
+  }
 }
 
 /**
@@ -396,6 +518,20 @@ function ensureImportedRegistrations(
     const importedSf = program.getSourceFile(resolved);
     if (!importedSf) continue;
 
+    // OPTIMIZATION: Fast string-based skip for files without registration calls
+    // Most files don't contain registrations, so avoid the expensive AST walk
+    const fileText = importedSf.text;
+    if (
+      !fileText.includes("instance(") &&
+      !fileText.includes("typeclass(") &&
+      !fileText.includes("registerInstanceWithMeta(") &&
+      !fileText.includes("registerTypeclassSyntax(")
+    ) {
+      // File doesn't have any registration calls — just recurse into imports
+      ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
+      continue;
+    }
+
     if (verbose) {
       console.log(`[typesugar] Pre-scanning registrations in: ${resolved}`);
     }
@@ -619,42 +755,91 @@ function isPrimitiveType(type: ts.Type): boolean {
 /**
  * Create the TypeScript transformer factory
  * This is the entry point called by ts-patch
+ *
+ * @param program - The TypeScript program to transform
+ * @param config - Configuration options
+ * @param state - Optional reusable state for watch mode (caches, hygiene context)
  */
 export default function macroTransformerFactory(
   program: ts.Program,
-  config?: MacroTransformerConfig
+  config?: MacroTransformerConfig,
+  state?: TransformerState
 ): ts.TransformerFactory<ts.SourceFile> {
+  profiler.start("factory.total");
   const verbose = config?.verbose ?? false;
   const trackExpansions = config?.trackExpansions ?? false;
+  const hasState = state !== undefined;
 
   // Apply conditional compilation config if provided
   if (config?.cfgConfig) {
     setCfgConfig(config.cfgConfig);
   }
 
-  // Clear per-compilation caches (stale mirrors/derivations from watch-mode rebuilds)
-  clearDerivationCaches();
+  // Reuse state if provided, otherwise create fresh caches
+  let hygiene: HygieneContext;
+  let expansionCache: MacroExpansionCache | undefined;
+  let scannedFiles: Set<string>;
 
-  // Create a shared hygiene context for the entire compilation
-  const hygiene = new HygieneContext();
+  if (state) {
+    // Reuse existing state (watch mode optimization)
+    hygiene = state.hygiene;
+    expansionCache = state.expansionCache;
+    scannedFiles = state.scannedFiles;
+    activeExpansionCache = expansionCache;
+
+    // Only load macro packages if not already loaded for this program
+    if (!state.hasLoadedMacroPackages(program)) {
+      profiler.start("factory.loadMacroPackages");
+      loadMacroPackages(program, verbose);
+      profiler.end("factory.loadMacroPackages");
+      state.markMacroPackagesLoaded(program);
+    }
+
+    // Skip clearDerivationCaches() when reusing state — caches are still valid
+    if (verbose) {
+      console.log("[typesugar] Reusing TransformerState from previous build");
+    }
+  } else {
+    // Fresh state (first build or non-watch mode)
+
+    // Clear per-compilation caches (stale mirrors/derivations from watch-mode rebuilds)
+    profiler.start("factory.clearDerivationCaches");
+    clearDerivationCaches();
+    profiler.end("factory.clearDerivationCaches");
+
+    // Create a shared hygiene context for the entire compilation
+    hygiene = new HygieneContext();
+
+    // Instantiate the disk-backed expansion cache (one per compilation)
+    profiler.start("factory.loadExpansionCache");
+    const cacheDir = config?.cacheDir;
+    expansionCache =
+      cacheDir !== false ? new MacroExpansionCache(cacheDir ?? ".typesugar-cache") : undefined;
+    // Store for cleanup access via saveExpansionCache()
+    activeExpansionCache = expansionCache;
+    profiler.end("factory.loadExpansionCache");
+
+    // Lazily load macro packages based on what the program actually imports.
+    // This replaces eager side-effect imports that caused dependency cycles.
+    profiler.start("factory.loadMacroPackages");
+    loadMacroPackages(program, verbose);
+    profiler.end("factory.loadMacroPackages");
+
+    // Track which files have been scanned for registrations (prevents cycles)
+    scannedFiles = new Set<string>();
+  }
 
   // Use the global expansion tracker (or a fresh one per compilation)
   const expansionTracker = trackExpansions ? globalExpansionTracker : undefined;
 
-  // Instantiate the disk-backed expansion cache (one per compilation)
-  const cacheDir = config?.cacheDir;
-  const expansionCache =
-    cacheDir !== false ? new MacroExpansionCache(cacheDir ?? ".typesugar-cache") : undefined;
-
-  // Lazily load macro packages based on what the program actually imports.
-  // This replaces eager side-effect imports that caused dependency cycles.
-  loadMacroPackages(program, verbose);
-
-  // Track which files have been scanned for registrations (prevents cycles)
-  const scannedFiles = new Set<string>();
+  profiler.end("factory.total");
 
   if (verbose) {
-    console.log("[typesugar] Initializing transformer");
+    if (hasState) {
+      console.log("[typesugar] Initializing transformer (reusing state)");
+    } else {
+      console.log("[typesugar] Initializing transformer (fresh state)");
+    }
     console.log(
       `[typesugar] Registered macros: ${globalRegistry
         .getAll()
@@ -662,12 +847,15 @@ export default function macroTransformerFactory(
         .join(", ")}`
     );
     if (expansionCache) {
-      console.log(`[typesugar] Expansion cache loaded: ${expansionCache.size} entries`);
+      console.log(`[typesugar] Expansion cache: ${expansionCache.size} entries`);
     }
+    console.log(`[typesugar] Scanned files: ${scannedFiles.size}`);
   }
 
   return (context: ts.TransformationContext) => {
     return (sourceFile: ts.SourceFile) => {
+      profiler.start("perFile.total");
+
       if (verbose) {
         console.log(`[typesugar] Processing: ${sourceFile.fileName}`);
       }
@@ -675,21 +863,29 @@ export default function macroTransformerFactory(
       // Phase 1: Preprocess custom syntax (|>, ::, F<_>) into valid TypeScript.
       // This must happen before macro expansion because the original source may
       // contain syntax that TypeScript couldn't parse correctly.
+      profiler.start("perFile.maybePreprocess");
       sourceFile = maybePreprocess(sourceFile, verbose);
+      profiler.end("perFile.maybePreprocess");
 
       const ctx = createMacroContext(program, sourceFile, context, hygiene);
 
       // Scan for imports and opt-out directives
+      profiler.start("perFile.scanImportsForScope");
       scanImportsForScope(sourceFile, globalResolutionScope);
+      profiler.end("perFile.scanImportsForScope");
 
       // Load macro packages based on this file's imports.
       // This is important for the language service where the initial program
       // may not include all files that will be transformed.
+      profiler.start("perFile.loadMacroPackagesFromFile");
       loadMacroPackagesFromFile(sourceFile, verbose);
+      profiler.end("perFile.loadMacroPackagesFromFile");
 
       // Pre-scan imported workspace files for instance() and typeclass() registrations.
       // This ensures instances are registered before operator rewriting encounters them.
+      profiler.start("perFile.ensureImportedRegistrations");
       ensureImportedRegistrations(sourceFile, program, scannedFiles, verbose);
+      profiler.end("perFile.ensureImportedRegistrations");
 
       // Check for file-level opt-out
       const fileScope = globalResolutionScope.getScope(sourceFile.fileName);
@@ -697,12 +893,15 @@ export default function macroTransformerFactory(
         if (verbose) {
           console.log(`[typesugar] Skipping: ${sourceFile.fileName} (opted out)`);
         }
+        profiler.end("perFile.total");
         return sourceFile;
       }
 
       const transformer = new MacroTransformer(ctx, verbose, expansionTracker, expansionCache);
 
+      profiler.start("perFile.visitNode");
       const result = ts.visitNode(sourceFile, transformer.visit.bind(transformer));
+      profiler.end("perFile.visitNode");
 
       // Report diagnostics through the TS diagnostic pipeline
       const macroDiagnostics = ctx.getDiagnostics();
@@ -748,6 +947,7 @@ export default function macroTransformerFactory(
         }
       }
 
+      profiler.end("perFile.total");
       return result as ts.SourceFile;
     };
   };

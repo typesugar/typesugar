@@ -16,8 +16,9 @@ import {
   IdentityPositionMapper,
   type PositionMapper,
 } from "./position-mapper.js";
-import { TransformCache, hashContent } from "./cache.js";
-import macroTransformerFactory, { type MacroTransformerConfig } from "./index.js";
+import { TransformCache, hashContent, DiskTransformCache, initHasher } from "./cache.js";
+import macroTransformerFactory, { type MacroTransformerConfig, saveExpansionCache, getExpansionCacheStats } from "./index.js";
+import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
 
 /**
  * Diagnostic from macro expansion
@@ -66,6 +67,10 @@ export interface PipelineOptions {
   fileExists?: (fileName: string) => boolean;
   /** Maximum cache size (default: 1000) */
   maxCacheSize?: number;
+  /** Enable disk-backed transform cache (defaults to false) */
+  diskCache?: boolean | string;
+  /** Enable strict mode - typecheck expanded output for macro bugs */
+  strict?: boolean;
 }
 
 /**
@@ -88,6 +93,7 @@ export class TransformationPipeline {
   private host: VirtualCompilerHost;
   private program: ts.Program | null = null;
   private cache: TransformCache;
+  private diskCache: DiskTransformCache | null = null;
   private verbose: boolean;
   private extensions: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   private transformerConfig: MacroTransformerConfig;
@@ -112,6 +118,17 @@ export class TransformationPipeline {
     // Create layered cache with dependency tracking
     this.cache = new TransformCache({ maxSize: options.maxCacheSize ?? 1000 });
 
+    // Create disk cache if enabled
+    if (options.diskCache) {
+      const cacheDir = typeof options.diskCache === "string" 
+        ? options.diskCache 
+        : ".typesugar-cache/transforms";
+      this.diskCache = new DiskTransformCache(cacheDir);
+      if (this.verbose) {
+        console.log(`[typesugar] Disk cache enabled at ${cacheDir}`);
+      }
+    }
+
     // Create virtual host that serves preprocessed content
     this.host = new VirtualCompilerHost({
       compilerOptions,
@@ -119,44 +136,111 @@ export class TransformationPipeline {
       readFile: this.customReadFile,
       fileExists: options.fileExists,
     });
+
+    // Fire-and-forget hasher init (fallback works fine if not ready)
+    initHasher().catch(() => { /* ignore - fallback available */ });
+  }
+
+  /**
+   * Create a pipeline with async initialization.
+   * Use this for optimal hashing performance (xxhash64 vs DJB2 fallback).
+   */
+  static async create(
+    compilerOptions: ts.CompilerOptions,
+    fileNames: string[],
+    options: PipelineOptions = {}
+  ): Promise<TransformationPipeline> {
+    await initHasher();
+    return new TransformationPipeline(compilerOptions, fileNames, options);
   }
 
   /**
    * Transform a single file
    */
   transform(fileName: string): TransformResult {
+    const transformStart = PROFILING_ENABLED ? performance.now() : 0;
+    profiler.start("transform");
+
     const normalizedFileName = path.normalize(fileName);
 
     // Read original content
+    const readStart = PROFILING_ENABLED ? performance.now() : 0;
     const original = this.customReadFile(normalizedFileName);
+    const readMs = PROFILING_ENABLED ? performance.now() - readStart : 0;
+
     if (!original) {
+      profiler.end("transform");
       return this.createEmptyResult(normalizedFileName);
     }
 
     // Update content hash
+    const hashStart = PROFILING_ENABLED ? performance.now() : 0;
     const contentHash = hashContent(original);
+    const hashMs = PROFILING_ENABLED ? performance.now() - hashStart : 0;
     this.contentHashes.set(normalizedFileName, contentHash);
 
     // Check cache with dependency validation
+    const cacheCheckStart = PROFILING_ENABLED ? performance.now() : 0;
     const cached = this.checkCache(normalizedFileName, contentHash);
+    const cacheCheckMs = PROFILING_ENABLED ? performance.now() - cacheCheckStart : 0;
+
     if (cached) {
       if (this.verbose) {
         console.log(`[typesugar] Cache hit for ${normalizedFileName}`);
       }
+      profiler.end("transform");
       return cached;
+    }
+
+    // Check disk cache if in-memory missed
+    if (this.diskCache) {
+      const diskCached = this.diskCache.get(
+        normalizedFileName,
+        contentHash,
+        (dep) => this.contentHashes.get(dep)
+      );
+      if (diskCached) {
+        // Restore dependencies from disk cache
+        const dependencies = new Set(diskCached.dependencies);
+        // Parse source map from JSON string
+        const sourceMap: RawSourceMap | null = diskCached.sourceMap
+          ? (JSON.parse(diskCached.sourceMap) as RawSourceMap)
+          : null;
+        const result: TransformResult = {
+          original,
+          code: diskCached.code,
+          sourceMap,
+          mapper: sourceMap
+            ? createPositionMapper(sourceMap, original, diskCached.code)
+            : new IdentityPositionMapper(),
+          changed: diskCached.code !== original,
+          diagnostics: [],
+          dependencies,
+        };
+        // Populate in-memory cache (don't write back to disk)
+        this.cacheResult(normalizedFileName, result, contentHash, dependencies, false);
+        if (this.verbose) {
+          console.log(`[typesugar] Disk cache hit for ${normalizedFileName}`);
+        }
+        profiler.end("transform");
+        return result;
+      }
     }
 
     // Ensure program exists (lazy creation)
     this.ensureProgram();
 
     // Get preprocessed content from host
+    const preprocessStart = PROFILING_ENABLED ? performance.now() : 0;
     const preprocessed = this.host.getPreprocessedFile(normalizedFileName);
+    const preprocessMs = PROFILING_ENABLED ? performance.now() - preprocessStart : 0;
     const preprocessMap = preprocessed?.map ?? null;
     const codeForTransform = preprocessed?.code ?? original;
 
     // Get or create source file
     const sourceFile = this.getSourceFile(normalizedFileName, codeForTransform);
     if (!sourceFile) {
+      profiler.end("transform");
       return this.createEmptyResult(normalizedFileName);
     }
 
@@ -164,11 +248,14 @@ export class TransformationPipeline {
     const dependencies = this.extractDependencies(sourceFile, normalizedFileName);
 
     // Run macro transformer
+    const transformerStart = PROFILING_ENABLED ? performance.now() : 0;
     const {
       code: transformed,
       map: transformMap,
       diagnostics,
+      printMs,
     } = this.runMacroTransformer(sourceFile, codeForTransform);
+    const transformerMs = PROFILING_ENABLED ? performance.now() - transformerStart : 0;
 
     // Compose source maps
     const composedMap = composeSourceMaps(preprocessMap, transformMap);
@@ -191,6 +278,25 @@ export class TransformationPipeline {
 
     // Cache the result with dependencies
     this.cacheResult(normalizedFileName, result, contentHash, dependencies);
+
+    const totalMs = PROFILING_ENABLED ? performance.now() - transformStart : 0;
+
+    // Record per-file timing breakdown
+    if (PROFILING_ENABLED) {
+      const fileTimings: FileTimings = {
+        fileName: normalizedFileName,
+        readMs,
+        hashMs,
+        cacheCheckMs,
+        preprocessMs,
+        transformMs: transformerMs,
+        printMs: printMs ?? 0,
+        totalMs,
+      };
+      profiler.recordFileTimings(fileTimings);
+    }
+
+    profiler.end("transform");
 
     if (this.verbose) {
       console.log(`[typesugar] Transformed ${normalizedFileName} (changed: ${changed})`);
@@ -226,6 +332,11 @@ export class TransformationPipeline {
     // Invalidate this file and all files that depend on it
     this.cache.invalidate(normalizedFileName);
 
+    // Also invalidate disk cache for this file
+    if (this.diskCache) {
+      this.diskCache.invalidate(normalizedFileName);
+    }
+
     if (this.verbose) {
       const dependents = this.cache.getTransitiveDependents(normalizedFileName);
       if (dependents.size > 0) {
@@ -243,8 +354,12 @@ export class TransformationPipeline {
     this.host.invalidateAll();
     this.cache.clear();
     this.contentHashes.clear();
+    // Save old program for incremental recompilation
+    this.oldProgram = this.program;
     this.program = null;
     this.cachedTransformerFactory = null;
+    // Note: We don't clear disk cache on invalidateAll() since it's project-wide
+    // and expensive to rebuild. The disk cache has its own versioning.
   }
 
   /**
@@ -256,6 +371,110 @@ export class TransformationPipeline {
     accessOrderLength: number;
   } {
     return this.cache.getStats();
+  }
+
+  /**
+   * Print profiling report (if TYPESUGAR_PROFILE=1)
+   */
+  printProfilingReport(): void {
+    profiler.printReport();
+  }
+
+  /**
+   * Get profiling report as string (if TYPESUGAR_PROFILE=1)
+   */
+  getProfilingReport(): string {
+    return profiler.generateReport();
+  }
+
+  /**
+   * Reset profiling data
+   */
+  resetProfiling(): void {
+    profiler.reset();
+  }
+
+  /**
+   * Cleanup method - saves caches to disk and prints profiling report.
+   * Call this when the pipeline is done (e.g., in unplugin's buildEnd hook).
+   */
+  cleanup(): void {
+    // Save expansion cache to disk for future builds
+    saveExpansionCache();
+
+    // Save disk transform cache if enabled
+    if (this.diskCache) {
+      this.diskCache.save();
+      if (this.verbose) {
+        console.log(`[typesugar] ${this.diskCache.getStatsString()}`);
+      }
+    }
+
+    // Print profiling report if enabled
+    this.printProfilingReport();
+
+    // Log cache stats if verbose
+    if (this.verbose) {
+      const stats = getExpansionCacheStats();
+      if (stats) {
+        console.log(`[typesugar] ${stats}`);
+      }
+    }
+  }
+
+  /**
+   * Typecheck expanded output (strict mode).
+   * Transforms all files and typechecks the result to catch macro bugs.
+   *
+   * @returns Array of diagnostics from typechecking expanded code
+   */
+  strictTypecheck(): ts.Diagnostic[] {
+    profiler.start("strictTypecheck");
+
+    this.ensureProgram();
+
+    // Transform all source files and collect expanded code
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const expandedFiles = new Map<string, string>();
+
+    for (const fileName of this.fileNames) {
+      // Transform the file
+      const result = this.transform(fileName);
+      if (result.changed) {
+        expandedFiles.set(path.normalize(fileName), result.code);
+      }
+    }
+
+    // Create a virtual host serving expanded files
+    const expandedHost = ts.createCompilerHost(this.compilerOptions);
+    const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
+    expandedHost.readFile = (fileName) => {
+      const normalized = path.normalize(fileName);
+      const expanded = expandedFiles.get(normalized);
+      if (expanded !== undefined) {
+        return expanded;
+      }
+      return origExpandedReadFile(fileName);
+    };
+
+    // Create a new program with expanded files for type checking
+    // Use the original program for structural reuse
+    const expandedProgram = ts.createProgram(
+      this.fileNames,
+      { ...this.compilerOptions, noEmit: true },
+      expandedHost,
+      this.program ?? undefined
+    );
+
+    // Get type errors from expanded program
+    const diagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
+
+    const elapsed = profiler.end("strictTypecheck");
+    if (this.verbose) {
+      console.log(`[typesugar] Strict typecheck: ${diagnostics.length} diagnostics (${elapsed.toFixed(0)}ms)`);
+    }
+
+    return diagnostics;
   }
 
   /**
@@ -296,12 +515,30 @@ export class TransformationPipeline {
   // Private methods
   // ---------------------------------------------------------------------------
 
+  /**
+   * Old program reference for incremental compilation.
+   * Allows ts.createProgram to reuse unchanged ASTs.
+   */
+  private oldProgram: ts.Program | null = null;
+
   private ensureProgram(): void {
     if (!this.program) {
+      profiler.start("ensureProgram");
       if (this.verbose) {
-        console.log(`[typesugar] Creating TypeScript program with ${this.fileNames.length} files`);
+        const mode = this.oldProgram ? "incremental" : "initial";
+        console.log(`[typesugar] Creating TypeScript program with ${this.fileNames.length} files (${mode})`);
       }
-      this.program = ts.createProgram(this.fileNames, this.compilerOptions, this.host);
+      // Pass old program for incremental compilation (reuses unchanged ASTs)
+      this.program = ts.createProgram(
+        this.fileNames,
+        this.compilerOptions,
+        this.host,
+        this.oldProgram ?? undefined
+      );
+      const elapsed = profiler.end("ensureProgram");
+      if (PROFILING_ENABLED && elapsed > 100) {
+        console.log(`[profiler] ensureProgram: ${elapsed.toFixed(1)}ms (${this.fileNames.length} files)`);
+      }
     }
   }
 
@@ -335,28 +572,49 @@ export class TransformationPipeline {
   private runMacroTransformer(
     sourceFile: ts.SourceFile,
     originalCode: string
-  ): { code: string; map: RawSourceMap | null; diagnostics: TransformDiagnostic[] } {
+  ): { code: string; map: RawSourceMap | null; diagnostics: TransformDiagnostic[]; printMs?: number } {
     // Clear expansion tracker before transformation
     globalExpansionTracker.clear();
 
     try {
       // Use cached transformer factory - only create once per program
       if (!this.cachedTransformerFactory) {
+        profiler.start("macroTransformerFactory");
         this.cachedTransformerFactory = macroTransformerFactory(
           this.program!,
           this.transformerConfig
         );
+        const factoryMs = profiler.end("macroTransformerFactory");
+        if (PROFILING_ENABLED && factoryMs > 100) {
+          console.log(`[profiler] macroTransformerFactory: ${factoryMs.toFixed(1)}ms`);
+        }
       }
 
+      profiler.start("ts.transform");
       const result = ts.transform(sourceFile, [this.cachedTransformerFactory]);
+      profiler.end("ts.transform");
 
       if (result.transformed.length === 0) {
         result.dispose();
-        return { code: originalCode, map: null, diagnostics: [] };
+        return { code: originalCode, map: null, diagnostics: [], printMs: 0 };
       }
 
+      const transformedSourceFile = result.transformed[0];
+
+      // OPTIMIZATION: Skip printing if the AST didn't change (reference equality)
+      // This is a significant win for files with no macros or macro-free regions
+      if (transformedSourceFile === sourceFile) {
+        result.dispose();
+        globalExpansionTracker.clear();
+        return { code: originalCode, map: null, diagnostics: [], printMs: 0 };
+      }
+
+      profiler.start("printFile");
+      const printStart = PROFILING_ENABLED ? performance.now() : 0;
       const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-      const transformed = printer.printFile(result.transformed[0]);
+      const transformed = printer.printFile(transformedSourceFile);
+      const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
+      profiler.end("printFile");
 
       // Collect diagnostics from the transformation
       const diagnostics: TransformDiagnostic[] = (result.diagnostics ?? []).map((d) => ({
@@ -380,6 +638,7 @@ export class TransformationPipeline {
         code: transformed,
         map,
         diagnostics,
+        printMs,
       };
     } catch (error) {
       if (this.verbose) {
@@ -397,6 +656,7 @@ export class TransformationPipeline {
             severity: "error",
           },
         ],
+        printMs: 0,
       };
     }
   }
@@ -417,7 +677,8 @@ export class TransformationPipeline {
     fileName: string,
     result: TransformResult,
     contentHash: string,
-    dependencies: Set<string>
+    dependencies: Set<string>,
+    writeToDisk: boolean = true
   ): void {
     // Compute dependency hashes for validation
     const dependencyHashes = new Map<string, string>();
@@ -434,6 +695,22 @@ export class TransformationPipeline {
       dependencies,
       dependencyHashes,
     });
+
+    // Write to disk cache if enabled and this is a fresh transform
+    if (writeToDisk && this.diskCache) {
+      const depHashRecord: Record<string, string> = {};
+      for (const [dep, hash] of dependencyHashes) {
+        depHashRecord[dep] = hash;
+      }
+      this.diskCache.set(
+        fileName,
+        contentHash,
+        Array.from(dependencies),
+        depHashRecord,
+        result.code,
+        result.sourceMap
+      );
+    }
   }
 
   private getContentHash(fileName: string): string | undefined {

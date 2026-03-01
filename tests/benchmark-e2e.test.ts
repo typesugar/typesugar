@@ -175,35 +175,61 @@ function benchTransform(
 }
 
 /**
- * Benchmark ONLY the transform phase, reusing a single program.
- * This is the realistic scenario: program is created once, transformer
- * runs on each file.
+ * Benchmark ONLY the transform phase, reusing a single program AND factory.
+ * This is the realistic scenario: program and factory are created once,
+ * transformer runs on each file with the same factory.
+ *
+ * IMPORTANT: The factory is cached outside the measurement loop to match
+ * the real pipeline behavior (TransformationPipeline caches the factory).
  */
 function benchTransformOnly(source: string, iterations: number): BenchStats {
   const { program, mainFile } = createProgram(source);
   const sourceFile = program.getSourceFile(mainFile)!;
   const times: number[] = [];
 
-  // Warmup
+  // Create factory ONCE (matching real pipeline behavior)
+  const factory = macroTransformerFactory(program);
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+
+  // Warmup with cached factory
   for (let i = 0; i < 3; i++) {
-    const factory = macroTransformerFactory(program);
     const r = ts.transform(sourceFile, [factory]);
-    const p = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    p.printFile(r.transformed[0]);
+    printer.printFile(r.transformed[0]);
     r.dispose();
   }
 
+  // Measure only the transform + print time (factory is cached)
   for (let i = 0; i < iterations; i++) {
     const start = performance.now();
-    const factory = macroTransformerFactory(program);
     const r = ts.transform(sourceFile, [factory]);
-    const p = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    p.printFile(r.transformed[0]);
+    printer.printFile(r.transformed[0]);
     r.dispose();
     times.push(performance.now() - start);
   }
 
   fs.unlinkSync(mainFile);
+  return computeStats(times);
+}
+
+/**
+ * Benchmark factory creation cost separately.
+ * This measures the overhead of creating macroTransformerFactory() - the
+ * one-time cost per program that's amortized across all file transforms.
+ */
+function benchFactoryCreation(source: string, iterations: number): BenchStats {
+  const times: number[] = [];
+
+  for (let i = 0; i < iterations; i++) {
+    // Create a new program each time (factory requires fresh program)
+    const { program, mainFile } = createProgram(source);
+
+    const start = performance.now();
+    const _factory = macroTransformerFactory(program);
+    times.push(performance.now() - start);
+
+    fs.unlinkSync(mainFile);
+  }
+
   return computeStats(times);
 }
 
@@ -300,11 +326,26 @@ describe("End-to-end transformer benchmarks", { timeout: 120_000 }, () => {
     });
   });
 
-  describe("Transform-only (program reused, realistic scenario)", () => {
+  describe("Factory creation cost (one-time per program)", () => {
+    it("measures macroTransformerFactory() creation time", () => {
+      const source = generatePlainTypeScript(100);
+      const stats = benchFactoryCreation(source, 5);
+      console.log(`  Factory creation (100-line file): ${formatStats(stats)}`);
+      console.log(`    This is a one-time cost per program, amortized across all file transforms`);
+    });
+
+    it("factory creation with macro calls", () => {
+      const source = generateComptimeCalls(50);
+      const stats = benchFactoryCreation(source, 5);
+      console.log(`  Factory creation (50 macro calls): ${formatStats(stats)}`);
+    });
+  });
+
+  describe("Transform-only (program AND factory cached, realistic scenario)", () => {
     it("small file (50 lines, no macros)", () => {
       const source = generatePlainTypeScript(50);
       const stats = benchTransformOnly(source, 20);
-      console.log(`  50-line plain TS (transform only): ${formatStats(stats)}`);
+      console.log(`  50-line plain TS (transform + print only): ${formatStats(stats)}`);
       if (!IS_CI) expect(stats.medianMs).toBeLessThan(50);
     });
 

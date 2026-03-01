@@ -60,6 +60,11 @@
       "types": "./dist/cache.d.ts",
       "import": "./dist/cache.js",
       "require": "./dist/cache.cjs"
+    },
+    "./profiling": {
+      "types": "./dist/profiling.d.ts",
+      "import": "./dist/profiling.js",
+      "require": "./dist/profiling.cjs"
     }
   },
   "scripts": {
@@ -76,10 +81,11 @@
     "ts-patch"
   ],
   "dependencies": {
+    "@ampproject/remapping": "^2.3.0",
     "@typesugar/core": "workspace:*",
     "@typesugar/preprocessor": "workspace:*",
-    "@ampproject/remapping": "^2.3.0",
-    "esbuild": "^0.20.0"
+    "esbuild": "^0.20.0",
+    "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
     "@typesugar/macros": "workspace:*",

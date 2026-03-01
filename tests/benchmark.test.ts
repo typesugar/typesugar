@@ -351,6 +351,50 @@ describe.skipIf(process.env.CI)("Performance benchmarks", () => {
     });
   });
 
+  describe("ts.factory node creation", () => {
+    it("createIdentifier (the bottleneck in safeRef)", () => {
+      const result = bench(
+        "createIdentifier",
+        () => {
+          ts.factory.createIdentifier("someName");
+        },
+        100_000
+      );
+      console.log(
+        `  createIdentifier: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(100_000);
+    });
+
+    it("createNumericLiteral", () => {
+      const result = bench(
+        "createNumericLiteral",
+        () => {
+          ts.factory.createNumericLiteral(42);
+        },
+        100_000
+      );
+      console.log(
+        `  createNumericLiteral: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(100_000);
+    });
+
+    it("createStringLiteral", () => {
+      const result = bench(
+        "createStringLiteral",
+        () => {
+          ts.factory.createStringLiteral("hello");
+        },
+        100_000
+      );
+      console.log(
+        `  createStringLiteral: ${result.opsPerSec.toLocaleString()} ops/sec (${(result.avgMs * 1000).toFixed(2)}μs/op)`
+      );
+      expect(result.opsPerSec).toBeGreaterThan(100_000);
+    });
+  });
+
   describe("Reference Hygiene (safeRef)", () => {
     it("Tier 0: known global (Error)", () => {
       const result = bench("safeRef tier0", () => ctx.safeRef("Error", "@typesugar/std"), 50_000);

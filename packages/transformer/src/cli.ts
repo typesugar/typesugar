@@ -17,9 +17,12 @@
 import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import macroTransformerFactory from "./index.js";
+import macroTransformerFactory, { saveExpansionCache, getExpansionCacheStats, TransformerState } from "./index.js";
 import { preprocess } from "@typesugar/preprocessor";
 import { VirtualCompilerHost } from "./virtual-host.js";
+import { profiler, PROFILING_ENABLED } from "./profiling.js";
+import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
+import { TransformationPipeline, createPipeline } from "./pipeline.js";
 
 type Command =
   | "build"
@@ -43,6 +46,10 @@ interface CliOptions {
   preprocessSources?: string[];
   outDir?: string;
   inPlace?: boolean;
+  /** Enable disk-backed transform cache for faster incremental builds */
+  cache?: boolean | string;
+  /** Enable strict mode - typecheck expanded output */
+  strict?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -115,6 +122,8 @@ function parseArgs(args: string[]): CliOptions {
   let file: string | undefined;
   let diff = false;
   let ast = false;
+  let cache: boolean | string | undefined;
+  let strict = false;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -126,6 +135,19 @@ function parseArgs(args: string[]): CliOptions {
       diff = true;
     } else if (arg === "--ast") {
       ast = true;
+    } else if (arg === "--cache") {
+      // Check if next arg is a path (not another flag)
+      const next = args[i + 1];
+      if (next && !next.startsWith("-")) {
+        cache = next;
+        i++;
+      } else {
+        cache = true;
+      }
+    } else if (arg === "--no-cache") {
+      cache = false;
+    } else if (arg === "--strict") {
+      strict = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -134,7 +156,7 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
-  return { command, project, verbose, file, diff, ast };
+  return { command, project, verbose, file, diff, ast, cache, strict };
 }
 
 function printHelp(): void {
@@ -158,6 +180,9 @@ COMMANDS:
 OPTIONS:
   -p, --project <path>   Path to tsconfig.json (default: tsconfig.json)
   -v, --verbose          Enable verbose logging
+  --cache [dir]          Enable disk cache (default: .typesugar-cache/transforms)
+  --no-cache             Disable disk cache
+  --strict               Typecheck expanded output (catches macro bugs)
   -h, --help             Show this help message
 
 EXPAND OPTIONS:
@@ -241,7 +266,14 @@ function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
 }
 
 function build(options: CliOptions): void {
+  // Fire-and-forget hasher init (fallback works if not ready)
+  initHasher().catch(() => { /* ignore - fallback available */ });
+
+  profiler.start("cli.build.total");
+
+  profiler.start("cli.build.readTsConfig");
   const config = readTsConfig(options.project);
+  profiler.end("cli.build.readTsConfig");
 
   if (options.verbose) {
     console.log(`🧊 Using config: ${path.resolve(options.project)}`);
@@ -254,7 +286,20 @@ function build(options: CliOptions): void {
     ...(noEmit ? { noEmit: true } : {}),
   };
 
+  // Initialize disk cache if enabled
+  const diskCache = options.cache
+    ? new DiskTransformCache(
+        typeof options.cache === "string" ? options.cache : ".typesugar-cache/transforms"
+      )
+    : null;
+  const contentHashes = new Map<string, string>();
+
+  if (diskCache && options.verbose) {
+    console.log(`🧊 Disk cache enabled`);
+  }
+
   // Stage 1: Preprocess all files (custom syntax like HKT F<_>, |>, ::)
+  profiler.start("cli.build.preprocess");
   const preprocessedFiles = new Map<string, string>();
   let preprocessCount = 0;
 
@@ -262,6 +307,13 @@ function build(options: CliOptions): void {
     if (/\.[jt]sx?$/.test(fileName) && !/node_modules/.test(fileName)) {
       try {
         const source = fs.readFileSync(fileName, "utf-8");
+        
+        // Track content hashes for disk cache validation
+        if (diskCache) {
+          const resolvedPath = path.resolve(fileName);
+          contentHashes.set(resolvedPath, hashContent(source));
+        }
+        
         const result = preprocess(source, { fileName });
         if (result.changed) {
           preprocessedFiles.set(path.resolve(fileName), result.code);
@@ -272,6 +324,7 @@ function build(options: CliOptions): void {
       }
     }
   }
+  profiler.end("cli.build.preprocess");
 
   if (options.verbose && preprocessCount > 0) {
     console.log(`🧊 Preprocessed custom syntax in ${preprocessCount} files`);
@@ -290,19 +343,144 @@ function build(options: CliOptions): void {
   };
 
   // Stage 2: Create program with preprocessed content and run macro transformer
+  profiler.start("cli.build.createProgram");
   const program = ts.createProgram(config.fileNames, compilerOptions, host);
+  profiler.end("cli.build.createProgram");
 
+  profiler.start("cli.build.createTransformerFactory");
   const transformerFactory = macroTransformerFactory(program, {
     verbose: options.verbose,
   });
+  profiler.end("cli.build.createTransformerFactory");
 
-  const emitResult = program.emit(undefined, undefined, undefined, false, {
-    before: [transformerFactory],
-  });
+  // Custom write file that caches transformed output
+  const customWriteFile = diskCache
+    ? (
+        filePath: string,
+        content: string,
+        writeByteOrderMark: boolean,
+        onError?: (message: string) => void,
+        sourceFiles?: readonly ts.SourceFile[],
+        data?: ts.WriteFileCallbackData
+      ) => {
+        // Cache .js/.ts output files (not .d.ts)
+        if (sourceFiles?.length === 1 && /\.(js|jsx|mjs|cjs)$/.test(filePath)) {
+          const sourceFile = sourceFiles[0];
+          const sourcePath = path.resolve(sourceFile.fileName);
+          const contentHash = contentHashes.get(sourcePath);
+          if (contentHash) {
+            // Get dependencies from imports
+            const deps: string[] = [];
+            const depHashes: Record<string, string> = {};
+            sourceFile.forEachChild((node) => {
+              if (
+                ts.isImportDeclaration(node) &&
+                ts.isStringLiteral(node.moduleSpecifier)
+              ) {
+                const specifier = node.moduleSpecifier.text;
+                if (!specifier.startsWith(".")) return;
+                const resolved = path.resolve(path.dirname(sourcePath), specifier);
+                for (const ext of [".ts", ".tsx", ".js", ".jsx", ""]) {
+                  const depPath = resolved + ext;
+                  const depHash = contentHashes.get(depPath);
+                  if (depHash) {
+                    deps.push(depPath);
+                    depHashes[depPath] = depHash;
+                    break;
+                  }
+                }
+              }
+            });
+            diskCache.set(sourcePath, contentHash, deps, depHashes, content, null);
+          }
+        }
+        ts.sys.writeFile(filePath, content, writeByteOrderMark);
+      }
+    : undefined;
 
-  const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
+  // Strict mode: typecheck expanded output before emit
+  let strictDiagnostics: ts.Diagnostic[] = [];
+  if (options.strict) {
+    profiler.start("cli.build.strictTypecheck");
+    
+    // Transform all source files
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const expandedFiles = new Map<string, string>();
+    
+    for (const fileName of config.fileNames) {
+      const sourceFile = program.getSourceFile(fileName);
+      if (!sourceFile) continue;
+      
+      // Run the transformer
+      const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
+      const transformedFile = transformResult.transformed[0];
+      
+      // Print the transformed source
+      const expandedCode = printer.printFile(transformedFile);
+      expandedFiles.set(path.resolve(fileName), expandedCode);
+      
+      transformResult.dispose();
+    }
+    
+    // Create a virtual host serving expanded files
+    const expandedHost = ts.createCompilerHost(compilerOptions);
+    const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
+    expandedHost.readFile = (fileName) => {
+      const resolved = path.resolve(fileName);
+      const expanded = expandedFiles.get(resolved);
+      if (expanded !== undefined) {
+        return expanded;
+      }
+      return origExpandedReadFile(fileName);
+    };
+    
+    // Create a new program with expanded files for type checking
+    // Use the original program for structural reuse
+    const expandedProgram = ts.createProgram(
+      config.fileNames,
+      { ...compilerOptions, noEmit: true },
+      expandedHost,
+      program
+    );
+    
+    // Get type errors from expanded program
+    strictDiagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
+    
+    const strictElapsed = profiler.end("cli.build.strictTypecheck");
+    if (options.verbose) {
+      console.log(`🧊 Strict typecheck: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`);
+    }
+  }
+
+  profiler.start("cli.build.emit");
+  const emitResult = program.emit(
+    undefined,
+    customWriteFile,
+    undefined,
+    false,
+    { before: [transformerFactory] }
+  );
+  profiler.end("cli.build.emit");
+
+  // Combine pre-emit diagnostics, emit diagnostics, and strict mode diagnostics
+  const allDiagnostics = [
+    ...ts.getPreEmitDiagnostics(program),
+    ...emitResult.diagnostics,
+    ...strictDiagnostics,
+  ];
 
   const errorCount = reportDiagnostics(allDiagnostics);
+
+  profiler.end("cli.build.total");
+
+  // Save caches to disk
+  saveExpansionCache();
+  if (diskCache) {
+    diskCache.save();
+    if (options.verbose) {
+      console.log(`🧊 ${diskCache.getStatsString()}`);
+    }
+  }
 
   if (options.verbose || errorCount > 0) {
     const fileCount = config.fileNames.length;
@@ -313,6 +491,19 @@ function build(options: CliOptions): void {
     } else {
       console.log(`✨ Successfully compiled ${fileCount} files.`);
     }
+  }
+
+  // Print cache stats if verbose
+  if (options.verbose) {
+    const stats = getExpansionCacheStats();
+    if (stats) {
+      console.log(`🧊 ${stats}`);
+    }
+  }
+
+  // Print profiling report if enabled
+  if (PROFILING_ENABLED) {
+    profiler.printReport();
   }
 
   process.exit(errorCount > 0 ? 1 : 0);
@@ -329,6 +520,11 @@ function watch(options: CliOptions): void {
     console.error(`Could not find ${options.project}`);
     process.exit(1);
   }
+
+  // Create shared transformer state - reused across rebuilds for efficiency
+  const transformerState = new TransformerState({
+    verbose: options.verbose,
+  });
 
   const host = ts.createWatchCompilerHost(
     configPath,
@@ -355,9 +551,10 @@ function watch(options: CliOptions): void {
   const origAfterProgramCreate = host.afterProgramCreate;
   host.afterProgramCreate = (builderProgram) => {
     const program = builderProgram.getProgram();
+    // Reuse transformer state across rebuilds for efficiency
     const transformerFactory = macroTransformerFactory(program, {
       verbose: options.verbose,
-    });
+    }, transformerState);
 
     const origEmit = builderProgram.emit;
     builderProgram.emit = (

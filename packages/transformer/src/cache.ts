@@ -9,11 +9,39 @@
 
 import type { RawSourceMap } from "@typesugar/preprocessor";
 import type { TransformResult } from "./pipeline.js";
+import xxhashInit, { type XXHashAPI } from "xxhash-wasm";
+
+/** xxhash API - initialized lazily */
+let xxhashApi: XXHashAPI | null = null;
+let xxhashInitPromise: Promise<XXHashAPI> | null = null;
 
 /**
- * Simple hash function for content-based cache invalidation
+ * Initialize xxhash for fast content hashing.
+ * Call this early in build startup for best performance.
+ * hashContent() will use fallback if not initialized.
+ */
+export async function initHasher(): Promise<void> {
+  if (xxhashApi) return;
+  if (!xxhashInitPromise) {
+    xxhashInitPromise = xxhashInit();
+  }
+  xxhashApi = await xxhashInitPromise;
+}
+
+/**
+ * Fast 64-bit content hash for cache invalidation.
+ * Uses xxhash64 if initialized, falls back to DJB2 otherwise.
+ *
+ * @param content - String content to hash
+ * @returns Hex string hash (16 chars for xxhash64, shorter for fallback)
  */
 export function hashContent(content: string): string {
+  if (xxhashApi) {
+    // xxhash64 returns bigint, convert to hex string
+    return xxhashApi.h64ToString(content);
+  }
+
+  // Fallback: DJB2 hash (32-bit, higher collision risk)
   let hash = 0;
   for (let i = 0; i < content.length; i++) {
     const char = content.charCodeAt(i);
@@ -21,6 +49,13 @@ export function hashContent(content: string): string {
     hash = hash & hash;
   }
   return hash.toString(36);
+}
+
+/**
+ * Check if the fast hasher is initialized.
+ */
+export function isHasherInitialized(): boolean {
+  return xxhashApi !== null;
 }
 
 /**
@@ -360,4 +395,310 @@ export class TransformCache {
  */
 export function createTransformCache(options?: { maxSize?: number }): TransformCache {
   return new TransformCache(options);
+}
+
+// =============================================================================
+// Disk Transform Cache
+// =============================================================================
+
+import * as fs from "fs";
+import * as path from "path";
+import * as crypto from "crypto";
+
+/**
+ * Entry stored on disk for transformed files
+ */
+export interface DiskCacheEntry {
+  /** Transformed code */
+  code: string;
+  /** Source map (JSON string) */
+  sourceMap: string | null;
+  /** Original content hash for validation */
+  contentHash: string;
+  /** Dependency file paths */
+  dependencies: string[];
+  /** Hash of each dependency's content */
+  dependencyHashes: Record<string, string>;
+  /** Transformer version for cache invalidation */
+  transformerVersion: string;
+  /** Timestamp when entry was created */
+  timestamp: number;
+}
+
+/**
+ * Manifest entry for quick cache lookups
+ */
+interface ManifestEntry {
+  /** Content hash of the source file */
+  contentHash: string;
+  /** Cache key (hash used for the cache file name) */
+  cacheKey: string;
+  /** Last access timestamp */
+  lastAccess: number;
+}
+
+/** Current disk cache format version */
+const DISK_CACHE_VERSION = "1";
+
+/**
+ * DiskTransformCache - Content-addressable disk cache for transform results
+ *
+ * Stores transformed files in `.typesugar-cache/transforms/<hash>.json`.
+ * A manifest file maps file names to cache keys for fast startup.
+ *
+ * @example
+ * ```typescript
+ * const diskCache = new DiskTransformCache('.typesugar-cache/transforms');
+ *
+ * // Check cache
+ * const entry = diskCache.get(fileName, contentHash, depHashes);
+ * if (entry) {
+ *   return { code: entry.code, sourceMap: JSON.parse(entry.sourceMap) };
+ * }
+ *
+ * // Transform and cache
+ * const result = transform(fileName);
+ * diskCache.set(fileName, contentHash, dependencies, depHashes, result);
+ * ```
+ */
+export class DiskTransformCache {
+  private cacheDir: string;
+  private manifestPath: string;
+  private manifest = new Map<string, ManifestEntry>();
+  private dirty = false;
+
+  /** Statistics for monitoring */
+  public stats = {
+    hits: 0,
+    misses: 0,
+    staleHits: 0,
+    writes: 0,
+  };
+
+  constructor(cacheDir: string = ".typesugar-cache/transforms") {
+    this.cacheDir = path.resolve(cacheDir);
+    this.manifestPath = path.join(this.cacheDir, "manifest.json");
+    this.loadManifest();
+  }
+
+  /**
+   * Get a cached transform result.
+   *
+   * @param fileName - The source file path
+   * @param contentHash - Hash of the source file content
+   * @param getDepHash - Function to get the current hash of a dependency
+   * @returns The cached entry if valid, undefined otherwise
+   */
+  get(
+    fileName: string,
+    contentHash: string,
+    getDepHash: (dep: string) => string | undefined
+  ): DiskCacheEntry | undefined {
+    const manifestEntry = this.manifest.get(fileName);
+    if (!manifestEntry) {
+      this.stats.misses++;
+      return undefined;
+    }
+
+    // Content hash changed — stale
+    if (manifestEntry.contentHash !== contentHash) {
+      this.stats.staleHits++;
+      return undefined;
+    }
+
+    // Load from disk
+    const cacheFile = path.join(this.cacheDir, `${manifestEntry.cacheKey}.json`);
+    try {
+      if (!fs.existsSync(cacheFile)) {
+        this.stats.misses++;
+        return undefined;
+      }
+
+      const entry = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as DiskCacheEntry;
+
+      // Version check
+      if (entry.transformerVersion !== DISK_CACHE_VERSION) {
+        this.stats.staleHits++;
+        return undefined;
+      }
+
+      // Validate dependencies
+      for (const dep of entry.dependencies) {
+        const expectedHash = entry.dependencyHashes[dep];
+        const currentHash = getDepHash(dep);
+        if (currentHash !== expectedHash) {
+          this.stats.staleHits++;
+          return undefined;
+        }
+      }
+
+      // Update last access
+      manifestEntry.lastAccess = Date.now();
+      this.dirty = true;
+
+      this.stats.hits++;
+      return entry;
+    } catch {
+      this.stats.misses++;
+      return undefined;
+    }
+  }
+
+  /**
+   * Store a transform result in the cache.
+   */
+  set(
+    fileName: string,
+    contentHash: string,
+    dependencies: string[],
+    dependencyHashes: Record<string, string>,
+    code: string,
+    sourceMap: RawSourceMap | null
+  ): void {
+    // Compute cache key from content + dependencies
+    const cacheKey = this.computeCacheKey(fileName, contentHash, dependencyHashes);
+
+    const entry: DiskCacheEntry = {
+      code,
+      sourceMap: sourceMap ? JSON.stringify(sourceMap) : null,
+      contentHash,
+      dependencies,
+      dependencyHashes,
+      transformerVersion: DISK_CACHE_VERSION,
+      timestamp: Date.now(),
+    };
+
+    // Write to disk
+    try {
+      if (!fs.existsSync(this.cacheDir)) {
+        fs.mkdirSync(this.cacheDir, { recursive: true });
+      }
+
+      const cacheFile = path.join(this.cacheDir, `${cacheKey}.json`);
+      fs.writeFileSync(cacheFile, JSON.stringify(entry), "utf-8");
+
+      // Update manifest
+      this.manifest.set(fileName, {
+        contentHash,
+        cacheKey,
+        lastAccess: Date.now(),
+      });
+      this.dirty = true;
+      this.stats.writes++;
+    } catch {
+      // Cache write failure is non-fatal
+    }
+  }
+
+  /**
+   * Invalidate cache for a file.
+   */
+  invalidate(fileName: string): void {
+    const manifestEntry = this.manifest.get(fileName);
+    if (manifestEntry) {
+      // Optionally delete the cache file
+      const cacheFile = path.join(this.cacheDir, `${manifestEntry.cacheKey}.json`);
+      try {
+        fs.unlinkSync(cacheFile);
+      } catch {
+        // Ignore errors
+      }
+      this.manifest.delete(fileName);
+      this.dirty = true;
+    }
+  }
+
+  /**
+   * Save the manifest to disk.
+   * Call this at build end.
+   */
+  save(): void {
+    if (!this.dirty) return;
+
+    try {
+      if (!fs.existsSync(this.cacheDir)) {
+        fs.mkdirSync(this.cacheDir, { recursive: true });
+      }
+
+      const data: Record<string, ManifestEntry> = {};
+      for (const [key, entry] of this.manifest) {
+        data[key] = entry;
+      }
+
+      fs.writeFileSync(this.manifestPath, JSON.stringify(data, null, 2), "utf-8");
+      this.dirty = false;
+    } catch {
+      // Manifest write failure is non-fatal
+    }
+  }
+
+  /**
+   * Get statistics as a formatted string.
+   */
+  getStatsString(): string {
+    const total = this.stats.hits + this.stats.misses + this.stats.staleHits;
+    const hitRate = total > 0 ? ((this.stats.hits / total) * 100).toFixed(1) : "0.0";
+    return (
+      `DiskCache: ${this.stats.hits} hits, ${this.stats.misses} misses, ` +
+      `${this.stats.staleHits} stale (${hitRate}% hit rate), ` +
+      `${this.stats.writes} writes, ${this.manifest.size} entries`
+    );
+  }
+
+  /**
+   * Get the number of entries in the manifest.
+   */
+  get size(): number {
+    return this.manifest.size;
+  }
+
+  /**
+   * Clear all cached entries.
+   */
+  clear(): void {
+    try {
+      // Delete all cache files
+      if (fs.existsSync(this.cacheDir)) {
+        for (const file of fs.readdirSync(this.cacheDir)) {
+          if (file.endsWith(".json")) {
+            fs.unlinkSync(path.join(this.cacheDir, file));
+          }
+        }
+      }
+    } catch {
+      // Ignore errors
+    }
+    this.manifest.clear();
+    this.dirty = true;
+  }
+
+  private loadManifest(): void {
+    try {
+      if (fs.existsSync(this.manifestPath)) {
+        const data = JSON.parse(fs.readFileSync(this.manifestPath, "utf-8")) as Record<
+          string,
+          ManifestEntry
+        >;
+        for (const [key, entry] of Object.entries(data)) {
+          this.manifest.set(key, entry);
+        }
+      }
+    } catch {
+      // Manifest load failure — start fresh
+      this.manifest.clear();
+    }
+  }
+
+  private computeCacheKey(
+    fileName: string,
+    contentHash: string,
+    dependencyHashes: Record<string, string>
+  ): string {
+    const depPart = Object.entries(dependencyHashes)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join("|");
+    const input = `${fileName}\0${contentHash}\0${depPart}\0${DISK_CACHE_VERSION}`;
+    return crypto.createHash("sha256").update(input).digest("hex").slice(0, 16);
+  }
 }

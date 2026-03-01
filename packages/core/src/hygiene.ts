@@ -234,6 +234,13 @@ export class FileBindingCache {
   private stats = { tier0: 0, tier1: 0, tier2: 0, conflicts: 0 };
 
   /**
+   * Identifier cache to avoid repeated ts.factory.createIdentifier() allocations.
+   * Key: `${symbol}\0${from}` for module-scoped refs, `${symbol}` for globals.
+   * This is a performance optimization — createIdentifier() allocates a full AST node.
+   */
+  private identifierCache = new Map<string, ts.Identifier>();
+
+  /**
    * Create a FileBindingCache by scanning a source file.
    *
    * @param sourceFile - The TypeScript source file to scan
@@ -377,16 +384,30 @@ export class FileBindingCache {
     // Tier 0: Known globals cannot be shadowed by imports
     if (KNOWN_GLOBALS.has(symbol)) {
       this.stats.tier0++;
-      return ts.factory.createIdentifier(symbol);
+      // Cache globals by symbol only (module doesn't matter)
+      let cached = this.identifierCache.get(symbol);
+      if (!cached) {
+        cached = ts.factory.createIdentifier(symbol);
+        this.identifierCache.set(symbol, cached);
+      }
+      return cached;
     }
+
+    // Cache key for non-globals includes the module
+    const cacheKey = `${symbol}\0${from}`;
 
     // Tier 1: Check if the name is imported
     const importedFrom = this.importMap.get(symbol);
     if (importedFrom !== undefined) {
       this.stats.tier1++;
       if (importedFrom === from) {
-        // Same module — no conflict
-        return ts.factory.createIdentifier(symbol);
+        // Same module — no conflict, use cache
+        let cached = this.identifierCache.get(cacheKey);
+        if (!cached) {
+          cached = ts.factory.createIdentifier(symbol);
+          this.identifierCache.set(cacheKey, cached);
+        }
+        return cached;
       }
       // Different module — conflict!
       this.stats.conflicts++;
@@ -400,10 +421,15 @@ export class FileBindingCache {
       return this.getOrCreateAlias(symbol, from);
     }
 
-    // Not in scope at all — bare identifier is safe
+    // Not in scope at all — bare identifier is safe, use cache
     // (Note: the caller may need to also ensure the import exists)
     this.stats.tier2++;
-    return ts.factory.createIdentifier(symbol);
+    let cached = this.identifierCache.get(cacheKey);
+    if (!cached) {
+      cached = ts.factory.createIdentifier(symbol);
+      this.identifierCache.set(cacheKey, cached);
+    }
+    return cached;
   }
 
   /**
