@@ -1,7 +1,8 @@
 /**
- * resolveLayer<R>() Expression Macro
+ * resolveLayer<R>() Expression Macro — Implicit Layer Resolution
  *
- * Automatically resolves and composes layers to satisfy Effect requirements.
+ * Automatically resolves and composes layers to satisfy Effect requirements
+ * by searching registered layers from the current file's import scope.
  *
  * Input:
  * ```typescript
@@ -26,224 +27,123 @@
  * ))
  * ```
  *
- * The macro:
- * 1. Parses the union type R to extract required services
- * 2. Looks up layers for each required service from the @layer registry
- * 3. Builds a dependency graph from layer metadata
- * 4. Topologically sorts to ensure dependencies are provided first
- * 5. Generates Layer.provide/merge composition
+ * Options:
+ * - `resolveLayer<R>()` — resolve from import scope
+ * - `resolveLayer<R>({ debug: true })` — also emit wiring graph
  *
  * @module
  */
 
 import * as ts from "typescript";
-import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
-import { layerRegistry, getLayersForService, type LayerInfo } from "./layer.js";
+import {
+  type ExpressionMacro,
+  type MacroContext,
+  defineExpressionMacro,
+} from "@typesugar/core";
+import {
+  layerRegistry,
+  getLayersForService,
+  type LayerInfo,
+} from "./layer.js";
+import {
+  resolveGraph,
+  generateLayerComposition,
+  formatDebugTree,
+  extractServiceNames,
+  CircularDependencyError,
+} from "./layer-graph.js";
 
 /**
- * Extract service names from a union type (e.g., "UserRepo | EmailService").
+ * Collect the set of source files reachable from the current file's imports.
+ * This scopes the layer registry to the "import graph" — only layers defined
+ * in files that the current file transitively imports are candidates.
  */
-function extractServiceNames(ctx: MacroContext, typeNode: ts.TypeNode): string[] {
-  const services: string[] = [];
-
-  function visit(node: ts.TypeNode): void {
-    if (ts.isUnionTypeNode(node)) {
-      for (const member of node.types) {
-        visit(member);
-      }
-    } else if (ts.isTypeReferenceNode(node)) {
-      const typeName = node.typeName;
-      if (ts.isIdentifier(typeName)) {
-        services.push(typeName.text);
-      } else if (ts.isQualifiedName(typeName)) {
-        services.push(typeName.right.text);
-      }
-    } else if (ts.isIntersectionTypeNode(node)) {
-      for (const member of node.types) {
-        visit(member);
-      }
-    }
-  }
-
-  visit(typeNode);
-  return services;
-}
-
-/**
- * Build a dependency graph from layer metadata.
- * Returns a map from service name to its dependencies.
- */
-function buildDependencyGraph(
-  layers: LayerInfo[]
-): Map<string, { layer: LayerInfo; dependencies: string[] }> {
-  const graph = new Map<string, { layer: LayerInfo; dependencies: string[] }>();
-
-  for (const layer of layers) {
-    graph.set(layer.provides, {
-      layer,
-      dependencies: layer.requires,
-    });
-  }
-
-  return graph;
-}
-
-/**
- * Topological sort of service names based on dependencies.
- * Returns services in order such that dependencies come before dependents.
- */
-function topologicalSort(
-  services: string[],
-  graph: Map<string, { layer: LayerInfo; dependencies: string[] }>
-): { sorted: string[]; missing: string[] } {
-  const visited = new Set<string>();
-  const visiting = new Set<string>();
-  const sorted: string[] = [];
-  const missing: string[] = [];
-
-  function visit(service: string): void {
-    if (visited.has(service)) return;
-    if (visiting.has(service)) {
-      throw new Error(`Circular dependency detected involving '${service}'`);
-    }
-
-    visiting.add(service);
-
-    const entry = graph.get(service);
-    if (entry) {
-      for (const dep of entry.dependencies) {
-        visit(dep);
-      }
-    } else if (!visited.has(service)) {
-      missing.push(service);
-    }
-
-    visiting.delete(service);
-    visited.add(service);
-    sorted.push(service);
-  }
-
-  for (const service of services) {
-    visit(service);
-  }
-
-  return { sorted, missing };
-}
-
-/**
- * Find the best layer for each service.
- * Prefers layers from the current source file.
- */
-function selectLayers(services: string[], currentFile: string): Map<string, LayerInfo | null> {
-  const selected = new Map<string, LayerInfo | null>();
-
-  for (const service of services) {
-    const layers = getLayersForService(service);
-    if (layers.length === 0) {
-      selected.set(service, null);
-    } else if (layers.length === 1) {
-      selected.set(service, layers[0]);
-    } else {
-      // Prefer layer from current file, otherwise take first
-      const localLayer = layers.find((l) => l.sourceFile === currentFile);
-      selected.set(service, localLayer ?? layers[0]);
-    }
-  }
-
-  return selected;
-}
-
-/**
- * Generate the Layer composition AST.
- */
-function generateLayerComposition(
+function collectImportScope(
   ctx: MacroContext,
-  sortedServices: string[],
-  selectedLayers: Map<string, LayerInfo | null>,
-  graph: Map<string, { layer: LayerInfo; dependencies: string[] }>
-): ts.Expression {
-  const { factory } = ctx;
+  maxDepth: number = 5
+): Set<string> {
+  const scope = new Set<string>();
+  const sourceFile = ctx.sourceFile;
+  scope.add(sourceFile.fileName);
 
-  // Build individual layer expressions with their dependencies provided
-  const layerExprs: ts.Expression[] = [];
+  const program = ctx.program;
+  if (!program) return scope;
 
-  for (const service of sortedServices) {
-    const layer = selectedLayers.get(service);
-    if (!layer) continue;
+  const queue: Array<{ file: ts.SourceFile; depth: number }> = [
+    { file: sourceFile, depth: 0 },
+  ];
+  const visited = new Set<string>([sourceFile.fileName]);
 
-    const entry = graph.get(service);
-    const deps = entry?.dependencies ?? [];
+  while (queue.length > 0) {
+    const { file, depth } = queue.shift()!;
+    if (depth >= maxDepth) continue;
 
-    // Start with the base layer identifier
-    let expr: ts.Expression = factory.createIdentifier(layer.name);
+    for (const stmt of file.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+      if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
 
-    // If this layer has dependencies, wrap with Layer.provide
-    if (deps.length > 0) {
-      // Get the dependency layers
-      const depLayers: ts.Expression[] = [];
-      for (const dep of deps) {
-        const depLayer = selectedLayers.get(dep);
-        if (depLayer) {
-          depLayers.push(factory.createIdentifier(depLayer.name));
-        }
-      }
+      const moduleName = stmt.moduleSpecifier.text;
+      const resolved = ts.resolveModuleName(
+        moduleName,
+        file.fileName,
+        program.getCompilerOptions(),
+        ts.sys
+      );
+      const resolvedFileName =
+        resolved.resolvedModule?.resolvedFileName;
+      if (!resolvedFileName || visited.has(resolvedFileName)) continue;
 
-      if (depLayers.length > 0) {
-        // Merge multiple dependencies
-        let depExpr: ts.Expression;
-        if (depLayers.length === 1) {
-          depExpr = depLayers[0];
-        } else {
-          depExpr = factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("Layer"),
-              factory.createIdentifier("merge")
-            ),
-            undefined,
-            depLayers
-          );
-        }
+      visited.add(resolvedFileName);
+      scope.add(resolvedFileName);
 
-        // layer.pipe(Layer.provide(depLayer))
-        expr = factory.createCallExpression(
-          factory.createPropertyAccessExpression(expr, factory.createIdentifier("pipe")),
-          undefined,
-          [
-            factory.createCallExpression(
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("Layer"),
-                factory.createIdentifier("provide")
-              ),
-              undefined,
-              [depExpr]
-            ),
-          ]
-        );
+      const importedFile = program.getSourceFile(resolvedFileName);
+      if (importedFile) {
+        queue.push({ file: importedFile, depth: depth + 1 });
       }
     }
-
-    layerExprs.push(expr);
   }
 
-  // Merge all top-level layers
-  if (layerExprs.length === 0) {
-    // No layers found, return Layer.empty
-    return factory.createPropertyAccessExpression(
-      factory.createIdentifier("Layer"),
-      factory.createIdentifier("empty")
-    );
-  } else if (layerExprs.length === 1) {
-    return layerExprs[0];
-  } else {
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("merge")
-      ),
-      undefined,
-      layerExprs
-    );
+  return scope;
+}
+
+/**
+ * Get layers for a service, scoped to the import graph.
+ * Falls back to the full registry if no layers are found in scope
+ * (to avoid breaking existing code).
+ */
+function getScopedLayersForService(
+  serviceName: string,
+  importScope: Set<string>
+): LayerInfo[] {
+  const allLayers = getLayersForService(serviceName);
+
+  // Filter to layers from files in the import scope
+  const scoped = allLayers.filter((l) => importScope.has(l.sourceFile));
+
+  // Fall back to all layers if none found in scope
+  // (graceful degradation for projects not yet using scoped resolution)
+  return scoped.length > 0 ? scoped : allLayers;
+}
+
+/**
+ * Check if the argument is an options object with `debug: true`.
+ */
+function hasDebugOption(args: readonly ts.Expression[]): boolean {
+  if (args.length === 0) return false;
+  const arg = args[0];
+  if (!ts.isObjectLiteralExpression(arg)) return false;
+
+  for (const prop of arg.properties) {
+    if (
+      ts.isPropertyAssignment(prop) &&
+      ts.isIdentifier(prop.name) &&
+      prop.name.text === "debug" &&
+      prop.initializer.kind === ts.SyntaxKind.TrueKeyword
+    ) {
+      return true;
+    }
   }
+  return false;
 }
 
 /**
@@ -251,7 +151,8 @@ function generateLayerComposition(
  */
 export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
   name: "resolveLayer",
-  description: "Automatically resolve and compose Effect layers for requirements",
+  description:
+    "Automatically resolve and compose Effect layers for requirements",
 
   expand(
     ctx: MacroContext,
@@ -267,130 +168,92 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
         callExpr,
         "resolveLayer<R>() requires a type argument specifying the required services"
       );
-      return factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty")
-      );
+      return emptyLayer(factory);
     }
 
+    const debug = hasDebugOption(args);
     const requirementsType = typeArgs[0];
-
-    // Extract service names from the type
     const requiredServices = extractServiceNames(ctx, requirementsType);
 
     if (requiredServices.length === 0) {
-      ctx.reportWarning(callExpr, "resolveLayer<R>() received no recognizable service types");
-      return factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty")
-      );
-    }
-
-    // Get the current file path for layer selection preference
-    const currentFile = sourceFile.fileName;
-
-    // Select the best layer for each service
-    const selectedLayers = selectLayers(requiredServices, currentFile);
-
-    // Check for missing layers
-    const missingServices: string[] = [];
-    for (const [service, layer] of selectedLayers) {
-      if (!layer) {
-        missingServices.push(service);
-      }
-    }
-
-    if (missingServices.length > 0) {
-      ctx.reportError(
+      ctx.reportWarning(
         callExpr,
-        `No @layer found for required services: ${missingServices.join(", ")}. ` +
-          `Register layers using @layer(${missingServices[0]}) decorator.`
+        "resolveLayer<R>() received no recognizable service types"
       );
-      return factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty")
-      );
+      return emptyLayer(factory);
     }
 
-    // Build the dependency graph from all selected layers
-    const allLayers = Array.from(selectedLayers.values()).filter((l): l is LayerInfo => l !== null);
+    // Build the import scope for scoped resolution
+    const importScope = collectImportScope(ctx);
 
-    // Also include transitive dependencies
-    const allRequiredServices = new Set(requiredServices);
-    const queue = [...requiredServices];
-    while (queue.length > 0) {
-      const service = queue.shift()!;
-      const layer = selectedLayers.get(service);
-      if (layer) {
-        for (const dep of layer.requires) {
-          if (!allRequiredServices.has(dep)) {
-            allRequiredServices.add(dep);
-            queue.push(dep);
-            // Select layer for this dependency too
-            const depLayers = getLayersForService(dep);
-            if (depLayers.length > 0) {
-              const localLayer = depLayers.find((l) => l.sourceFile === currentFile);
-              selectedLayers.set(dep, localLayer ?? depLayers[0]);
-            } else {
-              selectedLayers.set(dep, null);
-              missingServices.push(dep);
-            }
-          }
-        }
-      }
-    }
+    const findLayers = (service: string): LayerInfo[] =>
+      getScopedLayersForService(service, importScope);
 
-    // Check again for missing transitive dependencies
-    if (missingServices.length > 0) {
-      ctx.reportError(
-        callExpr,
-        `No @layer found for transitive dependencies: ${missingServices.join(", ")}. ` +
-          `Register layers using @layer decorators.`
-      );
-      return factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty")
-      );
-    }
-
-    // Build dependency graph with all layers
-    const finalLayers = Array.from(selectedLayers.values()).filter(
-      (l): l is LayerInfo => l !== null
-    );
-    const graph = buildDependencyGraph(finalLayers);
-
-    // Topological sort
     try {
-      const { sorted, missing } = topologicalSort(Array.from(allRequiredServices), graph);
+      const resolution = resolveGraph(
+        requiredServices,
+        findLayers,
+        undefined,
+        sourceFile.fileName
+      );
 
-      if (missing.length > 0) {
-        ctx.reportError(callExpr, `Cannot resolve layers for: ${missing.join(", ")}`);
-        return factory.createPropertyAccessExpression(
-          factory.createIdentifier("Layer"),
-          factory.createIdentifier("empty")
+      if (resolution.missing.length > 0) {
+        const missingList = resolution.missing.join(", ");
+        ctx.reportError(
+          callExpr,
+          `No @layer found for required services: ${missingList}. ` +
+            `Register layers using @layer(${resolution.missing[0]}) decorator.`
+        );
+        return emptyLayer(factory);
+      }
+
+      // Build expression map from resolved layers (identifiers)
+      const layerExprMap = new Map<string, ts.Expression>();
+      for (const [, entry] of resolution.graph) {
+        layerExprMap.set(
+          entry.layer.name,
+          factory.createIdentifier(entry.layer.name)
         );
       }
 
-      // Generate the layer composition
-      return generateLayerComposition(ctx, sorted, selectedLayers, graph);
-    } catch (error) {
+      if (debug) {
+        const tree = formatDebugTree(resolution);
+        ctx.reportWarning(callExpr, tree);
+      }
+
+      return generateLayerComposition(ctx, resolution, layerExprMap);
+    } catch (e) {
+      if (e instanceof CircularDependencyError) {
+        ctx.reportError(
+          callExpr,
+          `Circular layer dependency: ${e.cycle.join(" → ")}`
+        );
+        return emptyLayer(factory);
+      }
       ctx.reportError(
         callExpr,
-        `Failed to resolve layers: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to resolve layers: ${e instanceof Error ? e.message : String(e)}`
       );
-      return factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("empty")
-      );
+      return emptyLayer(factory);
     }
   },
 });
+
+function emptyLayer(factory: ts.NodeFactory): ts.Expression {
+  return factory.createPropertyAccessExpression(
+    factory.createIdentifier("Layer"),
+    factory.createIdentifier("empty")
+  );
+}
 
 /**
  * Runtime placeholder for resolveLayer<R>().
  * Should be transformed at compile time.
  */
-export function resolveLayer<R>(): never {
+export function resolveLayer<R>(
+  _options?: { debug?: boolean }
+): never {
+  void _options;
   throw new Error(
     "resolveLayer<R>() was not transformed at compile time. " +
       "Make sure @typesugar/effect is registered with the transformer."

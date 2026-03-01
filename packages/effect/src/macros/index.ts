@@ -29,19 +29,23 @@ export {
 
 export { resolveLayerMacro, resolveLayer } from "./resolve-layer.js";
 
-export {
-  compiledAttribute,
-  compileGenExpression,
-  compileGen,
-  compiled,
-} from "./compiled.js";
+export { layerMakeMacro, layerMake } from "./layer-make.js";
 
 export {
-  fusedAttribute,
-  fusePipelineExpression,
-  fusePipeline,
-  fused,
-} from "./fused.js";
+  buildDependencyGraph,
+  topologicalSort,
+  resolveGraph,
+  generateLayerComposition,
+  formatDebugTree,
+  extractServiceNames,
+  CircularDependencyError,
+  type ResolvedLayer,
+  type GraphResolution,
+} from "./layer-graph.js";
+
+export { compiledAttribute, compileGenExpression, compileGen, compiled } from "./compiled.js";
+
+export { fusedAttribute, fusePipelineExpression, fusePipeline, fused } from "./fused.js";
 
 export {
   specializeSchemaExpression,

@@ -139,6 +139,20 @@ import {
 } from "./macros/layer.js";
 
 import { resolveLayerMacro, resolveLayer } from "./macros/resolve-layer.js";
+import { layerMakeMacro, layerMake } from "./macros/layer-make.js";
+
+// Import shared graph utilities
+import {
+  buildDependencyGraph,
+  topologicalSort,
+  resolveGraph,
+  generateLayerComposition as generateLayerCompositionFn,
+  formatDebugTree,
+  extractServiceNames,
+  CircularDependencyError,
+  type ResolvedLayer,
+  type GraphResolution,
+} from "./macros/layer-graph.js";
 
 // Import @compiled and compileGen macros
 import {
@@ -149,12 +163,7 @@ import {
 } from "./macros/compiled.js";
 
 // Import @fused and fusePipeline macros
-import {
-  fusedAttribute,
-  fusePipelineExpression,
-  fusePipeline,
-  fused,
-} from "./macros/fused.js";
+import { fusedAttribute, fusePipelineExpression, fusePipeline, fused } from "./macros/fused.js";
 
 // Import schema specialization macros
 import {
@@ -234,9 +243,22 @@ export {
   getLayer,
   getLayersForService,
   type LayerInfo,
-  // resolveLayer<R>() macro
+  // resolveLayer<R>() macro — implicit resolution from import scope
   resolveLayerMacro,
   resolveLayer,
+  // layerMake<R>(...layers) macro — ZIO-style explicit wiring
+  layerMakeMacro,
+  layerMake,
+  // Shared graph utilities
+  buildDependencyGraph,
+  topologicalSort,
+  resolveGraph,
+  generateLayerCompositionFn,
+  formatDebugTree,
+  extractServiceNames,
+  CircularDependencyError,
+  type ResolvedLayer,
+  type GraphResolution,
   // @compiled and compileGen() macros
   compiledAttribute,
   compileGenExpression,
@@ -359,9 +381,7 @@ function getEffectModule(): any {
     try {
       _Effect = require("effect").Effect;
     } catch {
-      throw new Error(
-        "Effect module not found. Install 'effect' as a dependency."
-      );
+      throw new Error("Effect module not found. Install 'effect' as a dependency.");
     }
   }
   return _Effect;
@@ -393,6 +413,9 @@ export function register(): void {
 
   // Register resolveLayer<R>() expression macro
   globalRegistry.register(resolveLayerMacro);
+
+  // Register layerMake<R>() expression macro (ZIO-style explicit wiring)
+  globalRegistry.register(layerMakeMacro);
 
   // Register @compiled attribute and compileGen() expression macros
   globalRegistry.register(compiledAttribute);

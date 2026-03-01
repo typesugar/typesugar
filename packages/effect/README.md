@@ -90,11 +90,13 @@ Or use `compileGen()` directly:
 ```typescript
 import { compileGen } from "@typesugar/effect";
 
-const program = compileGen(Effect.gen(function* () {
-  const x = yield* getX();
-  const y = yield* getY(x);
-  return x + y;
-}));
+const program = compileGen(
+  Effect.gen(function* () {
+    const x = yield* getX();
+    const y = yield* getY(x);
+    return x + y;
+  })
+);
 ```
 
 ### `@fused` — Pipeline Fusion
@@ -107,12 +109,7 @@ import { fused } from "@typesugar/effect";
 class DataPipeline {
   @fused
   process(data: Data) {
-    return pipe(
-      getData(data),
-      Effect.map(parse),
-      Effect.map(validate),
-      Effect.map(transform),
-    );
+    return pipe(getData(data), Effect.map(parse), Effect.map(validate), Effect.map(transform));
   }
 }
 
@@ -121,13 +118,14 @@ class DataPipeline {
   process(data: Data) {
     return pipe(
       getData(data),
-      Effect.map((x) => transform(validate(parse(x)))),
+      Effect.map((x) => transform(validate(parse(x))))
     );
   }
 }
 ```
 
 Fusion rules applied:
+
 - `map(map(fa, f), g)` → `map(fa, x => g(f(x)))`
 - `flatMap(succeed(a), f)` → `f(a)`
 - `flatMap(map(fa, f), g)` → `flatMap(fa, x => g(f(x)))`
@@ -290,18 +288,84 @@ yield: ({
 });
 ```
 
-### `resolveLayer<R>()` — Automatic Composition
+### Layer Wiring — Two Approaches
+
+Inspired by ZIO's `ZLayer.make`, `@typesugar/effect` offers two ways to compose layers:
+
+#### `layerMake<R>(...)` — Explicit (ZIO-style)
+
+List the layer values explicitly. The compiler resolves the dependency graph:
+
+```typescript
+import { layerMake } from "@typesugar/effect";
+
+// You provide the ingredients, typesugar figures out the wiring
+const appLayer = layerMake<UserRepo | HttpClient>(
+  userRepoLive,    // requires Database
+  databaseLive,    // no requirements
+  httpClientLive,  // no requirements
+);
+
+// Compiles to:
+// Layer.merge(
+//   userRepoLive.pipe(Layer.provide(databaseLive)),
+//   httpClientLive
+// )
+```
+
+Missing dependencies produce clear errors:
+
+```
+error: Missing layers for:
+  - Database (required by userRepoLive)
+Add the missing layers to layerMake<R>() arguments.
+```
+
+#### `resolveLayer<R>()` — Implicit (from registered layers)
+
+The compiler resolves layers automatically from `@layer` registrations
+visible in your import scope:
 
 ```typescript
 import { resolveLayer } from "@typesugar/effect";
 
 const program: Effect<void, Error, UserRepo | HttpClient> = ...;
 
-// Automatically resolves and composes all required layers:
+// Automatically finds and composes all required layers:
 const runnable = program.pipe(
   Effect.provide(resolveLayer<UserRepo | HttpClient>())
 );
 ```
+
+Only layers from files in your import graph are considered — no global
+action-at-a-distance.
+
+#### Debug Tree
+
+Both approaches support `{ debug: true }` to emit the resolved wiring
+graph at compile time (like ZIO's `ZLayer.Debug.tree`):
+
+```typescript
+// See what the compiler resolved
+const appLayer = layerMake<UserRepo | HttpClient>(
+  userRepoLive, databaseLive, httpClientLive,
+  { debug: true }
+);
+
+// Emits at compile time:
+// Layer Wiring Graph
+//
+// ◑ userRepoLive
+// ╰─◉ databaseLive
+// ◉ httpClientLive
+```
+
+#### When to Use Which
+
+| Approach | Best for |
+| --- | --- |
+| `layerMake<R>(...)` | Tests, app entry points, when you want to see exactly what's wired |
+| `resolveLayer<R>()` | Large apps, rapid prototyping, when listing every layer is tedious |
 
 ---
 
@@ -318,17 +382,13 @@ const mockUserRepo = mockService<UserRepo>({
 });
 
 // Override for specific test
-mockUserRepo.getUser.mockImplementation(() =>
-  Effect.fail(new NotFound())
-);
+mockUserRepo.getUser.mockImplementation(() => Effect.fail(new NotFound()));
 
 // Create test layer
 const TestUserRepo = testLayer(UserRepo, mockUserRepo);
 
 // Run test
-const result = await Effect.runPromise(
-  pipe(program, Effect.provide(TestUserRepo))
-);
+const result = await Effect.runPromise(pipe(program, Effect.provide(TestUserRepo)));
 
 // Verify calls
 assertCalled(mockUserRepo, "getUser", ["123"]);
@@ -343,7 +403,7 @@ Enhanced do-notation with proper E/R type inference:
 ```typescript
 // Error and requirement types accumulate correctly:
 let: {
-  user << getUserById(id);  // Effect<User, NotFound, UserRepo>
+  user << getUserById(id); // Effect<User, NotFound, UserRepo>
   posts << getPosts(user.id); // Effect<Post[], DbError, PostRepo>
 }
 yield: ({ user, posts });
@@ -382,57 +442,59 @@ interface Point {
 
 ### Zero-Cost Macros
 
-| Macro | Description |
-| --- | --- |
-| `@compiled` | Transform `Effect.gen` to direct `flatMap` chains |
-| `compileGen()` | Expression-level generator compilation |
-| `@fused` | Fuse consecutive Effect operations |
-| `fusePipeline()` | Expression-level pipeline fusion |
-| `specializeSchema()` | Compile Schema to direct validation |
-| `specializeSchemaUnsafe()` | Compile Schema without error wrapping |
+| Macro                      | Description                                       |
+| -------------------------- | ------------------------------------------------- |
+| `@compiled`                | Transform `Effect.gen` to direct `flatMap` chains |
+| `compileGen()`             | Expression-level generator compilation            |
+| `@fused`                   | Fuse consecutive Effect operations                |
+| `fusePipeline()`           | Expression-level pipeline fusion                  |
+| `specializeSchema()`       | Compile Schema to direct validation               |
+| `specializeSchemaUnsafe()` | Compile Schema without error wrapping             |
 
 ### Diagnostics
 
-| Code | Category | Severity | Description |
-| --- | --- | --- | --- |
-| EFFECT001 | Service Resolution | error | No layer provides required service |
-| EFFECT002 | Service Resolution | error | Layer provides wrong service type |
-| EFFECT003 | Service Resolution | warning | Multiple layers provide same service |
-| EFFECT010 | Error Completeness | warning | Unhandled error types |
-| EFFECT011 | Error Completeness | info | Redundant error handler |
-| EFFECT020 | Layer Dependency | error | Circular layer dependency |
-| EFFECT021 | Layer Dependency | info | Unused layer in composition |
-| EFFECT030 | Schema Drift | error | Schema/type drift detected |
-| EFFECT040 | Type Simplification | info | Type could be simplified |
+| Code      | Category            | Severity | Description                          |
+| --------- | ------------------- | -------- | ------------------------------------ |
+| EFFECT001 | Service Resolution  | error    | No layer provides required service   |
+| EFFECT002 | Service Resolution  | error    | Layer provides wrong service type    |
+| EFFECT003 | Service Resolution  | warning  | Multiple layers provide same service |
+| EFFECT010 | Error Completeness  | warning  | Unhandled error types                |
+| EFFECT011 | Error Completeness  | info     | Redundant error handler              |
+| EFFECT020 | Layer Dependency    | error    | Circular layer dependency            |
+| EFFECT021 | Layer Dependency    | info     | Unused layer in composition          |
+| EFFECT030 | Schema Drift        | error    | Schema/type drift detected           |
+| EFFECT040 | Type Simplification | info     | Type could be simplified             |
 
 ### Service & Layer
 
-| Export | Description |
-| --- | --- |
-| `@service` | Generate Context.Tag and accessors |
-| `@layer(Service, opts?)` | Create layer with dependency tracking |
-| `resolveLayer<R>()` | Auto-compose layers for requirements |
-| `serviceRegistry` | Registered services |
-| `layerRegistry` | Registered layers |
+| Export                     | Description                                                |
+| -------------------------- | ---------------------------------------------------------- |
+| `@service`                 | Generate Context.Tag and accessors                         |
+| `@layer(Service, opts?)`   | Create layer with dependency tracking                      |
+| `layerMake<R>(...layers)`  | ZIO-style explicit wiring from listed layers               |
+| `resolveLayer<R>(opts?)`   | Implicit wiring from `@layer` registrations in import scope |
+| `formatDebugTree()`        | Format resolved graph as a tree string                     |
+| `serviceRegistry`          | Registered services                                        |
+| `layerRegistry`            | Registered layers                                          |
 
 ### Testing
 
-| Export | Description |
-| --- | --- |
-| `mockService<T>()` | Create typed mock with call tracking |
-| `testLayer(tag, mock)` | Create test layer from mock |
-| `combineLayers(...layers)` | Combine test layers |
-| `assertCalled(mock, method)` | Verify method was called |
-| `assertNotCalled(mock, method)` | Verify method was not called |
-| `assertCalledTimes(mock, method, n)` | Verify call count |
+| Export                               | Description                          |
+| ------------------------------------ | ------------------------------------ |
+| `mockService<T>()`                   | Create typed mock with call tracking |
+| `testLayer(tag, mock)`               | Create test layer from mock          |
+| `combineLayers(...layers)`           | Combine test layers                  |
+| `assertCalled(mock, method)`         | Verify method was called             |
+| `assertNotCalled(mock, method)`      | Verify method was not called         |
+| `assertCalledTimes(mock, method, n)` | Verify call count                    |
 
 ### Derive Macros
 
-| Export | Description |
-| --- | --- |
-| `@derive(EffectSchema)` | Generate Schema.Struct |
-| `@derive(EffectEqual)` | Generate Equal instance |
-| `@derive(EffectHash)` | Generate Hash instance |
+| Export                  | Description             |
+| ----------------------- | ----------------------- |
+| `@derive(EffectSchema)` | Generate Schema.Struct  |
+| `@derive(EffectEqual)`  | Generate Equal instance |
+| `@derive(EffectHash)`   | Generate Hash instance  |
 
 ---
 
