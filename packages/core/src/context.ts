@@ -4,7 +4,7 @@
 
 import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
-import { HygieneContext, globalHygiene } from "./hygiene.js";
+import { HygieneContext, globalHygiene, FileBindingCache } from "./hygiene.js";
 import { stripPositions } from "./ast-utils.js";
 
 export class MacroContextImpl implements MacroContext {
@@ -21,15 +21,45 @@ export class MacroContextImpl implements MacroContext {
   /** Hygiene context for scoped identifier generation */
   public readonly hygiene: HygieneContext;
 
+  /**
+   * File binding cache for reference hygiene.
+   * Built lazily on first safeRef() call.
+   */
+  private _fileBindingCache: FileBindingCache | undefined;
+
+  /** Whether verbose logging is enabled for hygiene */
+  private _verbose: boolean;
+
   constructor(
     public readonly program: ts.Program,
     public readonly typeChecker: ts.TypeChecker,
     public readonly sourceFile: ts.SourceFile,
     public readonly factory: ts.NodeFactory,
     public readonly transformContext: ts.TransformationContext,
-    hygiene?: HygieneContext
+    hygiene?: HygieneContext,
+    fileBindingCache?: FileBindingCache,
+    verbose = false
   ) {
     this.hygiene = hygiene ?? globalHygiene;
+    this._fileBindingCache = fileBindingCache;
+    this._verbose = verbose;
+  }
+
+  /**
+   * Get the file binding cache, creating it lazily if needed.
+   */
+  get fileBindingCache(): FileBindingCache {
+    if (!this._fileBindingCache) {
+      this._fileBindingCache = new FileBindingCache(this.sourceFile, this._verbose);
+    }
+    return this._fileBindingCache;
+  }
+
+  /**
+   * Set the file binding cache (used by transformer to share across contexts).
+   */
+  setFileBindingCache(cache: FileBindingCache): void {
+    this._fileBindingCache = cache;
   }
 
   /** Lazily-created shared printer instance */
@@ -652,6 +682,14 @@ export class MacroContextImpl implements MacroContext {
   }
 
   // -------------------------------------------------------------------------
+  // Reference Hygiene
+  // -------------------------------------------------------------------------
+
+  safeRef(symbol: string, from: string): ts.Identifier {
+    return this.fileBindingCache.safeRef(symbol, from);
+  }
+
+  // -------------------------------------------------------------------------
   // Helper: Convert ComptimeValue to TypeScript Expression
   // -------------------------------------------------------------------------
 
@@ -688,21 +726,53 @@ export class MacroContextImpl implements MacroContext {
 }
 
 /**
- * Create a macro context for a given program and source file
+ * Options for creating a macro context.
+ */
+export interface CreateMacroContextOptions {
+  /** Hygiene context for scoped identifier generation */
+  hygiene?: HygieneContext;
+  /** Pre-built file binding cache for reference hygiene */
+  fileBindingCache?: FileBindingCache;
+  /** Enable verbose logging for hygiene */
+  verbose?: boolean;
+}
+
+/**
+ * Create a macro context for a given program and source file.
+ *
+ * @param program - The TypeScript program
+ * @param sourceFile - The source file being processed
+ * @param transformContext - The transformation context
+ * @param options - Optional configuration (hygiene context, file binding cache, verbose)
  */
 export function createMacroContext(
   program: ts.Program,
   sourceFile: ts.SourceFile,
   transformContext: ts.TransformationContext,
-  hygiene?: HygieneContext
+  options?: HygieneContext | CreateMacroContextOptions
 ): MacroContextImpl {
+  // Support legacy signature: createMacroContext(program, sourceFile, ctx, hygiene)
+  if (options instanceof HygieneContext) {
+    return new MacroContextImpl(
+      program,
+      program.getTypeChecker(),
+      sourceFile,
+      transformContext.factory,
+      transformContext,
+      options
+    );
+  }
+
+  const opts = options ?? {};
   return new MacroContextImpl(
     program,
     program.getTypeChecker(),
     sourceFile,
     transformContext.factory,
     transformContext,
-    hygiene
+    opts.hygiene,
+    opts.fileBindingCache,
+    opts.verbose
   );
 }
 

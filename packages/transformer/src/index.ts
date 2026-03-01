@@ -79,6 +79,7 @@ import {
   preserveSourceMap,
   // Hygiene system
   HygieneContext,
+  FileBindingCache,
   // Expansion tracking
   ExpansionTracker,
   globalExpansionTracker,

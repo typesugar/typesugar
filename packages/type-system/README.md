@@ -99,7 +99,13 @@ This module provides three levels of type branding:
 Type constructors as type parameters via phantom kind markers.
 
 ```typescript
-import { type $, type Kind, type TypeFunction, type ArrayF, type PromiseF } from "@typesugar/type-system";
+import {
+  type $,
+  type Kind,
+  type TypeFunction,
+  type ArrayF,
+  type PromiseF,
+} from "@typesugar/type-system";
 
 // F is a type constructor (Array, Promise, etc.)
 interface Functor<F> {

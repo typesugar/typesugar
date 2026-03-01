@@ -189,10 +189,16 @@ export {
 } from "./ast-utils.js";
 
 // Hygiene System
-export { HygieneContext, globalHygiene } from "./hygiene.js";
+export {
+  HygieneContext,
+  globalHygiene,
+  FileBindingCache,
+  KNOWN_GLOBALS,
+  type PendingAliasEntry,
+} from "./hygiene.js";
 
-// Re-export markPure from context
-export { markPure } from "./context.js";
+// Re-export markPure and CreateMacroContextOptions from context
+export { markPure, type CreateMacroContextOptions } from "./context.js";
 
 // Macro Expansion Cache
 export { MacroExpansionCache, InMemoryExpansionCache } from "./cache.js";

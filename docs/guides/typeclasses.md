@@ -92,7 +92,10 @@ print("hello"); // "\"hello\""
 Typeclass instances are auto-derived by default — no annotation needed. When the compiler sees a typeclass operation on a type, it inspects the type's fields and synthesizes an implementation:
 
 ```typescript
-interface Point { x: number; y: number }
+interface Point {
+  x: number;
+  y: number;
+}
 
 const p = { x: 1, y: 2 };
 p.show(); // "Point(x = 1, y = 2)" — auto-derived from field structure

@@ -172,6 +172,34 @@ export interface MacroContext {
   generateUniqueName(prefix: string): ts.Identifier;
 
   // -------------------------------------------------------------------------
+  // Reference Hygiene
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get a safe reference to an external symbol.
+   *
+   * Uses three-tier resolution to detect conflicts:
+   * - Tier 0: Known JS globals (Error, Array, JSON, etc.) — always safe
+   * - Tier 1: Check file import map — safe if imported from same module
+   * - Tier 2: Check local declarations — conflict if declared
+   *
+   * If a conflict is detected, generates an aliased import instead.
+   *
+   * @param symbol - The symbol name to reference (e.g., "Eq", "Show")
+   * @param from - The module the symbol should come from (e.g., "@typesugar/std")
+   * @returns An identifier — either bare (fast path) or aliased (conflict)
+   *
+   * @example
+   * ```typescript
+   * // If user has: const Eq = 42;
+   * ctx.safeRef("Eq", "@typesugar/std")
+   * // Returns: __Eq_ts0__ (alias, not "Eq")
+   * // Pending import: import { Eq as __Eq_ts0__ } from "@typesugar/std"
+   * ```
+   */
+  safeRef(symbol: string, from: string): ts.Identifier;
+
+  // -------------------------------------------------------------------------
   // Tree-Shaking Annotations
   // -------------------------------------------------------------------------
 

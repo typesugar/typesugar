@@ -952,12 +952,12 @@ Understanding what goes where prevents architecture confusion:
 
 ### `@derive` vs `@deriving` vs Auto-derivation
 
-| Mechanism                    | What it does                                                             | When to use                                  |
-| ---------------------------- | ------------------------------------------------------------------------ | -------------------------------------------- |
-| Auto-derivation (default)    | Automatically synthesizes instances for product/sum types                | **Always** — this is the default behavior    |
-| `@deriving(TC)`              | Same as auto-derivation, but documents intent explicitly                 | Documentation — makes capabilities visible   |
-| `@derive(TC)`                | Generates standalone functions                                           | Rarely — doesn't integrate with `summon`     |
-| `@instance`                  | Custom hand-written instance, overrides auto-derivation                  | When auto-derived behavior isn't what you want |
+| Mechanism                 | What it does                                              | When to use                                    |
+| ------------------------- | --------------------------------------------------------- | ---------------------------------------------- |
+| Auto-derivation (default) | Automatically synthesizes instances for product/sum types | **Always** — this is the default behavior      |
+| `@deriving(TC)`           | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
+| `@derive(TC)`             | Generates standalone functions                            | Rarely — doesn't integrate with `summon`       |
+| `@instance`               | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
 
 **Auto-derivation is the default, not opt-in.** When the compiler sees `p1 === p2` on a type, it auto-derives `Eq` from the type's fields without any annotation. `@deriving(Eq)` is documentation, not activation — it says "this type supports Eq" to human readers, but the compiler would derive it anyway. Users should never need to annotate types just to get basic typeclass support.
 

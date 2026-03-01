@@ -947,7 +947,8 @@ export const TS9301: DiagnosticDescriptor = {
   code: 9301,
   severity: "error",
   category: DiagnosticCategory.HKT,
-  messageTemplate: 'Higher-kinded type {type} must define a \`_\` property that uses \`this["__kind__"]\`',
+  messageTemplate:
+    'Higher-kinded type {type} must define a \`_\` property that uses \`this["__kind__"]\`',
   explanation: `Type-level functions for HKT must be parameterized via the \`_\` property using \`this["__kind__"]\`.
 
 Correct:

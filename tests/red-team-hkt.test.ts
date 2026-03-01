@@ -6,7 +6,14 @@
  * The preprocessor resolves known type functions; `Apply<F, A>` does eager resolution.
  */
 import { describe, it, expect } from "vitest";
-import type { $, Kind, ArrayF, PromiseF, MapF, TypeFunction } from "../packages/type-system/src/hkt.js";
+import type {
+  $,
+  Kind,
+  ArrayF,
+  PromiseF,
+  MapF,
+  TypeFunction,
+} from "../packages/type-system/src/hkt.js";
 import { unsafeCoerce } from "../packages/type-system/src/hkt.js";
 
 // Test type-level functions
