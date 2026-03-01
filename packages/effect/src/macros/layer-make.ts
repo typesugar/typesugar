@@ -36,11 +36,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  type ExpressionMacro,
-  type MacroContext,
-  defineExpressionMacro,
-} from "@typesugar/core";
+import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
 import type { LayerInfo } from "./layer.js";
 import {
   resolveGraph,
@@ -72,17 +68,12 @@ function extractLayerInfoFromType(
   // Try to match Layer<ROut, E, RIn> pattern
   // Effect 3.x: Layer.Layer<ROut, E, RIn>
   // The type string might be: Layer<UserRepo, never, Database>
-  const layerMatch = typeStr.match(
-    /Layer<([^,>]+)(?:,\s*([^,>]+))?(?:,\s*([^,>]+))?>$/
-  );
+  const layerMatch = typeStr.match(/Layer<([^,>]+)(?:,\s*([^,>]+))?(?:,\s*([^,>]+))?>$/);
   if (layerMatch) {
     const provides = layerMatch[1].trim();
     const requiresStr = layerMatch[3]?.trim() ?? "never";
 
-    const requires =
-      requiresStr === "never"
-        ? []
-        : requiresStr.split("|").map((s) => s.trim());
+    const requires = requiresStr === "never" ? [] : requiresStr.split("|").map((s) => s.trim());
 
     return {
       name: exprName,
@@ -96,18 +87,12 @@ function extractLayerInfoFromType(
   // Try extracting from the type's type arguments directly
   const symbol = type.getSymbol() ?? type.aliasSymbol;
   if (symbol) {
-    const typeArgs = ctx.typeChecker.getTypeArguments(
-      type as ts.TypeReference
-    );
+    const typeArgs = ctx.typeChecker.getTypeArguments(type as ts.TypeReference);
     if (typeArgs && typeArgs.length >= 1) {
       const rOut = ctx.typeChecker.typeToString(typeArgs[0]);
-      const rIn =
-        typeArgs.length >= 3
-          ? ctx.typeChecker.typeToString(typeArgs[2])
-          : "never";
+      const rIn = typeArgs.length >= 3 ? ctx.typeChecker.typeToString(typeArgs[2]) : "never";
 
-      const requires =
-        rIn === "never" ? [] : rIn.split("|").map((s) => s.trim());
+      const requires = rIn === "never" ? [] : rIn.split("|").map((s) => s.trim());
 
       return {
         name: exprName,
@@ -129,10 +114,7 @@ function getLayerExprName(expr: ts.Expression): string {
   if (ts.isIdentifier(expr)) {
     return expr.text;
   }
-  if (
-    ts.isPropertyAccessExpression(expr) &&
-    ts.isIdentifier(expr.name)
-  ) {
+  if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.name)) {
     return expr.name.text;
   }
   return `<anonymous layer>`;
@@ -141,9 +123,10 @@ function getLayerExprName(expr: ts.Expression): string {
 /**
  * Check if the last argument is an options object with `debug: true`.
  */
-function extractDebugOption(
-  args: readonly ts.Expression[]
-): { layers: readonly ts.Expression[]; debug: boolean } {
+function extractDebugOption(args: readonly ts.Expression[]): {
+  layers: readonly ts.Expression[];
+  debug: boolean;
+} {
   if (args.length === 0) return { layers: args, debug: false };
 
   const lastArg = args[args.length - 1];
@@ -171,8 +154,7 @@ function extractDebugOption(
  */
 export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
   name: "layerMake",
-  description:
-    "ZIO-style automatic layer composition from explicit layer arguments",
+  description: "ZIO-style automatic layer composition from explicit layer arguments",
 
   expand(
     ctx: MacroContext,
@@ -194,20 +176,14 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
     const { layers: layerArgs, debug } = extractDebugOption(args);
 
     if (layerArgs.length === 0) {
-      ctx.reportError(
-        callExpr,
-        "layerMake<R>(...layers) requires at least one layer argument"
-      );
+      ctx.reportError(callExpr, "layerMake<R>(...layers) requires at least one layer argument");
       return emptyLayer(factory);
     }
 
     // Extract the target service names from the type argument
     const targetServices = extractServiceNames(ctx, typeArgs[0]);
     if (targetServices.length === 0) {
-      ctx.reportWarning(
-        callExpr,
-        "layerMake<R>() received no recognizable service types in R"
-      );
+      ctx.reportWarning(callExpr, "layerMake<R>() received no recognizable service types in R");
       return emptyLayer(factory);
     }
 
@@ -257,11 +233,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
 
     // Resolve the dependency graph
     try {
-      const resolution = resolveGraph(
-        targetServices,
-        findLayersForService,
-        providedLayers
-      );
+      const resolution = resolveGraph(targetServices, findLayersForService, providedLayers);
 
       if (resolution.missing.length > 0) {
         const missingList = resolution.missing
@@ -270,10 +242,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
             const requiredBy = providedLayers
               .filter((l) => l.requires.includes(m))
               .map((l) => l.name);
-            const suffix =
-              requiredBy.length > 0
-                ? ` (required by ${requiredBy.join(", ")})`
-                : "";
+            const suffix = requiredBy.length > 0 ? ` (required by ${requiredBy.join(", ")})` : "";
             return `  - ${m}${suffix}`;
           })
           .join("\n");
@@ -288,10 +257,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
 
       if (resolution.unused.length > 0) {
         const unusedNames = resolution.unused.map((l) => l.name).join(", ");
-        ctx.reportWarning(
-          callExpr,
-          `Unused layers (provided but not required): ${unusedNames}`
-        );
+        ctx.reportWarning(callExpr, `Unused layers (provided but not required): ${unusedNames}`);
       }
 
       // Emit debug tree if requested
@@ -303,10 +269,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
       return generateLayerComposition(ctx, resolution, layerExprMap);
     } catch (e) {
       if (e instanceof CircularDependencyError) {
-        ctx.reportError(
-          callExpr,
-          `Circular layer dependency: ${e.cycle.join(" → ")}`
-        );
+        ctx.reportError(callExpr, `Circular layer dependency: ${e.cycle.join(" → ")}`);
         return emptyLayer(factory);
       }
       ctx.reportError(
@@ -329,9 +292,7 @@ function emptyLayer(factory: ts.NodeFactory): ts.Expression {
  * Runtime placeholder for layerMake macro.
  * The compiler plugin replaces this with the composed Layer expression.
  */
-export function layerMake<R>(
-  ...args: unknown[]
-): never {
+export function layerMake<R>(...args: unknown[]): never {
   void args;
   throw new Error(
     "layerMake<R>() was not transformed at compile time. " +

@@ -35,16 +35,8 @@
  */
 
 import * as ts from "typescript";
-import {
-  type ExpressionMacro,
-  type MacroContext,
-  defineExpressionMacro,
-} from "@typesugar/core";
-import {
-  layerRegistry,
-  getLayersForService,
-  type LayerInfo,
-} from "./layer.js";
+import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
+import { layerRegistry, getLayersForService, type LayerInfo } from "./layer.js";
 import {
   resolveGraph,
   generateLayerComposition,
@@ -58,10 +50,7 @@ import {
  * This scopes the layer registry to the "import graph" — only layers defined
  * in files that the current file transitively imports are candidates.
  */
-function collectImportScope(
-  ctx: MacroContext,
-  maxDepth: number = 5
-): Set<string> {
+function collectImportScope(ctx: MacroContext, maxDepth: number = 5): Set<string> {
   const scope = new Set<string>();
   const sourceFile = ctx.sourceFile;
   scope.add(sourceFile.fileName);
@@ -69,9 +58,7 @@ function collectImportScope(
   const program = ctx.program;
   if (!program) return scope;
 
-  const queue: Array<{ file: ts.SourceFile; depth: number }> = [
-    { file: sourceFile, depth: 0 },
-  ];
+  const queue: Array<{ file: ts.SourceFile; depth: number }> = [{ file: sourceFile, depth: 0 }];
   const visited = new Set<string>([sourceFile.fileName]);
 
   while (queue.length > 0) {
@@ -89,8 +76,7 @@ function collectImportScope(
         program.getCompilerOptions(),
         ts.sys
       );
-      const resolvedFileName =
-        resolved.resolvedModule?.resolvedFileName;
+      const resolvedFileName = resolved.resolvedModule?.resolvedFileName;
       if (!resolvedFileName || visited.has(resolvedFileName)) continue;
 
       visited.add(resolvedFileName);
@@ -111,10 +97,7 @@ function collectImportScope(
  * Falls back to the full registry if no layers are found in scope
  * (to avoid breaking existing code).
  */
-function getScopedLayersForService(
-  serviceName: string,
-  importScope: Set<string>
-): LayerInfo[] {
+function getScopedLayersForService(serviceName: string, importScope: Set<string>): LayerInfo[] {
   const allLayers = getLayersForService(serviceName);
 
   // Filter to layers from files in the import scope
@@ -151,8 +134,7 @@ function hasDebugOption(args: readonly ts.Expression[]): boolean {
  */
 export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
   name: "resolveLayer",
-  description:
-    "Automatically resolve and compose Effect layers for requirements",
+  description: "Automatically resolve and compose Effect layers for requirements",
 
   expand(
     ctx: MacroContext,
@@ -176,10 +158,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
     const requiredServices = extractServiceNames(ctx, requirementsType);
 
     if (requiredServices.length === 0) {
-      ctx.reportWarning(
-        callExpr,
-        "resolveLayer<R>() received no recognizable service types"
-      );
+      ctx.reportWarning(callExpr, "resolveLayer<R>() received no recognizable service types");
       return emptyLayer(factory);
     }
 
@@ -190,12 +169,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       getScopedLayersForService(service, importScope);
 
     try {
-      const resolution = resolveGraph(
-        requiredServices,
-        findLayers,
-        undefined,
-        sourceFile.fileName
-      );
+      const resolution = resolveGraph(requiredServices, findLayers, undefined, sourceFile.fileName);
 
       if (resolution.missing.length > 0) {
         const missingList = resolution.missing.join(", ");
@@ -210,10 +184,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       // Build expression map from resolved layers (identifiers)
       const layerExprMap = new Map<string, ts.Expression>();
       for (const [, entry] of resolution.graph) {
-        layerExprMap.set(
-          entry.layer.name,
-          factory.createIdentifier(entry.layer.name)
-        );
+        layerExprMap.set(entry.layer.name, factory.createIdentifier(entry.layer.name));
       }
 
       if (debug) {
@@ -224,10 +195,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       return generateLayerComposition(ctx, resolution, layerExprMap);
     } catch (e) {
       if (e instanceof CircularDependencyError) {
-        ctx.reportError(
-          callExpr,
-          `Circular layer dependency: ${e.cycle.join(" → ")}`
-        );
+        ctx.reportError(callExpr, `Circular layer dependency: ${e.cycle.join(" → ")}`);
         return emptyLayer(factory);
       }
       ctx.reportError(
@@ -250,9 +218,7 @@ function emptyLayer(factory: ts.NodeFactory): ts.Expression {
  * Runtime placeholder for resolveLayer<R>().
  * Should be transformed at compile time.
  */
-export function resolveLayer<R>(
-  _options?: { debug?: boolean }
-): never {
+export function resolveLayer<R>(_options?: { debug?: boolean }): never {
   void _options;
   throw new Error(
     "resolveLayer<R>() was not transformed at compile time. " +

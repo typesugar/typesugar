@@ -55,9 +55,7 @@ export class CircularDependencyError extends Error {
 /**
  * Build a ResolvedLayer map from layer metadata.
  */
-function buildResolvedMap(
-  layers: LayerInfo[]
-): Map<string, ResolvedLayer> {
+function buildResolvedMap(layers: LayerInfo[]): Map<string, ResolvedLayer> {
   const map = new Map<string, ResolvedLayer>();
   for (const layer of layers) {
     map.set(layer.provides, {
@@ -115,9 +113,8 @@ export function resolveGraph(
     }
 
     const selected =
-      (preferFile
-        ? candidates.find((l) => l.sourceFile === preferFile)
-        : undefined) ?? candidates[0];
+      (preferFile ? candidates.find((l) => l.sourceFile === preferFile) : undefined) ??
+      candidates[0];
     selectedLayers.set(service, selected);
 
     for (const dep of selected.requires) {
@@ -152,9 +149,7 @@ export function resolveGraph(
     // Cycle detected — get the cycle from detectCycles for a better message
     const cycles = detectCycles(rawGraph);
     const cycle = cycles[0] ?? sortResult.cycle;
-    throw new CircularDependencyError(
-      cycle.length > 0 ? [...cycle, cycle[0]] : sortResult.cycle
-    );
+    throw new CircularDependencyError(cycle.length > 0 ? [...cycle, cycle[0]] : sortResult.cycle);
   }
 
   // Add any services that are required but have no layer (missing)
@@ -229,10 +224,7 @@ export function generateLayerComposition(
         }
 
         expr = factory.createCallExpression(
-          factory.createPropertyAccessExpression(
-            expr,
-            factory.createIdentifier("pipe")
-          ),
+          factory.createPropertyAccessExpression(expr, factory.createIdentifier("pipe")),
           undefined,
           [
             factory.createCallExpression(
@@ -323,10 +315,7 @@ export function formatDebugTree(resolution: GraphResolution): string {
 /**
  * Extract service names from a TypeScript union/intersection type node.
  */
-export function extractServiceNames(
-  _ctx: MacroContext,
-  typeNode: ts.TypeNode
-): string[] {
+export function extractServiceNames(_ctx: MacroContext, typeNode: ts.TypeNode): string[] {
   const services: string[] = [];
 
   function visit(node: ts.TypeNode): void {

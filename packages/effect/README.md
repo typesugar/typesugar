@@ -301,9 +301,9 @@ import { layerMake } from "@typesugar/effect";
 
 // You provide the ingredients, typesugar figures out the wiring
 const appLayer = layerMake<UserRepo | HttpClient>(
-  userRepoLive,    // requires Database
-  databaseLive,    // no requirements
-  httpClientLive,  // no requirements
+  userRepoLive, // requires Database
+  databaseLive, // no requirements
+  httpClientLive // no requirements
 );
 
 // Compiles to:
@@ -347,10 +347,9 @@ graph at compile time (like ZIO's `ZLayer.Debug.tree`):
 
 ```typescript
 // See what the compiler resolved
-const appLayer = layerMake<UserRepo | HttpClient>(
-  userRepoLive, databaseLive, httpClientLive,
-  { debug: true }
-);
+const appLayer = layerMake<UserRepo | HttpClient>(userRepoLive, databaseLive, httpClientLive, {
+  debug: true,
+});
 
 // Emits at compile time:
 // Layer Wiring Graph
@@ -362,8 +361,8 @@ const appLayer = layerMake<UserRepo | HttpClient>(
 
 #### When to Use Which
 
-| Approach | Best for |
-| --- | --- |
+| Approach            | Best for                                                           |
+| ------------------- | ------------------------------------------------------------------ |
 | `layerMake<R>(...)` | Tests, app entry points, when you want to see exactly what's wired |
 | `resolveLayer<R>()` | Large apps, rapid prototyping, when listing every layer is tedious |
 
@@ -467,15 +466,15 @@ interface Point {
 
 ### Service & Layer
 
-| Export                     | Description                                                |
-| -------------------------- | ---------------------------------------------------------- |
-| `@service`                 | Generate Context.Tag and accessors                         |
-| `@layer(Service, opts?)`   | Create layer with dependency tracking                      |
-| `layerMake<R>(...layers)`  | ZIO-style explicit wiring from listed layers               |
-| `resolveLayer<R>(opts?)`   | Implicit wiring from `@layer` registrations in import scope |
-| `formatDebugTree()`        | Format resolved graph as a tree string                     |
-| `serviceRegistry`          | Registered services                                        |
-| `layerRegistry`            | Registered layers                                          |
+| Export                    | Description                                                 |
+| ------------------------- | ----------------------------------------------------------- |
+| `@service`                | Generate Context.Tag and accessors                          |
+| `@layer(Service, opts?)`  | Create layer with dependency tracking                       |
+| `layerMake<R>(...layers)` | ZIO-style explicit wiring from listed layers                |
+| `resolveLayer<R>(opts?)`  | Implicit wiring from `@layer` registrations in import scope |
+| `formatDebugTree()`       | Format resolved graph as a tree string                      |
+| `serviceRegistry`         | Registered services                                         |
+| `layerRegistry`           | Registered layers                                           |
 
 ### Testing
 

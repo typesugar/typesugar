@@ -22,11 +22,7 @@ import { topoSort, createDigraph, detectCycles } from "@typesugar/graph";
 // Helpers
 // ============================================================================
 
-function makeLayer(
-  name: string,
-  provides: string,
-  requires: string[] = []
-): LayerInfo {
+function makeLayer(name: string, provides: string, requires: string[] = []): LayerInfo {
   return {
     name,
     provides,
@@ -36,9 +32,7 @@ function makeLayer(
   };
 }
 
-function makeLookup(
-  layers: LayerInfo[]
-): (service: string) => LayerInfo[] {
+function makeLookup(layers: LayerInfo[]): (service: string) => LayerInfo[] {
   const byService = new Map<string, LayerInfo[]>();
   for (const l of layers) {
     const existing = byService.get(l.provides) ?? [];
@@ -54,10 +48,7 @@ function makeLookup(
 
 describe("@typesugar/graph integration", () => {
   it("should create a digraph from layer dependencies", () => {
-    const g = createDigraph(
-      ["Database", "UserRepo"],
-      [["UserRepo", "Database"]]
-    );
+    const g = createDigraph(["Database", "UserRepo"], [["UserRepo", "Database"]]);
     expect(g.nodes.length).toBe(2);
     expect(g.edges.length).toBe(1);
     expect(g.directed).toBe(true);
@@ -80,15 +71,9 @@ describe("@typesugar/graph integration", () => {
       // Kahn's processes in-degree-0 first, so Cake (no incoming) comes first
       // and Spoon (most depended-on) comes last.
       // resolveGraph reverses this to get dependencies-first order.
-      expect(result.order.indexOf("Cake")).toBeLessThan(
-        result.order.indexOf("Chocolate")
-      );
-      expect(result.order.indexOf("Cake")).toBeLessThan(
-        result.order.indexOf("Flour")
-      );
-      expect(result.order.indexOf("Chocolate")).toBeLessThan(
-        result.order.indexOf("Spoon")
-      );
+      expect(result.order.indexOf("Cake")).toBeLessThan(result.order.indexOf("Chocolate"));
+      expect(result.order.indexOf("Cake")).toBeLessThan(result.order.indexOf("Flour"));
+      expect(result.order.indexOf("Chocolate")).toBeLessThan(result.order.indexOf("Spoon"));
     }
   });
 
@@ -192,11 +177,7 @@ describe("resolveGraph", () => {
       makeLayer("userRepoLive", "UserRepo", ["Database"]),
     ];
 
-    const resolution = resolveGraph(
-      ["UserRepo"],
-      makeLookup(layers),
-      layers
-    );
+    const resolution = resolveGraph(["UserRepo"], makeLookup(layers), layers);
 
     expect(resolution.unused.map((l) => l.name)).toContain("loggerLive");
   });
@@ -218,14 +199,9 @@ describe("resolveGraph", () => {
   });
 
   it("should throw on circular dependencies", () => {
-    const layers = [
-      makeLayer("aLive", "A", ["B"]),
-      makeLayer("bLive", "B", ["A"]),
-    ];
+    const layers = [makeLayer("aLive", "A", ["B"]), makeLayer("bLive", "B", ["A"])];
 
-    expect(() =>
-      resolveGraph(["A"], makeLookup(layers))
-    ).toThrow(CircularDependencyError);
+    expect(() => resolveGraph(["A"], makeLookup(layers))).toThrow(CircularDependencyError);
   });
 
   it("should throw CircularDependencyError with cycle path", () => {
