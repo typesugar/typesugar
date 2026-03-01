@@ -203,13 +203,19 @@ describe("Derived operations", () => {
     }
 
     it("getOrElse", () => {
-      const m = mapOf([["a", 1], ["b", 2]]);
+      const m = mapOf([
+        ["a", 1],
+        ["b", 2],
+      ]);
       expect(getOrElse(m, "a", 99, ML)).toBe(1);
       expect(getOrElse(m, "c", 99, ML)).toBe(99);
     });
 
     it("mapValues", () => {
-      const m = mapOf([["a", 1], ["b", 2]]);
+      const m = mapOf([
+        ["a", 1],
+        ["b", 2],
+      ]);
       const ML2 = hashMutableMapLike<string, string>(eqString, hashString);
       const result = mapValues(m, (v: number) => `val${v}`, ML, ML2);
       expect(result.get("a")).toBe("val1");
@@ -217,7 +223,11 @@ describe("Derived operations", () => {
     });
 
     it("filterEntries", () => {
-      const m = mapOf([["a", 1], ["b", 2], ["c", 3]]);
+      const m = mapOf([
+        ["a", 1],
+        ["b", 2],
+        ["c", 3],
+      ]);
       const result = filterEntries(m, (_k: string, v: number) => v > 1, ML, ML);
       expect(result.size).toBe(2);
       expect(result.has("a")).toBe(false);

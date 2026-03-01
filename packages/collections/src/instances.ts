@@ -64,7 +64,9 @@ export function nativeMutableSetLike<K>(): MutableSetLike<Set<K>, K> {
   return {
     ...nativeSetLike<K>(),
     create: () => new Set<K>(),
-    add: (s, k) => { s.add(k); },
+    add: (s, k) => {
+      s.add(k);
+    },
     delete: (s, k) => s.delete(k),
     clear: (s) => s.clear(),
   };
@@ -94,7 +96,9 @@ export function nativeMutableMapLike<K, V>(): MutableMapLike<Map<K, V>, K, V> {
   return {
     ...nativeMapLike<K, V>(),
     create: () => new Map<K, V>(),
-    set: (m, k, v) => { m.set(k, v); },
+    set: (m, k, v) => {
+      m.set(k, v);
+    },
     delete: (m, k) => m.delete(k),
     clear: (m) => m.clear(),
   };
@@ -140,7 +144,9 @@ export function hashMutableSetLike<K>(eq: Eq<K>, hash: Hash<K>): MutableSetLike<
   return {
     ...hashSetLike(eq, hash),
     create: () => new HashSet<K>(eq, hash),
-    add: (s, k) => { s.add(k); },
+    add: (s, k) => {
+      s.add(k);
+    },
     delete: (s, k) => s.delete(k),
     clear: (s) => s.clear(),
   };
@@ -168,12 +174,14 @@ export function hashMapLike<K, V>(eq: Eq<K>, hash: Hash<K>): MapLike<HashMap<K, 
 
 export function hashMutableMapLike<K, V>(
   eq: Eq<K>,
-  hash: Hash<K>,
+  hash: Hash<K>
 ): MutableMapLike<HashMap<K, V>, K, V> {
   return {
     ...hashMapLike<K, V>(eq, hash),
     create: () => new HashMap<K, V>(eq, hash),
-    set: (m, k, v) => { m.set(k, v); },
+    set: (m, k, v) => {
+      m.set(k, v);
+    },
     delete: (m, k) => m.delete(k),
     clear: (m) => m.clear(),
   };

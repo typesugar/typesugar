@@ -18,7 +18,7 @@ export function topoSortG<G, N, E>(
   g: G,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): { ok: true; order: N[] } | { ok: false; cycle: N[] } {
   const inDeg = new HashMap<N, number>(eq, hash);
   const allNodes: N[] = [];
@@ -58,9 +58,11 @@ function findOneCycleG<G, N, E>(
   g: G,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): N[] | null {
-  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const WHITE = 0,
+    GRAY = 1,
+    BLACK = 2;
   const color = new HashMap<N, number>(eq, hash);
   const allNodes: N[] = [];
 
@@ -114,7 +116,7 @@ export function hasCyclesG<G, N, E>(
   g: G,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): boolean {
   return !topoSortG(g, GL, eq, hash).ok;
 }
@@ -129,7 +131,7 @@ export function bfsG<G, N, E>(
   start: N,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): N[] {
   const visited = new HashSet<N>(eq, hash);
   const order: N[] = [];
@@ -159,7 +161,7 @@ export function dfsG<G, N, E>(
   start: N,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): N[] {
   const visited = new HashSet<N>(eq, hash);
   const order: N[] = [];
@@ -187,7 +189,7 @@ export function reachableG<G, N, E>(
   start: N,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): HashSet<N> {
   const result = new HashSet<N>(eq, hash);
   for (const n of bfsG(g, start, GL, eq, hash)) result.add(n);
@@ -201,7 +203,7 @@ export function hasPathG<G, N, E>(
   to: N,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): boolean {
   if (eq.equals(from, to)) return true;
   return reachableG(g, from, GL, eq, hash).has(to);
@@ -218,7 +220,7 @@ export function shortestPathG<G, N, E>(
   to: N,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
-  hash: Hash<N>,
+  hash: Hash<N>
 ): N[] | null {
   if (eq.equals(from, to)) return [from];
   const visited = new HashSet<N>(eq, hash);
@@ -266,7 +268,7 @@ export function dijkstraWithG<G, N, E, W>(
   eq: Eq<N>,
   hash: Hash<N>,
   monoid: Monoid<W>,
-  ord: Ord<W>,
+  ord: Ord<W>
 ): { path: N[]; weight: W } | null {
   const identity = monoid.empty();
   if (eq.equals(from, to)) return { path: [from], weight: identity };
@@ -314,12 +316,7 @@ export function dijkstraWithG<G, N, E, W>(
   return { path, weight: totalWeight };
 }
 
-function edgesFrom<G, N, E>(
-  g: G,
-  node: N,
-  GL: GraphLike<G, N, E>,
-  eq: Eq<N>,
-): E[] {
+function edgesFrom<G, N, E>(g: G, node: N, GL: GraphLike<G, N, E>, eq: Eq<N>): E[] {
   const result: E[] = [];
   for (const e of GL.edges(g)) {
     if (eq.equals(GL.edgeSource(e), node)) result.push(e);
@@ -333,12 +330,7 @@ function edgesFrom<G, N, E>(
 // ============================================================================
 
 /** Generic Tarjan's algorithm. */
-export function sccG<G, N, E>(
-  g: G,
-  GL: GraphLike<G, N, E>,
-  eq: Eq<N>,
-  hash: Hash<N>,
-): N[][] {
+export function sccG<G, N, E>(g: G, GL: GraphLike<G, N, E>, eq: Eq<N>, hash: Hash<N>): N[][] {
   let index = 0;
   const nodeIndex = new HashMap<N, number>(eq, hash);
   const lowlink = new HashMap<N, number>(eq, hash);

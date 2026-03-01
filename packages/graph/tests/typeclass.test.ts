@@ -29,7 +29,14 @@ import {
 // ============================================================================
 
 describe("graphLike instance", () => {
-  const g = createDigraph(["A", "B", "C", "D"], [["A", "B"], ["B", "C"], ["A", "D"]]);
+  const g = createDigraph(
+    ["A", "B", "C", "D"],
+    [
+      ["A", "B"],
+      ["B", "C"],
+      ["A", "D"],
+    ]
+  );
 
   it("nodes returns string IDs", () => {
     const nodes = [...graphLike.nodes(g)].sort();
@@ -66,7 +73,13 @@ describe("graphLike instance", () => {
 
 describe("Generic algorithms with Graph", () => {
   it("topoSortG", () => {
-    const g = createDigraph(["A", "B", "C"], [["A", "B"], ["B", "C"]]);
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B"],
+        ["B", "C"],
+      ]
+    );
     const result = topoSortG(g, graphLike, eqString, hashString);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -76,41 +89,79 @@ describe("Generic algorithms with Graph", () => {
   });
 
   it("topoSortG detects cycles", () => {
-    const g = createDigraph(["A", "B", "C"], [["A", "B"], ["B", "C"], ["C", "A"]]);
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B"],
+        ["B", "C"],
+        ["C", "A"],
+      ]
+    );
     const result = topoSortG(g, graphLike, eqString, hashString);
     expect(result.ok).toBe(false);
   });
 
   it("hasCyclesG", () => {
     const acyclic = createDigraph(["A", "B"], [["A", "B"]]);
-    const cyclic = createDigraph(["A", "B"], [["A", "B"], ["B", "A"]]);
+    const cyclic = createDigraph(
+      ["A", "B"],
+      [
+        ["A", "B"],
+        ["B", "A"],
+      ]
+    );
     expect(hasCyclesG(acyclic, graphLike, eqString, hashString)).toBe(false);
     expect(hasCyclesG(cyclic, graphLike, eqString, hashString)).toBe(true);
   });
 
   it("bfsG", () => {
-    const g = createDigraph(["A", "B", "C", "D"], [["A", "B"], ["A", "C"], ["B", "D"]]);
+    const g = createDigraph(
+      ["A", "B", "C", "D"],
+      [
+        ["A", "B"],
+        ["A", "C"],
+        ["B", "D"],
+      ]
+    );
     const order = bfsG(g, "A", graphLike, eqString, hashString);
     expect(order[0]).toBe("A");
     expect(order.indexOf("B")).toBeLessThan(order.indexOf("D"));
   });
 
   it("dfsG", () => {
-    const g = createDigraph(["A", "B", "C"], [["A", "B"], ["B", "C"]]);
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B"],
+        ["B", "C"],
+      ]
+    );
     const order = dfsG(g, "A", graphLike, eqString, hashString);
     expect(order).toEqual(["A", "B", "C"]);
   });
 
   it("hasPathG", () => {
-    const g = createDigraph(["A", "B", "C"], [["A", "B"], ["B", "C"]]);
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B"],
+        ["B", "C"],
+      ]
+    );
     expect(hasPathG(g, "A", "C", graphLike, eqString, hashString)).toBe(true);
     expect(hasPathG(g, "C", "A", graphLike, eqString, hashString)).toBe(false);
   });
 
   it("shortestPathG", () => {
-    const g = createDigraph(["A", "B", "C", "D"], [
-      ["A", "B"], ["B", "D"], ["A", "C"], ["C", "D"],
-    ]);
+    const g = createDigraph(
+      ["A", "B", "C", "D"],
+      [
+        ["A", "B"],
+        ["B", "D"],
+        ["A", "C"],
+        ["C", "D"],
+      ]
+    );
     const path = shortestPathG(g, "A", "D", graphLike, eqString, hashString);
     expect(path).not.toBeNull();
     expect(path![0]).toBe("A");
@@ -119,15 +170,30 @@ describe("Generic algorithms with Graph", () => {
   });
 
   it("sccG", () => {
-    const g = createDigraph(["A", "B", "C"], [["A", "B"], ["B", "C"], ["C", "A"]]);
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B"],
+        ["B", "C"],
+        ["C", "A"],
+      ]
+    );
     const sccs = sccG(g, graphLike, eqString, hashString);
     expect(sccs.length).toBe(1);
     expect(sccs[0].sort()).toEqual(["A", "B", "C"]);
   });
 
   it("dijkstraWithG", () => {
-    const g = createDigraph(["A", "B", "C"], [["A", "B", ""], ["B", "C", ""]]);
-    g.edges.forEach((e: any) => { e.weight = 1; });
+    const g = createDigraph(
+      ["A", "B", "C"],
+      [
+        ["A", "B", ""],
+        ["B", "C", ""],
+      ]
+    );
+    g.edges.forEach((e: any) => {
+      e.weight = 1;
+    });
 
     const monoid: Monoid<number> = { combine: (a, b) => a + b, empty: () => 0 };
     const ord: Ord<number> = {
@@ -179,9 +245,15 @@ describe("Generic algorithms with CUSTOM graph type", () => {
     successors(g, node) {
       return g.adj.get(node) ?? [];
     },
-    edgeSource(e) { return e.src; },
-    edgeTarget(e) { return e.dst; },
-    isDirected() { return true; },
+    edgeSource(e) {
+      return e.src;
+    },
+    edgeTarget(e) {
+      return e.dst;
+    },
+    isDirected() {
+      return true;
+    },
   };
 
   function mkGraph(adj: Record<number, number[]>): AdjGraph {

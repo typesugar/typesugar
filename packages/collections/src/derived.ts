@@ -22,11 +22,16 @@ export function forEach<I, A>(i: I, f: (a: A) => void, IO: IterableOnce<I, A>): 
 }
 
 export function toArray<I, A>(i: I, IO: IterableOnce<I, A>): A[] {
-  return IO.fold<A[]>(i, [], (acc, a) => { acc.push(a); return acc; });
+  return IO.fold<A[]>(i, [], (acc, a) => {
+    acc.push(a);
+    return acc;
+  });
 }
 
 export function find<I, A>(i: I, p: (a: A) => boolean, IO: IterableOnce<I, A>): A | undefined {
-  return IO.fold<A | undefined>(i, undefined, (acc, a) => (acc !== undefined ? acc : p(a) ? a : undefined));
+  return IO.fold<A | undefined>(i, undefined, (acc, a) =>
+    acc !== undefined ? acc : p(a) ? a : undefined
+  );
 }
 
 export function exists<I, A>(i: I, p: (a: A) => boolean, IO: IterableOnce<I, A>): boolean {
@@ -88,22 +93,14 @@ export function seqContains<S, A>(s: S, a: A, SQ: Seq<S, A>, eq: Eq<A>): boolean
 // From SetLike
 // ============================================================================
 
-export function union<S, K>(
-  a: S, b: S,
-  SL: SetLike<S, K>,
-  MSL: MutableSetLike<S, K>,
-): S {
+export function union<S, K>(a: S, b: S, SL: SetLike<S, K>, MSL: MutableSetLike<S, K>): S {
   const result = MSL.create();
   for (const k of SL.iterator(a)) MSL.add(result, k);
   for (const k of SL.iterator(b)) MSL.add(result, k);
   return result;
 }
 
-export function intersection<S, K>(
-  a: S, b: S,
-  SL: SetLike<S, K>,
-  MSL: MutableSetLike<S, K>,
-): S {
+export function intersection<S, K>(a: S, b: S, SL: SetLike<S, K>, MSL: MutableSetLike<S, K>): S {
   const result = MSL.create();
   for (const k of SL.iterator(a)) {
     if (SL.has(b, k)) MSL.add(result, k);
@@ -111,11 +108,7 @@ export function intersection<S, K>(
   return result;
 }
 
-export function difference<S, K>(
-  a: S, b: S,
-  SL: SetLike<S, K>,
-  MSL: MutableSetLike<S, K>,
-): S {
+export function difference<S, K>(a: S, b: S, SL: SetLike<S, K>, MSL: MutableSetLike<S, K>): S {
   const result = MSL.create();
   for (const k of SL.iterator(a)) {
     if (!SL.has(b, k)) MSL.add(result, k);
@@ -123,10 +116,7 @@ export function difference<S, K>(
   return result;
 }
 
-export function isSubsetOf<S, K>(
-  a: S, b: S,
-  SL: SetLike<S, K>,
-): boolean {
+export function isSubsetOf<S, K>(a: S, b: S, SL: SetLike<S, K>): boolean {
   for (const k of SL.iterator(a)) {
     if (!SL.has(b, k)) return false;
   }
@@ -139,14 +129,14 @@ export function isSubsetOf<S, K>(
 
 export function getOrElse<M, K, V>(m: M, k: K, fallback: V, ML: MapLike<M, K, V>): V {
   const v = ML.get(m, k);
-  return v !== undefined ? v : ML.has(m, k) ? v as V : fallback;
+  return v !== undefined ? v : ML.has(m, k) ? (v as V) : fallback;
 }
 
 export function mapValues<M, K, V, V2>(
   m: M,
   f: (v: V, k: K) => V2,
   ML: MapLike<M, K, V>,
-  MML: MutableMapLike<M, K, V2>,
+  MML: MutableMapLike<M, K, V2>
 ): M {
   const result = MML.create();
   for (const [k, v] of ML.iterator(m)) {
@@ -159,7 +149,7 @@ export function filterEntries<M, K, V>(
   m: M,
   p: (k: K, v: V) => boolean,
   ML: MapLike<M, K, V>,
-  MML: MutableMapLike<M, K, V>,
+  MML: MutableMapLike<M, K, V>
 ): M {
   const result = MML.create();
   for (const [k, v] of ML.iterator(m)) {
@@ -168,10 +158,7 @@ export function filterEntries<M, K, V>(
   return result;
 }
 
-export function mapEntries<M, K, V>(
-  m: M,
-  ML: MapLike<M, K, V>,
-): [K, V][] {
+export function mapEntries<M, K, V>(m: M, ML: MapLike<M, K, V>): [K, V][] {
   const result: [K, V][] = [];
   for (const entry of ML.iterator(m)) result.push(entry);
   return result;
