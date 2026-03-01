@@ -24,6 +24,24 @@ export {
   removeEdge,
 } from "./graph.js";
 
+// Typeclass
+export type { GraphLike, WeightedGraphLike } from "./typeclass.js";
+export { graphLike, weightedGraphLike } from "./typeclass.js";
+
+// Generic algorithms (parameterized over GraphLike + Eq + Hash)
+export {
+  topoSortG,
+  hasCyclesG,
+  bfsG,
+  dfsG,
+  reachableG,
+  hasPathG,
+  shortestPathG,
+  dijkstraWithG,
+  sccG,
+} from "./generic-algorithms.js";
+
+// Backward-compatible concrete algorithms (for Graph type)
 export type { PathCostConfig } from "./algorithms.js";
 
 export {

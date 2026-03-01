@@ -31,6 +31,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@typesugar/collections": "workspace:*",
     "@typesugar/core": "workspace:*",
     "@typesugar/std": "workspace:*"
   },
