@@ -45,6 +45,35 @@ interface MacroTransformerConfig {
 
   /** Custom macro module paths to load */
   macroModules?: string[];
+
+  /** Conditional compilation configuration (for cfg/cfgAttr macros) */
+  cfgConfig?: Record<string, unknown>;
+
+  /** Enable expansion tracking for source maps and diagnostics */
+  trackExpansions?: boolean;
+
+  /**
+   * Directory for the disk-backed macro expansion cache.
+   * Set to `false` to disable caching entirely.
+   * Defaults to `.typesugar-cache`.
+   */
+  cacheDir?: string | false;
+}
+```
+
+**Example tsconfig.json:**
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [
+      {
+        "transform": "@typesugar/transformer",
+        "verbose": true,
+        "cacheDir": ".typesugar-cache"
+      }
+    ]
+  }
 }
 ```
 
@@ -76,7 +105,13 @@ The transformer includes a CLI for direct usage:
 # Build TypeScript files with macro expansion
 npx typesugar build
 
-# Watch mode
+# Build with disk cache (faster incremental builds)
+npx typesugar build --cache
+
+# Build with strict mode (typecheck expanded output)
+npx typesugar build --strict
+
+# Watch mode (automatically reuses state across rebuilds)
 npx typesugar watch
 
 # Type-check only (no emit)
@@ -84,7 +119,22 @@ npx typesugar check
 
 # Show expanded output (like cargo expand)
 npx typesugar expand src/file.ts
+
+# Run a file directly (like ts-node but with macros)
+npx typesugar run src/script.ts
 ```
+
+### CLI Options
+
+| Option            | Description                                                                    |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `--cache [dir]`   | Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`) |
+| `--no-cache`      | Disable disk cache                                                             |
+| `--strict`        | Typecheck expanded output (catches macro bugs)                                 |
+| `--verbose`, `-v` | Enable verbose logging                                                         |
+| `--project`, `-p` | Path to tsconfig.json                                                          |
+
+See [Performance Architecture](../../docs/PERFORMANCE.md) for details on caching and optimization.
 
 ## Programmatic Usage
 

@@ -125,6 +125,28 @@ const pipeline = new TransformationPipeline(compilerOptions, fileNames, {
 });
 ```
 
+**ts-patch (tsconfig.json):**
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [
+      {
+        "transform": "@typesugar/transformer",
+        "cacheDir": ".typesugar-cache"
+      }
+    ]
+  }
+}
+```
+
+> **ts-patch limitations:** ts-patch supports `cacheDir` for macro expansion caching. However, full transform caching (`diskCache`) and strict mode require the CLI or unplugin.
+>
+> This is because `tsc` type-checks the _original_ source before transformation. To type-check _expanded_ output, use:
+>
+> - `typesugar build --strict` instead of `tsc`, or
+> - `typesugar check --strict` as a validation step after `tsc`
+
 ### Cache Directory Structure
 
 ```
@@ -186,7 +208,19 @@ Components preserved across rebuilds:
 
 ## Strict Mode
 
-Strict mode typechecks the expanded output to catch macro bugs:
+Strict mode type-checks the **expanded** output (after macro transformation) to catch bugs in macro-generated code.
+
+### Why Strict Mode?
+
+Normal `tsc` type-checks the **original** source code before macro expansion. This means:
+
+| Check                      | Original Source | Expanded Output |
+| -------------------------- | --------------- | --------------- |
+| `tsc` (with ts-patch)      | ✅              | ❌              |
+| `typesugar build`          | ✅              | ❌              |
+| `typesugar build --strict` | ✅              | ✅              |
+
+If a macro generates invalid TypeScript, you won't know until runtime—unless you use strict mode.
 
 ### CLI Usage
 
@@ -196,6 +230,9 @@ typesugar build --strict
 
 # Combine with verbose for details
 typesugar build --strict --verbose
+
+# For ts-patch users: run as separate validation
+tsc && typesugar check --strict
 ```
 
 ### Vite Usage
