@@ -203,7 +203,7 @@ export class TransformerState {
     if (options.verbose) {
       console.log("[typesugar] Created TransformerState");
       if (this.expansionCache) {
-        console.log(`[typesugar] Expansion cache loaded: ${this.expansionCache.size} entries`);
+        console.log("[typesugar] Expansion cache loaded: " + this.expansionCache.size + " entries");
       }
     }
   }
@@ -297,7 +297,7 @@ function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.Source
     }
 
     if (verbose) {
-      console.log(`[typesugar] Preprocessing: ${sourceFile.fileName}`);
+      console.log("[typesugar] Preprocessing: " + sourceFile.fileName);
     }
 
     const scriptKind =

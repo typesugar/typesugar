@@ -159,7 +159,9 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
         if (options?.strict) {
           const diagnostics = pipeline.strictTypecheck();
           if (diagnostics.length > 0) {
-            console.error(`[typesugar] Strict mode found ${diagnostics.length} type errors in expanded output:`);
+            console.error(
+              `[typesugar] Strict mode found ${diagnostics.length} type errors in expanded output:`
+            );
             for (const diag of diagnostics) {
               const file = diag.file?.fileName ?? "<unknown>";
               const msg = ts.flattenDiagnosticMessageText(diag.messageText, "\n");

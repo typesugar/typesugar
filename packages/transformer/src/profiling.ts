@@ -168,9 +168,7 @@ class TransformProfiler {
     );
     lines.push("-".repeat(80));
 
-    const sortedStats = [...this.aggregated.entries()].sort(
-      (a, b) => b[1].totalMs - a[1].totalMs
-    );
+    const sortedStats = [...this.aggregated.entries()].sort((a, b) => b[1].totalMs - a[1].totalMs);
 
     for (const [name, stats] of sortedStats) {
       lines.push(

@@ -17,7 +17,11 @@ import {
   type PositionMapper,
 } from "./position-mapper.js";
 import { TransformCache, hashContent, DiskTransformCache, initHasher } from "./cache.js";
-import macroTransformerFactory, { type MacroTransformerConfig, saveExpansionCache, getExpansionCacheStats } from "./index.js";
+import macroTransformerFactory, {
+  type MacroTransformerConfig,
+  saveExpansionCache,
+  getExpansionCacheStats,
+} from "./index.js";
 import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
 
 /**
@@ -120,9 +124,8 @@ export class TransformationPipeline {
 
     // Create disk cache if enabled
     if (options.diskCache) {
-      const cacheDir = typeof options.diskCache === "string" 
-        ? options.diskCache 
-        : ".typesugar-cache/transforms";
+      const cacheDir =
+        typeof options.diskCache === "string" ? options.diskCache : ".typesugar-cache/transforms";
       this.diskCache = new DiskTransformCache(cacheDir);
       if (this.verbose) {
         console.log(`[typesugar] Disk cache enabled at ${cacheDir}`);
@@ -138,7 +141,9 @@ export class TransformationPipeline {
     });
 
     // Fire-and-forget hasher init (fallback works fine if not ready)
-    initHasher().catch(() => { /* ignore - fallback available */ });
+    initHasher().catch(() => {
+      /* ignore - fallback available */
+    });
   }
 
   /**
@@ -194,10 +199,8 @@ export class TransformationPipeline {
 
     // Check disk cache if in-memory missed
     if (this.diskCache) {
-      const diskCached = this.diskCache.get(
-        normalizedFileName,
-        contentHash,
-        (dep) => this.contentHashes.get(dep)
+      const diskCached = this.diskCache.get(normalizedFileName, contentHash, (dep) =>
+        this.contentHashes.get(dep)
       );
       if (diskCached) {
         // Restore dependencies from disk cache
@@ -471,7 +474,9 @@ export class TransformationPipeline {
 
     const elapsed = profiler.end("strictTypecheck");
     if (this.verbose) {
-      console.log(`[typesugar] Strict typecheck: ${diagnostics.length} diagnostics (${elapsed.toFixed(0)}ms)`);
+      console.log(
+        `[typesugar] Strict typecheck: ${diagnostics.length} diagnostics (${elapsed.toFixed(0)}ms)`
+      );
     }
 
     return diagnostics;
@@ -526,7 +531,9 @@ export class TransformationPipeline {
       profiler.start("ensureProgram");
       if (this.verbose) {
         const mode = this.oldProgram ? "incremental" : "initial";
-        console.log(`[typesugar] Creating TypeScript program with ${this.fileNames.length} files (${mode})`);
+        console.log(
+          `[typesugar] Creating TypeScript program with ${this.fileNames.length} files (${mode})`
+        );
       }
       // Pass old program for incremental compilation (reuses unchanged ASTs)
       this.program = ts.createProgram(
@@ -537,7 +544,9 @@ export class TransformationPipeline {
       );
       const elapsed = profiler.end("ensureProgram");
       if (PROFILING_ENABLED && elapsed > 100) {
-        console.log(`[profiler] ensureProgram: ${elapsed.toFixed(1)}ms (${this.fileNames.length} files)`);
+        console.log(
+          `[profiler] ensureProgram: ${elapsed.toFixed(1)}ms (${this.fileNames.length} files)`
+        );
       }
     }
   }
@@ -572,7 +581,12 @@ export class TransformationPipeline {
   private runMacroTransformer(
     sourceFile: ts.SourceFile,
     originalCode: string
-  ): { code: string; map: RawSourceMap | null; diagnostics: TransformDiagnostic[]; printMs?: number } {
+  ): {
+    code: string;
+    map: RawSourceMap | null;
+    diagnostics: TransformDiagnostic[];
+    printMs?: number;
+  } {
     // Clear expansion tracker before transformation
     globalExpansionTracker.clear();
 

@@ -109,7 +109,7 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      diskCache: true,  // or custom path string
+      diskCache: true, // or custom path string
     }),
   ],
 });
@@ -121,7 +121,7 @@ export default defineConfig({
 import { TransformationPipeline } from "@typesugar/transformer";
 
 const pipeline = new TransformationPipeline(compilerOptions, fileNames, {
-  diskCache: true,  // or ".typesugar-cache/transforms"
+  diskCache: true, // or ".typesugar-cache/transforms"
 });
 ```
 
@@ -157,7 +157,7 @@ this.program = ts.createProgram(
   fileNames,
   compilerOptions,
   host,
-  this.oldProgram  // Reuses unchanged ASTs
+  this.oldProgram // Reuses unchanged ASTs
 );
 ```
 
@@ -178,6 +178,7 @@ const factory = macroTransformerFactory(program, { verbose }, state);
 ```
 
 Components preserved across rebuilds:
+
 - `HygieneContext` — identifier conflict tracking
 - `MacroExpansionCache` — macro expansion results
 - `scannedFiles` — files already scanned for registrations
@@ -272,8 +273,8 @@ Per-file timing (top 10 by total):
 export default defineConfig({
   plugins: [
     typesugar({
-      diskCache: true,    // Persist cache across restarts
-      verbose: false,     // Quiet unless debugging
+      diskCache: true, // Persist cache across restarts
+      verbose: false, // Quiet unless debugging
     }),
   ],
 });
@@ -296,7 +297,7 @@ export default defineConfig({
   plugins: [
     typesugar({
       strict: process.env.CI === "true",
-      diskCache: true,  // CI caches can be restored
+      diskCache: true, // CI caches can be restored
     }),
   ],
 });
@@ -318,6 +319,7 @@ typesugar watch --verbose
 ```
 
 The watch mode:
+
 - Reuses `TransformerState` across rebuilds
 - Uses TypeScript's `BuilderProgram` for change detection
 - Only processes changed files
@@ -346,11 +348,13 @@ The watch mode:
 ### Slow First Build
 
 The first build is slower because:
+
 - xxhash-wasm needs initialization
 - Disk cache is empty
 - No `oldProgram` to reuse
 
 Solutions:
+
 - Pre-warm with `typesugar check`
 - Restore CI cache from previous run
 
@@ -369,6 +373,7 @@ typesugar build --cache
 ### Memory Usage
 
 For very large projects, consider:
+
 - Reducing `maxCacheSize` option (default: 1000)
 - Using `--no-cache` for one-off builds
 

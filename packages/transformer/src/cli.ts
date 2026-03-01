@@ -17,7 +17,11 @@
 import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import macroTransformerFactory, { saveExpansionCache, getExpansionCacheStats, TransformerState } from "./index.js";
+import macroTransformerFactory, {
+  saveExpansionCache,
+  getExpansionCacheStats,
+  TransformerState,
+} from "./index.js";
 import { preprocess } from "@typesugar/preprocessor";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
@@ -267,7 +271,9 @@ function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
 
 function build(options: CliOptions): void {
   // Fire-and-forget hasher init (fallback works if not ready)
-  initHasher().catch(() => { /* ignore - fallback available */ });
+  initHasher().catch(() => {
+    /* ignore - fallback available */
+  });
 
   profiler.start("cli.build.total");
 
@@ -307,13 +313,13 @@ function build(options: CliOptions): void {
     if (/\.[jt]sx?$/.test(fileName) && !/node_modules/.test(fileName)) {
       try {
         const source = fs.readFileSync(fileName, "utf-8");
-        
+
         // Track content hashes for disk cache validation
         if (diskCache) {
           const resolvedPath = path.resolve(fileName);
           contentHashes.set(resolvedPath, hashContent(source));
         }
-        
+
         const result = preprocess(source, { fileName });
         if (result.changed) {
           preprocessedFiles.set(path.resolve(fileName), result.code);
@@ -373,10 +379,7 @@ function build(options: CliOptions): void {
             const deps: string[] = [];
             const depHashes: Record<string, string> = {};
             sourceFile.forEachChild((node) => {
-              if (
-                ts.isImportDeclaration(node) &&
-                ts.isStringLiteral(node.moduleSpecifier)
-              ) {
+              if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
                 const specifier = node.moduleSpecifier.text;
                 if (!specifier.startsWith(".")) return;
                 const resolved = path.resolve(path.dirname(sourcePath), specifier);
@@ -402,26 +405,26 @@ function build(options: CliOptions): void {
   let strictDiagnostics: ts.Diagnostic[] = [];
   if (options.strict) {
     profiler.start("cli.build.strictTypecheck");
-    
+
     // Transform all source files
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
     const expandedFiles = new Map<string, string>();
-    
+
     for (const fileName of config.fileNames) {
       const sourceFile = program.getSourceFile(fileName);
       if (!sourceFile) continue;
-      
+
       // Run the transformer
       const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
       const transformedFile = transformResult.transformed[0];
-      
+
       // Print the transformed source
       const expandedCode = printer.printFile(transformedFile);
       expandedFiles.set(path.resolve(fileName), expandedCode);
-      
+
       transformResult.dispose();
     }
-    
+
     // Create a virtual host serving expanded files
     const expandedHost = ts.createCompilerHost(compilerOptions);
     const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
@@ -433,7 +436,7 @@ function build(options: CliOptions): void {
       }
       return origExpandedReadFile(fileName);
     };
-    
+
     // Create a new program with expanded files for type checking
     // Use the original program for structural reuse
     const expandedProgram = ts.createProgram(
@@ -442,24 +445,22 @@ function build(options: CliOptions): void {
       expandedHost,
       program
     );
-    
+
     // Get type errors from expanded program
     strictDiagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
-    
+
     const strictElapsed = profiler.end("cli.build.strictTypecheck");
     if (options.verbose) {
-      console.log(`🧊 Strict typecheck: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`);
+      console.log(
+        `🧊 Strict typecheck: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`
+      );
     }
   }
 
   profiler.start("cli.build.emit");
-  const emitResult = program.emit(
-    undefined,
-    customWriteFile,
-    undefined,
-    false,
-    { before: [transformerFactory] }
-  );
+  const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
+    before: [transformerFactory],
+  });
   profiler.end("cli.build.emit");
 
   // Combine pre-emit diagnostics, emit diagnostics, and strict mode diagnostics
@@ -552,9 +553,13 @@ function watch(options: CliOptions): void {
   host.afterProgramCreate = (builderProgram) => {
     const program = builderProgram.getProgram();
     // Reuse transformer state across rebuilds for efficiency
-    const transformerFactory = macroTransformerFactory(program, {
-      verbose: options.verbose,
-    }, transformerState);
+    const transformerFactory = macroTransformerFactory(
+      program,
+      {
+        verbose: options.verbose,
+      },
+      transformerState
+    );
 
     const origEmit = builderProgram.emit;
     builderProgram.emit = (
