@@ -1106,16 +1106,13 @@ class MacroTransformer {
    * Visit a function with `= implicit()` params, tracking them in scope
    * so that nested calls can use them (propagation).
    */
-  private visitImplicitParamsFunction(
-    node: ts.FunctionLikeDeclaration
-  ): ts.Node | ts.Node[] {
+  private visitImplicitParamsFunction(node: ts.FunctionLikeDeclaration): ts.Node | ts.Node[] {
     if (this.verbose) {
-      const name = ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)
-        ? (node.name as ts.Identifier | undefined)?.text
-        : undefined;
-      console.log(
-        `[typesugar] Entering function with implicit params: ${name ?? "(anonymous)"}`
-      );
+      const name =
+        ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)
+          ? (node.name as ts.Identifier | undefined)?.text
+          : undefined;
+      console.log(`[typesugar] Entering function with implicit params: ${name ?? "(anonymous)"}`);
     }
 
     const scope = buildImplicitScopeFromDecl(node);
@@ -1679,9 +1676,11 @@ class MacroTransformer {
 
     // Handle = implicit() function scope tracking for propagation
     if (
-      (ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) ||
-       ts.isFunctionExpression(node) || ts.isMethodDeclaration(node) ||
-       ts.isConstructorDeclaration(node)) &&
+      (ts.isFunctionDeclaration(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isConstructorDeclaration(node)) &&
       hasImplicitParams(node)
     ) {
       return this.visitImplicitParamsFunction(node);

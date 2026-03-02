@@ -53,7 +53,9 @@ export function handleError<F, E>(
 /**
  * Recover from errors, providing a fallback value
  */
-export function recover<F, E>(F: ApplicativeError<F, E>): <A>(fa: Kind<F, A>, fallback: A) => Kind<F, A> {
+export function recover<F, E>(
+  F: ApplicativeError<F, E>
+): <A>(fa: Kind<F, A>, fallback: A) => Kind<F, A> {
   return (fa, fallback) => handleError(F)(fa, () => fallback);
 }
 
@@ -73,7 +75,9 @@ export function recoverWith<F, E>(
 /**
  * Convert error to Option.none, keeping success as Option.some
  */
-export function attempt<F, E>(F: ApplicativeError<F, E>): <A>(fa: Kind<F, A>) => Kind<F, Either<E, A>> {
+export function attempt<F, E>(
+  F: ApplicativeError<F, E>
+): <A>(fa: Kind<F, A>) => Kind<F, Either<E, A>> {
   return <A>(fa: Kind<F, A>): Kind<F, Either<E, A>> =>
     F.handleErrorWith(
       F.map(fa, (a: A): Either<E, A> => ({ _tag: "Right" as const, value: a })),
@@ -84,7 +88,9 @@ export function attempt<F, E>(F: ApplicativeError<F, E>): <A>(fa: Kind<F, A>) =>
 /**
  * Lift from Either into the error context
  */
-export function fromEither<F, E>(F: ApplicativeError<F, E>): <A>(either: Either<E, A>) => Kind<F, A> {
+export function fromEither<F, E>(
+  F: ApplicativeError<F, E>
+): <A>(either: Either<E, A>) => Kind<F, A> {
   return (either) => (either._tag === "Right" ? F.pure(either.value) : F.raiseError(either.value));
 }
 
@@ -124,7 +130,9 @@ export function ensureOr<F, E>(
 /**
  * Re-raise an error, potentially transformed
  */
-export function adaptError<F, E>(F: MonadError<F, E>): <A>(fa: Kind<F, A>, f: (e: E) => E) => Kind<F, A> {
+export function adaptError<F, E>(
+  F: MonadError<F, E>
+): <A>(fa: Kind<F, A>, f: (e: E) => E) => Kind<F, A> {
   return (fa, f) => F.handleErrorWith(fa, (e) => F.raiseError(f(e)));
 }
 

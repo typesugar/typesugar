@@ -379,16 +379,16 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 
 **Macros reference:**
 
-| Macro                 | Kind       | Purpose                                                         |
-| --------------------- | ---------- | --------------------------------------------------------------- |
-| `@typeclass`          | Attribute  | Declares a typeclass interface (for library authors)            |
-| `@instance`           | Attribute  | Provides custom typeclass instance, overrides auto-derivation   |
-| `@derive(...)`        | Attribute  | Documents capabilities (optional, same operations work without) |
-| `summon<TC<T>>()`     | Expression | Explicit resolution for generic code                            |
-| `fn.specialize(dict)` | Extension  | Create specialized function (preferred explicit syntax)         |
-| `specialize(fn,dict)` | Expression | Legacy explicit specialization (array syntax)                   |
+| Macro                 | Kind       | Purpose                                                           |
+| --------------------- | ---------- | ----------------------------------------------------------------- |
+| `@typeclass`          | Attribute  | Declares a typeclass interface (for library authors)              |
+| `@instance`           | Attribute  | Provides custom typeclass instance, overrides auto-derivation     |
+| `@derive(...)`        | Attribute  | Documents capabilities (optional, same operations work without)   |
+| `summon<TC<T>>()`     | Expression | Explicit resolution for generic code                              |
+| `fn.specialize(dict)` | Extension  | Create specialized function (preferred explicit syntax)           |
+| `specialize(fn,dict)` | Expression | Legacy explicit specialization (array syntax)                     |
 | `= implicit()`        | Expression | Default parameter marker — auto-fills instance + auto-specializes |
-| `@hkt`                | Attribute  | Higher-kinded type parameter support (`F<_>` → `Kind<F, A>`)    |
+| `@hkt`                | Attribute  | Higher-kinded type parameter support (`F<_>` → `Kind<F, A>`)      |
 
 **Key registries:**
 

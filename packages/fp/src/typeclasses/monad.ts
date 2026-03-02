@@ -47,7 +47,9 @@ export function flatten<F>(F: FlatMap<F>): <A>(ffa: Kind<F, Kind<F, A>>) => Kind
 /**
  * Map then flatten
  */
-export function flatTap<F>(F: FlatMap<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, A> {
+export function flatTap<F>(
+  F: FlatMap<F>
+): <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, A> {
   return (fa, f) => F.flatMap(fa, (a) => F.map(f(a), () => a));
 }
 

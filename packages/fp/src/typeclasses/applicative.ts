@@ -58,7 +58,12 @@ export function map2<F>(
  */
 export function map3<F>(
   F: Apply<F>
-): <A, B, C, D>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>, f: (a: A, b: B, c: C) => D) => Kind<F, D> {
+): <A, B, C, D>(
+  fa: Kind<F, A>,
+  fb: Kind<F, B>,
+  fc: Kind<F, C>,
+  f: (a: A, b: B, c: C) => D
+) => Kind<F, D> {
   return <A, B, C, D>(
     fa: Kind<F, A>,
     fb: Kind<F, B>,
@@ -138,7 +143,9 @@ export function unit<F>(F: Applicative<F>): Kind<F, void> {
 /**
  * Perform an action when a condition is true
  */
-export function when<F>(F: Applicative<F>): (condition: boolean, action: Kind<F, void>) => Kind<F, void> {
+export function when<F>(
+  F: Applicative<F>
+): (condition: boolean, action: Kind<F, void>) => Kind<F, void> {
   return (condition, action) => (condition ? action : unit(F));
 }
 

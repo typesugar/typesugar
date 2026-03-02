@@ -115,9 +115,7 @@ export function getImplicitParamIndices(decl: ts.SignatureDeclaration): number[]
  * those params become available to nested calls so that caller-provided
  * instances flow through without re-resolution.
  */
-export function buildImplicitScopeFromDecl(
-  decl: ts.SignatureDeclaration
-): ImplicitScope {
+export function buildImplicitScopeFromDecl(decl: ts.SignatureDeclaration): ImplicitScope {
   const available = new Map<string, string>();
 
   for (const param of decl.parameters) {
@@ -176,8 +174,18 @@ export function resolveImplicit(
 // ============================================================================
 
 const TS_KEYWORD_TYPES = new Set([
-  "number", "string", "boolean", "bigint", "symbol",
-  "undefined", "null", "void", "never", "any", "unknown", "object",
+  "number",
+  "string",
+  "boolean",
+  "bigint",
+  "symbol",
+  "undefined",
+  "null",
+  "void",
+  "never",
+  "any",
+  "unknown",
+  "object",
 ]);
 
 /**
@@ -185,15 +193,10 @@ const TS_KEYWORD_TYPES = new Set([
  * `factory.createTypeReferenceNode(name)` would mangle (e.g. `string[]`,
  * `Map<string, number>`).
  */
-function createTypeRefSafe(
-  factory: ts.NodeFactory,
-  typeName: string
-): ts.TypeNode {
+function createTypeRefSafe(factory: ts.NodeFactory, typeName: string): ts.TypeNode {
   if (typeName.endsWith("[]")) {
     const elementType = typeName.slice(0, -2);
-    return factory.createTypeReferenceNode("Array", [
-      createTypeRefSafe(factory, elementType),
-    ]);
+    return factory.createTypeReferenceNode("Array", [createTypeRefSafe(factory, elementType)]);
   }
 
   const ltIdx = typeName.indexOf("<");
@@ -303,10 +306,7 @@ export function transformImplicitsCall(
     if (callExpr.typeArguments && decl.typeParameters) {
       for (let i = 0; i < callExpr.typeArguments.length; i++) {
         if (i < decl.typeParameters.length) {
-          typeParamMap.set(
-            decl.typeParameters[i].name.text,
-            callExpr.typeArguments[i].getText()
-          );
+          typeParamMap.set(decl.typeParameters[i].name.text, callExpr.typeArguments[i].getText());
         }
       }
     }
@@ -387,10 +387,7 @@ export function transformImplicitsCall(
     const resolved = resolveImplicit(typeclassName, concreteType);
     if (resolved) {
       const summonExpr = factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier(typeclassName),
-          "summon"
-        ),
+        factory.createPropertyAccessExpression(factory.createIdentifier(typeclassName), "summon"),
         [createTypeRefSafe(factory, concreteType)],
         [factory.createStringLiteral(concreteType)]
       );

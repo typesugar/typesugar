@@ -234,8 +234,8 @@ export function registerExtension<F extends Function>(_typeName: string, _fn: F)
 export function implicit<T>(): T {
   throw new Error(
     "implicit() requires the typesugar transformer.\n" +
-    'Add to tsconfig.json: { "compilerOptions": { "plugins": ' +
-    '[{ "transform": "@typesugar/transformer" }] } }'
+      'Add to tsconfig.json: { "compilerOptions": { "plugins": ' +
+      '[{ "transform": "@typesugar/transformer" }] } }'
   );
 }
 

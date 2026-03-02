@@ -82,7 +82,9 @@ export function size<F>(F: Foldable<F>): <A>(fa: Kind<F, A>) => number {
 /**
  * Find the first element satisfying a predicate
  */
-export function find<F>(F: Foldable<F>): <A>(fa: Kind<F, A>, p: (a: A) => boolean) => A | undefined {
+export function find<F>(
+  F: Foldable<F>
+): <A>(fa: Kind<F, A>, p: (a: A) => boolean) => A | undefined {
   return <A>(fa: Kind<F, A>, p: (a: A) => boolean): A | undefined =>
     F.foldLeft<A, A | undefined>(fa, undefined, (acc, a) =>
       acc !== undefined ? acc : p(a) ? a : undefined

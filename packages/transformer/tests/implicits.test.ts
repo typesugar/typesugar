@@ -83,7 +83,6 @@ describe("= implicit() basic resolution", () => {
 
     const r = transformCode(code, { fileName: "implicits-basic.ts", verbose: true });
 
-
     expect(r.code).toContain("Ord.summon");
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });

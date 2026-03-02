@@ -941,10 +941,10 @@ const query = sql$`SELECT * FROM users WHERE id = ${userId} AND name = ${name}`;
 
 ### Fragment Building
 
-| Function         | Description                              |
-| ---------------- | ---------------------------------------- |
-| `sql\`...\``     | Basic SQL fragment                       |
-| `sql$\`...\``    | Typed SQL fragment (macro)               |
+| Function            | Description                              |
+| ------------------- | ---------------------------------------- |
+| `sql\`...\``        | Basic SQL fragment                       |
+| `sql$\`...\``       | Typed SQL fragment (macro)               |
 | `sqlKind<R>\`...\`` | Typed fragment with explicit result type |
 
 ### TypedFragment Combinators

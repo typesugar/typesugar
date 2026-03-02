@@ -175,7 +175,11 @@ function dedup<K>(items: K[], eq: Eq<K> = implicit(), hash: Hash<K> = implicit()
 }
 
 // At call sites, eq and hash are filled in automatically:
-const unique = dedup([{ x: 1, y: 2 }, { x: 1, y: 2 }, { x: 3, y: 4 }]);
+const unique = dedup([
+  { x: 1, y: 2 },
+  { x: 1, y: 2 },
+  { x: 3, y: 4 },
+]);
 // → [{ x: 1, y: 2 }, { x: 3, y: 4 }]
 ```
 

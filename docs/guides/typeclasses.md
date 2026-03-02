@@ -80,7 +80,7 @@ function print<A>(value: A, S: Show<A> = implicit()): void {
 }
 
 // S is filled automatically
-print(42);      // "42"
+print(42); // "42"
 print("hello"); // "\"hello\""
 
 // Or pass explicitly to override

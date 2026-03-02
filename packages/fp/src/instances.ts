@@ -147,7 +147,9 @@ type ArrayFoldable = {
  */
 type ArrayTraverse = ArrayFunctor &
   ArrayFoldable & {
-    readonly traverse: <G>(G: Applicative<G>) => <A, B>(fa: A[], f: (a: A) => Kind<G, B>) => Kind<G, B[]>;
+    readonly traverse: <G>(
+      G: Applicative<G>
+    ) => <A, B>(fa: A[], f: (a: A) => Kind<G, B>) => Kind<G, B[]>;
   };
 
 /**

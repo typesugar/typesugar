@@ -105,7 +105,9 @@ export interface Invariant<F> {
 /**
  * Create a Functor instance from a map function
  */
-export function makeFunctor<F>(map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>): Functor<F> {
+export function makeFunctor<F>(
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>
+): Functor<F> {
   return { map };
 }
 
@@ -122,9 +124,8 @@ export function makeFunctor<F>(map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Ki
 export function composeFunctor<F, G>(F: Functor<F>, G: Functor<G>): Functor<[F, G]> {
   return {
     map: <A, B>(fga: Kind<[F, G], A>, f: (a: A) => B): Kind<[F, G], B> =>
-      F.map(fga as unknown as Kind<F, Kind<G, A>>, (ga: Kind<G, A>) => G.map(ga, f)) as unknown as Kind<
-        [F, G],
-        B
-      >,
+      F.map(fga as unknown as Kind<F, Kind<G, A>>, (ga: Kind<G, A>) =>
+        G.map(ga, f)
+      ) as unknown as Kind<[F, G], B>,
   };
 }

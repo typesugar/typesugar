@@ -54,8 +54,18 @@ export function product3<F>(
  */
 export function product4<F>(
   F: Semigroupal<F>
-): <A, B, C, D>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>, fd: Kind<F, D>) => Kind<F, [A, B, C, D]> {
-  return <A, B, C, D>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>, fd: Kind<F, D>): Kind<F, [A, B, C, D]> => {
+): <A, B, C, D>(
+  fa: Kind<F, A>,
+  fb: Kind<F, B>,
+  fc: Kind<F, C>,
+  fd: Kind<F, D>
+) => Kind<F, [A, B, C, D]> {
+  return <A, B, C, D>(
+    fa: Kind<F, A>,
+    fb: Kind<F, B>,
+    fc: Kind<F, C>,
+    fd: Kind<F, D>
+  ): Kind<F, [A, B, C, D]> => {
     const ab = F.product(fa, fb);
     const cd = F.product(fc, fd);
     return F.product(ab, cd) as unknown as Kind<F, [A, B, C, D]>;

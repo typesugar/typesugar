@@ -275,12 +275,12 @@ This makes debugging typeclass issues much easier — instead of guessing why de
 
 Resolution traces appear in error messages from:
 
-| Source               | When traces appear                                             |
-| -------------------- | -------------------------------------------------------------- |
-| `summon<TC<T>>()`    | No explicit or auto-derived instance found                     |
-| `= implicit()`       | Implicit parameter resolution failed                           |
-| Operator rewriting   | No typeclass with `Op<"+">` found (verbose mode only)          |
-| Extension methods    | No typeclass or standalone extension found (verbose mode only) |
+| Source             | When traces appear                                             |
+| ------------------ | -------------------------------------------------------------- |
+| `summon<TC<T>>()`  | No explicit or auto-derived instance found                     |
+| `= implicit()`     | Implicit parameter resolution failed                           |
+| Operator rewriting | No typeclass with `Op<"+">` found (verbose mode only)          |
+| Extension methods  | No typeclass or standalone extension found (verbose mode only) |
 
 ## For Macro Authors
 

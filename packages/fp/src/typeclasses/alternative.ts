@@ -60,7 +60,9 @@ export function combineAllK<F>(
 /**
  * Try first, if "empty" use second
  */
-export function orElseK<F>(F: SemigroupK<F>): <A>(fa: Kind<F, A>, fb: () => Kind<F, A>) => Kind<F, A> {
+export function orElseK<F>(
+  F: SemigroupK<F>
+): <A>(fa: Kind<F, A>, fb: () => Kind<F, A>) => Kind<F, A> {
   return (fa, fb) => F.combineK(fa, fb());
 }
 
@@ -289,7 +291,9 @@ export function separate<F>(
 /**
  * Create a SemigroupK instance
  */
-export function makeSemigroupK<F>(combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>): SemigroupK<F> {
+export function makeSemigroupK<F>(
+  combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>
+): SemigroupK<F> {
   return { combineK };
 }
 

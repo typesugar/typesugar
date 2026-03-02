@@ -59,11 +59,11 @@ const sortAndShowNumbers = sortAndShow.specialize(numberOrd, numberShow);
 
 ## How It Works
 
-| Pattern                        | Runtime Cost               |
-| ------------------------------ | -------------------------- |
-| Generic function with instance | Dictionary lookup per call |
-| `.specialize(dict)`            | Zero — instance baked in   |
-| `= implicit()` + auto-specialize | Zero — fully automatic   |
+| Pattern                          | Runtime Cost               |
+| -------------------------------- | -------------------------- |
+| Generic function with instance   | Dictionary lookup per call |
+| `.specialize(dict)`              | Zero — instance baked in   |
+| `= implicit()` + auto-specialize | Zero — fully automatic     |
 
 ### Before Specialization
 
@@ -108,12 +108,12 @@ const sorted = sortWith([3, 1, 2]);
 
 ## When to Use What
 
-| Scenario                          | Approach                       |
-| --------------------------------- | ------------------------------ |
+| Scenario                          | Approach                         |
+| --------------------------------- | -------------------------------- |
 | Most cases                        | `= implicit()` — fully automatic |
-| Need a named specialized function | `fn.specialize(dict)`          |
-| One-off inline specialization     | `specialize$(call)`            |
-| Legacy code / edge cases          | `specialize(fn, [dict])`       |
+| Need a named specialized function | `fn.specialize(dict)`            |
+| One-off inline specialization     | `specialize$(call)`              |
+| Legacy code / edge cases          | `specialize(fn, [dict])`         |
 
 ## Learn More
 

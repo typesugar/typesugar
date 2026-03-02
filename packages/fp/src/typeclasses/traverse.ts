@@ -61,7 +61,9 @@ export function traverseFilter<F>(
  */
 export function traverseWithIndex<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (i: number, a: A) => Kind<G, B>) => Kind<G, Kind<F, B>> {
+): <G>(
+  G: Applicative<G>
+) => <A, B>(fa: Kind<F, A>, f: (i: number, a: A) => Kind<G, B>) => Kind<G, Kind<F, B>> {
   return (G) => (fa, f) => {
     let index = 0;
     return F.traverse(G)(fa, (a) => f(index++, a));
@@ -107,7 +109,9 @@ import type { MonoidK } from "./alternative.js";
 export function flatTraverseK<F>(
   F: Traverse<F>,
   MK: MonoidK<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>) => Kind<G, Kind<F, B>> {
+): <G>(
+  G: Applicative<G>
+) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>) => Kind<G, Kind<F, B>> {
   return <G>(G: Applicative<G>) =>
     <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>): Kind<G, Kind<F, B>> =>
       G.map(F.traverse(G)(fa, f), (nested: Kind<F, Kind<F, B>>) => {
@@ -127,7 +131,9 @@ export function flatTraverseK<F>(
  */
 export function flatTraverse<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>) => Kind<G, Kind<F, B>> {
+): <G>(
+  G: Applicative<G>
+) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>) => Kind<G, Kind<F, B>> {
   return (_G) => (_fa, _f) => {
     throw new Error(
       "flatTraverse requires a MonoidK instance to properly flatten nested structures. " +
@@ -147,7 +153,9 @@ export function makeTraverse<F>(
   map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>,
   foldLeft: <A, B>(fa: Kind<F, A>, b: B, f: (b: B, a: A) => B) => B,
   foldRight: <A, B>(fa: Kind<F, A>, b: B, f: (a: A, b: B) => B) => B,
-  traverse: <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B>) => Kind<G, Kind<F, B>>
+  traverse: <G>(
+    G: Applicative<G>
+  ) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B>) => Kind<G, Kind<F, B>>
 ): Traverse<F> {
   return { map, foldLeft, foldRight, traverse };
 }
