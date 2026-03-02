@@ -23,7 +23,7 @@ export type ResolutionKind =
   | "extension-method" // e.g., num.clamp() → NumberExt.clamp
   | "derive" // e.g., @derive(Eq) → generated Eq instance
   | "summon" // e.g., summon<Eq<Point>>() → instance lookup
-  | "implicit-param" // e.g., @implicits parameter fill-in
+  | "implicit-param" // e.g., implicit() parameter fill-in
   | "custom-operator" // e.g., a |> b → __binop__
   | "macro"; // e.g., comptime() expansion
 

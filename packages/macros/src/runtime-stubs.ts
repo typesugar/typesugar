@@ -205,33 +205,38 @@ export function registerExtension<F extends Function>(_typeName: string, _fn: F)
 }
 
 // ============================================================================
-// Implicits Runtime Stub
+// Implicit Parameter Resolution Stub
 // ============================================================================
 
 /**
- * Decorator to mark a function as having implicit typeclass parameters.
- * The transformer auto-fills missing typeclass instance arguments at call sites.
+ * Marker for implicit typeclass parameter resolution.
  *
- * @param paramNames - Optional parameter names to treat as implicit. If omitted,
- *                     auto-detects parameters typed as `TypeclassName<T>`.
+ * Used as a default parameter value to indicate the transformer should
+ * resolve and inject the appropriate typeclass instance at call sites.
+ *
+ * @deprecated This is a compile-time placeholder — if you see a strikethrough,
+ * the typesugar transformer is not configured.
  *
  * @example
  * ```typescript
- * @implicits
- * function show<A>(a: A, S: Show<A>): string {
- *   return S.show(a);
+ * // Mark parameters as implicitly resolved:
+ * function sort<T>(items: T[], ord: Ord<T> = implicit()): T[] {
+ *   return items.sort(ord.compare);
  * }
  *
- * // Call site - implicit param auto-filled:
- * show(42);  // → show(42, Show.summon<number>("number"))
+ * // Call site - implicit param auto-resolved:
+ * sort(numbers);  // → sort(numbers, resolvedOrdInstance)
  *
- * // Explicit still works:
- * show(42, customShow);  // Uses customShow
+ * // Explicit override still works:
+ * sort(numbers, customOrd);
  * ```
  */
-export function implicits(...paramNames: string[]): (target: any, context?: any) => any {
-  // Placeholder - processed by transformer
-  return (target) => target;
+export function implicit<T>(): T {
+  throw new Error(
+    "implicit() requires the typesugar transformer.\n" +
+    'Add to tsconfig.json: { "compilerOptions": { "plugins": ' +
+    '[{ "transform": "@typesugar/transformer" }] } }'
+  );
 }
 
 // ============================================================================

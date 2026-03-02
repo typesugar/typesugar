@@ -1,55 +1,26 @@
 /**
- * Integration tests for @implicits automatic parameter resolution.
+ * Integration tests for `= implicit()` automatic parameter resolution.
  *
  * Verifies:
- * - @implicits attribute macro strips decorator and registers function info
- * - Calls to @implicits functions auto-fill missing typeclass instance params
- * - Nested @implicits calls propagate enclosing scope
+ * - Calls to functions with `= implicit()` params auto-fill missing typeclass instances
+ * - Nested calls propagate enclosing scope
  * - Inner scope shadows outer scope
  * - Missing instance produces a diagnostic error
  * - "use no typesugar" opt-out skips implicit resolution
  */
 
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
 import {
   clearRegistries,
   clearSyntaxRegistry,
   registerTypeclassDef,
   registerInstanceWithMeta,
-  registerImplicitsFunction,
-  implicitsFunctions,
-  implicitsAttribute,
 } from "@typesugar/macros";
-import { globalRegistry } from "@typesugar/core";
-
-import { getImplicitsFunction } from "@typesugar/macros";
-
-beforeAll(() => {
-  globalRegistry.clear();
-  globalRegistry.register(implicitsAttribute);
-});
 
 beforeEach(() => {
   clearSyntaxRegistry();
   clearRegistries();
-  implicitsFunctions.clear();
-});
-
-describe("@implicits registry sanity", () => {
-  it("registerImplicitsFunction and getImplicitsFunction share the same map", () => {
-    registerImplicitsFunction({
-      functionName: "testFn",
-      sourceFile: "test.ts",
-      implicitParams: [],
-      totalParams: 1,
-      typeParams: [],
-    });
-    const info = getImplicitsFunction("testFn");
-    expect(info).toBeDefined();
-    expect(info!.functionName).toBe("testFn");
-    expect(implicitsFunctions.size).toBe(1);
-  });
 });
 
 function setupOrdTypeclass() {
@@ -89,34 +60,29 @@ function registerShowInstance(forType: string, instanceName: string) {
 }
 
 // ============================================================================
-// 1. Basic @implicits - auto-fill instance parameter
+// 1. Basic = implicit() — auto-fill instance parameter
 // ============================================================================
 
-describe("@implicits basic resolution", () => {
-  it("fills missing Ord<T> parameter when calling sortImplicit(numbers)", () => {
+describe("= implicit() basic resolution", () => {
+  it("fills missing Ord<T> parameter when calling sort(numbers)", () => {
     setupOrdTypeclass();
     registerOrdInstance("number", "ordNumber");
 
     const code = [
-      "declare function sort<T>(items: T[], ord: Ord<T>): T[];",
+      "declare function implicit<T>(): T;",
       "declare interface Ord<T> { compare(a: T, b: T): number; }",
       "declare const ordNumber: Ord<number>;",
       "",
-      "@implicits",
-      "function sortImplicit<T>(items: T[], ord: Ord<T>): T[] {",
-      "  return sort(items, ord);",
+      "function sort<T>(items: T[], ord: Ord<T> = implicit()): T[] {",
+      "  return items;",
       "}",
       "",
       "const numbers: number[] = [3, 1, 2];",
-      "const result = sortImplicit(numbers);",
+      "const result = sort(numbers);",
     ].join("\n");
 
     const r = transformCode(code, { fileName: "implicits-basic.ts", verbose: true });
 
-    console.log("=== OUTPUT CODE ===");
-    console.log(r.code);
-    console.log("=== DIAGNOSTICS ===");
-    console.log(JSON.stringify(r.diagnostics, null, 2));
 
     expect(r.code).toContain("Ord.summon");
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
@@ -127,18 +93,17 @@ describe("@implicits basic resolution", () => {
     registerOrdInstance("number", "ordNumber");
 
     const code = [
-      "declare function sort<T>(items: T[], ord: Ord<T>): T[];",
+      "declare function implicit<T>(): T;",
       "declare interface Ord<T> { compare(a: T, b: T): number; }",
       "declare const ordNumber: Ord<number>;",
       "declare const customOrd: Ord<number>;",
       "",
-      "@implicits",
-      "function sortImplicit<T>(items: T[], ord: Ord<T>): T[] {",
-      "  return sort(items, ord);",
+      "function sort<T>(items: T[], ord: Ord<T> = implicit()): T[] {",
+      "  return items;",
       "}",
       "",
       "const numbers: number[] = [3, 1, 2];",
-      "const result = sortImplicit(numbers, customOrd);",
+      "const result = sort(numbers, customOrd);",
     ].join("\n");
 
     const r = transformCode(code, { fileName: "implicits-all-provided.ts" });
@@ -152,33 +117,20 @@ describe("@implicits basic resolution", () => {
 // 2. Nested propagation
 // ============================================================================
 
-describe("@implicits nested propagation", () => {
-  it("propagates implicit scope from outer to inner @implicits call", () => {
+describe("= implicit() nested propagation", () => {
+  it("propagates implicit scope from outer to inner call", () => {
     setupShowTypeclass();
     registerShowInstance("number", "showNumber");
 
-    registerImplicitsFunction({
-      functionName: "inner",
-      sourceFile: "",
-      implicitParams: [
-        {
-          paramIndex: 1,
-          paramName: "S",
-          typeclassName: "Show",
-          typeParamName: "T",
-          typeString: "Show<T>",
-        },
-      ],
-      totalParams: 2,
-      typeParams: ["T"],
-    });
-
     const code = [
-      "declare function inner<T>(a: T, S: Show<T>): string;",
+      "declare function implicit<T>(): T;",
       "declare interface Show<T> { show(a: T): string; }",
       "",
-      "@implicits",
-      "function outer<T>(a: T, S: Show<T>): string {",
+      "function inner<T>(a: T, S: Show<T> = implicit()): string {",
+      "  return S.show(a);",
+      "}",
+      "",
+      "function outer<T>(a: T, S: Show<T> = implicit()): string {",
       "  return inner(a);",
       "}",
       "",
@@ -196,36 +148,23 @@ describe("@implicits nested propagation", () => {
 // 3. Scope shadowing
 // ============================================================================
 
-describe("@implicits scope shadowing", () => {
+describe("= implicit() scope shadowing", () => {
   it("inner scope shadows outer scope for same typeclass+type", () => {
     setupOrdTypeclass();
     setupShowTypeclass();
     registerOrdInstance("number", "ordNumber");
     registerShowInstance("number", "showNumber");
 
-    registerImplicitsFunction({
-      functionName: "innerFn",
-      sourceFile: "",
-      implicitParams: [
-        {
-          paramIndex: 1,
-          paramName: "O",
-          typeclassName: "Ord",
-          typeParamName: "T",
-          typeString: "Ord<T>",
-        },
-      ],
-      totalParams: 2,
-      typeParams: ["T"],
-    });
-
     const code = [
-      "declare function innerFn<T>(a: T, O: Ord<T>): number;",
+      "declare function implicit<T>(): T;",
       "declare interface Ord<T> { compare(a: T, b: T): number; }",
       "declare interface Show<T> { show(a: T): string; }",
       "",
-      "@implicits",
-      "function outerFn<T>(a: T, O: Ord<T>, S: Show<T>): number {",
+      "function innerFn<T>(a: T, O: Ord<T> = implicit()): number {",
+      "  return O.compare(a, a);",
+      "}",
+      "",
+      "function outerFn<T>(a: T, O: Ord<T> = implicit(), S: Show<T> = implicit()): number {",
       "  return innerFn(a);",
       "}",
       "",
@@ -241,18 +180,18 @@ describe("@implicits scope shadowing", () => {
 });
 
 // ============================================================================
-// 4. Missing instance - compile error
+// 4. Missing instance — compile error
 // ============================================================================
 
-describe("@implicits error reporting", () => {
+describe("= implicit() error reporting", () => {
   it("reports error when no instance is available for implicit param", () => {
     setupOrdTypeclass();
 
     const code = [
+      "declare function implicit<T>(): T;",
       "declare interface Ord<T> { compare(a: T, b: T): number; }",
       "",
-      "@implicits",
-      "function sortImplicit<T>(items: T[], ord: Ord<T>): T[] {",
+      "function sortImplicit<T>(items: T[], ord: Ord<T> = implicit()): T[] {",
       "  return items;",
       "}",
       "",
@@ -270,20 +209,20 @@ describe("@implicits error reporting", () => {
 });
 
 // ============================================================================
-// 5. Opt-out - "use no typesugar" skips implicit resolution
+// 5. Opt-out — "use no typesugar" skips implicit resolution
 // ============================================================================
 
-describe("@implicits opt-out", () => {
-  it("use no typesugar skips @implicits decorator processing", () => {
+describe("= implicit() opt-out", () => {
+  it("use no typesugar skips implicit resolution", () => {
     setupOrdTypeclass();
     registerOrdInstance("number", "ordNumber");
 
     const code = [
       '"use no typesugar";',
+      "declare function implicit<T>(): T;",
       "declare interface Ord<T> { compare(a: T, b: T): number; }",
       "",
-      "@implicits",
-      "function sortImplicit<T>(items: T[], ord: Ord<T>): T[] {",
+      "function sortImplicit<T>(items: T[], ord: Ord<T> = implicit()): T[] {",
       "  return items;",
       "}",
       "",
@@ -293,28 +232,5 @@ describe("@implicits opt-out", () => {
     const r = transformCode(code, { fileName: "implicits-optout.ts" });
 
     expect(r.code).not.toContain("Ord.summon");
-  });
-});
-
-// ============================================================================
-// 6. @implicits strips the decorator from output
-// ============================================================================
-
-describe("@implicits decorator stripping", () => {
-  it("removes @implicits decorator from the output function", () => {
-    setupOrdTypeclass();
-
-    const code = [
-      "declare interface Ord<T> { compare(a: T, b: T): number; }",
-      "",
-      "@implicits",
-      "function sortImplicit<T>(items: T[], ord: Ord<T>): T[] {",
-      "  return items;",
-      "}",
-    ].join("\n");
-
-    const r = transformCode(code, { fileName: "implicits-strip.ts" });
-
-    expect(r.code).not.toContain("@implicits");
   });
 });

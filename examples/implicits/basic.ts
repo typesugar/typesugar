@@ -1,14 +1,14 @@
 /**
- * @implicits - Automatic Implicit Parameter Resolution with Propagation
+ * = implicit() - Automatic Implicit Parameter Resolution with Propagation
  *
- * This example demonstrates the @implicits decorator that provides
- * Scala 3-style implicit parameters with automatic propagation.
+ * This example demonstrates the `= implicit()` default parameter pattern that
+ * provides Scala 3-style implicit parameters with automatic propagation.
  *
  * Run with: npx tsx examples/implicits/basic.ts
- * (Uses the macro transformer to expand @implicits calls)
+ * (Uses the macro transformer to expand implicit() calls)
  */
 
-import { typeclass, instance, implicits, summonAll } from "typesugar";
+import { typeclass, instance, implicit, summonAll } from "typesugar";
 
 // ----------------------------------------------------------------------------
 // 1. Define a typeclass
@@ -39,12 +39,11 @@ const showBoolean: Show<boolean> = {
 };
 
 // ----------------------------------------------------------------------------
-// 3. Use @implicits to mark functions with implicit parameters
+// 3. Use = implicit() to mark parameters as implicit
 // ----------------------------------------------------------------------------
 
-// Basic usage - S is auto-detected as implicit (typed as Show<A>)
-@implicits
-function show<A>(a: A, S: Show<A>): string {
+// Basic usage - S defaults to implicit(), auto-resolved from the registry
+function show<A>(a: A, S: Show<A> = implicit()): string {
   return S.show(a);
 }
 
@@ -59,20 +58,17 @@ console.log("show(true):", show(true));
 // ----------------------------------------------------------------------------
 
 // When outer calls inner, the Show<A> is propagated automatically
-@implicits
-function showTwice<A>(a: A, S: Show<A>): string {
+function showTwice<A>(a: A, S: Show<A> = implicit()): string {
   // show(a) gets S passed automatically - no explicit threading!
   return `${show(a)} and ${show(a)}`;
 }
 
-@implicits
-function showWrapped<A>(a: A, prefix: string, S: Show<A>): string {
+function showWrapped<A>(a: A, prefix: string, S: Show<A> = implicit()): string {
   // S propagates to show(a) automatically
   return `${prefix}: ${show(a)}`;
 }
 
-@implicits
-function showNested<A>(a: A, S: Show<A>): string {
+function showNested<A>(a: A, S: Show<A> = implicit()): string {
   // Propagation through multiple levels!
   return showWrapped(a, "Value");
 }
@@ -100,7 +96,7 @@ console.log("showTwice(42, fancyShowNumber):", showTwice(42, fancyShowNumber));
 // ----------------------------------------------------------------------------
 
 // Sometimes you have multiple parameters that look like typeclasses.
-// Use @implicits("paramName") to specify which are implicit:
+// Only the ones with = implicit() are auto-resolved:
 
 @typeclass
 interface Eq<A> {
@@ -113,12 +109,11 @@ const eqNumber: Eq<number> = {
 };
 
 // Only E is implicit, compareFn is a regular callback
-@implicits("E")
 function findFirst<A>(
   items: A[],
   target: A,
   compareFn: (a: A, b: A) => number,
-  E: Eq<A>,
+  E: Eq<A> = implicit(),
 ): A | undefined {
   for (const item of items) {
     if (E.equals(item, target)) {
@@ -152,7 +147,7 @@ console.log("eqNum.equals(1, 1):", eqNum.equals(1, 1));
 //   show(42, Show.summon<number>("number"))
 //
 // With propagation:
-//   @implicits function outer<A>(a: A, S: Show<A>) {
+//   function outer<A>(a: A, S: Show<A> = implicit()) {
 //     return show(a);  // S is captured and passed to show
 //   }
 //

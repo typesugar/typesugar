@@ -53,7 +53,7 @@ src/
 ├── macros/             # Built-in macros
 │   ├── typeclass.ts    # @typeclass, @instance, @deriving, summon(), extend()
 │   ├── specialize.ts   # specialize() — zero-cost inlining, inlineMethod()
-│   ├── implicits.ts    # @implicits — automatic instance resolution
+│   ├── implicits.ts    # implicit() — automatic instance resolution via default parameters
 │   ├── hkt.ts          # @hkt — higher-kinded type support
 │   ├── comptime.ts     # comptime() — compile-time evaluation
 │   ├── quote.ts        # quote(), quoteStatements() — quasiquoting for AST construction
@@ -68,7 +68,6 @@ src/
 │   ├── syntax-macro.ts # defineSyntaxMacro() — pattern-based macros (macro_rules! equivalent)
 │   ├── primitives.ts   # Typeclass instances for number, string, boolean, bigint, array
 │   ├── coverage.ts     # registerPrimitive(), validateCoverageOrError()
-│   ├── implicit.ts     # summonHKT(), derive(), implicit() — HKT resolution
 │   ├── include.ts      # includeStr(), includeJson() — compile-time file I/O
 │   ├── static-assert.ts# static_assert(), compileError(), compileWarning()
 │   └── module-graph.ts # collectTypes(), moduleIndex() — project introspection
@@ -365,7 +364,7 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 
 **Specialization (from implicit to explicit):**
 
-1. `@implicits` + auto-specialize — Fully automatic, user writes `sortWith(items)`, compiler fills in instances AND inlines them
+1. `= implicit()` + auto-specialize — Fully automatic, user writes `sortWith(items)`, compiler fills in instances AND inlines them
 2. `fn.specialize(dict)` — Extension method syntax for creating named specialized functions
 3. `specialize(fn, [dict])` — Legacy function wrapper (still supported)
 
@@ -388,9 +387,8 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 | `summon<TC<T>>()`     | Expression | Explicit resolution for generic code                            |
 | `fn.specialize(dict)` | Extension  | Create specialized function (preferred explicit syntax)         |
 | `specialize(fn,dict)` | Expression | Legacy explicit specialization (array syntax)                   |
-| `@implicits`          | Attribute  | Auto-fills instance params + auto-specializes at call sites     |
+| `= implicit()`        | Expression | Default parameter marker — auto-fills instance + auto-specializes |
 | `@hkt`                | Attribute  | Higher-kinded type parameter support (`F<_>` → `Kind<F, A>`)    |
-| `summonHKT<TC<F>>()`  | Expression | Resolves HKT typeclass instances                                |
 
 **Key registries:**
 
@@ -843,7 +841,7 @@ The transformer is the runtime engine that orchestrates all macro expansion duri
 2. **Decorator ordering** — respects `expandAfter` dependencies for multiple decorators on one node
 3. **Import cleanup** — removes imports of macro-only symbols after expansion
 4. **Extension method rewriting** — detects `value.method()` calls and rewrites to `TC.summon<Type>("Type").method(value, ...args)`
-5. **Implicit propagation** — `@implicits` functions propagate their scope to nested calls
+5. **Implicit resolution** — `= implicit()` parameters are resolved at compile time; resolved instances propagate to nested calls
 6. **Auto-specialization** — detects calls with typeclass instance arguments and attempts inlining
 7. **Transitive derivation** — `@deriving` builds a plan of dependent types and derives them in order
 8. **Opt-out detection** — checks for `"use no typesugar"` and `// @ts-no-typesugar` before expanding

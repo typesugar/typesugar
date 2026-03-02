@@ -27,9 +27,9 @@
    - **What:** A macro that compiles declarative list comprehensions (e.g., `[for (x of items) if (x > 0) x * 2]`) into highly optimized, single-pass `for` loops.
    - **Why:** Avoids intermediate array allocations from `.map().filter()`, fitting the zero-cost abstraction philosophy perfectly.
 
-5. **Implicit Context Passing (Scala 3 `using` style)**
-   - **What:** A system where functions can declare implicit parameters, and a macro automatically threads the current context through the call graph.
-   - **Why:** Removes the need to manually pass a context (like config or environment) everywhere or rely on runtime context providers.
+5. ~~**Implicit Context Passing (Scala 2 `implicit` style)**~~ **DONE**
+   - **What:** Functions declare implicit parameters with `= implicit()` default markers, and the transformer automatically resolves and threads typeclass instances through the call graph with propagation.
+   - **Status:** Implemented. See `packages/macros/src/implicits.ts` and `examples/implicits/basic.ts`. Future work: extend beyond typeclass instances to general context passing.
 
 6. **Keyword / Named Arguments**
    - **What:** A preprocessor feature that allows calling functions with named arguments (e.g., `fn(a=1, b=2)`).

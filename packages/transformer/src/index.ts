@@ -23,9 +23,9 @@ import {
   instanceVarName,
   registerExtensionMethods,
   tryExtractSumType,
-  getImplicitsFunction,
+  hasImplicitParams,
   transformImplicitsCall,
-  buildImplicitScope,
+  buildImplicitScopeFromDecl,
   SpecializationCache,
   createHoistedSpecialization,
   classifyInlineFailureDetailed,
@@ -42,7 +42,6 @@ import {
   registerTypeclassSyntax,
   extractOpFromReturnType,
   type ImplicitScope,
-  type ImplicitsFunctionInfo,
   type DictMethodMap,
   type DictMethod,
   type ResultAlgebra,
@@ -274,7 +273,7 @@ const NEEDS_PREPROCESS_RE = /\|>|<_>|[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/;
  * CAVEATS:
  * - The type checker was built against the original (non-preprocessed) program,
  *   so type resolution may be incomplete for preprocessed constructs. Macros
- *   that rely on the type checker (e.g. @implicits, extension methods) may
+ *   that rely on the type checker (e.g. = implicit(), extension methods) may
  *   not resolve correctly in preprocessed regions.
  * - For full type-aware transformation of files with custom syntax, use
  *   `unplugin-typesugar` or the `TransformationPipeline` which creates a
@@ -991,8 +990,8 @@ class MacroTransformer {
   >();
 
   /**
-   * Stack of implicit scopes from enclosing @implicits functions.
-   * Pushed when entering an @implicits function body, popped on exit.
+   * Stack of implicit scopes from enclosing functions with `= implicit()` params.
+   * Pushed when entering such a function body, popped on exit.
    * Inner scopes shadow outer ones.
    */
   private implicitScopeStack: ImplicitScope[] = [];
@@ -1087,16 +1086,16 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Get the current implicit scope (combined from all enclosing @implicits functions).
-   * Inner scopes shadow outer ones.
+   * Get the current implicit scope (combined from all enclosing functions
+   * with `= implicit()` params). Inner scopes shadow outer ones.
    */
   private getCurrentImplicitScope(): ImplicitScope | undefined {
     if (this.implicitScopeStack.length === 0) return undefined;
 
     const combined = new Map<string, string>();
     for (const scope of this.implicitScopeStack) {
-      for (const entry of Array.from(scope.available.entries())) {
-        combined.set(entry[0], entry[1]);
+      for (const [key, value] of scope.available) {
+        combined.set(key, value);
       }
     }
 
@@ -1104,24 +1103,29 @@ class MacroTransformer {
   }
 
   /**
-   * Visit an @implicits function, tracking its implicit params in scope
+   * Visit a function with `= implicit()` params, tracking them in scope
    * so that nested calls can use them (propagation).
    */
-  private visitImplicitsFunction(
-    node: ts.FunctionDeclaration,
-    funcInfo: ImplicitsFunctionInfo
+  private visitImplicitParamsFunction(
+    node: ts.FunctionLikeDeclaration
   ): ts.Node | ts.Node[] {
     if (this.verbose) {
+      const name = ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)
+        ? (node.name as ts.Identifier | undefined)?.text
+        : undefined;
       console.log(
-        `[typesugar] Entering @implicits function: ${funcInfo.functionName} ` +
-          `(${funcInfo.implicitParams.length} implicit params)`
+        `[typesugar] Entering function with implicit params: ${name ?? "(anonymous)"}`
       );
     }
 
-    const scope = buildImplicitScope(funcInfo, new Map());
+    const scope = buildImplicitScopeFromDecl(node);
     this.implicitScopeStack.push(scope);
 
     try {
+      // tryTransform may expand decorators or other macros on this node.
+      // The scope is already pushed, so any recursive visit() calls from
+      // within tryTransform (e.g. tryExpandAttributeMacros line 2904) will
+      // see the implicit scope on the stack — no extra re-visit needed.
       const transformed = this.tryTransform(node);
       if (transformed !== undefined) {
         return transformed;
@@ -1134,17 +1138,10 @@ class MacroTransformer {
   }
 
   /**
-   * Try to transform a call to an @implicits function.
-   * If the function has implicit params and not all are provided, fill them in.
+   * Try to transform a call whose callee has `= implicit()` default params.
    * Uses the current implicit scope for propagation.
    */
   private tryTransformImplicitsCall(node: ts.CallExpression): ts.Expression | undefined {
-    if (this.verbose && ts.isIdentifier(node.expression)) {
-      const fnInfo = getImplicitsFunction(node.expression.text);
-      console.log(
-        `[typesugar] tryTransformImplicitsCall: ${node.expression.text}, registered=${!!fnInfo}`
-      );
-    }
     const currentScope = this.getCurrentImplicitScope();
     const result = transformImplicitsCall(this.ctx, node, currentScope);
     if (result) {
@@ -1680,12 +1677,14 @@ class MacroTransformer {
       return this.visitStatementContainer(node);
     }
 
-    // Handle @implicits function scope tracking for propagation
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      const funcInfo = getImplicitsFunction(node.name.text, this.ctx.sourceFile.fileName);
-      if (funcInfo && funcInfo.implicitParams.length > 0) {
-        return this.visitImplicitsFunction(node, funcInfo);
-      }
+    // Handle = implicit() function scope tracking for propagation
+    if (
+      (ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) ||
+       ts.isFunctionExpression(node) || ts.isMethodDeclaration(node) ||
+       ts.isConstructorDeclaration(node)) &&
+      hasImplicitParams(node)
+    ) {
+      return this.visitImplicitParamsFunction(node);
     }
 
     const transformed = this.tryTransform(node);
@@ -2701,7 +2700,7 @@ class MacroTransformer {
     // TypeScript's parser creates decorator nodes on interfaces, type aliases,
     // and function declarations for error recovery, but ts.canHaveDecorators()
     // returns false for them. We need to detect these to support @derive() on
-    // interfaces/type aliases and @implicits on function declarations.
+    // interfaces/type aliases and = implicit() parameter detection.
     if (
       ts.isInterfaceDeclaration(node) ||
       ts.isTypeAliasDeclaration(node) ||

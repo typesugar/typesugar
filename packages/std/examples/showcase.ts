@@ -781,21 +781,22 @@ typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, stri
 //   assert(eqNumInst?.instanceName === "eqNumber");
 
 // ============================================================================
-// 15. @IMPLICITS — Auto-Resolution of Typeclass Instances
+// 15. = implicit() — Auto-Resolution of Typeclass Instances
 // ============================================================================
 
-// The @implicits decorator enables automatic resolution of typeclass instances.
-// When a function has implicit parameters (Eq<A>, Ord<A>, Numeric<A>, etc.),
-// @implicits fills them in at call sites based on type inference.
+// The `= implicit()` default parameter pattern enables automatic resolution of
+// typeclass instances. When a function has implicit parameters (Eq<A>, Ord<A>,
+// Numeric<A>, etc.), the transformer fills them in at call sites based on type
+// inference.
 //
-// NOTE: These examples show the DESIGN of @implicits. The actual transformation
+// NOTE: These examples show the DESIGN of = implicit(). The actual transformation
 // happens at compile time when the typesugar transformer is active.
 
 // --------------------------------------------------------------------------
-// 15.1 Manual Dictionary-Passing (Without @implicits)
+// 15.1 Manual Dictionary-Passing (Without = implicit())
 // --------------------------------------------------------------------------
 
-// Without @implicits, you pass instances explicitly:
+// Without = implicit(), you pass instances explicitly:
 function sortWithManual<A>(xs: A[], O: Ord<A>): A[] {
   return [...xs].sort((a, b) => O.compare(a, b));
 }
@@ -806,14 +807,13 @@ assert(sortedManual[0] === 1);
 assert(sortedManual[4] === 5);
 
 // --------------------------------------------------------------------------
-// 15.2 With @implicits (Design Pattern)
+// 15.2 With = implicit() (Design Pattern)
 // --------------------------------------------------------------------------
 
-// With @implicits, the transformer resolves instances automatically:
+// With = implicit(), the transformer resolves instances automatically:
 //
-// @implicits
-// function sortWith<A>(xs: A[], O?: Ord<A>): A[] {
-//   return [...xs].sort((a, b) => O!.compare(a, b));
+// function sortWith<A>(xs: A[], O: Ord<A> = implicit()): A[] {
+//   return [...xs].sort((a, b) => O.compare(a, b));
 // }
 //
 // // At call site:
@@ -829,11 +829,11 @@ assert(sortedManual[4] === 5);
 //
 // This is the "progressive disclosure" model:
 // 1. Operators/methods just work (fully implicit)
-// 2. @implicits for generic functions (auto-filled at call site)
+// 2. = implicit() for generic functions (auto-filled at call site)
 // 3. fn.specialize(dict) for explicit named specializations
 
 // --------------------------------------------------------------------------
-// 15.3 Generic Operations Using @implicits Pattern
+// 15.3 Generic Operations Using = implicit() Pattern
 // --------------------------------------------------------------------------
 
 // Generic min using Ord:
@@ -998,8 +998,8 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 //    - registerStdInstances() macro registers all std instances
 //    - Enables summon<Eq<number>>(), findInstance("Eq", "number"), etc.
 //
-// 3. **@implicits Pattern** (Section 15)
-//    - Generic functions with optional typeclass params
+// 3. **= implicit() Pattern** (Section 15)
+//    - Generic functions with = implicit() default typeclass params
 //    - Transformer fills in instances at call sites
 //
 // 4. **Sum Type Derivation** (Section 16)

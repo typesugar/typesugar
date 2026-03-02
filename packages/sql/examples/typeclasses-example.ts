@@ -426,8 +426,7 @@ console.log("Meta.summon('number'):", numberMeta ? "Found!" : "Not found");
  * - Library code can be written generically:
  *
  *   ```typescript
- *   @implicits
- *   function insert<T>(table: string, value: T, W: Write<T>): Update {
+ *   function insert<T>(table: string, value: T, W: Write<T> = implicit()): Update {
  *     // W is resolved via Write.summon at compile time
  *   }
  *   ```

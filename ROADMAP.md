@@ -376,9 +376,9 @@ The `grammar` tagged template already parses and produces runtime combinators. P
 
 **Difficulty: 4 · Impact: 5**
 
-Functions declare implicit parameters, and a macro auto-threads context through call graphs. Powerful but dangerous — easy to create spooky action at a distance. Needs careful design to avoid becoming the new `any`.
+Extends the `= implicit()` pattern beyond typeclass instances to general context passing (Scala 3 `using`). Functions declare `= implicit()` parameters for context like loggers, config, auth, and the compiler auto-threads them through the call graph. Powerful but dangerous — easy to create spooky action at a distance. Needs careful design to avoid becoming the new `any`.
 
-- [ ] `using` parameter annotation
+- [ ] Extend `= implicit()` resolution beyond typeclasses to general context types
 - [ ] Automatic context threading through call graph
 - [ ] Compile error when context is missing (not silently `undefined`)
 - [ ] Scope boundaries: where does implicit resolution stop?

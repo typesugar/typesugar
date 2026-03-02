@@ -27,7 +27,7 @@ import {
   deriving,
   summon,
   extend,
-  implicits,
+  implicit,
   type TypeclassInfo,
   // type InstanceInfo — not used in showcase, available for instance introspection
   findExtensionMethod,
@@ -407,23 +407,21 @@ const specializedResult = sortNumbers([5, 3, 7]);
 assert(specializedResult[0] === 3);
 
 // ============================================================================
-// 13. IMPLICIT PARAMETERS — @implicits auto-fill
+// 13. IMPLICIT PARAMETERS — = implicit() auto-fill
 // ============================================================================
 
-// The @implicits decorator marks functions as having implicit typeclass
-// parameters. At call sites, the transformer automatically fills in missing
-// typeclass instance arguments — like Scala 3's `using` clauses.
+// The `= implicit()` default parameter pattern marks function parameters as
+// implicit typeclass instances. At call sites, the transformer automatically
+// fills in missing typeclass instance arguments — like Scala 3's `using` clauses.
 //
 // This provides the convenience of auto-resolution while keeping the
 // function signature explicit for tooling and documentation.
 
-@implicits
-function showItem<A>(item: A, S: Show<A>): string {
+function showItem<A>(item: A, S: Show<A> = implicit()): string {
   return S.show(item);
 }
 
-@implicits
-function compareItems<A>(a: A, b: A, O: Ord<A>): -1 | 0 | 1 {
+function compareItems<A>(a: A, b: A, O: Ord<A> = implicit()): -1 | 0 | 1 {
   return O.compare(a, b);
 }
 
@@ -438,9 +436,8 @@ assert(cmp === -1);
 const customShown = showItem("hello", stringShow);
 assert(customShown === '"hello"');
 
-// @implicits with multiple instances
-@implicits
-function showSorted<A>(items: A[], O: Ord<A>, S: Show<A>): string {
+// = implicit() with multiple instances
+function showSorted<A>(items: A[], O: Ord<A> = implicit(), S: Show<A> = implicit()): string {
   const sortedItems = [...items].sort((a, b) => O.compare(a, b));
   return sortedItems.map((item) => S.show(item)).join(", ");
 }
@@ -449,16 +446,15 @@ const sortedDisplay = showSorted([3, 1, 2]);
 assert(sortedDisplay === "1, 2, 3");
 
 // ============================================================================
-// 14. IMPLICIT PROPAGATION — nested @implicits calls
+// 14. IMPLICIT PROPAGATION — nested = implicit() calls
 // ============================================================================
 
-// When inside an @implicits function, resolved instances automatically
-// propagate to nested @implicits calls. This enables implicit chaining
-// without manual threading.
+// When inside a function with = implicit() parameters, resolved instances
+// automatically propagate to nested calls that also use = implicit().
+// This enables implicit chaining without manual threading.
 
-@implicits
-function outer<A>(item: A, S: Show<A>): string {
-  // showItem is also @implicits — S is automatically passed!
+function outer<A>(item: A, S: Show<A> = implicit()): string {
+  // showItem also uses = implicit() — S is automatically passed!
   return `Outer: ${showItem(item)}`;
 }
 

@@ -34,7 +34,6 @@ npx typesugar --explain TS9001
 - [TS9006](./TS9006.md) - Instance already exists (warning)
 - [TS9007](./TS9007.md) - Typeclass not found
 - [TS9008](./TS9008.md) - Invalid extends clause
-- [TS9009](./TS9009.md) - @implicits found no implicit parameters (warning)
 
 ### Import Suggestions (TS9060-TS9069)
 

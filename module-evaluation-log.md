@@ -269,10 +269,10 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/specialize
 
-**Usefulness**: 3/5 - Valuable for FP codebases but niche. Most projects won't need explicit specialization when @implicits handles it automatically.
+**Usefulness**: 3/5 - Valuable for FP codebases but niche. Most projects won't need explicit specialization when `= implicit()` handles it automatically.
 **Completeness**: 2/5 - Package re-exports from @typesugar/macros. Real inlining logic in packages/macros/src/specialize.ts. **Export gap**: `specialize$` macro exists but runtime stub not exported — imports would fail.
 **Documentation**: 3/5 - README well-structured but has issues: (1) `specialize$` not exported so examples fail, (2) signature mismatch — README shows `specialize$(call)` but macro takes `specialize$(dict, expr)`.
-**Coherence**: 3/5 - Uses correct patterns but doesn't deliver on "zero-cost" promise. @implicits is preferred path per AGENTS.md.
+**Coherence**: 3/5 - Uses correct patterns but doesn't deliver on "zero-cost" promise. `= implicit()` is preferred path per AGENTS.md.
 **Summary**: Export and signature issues discovered. `specialize$` macro exists but can't be imported. Documentation shows wrong signature.
 
 **Update (2026-02-28):** New issues found — `specialize$` runtime stub missing from exports, signature mismatch between docs and implementation.

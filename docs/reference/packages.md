@@ -272,7 +272,7 @@ deriving();   // decorator
 summon<T>();
 summonAll<...>();
 extend();
-implicits();  // decorator
+implicit();   // default parameter marker
 ```
 
 **Inspired by:** Scala 3 typeclasses, Haskell typeclasses

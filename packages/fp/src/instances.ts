@@ -758,29 +758,28 @@ export function registerFpFlatMapInstances(
 }
 
 // ============================================================================
-// @implicits Examples
+// = implicit() Examples
 // ============================================================================
-// These functions demonstrate patterns designed for use with the @implicits
-// decorator. When @implicits is applied, the transformer auto-fills typeclass
-// parameters at call sites based on the types involved.
+// These functions demonstrate patterns designed for use with the = implicit()
+// default parameter pattern. When = implicit() is used, the transformer
+// auto-fills typeclass parameters at call sites based on the types involved.
 
 /**
  * Traverse an array with an effect-producing function.
  *
- * This is the canonical @implicits example: when decorated with @implicits,
- * the G (Applicative) parameter is auto-filled based on the return type of f.
+ * This is the canonical = implicit() example: with = implicit() on the
+ * G (Applicative) parameter, it is auto-filled based on the return type of f.
  *
  * @example
- * Without @implicits:
+ * Without = implicit():
  * ```ts
  * // Must pass Applicative explicitly
  * const result = traverseArray(optionApplicative)([1, 2, 3], n => Some(n * 2));
  * ```
  *
- * With @implicits (when transformer is active):
+ * With = implicit() (when transformer is active):
  * ```ts
- * @implicits
- * function traverseArray<G, A, B>(xs: A[], f: (a: A) => $<G, B>, G: Applicative<G>): $<G, B[]>
+ * function traverseArray<G, A, B>(xs: A[], f: (a: A) => $<G, B>, G: Applicative<G> = implicit()): $<G, B[]>
  *
  * // G is auto-filled from return type of f
  * const result = traverseArray([1, 2, 3], n => Some(n * 2));
@@ -797,16 +796,15 @@ export function traverseArray<G>(G: Applicative<G>) {
  * Sequence an array of effects into an effect of array.
  *
  * @example
- * Without @implicits:
+ * Without = implicit():
  * ```ts
  * const result = sequenceArray(optionApplicative)([Some(1), Some(2), Some(3)]);
  * // → Some([1, 2, 3])
  * ```
  *
- * With @implicits:
+ * With = implicit():
  * ```ts
- * @implicits
- * function sequenceArray<G, A>(xs: $<G, A>[], G: Applicative<G>): $<G, A[]>
+ * function sequenceArray<G, A>(xs: $<G, A>[], G: Applicative<G> = implicit()): $<G, A[]>
  *
  * const result = sequenceArray([Some(1), Some(2), Some(3)]);
  * // Transforms to: sequenceArray([Some(1), Some(2), Some(3)], optionApplicative)
@@ -820,10 +818,9 @@ export function sequenceArray<G>(G: Applicative<G>) {
  * Map over a value in a Functor context.
  *
  * @example
- * With @implicits:
+ * With = implicit():
  * ```ts
- * @implicits
- * function fmap<F, A, B>(fa: $<F, A>, f: (a: A) => B, F: Functor<F>): $<F, B>
+ * function fmap<F, A, B>(fa: $<F, A>, f: (a: A) => B, F: Functor<F> = implicit()): $<F, B>
  *
  * const result = fmap(Some(1), n => n * 2);
  * // Transforms to: fmap(Some(1), n => n * 2, optionFunctor) → 2
@@ -837,10 +834,9 @@ export function fmap<F>(F: Functor<F>) {
  * FlatMap (bind) over a value in a Monad context.
  *
  * @example
- * With @implicits:
+ * With = implicit():
  * ```ts
- * @implicits
- * function bind<F, A, B>(fa: $<F, A>, f: (a: A) => $<F, B>, F: Monad<F>): $<F, B>
+ * function bind<F, A, B>(fa: $<F, A>, f: (a: A) => $<F, B>, F: Monad<F> = implicit()): $<F, B>
  *
  * const result = bind(Some(1), n => n > 0 ? Some(n * 2) : None);
  * // Transforms to: bind(Some(1), f, optionMonad) → 2
@@ -854,10 +850,9 @@ export function bind<F>(F: Monad<F>) {
  * Apply a function in a context to a value in a context.
  *
  * @example
- * With @implicits:
+ * With = implicit():
  * ```ts
- * @implicits
- * function ap<F, A, B>(ff: $<F, (a: A) => B>, fa: $<F, A>, F: Applicative<F>): $<F, B>
+ * function ap<F, A, B>(ff: $<F, (a: A) => B>, fa: $<F, A>, F: Applicative<F> = implicit()): $<F, B>
  *
  * const add = (a: number) => (b: number) => a + b;
  * const result = ap(Some(add(1)), Some(2));
@@ -872,10 +867,9 @@ export function applyF<F>(F: Applicative<F>) {
  * Fold a Foldable structure to a single value.
  *
  * @example
- * With @implicits:
+ * With = implicit():
  * ```ts
- * @implicits
- * function foldL<F, A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B, F: Foldable<F>): B
+ * function foldL<F, A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B, F: Foldable<F> = implicit()): B
  *
  * const result = foldL(Some(5), 0, (acc, n) => acc + n);
  * // Transforms to: foldL(Some(5), 0, f, optionFoldable) → 5

@@ -128,7 +128,7 @@ visit(node)
   └─ tryTransform(node)
        ├─ CallExpression → (checked in this order)
        │    ├─ tryExpandExpressionMacro()     — macro name match
-       │    ├─ tryTransformImplicitsCall()     — @implicits propagation
+       │    ├─ tryTransformImplicitCall()       — = implicit() resolution
        │    ├─ tryRewriteExtensionMethod()     — value.method() rewriting
        │    └─ tryAutoSpecialize()             — dictionary inlining
        ├─ ClassDeclaration / FunctionDeclaration / etc.
@@ -141,7 +141,7 @@ visit(node)
             └─ visitStatementContainer()       — labeled block macros
 ```
 
-For `CallExpression` nodes, the order of checks matters: expression macros are checked first, then implicit parameter resolution, then extension methods, then auto-specialization.
+For `CallExpression` nodes, the order of checks matters: expression macros are checked first, then `= implicit()` parameter resolution, then extension methods, then auto-specialization.
 
 ### Key Methods
 
@@ -172,9 +172,9 @@ Import-scoped resolution tracks the `module` and `exportName` fields on `MacroDe
 
 After expansion, the transformer removes import specifiers that resolved to macros (they have no runtime representation). This prevents "module not found" errors for macro-only imports.
 
-### Implicit Parameter Propagation
+### Implicit Parameter Resolution
 
-Functions marked with `@implicits` propagate their typeclass instance parameters to nested calls. The transformer maintains an `implicitScopeStack` to track which parameters are in scope.
+Parameters marked with `= implicit()` are resolved at compile time. The transformer detects `implicit()` default parameter markers and replaces them with the resolved typeclass instances. Resolved instances propagate to nested calls via an `implicitScopeStack`.
 
 ---
 

@@ -412,28 +412,6 @@ Incorrect:
   seeAlso: "https://typesugar.dev/errors/TS9008",
 };
 
-export const TS9009: DiagnosticDescriptor = {
-  code: 9009,
-  severity: "warning",
-  category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate: "@implicits on '{function}' found no implicit parameters",
-  explanation: `The @implicits decorator was applied to a function that has no parameters
-matching the implicit parameter pattern.
-
-Implicit parameters must be:
-- Typed as Typeclass<T> where Typeclass is a registered typeclass
-- T is a type parameter of the function
-
-Example:
-  @implicits
-  function show<A>(a: A, S: Show<A>): string { ... }
-                         ^^^^^^^^
-                         This is an implicit parameter
-
-If no parameters match this pattern, the decorator has no effect.`,
-  seeAlso: "https://typesugar.dev/errors/TS9009",
-};
-
 // Coherence Checking (9050-9059)
 
 export const TS9050: DiagnosticDescriptor = {
@@ -1201,7 +1179,6 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9006, TS9006],
   [9007, TS9007],
   [9008, TS9008],
-  [9009, TS9009],
 
   // Coherence Checking (9050-9059)
   [9050, TS9050],

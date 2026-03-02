@@ -10,7 +10,7 @@ pnpm add @typesugar/collections
 
 ## Quick Start
 
-`HashSet` and `HashMap` use `Eq<K>` + `Hash<K>` for key identity. The compiler auto-derives these from your type's fields and fills them in implicitly — you just write the code you'd expect:
+`HashSet` and `HashMap` use `Eq<K>` + `Hash<K>` for key identity. The compiler auto-derives these from your type's fields and fills them via `= implicit()` parameters — you just write the code you'd expect:
 
 ```typescript
 import { HashSet, union, intersection, type Eq, type Hash } from "@typesugar/collections";
@@ -57,7 +57,7 @@ IterableOnce<I, A>
 
 ## HashSet and HashMap
 
-Native `Set`/`Map` use reference equality for objects — `HashSet`/`HashMap` use structural equality via the `Eq` and `Hash` typeclasses. The compiler resolves these implicitly, so usage looks like native collections:
+Native `Set`/`Map` use reference equality for objects — `HashSet`/`HashMap` use structural equality via the `Eq` and `Hash` typeclasses. The compiler resolves `= implicit()` parameters automatically, so usage looks like native collections:
 
 ```typescript
 import { HashSet, HashMap, type Eq, type Hash } from "@typesugar/collections";
@@ -121,7 +121,7 @@ Instance factories: `arraySeqOf<A>()`, `nativeMutableSetLike<K>()`, `nativeMutab
 
 ## Derived Operations
 
-Free functions built on the typeclass interfaces. Typeclass instance parameters are resolved implicitly by the compiler.
+Free functions built on the typeclass interfaces. Typeclass instance parameters use `= implicit()` and are resolved automatically by the compiler.
 
 | Operation       | From         | What you write         |
 | --------------- | ------------ | ---------------------- |
@@ -164,8 +164,7 @@ For generic code where `K` isn't concrete yet, `mutableSetFor` and `mutableMapFo
 ```typescript
 import { mutableSetFor, type Eq, type Hash } from "@typesugar/collections";
 
-@implicits
-function dedup<K>(items: K[], eq: Eq<K>, hash: Hash<K>): K[] {
+function dedup<K>(items: K[], eq: Eq<K> = implicit(), hash: Hash<K> = implicit()): K[] {
   const setInstance = mutableSetFor(eq, hash);
   const seen = setInstance.create();
   return items.filter((k) => {

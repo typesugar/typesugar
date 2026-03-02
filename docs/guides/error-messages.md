@@ -278,8 +278,7 @@ Resolution traces appear in error messages from:
 | Source               | When traces appear                                             |
 | -------------------- | -------------------------------------------------------------- |
 | `summon<TC<T>>()`    | No explicit or auto-derived instance found                     |
-| `@implicits`         | Implicit parameter resolution failed                           |
-| `summonHKT<TC<F>>()` | HKT instance not registered                                    |
+| `= implicit()`       | Implicit parameter resolution failed                           |
 | Operator rewriting   | No typeclass with `Op<"+">` found (verbose mode only)          |
 | Extension methods    | No typeclass or standalone extension found (verbose mode only) |
 

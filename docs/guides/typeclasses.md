@@ -68,22 +68,26 @@ print(42); // "42"
 print("hello"); // "\"hello\""
 ```
 
-### With @implicits
+### With `= implicit()`
 
-The `@implicits` decorator auto-fills typeclass parameters:
+Mark typeclass parameters with `= implicit()` to have them auto-filled:
 
 ```typescript
-import { implicits } from "@typesugar/typeclass";
+import { implicit } from "@typesugar/typeclass";
 
-@implicits
-function print<A>(value: A, S: Show<A>): void {
+function print<A>(value: A, S: Show<A> = implicit()): void {
   console.log(S.show(value));
 }
 
 // S is filled automatically
 print(42);      // "42"
 print("hello"); // "\"hello\""
+
+// Or pass explicitly to override
+print(42, customShow);
 ```
+
+`= implicit()` is a default parameter marker — you can see from the signature which params are implicit, and override any of them by passing an argument explicitly. It's valid TypeScript even without the transformer (it just throws at runtime).
 
 ## Deriving Instances
 
@@ -236,7 +240,7 @@ interface Functor<F> {
 typesugar supports HKTs for typeclasses over type constructors using phantom kind markers:
 
 ```typescript
-import { Kind, type TypeFunction, summonHKT } from "@typesugar/type-system";
+import { Kind, type TypeFunction } from "@typesugar/type-system";
 
 interface ArrayF extends TypeFunction {
   _: Array<this["__kind__"]>;
@@ -247,7 +251,7 @@ const FunctorArray: Functor<ArrayF> = {
   map: (fa, f) => fa.map(f),
 };
 
-summonHKT<Functor<ArrayF>>().map([1, 2, 3], x => x * 2);
+summon<Functor<ArrayF>>().map([1, 2, 3], x => x * 2);
 // [2, 4, 6]
 ```
 
@@ -288,7 +292,7 @@ const ShowNumber2: Show<number> = {
 ### Do
 
 - Define typeclasses in shared packages
-- Use `@implicits` for cleaner call sites
+- Use `= implicit()` for cleaner call sites
 - Use `specialize()` for hot paths
 - Derive instances where possible
 

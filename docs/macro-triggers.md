@@ -17,6 +17,7 @@ The transformer recognizes several distinct trigger patterns:
 | HKT Syntax          | `TypeParameter`            | `F<_>`                  | Auto-detected                 |
 | Extension Method    | `CallExpression`           | `x.show()`              | Auto via `@instance`          |
 | Operator Overload   | `BinaryExpression`         | `a + b`                 | Via `& Op<"+">`               |
+| Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker       |
 | Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`    | Auto via `@instance`          |
 
 ---
@@ -385,7 +386,7 @@ When the transformer sees a call where an argument resolves to a registered inst
 The transformer processes each node in a single pass, checking for macro triggers in this order:
 
 1. **Statement containers** (SourceFile, Block) → scan for labeled block macros first
-2. **CallExpression** → expression macro → @implicits → extension method → auto-specialize
+2. **CallExpression** → expression macro → `= implicit()` resolution → extension method → auto-specialize
 3. **TaggedTemplateExpression** → tagged template macro
 4. **TypeReferenceNode** → type macro
 5. **Decorated declarations** → attribute macros → derive macros

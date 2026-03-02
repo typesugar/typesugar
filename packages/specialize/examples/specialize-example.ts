@@ -152,7 +152,7 @@ console.log("\n--- Summary ---");
 console.log("Three ways to specialize:");
 console.log("  1. fn.specialize(dict)     — Extension method (preferred)");
 console.log("  2. specialize(fn, [dict])  — Legacy function wrapper");
-console.log("  3. @implicits + auto-spec  — Fully automatic (best for most cases)");
+console.log("  3. = implicit() + auto-spec — Fully automatic (best for most cases)");
 console.log("\nAll produce zero-cost code:");
 console.log("  - No runtime dictionary lookup");
 console.log("  - Instance methods inlined at call sites");

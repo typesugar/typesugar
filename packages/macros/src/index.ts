@@ -12,8 +12,7 @@ import "./operators.js";
 import "./reflect.js";
 import "./typeclass.js";
 import "./specialize.js";
-import "./implicit.js";
-import "./implicits.js"; // @implicits decorator with automatic propagation
+import "./implicits.js"; // = implicit() parameter resolution + summonAll
 import "./coverage.js"; // Coverage checking - must load before primitives
 import "./primitives.js"; // Primitive typeclass instances for derivation
 import "./generic.js"; // Generic programming (Product/Sum) for structural derivation
@@ -161,29 +160,16 @@ export {
   type FlattenAnalysis,
   type SpecializeOptions,
 } from "./specialize.js";
+// --- Implicit parameter resolution (= implicit() default pattern) ---
 export {
-  summonHKTMacro,
-  deriveMacro as deriveHKTMacro,
-  deriveMacro,
-  implicitMacro,
-  registerInstance as registerHKTInstance,
-  registerInstance,
-  lookupInstance as lookupHKTInstance,
-  lookupInstance,
-} from "./implicit.js";
-
-// --- @implicits decorator with automatic propagation ---
-export {
-  implicitsAttribute,
   summonAllMacro,
   resolveImplicit,
-  registerImplicitsFunction,
-  getImplicitsFunction,
+  isImplicitDefault,
+  hasImplicitParams,
+  getImplicitParamIndices,
+  buildImplicitScopeFromDecl,
   transformImplicitsCall,
-  buildImplicitScope,
-  implicitsFunctions,
-  type ImplicitParamInfo,
-  type ImplicitsFunctionInfo,
+  isRegisteredTypeclass,
   type ImplicitScope,
 } from "./implicits.js";
 
@@ -362,7 +348,7 @@ export {
 } from "./extension.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
-// HKT enables typeclasses parameterized by type constructors (F[_]).
+// HKT enables typeclasses parameterized by type constructors (F<_>).
 // Use @instance("Monad<Option>") for HKT typeclass instances.
 
 // From typeclass.ts - canonical HKT registration
@@ -404,8 +390,8 @@ export {
   // Extension registration stubs
   registerExtensions,
   registerExtension,
-  // Implicits stub
-  implicits,
+  // Implicit parameter resolution stub
+  implicit,
   // Comptime stub
   comptime,
   // Derive stub

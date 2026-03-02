@@ -1,63 +1,45 @@
 /**
- * Implicit Parameters - @implicits
+ * Implicit Parameters — `= implicit()` default parameter pattern
  *
- * Provides automatic typeclass instance resolution at call sites with
- * automatic propagation through nested calls.
+ * Provides automatic typeclass instance resolution at call sites.
+ * Functions declare implicit parameters using `= implicit()` as a default value.
+ * The transformer detects these at call sites by inspecting the callee's
+ * declaration through TypeScript's type checker, then fills in the missing
+ * arguments with resolved instances.
  *
- * ## Overview
- *
- * - `@instance` - (from typeclass.ts) Registers a typeclass instance
- * - `@implicits` - Marks a function as having implicit parameters
+ * No decorator. No global function registry. The type checker does the work.
  *
  * ## Example
  *
  * ```typescript
- * // Register typeclass instances with @instance
- * @instance
- * const showNumber: Show<number> = {
- *   show: (a) => String(a),
- * };
- *
- * // Mark function as having implicit parameters
- * @implicits
- * function show<A>(a: A, S: Show<A>): string {
+ * // Declare a function with implicit parameters:
+ * function show<A>(a: A, S: Show<A> = implicit()): string {
  *   return S.show(a);
  * }
  *
- * // Call site - implicit param is filled in automatically!
+ * // Call site — implicit param is filled in automatically:
  * show(42);
  * // Expands to: show(42, Show.summon<number>("number"))
- * ```
  *
- * ## Auto-Detection
- *
- * By default, `@implicits` auto-detects parameters that:
- * - Are typed as `TypeclassName<T>` where `TypeclassName` is a registered typeclass
- * - `T` is a type parameter of the function
- *
- * For disambiguation, you can specify parameter names explicitly:
- * ```typescript
- * @implicits("E")  // Only E is implicit, not the callback f
- * function foo<A>(a: A, f: (x: A) => A, E: Eq<A>): A { ... }
+ * // Explicit override still works:
+ * show(42, customShow);
  * ```
  *
  * ## Automatic Propagation
  *
- * When inside an `@implicits` function, resolved instances are automatically
- * passed to nested `@implicits` calls:
+ * When inside a function with `= implicit()` params, those params become
+ * available to nested calls (enclosing scope propagation):
  *
  * ```typescript
- * @implicits
- * function outer<A>(a: A, S: Show<A>): void {
- *   inner(a);  // S is automatically passed to inner!
+ * function outer<A>(a: A, S: Show<A> = implicit()): void {
+ *   inner(a);  // S is automatically propagated to inner!
  * }
  *
- * @implicits
- * function inner<A>(a: A, S: Show<A>): void {
+ * function inner<A>(a: A, S: Show<A> = implicit()): void {
  *   console.log(S.show(a));
  * }
  *
- * // With custom instance - flows through!
+ * // With custom instance — flows through:
  * outer(42, customShow);
  * // → inner gets customShow, not the global instance
  * ```
@@ -66,7 +48,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
 import {
@@ -80,89 +62,98 @@ import {
 // Types
 // ============================================================================
 
-interface ImplicitParamInfo {
-  /** Parameter index in the function signature */
-  paramIndex: number;
-  /** Parameter name */
-  paramName: string;
-  /** Typeclass name (e.g., "Show") */
-  typeclassName: string;
-  /** Type parameter name (e.g., "A" in Show<A>) */
-  typeParamName: string;
-  /** Full type string */
-  typeString: string;
-}
-
-interface ImplicitsFunctionInfo {
-  /** Function name */
-  functionName: string;
-  /** Source file */
-  sourceFile: string;
-  /** Implicit parameters */
-  implicitParams: ImplicitParamInfo[];
-  /** Total parameter count */
-  totalParams: number;
-  /** Type parameters of the function */
-  typeParams: string[];
-  /** Explicitly specified param names (if any) */
-  explicitParamNames?: string[];
-}
-
-/** Registry of functions marked with @implicits */
-const implicitsFunctions = new Map<string, ImplicitsFunctionInfo>();
-
 /**
- * Implicit scope - tracks which implicit instances are available
- * at the current point in the code (for propagation).
+ * Implicit scope — tracks which implicit instances are available
+ * at the current point in the code (for propagation through nested calls).
  */
-interface ImplicitScope {
-  /** Map of typeclass+type -> variable name providing it */
+export interface ImplicitScope {
+  /** Map of "Typeclass<ConcreteType>" → variable name providing it */
   available: Map<string, string>;
 }
 
 // ============================================================================
-// Registry Functions
+// Detection Helpers
 // ============================================================================
 
 /**
- * Register a function that has implicit parameters
+ * Check if an initializer expression is a call to `implicit()`.
  */
-export function registerImplicitsFunction(info: ImplicitsFunctionInfo): void {
-  const key = `${info.sourceFile}::${info.functionName}`;
-  implicitsFunctions.set(key, info);
+export function isImplicitDefault(init: ts.Expression | undefined): boolean {
+  if (!init || !ts.isCallExpression(init)) return false;
+  const expr = init.expression;
+  return ts.isIdentifier(expr) && expr.text === "implicit";
 }
 
 /**
- * Get function info if it has @implicits decorator
+ * Check if a function-like declaration has any `= implicit()` parameters.
  */
-export function getImplicitsFunction(
-  functionName: string,
-  sourceFile?: string
-): ImplicitsFunctionInfo | undefined {
-  if (sourceFile) {
-    const key = `${sourceFile}::${functionName}`;
-    const result = implicitsFunctions.get(key);
-    if (result) return result;
-  }
+export function hasImplicitParams(decl: ts.SignatureDeclaration): boolean {
+  return decl.parameters.some((p) => isImplicitDefault(p.initializer));
+}
 
-  for (const info of Array.from(implicitsFunctions.values())) {
-    if (info.functionName === functionName) {
-      return info;
+/**
+ * Return the indices of parameters with `= implicit()` defaults.
+ */
+export function getImplicitParamIndices(decl: ts.SignatureDeclaration): number[] {
+  const indices: number[] = [];
+  for (let i = 0; i < decl.parameters.length; i++) {
+    if (isImplicitDefault(decl.parameters[i].initializer)) {
+      indices.push(i);
     }
   }
-
-  return undefined;
+  return indices;
 }
 
+// ============================================================================
+// Scope Building
+// ============================================================================
+
 /**
- * Check if a type name is a registered typeclass
+ * Build an ImplicitScope from a function's `= implicit()` parameters.
+ *
+ * Used for propagation: when inside a function with implicit params,
+ * those params become available to nested calls so that caller-provided
+ * instances flow through without re-resolution.
+ */
+export function buildImplicitScopeFromDecl(
+  decl: ts.SignatureDeclaration
+): ImplicitScope {
+  const available = new Map<string, string>();
+
+  for (const param of decl.parameters) {
+    if (!isImplicitDefault(param.initializer)) continue;
+    if (!param.type || !ts.isTypeReferenceNode(param.type)) continue;
+
+    const typeName = param.type.typeName;
+    if (!ts.isIdentifier(typeName)) continue;
+
+    const typeclassName = typeName.text;
+    const paramName = ts.isIdentifier(param.name) ? param.name.text : "";
+
+    const typeArgs = param.type.typeArguments;
+    if (!typeArgs || typeArgs.length === 0) continue;
+
+    const typeArgText = typeArgs[0].getText();
+    const key = `${typeclassName}<${typeArgText}>`;
+    available.set(key, paramName);
+  }
+
+  return { available };
+}
+
+// ============================================================================
+// Instance Resolution
+// ============================================================================
+
+/**
+ * Check if a type name is a registered typeclass.
  */
 export function isRegisteredTypeclass(name: string): boolean {
   return typeclassRegistry.has(name);
 }
 
 /**
- * Resolve an implicit instance from the registry
+ * Resolve an implicit instance from the registry.
  */
 export function resolveImplicit(
   typeclassName: string,
@@ -181,266 +172,230 @@ export function resolveImplicit(
 }
 
 // ============================================================================
-// @implicits - Function Decorator
+// AST Helpers
 // ============================================================================
 
-export const implicitsAttribute = defineAttributeMacro({
-  name: "implicits",
-  // No module constraint - @implicits is used as a bare decorator without importing
-  description: "Mark a function as having implicit parameters that are auto-resolved",
-  validTargets: ["function"],
+const TS_KEYWORD_TYPES = new Set([
+  "number", "string", "boolean", "bigint", "symbol",
+  "undefined", "null", "void", "never", "any", "unknown", "object",
+]);
 
-  expand(
-    ctx: MacroContext,
-    decorator: ts.Decorator,
-    target: ts.Declaration,
-    args: readonly ts.Expression[]
-  ): ts.Node | ts.Node[] {
-    if (!ts.isFunctionDeclaration(target) || !target.name) {
-      ctx.reportError(decorator, "@implicits can only be applied to named function declarations");
-      return target;
+/**
+ * Create a TypeNode from a type name string, handling complex forms that
+ * `factory.createTypeReferenceNode(name)` would mangle (e.g. `string[]`,
+ * `Map<string, number>`).
+ */
+function createTypeRefSafe(
+  factory: ts.NodeFactory,
+  typeName: string
+): ts.TypeNode {
+  if (typeName.endsWith("[]")) {
+    const elementType = typeName.slice(0, -2);
+    return factory.createTypeReferenceNode("Array", [
+      createTypeRefSafe(factory, elementType),
+    ]);
+  }
+
+  const ltIdx = typeName.indexOf("<");
+  if (ltIdx !== -1) {
+    const baseName = typeName.slice(0, ltIdx);
+    const innerRaw = typeName.slice(ltIdx + 1, typeName.lastIndexOf(">"));
+    const innerArgs = splitTopLevelTypeArgs(innerRaw);
+    return factory.createTypeReferenceNode(
+      baseName,
+      innerArgs.map((a) => createTypeRefSafe(factory, a.trim()))
+    );
+  }
+
+  if (TS_KEYWORD_TYPES.has(typeName)) {
+    return factory.createKeywordTypeNode(keywordFor(typeName));
+  }
+
+  return factory.createTypeReferenceNode(typeName, undefined);
+}
+
+/** Split `"string, Map<K, V>"` → `["string", "Map<K, V>"]` respecting nesting. */
+function splitTopLevelTypeArgs(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "<") depth++;
+    else if (s[i] === ">") depth--;
+    else if (s[i] === "," && depth === 0) {
+      parts.push(s.slice(start, i));
+      start = i + 1;
     }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
 
-    const functionName = target.name.text;
-
-    // Extract explicit param names from decorator args (if provided)
-    const explicitParamNames: string[] = [];
-    for (const arg of args) {
-      if (ts.isStringLiteral(arg)) {
-        explicitParamNames.push(arg.text);
-      }
-    }
-
-    // Extract type parameters
-    const typeParams: string[] = [];
-    if (target.typeParameters) {
-      for (const tp of target.typeParameters) {
-        typeParams.push(tp.name.text);
-      }
-    }
-
-    // Detect implicit parameters
-    const implicitParams: ImplicitParamInfo[] = [];
-
-    for (let i = 0; i < target.parameters.length; i++) {
-      const param = target.parameters[i];
-      const paramName = ts.isIdentifier(param.name)
-        ? param.name.text
-        : ctx.hygiene.mangleName(`p${i}`);
-
-      // If explicit names provided, only those are implicit
-      if (explicitParamNames.length > 0) {
-        if (!explicitParamNames.includes(paramName)) {
-          continue;
-        }
-      }
-
-      // Check if param type is TypeclassName<TypeParam>
-      if (!param.type || !ts.isTypeReferenceNode(param.type)) {
-        continue;
-      }
-
-      const typeName = param.type.typeName;
-      if (!ts.isIdentifier(typeName)) {
-        continue;
-      }
-
-      const typeclassName = typeName.text;
-
-      // Must be a registered typeclass (or we're in auto-detect mode with explicit names)
-      if (explicitParamNames.length === 0 && !isRegisteredTypeclass(typeclassName)) {
-        continue;
-      }
-
-      // Get type argument
-      const typeArgs = param.type.typeArguments;
-      if (!typeArgs || typeArgs.length === 0) {
-        continue;
-      }
-
-      const typeArg = typeArgs[0];
-      const typeParamName = typeArg.getText();
-
-      // In auto-detect mode, type arg must be a type parameter of the function
-      if (explicitParamNames.length === 0 && !typeParams.includes(typeParamName)) {
-        continue;
-      }
-
-      implicitParams.push({
-        paramIndex: i,
-        paramName,
-        typeclassName,
-        typeParamName,
-        typeString: param.type.getText(),
-      });
-    }
-
-    if (implicitParams.length === 0) {
-      ctx.reportWarning(
-        decorator,
-        `@implicits on '${functionName}' found no implicit parameters. ` +
-          `Implicit params must be typed as Typeclass<T> where Typeclass is registered.`
-      );
-    }
-
-    // Register the function
-    registerImplicitsFunction({
-      functionName,
-      sourceFile: ctx.sourceFile.fileName,
-      implicitParams,
-      totalParams: target.parameters.length,
-      typeParams,
-      explicitParamNames: explicitParamNames.length > 0 ? explicitParamNames : undefined,
-    });
-
-    // Remove the @implicits decorator from output
-    return target;
-  },
-});
+function keywordFor(name: string): ts.KeywordTypeSyntaxKind {
+  const map: Record<string, ts.KeywordTypeSyntaxKind> = {
+    number: ts.SyntaxKind.NumberKeyword,
+    string: ts.SyntaxKind.StringKeyword,
+    boolean: ts.SyntaxKind.BooleanKeyword,
+    bigint: ts.SyntaxKind.BigIntKeyword,
+    symbol: ts.SyntaxKind.SymbolKeyword,
+    undefined: ts.SyntaxKind.UndefinedKeyword,
+    null: ts.SyntaxKind.NullKeyword as ts.KeywordTypeSyntaxKind,
+    void: ts.SyntaxKind.VoidKeyword,
+    never: ts.SyntaxKind.NeverKeyword,
+    any: ts.SyntaxKind.AnyKeyword,
+    unknown: ts.SyntaxKind.UnknownKeyword,
+    object: ts.SyntaxKind.ObjectKeyword,
+  };
+  return map[name];
+}
 
 // ============================================================================
 // Call Site Transformation
 // ============================================================================
 
 /**
- * Transform a call to an @implicits function by filling in missing parameters.
+ * Transform a call expression by filling in missing `= implicit()` arguments.
  *
- * This handles:
- * 1. Resolving implicits from the global registry
- * 2. Propagating implicits from enclosing @implicits functions
+ * Resolution order for each implicit parameter:
+ *   1. Enclosing scope (propagation from caller's own implicit params)
+ *   2. Global instance registry (`@instance` / `@deriving`)
  *
- * @param ctx - Macro context
- * @param callExpr - The call expression to transform
- * @param enclosingScope - Implicits available from enclosing function (for propagation)
+ * Returns the rewritten call expression, or `undefined` if no transformation
+ * is needed (callee has no implicit params, or all args already provided).
  */
 export function transformImplicitsCall(
   ctx: MacroContext,
   callExpr: ts.CallExpression,
   enclosingScope?: ImplicitScope
 ): ts.Expression | undefined {
-  // Get function name
-  const callee = callExpr.expression;
-  let functionName: string | undefined;
-
-  if (ts.isIdentifier(callee)) {
-    functionName = callee.text;
-  } else if (ts.isPropertyAccessExpression(callee)) {
-    functionName = callee.name.text;
-  }
-
-  if (!functionName) {
+  let decl: ts.SignatureDeclaration | undefined;
+  let resolvedSig: ts.Signature | undefined;
+  try {
+    resolvedSig = ctx.typeChecker.getResolvedSignature(callExpr);
+    if (!resolvedSig) return undefined;
+    decl = resolvedSig.getDeclaration() as ts.SignatureDeclaration | undefined;
+  } catch {
     return undefined;
   }
 
-  // Check if this is an @implicits function
-  const funcInfo = getImplicitsFunction(functionName);
-  if (!funcInfo) {
-    return undefined;
-  }
+  if (!decl || !decl.parameters) return undefined;
 
-  // If all args provided, nothing to do
   const providedArgs = callExpr.arguments.length;
-  if (providedArgs >= funcInfo.totalParams) {
-    return undefined;
+  if (providedArgs >= decl.parameters.length) return undefined;
+
+  // Quick check: any unprovided params with = implicit()?
+  let hasImplicits = false;
+  for (let i = providedArgs; i < decl.parameters.length; i++) {
+    if (isImplicitDefault(decl.parameters[i].initializer)) {
+      hasImplicits = true;
+      break;
+    }
   }
+  if (!hasImplicits) return undefined;
 
   const factory = ctx.factory;
   const newArgs: ts.Expression[] = [...callExpr.arguments];
 
-  // Infer type parameter mappings from provided args.
-  // Strategy:
-  //   1. Explicit type arguments: use them directly
-  //   2. Resolved signature: let TypeScript infer type params from arguments
-  //   3. Per-implicit fallback: extract concrete type from the resolved param type
+  // Infer type parameter mappings from the resolved signature (reuses resolvedSig)
   const typeParamMap = new Map<string, string>();
-
-  if (callExpr.typeArguments) {
-    for (let i = 0; i < callExpr.typeArguments.length; i++) {
-      if (i < funcInfo.typeParams.length) {
-        typeParamMap.set(funcInfo.typeParams[i], callExpr.typeArguments[i].getText());
+  try {
+    // Explicit type arguments take priority
+    if (callExpr.typeArguments && decl.typeParameters) {
+      for (let i = 0; i < callExpr.typeArguments.length; i++) {
+        if (i < decl.typeParameters.length) {
+          typeParamMap.set(
+            decl.typeParameters[i].name.text,
+            callExpr.typeArguments[i].getText()
+          );
+        }
       }
     }
-  } else {
-    // Use getResolvedSignature to let TypeScript infer type params correctly.
-    // This handles cases like T[] matching number[] → T = number.
-    try {
-      const resolvedSig = ctx.typeChecker.getResolvedSignature(callExpr);
-      if (resolvedSig) {
-        const resolvedParams = resolvedSig.getParameters();
-        for (const implicitParam of funcInfo.implicitParams) {
-          if (implicitParam.paramIndex < resolvedParams.length) {
-            const paramSymbol = resolvedParams[implicitParam.paramIndex];
-            const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(paramSymbol, callExpr);
-            const paramTypeString = ctx.typeChecker.typeToString(paramType);
 
-            // Extract the type argument from "Typeclass<ConcreteType>"
-            const match = paramTypeString.match(/^\w+<(.+)>$/);
-            if (match) {
-              typeParamMap.set(implicitParam.typeParamName, match[1]);
+    // Also infer from resolved parameter types
+    const resolvedParams = resolvedSig.getParameters();
+    for (let i = providedArgs; i < decl.parameters.length; i++) {
+      const param = decl.parameters[i];
+      if (!isImplicitDefault(param.initializer)) continue;
+      if (!param.type || !ts.isTypeReferenceNode(param.type)) continue;
+
+      if (i < resolvedParams.length) {
+        const resolvedParamSymbol = resolvedParams[i];
+        const resolvedType = ctx.typeChecker.getTypeOfSymbolAtLocation(
+          resolvedParamSymbol,
+          callExpr
+        );
+        const resolvedTypeStr = ctx.typeChecker.typeToString(resolvedType);
+        const match = resolvedTypeStr.match(/^\w+<(.+)>$/);
+        if (match) {
+          const typeArgs = param.type.typeArguments;
+          if (typeArgs && typeArgs.length > 0) {
+            const typeArgText = typeArgs[0].getText();
+            if (!typeParamMap.has(typeArgText)) {
+              typeParamMap.set(typeArgText, match[1]);
             }
           }
         }
       }
-    } catch {
-      // Fall back to naive inference if getResolvedSignature fails
-      if (callExpr.arguments.length > 0 && funcInfo.typeParams.length > 0) {
-        const firstArg = callExpr.arguments[0];
-        const argType = ctx.typeChecker.getTypeAtLocation(firstArg);
-        const argTypeString = ctx.typeChecker.typeToString(argType);
-        typeParamMap.set(funcInfo.typeParams[0], argTypeString);
-      }
     }
+  } catch {
+    // Fall through with whatever we have
   }
 
   // Fill in missing implicit parameters
-  for (const implicitParam of funcInfo.implicitParams) {
-    // Skip if already provided
-    if (implicitParam.paramIndex < providedArgs) {
+  for (let i = providedArgs; i < decl.parameters.length; i++) {
+    const param = decl.parameters[i];
+    if (!isImplicitDefault(param.initializer)) {
+      // Non-implicit default — leave it alone but keep scanning; implicit
+      // params may appear later (e.g. `f(a, n = 0, eq = implicit())`).
+      newArgs.push(factory.createIdentifier("undefined"));
       continue;
     }
 
-    // Resolve concrete type
-    let concreteType = implicitParam.typeParamName;
+    if (!param.type || !ts.isTypeReferenceNode(param.type)) {
+      newArgs.push(factory.createIdentifier("undefined"));
+      continue;
+    }
+
+    const typeName = param.type.typeName;
+    if (!ts.isIdentifier(typeName)) {
+      newArgs.push(factory.createIdentifier("undefined"));
+      continue;
+    }
+
+    const typeclassName = typeName.text;
+    const typeArgs = param.type.typeArguments;
+    if (!typeArgs || typeArgs.length === 0) {
+      newArgs.push(factory.createIdentifier("undefined"));
+      continue;
+    }
+
+    let concreteType = typeArgs[0].getText();
     if (typeParamMap.has(concreteType)) {
       concreteType = typeParamMap.get(concreteType)!;
     }
 
-    // Key for scope lookup
-    const scopeKey = `${implicitParam.typeclassName}<${concreteType}>`;
+    const scopeKey = `${typeclassName}<${concreteType}>`;
 
-    // 1. First check enclosing scope (propagation)
+    // 1. Check enclosing scope (propagation)
     if (enclosingScope?.available.has(scopeKey)) {
       const varName = enclosingScope.available.get(scopeKey)!;
-
-      // Pad with undefined if needed
-      while (newArgs.length < implicitParam.paramIndex) {
-        newArgs.push(factory.createIdentifier("undefined"));
-      }
       newArgs.push(factory.createIdentifier(varName));
       continue;
     }
 
-    // 2. Fall back to global registry
-    const resolved = resolveImplicit(implicitParam.typeclassName, concreteType);
-
+    // 2. Fall back to global instance registry
+    const resolved = resolveImplicit(typeclassName, concreteType);
     if (resolved) {
-      // Generate: TC.summon<Type>("Type")
       const summonExpr = factory.createCallExpression(
         factory.createPropertyAccessExpression(
-          factory.createIdentifier(implicitParam.typeclassName),
+          factory.createIdentifier(typeclassName),
           "summon"
         ),
-        [factory.createTypeReferenceNode(concreteType, undefined)],
+        [createTypeRefSafe(factory, concreteType)],
         [factory.createStringLiteral(concreteType)]
       );
-
-      while (newArgs.length < implicitParam.paramIndex) {
-        newArgs.push(factory.createIdentifier("undefined"));
-      }
       newArgs.push(summonExpr);
     } else {
-      // Build resolution trace for detailed error
-      const tcName = implicitParam.typeclassName;
       const attempts: ResolutionAttempt[] = [
         {
           step: "enclosing-scope",
@@ -450,27 +405,27 @@ export function transformImplicitsCall(
         },
         {
           step: "explicit-instance",
-          target: `${tcName}<${concreteType}>`,
+          target: `${typeclassName}<${concreteType}>`,
           result: "not-found",
           reason: "no @instance or @deriving registered",
         },
       ];
 
       const trace: ResolutionTrace = {
-        sought: `${tcName}<${concreteType}>`,
+        sought: `${typeclassName}<${concreteType}>`,
         attempts,
         finalResult: "failed",
       };
 
       const traceNotes = formatResolutionTrace(trace);
-      const helpMessage = generateHelpFromTrace(trace, tcName, concreteType);
+      const helpMessage = generateHelpFromTrace(trace, typeclassName, concreteType);
 
-      // Build a rich error message with the trace
+      const paramName = ts.isIdentifier(param.name) ? param.name.text : `param[${i}]`;
       const errorLines = [
-        `No instance found for \`${tcName}<${concreteType}>\``,
+        `No instance found for \`${typeclassName}<${concreteType}>\``,
         "",
         ...traceNotes.map((note) => `  = note: ${note}`),
-        `  = note: implicit parameter: ${implicitParam.paramName}`,
+        `  = note: implicit parameter: ${paramName}`,
         `  = help: ${helpMessage}`,
       ];
 
@@ -487,49 +442,8 @@ export function transformImplicitsCall(
   );
 }
 
-/**
- * Build an implicit scope from a function's parameters.
- * Used for propagation - the implicit params become available to nested calls.
- */
-export function buildImplicitScope(
-  funcInfo: ImplicitsFunctionInfo,
-  typeParamMap: Map<string, string>
-): ImplicitScope {
-  const available = new Map<string, string>();
-
-  for (const param of funcInfo.implicitParams) {
-    let concreteType = param.typeParamName;
-    if (typeParamMap.has(concreteType)) {
-      concreteType = typeParamMap.get(concreteType)!;
-    }
-
-    const key = `${param.typeclassName}<${concreteType}>`;
-    available.set(key, param.paramName);
-  }
-
-  return { available };
-}
-
 // ============================================================================
-// Process @implicits function body for nested call transformation
-// ============================================================================
-
-/**
- * Process a function body, transforming nested @implicits calls with propagation.
- * This is called by the transformer when visiting an @implicits function.
- */
-export function processImplicitsFunctionBody(
-  ctx: MacroContext,
-  func: ts.FunctionDeclaration,
-  funcInfo: ImplicitsFunctionInfo
-): ts.FunctionDeclaration {
-  // For now, we'll handle propagation at the transformer level
-  // The transformer needs to track the current scope as it visits
-  return func;
-}
-
-// ============================================================================
-// Convenience: summonAll - Summon multiple instances at once
+// summonAll — Summon multiple instances at once
 // ============================================================================
 
 export const summonAllMacro = defineExpressionMacro({
@@ -576,7 +490,7 @@ export const summonAllMacro = defineExpressionMacro({
       summonedExprs.push(
         factory.createCallExpression(
           factory.createPropertyAccessExpression(factory.createIdentifier(tcName), "summon"),
-          [factory.createTypeReferenceNode(forType, undefined)],
+          [createTypeRefSafe(factory, forType)],
           [factory.createStringLiteral(forType)]
         )
       );
@@ -590,12 +504,4 @@ export const summonAllMacro = defineExpressionMacro({
 // Register macros
 // ============================================================================
 
-globalRegistry.register(implicitsAttribute);
 globalRegistry.register(summonAllMacro);
-
-// ============================================================================
-// Exports
-// ============================================================================
-
-export type { ImplicitParamInfo, ImplicitsFunctionInfo, ImplicitScope };
-export { implicitsFunctions };

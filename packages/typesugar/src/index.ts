@@ -82,6 +82,7 @@ export {
   deriving,
   summon,
   extend,
+  implicit,
   // Extension registration
   registerExtensions,
   registerExtension,

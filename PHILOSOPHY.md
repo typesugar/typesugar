@@ -241,13 +241,15 @@ double(arrayMonad, [1, 2, 3]);
 ### Implicit resolution + auto-specialization
 
 ```typescript
-function double<F>(fa: $<F, number>, F: Monad<F>): $<F, number> {
+function double<F>(fa: $<F, number>, F: Monad<F> = implicit()): $<F, number> {
   return F.map(fa, (x) => x * 2);
 }
 
 // Macro infers F from the argument type, summons the instance, specializes:
 double(Some(21)); // Compiles to: isSome(Some(21)) ? Some(Some(21).value * 2) : None
 ```
+
+The `= implicit()` default parameter marker is typesugar's equivalent of Scala 2's `implicit` keyword on individual parameters. TypeScript doesn't support multiple parameter lists (Scala 3's `using` clauses), so `= implicit()` is the natural encoding -- it's valid TypeScript, self-documenting, and the transformer resolves it at compile time. Callers can always override by passing the argument explicitly.
 
 The dictionary parameter exists for the type checker. The macro eliminates it, summons the correct instance, and inlines the methods.
 

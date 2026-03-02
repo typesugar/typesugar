@@ -10,17 +10,19 @@ npm install @typesugar/specialize
 
 ### Implicit Specialization (Recommended)
 
-With `@implicits`, specialization happens automatically:
+With `= implicit()`, specialization happens automatically:
 
 ```typescript
-@implicits
-function sortWith<T>(items: T[], ord: Ord<T>): T[] {
+function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {
   return items.slice().sort((a, b) => ord.compare(a, b));
 }
 
 // Just call it — instance is resolved AND inlined automatically
 const sorted = sortWith([3, 1, 2]); // [1, 2, 3]
 // Compiles to: [3, 1, 2].slice().sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+
+// Or pass an explicit instance to override
+const sorted2 = sortWith([3, 1, 2], reverseOrd);
 ```
 
 ### Extension Method Syntax
@@ -61,7 +63,7 @@ const sortAndShowNumbers = sortAndShow.specialize(numberOrd, numberShow);
 | ------------------------------ | -------------------------- |
 | Generic function with instance | Dictionary lookup per call |
 | `.specialize(dict)`            | Zero — instance baked in   |
-| `@implicits` + auto-specialize | Zero — fully automatic     |
+| `= implicit()` + auto-specialize | Zero — fully automatic   |
 
 ### Before Specialization
 
@@ -80,14 +82,14 @@ const sorted = sortNumbers([3, 1, 2]);
 const sorted2 = sortNumbers([5, 4]);
 ```
 
-### With @implicits (Best)
+### With `= implicit()` (Best)
 
 ```typescript
-@implicits
-function sortWith<T>(items: T[], ord: Ord<T>): T[] { ... }
+function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] { ... }
 
 // No dictionary passing, no .specialize() — just works
 const sorted = sortWith([3, 1, 2]);
+// Or override: sortWith([3, 1, 2], customOrd)
 ```
 
 ## API
@@ -108,7 +110,7 @@ const sorted = sortWith([3, 1, 2]);
 
 | Scenario                          | Approach                       |
 | --------------------------------- | ------------------------------ |
-| Most cases                        | `@implicits` — fully automatic |
+| Most cases                        | `= implicit()` — fully automatic |
 | Need a named specialized function | `fn.specialize(dict)`          |
 | One-off inline specialization     | `specialize$(call)`            |
 | Legacy code / edge cases          | `specialize(fn, [dict])`       |
