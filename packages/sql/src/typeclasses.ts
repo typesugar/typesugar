@@ -102,7 +102,6 @@ export type SqlTypeName =
 // ============================================================================
 
 /**
- * @typeclass
  * Get<A> — Typeclass for reading a value of type A from a SQL column.
  *
  * Instances define how to interpret raw SQL values as TypeScript types.
@@ -325,7 +324,6 @@ export const Get = {
 // ============================================================================
 
 /**
- * @typeclass
  * Put<A> — Typeclass for writing a value of type A to a SQL parameter.
  *
  * Instances define how to convert TypeScript values to SQL-compatible values.
@@ -415,7 +413,6 @@ export const Put = {
 // ============================================================================
 
 /**
- * @typeclass
  * Meta<A> — Bidirectional typeclass combining Get and Put.
  *
  * Most types will use Meta for both reading and writing. Use separate
@@ -532,7 +529,6 @@ export const Meta = {
 // ============================================================================
 
 /**
- * @typeclass
  * Read<A> — Typeclass for reading an entire result row as type A.
  *
  * Unlike Get (which reads a single column), Read decodes an entire result row.
@@ -714,7 +710,6 @@ export const Read = {
 // ============================================================================
 
 /**
- * @typeclass
  * Write<A> — Typeclass for writing a value of type A as SQL parameters.
  *
  * Unlike Put (which writes a single value), Write produces multiple parameters
@@ -816,7 +811,6 @@ export const Write = {
 // ============================================================================
 
 /**
- * @typeclass
  * Codec<A> — Bidirectional typeclass combining Read and Write for row-level operations.
  *
  * This is the row-level equivalent of Meta.

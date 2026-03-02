@@ -1,7 +1,6 @@
 import { DbConnection } from "./connection-io.js";
 
 /**
- * @typeclass
  * Queryable<Q> — Typeclass for executing native ORM queries (e.g. Kysely, Drizzle)
  * inside a ConnectionIO program.
  *
