@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Function Extension Methods
  *
- * The best from:
+ * All exported functions take a function as their first argument,
+ * enabling method-call syntax: `fn.debounce(100)`, `fn.memoize()`, etc.
+ *
+ * Inspired by:
  * - Haskell (const, flip, on, fix, curry, uncurry)
  * - Scala (andThen, compose, tupled, untupled, curried)
  * - Lodash (debounce, throttle, once, memoize, negate, partial, ary, rearg)

@@ -40,6 +40,8 @@ export interface FileResolutionScope {
   optedOut: boolean;
   /** Specific features opted out of */
   optedOutFeatures: Set<string>;
+  /** Whether this file has a "use extension" directive */
+  hasUseExtension: boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ export class ResolutionScopeTracker {
         importedExtensions: new Map(),
         optedOut: false,
         optedOutFeatures: new Set(),
+        hasUseExtension: false,
       });
     }
     return this.fileScopes.get(fileName)!;
@@ -134,6 +137,23 @@ export class ResolutionScopeTracker {
   isFeatureOptedOut(fileName: string, feature: string): boolean {
     const scope = this.getScope(fileName);
     return scope.optedOut || scope.optedOutFeatures.has(feature);
+  }
+
+  /**
+   * Set whether a file has "use extension" directive.
+   * When set, all exports from this file are treated as extension methods.
+   */
+  setHasUseExtension(fileName: string, hasUseExtension: boolean): void {
+    const scope = this.getScope(fileName);
+    scope.hasUseExtension = hasUseExtension;
+  }
+
+  /**
+   * Check if a file has "use extension" directive.
+   */
+  hasUseExtension(fileName: string): boolean {
+    const scope = this.getScope(fileName);
+    return scope.hasUseExtension;
   }
 
   /**
@@ -261,7 +281,7 @@ export function scanImportsForScope(
     }
   });
 
-  // Scan for "use no typesugar" directive at file level (top-level statements only)
+  // Scan for directives at file level (top-level statements only)
   for (const stmt of sourceFile.statements) {
     if (ts.isExpressionStatement(stmt)) {
       const expr = stmt.expression;
@@ -281,6 +301,11 @@ export function scanImportsForScope(
           if (["operators", "derive", "extensions", "typeclasses", "macros"].includes(feature)) {
             tracker.addOptedOutFeature(fileName, feature);
           }
+        }
+
+        // "use extension" directive - marks all exports as extension methods
+        if (text === "use extension") {
+          tracker.setHasUseExtension(fileName, true);
         }
       }
     }

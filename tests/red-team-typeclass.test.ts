@@ -9,7 +9,6 @@
  * - @instance decorator validation (missing args, non-identifier args)
  * - @typeclass decorator on non-interfaces
  * - Instance priority/ordering when multiple instances exist
- * - findExtensionMethod lookup edge cases
  * - Method extraction from typeclass interfaces
  */
 import { describe, it, expect, beforeEach } from "vitest";
@@ -17,7 +16,6 @@ import {
   clearRegistries,
   getTypeclasses,
   getInstances,
-  findExtensionMethod,
   TypeclassInfo,
   InstanceInfo,
 } from "../packages/typeclass/src/index.js";
@@ -82,39 +80,6 @@ describe("Typeclass Registry Edge Cases", () => {
     });
   });
 
-  // ==========================================================================
-  // Attack 3: findExtensionMethod Lookup Edge Cases
-  // ==========================================================================
-  describe("findExtensionMethod edge cases", () => {
-    beforeEach(() => {
-      clearRegistries();
-    });
-
-    it("Returns undefined for non-existent type", () => {
-      const result = findExtensionMethod("NonExistentType", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("Returns undefined for non-existent method", () => {
-      const result = findExtensionMethod("number", "nonExistentMethod");
-      expect(result).toBeUndefined();
-    });
-
-    it("Returns undefined when typeclass has no matching method", () => {
-      const result = findExtensionMethod("string", "someRandomMethod");
-      expect(result).toBeUndefined();
-    });
-
-    it("Empty type name returns undefined", () => {
-      const result = findExtensionMethod("", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("Empty method name returns undefined", () => {
-      const result = findExtensionMethod("number", "");
-      expect(result).toBeUndefined();
-    });
-  });
 });
 
 describe("Typeclass Info Structure Edge Cases", () => {
@@ -308,76 +273,6 @@ describe("Instance Registry Concurrency Edge Cases", () => {
 
       expect(after.size).toBe(0);
       expect(before).not.toBe(after);
-    });
-  });
-});
-
-describe("Type Name Edge Cases", () => {
-  // ==========================================================================
-  // Attack 8: Unusual Type Names
-  // ==========================================================================
-  describe("Unusual type name handling", () => {
-    beforeEach(() => {
-      clearRegistries();
-    });
-
-    it("findExtensionMethod handles type names with generics", () => {
-      const result = findExtensionMethod("Array<number>", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles type names with nested generics", () => {
-      const result = findExtensionMethod("Map<string, Array<number>>", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles union type names", () => {
-      const result = findExtensionMethod("string | number", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles intersection type names", () => {
-      const result = findExtensionMethod("A & B", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles tuple type names", () => {
-      const result = findExtensionMethod("[string, number]", "show");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles function type names", () => {
-      const result = findExtensionMethod("(x: number) => string", "show");
-      expect(result).toBeUndefined();
-    });
-  });
-
-  // ==========================================================================
-  // Attack 9: Method Name Edge Cases
-  // ==========================================================================
-  describe("Unusual method name handling", () => {
-    beforeEach(() => {
-      clearRegistries();
-    });
-
-    it("findExtensionMethod handles method names with numbers", () => {
-      const result = findExtensionMethod("number", "method123");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles method names with underscores", () => {
-      const result = findExtensionMethod("number", "my_method");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles method names starting with underscore", () => {
-      const result = findExtensionMethod("number", "_privateMethod");
-      expect(result).toBeUndefined();
-    });
-
-    it("findExtensionMethod handles single character method names", () => {
-      const result = findExtensionMethod("number", "x");
-      expect(result).toBeUndefined();
     });
   });
 });

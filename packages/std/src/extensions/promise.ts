@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Promise & Async Extension Methods
  *
- * The best from:
+ * All exported functions take `Promise` as their first argument,
+ * enabling method-call syntax: `p.timeout(1000)`, `p.retry(3)`, etc.
+ *
+ * Inspired by:
  * - Bluebird (tap, timeout, delay, retry, map, filter, reduce, props, settle)
  * - p-* ecosystem (p-retry, p-timeout, p-map, p-limit, p-settle, p-queue)
  * - Scala Future (recover, recoverWith, fallbackTo, andThen, transform)

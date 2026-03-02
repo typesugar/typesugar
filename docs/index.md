@@ -360,7 +360,7 @@ error[TS9062]: Method `clamp` does not exist on type `number`
    |                      ^^^^^
    |
    = help: Did you mean to import?
-     + import { NumberExt } from "@typesugar/std";
+     + import { clamp } from "@typesugar/std";
 ```
 
 ### Opt-Out When You Need To

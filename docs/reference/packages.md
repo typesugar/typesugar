@@ -83,8 +83,8 @@ defineFieldDerive;
 extractTypeInfo;
 
 // Extension Methods
-standaloneExtensionRegistry;
-registerExtensions;
+extensionAttribute;  // @extension decorator
+// "use extension" directive (file-level)
 
 // Operators
 syntaxRegistry;
@@ -227,10 +227,10 @@ npm install @typesugar/std
 **Exports:**
 
 ```typescript
-// Extension methods
-(NumberExt, StringExt, ArrayExt, ObjectExt, DateExt);
-extend();
-registerExtensions();
+// Extension methods (import functions, call as methods)
+abs, ceil, floor, sqrt, clamp, isEven, isPrime;  // number
+capitalize, titleCase, strip, truncate;          // string
+head, tail, chunk, unique, groupBy;              // array
 
 // Pattern matching
 match();

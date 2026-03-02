@@ -1,7 +1,11 @@
+"use extension";
 /**
  * String Extension Methods
  *
- * The best from:
+ * All exported functions take `string` as their first argument,
+ * enabling method-call syntax: `s.capitalize()`, `s.truncate(10)`, etc.
+ *
+ * Inspired by:
  * - Ruby (capitalize, downcase, upcase, strip, squeeze, chars, lines, scan, gsub, tr)
  * - Kotlin (isBlank, isNotBlank, trimIndent, removeSurrounding, substringBefore/After, lines)
  * - Swift (hasPrefix, hasSuffix, lowercased, uppercased, trimmingCharacters, components)

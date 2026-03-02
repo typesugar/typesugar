@@ -20,8 +20,13 @@
  */
 
 import ts from "typescript";
-import type { MacroContext, ExpressionMacro, StandaloneExtensionInfo } from "@typesugar/core";
-import { defineExpressionMacro } from "@typesugar/core";
+import type {
+  MacroContext,
+  ExpressionMacro,
+  AttributeMacro,
+  StandaloneExtensionInfo,
+} from "@typesugar/core";
+import { defineExpressionMacro, defineAttributeMacro } from "@typesugar/core";
 import { globalRegistry } from "@typesugar/core";
 import {
   standaloneExtensionRegistry,
@@ -42,6 +47,204 @@ export {
   getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
 } from "@typesugar/core";
+
+// ============================================================================
+// @extension — attribute macro for marking functions as extension methods
+// ============================================================================
+//
+// Usage:
+//   @extension
+//   export function head<A>(arr: readonly A[]): A | undefined { return arr[0]; }
+//
+// The @extension decorator marks a function as an extension method.
+// The first parameter type determines which types can use this as a method.
+// This is a metadata-only decorator — the function is returned unchanged.
+//
+// For namespaces:
+//   @extension
+//   namespace ArrayExt { ... }
+//
+// Registers all callable properties as extension methods.
+// ============================================================================
+
+export const extensionAttribute: AttributeMacro = defineAttributeMacro({
+  name: "extension",
+  module: "typesugar",
+  cacheable: true,
+  description: "Mark a function as an extension method (first param becomes receiver)",
+  validTargets: ["function", "property"],
+
+  expand(
+    ctx: MacroContext,
+    _decorator: ts.Decorator,
+    target: ts.Declaration,
+    _args: readonly ts.Expression[]
+  ): ts.Node | ts.Node[] {
+    // Handle function declarations
+    if (ts.isFunctionDeclaration(target)) {
+      const name = target.name?.text;
+      if (!name) {
+        ctx.reportError(target, "@extension function must have a name");
+        return target;
+      }
+
+      const params = target.parameters;
+      if (params.length === 0) {
+        ctx.reportError(
+          target,
+          "@extension function must have at least one parameter (the receiver type)"
+        );
+        return target;
+      }
+
+      // Get the first parameter's type
+      const firstParam = params[0];
+      let forType: string;
+
+      if (firstParam.type) {
+        // Use the type annotation if present
+        forType = getBaseTypeName(ctx, firstParam.type);
+      } else {
+        // Try to infer from type checker
+        const paramType = ctx.typeChecker.getTypeAtLocation(firstParam);
+        forType = ctx.typeChecker.typeToString(paramType);
+      }
+
+      // Register the extension (without qualifier — bare function)
+      registerStandaloneExtensionEntry({
+        methodName: name,
+        forType,
+        qualifier: undefined,
+      });
+
+      return target;
+    }
+
+    // Handle variable declarations (const fn = ...)
+    if (ts.isVariableDeclaration(target)) {
+      const name = ts.isIdentifier(target.name) ? target.name.text : undefined;
+      if (!name) {
+        ctx.reportError(target, "@extension variable must have an identifier name");
+        return target;
+      }
+
+      // Get the type of the variable
+      const varType = ctx.typeChecker.getTypeAtLocation(target);
+      const callSignatures = varType.getCallSignatures();
+
+      if (callSignatures.length === 0) {
+        ctx.reportError(target, "@extension variable must be a function");
+        return target;
+      }
+
+      const firstSignature = callSignatures[0];
+      const params = firstSignature.getParameters();
+
+      if (params.length === 0) {
+        ctx.reportError(
+          target,
+          "@extension function must have at least one parameter (the receiver type)"
+        );
+        return target;
+      }
+
+      // Get the first parameter's type
+      const firstParam = params[0];
+      const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(firstParam, target);
+      const forType = ctx.typeChecker.typeToString(paramType);
+
+      registerStandaloneExtensionEntry({
+        methodName: name,
+        forType,
+        qualifier: undefined,
+      });
+
+      return target;
+    }
+
+    // Handle module (namespace) declarations
+    if (ts.isModuleDeclaration(target) && target.body && ts.isModuleBlock(target.body)) {
+      const namespaceName = target.name.text;
+
+      // Enumerate all exported functions in the namespace
+      for (const stmt of target.body.statements) {
+        if (
+          ts.isFunctionDeclaration(stmt) &&
+          stmt.name &&
+          hasExportModifier(stmt)
+        ) {
+          const fnName = stmt.name.text;
+          const params = stmt.parameters;
+
+          if (params.length === 0) continue;
+
+          const firstParam = params[0];
+          let forType: string;
+
+          if (firstParam.type) {
+            forType = getBaseTypeName(ctx, firstParam.type);
+          } else {
+            const paramType = ctx.typeChecker.getTypeAtLocation(firstParam);
+            forType = ctx.typeChecker.typeToString(paramType);
+          }
+
+          registerStandaloneExtensionEntry({
+            methodName: fnName,
+            forType,
+            qualifier: namespaceName,
+          });
+        }
+      }
+
+      return target;
+    }
+
+    ctx.reportError(
+      target,
+      "@extension can only be applied to functions, arrow function variables, or namespaces"
+    );
+    return target;
+  },
+});
+
+/**
+ * Extract the base type name from a TypeNode, stripping generics and array brackets.
+ */
+function getBaseTypeName(ctx: MacroContext, typeNode: ts.TypeNode): string {
+  // Handle arrays: A[] or Array<A> -> base element type for registration
+  if (ts.isArrayTypeNode(typeNode)) {
+    return "Array";
+  }
+
+  if (ts.isTypeReferenceNode(typeNode)) {
+    const typeName = typeNode.typeName;
+    if (ts.isIdentifier(typeName)) {
+      // Handle Array<T> -> "Array"
+      if (typeName.text === "Array" || typeName.text === "ReadonlyArray") {
+        return "Array";
+      }
+      return typeName.text;
+    }
+    // Qualified name (e.g., Foo.Bar)
+    return typeName.getText();
+  }
+
+  // For other types, use type checker
+  const type = ctx.typeChecker.getTypeFromTypeNode(typeNode);
+  const str = ctx.typeChecker.typeToString(type);
+  // Strip generics from type string
+  return str.replace(/<.*>$/, "");
+}
+
+/**
+ * Check if a node has an export modifier.
+ */
+function hasExportModifier(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
+  );
+}
 
 // ============================================================================
 // registerExtensions — batch registration from a namespace object
@@ -168,5 +371,6 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
 // Registration
 // ============================================================================
 
+globalRegistry.register(extensionAttribute);
 globalRegistry.register(registerExtensionsMacro);
 globalRegistry.register(registerExtensionMacro);

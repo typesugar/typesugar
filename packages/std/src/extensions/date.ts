@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Date Extension Methods
  *
- * The best from:
+ * All exported functions take `Date` as their first argument,
+ * enabling method-call syntax: `d.addDays(7)`, `d.isWeekend()`, etc.
+ *
+ * Inspired by:
  * - date-fns (addDays, subDays, differenceInDays, format, isAfter, isBefore, startOfDay, etc.)
  * - Moment/Luxon (add, subtract, diff, startOf, endOf, isSame, isBetween)
  * - Kotlin (java.time: plusDays, minusDays, atStartOfDay, until, isAfter, isBefore)

@@ -627,16 +627,26 @@ point.show()  // Rewritten to ShowPoint.show(point)
 
 The transformer detects these calls via `tryRewriteExtensionMethod()` and rewrites them to static calls.
 
-### Standalone Extensions (Explicit)
+### Extension Methods (UFCS)
 
-For direct enrichment without typeclasses:
+Any function whose first parameter matches the receiver type can be called as a method:
 
 ```typescript
-registerExtensions("number", NumberExt);
-(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
+import { clamp, abs } from "@typesugar/std";
+
+(-5).abs();         // → abs(-5) → Math.abs(-5)
+(42).clamp(0, 100); // → clamp(42, 0, 100)
 ```
 
-These are stored in `standaloneExtensionRegistry` and resolved before typeclass extensions.
+For library authors, mark a file with `"use extension"` to make all exports callable as methods:
+
+```typescript
+"use extension";
+export function double(n: number): number { return n * 2; }
+// Users can write: (5).double()
+```
+
+Extensions are resolved via import-scoped scanning and take priority over typeclasses.
 
 ---
 

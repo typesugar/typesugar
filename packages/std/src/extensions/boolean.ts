@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Boolean Extension Methods
  *
- * The best from:
+ * All exported functions take `boolean` as their first argument,
+ * enabling method-call syntax: `b.toInt()`, `b.fold(yes, no)`, etc.
+ *
+ * Inspired by:
  * - Scala (fold on Boolean, implicit conversions)
  * - Kotlin (compareTo, and/or/xor, toInt)
  * - Rust (then, then_some)

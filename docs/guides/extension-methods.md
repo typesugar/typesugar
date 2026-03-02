@@ -1,90 +1,31 @@
 # Extension Methods
 
-typesugar supports Scala 3-style extension methods — call methods on types that don't natively have them, with zero runtime cost.
+typesugar supports Scala 3-style extension methods — call methods on types that don't natively have them, with zero runtime cost. This is Uniform Function Call Syntax (UFCS) for TypeScript.
 
 ## How It Works
 
-Extension methods work implicitly. Just import a namespace or function and call methods directly:
+Any imported function whose first parameter matches the receiver type can be called as a method. Just import and call:
 
 ```typescript
-import { NumberExt, StringExt, ArrayExt } from "@typesugar/std";
+import { clamp, abs, capitalize, head } from "@typesugar/std";
 
-// Methods on primitives just work
-(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
-"hello".capitalize(); // → StringExt.capitalize("hello")
-[1, 2, 3].sum(); // → ArrayExt.sum([1, 2, 3])
+// Functions become methods automatically
+(-5).abs();           // → abs(-5) → Math.abs(-5) → 5
+(42).clamp(0, 100);   // → clamp(42, 0, 100) → 42
+"hello".capitalize(); // → capitalize("hello") → "Hello"
+[1, 2, 3].head();     // → head([1, 2, 3]) → 1
+
+// Direct calls still work
+clamp(42, 0, 100);    // → 42
 ```
 
-The transformer detects method calls on types, looks up matching extension methods from your imports, and rewrites to direct function calls — zero wrapper overhead.
-
-## Two Types of Extensions
-
-### 1. Typeclass Extensions
-
-Methods from typeclass instances:
-
-```typescript
-import { Show, Eq } from "@typesugar/std";
-
-(42).show(); // "42" (from Show<number>)
-"hi".show(); // "\"hi\""
-point.equals(p); // Eq<Point>.equals
-```
-
-### 2. Standalone Extensions
-
-Methods added to specific types via namespaces:
-
-```typescript
-import { NumberExt, StringExt } from "@typesugar/std";
-
-(42).clamp(0, 100); // NumberExt.clamp
-"hello".capitalize(); // StringExt.capitalize
-```
-
-## Built-in Extensions
-
-### Number Extensions
-
-```typescript
-import { NumberExt } from "@typesugar/std";
-
-(42).clamp(0, 100); // Clamp to range
-(42).times(fn); // Call fn 42 times
-(3.14159).round(2); // 3.14
-(42).isEven(); // true
-(42).isOdd(); // false
-(7).isPrime(); // true
-```
-
-### String Extensions
-
-```typescript
-import { StringExt } from "@typesugar/std";
-
-"hello".capitalize(); // "Hello"
-"hello world".titleCase(); // "Hello World"
-"  hi  ".strip(); // "hi"
-"hello".reverse(); // "olleh"
-"hello".truncate(3); // "hel..."
-```
-
-### Array Extensions
-
-```typescript
-import { ArrayExt } from "@typesugar/std";
-
-[1, 2, 3].first(); // Some(1)
-[1, 2, 3].last(); // Some(3)
-[1, 2, 3].isEmpty(); // false
-[1, 2, 3].nonEmpty(); // true
-[1, 2, 3].partition((x) => x > 1); // [[2, 3], [1]]
-[1, 2, 3].groupBy((x) => x % 2); // Map { 1: [1, 3], 0: [2] }
-```
+The transformer detects method calls, looks up matching extension functions from your imports, and rewrites to direct function calls — zero wrapper overhead.
 
 ## Creating Extensions
 
-### For Concrete Types
+### The Simple Rule
+
+Any function whose first parameter type matches the receiver type works as an extension:
 
 ```typescript
 // my-extensions.ts
@@ -102,64 +43,149 @@ Usage:
 ```typescript
 import { double, greet } from "./my-extensions";
 
-// Automatically discovered from imports
-(42).double(); // → double(42) → 84
-"Alice".greet(); // → greet("Alice") → "Hello, Alice!"
+(42).double();        // → double(42) → 84
+"Alice".greet();      // → greet("Alice") → "Hello, Alice!"
 ```
 
-### Extension Namespaces
+### "use extension" Directive (Recommended for Libraries)
+
+For libraries and modules where you want to be explicit that all exports are intended as extensions:
 
 ```typescript
-// math-ext.ts
-export const MathExt = {
-  square(n: number): number {
-    return n * n;
-  },
-  cube(n: number): number {
-    return n * n * n;
-  },
-};
+// my-extensions.ts
+"use extension";
+
+export function distance(p: Point, other: Point): number {
+  return Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);
+}
+
+export function midpoint(p: Point, other: Point): Point {
+  return { x: (p.x + other.x) / 2, y: (p.y + other.y) / 2 };
+}
 ```
 
 Usage:
 
 ```typescript
-import { MathExt } from "./math-ext";
+import { distance, midpoint } from "./my-extensions";
 
-(3).square(); // 9
-(3).cube(); // 27
+p1.distance(p2);    // → distance(p1, p2)
+p1.midpoint(p2);    // → midpoint(p1, p2)
 ```
 
-### Registering Extensions Explicitly
+### @extension Decorator (Per-Function Control)
+
+For individual functions when you don't want a file-level directive:
 
 ```typescript
-import { registerExtensions, registerExtension } from "@typesugar/std";
+import { extension } from "typesugar";
 
-registerExtensions<number>(MathExt);
-registerExtension<string>(myStringFunction);
+@extension
+export function volume(box: Box): number {
+  return box.width * box.height * box.depth;
+}
+
+@extension
+export function surface(box: Box): number {
+  return 2 * (box.width * box.height + box.height * box.depth + box.width * box.depth);
+}
 ```
 
-## How Resolution Works
+## Built-in Extensions
 
-When the transformer encounters `value.method()` where `method` doesn't exist on the type:
+### Number Extensions
 
-1. **Typeclass registry**: Check if any typeclass instance provides `method`
-2. **Standalone registry**: Check explicit `registerExtensions()` calls
-3. **Import scan**: Check all imports for a matching function
+```typescript
+import { clamp, abs, ceil, floor, sqrt, isEven, isPrime } from "@typesugar/std";
+
+(-5).abs();           // Math.abs(-5) → 5
+(42).clamp(0, 100);   // clamp to range → 42
+(3.7).ceil();         // Math.ceil(3.7) → 4
+(3.7).floor();        // Math.floor(3.7) → 3
+(16).sqrt();          // Math.sqrt(16) → 4
+(42).isEven();        // true
+(7).isPrime();        // true
+```
+
+### String Extensions
+
+```typescript
+import { capitalize, titleCase, strip, truncate } from "@typesugar/std";
+
+"hello".capitalize();       // "Hello"
+"hello world".titleCase();  // "Hello World"
+"  hi  ".strip();           // "hi"
+"hello".truncate(3);        // "hel..."
+```
+
+### Array Extensions
+
+```typescript
+import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
+
+[1, 2, 3].head();               // 1
+[1, 2, 3].tail();               // [2, 3]
+[1, 2, 3, 4, 5].chunk(2);       // [[1, 2], [3, 4], [5]]
+[1, 1, 2, 2, 3].unique();       // [1, 2, 3]
+[1, 2, 3].groupBy(x => x % 2);  // Map { 1: [1, 3], 0: [2] }
+```
+
+## Resolution Order
+
+When the transformer encounters `value.method()`:
+
+1. **Native property**: If `value` has a property `method`, use it
+2. **Extension functions in scope**: Imported functions with matching first parameter
+3. **Typeclass methods**: Auto-derived via `summon()`
+
+Extensions take priority over typeclasses because concrete functions are more specific.
 
 ```typescript
 import { clamp } from "@typesugar/std";
 
 (42).clamp(0, 100);
-// 1. No typeclass has clamp for number
-// 2. No explicit registration
-// 3. Found: clamp(number, number, number) in imports
+// 1. number has no property 'clamp'
+// 2. Found: clamp(number, number, number) in imports
 // → clamp(42, 0, 100)
+```
+
+## Ambiguity Detection
+
+If multiple extension functions match the same receiver type and method name, the transformer emits a compile error:
+
+```typescript
+import { format } from "@typesugar/std";
+import { format } from "./my-date-utils";
+
+date.format(pattern);
+// Error: Ambiguous extension method 'format' for type 'Date'
+// Two extensions match:
+//   - format (from "@typesugar/std")
+//   - format (from "./my-date-utils")
+```
+
+Fix by using qualified calls:
+
+```typescript
+import { format as stdFormat } from "@typesugar/std";
+import { format as myFormat } from "./my-date-utils";
+
+stdFormat(date, pattern);  // Explicit choice
 ```
 
 ## Typeclass Extensions
 
-When you define a typeclass instance, its methods become extensions:
+Typeclass methods also work as extension methods:
+
+```typescript
+import { Show, Eq } from "@typesugar/std";
+
+(42).show();         // "42" (from Show<number>)
+"hi".show();         // "\"hi\""
+point.equals(other); // Eq<Point>.equals
+```
+
+When you define a typeclass instance, its methods become callable as extensions:
 
 ```typescript
 @typeclass
@@ -175,42 +201,39 @@ const PrintableNumber: Printable<number> = {
 (42).print();  // Calls PrintableNumber.print(42)
 ```
 
-## Precedence
-
-1. **Own methods**: Type's own methods always win
-2. **Typeclass methods**: Checked first for polymorphism
-3. **Standalone extensions**: Import-scoped functions
-
-```typescript
-class MyClass {
-  show(): string {
-    return "own method";
-  }
-}
-
-// This calls the class method, not Show<MyClass>.show
-new MyClass().show();
-```
-
 ## Generic Extensions
 
+Extensions work with generic types:
+
 ```typescript
-function first<T>(arr: T[]): T | undefined {
+"use extension";
+
+export function first<T>(arr: T[]): T | undefined {
   return arr[0];
 }
 
-// Works with any array
-[1, 2, 3].first(); // 1
-["a", "b"].first(); // "a"
+export function mapTo<T, U>(arr: T[], value: U): U[] {
+  return arr.map(() => value);
+}
+```
+
+Usage:
+
+```typescript
+import { first, mapTo } from "./generic-ext";
+
+[1, 2, 3].first();         // 1
+["a", "b"].first();        // "a"
+[1, 2, 3].mapTo("x");      // ["x", "x", "x"]
 ```
 
 ## When to Use `extend()`
 
 The `extend()` wrapper exists but is rarely needed. Use it for:
 
-- **Disambiguation** — multiple typeclasses define the same method name
-- **Generic contexts** — type parameter isn't concrete at the call site
-- **Explicit intent** — documentation or teaching
+- **Disambiguation**: Multiple typeclasses define the same method name
+- **Generic contexts**: Type parameter isn't concrete at the call site
+- **Explicit intent**: Documentation or teaching
 
 ```typescript
 import { extend } from "@typesugar/typeclass";
@@ -224,19 +247,33 @@ value.show();
 value.clone();
 ```
 
+## Legacy: registerExtensions() (Deprecated)
+
+The older `registerExtensions()` and `registerExtension()` macros are still supported:
+
+```typescript
+import { registerExtensions, registerExtension } from "typesugar";
+
+registerExtensions<number>(MathExt);
+registerExtension<string>(myStringFunction);
+```
+
+Prefer the `"use extension"` directive for new code.
+
 ## Best Practices
 
 ### Do
 
-- Use namespaces to organize related extensions
+- Use `"use extension"` directive for extension modules
 - Keep extension functions pure
-- Document extensions in your package
+- Document extensions in your package README
+- Use descriptive names that won't conflict
 
 ### Don't
 
-- Shadow built-in methods unintentionally
+- Shadow built-in methods unintentionally (check `Object.prototype`, `Array.prototype`, etc.)
 - Create extensions with side effects
-- Register the same extension twice
+- Export functions that aren't meant to be called as methods
 
 ## Comparison to Other Languages
 
@@ -246,3 +283,19 @@ value.clone();
 | Import-scoped     | Yes          | Yes        | Yes          | Yes          |
 | Typeclass-derived | Yes          | Yes        | No           | No           |
 | Zero-cost         | Yes          | Yes        | Yes          | Yes          |
+| File directive    | Yes (`"use extension"`) | No | No | No |
+
+## Zero-Cost Guarantee
+
+Extension methods compile away completely:
+
+```typescript
+// Source
+import { clamp } from "@typesugar/std";
+(42).clamp(0, 100);
+
+// Compiled output
+clamp(42, 0, 100);
+```
+
+No runtime wrappers, no prototype pollution, no indirection.

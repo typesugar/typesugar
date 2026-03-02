@@ -62,7 +62,7 @@ src/
 │   ├── reflect.ts      # @reflect, typeInfo<T>(), fieldNames<T>(), validator<T>()
 │   ├── tailrec.ts      # @tailrec — tail-call optimization
 │   ├── operators.ts    # @operators, ops(), pipe(), compose()
-│   ├── extension.ts    # registerExtensions(), registerExtension() — standalone extensions
+│   ├── extension.ts    # @extension — UFCS extension method decorator
 │   ├── cfg.ts          # cfg(), @cfgAttr — conditional compilation
 │   ├── generic.ts      # Generic<T,R> — structural type representations
 │   ├── syntax-macro.ts # defineSyntaxMacro() — pattern-based macros (macro_rules! equivalent)
@@ -394,9 +394,11 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 
 - `typeclassRegistry` — typeclass metadata (methods, type params)
 - `instanceRegistry` — registered instances (typeclass × type → instance)
-- `extensionMethodRegistry` — typeclass extension methods for types
-- `standaloneExtensionRegistry` — standalone extension methods for concrete types (Scala 3-style)
+- `standaloneExtensionRegistry` — backward compatibility for `registerExtensions()` (deprecated)
 - `instanceMethodRegistry` — method implementations for specialization (in `specialize.ts`)
+
+Note: Extension method resolution now primarily uses import-scoped scanning. The `"use extension"`
+directive and `@extension` decorator mark which functions should be treated as extensions.
 
 **Key functions for reuse:**
 
@@ -406,51 +408,75 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 - `getTypeclass(name)` — retrieves typeclass metadata
 - `extractGenericMeta(ctx, type)` — extracts Mirror-style metadata for auto-derivation
 
-### Standalone Extension Methods (`extension.ts`, `macro-transformer.ts`)
+### Extension Methods (`extension.ts`, `macro-transformer.ts`)
 
-Beyond typeclass methods, standalone extensions provide additional methods on concrete types.
-These compile to direct function calls — inherently zero-cost.
+Extension methods provide UFCS (Uniform Function Call Syntax) for TypeScript — any imported function
+whose first parameter matches the receiver type can be called as a method. Zero-cost by design.
 
-**Usage — implicit, like typeclasses:**
-
-```typescript
-// Methods on primitives just work
-(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
-"hello".capitalize(); // → StringExt.capitalize("hello")
-[1, 2, 3].sum(); // → ArrayExt.sum([1, 2, 3])
-```
-
-**How it works (resolution order for method calls):**
-
-1. **Typeclass methods** — auto-derived or explicit instances (`.show()`, `.clone()`, etc.)
-2. **Extension registry** — explicit `registerExtensions()` calls
-3. **Import-scoped scan** — enumerate imports, match method name and receiver type
-
-All paths produce zero-cost output — direct function calls, no indirection.
-
-**Explicit registration (optional):**
-
-| Macro                                 | Kind       | Purpose                                        |
-| ------------------------------------- | ---------- | ---------------------------------------------- |
-| `registerExtensions(type, namespace)` | Expression | Pre-register namespace methods as extensions   |
-| `registerExtension(type, fn)`         | Expression | Pre-register a single function as an extension |
-
-**When to use `extend()` wrapper:**
-
-The `extend()` wrapper is rarely needed. Use it for:
-
-- **Disambiguation** — multiple typeclasses define same method name
-- **Generic contexts** — type parameter not concrete at call site
-- **Explicit intent** — documentation or teaching
+**Usage — just import and call:**
 
 ```typescript
-// Rare: disambiguate when multiple typeclasses have .map()
-extend(value, Functor).map(f);
+import { clamp, isEven, abs } from "@typesugar/std";
 
-// Common: just call methods directly
-value.show();
-value.clone();
+// Functions become methods automatically
+(-5).abs();           // → abs(-5) → Math.abs(-5)
+n.clamp(0, 100);      // → clamp(n, 0, 100)
+(42).isEven();        // → isEven(42) → true
+[1, 2, 3].head();     // → head([1, 2, 3]) → 1
 ```
+
+**"use extension" directive (for library authors):**
+
+Mark a file so all its exports become extension methods:
+
+```typescript
+"use extension";
+
+export function distance(p: Point, other: Point): number {
+  return Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);
+}
+// Users can write: p1.distance(p2)
+```
+
+**@extension decorator (for individual functions):**
+
+```typescript
+import { extension } from "typesugar";
+
+@extension
+export function volume(box: Box): number {
+  return box.width * box.height * box.depth;
+}
+// Users can write: box.volume()
+```
+
+**Resolution order for method calls:**
+
+1. **Native property** — if `x` has a property `foo`, use it
+2. **Extension functions in scope** — imported functions with matching first param
+3. **Typeclass methods** — auto-derived via `summon()`
+
+Extensions take priority over typeclasses because concrete functions are more specific.
+
+**Ambiguity detection:**
+
+If multiple extension functions match the same receiver type and method name, the transformer
+emits a compile error with the list of candidates. Use explicit qualifiers to disambiguate:
+
+```typescript
+// Error: Ambiguous extension method 'format' for type 'Date'
+// Two extensions match:
+//   - DateExt.format (from "@typesugar/std")
+//   - format (from "./my-formats")
+
+// Fix: use qualified call
+DateExt.format(date, pattern);
+```
+
+**Legacy: registerExtensions() (deprecated)**
+
+The `registerExtensions(type, namespace)` and `registerExtension(type, fn)` macros are still
+supported for backward compatibility but are deprecated. Prefer `"use extension"` directive.
 
 ### HKT Conventions
 
@@ -883,8 +909,10 @@ The export index is pre-populated with known typesugar exports and can be extend
 | Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                          | `core/context.ts`            |
 | Avoid name collisions           | `globalHygiene.withScope(() => { ... })`                             | `core/hygiene.ts`            |
 | Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `macros/typeclass.ts`        |
-| Register standalone extensions  | `registerStandaloneExtensionEntry(info)`                             | `macros/extension.ts`        |
-| Find standalone extension       | `findStandaloneExtension(method, type)`                              | `macros/extension.ts`        |
+| Mark file as extension source   | `"use extension";` directive at file top                             | `core/resolution-scope.ts`   |
+| Mark function as extension      | `@extension` decorator                                               | `macros/extension.ts`        |
+| Check if extension enabled      | `isExtensionEnabled(symbol)` (internal)                              | `transformer/index.ts`       |
+| Legacy standalone extensions    | `registerStandaloneExtensionEntry(info)` (deprecated)                | `macros/extension.ts`        |
 | Register instance methods       | `registerInstanceMethods(name, methods)`                             | `macros/specialize.ts`       |
 | Check primitive coverage        | `registerPrimitive()`, `validateCoverageOrError()`                   | `macros/coverage.ts`         |
 | Extract type metadata           | `extractTypeInfo(ctx, node)`                                         | `macros/reflect.ts`          |

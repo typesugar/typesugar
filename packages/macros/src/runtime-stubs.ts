@@ -123,6 +123,32 @@ export function deriving(..._typeclasses: unknown[]): ClassDecorator & PropertyD
 }
 
 /**
+ * Mark a function as an extension method (first parameter becomes the receiver).
+ *
+ * @example
+ * ```typescript
+ * @extension
+ * export function head<A>(arr: readonly A[]): A | undefined {
+ *   return arr[0];
+ * }
+ *
+ * // Now callable as: [1, 2, 3].head() -> 1
+ * ```
+ *
+ * The decorator is metadata-only and compiles away. The function is unchanged.
+ * Extension methods are resolved at import time — import the function to enable
+ * the extension syntax in that file.
+ */
+export function extension(
+  target: object,
+  _propertyKey?: string | symbol,
+  _descriptor?: PropertyDescriptor
+): any {
+  // Placeholder - processed by transformer
+  return target;
+}
+
+/**
  * Resolve a typeclass instance at compile time (Scala 3-like summon).
  *
  * @example

@@ -550,51 +550,6 @@ export interface MacroDiagnostic {
 // TaggedTemplateMacro is now TaggedTemplateMacroDef, defined above alongside other macro types
 
 // ============================================================================
-// Extension Method Registry (for typeclass-based implicit extensions)
-// ============================================================================
-
-/**
- * Information about an extension method provided by a typeclass
- */
-export interface ExtensionMethodInfo {
-  /** The method name (e.g., "show", "eq", "compare") */
-  methodName: string;
-
-  /** The type this extension is for (e.g., "Point", "User") */
-  forType: string;
-
-  /** The typeclass that provides this extension (e.g., "Show", "Eq") */
-  typeclassName: string;
-
-  /** Whether this is a self-method (first param is `self`) */
-  isSelfMethod: boolean;
-
-  /** Extra parameters beyond `self` */
-  extraParams: Array<{ name: string; type: string }>;
-
-  /** Return type of the method */
-  returnType: string;
-}
-
-/**
- * Registry for extension methods provided by typeclasses.
- * The transformer uses this to rewrite implicit extension method calls.
- */
-export interface ExtensionMethodRegistry {
-  /** Register an extension method */
-  register(info: ExtensionMethodInfo): void;
-
-  /** Find an extension method by name and type */
-  find(methodName: string, forType: string): ExtensionMethodInfo | undefined;
-
-  /** Get all extension methods for a type */
-  getForType(forType: string): ExtensionMethodInfo[];
-
-  /** Clear all registered extensions (for testing) */
-  clear(): void;
-}
-
-// ============================================================================
 // Standalone Extension Methods (Scala 3-style concrete type enrichment)
 // ============================================================================
 

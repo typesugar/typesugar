@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Object/Record Extension Methods
  *
- * The best from:
+ * All exported functions take an object as their first argument,
+ * enabling method-call syntax: `obj.pick(['a', 'b'])`, `obj.omit(['c'])`, etc.
+ *
+ * Inspired by:
  * - Lodash (pick, omit, mapValues, mapKeys, merge, defaults, invert, toPairs, fromPairs)
  * - Ramda (assoc, dissoc, evolve, mergeDeepRight, path, pathOr, lens)
  * - Kotlin (toList, toMap, filterKeys, filterValues, mapKeys, mapValues)

@@ -29,8 +29,6 @@ import {
   extend,
   implicit,
   type TypeclassInfo,
-  // type InstanceInfo — not used in showcase, available for instance introspection
-  findExtensionMethod,
   getTypeclasses,
   getInstances,
   // clearRegistries — not used in showcase, available for test isolation
@@ -252,11 +250,6 @@ assert(showInfo.methods[0].name === "show");
 
 const instances = getInstances();
 assert(instances.size > 0);
-
-// findExtensionMethod resolves which instance provides a method for a type
-const found = findExtensionMethod("number", "show");
-assert(found !== undefined);
-assert(found!.typeclass.name === "Show");
 
 // ============================================================================
 // 8. REAL-WORLD EXAMPLE — Config system with typeclasses

@@ -88,14 +88,9 @@ export {
   extendMacro,
   typeclassRegistry,
   instanceRegistry,
-  extensionMethodRegistry,
   builtinDerivations,
   findInstance,
   getTypeclass,
-  findExtensionMethod,
-  getExtensionMethodsForType,
-  getAllExtensionMethods,
-  registerExtensionMethods,
   clearRegistries,
   getTypeclasses,
   getInstances,
@@ -121,7 +116,6 @@ export {
   type TypeclassMethod,
   type InstanceInfo,
   type InstanceMeta,
-  type ExtensionMethodInfo,
   type BuiltinTypeclassDerivation,
   type SyntaxEntry,
   type ParCombineBuilder,
@@ -336,6 +330,7 @@ export { verifyLawsAttribute, getVerifyLawsConfig } from "./verify-laws.js";
 
 // --- Standalone extension methods for concrete types ---
 export {
+  extensionAttribute,
   registerExtensionsMacro,
   registerExtensionMacro,
   registerStandaloneExtensionEntry,
@@ -387,7 +382,9 @@ export {
   deriving,
   summon,
   extend,
-  // Extension registration stubs
+  // Extension method decorator
+  extension,
+  // Extension registration stubs (deprecated, use @extension instead)
   registerExtensions,
   registerExtension,
   // Implicit parameter resolution stub

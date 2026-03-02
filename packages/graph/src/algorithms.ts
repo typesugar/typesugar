@@ -1,3 +1,10 @@
+"use extension";
+/**
+ * Graph Algorithms
+ *
+ * All exported functions take `Graph` as their first argument,
+ * enabling method-call syntax: `g.topoSort()`, `g.bfs(start)`, etc.
+ */
 import type { Graph, GraphEdge } from "./types.js";
 import { adjacencyList } from "./graph.js";
 import type { Monoid, Ord } from "@typesugar/std";

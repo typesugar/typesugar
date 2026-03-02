@@ -47,8 +47,6 @@ export type {
   DeriveTypeInfo,
   DeriveFieldInfo,
   DeriveVariantInfo,
-  ExtensionMethodInfo,
-  ExtensionMethodRegistry,
   StandaloneExtensionInfo,
   OperatorSymbol,
   Op,

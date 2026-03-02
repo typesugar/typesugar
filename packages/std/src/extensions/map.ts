@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Map & Set Extension Methods
  *
- * The best from:
+ * All exported functions take `Map` or `Set` as their first argument,
+ * enabling method-call syntax: `m.getOrDefault(k, v)`, `s.union(t)`, etc.
+ *
+ * Inspired by:
  * - Scala (mapValues, filterKeys, collect, groupBy, toList, getOrElse, updated)
  * - Kotlin (getOrDefault, getOrPut, filterKeys, filterValues, mapKeys, mapValues, toList)
  * - Haskell (Data.Map: union, intersection, difference, mapWithKey, foldlWithKey)

@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Number Extension Methods
  *
- * The best from:
+ * All exported functions take `number` as their first argument,
+ * enabling method-call syntax: `(-5).abs()`, `n.clamp(0, 100)`, etc.
+ *
+ * Inspired by:
  * - Ruby (times, upto, downto, even?, odd?, between?, clamp, abs, round, ceil, floor, digits)
  * - Kotlin (coerceIn, coerceAtLeast, coerceAtMost, rangeTo, downTo, compareTo)
  * - Swift (isMultiple(of:), magnitude, negate)
@@ -13,7 +17,111 @@
  */
 
 // ============================================================================
-// Arithmetic & Rounding
+// Math.* Wrappers — Zero-Cost Static Method Extensions
+// ============================================================================
+// These wrap static Math methods so they can be called as extensions on numbers.
+// Example: (-5).abs() instead of Math.abs(-5)
+// The transformer inlines these, so there's no overhead.
+
+export function abs(n: number): number {
+  return Math.abs(n);
+}
+
+export function ceil(n: number): number {
+  return Math.ceil(n);
+}
+
+export function floor(n: number): number {
+  return Math.floor(n);
+}
+
+export function round(n: number): number {
+  return Math.round(n);
+}
+
+export function trunc(n: number): number {
+  return Math.trunc(n);
+}
+
+export function sqrt(n: number): number {
+  return Math.sqrt(n);
+}
+
+export function cbrt(n: number): number {
+  return Math.cbrt(n);
+}
+
+export function sign(n: number): number {
+  return Math.sign(n);
+}
+
+export function log(n: number): number {
+  return Math.log(n);
+}
+
+export function log10(n: number): number {
+  return Math.log10(n);
+}
+
+export function log2(n: number): number {
+  return Math.log2(n);
+}
+
+export function exp(n: number): number {
+  return Math.exp(n);
+}
+
+export function sin(n: number): number {
+  return Math.sin(n);
+}
+
+export function cos(n: number): number {
+  return Math.cos(n);
+}
+
+export function tan(n: number): number {
+  return Math.tan(n);
+}
+
+export function asin(n: number): number {
+  return Math.asin(n);
+}
+
+export function acos(n: number): number {
+  return Math.acos(n);
+}
+
+export function atan(n: number): number {
+  return Math.atan(n);
+}
+
+export function sinh(n: number): number {
+  return Math.sinh(n);
+}
+
+export function cosh(n: number): number {
+  return Math.cosh(n);
+}
+
+export function tanh(n: number): number {
+  return Math.tanh(n);
+}
+
+// Binary Math functions with number as first argument
+// Note: pow, min, max are NOT included here because they conflict with
+// the generic typeclass versions in typeclasses/numeric-ops.ts.
+// Use (2).pow(3) via the Numeric typeclass, or Math.pow directly.
+
+export function atan2(y: number, x: number): number {
+  return Math.atan2(y, x);
+}
+
+export function hypot(a: number, b: number): number {
+  return Math.hypot(a, b);
+}
+
+// ============================================================================
+// Arithmetic & Rounding (Custom)
 // ============================================================================
 
 export function clamp(n: number, min: number, max: number): number {
@@ -443,6 +551,32 @@ export function randomFloat(min: number, max: number): number {
 // ============================================================================
 
 export const NumberExt = {
+  // Math.* wrappers
+  abs,
+  ceil,
+  floor,
+  round,
+  trunc,
+  sqrt,
+  cbrt,
+  sign,
+  log,
+  log10,
+  log2,
+  exp,
+  sin,
+  cos,
+  tan,
+  asin,
+  acos,
+  atan,
+  sinh,
+  cosh,
+  tanh,
+  atan2,
+  hypot,
+  // Note: pow, min, max come from typeclasses/numeric-ops.ts
+  // Custom extensions
   clamp,
   lerp,
   inverseLerp,

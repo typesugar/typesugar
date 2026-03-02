@@ -394,9 +394,6 @@ function executeTransitiveDerivation(
       derived: true,
     });
 
-    // Register extension methods
-    registerExtensionMethods(typeInfo.typeName, typeclassName);
-
     // Notify coverage system
     notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
   }
@@ -488,26 +485,9 @@ interface InstanceMeta {
   [key: string]: unknown;
 }
 
-/** Tracks which extension methods are available for which types */
-interface ExtensionMethodInfo {
-  /** The method name (e.g., "show", "eq") */
-  methodName: string;
-  /** The type this extension is available on (e.g., "Point") */
-  forType: string;
-  /** The typeclass providing this method (e.g., "Show") */
-  typeclassName: string;
-  /** Whether the first param is "self" (always true for extensions) */
-  isSelfMethod: boolean;
-  /** Additional params beyond self */
-  extraParams: Array<{ name: string; typeString: string }>;
-  /** Return type */
-  returnType: string;
-}
-
 /** Global compile-time registry of typeclasses and instances */
 const typeclassRegistry = new Map<string, TypeclassInfo>();
 const instanceRegistry: InstanceInfo[] = [];
-const extensionMethodRegistry: ExtensionMethodInfo[] = [];
 
 // ============================================================================
 // Syntax Registry — operator → typeclass method mappings
@@ -729,59 +709,6 @@ function stripOpFromInterface(
 }
 
 /**
- * Register extension methods for a type based on its derived typeclasses.
- * Called by @deriving when it derives typeclass instances.
- */
-function registerExtensionMethods(typeName: string, tcName: string): void {
-  const tc = typeclassRegistry.get(tcName);
-  if (!tc) return;
-
-  for (const method of tc.methods) {
-    if (method.isSelfMethod) {
-      // Avoid duplicates
-      const exists = extensionMethodRegistry.some(
-        (e) => e.methodName === method.name && e.forType === typeName && e.typeclassName === tcName
-      );
-      if (!exists) {
-        extensionMethodRegistry.push({
-          methodName: method.name,
-          forType: typeName,
-          typeclassName: tcName,
-          isSelfMethod: true,
-          extraParams: method.params.slice(1),
-          returnType: method.returnType,
-        });
-      }
-    }
-  }
-}
-
-/**
- * Find an extension method for a given type and method name.
- * Returns the first matching extension, or undefined.
- */
-function findExtensionMethod(
-  methodName: string,
-  typeName: string
-): ExtensionMethodInfo | undefined {
-  return extensionMethodRegistry.find((e) => e.methodName === methodName && e.forType === typeName);
-}
-
-/**
- * Get all extension methods available for a given type.
- */
-function getExtensionMethodsForType(typeName: string): ExtensionMethodInfo[] {
-  return extensionMethodRegistry.filter((e) => e.forType === typeName);
-}
-
-/**
- * Get all registered extension methods (for language service integration).
- */
-function getAllExtensionMethods(): ExtensionMethodInfo[] {
-  return [...extensionMethodRegistry];
-}
-
-/**
  * Get a copy of the typeclass registry.
  * Returns a new Map so mutations don't affect the internal registry.
  */
@@ -808,7 +735,6 @@ export function getInstances(): Map<string, InstanceInfo> {
 export function clearRegistries(): void {
   typeclassRegistry.clear();
   instanceRegistry.length = 0;
-  extensionMethodRegistry.length = 0;
 }
 
 // ============================================================================
@@ -1382,9 +1308,6 @@ export const instanceAttribute = defineAttributeMacro({
       instanceName: varName,
       derived: false,
     });
-
-    // Register extension methods for this type+typeclass
-    registerExtensionMethods(typeName, tcName);
 
     // Notify coverage system that this type has an instance
     notifyPrimitiveRegistered(typeName, tcName);
@@ -2223,9 +2146,6 @@ function createTypeclassDeriveMacro(tcName: string) {
           instanceName: instanceVarName(uncapitalize(tcName), typeName),
           derived: true,
         });
-
-        // Register extension methods
-        registerExtensionMethods(typeName, tcName);
       }
 
       return stmts;
@@ -2501,9 +2421,6 @@ export const derivingAttribute = defineAttributeMacro({
             instanceName: varName,
             derived: true,
           });
-
-          // Register extension methods for this type+typeclass
-          registerExtensionMethods(typeName, tcName);
 
           // Notify coverage system
           notifyPrimitiveRegistered(typeName, tcName);
@@ -2879,9 +2796,6 @@ export const instanceMacro = defineExpressionMacro({
         instanceName,
         derived: false,
       });
-
-      // Register extension methods for this type+typeclass
-      registerExtensionMethods(forType, typeclassName);
 
       // Notify coverage system
       notifyPrimitiveRegistered(forType, typeclassName);
@@ -3517,7 +3431,6 @@ export type {
   TypeclassMethod,
   InstanceInfo,
   InstanceMeta,
-  ExtensionMethodInfo,
   BuiltinTypeclassDerivation,
   SyntaxEntry,
 };
@@ -3525,14 +3438,9 @@ export type {
 export {
   typeclassRegistry,
   instanceRegistry,
-  extensionMethodRegistry,
   builtinDerivations,
   findInstance,
   getTypeclass,
-  findExtensionMethod,
-  getExtensionMethodsForType,
-  getAllExtensionMethods,
-  registerExtensionMethods,
   instanceVarName,
   createTypeclassDeriveMacro,
   syntaxRegistry,

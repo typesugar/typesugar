@@ -288,6 +288,72 @@ Each level adds visibility into what the compiler is doing. None of them are req
 
 ---
 
+## Extension Methods: UFCS for TypeScript
+
+Scala 3's extension methods let you call `xs.second` instead of `second(xs)`. typesugar brings this to TypeScript with zero overhead.
+
+### The rule is simple
+
+Any function whose first parameter matches the receiver type can be called as a method:
+
+```typescript
+import { clamp, isEven } from "@typesugar/std";
+
+// These are just functions: clamp(n: number, min: number, max: number): number
+// But you can call them as methods:
+n.clamp(0, 100);   // → clamp(n, 0, 100)
+(7).isEven();      // → isEven(7)
+```
+
+The transformer rewrites `n.clamp(0, 100)` to `clamp(n, 0, 100)` -- a direct function call. No method lookup, no prototype pollution, no monkey patching.
+
+### "use extension" for library authors
+
+Mark a file so all its exports become extension methods:
+
+```typescript
+"use extension";
+
+export function distance(p: Point, other: Point): number {
+  return Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);
+}
+
+// Users can now write: p1.distance(p2)
+```
+
+This is opt-in at the module level. The directive says "all functions here are designed to be called as methods on their first parameter."
+
+### Resolution order
+
+When you write `x.foo()`:
+
+1. **Native property** -- If `x` has a property `foo`, use it
+2. **Extension functions** -- If an imported function `foo` takes `x`'s type as its first param, rewrite to `foo(x)`
+3. **Typeclass methods** -- If a typeclass provides `foo` for `x`'s type, use the derived instance
+
+Extensions take priority over typeclasses because concrete functions (like `head(arr: A[])`) are more specific than generic typeclass versions (like `head(s: S, SQ: Seq<S, A>)`).
+
+### Why this matters
+
+JavaScript has a tradition of extending prototypes:
+
+```javascript
+Array.prototype.head = function () {
+  return this[0];
+};
+```
+
+This is dangerous -- it modifies globals, breaks encapsulation, and causes conflicts between libraries. typesugar's extension methods achieve the same ergonomics without these problems:
+
+- **Scoped** -- Extensions only work where imported
+- **Conflict-free** -- Two libraries can define `head` differently
+- **Zero-cost** -- Compiles to direct function calls
+- **Type-safe** -- The type checker verifies the first parameter matches
+
+This is Scala 3's `extension` syntax, adapted to TypeScript's module system.
+
+---
+
 ## Drop What Doesn't Deliver
 
 Not every abstraction earns its keep. Be willing to remove code that:

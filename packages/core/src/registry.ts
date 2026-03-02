@@ -536,55 +536,6 @@ export function registerMacros(registry: MacroRegistry, ...macros: MacroDefiniti
 }
 
 // ============================================================================
-// Extension Method Registry Implementation
-// ============================================================================
-
-import { ExtensionMethodInfo, ExtensionMethodRegistry } from "./types.js";
-
-class ExtensionMethodRegistryImpl implements ExtensionMethodRegistry {
-  private extensions = new Map<string, ExtensionMethodInfo[]>();
-
-  private makeKey(methodName: string, forType: string): string {
-    return `${forType}::${methodName}`;
-  }
-
-  register(info: ExtensionMethodInfo): void {
-    const key = this.makeKey(info.methodName, info.forType);
-    const existing = this.extensions.get(key) ?? [];
-    existing.push(info);
-    this.extensions.set(key, existing);
-  }
-
-  find(methodName: string, forType: string): ExtensionMethodInfo | undefined {
-    const key = this.makeKey(methodName, forType);
-    const matches = this.extensions.get(key);
-    return matches?.[0];
-  }
-
-  getForType(forType: string): ExtensionMethodInfo[] {
-    const results: ExtensionMethodInfo[] = [];
-    for (const [key, infos] of this.extensions) {
-      if (key.startsWith(forType + "::")) {
-        results.push(...infos);
-      }
-    }
-    return results;
-  }
-
-  clear(): void {
-    this.extensions.clear();
-  }
-}
-
-/** Global extension method registry singleton */
-export const globalExtensionRegistry: ExtensionMethodRegistry = new ExtensionMethodRegistryImpl();
-
-/** Create a new isolated extension registry (for testing) */
-export function createExtensionRegistry(): ExtensionMethodRegistry {
-  return new ExtensionMethodRegistryImpl();
-}
-
-// ============================================================================
 // Standalone Extension Registry (Scala 3-style concrete type enrichment)
 // ============================================================================
 

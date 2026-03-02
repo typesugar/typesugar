@@ -290,6 +290,149 @@ function init(modules: { typescript: typeof ts }) {
       return { start: originalStart, length: originalLength };
     }
 
+    /**
+     * Check if a function's first parameter type is compatible with a target type
+     */
+    function isFirstParamCompatible(
+      checker: ts.TypeChecker,
+      fnSymbol: ts.Symbol,
+      targetType: ts.Type
+    ): boolean {
+      const decl = fnSymbol.getDeclarations()?.[0];
+      if (!decl || !tsModule.isFunctionDeclaration(decl) && !tsModule.isArrowFunction(decl) && !tsModule.isFunctionExpression(decl) && !tsModule.isMethodDeclaration(decl)) {
+        return false;
+      }
+
+      const signature = checker.getSignatureFromDeclaration(decl as ts.SignatureDeclaration);
+      if (!signature) return false;
+
+      const params = signature.getParameters();
+      if (params.length === 0) return false;
+
+      const firstParam = params[0];
+      const firstParamDecl = firstParam.getDeclarations()?.[0];
+      if (!firstParamDecl || !tsModule.isParameter(firstParamDecl)) return false;
+
+      const firstParamType = checker.getTypeAtLocation(firstParamDecl);
+      
+      // Check if targetType is assignable to firstParamType
+      return checker.isTypeAssignableTo(targetType, firstParamType);
+    }
+
+    /**
+     * Get extension method completions for a given receiver type
+     */
+    function getExtensionCompletions(
+      sourceFile: ts.SourceFile,
+      receiverType: ts.Type,
+      checker: ts.TypeChecker
+    ): ts.CompletionEntry[] {
+      const extensions: ts.CompletionEntry[] = [];
+      const seen = new Set<string>();
+
+      // Scan import declarations for potential extension functions
+      for (const stmt of sourceFile.statements) {
+        if (!tsModule.isImportDeclaration(stmt)) continue;
+
+        const clause = stmt.importClause;
+        if (!clause) continue;
+
+        // Handle named imports: import { foo, bar } from "module"
+        if (clause.namedBindings && tsModule.isNamedImports(clause.namedBindings)) {
+          for (const spec of clause.namedBindings.elements) {
+            const name = spec.name.text;
+            if (seen.has(name)) continue;
+
+            const symbol = checker.getSymbolAtLocation(spec.name);
+            if (!symbol) continue;
+
+            // Resolve alias if necessary
+            const resolved = checker.getAliasedSymbol(symbol);
+            const targetSymbol = resolved ?? symbol;
+
+            if (isFirstParamCompatible(checker, targetSymbol, receiverType)) {
+              seen.add(name);
+              extensions.push({
+                name,
+                kind: tsModule.ScriptElementKind.functionElement,
+                sortText: "1" + name, // Sort after native methods
+                insertText: `${name}()`,
+                labelDetails: {
+                  description: "(extension)",
+                },
+              });
+            }
+          }
+        }
+
+        // Handle namespace imports: import * as Ext from "module"
+        if (clause.namedBindings && tsModule.isNamespaceImport(clause.namedBindings)) {
+          const namespaceSymbol = checker.getSymbolAtLocation(clause.namedBindings.name);
+          if (!namespaceSymbol) continue;
+
+          const exports = checker.getExportsOfModule(namespaceSymbol);
+          for (const exp of exports) {
+            const name = exp.getName();
+            if (seen.has(name)) continue;
+
+            if (isFirstParamCompatible(checker, exp, receiverType)) {
+              seen.add(name);
+              extensions.push({
+                name,
+                kind: tsModule.ScriptElementKind.functionElement,
+                sortText: "1" + name,
+                insertText: `${name}()`,
+                labelDetails: {
+                  description: `(extension from ${clause.namedBindings.name.text})`,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      return extensions;
+    }
+
+    /**
+     * Detect if we're in a property access context (after a dot)
+     */
+    function getReceiverTypeAtPosition(
+      sourceFile: ts.SourceFile,
+      position: number,
+      checker: ts.TypeChecker
+    ): ts.Type | null {
+      // Find the node at this position
+      function findNodeAtPosition(node: ts.Node): ts.Node | undefined {
+        if (position >= node.getStart() && position <= node.getEnd()) {
+          return tsModule.forEachChild(node, findNodeAtPosition) || node;
+        }
+        return undefined;
+      }
+
+      const node = findNodeAtPosition(sourceFile);
+      if (!node) return null;
+
+      // Check if we're in a property access expression
+      let current: ts.Node | undefined = node;
+      while (current) {
+        if (tsModule.isPropertyAccessExpression(current)) {
+          // Get the type of the expression being accessed
+          return checker.getTypeAtLocation(current.expression);
+        }
+        // Check if cursor is right after a dot by looking at parent
+        if (current.parent && tsModule.isPropertyAccessExpression(current.parent)) {
+          if (current === current.parent.name || 
+              (position > current.parent.expression.getEnd() && position <= current.parent.name.getEnd())) {
+            return checker.getTypeAtLocation(current.parent.expression);
+          }
+        }
+        current = current.parent;
+      }
+
+      return null;
+    }
+
     proxy.getCompletionsAtPosition = (
       fileName: string,
       position: number,
@@ -305,10 +448,8 @@ function init(modules: { typescript: typeof ts }) {
 
       const result = oldLS.getCompletionsAtPosition(fileName, transformedPosition, options);
 
-      if (!result) return result;
-
       // Map replacement spans back to original coordinates
-      const mappedEntries = result.entries.map((entry) => {
+      const mappedEntries = result?.entries.map((entry) => {
         if (entry.replacementSpan) {
           const mappedSpan = mapTextSpanToOriginal(entry.replacementSpan, mapper);
           if (mappedSpan) {
@@ -316,12 +457,48 @@ function init(modules: { typescript: typeof ts }) {
           }
         }
         return entry;
-      });
+      }) ?? [];
+
+      // Try to add extension method completions
+      try {
+        const program = oldLS.getProgram();
+        if (program) {
+          const checker = program.getTypeChecker();
+          const sourceFile = program.getSourceFile(fileName);
+          
+          if (sourceFile) {
+            const receiverType = getReceiverTypeAtPosition(sourceFile, transformedPosition, checker);
+            
+            if (receiverType) {
+              const extensionCompletions = getExtensionCompletions(sourceFile, receiverType, checker);
+              
+              if (extensionCompletions.length > 0) {
+                log(`Adding ${extensionCompletions.length} extension completions for ${checker.typeToString(receiverType)}`);
+                
+                // Filter out extensions that duplicate existing entries
+                const existingNames = new Set(mappedEntries.map(e => e.name));
+                const newExtensions = extensionCompletions.filter(e => !existingNames.has(e.name));
+                
+                mappedEntries.push(...newExtensions);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        log(`Error getting extension completions: ${error}`);
+      }
+
+      if (mappedEntries.length === 0 && !result) {
+        return undefined;
+      }
 
       return {
         ...result,
+        isGlobalCompletion: result?.isGlobalCompletion ?? false,
+        isMemberCompletion: result?.isMemberCompletion ?? true,
+        isNewIdentifierLocation: result?.isNewIdentifierLocation ?? false,
         entries: mappedEntries,
-      };
+      } as ts.WithMetadata<ts.CompletionInfo>;
     };
 
     proxy.getQuickInfoAtPosition = (

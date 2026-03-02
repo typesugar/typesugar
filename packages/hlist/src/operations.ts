@@ -1,5 +1,9 @@
+"use extension";
 /**
  * @typesugar/hlist — Runtime Operations
+ *
+ * All exported functions take `HList` as their first argument,
+ * enabling method-call syntax: `list.head()`, `list.tail()`, etc.
  *
  * Thin wrappers over array operations that maintain type-level tracking.
  * The runtime cost is minimal — all the value of HList lives in the types.

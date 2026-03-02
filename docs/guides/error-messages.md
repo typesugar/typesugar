@@ -117,7 +117,7 @@ error[TS9062]: Method `clamp` does not exist on type `number`
    |                      ^^^^^ not a native number method
    |
    = help: Did you mean to import?
-     + import { NumberExt } from "@typesugar/std";
+     + import { clamp } from "@typesugar/std";
 ```
 
 ### Coherence Violation (TS9050)

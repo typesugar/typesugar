@@ -1,13 +1,22 @@
-// Extension namespace objects
-//
-// These are used with registerExtensions() to enable Scala 3-style
-// extension methods on concrete types:
-//
-//   import { registerExtensions, extend } from "typesugar";
-//   import { NumberExt } from "@typesugar/std";
-//
-//   registerExtensions("number", NumberExt);
-//   extend(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
+/**
+ * Extension Methods for Standard Types
+ *
+ * All modules use "use extension" directive, making their exports callable
+ * as methods on the appropriate types. Just import the functions you need:
+ *
+ *   import { clamp, isEven } from "@typesugar/std";
+ *
+ *   (-5).abs();           // → Math.abs(-5) → 5
+ *   n.clamp(0, 100);      // → clamp(n, 0, 100)
+ *   n.isEven();           // → isEven(n)
+ *   arr.head();           // → head(arr)
+ *   s.capitalize();       // → capitalize(s)
+ *
+ * Legacy: NumberExt, StringExt, etc. namespaces are still exported for
+ * backward compatibility with registerExtensions().
+ */
+
+// Legacy extension namespace objects (deprecated, use direct imports instead)
 //
 export { NumberExt } from "./number";
 export { StringExt } from "./string";

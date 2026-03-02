@@ -62,7 +62,7 @@ This works for:
 
 - **Macros** — `comptime`, `specialize`, `match`, `cfg`, etc.
 - **Typeclasses** — `Eq`, `Show`, `Ord`, `Functor`, etc.
-- **Extension methods** — `NumberExt`, `StringExt`, `ArrayExt`, etc.
+- **Extension methods** — `clamp`, `abs`, `capitalize`, `head`, etc.
 - **Types** — `Option`, `Either`, `IO`, etc.
 
 ### How It Works

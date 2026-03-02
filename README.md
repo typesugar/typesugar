@@ -197,6 +197,41 @@ const fields = fieldNames<User>(); // ["id", "name", "email"]
 const validate = validator<User>(); // Runtime validator from types
 ```
 
+### Extension Methods
+
+Any function whose first parameter matches the receiver type can be called as a method — Scala 3-style UFCS (Uniform Function Call Syntax):
+
+```typescript
+import { clamp, isEven, abs } from "@typesugar/std";
+
+// These functions take `number` as their first parameter
+// So they can be called as methods on numbers:
+const n = -42;
+n.abs();           // → Math.abs(n) → 42
+n.clamp(0, 100);   // → clamp(n, 0, 100) → 0
+(7).isEven();      // → isEven(7) → false
+
+// Works for any type!
+import { head, tail, chunk } from "@typesugar/std";
+
+const arr = [1, 2, 3, 4, 5];
+arr.head();        // → 1
+arr.tail();        // → [2, 3, 4, 5]
+arr.chunk(2);      // → [[1, 2], [3, 4], [5]]
+```
+
+For library authors — mark your functions as extensions explicitly:
+
+```typescript
+"use extension";  // All exports in this file become extension methods
+
+export function distance(p: Point, other: Point): number {
+  return Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);
+}
+
+// Users can now write: p1.distance(p2)
+```
+
 ### Tagged Templates
 
 ```typescript

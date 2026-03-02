@@ -121,9 +121,9 @@ user.show();
 
 - `getTypeclasses()` — Get all registered typeclasses
 - `getInstances()` — Get all registered instances
-- `findExtensionMethod(typeName, methodName)` — Find an extension method
+- `findInstance(typeclassName, forType)` — Find an instance
+- `getTypeclass(name)` — Get a typeclass definition
 - `clearRegistries()` — Clear all registries (for testing)
-- `register()` — Register macros (called automatically on import)
 
 ## Auto-Derivation
 

@@ -16,43 +16,43 @@ pnpm add @typesugar/std
 
 ## Usage
 
-### Extension Methods (Scala 3-style)
+### Extension Methods (Scala 3-style UFCS)
 
-Extension methods are import-scoped. Import a namespace or function from
-`@typesugar/std` and the transformer automatically resolves undefined method
-calls against what's in scope:
+Any imported function whose first parameter matches the receiver type can be called as a method.
+Just import what you need:
 
 ```typescript
-import { extend } from "typesugar";
-import { NumberExt, StringExt, ArrayExt } from "@typesugar/std";
+import { clamp, isEven, abs, capitalize, head } from "@typesugar/std";
 
-// extend() with namespace imports
-extend(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
-extend(255).toHex(); // → NumberExt.toHex(255)
-extend(7).isPrime(); // → NumberExt.isPrime(7)
+// Functions become methods automatically
+(-5).abs();           // → Math.abs(-5) → 5
+(42).clamp(0, 100);   // → clamp(42, 0, 100) → 42
+(7).isEven();         // → isEven(7) → false
+"hello".capitalize(); // → capitalize("hello") → "Hello"
+[1, 2, 3].head();     // → head([1, 2, 3]) → 1
 
-extend("hello world").capitalize(); // → StringExt.capitalize("hello world")
-
-extend([1, 2, 3, 4, 5]).chunk(2); // → ArrayExt.chunk([1, 2, 3, 4, 5], 2)
-extend([3, 1, 4, 1, 5]).unique(); // → ArrayExt.unique([3, 1, 4, 1, 5])
+// Direct calls still work
+clamp(42, 0, 100);    // → 42
 ```
 
-Implicit extension rewriting (no `extend()` needed):
+**Math.* methods on numbers:**
 
 ```typescript
+import { abs, ceil, floor, sqrt, sin, cos } from "@typesugar/std";
+
+(-5).abs();           // → Math.abs(-5) → 5
+(3.7).ceil();         // → Math.ceil(3.7) → 4
+(3.7).floor();        // → Math.floor(3.7) → 3
+(16).sqrt();          // → Math.sqrt(16) → 4
+(0).sin();            // → Math.sin(0) → 0
+```
+
+**Legacy namespace imports (deprecated):**
+
+```typescript
+// Still works for backward compatibility, but prefer direct function imports
 import { NumberExt } from "@typesugar/std";
-
-(42).clamp(0, 100); // → NumberExt.clamp(42, 0, 100)
-(7).isPrime(); // → NumberExt.isPrime(7)
-```
-
-Bare function imports work too:
-
-```typescript
-import { clamp, isPrime } from "@typesugar/std";
-
-(42).clamp(0, 100); // → clamp(42, 0, 100)
-clamp(42, 0, 100); // also works as a direct call
+NumberExt.clamp(42, 0, 100); // direct call
 ```
 
 ### Ranges (Scala/Kotlin-style)

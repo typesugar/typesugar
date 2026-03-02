@@ -8,7 +8,7 @@ Everyday features from `@typesugar/std`:
 
 | Guide                                        | Description                                             |
 | -------------------------------------------- | ------------------------------------------------------- |
-| [Extension Methods](./extension-methods.md)  | Scala 3-style methods on primitives                     |
+| [Extension Methods](./extension-methods.md)  | UFCS: call functions as methods (`"use extension"`)     |
 | [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions          |
 | [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:` |
 | [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Hash, Show, Monoid, FlatMap                    |
@@ -96,7 +96,7 @@ When something goes wrong, you should know exactly what happened:
 
 ```typescript
 // Standard library
-import { NumberExt, match, registerFlatMap } from "@typesugar/std";
+import { clamp, abs, match, registerFlatMap } from "@typesugar/std";
 
 // Derive macros
 import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";

@@ -1,7 +1,11 @@
+"use extension";
 /**
  * Array Extension Methods
  *
- * The best from:
+ * All exported functions take `T[]` as their first argument,
+ * enabling method-call syntax: `arr.head()`, `arr.chunk(3)`, etc.
+ *
+ * Inspired by:
  * - Scala (head, tail, init, last, take, drop, zip, unzip, groupBy, partition,
  *          sliding, grouped, span, splitAt, foldRight, scanLeft, scanRight,
  *          collect, flatMap, distinct, intersperse, mkString, corresponds,

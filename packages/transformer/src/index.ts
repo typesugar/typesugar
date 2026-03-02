@@ -21,7 +21,6 @@ import {
   builtinDerivations,
   instanceRegistry,
   instanceVarName,
-  registerExtensionMethods,
   tryExtractSumType,
   hasImplicitParams,
   transformImplicitsCall,
@@ -51,7 +50,6 @@ import {
   MacroContextImpl,
   createMacroContext,
   globalRegistry,
-  globalExtensionRegistry,
   standaloneExtensionRegistry,
   findStandaloneExtension,
   buildStandaloneExtensionCall,
@@ -1262,31 +1260,45 @@ class MacroTransformer {
       return methodCache.get(methodName);
     }
 
-    const result = this.scanImportsForExtension(sourceFile, methodName, receiverType);
+    // Pass the node for error reporting on first resolution (not cached lookups)
+    const result = this.scanImportsForExtension(sourceFile, methodName, receiverType, node);
     methodCache.set(methodName, result);
     return result;
   }
 
+  /**
+   * Extended extension info that tracks the import source for error messages.
+   */
   private scanImportsForExtension(
     sourceFile: ts.SourceFile,
     methodName: string,
-    receiverType: ts.Type
+    receiverType: ts.Type,
+    node?: ts.Node
   ): StandaloneExtensionInfo | undefined {
     // Guard against synthetic source files that lack statements
     if (!sourceFile || !sourceFile.statements) {
       return undefined;
     }
+
+    // Collect all matching extensions for ambiguity detection
+    const matches: Array<{ ext: StandaloneExtensionInfo; importSource: string }> = [];
+
     for (const stmt of sourceFile.statements) {
       if (!ts.isImportDeclaration(stmt)) continue;
 
       const clause = stmt.importClause;
       if (!clause) continue;
 
+      const moduleSpecifier = stmt.moduleSpecifier;
+      const importSource = ts.isStringLiteral(moduleSpecifier) ? moduleSpecifier.text : "unknown";
+
       // Check named imports: import { NumberExt, clamp } from "..."
       if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
         for (const spec of clause.namedBindings.elements) {
           const result = this.checkImportedSymbolForExtension(spec.name, methodName, receiverType);
-          if (result) return result;
+          if (result) {
+            matches.push({ ext: result, importSource });
+          }
         }
       }
 
@@ -1297,27 +1309,75 @@ class MacroTransformer {
           methodName,
           receiverType
         );
-        if (result) return result;
+        if (result) {
+          matches.push({ ext: result, importSource });
+        }
       }
 
       // Check default import: import Foo from "..."
       if (clause.name) {
         const result = this.checkImportedSymbolForExtension(clause.name, methodName, receiverType);
-        if (result) return result;
+        if (result) {
+          matches.push({ ext: result, importSource });
+        }
       }
     }
 
-    return undefined;
+    // No matches
+    if (matches.length === 0) {
+      return undefined;
+    }
+
+    // Single match - no ambiguity
+    if (matches.length === 1) {
+      return matches[0].ext;
+    }
+
+    // Multiple matches - check for ambiguity
+    // If all matches have the same qualifier, they're the same extension (e.g., imported from multiple paths)
+    const uniqueQualifiers = new Set(matches.map((m) => m.ext.qualifier ?? ""));
+    if (uniqueQualifiers.size === 1) {
+      // All matches point to the same extension
+      return matches[0].ext;
+    }
+
+    // True ambiguity - multiple different extensions could apply
+    const typeName = this.ctx.typeChecker.typeToString(receiverType);
+    const sources = matches
+      .map((m) => {
+        const qual = m.ext.qualifier ? `${m.ext.qualifier}.${methodName}` : methodName;
+        return `  - ${qual} (from "${m.importSource}")`;
+      })
+      .join("\n");
+
+    const errorMessage =
+      `Ambiguous extension method '${methodName}' for type '${typeName}'. ` +
+      `Multiple extensions match:\n${sources}\n` +
+      `Use an explicit qualifier or rename one of the imports to disambiguate.`;
+
+    if (node) {
+      this.ctx.reportError(node, errorMessage);
+    }
+
+    // Return the first match anyway so compilation can continue
+    return matches[0].ext;
   }
 
   /**
    * Check if an imported identifier provides an extension method.
+   *
+   * Extension methods "just work" (UFCS-style): any imported function
+   * whose first parameter matches the receiver type can be called as a method.
    *
    * Handles two cases:
    *   - The identifier IS a function named `methodName` whose first param
    *     matches the receiver type → bare function extension
    *   - The identifier is an object with a callable property named `methodName`
    *     whose first param matches → namespace extension
+   *
+   * The @extension decorator and "use extension" directive are used for:
+   *   - Documentation: explicitly mark which functions are extensions
+   *   - Re-exports: preserve extension status through module boundaries
    */
   private checkImportedSymbolForExtension(
     ident: ts.Identifier,
@@ -1360,6 +1420,72 @@ class MacroTransformer {
     }
 
     return undefined;
+  }
+
+  /**
+   * Check if a symbol is extension-enabled.
+   * Returns true if:
+   *   - The symbol's source file has "use extension" directive
+   *   - The symbol has @extension decorator on its declaration
+   *
+   * This is used when we need to explicitly check extension status,
+   * e.g., for re-exports or disambiguation.
+   */
+  private isExtensionEnabled(symbol: ts.Symbol): boolean {
+    const declarations = symbol.getDeclarations();
+    if (!declarations || declarations.length === 0) {
+      return false;
+    }
+
+    for (const decl of declarations) {
+      const sourceFile = decl.getSourceFile();
+      const fileName = sourceFile.fileName;
+
+      // Declaration files (.d.ts) can only have @extension decorator
+      if (sourceFile.isDeclarationFile) {
+        if (this.hasExtensionDecorator(decl)) {
+          return true;
+        }
+        continue;
+      }
+
+      // For source files, check both directive and decorator
+      if (fileName !== this.ctx.sourceFile.fileName) {
+        scanImportsForScope(sourceFile, globalResolutionScope);
+      }
+
+      if (globalResolutionScope.hasUseExtension(fileName)) {
+        return true;
+      }
+
+      if (this.hasExtensionDecorator(decl)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a declaration has the @extension decorator.
+   */
+  private hasExtensionDecorator(node: ts.Node): boolean {
+    if (!ts.canHaveDecorators(node)) return false;
+
+    const decorators = ts.getDecorators(node);
+    if (!decorators) return false;
+
+    for (const decorator of decorators) {
+      const expr = decorator.expression;
+      if (ts.isIdentifier(expr) && expr.text === "extension") {
+        return true;
+      }
+      if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === "extension") {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -3193,8 +3319,6 @@ class MacroTransformer {
             instanceName: instanceVarName(uncap, typeName),
             derived: true,
           });
-
-          registerExtensionMethods(typeName, deriveName);
         } catch (error) {
           this.ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
         }
@@ -3621,20 +3745,8 @@ class MacroTransformer {
 
     const typeName = this.ctx.typeChecker.typeToString(receiverType);
 
-    // Use the global extension registry
-    let extension = globalExtensionRegistry.find(methodName, typeName);
-
-    // Try without generic parameters
-    if (!extension) {
-      const baseTypeName = typeName.replace(/<.*>$/, "");
-      if (baseTypeName !== typeName) {
-        extension = globalExtensionRegistry.find(methodName, baseTypeName);
-      }
-    }
-
-    // Check standalone extensions — first the pre-registered registry,
-    // then scan imports in the current file (Scala 3-style: extensions
-    // are scoped to what's imported).
+    // Check standalone extensions — first the pre-registered registry (from registerExtensions),
+    // then scan imports in the current file (Scala 3-style: extensions are scoped to what's imported).
     let standaloneExt = findStandaloneExtension(methodName, typeName);
     if (!standaloneExt) {
       const baseTypeName = typeName.replace(/<.*>$/, "");
@@ -3643,9 +3755,8 @@ class MacroTransformer {
       }
     }
 
-    // Import-scoped resolution: scan the current file's imports for a
-    // matching function or namespace property. This is the "error recovery"
-    // path — any undefined method triggers a search of what's in scope.
+    // Import-scoped resolution: scan the current file's imports for a matching function
+    // or namespace property. This is the primary extension resolution mechanism.
     if (!standaloneExt) {
       standaloneExt = this.resolveExtensionFromImports(node, methodName, receiverType);
       // Avoid rewriting if the extension is on the same object as the receiver
@@ -3657,61 +3768,28 @@ class MacroTransformer {
       }
     }
 
-    if (standaloneExt) {
-      if (this.verbose) {
-        const qual = standaloneExt.qualifier
-          ? `${standaloneExt.qualifier}.${standaloneExt.methodName}`
-          : standaloneExt.methodName;
-        console.log(
-          `[typesugar] Rewriting standalone extension: ${typeName}.${methodName}() → ${qual}(...)`
-        );
-      }
-
-      const rewritten = buildStandaloneExtensionCall(
-        this.ctx.factory,
-        standaloneExt,
-        receiver,
-        Array.from(node.arguments)
-      );
-
-      try {
-        const visited = ts.visitNode(rewritten, this.visit.bind(this)) as ts.Expression;
-        return preserveSourceMap(visited, node);
-      } catch (error) {
-        this.ctx.reportError(node, `Standalone extension method rewrite failed: ${error}`);
-        return undefined;
-      }
-    }
-
-    if (!extension) {
+    if (!standaloneExt) {
       return undefined;
     }
 
     if (this.verbose) {
+      const qual = standaloneExt.qualifier
+        ? `${standaloneExt.qualifier}.${standaloneExt.methodName}`
+        : standaloneExt.methodName;
       console.log(
-        `[typesugar] Rewriting implicit extension: ${typeName}.${methodName}() → ${extension.typeclassName}.summon<${typeName}>("${typeName}").${methodName}(...)`
+        `[typesugar] Rewriting standalone extension: ${typeName}.${methodName}() → ${qual}(...)`
       );
     }
 
-    const receiverText = receiver.getText
-      ? receiver.getText()
-      : ts.createPrinter().printNode(ts.EmitHint.Expression, receiver, this.ctx.sourceFile);
-
-    const extraArgs = Array.from(node.arguments)
-      .map((a) =>
-        a.getText
-          ? a.getText()
-          : ts.createPrinter().printNode(ts.EmitHint.Expression, a, this.ctx.sourceFile)
-      )
-      .join(", ");
-
-    const allArgs = extraArgs ? `${receiverText}, ${extraArgs}` : receiverText;
-
-    const code = `${extension.typeclassName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
+    const rewritten = buildStandaloneExtensionCall(
+      this.ctx.factory,
+      standaloneExt,
+      receiver,
+      Array.from(node.arguments)
+    );
 
     try {
-      const result = this.ctx.parseExpression(code);
-      const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
+      const visited = ts.visitNode(rewritten, this.visit.bind(this)) as ts.Expression;
       return preserveSourceMap(visited, node);
     } catch (error) {
       this.ctx.reportError(node, `Extension method rewrite failed: ${error}`);
