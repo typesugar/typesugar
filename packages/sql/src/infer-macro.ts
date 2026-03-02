@@ -18,7 +18,7 @@
  * ### Explicit Result Type
  *
  * ```typescript
- * const findUser = sql$<User>`SELECT id, name FROM users WHERE id = ${userId}`;
+ * const findUser = sqlKind<User>`SELECT id, name FROM users WHERE id = ${userId}`;
  * // TypedFragment<[number], User>
  * ```
  *
@@ -215,7 +215,7 @@ export const sql$Macro = defineExpressionMacro({
     const factory = ctx.factory;
     const typeChecker = ctx.typeChecker;
 
-    // Get type arguments if provided: sql$<User>`...`
+    // Get type arguments if provided: sqlKind<User>`...`
     const typeArgs = callExpr.typeArguments;
     let explicitResultType: ts.TypeNode | undefined;
 

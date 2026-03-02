@@ -78,19 +78,19 @@ import { Schema, NativeSchema, nativeSchema, Validator } from "@typesugar/valida
 
 `Schema<F>` is a typeclass where `F` represents a type-level function for schema types:
 
-- For Zod: `$<ZodF, User>` = `ZodType<User>`
-- For Valibot: `$<ValibotF, User>` = `BaseSchema<User>`
-- For native validators: `$<ValidatorF, User>` = `(x: unknown) => x is User`
+- For Zod: `Kind<ZodF, User>` = `ZodType<User>`
+- For Valibot: `Kind<ValibotF, User>` = `BaseSchema<User>`
+- For native validators: `Kind<ValidatorF, User>` = `(x: unknown) => x is User`
 
 ### Schema Interface
 
 ```typescript
 interface Schema<F> {
   /** Parse data and return the validated value, or throw on failure */
-  readonly parse: <A>(schema: $<F, A>, data: unknown) => A;
+  readonly parse: <A>(schema: Kind<F, A>, data: unknown) => A;
 
   /** Parse data and return a ValidatedNel with accumulated errors */
-  readonly safeParse: <A>(schema: $<F, A>, data: unknown) => ValidatedNel<ValidationError, A>;
+  readonly safeParse: <A>(schema: Kind<F, A>, data: unknown) => ValidatedNel<ValidationError, A>;
 }
 ```
 
@@ -120,7 +120,7 @@ import { Schema } from "@typesugar/validate";
 import { specialize } from "@typesugar/specialize";
 
 // Generic validation function
-function processBody<F, A>(S: Schema<F>, schema: $<F, A>, data: unknown): A {
+function processBody<F, A>(S: Schema<F>, schema: Kind<F, A>, data: unknown): A {
   return S.parse(schema, data);
 }
 

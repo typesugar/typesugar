@@ -7,7 +7,7 @@
  * (and tools like esbuild/vitest) can parse the output.
  *
  * Three syntax extensions are built in:
- *   - HKT: F<_> parameter syntax → $<F, A> indexed-access encoding
+ *   - HKT: F<_> parameter syntax → Kind<F, A> indexed-access encoding
  *   - Pipeline: x |> f |> g → __binop__ function calls
  *   - Cons: x :: xs → __binop__ function calls
  *
@@ -83,7 +83,7 @@ assert(lambdaResult.changed === true);
 // 2. HKT SYNTAX - Higher-Kinded Type Parameters
 // ============================================================================
 
-// F<_> syntax is rewritten to $<F, A> indexed-access encoding
+// F<_> syntax is rewritten to Kind<F, A> indexed-access encoding
 const hktSource = `
 interface Functor<F<_>> {
   map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>;
@@ -93,7 +93,7 @@ const hktResult = preprocess(hktSource, { fileName: "hkt.ts" });
 
 assert(hktResult.changed === true);
 // F<_> in type parameter position becomes just F
-// F<A> in usage positions becomes $<F, A>
+// F<A> in usage positions becomes Kind<F, A>
 assert(!hktResult.code.includes("F<_>"), "F<_> sugar is rewritten");
 
 // Nested HKT parameters

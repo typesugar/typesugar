@@ -28,7 +28,7 @@
  * import { sql$, ConnectionIO, Transactor } from "@typesugar/sql";
  *
  * // Type-safe query with inferred types
- * const findUser = sql$<User>`
+ * const findUser = sqlKind<User>`
  *   SELECT id, name, email FROM users WHERE id = ${userId}
  * `;
  *

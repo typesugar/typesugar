@@ -11,7 +11,7 @@
  *
  * ```typescript
  * interface Functor<F> {
- *   map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>;
+ *   map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
  * }
  * ```
  *
@@ -46,7 +46,7 @@
  *
  * This module provides utilities for working with HKT at the type level:
  * - `isKindAnnotation()` - Detect F<_> syntax in type parameters
- * - `transformHKTDeclaration()` - Transform F<A> to $<F, A> in declarations
+ * - `transformHKTDeclaration()` - Transform F<A> to Kind<F, A> in declarations
  *
  * These are primarily used by the transformer, not directly by users.
  */
@@ -153,7 +153,7 @@ export function isKindApplication(node: ts.TypeReferenceNode, kindParams: Set<st
  * Transform HKT syntax in a type/interface declaration.
  *
  * 1. Replace `F<_>` type parameters with plain `F`
- * 2. Replace `F<A>` type applications with `$<F, A>`
+ * 2. Replace `F<A>` type applications with `Kind<F, A>`
  */
 export function transformHKTDeclaration(
   ctx: MacroContext,
@@ -198,7 +198,7 @@ export function transformHKTDeclaration(
 
   if (kindParams.size === 0) return node;
 
-  // Transform F<A> to $<F, A> throughout the declaration
+  // Transform F<A> to Kind<F, A> throughout the declaration
   const kindParamNames = new Set(kindParams.keys());
 
   if (ts.isInterfaceDeclaration(node)) {
@@ -228,7 +228,7 @@ export function transformHKTDeclaration(
 }
 
 /**
- * Transform a type signature member, replacing F<A> with $<F, A>
+ * Transform a type signature member, replacing F<A> with Kind<F, A>
  */
 function transformMemberHKT(
   ctx: MacroContext,
@@ -278,7 +278,7 @@ function transformMemberHKT(
 }
 
 /**
- * Transform a type node, replacing F<A> with $<F, A>
+ * Transform a type node, replacing F<A> with Kind<F, A>
  */
 function transformTypeHKT(
   ctx: MacroContext,
@@ -287,12 +287,12 @@ function transformTypeHKT(
 ): ts.TypeNode {
   const factory = ctx.factory;
 
-  // F<A> -> $<F, A>
+  // F<A> -> Kind<F, A>
   if (ts.isTypeReferenceNode(type) && isKindApplication(type, kindParams)) {
     const fName = (type.typeName as ts.Identifier).text;
     const typeArgs = type.typeArguments!;
 
-    // Build $<F, A> or $<F, $<F, A>> for nested applications
+    // Build Kind<F, A> or Kind<F, Kind<F, A>> for nested applications
     return factory.createTypeReferenceNode("$", [
       factory.createTypeReferenceNode(fName),
       ...typeArgs.map((arg) => transformTypeHKT(ctx, arg, kindParams)),

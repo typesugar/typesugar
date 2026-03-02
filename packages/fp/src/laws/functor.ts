@@ -11,7 +11,7 @@
  */
 
 import type { Functor } from "../typeclasses/functor.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 import type { Law, LawSet, EqFA } from "./types.js";
 
 // ============================================================================
@@ -38,7 +38,7 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 1,
       proofHint: "identity-left",
       description: "Mapping identity preserves structure: F.map(fa, a => a) === fa",
-      check: (fa: $<F, A>): boolean =>
+      check: (fa: Kind<F, A>): boolean =>
         EqFA.eqv(
           Fn.map(fa, (a: A) => a),
           fa
@@ -49,7 +49,7 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 3,
       proofHint: "composition",
       description: "Mapping composes: F.map(F.map(fa, f), g) === F.map(fa, a => g(f(a)))",
-      check: (fa: $<F, A>, f: (a: A) => A, g: (a: A) => A): boolean =>
+      check: (fa: Kind<F, A>, f: (a: A) => A, g: (a: A) => A): boolean =>
         EqFA.eqv(
           Fn.map(Fn.map(fa, f), g),
           Fn.map(fa, (a: A) => g(f(a)))
@@ -70,7 +70,7 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
  */
 export function functorCompositionLaws<F, A, B, C>(
   Fn: Functor<F>,
-  EqFC: { readonly eqv: (fa1: $<F, C>, fa2: $<F, C>) => boolean },
+  EqFC: { readonly eqv: (fa1: Kind<F, C>, fa2: Kind<F, C>) => boolean },
   f: (a: A) => B,
   g: (b: B) => C
 ): LawSet {
@@ -80,7 +80,7 @@ export function functorCompositionLaws<F, A, B, C>(
       arity: 1,
       proofHint: "composition",
       description: "F.map(F.map(fa, f), g) === F.map(fa, a => g(f(a)))",
-      check: (fa: $<F, A>): boolean =>
+      check: (fa: Kind<F, A>): boolean =>
         EqFC.eqv(
           Fn.map(Fn.map(fa, f), g),
           Fn.map(fa, (a: A) => g(f(a)))

@@ -13,7 +13,7 @@
 
 import type { FlatMap, Monad } from "../typeclasses/monad.js";
 import type { Applicative } from "../typeclasses/applicative.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 import type { Law, LawSet } from "./types.js";
 import { applyLaws, applicativeLaws } from "./applicative.js";
 import type { EqFA } from "./types.js";
@@ -40,7 +40,7 @@ export function flatMapLaws<F, A>(FM: FlatMap<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "associativity",
       description:
         "flatMap is associative: F.flatMap(F.flatMap(fa, f), g) === F.flatMap(fa, a => F.flatMap(f(a), g))",
-      check: (fa: $<F, A>, f: (a: A) => $<F, A>, g: (a: A) => $<F, A>): boolean =>
+      check: (fa: Kind<F, A>, f: (a: A) => Kind<F, A>, g: (a: A) => Kind<F, A>): boolean =>
         EqFA.eqv(
           FM.flatMap(FM.flatMap(fa, f), g),
           FM.flatMap(fa, (a: A) => FM.flatMap(f(a), g))
@@ -51,7 +51,7 @@ export function flatMapLaws<F, A>(FM: FlatMap<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 2,
       description:
         "flatMap via ap and flatten: F.flatMap(fa, f) === F.ap(F.map(fa, f), fa) flattened",
-      check: (fa: $<F, A>, f: (a: A) => $<F, A>): boolean => {
+      check: (fa: Kind<F, A>, f: (a: A) => Kind<F, A>): boolean => {
         // This law verifies flatMap produces the same result as ap + flatten
         // For a FlatMap, flatten(ffa) = flatMap(ffa, identity)
         const viaFlatMap = FM.flatMap(fa, f);
@@ -86,14 +86,14 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 2,
       proofHint: "identity-left",
       description: "pure is left identity for flatMap: F.flatMap(F.pure(a), f) === f(a)",
-      check: (a: A, f: (a: A) => $<F, A>): boolean => EqFA.eqv(M.flatMap(M.pure(a), f), f(a)),
+      check: (a: A, f: (a: A) => Kind<F, A>): boolean => EqFA.eqv(M.flatMap(M.pure(a), f), f(a)),
     },
     {
       name: "right identity",
       arity: 1,
       proofHint: "identity-right",
       description: "pure is right identity for flatMap: F.flatMap(fa, F.pure) === fa",
-      check: (fa: $<F, A>): boolean => EqFA.eqv(M.flatMap(fa, M.pure), fa),
+      check: (fa: Kind<F, A>): boolean => EqFA.eqv(M.flatMap(fa, M.pure), fa),
     },
     {
       name: "associativity",
@@ -101,7 +101,7 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "associativity",
       description:
         "flatMap is associative: F.flatMap(F.flatMap(fa, f), g) === F.flatMap(fa, a => F.flatMap(f(a), g))",
-      check: (fa: $<F, A>, f: (a: A) => $<F, A>, g: (a: A) => $<F, A>): boolean =>
+      check: (fa: Kind<F, A>, f: (a: A) => Kind<F, A>, g: (a: A) => Kind<F, A>): boolean =>
         EqFA.eqv(
           M.flatMap(M.flatMap(fa, f), g),
           M.flatMap(fa, (a: A) => M.flatMap(f(a), g))
@@ -113,7 +113,7 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "homomorphism",
       description:
         "map can be derived from flatMap: F.map(fa, f) === F.flatMap(fa, a => F.pure(f(a)))",
-      check: (fa: $<F, A>, f: (a: A) => A): boolean =>
+      check: (fa: Kind<F, A>, f: (a: A) => A): boolean =>
         EqFA.eqv(
           M.map(fa, f),
           M.flatMap(fa, (a: A) => M.pure(f(a)))

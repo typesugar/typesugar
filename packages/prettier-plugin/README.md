@@ -24,7 +24,7 @@ That's it — Prettier will now handle typesugar files without crashing on custo
 
 ### Layer 1: Plugin (Don't Crash)
 
-The Prettier plugin preprocesses custom syntax before Prettier parses it. This prevents parse errors on `|>`, `::`, and `F<_>` syntax. The formatted output is valid TypeScript but contains preprocessor artifacts (`__binop__`, `$<F, A>`).
+The Prettier plugin preprocesses custom syntax before Prettier parses it. This prevents parse errors on `|>`, `::`, and `F<_>` syntax. The formatted output is valid TypeScript but contains preprocessor artifacts (`__binop__`, `Kind<F, A>`).
 
 Use this when you just need Prettier to work — e.g., in CI format checks or editor integration.
 
@@ -48,9 +48,9 @@ const formatted = await format(source, { filepath: "example.ts" });
 
 The pipeline:
 
-1. **preFormat** — Converts `|>` to `__binop__()`, `F<_>` to `$<F, A>`, etc.
+1. **preFormat** — Converts `|>` to `__binop__()`, `F<_>` to `Kind<F, A>`, etc.
 2. **prettier.format** — Formats the valid TypeScript
-3. **postFormat** — Restores `__binop__()` back to `|>`, `$<F, A>` back to `F<A>`, etc.
+3. **postFormat** — Restores `__binop__()` back to `|>`, `Kind<F, A>` back to `F<A>`, etc.
 
 ## CLI
 
@@ -156,7 +156,7 @@ typesugar introduces syntax that isn't valid TypeScript (`|>`, `::`, `F<_>`). Pr
 
 The custom parser (`typesugar-ts`) extends Prettier's built-in TypeScript parser with a `preprocess` step that runs the typesugar preprocessor. Prettier sees valid TypeScript and formats it normally.
 
-For the full round-trip `format()` function, a third step reverses the preprocessing using AST analysis to find `__binop__()` calls and `$<F, A>` type references, then replaces them with the original custom syntax.
+For the full round-trip `format()` function, a third step reverses the preprocessing using AST analysis to find `__binop__()` calls and `Kind<F, A>` type references, then replaces them with the original custom syntax.
 
 ## API Quick Reference
 

@@ -15,7 +15,7 @@ TypeScript developers often face a choice between expressive, type-safe code and
 ### What "zero-cost" means
 
 - **No dictionary passing** -- Typeclass methods are inlined at call sites, not looked up through objects
-- **No wrapper types** -- HKT encoding exists only in the type system; at runtime, `$<OptionF, number>` is just `Option<number>`
+- **No wrapper types** -- HKT encoding exists only in the type system; at runtime, `Kind<OptionF, number>` is just `Option<number>`
 - **No indirection** -- Generic code compiles to direct calls, not chains of `.map()` and `.flatMap()` on wrapper objects
 - **No closure allocation** -- Comprehension macros emit flat code, not nested callbacks
 
@@ -43,7 +43,7 @@ The same applies to generic code:
 
 ```typescript
 // You write:
-function double<F>(fa: $<F, number>, F: Monad<F>): $<F, number> {
+function double<F>(fa: Kind<F, number>, F: Monad<F>): Kind<F, number> {
   return F.map(fa, (x) => x * 2);
 }
 double(Some(21));
@@ -100,14 +100,14 @@ This required brand interfaces, module augmentation, registry population, and `a
 **Second generation** (indexed access):
 
 ```typescript
-type $<F, A> = (F & { readonly _: A })["_"];
+type Kind<F, A> = (F & { readonly _: A })["_"];
 
 interface OptionF {
   _: Option<this["_"]>;
 }
 ```
 
-Simpler -- no registry, no module augmentation. But `$<F, A>` forced TypeScript to eagerly compute the result type via indexed access, which slowed down type checking on large codebases.
+Simpler -- no registry, no module augmentation. But `Kind<F, A>` forced TypeScript to eagerly compute the result type via indexed access, which slowed down type checking on large codebases.
 
 **Current generation** (phantom kind markers):
 
@@ -229,7 +229,7 @@ The most ergonomic FP code doesn't require manually threading typeclass dictiona
 ### The problem with explicit dictionaries
 
 ```typescript
-function double<F>(F: Monad<F>, fa: $<F, number>): $<F, number> {
+function double<F>(F: Monad<F>, fa: Kind<F, number>): Kind<F, number> {
   return F.map(fa, (x) => x * 2);
 }
 
@@ -241,7 +241,7 @@ double(arrayMonad, [1, 2, 3]);
 ### Implicit resolution + auto-specialization
 
 ```typescript
-function double<F>(fa: $<F, number>, F: Monad<F> = implicit()): $<F, number> {
+function double<F>(fa: Kind<F, number>, F: Monad<F> = implicit()): Kind<F, number> {
   return F.map(fa, (x) => x * 2);
 }
 

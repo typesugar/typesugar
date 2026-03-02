@@ -273,7 +273,7 @@ function reverseHKTDeclarations(s: MagicString, formatted: string): void {
 }
 
 /**
- * Reverse HKT usages ($<F, A> → F<A>) for parameters in scope.
+ * Reverse HKT usages (Kind<F, A> → F<A>) for parameters in scope.
  */
 function reverseHKTUsages(
   s: MagicString,

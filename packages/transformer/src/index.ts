@@ -3724,7 +3724,7 @@ class MacroTransformer {
    * Transform HKT declarations with F<_> kind syntax.
    *
    * Auto-detects interface/type declarations that use F<_> to denote
-   * type constructor parameters, and transforms F<A> usages to $<F, A>.
+   * type constructor parameters, and transforms F<A> usages to Kind<F, A>.
    *
    * If the preprocessor already rewrote the F<_> syntax at the text level,
    * isKindAnnotation() won't find the <_> pattern in the source text

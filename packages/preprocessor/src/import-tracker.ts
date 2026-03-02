@@ -37,7 +37,7 @@ export interface TrackedTypeFunction {
  * Result of scanning imports for typesugar HKT symbols.
  */
 export interface TrackedImports {
-  /** The local name for $ or Kind, if imported from a typesugar package */
+  /** The local name for Kind, if imported from a typesugar package */
   hktOperator: string | null;
   /** Map of local type function name → type function info */
   typeFunctions: Map<string, TrackedTypeFunction>;
@@ -49,7 +49,7 @@ export interface TrackedImports {
  * Scan source code for imports and return tracked typesugar HKT symbols.
  *
  * This function parses import statements to identify:
- * 1. Whether $ or Kind is imported from a typesugar package
+ * 1. Whether Kind is imported from a typesugar package
  * 2. Which HKT type functions (OptionF, EitherF, etc.) are imported
  * 3. Which concrete types (Option, Either, etc.) are imported
  *
@@ -65,10 +65,10 @@ export function scanImports(source: string): TrackedImports {
 
   // Match import statements with named imports
   // Handles:
-  //   import { $, OptionF } from "@typesugar/fp"
-  //   import { $ as Kind } from "@typesugar/type-system"
-  //   import type { $ } from "@typesugar/fp"
-  //   import { $, type OptionF } from "@typesugar/fp"
+  //   import { Kind, OptionF } from "@typesugar/fp"
+  //   import { Kind as K } from "@typesugar/type-system"
+  //   import type { Kind } from "@typesugar/fp"
+  //   import { Kind, type OptionF } from "@typesugar/fp"
   const importRegex = /import\s+(?:type\s+)?{([^}]+)}\s+from\s+["']([^"']+)["']/g;
 
   let match;
@@ -90,13 +90,13 @@ export function scanImports(source: string): TrackedImports {
       // Remove inline "type " prefix if present
       const cleanSpec = importSpec.replace(/^type\s+/, "");
 
-      // Handle aliased imports: "$ as Kind" or "OptionF as OF"
-      const aliasMatch = cleanSpec.match(/^(\$|\w+)\s+as\s+(\w+)$/);
+      // Handle aliased imports: "Kind as K" or "OptionF as OF"
+      const aliasMatch = cleanSpec.match(/^(\w+)\s+as\s+(\w+)$/);
       const originalName = aliasMatch ? aliasMatch[1] : cleanSpec;
       const localName = aliasMatch ? aliasMatch[2] : cleanSpec;
 
-      // Check if this is the $ or Kind type
-      if (originalName === "$" || originalName === "Kind") {
+      // Check if this is the Kind type
+      if (originalName === "Kind") {
         result.hktOperator = localName;
       }
 

@@ -12,7 +12,7 @@
  * @example
  * ```typescript
  * // Library-agnostic validation function
- * function processBody<F, A>(S: Schema<F>, schema: $<F, A>, data: unknown): A {
+ * function processBody<F, A>(S: Schema<F>, schema: Kind<F, A>, data: unknown): A {
  *   return S.parse(schema, data);
  * }
  *
@@ -25,7 +25,7 @@
  * @module @typesugar/validate/schema
  */
 
-import type { $, TypeFunction } from "@typesugar/type-system";
+import type { Kind, TypeFunction } from "@typesugar/type-system";
 import type { ValidatedNel } from "@typesugar/fp";
 import { Valid, invalidNel } from "@typesugar/fp";
 import type { ValidationError } from "./types.js";
@@ -39,20 +39,20 @@ import type { ValidationError } from "./types.js";
  *
  * `F` is a type-level function representing the schema type constructor.
  * For example:
- * - `ZodF` where `$<ZodF, User>` = `ZodType<User>`
- * - `ValibotF` where `$<ValibotF, User>` = `BaseSchema<User>`
- * - `ValidatorF` where `$<ValidatorF, User>` = `(x: unknown) => x is User`
+ * - `ZodF` where `Kind<ZodF, User>` = `ZodType<User>`
+ * - `ValibotF` where `Kind<ValibotF, User>` = `BaseSchema<User>`
+ * - `ValidatorF` where `Kind<ValidatorF, User>` = `(x: unknown) => x is User`
  */
 export interface Schema<F> {
   /**
    * Parse data and return the validated value, or throw on failure.
    */
-  readonly parse: <A>(schema: $<F, A>, data: unknown) => A;
+  readonly parse: <A>(schema: Kind<F, A>, data: unknown) => A;
 
   /**
    * Parse data and return a `ValidatedNel` with accumulated errors.
    */
-  readonly safeParse: <A>(schema: $<F, A>, data: unknown) => ValidatedNel<ValidationError, A>;
+  readonly safeParse: <A>(schema: Kind<F, A>, data: unknown) => ValidatedNel<ValidationError, A>;
 }
 
 // ============================================================================
@@ -132,7 +132,7 @@ export const nativeSchema: NativeSchema = {
  */
 export function parseOrElse<F>(
   S: Schema<F>
-): <A>(schema: $<F, A>, data: unknown, fallback: A) => A {
+): <A>(schema: Kind<F, A>, data: unknown, fallback: A) => A {
   return (schema, data, fallback) => {
     const result = S.safeParse(schema, data);
     return result._tag === "Valid" ? result.value : fallback;
@@ -144,7 +144,7 @@ export function parseOrElse<F>(
  */
 export function parseMap<F>(
   S: Schema<F>
-): <A, B>(schema: $<F, A>, data: unknown, f: (a: A) => B) => B {
+): <A, B>(schema: Kind<F, A>, data: unknown, f: (a: A) => B) => B {
   return (schema, data, f) => f(S.parse(schema, data));
 }
 
@@ -153,7 +153,7 @@ export function parseMap<F>(
  */
 export function parseChain<F>(
   S: Schema<F>
-): <A, B>(schemaA: $<F, A>, schemaB: $<F, B>, data: unknown) => B {
+): <A, B>(schemaA: Kind<F, A>, schemaB: Kind<F, B>, data: unknown) => B {
   return (schemaA, schemaB, data) => {
     const a = S.parse(schemaA, data);
     return S.parse(schemaB, a);
@@ -163,7 +163,7 @@ export function parseChain<F>(
 /**
  * Validate multiple values with the same schema.
  */
-export function parseAll<F>(S: Schema<F>): <A>(schema: $<F, A>, data: unknown[]) => A[] {
+export function parseAll<F>(S: Schema<F>): <A>(schema: Kind<F, A>, data: unknown[]) => A[] {
   return (schema, data) => data.map((d) => S.parse(schema, d));
 }
 
@@ -172,8 +172,8 @@ export function parseAll<F>(S: Schema<F>): <A>(schema: $<F, A>, data: unknown[])
  */
 export function safeParseAll<F>(
   S: Schema<F>
-): <A>(schema: $<F, A>, data: unknown[]) => ValidatedNel<ValidationError, A[]> {
-  return <A>(schema: $<F, A>, data: unknown[]) => {
+): <A>(schema: Kind<F, A>, data: unknown[]) => ValidatedNel<ValidationError, A[]> {
+  return <A>(schema: Kind<F, A>, data: unknown[]) => {
     const results = data.map((d) => S.safeParse(schema, d));
     const errors: ValidationError[] = [];
     const values: A[] = [];
@@ -277,8 +277,8 @@ export function nativeSafeParseAll(
  * Create a Schema instance from parse and safeParse functions.
  */
 export function makeSchema<F>(
-  parse: <A>(schema: $<F, A>, data: unknown) => A,
-  safeParse: <A>(schema: $<F, A>, data: unknown) => ValidatedNel<ValidationError, A>
+  parse: <A>(schema: Kind<F, A>, data: unknown) => A,
+  safeParse: <A>(schema: Kind<F, A>, data: unknown) => ValidatedNel<ValidationError, A>
 ): Schema<F> {
   return { parse, safeParse };
 }

@@ -231,7 +231,7 @@ Mappable containers.
 ```typescript
 @typeclass
 interface Functor<F> {
-  map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
+  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
 }
 ```
 

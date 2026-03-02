@@ -43,7 +43,7 @@ This is, in essence, an ad-hoc reimplementation of Scala's implicit resolution, 
 The `specialize` macro implements what is effectively a simple partial evaluator. Given:
 
 ```typescript
-function map<F>(F: Functor<F>): <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B> {
+function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> {
   return (fa, f) => F.map(fa, f);
 }
 ```
@@ -54,7 +54,7 @@ When invoked as `specialize(map, arrayFunctor)`, the system:
 2. Looks up `arrayFunctor`'s method implementations in the `instanceMethodRegistry`.
 3. Substitutes `F.map(fa, f)` with the concrete array implementation `fa.map(f)`.
 4. Removes the `F` parameter from the function signature.
-5. Replaces `$<F, A>` type annotations with `Array<A>`.
+5. Replaces `Kind<F, A>` type annotations with `Array<A>`.
 
 This is analogous to C++ template instantiation, Rust monomorphization, or MLton's whole-program defunctionalization — but at a much simpler level. It is a first-order inliner: it substitutes known values into function bodies. It does not perform fixpoint iteration, does not handle recursive specialization, and falls back to indirect dispatch for complex control flow.
 
@@ -72,7 +72,7 @@ interface ArrayF extends TypeFunction {
 }
 ```
 
-This evolved from an earlier indexed-access encoding (`type $<F, A> = (F & { readonly _: A })["_"]`) which forced TypeScript to eagerly compute the result type, slowing type checking on large codebases. The phantom kind marker approach defers resolution to the preprocessor.
+This evolved from an earlier indexed-access encoding (`type Kind<F, A> = (F & { readonly _: A })["_"]`) which forced TypeScript to eagerly compute the result type, slowing type checking on large codebases. The phantom kind marker approach defers resolution to the preprocessor.
 
 The encoding is strictly superior to the URI-branding approach used by fp-ts and similar libraries. It eliminates:
 

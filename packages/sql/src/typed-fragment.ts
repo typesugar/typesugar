@@ -11,10 +11,10 @@
  *
  * ```typescript
  * // Parameter types inferred from interpolations
- * const byId = sql$<[number]>`WHERE id = ${0}`;
+ * const byId = sqlKind<[number]>`WHERE id = ${0}`;
  *
  * // Result types inferred from SELECT clause
- * const selectUsers = sql$<[], User>`
+ * const selectUsers = sqlKind<[], User>`
  *   SELECT id, name, email FROM users
  * `;
  *

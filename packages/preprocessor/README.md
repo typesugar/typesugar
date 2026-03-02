@@ -24,7 +24,7 @@ const source = `
 `;
 
 const { code, changed, sourceMap } = preprocess(source);
-// code is now valid TypeScript with F<A> rewritten to $<F, A>
+// code is now valid TypeScript with F<A> rewritten to Kind<F, A>
 // and |> rewritten to __binop__ calls
 ```
 
@@ -32,7 +32,7 @@ const { code, changed, sourceMap } = preprocess(source);
 
 ### HKT Syntax (`F<_>`)
 
-Higher-kinded type parameters are rewritten using the `$<F, A>` encoding:
+Higher-kinded type parameters are rewritten using the `Kind<F, A>` encoding:
 
 ```typescript
 // Input
@@ -42,7 +42,7 @@ interface Functor<F<_>> {
 
 // Output
 interface Functor<F> {
-  map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>;
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
 }
 ```
 

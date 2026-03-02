@@ -251,7 +251,7 @@ system works globally without `ops()` wrapping.
 Currently `unplugin-typesugar` creates the TypeScript Program at `buildStart` with
 original source files, then preprocessing happens later in the `load` hook.
 This means the type checker sees original content (`F<_>`), not preprocessed
-content (`$<F, A>`), breaking type-aware macro transformations.
+content (`Kind<F, A>`), breaking type-aware macro transformations.
 
 ### Solution
 

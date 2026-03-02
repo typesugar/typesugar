@@ -58,7 +58,6 @@ export {
 
 // Higher-Kinded Types (via phantom kind marker encoding)
 export {
-  type $,
   type Kind,
   type Apply,
   type TypeFunction,

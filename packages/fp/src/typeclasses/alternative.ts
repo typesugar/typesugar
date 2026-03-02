@@ -11,7 +11,7 @@
  */
 
 import type { Applicative } from "./applicative.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 // ============================================================================
 // SemigroupK
@@ -21,7 +21,7 @@ import type { $ } from "../hkt.js";
  * SemigroupK typeclass - Semigroup at the type constructor level
  */
 export interface SemigroupK<F> {
-  readonly combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>;
+  readonly combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>;
 }
 
 // ============================================================================
@@ -32,7 +32,7 @@ export interface SemigroupK<F> {
  * MonoidK typeclass - Monoid at the type constructor level
  */
 export interface MonoidK<F> extends SemigroupK<F> {
-  readonly emptyK: <A>() => $<F, A>;
+  readonly emptyK: <A>() => Kind<F, A>;
 }
 
 // ============================================================================
@@ -53,14 +53,14 @@ export interface Alternative<F> extends Applicative<F>, MonoidK<F> {}
  */
 export function combineAllK<F>(
   F: SemigroupK<F>
-): <A>(head: $<F, A>, ...tail: $<F, A>[]) => $<F, A> {
+): <A>(head: Kind<F, A>, ...tail: Kind<F, A>[]) => Kind<F, A> {
   return (head, ...tail) => tail.reduce((acc, fa) => F.combineK(acc, fa), head);
 }
 
 /**
  * Try first, if "empty" use second
  */
-export function orElseK<F>(F: SemigroupK<F>): <A>(fa: $<F, A>, fb: () => $<F, A>) => $<F, A> {
+export function orElseK<F>(F: SemigroupK<F>): <A>(fa: Kind<F, A>, fb: () => Kind<F, A>) => Kind<F, A> {
   return (fa, fb) => F.combineK(fa, fb());
 }
 
@@ -71,8 +71,8 @@ export function orElseK<F>(F: SemigroupK<F>): <A>(fa: $<F, A>, fb: () => $<F, A>
 /**
  * Combine all values, using emptyK for empty array
  */
-export function combineAllOptionK<F>(F: MonoidK<F>): <A>(fas: $<F, A>[]) => $<F, A> {
-  return <A>(fas: $<F, A>[]): $<F, A> =>
+export function combineAllOptionK<F>(F: MonoidK<F>): <A>(fas: Kind<F, A>[]) => Kind<F, A> {
+  return <A>(fas: Kind<F, A>[]): Kind<F, A> =>
     fas.length === 0 ? F.emptyK<A>() : fas.reduce((acc, fa) => F.combineK(acc, fa));
 }
 
@@ -80,13 +80,13 @@ export function combineAllOptionK<F>(F: MonoidK<F>): <A>(fas: $<F, A>[]) => $<F,
  * Filter and collect values.
  *
  * Note: This function uses `unknown` coercion because the type relationship
- * between `$<F, $<F, A>>` and `$<F, A>` is not directly expressible with the
+ * between `Kind<F, Kind<F, A>>` and `Kind<F, A>` is not directly expressible with the
  * phantom kind marker encoding. A proper implementation would need FlatMap.
  */
-export function unite<F>(F: MonoidK<F>): <A>(ffa: $<F, $<F, A>>[]) => $<F, A> {
-  return <A>(ffa: $<F, $<F, A>>[]): $<F, A> =>
-    ffa.reduce<$<F, A>>(
-      (acc, ffa_i) => F.combineK(acc, ffa_i as unknown as $<F, A>),
+export function unite<F>(F: MonoidK<F>): <A>(ffa: Kind<F, Kind<F, A>>[]) => Kind<F, A> {
+  return <A>(ffa: Kind<F, Kind<F, A>>[]): Kind<F, A> =>
+    ffa.reduce<Kind<F, A>>(
+      (acc, ffa_i) => F.combineK(acc, ffa_i as unknown as Kind<F, A>),
       F.emptyK<A>()
     );
 }
@@ -98,7 +98,7 @@ export function unite<F>(F: MonoidK<F>): <A>(ffa: $<F, $<F, A>>[]) => $<F, A> {
 /**
  * Choose based on boolean - pure conditional
  */
-export function guard<F>(F: Alternative<F>): (b: boolean) => $<F, void> {
+export function guard<F>(F: Alternative<F>): (b: boolean) => Kind<F, void> {
   return (b) => (b ? F.pure(undefined) : F.emptyK());
 }
 
@@ -110,9 +110,9 @@ export function guard<F>(F: Alternative<F>): (b: boolean) => $<F, void> {
  */
 export function filterA<F>(
   F: Alternative<F> & {
-    flatMap?: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
+    flatMap?: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   }
-): <A>(fa: $<F, A>, p: (a: A) => boolean) => $<F, A> {
+): <A>(fa: Kind<F, A>, p: (a: A) => boolean) => Kind<F, A> {
   return (fa, p) => {
     if (F.flatMap) {
       return F.flatMap(fa, (a: any) => (p(a) ? F.pure(a) : F.emptyK()));
@@ -132,7 +132,7 @@ export function filterA<F>(
  *
  * @deprecated Unsafe in strict evaluation — will infinite-loop for most types.
  */
-export function many<F>(F: Alternative<F>): <A>(fa: $<F, A>) => $<F, A[]> {
+export function many<F>(F: Alternative<F>): <A>(fa: Kind<F, A>) => Kind<F, A[]> {
   return (_fa) => {
     throw new Error(
       "many() requires lazy evaluation and will infinite-loop in TypeScript's strict evaluation. " +
@@ -150,7 +150,7 @@ export function many<F>(F: Alternative<F>): <A>(fa: $<F, A>) => $<F, A[]> {
  *
  * @deprecated Unsafe in strict evaluation — will infinite-loop for most types.
  */
-export function some<F>(F: Alternative<F>): <A>(fa: $<F, A>) => $<F, A[]> {
+export function some<F>(F: Alternative<F>): <A>(fa: Kind<F, A>) => Kind<F, A[]> {
   return (_fa) => {
     throw new Error(
       "some() requires lazy evaluation and will infinite-loop in TypeScript's strict evaluation. " +
@@ -177,18 +177,18 @@ export function some<F>(F: Alternative<F>): <A>(fa: $<F, A>) => $<F, A[]> {
  */
 export function manyBounded<F>(
   F: Alternative<F> & {
-    flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
+    flatMap: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   },
   maxTimes: number
-): <A>(fa: $<F, A>) => $<F, A[]> {
-  return <A>(fa: $<F, A>): $<F, A[]> => {
+): <A>(fa: Kind<F, A>) => Kind<F, A[]> {
+  return <A>(fa: Kind<F, A>): Kind<F, A[]> => {
     if (maxTimes <= 0) {
       return F.pure([]);
     }
 
     // Try to get one element, then recurse with maxTimes - 1
-    const one: $<F, A[]> = F.map(fa, (a) => [a]);
-    const rest: $<F, A[]> = manyBounded(F, maxTimes - 1)(fa);
+    const one: Kind<F, A[]> = F.map(fa, (a) => [a]);
+    const rest: Kind<F, A[]> = manyBounded(F, maxTimes - 1)(fa);
 
     // Combine: if we get one, prepend to rest; otherwise return empty
     return F.combineK(
@@ -212,11 +212,11 @@ export function manyBounded<F>(
  */
 export function someBounded<F>(
   F: Alternative<F> & {
-    flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
+    flatMap: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   },
   maxTimes: number
-): <A>(fa: $<F, A>) => $<F, A[]> {
-  return <A>(fa: $<F, A>): $<F, A[]> => {
+): <A>(fa: Kind<F, A>) => Kind<F, A[]> {
+  return <A>(fa: Kind<F, A>): Kind<F, A[]> => {
     if (maxTimes <= 0) {
       return F.emptyK();
     }
@@ -242,11 +242,11 @@ export function someBounded<F>(
  */
 export function replicateA<F>(
   F: Alternative<F> & {
-    flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
+    flatMap: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   },
   n: number
-): <A>(fa: $<F, A>) => $<F, A[]> {
-  return <A>(fa: $<F, A>): $<F, A[]> => {
+): <A>(fa: Kind<F, A>) => Kind<F, A[]> {
+  return <A>(fa: Kind<F, A>): Kind<F, A[]> => {
     if (n <= 0) {
       return F.pure([]);
     }
@@ -260,11 +260,11 @@ export function replicateA<F>(
  */
 export function separate<F>(
   F: Alternative<F> & {
-    flatMap?: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>;
+    flatMap?: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   }
 ): <A, B>(
-  fab: $<F, { _tag: "Left"; value: A } | { _tag: "Right"; value: B }>
-) => { left: $<F, A>; right: $<F, B> } {
+  fab: Kind<F, { _tag: "Left"; value: A } | { _tag: "Right"; value: B }>
+) => { left: Kind<F, A>; right: Kind<F, B> } {
   return (fab) => {
     if (!F.flatMap) {
       throw new Error(
@@ -274,10 +274,10 @@ export function separate<F>(
     return {
       left: F.flatMap(fab, (either: any) =>
         either._tag === "Left" ? F.pure(either.value) : F.emptyK()
-      ) as $<F, any>,
+      ) as Kind<F, any>,
       right: F.flatMap(fab, (either: any) =>
         either._tag === "Right" ? F.pure(either.value) : F.emptyK()
-      ) as $<F, any>,
+      ) as Kind<F, any>,
     };
   };
 }
@@ -289,7 +289,7 @@ export function separate<F>(
 /**
  * Create a SemigroupK instance
  */
-export function makeSemigroupK<F>(combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>): SemigroupK<F> {
+export function makeSemigroupK<F>(combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>): SemigroupK<F> {
   return { combineK };
 }
 
@@ -297,8 +297,8 @@ export function makeSemigroupK<F>(combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, 
  * Create a MonoidK instance
  */
 export function makeMonoidK<F>(
-  combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>,
-  emptyK: <A>() => $<F, A>
+  combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>,
+  emptyK: <A>() => Kind<F, A>
 ): MonoidK<F> {
   return { combineK, emptyK };
 }
@@ -307,11 +307,11 @@ export function makeMonoidK<F>(
  * Create an Alternative instance
  */
 export function makeAlternative<F>(
-  map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>,
-  ap: <A, B>(fab: $<F, (a: A) => B>, fa: $<F, A>) => $<F, B>,
-  pure: <A>(a: A) => $<F, A>,
-  combineK: <A>(x: $<F, A>, y: $<F, A>) => $<F, A>,
-  emptyK: <A>() => $<F, A>
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>,
+  ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>,
+  pure: <A>(a: A) => Kind<F, A>,
+  combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>,
+  emptyK: <A>() => Kind<F, A>
 ): Alternative<F> {
   return { map, ap, pure, combineK, emptyK };
 }

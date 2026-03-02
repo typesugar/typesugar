@@ -45,7 +45,7 @@ Add the plugin to your `tsconfig.json`:
 
 ### Extensions
 
-- `hkt` — Higher-kinded type syntax (`F<_>` → `$<F, A>`)
+- `hkt` — Higher-kinded type syntax (`F<_>` → `Kind<F, A>`)
 - `pipeline` — Pipe operator (`a |> f` → `f(a)`)
 - `cons` — Cons operator (`x :: xs` → `cons(x, xs)`)
 

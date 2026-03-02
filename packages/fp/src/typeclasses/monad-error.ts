@@ -12,7 +12,7 @@
 
 import type { Applicative, Apply } from "./applicative.js";
 import type { Monad, FlatMap } from "./monad.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 // ============================================================================
 // ApplicativeError
@@ -24,8 +24,8 @@ import type { $ } from "../hkt.js";
  * E is the error type, F is the type constructor
  */
 export interface ApplicativeError<F, E> extends Applicative<F> {
-  readonly raiseError: <A>(e: E) => $<F, A>;
-  readonly handleErrorWith: <A>(fa: $<F, A>, f: (e: E) => $<F, A>) => $<F, A>;
+  readonly raiseError: <A>(e: E) => Kind<F, A>;
+  readonly handleErrorWith: <A>(fa: Kind<F, A>, f: (e: E) => Kind<F, A>) => Kind<F, A>;
 }
 
 // ============================================================================
@@ -46,14 +46,14 @@ export interface MonadError<F, E> extends ApplicativeError<F, E>, Monad<F> {}
  */
 export function handleError<F, E>(
   F: ApplicativeError<F, E>
-): <A>(fa: $<F, A>, f: (e: E) => A) => $<F, A> {
+): <A>(fa: Kind<F, A>, f: (e: E) => A) => Kind<F, A> {
   return (fa, f) => F.handleErrorWith(fa, (e) => F.pure(f(e)));
 }
 
 /**
  * Recover from errors, providing a fallback value
  */
-export function recover<F, E>(F: ApplicativeError<F, E>): <A>(fa: $<F, A>, fallback: A) => $<F, A> {
+export function recover<F, E>(F: ApplicativeError<F, E>): <A>(fa: Kind<F, A>, fallback: A) => Kind<F, A> {
   return (fa, fallback) => handleError(F)(fa, () => fallback);
 }
 
@@ -62,7 +62,7 @@ export function recover<F, E>(F: ApplicativeError<F, E>): <A>(fa: $<F, A>, fallb
  */
 export function recoverWith<F, E>(
   F: ApplicativeError<F, E>
-): <A>(fa: $<F, A>, pf: (e: E) => $<F, A> | undefined) => $<F, A> {
+): <A>(fa: Kind<F, A>, pf: (e: E) => Kind<F, A> | undefined) => Kind<F, A> {
   return (fa, pf) =>
     F.handleErrorWith(fa, (e) => {
       const result = pf(e);
@@ -73,18 +73,18 @@ export function recoverWith<F, E>(
 /**
  * Convert error to Option.none, keeping success as Option.some
  */
-export function attempt<F, E>(F: ApplicativeError<F, E>): <A>(fa: $<F, A>) => $<F, Either<E, A>> {
-  return <A>(fa: $<F, A>): $<F, Either<E, A>> =>
+export function attempt<F, E>(F: ApplicativeError<F, E>): <A>(fa: Kind<F, A>) => Kind<F, Either<E, A>> {
+  return <A>(fa: Kind<F, A>): Kind<F, Either<E, A>> =>
     F.handleErrorWith(
       F.map(fa, (a: A): Either<E, A> => ({ _tag: "Right" as const, value: a })),
-      (e: E): $<F, Either<E, A>> => F.pure({ _tag: "Left" as const, value: e })
+      (e: E): Kind<F, Either<E, A>> => F.pure({ _tag: "Left" as const, value: e })
     );
 }
 
 /**
  * Lift from Either into the error context
  */
-export function fromEither<F, E>(F: ApplicativeError<F, E>): <A>(either: Either<E, A>) => $<F, A> {
+export function fromEither<F, E>(F: ApplicativeError<F, E>): <A>(either: Either<E, A>) => Kind<F, A> {
   return (either) => (either._tag === "Right" ? F.pure(either.value) : F.raiseError(either.value));
 }
 
@@ -93,9 +93,9 @@ export function fromEither<F, E>(F: ApplicativeError<F, E>): <A>(either: Either<
  */
 export function fromOption<F, E>(
   F: ApplicativeError<F, E>
-): <A>(option: Option<A>, error: () => E) => $<F, A> {
+): <A>(option: Option<A>, error: () => E) => Kind<F, A> {
   // With null-based Option, option IS the value when it's not null
-  return <A>(option: Option<A>, error: () => E): $<F, A> =>
+  return <A>(option: Option<A>, error: () => E): Kind<F, A> =>
     option !== null ? F.pure(option as A) : F.raiseError(error());
 }
 
@@ -108,7 +108,7 @@ export function fromOption<F, E>(
  */
 export function ensure<F, E>(
   F: MonadError<F, E>
-): <A>(fa: $<F, A>, error: (a: A) => E, p: (a: A) => boolean) => $<F, A> {
+): <A>(fa: Kind<F, A>, error: (a: A) => E, p: (a: A) => boolean) => Kind<F, A> {
   return (fa, error, p) => F.flatMap(fa, (a) => (p(a) ? F.pure(a) : F.raiseError(error(a))));
 }
 
@@ -117,14 +117,14 @@ export function ensure<F, E>(
  */
 export function ensureOr<F, E>(
   F: MonadError<F, E>
-): <A>(fa: $<F, A>, error: (a: A) => E, p: (a: A) => boolean) => $<F, A> {
+): <A>(fa: Kind<F, A>, error: (a: A) => E, p: (a: A) => boolean) => Kind<F, A> {
   return (fa, error, p) => F.flatMap(fa, (a) => (p(a) ? F.raiseError(error(a)) : F.pure(a)));
 }
 
 /**
  * Re-raise an error, potentially transformed
  */
-export function adaptError<F, E>(F: MonadError<F, E>): <A>(fa: $<F, A>, f: (e: E) => E) => $<F, A> {
+export function adaptError<F, E>(F: MonadError<F, E>): <A>(fa: Kind<F, A>, f: (e: E) => E) => Kind<F, A> {
   return (fa, f) => F.handleErrorWith(fa, (e) => F.raiseError(f(e)));
 }
 
@@ -133,7 +133,7 @@ export function adaptError<F, E>(F: MonadError<F, E>): <A>(fa: $<F, A>, f: (e: E
  */
 export function orElse<F, E>(
   F: MonadError<F, E>
-): <A>(fa: $<F, A>, fallback: () => $<F, A>) => $<F, A> {
+): <A>(fa: Kind<F, A>, fallback: () => Kind<F, A>) => Kind<F, A> {
   return (fa, fallback) => F.handleErrorWith(fa, () => fallback());
 }
 
@@ -142,8 +142,8 @@ export function orElse<F, E>(
  */
 export function onError<F, E>(
   F: MonadError<F, E>
-): <A>(fa: $<F, A>, handler: (e: E) => $<F, void>) => $<F, A> {
-  return <A>(fa: $<F, A>, handler: (e: E) => $<F, void>): $<F, A> =>
+): <A>(fa: Kind<F, A>, handler: (e: E) => Kind<F, void>) => Kind<F, A> {
+  return <A>(fa: Kind<F, A>, handler: (e: E) => Kind<F, void>): Kind<F, A> =>
     F.handleErrorWith(fa, (e: E) => F.flatMap(handler(e), () => F.raiseError<A>(e)));
 }
 
@@ -165,11 +165,11 @@ type Option<A> = { readonly _tag: "None" } | { readonly _tag: "Some"; readonly v
  * Create a MonadError instance
  */
 export function makeMonadError<F, E>(
-  map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>,
-  flatMap: <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>) => $<F, B>,
-  pure: <A>(a: A) => $<F, A>,
-  raiseError: <A>(e: E) => $<F, A>,
-  handleErrorWith: <A>(fa: $<F, A>, f: (e: E) => $<F, A>) => $<F, A>
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>,
+  flatMap: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>,
+  pure: <A>(a: A) => Kind<F, A>,
+  raiseError: <A>(e: E) => Kind<F, A>,
+  handleErrorWith: <A>(fa: Kind<F, A>, f: (e: E) => Kind<F, A>) => Kind<F, A>
 ): MonadError<F, E> {
   return {
     map,

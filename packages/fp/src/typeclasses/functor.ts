@@ -13,7 +13,7 @@
  * eliminated at compile time and method calls are inlined directly.
  */
 
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 // ============================================================================
 // Functor
@@ -22,11 +22,11 @@ import type { $ } from "../hkt.js";
 /**
  * Functor typeclass interface.
  *
- * Uses `$<F, A>` which resolves to the concrete type at compile time.
+ * Uses `Kind<F, A>` which resolves to the concrete type at compile time.
  * Combined with `specialize`, dictionary dispatch is eliminated entirely.
  */
 export interface Functor<F> {
-  readonly map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>;
+  readonly map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
 }
 
 // ============================================================================
@@ -36,42 +36,42 @@ export interface Functor<F> {
 /**
  * Replace all A values with a constant B value
  */
-export function as<F>(F: Functor<F>): <A, B>(fa: $<F, A>, b: B) => $<F, B> {
+export function as<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, b: B) => Kind<F, B> {
   return (fa, b) => F.map(fa, () => b);
 }
 
 /**
  * Replace all A values with void/undefined
  */
-export function void_<F>(F: Functor<F>): <A>(fa: $<F, A>) => $<F, void> {
+export function void_<F>(F: Functor<F>): <A>(fa: Kind<F, A>) => Kind<F, void> {
   return (fa) => F.map(fa, () => undefined);
 }
 
 /**
  * Tuple the value with a constant on the left
  */
-export function tupleLeft<F>(F: Functor<F>): <A, B>(fa: $<F, A>, b: B) => $<F, [B, A]> {
+export function tupleLeft<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, b: B) => Kind<F, [B, A]> {
   return (fa, b) => F.map(fa, (a) => [b, a]);
 }
 
 /**
  * Tuple the value with a constant on the right
  */
-export function tupleRight<F>(F: Functor<F>): <A, B>(fa: $<F, A>, b: B) => $<F, [A, B]> {
+export function tupleRight<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, b: B) => Kind<F, [A, B]> {
   return (fa, b) => F.map(fa, (a) => [a, b]);
 }
 
 /**
  * Lift a function to work on Functor values
  */
-export function lift<F>(F: Functor<F>): <A, B>(f: (a: A) => B) => (fa: $<F, A>) => $<F, B> {
+export function lift<F>(F: Functor<F>): <A, B>(f: (a: A) => B) => (fa: Kind<F, A>) => Kind<F, B> {
   return (f) => (fa) => F.map(fa, f);
 }
 
 /**
  * Apply a function inside the functor to a value
  */
-export function flap<F>(F: Functor<F>): <A, B>(a: A, fab: $<F, (a: A) => B>) => $<F, B> {
+export function flap<F>(F: Functor<F>): <A, B>(a: A, fab: Kind<F, (a: A) => B>) => Kind<F, B> {
   return (a, fab) => F.map(fab, (f) => f(a));
 }
 
@@ -84,7 +84,7 @@ export function flap<F>(F: Functor<F>): <A, B>(a: A, fab: $<F, (a: A) => B>) => 
  * For types that can be "pre-composed" with a function
  */
 export interface Contravariant<F> {
-  readonly contramap: <A, B>(fa: $<F, A>, f: (b: B) => A) => $<F, B>;
+  readonly contramap: <A, B>(fa: Kind<F, A>, f: (b: B) => A) => Kind<F, B>;
 }
 
 // ============================================================================
@@ -95,7 +95,7 @@ export interface Contravariant<F> {
  * Invariant Functor - both covariant and contravariant
  */
 export interface Invariant<F> {
-  readonly imap: <A, B>(fa: $<F, A>, f: (a: A) => B, g: (b: B) => A) => $<F, B>;
+  readonly imap: <A, B>(fa: Kind<F, A>, f: (a: A) => B, g: (b: B) => A) => Kind<F, B>;
 }
 
 // ============================================================================
@@ -105,7 +105,7 @@ export interface Invariant<F> {
 /**
  * Create a Functor instance from a map function
  */
-export function makeFunctor<F>(map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>): Functor<F> {
+export function makeFunctor<F>(map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>): Functor<F> {
   return { map };
 }
 
@@ -121,8 +121,8 @@ export function makeFunctor<F>(map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, 
  */
 export function composeFunctor<F, G>(F: Functor<F>, G: Functor<G>): Functor<[F, G]> {
   return {
-    map: <A, B>(fga: $<[F, G], A>, f: (a: A) => B): $<[F, G], B> =>
-      F.map(fga as unknown as $<F, $<G, A>>, (ga: $<G, A>) => G.map(ga, f)) as unknown as $<
+    map: <A, B>(fga: Kind<[F, G], A>, f: (a: A) => B): Kind<[F, G], B> =>
+      F.map(fga as unknown as Kind<F, Kind<G, A>>, (ga: Kind<G, A>) => G.map(ga, f)) as unknown as Kind<
         [F, G],
         B
       >,

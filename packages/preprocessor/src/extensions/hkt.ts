@@ -94,7 +94,7 @@ interface HKTApplication {
  * Phase 1: Scan for HKT declarations (F<_>) and record their scope
  * Phase 2: Scan for HKT usages (F<A>) within scope and record them
  * Phase 3: Generate replacements for F<_> declarations and F<A> usages
- * Phase 4: Resolve $<TypeF, A> → Type<A> for known typesugar type functions
+ * Phase 4: Resolve Kind<TypeF, A> → Type<A> for known typesugar type functions
  */
 export const hktExtension: SyntaxExtension = {
   name: "hkt",
@@ -162,7 +162,7 @@ export const hktExtension: SyntaxExtension = {
     }
 
     // Phase 2 and 3 only run if there are F<_> declarations
-    // But we still need to run Phase 4 for $<TypeF, A> resolution
+    // But we still need to run Phase 4 for Kind<TypeF, A> resolution
     const replacements: Replacement[] = [];
 
     if (declarations.length > 0) {
@@ -269,7 +269,7 @@ export const hktExtension: SyntaxExtension = {
     }
 
     // Phase 4: Resolve Kind<TypeF, A> → Type<A> for known typesugar type functions
-    // Only proceed if Kind (or $) is imported from a typesugar package
+    // Only proceed if Kind is imported from a typesugar package
     if (imports.hktOperator && mode === "macro") {
       const hktApplications = findHKTApplications(tokens, source, imports, declarations);
 
@@ -486,7 +486,7 @@ function findMatchingGreaterThan(tokens: readonly Token[], lessThanIndex: number
 }
 
 /**
- * Find all Kind<TypeF, A> or $<TypeF, A> applications in the token stream.
+ * Find all Kind<TypeF, A> applications in the token stream.
  *
  * This function identifies HKT applications that can be resolved to concrete types.
  * It handles:
@@ -516,14 +516,14 @@ function findHKTApplications(
   for (let i = 0; i < tokens.length - 4; i++) {
     const t0 = tokens[i];
 
-    // Check for the HKT operator ($ or Kind or aliased name)
+    // Check for the HKT operator (Kind or aliased name)
     if (t0.kind !== ts.SyntaxKind.Identifier) continue;
     if (t0.text !== hktOp) continue;
 
     const t1 = tokens[i + 1];
     if ((t1.kind as number) !== lessThanValue) continue;
 
-    // Find the matching > for the outer $<...>
+    // Find the matching > for the outer Kind<...>
     const outerCloseIdx = findMatchingGreaterThan(tokens, i + 1);
     if (outerCloseIdx === -1) continue;
 
@@ -550,7 +550,7 @@ function findHKTApplications(
   }
 
   // Sort by span size (smallest = innermost first)
-  // When we have $<OptionF, $<ListF, number>>, we want to resolve inner first
+  // When we have Kind<OptionF, Kind<ListF, number>>, we want to resolve inner first
   applications.sort((a, b) => {
     const sizeA = a.end - a.start;
     const sizeB = b.end - b.start;

@@ -18,7 +18,7 @@
  * import { specialize } from "@typesugar/macros";
  *
  * // Generic function using Monad
- * function double<F>(F: Monad<F>, fa: $<F, number>): $<F, number> {
+ * function double<F>(F: Monad<F>, fa: Kind<F, number>): Kind<F, number> {
  *   return F.map(fa, x => x * 2);
  * }
  *
@@ -40,7 +40,7 @@
  * - `LayerF<RIn, E>` - Type constructor for Layer with fixed input/error
  */
 
-import type { $, TypeFunction } from "../hkt.js";
+import type { Kind, TypeFunction } from "../hkt.js";
 import type { Functor } from "../typeclasses/functor.js";
 import type { Applicative } from "../typeclasses/applicative.js";
 import type { Monad } from "../typeclasses/monad.js";
@@ -143,7 +143,7 @@ export interface LayerF<RIn = never, E = never> extends TypeFunction {
  */
 export function effectFunctor<R, E>(E: typeof import("effect/Effect")): Functor<EffectF<R, E>> {
   return {
-    map: <A, B>(fa: $<EffectF<R, E>, A>, f: (a: A) => B): $<EffectF<R, E>, B> => {
+    map: <A, B>(fa: Kind<EffectF<R, E>, A>, f: (a: A) => B): Kind<EffectF<R, E>, B> => {
       return E.map(fa as any, f) as any;
     },
   };
@@ -158,13 +158,13 @@ export function effectApplicative<R, E>(
   const functor = effectFunctor<R, E>(E);
   return {
     ...functor,
-    pure: <A>(a: A): $<EffectF<R, E>, A> => {
+    pure: <A>(a: A): Kind<EffectF<R, E>, A> => {
       return E.succeed(a) as any;
     },
     ap: <A, B>(
-      fab: $<EffectF<R, E>, (a: A) => B>,
-      fa: $<EffectF<R, E>, A>
-    ): $<EffectF<R, E>, B> => {
+      fab: Kind<EffectF<R, E>, (a: A) => B>,
+      fa: Kind<EffectF<R, E>, A>
+    ): Kind<EffectF<R, E>, B> => {
       return E.flatMap(fab as any, (f: any) => E.map(fa as any, f)) as any;
     },
   };
@@ -178,9 +178,9 @@ export function effectMonad<R, E>(E: typeof import("effect/Effect")): Monad<Effe
   return {
     ...applicative,
     flatMap: <A, B>(
-      fa: $<EffectF<R, E>, A>,
-      f: (a: A) => $<EffectF<R, E>, B>
-    ): $<EffectF<R, E>, B> => {
+      fa: Kind<EffectF<R, E>, A>,
+      f: (a: A) => Kind<EffectF<R, E>, B>
+    ): Kind<EffectF<R, E>, B> => {
       return E.flatMap(fa as any, f as any) as any;
     },
   };
@@ -195,13 +195,13 @@ export function effectMonadError<R, E>(
   const monad = effectMonad<R, E>(E);
   return {
     ...monad,
-    raiseError: <A>(e: E): $<EffectF<R, E>, A> => {
+    raiseError: <A>(e: E): Kind<EffectF<R, E>, A> => {
       return E.fail(e) as any;
     },
     handleErrorWith: <A>(
-      fa: $<EffectF<R, E>, A>,
-      handler: (e: E) => $<EffectF<R, E>, A>
-    ): $<EffectF<R, E>, A> => {
+      fa: Kind<EffectF<R, E>, A>,
+      handler: (e: E) => Kind<EffectF<R, E>, A>
+    ): Kind<EffectF<R, E>, A> => {
       return E.catchAll(fa as any, handler as any) as any;
     },
   };
@@ -214,7 +214,7 @@ export function effectSemigroupK<R, E>(
   E: typeof import("effect/Effect")
 ): SemigroupK<EffectF<R, E>> {
   return {
-    combineK: <A>(x: $<EffectF<R, E>, A>, y: $<EffectF<R, E>, A>): $<EffectF<R, E>, A> => {
+    combineK: <A>(x: Kind<EffectF<R, E>, A>, y: Kind<EffectF<R, E>, A>): Kind<EffectF<R, E>, A> => {
       return E.orElse(x as any, () => y as any) as any;
     },
   };
@@ -229,7 +229,7 @@ export function effectSemigroupK<R, E>(
  */
 export function streamFunctor<R, E>(S: typeof import("effect/Stream")): Functor<StreamF<R, E>> {
   return {
-    map: <A, B>(fa: $<StreamF<R, E>, A>, f: (a: A) => B): $<StreamF<R, E>, B> => {
+    map: <A, B>(fa: Kind<StreamF<R, E>, A>, f: (a: A) => B): Kind<StreamF<R, E>, B> => {
       return S.map(fa as any, f) as any;
     },
   };
@@ -242,19 +242,19 @@ export function streamMonad<R, E>(S: typeof import("effect/Stream")): Monad<Stre
   const functor = streamFunctor<R, E>(S);
   return {
     ...functor,
-    pure: <A>(a: A): $<StreamF<R, E>, A> => {
+    pure: <A>(a: A): Kind<StreamF<R, E>, A> => {
       return S.succeed(a) as any;
     },
     ap: <A, B>(
-      fab: $<StreamF<R, E>, (a: A) => B>,
-      fa: $<StreamF<R, E>, A>
-    ): $<StreamF<R, E>, B> => {
+      fab: Kind<StreamF<R, E>, (a: A) => B>,
+      fa: Kind<StreamF<R, E>, A>
+    ): Kind<StreamF<R, E>, B> => {
       return S.flatMap(fab as any, (f: any) => S.map(fa as any, f)) as any;
     },
     flatMap: <A, B>(
-      fa: $<StreamF<R, E>, A>,
-      f: (a: A) => $<StreamF<R, E>, B>
-    ): $<StreamF<R, E>, B> => {
+      fa: Kind<StreamF<R, E>, A>,
+      f: (a: A) => Kind<StreamF<R, E>, B>
+    ): Kind<StreamF<R, E>, B> => {
       return S.flatMap(fa as any, f as any) as any;
     },
   };
@@ -267,7 +267,7 @@ export function streamSemigroupK<R, E>(
   S: typeof import("effect/Stream")
 ): SemigroupK<StreamF<R, E>> {
   return {
-    combineK: <A>(x: $<StreamF<R, E>, A>, y: $<StreamF<R, E>, A>): $<StreamF<R, E>, A> => {
+    combineK: <A>(x: Kind<StreamF<R, E>, A>, y: Kind<StreamF<R, E>, A>): Kind<StreamF<R, E>, A> => {
       return S.concat(x as any, y as any) as any;
     },
   };
@@ -279,7 +279,7 @@ export function streamSemigroupK<R, E>(
 export function streamMonoidK<R, E>(S: typeof import("effect/Stream")): MonoidK<StreamF<R, E>> {
   return {
     ...streamSemigroupK<R, E>(S),
-    emptyK: <A>(): $<StreamF<R, E>, A> => {
+    emptyK: <A>(): Kind<StreamF<R, E>, A> => {
       return S.empty as any;
     },
   };

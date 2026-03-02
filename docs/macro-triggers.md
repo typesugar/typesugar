@@ -264,14 +264,14 @@ interface Functor<F<_>> {
 
 // Transformer rewrites to:
 interface Functor<F> {
-  map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
+  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
 }
 ```
 
 The `F<_>` syntax indicates "F is a type constructor that takes one type argument." The transformer:
 
 1. Strips the `<_>` from the type parameter
-2. Rewrites all `F<A>` applications to `$<F, A>` (the HKT encoding)
+2. Rewrites all `F<A>` applications to `Kind<F, A>` (the HKT encoding)
 
 **Transformer Location:** `tryTransformHKTDeclaration()` in `macro-transformer.ts:2622`
 
@@ -353,7 +353,7 @@ const c = { x: a.x + b.x, y: a.y + b.y };
 
 ```typescript
 // Generic function using dictionary-passing style
-function double<F>(F: Functor<F>): <A>(fa: $<F, A>) => $<F, A> {
+function double<F>(F: Functor<F>): <A>(fa: Kind<F, A>) => Kind<F, A> {
   return (fa) => F.map(fa, (x) => x + x);
 }
 

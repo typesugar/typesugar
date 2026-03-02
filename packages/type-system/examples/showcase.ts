@@ -126,22 +126,22 @@ console.log("1. Type-level boolean utilities: all type assertions passed");
 // 2. HIGHER-KINDED TYPES (HKT) - Type Constructors as Parameters
 // ============================================================================
 
-// $<F, A> applies a type constructor F to argument A
-type StringArray = $<ArrayF, string>;
+// Kind<F, A> applies a type constructor F to argument A
+type StringArray = Kind<ArrayF, string>;
 typeAssert<Equal<StringArray, string[]>>();
 
-type NumPromise = $<PromiseF, number>;
+type NumPromise = Kind<PromiseF, number>;
 typeAssert<Equal<NumPromise, Promise<number>>>();
 
-type StringSet = $<SetF, string>;
+type StringSet = Kind<SetF, string>;
 typeAssert<Equal<StringSet, Set<string>>>();
 
-type StringNumMap = $<MapF<string>, number>;
+type StringNumMap = Kind<MapF<string>, number>;
 typeAssert<Equal<StringNumMap, Map<string, number>>>();
 
 // HKT enables generic programming over type constructors
 interface Functor<F> {
-  map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
+  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
 }
 
 const arrayFunctor: Functor<ArrayF> = {
@@ -152,7 +152,7 @@ const mapped = arrayFunctor.map([1, 2, 3], (x) => x.toString());
 assert(mapped[0] === "1");
 assert(mapped.length === 3);
 
-console.log("2. HKT encoding: $<ArrayF, string> = string[], functor map works");
+console.log("2. HKT encoding: Kind<ArrayF, string> = string[], functor map works");
 
 // ============================================================================
 // 3. REFINEMENT TYPES - Values with Compile-Time Validated Predicates
@@ -448,7 +448,7 @@ console.log("\n=== @typesugar/type-system Showcase Complete ===");
 console.log(`
 Features demonstrated:
   1. Type-level boolean utilities (Equal, Not, And, Or, IsNever, IsAny)
-  2. Higher-Kinded Types ($<F, A> encoding, Functor)
+  2. Higher-Kinded Types (Kind<F, A> encoding, Functor)
   3. Refinement types (Positive, Byte, Port, custom, composition)
   4. Newtype branding (zero-cost type discrimination)
   5. Opaque type modules (ML-style abstract types)

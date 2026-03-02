@@ -34,7 +34,7 @@ export {
 // @typesugar/fp-Specific Types
 // ============================================================================
 
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 /**
  * For HKT typeclasses, we need to parameterize over the type constructor.
@@ -44,7 +44,7 @@ import type { $ } from "../hkt.js";
  * @template A - The element type
  */
 export type EqF<F, A> = {
-  readonly eqv: (fa1: $<F, A>, fa2: $<F, A>) => boolean;
+  readonly eqv: (fa1: Kind<F, A>, fa2: Kind<F, A>) => boolean;
 };
 
 /**

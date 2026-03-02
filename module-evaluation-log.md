@@ -120,7 +120,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 4/5 - Comprehensive FP toolkit (Option, Either, IO, State, Reader, Writer, Validated, List). Zero-cost Option using `A | null` is innovative.
 **Completeness**: 4/5 - Full typeclass hierarchy, 50+ operations per data type, stack-safe IO, bracket/resource management, parallel ops, retry. Missing: explicit instance objects for summon().
 **Documentation**: 5/5 - Excellent README, thorough JSDoc on every export, comprehensive 380-line showcase. HKT encoding and zero-cost philosophy clearly explained.
-**Coherence**: 4/5 - Strong zero-cost philosophy (null-based Option). Correct $<F, A> encoding. Gap: uses manual instances rather than @typeclass/@instance decorators.
+**Coherence**: 4/5 - Strong zero-cost philosophy (null-based Option). Correct Kind<F, A> encoding. Gap: uses manual instances rather than @typeclass/@instance decorators.
 **Summary**: Well-executed, comprehensive FP library embodying zero-cost philosophy. Production-ready. Main gap is macro-based typeclass integration.
 
 ---

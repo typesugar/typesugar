@@ -405,7 +405,7 @@ typesugar uses phantom kind markers for higher-kinded type encoding:
 
 ```typescript
 type Kind<F, A> = F & { readonly __kind__: A };
-type $<F, A> = Kind<F, A>; // shorthand alias
+type Kind<F, A> = Kind<F, A>; // shorthand alias
 
 // Type-level function
 interface ArrayF extends TypeFunction {
@@ -428,7 +428,7 @@ The specialization system eliminates typeclass dictionary overhead at compile ti
 
 ```typescript
 // Before specialization
-function map<F>(F: Functor<F>): <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B> {
+function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> {
   return (fa, f) => F.map(fa, f);
 }
 

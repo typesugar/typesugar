@@ -13,7 +13,7 @@
  */
 
 import type { Apply, Applicative } from "../typeclasses/applicative.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 import type { Law, LawSet } from "./types.js";
 import { functorLaws } from "./functor.js";
 import type { EqFA } from "./types.js";
@@ -40,7 +40,7 @@ export function applyLaws<F, A>(Ap: Apply<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "composition",
       description:
         "ap composes: F.ap(F.ap(F.map(fbc, bc => ab => a => bc(ab(a))), fab), fa) === F.ap(fbc, F.ap(fab, fa))",
-      check: (fa: $<F, A>, fab: $<F, (a: A) => A>, fbc: $<F, (a: A) => A>): boolean => {
+      check: (fa: Kind<F, A>, fab: Kind<F, (a: A) => A>, fbc: Kind<F, (a: A) => A>): boolean => {
         const compose = (bc: (a: A) => A) => (ab: (a: A) => A) => (a: A) => bc(ab(a));
         const left = Ap.ap(Ap.ap(Ap.map(fbc, compose), fab), fa);
         const right = Ap.ap(fbc, Ap.ap(fab, fa));
@@ -71,7 +71,7 @@ export function applicativeLaws<F, A>(Ap: Applicative<F>, EqFA: EqFA<F, A>): Law
       arity: 1,
       proofHint: "identity-left",
       description: "pure identity is identity: F.ap(F.pure(a => a), fa) === fa",
-      check: (fa: $<F, A>): boolean =>
+      check: (fa: Kind<F, A>): boolean =>
         EqFA.eqv(
           Ap.ap(
             Ap.pure((a: A) => a),
@@ -92,7 +92,7 @@ export function applicativeLaws<F, A>(Ap: Applicative<F>, EqFA: EqFA<F, A>): Law
       name: "interchange",
       arity: 2,
       description: "interchange: F.ap(ff, F.pure(a)) === F.ap(F.pure(f => f(a)), ff)",
-      check: (a: A, ff: $<F, (a: A) => A>): boolean =>
+      check: (a: A, ff: Kind<F, (a: A) => A>): boolean =>
         EqFA.eqv(
           Ap.ap(ff, Ap.pure(a)),
           Ap.ap(
@@ -105,7 +105,7 @@ export function applicativeLaws<F, A>(Ap: Applicative<F>, EqFA: EqFA<F, A>): Law
       name: "map consistency",
       arity: 2,
       description: "map via ap: F.map(fa, f) === F.ap(F.pure(f), fa)",
-      check: (fa: $<F, A>, f: (a: A) => A): boolean =>
+      check: (fa: Kind<F, A>, f: (a: A) => A): boolean =>
         EqFA.eqv(Ap.map(fa, f), Ap.ap(Ap.pure(f), fa)),
     },
   ] as unknown as LawSet;

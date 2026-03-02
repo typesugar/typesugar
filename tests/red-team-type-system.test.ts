@@ -2,7 +2,7 @@
  * Red Team Tests for @typesugar/type-system
  *
  * Attack surfaces:
- * - HKT encoding soundness ($<F, A> must depend on A)
+ * - HKT encoding soundness (Kind<F, A> must depend on A)
  * - Newtype wrap/unwrap safety and bypass attempts
  * - Refined type predicate edge cases (NaN, Infinity, -0, special chars)
  * - Vec type-level arithmetic limits and length mismatches
@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 import {
   // HKT
-  type $,
+  type Kind,
   type ArrayF,
   type PromiseF,
   type MapF,
@@ -89,20 +89,20 @@ describe("Type System Edge Cases", () => {
   // ==========================================================================
   describe("HKT Encoding Soundness", () => {
     it("should correctly apply type-level functions", () => {
-      // $<ArrayF, number> should resolve to Array<number>
-      type Result = $<ArrayF, number>;
+      // Kind<ArrayF, number> should resolve to Array<number>
+      type Result = Kind<ArrayF, number>;
       const arr: Result = [1, 2, 3];
       expect(arr).toEqual([1, 2, 3]);
 
-      // $<PromiseF, string> should resolve to Promise<string>
-      type PromiseResult = $<PromiseF, string>;
+      // Kind<PromiseF, string> should resolve to Promise<string>
+      type PromiseResult = Kind<PromiseF, string>;
       const p: PromiseResult = Promise.resolve("test");
       expect(p).toBeInstanceOf(Promise);
     });
 
     it("should handle multi-arity type constructors with fixed params", () => {
       // MapF<K> fixes the key type, varies the value type
-      type StringToNumber = $<MapF<string>, number>;
+      type StringToNumber = Kind<MapF<string>, number>;
       const map: StringToNumber = new Map([["a", 1]]);
       expect(map.get("a")).toBe(1);
     });
@@ -115,8 +115,8 @@ describe("Type System Edge Cases", () => {
       }
 
       // Both resolve to string - the type parameter is lost
-      type A = $<PhantomF, number>; // string (should be "something with number")
-      type B = $<PhantomF, boolean>; // string (should be "something with boolean")
+      type A = Kind<PhantomF, number>; // string (should be "something with number")
+      type B = Kind<PhantomF, boolean>; // string (should be "something with boolean")
 
       // This compiles but is semantically wrong - we can't distinguish
       const a: A = "hello";

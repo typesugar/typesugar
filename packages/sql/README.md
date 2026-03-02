@@ -36,7 +36,7 @@ interface User {
 }
 
 // Type-safe query with sql$ macro
-const findUser = sql$<User>`
+const findUser = sqlKind<User>`
   SELECT id, name, email FROM users WHERE id = ${userId}
 `;
 
@@ -152,11 +152,11 @@ const updateUser = (id: number, name: string): Update =>
 import { TypedFragment, TypedQuery, TypedUpdate, sql$ } from "@typesugar/sql";
 
 // Parameter types inferred from interpolations
-const byId = sql$<[number]>`WHERE id = ${0}`;
+const byId = sqlKind<[number]>`WHERE id = ${0}`;
 // TypedFragment<[number], void>
 
 // Explicit result type
-const selectUsers = sql$<[], User>`SELECT id, name, email FROM users`;
+const selectUsers = sqlKind<[], User>`SELECT id, name, email FROM users`;
 // TypedFragment<[], User>
 
 // Composition preserves and concatenates types
@@ -218,7 +218,7 @@ class TypedUpdate<P extends readonly unknown[]> {
 }
 
 // Example: Insert with returning generated ID
-const insert = sql$<[string, string]>`
+const insert = sqlKind<[string, string]>`
   INSERT INTO users (name, email) VALUES (${name}, ${email})
 `.toUpdate();
 
@@ -301,7 +301,7 @@ const findUser = sql$`SELECT * FROM users WHERE id = ${userId}`;
 ### Explicit Result Type
 
 ```typescript
-const findUser = sql$<User>`SELECT id, name FROM users WHERE id = ${userId}`;
+const findUser = sqlKind<User>`SELECT id, name FROM users WHERE id = ${userId}`;
 // TypedFragment<[number], User>
 ```
 
@@ -639,14 +639,14 @@ const async = ConnectionIO.async(() => fetchFromExternalAPI());
 ```typescript
 // Query returning single result (or null)
 const findOne = ConnectionIO.query(
-  sql$<User>`SELECT * FROM users WHERE id = ${id}`.toQuery(),
+  sqlKind<User>`SELECT * FROM users WHERE id = ${id}`.toQuery(),
   UserRead
 );
 // ConnectionIO<User | null>
 
 // Query returning multiple results
 const findAll = ConnectionIO.queryMany(
-  sql$<User>`SELECT * FROM users WHERE active = ${true}`.toQuery(),
+  sqlKind<User>`SELECT * FROM users WHERE active = ${true}`.toQuery(),
   UserRead
 );
 // ConnectionIO<User[]>
@@ -945,7 +945,7 @@ const query = sql$`SELECT * FROM users WHERE id = ${userId} AND name = ${name}`;
 | ---------------- | ---------------------------------------- |
 | `sql\`...\``     | Basic SQL fragment                       |
 | `sql$\`...\``    | Typed SQL fragment (macro)               |
-| `sql$<R>\`...\`` | Typed fragment with explicit result type |
+| `sqlKind<R>\`...\`` | Typed fragment with explicit result type |
 
 ### TypedFragment Combinators
 

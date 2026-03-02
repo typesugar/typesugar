@@ -55,7 +55,7 @@ export { mono, inlineCall } from "@typesugar/macros";
  * @param expr - A lambda `F => body` where F.method() calls get inlined
  * @returns The specialized result
  */
-export function specialize$<T, R>(dict: T, expr: (d: T) => R): R {
+export function specializeKind<T, R>(dict: T, expr: (d: T) => R): R {
   throw new Error(
     "specialize$() is a compile-time macro and requires the typesugar transformer. " +
       "See https://github.com/typesugar/typesugar for setup instructions."

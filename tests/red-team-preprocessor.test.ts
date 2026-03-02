@@ -180,7 +180,7 @@ describe("Preprocessor Edge Cases", () => {
       const source = `interface Functor<F<_>> { map: <A, B>(fa: F<A>) => F<B>; }`;
       const { code, changed } = preprocess(source);
 
-      // F<_> should become F, and F<A> should become $<F, A>
+      // F<_> should become F, and F<A> should become Kind<F, A>
       expect(changed).toBe(true);
     });
 

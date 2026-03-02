@@ -140,15 +140,15 @@ describe("Prettier Plugin Edge Cases", () => {
     });
 
     it("handles HKT usage without declaration in same file", () => {
-      // $<F, A> appears but no F<_> declaration
-      const source = `type Applied = $<SomeF, number>;`;
+      // Kind<F, A> appears but no F<_> declaration
+      const source = `type Applied = Kind<SomeF, number>;`;
       const result = preFormat(source);
 
-      // Should not crash, and $ should remain (it's valid TS)
-      expect(result.code).toContain("$<SomeF");
+      // Should not crash, and Kind should remain (it's valid TS)
+      expect(result.code).toContain("Kind<SomeF");
     });
 
-    it("handles nested HKT application $<F, $<G, A>>", async () => {
+    it("handles nested HKT application Kind<F, Kind<G, A>>", async () => {
       const source = `interface Composed<F<_>, G<_>> { compose: (fg: F<G<A>>) => F<G<B>>; }`;
       const result = await format(source, { filepath: "test.ts" });
 

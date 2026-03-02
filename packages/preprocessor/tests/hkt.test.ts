@@ -176,32 +176,32 @@ type Bar<G> = G<A>;`;
 
 describe("Import Tracker", () => {
   describe("scanImports", () => {
-    it("should detect $ import from typesugar packages", () => {
-      const source = `import { $ } from "@typesugar/fp";`;
-      const imports = scanImports(source);
-      expect(imports.hktOperator).toBe("$");
-    });
-
     it("should detect Kind import from typesugar packages", () => {
       const source = `import { Kind } from "@typesugar/type-system";`;
       const imports = scanImports(source);
       expect(imports.hktOperator).toBe("Kind");
     });
 
-    it("should handle aliased $ import", () => {
-      const source = `import { $ as HKT } from "@typesugar/fp";`;
+    it("should detect Kind import from fp package", () => {
+      const source = `import { Kind } from "@typesugar/fp";`;
+      const imports = scanImports(source);
+      expect(imports.hktOperator).toBe("Kind");
+    });
+
+    it("should handle aliased Kind import", () => {
+      const source = `import { Kind as HKT } from "@typesugar/fp";`;
       const imports = scanImports(source);
       expect(imports.hktOperator).toBe("HKT");
     });
 
-    it("should NOT detect $ from non-typesugar packages", () => {
-      const source = `import $ from "jquery";`;
+    it("should NOT detect Kind from non-typesugar packages", () => {
+      const source = `import { Kind } from "other-lib";`;
       const imports = scanImports(source);
       expect(imports.hktOperator).toBeNull();
     });
 
     it("should detect HKT type functions", () => {
-      const source = `import { $, OptionF, EitherF } from "@typesugar/fp";`;
+      const source = `import { Kind, OptionF, EitherF } from "@typesugar/fp";`;
       const imports = scanImports(source);
       expect(imports.typeFunctions.has("OptionF")).toBe(true);
       expect(imports.typeFunctions.has("EitherF")).toBe(true);
@@ -217,13 +217,13 @@ describe("Import Tracker", () => {
     });
 
     it("should track concrete type imports", () => {
-      const source = `import { $, OptionF, Option } from "@typesugar/fp";`;
+      const source = `import { Kind, OptionF, Option } from "@typesugar/fp";`;
       const imports = scanImports(source);
       expect(imports.typeFunctions.get("OptionF")?.localConcrete).toBe("Option");
     });
 
     it("should handle aliased concrete types", () => {
-      const source = `import { $, OptionF, Option as Opt } from "@typesugar/fp";`;
+      const source = `import { Kind, OptionF, Option as Opt } from "@typesugar/fp";`;
       const imports = scanImports(source);
       expect(imports.typeFunctions.get("OptionF")?.localConcrete).toBe("Opt");
     });
@@ -236,48 +236,48 @@ describe("Import Tracker", () => {
     });
 
     it("should handle type-only imports", () => {
-      const source = `import type { $, OptionF } from "@typesugar/fp";`;
+      const source = `import type { Kind, OptionF } from "@typesugar/fp";`;
       const imports = scanImports(source);
-      expect(imports.hktOperator).toBe("$");
+      expect(imports.hktOperator).toBe("Kind");
       expect(imports.typeFunctions.has("OptionF")).toBe(true);
     });
 
     it("should handle inline type imports", () => {
-      const source = `import { $, type OptionF } from "@typesugar/fp";`;
+      const source = `import { Kind, type OptionF } from "@typesugar/fp";`;
       const imports = scanImports(source);
-      expect(imports.hktOperator).toBe("$");
+      expect(imports.hktOperator).toBe("Kind");
       expect(imports.typeFunctions.has("OptionF")).toBe(true);
     });
   });
 });
 
-describe("HKT Resolution (Kind<TypeF, A> or $<TypeF, A> → Type<A>)", () => {
+describe("HKT Resolution (Kind<TypeF, A> → Type<A>)", () => {
   describe("basic resolution", () => {
-    it("should resolve $<OptionF, number> to Option<number>", () => {
+    it("should resolve Kind<OptionF, number> to Option<number>", () => {
       const source = `
-import { $, OptionF, Option } from "@typesugar/fp";
-const x: $<OptionF, number> = null;
+import { Kind, OptionF, Option } from "@typesugar/fp";
+const x: Kind<OptionF, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("const x: Option<number>");
-      expect(code).not.toContain("$<OptionF");
+      expect(code).not.toContain("Kind<OptionF");
     });
 
-    it("should resolve $<ArrayF, string> to Array<string>", () => {
+    it("should resolve Kind<ArrayF, string> to Array<string>", () => {
       const source = `
-import { $, ArrayF } from "@typesugar/type-system";
-type Strings = $<ArrayF, string>;
+import { Kind, ArrayF } from "@typesugar/type-system";
+type Strings = Kind<ArrayF, string>;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("type Strings = Array<string>");
     });
 
-    it("should resolve $<ListF, boolean> to List<boolean>", () => {
+    it("should resolve Kind<ListF, boolean> to List<boolean>", () => {
       const source = `
-import { $, ListF, List } from "@typesugar/fp";
-function get(): $<ListF, boolean> { return []; }
+import { Kind, ListF, List } from "@typesugar/fp";
+function get(): Kind<ListF, boolean> { return []; }
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -286,42 +286,42 @@ function get(): $<ListF, boolean> { return []; }
   });
 
   describe("safety - no resolution without proper imports", () => {
-    it("should NOT resolve when $ is not from typesugar", () => {
+    it("should NOT resolve when Kind is not from typesugar", () => {
       const source = `
-import $ from "jquery";
+import { Kind } from "other-lib";
 import { OptionF } from "@typesugar/fp";
-const x: $<OptionF, number> = null;
+const x: Kind<OptionF, number> = null;
 `;
       const { code } = preprocess(source, { extensions: ["hkt"] });
-      expect(code).toContain("$<OptionF, number>");
+      expect(code).toContain("Kind<OptionF, number>");
     });
 
     it("should NOT resolve when type function is not imported", () => {
       const source = `
-import { $ } from "@typesugar/fp";
+import { Kind } from "@typesugar/fp";
 interface MyF { _: MyType<this["_"]> }
-const x: $<MyF, number> = null;
+const x: Kind<MyF, number> = null;
 `;
       const { code } = preprocess(source, { extensions: ["hkt"] });
-      expect(code).toContain("$<MyF, number>");
+      expect(code).toContain("Kind<MyF, number>");
     });
 
     it("should NOT resolve when type function is from non-typesugar package", () => {
       const source = `
-import { $ } from "@typesugar/fp";
+import { Kind } from "@typesugar/fp";
 import { CustomF } from "./my-types";
-const x: $<CustomF, number> = null;
+const x: Kind<CustomF, number> = null;
 `;
       const { code } = preprocess(source, { extensions: ["hkt"] });
-      expect(code).toContain("$<CustomF, number>");
+      expect(code).toContain("Kind<CustomF, number>");
     });
   });
 
   describe("aliased imports", () => {
-    it("should handle aliased $ (Kind)", () => {
+    it("should handle aliased Kind", () => {
       const source = `
-import { $ as Kind, OptionF, Option } from "@typesugar/fp";
-const x: Kind<OptionF, number> = null;
+import { Kind as K, OptionF, Option } from "@typesugar/fp";
+const x: K<OptionF, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -330,8 +330,8 @@ const x: Kind<OptionF, number> = null;
 
     it("should handle aliased type function", () => {
       const source = `
-import { $, OptionF as OF, Option } from "@typesugar/fp";
-const x: $<OF, number> = null;
+import { Kind, OptionF as OF, Option } from "@typesugar/fp";
+const x: Kind<OF, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -340,8 +340,8 @@ const x: $<OF, number> = null;
 
     it("should use aliased concrete type name", () => {
       const source = `
-import { $, OptionF, Option as Opt } from "@typesugar/fp";
-const x: $<OptionF, number> = null;
+import { Kind, OptionF, Option as Opt } from "@typesugar/fp";
+const x: Kind<OptionF, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -350,7 +350,7 @@ const x: $<OptionF, number> = null;
 
     it("should handle fully aliased imports", () => {
       const source = `
-import { $ as K, OptionF as OF, Option as O } from "@typesugar/fp";
+import { Kind as K, OptionF as OF, Option as O } from "@typesugar/fp";
 const x: K<OF, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
@@ -360,20 +360,20 @@ const x: K<OF, number> = null;
   });
 
   describe("parameterized type functions", () => {
-    it("should resolve $<EitherF<string>, number> to Either<string, number>", () => {
+    it("should resolve Kind<EitherF<string>, number> to Either<string, number>", () => {
       const source = `
-import { $, EitherF, Either } from "@typesugar/fp";
-const x: $<EitherF<string>, number> = null;
+import { Kind, EitherF, Either } from "@typesugar/fp";
+const x: Kind<EitherF<string>, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("const x: Either<string, number>");
     });
 
-    it("should resolve $<StateF<Config>, A> to State<Config, A>", () => {
+    it("should resolve Kind<StateF<Config>, A> to State<Config, A>", () => {
       const source = `
-import { $, StateF, State } from "@typesugar/fp";
-type MyState<A> = $<StateF<Config>, A>;
+import { Kind, StateF, State } from "@typesugar/fp";
+type MyState<A> = Kind<StateF<Config>, A>;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -382,8 +382,8 @@ type MyState<A> = $<StateF<Config>, A>;
 
     it("should handle complex fixed args", () => {
       const source = `
-import { $, EitherF, Either } from "@typesugar/fp";
-const x: $<EitherF<Error | string>, number> = null;
+import { Kind, EitherF, Either } from "@typesugar/fp";
+const x: Kind<EitherF<Error | string>, number> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -418,22 +418,22 @@ function wrap<F<_>, A>(a: A): Kind<F, Kind<OptionF, A>> {}
   describe("format mode preservation", () => {
     it("should NOT resolve in format mode", () => {
       const source = `
-import { $, OptionF, Option } from "@typesugar/fp";
-const x: $<OptionF, number> = null;
+import { Kind, OptionF, Option } from "@typesugar/fp";
+const x: Kind<OptionF, number> = null;
 `;
       const { code } = preprocess(source, { extensions: ["hkt"], mode: "format" });
-      // Format mode should preserve $<> for round-tripping
-      expect(code).toContain("$<OptionF, number>");
+      // Format mode should preserve Kind<> for round-tripping
+      expect(code).toContain("Kind<OptionF, number>");
     });
   });
 
   describe("multiple resolutions", () => {
     it("should resolve multiple HKT applications in one file", () => {
       const source = `
-import { $, OptionF, ListF, Option, List } from "@typesugar/fp";
-const a: $<OptionF, number> = null;
-const b: $<ListF, string> = [];
-const c: $<OptionF, boolean> = null;
+import { Kind, OptionF, ListF, Option, List } from "@typesugar/fp";
+const a: Kind<OptionF, number> = null;
+const b: Kind<ListF, string> = [];
+const c: Kind<OptionF, boolean> = null;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
@@ -444,41 +444,41 @@ const c: $<OptionF, boolean> = null;
   });
 
   describe("nested HKT applications", () => {
-    it("should resolve nested $<OptionF, $<ListF, A>>", () => {
+    it("should resolve nested Kind<OptionF, Kind<ListF, A>>", () => {
       const source = `
-import { $, OptionF, ListF, Option, List } from "@typesugar/fp";
-type NestedType<A> = $<OptionF, $<ListF, A>>;
+import { Kind, OptionF, ListF, Option, List } from "@typesugar/fp";
+type NestedType<A> = Kind<OptionF, Kind<ListF, A>>;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("type NestedType<A> = Option<List<A>>");
-      expect(code).not.toContain("$<");
+      expect(code).not.toContain("Kind<OptionF");
     });
 
     it("should resolve deeply nested HKT applications", () => {
       const source = `
-import { $, OptionF, ListF, EitherF, Option, List, Either } from "@typesugar/fp";
-type Deep<A> = $<OptionF, $<ListF, $<EitherF<string>, A>>>;
+import { Kind, OptionF, ListF, EitherF, Option, List, Either } from "@typesugar/fp";
+type Deep<A> = Kind<OptionF, Kind<ListF, Kind<EitherF<string>, A>>>;
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("type Deep<A> = Option<List<Either<string, A>>>");
-      expect(code).not.toContain("$<");
+      expect(code).not.toContain("Kind<OptionF");
     });
 
     it("should resolve multiple nested applications in one type", () => {
       const source = `
-import { $, OptionF, ListF, Option, List } from "@typesugar/fp";
+import { Kind, OptionF, ListF, Option, List } from "@typesugar/fp";
 interface Container<A> {
-  opt: $<OptionF, $<ListF, A>>;
-  list: $<ListF, $<OptionF, A>>;
+  opt: Kind<OptionF, Kind<ListF, A>>;
+  list: Kind<ListF, Kind<OptionF, A>>;
 }
 `;
       const { code, changed } = preprocess(source, { extensions: ["hkt"] });
       expect(changed).toBe(true);
       expect(code).toContain("opt: Option<List<A>>");
       expect(code).toContain("list: List<Option<A>>");
-      expect(code).not.toContain("$<");
+      expect(code).not.toContain("Kind<OptionF");
     });
   });
 });

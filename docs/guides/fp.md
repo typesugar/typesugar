@@ -184,7 +184,7 @@ typesugar supports HKTs for generic FP code:
 import { $, Functor, Monad } from "@typesugar/fp";
 
 // Works with any Functor
-function double<F>(F: Functor<F>, fa: $<F, number>): $<F, number> {
+function double<F>(F: Functor<F>, fa: Kind<F, number>): Kind<F, number> {
   return F.map(fa, (x) => x * 2);
 }
 

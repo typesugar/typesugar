@@ -18,7 +18,7 @@
  * `;
  *
  * const { code, changed, sourceMap } = preprocess(source);
- * // code is now valid TypeScript with F<A> rewritten to $<F, A>
+ * // code is now valid TypeScript with F<A> rewritten to Kind<F, A>
  * // and |> rewritten to __binop__ calls
  * ```
  *

@@ -410,9 +410,9 @@ assert(multiCalls === 1, "Multi-arg memoize caches by all args");
 // ============================================================================
 
 // OptionF and EitherF are type-level functions for HKT polymorphism.
-// $<OptionF, number> resolves to Option<number> = number | null
+// Kind<OptionF, number> resolves to Option<number> = number | null
 //
-// Note: typeAssert<Equal<$<OptionF, number>, number | null>>() causes
+// Note: typeAssert<Equal<Kind<OptionF, number>, number | null>>() causes
 // "excessively deep" errors due to HKT type recursion. The types are correct;
 // this is a TypeScript limitation with complex type-level computations.
 

@@ -82,7 +82,7 @@ import {
 } from "../src/index.js";
 
 import type { Effect, Chunk, Option, Either, Stream } from "effect";
-import type { $ } from "@typesugar/type-system";
+import type { Kind } from "@typesugar/type-system";
 
 // ============================================================================
 // 1. SERVICE REGISTRY — Define and Register Effect Services
@@ -147,28 +147,28 @@ assert(userRepoLayers[0].requires.includes("Database"));
 // ============================================================================
 
 // EffectF<E, R> fixes the error and requirements, varying only the success type.
-// $<EffectF<never, never>, number> = Effect<number, never, never>
+// Kind<EffectF<never, never>, number> = Effect<number, never, never>
 
-type PureNum = $<EffectF<never, never>, number>;
+type PureNum = Kind<EffectF<never, never>, number>;
 typeAssert<Equal<PureNum, Effect.Effect<number, never, never>>>();
 
-type HttpResult = $<EffectF<Error, never>, string>;
+type HttpResult = Kind<EffectF<Error, never>, string>;
 typeAssert<Equal<HttpResult, Effect.Effect<string, Error, never>>>();
 
 // ChunkF is a single-parameter type-level function
-type NumberChunk = $<ChunkF, number>;
+type NumberChunk = Kind<ChunkF, number>;
 typeAssert<Equal<NumberChunk, Chunk.Chunk<number>>>();
 
 // EffectOptionF wraps Effect's Option
-type MaybeString = $<EffectOptionF, string>;
+type MaybeString = Kind<EffectOptionF, string>;
 typeAssert<Equal<MaybeString, Option.Option<string>>>();
 
 // EffectEitherF<E> fixes the error type
-type StringResult = $<EffectEitherF<string>, number>;
+type StringResult = Kind<EffectEitherF<string>, number>;
 typeAssert<Equal<StringResult, Either.Either<number, string>>>();
 
 // StreamF<E, R> for streaming
-type EventStream = $<StreamF<Error, never>, string>;
+type EventStream = Kind<StreamF<Error, never>, string>;
 typeAssert<Equal<EventStream, Stream.Stream<string, Error, never>>>();
 
 // ============================================================================

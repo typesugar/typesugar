@@ -300,7 +300,7 @@ assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
 
 ### HKT
 
-- `Kind<F, A>` / `$<F, A>` — Phantom kind marker: type constructor F applied to type A
+- `Kind<F, A>` / `Kind<F, A>` — Phantom kind marker: type constructor F applied to type A
 - `TypeFunction` — Base interface for type-level functions
 - `Apply<F, A>` — Eagerly resolve a type-level function (rarely needed)
 - `ArrayF`, `PromiseF`, `SetF`, `MapF`, `ReadonlyArrayF` — Built-in type-level functions

@@ -58,8 +58,8 @@ Type constructors as type parameters.
 ```typescript
 import { type $, type ArrayF, type PromiseF } from "@typesugar/type-system";
 
-type Result = $<ArrayF, number>; // number[]
-type Async = $<PromiseF, string>; // Promise<string>
+type Result = Kind<ArrayF, number>; // number[]
+type Async = Kind<PromiseF, string>; // Promise<string>
 ```
 
 ### Length-Indexed Arrays (Vec)

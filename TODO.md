@@ -150,7 +150,7 @@ typesugar, not just Result. Tracked inline in `src/macros/specialize.ts`.
 
 - [ ] **`===` operator semantics** — Rewriting `===` from reference equality to structural equality is the biggest "principle of least surprise" concern. Consider whether structural equality should use a distinct operator (e.g., `==` or a custom operator via the preprocessor) rather than overloading `===`. (Analysis §4.2)
 - [ ] **True lexical hygiene** — Current hygiene is name-mangling (`gensym`-style), not true lexical hygiene (Racket/`syntax-case`). Investigate whether TypeScript's Symbol API can support scope-aware identifier tracking so macros can reliably refer to bindings from their definition site. (Analysis §4.5)
-- [ ] **Phase separation in unplugin path** — The preprocessor rewrites `F<_>` to `$<F, A>` at the text level, but the type checker sees the original source. Type information during AST transformation may not match the actual code being compiled. (Analysis §4.4)
+- [ ] **Phase separation in unplugin path** — The preprocessor rewrites `F<_>` to `Kind<F, A>` at the text level, but the type checker sees the original source. Type information during AST transformation may not match the actual code being compiled. (Analysis §4.4)
 
 ## Cross-Cutting Concerns (Analysis §4.8)
 

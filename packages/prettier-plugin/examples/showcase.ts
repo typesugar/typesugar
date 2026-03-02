@@ -22,7 +22,7 @@
 // This registers the "typesugar-ts" parser for .ts/.tsx/.mts/.cts files.
 // Custom syntax is converted to valid TS before Prettier parses it.
 //
-// Output contains preprocessor artifacts (__binop__, $<F, A>) but is valid TS.
+// Output contains preprocessor artifacts (__binop__, Kind<F, A>) but is valid TS.
 // Use this when you just need CI format checks to pass.
 
 // ============================================================================
@@ -68,7 +68,7 @@
 //   Pipeline operator   data |> fn           __binop__(data, "|>", fn)
 //   Cons operator       head :: tail         __binop__(head, "::", tail)
 //   HKT declaration     interface Foo<F<_>>  interface Foo<F /*@ts:hkt*/>
-//   HKT usage           F<A>                 $<F, A>
+//   HKT usage           F<A>                 Kind<F, A>
 //
 // After Prettier formats, postFormat reverses these transformations.
 

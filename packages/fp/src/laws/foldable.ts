@@ -13,7 +13,7 @@
 import type { Foldable } from "../typeclasses/foldable.js";
 import type { Monoid } from "../typeclasses/semigroup.js";
 import type { Eq } from "../typeclasses/eq.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 import type { Law, LawSet } from "./types.js";
 
 // ============================================================================
@@ -40,7 +40,7 @@ export function foldableLaws<F, A, M>(
       arity: 1,
       description:
         "foldLeft and foldRight should produce the same result for commutative operations",
-      check: (fa: $<F, A>): boolean => {
+      check: (fa: Kind<F, A>): boolean => {
         // For a commutative monoid, foldLeft and foldRight should agree
         const left = Fld.foldLeft(fa, Monoid.empty, (acc, a) => Monoid.combine(acc, toM(a)));
         const right = Fld.foldRight(fa, Monoid.empty, (a, acc) => Monoid.combine(toM(a), acc));
@@ -52,7 +52,7 @@ export function foldableLaws<F, A, M>(
       arity: 1,
       description:
         "foldMap should be derivable from foldRight: foldMap(fa, f) === foldRight(fa, empty, (a, acc) => combine(f(a), acc))",
-      check: (fa: $<F, A>): boolean => {
+      check: (fa: Kind<F, A>): boolean => {
         // foldMap implemented via foldRight
         const viaFoldRight = Fld.foldRight(fa, Monoid.empty, (a, acc) =>
           Monoid.combine(toM(a), acc)
@@ -79,7 +79,7 @@ export function foldableOrderLaws<F, A>(Fld: Foldable<F>, EqA: Eq<A>): LawSet {
       name: "toList via foldLeft preserves order",
       arity: 1,
       description: "Elements collected via foldLeft maintain their order",
-      check: (fa: $<F, A>): boolean => {
+      check: (fa: Kind<F, A>): boolean => {
         const leftList = Fld.foldLeft<A, A[]>(fa, [], (acc, a) => [...acc, a]);
         // foldRight should give the same order when we cons from the right
         const rightList = Fld.foldRight<A, A[]>(fa, [], (a, acc) => [a, ...acc]);

@@ -9,7 +9,7 @@
  *     (isomorphic up to tuple nesting)
  */
 
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 // ============================================================================
 // Semigroupal
@@ -19,7 +19,7 @@ import type { $ } from "../hkt.js";
  * Semigroupal typeclass
  */
 export interface Semigroupal<F> {
-  readonly product: <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, [A, B]>;
+  readonly product: <A, B>(fa: Kind<F, A>, fb: Kind<F, B>) => Kind<F, [A, B]>;
 }
 
 // ============================================================================
@@ -39,10 +39,10 @@ export interface Semigroupal<F> {
  */
 export function product3<F>(
   F: Semigroupal<F>
-): <A, B, C>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>) => $<F, [A, B, C]> {
-  return <A, B, C>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>): $<F, [A, B, C]> => {
+): <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>) => Kind<F, [A, B, C]> {
+  return <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>): Kind<F, [A, B, C]> => {
     const ab = F.product(fa, fb);
-    return F.product(ab, fc) as unknown as $<F, [A, B, C]>;
+    return F.product(ab, fc) as unknown as Kind<F, [A, B, C]>;
   };
 }
 
@@ -54,11 +54,11 @@ export function product3<F>(
  */
 export function product4<F>(
   F: Semigroupal<F>
-): <A, B, C, D>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>, fd: $<F, D>) => $<F, [A, B, C, D]> {
-  return <A, B, C, D>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>, fd: $<F, D>): $<F, [A, B, C, D]> => {
+): <A, B, C, D>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>, fd: Kind<F, D>) => Kind<F, [A, B, C, D]> {
+  return <A, B, C, D>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>, fd: Kind<F, D>): Kind<F, [A, B, C, D]> => {
     const ab = F.product(fa, fb);
     const cd = F.product(fc, fd);
-    return F.product(ab, cd) as unknown as $<F, [A, B, C, D]>;
+    return F.product(ab, cd) as unknown as Kind<F, [A, B, C, D]>;
   };
 }
 
@@ -71,21 +71,21 @@ export function product4<F>(
 export function product5<F>(
   F: Semigroupal<F>
 ): <A, B, C, D, E>(
-  fa: $<F, A>,
-  fb: $<F, B>,
-  fc: $<F, C>,
-  fd: $<F, D>,
-  fe: $<F, E>
-) => $<F, [A, B, C, D, E]> {
+  fa: Kind<F, A>,
+  fb: Kind<F, B>,
+  fc: Kind<F, C>,
+  fd: Kind<F, D>,
+  fe: Kind<F, E>
+) => Kind<F, [A, B, C, D, E]> {
   return <A, B, C, D, E>(
-    fa: $<F, A>,
-    fb: $<F, B>,
-    fc: $<F, C>,
-    fd: $<F, D>,
-    fe: $<F, E>
-  ): $<F, [A, B, C, D, E]> => {
+    fa: Kind<F, A>,
+    fb: Kind<F, B>,
+    fc: Kind<F, C>,
+    fd: Kind<F, D>,
+    fe: Kind<F, E>
+  ): Kind<F, [A, B, C, D, E]> => {
     const abcd = product4(F)(fa, fb, fc, fd);
-    return F.product(abcd, fe) as unknown as $<F, [A, B, C, D, E]>;
+    return F.product(abcd, fe) as unknown as Kind<F, [A, B, C, D, E]>;
   };
 }
 
@@ -97,7 +97,7 @@ export function product5<F>(
  * Create a Semigroupal instance
  */
 export function makeSemigroupal<F>(
-  product: <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, [A, B]>
+  product: <A, B>(fa: Kind<F, A>, fb: Kind<F, B>) => Kind<F, [A, B]>
 ): Semigroupal<F> {
   return { product };
 }

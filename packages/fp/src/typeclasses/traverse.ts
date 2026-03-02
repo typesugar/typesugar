@@ -13,7 +13,7 @@
 import type { Applicative } from "./applicative.js";
 import type { Functor } from "./functor.js";
 import type { Foldable } from "./foldable.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 // ============================================================================
 // Traverse
@@ -25,7 +25,7 @@ import type { $ } from "../hkt.js";
 export interface Traverse<F> extends Functor<F>, Foldable<F> {
   readonly traverse: <G>(
     G: Applicative<G>
-  ) => <A, B>(fa: $<F, A>, f: (a: A) => $<G, B>) => $<G, $<F, B>>;
+  ) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B>) => Kind<G, Kind<F, B>>;
 }
 
 // ============================================================================
@@ -37,7 +37,7 @@ export interface Traverse<F> extends Functor<F>, Foldable<F> {
  */
 export function sequence<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A>(fga: $<F, $<G, A>>) => $<G, $<F, A>> {
+): <G>(G: Applicative<G>) => <A>(fga: Kind<F, Kind<G, A>>) => Kind<G, Kind<F, A>> {
   return (G) => (fga) => F.traverse(G)(fga, (x) => x);
 }
 
@@ -48,12 +48,12 @@ export function traverseFilter<F>(
   F: Traverse<F>
 ): <G>(
   G: Applicative<G>
-) => <A, B>(fa: $<F, A>, f: (a: A) => $<G, B | undefined>) => $<G, $<F, B>> {
+) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B | undefined>) => Kind<G, Kind<F, B>> {
   return <G>(G: Applicative<G>) =>
-    <A, B>(fa: $<F, A>, f: (a: A) => $<G, B | undefined>): $<G, $<F, B>> =>
+    <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B | undefined>): Kind<G, Kind<F, B>> =>
       F.traverse(G)(fa, (a: A) =>
         G.map(f(a), (b: B | undefined) => (b !== undefined ? [b] : []))
-      ) as unknown as $<G, $<F, B>>;
+      ) as unknown as Kind<G, Kind<F, B>>;
 }
 
 /**
@@ -61,7 +61,7 @@ export function traverseFilter<F>(
  */
 export function traverseWithIndex<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: $<F, A>, f: (i: number, a: A) => $<G, B>) => $<G, $<F, B>> {
+): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (i: number, a: A) => Kind<G, B>) => Kind<G, Kind<F, B>> {
   return (G) => (fa, f) => {
     let index = 0;
     return F.traverse(G)(fa, (a) => f(index++, a));
@@ -74,7 +74,7 @@ export function traverseWithIndex<F>(
  */
 export function traverse_<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: $<F, A>, f: (a: A) => $<G, B>) => $<G, void> {
+): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B>) => Kind<G, void> {
   return (G) => (fa, f) => G.map(F.traverse(G)(fa, f), () => undefined);
 }
 
@@ -83,7 +83,7 @@ export function traverse_<F>(
  */
 export function sequence_<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A>(fga: $<F, $<G, A>>) => $<G, void> {
+): <G>(G: Applicative<G>) => <A>(fga: Kind<F, Kind<G, A>>) => Kind<G, void> {
   return (G) => (fga) => traverse_(F)(G)(fga, (x) => x);
 }
 
@@ -107,12 +107,12 @@ import type { MonoidK } from "./alternative.js";
 export function flatTraverseK<F>(
   F: Traverse<F>,
   MK: MonoidK<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: $<F, A>, f: (a: A) => $<G, $<F, B>>) => $<G, $<F, B>> {
+): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>) => Kind<G, Kind<F, B>> {
   return <G>(G: Applicative<G>) =>
-    <A, B>(fa: $<F, A>, f: (a: A) => $<G, $<F, B>>): $<G, $<F, B>> =>
-      G.map(F.traverse(G)(fa, f), (nested: $<F, $<F, B>>) => {
+    <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>): Kind<G, Kind<F, B>> =>
+      G.map(F.traverse(G)(fa, f), (nested: Kind<F, Kind<F, B>>) => {
         // Properly flatten using MonoidK: fold over nested, combining each inner F<B>
-        return F.foldLeft<$<F, B>, $<F, B>>(nested, MK.emptyK<B>(), (acc, fb) =>
+        return F.foldLeft<Kind<F, B>, Kind<F, B>>(nested, MK.emptyK<B>(), (acc, fb) =>
           MK.combineK(acc, fb)
         );
       });
@@ -127,7 +127,7 @@ export function flatTraverseK<F>(
  */
 export function flatTraverse<F>(
   F: Traverse<F>
-): <G>(G: Applicative<G>) => <A, B>(fa: $<F, A>, f: (a: A) => $<G, $<F, B>>) => $<G, $<F, B>> {
+): <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, Kind<F, B>>) => Kind<G, Kind<F, B>> {
   return (_G) => (_fa, _f) => {
     throw new Error(
       "flatTraverse requires a MonoidK instance to properly flatten nested structures. " +
@@ -144,10 +144,10 @@ export function flatTraverse<F>(
  * Create a Traverse instance
  */
 export function makeTraverse<F>(
-  map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>,
-  foldLeft: <A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B) => B,
-  foldRight: <A, B>(fa: $<F, A>, b: B, f: (a: A, b: B) => B) => B,
-  traverse: <G>(G: Applicative<G>) => <A, B>(fa: $<F, A>, f: (a: A) => $<G, B>) => $<G, $<F, B>>
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>,
+  foldLeft: <A, B>(fa: Kind<F, A>, b: B, f: (b: B, a: A) => B) => B,
+  foldRight: <A, B>(fa: Kind<F, A>, b: B, f: (a: A, b: B) => B) => B,
+  traverse: <G>(G: Applicative<G>) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B>) => Kind<G, Kind<F, B>>
 ): Traverse<F> {
   return { map, foldLeft, foldRight, traverse };
 }

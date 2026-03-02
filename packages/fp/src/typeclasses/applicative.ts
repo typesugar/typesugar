@@ -12,7 +12,7 @@
  */
 
 import type { Functor } from "./functor.js";
-import type { $ } from "../hkt.js";
+import type { Kind } from "../hkt.js";
 
 // ============================================================================
 // Apply
@@ -22,7 +22,7 @@ import type { $ } from "../hkt.js";
  * Apply typeclass - extends Functor with application
  */
 export interface Apply<F> extends Functor<F> {
-  readonly ap: <A, B>(fab: $<F, (a: A) => B>, fa: $<F, A>) => $<F, B>;
+  readonly ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>;
 }
 
 // ============================================================================
@@ -33,7 +33,7 @@ export interface Apply<F> extends Functor<F> {
  * Applicative typeclass - extends Apply with pure
  */
 export interface Applicative<F> extends Apply<F> {
-  readonly pure: <A>(a: A) => $<F, A>;
+  readonly pure: <A>(a: A) => Kind<F, A>;
 }
 
 // ============================================================================
@@ -45,8 +45,8 @@ export interface Applicative<F> extends Apply<F> {
  */
 export function map2<F>(
   F: Apply<F>
-): <A, B, C>(fa: $<F, A>, fb: $<F, B>, f: (a: A, b: B) => C) => $<F, C> {
-  return <A, B, C>(fa: $<F, A>, fb: $<F, B>, f: (a: A, b: B) => C): $<F, C> =>
+): <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, f: (a: A, b: B) => C) => Kind<F, C> {
+  return <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, f: (a: A, b: B) => C): Kind<F, C> =>
     F.ap(
       F.map(fa, (a: A) => (b: B) => f(a, b)),
       fb
@@ -58,13 +58,13 @@ export function map2<F>(
  */
 export function map3<F>(
   F: Apply<F>
-): <A, B, C, D>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>, f: (a: A, b: B, c: C) => D) => $<F, D> {
+): <A, B, C, D>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>, f: (a: A, b: B, c: C) => D) => Kind<F, D> {
   return <A, B, C, D>(
-    fa: $<F, A>,
-    fb: $<F, B>,
-    fc: $<F, C>,
+    fa: Kind<F, A>,
+    fb: Kind<F, B>,
+    fc: Kind<F, C>,
     f: (a: A, b: B, c: C) => D
-  ): $<F, D> => {
+  ): Kind<F, D> => {
     const partialF = map2(F)(fa, fb, (a: A, b: B) => (c: C) => f(a, b, c));
     return F.ap(partialF, fc);
   };
@@ -76,19 +76,19 @@ export function map3<F>(
 export function map4<F>(
   F: Apply<F>
 ): <A, B, C, D, E>(
-  fa: $<F, A>,
-  fb: $<F, B>,
-  fc: $<F, C>,
-  fd: $<F, D>,
+  fa: Kind<F, A>,
+  fb: Kind<F, B>,
+  fc: Kind<F, C>,
+  fd: Kind<F, D>,
   f: (a: A, b: B, c: C, d: D) => E
-) => $<F, E> {
+) => Kind<F, E> {
   return <A, B, C, D, E>(
-    fa: $<F, A>,
-    fb: $<F, B>,
-    fc: $<F, C>,
-    fd: $<F, D>,
+    fa: Kind<F, A>,
+    fb: Kind<F, B>,
+    fc: Kind<F, C>,
+    fd: Kind<F, D>,
     f: (a: A, b: B, c: C, d: D) => E
-  ): $<F, E> => {
+  ): Kind<F, E> => {
     const partialF = map3(F)(fa, fb, fc, (a: A, b: B, c: C) => (d: D) => f(a, b, c, d));
     return F.ap(partialF, fd);
   };
@@ -97,7 +97,7 @@ export function map4<F>(
 /**
  * Tuple two functorial values
  */
-export function tuple2<F>(F: Apply<F>): <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, [A, B]> {
+export function tuple2<F>(F: Apply<F>): <A, B>(fa: Kind<F, A>, fb: Kind<F, B>) => Kind<F, [A, B]> {
   return (fa, fb) => map2(F)(fa, fb, (a, b) => [a, b]);
 }
 
@@ -106,21 +106,21 @@ export function tuple2<F>(F: Apply<F>): <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F,
  */
 export function tuple3<F>(
   F: Apply<F>
-): <A, B, C>(fa: $<F, A>, fb: $<F, B>, fc: $<F, C>) => $<F, [A, B, C]> {
+): <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>) => Kind<F, [A, B, C]> {
   return (fa, fb, fc) => map3(F)(fa, fb, fc, (a, b, c) => [a, b, c]);
 }
 
 /**
  * Sequence two actions, keeping only the left value
  */
-export function productL<F>(F: Apply<F>): <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, A> {
+export function productL<F>(F: Apply<F>): <A, B>(fa: Kind<F, A>, fb: Kind<F, B>) => Kind<F, A> {
   return (fa, fb) => map2(F)(fa, fb, (a, _) => a);
 }
 
 /**
  * Sequence two actions, keeping only the right value
  */
-export function productR<F>(F: Apply<F>): <A, B>(fa: $<F, A>, fb: $<F, B>) => $<F, B> {
+export function productR<F>(F: Apply<F>): <A, B>(fa: Kind<F, A>, fb: Kind<F, B>) => Kind<F, B> {
   return (fa, fb) => map2(F)(fa, fb, (_, b) => b);
 }
 
@@ -131,14 +131,14 @@ export function productR<F>(F: Apply<F>): <A, B>(fa: $<F, A>, fb: $<F, B>) => $<
 /**
  * Lift a value into the applicative context
  */
-export function unit<F>(F: Applicative<F>): $<F, void> {
+export function unit<F>(F: Applicative<F>): Kind<F, void> {
   return F.pure(undefined);
 }
 
 /**
  * Perform an action when a condition is true
  */
-export function when<F>(F: Applicative<F>): (condition: boolean, action: $<F, void>) => $<F, void> {
+export function when<F>(F: Applicative<F>): (condition: boolean, action: Kind<F, void>) => Kind<F, void> {
   return (condition, action) => (condition ? action : unit(F));
 }
 
@@ -147,17 +147,17 @@ export function when<F>(F: Applicative<F>): (condition: boolean, action: $<F, vo
  */
 export function unless<F>(
   F: Applicative<F>
-): (condition: boolean, action: $<F, void>) => $<F, void> {
+): (condition: boolean, action: Kind<F, void>) => Kind<F, void> {
   return (condition, action) => when(F)(!condition, action);
 }
 
 /**
  * Replicate an action n times and collect results
  */
-export function replicateA<F>(F: Applicative<F>): <A>(n: number, fa: $<F, A>) => $<F, A[]> {
-  return <A>(n: number, fa: $<F, A>): $<F, A[]> => {
+export function replicateA<F>(F: Applicative<F>): <A>(n: number, fa: Kind<F, A>) => Kind<F, A[]> {
+  return <A>(n: number, fa: Kind<F, A>): Kind<F, A[]> => {
     if (n <= 0) return F.pure([] as A[]);
-    const result: $<F, A[]> = F.map(fa, (a: A) => [a]);
+    const result: Kind<F, A[]> = F.map(fa, (a: A) => [a]);
     let acc = result;
     for (let i = 1; i < n; i++) {
       acc = map2(F)(acc, fa, (arr: A[], a: A) => [...arr, a]);
@@ -174,8 +174,8 @@ export function replicateA<F>(F: Applicative<F>): <A>(n: number, fa: $<F, A>) =>
  * Create an Apply instance
  */
 export function makeApply<F>(
-  map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>,
-  ap: <A, B>(fab: $<F, (a: A) => B>, fa: $<F, A>) => $<F, B>
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>,
+  ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>
 ): Apply<F> {
   return { map, ap };
 }
@@ -184,9 +184,9 @@ export function makeApply<F>(
  * Create an Applicative instance
  */
 export function makeApplicative<F>(
-  map: <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B>,
-  ap: <A, B>(fab: $<F, (a: A) => B>, fa: $<F, A>) => $<F, B>,
-  pure: <A>(a: A) => $<F, A>
+  map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>,
+  ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>,
+  pure: <A>(a: A) => Kind<F, A>
 ): Applicative<F> {
   return { map, ap, pure };
 }

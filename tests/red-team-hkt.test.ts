@@ -7,7 +7,6 @@
  */
 import { describe, it, expect } from "vitest";
 import type {
-  $,
   Kind,
   ArrayF,
   PromiseF,
@@ -39,10 +38,10 @@ describe("HKT Encoding Edge Cases", () => {
         _: string; // Always string, ignores this["__kind__"]
       }
 
-      // $<PhantomF, number> should be number-related, but it's always string
-      type Result1 = $<PhantomF, number>; // string
-      type Result2 = $<PhantomF, boolean>; // string
-      type Result3 = $<PhantomF, object>; // string
+      // Kind<PhantomF, number> should be number-related, but it's always string
+      type Result1 = Kind<PhantomF, number>; // string
+      type Result2 = Kind<PhantomF, boolean>; // string
+      type Result3 = Kind<PhantomF, object>; // string
 
       // All three are the same type - this is unsound for Functor/Monad!
       // If we had Functor<PhantomF>, map would claim to transform A -> B
@@ -64,8 +63,8 @@ describe("HKT Encoding Edge Cases", () => {
         _: Array<string>; // Always Array<string>, not Array<this["__kind__"]>
       }
 
-      type R1 = $<PartiallyPhantomF, number>; // Array<string>
-      type R2 = $<PartiallyPhantomF, boolean>; // Array<string>
+      type R1 = Kind<PartiallyPhantomF, number>; // Array<string>
+      type R2 = Kind<PartiallyPhantomF, boolean>; // Array<string>
 
       // This would break any generic code expecting Array<A>
       expect(true).toBe(true); // Type-level test
@@ -88,7 +87,7 @@ describe("HKT Encoding Edge Cases", () => {
       // Apply<ConflictingF, number> resolves _ with __kind__ set to number
       // But _ is just `string`, so result is always string regardless of A
 
-      type Result = $<ConflictingF, number>;
+      type Result = Kind<ConflictingF, number>;
       // Result is `never` because string & number = never
 
       // This silently produces `never` instead of a type error!
@@ -101,11 +100,11 @@ describe("HKT Encoding Edge Cases", () => {
         _: this["__kind__"] | string; // Always includes string
       }
 
-      type R1 = $<UnionF, number>; // number | string
-      type R2 = $<UnionF, boolean>; // boolean | string
+      type R1 = Kind<UnionF, number>; // number | string
+      type R2 = Kind<UnionF, boolean>; // boolean | string
 
       // This might be intentional, but could cause type widening issues
-      // in generic code that expects $<F, A> to be "just A" transformed
+      // in generic code that expects Kind<F, A> to be "just A" transformed
 
       const x: R1 = "always valid"; // string is always in the union
       expect(x).toBe("always valid");
@@ -117,12 +116,12 @@ describe("HKT Encoding Edge Cases", () => {
         _: this["__kind__"] extends string ? string[] : number[];
       }
 
-      type R1 = $<ConditionalF, string>; // string[]
-      type R2 = $<ConditionalF, number>; // number[]
-      type R3 = $<ConditionalF, boolean>; // number[]
+      type R1 = Kind<ConditionalF, string>; // string[]
+      type R2 = Kind<ConditionalF, number>; // number[]
+      type R3 = Kind<ConditionalF, boolean>; // number[]
 
       // This actually works! But the behavior might be surprising
-      // if someone expects $<F, A> to always include A somehow
+      // if someone expects Kind<F, A> to always include A somehow
 
       const x: R1 = ["a", "b", "c"];
       const y: R2 = [1, 2, 3];
@@ -150,8 +149,8 @@ describe("HKT Encoding Edge Cases", () => {
 
     it("unsafeCoerce between incompatible HKT types", () => {
       // Can coerce between different type-level functions
-      type ArrayOfNum = $<ArrayF, number>;
-      type PromiseOfNum = $<PromiseF, number>;
+      type ArrayOfNum = Kind<ArrayF, number>;
+      type PromiseOfNum = Kind<PromiseF, number>;
 
       const arr: ArrayOfNum = [1, 2, 3];
       const promise = unsafeCoerce<ArrayOfNum, PromiseOfNum>(arr);
@@ -167,8 +166,8 @@ describe("HKT Encoding Edge Cases", () => {
   // ==========================================================================
   describe("Multi-param HKT edge cases", () => {
     it("EitherF with different error types", () => {
-      type E1 = $<EitherF<string>, number>; // Either<string, number>
-      type E2 = $<EitherF<Error>, number>; // Either<Error, number>
+      type E1 = Kind<EitherF<string>, number>; // Either<string, number>
+      type E2 = Kind<EitherF<Error>, number>; // Either<Error, number>
 
       // These are properly different types - good!
       const e1: E1 = { _tag: "Left", left: "error" };
@@ -180,8 +179,8 @@ describe("HKT Encoding Edge Cases", () => {
 
     it("MapF loses key type information", () => {
       // MapF<K> fixes K, but what if we want to transform both?
-      type M1 = $<MapF<string>, number>; // Map<string, number>
-      type M2 = $<MapF<number>, string>; // Map<number, string>
+      type M1 = Kind<MapF<string>, number>; // Map<string, number>
+      type M2 = Kind<MapF<number>, string>; // Map<number, string>
 
       // We can't express a type-level function that transforms both K and V
       // This is a limitation of the single-param HKT encoding
@@ -202,12 +201,12 @@ describe("HKT Encoding Edge Cases", () => {
         _: [this["__kind__"], RecursiveF]; // Infinite type!
       }
 
-      // $<RecursiveF, number> = [number, RecursiveF]
+      // Kind<RecursiveF, number> = [number, RecursiveF]
       // But RecursiveF contains another RecursiveF...
       // This should cause infinite type expansion
 
       // Actually TypeScript handles this somewhat gracefully
-      type R = $<RecursiveF, number>;
+      type R = Kind<RecursiveF, number>;
       // R = [number, { _: [R, RecursiveF] }] - lazy/deferred
 
       expect(true).toBe(true); // TypeScript doesn't explode
@@ -215,16 +214,16 @@ describe("HKT Encoding Edge Cases", () => {
 
     it("Mutually recursive type-level functions", () => {
       interface FooF {
-        _: { foo: $<BarF, this["__kind__"]> };
+        _: { foo: Kind<BarF, this["__kind__"]> };
       }
       interface BarF {
-        _: { bar: $<FooF, this["__kind__"]> };
+        _: { bar: Kind<FooF, this["__kind__"]> };
       }
 
-      // $<FooF, number> = { foo: { bar: { foo: { bar: ... } } } }
+      // Kind<FooF, number> = { foo: { bar: { foo: { bar: ... } } } }
       // Infinite nesting!
 
-      type R = $<FooF, number>;
+      type R = Kind<FooF, number>;
       // TypeScript resolves this lazily
 
       expect(true).toBe(true);
@@ -235,11 +234,11 @@ describe("HKT Encoding Edge Cases", () => {
   // Attack 6: never and unknown edge cases
   // ==========================================================================
   describe("never and unknown edge cases", () => {
-    it("$<F, never> behavior", () => {
+    it("Kind<F, never> behavior", () => {
       // What happens when the type argument is never?
-      type R1 = $<ArrayF, never>; // Array<never> = []
-      type R2 = $<OptionF, never>; // Option<never> = never | null = null
-      type R3 = $<PromiseF, never>; // Promise<never>
+      type R1 = Kind<ArrayF, never>; // Array<never> = []
+      type R2 = Kind<OptionF, never>; // Option<never> = never | null = null
+      type R3 = Kind<PromiseF, never>; // Promise<never>
 
       // Array<never> is the type of empty arrays only
       const arr: R1 = [];
@@ -250,10 +249,10 @@ describe("HKT Encoding Edge Cases", () => {
       expect(opt).toBeNull();
     });
 
-    it("$<F, unknown> behavior", () => {
-      type R1 = $<ArrayF, unknown>; // Array<unknown>
-      type R2 = $<OptionF, unknown>; // Option<unknown> = unknown | null = unknown
-      type R3 = $<PromiseF, unknown>; // Promise<unknown>
+    it("Kind<F, unknown> behavior", () => {
+      type R1 = Kind<ArrayF, unknown>; // Array<unknown>
+      type R2 = Kind<OptionF, unknown>; // Option<unknown> = unknown | null = unknown
+      type R3 = Kind<PromiseF, unknown>; // Promise<unknown>
 
       // Option<unknown> = unknown (because unknown | null = unknown)
       // This loses the Option structure!
@@ -262,9 +261,9 @@ describe("HKT Encoding Edge Cases", () => {
       expect(arr.length).toBe(3);
     });
 
-    it("$<F, any> behavior", () => {
-      type R1 = $<ArrayF, any>; // Array<any>
-      type R2 = $<OptionF, any>; // Option<any> = any | null = any
+    it("Kind<F, any> behavior", () => {
+      type R1 = Kind<ArrayF, any>; // Array<any>
+      type R2 = Kind<OptionF, any>; // Option<any> = any | null = any
 
       // Option<any> = any, losing the Option structure completely
       const opt: R2 = "anything";
@@ -282,9 +281,9 @@ describe("HKT Encoding Edge Cases", () => {
       type UserId = Brand<"UserId", string>;
       type Email = Brand<"Email", string>;
 
-      // $<ArrayF, UserId> should be Array<UserId>
-      type UserIds = $<ArrayF, UserId>;
-      type Emails = $<ArrayF, Email>;
+      // Kind<ArrayF, UserId> should be Array<UserId>
+      type UserIds = Kind<ArrayF, UserId>;
+      type Emails = Kind<ArrayF, Email>;
 
       // These should be distinct types
       const ids: UserIds = ["u1", "u2"] as UserIds[];
@@ -306,7 +305,7 @@ describe("HKT Encoding Edge Cases", () => {
 describe("HKT with Typeclasses - Runtime Safety", () => {
   // Define a simple Functor interface
   interface Functor<F> {
-    map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
+    map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
   }
 
   // Implement for Array
@@ -320,21 +319,21 @@ describe("HKT with Typeclasses - Runtime Safety", () => {
   };
 
   it("Functor map works correctly for Array", () => {
-    const nums: $<ArrayF, number> = [1, 2, 3];
+    const nums: Kind<ArrayF, number> = [1, 2, 3];
     const strs = arrayFunctor.map(nums, (n) => n.toString());
 
     expect(strs).toEqual(["1", "2", "3"]);
   });
 
   it("Functor map works correctly for Option (non-null)", () => {
-    const opt: $<OptionF, number> = 42;
+    const opt: Kind<OptionF, number> = 42;
     const result = optionFunctor.map(opt, (n) => n.toString());
 
     expect(result).toBe("42");
   });
 
   it("Functor map works correctly for Option (null)", () => {
-    const opt: $<OptionF, number> = null;
+    const opt: Kind<OptionF, number> = null;
     const result = optionFunctor.map(opt, (n) => n.toString());
 
     expect(result).toBeNull();
@@ -348,18 +347,18 @@ describe("HKT with Typeclasses - Runtime Safety", () => {
 
     // This functor is technically type-correct but semantically wrong
     const phantomFunctor: Functor<PhantomF> = {
-      map: <A, B>(_fa: $<PhantomF, A>, _f: (a: A) => B): $<PhantomF, B> => {
+      map: <A, B>(_fa: Kind<PhantomF, A>, _f: (a: A) => B): Kind<PhantomF, B> => {
         // TypeScript expects us to return B somehow
-        // But $<PhantomF, A> = string and $<PhantomF, B> = string
+        // But Kind<PhantomF, A> = string and Kind<PhantomF, B> = string
         // So we can just return any string!
         return "I ignore the function completely" as any;
       },
     };
 
-    const input: $<PhantomF, number> = "hello";
+    const input: Kind<PhantomF, number> = "hello";
     const output = phantomFunctor.map(input, (n) => n * 2);
 
-    // output is typed as $<PhantomF, number> (which is string)
+    // output is typed as Kind<PhantomF, number> (which is string)
     // but we never actually called the function!
     expect(output).toBe("I ignore the function completely");
     // The `n * 2` function was never called - this is unsound!

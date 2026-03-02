@@ -107,14 +107,6 @@ export interface TypeFunction {
 export type Kind<F, A> = F & { readonly __kind__: A };
 
 /**
- * Alias for `Kind<F, A>` — shorthand syntax.
- *
- * Both `$<F, A>` and `Kind<F, A>` are identical.
- * The preprocessor uses `Kind` internally, but `$` is available for brevity.
- */
-export type $<F, A> = Kind<F, A>;
-
-/**
  * Apply a type-level function to get the concrete type.
  *
  * This extracts the result type from a type-level function by looking up

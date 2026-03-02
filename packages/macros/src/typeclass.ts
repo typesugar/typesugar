@@ -421,7 +421,7 @@ interface TypeclassInfo {
   canDeriveSum: boolean;
   /**
    * Full interface body text for HKT expansion.
-   * Used to dynamically generate concrete types by substituting $<F, A> → ConcreteType<A>.
+   * Used to dynamically generate concrete types by substituting Kind<F, A> → ConcreteType<A>.
    */
   fullSignatureText?: string;
   /**
@@ -1433,7 +1433,7 @@ export const instanceAttribute = defineAttributeMacro({
 // abstract over container types.
 //
 // The challenge: TypeScript's type system can't directly express HKT, so we
-// use an encoding ($<F, A>) that triggers "Type instantiation is excessively
+// use an encoding (Kind<F, A>) that triggers "Type instantiation is excessively
 // deep" errors. The solution is to expand HKT types to concrete forms at
 // compile time.
 // ============================================================================
@@ -1537,7 +1537,7 @@ function generateHKTExpandedType(
   let signature: string | undefined;
 
   if (tcInfo?.fullSignatureText) {
-    // Dynamic substitution: replace $<F, A> with ConcreteType<A>
+    // Dynamic substitution: replace Kind<F, A> with ConcreteType<A>
     // where F is the type parameter from the typeclass (e.g., "F" in Monad<F>)
     signature = expandHKTInSignature(tcInfo.fullSignatureText, tcInfo.typeParam, expansion);
   } else {
@@ -1567,12 +1567,12 @@ function generateHKTExpandedType(
 
 /**
  * Expand HKT patterns in a type signature string.
- * Replaces $<F, X> with ConcreteType<X> throughout.
+ * Replaces Kind<F, X> with ConcreteType<X> throughout.
  */
 function expandHKTInSignature(signatureText: string, typeParam: string, expansion: string): string {
-  // Match $<TypeParam, ...> and replace with Expansion<...>
+  // Match Kind<TypeParam, ...> and replace with Expansion<...>
   // Handle nested type parameters gracefully
-  const pattern = new RegExp(`\\$<${typeParam},\\s*([^<>]+(?:<[^>]+>)?)>`, "g");
+  const pattern = new RegExp(`\\Kind<${typeParam},\\s*([^<>]+(?:<[^>]+>)?)>`, "g");
 
   let result = signatureText;
   let prevResult = "";
@@ -1597,7 +1597,7 @@ function getTypeclassSignatureTemplate(
   const exp = concreteType;
 
   // Templates for common HKT typeclasses
-  // These expand $<F, A> to ConcreteType<A>
+  // These expand Kind<F, A> to ConcreteType<A>
   const templates: Record<string, string> = {
     Functor: `{ readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B> }`,
 

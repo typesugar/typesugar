@@ -460,7 +460,6 @@ The HKT encoding in typesugar uses phantom kind markers (`packages/type-system/s
 
 ```typescript
 type Kind<F, A> = F & { readonly __kind__: A };
-type $<F, A> = Kind<F, A>; // shorthand alias
 ```
 
 `Kind<F, A>` is just an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages (`Kind<F, A>`) unchanged.
@@ -504,26 +503,18 @@ interface Functor<F> {
 }
 ```
 
-The `$<F, A>` alias is available for brevity in hand-written code:
-
-```typescript
-interface Functor<F> {
-  map<A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B>;
-}
-```
-
 **Dictionary-passing style:**
 
 All derived operations take the typeclass instance as the first argument for zero-cost specialization:
 
 ```typescript
 // Good: dictionary-passing, works with specialize()
-function map<F>(F: Functor<F>): <A, B>(fa: $<F, A>, f: (a: A) => B) => $<F, B> {
+function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> {
   return (fa, f) => F.map(fa, f);
 }
 
 // Bad: no dictionary parameter, can't be specialized
-function map<F, A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B> { ... }
+function map<F, A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B> { ... }
 ```
 
 ### Derive Macros (`derive.ts`, `custom-derive.ts`)

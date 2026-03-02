@@ -19,8 +19,8 @@
  * types.
  *
  * The types are manually expanded:
- * - `$<OptionF, A>` → `Option<A>`
- * - `$<ArrayF, A>` → `Array<A>`
+ * - `Kind<OptionF, A>` → `Option<A>`
+ * - `Kind<ArrayF, A>` → `Array<A>`
  *
  * This gives us full type safety without hitting TypeScript's limits.
  *
@@ -31,7 +31,7 @@
  * import { specialize } from "@typesugar/specialize";
  *
  * // Generic function
- * function double<F>(F: Monad<F>, fa: $<F, number>): $<F, number> {
+ * function double<F>(F: Monad<F>, fa: Kind<F, number>): Kind<F, number> {
  *   return F.map(fa, x => x * 2);
  * }
  *
@@ -42,7 +42,7 @@
  */
 
 import { registerInstanceWithMeta } from "@typesugar/macros";
-import type { $ } from "./hkt.js";
+import type { Kind } from "./hkt.js";
 import type { OptionF, ArrayF, PromiseF, EitherF } from "./hkt.js";
 import type { Functor } from "./typeclasses/functor.js";
 import type { Applicative } from "./typeclasses/applicative.js";
@@ -95,7 +95,7 @@ type OptionTraverse = OptionFunctor &
   OptionFoldable & {
     readonly traverse: <G>(
       G: Applicative<G>
-    ) => <A, B>(fa: Option<A>, f: (a: A) => $<G, B>) => $<G, Option<B>>;
+    ) => <A, B>(fa: Option<A>, f: (a: A) => Kind<G, B>) => Kind<G, Option<B>>;
   };
 
 /**
@@ -147,7 +147,7 @@ type ArrayFoldable = {
  */
 type ArrayTraverse = ArrayFunctor &
   ArrayFoldable & {
-    readonly traverse: <G>(G: Applicative<G>) => <A, B>(fa: A[], f: (a: A) => $<G, B>) => $<G, B[]>;
+    readonly traverse: <G>(G: Applicative<G>) => <A, B>(fa: A[], f: (a: A) => Kind<G, B>) => Kind<G, B[]>;
   };
 
 /**
@@ -227,7 +227,7 @@ type EitherTraverse<E> = EitherFunctor<E> &
   EitherFoldable<E> & {
     readonly traverse: <G>(
       G: Applicative<G>
-    ) => <A, B>(fa: Either<E, A>, f: (a: A) => $<G, B>) => $<G, Either<E, B>>;
+    ) => <A, B>(fa: Either<E, A>, f: (a: A) => Kind<G, B>) => Kind<G, Either<E, B>>;
   };
 
 /**
@@ -306,7 +306,7 @@ export const optionTraverse: OptionTraverse = {
   ...optionFoldable,
   traverse:
     <G>(G: Applicative<G>) =>
-    <A, B>(fa: Option<A>, f: (a: A) => $<G, B>): $<G, Option<B>> => {
+    <A, B>(fa: Option<A>, f: (a: A) => Kind<G, B>): Kind<G, Option<B>> => {
       if (fa !== null) {
         return G.map(f(fa), (b: B) => b as Option<B>);
       }
@@ -424,9 +424,9 @@ export const arrayTraverse: ArrayTraverse = {
   ...arrayFoldable,
   traverse:
     <G>(G: Applicative<G>) =>
-    <A, B>(fa: A[], f: (a: A) => $<G, B>): $<G, B[]> =>
+    <A, B>(fa: A[], f: (a: A) => Kind<G, B>): Kind<G, B[]> =>
       fa.reduce(
-        (acc: $<G, B[]>, a: A) =>
+        (acc: Kind<G, B[]>, a: A) =>
           G.ap(
             G.map(acc, (bs: B[]) => (b: B) => [...bs, b]),
             f(a)
@@ -591,7 +591,7 @@ export function eitherTraverse<E>(): EitherTraverse<E> {
     ...foldable,
     traverse:
       <G>(G: Applicative<G>) =>
-      <A, B>(fa: Either<E, A>, f: (a: A) => $<G, B>): $<G, Either<E, B>> => {
+      <A, B>(fa: Either<E, A>, f: (a: A) => Kind<G, B>): Kind<G, Either<E, B>> => {
         if (isRight(fa)) {
           return G.map(f(fa.right), (b: B) => Right(b));
         }
@@ -779,7 +779,7 @@ export function registerFpFlatMapInstances(
  *
  * With = implicit() (when transformer is active):
  * ```ts
- * function traverseArray<G, A, B>(xs: A[], f: (a: A) => $<G, B>, G: Applicative<G> = implicit()): $<G, B[]>
+ * function traverseArray<G, A, B>(xs: A[], f: (a: A) => Kind<G, B>, G: Applicative<G> = implicit()): Kind<G, B[]>
  *
  * // G is auto-filled from return type of f
  * const result = traverseArray([1, 2, 3], n => Some(n * 2));
@@ -789,7 +789,7 @@ export function registerFpFlatMapInstances(
  * @param G - The Applicative instance for the effect type
  */
 export function traverseArray<G>(G: Applicative<G>) {
-  return <A, B>(xs: A[], f: (a: A) => $<G, B>): $<G, B[]> => arrayTraverse.traverse(G)(xs, f);
+  return <A, B>(xs: A[], f: (a: A) => Kind<G, B>): Kind<G, B[]> => arrayTraverse.traverse(G)(xs, f);
 }
 
 /**
@@ -804,14 +804,14 @@ export function traverseArray<G>(G: Applicative<G>) {
  *
  * With = implicit():
  * ```ts
- * function sequenceArray<G, A>(xs: $<G, A>[], G: Applicative<G> = implicit()): $<G, A[]>
+ * function sequenceArray<G, A>(xs: Kind<G, A>[], G: Applicative<G> = implicit()): Kind<G, A[]>
  *
  * const result = sequenceArray([Some(1), Some(2), Some(3)]);
  * // Transforms to: sequenceArray([Some(1), Some(2), Some(3)], optionApplicative)
  * ```
  */
 export function sequenceArray<G>(G: Applicative<G>) {
-  return <A>(xs: $<G, A>[]): $<G, A[]> => arrayTraverse.traverse(G)(xs, (x) => x);
+  return <A>(xs: Kind<G, A>[]): Kind<G, A[]> => arrayTraverse.traverse(G)(xs, (x) => x);
 }
 
 /**
@@ -820,14 +820,14 @@ export function sequenceArray<G>(G: Applicative<G>) {
  * @example
  * With = implicit():
  * ```ts
- * function fmap<F, A, B>(fa: $<F, A>, f: (a: A) => B, F: Functor<F> = implicit()): $<F, B>
+ * function fmap<F, A, B>(fa: Kind<F, A>, f: (a: A) => B, F: Functor<F> = implicit()): Kind<F, B>
  *
  * const result = fmap(Some(1), n => n * 2);
  * // Transforms to: fmap(Some(1), n => n * 2, optionFunctor) → 2
  * ```
  */
 export function fmap<F>(F: Functor<F>) {
-  return <A, B>(fa: $<F, A>, f: (a: A) => B): $<F, B> => F.map(fa, f);
+  return <A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B> => F.map(fa, f);
 }
 
 /**
@@ -836,14 +836,14 @@ export function fmap<F>(F: Functor<F>) {
  * @example
  * With = implicit():
  * ```ts
- * function bind<F, A, B>(fa: $<F, A>, f: (a: A) => $<F, B>, F: Monad<F> = implicit()): $<F, B>
+ * function bind<F, A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>, F: Monad<F> = implicit()): Kind<F, B>
  *
  * const result = bind(Some(1), n => n > 0 ? Some(n * 2) : None);
  * // Transforms to: bind(Some(1), f, optionMonad) → 2
  * ```
  */
 export function bind<F>(F: Monad<F>) {
-  return <A, B>(fa: $<F, A>, f: (a: A) => $<F, B>): $<F, B> => F.flatMap(fa, f);
+  return <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>): Kind<F, B> => F.flatMap(fa, f);
 }
 
 /**
@@ -852,7 +852,7 @@ export function bind<F>(F: Monad<F>) {
  * @example
  * With = implicit():
  * ```ts
- * function ap<F, A, B>(ff: $<F, (a: A) => B>, fa: $<F, A>, F: Applicative<F> = implicit()): $<F, B>
+ * function ap<F, A, B>(ff: Kind<F, (a: A) => B>, fa: Kind<F, A>, F: Applicative<F> = implicit()): Kind<F, B>
  *
  * const add = (a: number) => (b: number) => a + b;
  * const result = ap(Some(add(1)), Some(2));
@@ -860,7 +860,7 @@ export function bind<F>(F: Monad<F>) {
  * ```
  */
 export function applyF<F>(F: Applicative<F>) {
-  return <A, B>(ff: $<F, (a: A) => B>, fa: $<F, A>): $<F, B> => F.ap(ff, fa);
+  return <A, B>(ff: Kind<F, (a: A) => B>, fa: Kind<F, A>): Kind<F, B> => F.ap(ff, fa);
 }
 
 /**
@@ -869,12 +869,12 @@ export function applyF<F>(F: Applicative<F>) {
  * @example
  * With = implicit():
  * ```ts
- * function foldL<F, A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B, F: Foldable<F> = implicit()): B
+ * function foldL<F, A, B>(fa: Kind<F, A>, b: B, f: (b: B, a: A) => B, F: Foldable<F> = implicit()): B
  *
  * const result = foldL(Some(5), 0, (acc, n) => acc + n);
  * // Transforms to: foldL(Some(5), 0, f, optionFoldable) → 5
  * ```
  */
 export function foldL<F>(F: Foldable<F>) {
-  return <A, B>(fa: $<F, A>, b: B, f: (b: B, a: A) => B): B => F.foldLeft(fa, b, f);
+  return <A, B>(fa: Kind<F, A>, b: B, f: (b: B, a: A) => B): B => F.foldLeft(fa, b, f);
 }
