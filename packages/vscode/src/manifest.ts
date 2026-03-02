@@ -186,6 +186,21 @@ export function createDefaultManifest(): MacroManifest {
           description: "Monadic do-notation comprehension",
           continuations: ["yield", "pure"],
         },
+        seq: {
+          module: "typesugar",
+          description: "Monadic do-notation comprehension (alias for let)",
+          continuations: ["yield", "pure"],
+        },
+        par: {
+          module: "typesugar",
+          description: "Parallel applicative comprehension",
+          continuations: ["yield", "pure"],
+        },
+        all: {
+          module: "typesugar",
+          description: "Parallel applicative comprehension (alias for par)",
+          continuations: ["yield", "pure"],
+        },
       },
       type: {
         Add: { module: "typesugar", description: "Type-level addition" },

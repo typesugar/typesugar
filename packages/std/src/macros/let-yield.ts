@@ -83,12 +83,14 @@ import {
   type BindStep,
   type MapStep,
   type GuardStep,
+  type ParallelGroupStep,
   extractReturnExpr,
   inferTypeConstructor,
   createArrowFn,
   createMethodCall,
   createIIFE,
 } from "./comprehension-utils.js";
+import { extractParSteps, validateIndependence } from "./par-yield.js";
 
 /**
  * Method names for FlatMap operations.
@@ -112,7 +114,7 @@ interface MethodNames {
  */
 export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   name: "letYield",
-  label: "let",
+  label: ["let", "seq"],
   continuationLabels: ["yield", "pure", "return"],
   expand(
     ctx: MacroContext,
@@ -120,26 +122,27 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     continuation: ts.LabeledStatement | undefined
   ): ts.Statement | ts.Statement[] {
     const { factory, typeChecker } = ctx;
+    const label = mainBlock.label.text;
 
     // The main block must be a Block
     if (!ts.isBlock(mainBlock.statement)) {
-      ctx.reportError(mainBlock, "let: must be followed by a block { ... }");
+      ctx.reportError(mainBlock, `${label}: must be followed by a block { ... }`);
       return mainBlock;
     }
 
-    // Extract steps from the let block
-    const steps = extractSteps(ctx, mainBlock.statement);
+    // Extract steps from the let/seq block
+    const steps = extractSteps(ctx, mainBlock.statement, label);
     if (!steps || steps.length === 0) {
-      ctx.reportError(mainBlock, "let: block must contain at least one binding or guard");
+      ctx.reportError(mainBlock, `${label}: block must contain at least one binding or guard`);
       return mainBlock;
     }
 
-    // Must have at least one bind step
-    const hasBindStep = steps.some((s): s is BindStep => s.kind === "bind");
+    // Must have at least one bind step (or parallel-group with binds)
+    const hasBindStep = steps.some((s) => s.kind === "bind" || s.kind === "parallel-group");
     if (!hasBindStep) {
       ctx.reportError(
         mainBlock,
-        "let: block must contain at least one `name << expression` binding"
+        `${label}: block must contain at least one \`name << expression\` binding`
       );
       return mainBlock;
     }
@@ -232,7 +235,11 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
  * - `name = expr` — pure map step
  * - `if (cond) {}` — guard step
  */
-function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] | undefined {
+function extractSteps(
+  ctx: MacroContext,
+  block: ts.Block,
+  label: string = "let"
+): ComprehensionStep[] | undefined {
   const steps: ComprehensionStep[] = [];
 
   for (const stmt of block.statements) {
@@ -246,10 +253,35 @@ function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] |
       continue;
     }
 
+    // Nested parallel group: par: { ... } or all: { ... }
+    if (ts.isLabeledStatement(stmt)) {
+      const parLabel = stmt.label.text;
+      if (parLabel === "par" || parLabel === "all") {
+        if (!ts.isBlock(stmt.statement)) {
+          ctx.reportError(stmt, `${parLabel}: must be followed by a block { ... }`);
+          return undefined;
+        }
+        const parSteps = extractParSteps(ctx, stmt.statement, parLabel);
+        if (!parSteps) return undefined;
+        if (!validateIndependence(ctx, parSteps, parLabel)) return undefined;
+        if (parSteps.length === 0) {
+          ctx.reportError(stmt, `${parLabel}: block must contain at least one binding`);
+          return undefined;
+        }
+        steps.push({
+          kind: "parallel-group",
+          steps: parSteps,
+          label: parLabel,
+          node: stmt,
+        });
+        continue;
+      }
+    }
+
     if (!ts.isExpressionStatement(stmt)) {
       ctx.reportError(
         stmt,
-        "let: block statements must be `name << expr`, `name = expr`, or `if (cond) {}`"
+        `${label}: block statements must be \`name << expr\`, \`name = expr\`, or \`if (cond) {}\``
       );
       return undefined;
     }
@@ -334,7 +366,10 @@ function extractSteps(ctx: MacroContext, block: ts.Block): ComprehensionStep[] |
       continue;
     }
 
-    ctx.reportError(stmt, "Expected `name << expression`, `name = expression`, or `if (cond) {}`");
+    ctx.reportError(
+      stmt,
+      `${label}: expected \`name << expression\`, \`name = expression\`, or \`if (cond) {}\``
+    );
     return undefined;
   }
 
@@ -431,6 +466,81 @@ function buildChain(
           factory.createToken(ts.SyntaxKind.ColonToken),
           factory.createIdentifier("undefined")
         );
+        break;
+      }
+
+      case "parallel-group": {
+        // Nested parallel group: execute all bindings in parallel, then continue.
+        // For Promise: Promise.all([e1, e2, ...]).then(([a, b, ...]) => inner)
+        // For other types: e1.map(a => b => ... => inner).ap(e2).ap(...)
+
+        const bindSteps = step.steps.filter((s): s is BindStep => s.kind === "bind");
+        const mapSteps = step.steps.filter((s): s is MapStep => s.kind === "map");
+
+        if (bindSteps.length === 0) {
+          for (const mapStep of mapSteps.reverse()) {
+            inner = createIIFE(factory, mapStep.name, inner, mapStep.expression);
+          }
+          break;
+        }
+
+        // Apply map steps (IIFEs) first
+        let bodyWithMaps = inner;
+        for (const mapStep of mapSteps.reverse()) {
+          bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
+        }
+
+        if (typeConstructor === "Promise") {
+          // Promise.all([e1, e2, ...]).then(([a, b, ...]) => bodyWithMaps)
+          const promiseAll = factory.createCallExpression(
+            factory.createPropertyAccessExpression(
+              factory.createIdentifier("Promise"),
+              factory.createIdentifier("all")
+            ),
+            undefined,
+            [factory.createArrayLiteralExpression(bindSteps.map((s) => s.effect))]
+          );
+
+          const destructParam = factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            factory.createArrayBindingPattern(
+              bindSteps.map((s) =>
+                factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
+              )
+            )
+          );
+
+          const thenCallback = factory.createArrowFunction(
+            undefined,
+            undefined,
+            [destructParam],
+            undefined,
+            factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+            bodyWithMaps
+          );
+
+          inner = createMethodCall(factory, promiseAll, "then", thenCallback);
+        } else {
+          // Applicative: e1.map(a => b => ... => bodyWithMaps).ap(e2).ap(...)
+          let curriedBody = bodyWithMaps;
+          for (let j = bindSteps.length - 1; j > 0; j--) {
+            curriedBody = createArrowFn(factory, bindSteps[j].name, curriedBody);
+          }
+
+          let chain: ts.Expression = createMethodCall(
+            factory,
+            bindSteps[0].effect,
+            "map",
+            createArrowFn(factory, bindSteps[0].name, curriedBody)
+          );
+
+          for (let j = 1; j < bindSteps.length; j++) {
+            chain = createMethodCall(factory, chain, "ap", bindSteps[j].effect);
+          }
+
+          inner = chain;
+        }
         break;
       }
     }

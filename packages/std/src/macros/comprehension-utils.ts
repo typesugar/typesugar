@@ -65,9 +65,25 @@ export interface GuardStep {
 }
 
 /**
+ * A group of parallel bindings nested inside a sequential comprehension.
+ *
+ * When `par: { ... }` or `all: { ... }` appears inside a `seq:` / `let:` block,
+ * the steps are grouped together and executed in parallel (Promise.all or map/ap).
+ */
+export interface ParallelGroupStep {
+  kind: "parallel-group";
+  /** The bind/map steps to execute in parallel */
+  steps: (BindStep | MapStep)[];
+  /** The label used (for error messages) */
+  label: string;
+  /** Original AST node for error reporting */
+  node: ts.Node;
+}
+
+/**
  * A step in a comprehension (let: or par: block).
  */
-export type ComprehensionStep = BindStep | MapStep | GuardStep;
+export type ComprehensionStep = BindStep | MapStep | GuardStep | ParallelGroupStep;
 
 // ============================================================================
 // Yield Expression Extraction

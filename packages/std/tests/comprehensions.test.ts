@@ -221,7 +221,7 @@ describe("comprehensions macro registration", () => {
     const macro = globalRegistry.getLabeledBlock("let");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("letYield");
-    expect(macro!.label).toBe("let");
+    expect(macro!.label).toEqual(["let", "seq"]);
     expect(macro!.continuationLabels).toEqual(["yield", "pure", "return"]);
   });
 
@@ -229,7 +229,7 @@ describe("comprehensions macro registration", () => {
     const macro = globalRegistry.getLabeledBlock("par");
     expect(macro).toBeDefined();
     expect(macro!.name).toBe("parYield");
-    expect(macro!.label).toBe("par");
+    expect(macro!.label).toEqual(["par", "all"]);
     expect(macro!.continuationLabels).toEqual(["yield", "pure"]);
   });
 });

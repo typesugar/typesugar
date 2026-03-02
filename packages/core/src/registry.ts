@@ -272,8 +272,8 @@ class MacroRegistryImpl implements MacroRegistry {
     // Must be same kind
     if (existing.kind !== incoming.kind) return false;
     // Same name (or label for labeled blocks)
-    const key = "label" in existing ? existing.label : existing.name;
-    const incomingKey = "label" in incoming ? incoming.label : incoming.name;
+    const key = "label" in existing ? String(existing.label) : existing.name;
+    const incomingKey = "label" in incoming ? String(incoming.label) : incoming.name;
     if (key !== incomingKey) return false;
     // Same module (or both have no module)
     if (existing.module === incoming.module) return true;
@@ -345,12 +345,15 @@ class MacroRegistryImpl implements MacroRegistry {
       }
 
       case "labeled-block": {
-        const existing = this.labeledBlockMacros.get(macro.label);
-        if (existing) {
-          if (this.isSameMacro(existing, macro)) return;
-          throw new Error(`Labeled block macro for label '${macro.label}' is already registered`);
+        const labels = Array.isArray(macro.label) ? macro.label : [macro.label];
+        for (const label of labels) {
+          const existing = this.labeledBlockMacros.get(label);
+          if (existing) {
+            if (this.isSameMacro(existing, macro)) return;
+            throw new Error(`Labeled block macro for label '${label}' is already registered`);
+          }
+          this.labeledBlockMacros.set(label, macro);
         }
-        this.labeledBlockMacros.set(macro.label, macro);
         break;
       }
 

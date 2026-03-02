@@ -772,10 +772,11 @@ interface Point { x: number; y: number; }
 
 The `FlatMap` typeclass and comprehension macros provide zero-cost do-notation for monadic and applicative types.
 
-**Two comprehension macros:**
+**Four comprehension labels (two macros, with aliases):**
 
-- **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
-- **`par:/yield:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`
+- **`let:` / `seq:`** — Sequential (monadic) comprehensions with `flatMap` chains. `seq:` is an alias emphasizing execution order; `let:` emphasizes binding.
+- **`par:` / `all:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`. `all:` is an alias emphasizing combination of all bindings.
+- **Nesting:** `par:`/`all:` blocks can appear inside `let:`/`seq:` blocks for mixed sequential/parallel flows.
 
 **FlatMap typeclass:**
 
@@ -823,7 +824,9 @@ yield: ({ user, config, posts });
 | Macro/Function      | Kind          | Purpose                                                    |
 | ------------------- | ------------- | ---------------------------------------------------------- |
 | `let: { ... }`      | Labeled Block | Sequential bindings with `<<`, guards, and pure maps       |
+| `seq: { ... }`      | Labeled Block | Alias for `let:` — effects-oriented naming                 |
 | `par: { ... }`      | Labeled Block | Parallel/independent bindings (Promise.all or .map().ap()) |
+| `all: { ... }`      | Labeled Block | Alias for `par:` — binding-oriented naming                 |
 | `yield: { ... }`    | Labeled Block | Returns the final expression (uses `map` for last binding) |
 | `registerFlatMap()` | Function      | Registers a custom `FlatMap` instance for a type           |
 | `FlatMap<F>`        | Typeclass     | Provides `map` and `flatMap` for monadic sequencing        |
@@ -957,18 +960,18 @@ The export index is pre-populated with known typesugar exports and can be extend
 
 Understanding what goes where prevents architecture confusion:
 
-| Package                  | Contents                                                                                                                                       | Does NOT contain                          |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@instance`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro`                                   | Typeclass definitions                     |
-| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in type extensions, `let:/yield:` and `par:/yield:` do-notation, `match` | FP data types                             |
-| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                                   | General-purpose utilities                 |
-| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet<K>, HashMap<K,V>                                       | Typeclass definitions (those live in std) |
-| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                                        | Typeclass instances                       |
-| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                                     | Compile-time code gen                     |
-| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                               | Matrix operations                         |
-| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph construction/algorithms (topo sort, SCC, Dijkstra), state machine definition/verification                    | Visual rendering                          |
-| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                         | Typeclass definitions                     |
-| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                                       | Transport/network layer                   |
+| Package                  | Contents                                                                                                                                                  | Does NOT contain                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@instance`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro`                                              | Typeclass definitions                     |
+| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in type extensions, `let:/seq:` and `par:/all:` do-notation (with nesting), `match` | FP data types                             |
+| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                                              | General-purpose utilities                 |
+| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet<K>, HashMap<K,V>                                                  | Typeclass definitions (those live in std) |
+| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                                                   | Typeclass instances                       |
+| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                                                | Compile-time code gen                     |
+| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                                          | Matrix operations                         |
+| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph construction/algorithms (topo sort, SCC, Dijkstra), state machine definition/verification                               | Visual rendering                          |
+| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                                    | Typeclass definitions                     |
+| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                                                  | Transport/network layer                   |
 
 **Key clarifications:**
 

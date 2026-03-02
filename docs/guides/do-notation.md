@@ -1,12 +1,17 @@
 # Do-Notation Comprehensions
 
-Typesugar provides two labeled block macros for effect-based programming:
+Typesugar provides two labeled block macros for effect-based programming, with two naming styles:
 
-- **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
-- **`par:/yield:`** — Parallel (applicative) comprehensions via the `ParCombine` typeclass
+- **`let:/yield:`** or **`seq:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
+- **`par:/yield:`** or **`all:/yield:`** — Parallel (applicative) comprehensions via the `ParCombine` typeclass
 
-- `let:` uses the `FlatMap` typeclass (registered in the unified instance registry)
-- `par:` uses the `ParCombine` typeclass (registered in the unified instance registry)
+Naming convention:
+
+- `seq:` / `par:` — effects-oriented (sequential vs parallel execution)
+- `let:` / `all:` — binding-oriented (let-bindings vs combine-all)
+
+- `let:` / `seq:` use the `FlatMap` typeclass (registered in the unified instance registry)
+- `par:` / `all:` use the `ParCombine` typeclass (registered in the unified instance registry)
 
 ## Quick Start
 
@@ -285,6 +290,65 @@ par: {
   posts << fetchPosts(user.id); // Error: 'posts' references 'user' from a previous binding.
 } //        Use let: for sequential/dependent bindings.
 ```
+
+## Aliases: `seq:` and `all:`
+
+`seq:` is an alias for `let:`; `all:` is an alias for `par:`. Use whichever style fits your code:
+
+```typescript
+// Same effect — choose based on preference
+seq: {
+  x << Some(1);
+  y << Some(x * 2);
+}
+yield: {
+  x + y;
+}
+
+// Equivalent to:
+let: {
+  x << Some(1);
+  y << Some(x * 2);
+}
+yield: {
+  x + y;
+}
+```
+
+```typescript
+all: {
+  user << fetchUser(id);
+  config << loadConfig();
+}
+yield: ({ user, config });
+
+// Equivalent to:
+par: {
+  user << fetchUser(id);
+  config << loadConfig();
+}
+yield: ({ user, config });
+```
+
+## Nesting: `par:` / `all:` Inside `let:` / `seq:`
+
+You can nest `par:` / `all:` blocks inside `let:` / `seq:` for mixed sequential and parallel flows. Bindings from the inner block are in scope for the outer block:
+
+```typescript
+seq: {
+  config << loadConfig(); // Sequential: load config first
+  par: {
+    users << fetchUsers(config); // Parallel: fetch these together
+    products << fetchProducts(config);
+  }
+  // users and products are in scope
+}
+yield: {
+  ({ config, users, products });
+}
+```
+
+For object literal returns, use parentheses: `yield: { ({ a, b }) }`.
 
 ## Supported Types
 

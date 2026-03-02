@@ -111,10 +111,12 @@ registerFlatMap("Option", {
 
 ## Do-Notation Macros
 
-Two labeled block macros for effect-based programming:
+Two labeled block macros with aliases for effect-based programming:
 
-- **`let:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
-- **`par:/yield:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`
+- **`let:/yield:`** or **`seq:/yield:`** — Sequential (monadic) comprehensions with `flatMap` chains
+- **`par:/yield:`** or **`all:/yield:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`
+
+`seq:` and `all:` are aliases; you can nest `par:`/`all:` blocks inside `let:`/`seq:` for mixed flows.
 
 ### `let:/yield:` — Sequential Comprehensions
 
@@ -267,8 +269,8 @@ rangeToArray(range(0, 10, 2)); // [0, 2, 4, 6, 8]
 
 ### Macros
 
-- `let:/yield:` — Sequential (monadic) do-notation with guards, fallbacks, and discard bindings
-- `par:/yield:` — Parallel (applicative) comprehensions with Promise.all / .map().ap()
+- `let:/yield:` or `seq:/yield:` — Sequential (monadic) do-notation with guards, fallbacks, and discard bindings
+- `par:/yield:` or `all:/yield:` — Parallel (applicative) comprehensions with Promise.all / .map().ap()
 
 ### Data Types
 

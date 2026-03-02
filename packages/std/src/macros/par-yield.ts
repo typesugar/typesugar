@@ -107,7 +107,7 @@ import {
  */
 export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   name: "parYield",
-  label: "par",
+  label: ["par", "all"],
   continuationLabels: ["yield", "pure"],
   expand(
     ctx: MacroContext,
@@ -115,16 +115,17 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     continuation: ts.LabeledStatement | undefined
   ): ts.Statement | ts.Statement[] {
     const { factory, typeChecker } = ctx;
+    const label = mainBlock.label.text;
 
     if (!ts.isBlock(mainBlock.statement)) {
-      ctx.reportError(mainBlock, "par: must be followed by a block { ... }");
+      ctx.reportError(mainBlock, `${label}: must be followed by a block { ... }`);
       return mainBlock;
     }
 
     // Extract steps (only bind and map — no guards or orElse)
-    const steps = extractParSteps(ctx, mainBlock.statement);
+    const steps = extractParSteps(ctx, mainBlock.statement, label);
     if (!steps || steps.length === 0) {
-      ctx.reportError(mainBlock, "par: block must contain at least one binding");
+      ctx.reportError(mainBlock, `${label}: block must contain at least one binding`);
       return mainBlock;
     }
 
@@ -133,13 +134,13 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     if (!hasBindStep) {
       ctx.reportError(
         mainBlock,
-        "par: block must contain at least one `name << expression` binding"
+        `${label}: block must contain at least one \`name << expression\` binding`
       );
       return mainBlock;
     }
 
     // Validate independence — no step may reference a previous step's binding
-    if (!validateIndependence(ctx, steps)) {
+    if (!validateIndependence(ctx, steps, label)) {
       return mainBlock;
     }
 
@@ -147,7 +148,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     if (!continuation) {
       ctx.reportError(
         mainBlock,
-        "par: requires a yield: or pure: block (applicative must have an explicit combining expression)"
+        `${label}: requires a yield: or pure: block (applicative must have an explicit combining expression)`
       );
       return mainBlock;
     }
@@ -200,10 +201,17 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 // ============================================================================
 
 /**
- * Extract only bind and map steps from a `par:` block.
+ * Extract only bind and map steps from a `par:` / `all:` block.
  * Guards and orElse are not supported in applicative context.
+ *
+ * Exported so `let-yield.ts` can reuse it for nested parallel groups.
  */
-function extractParSteps(ctx: MacroContext, block: ts.Block): (BindStep | MapStep)[] | undefined {
+export function extractParSteps(
+  ctx: MacroContext,
+  block: ts.Block,
+  label: string = "par"
+): (BindStep | MapStep)[] | undefined {
+  const seqLabel = label === "all" ? "let" : "seq";
   const steps: (BindStep | MapStep)[] = [];
 
   for (const stmt of block.statements) {
@@ -211,14 +219,17 @@ function extractParSteps(ctx: MacroContext, block: ts.Block): (BindStep | MapSte
     if (ts.isIfStatement(stmt)) {
       ctx.reportError(
         stmt,
-        "par: blocks do not support guards (if). " +
-          "Use let: for monadic comprehensions with guards."
+        `${label}: blocks do not support guards (if). ` +
+          `Use ${seqLabel}: for monadic comprehensions with guards.`
       );
       return undefined;
     }
 
     if (!ts.isExpressionStatement(stmt)) {
-      ctx.reportError(stmt, "par: block statements must be `name << expr` or `name = expr`");
+      ctx.reportError(
+        stmt,
+        `${label}: block statements must be \`name << expr\` or \`name = expr\``
+      );
       return undefined;
     }
 
@@ -247,7 +258,7 @@ function extractParSteps(ctx: MacroContext, block: ts.Block): (BindStep | MapSte
       continue;
     }
 
-    // Reject orElse (||, ??) in par: blocks
+    // Reject orElse (||, ??) in par:/all: blocks
     if (opKind === ts.SyntaxKind.BarBarToken || opKind === ts.SyntaxKind.QuestionQuestionToken) {
       const lhs = expr.left;
       if (
@@ -256,8 +267,8 @@ function extractParSteps(ctx: MacroContext, block: ts.Block): (BindStep | MapSte
       ) {
         ctx.reportError(
           stmt,
-          "par: blocks do not support orElse (||/??). " +
-            "Use let: for monadic comprehensions with fallbacks."
+          `${label}: blocks do not support orElse (||/??). ` +
+            `Use ${seqLabel}: for monadic comprehensions with fallbacks.`
         );
         return undefined;
       }
@@ -290,10 +301,17 @@ function extractParSteps(ctx: MacroContext, block: ts.Block): (BindStep | MapSte
 // ============================================================================
 
 /**
- * Validate that no step in a par: block references a previous step's binding.
+ * Validate that no step in a par:/all: block references a previous step's binding.
  * Returns true if all steps are independent; reports errors and returns false otherwise.
+ *
+ * Exported so `let-yield.ts` can reuse it for nested parallel groups.
  */
-function validateIndependence(ctx: MacroContext, steps: (BindStep | MapStep)[]): boolean {
+export function validateIndependence(
+  ctx: MacroContext,
+  steps: (BindStep | MapStep)[],
+  label: string = "par"
+): boolean {
+  const seqLabel = label === "all" ? "let" : "seq";
   const boundNames = new Set<string>();
   let valid = true;
 
@@ -303,8 +321,8 @@ function validateIndependence(ctx: MacroContext, steps: (BindStep | MapStep)[]):
       if (boundNames.has(ref)) {
         ctx.reportError(
           step.node,
-          `par: bindings must be independent, but '${step.name}' references '${ref}' from a previous binding. ` +
-            `Use let: for sequential/dependent bindings.`
+          `${label}: bindings must be independent, but '${step.name}' references '${ref}' from a previous binding. ` +
+            `Use ${seqLabel}: for sequential/dependent bindings.`
         );
         valid = false;
       }

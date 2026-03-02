@@ -449,9 +449,10 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   kind: "labeled-block";
 
   /**
-   * The label that starts this macro block (e.g., "let" for `let: { ... }`)
+   * The label(s) that start this macro block (e.g., "let" for `let: { ... }`).
+   * Can be a single string or an array of aliases (e.g., ["let", "seq"]).
    */
-  label: string;
+  label: string | string[];
 
   /**
    * Optional continuation labels that follow the main block.

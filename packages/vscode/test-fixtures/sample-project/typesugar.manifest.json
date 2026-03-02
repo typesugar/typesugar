@@ -24,6 +24,21 @@
         "module": "typesugar",
         "description": "Monadic do-notation",
         "continuations": ["yield", "pure"]
+      },
+      "seq": {
+        "module": "typesugar",
+        "description": "Monadic do-notation (alias for let)",
+        "continuations": ["yield", "pure"]
+      },
+      "par": {
+        "module": "typesugar",
+        "description": "Parallel applicative comprehension",
+        "continuations": ["yield", "pure"]
+      },
+      "all": {
+        "module": "typesugar",
+        "description": "Parallel applicative comprehension (alias for par)",
+        "continuations": ["yield", "pure"]
       }
     },
     "type": {},

@@ -3,12 +3,28 @@
   "scopeName": "source.ts.typesugar",
   "injectionSelector": "L:source.ts, L:source.tsx",
   "patterns": [
-    { "$comment": "Labeled block comprehensions: let: { ... }, yield: { ... }, pure: { ... }" },
+    {
+      "$comment": "Labeled block comprehensions: let:/seq: { ... }, par:/all: { ... }, yield: { ... }, pure: { ... }"
+    },
     {
       "name": "meta.comprehension.let.typesugar",
-      "begin": "(?<=^|;|\\{|\\})\\s*\\b(let)\\s*(:)\\s*(\\{)",
+      "begin": "(?<=^|;|\\{|\\})\\s*\\b(let|seq)\\s*(:)\\s*(\\{)",
       "beginCaptures": {
         "1": { "name": "keyword.control.comprehension.let.typesugar" },
+        "2": { "name": "punctuation.separator.comprehension.typesugar" },
+        "3": { "name": "punctuation.section.block.begin.typesugar" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.block.end.typesugar" }
+      },
+      "patterns": [{ "include": "#comprehension-body" }, { "include": "source.ts" }]
+    },
+    {
+      "name": "meta.comprehension.par.typesugar",
+      "begin": "(?<=^|;|\\{|\\})\\s*\\b(par|all)\\s*(:)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.comprehension.par.typesugar" },
         "2": { "name": "punctuation.separator.comprehension.typesugar" },
         "3": { "name": "punctuation.section.block.begin.typesugar" }
       },
@@ -81,6 +97,20 @@
   "repository": {
     "comprehension-body": {
       "patterns": [
+        {
+          "name": "meta.comprehension.par.nested.typesugar",
+          "begin": "\\b(par|all)\\s*(:)\\s*(\\{)",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.comprehension.par.typesugar" },
+            "2": { "name": "punctuation.separator.comprehension.typesugar" },
+            "3": { "name": "punctuation.section.block.begin.typesugar" }
+          },
+          "end": "(\\})",
+          "endCaptures": {
+            "1": { "name": "punctuation.section.block.end.typesugar" }
+          },
+          "patterns": [{ "include": "#comprehension-body" }, { "include": "source.ts" }]
+        },
         {
           "match": "\\b(\\w+)\\s*(<<)\\s*(.+?)\\s*(\\|\\||\\?\\?)\\s*",
           "captures": {

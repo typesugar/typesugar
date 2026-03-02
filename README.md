@@ -58,9 +58,9 @@ alice.toJson(); // JSON serialization
 
 ### Standard Library
 
-| Package                        | Description                                                            |
-| ------------------------------ | ---------------------------------------------------------------------- |
-| [@typesugar/std](packages/std) | Extension methods, pattern matching, do-notation, standard typeclasses |
+| Package                        | Description                                                                                   |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| [@typesugar/std](packages/std) | Extension methods, pattern matching, do-notation (let:/seq:, par:/all:), standard typeclasses |
 
 ### Typeclasses & Derivation
 
