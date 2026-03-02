@@ -27,7 +27,7 @@ import type { Effect, Chunk, Option, Either, Stream } from "effect";
 import type { TypeFunction } from "@typesugar/type-system";
 
 // Re-export core HKT infrastructure
-export type { $, Kind, TypeFunction } from "@typesugar/type-system";
+export type { Kind, TypeFunction } from "@typesugar/type-system";
 
 // ============================================================================
 // Type-Level Functions for Effect Types
