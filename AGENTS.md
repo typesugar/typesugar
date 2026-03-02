@@ -419,10 +419,10 @@ whose first parameter matches the receiver type can be called as a method. Zero-
 import { clamp, isEven, abs } from "@typesugar/std";
 
 // Functions become methods automatically
-(-5).abs();           // → abs(-5) → Math.abs(-5)
-n.clamp(0, 100);      // → clamp(n, 0, 100)
-(42).isEven();        // → isEven(42) → true
-[1, 2, 3].head();     // → head([1, 2, 3]) → 1
+(-5).abs(); // → abs(-5) → Math.abs(-5)
+n.clamp(0, 100); // → clamp(n, 0, 100)
+(42).isEven(); // → isEven(42) → true
+[1, 2, 3].head(); // → head([1, 2, 3]) → 1
 ```
 
 **"use extension" directive (for library authors):**

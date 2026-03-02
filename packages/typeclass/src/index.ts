@@ -49,11 +49,7 @@ export {
 } from "@typesugar/macros";
 
 // Type exports
-export type {
-  TypeclassInfo,
-  TypeclassMethod,
-  InstanceInfo,
-} from "@typesugar/macros";
+export type { TypeclassInfo, TypeclassMethod, InstanceInfo } from "@typesugar/macros";
 
 // Registry access (for testing and advanced use)
 export {

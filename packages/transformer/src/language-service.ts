@@ -299,7 +299,13 @@ function init(modules: { typescript: typeof ts }) {
       targetType: ts.Type
     ): boolean {
       const decl = fnSymbol.getDeclarations()?.[0];
-      if (!decl || !tsModule.isFunctionDeclaration(decl) && !tsModule.isArrowFunction(decl) && !tsModule.isFunctionExpression(decl) && !tsModule.isMethodDeclaration(decl)) {
+      if (
+        !decl ||
+        (!tsModule.isFunctionDeclaration(decl) &&
+          !tsModule.isArrowFunction(decl) &&
+          !tsModule.isFunctionExpression(decl) &&
+          !tsModule.isMethodDeclaration(decl))
+      ) {
         return false;
       }
 
@@ -314,7 +320,7 @@ function init(modules: { typescript: typeof ts }) {
       if (!firstParamDecl || !tsModule.isParameter(firstParamDecl)) return false;
 
       const firstParamType = checker.getTypeAtLocation(firstParamDecl);
-      
+
       // Check if targetType is assignable to firstParamType
       return checker.isTypeAssignableTo(targetType, firstParamType);
     }
@@ -422,8 +428,11 @@ function init(modules: { typescript: typeof ts }) {
         }
         // Check if cursor is right after a dot by looking at parent
         if (current.parent && tsModule.isPropertyAccessExpression(current.parent)) {
-          if (current === current.parent.name || 
-              (position > current.parent.expression.getEnd() && position <= current.parent.name.getEnd())) {
+          if (
+            current === current.parent.name ||
+            (position > current.parent.expression.getEnd() &&
+              position <= current.parent.name.getEnd())
+          ) {
             return checker.getTypeAtLocation(current.parent.expression);
           }
         }
@@ -449,15 +458,16 @@ function init(modules: { typescript: typeof ts }) {
       const result = oldLS.getCompletionsAtPosition(fileName, transformedPosition, options);
 
       // Map replacement spans back to original coordinates
-      const mappedEntries = result?.entries.map((entry) => {
-        if (entry.replacementSpan) {
-          const mappedSpan = mapTextSpanToOriginal(entry.replacementSpan, mapper);
-          if (mappedSpan) {
-            return { ...entry, replacementSpan: mappedSpan };
+      const mappedEntries =
+        result?.entries.map((entry) => {
+          if (entry.replacementSpan) {
+            const mappedSpan = mapTextSpanToOriginal(entry.replacementSpan, mapper);
+            if (mappedSpan) {
+              return { ...entry, replacementSpan: mappedSpan };
+            }
           }
-        }
-        return entry;
-      }) ?? [];
+          return entry;
+        }) ?? [];
 
       // Try to add extension method completions
       try {
@@ -465,20 +475,32 @@ function init(modules: { typescript: typeof ts }) {
         if (program) {
           const checker = program.getTypeChecker();
           const sourceFile = program.getSourceFile(fileName);
-          
+
           if (sourceFile) {
-            const receiverType = getReceiverTypeAtPosition(sourceFile, transformedPosition, checker);
-            
+            const receiverType = getReceiverTypeAtPosition(
+              sourceFile,
+              transformedPosition,
+              checker
+            );
+
             if (receiverType) {
-              const extensionCompletions = getExtensionCompletions(sourceFile, receiverType, checker);
-              
+              const extensionCompletions = getExtensionCompletions(
+                sourceFile,
+                receiverType,
+                checker
+              );
+
               if (extensionCompletions.length > 0) {
-                log(`Adding ${extensionCompletions.length} extension completions for ${checker.typeToString(receiverType)}`);
-                
+                log(
+                  `Adding ${extensionCompletions.length} extension completions for ${checker.typeToString(receiverType)}`
+                );
+
                 // Filter out extensions that duplicate existing entries
-                const existingNames = new Set(mappedEntries.map(e => e.name));
-                const newExtensions = extensionCompletions.filter(e => !existingNames.has(e.name));
-                
+                const existingNames = new Set(mappedEntries.map((e) => e.name));
+                const newExtensions = extensionCompletions.filter(
+                  (e) => !existingNames.has(e.name)
+                );
+
                 mappedEntries.push(...newExtensions);
               }
             }

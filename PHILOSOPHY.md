@@ -301,8 +301,8 @@ import { clamp, isEven } from "@typesugar/std";
 
 // These are just functions: clamp(n: number, min: number, max: number): number
 // But you can call them as methods:
-n.clamp(0, 100);   // → clamp(n, 0, 100)
-(7).isEven();      // → isEven(7)
+n.clamp(0, 100); // → clamp(n, 0, 100)
+(7).isEven(); // → isEven(7)
 ```
 
 The transformer rewrites `n.clamp(0, 100)` to `clamp(n, 0, 100)` -- a direct function call. No method lookup, no prototype pollution, no monkey patching.

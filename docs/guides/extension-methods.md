@@ -10,13 +10,13 @@ Any imported function whose first parameter matches the receiver type can be cal
 import { clamp, abs, capitalize, head } from "@typesugar/std";
 
 // Functions become methods automatically
-(-5).abs();           // → abs(-5) → Math.abs(-5) → 5
-(42).clamp(0, 100);   // → clamp(42, 0, 100) → 42
+(-5).abs(); // → abs(-5) → Math.abs(-5) → 5
+(42).clamp(0, 100); // → clamp(42, 0, 100) → 42
 "hello".capitalize(); // → capitalize("hello") → "Hello"
-[1, 2, 3].head();     // → head([1, 2, 3]) → 1
+[1, 2, 3].head(); // → head([1, 2, 3]) → 1
 
 // Direct calls still work
-clamp(42, 0, 100);    // → 42
+clamp(42, 0, 100); // → 42
 ```
 
 The transformer detects method calls, looks up matching extension functions from your imports, and rewrites to direct function calls — zero wrapper overhead.
@@ -43,8 +43,8 @@ Usage:
 ```typescript
 import { double, greet } from "./my-extensions";
 
-(42).double();        // → double(42) → 84
-"Alice".greet();      // → greet("Alice") → "Hello, Alice!"
+(42).double(); // → double(42) → 84
+"Alice".greet(); // → greet("Alice") → "Hello, Alice!"
 ```
 
 ### "use extension" Directive (Recommended for Libraries)
@@ -69,8 +69,8 @@ Usage:
 ```typescript
 import { distance, midpoint } from "./my-extensions";
 
-p1.distance(p2);    // → distance(p1, p2)
-p1.midpoint(p2);    // → midpoint(p1, p2)
+p1.distance(p2); // → distance(p1, p2)
+p1.midpoint(p2); // → midpoint(p1, p2)
 ```
 
 ### @extension Decorator (Per-Function Control)
@@ -98,13 +98,13 @@ export function surface(box: Box): number {
 ```typescript
 import { clamp, abs, ceil, floor, sqrt, isEven, isPrime } from "@typesugar/std";
 
-(-5).abs();           // Math.abs(-5) → 5
-(42).clamp(0, 100);   // clamp to range → 42
-(3.7).ceil();         // Math.ceil(3.7) → 4
-(3.7).floor();        // Math.floor(3.7) → 3
-(16).sqrt();          // Math.sqrt(16) → 4
-(42).isEven();        // true
-(7).isPrime();        // true
+(-5).abs(); // Math.abs(-5) → 5
+(42).clamp(0, 100); // clamp to range → 42
+(3.7).ceil(); // Math.ceil(3.7) → 4
+(3.7).floor(); // Math.floor(3.7) → 3
+(16).sqrt(); // Math.sqrt(16) → 4
+(42).isEven(); // true
+(7).isPrime(); // true
 ```
 
 ### String Extensions
@@ -112,10 +112,10 @@ import { clamp, abs, ceil, floor, sqrt, isEven, isPrime } from "@typesugar/std";
 ```typescript
 import { capitalize, titleCase, strip, truncate } from "@typesugar/std";
 
-"hello".capitalize();       // "Hello"
-"hello world".titleCase();  // "Hello World"
-"  hi  ".strip();           // "hi"
-"hello".truncate(3);        // "hel..."
+"hello".capitalize(); // "Hello"
+"hello world".titleCase(); // "Hello World"
+"  hi  ".strip(); // "hi"
+"hello".truncate(3); // "hel..."
 ```
 
 ### Array Extensions
@@ -123,11 +123,11 @@ import { capitalize, titleCase, strip, truncate } from "@typesugar/std";
 ```typescript
 import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
 
-[1, 2, 3].head();               // 1
-[1, 2, 3].tail();               // [2, 3]
-[1, 2, 3, 4, 5].chunk(2);       // [[1, 2], [3, 4], [5]]
-[1, 1, 2, 2, 3].unique();       // [1, 2, 3]
-[1, 2, 3].groupBy(x => x % 2);  // Map { 1: [1, 3], 0: [2] }
+[1, 2, 3].head(); // 1
+[1, 2, 3].tail(); // [2, 3]
+[1, 2, 3, 4, 5].chunk(2); // [[1, 2], [3, 4], [5]]
+[1, 1, 2, 2, 3].unique(); // [1, 2, 3]
+[1, 2, 3].groupBy((x) => x % 2); // Map { 1: [1, 3], 0: [2] }
 ```
 
 ## Resolution Order
@@ -170,7 +170,7 @@ Fix by using qualified calls:
 import { format as stdFormat } from "@typesugar/std";
 import { format as myFormat } from "./my-date-utils";
 
-stdFormat(date, pattern);  // Explicit choice
+stdFormat(date, pattern); // Explicit choice
 ```
 
 ## Typeclass Extensions
@@ -180,8 +180,8 @@ Typeclass methods also work as extension methods:
 ```typescript
 import { Show, Eq } from "@typesugar/std";
 
-(42).show();         // "42" (from Show<number>)
-"hi".show();         // "\"hi\""
+(42).show(); // "42" (from Show<number>)
+"hi".show(); // "\"hi\""
 point.equals(other); // Eq<Point>.equals
 ```
 
@@ -222,9 +222,9 @@ Usage:
 ```typescript
 import { first, mapTo } from "./generic-ext";
 
-[1, 2, 3].first();         // 1
-["a", "b"].first();        // "a"
-[1, 2, 3].mapTo("x");      // ["x", "x", "x"]
+[1, 2, 3].first(); // 1
+["a", "b"].first(); // "a"
+[1, 2, 3].mapTo("x"); // ["x", "x", "x"]
 ```
 
 ## When to Use `extend()`
@@ -277,13 +277,13 @@ Prefer the `"use extension"` directive for new code.
 
 ## Comparison to Other Languages
 
-| Feature           | typesugar    | Scala 3    | Kotlin       | C#           |
-| ----------------- | ------------ | ---------- | ------------ | ------------ |
-| Syntax            | `x.method()` | `x.method` | `x.method()` | `x.Method()` |
-| Import-scoped     | Yes          | Yes        | Yes          | Yes          |
-| Typeclass-derived | Yes          | Yes        | No           | No           |
-| Zero-cost         | Yes          | Yes        | Yes          | Yes          |
-| File directive    | Yes (`"use extension"`) | No | No | No |
+| Feature           | typesugar               | Scala 3    | Kotlin       | C#           |
+| ----------------- | ----------------------- | ---------- | ------------ | ------------ |
+| Syntax            | `x.method()`            | `x.method` | `x.method()` | `x.Method()` |
+| Import-scoped     | Yes                     | Yes        | Yes          | Yes          |
+| Typeclass-derived | Yes                     | Yes        | No           | No           |
+| Zero-cost         | Yes                     | Yes        | Yes          | Yes          |
+| File directive    | Yes (`"use extension"`) | No         | No           | No           |
 
 ## Zero-Cost Guarantee
 

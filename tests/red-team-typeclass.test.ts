@@ -79,7 +79,6 @@ describe("Typeclass Registry Edge Cases", () => {
       }
     });
   });
-
 });
 
 describe("Typeclass Info Structure Edge Cases", () => {

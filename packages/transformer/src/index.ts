@@ -1480,7 +1480,11 @@ class MacroTransformer {
       if (ts.isIdentifier(expr) && expr.text === "extension") {
         return true;
       }
-      if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === "extension") {
+      if (
+        ts.isCallExpression(expr) &&
+        ts.isIdentifier(expr.expression) &&
+        expr.expression.text === "extension"
+      ) {
         return true;
       }
     }

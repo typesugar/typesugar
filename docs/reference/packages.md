@@ -83,7 +83,7 @@ defineFieldDerive;
 extractTypeInfo;
 
 // Extension Methods
-extensionAttribute;  // @extension decorator
+extensionAttribute; // @extension decorator
 // "use extension" directive (file-level)
 
 // Operators
@@ -228,9 +228,9 @@ npm install @typesugar/std
 
 ```typescript
 // Extension methods (import functions, call as methods)
-abs, ceil, floor, sqrt, clamp, isEven, isPrime;  // number
-capitalize, titleCase, strip, truncate;          // string
-head, tail, chunk, unique, groupBy;              // array
+(abs, ceil, floor, sqrt, clamp, isEven, isPrime); // number
+(capitalize, titleCase, strip, truncate); // string
+(head, tail, chunk, unique, groupBy); // array
 
 // Pattern matching
 match();

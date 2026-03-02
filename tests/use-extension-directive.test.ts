@@ -3,10 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
-import {
-  globalResolutionScope,
-  scanImportsForScope,
-} from "@typesugar/core";
+import { globalResolutionScope, scanImportsForScope } from "@typesugar/core";
 
 describe('"use extension" directive', () => {
   beforeEach(() => {
@@ -21,12 +18,7 @@ export function head<T>(arr: T[]): T | undefined {
   return arr[0];
 }
 `;
-    const sourceFile = ts.createSourceFile(
-      "test-extension.ts",
-      code,
-      ts.ScriptTarget.ESNext,
-      true
-    );
+    const sourceFile = ts.createSourceFile("test-extension.ts", code, ts.ScriptTarget.ESNext, true);
 
     scanImportsForScope(sourceFile, globalResolutionScope);
 

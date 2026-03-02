@@ -207,23 +207,23 @@ import { clamp, isEven, abs } from "@typesugar/std";
 // These functions take `number` as their first parameter
 // So they can be called as methods on numbers:
 const n = -42;
-n.abs();           // → Math.abs(n) → 42
-n.clamp(0, 100);   // → clamp(n, 0, 100) → 0
-(7).isEven();      // → isEven(7) → false
+n.abs(); // → Math.abs(n) → 42
+n.clamp(0, 100); // → clamp(n, 0, 100) → 0
+(7).isEven(); // → isEven(7) → false
 
 // Works for any type!
 import { head, tail, chunk } from "@typesugar/std";
 
 const arr = [1, 2, 3, 4, 5];
-arr.head();        // → 1
-arr.tail();        // → [2, 3, 4, 5]
-arr.chunk(2);      // → [[1, 2], [3, 4], [5]]
+arr.head(); // → 1
+arr.tail(); // → [2, 3, 4, 5]
+arr.chunk(2); // → [[1, 2], [3, 4], [5]]
 ```
 
 For library authors — mark your functions as extensions explicitly:
 
 ```typescript
-"use extension";  // All exports in this file become extension methods
+"use extension"; // All exports in this file become extension methods
 
 export function distance(p: Point, other: Point): number {
   return Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);

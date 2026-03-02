@@ -634,7 +634,7 @@ Any function whose first parameter matches the receiver type can be called as a 
 ```typescript
 import { clamp, abs } from "@typesugar/std";
 
-(-5).abs();         // → abs(-5) → Math.abs(-5)
+(-5).abs(); // → abs(-5) → Math.abs(-5)
 (42).clamp(0, 100); // → clamp(42, 0, 100)
 ```
 
@@ -642,7 +642,9 @@ For library authors, mark a file with `"use extension"` to make all exports call
 
 ```typescript
 "use extension";
-export function double(n: number): number { return n * 2; }
+export function double(n: number): number {
+  return n * 2;
+}
 // Users can write: (5).double()
 ```
 

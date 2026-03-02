@@ -25,26 +25,26 @@ Just import what you need:
 import { clamp, isEven, abs, capitalize, head } from "@typesugar/std";
 
 // Functions become methods automatically
-(-5).abs();           // → Math.abs(-5) → 5
-(42).clamp(0, 100);   // → clamp(42, 0, 100) → 42
-(7).isEven();         // → isEven(7) → false
+(-5).abs(); // → Math.abs(-5) → 5
+(42).clamp(0, 100); // → clamp(42, 0, 100) → 42
+(7).isEven(); // → isEven(7) → false
 "hello".capitalize(); // → capitalize("hello") → "Hello"
-[1, 2, 3].head();     // → head([1, 2, 3]) → 1
+[1, 2, 3].head(); // → head([1, 2, 3]) → 1
 
 // Direct calls still work
-clamp(42, 0, 100);    // → 42
+clamp(42, 0, 100); // → 42
 ```
 
-**Math.* methods on numbers:**
+**Math.\* methods on numbers:**
 
 ```typescript
 import { abs, ceil, floor, sqrt, sin, cos } from "@typesugar/std";
 
-(-5).abs();           // → Math.abs(-5) → 5
-(3.7).ceil();         // → Math.ceil(3.7) → 4
-(3.7).floor();        // → Math.floor(3.7) → 3
-(16).sqrt();          // → Math.sqrt(16) → 4
-(0).sin();            // → Math.sin(0) → 0
+(-5).abs(); // → Math.abs(-5) → 5
+(3.7).ceil(); // → Math.ceil(3.7) → 4
+(3.7).floor(); // → Math.floor(3.7) → 3
+(16).sqrt(); // → Math.sqrt(16) → 4
+(0).sin(); // → Math.sin(0) → 0
 ```
 
 **Legacy namespace imports (deprecated):**

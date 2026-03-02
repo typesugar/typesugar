@@ -168,11 +168,7 @@ export const extensionAttribute: AttributeMacro = defineAttributeMacro({
 
       // Enumerate all exported functions in the namespace
       for (const stmt of target.body.statements) {
-        if (
-          ts.isFunctionDeclaration(stmt) &&
-          stmt.name &&
-          hasExportModifier(stmt)
-        ) {
+        if (ts.isFunctionDeclaration(stmt) && stmt.name && hasExportModifier(stmt)) {
           const fnName = stmt.name.text;
           const params = stmt.parameters;
 
