@@ -1,13 +1,30 @@
 /**
  * Decorator rewrite syntax extension
  *
- * Handles two decorator patterns that need preprocessing:
+ * @deprecated For typeclass-related decorators, prefer JSDoc syntax instead.
+ * JSDoc tags work without the preprocessor and provide better tooling support:
  *
- * 1. @instance on const/let/var:
- *    @instance("Eq<Point>")
+ * **Preferred JSDoc syntax:**
+ * ```typescript
+ * /** @typeclass *\/
+ * interface Eq<A> {
+ *   /** @op === *\/
+ *   eq(a: A, b: A): boolean;
+ * }
+ *
+ * /** @impl Eq<Point> *\/
+ * export const pointEq: Eq<Point> = { ... };
+ * ```
+ *
+ * **Legacy decorator patterns (still supported via this extension):**
+ *
+ * 1. @impl (or @instance) on const/let/var:
+ *    @impl("Eq<Point>")
  *    export const pointEq: Eq<Point> = { ... };
  *    -->
- *    export const pointEq: Eq<Point> = instance("Eq<Point>", { ... });
+ *    export const pointEq: Eq<Point> = impl("Eq<Point>", { ... });
+ *
+ *    Note: @instance is a deprecated alias for @impl
  *
  * 2. @typeclass on interface:
  *    @typeclass
@@ -15,12 +32,6 @@
  *    -->
  *    export interface Eq<A> { ... }
  *    typeclass("Eq");
- *
- *    @typeclass({ ops: { "===": "equals" } })
- *    export interface Eq<A> { ... }
- *    -->
- *    export interface Eq<A> { ... }
- *    typeclass("Eq", { ops: { "===": "equals" } });
  */
 
 import * as ts from "typescript";

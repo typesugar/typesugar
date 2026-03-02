@@ -42,16 +42,29 @@ export type OperatorSymbol = (typeof OPERATOR_SYMBOLS)[number];
  * Branded intersection type used as a compile-time marker on typeclass method
  * return types to declare operator mappings.
  *
- * The transformer strips `Op<>` from emitted code — it has zero runtime cost.
+ * @deprecated Use JSDoc `@op` tags instead. They don't require the preprocessor
+ * and provide better tooling support:
  *
- * @example
+ * ```typescript
+ * /** @typeclass *\/
+ * interface Numeric<A> {
+ *   /** @op + *\/
+ *   add(a: A, b: A): A;
+ *   /** @op - *\/
+ *   sub(a: A, b: A): A;
+ *   /** @op * *\/
+ *   mul(a: A, b: A): A;
+ * }
+ * ```
+ *
+ * Legacy syntax (still supported for backwards compatibility):
  * ```typescript
  * interface Numeric<A> {
  *   add(a: A, b: A): A & Op<"+">;
- *   sub(a: A, b: A): A & Op<"-">;
- *   mul(a: A, b: A): A & Op<"*">;
  * }
  * ```
+ *
+ * The transformer strips `Op<>` from emitted code — it has zero runtime cost.
  */
 export type Op<_S extends OperatorSymbol> = {};
 

@@ -51,7 +51,7 @@ src/
 │   ├── config.ts       # Unified config system — config.get(), defineConfig()
 │   └── source-map.ts   # Expansion tracking — globalExpansionTracker
 ├── macros/             # Built-in macros
-│   ├── typeclass.ts    # @typeclass, @instance, @deriving, summon(), extend()
+│   ├── typeclass.ts    # @typeclass, @impl, @deriving, summon(), extend() (JSDoc & decorators)
 │   ├── specialize.ts   # specialize() — zero-cost inlining, inlineMethod()
 │   ├── implicits.ts    # implicit() — automatic instance resolution via default parameters
 │   ├── hkt.ts          # @hkt — higher-kinded type support
@@ -357,7 +357,7 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 
 1. Compiler sees `===` or `.show()` on a type
 2. Identifies the relevant typeclass (Eq, Show, etc.)
-3. Checks for explicit `@instance` — use it if found
+3. Checks for explicit `@impl` (or deprecated `@instance`) — use it if found
 4. Checks for explicit `@derive()` — use generated instance if found
 5. **Auto-derives via Mirror** — extracts type structure from TypeChecker, synthesizes instance
 6. **Auto-specializes** — inlines method body at call site (zero-cost)
@@ -375,14 +375,18 @@ p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
 | `p1 === p2`, `p1.show()`            | Default — implicit resolution + auto-derivation |
 | `summon<TC<T>>()`                   | Generic code where type isn't concrete          |
 | `@derive(Show, Eq)`                 | Documentation — make capabilities explicit      |
-| `@instance const eq: Eq<T> = {...}` | Custom behavior — override auto-derivation      |
+| `/** @impl Eq<T> */ const eq = {...}` | Custom behavior — override auto-derivation      |
 
 **Macros reference:**
 
 | Macro                 | Kind       | Purpose                                                           |
 | --------------------- | ---------- | ----------------------------------------------------------------- |
-| `@typeclass`          | Attribute  | Declares a typeclass interface (for library authors)              |
-| `@instance`           | Attribute  | Provides custom typeclass instance, overrides auto-derivation     |
+| `/** @typeclass */`   | JSDoc      | Declares a typeclass interface (preferred, no preprocessor)       |
+| `/** @impl TC<T> */`  | JSDoc      | Provides custom typeclass instance (preferred, no preprocessor)   |
+| `/** @deriving ... */`| JSDoc      | Auto-derive typeclasses (preferred, no preprocessor)              |
+| `/** @op + */`        | JSDoc      | Map method to operator (preferred over `Op<>` return type)        |
+| `@typeclass`          | Attribute  | Declares a typeclass interface (requires preprocessor)            |
+| `@impl`               | Attribute  | Provides custom typeclass instance, overrides auto-derivation     |
 | `@derive(...)`        | Attribute  | Documents capabilities (optional, same operations work without)   |
 | `summon<TC<T>>()`     | Expression | Explicit resolution for generic code                              |
 | `fn.specialize(dict)` | Extension  | Create specialized function (preferred explicit syntax)           |
@@ -640,19 +644,26 @@ const guard = validator<User>();   // runtime type guard function
 
 **Two operator systems exist — use the right one for your case:**
 
-| System                 | Operators                                     | When to Use                                       | Registration                              |
-| ---------------------- | --------------------------------------------- | ------------------------------------------------- | ----------------------------------------- |
-| **Op\<\> Typeclass**   | `+`, `-`, `*`, `/`, `===`, etc. (standard JS) | Types with typeclass instances (Numeric, Eq, Ord) | `Op<"+">` on typeclass method return type |
-| **@operators / ops()** | Any operator                                  | Class-specific method mapping (legacy pattern)    | `@operators` decorator on class           |
+| System                   | Operators                                     | When to Use                                       | Registration                                      |
+| ------------------------ | --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
+| **@op JSDoc (preferred)**| `+`, `-`, `*`, `/`, `===`, etc. (standard JS) | Types with typeclass instances (Numeric, Eq, Ord) | `/** @op + */` JSDoc on method (no preprocessor)  |
+| **Op\<\> (deprecated)**  | `+`, `-`, `*`, `/`, `===`, etc. (standard JS) | Legacy pattern                                    | `Op<"+">` on typeclass method return type         |
+| **@operators / ops()**   | Any operator                                  | Class-specific method mapping (legacy pattern)    | `@operators` decorator on class                   |
 
-#### Primary: Op\<\> on Typeclass Returns (Zero-Cost)
+#### Primary: @op JSDoc Tag (Zero-Cost, No Preprocessor)
 
-Standard JS operators work **automatically** on types with typeclass instances. The transformer rewrites them via `tryRewriteTypeclassOperator()`. No wrapper needed.
+Use `@op` JSDoc tags on typeclass method signatures to map them to operators:
 
 ```typescript
-// Numeric typeclass has Op<"+"> on add(), Op<"*"> on mul(), etc.
-// Any type with a Numeric instance gets operator support automatically:
+/** @typeclass */
+interface Numeric<A> {
+  /** @op + */
+  add(a: A, b: A): A;
+  /** @op * */
+  mul(a: A, b: A): A;
+}
 
+// Any type with a Numeric instance gets operator support automatically:
 const a: Rational = rational(1, 2);
 const b: Rational = rational(1, 3);
 const c = a + b; // Compiles to: rationalNumeric.add(a, b)
@@ -661,6 +672,17 @@ const d = a * b; // Compiles to: rationalNumeric.mul(a, b)
 // Same for Eq (===), Ord (<, >, <=, >=), etc.
 a === b; // Compiles to: rationalEq.equals(a, b)
 a < b; // Compiles to: rationalOrd.compare(a, b) < 0
+```
+
+#### Deprecated: Op\<\> Return Type
+
+The `Op<>` phantom type on return types still works but is deprecated in favor of `@op` JSDoc:
+
+```typescript
+// Deprecated — use @op JSDoc instead
+interface Numeric<A> {
+  add(a: A, b: A): A & Op<"+">;  // ← deprecated
+}
 ```
 
 #### Secondary: @operators + ops() (Class-Specific)
@@ -678,7 +700,7 @@ class Vec2 {
 const result = ops(a + b * c);  // → a.add(b.mul(c))
 ```
 
-**Prefer the `Op<>` typeclass approach** — it's zero-cost and integrates with the rest of the typeclass system.
+**Prefer the `@op` JSDoc approach** — it's zero-cost, doesn't require the preprocessor, and integrates with the rest of the typeclass system.
 
 #### Utilities
 
@@ -962,7 +984,7 @@ Understanding what goes where prevents architecture confusion:
 
 | Package                  | Contents                                                                                                                                                  | Does NOT contain                          |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@instance`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro`                                              | Typeclass definitions                     |
+| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro` (also JSDoc syntax)                              | Typeclass definitions                     |
 | `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in type extensions, `let:/seq:` and `par:/all:` do-notation (with nesting), `match` | FP data types                             |
 | `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                                              | General-purpose utilities                 |
 | `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet<K>, HashMap<K,V>                                                  | Typeclass definitions (those live in std) |
@@ -988,7 +1010,7 @@ Understanding what goes where prevents architecture confusion:
 | Auto-derivation (default) | Automatically synthesizes instances for product/sum types | **Always** — this is the default behavior      |
 | `@deriving(TC)`           | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
 | `@derive(TC)`             | Generates standalone functions                            | Rarely — doesn't integrate with `summon`       |
-| `@instance`               | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
+| `@impl` (or `@instance`)  | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
 
 **Auto-derivation is the default, not opt-in.** When the compiler sees `p1 === p2` on a type, it auto-derives `Eq` from the type's fields without any annotation. `@deriving(Eq)` is documentation, not activation — it says "this type supports Eq" to human readers, but the compiler would derive it anyway. Users should never need to annotate types just to get basic typeclass support.
 
@@ -1107,11 +1129,11 @@ Shared helpers (like `isBoundaryToken`) must live in **one file** and be importe
 
 The preprocessor handles **non-JS operators** (`|>`, `::`, `<|`) via text rewriting to `__binop__()` calls.
 
-For standard JS operators (`+`, `-`, `*`, `/`, `===`, etc.), see the **Operators** section above — those use the `Op<>` typeclass system at AST level.
+For standard JS operators (`+`, `-`, `*`, `/`, `===`, etc.), see the **Operators** section above — those use `@op` JSDoc tags (preferred) or `Op<>` return types (deprecated).
 
 **Validation rules (to prevent overlap):**
 
-- `@operator(symbol)` decorator must **reject** symbols in `OPERATOR_SYMBOLS` (from `core/types.ts`) — use `Op<>` for those
+- `@operator(symbol)` decorator must **reject** symbols in `OPERATOR_SYMBOLS` (from `core/types.ts`) — use `@op` JSDoc for those
 - The `__binop__` macro should check both `methodOperatorMappings` and `syntaxRegistry` and emit an ambiguity error if both match
 
 ### Scanner Must Respect File Type

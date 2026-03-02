@@ -16,6 +16,8 @@ export default defineConfig({
         "packages/unplugin-typesugar",
         // Don't transform vscode package - it uses 'vscode' module which needs special aliasing
         "packages/vscode",
+        // Don't transform root tests - they programmatically test the transformer
+        "tests",
       ],
     }),
   ],

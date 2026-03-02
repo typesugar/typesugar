@@ -277,13 +277,13 @@ export const TS9001: DiagnosticDescriptor = {
   explanation: `The typeclass system could not find or auto-derive an instance.
 
 Possible causes:
-1. The type has no @instance declaration for this typeclass
+1. The type has no @impl/@instance declaration for this typeclass
 2. Auto-derivation failed (e.g., a field lacks a required instance)
 3. The type is opaque or from a library without typeclass support
 
 Solutions:
-- Add @derive({typeclass}) to the type definition
-- Provide an explicit @instance implementation
+- Add @deriving({typeclass}) JSDoc tag to the type definition
+- Provide an explicit @impl implementation (JSDoc: /** @impl Typeclass<Type> */)
 - Check that all fields have the required instances`,
   seeAlso: "https://typesugar.dev/errors/TS9001",
 };
@@ -292,18 +292,22 @@ export const TS9002: DiagnosticDescriptor = {
   code: 9002,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate: "@instance must annotate a const declaration",
-  explanation: `@instance is used to register a typeclass instance.
+  messageTemplate: "@impl/@instance must annotate a const declaration",
+  explanation: `@impl (or @instance) is used to register a typeclass instance.
 
-Correct:
-  @instance
+Preferred JSDoc syntax:
+  /** @impl Show<Point> */
+  const showPoint: Show<Point> = { show: (p) => \`(\${p.x}, \${p.y})\` };
+
+Legacy decorator syntax:
+  @impl("Show<Point>")
   const showPoint: Show<Point> = { show: (p) => \`(\${p.x}, \${p.y})\` };
 
 Incorrect:
-  @instance  // ✗ Not a const
+  @impl  // ✗ Not a const
   function showPoint() { ... }
 
-  @instance  // ✗ Missing type annotation
+  @impl  // ✗ Missing type annotation
   const showPoint = { ... };`,
   seeAlso: "https://typesugar.dev/errors/TS9002",
 };
@@ -312,19 +316,22 @@ export const TS9003: DiagnosticDescriptor = {
   code: 9003,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate: "@instance requires explicit type annotation (e.g., Typeclass<Type>)",
-  explanation: `The @instance decorator needs to know both the typeclass and the type.
+  messageTemplate: "@impl/@instance requires explicit type annotation (e.g., Typeclass<Type>)",
+  explanation: `The @impl/@instance macro needs to know both the typeclass and the type.
 
-Correct:
-  @instance
+Preferred JSDoc syntax:
+  /** @impl Show<Point> */
   const showPoint: Show<Point> = { ... };
-                   ^^^^^^^^^^^^ Type annotation tells us:
-                                - Typeclass: Show
-                                - For type: Point
+
+The JSDoc comment specifies the typeclass and type directly.
+
+Legacy decorator syntax:
+  @impl("Show<Point>")
+  const showPoint: Show<Point> = { ... };
 
 Incorrect:
-  @instance
-  const showPoint = { ... };  // Missing type annotation`,
+  /** @impl */
+  const showPoint = { ... };  // Missing type in JSDoc or annotation`,
   seeAlso: "https://typesugar.dev/errors/TS9003",
 };
 
@@ -332,17 +339,17 @@ export const TS9004: DiagnosticDescriptor = {
   code: 9004,
   severity: "error",
   category: DiagnosticCategory.TypeclassResolution,
-  messageTemplate: "@instance type must be a generic type reference (e.g., Show<Point>)",
-  explanation: `The type annotation must reference a registered typeclass with a type argument.
+  messageTemplate: "@impl/@instance type must be a generic type reference (e.g., Show<Point>)",
+  explanation: `The @impl JSDoc tag or type annotation must reference a registered typeclass with a type argument.
 
 Correct forms:
-  Show<Point>     — typeclass Show, for type Point
-  Eq<User>        — typeclass Eq, for type User
-  Ord<Date>       — typeclass Ord, for type Date
+  /** @impl Show<Point> */   — typeclass Show, for type Point
+  /** @impl Eq<User> */      — typeclass Eq, for type User
+  /** @impl Ord<Date> */     — typeclass Ord, for type Date
 
 Incorrect:
-  Point           — not a typeclass reference
-  Show            — missing the type argument`,
+  /** @impl Point */         — not a typeclass reference
+  /** @impl Show */          — missing the type argument`,
   seeAlso: "https://typesugar.dev/errors/TS9004",
 };
 

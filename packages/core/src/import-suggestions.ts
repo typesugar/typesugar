@@ -285,14 +285,21 @@ const defaultExports: ExportedSymbol[] = [
     module: "typesugar",
     kind: "macro",
     isReexport: false,
-    description: "Define typeclass",
+    description: "Define typeclass (JSDoc @typeclass preferred)",
+  },
+  {
+    name: "impl",
+    module: "typesugar",
+    kind: "macro",
+    isReexport: false,
+    description: "Define typeclass instance (JSDoc @impl preferred)",
   },
   {
     name: "instance",
     module: "typesugar",
     kind: "macro",
     isReexport: false,
-    description: "Define instance",
+    description: "@deprecated Use impl instead",
   },
   {
     name: "summon",

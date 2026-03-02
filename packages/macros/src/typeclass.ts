@@ -601,7 +601,40 @@ for (const { typeclass, ops } of STANDARD_TYPECLASS_SYNTAX) {
 const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as readonly string[]);
 
 /**
+ * Extract an operator symbol from a JSDoc `@op` tag on a method signature.
+ *
+ * @param member - The method signature node to check
+ * @returns The operator symbol if a valid @op tag is found, undefined otherwise
+ *
+ * @example
+ * ```typescript
+ * interface Eq<A> {
+ *   /** @op === *\/
+ *   eq(a: A, b: A): boolean;
+ * }
+ * ```
+ */
+function extractOpFromJSDoc(member: ts.Node): string | undefined {
+  const tags = ts.getJSDocTags(member);
+  for (const tag of tags) {
+    if (tag.tagName.text === "op") {
+      // Get the comment text (the operator symbol)
+      const comment =
+        typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+
+      const trimmed = comment?.trim();
+      if (trimmed && operatorSymbolSet.has(trimmed)) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Extract an operator symbol from a return type node of the form `T & Op<"+">`.
+ *
+ * @deprecated Use `@op` JSDoc tags instead of `Op<>` return type annotations.
  *
  * Walks intersection types looking for `Op<S>` where S is a string literal
  * that is a valid OperatorSymbol. Returns the operator string and the cleaned
@@ -991,7 +1024,12 @@ export const typeclassAttribute = defineAttributeMacro({
           params.push({ name: paramName, typeString: paramType });
         }
 
-        const { operatorSymbol, cleanReturnType } = extractOpFromReturnType(member.type);
+        // Check JSDoc @op tag first (preferred), fall back to Op<> return type (deprecated)
+        const jsdocOp = extractOpFromJSDoc(member);
+        const { operatorSymbol: returnTypeOp, cleanReturnType } = extractOpFromReturnType(
+          member.type
+        );
+        const operatorSymbol = jsdocOp ?? returnTypeOp;
 
         methods.push({
           name: methodName,
@@ -1015,7 +1053,7 @@ export const typeclassAttribute = defineAttributeMacro({
     // Build the full interface body text for HKT expansion
     const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
 
-    // Build syntax map from Op<> annotations on methods
+    // Build syntax map from @op JSDoc tags or Op<> annotations on methods
     const syntax = new Map<string, string>();
     for (const method of methods) {
       if (method.operatorSymbol) {
@@ -1176,8 +1214,19 @@ function ${uncapitalize(name)}${capitalize(method.name)}<A>(${paramList}): ${met
 // than simple types. Examples: Functor<F>, Monad<F>, Traverse<F>.
 // ============================================================================
 
-export const instanceAttribute = defineAttributeMacro({
-  name: "instance",
+/**
+ * Attribute macro to register a typeclass instance.
+ *
+ * Preferred JSDoc syntax (no preprocessor needed):
+ *   /** @impl Eq<Point> *\/
+ *   export const pointEq: Eq<Point> = { ... };
+ *
+ * Legacy decorator syntax (requires preprocessor):
+ *   @impl("Eq<Point>")
+ *   export const pointEq: Eq<Point> = { ... };
+ */
+export const implAttribute = defineAttributeMacro({
+  name: "impl",
   module: "@typesugar/typeclass",
   cacheable: false,
   description: "Register a typeclass instance for a specific type",
@@ -1194,7 +1243,7 @@ export const instanceAttribute = defineAttributeMacro({
     if (args.length === 0) {
       ctx.reportError(
         target,
-        '@instance requires arguments: @instance("Type"), @instance("Typeclass<Type>"), or @instance(Typeclass, Type)'
+        '@impl requires arguments: @impl("Type"), @impl("Typeclass<Type>"), or @impl(Typeclass, Type)'
       );
       return target;
     }
@@ -2733,22 +2782,33 @@ function findEnclosingVariableDeclaration(node: ts.Node): ts.VariableDeclaration
   return null;
 }
 
-export const instanceMacro = defineExpressionMacro({
-  name: "instance",
+/**
+ * @deprecated Use `implAttribute` instead. The `@impl` syntax is preferred over `@instance`.
+ */
+export const instanceAttribute = implAttribute;
+
+/**
+ * Expression macro for registering typeclass instances.
+ *
+ * This is the internal target for preprocessor-rewritten @impl/@instance decorators.
+ * Users should prefer the JSDoc syntax which doesn't require the preprocessor.
+ *
+ * @internal
+ */
+export const implMacro = defineExpressionMacro({
+  name: "impl",
   module: "@typesugar/typeclass",
-  description: "Register a typeclass instance from preprocessor-rewritten @instance decorator",
+  description:
+    "Register a typeclass instance from preprocessor-rewritten @impl/@instance decorator",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
     args: readonly ts.Expression[]
   ): ts.Expression {
-    // Expect: instance("Typeclass<Type>", { ... })
+    // Expect: impl("Typeclass<Type>", { ... })
     if (args.length < 2) {
-      ctx.reportError(
-        callExpr,
-        'instance() requires two arguments: instance("Typeclass<Type>", { ... })'
-      );
+      ctx.reportError(callExpr, 'impl() requires two arguments: impl("Typeclass<Type>", { ... })');
       return callExpr;
     }
 
@@ -2809,10 +2869,15 @@ export const instanceMacro = defineExpressionMacro({
       }
     }
 
-    // Return the object literal unchanged — strip the instance() wrapper
+    // Return the object literal unchanged — strip the impl() wrapper
     return objectLiteralArg;
   },
 });
+
+/**
+ * @deprecated Use `implMacro` instead. The `impl()` syntax is preferred over `instance()`.
+ */
+export const instanceMacro = implMacro;
 
 // ============================================================================
 // typeclass("Name") - Expression Macro for Preprocessor-Rewritten Form
@@ -2911,7 +2976,12 @@ export const typeclassMacro = defineExpressionMacro({
           params.push({ name: paramName, typeString: paramType });
         }
 
-        const { operatorSymbol, cleanReturnType } = extractOpFromReturnType(member.type);
+        // Check JSDoc @op tag first (preferred), fall back to Op<> return type (deprecated)
+        const jsdocOp = extractOpFromJSDoc(member);
+        const { operatorSymbol: returnTypeOp, cleanReturnType } = extractOpFromReturnType(
+          member.type
+        );
+        const operatorSymbol = jsdocOp ?? returnTypeOp;
 
         methods.push({
           name: methodName,
@@ -2935,7 +3005,7 @@ export const typeclassMacro = defineExpressionMacro({
     // Build the full interface body text for HKT expansion
     const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
 
-    // Build syntax map from Op<> annotations on methods
+    // Build syntax map from @op JSDoc tags or Op<> annotations on methods
     const syntax = new Map<string, string>();
     for (const method of methods) {
       if (method.operatorSymbol) {
@@ -3411,8 +3481,28 @@ registerTypeclassDef({
 
 globalRegistry.register(typeclassAttribute);
 globalRegistry.register(typeclassMacro);
-globalRegistry.register(instanceAttribute);
-globalRegistry.register(instanceMacro);
+// Register impl as the primary name
+globalRegistry.register(implAttribute);
+globalRegistry.register(implMacro);
+// Register instance as deprecated alias with the same expand function
+globalRegistry.register(
+  defineAttributeMacro({
+    name: "instance",
+    module: "@typesugar/typeclass",
+    cacheable: implAttribute.cacheable,
+    description: "@deprecated Use @impl instead",
+    validTargets: implAttribute.validTargets,
+    expand: implAttribute.expand,
+  })
+);
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "instance",
+    module: "@typesugar/typeclass",
+    description: "@deprecated Use impl() instead",
+    expand: implMacro.expand,
+  })
+);
 globalRegistry.register(derivingAttribute);
 globalRegistry.register(summonMacro);
 globalRegistry.register(extendMacro);
@@ -3448,6 +3538,7 @@ export {
   registerTypeclassSyntax,
   clearSyntaxRegistry,
   extractOpFromReturnType,
+  extractOpFromJSDoc,
   // Comprehension typeclass support (exported via export function declarations above)
   parCombineBuilderRegistry,
 };

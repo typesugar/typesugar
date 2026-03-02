@@ -78,12 +78,21 @@
         "1": { "name": "entity.name.function.macro.typesugar" }
       }
     },
-    { "$comment": "Decorator macros" },
+    { "$comment": "Decorator macros (impl is preferred, instance is deprecated alias)" },
     {
-      "match": "(@)(derive|operators|reflect|typeclass|instance|deriving|inline)\\b",
+      "match": "(@)(derive|operators|reflect|typeclass|impl|instance|deriving|inline)\\b",
       "captures": {
         "1": { "name": "punctuation.decorator.typesugar" },
         "2": { "name": "entity.name.function.decorator.macro.typesugar" }
+      }
+    },
+    { "$comment": "JSDoc macro tags — preferred syntax (no preprocessor needed)" },
+    {
+      "name": "meta.jsdoc.macro.typesugar",
+      "match": "(@)(typeclass|impl|instance|deriving|op)\\b",
+      "captures": {
+        "1": { "name": "punctuation.definition.block.tag.jsdoc.typesugar" },
+        "2": { "name": "entity.name.function.decorator.macro.jsdoc.typesugar" }
       }
     },
     { "$comment": "Tagged template macros — the tag name before a backtick" },

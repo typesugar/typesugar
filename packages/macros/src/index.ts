@@ -81,6 +81,10 @@ export {
 export {
   typeclassAttribute,
   typeclassMacro,
+  // Primary names (preferred)
+  implAttribute,
+  implMacro,
+  // Deprecated aliases for backwards compatibility
   instanceAttribute,
   instanceMacro,
   derivingAttribute,
@@ -103,6 +107,7 @@ export {
   registerTypeclassSyntax,
   clearSyntaxRegistry,
   extractOpFromReturnType,
+  extractOpFromJSDoc,
   registerTypeclassDef,
   registerInstanceWithMeta,
   getInstanceMeta,

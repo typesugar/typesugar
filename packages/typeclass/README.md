@@ -16,38 +16,61 @@ pnpm add @typesugar/typeclass
 
 ## Usage
 
-### Define a Typeclass
+### Define a Typeclass (JSDoc Syntax — Preferred)
+
+JSDoc tags work without the preprocessor and provide better tooling support:
 
 ```typescript
-import { typeclass } from "@typesugar/typeclass";
-
-@typeclass
+/** @typeclass */
 interface Show<A> {
   show(a: A): string;
 }
 
-@typeclass
+/** @typeclass */
 interface Eq<A> {
   equals(a: A, b: A): boolean;
 }
 
-@typeclass
+/** @typeclass */
 interface Ord<A> extends Eq<A> {
   compare(a: A, b: A): -1 | 0 | 1;
 }
 ```
 
+### Operator Mapping with @op
+
+Map typeclass methods to operators using `@op` JSDoc tags on method signatures:
+
+```typescript
+/** @typeclass */
+interface Numeric<A> {
+  /** @op + */
+  add(a: A, b: A): A;
+  
+  /** @op * */
+  mul(a: A, b: A): A;
+  
+  /** @op - */
+  sub(a: A, b: A): A;
+}
+```
+
+When an instance exists, operators compile to typeclass method calls:
+
+```typescript
+a + b  // Compiles to: numericInstance.add(a, b)
+a * b  // Compiles to: numericInstance.mul(a, b)
+```
+
 ### Provide Instances
 
 ```typescript
-import { instance } from "@typesugar/typeclass";
-
-@instance(Show, Number)
+/** @impl Show<number> */
 const numberShow: Show<number> = {
   show: (n) => n.toString(),
 };
 
-@instance(Eq, String)
+/** @impl Eq<string> */
 const stringEq: Eq<string> = {
   equals: (a, b) => a === b,
 };
@@ -56,15 +79,13 @@ const stringEq: Eq<string> = {
 ### Auto-Derive Instances
 
 ```typescript
-import { deriving } from "@typesugar/typeclass";
-
-@deriving(Show, Eq, Ord)
+/** @deriving Eq, Ord, Show */
 interface User {
   id: number;
   name: string;
 }
 
-// Generated instances use JSON-based implementations:
+// Generated instances use structural implementations:
 // - userShow: Show<User>
 // - userEq: Eq<User>
 // - userOrd: Ord<User>
@@ -104,12 +125,41 @@ user.show();
 // Compiles to: userShow.show(user)
 ```
 
+## Alternative Syntax (Decorator)
+
+If you're using the preprocessor, you can also use decorator syntax. This is rewritten to expression macros internally:
+
+```typescript
+@typeclass
+interface Show<A> {
+  show(a: A): string;
+}
+
+@impl(Show, Number)
+const numberShow: Show<number> = {
+  show: (n) => n.toString(),
+};
+
+@deriving(Show, Eq)
+interface User {
+  id: number;
+  name: string;
+}
+```
+
 ## API Reference
 
-### Attribute Macros
+### JSDoc Tags (Preferred — No Preprocessor Required)
 
-- `@typeclass` — Define a typeclass interface
-- `@instance(TC, Type)` — Provide a typeclass instance
+- `/** @typeclass */` — Define a typeclass interface
+- `/** @impl TC<Type> */` — Provide a typeclass instance
+- `/** @deriving TC1, TC2, ... */` — Auto-derive typeclass instances
+- `/** @op <symbol> */` — Map a method to an operator (+, -, *, /, ===, etc.)
+
+### Attribute Macros (Decorator Syntax)
+
+- `@typeclass` — Define a typeclass interface (requires preprocessor)
+- `@impl(TC, Type)` — Provide a typeclass instance
 - `@deriving(TC1, TC2, ...)` — Auto-derive typeclass instances
 
 ### Expression Macros
@@ -124,6 +174,17 @@ user.show();
 - `findInstance(typeclassName, forType)` — Find an instance
 - `getTypeclass(name)` — Get a typeclass definition
 - `clearRegistries()` — Clear all registries (for testing)
+
+## Deprecated Syntax
+
+The following patterns still work but are deprecated:
+
+| Deprecated | Preferred |
+| --- | --- |
+| `@instance` | `@impl` |
+| `Op<"+">` return type | `@op +` JSDoc tag |
+| `instance("TC<T>", obj)` | `/** @impl TC<T> */` JSDoc |
+| `typeclass("Name")` | `/** @typeclass */` JSDoc |
 
 ## Auto-Derivation
 

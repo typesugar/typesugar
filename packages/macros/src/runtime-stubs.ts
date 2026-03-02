@@ -16,7 +16,16 @@
 /**
  * Declare a typeclass interface.
  *
- * **With transformer:** Extracts metadata (methods, Op<> syntax, type params)
+ * **Preferred JSDoc syntax (no preprocessor needed):**
+ * ```typescript
+ * /** @typeclass *\/
+ * interface Eq<A> {
+ *   /** @op === *\/
+ *   eq(a: A, b: A): boolean;
+ * }
+ * ```
+ *
+ * **With transformer:** Extracts metadata (methods, @op tags, type params)
  * and registers in the typeclass registry for summon(), operator overloading,
  * and auto-derivation.
  *
@@ -26,19 +35,18 @@
  *
  * @example
  * ```typescript
- * // As decorator (preferred, requires preprocessor):
+ * // JSDoc syntax (preferred, no preprocessor):
+ * /** @typeclass *\/
+ * interface Eq<A> {
+ *   /** @op === *\/
+ *   eq(a: A, b: A): boolean;
+ * }
+ *
+ * // Decorator (requires preprocessor):
  * @typeclass
  * interface Eq<A> {
  *   equals(a: A, b: A): boolean & Op<"===">;
  * }
- *
- * // After preprocessor (what TypeScript sees):
- * interface Eq<A> { ... }
- * typeclass("Eq");
- *
- * // With options:
- * @typeclass({ defaultDerive: true })
- * interface Show<A> { show(a: A): string; }
  * ```
  *
  * @param nameOrTarget - Typeclass name string OR decorator target (interface/class)
@@ -58,6 +66,14 @@ export function typeclass(
 /**
  * Register a typeclass instance.
  *
+ * **Preferred JSDoc syntax (no preprocessor needed):**
+ * ```typescript
+ * /** @impl Eq<Point> *\/
+ * export const pointEq: Eq<Point> = {
+ *   eq: (a, b) => a.x === b.x && a.y === b.y,
+ * };
+ * ```
+ *
  * **With transformer:** Registers the instance in instanceRegistry, enables
  * summon<TC<T>>() resolution, operator overloading, and zero-cost
  * specialization via method extraction.
@@ -68,23 +84,20 @@ export function typeclass(
  *
  * @example
  * ```typescript
- * // As decorator on const (preferred, requires preprocessor):
- * @instance("Numeric<Complex>")
+ * // JSDoc syntax (preferred, no preprocessor):
+ * /** @impl Numeric<Complex> *\/
  * export const numericComplex: Numeric<Complex> = { ... };
  *
- * // After preprocessor (what TypeScript sees):
- * export const numericComplex: Numeric<Complex> = instance("Numeric<Complex>", { ... });
+ * // Decorator on const (requires preprocessor):
+ * @impl("Numeric<Complex>")
+ * export const numericComplex: Numeric<Complex> = { ... };
  *
- * // As decorator on class (standard TS, no preprocessor needed):
- * @instance("Show<MyClass>")
+ * // Decorator on class (standard TS):
+ * @impl("Show<MyClass>")
  * class MyClassShow implements Show<MyClass> { ... }
  *
- * // Identifier form (alternative to string):
- * @instance(Show, Number)
- * const numberShow: Show<number> = { show: (n) => String(n) };
- *
  * // For HKT typeclasses:
- * @instance("FlatMap<Array>")
+ * /** @impl FlatMap<Array> *\/
  * const flatMapArray: FlatMap<ArrayTag> = { ... };
  * ```
  *
@@ -92,12 +105,17 @@ export function typeclass(
  * @param obj - The instance object (expression form only)
  * @returns The instance object unchanged (expression form) or decorator function (decorator form)
  */
-export function instance<T>(desc: string, obj: T): T;
-export function instance(...args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator;
-export function instance(...args: unknown[]): any {
+export function impl<T>(desc: string, obj: T): T;
+export function impl(...args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator;
+export function impl(...args: unknown[]): any {
   if (args.length >= 2) return args[1]; // Expression form: return object unchanged
   return () => {}; // Decorator form: no-op
 }
+
+/**
+ * @deprecated Use `impl` instead. This is an alias for backwards compatibility.
+ */
+export const instance: typeof impl = impl;
 
 /**
  * Decorator to auto-derive typeclass instances for a type.

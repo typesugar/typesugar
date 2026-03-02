@@ -2784,6 +2784,15 @@ class MacroTransformer {
       }
     }
 
+    // JSDoc-triggered macros: @typeclass, @impl, @deriving
+    // This allows preprocessor-free syntax for typeclass features
+    if (this.hasJSDocMacroTags(node)) {
+      const result = this.tryExpandJSDocMacros(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
     if (ts.isTaggedTemplateExpression(node)) {
       const result = this.tryExpandTaggedTemplate(node);
       if (result !== undefined) {
@@ -2841,6 +2850,239 @@ class MacroTransformer {
       }
     }
     return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // JSDoc macro tag handling
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Map of JSDoc tag names to macro names for lookup.
+   * JSDoc tags use shortened names (impl vs instance) as the primary form.
+   */
+  private static readonly JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
+    ["typeclass", "typeclass"],
+    ["impl", "impl"], // @impl -> impl macro (preferred name)
+    ["instance", "instance"], // @instance -> instance macro (deprecated alias)
+    ["deriving", "deriving"],
+  ]);
+
+  /**
+   * Node types that can have JSDoc macro tags.
+   * These are all ts.Declaration subtypes.
+   */
+  private isJSDocMacroTargetNode(
+    node: ts.Node
+  ): node is
+    | ts.InterfaceDeclaration
+    | ts.TypeAliasDeclaration
+    | ts.VariableStatement
+    | ts.VariableDeclaration {
+    return (
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      ts.isVariableStatement(node) ||
+      ts.isVariableDeclaration(node)
+    );
+  }
+
+  /**
+   * Check if a node has JSDoc tags that should trigger macro expansion.
+   *
+   * Only fires on:
+   * - InterfaceDeclaration (@typeclass, @deriving)
+   * - TypeAliasDeclaration (@deriving)
+   * - VariableStatement / VariableDeclaration (@impl)
+   */
+  private hasJSDocMacroTags(node: ts.Node): boolean {
+    // Only check node types that can have our macro tags
+    if (!this.isJSDocMacroTargetNode(node)) {
+      return false;
+    }
+
+    const tags = ts.getJSDocTags(node);
+    for (const tag of tags) {
+      if (MacroTransformer.JSDOC_MACRO_TAGS.has(tag.tagName.text)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Expand macros triggered by JSDoc tags.
+   *
+   * This synthesizes the equivalent of decorator-triggered expansion
+   * but reads macro intent from JSDoc instead.
+   */
+  private tryExpandJSDocMacros(node: ts.Node): ts.Node | ts.Node[] | undefined {
+    // Check for opt-out
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    // Narrow the node type - only declarations can have JSDoc macro tags
+    if (!this.isJSDocMacroTargetNode(node)) {
+      return undefined;
+    }
+
+    const tags = ts.getJSDocTags(node);
+    const results: ts.Node[] = [];
+
+    // For VariableStatement, we need to get the declaration inside
+    let targetDecl: ts.Declaration;
+    if (ts.isVariableStatement(node)) {
+      if (node.declarationList.declarations.length === 0) {
+        return undefined;
+      }
+      targetDecl = node.declarationList.declarations[0];
+    } else {
+      targetDecl = node;
+    }
+
+    let currentNode: ts.Declaration = targetDecl;
+
+    for (const tag of tags) {
+      const macroName = MacroTransformer.JSDOC_MACRO_TAGS.get(tag.tagName.text);
+      if (!macroName) continue;
+
+      const macro = globalRegistry.getAttribute(macroName);
+      if (!macro) {
+        this.ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
+        continue;
+      }
+
+      // Synthesize arguments from JSDoc comment
+      const args = this.parseJSDocMacroArgs(tag, macroName);
+
+      // Create a synthetic decorator for the macro's expand function
+      const syntheticDecorator = this.createSyntheticDecorator(tag, macroName, args);
+
+      try {
+        if (this.verbose) {
+          console.log(`[typesugar] Expanding JSDoc macro: @${tag.tagName.text}`);
+        }
+
+        const expanded = macro.expand(this.ctx, syntheticDecorator, currentNode, args);
+
+        if (expanded === undefined) continue;
+
+        if (Array.isArray(expanded)) {
+          // Multiple nodes returned - first is the updated target, rest are additional
+          if (expanded.length > 0) {
+            currentNode = expanded[0] as ts.Declaration;
+            results.push(...expanded.slice(1));
+          }
+        } else {
+          currentNode = expanded as ts.Declaration;
+        }
+      } catch (err) {
+        this.ctx.reportError(
+          tag,
+          `Error expanding @${tag.tagName.text}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+
+    // Check if we expanded anything
+    const wasExpanded = currentNode !== targetDecl || results.length > 0;
+    if (!wasExpanded) {
+      return undefined;
+    }
+
+    // For VariableStatement, we need to return the updated statement with results
+    if (ts.isVariableStatement(node)) {
+      // Create updated VariableStatement with the modified declaration
+      const factory = this.ctx.factory;
+      const updatedDecl = currentNode as ts.VariableDeclaration;
+      const updatedDeclList = factory.updateVariableDeclarationList(node.declarationList, [
+        updatedDecl,
+        ...node.declarationList.declarations.slice(1),
+      ]);
+      const updatedStmt = factory.updateVariableStatement(node, node.modifiers, updatedDeclList);
+      return results.length > 0 ? [updatedStmt, ...results] : updatedStmt;
+    }
+
+    // For other declaration types, return directly
+    return results.length > 0 ? [currentNode, ...results] : currentNode;
+  }
+
+  /**
+   * Parse JSDoc tag comment into macro arguments.
+   *
+   * Each macro tag has its own argument format:
+   * - @typeclass: no args, or optional JSON config
+   * - @impl Eq<Point>: string argument for typeclass instance
+   * - @impl (bare): infer from type annotation
+   * - @deriving Show, Eq, Ord: comma-separated list of typeclass names
+   */
+  private parseJSDocMacroArgs(tag: ts.JSDocTag, macroName: string): ts.Expression[] {
+    const comment =
+      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+
+    const trimmed = comment?.trim() ?? "";
+
+    switch (macroName) {
+      case "typeclass":
+        // No args or optional JSON config
+        if (!trimmed) return [];
+        try {
+          // Try to parse as JSON for config options
+          JSON.parse(trimmed);
+          return [this.ctx.factory.createStringLiteral(trimmed)];
+        } catch {
+          return [];
+        }
+
+      case "impl":
+      case "instance":
+        // @impl Eq<Point> or bare @impl
+        if (!trimmed) return [];
+        return [this.ctx.factory.createStringLiteral(trimmed)];
+
+      case "deriving":
+        // @deriving Show, Eq, Ord
+        if (!trimmed) return [];
+        const tcNames = trimmed
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        return tcNames.map((name) => this.ctx.factory.createIdentifier(name));
+
+      default:
+        return [];
+    }
+  }
+
+  /**
+   * Create a synthetic decorator node for use with attribute macro expand().
+   * The decorator's position info is borrowed from the JSDoc tag.
+   */
+  private createSyntheticDecorator(
+    tag: ts.JSDocTag,
+    macroName: string,
+    args: ts.Expression[]
+  ): ts.Decorator {
+    const factory = this.ctx.factory;
+
+    // Build the decorator expression: @macroName or @macroName(args...)
+    let expression: ts.Expression;
+    if (args.length === 0) {
+      expression = factory.createIdentifier(macroName);
+    } else {
+      expression = factory.createCallExpression(
+        factory.createIdentifier(macroName),
+        undefined,
+        args
+      );
+    }
+
+    // Create the decorator node
+    const decorator = factory.createDecorator(expression);
+
+    // Copy position info from the tag for error reporting
+    // Note: This is a best-effort - synthetic nodes may not have valid positions
+    return ts.setTextRange(decorator, tag);
   }
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
