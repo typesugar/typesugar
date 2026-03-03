@@ -89,3 +89,11 @@ export {
 
 // Map/Set utilities
 export { filterMapKeys, filterMapValues, setUnion, setIntersection, setDifference } from "./map";
+
+// Range utilities
+// Note: `to` and `until` come from "./number" via `export * from "./number"`
+// Unique Range methods exported directly for extension method resolution
+export { step, reversed, toArray, iterator, first, contains, RangeExtensions } from "./range";
+// Conflicting names (last, size, isEmpty, forEach, map, filter, reduce):
+// - data/range.ts already exports these with range* prefix (rangeMap, rangeFilter, etc.)
+// - For extension method resolution, import directly: `import { map } from "@typesugar/std/extensions/range"`

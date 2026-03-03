@@ -130,6 +130,33 @@ import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
 [1, 2, 3].groupBy((x) => x % 2); // Map { 1: [1, 3], 0: [2] }
 ```
 
+### Range Extensions (Scala/Kotlin-style)
+
+Create lazy ranges with fluent syntax, then chain transformations and queries:
+
+```typescript
+import { to, until, step, toArray, contains, first } from "@typesugar/std";
+
+// Create ranges
+(1).to(10);                    // Range { 1..10 inclusive }
+(1).until(10);                 // Range { 1..<10 exclusive }
+
+// Chain transformations
+(0).to(100).step(10).toArray();   // [0, 10, 20, ..., 100]
+(1).to(5).reversed().toArray();   // [5, 4, 3, 2, 1]
+
+// Queries
+(1).to(100).contains(42);      // true
+(1).to(10).first();            // 1
+
+// Iteration
+(1).to(5).forEach(n => console.log(n));
+(1).to(5).map(n => n * n);     // [1, 4, 9, 16, 25]
+(1).to(10).filter(n => n % 2 === 0); // [2, 4, 6, 8, 10]
+```
+
+Ranges are lazy — they don't allocate arrays until you call `.toArray()`, `.map()`, or iterate.
+
 ## Resolution Order
 
 When the transformer encounters `value.method()`:

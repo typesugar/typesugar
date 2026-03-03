@@ -57,9 +57,36 @@ NumberExt.clamp(42, 0, 100); // direct call
 
 ### Ranges (Scala/Kotlin-style)
 
+Create ranges with fluent extension methods on numbers:
+
 ```typescript
-import { range, rangeToArray } from "@typesugar/std";
-rangeToArray(range(1, 10)); // [1, 2, ..., 9]
+import { to, until, step, toArray, contains, first } from "@typesugar/std";
+
+// Inclusive range (like Scala's 1 to 10)
+(1).to(10).toArray();                    // [1, 2, 3, ..., 10]
+
+// Exclusive range (like Kotlin's 1 until 10)
+(1).until(10).toArray();                 // [1, 2, 3, ..., 9]
+
+// With step
+(0).to(10).step(2).toArray();            // [0, 2, 4, 6, 8, 10]
+
+// Queries
+(1).to(100).contains(42);                // true
+(1).to(10).first();                      // 1
+
+// Iteration
+(1).to(5).forEach(n => console.log(n));  // prints 1, 2, 3, 4, 5
+(1).to(5).map(n => n * n);               // [1, 4, 9, 16, 25]
+(1).to(10).filter(n => n % 2 === 0);     // [2, 4, 6, 8, 10]
+```
+
+**Legacy function-based API:**
+
+```typescript
+import { range, rangeToArray, rangeInclusive } from "@typesugar/std";
+rangeToArray(range(1, 10));              // [1, 2, ..., 9]
+rangeToArray(rangeInclusive(1, 10));     // [1, 2, ..., 10]
 ```
 
 ## Standard Typeclasses
@@ -242,12 +269,44 @@ swap(p); // ["hello", 1]
 
 ### Range
 
-```typescript
-import { range, rangeToArray, rangeInclusive } from "@typesugar/std";
+Ranges are lazy — they don't allocate arrays until materialized. Use `.to()` and `.until()` extension methods on numbers for fluent syntax:
 
-rangeToArray(range(1, 5)); // [1, 2, 3, 4]
-rangeToArray(rangeInclusive(1, 5)); // [1, 2, 3, 4, 5]
-rangeToArray(range(0, 10, 2)); // [0, 2, 4, 6, 8]
+```typescript
+import { to, until, step, reversed, toArray, contains } from "@typesugar/std";
+
+// Create ranges (lazy)
+const r1 = (1).to(10);                   // Range { 1..10 inclusive }
+const r2 = (1).until(10);                // Range { 1..<10 exclusive }
+
+// Transform ranges (returns new Range)
+const r3 = (0).to(100).step(10);         // Range { 0, 10, 20, ..., 100 }
+const r4 = (1).to(5).reversed();         // Range { 5, 4, 3, 2, 1 }
+
+// Materialize
+(1).to(5).toArray();                     // [1, 2, 3, 4, 5]
+
+// Query
+(1).to(100).contains(42);                // true
+(1).to(10).size();                       // 10
+(1).to(10).first();                      // 1
+(1).to(10).last();                       // 10
+(1).to(10).isEmpty();                    // false
+
+// Iterate
+(1).to(5).forEach((n, i) => console.log(`${i}: ${n}`));
+(1).to(5).map(n => n * n);               // [1, 4, 9, 16, 25]
+(1).to(10).filter(n => n % 2 === 0);     // [2, 4, 6, 8, 10]
+(1).to(5).reduce(0, (sum, n) => sum + n); // 15
+```
+
+**Legacy function-based API:**
+
+```typescript
+import { range, rangeToArray, rangeInclusive, rangeBy } from "@typesugar/std";
+
+rangeToArray(range(1, 5));                        // [1, 2, 3, 4]
+rangeToArray(rangeInclusive(1, 5));               // [1, 2, 3, 4, 5]
+rangeToArray(rangeBy(range(0, 10), 2));           // [0, 2, 4, 6, 8]
 ```
 
 ## API Reference
@@ -272,10 +331,15 @@ rangeToArray(range(0, 10, 2)); // [0, 2, 4, 6, 8]
 - `let:/yield:` or `seq:/yield:` — Sequential (monadic) do-notation with guards, fallbacks, and discard bindings
 - `par:/yield:` or `all:/yield:` — Parallel (applicative) comprehensions with Promise.all / .map().ap()
 
-### Data Types
+### Data Type Exports
 
 - `Pair<A, B>`, `Triple<A, B, C>` — Tuple types with utilities
 - `Range` — Numeric ranges with iteration support
+  - Creation: `to(n, end)`, `until(n, end)` (extension methods on number)
+  - Transform: `step(r, s)`, `reversed(r)` (extension methods on Range)
+  - Materialize: `toArray(r)`, `iterator(r)`
+  - Query: `contains(r, v)`, `first(r)`, `last(r)`, `size(r)`, `isEmpty(r)`
+  - Iterate: `forEach(r, fn)`, `map(r, fn)`, `filter(r, fn)`, `reduce(r, init, fn)`
 
 ## License
 

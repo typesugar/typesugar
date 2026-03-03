@@ -1,4 +1,7 @@
 "use extension";
+
+import { type Range, range as rangeExclusive, rangeInclusive } from "../data/range.js";
+
 /**
  * Number Extension Methods
  *
@@ -470,6 +473,32 @@ export function toCompact(n: number): string {
 // Iteration (Ruby times/upto/downto, Kotlin rangeTo, Scala to/until)
 // ============================================================================
 
+/**
+ * Creates an inclusive Range from this number to end.
+ * The Range is lazy — use `.toArray()` to materialize.
+ *
+ * @example
+ * (1).to(5)                    // Range { 1..5 inclusive }
+ * (1).to(10).step(2).toArray() // [1, 3, 5, 7, 9]
+ * (1).to(5).contains(3)        // true
+ */
+export function to(n: number, end: number): Range {
+  return rangeInclusive(n, end);
+}
+
+/**
+ * Creates an exclusive Range from this number to end (end not included).
+ * The Range is lazy — use `.toArray()` to materialize.
+ *
+ * @example
+ * (1).until(5)                    // Range { 1..<5 exclusive }
+ * (1).until(10).step(2).toArray() // [1, 3, 5, 7, 9]
+ * (0).until(arr.length)           // common pattern for array indices
+ */
+export function until(n: number, end: number): Range {
+  return rangeExclusive(n, end);
+}
+
 export function times<T>(n: number, fn: (i: number) => T): T[] {
   const result: T[] = [];
   for (let i = 0; i < n; i++) result.push(fn(i));
@@ -625,6 +654,8 @@ export const NumberExt = {
   timesVoid,
   upTo,
   downTo,
+  to,
+  until,
   rangeTo,
   rangeUntil,
   saturatingAdd,
