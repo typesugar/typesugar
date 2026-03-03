@@ -4158,10 +4158,11 @@ class MacroTransformer {
     const baseTypeName = leftTypeName.replace(/<.*>$/, "");
     const typeArg = leftTypeName.match(/<(.+)>$/)?.[1] ?? "";
 
+    const currentFileName = this.ctx.sourceFile.fileName;
     // Check if there's an instance for this type and operator
     for (const entry of entries) {
       let inst =
-        findInstance(entry.typeclass, leftTypeName) ?? findInstance(entry.typeclass, baseTypeName);
+        findInstance(entry.typeclass, leftTypeName, currentFileName) ?? findInstance(entry.typeclass, baseTypeName, currentFileName);
 
       // Check union membership if no direct match
       if (!inst) {
@@ -4269,10 +4270,11 @@ class MacroTransformer {
       | { typeclassName: string; forType: string; instanceName: string }
       | undefined;
 
+    const sfn = this.ctx.sourceFile.fileName;
     for (const entry of entries) {
       // First try exact match
       let inst =
-        findInstance(entry.typeclass, typeName) ?? findInstance(entry.typeclass, baseTypeName);
+        findInstance(entry.typeclass, typeName, sfn) ?? findInstance(entry.typeclass, baseTypeName, sfn);
 
       // If no exact match, try to find an instance via structural subtyping
       // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)

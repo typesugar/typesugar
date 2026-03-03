@@ -84,6 +84,7 @@ import {
   type ResolutionAttempt,
   type ResolutionTrace,
 } from "@typesugar/core";
+import { globalResolutionScope } from "@typesugar/core";
 
 // ============================================================================
 // Primitive Registration Hook
@@ -929,8 +930,14 @@ function getBaseType(field: DeriveFieldInfo): string {
 
 /**
  * Find a registered instance for a given typeclass and type.
+ *
+ * When sourceFileName is provided, the instance is only returned if the
+ * typeclass is in scope for that file (import-scoped resolution).
  */
-function findInstance(tcName: string, typeName: string): InstanceInfo | undefined {
+function findInstance(tcName: string, typeName: string, sourceFileName?: string): InstanceInfo | undefined {
+  if (sourceFileName && !globalResolutionScope.isTypeclassInScope(sourceFileName, tcName)) {
+    return undefined;
+  }
   return instanceRegistry.find((i) => i.typeclassName === tcName && i.forType === typeName);
 }
 
@@ -2569,7 +2576,7 @@ export const summonMacro = defineExpressionMacro({
     const attempts: ResolutionAttempt[] = [];
 
     // 1. Check for explicit instance in the compile-time registry
-    const explicitInstance = findInstance(tcName, typeName);
+    const explicitInstance = findInstance(tcName, typeName, ctx.sourceFile.fileName);
     if (explicitInstance) {
       return ctx.parseExpression(instanceVarName(tcName, typeName));
     }
@@ -3318,8 +3325,8 @@ export function registerInstanceWithMeta(info: InstanceInfo): void {
  * Get instance metadata for a typeclass+type combination.
  * Returns undefined if no instance is found or if it has no metadata.
  */
-export function getInstanceMeta(typeclassName: string, forType: string): InstanceMeta | undefined {
-  const instance = findInstance(typeclassName, forType);
+export function getInstanceMeta(typeclassName: string, forType: string, sourceFileName?: string): InstanceMeta | undefined {
+  const instance = findInstance(typeclassName, forType, sourceFileName);
   return instance?.meta;
 }
 
@@ -3330,12 +3337,12 @@ export function getInstanceMeta(typeclassName: string, forType: string): Instanc
  * @param forType The type constructor name (e.g., "Promise", "Array")
  * @returns Method names for bind, map, and orElse operations
  */
-export function getFlatMapMethodNames(forType: string): {
+export function getFlatMapMethodNames(forType: string, sourceFileName?: string): {
   bind: string;
   map: string;
   orElse?: string;
 } {
-  const instance = findInstance("FlatMap", forType);
+  const instance = findInstance("FlatMap", forType, sourceFileName);
   const meta = instance?.meta;
   const methodNames = meta?.methodNames;
 
@@ -3409,16 +3416,16 @@ export function getParCombineBuilderFromRegistry(forType: string): ParCombineBui
  * Check if a FlatMap instance exists for a type.
  * Used by let:/yield: macro to validate type support.
  */
-export function hasFlatMapInstance(forType: string): boolean {
-  return findInstance("FlatMap", forType) !== undefined;
+export function hasFlatMapInstance(forType: string, sourceFileName?: string): boolean {
+  return findInstance("FlatMap", forType, sourceFileName) !== undefined;
 }
 
 /**
  * Check if a ParCombine instance exists for a type.
  * Used by par:/yield: macro to validate type support.
  */
-export function hasParCombineInstance(forType: string): boolean {
-  return findInstance("ParCombine", forType) !== undefined;
+export function hasParCombineInstance(forType: string, sourceFileName?: string): boolean {
+  return findInstance("ParCombine", forType, sourceFileName) !== undefined;
 }
 
 // ============================================================================

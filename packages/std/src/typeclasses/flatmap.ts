@@ -287,6 +287,6 @@ export function getFlatMap(name: string): FlatMap<unknown> | undefined {
  * Check if a FlatMap instance exists for a type constructor.
  * Uses the unified registry.
  */
-export function hasFlatMap(name: string): boolean {
-  return findInstance("FlatMap", name) !== undefined;
+export function hasFlatMap(name: string, sourceFileName?: string): boolean {
+  return findInstance("FlatMap", name, sourceFileName) !== undefined;
 }

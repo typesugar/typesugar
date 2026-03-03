@@ -324,14 +324,14 @@ describe("Core Edge Cases", () => {
       config.reset();
     });
 
-    it("should default to automatic mode", () => {
+    it("should default to import-scoped mode", () => {
       const scope = tracker.getScope("test.ts");
-      expect(scope.mode).toBe("automatic");
+      expect(scope.mode).toBe("import-scoped");
     });
 
-    it("should return true for any typeclass in automatic mode", () => {
+    it("should return true for prelude typeclasses and false for unknown in import-scoped mode", () => {
       expect(tracker.isTypeclassInScope("test.ts", "Show")).toBe(true);
-      expect(tracker.isTypeclassInScope("test.ts", "RandomTypeclass")).toBe(true);
+      expect(tracker.isTypeclassInScope("test.ts", "RandomTypeclass")).toBe(false);
     });
 
     it("should respect import-scoped mode", () => {

@@ -278,7 +278,7 @@ export const binopMacro = defineExpressionMacro({
     if (syntaxEntries && syntaxEntries.length > 0) {
       // Try to find a typeclass instance for the left operand's type
       for (const entry of syntaxEntries) {
-        const instance = findInstance(entry.typeclass, baseTypeName);
+        const instance = findInstance(entry.typeclass, baseTypeName, ctx.sourceFile.fileName);
         if (instance) {
           // Transform to: TypeclassInstance.method(left, right)
           return ctx.factory.createCallExpression(

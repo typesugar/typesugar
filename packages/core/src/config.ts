@@ -443,7 +443,7 @@ function when<T, U = undefined>(
  */
 function getResolutionModeForFile(fileName: string): ResolutionMode {
   const resolution = get<ResolutionConfig>("resolution");
-  if (!resolution) return "automatic";
+  if (!resolution) return "import-scoped";
 
   // Check file overrides
   if (resolution.fileOverrides) {
@@ -454,7 +454,7 @@ function getResolutionModeForFile(fileName: string): ResolutionMode {
     }
   }
 
-  return resolution.mode ?? "automatic";
+  return resolution.mode ?? "import-scoped";
 }
 
 /**

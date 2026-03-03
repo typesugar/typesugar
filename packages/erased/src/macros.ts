@@ -204,7 +204,7 @@ export const erasedMacro = defineExpressionMacro({
       }
 
       // Look up the typeclass instance
-      const instance = findInstance(mapping.typeclass, typeName);
+      const instance = findInstance(mapping.typeclass, typeName, ctx.sourceFile.fileName);
       if (!instance) {
         missingInstances.push(`${mapping.typeclass}<${typeName}>`);
         continue;
