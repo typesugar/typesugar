@@ -741,7 +741,10 @@ export namespace Write {
   /**
    * Create a Write instance from field extractors.
    */
-  export function make<A>(columns: readonly string[], extractors: readonly ((value: A) => unknown)[]): Write<A> {
+  export function make<A>(
+    columns: readonly string[],
+    extractors: readonly ((value: A) => unknown)[]
+  ): Write<A> {
     return {
       _tag: "Write",
       columns,

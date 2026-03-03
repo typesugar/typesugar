@@ -18,10 +18,7 @@ import {
   rangeFilter,
   rangeReduce,
 } from "../src/data/range.js";
-import {
-  to,
-  until,
-} from "../src/extensions/number.js";
+import { to, until } from "../src/extensions/number.js";
 import {
   step,
   reversed,

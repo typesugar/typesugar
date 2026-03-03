@@ -15,7 +15,9 @@ export interface Queryable<Q> {
 }
 
 export namespace Queryable {
-  export function make<Q>(execute: (query: Q, conn: DbConnection) => Promise<unknown>): Queryable<Q> {
+  export function make<Q>(
+    execute: (query: Q, conn: DbConnection) => Promise<unknown>
+  ): Queryable<Q> {
     return { _tag: "Queryable", execute };
   }
 }

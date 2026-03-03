@@ -300,9 +300,7 @@ interface JsDocEq<A> {
     expect(jsdocResult.code).toContain("jsDocEqEquals");
   });
 
-  it("decorator @typeclass rewritten by preprocessor calls expression macro", () => {
-    // The preprocessor rewrites @typeclass decorator to typeclass("...") call.
-    // This test documents the actual behavior rather than asserting false equivalence.
+  it("decorator @typeclass rewritten by preprocessor to JSDoc", () => {
     const decoratorCode = `
 @typeclass
 interface DecEq<A> {
@@ -315,9 +313,8 @@ interface DecEq<A> {
       extensions: ["decorator-rewrite"],
     });
 
-    // Preprocessor rewrites to expression form: typeclass("DecEq")
     expect(decoratorResult.changed).toBe(true);
-    expect(decoratorResult.code).toContain('typeclass("DecEq")');
+    expect(decoratorResult.code).toContain("/** @typeclass */");
   });
 
   it("@deriving JSDoc generates derived instances", () => {

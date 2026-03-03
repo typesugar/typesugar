@@ -6,7 +6,7 @@
  * left operand's type has a matching instance with Op<> annotation.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
 import {
   registerTypeclassSyntax,
@@ -14,10 +14,16 @@ import {
   clearRegistries,
   registerInstanceWithMeta,
 } from "@typesugar/macros";
+import { config } from "@typesugar/core";
 
 beforeEach(() => {
   clearSyntaxRegistry();
   clearRegistries();
+  config.set({ resolution: { mode: "automatic" } });
+});
+
+afterEach(() => {
+  config.reset();
 });
 
 function setupNumericInstance(typeName: string, instanceName: string) {

@@ -100,18 +100,18 @@ packages/
 
 ## Package Boundaries
 
-| Package                  | Contents                                                                                    | Does NOT contain                          |
-| ------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`             | Typeclass definitions                     |
+| Package                  | Contents                                                                                                                              | Does NOT contain                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`                                                       | Typeclass definitions                     |
 | `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
-| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                | General-purpose utilities                 |
-| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap | Typeclass definitions (those live in std) |
-| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations     | Typeclass instances                       |
-| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                  | Compile-time code gen                     |
-| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                            | Matrix operations                         |
-| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines     | Visual rendering                          |
-| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                      | Typeclass definitions                     |
-| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                    | Transport/network layer                   |
+| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
+| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
+| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                               | Typeclass instances                       |
+| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                            | Compile-time code gen                     |
+| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                      | Matrix operations                         |
+| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines                                               | Visual rendering                          |
+| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                | Typeclass definitions                     |
+| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                              | Transport/network layer                   |
 
 **Key clarifications:**
 
@@ -162,7 +162,7 @@ packages/
 | Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `packages/core/src/registry.ts`           |
 | Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `packages/core/src/registry.ts`           |
 | Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`             | `packages/core/src/context.ts`            |
-| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``              | `packages/macros/src/quote.ts`            |
+| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``               | `packages/macros/src/quote.ts`            |
 | Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`  | `packages/core/src/context.ts`            |
 | Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `packages/core/src/context.ts`            |
 | Report compile error            | `ctx.reportError(node, message)`                                     | `packages/core/src/context.ts`            |

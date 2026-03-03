@@ -46,10 +46,10 @@ Map typeclass methods to operators using `@op` JSDoc tags on method signatures:
 interface Numeric<A> {
   /** @op + */
   add(a: A, b: A): A;
-  
+
   /** @op * */
   mul(a: A, b: A): A;
-  
+
   /** @op - */
   sub(a: A, b: A): A;
 }
@@ -58,8 +58,8 @@ interface Numeric<A> {
 When an instance exists, operators compile to typeclass method calls:
 
 ```typescript
-a + b  // Compiles to: numericInstance.add(a, b)
-a * b  // Compiles to: numericInstance.mul(a, b)
+a + b; // Compiles to: numericInstance.add(a, b)
+a * b; // Compiles to: numericInstance.mul(a, b)
 ```
 
 ### Provide Instances
@@ -154,7 +154,7 @@ interface User {
 - `/** @typeclass */` — Define a typeclass interface
 - `/** @impl TC<Type> */` — Provide a typeclass instance
 - `/** @deriving TC1, TC2, ... */` — Auto-derive typeclass instances
-- `/** @op <symbol> */` — Map a method to an operator (+, -, *, /, ===, etc.)
+- `/** @op <symbol> */` — Map a method to an operator (+, -, \*, /, ===, etc.)
 
 ### Attribute Macros (Decorator Syntax)
 
@@ -179,12 +179,12 @@ interface User {
 
 The following patterns still work but are deprecated:
 
-| Deprecated | Preferred |
-| --- | --- |
-| `@instance` | `@impl` |
-| `Op<"+">` return type | `@op +` JSDoc tag |
+| Deprecated               | Preferred                  |
+| ------------------------ | -------------------------- |
+| `@instance`              | `@impl`                    |
+| `Op<"+">` return type    | `@op +` JSDoc tag          |
 | `instance("TC<T>", obj)` | `/** @impl TC<T> */` JSDoc |
-| `typeclass("Name")` | `/** @typeclass */` JSDoc |
+| `typeclass("Name")`      | `/** @typeclass */` JSDoc  |
 
 ## Auto-Derivation
 

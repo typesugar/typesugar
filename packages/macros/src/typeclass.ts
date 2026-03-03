@@ -934,7 +934,11 @@ function getBaseType(field: DeriveFieldInfo): string {
  * When sourceFileName is provided, the instance is only returned if the
  * typeclass is in scope for that file (import-scoped resolution).
  */
-function findInstance(tcName: string, typeName: string, sourceFileName?: string): InstanceInfo | undefined {
+function findInstance(
+  tcName: string,
+  typeName: string,
+  sourceFileName?: string
+): InstanceInfo | undefined {
   if (sourceFileName && !globalResolutionScope.isTypeclassInScope(sourceFileName, tcName)) {
     return undefined;
   }
@@ -1085,7 +1089,8 @@ export const typeclassAttribute = defineAttributeMacro({
       registerTypeclassSyntax(tcName, syntax);
     }
 
-    const isExported = target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+    const isExported =
+      target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
 
     // Generate the companion namespace with utility functions
     const companionCode = generateCompanionNamespace(ctx, tcInfo, isExported);
@@ -1114,7 +1119,11 @@ export const typeclassAttribute = defineAttributeMacro({
  *     def derived[A](using Mirror.ProductOf[A]): Show[A] = ...
  *   }
  */
-function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo, isExported: boolean): string {
+function generateCompanionNamespace(
+  ctx: MacroContext,
+  tc: TypeclassInfo,
+  isExported: boolean
+): string {
   const { name } = tc;
   const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
   const exportModifier = isExported ? "export " : "";
@@ -3325,7 +3334,11 @@ export function registerInstanceWithMeta(info: InstanceInfo): void {
  * Get instance metadata for a typeclass+type combination.
  * Returns undefined if no instance is found or if it has no metadata.
  */
-export function getInstanceMeta(typeclassName: string, forType: string, sourceFileName?: string): InstanceMeta | undefined {
+export function getInstanceMeta(
+  typeclassName: string,
+  forType: string,
+  sourceFileName?: string
+): InstanceMeta | undefined {
   const instance = findInstance(typeclassName, forType, sourceFileName);
   return instance?.meta;
 }
@@ -3337,7 +3350,10 @@ export function getInstanceMeta(typeclassName: string, forType: string, sourceFi
  * @param forType The type constructor name (e.g., "Promise", "Array")
  * @returns Method names for bind, map, and orElse operations
  */
-export function getFlatMapMethodNames(forType: string, sourceFileName?: string): {
+export function getFlatMapMethodNames(
+  forType: string,
+  sourceFileName?: string
+): {
   bind: string;
   map: string;
   orElse?: string;

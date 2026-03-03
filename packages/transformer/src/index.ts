@@ -4162,7 +4162,8 @@ class MacroTransformer {
     // Check if there's an instance for this type and operator
     for (const entry of entries) {
       let inst =
-        findInstance(entry.typeclass, leftTypeName, currentFileName) ?? findInstance(entry.typeclass, baseTypeName, currentFileName);
+        findInstance(entry.typeclass, leftTypeName, currentFileName) ??
+        findInstance(entry.typeclass, baseTypeName, currentFileName);
 
       // Check union membership if no direct match
       if (!inst) {
@@ -4274,7 +4275,8 @@ class MacroTransformer {
     for (const entry of entries) {
       // First try exact match
       let inst =
-        findInstance(entry.typeclass, typeName, sfn) ?? findInstance(entry.typeclass, baseTypeName, sfn);
+        findInstance(entry.typeclass, typeName, sfn) ??
+        findInstance(entry.typeclass, baseTypeName, sfn);
 
       // If no exact match, try to find an instance via structural subtyping
       // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)

@@ -183,7 +183,8 @@ function tryParseImplDecorator(
   if (identIndex >= tokens.length) return null;
 
   const identToken = tokens[identIndex];
-  if (identToken.kind !== ts.SyntaxKind.Identifier || !IMPL_DECORATOR_NAMES.has(identToken.text)) return null;
+  if (identToken.kind !== ts.SyntaxKind.Identifier || !IMPL_DECORATOR_NAMES.has(identToken.text))
+    return null;
 
   const parenIndex = identIndex + 1;
   if (parenIndex >= tokens.length) return null;
