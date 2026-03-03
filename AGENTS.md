@@ -417,6 +417,20 @@ directive and `@extension` decorator mark which functions should be treated as e
 Extension methods provide UFCS (Uniform Function Call Syntax) for TypeScript — any imported function
 whose first parameter matches the receiver type can be called as a method. Zero-cost by design.
 
+**When to use extension methods:**
+
+Extension methods are necessary for:
+
+1. **Types you don't control** — primitives (`number`, `string`), built-ins (`Array`, `Map`), third-party types
+2. **Typeclasses** — where the implementation varies by type and is resolved at compile time
+
+Extension methods are NOT needed for types you own. If you define a type like `Range` or `Point`, you can:
+- Make it a **class with methods** — simpler, no extension magic needed
+- Use a **data object + extensions** — keeps it serializable/structural, but adds complexity
+
+Example: `(1).to(10)` needs extensions (can't add methods to `number`), but once you have a `Range`,
+its methods could just be regular class methods if `Range` were a class instead of a plain interface.
+
 **Usage — just import and call:**
 
 ```typescript
