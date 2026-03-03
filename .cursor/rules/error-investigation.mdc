@@ -1,0 +1,28 @@
+---
+description: Rules for investigating errors during build/test — prevent false "pre-existing" claims
+globs:
+alwaysApply: true
+---
+
+# Error Investigation
+
+When encountering errors during build/test, **investigate properly before declaring them "pre-existing"**.
+
+## Before claiming an error is pre-existing
+
+1. **Check file overlap**: Did your changes touch the same file? Same module? Same type signatures?
+2. **Check import chains**: Did you modify something the erroring file imports?
+3. **Check recent git history**: Was this file working in the last commit?
+
+## Accumulated errors are your responsibility
+
+If errors have accumulated across multiple sessions (especially HKT type errors in `@typesugar/fp` or `@typesugar/collections`), they ARE the responsibility of the current session. Don't defer indefinitely.
+
+## Type errors that break packages
+
+Type errors that make a package **unusable** (can't import, can't typecheck) must be:
+
+1. **Fixed** in the current session, OR
+2. **Explicitly escalated** to the user with a clear description
+
+Never silently skip type errors with comments like "pre-existing, will fix later."

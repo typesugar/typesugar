@@ -55,3 +55,38 @@ pnpm test 2>&1 | tee test-output.txt
 pnpm test | head -100
 pnpm test | tail -50
 ```
+
+## No hardcoded timing thresholds
+
+Never use hardcoded timing thresholds in benchmark tests:
+
+```typescript
+// WRONG — machine-dependent, CI-flaky
+expect(stats.medianMs).toBeLessThan(500);
+
+// BETTER — relative comparison
+expect(optimizedTime).toBeLessThan(baselineTime * 1.5);
+
+// BEST — skip timing tests in CI entirely
+if (!process.env.CI) {
+  expect(stats.medianMs).toBeLessThan(500);
+}
+```
+
+## TypeScript version compatibility
+
+`node.getText()` on synthetic nodes throws on TS < 5.8: "Node must have a real position for this operation."
+
+Use alternatives:
+- `ts.getTextOfNode(node)` — works on synthetic nodes
+- Print the node with a printer: `ts.createPrinter().printNode(...)`
+
+## Verify API names before testing
+
+When tests reference API names, verify the actual export names first — don't guess:
+
+- `nel` vs `nelOf`
+- `semigroupString` vs `stringSemigroup`
+- `eitherMonad` vs `monadEither`
+
+Check the package's `index.ts` to see what's actually exported.

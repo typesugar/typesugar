@@ -1,80 +1,46 @@
 # Agent Guidelines for typesugar
 
-## Core Principles
+## Key Principles
 
-### 1. Zero-Cost Abstractions
+1. **Zero-Cost or Don't Ship It** — Every abstraction must compile away to what you'd write by hand. No runtime dictionary lookups, no wrapper types, no closure allocation. If it can be done at compile time, it must be.
 
-**This is the most important principle of typesugar.**
+2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@deriving` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@deriving(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
 
-Every abstraction should compile away to what you'd write by hand:
+3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @deriving Eq, Ord */`, `/** @op + */`. No preprocessor required. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
 
-- No runtime dictionary lookups — inline method bodies directly
-- No wrapper types — HKT encoding exists only in types, not at runtime
-- No closure allocation — flatten nested callbacks
-- No indirection — generic code compiles to direct calls
+4. **Extensions are Import-Scoped (Scala 3 Model)** — Extension methods only activate when you import the function. `import { clamp } from "@typesugar/std"` makes `n.clamp(0, 100)` work. No import, no extension. This prevents surprising method injection and makes dependencies explicit. Extension files must have `"use extension"` at the top. The package's `index.ts` must barrel-export all extensions.
 
-Before implementing any feature, ask: "Can this be done at compile time instead of runtime?"
+5. **Extension Methods for Types You Don't Own** — Use `"use extension"` directive or `@extension` decorator for primitives (`number`, `string`), built-ins (`Array`, `Map`), and third-party types. For types you define, use classes with methods.
 
-Use the existing `inlineMethod()` from `specialize.ts` when you need to inline function bodies.
+6. **Library Import Patterns** — Three kinds of imports, each with a specific purpose:
+   - **Named imports for extensions**: `import { clamp, isEven } from "@typesugar/std"` — activates extension methods
+   - **Side-effect imports for macros**: `import "@typesugar/std/macros"` — registers `let:`, `par:`, `match`, etc.
+   - **Type-only imports for typeclasses**: `import type { Eq, Ord } from "@typesugar/std"` — no runtime cost
 
-### 2. Reuse Core Infrastructure
+   Libraries must re-export everything from `index.ts` (barrel exports) and handle name conflicts with explicit aliases (e.g. `export { toInt as parseIntSafe } from "./string"`).
 
-Before creating new utilities, check what already exists (detailed reference below).
+7. **Do-Notation via Labeled Blocks** — `let:` / `seq:` for sequential monadic chains (flatMap), `par:` / `all:` for parallel (Promise.all). These compile to zero-cost chains. `par:` blocks can nest inside `let:` blocks.
 
-The `specialize` macro is the gold standard for zero-cost — study it before implementing new transformations.
+8. **Reuse `specialize.ts` for Inlining** — `inlineMethod()` is the gold standard for zero-cost. `fn.specialize(dict)` creates named specialized functions. Study `packages/macros/src/specialize.ts` before implementing new transformations.
 
-### 3. Compile-Time Over Runtime
+9. **Use `quote()` for AST Construction** — Tagged template quasiquoting with `spread`, `ident`, `raw` helpers. Never use raw `ts.factory` calls in macro implementations.
 
-| Prefer                | Over                           |
-| --------------------- | ------------------------------ |
-| `inlineMethod()`      | Runtime function calls         |
-| Direct AST generation | String concatenation + parsing |
-| Type checker queries  | Runtime type checks            |
-| Compile-time errors   | Runtime throws                 |
+10. **Respect Package Boundaries** — Typeclass machinery in `@typesugar/typeclass`, typeclass definitions in `@typesugar/std`, FP data types in `@typesugar/fp`, collection hierarchy in `@typesugar/collections`. Don't mix.
+
+11. **HKT Must Be Sound** — Every `interface FooF { _: ... }` must use `this["__kind__"]`. If `Kind<FooF, string>` and `Kind<FooF, number>` resolve to the same type, it's phantom/unsound. Unsound types must NOT implement Functor/Monad. Use `F<_>` syntax, never Scala's `F[_]`.
+
+12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
+
+See [PHILOSOPHY.md](PHILOSOPHY.md) for the full design philosophy.
 
 ---
 
 ## Architecture
 
-For a detailed explanation of the macro compilation pipeline, see [docs/architecture.md](docs/architecture.md).
+For the compilation pipeline details, see [docs/architecture.md](docs/architecture.md).
+For macro authoring reference, see the `macro-authoring` skill.
 
 ```
-src/
-├── core/               # Macro infrastructure
-│   ├── types.ts        # MacroContext, MacroDefinition, ComptimeValue, DeriveTypeInfo
-│   ├── registry.ts     # globalRegistry, defineExpressionMacro, defineAttributeMacro, etc.
-│   ├── context.ts      # MacroContextImpl — node creation, type queries, evaluate()
-│   ├── hygiene.ts      # Lexical hygiene — globalHygiene.withScope(), createIdentifier(), FileBindingCache.safeRef()
-│   ├── capabilities.ts # MacroCapabilities, createRestrictedContext()
-│   ├── cache.ts        # MacroExpansionCache for incremental builds
-│   ├── pipeline.ts     # Composable macro pipelines — pipeline().pipe().build()
-│   ├── config.ts       # Unified config system — config.get(), defineConfig()
-│   └── source-map.ts   # Expansion tracking — globalExpansionTracker
-├── macros/             # Built-in macros
-│   ├── typeclass.ts    # @typeclass, @impl, @deriving, summon(), extend() (JSDoc & decorators)
-│   ├── specialize.ts   # specialize() — zero-cost inlining, inlineMethod()
-│   ├── implicits.ts    # implicit() — automatic instance resolution via default parameters
-│   ├── hkt.ts          # @hkt — higher-kinded type support
-│   ├── comptime.ts     # comptime() — compile-time evaluation
-│   ├── quote.ts        # quote(), quoteStatements() — quasiquoting for AST construction
-│   ├── derive.ts       # Built-in derives: Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard
-│   ├── custom-derive.ts# defineCustomDerive(), defineFieldDerive() — simplified derive API
-│   ├── reflect.ts      # @reflect, typeInfo<T>(), fieldNames<T>(), validator<T>()
-│   ├── tailrec.ts      # @tailrec — tail-call optimization
-│   ├── operators.ts    # @operators, ops(), pipe(), compose()
-│   ├── extension.ts    # @extension — UFCS extension method decorator
-│   ├── cfg.ts          # cfg(), @cfgAttr — conditional compilation
-│   ├── generic.ts      # Generic<T,R> — structural type representations
-│   ├── syntax-macro.ts # defineSyntaxMacro() — pattern-based macros (macro_rules! equivalent)
-│   ├── primitives.ts   # Typeclass instances for number, string, boolean, bigint, array
-│   ├── coverage.ts     # registerPrimitive(), validateCoverageOrError()
-│   ├── include.ts      # includeStr(), includeJson() — compile-time file I/O
-│   ├── static-assert.ts# static_assert(), compileError(), compileWarning()
-│   └── module-graph.ts # collectTypes(), moduleIndex() — project introspection
-├── transforms/
-│   └── macro-transformer.ts  # Main TS transformer — orchestrates all macro expansion
-└── index.ts            # Main exports and runtime placeholder functions
-
 packages/
 │
 │   ## Build Infrastructure
@@ -132,889 +98,26 @@ packages/
 
 ---
 
-## Macro System Reference
-
-### Macro Kinds
-
-There are 6 kinds of macros, each with a different trigger and signature:
-
-| Kind                | Trigger                         | Signature                                                         | Registration                  |
-| ------------------- | ------------------------------- | ----------------------------------------------------------------- | ----------------------------- |
-| **Expression**      | Function call `macroName(...)`  | `expand(ctx, callExpr, args) → Expression`                        | `defineExpressionMacro()`     |
-| **Attribute**       | Decorator `@macroName(...)`     | `expand(ctx, decorator, target, args) → Node \| Node[]`           | `defineAttributeMacro()`      |
-| **Derive**          | `@derive(MacroName)`            | `expand(ctx, target, typeInfo) → Statement[]`                     | `defineDeriveMacro()`         |
-| **Tagged Template** | `` tag`...` ``                  | `expand(ctx, node) → Expression`                                  | `defineTaggedTemplateMacro()` |
-| **Type**            | Type reference `MacroType<...>` | `expand(ctx, typeRef, args) → TypeNode`                           | `defineTypeMacro()`           |
-| **Labeled Block**   | `label: { ... }`                | `expand(ctx, mainBlock, continuation) → Statement \| Statement[]` | `defineLabeledBlockMacro()`   |
-
-### MacroContext — What Every Macro Gets
-
-Every macro's `expand` function receives a `MacroContext` (`ctx`) with:
-
-**Compiler access:**
-
-- `ctx.program` — the `ts.Program`
-- `ctx.typeChecker` — full TypeScript type checker
-- `ctx.sourceFile` — current file being processed
-- `ctx.factory` — `ts.NodeFactory` for creating AST nodes
-- `ctx.transformContext` — the `ts.TransformationContext`
-
-**Node creation helpers:**
-
-- `ctx.createIdentifier(name)` → `ts.Identifier`
-- `ctx.createNumericLiteral(value)` → `ts.NumericLiteral`
-- `ctx.createStringLiteral(value)` → `ts.StringLiteral`
-- `ctx.createBooleanLiteral(value)` → `ts.Expression`
-- `ctx.createArrayLiteral(elements)` → `ts.ArrayLiteralExpression`
-- `ctx.createObjectLiteral(properties)` → `ts.ObjectLiteralExpression`
-- `ctx.parseExpression(code)` — parse a code string into an expression
-- `ctx.parseStatements(code)` — parse a code string into statements
-
-**Type utilities:**
-
-- `ctx.getTypeOf(node)` → `ts.Type`
-- `ctx.getTypeString(node)` → string representation
-- `ctx.isAssignableTo(source, target)` → boolean
-- `ctx.getPropertiesOfType(type)` → `ts.Symbol[]`
-- `ctx.getSymbol(node)` → `ts.Symbol | undefined`
-
-**Diagnostics:**
-
-- `ctx.reportError(node, message)` — compile-time error
-- `ctx.reportWarning(node, message)` — compile-time warning
-
-**Compile-time evaluation:**
-
-- `ctx.evaluate(node)` → `ComptimeValue` (AST evaluator with `vm` fallback)
-- `ctx.isComptime(node)` → boolean (can this be evaluated at compile time?)
-
-**Hygiene:**
-
-- `ctx.generateUniqueName(prefix)` → `ts.Identifier` (avoids name collisions)
-- `ctx.safeRef(symbol, from)` → `ts.Identifier` (reference hygiene — detects conflicts with user names)
-
-### Quasiquoting (`src/macros/quote.ts`)
-
-The preferred way to construct AST in macro implementations. Uses tagged templates with splicing:
-
-```typescript
-import { quote, quoteStatements, quoteType, quoteBlock } from "../macros/quote.js";
-import { spread, ident, raw } from "../macros/quote.js";
-
-// Single expression
-const expr = quote(ctx)`${left} + ${right}`;
-
-// Multiple statements
-const stmts = quoteStatements(ctx)`
-  const ${ident("x")} = ${initializer};
-  console.log(${ident("x")});
-`;
-
-// Type node
-const typeNode = quoteType(ctx)`Array<${elementType}>`;
-
-// Splice helpers:
-// spread(stmts)  — splice an array of statements
-// ident(name)    — force identifier treatment
-// raw(name)      — unhygienic identifier (intentional capture)
-```
-
-Convenience helpers: `quoteCall`, `quotePropAccess`, `quoteMethodCall`, `quoteConst`, `quoteLet`, `quoteReturn`, `quoteIf`, `quoteArrow`, `quoteFunction`.
-
-### Macro Pipeline (`src/core/pipeline.ts`)
-
-Chain transformations into a registered macro:
-
-```typescript
-import { pipeline, assertType, debugStep } from "../core/pipeline.js";
-
-pipeline("myMacro", "my-module")
-  .pipe((ctx, expr) => /* transform step 1 */)
-  .pipeIf(condition, (ctx, expr) => /* conditional step */)
-  .mapElements((ctx, elem) => /* per-element step */)
-  .build(); // registers as ExpressionMacro
-```
-
-### Lexical Hygiene (`src/core/hygiene.ts`)
-
-Prevents name collisions in macro-generated code:
-
-**Introduced-name hygiene** — mangles names introduced by macros:
-
-```typescript
-import { globalHygiene } from "../core/hygiene.js";
-
-globalHygiene.withScope(() => {
-  const id = globalHygiene.createIdentifier("temp"); // mangled to avoid collisions
-  // ... use id in generated code ...
-});
-```
-
-**Reference hygiene** — ensures external symbol references resolve correctly:
-
-```typescript
-// In a macro's expand() function:
-const eqRef = ctx.safeRef("Eq", "@typesugar/std");
-// If user has `const Eq = 42;`, returns "__Eq_ts0__" and records aliased import
-// Otherwise, returns "Eq" directly
-```
-
-Three-tier resolution (O(1) conflict detection):
-
-- Tier 0: Known globals (Error, Array, JSON) — always safe
-- Tier 1: Import map — safe if from same module
-- Tier 2: Local declarations — conflict if declared at file level
-
-### Expansion Tracking (`src/core/source-map.ts`)
-
-Records macro expansions for source maps and debugging:
-
-```typescript
-import { globalExpansionTracker } from "../core/source-map.js";
-
-globalExpansionTracker.recordExpansion(
-  macroName,
-  originalNode,
-  sourceFile,
-  expandedText,
-  fromCache
-);
-globalExpansionTracker.generateReport(); // human-readable summary
-```
-
-### Caching (`src/core/cache.ts`)
-
-Incremental caching for macro expansion results:
-
-```typescript
-import { MacroExpansionCache, InMemoryExpansionCache } from "../core/cache.js";
-
-const cache = new MacroExpansionCache(cacheDir);
-const key = MacroExpansionCache.computeKey(macroName, sourceText, argTexts);
-const cached = cache.get(key);
-if (!cached) {
-  cache.set(key, expandedText);
-}
-```
-
-### Capabilities (`src/core/capabilities.ts`)
-
-Declarative permissions for macros:
-
-```typescript
-import { createRestrictedContext, MacroCapabilities } from "../core/capabilities.js";
-
-const caps: MacroCapabilities = {
-  needsTypeChecker: true,
-  needsFileSystem: false, // blocks fs access
-  needsProjectIndex: false, // blocks program-wide queries
-  canEmitDiagnostics: true,
-  maxTimeout: 5000,
-};
-const restricted = createRestrictedContext(ctx, caps, "myMacro");
-```
-
-### Configuration (`src/core/config.ts`)
-
-Unified config system with compile-time conditionals:
-
-```typescript
-import { config, defineConfig } from "../core/config.js";
-
-config.get("contracts.enabled"); // dot-notation access
-config.evaluate("contracts.enabled && !production"); // condition evaluation
-config.when("debug", debugCode, releaseCode); // compile-time conditional
-```
-
----
-
-## Built-in Macros Quick Reference
-
-### Typeclass System (`typeclass.ts`, `specialize.ts`, `implicits.ts`, `hkt.ts`)
-
-The typeclass system is the flagship feature. It provides **implicit resolution** with **zero-cost specialization**.
-
-**Primary behavior — implicit resolution:**
-
-Operators and methods automatically resolve to typeclasses:
-
-```typescript
-interface Point {
-  x: number;
-  y: number;
-}
-
-// Operators resolve to typeclasses automatically
-p1 === p2; // Eq typeclass → compiles to: p1.x === p2.x && p1.y === p2.y
-p1 < p2; // Ord typeclass → compiles to: lexicographic comparison
-
-// Methods resolve to typeclasses automatically
-p1.show(); // Show typeclass → compiles to: `Point(x = ${p1.x}, y = ${p1.y})`
-p1.clone(); // Clone typeclass → compiles to: { x: p1.x, y: p1.y }
-```
-
-**Resolution flow:**
-
-1. Compiler sees `===` or `.show()` on a type
-2. Identifies the relevant typeclass (Eq, Show, etc.)
-3. Checks for explicit `@impl` (or deprecated `@instance`) — use it if found
-4. Checks for explicit `@derive()` — use generated instance if found
-5. **Auto-derives via Mirror** — extracts type structure from TypeChecker, synthesizes instance
-6. **Auto-specializes** — inlines method body at call site (zero-cost)
-
-**Specialization (from implicit to explicit):**
-
-1. `= implicit()` + auto-specialize — Fully automatic, user writes `sortWith(items)`, compiler fills in instances AND inlines them
-2. `fn.specialize(dict)` — Extension method syntax for creating named specialized functions
-3. `specialize(fn, [dict])` — Legacy function wrapper (still supported)
-
-**Explicit patterns (progressive disclosure):**
-
-| Pattern                             | Use Case                                        |
-| ----------------------------------- | ----------------------------------------------- |
-| `p1 === p2`, `p1.show()`            | Default — implicit resolution + auto-derivation |
-| `summon<TC<T>>()`                   | Generic code where type isn't concrete          |
-| `@derive(Show, Eq)`                 | Documentation — make capabilities explicit      |
-| `/** @impl Eq<T> */ const eq = {...}` | Custom behavior — override auto-derivation      |
-
-**Macros reference:**
-
-| Macro                 | Kind       | Purpose                                                           |
-| --------------------- | ---------- | ----------------------------------------------------------------- |
-| `/** @typeclass */`   | JSDoc      | Declares a typeclass interface (preferred, no preprocessor)       |
-| `/** @impl TC<T> */`  | JSDoc      | Provides custom typeclass instance (preferred, no preprocessor)   |
-| `/** @deriving ... */`| JSDoc      | Auto-derive typeclasses (preferred, no preprocessor)              |
-| `/** @op + */`        | JSDoc      | Map method to operator (preferred over `Op<>` return type)        |
-| `@typeclass`          | Attribute  | Declares a typeclass interface (requires preprocessor)            |
-| `@impl`               | Attribute  | Provides custom typeclass instance, overrides auto-derivation     |
-| `@derive(...)`        | Attribute  | Documents capabilities (optional, same operations work without)   |
-| `summon<TC<T>>()`     | Expression | Explicit resolution for generic code                              |
-| `fn.specialize(dict)` | Extension  | Create specialized function (preferred explicit syntax)           |
-| `specialize(fn,dict)` | Expression | Legacy explicit specialization (array syntax)                     |
-| `= implicit()`        | Expression | Default parameter marker — auto-fills instance + auto-specializes |
-| `@hkt`                | Attribute  | Higher-kinded type parameter support (`F<_>` → `Kind<F, A>`)      |
-
-**Key registries:**
-
-- `typeclassRegistry` — typeclass metadata (methods, type params)
-- `instanceRegistry` — registered instances (typeclass × type → instance)
-- `standaloneExtensionRegistry` — backward compatibility for `registerExtensions()` (deprecated)
-- `instanceMethodRegistry` — method implementations for specialization (in `specialize.ts`)
-
-Note: Extension method resolution now primarily uses import-scoped scanning. The `"use extension"`
-directive and `@extension` decorator mark which functions should be treated as extensions.
-
-**Key functions for reuse:**
-
-- `inlineMethod(ctx, method, callArgs)` — inlines a method body, substituting parameters
-- `registerInstanceMethods(typeName, methods)` — registers methods for later inlining
-- `findInstance(typeclassName, typeName)` — looks up a registered instance
-- `getTypeclass(name)` — retrieves typeclass metadata
-- `extractGenericMeta(ctx, type)` — extracts Mirror-style metadata for auto-derivation
-
-### Extension Methods (`extension.ts`, `macro-transformer.ts`)
-
-Extension methods provide UFCS (Uniform Function Call Syntax) for TypeScript — any imported function
-whose first parameter matches the receiver type can be called as a method. Zero-cost by design.
-
-**When to use extension methods:**
-
-Extension methods are necessary for:
-
-1. **Types you don't control** — primitives (`number`, `string`), built-ins (`Array`, `Map`), third-party types
-2. **Typeclasses** — where the implementation varies by type and is resolved at compile time
-
-Extension methods are NOT needed for types you own. If you define a type like `Range` or `Point`, you can:
-- Make it a **class with methods** — simpler, no extension magic needed
-- Use a **data object + extensions** — keeps it serializable/structural, but adds complexity
-
-Example: `(1).to(10)` needs extensions (can't add methods to `number`), but once you have a `Range`,
-its methods could just be regular class methods if `Range` were a class instead of a plain interface.
-
-**Usage — just import and call:**
-
-```typescript
-import { clamp, isEven, abs } from "@typesugar/std";
-
-// Functions become methods automatically
-(-5).abs(); // → abs(-5) → Math.abs(-5)
-n.clamp(0, 100); // → clamp(n, 0, 100)
-(42).isEven(); // → isEven(42) → true
-[1, 2, 3].head(); // → head([1, 2, 3]) → 1
-```
-
-**"use extension" directive (for library authors):**
-
-Mark a file so all its exports become extension methods:
-
-```typescript
-"use extension";
-
-export function distance(p: Point, other: Point): number {
-  return Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);
-}
-// Users can write: p1.distance(p2)
-```
-
-**@extension decorator (for individual functions):**
-
-```typescript
-import { extension } from "typesugar";
-
-@extension
-export function volume(box: Box): number {
-  return box.width * box.height * box.depth;
-}
-// Users can write: box.volume()
-```
-
-**Resolution order for method calls:**
-
-1. **Native property** — if `x` has a property `foo`, use it
-2. **Extension functions in scope** — imported functions with matching first param
-3. **Typeclass methods** — auto-derived via `summon()`
-
-Extensions take priority over typeclasses because concrete functions are more specific.
-
-**Ambiguity detection:**
-
-If multiple extension functions match the same receiver type and method name, the transformer
-emits a compile error with the list of candidates. Use explicit qualifiers to disambiguate:
-
-```typescript
-// Error: Ambiguous extension method 'format' for type 'Date'
-// Two extensions match:
-//   - DateExt.format (from "@typesugar/std")
-//   - format (from "./my-formats")
-
-// Fix: use qualified call
-DateExt.format(date, pattern);
-```
-
-**Legacy: registerExtensions() (deprecated)**
-
-The `registerExtensions(type, namespace)` and `registerExtension(type, fn)` macros are still
-supported for backward compatibility but are deprecated. Prefer `"use extension"` directive.
-
-### HKT Conventions
-
-**IMPORTANT: TypeScript HKT uses `F<_>`, NOT Scala's `F[_]`.** Never use square bracket syntax in code or types.
-
-The HKT encoding in typesugar uses phantom kind markers (`packages/type-system/src/hkt.ts`):
-
-```typescript
-type Kind<F, A> = F & { readonly __kind__: A };
-```
-
-`Kind<F, A>` is just an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages (`Kind<F, A>`) unchanged.
-
-**Defining type-level functions:**
-
-```typescript
-// Good: parameterized via this["__kind__"]
-interface ArrayF extends TypeFunction {
-  _: Array<this["__kind__"]>;
-}
-interface MapF<K> extends TypeFunction {
-  _: Map<K, this["__kind__"]>;
-}
-
-// BAD: not parameterized — Kind<StringF, B> always resolves to string
-interface StringF extends TypeFunction {
-  _: string;
-} // ← phantom type, unsound for Functor/map
-```
-
-**Rules for type-level functions:**
-
-1. The `_` property MUST reference `this["__kind__"]` to be sound. If `Kind<F, B>` always resolves to the same type regardless of `B`, the HKT encoding is phantom/unsound
-2. Types that cannot be parameterized (e.g., `string`, `Int8Array`) should NOT implement typeclasses that change the element type (`map`, `flatMap`). Limit them to read-only typeclasses (`IterableOnce`, `Foldable`)
-3. Never use `as unknown as` to paper over HKT type mismatches — it means the type-level function is wrong
-
-**Writing HKT typeclasses:**
-
-Users write natural `F<_>` syntax. The preprocessor converts `F<A>` usages to `Kind<F, A>`:
-
-```typescript
-// You write (F<_> sugar):
-interface Functor<F<_>> {
-  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
-}
-
-// Preprocessor emits:
-interface Functor<F> {
-  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
-}
-```
-
-**Dictionary-passing style:**
-
-All derived operations take the typeclass instance as the first argument for zero-cost specialization:
-
-```typescript
-// Good: dictionary-passing, works with specialize()
-function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> {
-  return (fa, f) => F.map(fa, f);
-}
-
-// Bad: no dictionary parameter, can't be specialized
-function map<F, A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B> { ... }
-```
-
-### Derive Macros (`derive.ts`, `custom-derive.ts`)
-
-Built-in derives generate implementations from type structure:
-
-| Derive      | Generates                                          |
-| ----------- | -------------------------------------------------- |
-| `Eq`        | `equals(a, b)` — structural equality               |
-| `Ord`       | `compare(a, b)` — ordering (-1, 0, 1)              |
-| `Clone`     | `clone(value)` — deep copy                         |
-| `Debug`     | `debug(value)` — string representation             |
-| `Hash`      | `hash(value)` — hash code                          |
-| `Default`   | `defaultValue()` — default instance                |
-| `Json`      | `toJson(value)` / `fromJson(json)` — serialization |
-| `Builder`   | Builder pattern with `.withField()` methods        |
-| `TypeGuard` | `isTypeName(value)` — runtime type guard           |
-
-All derives handle both product types (records) and sum types (discriminated unions).
-
-**Simplified derive API:**
-
-```typescript
-import { defineCustomDerive, defineFieldDerive } from "../macros/custom-derive.js";
-
-// String-based (returns code as string)
-defineCustomDerive("MyDerive", (typeInfo) => {
-  return `export function process${typeInfo.name}(x: ${typeInfo.name}) { ... }`;
-});
-
-// AST-based (returns ts.Statement[])
-defineCustomDeriveAst("MyDerive", (ctx, typeInfo) => {
-  return [
-    /* ts.Statement nodes */
-  ];
-});
-
-// Per-field derive
-defineFieldDerive("Validate", (field) => {
-  return `if (!isValid(value.${field.name})) throw new Error("invalid");`;
-});
-```
-
-### Compile-Time Evaluation (`comptime.ts`)
-
-```typescript
-const result = comptime(() => {
-  // Runs at compile time, result inlined as literal
-  return fibonacci(10);
-});
-```
-
-Supports AST evaluation for simple expressions, falls back to sandboxed `vm` for complex code.
-
-**Sandbox Permissions:**
-
-By default, comptime runs in a restricted sandbox. File system and environment access require explicit permissions:
-
-```typescript
-// Read files at compile time
-const schema = comptime({ fs: "read" }, () => {
-  return fs.readFileSync("./schema.json", "utf8");
-});
-
-// Read environment variables
-const apiKey = comptime({ env: "read" }, () => {
-  return process.env.API_KEY;
-});
-
-// Combined permissions
-const config = comptime({ fs: "read", env: "read" }, () => {
-  const base = JSON.parse(fs.readFileSync("./config.json", "utf8"));
-  return { ...base, apiKey: process.env.API_KEY };
-});
-```
-
-Permission types:
-
-- `fs: 'read' | 'write' | true` — File system access
-- `env: 'read' | true` — Environment variable access
-- `net: boolean | string[]` — Network access (not yet implemented)
-- `time: boolean` — Real time access (not yet implemented)
-
-### Reflection (`reflect.ts`)
-
-```typescript
-@reflect
-interface User { name: string; age: number; }
-// Generates: export const __User_meta__ = { name: "User", fields: [...], ... }
-
-const info = typeInfo<User>();     // inline type metadata object
-const names = fieldNames<User>();  // ["name", "age"]
-const guard = validator<User>();   // runtime type guard function
-```
-
-### Operators (`operators.ts`)
-
-**Two operator systems exist — use the right one for your case:**
-
-| System                   | Operators                                     | When to Use                                       | Registration                                      |
-| ------------------------ | --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
-| **@op JSDoc (preferred)**| `+`, `-`, `*`, `/`, `===`, etc. (standard JS) | Types with typeclass instances (Numeric, Eq, Ord) | `/** @op + */` JSDoc on method (no preprocessor)  |
-| **Op\<\> (deprecated)**  | `+`, `-`, `*`, `/`, `===`, etc. (standard JS) | Legacy pattern                                    | `Op<"+">` on typeclass method return type         |
-| **@operators / ops()**   | Any operator                                  | Class-specific method mapping (legacy pattern)    | `@operators` decorator on class                   |
-
-#### Primary: @op JSDoc Tag (Zero-Cost, No Preprocessor)
-
-Use `@op` JSDoc tags on typeclass method signatures to map them to operators:
-
-```typescript
-/** @typeclass */
-interface Numeric<A> {
-  /** @op + */
-  add(a: A, b: A): A;
-  /** @op * */
-  mul(a: A, b: A): A;
-}
-
-// Any type with a Numeric instance gets operator support automatically:
-const a: Rational = rational(1, 2);
-const b: Rational = rational(1, 3);
-const c = a + b; // Compiles to: rationalNumeric.add(a, b)
-const d = a * b; // Compiles to: rationalNumeric.mul(a, b)
-
-// Same for Eq (===), Ord (<, >, <=, >=), etc.
-a === b; // Compiles to: rationalEq.equals(a, b)
-a < b; // Compiles to: rationalOrd.compare(a, b) < 0
-```
-
-#### Deprecated: Op\<\> Return Type
-
-The `Op<>` phantom type on return types still works but is deprecated in favor of `@op` JSDoc:
-
-```typescript
-// Deprecated — use @op JSDoc instead
-interface Numeric<A> {
-  add(a: A, b: A): A & Op<"+">;  // ← deprecated
-}
-```
-
-#### Secondary: @operators + ops() (Class-Specific)
-
-For classes that need custom method names (not using typeclasses):
-
-```typescript
-@operators({ "+": "add", "*": "mul", "==": "equals" })
-class Vec2 {
-  add(other: Vec2): Vec2 { ... }
-  mul(other: Vec2): Vec2 { ... }
-  equals(other: Vec2): boolean { ... }
-}
-
-const result = ops(a + b * c);  // → a.add(b.mul(c))
-```
-
-**Prefer the `@op` JSDoc approach** — it's zero-cost, doesn't require the preprocessor, and integrates with the rest of the typeclass system.
-
-#### Utilities
-
-```typescript
-const piped = pipe(x, f, g, h); // → h(g(f(x)))
-const composed = compose(f, g); // → (x) => f(g(x))
-```
-
-### Tail-Call Optimization (`tailrec.ts`)
-
-```typescript
-@tailrec
-function factorial(n: number, acc: number = 1): number {
-  if (n <= 1) return acc;
-  return factorial(n - 1, n * acc);
-}
-// Compiles to: while(true) loop with mutable variables
-```
-
-### Conditional Compilation (`cfg.ts`)
-
-```typescript
-const value = cfg("debug", debugImpl, releaseImpl);
-
-@cfgAttr("feature.experimental")
-function experimentalFeature() { ... } // removed if condition is false
-```
-
-### File I/O (`include.ts`)
-
-```typescript
-const text = includeStr("./template.txt"); // string literal at compile time
-const data = includeJson("./config.json"); // parsed JSON object at compile time
-const bytes = includeBytes("./binary.dat"); // Uint8Array at compile time
-```
-
-### Static Assertions (`static-assert.ts`)
-
-```typescript
-static_assert(condition, "message"); // compile error if false, removed if true
-compileError("this code path is unreachable");
-compileWarning("deprecated usage");
-```
-
-### Pattern-Based Macros (`syntax-macro.ts`)
-
-```typescript
-import { defineSyntaxMacro, defineRewrite } from "../macros/syntax-macro.js";
-
-// Multi-arm pattern matching
-defineSyntaxMacro("unless", {
-  arms: [
-    {
-      pattern: "$cond:expr, $body:expr",
-      expand: "($cond) ? undefined : ($body)",
-    },
-  ],
-});
-
-// Single rewrite shorthand
-defineRewrite("double", "$x:expr", "($x) + ($x)");
-```
-
-### Module Introspection (`module-graph.ts`)
-
-```typescript
-const types = collectTypes("src/**/*.ts"); // all exported types matching pattern
-const index = moduleIndex(); // all exports in the project
-```
-
-### Primitives (`primitives.ts`, `coverage.ts`)
-
-Pre-registered typeclass instances for: `number`, `string`, `boolean`, `bigint`, `null`, `undefined`, `Array<T>`.
-
-Typeclasses covered: `Show`, `Eq`, `Ord`, `Hash`, `Semigroup`, `Monoid`.
-
-Coverage checking validates that all fields of a derived type have the required primitive instances.
-
-### Generic Programming (`generic.ts`)
-
-Structural type representations for datatype-generic programming:
-
-```typescript
-@genericDerive
-interface Point { x: number; y: number; }
-// Registers Generic<Point, Point> with field metadata
-// Enables deriveShowViaGeneric, deriveEqViaGeneric, etc.
-```
-
-### FlatMap & Do-Notation (`@typesugar/std`)
-
-The `FlatMap` typeclass and comprehension macros provide zero-cost do-notation for monadic and applicative types.
-
-**Four comprehension labels (two macros, with aliases):**
-
-- **`let:` / `seq:`** — Sequential (monadic) comprehensions with `flatMap` chains. `seq:` is an alias emphasizing execution order; `let:` emphasizes binding.
-- **`par:` / `all:`** — Parallel (applicative) comprehensions with `Promise.all` or `.map()/.ap()`. `all:` is an alias emphasizing combination of all bindings.
-- **Nesting:** `par:`/`all:` blocks can appear inside `let:`/`seq:` blocks for mixed sequential/parallel flows.
-
-**FlatMap typeclass:**
-
-```typescript
-import { FlatMap, registerFlatMap } from "@typesugar/std";
-
-// FlatMap is pre-registered for common types: Promise, Array, Option, Result
-// Register custom FlatMap instances:
-registerFlatMap<MyMonad<unknown>>("MyMonad", {
-  flatMap: (ma, f) => ma.bind(f),
-});
-```
-
-**Sequential comprehensions with `let:/yield:`:**
-
-```typescript
-import { Option, Some, None } from "@typesugar/fp";
-
-let: {
-  x << Some(1);
-  y << Some(x * 2); // Can depend on previous bindings
-  if (y > 0) {
-  } // Guards for filtering
-  z = y + 10; // Pure map step (no unwrap)
-}
-yield: {
-  x + z;
-}
-// Compiles to: Some(1).flatMap(x => Some(x*2).map(y => y > 0 ? ((z) => x + z)(y + 10) : undefined))
-```
-
-**Parallel comprehensions with `par:/yield:`:**
-
-```typescript
-par: {
-  user << fetchUser(id); // All bindings must be independent
-  config << loadConfig();
-  posts << fetchPosts();
-}
-yield: ({ user, config, posts });
-// Compiles to: Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
-//                .then(([user, config, posts]) => ({ user, config, posts }))
-```
-
-| Macro/Function      | Kind          | Purpose                                                    |
-| ------------------- | ------------- | ---------------------------------------------------------- |
-| `let: { ... }`      | Labeled Block | Sequential bindings with `<<`, guards, and pure maps       |
-| `seq: { ... }`      | Labeled Block | Alias for `let:` — effects-oriented naming                 |
-| `par: { ... }`      | Labeled Block | Parallel/independent bindings (Promise.all or .map().ap()) |
-| `all: { ... }`      | Labeled Block | Alias for `par:` — binding-oriented naming                 |
-| `yield: { ... }`    | Labeled Block | Returns the final expression (uses `map` for last binding) |
-| `registerFlatMap()` | Function      | Registers a custom `FlatMap` instance for a type           |
-| `FlatMap<F>`        | Typeclass     | Provides `map` and `flatMap` for monadic sequencing        |
-
-**`let:` block syntax:**
-
-- `x << expr` — monadic bind (flatMap)
-- `x << expr || fallback` — bind with orElse fallback
-- `x << expr ?? fallback` — nullish coalescing fallback
-- `_ << expr` — discard binding (execute for side effect)
-- `x = expr` — pure map step (IIFE, no unwrap)
-- `if (cond) {}` — guard/filter
-
-**`par:` restrictions:**
-
-- No guards (`if`) — applicative can't short-circuit
-- No fallbacks (`||`/`??`) — use `let:` for error recovery
-- Independence required — macro validates at compile time
-
-**Key functions:**
-
-- `registerFlatMap<F>(name, impl)` — registers a FlatMap instance for type `F`
-- Built-in instances: `Promise`, `Array`, `Option`, `Result`, `Either`, `IO`
-
----
-
-## The Transformer (`src/transforms/macro-transformer.ts`)
-
-The transformer is the runtime engine that orchestrates all macro expansion during TypeScript compilation. Key behaviors:
-
-1. **Single-pass, top-to-bottom** — visits each node once, but recursively re-visits macro expansion results
-2. **Decorator ordering** — respects `expandAfter` dependencies for multiple decorators on one node
-3. **Import cleanup** — removes imports of macro-only symbols after expansion
-4. **Extension method rewriting** — detects `value.method()` calls and rewrites to `TC.summon<Type>("Type").method(value, ...args)`
-5. **Implicit resolution** — `= implicit()` parameters are resolved at compile time; resolved instances propagate to nested calls
-6. **Auto-specialization** — detects calls with typeclass instance arguments and attempts inlining
-7. **Transitive derivation** — `@deriving` builds a plan of dependent types and derives them in order
-8. **Opt-out detection** — checks for `"use no typesugar"` and `// @ts-no-typesugar` before expanding
-
-### Opt-Out System (`packages/core/src/resolution-scope.ts`)
-
-The transformer respects opt-out directives at multiple granularities:
-
-| Scope    | Syntax                                  | Checked by              |
-| -------- | --------------------------------------- | ----------------------- |
-| File     | `"use no typesugar"` at top of file     | `scanImportsForScope()` |
-| Function | `"use no typesugar"` as first statement | `isInOptedOutScope()`   |
-| Line     | `// @ts-no-typesugar` comment           | `hasInlineOptOut()`     |
-| Feature  | `"use no typesugar extensions"`         | `isFeatureOptedOut()`   |
-
-All macro expansion points in the transformer check `isInOptedOutScope()` before transforming.
-
-### Import Suggestion System (`packages/core/src/import-suggestions.ts`)
-
-When a symbol isn't in scope, the diagnostics can include "Did you mean to import?" hints:
-
-```typescript
-getSuggestionsForSymbol("Eq"); // → suggests "@typesugar/std"
-getSuggestionsForMethod("clamp", "number"); // → suggests "NumberExt from @typesugar/std"
-getSuggestionsForMacro("comptime"); // → suggests "typesugar"
-```
-
-The export index is pre-populated with known typesugar exports and can be extended via `registerExport()`.
-
----
-
-## Quick Lookup: "I Need To..."
-
-| Need                            | Use                                                                  | Location                     |
-| ------------------------------- | -------------------------------------------------------------------- | ---------------------------- |
-| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                | `specialize.ts`              |
-| Create specialized function     | `createSpecializedFunction(ctx, options)`                            | `specialize.ts`              |
-| Register a new expression macro | `defineExpressionMacro(name, macro)`                                 | `core/registry.ts`           |
-| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `core/registry.ts`           |
-| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `core/registry.ts`           |
-| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`             | `core/context.ts`            |
-| Create AST with splicing        | `quote(ctx)\`...\``, `quoteStatements(ctx)\`...\``                   | `macros/quote.ts`            |
-| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`  | `core/context.ts`            |
-| Get type properties             | `ctx.getPropertiesOfType(type)`                                      | `core/context.ts`            |
-| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `core/context.ts`            |
-| Report compile error            | `ctx.reportError(node, message)`                                     | `core/context.ts`            |
-| Generate unique names           | `ctx.generateUniqueName(prefix)`                                     | `core/context.ts`            |
-| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                          | `core/context.ts`            |
-| Avoid name collisions           | `globalHygiene.withScope(() => { ... })`                             | `core/hygiene.ts`            |
-| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `macros/typeclass.ts`        |
-| Mark file as extension source   | `"use extension";` directive at file top                             | `core/resolution-scope.ts`   |
-| Mark function as extension      | `@extension` decorator                                               | `macros/extension.ts`        |
-| Check if extension enabled      | `isExtensionEnabled(symbol)` (internal)                              | `transformer/index.ts`       |
-| Legacy standalone extensions    | `registerStandaloneExtensionEntry(info)` (deprecated)                | `macros/extension.ts`        |
-| Register instance methods       | `registerInstanceMethods(name, methods)`                             | `macros/specialize.ts`       |
-| Check primitive coverage        | `registerPrimitive()`, `validateCoverageOrError()`                   | `macros/coverage.ts`         |
-| Extract type metadata           | `extractTypeInfo(ctx, node)`                                         | `macros/reflect.ts`          |
-| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                     | `macros/typeclass.ts`        |
-| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                   | `macros/syntax-macro.ts`     |
-| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                 | `macros/custom-derive.ts`    |
-| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                   | `core/pipeline.ts`           |
-| Restrict macro capabilities     | `createRestrictedContext(ctx, caps, name)`                           | `core/capabilities.ts`       |
-| Read config values              | `config.get(path)`, `config.evaluate(condition)`                     | `core/config.ts`             |
-| Include file at compile time    | `includeStr()`, `includeJson()`                                      | `macros/include.ts`          |
-| Assert at compile time          | `static_assert(cond, msg)`                                           | `macros/static-assert.ts`    |
-| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                     | `@typesugar/std`             |
-| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                   | `@typesugar/std`             |
-| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`             | `core/resolution-scope.ts`   |
-| Check for inline opt-out        | `hasInlineOptOut(sourceFile, node, feature?)`                        | `core/resolution-scope.ts`   |
-| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`     | `core/import-suggestions.ts` |
-| Register export for suggestions | `registerExport(symbol)`                                             | `core/import-suggestions.ts` |
-| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()` | `core/diagnostics.ts`        |
-
----
-
-## When Adding Features
-
-1. **Check PHILOSOPHY.md** for design principles
-2. **Check [docs/architecture.md](docs/architecture.md)** for the compilation pipeline overview
-3. **Check existing macros** in `src/macros/` for patterns to follow
-4. **Reuse `specialize.ts`** infrastructure for inlining
-5. **Use `quote()`** for AST construction instead of raw `factory` calls
-6. **Add tests** in `tests/` directory
-7. **Update docs** if user-facing
-
-## When Adding Packages
-
-1. **Always declare `devDependencies`** — don't rely on hoisting (`vitest`, `typescript`, etc.)
-2. **Create `vitest.config.ts`** with a project name matching the package name
-3. **Add JSDoc comments** on every exported type, interface, and function — follow `@typesugar/fp` as the standard
-4. **All imports must be at the top of the file** — no mid-file imports
-5. **Re-export everything from `index.ts`** — including derived operations, not just core types
-6. **Don't export dead code** — if a type-level function or type has no instances, don't export it
-
 ## Package Boundaries
 
-Understanding what goes where prevents architecture confusion:
-
-| Package                  | Contents                                                                                                                                                  | Does NOT contain                          |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`, `defineExpressionMacro` (also JSDoc syntax)                              | Typeclass definitions                     |
-| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in type extensions, `let:/seq:` and `par:/all:` do-notation (with nesting), `match` | FP data types                             |
-| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                                              | General-purpose utilities                 |
-| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet<K>, HashMap<K,V>                                                  | Typeclass definitions (those live in std) |
-| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                                                   | Typeclass instances                       |
-| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                                                | Compile-time code gen                     |
-| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                                          | Matrix operations                         |
-| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph construction/algorithms (topo sort, SCC, Dijkstra), state machine definition/verification                               | Visual rendering                          |
-| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                                    | Typeclass definitions                     |
-| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                                                  | Transport/network layer                   |
+| Package                  | Contents                                                                                    | Does NOT contain                          |
+| ------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`             | Typeclass definitions                     |
+| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
+| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                | General-purpose utilities                 |
+| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap | Typeclass definitions (those live in std) |
+| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations     | Typeclass instances                       |
+| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                  | Compile-time code gen                     |
+| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                            | Matrix operations                         |
+| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines     | Visual rendering                          |
+| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                      | Typeclass definitions                     |
+| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                    | Transport/network layer                   |
 
 **Key clarifications:**
 
 - `match` is a general-purpose control flow primitive — it belongs in `std`, not `fp`
 - `@typesugar/typeclass` provides the machinery to define typeclasses, but the typeclasses themselves live in `std`
 - Extensions on built-in types (`number`, `string`, `Array`) go in `std`
-- `@typesugar/hlist` does NOT depend on Generic/macros — it's a peer, not a dependency
 - `@typesugar/fusion`'s `lazy()` is always single-pass — it MUST NOT create intermediate arrays
 
 ### `@derive` vs `@deriving` vs Auto-derivation
@@ -1026,212 +129,74 @@ Understanding what goes where prevents architecture confusion:
 | `@derive(TC)`             | Generates standalone functions                            | Rarely — doesn't integrate with `summon`       |
 | `@impl` (or `@instance`)  | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
 
-**Auto-derivation is the default, not opt-in.** When the compiler sees `p1 === p2` on a type, it auto-derives `Eq` from the type's fields without any annotation. `@deriving(Eq)` is documentation, not activation — it says "this type supports Eq" to human readers, but the compiler would derive it anyway. Users should never need to annotate types just to get basic typeclass support.
+---
 
-**Auto-specialization is also the default.** When an instance is resolved (whether explicit or auto-derived), the compiler inlines the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not to `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely.
+## When Adding Features
+
+1. Check [PHILOSOPHY.md](PHILOSOPHY.md) for design principles
+2. Check [docs/architecture.md](docs/architecture.md) for the compilation pipeline
+3. Check existing macros in `packages/macros/src/` for patterns to follow
+4. Reuse `specialize.ts` infrastructure for inlining
+5. Use `quote()` for AST construction instead of raw `factory` calls
+6. Add tests in `tests/` directory
+7. Update docs if user-facing
+
+## When Adding Packages
+
+1. Always declare `devDependencies` — don't rely on hoisting (`vitest`, `typescript`, etc.)
+2. Create `vitest.config.ts` with a project name matching the package name
+3. Add JSDoc comments on every exported type, interface, and function
+4. All imports must be at the top of the file — no mid-file imports
+5. Re-export everything from `index.ts` — including derived operations
+6. Don't export dead code — if a type has no instances, don't export it
 
 ---
 
-## Code Quality Checklist
+## Quick Lookup: "I Need To..."
 
-Before considering any code complete, verify:
-
-### `undefined` handling in collections/maps
-
-- **Never use `!== undefined` to check if a key exists** — the value might legitimately be `undefined`
-- Use `has()` / `contains()` for existence checks, then `get()` for retrieval
-- This applies to: `getOrElse`, `mapValues`, `filterKeys`, `filterValues`, `foldEntries`, and any operation that iterates over entries
-
-### HKT soundness
-
-- Every `interface FooF { _: ... }` type-level function MUST use `this["__kind__"]` in its `_` property
-- If `Kind<FooF, string>` and `Kind<FooF, number>` resolve to the same type, the encoding is phantom/unsound
-- Unsound HKT types must NOT implement typeclasses that change the element type (Functor, Monad, etc.)
-
-### Performance
-
-- `partition` must be single-pass — never filter twice
-- Lazy views should track operation counts in tests to verify laziness
-- Builder types must have correct generic types — no `as unknown as` casts to fix type mismatches
-
-### Consistency
-
-- Name operations consistently across typeclasses — if both `Seq` and `MapLike` have `updated`, disambiguate in standalone ops (e.g., `mapUpdated`)
-- Bridge modules should cover ALL relevant typeclasses from the target package, not just a subset
-- Every derived operation should be re-exported from the package's `index.ts`
-
----
-
-## Error Investigation
-
-When encountering errors during build/test, **investigate properly before declaring them "pre-existing"**.
-
-### Before claiming an error is pre-existing
-
-1. **Check file overlap**: Did your changes touch the same file? Same module? Same type signatures?
-2. **Check import chains**: Did you modify something the erroring file imports?
-3. **Check recent git history**: Was this file working in the last commit?
-
-### Accumulated errors are your responsibility
-
-If errors have accumulated across multiple sessions (especially HKT type errors in `@typesugar/fp` or `@typesugar/collections`), they ARE the responsibility of the current session. Don't defer indefinitely.
-
-### Type errors that break packages
-
-Type errors that make a package **unusable** (can't import, can't typecheck) must be:
-
-1. **Fixed** in the current session, OR
-2. **Explicitly escalated** to the user with a clear description
-
-Never silently skip type errors with comments like "pre-existing, will fix later."
+| Need                            | Use                                                                  | Location                                  |
+| ------------------------------- | -------------------------------------------------------------------- | ----------------------------------------- |
+| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                | `packages/macros/src/specialize.ts`       |
+| Create specialized function     | `createSpecializedFunction(ctx, options)`                            | `packages/macros/src/specialize.ts`       |
+| Register a new expression macro | `defineExpressionMacro(name, macro)`                                 | `packages/core/src/registry.ts`           |
+| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `packages/core/src/registry.ts`           |
+| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `packages/core/src/registry.ts`           |
+| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`             | `packages/core/src/context.ts`            |
+| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``              | `packages/macros/src/quote.ts`            |
+| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`  | `packages/core/src/context.ts`            |
+| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `packages/core/src/context.ts`            |
+| Report compile error            | `ctx.reportError(node, message)`                                     | `packages/core/src/context.ts`            |
+| Generate unique names           | `ctx.generateUniqueName(prefix)`                                     | `packages/core/src/context.ts`            |
+| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                          | `packages/core/src/context.ts`            |
+| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `packages/macros/src/typeclass.ts`        |
+| Mark file as extension source   | `"use extension";` directive at file top                             | `packages/core/src/resolution-scope.ts`   |
+| Mark function as extension      | `@extension` decorator                                               | `packages/macros/src/extension.ts`        |
+| Register instance methods       | `registerInstanceMethods(dictName, brand, methods)`                  | `packages/macros/src/specialize.ts`       |
+| Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                          | `packages/macros/src/auto-derive.ts`      |
+| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                     | `packages/macros/src/typeclass.ts`        |
+| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                   | `packages/macros/src/syntax-macro.ts`     |
+| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                 | `packages/macros/src/custom-derive.ts`    |
+| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                   | `packages/core/src/pipeline.ts`           |
+| Read config values              | `config.get(path)`, `config.evaluate(condition)`                     | `packages/core/src/config.ts`             |
+| Include file at compile time    | `includeStr()`, `includeJson()`                                      | `packages/macros/src/include.ts`          |
+| Assert at compile time          | `static_assert(cond, msg)`                                           | `packages/macros/src/static-assert.ts`    |
+| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                     | `packages/std/src/typeclasses/flatmap.ts` |
+| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                   | `packages/std/src/macros/let-yield.ts`    |
+| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`             | `packages/core/src/resolution-scope.ts`   |
+| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`     | `packages/core/src/import-suggestions.ts` |
+| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()` | `packages/core/src/diagnostics.ts`        |
 
 ---
 
-## Testing Guidelines
+## Deep Reference
 
-### No hardcoded timing thresholds
+For detailed documentation beyond this overview:
 
-Never use hardcoded timing thresholds in benchmark tests:
-
-```typescript
-// WRONG — machine-dependent, CI-flaky
-expect(stats.medianMs).toBeLessThan(500);
-
-// BETTER — relative comparison
-expect(optimizedTime).toBeLessThan(baselineTime * 1.5);
-
-// BEST — skip timing tests in CI entirely
-if (!process.env.CI) {
-  expect(stats.medianMs).toBeLessThan(500);
-}
-```
-
-### TypeScript version compatibility
-
-`node.getText()` on synthetic nodes throws on TS < 5.8: "Node must have a real position for this operation."
-
-Use alternatives:
-
-- `ts.getTextOfNode(node)` — works on synthetic nodes
-- Print the node with a printer: `ts.createPrinter().printNode(...)`
-
-### Verify API names before testing
-
-When tests reference API names, verify the actual export names first — don't guess:
-
-- `nel` vs `nelOf`
-- `semigroupString` vs `stringSemigroup`
-- `eitherMonad` vs `monadEither`
-
-Check the package's `index.ts` to see what's actually exported.
-
----
-
-## Preprocessor Guidelines (`@typesugar/preprocessor`)
-
-The preprocessor handles custom syntax (`F<_>` HKT, `|>` pipeline, `::` cons) that TypeScript cannot parse. It runs **before** the AST exists, doing text-level rewriting so tools like esbuild/vitest can parse the output.
-
-### No Dead Code in Exports
-
-Every symbol exported from `index.ts` must have at least one consumer in the codebase. If designing for future extensibility, mark internal types with `@internal` JSDoc and do not export from `index.ts`. Dead exports accumulate maintenance burden and confuse users.
-
-### No Duplicate Utility Functions
-
-Shared helpers (like `isBoundaryToken`) must live in **one file** and be imported. Duplicating logic across files means divergence bugs — one copy gets fixed, others don't. Hoist hot-path allocations (like `new Set(...)`) to module scope.
-
-### Preprocessor Custom Operators
-
-The preprocessor handles **non-JS operators** (`|>`, `::`, `<|`) via text rewriting to `__binop__()` calls.
-
-For standard JS operators (`+`, `-`, `*`, `/`, `===`, etc.), see the **Operators** section above — those use `@op` JSDoc tags (preferred) or `Op<>` return types (deprecated).
-
-**Validation rules (to prevent overlap):**
-
-- `@operator(symbol)` decorator must **reject** symbols in `OPERATOR_SYMBOLS` (from `core/types.ts`) — use `@op` JSDoc for those
-- The `__binop__` macro should check both `methodOperatorMappings` and `syntaxRegistry` and emit an ambiguity error if both match
-
-### Scanner Must Respect File Type
-
-The scanner wraps `ts.createScanner`, which needs the correct `LanguageVariant`:
-
-- `.tsx` / `.jsx` → `LanguageVariant.JSX`
-- `.ts` / `.js` → `LanguageVariant.Standard`
-
-The `preprocess()` function must accept a `fileName` parameter and thread it through to `tokenize()`. Integrations (unplugin, ESLint processor) must pass the filename.
-
-Without this, JSX elements like `<Component>` are tokenized as comparison operators, causing false `|>` merges and incorrect bracket matching.
-
-### Text-Level Rewriting Rules
-
-The preprocessor operates on text before AST construction. This imposes constraints:
-
-1. **Never change line count** — keep source maps simple (line N in output = line N in input, plus column offsets)
-2. **Expression contexts only** — custom operators must not be rewritten in type annotations (e.g., `type P = A |> B` is invalid)
-3. **Preserve structure** — the output must be valid TypeScript that parses to the intended AST
-
-Before rewriting a custom operator, check context: scan left for `:`, `extends`, `type ... =`, `<` (generic args). If found, skip rewriting.
-
-### Source Maps Are Mandatory
-
-Any text transformation must produce a usable source map. Use `magic-string` for replacements — it generates standard VLQ source maps automatically.
-
-**Never return `map: null`** from a build plugin. Error locations, stack traces, and debugger breakpoints depend on accurate source maps.
-
-### Language Service Plugin
-
-There must be exactly **one canonical implementation** at `packages/transformer/src/language-service.ts`.
-
-The legacy file `src/language-service/index.ts` must be a thin re-export:
-
-```typescript
-export { default } from "@typesugar/transformer/language-service";
-```
-
-Do not duplicate the 700+ lines of language service code.
-
-### Unplugin Type-Checker Limitation
-
-When unplugin preprocesses a file, it creates a fresh `ts.SourceFile` disconnected from the `ts.Program`. The type checker cannot resolve types for this file, which means:
-
-- `@operator` dispatch on custom types **falls back to default semantics** (e.g., `|>` becomes `f(a)`)
-- Type-aware `__binop__` resolution requires **ts-patch**, not unplugin
-
-Document this limitation in code comments and the preprocessor README.
-
----
-
-## Workflow
-
-### Completing Tasks
-
-When you finish implementing a feature or fix, **you are not done until you commit**.
-
-A commit is your guarantee that:
-
-1. **Build passes** — `pnpm build` succeeds
-2. **Tests pass** — `pnpm test` (or relevant subset) succeeds
-3. **Lints pass** — no new lint errors introduced
-4. **Documentation updated** — if the change affects user-facing behavior
-5. **CI passes** — after pushing, verify the CI run succeeds
-
-Do not stop at "tests pass locally" and wait for the user to ask about committing. The full workflow is:
-
-```
-Implement → Build → Test → Lint → Document → Commit → Push → Verify CI
-```
-
-If any step fails after commit, fix it and amend or create a follow-up commit.
-
-### What "Done" Means
-
-When you say a task is complete:
-
-- All verification steps above have passed
-- Changes are committed with a clear message
-- CI is green (or you're actively watching it)
-
-If you cannot complete a step (e.g., CI is slow, needs user input), explicitly say so rather than marking the task done.
-
-## GitHub Account
-
-Use `dpovey` (personal account) for this repo.
+- **Macro authoring** (MacroContext API, macro kinds, quasiquoting, built-in macros, transformer): see the `macro-authoring` skill
+- **Preprocessor** (custom operators, scanner, source maps, rewriting rules): see the `preprocessor-guidelines` skill
+- **Compilation pipeline**: [docs/architecture.md](docs/architecture.md)
+- **Design philosophy**: [PHILOSOPHY.md](PHILOSOPHY.md)
+- **Code quality**: `.cursor/rules/code-quality-checklist.mdc`
+- **HKT conventions**: `.cursor/rules/hkt-conventions.mdc`
+- **Zero-cost guidelines**: `.cursor/rules/zero-cost-guidelines.mdc`
+- **Collections patterns**: `.cursor/rules/collections-patterns.mdc`
