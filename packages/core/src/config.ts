@@ -485,6 +485,8 @@ function isInPrelude(typeclassName: string): boolean {
     "Default",
     "Semigroup",
     "Monoid",
+    "FlatMap",
+    "ParCombine",
   ];
   return prelude.includes(typeclassName);
 }
