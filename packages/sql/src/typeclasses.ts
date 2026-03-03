@@ -257,50 +257,50 @@ const _getBuffer: Get<Buffer> = makeGet(
 );
 
 /** Get typeclass companion with constructors and combinators */
-export const Get = {
+export namespace Get {
   /** Create a Get instance from a decoder function. */
-  make: makeGet,
+  export const make = makeGet;
 
   /** Functor map — transform the output type. */
-  map<A, B>(ga: Get<A>, f: (a: A) => B): Get<B> {
+  export function map<A, B>(ga: Get<A>, f: (a: A) => B): Get<B> {
     return makeGet((v: unknown) => {
       const a = ga.get(v);
       return a === null ? null : f(a);
     }, ga.sqlTypes);
-  },
+  }
 
   /** Make a Get nullable — handle SQL NULL explicitly. */
-  nullable<A>(ga: Get<A>): Get<A | null> {
+  export function nullable<A>(ga: Get<A>): Get<A | null> {
     return makeGet((v: unknown) => (v === null ? null : ga.get(v)), [...ga.sqlTypes, "NULL"]);
-  },
+  }
 
   /** Make a Get optional — map NULL to undefined. */
-  optional<A>(ga: Get<A>): Get<A | undefined> {
+  export function optional<A>(ga: Get<A>): Get<A | undefined> {
     return makeGet(
       (v: unknown) => (v === null || v === undefined ? undefined : (ga.get(v) ?? undefined)),
       [...ga.sqlTypes, "NULL"]
     );
-  },
+  }
 
   // Primitive Instances
-  string: _getString,
-  number: _getNumber,
-  int: _getInt,
-  bigint: _getBigint,
-  boolean: _getBoolean,
-  date: _getDate,
-  dateOnly: _getDateOnly,
-  uuid: _getUuid,
-  json: _getJson,
-  buffer: _getBuffer,
+  export const string = _getString;
+  export const number = _getNumber;
+  export const int = _getInt;
+  export const bigint = _getBigint;
+  export const boolean = _getBoolean;
+  export const date = _getDate;
+  export const dateOnly = _getDateOnly;
+  export const uuid = _getUuid;
+  export const json = _getJson;
+  export const buffer = _getBuffer;
 
   /** Get instance for typed JSON */
-  jsonAs<A>(): Get<A> {
+  export function jsonAs<A>(): Get<A> {
     return _getJson as Get<A>;
-  },
+  }
 
   /** Get instance for arrays */
-  array<A>(element: Get<A>): Get<A[]> {
+  export function array<A>(element: Get<A>): Get<A[]> {
     return makeGet(
       (v: unknown) => {
         if (v === null) return null;
@@ -316,8 +316,8 @@ export const Get = {
       },
       ["ARRAY"]
     );
-  },
-} as const;
+  }
+}
 
 // ============================================================================
 // Put Typeclass — Write a single column value
@@ -366,47 +366,47 @@ const _putJson: Put<unknown> = makePut((v: unknown) => JSON.stringify(v), "JSONB
 const _putBuffer: Put<Buffer> = makePut((v: Buffer) => v, "BYTEA");
 
 /** Put typeclass companion with constructors and combinators */
-export const Put = {
+export namespace Put {
   /** Create a Put instance from an encoder function. */
-  make: makePut,
+  export const make = makePut;
 
   /** Contravariant contramap — transform the input type. */
-  contramap<A, B>(pa: Put<A>, f: (b: B) => A): Put<B> {
+  export function contramap<A, B>(pa: Put<A>, f: (b: B) => A): Put<B> {
     return makePut((b: B) => pa.put(f(b)), pa.sqlType);
-  },
+  }
 
   /** Make a Put nullable. */
-  nullable<A>(pa: Put<A>): Put<A | null> {
+  export function nullable<A>(pa: Put<A>): Put<A | null> {
     return makePut((v: A | null) => (v === null ? null : pa.put(v)), pa.sqlType);
-  },
+  }
 
   /** Make a Put optional. */
-  optional<A>(pa: Put<A>): Put<A | undefined> {
+  export function optional<A>(pa: Put<A>): Put<A | undefined> {
     return makePut((v: A | undefined) => (v === undefined ? null : pa.put(v)), pa.sqlType);
-  },
+  }
 
   // Primitive Instances
-  string: _putString,
-  number: _putNumber,
-  int: _putInt,
-  bigint: _putBigint,
-  boolean: _putBoolean,
-  date: _putDate,
-  dateOnly: _putDateOnly,
-  uuid: _putUuid,
-  json: _putJson,
-  buffer: _putBuffer,
+  export const string = _putString;
+  export const number = _putNumber;
+  export const int = _putInt;
+  export const bigint = _putBigint;
+  export const boolean = _putBoolean;
+  export const date = _putDate;
+  export const dateOnly = _putDateOnly;
+  export const uuid = _putUuid;
+  export const json = _putJson;
+  export const buffer = _putBuffer;
 
   /** Put instance for typed JSON */
-  jsonAs<A>(): Put<A> {
+  export function jsonAs<A>(): Put<A> {
     return _putJson as Put<A>;
-  },
+  }
 
   /** Put instance for arrays */
-  array<A>(element: Put<A>): Put<A[]> {
+  export function array<A>(element: Put<A>): Put<A[]> {
     return makePut((v: A[]) => v.map((item: A) => element.put(item)), "ARRAY");
-  },
-} as const;
+  }
+}
 
 // ============================================================================
 // Meta Typeclass — Bidirectional single-column mapping
@@ -458,12 +458,12 @@ const _metaJson: Meta<unknown> = metaFromGetPut(_getJson, _putJson);
 const _metaBuffer: Meta<Buffer> = metaFromGetPut(_getBuffer, _putBuffer);
 
 /** Meta typeclass companion with constructors and combinators */
-export const Meta = {
+export namespace Meta {
   /** Create a Meta instance from Get and Put. */
-  fromGetPut: metaFromGetPut,
+  export const fromGetPut = metaFromGetPut;
 
   /** Create a Meta instance from decoder/encoder functions. */
-  make<A>(
+  export function make<A>(
     decode: (value: unknown) => A | null,
     encode: (value: A) => unknown,
     sqlType: SqlTypeName,
@@ -472,57 +472,57 @@ export const Meta = {
     const get = makeGet(decode, readTypes ?? [sqlType]);
     const put = makePut(encode, sqlType);
     return metaFromGetPut(get, put);
-  },
+  }
 
   /** Invariant functor imap — transform both directions. */
-  imap<A, B>(ma: Meta<A>, f: (a: A) => B, g: (b: B) => A): Meta<B> {
+  export function imap<A, B>(ma: Meta<A>, f: (a: A) => B, g: (b: B) => A): Meta<B> {
     return metaFromGetPut(
       Get.map(ma as unknown as Get<A>, f),
       Put.contramap(ma as unknown as Put<A>, g)
     );
-  },
+  }
 
   /** Make a Meta nullable. */
-  nullable<A>(ma: Meta<A>): Meta<A | null> {
+  export function nullable<A>(ma: Meta<A>): Meta<A | null> {
     return metaFromGetPut(
       Get.nullable(ma as unknown as Get<A>),
       Put.nullable(ma as unknown as Put<A>)
     );
-  },
+  }
 
   /** Make a Meta optional. */
-  optional<A>(ma: Meta<A>): Meta<A | undefined> {
+  export function optional<A>(ma: Meta<A>): Meta<A | undefined> {
     return metaFromGetPut(
       Get.optional(ma as unknown as Get<A>),
       Put.optional(ma as unknown as Put<A>)
     );
-  },
+  }
 
   /** Meta for arrays. */
-  array<A>(element: Meta<A>): Meta<A[]> {
+  export function array<A>(element: Meta<A>): Meta<A[]> {
     return metaFromGetPut(
       Get.array(element as unknown as Get<A>),
       Put.array(element as unknown as Put<A>)
     );
-  },
+  }
 
   // Primitive Instances
-  string: _metaString,
-  number: _metaNumber,
-  int: _metaInt,
-  bigint: _metaBigint,
-  boolean: _metaBoolean,
-  date: _metaDate,
-  dateOnly: _metaDateOnly,
-  uuid: _metaUuid,
-  json: _metaJson,
-  buffer: _metaBuffer,
+  export const string = _metaString;
+  export const number = _metaNumber;
+  export const int = _metaInt;
+  export const bigint = _metaBigint;
+  export const boolean = _metaBoolean;
+  export const date = _metaDate;
+  export const dateOnly = _metaDateOnly;
+  export const uuid = _metaUuid;
+  export const json = _metaJson;
+  export const buffer = _metaBuffer;
 
   /** Meta for typed JSON */
-  jsonAs<A>(): Meta<A> {
+  export function jsonAs<A>(): Meta<A> {
     return _metaJson as Meta<A>;
-  },
-} as const;
+  }
+}
 
 // ============================================================================
 // Read Typeclass — Read an entire row
@@ -578,11 +578,11 @@ export interface ColumnMapping {
 }
 
 /** Read typeclass companion with constructors and combinators */
-export const Read = {
+export namespace Read {
   /**
    * Create a Read instance from column mappings.
    */
-  make<A>(
+  export function make<A>(
     mappings: readonly ColumnMapping[],
     construct: (fields: Record<string, unknown>) => A
   ): Read<A> {
@@ -614,24 +614,24 @@ export const Read = {
         return construct(fields);
       },
     };
-  },
+  }
 
   /**
    * Create a Read for a single column.
    */
-  column<A>(name: string, get: Get<A>): Read<A> {
+  export function column<A>(name: string, get: Get<A>): Read<A> {
     return {
       _tag: "Read",
       columns: [name],
       read: (row) => get.get(row[name]),
       unsafeRead: (row) => get.unsafeGet(row[name]),
     };
-  },
+  }
 
   /**
    * Functor map — transform the output type.
    */
-  map<A, B>(ra: Read<A>, f: (a: A) => B): Read<B> {
+  export function map<A, B>(ra: Read<A>, f: (a: A) => B): Read<B> {
     return {
       _tag: "Read",
       columns: ra.columns,
@@ -641,12 +641,12 @@ export const Read = {
       },
       unsafeRead: (row) => f(ra.unsafeRead(row)),
     };
-  },
+  }
 
   /**
    * Applicative product — combine two Reads.
    */
-  product<A, B>(ra: Read<A>, rb: Read<B>): Read<[A, B]> {
+  export function product<A, B>(ra: Read<A>, rb: Read<B>): Read<[A, B]> {
     return {
       _tag: "Read",
       columns: [...ra.columns, ...rb.columns],
@@ -657,12 +657,12 @@ export const Read = {
       },
       unsafeRead: (row) => [ra.unsafeRead(row), rb.unsafeRead(row)],
     };
-  },
+  }
 
   /**
    * Combine multiple Reads into a tuple.
    */
-  tuple<T extends readonly Read<unknown>[]>(
+  export function tuple<T extends readonly Read<unknown>[]>(
     ...reads: T
   ): Read<{ [K in keyof T]: T[K] extends Read<infer A> ? A : never }> {
     type Result = { [K in keyof T]: T[K] extends Read<infer A> ? A : never };
@@ -680,30 +680,30 @@ export const Read = {
       },
       unsafeRead: (row) => reads.map((r) => r.unsafeRead(row)) as Result,
     };
-  },
+  }
 
   /**
    * Make a Read optional.
    */
-  optional<A>(ra: Read<A>): Read<A | undefined> {
+  export function optional<A>(ra: Read<A>): Read<A | undefined> {
     return {
       _tag: "Read",
       columns: ra.columns,
       read: (row) => ra.read(row) ?? undefined,
       unsafeRead: (row) => ra.read(row) ?? undefined,
     };
-  },
+  }
 
   /**
    * Unit Read — always succeeds with undefined.
    */
-  unit: {
+  export const unit = {
     _tag: "Read",
     columns: [],
     read: () => undefined,
     unsafeRead: () => undefined,
-  } as Read<void>,
-} as const;
+  } as Read<void>;
+}
 
 // ============================================================================
 // Write Typeclass — Write a value as multiple parameters
@@ -737,55 +737,55 @@ export interface Write<A> {
 }
 
 /** Write typeclass companion with constructors and combinators */
-export const Write = {
+export namespace Write {
   /**
    * Create a Write instance from field extractors.
    */
-  make<A>(columns: readonly string[], extractors: readonly ((value: A) => unknown)[]): Write<A> {
+  export function make<A>(columns: readonly string[], extractors: readonly ((value: A) => unknown)[]): Write<A> {
     return {
       _tag: "Write",
       columns,
       write: (value) => extractors.map((extract) => extract(value)),
     };
-  },
+  }
 
   /**
    * Create a Write for a single column.
    */
-  column<A>(name: string, put: Put<A>): Write<A> {
+  export function column<A>(name: string, put: Put<A>): Write<A> {
     return {
       _tag: "Write",
       columns: [name],
       write: (value) => [put.put(value)],
     };
-  },
+  }
 
   /**
    * Contravariant contramap — transform the input type.
    */
-  contramap<A, B>(wa: Write<A>, f: (b: B) => A): Write<B> {
+  export function contramap<A, B>(wa: Write<A>, f: (b: B) => A): Write<B> {
     return {
       _tag: "Write",
       columns: wa.columns,
       write: (b) => wa.write(f(b)),
     };
-  },
+  }
 
   /**
    * Combine two Writes (for tuples).
    */
-  product<A, B>(wa: Write<A>, wb: Write<B>): Write<[A, B]> {
+  export function product<A, B>(wa: Write<A>, wb: Write<B>): Write<[A, B]> {
     return {
       _tag: "Write",
       columns: [...wa.columns, ...wb.columns],
       write: ([a, b]) => [...wa.write(a), ...wb.write(b)],
     };
-  },
+  }
 
   /**
    * Combine multiple Writes.
    */
-  tuple<T extends readonly Write<unknown>[]>(
+  export function tuple<T extends readonly Write<unknown>[]>(
     ...writes: T
   ): Write<{ [K in keyof T]: T[K] extends Write<infer A> ? A : never }> {
     type Input = { [K in keyof T]: T[K] extends Write<infer A> ? A : never };
@@ -794,17 +794,17 @@ export const Write = {
       columns: writes.flatMap((w) => w.columns),
       write: (values: Input) => writes.flatMap((w, i) => w.write((values as unknown[])[i])),
     };
-  },
+  }
 
   /**
    * Unit Write — produces no parameters.
    */
-  unit: {
+  export const unit = {
     _tag: "Write",
     columns: [],
     write: () => [],
-  } as Write<void>,
-} as const;
+  } as Write<void>;
+}
 
 // ============================================================================
 // Codec Typeclass — Bidirectional row-level mapping
@@ -820,11 +820,11 @@ export interface Codec<A> extends Omit<Read<A>, "_tag">, Omit<Write<A>, "_tag"> 
 }
 
 /** Codec typeclass companion */
-export const Codec = {
+export namespace Codec {
   /**
    * Create a Codec from Read and Write.
    */
-  fromReadWrite<A>(read: Read<A>, write: Write<A>): Codec<A> {
+  export function fromReadWrite<A>(read: Read<A>, write: Write<A>): Codec<A> {
     return {
       _tag: "Codec",
       read: read.read,
@@ -832,18 +832,18 @@ export const Codec = {
       columns: read.columns,
       write: write.write,
     };
-  },
+  }
 
   /**
    * Invariant functor imap.
    */
-  imap<A, B>(ca: Codec<A>, f: (a: A) => B, g: (b: B) => A): Codec<B> {
+  export function imap<A, B>(ca: Codec<A>, f: (a: A) => B, g: (b: B) => A): Codec<B> {
     return Codec.fromReadWrite(
       Read.map(ca as unknown as Read<A>, f),
       Write.contramap(ca as unknown as Write<A>, g)
     );
-  },
-} as const;
+  }
+}
 
 // ============================================================================
 // Type-Level Utilities

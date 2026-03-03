@@ -1078,8 +1078,10 @@ export const typeclassAttribute = defineAttributeMacro({
       registerTypeclassSyntax(tcName, syntax);
     }
 
+    const isExported = target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+
     // Generate the companion namespace with utility functions
-    const companionCode = generateCompanionNamespace(ctx, tcInfo);
+    const companionCode = generateCompanionNamespace(ctx, tcInfo, isExported);
 
     // Generate extension method helpers
     const extensionCode = generateExtensionHelpers(tcInfo);
@@ -1105,15 +1107,16 @@ export const typeclassAttribute = defineAttributeMacro({
  *     def derived[A](using Mirror.ProductOf[A]): Show[A] = ...
  *   }
  */
-function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo): string {
+function generateCompanionNamespace(ctx: MacroContext, tc: TypeclassInfo, isExported: boolean): string {
   const { name } = tc;
   const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
+  const exportModifier = isExported ? "export " : "";
 
   return `
 // Typeclass instance registry for ${name}
 const ${registryVar}: Map<string, ${name}<any>> = /*#__PURE__*/ new Map();
 
-namespace ${name} {
+${exportModifier}namespace ${name} {
   /** Register an instance of ${name} for type T */
   export function registerInstance<T>(typeName: string, instance: ${name}<T>): void {
     ${registryVar}.set(typeName, instance);
