@@ -1,20 +1,24 @@
 /**
  * Tests for decorator-rewrite extension
+ *
+ * Decorators are rewritten to JSDoc comments so everything flows through
+ * the single JSDoc macro path in the transformer.
  */
 import { describe, it, expect } from "vitest";
 import { preprocess } from "../src/preprocess.js";
 
 describe("decorator-rewrite extension", () => {
-  describe("@instance on const/let/var", () => {
-    it("rewrites @instance on const with object literal", () => {
+  describe("@instance on const/let/var → /** @impl */", () => {
+    it("rewrites @instance to /** @impl */ JSDoc", () => {
       const source = `@instance("Eq<Point>")
 const pointEq = { equals: (a, b) => a.x === b.x && a.y === b.y };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Point>",');
-      expect(result.code).toContain("equals:");
+      expect(result.code).toContain("/** @impl Eq<Point> */");
+      expect(result.code).toContain("const pointEq =");
       expect(result.code).not.toContain("@instance");
+      expect(result.code).not.toContain("instance(");
     });
 
     it("rewrites @instance with export", () => {
@@ -23,8 +27,8 @@ export const userShow = { show: (u) => u.name };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
+      expect(result.code).toContain("/** @impl Show<User> */");
       expect(result.code).toContain("export const userShow =");
-      expect(result.code).toContain('instance("Show<User>",');
       expect(result.code).not.toContain("@instance");
     });
 
@@ -34,8 +38,8 @@ const pointOrd: Ord<Point> = { compare: (a, b) => a.x - b.x };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
+      expect(result.code).toContain("/** @impl Ord<Point> */");
       expect(result.code).toContain("const pointOrd: Ord<Point> =");
-      expect(result.code).toContain('instance("Ord<Point>",');
     });
 
     it("rewrites @instance on let", () => {
@@ -44,8 +48,8 @@ let pointEq = { equals: (a, b) => true };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
+      expect(result.code).toContain("/** @impl Eq<Point> */");
       expect(result.code).toContain("let pointEq =");
-      expect(result.code).toContain('instance("Eq<Point>",');
     });
 
     it("rewrites @instance on var", () => {
@@ -54,52 +58,20 @@ var pointEq = { equals: (a, b) => true };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
+      expect(result.code).toContain("/** @impl Eq<Point> */");
       expect(result.code).toContain("var pointEq =");
-      expect(result.code).toContain('instance("Eq<Point>",');
     });
 
-    it("handles multiple @instance decorators by nesting", () => {
+    it("handles multiple @instance decorators", () => {
       const source = `@instance("Eq<Color>")
 @instance("Show<Color>")
 const colorInstances = { equals: (a, b) => true, show: (c) => c.name };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Color>", instance("Show<Color>",');
+      expect(result.code).toContain("/** @impl Eq<Color> */");
+      expect(result.code).toContain("/** @impl Show<Color> */");
       expect(result.code).not.toContain("@instance");
-    });
-
-    it("handles multi-line object literal initializer", () => {
-      const source = `@instance("Eq<Point>")
-const pointEq = {
-  equals: (a: Point, b: Point): boolean => {
-    return a.x === b.x && a.y === b.y;
-  }
-};`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Point>",');
-      expect(result.code).toContain("equals:");
-      expect(result.code).toContain("return a.x === b.x && a.y === b.y;");
-    });
-
-    it("handles function call initializer", () => {
-      const source = `@instance("Eq<Point>")
-const pointEq = createEqInstance<Point>();`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Point>", createEqInstance<Point>())');
-    });
-
-    it("handles arrow function initializer", () => {
-      const source = `@instance("Functor<Array>")
-const arrayFunctor = { map: (fa, f) => fa.map(f) };`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Functor<Array>",');
     });
 
     it("preserves code after the declaration", () => {
@@ -122,13 +94,44 @@ const colorEq = { equals: () => false };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Point>",');
-      expect(result.code).toContain('instance("Eq<Color>",');
+      expect(result.code).toContain("/** @impl Eq<Point> */");
+      expect(result.code).toContain("/** @impl Eq<Color> */");
+    });
+
+    it("does not modify the initializer", () => {
+      const source = `@instance("Eq<Point>")
+const pointEq = { equals: (a, b) => a.x === b.x && a.y === b.y };`;
+      const result = preprocess(source);
+
+      expect(result.code).toContain("{ equals: (a, b) => a.x === b.x && a.y === b.y }");
+      expect(result.code).not.toContain("instance(");
     });
   });
 
-  describe("@typeclass on interface", () => {
-    it("rewrites @typeclass on interface without args", () => {
+  describe("@impl on const/let/var → /** @impl */", () => {
+    it("rewrites @impl to /** @impl */ JSDoc", () => {
+      const source = `@impl("Eq<Point>")
+const pointEq = { equals: (a, b) => a.x === b.x };`;
+      const result = preprocess(source);
+
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain("/** @impl Eq<Point> */");
+      expect(result.code).not.toContain('@impl("');
+    });
+
+    it("rewrites @impl with export", () => {
+      const source = `@impl("Show<User>")
+export const userShow = { show: (u) => u.name };`;
+      const result = preprocess(source);
+
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain("/** @impl Show<User> */");
+      expect(result.code).toContain("export const userShow =");
+    });
+  });
+
+  describe("@typeclass on interface → /** @typeclass */", () => {
+    it("rewrites @typeclass without args", () => {
       const source = `@typeclass
 interface Eq<A> {
   equals(a: A, b: A): boolean;
@@ -136,9 +139,10 @@ interface Eq<A> {
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).not.toContain("@typeclass");
+      expect(result.code).toContain("/** @typeclass */");
       expect(result.code).toContain("interface Eq<A>");
-      expect(result.code).toContain('typeclass("Eq");');
+      expect(result.code).not.toContain("@typeclass\n");
+      expect(result.code).not.toContain('typeclass("Eq")');
     });
 
     it("rewrites @typeclass with args", () => {
@@ -149,8 +153,8 @@ interface Eq<A> {
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).not.toContain("@typeclass");
-      expect(result.code).toContain('typeclass("Eq", { ops: { "===": "equals" } });');
+      expect(result.code).toContain('/** @typeclass { ops: { "===": "equals" } } */');
+      expect(result.code).not.toContain('typeclass("Eq"');
     });
 
     it("rewrites @typeclass with export", () => {
@@ -161,9 +165,9 @@ export interface Show<A> {
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).not.toContain("@typeclass");
+      expect(result.code).toContain("/** @typeclass */");
       expect(result.code).toContain("export interface Show<A>");
-      expect(result.code).toContain('typeclass("Show");');
+      expect(result.code).not.toContain('typeclass("Show")');
     });
 
     it("rewrites @typeclass on interface with extends", () => {
@@ -174,36 +178,8 @@ interface Ord<A> extends Eq<A> {
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).not.toContain("@typeclass");
+      expect(result.code).toContain("/** @typeclass */");
       expect(result.code).toContain("interface Ord<A> extends Eq<A>");
-      expect(result.code).toContain('typeclass("Ord");');
-    });
-
-    it("rewrites @typeclass on interface with multiple type params", () => {
-      const source = `@typeclass
-interface Bifunctor<F> {
-  bimap<A, B, C, D>(fa: F, f: (a: A) => B, g: (c: C) => D): F;
-}`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain('typeclass("Bifunctor");');
-    });
-
-    it("handles multi-line interface body", () => {
-      const source = `@typeclass({ ops: { "+": "concat" } })
-interface Semigroup<A> {
-  concat(a: A, b: A): A;
-  
-  // Helper method
-  combineAll(as: A[]): A;
-}`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain("concat(a: A, b: A): A;");
-      expect(result.code).toContain("combineAll(as: A[]): A;");
-      expect(result.code).toContain('typeclass("Semigroup", { ops: { "+": "concat" } });');
     });
 
     it("preserves code after the interface", () => {
@@ -232,8 +208,8 @@ interface Ord<A> extends Eq<A> {
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain('typeclass("Eq");');
-      expect(result.code).toContain('typeclass("Ord", { ops: { "<": "lessThan" } });');
+      expect(result.code).toContain("/** @typeclass */");
+      expect(result.code).toContain('/** @typeclass { ops: { "<": "lessThan" } } */');
     });
   });
 
@@ -249,8 +225,8 @@ const pointEq = { equals: (a, b) => a.x === b.x };`;
       const result = preprocess(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain('typeclass("Eq");');
-      expect(result.code).toContain('instance("Eq<Point>",');
+      expect(result.code).toContain("/** @typeclass */");
+      expect(result.code).toContain("/** @impl Eq<Point> */");
     });
   });
 
@@ -268,27 +244,6 @@ const oldFn = () => {};`;
       const result = preprocess(source);
 
       expect(result.code).toContain("@deprecated");
-    });
-
-    it("handles nested braces in initializer", () => {
-      const source = `@instance("Eq<Config>")
-const configEq = { equals: (a, b) => { const x = { y: 1 }; return a.id === b.id; } };`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain('instance("Eq<Config>",');
-      expect(result.code).toContain("const x = { y: 1 }");
-    });
-
-    it("handles nested parens in initializer", () => {
-      const source = `@instance("Eq<Point>")
-const pointEq = createEq((a, b) => (a.x === b.x) && (a.y === b.y));`;
-      const result = preprocess(source);
-
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain(
-        'instance("Eq<Point>", createEq((a, b) => (a.x === b.x) && (a.y === b.y)))'
-      );
     });
   });
 });

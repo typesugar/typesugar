@@ -1,37 +1,24 @@
 /**
  * Decorator rewrite syntax extension
  *
- * @deprecated For typeclass-related decorators, prefer JSDoc syntax instead.
- * JSDoc tags work without the preprocessor and provide better tooling support:
+ * Rewrites decorator syntax to JSDoc comments so everything flows through
+ * the single JSDoc macro path in the transformer (tryExpandJSDocMacros).
  *
- * **Preferred JSDoc syntax:**
- * ```typescript
- * /** @typeclass *\/
- * interface Eq<A> {
- *   /** @op === *\/
- *   eq(a: A, b: A): boolean;
- * }
+ * Supported decorators:
  *
- * /** @impl Eq<Point> *\/
- * export const pointEq: Eq<Point> = { ... };
- * ```
- *
- * **Legacy decorator patterns (still supported via this extension):**
- *
- * 1. @impl (or @instance) on const/let/var:
+ * 1. @impl("Eq<Point>") or @instance("Eq<Point>") on const/let/var:
  *    @impl("Eq<Point>")
  *    export const pointEq: Eq<Point> = { ... };
  *    -->
- *    export const pointEq: Eq<Point> = impl("Eq<Point>", { ... });
- *
- *    Note: @instance is a deprecated alias for @impl
+ *    /** @impl Eq<Point> *\/
+ *    export const pointEq: Eq<Point> = { ... };
  *
  * 2. @typeclass on interface:
  *    @typeclass
  *    export interface Eq<A> { ... }
  *    -->
+ *    /** @typeclass *\/
  *    export interface Eq<A> { ... }
- *    typeclass("Eq");
  */
 
 import * as ts from "typescript";
@@ -45,10 +32,9 @@ interface InstanceDecorator {
   arg: string;
 }
 
-interface InstanceDeclaration {
+interface ImplDeclaration {
   decorators: InstanceDecorator[];
-  initializerStart: number;
-  initializerEnd: number;
+  declStart: number;
 }
 
 interface TypeclassDecorator {
@@ -70,52 +56,30 @@ export const decoratorRewriteExtension: SyntaxExtension = {
     const tokens = stream.getTokens();
     const replacements: Replacement[] = [];
 
-    const instanceDeclarations = findInstanceDeclarations(tokens, source);
+    const implDeclarations = findImplDeclarations(tokens, source);
     const typeclassDeclarations = findTypeclassDeclarations(tokens, source);
 
-    for (const decl of instanceDeclarations) {
-      const initializerText = source.slice(decl.initializerStart, decl.initializerEnd);
-
-      // Decorators apply bottom-up (closest to declaration first), so reverse the order
-      // @A @B const x = v  ->  const x = A(B(v))
-      // decorators array is [A, B], we want to wrap B first (inner), then A (outer)
-      let wrappedText = initializerText;
-      const reversed = [...decl.decorators].reverse();
-      for (const decorator of reversed) {
-        wrappedText = `instance(${decorator.arg}, ${wrappedText})`;
-      }
-
+    for (const decl of implDeclarations) {
       for (const decorator of decl.decorators) {
+        const implArg = stripStringQuotes(decorator.arg);
         replacements.push({
           start: decorator.atPos,
           end: decorator.endPos,
-          text: "",
+          text: `/** @impl ${implArg} */`,
         });
       }
-
-      replacements.push({
-        start: decl.initializerStart,
-        end: decl.initializerEnd,
-        text: wrappedText,
-      });
     }
 
     for (const decl of typeclassDeclarations) {
+      const jsdoc =
+        decl.decorator.args !== null
+          ? `/** @typeclass ${decl.decorator.args} */`
+          : `/** @typeclass */`;
+
       replacements.push({
         start: decl.decorator.atPos,
         end: decl.decorator.endPos,
-        text: "",
-      });
-
-      const typeclassCall =
-        decl.decorator.args !== null
-          ? `\ntypeclass("${decl.interfaceName}", ${decl.decorator.args});`
-          : `\ntypeclass("${decl.interfaceName}");`;
-
-      replacements.push({
-        start: decl.interfaceEndPos,
-        end: decl.interfaceEndPos,
-        text: typeclassCall,
+        text: jsdoc,
       });
     }
 
@@ -123,12 +87,12 @@ export const decoratorRewriteExtension: SyntaxExtension = {
   },
 };
 
-function findInstanceDeclarations(tokens: readonly Token[], source: string): InstanceDeclaration[] {
-  const declarations: InstanceDeclaration[] = [];
+function findImplDeclarations(tokens: readonly Token[], source: string): ImplDeclaration[] {
+  const declarations: ImplDeclaration[] = [];
   let i = 0;
 
   while (i < tokens.length) {
-    const decorators = collectInstanceDecorators(tokens, i, source);
+    const decorators = collectImplDecorators(tokens, i, source);
     if (decorators.length === 0) {
       i++;
       continue;
@@ -169,55 +133,20 @@ function findInstanceDeclarations(tokens: readonly Token[], source: string): Ins
       continue;
     }
 
-    let j = declStart + 1;
-    if (j >= tokens.length || tokens[j].kind !== ts.SyntaxKind.Identifier) {
-      i++;
-      continue;
-    }
-    j++;
-
-    if (j < tokens.length && tokens[j].kind === ts.SyntaxKind.ColonToken) {
-      j++;
-      const typeEnd = skipTypeAnnotation(tokens, j);
-      if (typeEnd === -1) {
-        i++;
-        continue;
-      }
-      j = typeEnd;
-    }
-
-    if (j >= tokens.length || tokens[j].kind !== ts.SyntaxKind.EqualsToken) {
-      i++;
-      continue;
-    }
-    j++;
-
-    if (j >= tokens.length) {
-      i++;
-      continue;
-    }
-
-    const initializerStart = tokens[j].start;
-    const initializerEnd = findInitializerEnd(tokens, j, source);
-    if (initializerEnd === -1) {
-      i++;
-      continue;
-    }
-
     declarations.push({
       decorators,
-      initializerStart,
-      initializerEnd,
+      declStart,
     });
 
-    const endTokenIndex = findTokenIndexAt(tokens, initializerEnd);
-    i = endTokenIndex !== -1 ? endTokenIndex + 1 : tokens.length;
+    i = declStart + 1;
   }
 
   return declarations;
 }
 
-function collectInstanceDecorators(
+const IMPL_DECORATOR_NAMES = new Set(["impl", "instance"]);
+
+function collectImplDecorators(
   tokens: readonly Token[],
   startIndex: number,
   source: string
@@ -226,7 +155,7 @@ function collectInstanceDecorators(
   let i = startIndex;
 
   while (i < tokens.length) {
-    const decorator = tryParseInstanceDecorator(tokens, i, source);
+    const decorator = tryParseImplDecorator(tokens, i, source);
     if (decorator === null) {
       break;
     }
@@ -240,7 +169,7 @@ function collectInstanceDecorators(
   return decorators;
 }
 
-function tryParseInstanceDecorator(
+function tryParseImplDecorator(
   tokens: readonly Token[],
   index: number,
   source: string
@@ -254,7 +183,7 @@ function tryParseInstanceDecorator(
   if (identIndex >= tokens.length) return null;
 
   const identToken = tokens[identIndex];
-  if (identToken.kind !== ts.SyntaxKind.Identifier || identToken.text !== "instance") return null;
+  if (identToken.kind !== ts.SyntaxKind.Identifier || !IMPL_DECORATOR_NAMES.has(identToken.text)) return null;
 
   const parenIndex = identIndex + 1;
   if (parenIndex >= tokens.length) return null;
@@ -274,6 +203,13 @@ function tryParseInstanceDecorator(
     endPos: tokens[closeParenIndex].end,
     arg,
   };
+}
+
+function stripStringQuotes(s: string): string {
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
 }
 
 function findTypeclassDeclarations(
@@ -407,102 +343,6 @@ function tryParseTypeclassDecorator(
     endPos: tokens[closeParenIndex].end,
     args: args.length > 0 ? args : null,
   };
-}
-
-function skipTypeAnnotation(tokens: readonly Token[], startIndex: number): number {
-  let depth = 0;
-  let i = startIndex;
-
-  while (i < tokens.length) {
-    const t = tokens[i];
-
-    if (
-      t.kind === ts.SyntaxKind.OpenParenToken ||
-      t.kind === ts.SyntaxKind.OpenBracketToken ||
-      t.kind === ts.SyntaxKind.OpenBraceToken ||
-      t.kind === ts.SyntaxKind.LessThanToken
-    ) {
-      depth++;
-      i++;
-      continue;
-    }
-
-    if (
-      t.kind === ts.SyntaxKind.CloseParenToken ||
-      t.kind === ts.SyntaxKind.CloseBracketToken ||
-      t.kind === ts.SyntaxKind.CloseBraceToken ||
-      t.kind === ts.SyntaxKind.GreaterThanToken
-    ) {
-      if (depth > 0) {
-        depth--;
-        i++;
-        continue;
-      }
-    }
-
-    if (depth === 0 && t.kind === ts.SyntaxKind.EqualsToken) {
-      return i;
-    }
-
-    if (
-      depth === 0 &&
-      (t.kind === ts.SyntaxKind.SemicolonToken || t.kind === ts.SyntaxKind.CommaToken)
-    ) {
-      return i;
-    }
-
-    i++;
-  }
-
-  return -1;
-}
-
-function findInitializerEnd(tokens: readonly Token[], startIndex: number, _source: string): number {
-  let depth = 0;
-  let i = startIndex;
-  let lastEnd = -1;
-
-  while (i < tokens.length) {
-    const t = tokens[i];
-
-    if (
-      t.kind === ts.SyntaxKind.OpenParenToken ||
-      t.kind === ts.SyntaxKind.OpenBracketToken ||
-      t.kind === ts.SyntaxKind.OpenBraceToken
-    ) {
-      depth++;
-      lastEnd = t.end;
-      i++;
-      continue;
-    }
-
-    if (
-      t.kind === ts.SyntaxKind.CloseParenToken ||
-      t.kind === ts.SyntaxKind.CloseBracketToken ||
-      t.kind === ts.SyntaxKind.CloseBraceToken
-    ) {
-      if (depth > 0) {
-        depth--;
-        lastEnd = t.end;
-        i++;
-        continue;
-      }
-      return lastEnd !== -1 ? lastEnd : t.start;
-    }
-
-    if (depth === 0 && t.kind === ts.SyntaxKind.SemicolonToken) {
-      return lastEnd !== -1 ? lastEnd : t.start;
-    }
-
-    if (depth === 0 && t.kind === ts.SyntaxKind.CommaToken) {
-      return lastEnd !== -1 ? lastEnd : t.start;
-    }
-
-    lastEnd = t.end;
-    i++;
-  }
-
-  return lastEnd;
 }
 
 function findMatchingParen(tokens: readonly Token[], openIndex: number): number {
