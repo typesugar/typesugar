@@ -161,7 +161,8 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     }
 
     // Look up the FlatMap instance in unified registry
-    if (!hasFlatMapInstance(typeConstructorName)) {
+    const sfn = ctx.sourceFile.fileName;
+    if (!hasFlatMapInstance(typeConstructorName, sfn)) {
       ctx.reportError(
         firstBind.effect,
         `No FlatMap instance registered for '${typeConstructorName}'. ` +
@@ -171,7 +172,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     }
 
     // Determine method names from unified registry
-    const methods = getFlatMapMethodNames(typeConstructorName);
+    const methods = getFlatMapMethodNames(typeConstructorName, sfn);
 
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;

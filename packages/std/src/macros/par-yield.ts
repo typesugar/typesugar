@@ -180,7 +180,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     }
 
     // Check if ParCombine instance exists in unified registry
-    if (!hasParCombineInstance(typeConstructorName)) {
+    if (!hasParCombineInstance(typeConstructorName, ctx.sourceFile.fileName)) {
       // Fall back to applicative chain if no ParCombine instance
       const result = buildApplicativeChain(ctx, steps, returnExpr);
       return factory.createExpressionStatement(result);
