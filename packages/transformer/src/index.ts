@@ -1781,6 +1781,12 @@ class MacroTransformer {
       return true;
     }
 
+    // Reverse: macros registered under "typesugar" (umbrella) should match
+    // when imported from any @typesugar/* sub-package
+    if (macroModule === "typesugar" && importedModule.startsWith("@typesugar/")) {
+      return true;
+    }
+
     // @typesugar/* packages should match their package name AND legacy aliases
     if (importedModule.startsWith("@typesugar/")) {
       const pkgName = importedModule.slice("@typesugar/".length);

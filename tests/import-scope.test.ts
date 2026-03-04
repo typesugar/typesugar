@@ -223,6 +223,46 @@ describe("Import-scoped macro resolution - Registry", () => {
   });
 });
 
+describe("Module matching - umbrella ↔ sub-package", () => {
+  it("should expand macros with module 'typesugar' when imported from @typesugar/* sub-package", async () => {
+    const { transformCode } = await import("@typesugar/transformer");
+
+    const code = `
+import { comptime } from "@typesugar/comptime";
+const buildTime = comptime(new Date().toISOString());
+    `.trim();
+
+    const result = transformCode(code, { fileName: "sub-pkg-import.ts" });
+    expect(result.code).not.toContain("comptime(");
+    expect(result.code).toContain("const buildTime =");
+  });
+
+  it("should expand macros with module 'typesugar' when imported from 'typesugar' umbrella", async () => {
+    const { transformCode } = await import("@typesugar/transformer");
+
+    const code = `
+import { comptime } from "typesugar";
+const x = comptime(() => 2 + 3);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "umbrella-import.ts" });
+    expect(result.code).not.toContain("comptime(");
+    expect(result.code).toContain("const x = 5");
+  });
+
+  it("should NOT expand macros when imported from an unrelated package", async () => {
+    const { transformCode } = await import("@typesugar/transformer");
+
+    const code = `
+import { comptime } from "some-other-package";
+const x = comptime(() => 1 + 1);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "wrong-pkg-import.ts" });
+    expect(result.code).toContain("comptime(");
+  });
+});
+
 describe("Built-in macros have module field", () => {
   // Verify that all built-in macros from the typesugar package
   // declare their module for import-scoped resolution
