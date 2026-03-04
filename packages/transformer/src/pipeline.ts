@@ -75,6 +75,15 @@ export interface PipelineOptions {
   diskCache?: boolean | string;
   /** Enable strict mode - typecheck expanded output for macro bugs */
   strict?: boolean;
+  /**
+   * Preserve blank lines from the original source in the output.
+   *
+   * TypeScript's printer strips blank lines when re-printing the AST.
+   * When true, the output is post-processed to restore blank lines at
+   * their original positions, making diffs between original and expanded
+   * code much more readable.
+   */
+  preserveBlankLines?: boolean;
 }
 
 /**
@@ -626,7 +635,10 @@ export class TransformationPipeline {
       profiler.start("printFile");
       const printStart = PROFILING_ENABLED ? performance.now() : 0;
       const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-      const transformed = printer.printFile(transformedSourceFile);
+      let transformed = printer.printFile(transformedSourceFile);
+      if (this.options.preserveBlankLines) {
+        transformed = restoreBlankLines(originalCode, transformed);
+      }
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");
 
@@ -884,4 +896,54 @@ export function transformCode(
       f === fileName || f === (options?.fileName ?? "input.ts") || ts.sys.fileExists(f),
   });
   return pipeline.transform(fileName);
+}
+
+/**
+ * Restore blank lines that TypeScript's printer strips.
+ *
+ * Uses a greedy two-pointer alignment: walks the printed output and the
+ * original source together, re-inserting blank lines from the original
+ * whenever the surrounding content lines match up. Lines that were
+ * replaced by macro expansion (no match in original) pass through as-is.
+ */
+export function restoreBlankLines(original: string, printed: string): string {
+  const origLines = original.split("\n");
+  const printedLines = printed.split("\n");
+  const result: string[] = [];
+  const MAX_LOOKAHEAD = 30;
+
+  let oi = 0;
+
+  for (let ti = 0; ti < printedLines.length; ti++) {
+    const tTrimmed = printedLines[ti].trim();
+
+    // Printed blank lines pass through unchanged
+    if (tTrimmed === "") {
+      result.push(printedLines[ti]);
+      continue;
+    }
+
+    // Try to find a matching content line in the original within a window
+    let matchOffset = -1;
+    for (let look = 0; look < MAX_LOOKAHEAD && oi + look < origLines.length; look++) {
+      if (origLines[oi + look].trim() === tTrimmed) {
+        matchOffset = look;
+        break;
+      }
+    }
+
+    if (matchOffset >= 0) {
+      // Emit blank lines from the skipped region in the original
+      for (let j = 0; j < matchOffset; j++) {
+        if (origLines[oi + j].trim() === "") {
+          result.push("");
+        }
+      }
+      oi += matchOffset + 1;
+    }
+
+    result.push(printedLines[ti]);
+  }
+
+  return result.join("\n");
 }

@@ -4498,6 +4498,7 @@ export {
   TransformationPipeline,
   createPipeline,
   transformCode,
+  restoreBlankLines,
   type TransformResult,
   type TransformDiagnostic,
   type PipelineOptions,
