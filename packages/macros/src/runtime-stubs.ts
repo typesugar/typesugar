@@ -288,15 +288,35 @@ export function implicit<T>(): T {
 // ============================================================================
 
 /**
+ * Permissions that can be granted to comptime blocks.
+ * By default, comptime blocks run in a restricted sandbox with no I/O access.
+ */
+export interface ComptimePermissions {
+  fs?: boolean | "read" | "write";
+  env?: boolean | "read";
+  net?: boolean | string[];
+  time?: boolean;
+}
+
+/**
  * Execute code at compile time and inline the result.
+ *
+ * Three calling conventions:
+ * - `comptime(() => expr)` — evaluate a thunk at compile time
+ * - `comptime(expr)` — evaluate a bare expression at compile time
+ * - `comptime(permissions, () => expr)` — evaluate with sandbox permissions
  *
  * @example
  * ```typescript
  * const hash = comptime(() => computeHash(source));
- * // Result is computed at compile time and inlined as a literal
+ * const buildTime = comptime(new Date().toISOString());
+ * const data = comptime({ fs: 'read' }, () => readFileSync('./data.json', 'utf8'));
  * ```
  */
-export function comptime<T>(_fn: () => T): T {
+export function comptime<T>(fn: () => T): T;
+export function comptime<T>(permissions: ComptimePermissions, fn: () => T): T;
+export function comptime<T>(expr: T): T;
+export function comptime(..._args: unknown[]): unknown {
   throw new Error("comptime() must be processed by the typesugar transformer at compile time");
 }
 
