@@ -1,0 +1,66 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "scopeName": "source.sts.sugared-syntax",
+  "injectionSelector": "L:source.sts, L:source.stsx",
+  "patterns": [
+    {
+      "$comment": "Pipe operator: |> — transforms to function application"
+    },
+    {
+      "name": "keyword.operator.pipe.typesugar",
+      "match": "\\|>"
+    },
+    {
+      "$comment": "Cons operator: :: — prepends element to list"
+    },
+    {
+      "name": "keyword.operator.cons.typesugar",
+      "match": "::"
+    },
+    {
+      "$comment": "HKT placeholder: F<_> — higher-kinded type syntax"
+    },
+    {
+      "name": "meta.type.hkt.typesugar",
+      "match": "([A-Z][a-zA-Z0-9]*)(<)(_)(>)",
+      "captures": {
+        "1": { "name": "entity.name.type.hkt.typesugar" },
+        "2": { "name": "punctuation.definition.typeparameters.begin.ts" },
+        "3": { "name": "variable.language.placeholder.hkt.typesugar" },
+        "4": { "name": "punctuation.definition.typeparameters.end.ts" }
+      }
+    },
+    {
+      "$comment": "HKT placeholder in function signatures: <F<_>>"
+    },
+    {
+      "name": "meta.type.hkt-param.typesugar",
+      "match": "(<)([A-Z][a-zA-Z0-9]*)(<)(_)(>)(>)",
+      "captures": {
+        "1": { "name": "punctuation.definition.typeparameters.begin.ts" },
+        "2": { "name": "entity.name.type.hkt.typesugar" },
+        "3": { "name": "punctuation.definition.typeparameters.begin.ts" },
+        "4": { "name": "variable.language.placeholder.hkt.typesugar" },
+        "5": { "name": "punctuation.definition.typeparameters.end.ts" },
+        "6": { "name": "punctuation.definition.typeparameters.end.ts" }
+      }
+    },
+    {
+      "$comment": "HKT underscore standalone — the placeholder itself"
+    },
+    {
+      "name": "variable.language.placeholder.hkt.typesugar",
+      "match": "(?<=[<,]\\s*)_(?=\\s*[>,])"
+    },
+    {
+      "$comment": "Decorator macros on interfaces (preprocessor syntax)"
+    },
+    {
+      "match": "(@)(typeclass|impl|instance)\\b",
+      "captures": {
+        "1": { "name": "punctuation.decorator.typesugar" },
+        "2": { "name": "entity.name.function.decorator.macro.typesugar" }
+      }
+    }
+  ]
+}

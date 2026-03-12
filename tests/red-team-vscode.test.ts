@@ -98,7 +98,7 @@ describe("VSCode Extension Configuration Edge Cases", () => {
 
       expect(Array.isArray(grammars)).toBe(true);
       for (const grammar of grammars) {
-        expect(grammar.scopeName).toMatch(/^[a-z]+(\.[a-z]+)+$/);
+        expect(grammar.scopeName).toMatch(/^[a-z]+(\.[a-z-]+)+$/);
         expect(grammar.path).toMatch(/^\.\/syntaxes\/.+\.json$/);
 
         const grammarFile = path.join(VSCODE_PKG_PATH, grammar.path);
@@ -106,7 +106,7 @@ describe("VSCode Extension Configuration Edge Cases", () => {
 
         if (grammar.injectTo) {
           for (const target of grammar.injectTo) {
-            expect(target).toMatch(/^source\.(ts|tsx|js|jsx)$/);
+            expect(target).toMatch(/^source\.(ts|tsx|js|jsx|sts|stsx)$/);
           }
         }
       }
@@ -190,9 +190,14 @@ describe("VSCode Extension Configuration Edge Cases", () => {
       }>;
 
       for (const scope of scopes) {
-        expect(["typescript", "typescriptreact", "javascript", "javascriptreact"]).toContain(
-          scope.language
-        );
+        expect([
+          "typescript",
+          "typescriptreact",
+          "javascript",
+          "javascriptreact",
+          "sugared-typescript",
+          "sugared-typescriptreact",
+        ]).toContain(scope.language);
 
         for (const [tokenType, tmScopes] of Object.entries(scope.scopes)) {
           expect(Array.isArray(tmScopes)).toBe(true);
@@ -229,7 +234,9 @@ describe("VSCode Extension Configuration Edge Cases", () => {
     });
 
     it("has valid injection selector", () => {
-      expect(grammar.injectionSelector).toMatch(/^L:source\.(ts|tsx)(,\s*L:source\.(ts|tsx))*$/);
+      expect(grammar.injectionSelector).toMatch(
+        /^L:source\.(ts|tsx|sts|stsx)(,\s*L:source\.(ts|tsx|sts|stsx))*$/
+      );
     });
 
     it("has valid regex patterns (no catastrophic backtracking)", () => {

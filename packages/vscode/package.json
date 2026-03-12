@@ -26,17 +26,53 @@
   ],
   "activationEvents": [
     "workspaceContains:**/typesugar.manifest.json",
-    "workspaceContains:**/node_modules/typesugar"
+    "workspaceContains:**/node_modules/typesugar",
+    "onLanguage:sugared-typescript",
+    "onLanguage:sugared-typescriptreact"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "sugared-typescript",
+        "aliases": ["Sugared TypeScript", "STS"],
+        "extensions": [".sts"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/sts-light.svg",
+          "dark": "./icons/sts-dark.svg"
+        }
+      },
+      {
+        "id": "sugared-typescriptreact",
+        "aliases": ["Sugared TypeScript React", "STSX"],
+        "extensions": [".stsx"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/stsx-light.svg",
+          "dark": "./icons/stsx-dark.svg"
+        }
+      }
+    ],
     "grammars": [
+      {
+        "language": "sugared-typescript",
+        "scopeName": "source.sts",
+        "path": "./syntaxes/sts.tmLanguage.json"
+      },
+      {
+        "language": "sugared-typescriptreact",
+        "scopeName": "source.stsx",
+        "path": "./syntaxes/stsx.tmLanguage.json"
+      },
       {
         "scopeName": "source.ts.typesugar",
         "path": "./syntaxes/typesugar.tmLanguage.json",
         "injectTo": [
           "source.ts",
-          "source.tsx"
+          "source.tsx",
+          "source.sts",
+          "source.stsx"
         ]
       },
       {
@@ -44,7 +80,17 @@
         "path": "./syntaxes/typesugar-units.tmLanguage.json",
         "injectTo": [
           "source.ts",
-          "source.tsx"
+          "source.tsx",
+          "source.sts",
+          "source.stsx"
+        ]
+      },
+      {
+        "scopeName": "source.sts.sugared-syntax",
+        "path": "./syntaxes/sts-sugared.tmLanguage.json",
+        "injectTo": [
+          "source.sts",
+          "source.stsx"
         ]
       }
     ],
@@ -98,6 +144,58 @@
     "semanticTokenScopes": [
       {
         "language": "typescript",
+        "scopes": {
+          "macro": [
+            "entity.name.function.macro.typesugar"
+          ],
+          "macroDecorator": [
+            "entity.name.function.decorator.macro.typesugar"
+          ],
+          "macroTemplate": [
+            "entity.name.tag.macro.typesugar"
+          ],
+          "extensionMethod": [
+            "entity.name.function.extension.typesugar"
+          ],
+          "deriveArg": [
+            "entity.name.type.derive.typesugar"
+          ],
+          "bindVariable": [
+            "variable.other.bind.typesugar"
+          ],
+          "comptimeBlock": [
+            "entity.name.function.comptime.typesugar"
+          ]
+        }
+      },
+      {
+        "language": "sugared-typescript",
+        "scopes": {
+          "macro": [
+            "entity.name.function.macro.typesugar"
+          ],
+          "macroDecorator": [
+            "entity.name.function.decorator.macro.typesugar"
+          ],
+          "macroTemplate": [
+            "entity.name.tag.macro.typesugar"
+          ],
+          "extensionMethod": [
+            "entity.name.function.extension.typesugar"
+          ],
+          "deriveArg": [
+            "entity.name.type.derive.typesugar"
+          ],
+          "bindVariable": [
+            "variable.other.bind.typesugar"
+          ],
+          "comptimeBlock": [
+            "entity.name.function.comptime.typesugar"
+          ]
+        }
+      },
+      {
+        "language": "sugared-typescriptreact",
         "scopes": {
           "macro": [
             "entity.name.function.macro.typesugar"

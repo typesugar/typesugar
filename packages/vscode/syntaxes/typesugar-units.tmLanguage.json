@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "scopeName": "source.ts.typesugar.units",
-  "injectionSelector": "L:source.ts, L:source.tsx",
+  "injectionSelector": "L:source.ts, L:source.tsx, L:source.sts, L:source.stsx",
   "patterns": [
     {
       "$comment": "units`<number> <unit>` — highlight the number and unit name inside units tagged templates",

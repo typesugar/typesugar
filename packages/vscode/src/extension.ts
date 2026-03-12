@@ -28,6 +28,8 @@ import { registerCommands } from "./commands.js";
 const TS_SELECTOR: vscode.DocumentSelector = [
   { language: "typescript", scheme: "file" },
   { language: "typescriptreact", scheme: "file" },
+  { language: "sugared-typescript", scheme: "file" },
+  { language: "sugared-typescriptreact", scheme: "file" },
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
