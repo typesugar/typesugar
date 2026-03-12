@@ -9,22 +9,49 @@ typesugar transforms TypeScript source code in two phases:
 1. **Lexical Preprocessing** — Text-level transformations for custom syntax (HKT, custom operators)
 2. **AST Transformation** — Macro expansion, specialization, and extension method rewriting
 
+### Extension-Based Routing
+
+The build pipeline routes files by extension:
+
+| Extension        | Preprocessor | Macro Transformer | Custom Syntax Allowed                                     |
+| ---------------- | ------------ | ----------------- | --------------------------------------------------------- |
+| `.sts` / `.stsx` | Yes          | Yes               | `F<_>`, `\|>`, `::`, `@typeclass` on interfaces           |
+| `.ts` / `.tsx`   | No           | Yes               | JSDoc only: `/** @typeclass */`, `let:`, `summon()`, etc. |
+
+This separation provides:
+
+- **Clear contract** — File extension tells you whether custom syntax is in play
+- **Ecosystem safety** — Plain `.ts` files work with any TypeScript tool
+- **Faster builds** — No regex scanning of `.ts` files for custom operators
+
 ```
-Source Code with Custom Syntax
-         │
-         ▼
-┌─────────────────────────────────┐
-│  1. PREPROCESSOR (text-level)   │
-│  - Tokenize with custom ops     │
-│  - HKT: F<_> → Kind<F, A>      │
-│  - Operators: |> → __binop__    │
-│  - Generate source map          │
-└─────────────────────────────────┘
-         │
-         ▼
-    Valid TypeScript
-         │
-         ▼
+                    ┌─────────────────┐
+                    │  Source File    │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │ Extension check (O(1))       │
+              └──────────────┬──────────────┘
+                             │
+           ┌─────────────────┴─────────────────┐
+           │                                   │
+    .sts / .stsx                        .ts / .tsx
+           │                                   │
+           ▼                                   │
+┌─────────────────────────────────┐            │
+│  1. PREPROCESSOR (text-level)   │            │
+│  - Tokenize with custom ops     │            │
+│  - HKT: F<_> → Kind<F, A>      │            │
+│  - Operators: |> → __binop__    │            │
+│  - Generate source map          │            │
+└─────────────────────────────────┘            │
+           │                                   │
+           └─────────────────┬─────────────────┘
+                             │
+                             ▼
+                    Valid TypeScript
+                             │
+                             ▼
 ┌─────────────────────────────────┐
 │  2. MACRO TRANSFORMER (AST)     │
 │  - Parse to AST via ts.Program  │
@@ -34,10 +61,23 @@ Source Code with Custom Syntax
 │  - Rewrite extension methods    │
 │  - Clean up macro imports       │
 └─────────────────────────────────┘
-         │
-         ▼
+                             │
+                             ▼
     Transformed TypeScript (JS/DTS)
 ```
+
+### Module Resolution
+
+When resolving `import { foo } from "./bar"`, the pipeline checks extensions in order:
+
+1. `bar.ts` (preferred)
+2. `bar.tsx`
+3. `bar.sts` (fallback for sugared files)
+4. `bar.stsx`
+5. `bar/index.ts`
+6. `bar/index.sts`
+
+This allows mixed projects where some files use custom syntax and others don't.
 
 ---
 

@@ -127,8 +127,13 @@ export const plugin: Plugin = {
     {
       name: "TypeSugar TypeScript",
       parsers: ["typesugar-ts"],
-      extensions: [".ts", ".tsx", ".mts", ".cts"],
-      vscodeLanguageIds: ["typescript", "typescriptreact"],
+      extensions: [".ts", ".tsx", ".mts", ".cts", ".sts", ".stsx"],
+      vscodeLanguageIds: [
+        "typescript",
+        "typescriptreact",
+        "sugared-typescript",
+        "sugared-typescriptreact",
+      ],
     },
   ],
 

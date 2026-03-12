@@ -1076,7 +1076,9 @@ export function formatExpansions(result: TransformResult, contextLines: number =
     for (let i = ch.startIdx; i < ch.endIdx; i++) {
       const edit = edits[i];
       const lineNum =
-        edit.origIdx !== undefined ? String(edit.origIdx + 1).padStart(gutterWidth) : " ".repeat(gutterWidth);
+        edit.origIdx !== undefined
+          ? String(edit.origIdx + 1).padStart(gutterWidth)
+          : " ".repeat(gutterWidth);
 
       switch (edit.kind) {
         case "equal":

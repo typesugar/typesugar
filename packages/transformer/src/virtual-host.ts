@@ -304,7 +304,10 @@ export class VirtualCompilerHost implements ts.CompilerHost {
    * 4. .js, .jsx (JavaScript)
    * 5. index files in directories
    */
-  private resolveRelativeModule(modulePath: string, baseDir: string): ts.ResolvedModule | undefined {
+  private resolveRelativeModule(
+    modulePath: string,
+    baseDir: string
+  ): ts.ResolvedModule | undefined {
     const basePath = path.resolve(baseDir, modulePath);
 
     // Extension order: standard TS first, then sugared TS, then declarations, then JS

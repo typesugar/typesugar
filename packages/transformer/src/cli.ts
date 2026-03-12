@@ -313,7 +313,8 @@ function build(options: CliOptions): void {
   let preprocessCount = 0;
 
   for (const fileName of config.fileNames) {
-    if (/\.[jt]sx?$/.test(fileName) && !/node_modules/.test(fileName)) {
+    // Include .ts, .tsx, .js, .jsx, .sts, .stsx files
+    if (/\.(([jt]sx?)|sts|stsx)$/.test(fileName) && !/node_modules/.test(fileName)) {
       try {
         const source = fs.readFileSync(fileName, "utf-8");
 
@@ -795,7 +796,7 @@ async function run(options: CliOptions): Promise<void> {
   fs.writeFileSync(tempInputFile, transformedCode);
 
   try {
-    // Create an esbuild plugin to preprocess TypeScript files
+    // Create an esbuild plugin to preprocess TypeScript files (including .sts/.stsx)
     const preprocessPlugin = {
       name: "typesugar-preprocess",
       setup(build: {
@@ -804,12 +805,16 @@ async function run(options: CliOptions): Promise<void> {
           cb: (args: { path: string }) => Promise<{ contents: string; loader: "ts" | "tsx" }>
         ) => void;
       }) {
-        build.onLoad({ filter: /\.tsx?$/ }, async (args: { path: string }) => {
+        // Match .ts, .tsx, .sts, .stsx files
+        build.onLoad({ filter: /\.(tsx?|stsx?)$/ }, async (args: { path: string }) => {
           const source = await fs.promises.readFile(args.path, "utf-8");
           const result = preprocess(source, { fileName: args.path });
           return {
             contents: result.code,
-            loader: args.path.endsWith(".tsx") ? ("tsx" as const) : ("ts" as const),
+            loader:
+              args.path.endsWith(".tsx") || args.path.endsWith(".stsx")
+                ? ("tsx" as const)
+                : ("ts" as const),
           };
         });
       },
@@ -880,7 +885,8 @@ function collectTypeScriptFiles(sources: string[]): string[] {
     const stat = fs.statSync(resolved);
 
     if (stat.isFile()) {
-      if (/\.[jt]sx?$/.test(resolved)) {
+      // Include .ts, .tsx, .js, .jsx, .sts, .stsx files
+      if (/\.(([jt]sx?)|sts|stsx)$/.test(resolved)) {
         files.push(resolved);
       }
     } else if (stat.isDirectory()) {
@@ -889,7 +895,7 @@ function collectTypeScriptFiles(sources: string[]): string[] {
         const entryPath = path.join(resolved, entry.name);
         if (entry.isDirectory() && entry.name !== "node_modules" && !entry.name.startsWith(".")) {
           files.push(...collectTypeScriptFiles([entryPath]));
-        } else if (entry.isFile() && /\.[jt]sx?$/.test(entry.name)) {
+        } else if (entry.isFile() && /\.(([jt]sx?)|sts|stsx)$/.test(entry.name)) {
           files.push(entryPath);
         }
       }

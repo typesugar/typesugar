@@ -45,11 +45,7 @@ function getLanguageVariant(fileName?: string): ts.LanguageVariant {
   if (fileName) {
     const lowerName = fileName.toLowerCase();
     // JSX variant for .tsx, .jsx, and .stsx (sugared TypeScript with JSX)
-    if (
-      lowerName.endsWith(".tsx") ||
-      lowerName.endsWith(".jsx") ||
-      lowerName.endsWith(".stsx")
-    ) {
+    if (lowerName.endsWith(".tsx") || lowerName.endsWith(".jsx") || lowerName.endsWith(".stsx")) {
       return ts.LanguageVariant.JSX;
     }
   }

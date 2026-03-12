@@ -87,13 +87,17 @@ export class ExpansionService {
   async getExpansionResult(document: vscode.TextDocument): Promise<ExpansionResult | undefined> {
     const cached = this.resultCache.get(document.uri.fsPath);
     if (cached) {
-      this.log(`getExpansionResult: cache hit for ${document.uri.fsPath}, expandedText length: ${cached.expandedText.length}`);
+      this.log(
+        `getExpansionResult: cache hit for ${document.uri.fsPath}, expandedText length: ${cached.expandedText.length}`
+      );
       return cached;
     }
 
     this.log(`getExpansionResult: cache miss, calling expandFile`);
     const result = await this.expandFile(document);
-    this.log(`getExpansionResult: expandFile returned ${result ? `result with expandedText length ${result.expandedText.length}` : "undefined"}`);
+    this.log(
+      `getExpansionResult: expandFile returned ${result ? `result with expandedText length ${result.expandedText.length}` : "undefined"}`
+    );
     return result;
   }
 
@@ -119,14 +123,18 @@ export class ExpansionService {
       }
 
       const code = document.getText();
-      this.log(`expandFile: running transformCode on ${document.uri.fsPath} (${code.length} chars)`);
+      this.log(
+        `expandFile: running transformCode on ${document.uri.fsPath} (${code.length} chars)`
+      );
 
       const transformResult = transformCode(code, {
         fileName: document.uri.fsPath,
         preserveBlankLines: true,
       });
 
-      this.log(`expandFile: transformCode returned, changed=${transformResult.changed}, code=${transformResult.code.length} chars, diagnostics=${transformResult.diagnostics?.length ?? 0}`);
+      this.log(
+        `expandFile: transformCode returned, changed=${transformResult.changed}, code=${transformResult.code.length} chars, diagnostics=${transformResult.diagnostics?.length ?? 0}`
+      );
 
       const expandedText = transformResult.changed ? transformResult.code : "";
       const focusedView =
@@ -136,7 +144,13 @@ export class ExpansionService {
 
       // Capture expansion records from the transformer
       const expansions: MacroExpansion[] = (transformResult.expansions ?? []).map(
-        (exp: { macroName: string; originalStart: number; originalEnd: number; originalText: string; expandedText: string }) => ({
+        (exp: {
+          macroName: string;
+          originalStart: number;
+          originalEnd: number;
+          originalText: string;
+          expandedText: string;
+        }) => ({
           macroName: exp.macroName,
           originalStart: exp.originalStart,
           originalEnd: exp.originalEnd,
@@ -181,7 +195,9 @@ export class ExpansionService {
       }
       return result;
     } catch (err) {
-      this.log(`expandFile error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      this.log(
+        `expandFile error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`
+      );
       return undefined;
     }
   }
@@ -277,7 +293,9 @@ export class ExpansionService {
    * Uses the TransformationPipeline for preprocessing and macro expansion.
    * Used by the "Show Transformed" command.
    */
-  async getTransformedFile(document: vscode.TextDocument): Promise<{ code: string; focusedView: string } | undefined> {
+  async getTransformedFile(
+    document: vscode.TextDocument
+  ): Promise<{ code: string; focusedView: string } | undefined> {
     try {
       const mod = await this.loadTransformer();
       if (!mod?.transformCode) return undefined;
@@ -303,7 +321,9 @@ export class ExpansionService {
 
       return { code: result.code, focusedView };
     } catch (error) {
-      this.log(`getTransformedFile error: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(
+        `getTransformedFile error: ${error instanceof Error ? error.message : String(error)}`
+      );
       return undefined;
     }
   }
@@ -338,7 +358,9 @@ export class ExpansionService {
         this.cachedTransformerModule = mod;
         return mod;
       } catch (err) {
-        this.log(`loadTransformer: failed ${candidate}: ${err instanceof Error ? err.message : String(err)}`);
+        this.log(
+          `loadTransformer: failed ${candidate}: ${err instanceof Error ? err.message : String(err)}`
+        );
         continue;
       }
     }

@@ -2,7 +2,5 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "Sugared TypeScript React",
   "scopeName": "source.stsx",
-  "patterns": [
-    { "include": "source.tsx" }
-  ]
+  "patterns": [{ "include": "source.tsx" }]
 }

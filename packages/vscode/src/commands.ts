@@ -33,11 +33,8 @@ export function registerCommands(
           }
 
           const targetUri = uri ?? editor!.document.uri;
-          const targetDoc = uri
-            ? await vscode.workspace.openTextDocument(uri)
-            : editor!.document;
-          const targetPos =
-            position ?? editor!.document.offsetAt(editor!.selection.active);
+          const targetDoc = uri ? await vscode.workspace.openTextDocument(uri) : editor!.document;
+          const targetPos = position ?? editor!.document.offsetAt(editor!.selection.active);
 
           expansion.log(`expandMacro: expanding ${targetDoc.uri.fsPath} at position ${targetPos}`);
 
@@ -50,7 +47,9 @@ export function registerCommands(
             return;
           }
 
-          expansion.log(`expandMacro: original=${expanded.original.length} chars, expanded=${expanded.expanded.length} chars`);
+          expansion.log(
+            `expandMacro: original=${expanded.original.length} chars, expanded=${expanded.expanded.length} chars`
+          );
 
           // Show expansion in peek widget (inline, no noise from other providers)
           const activeEditor = editor ?? vscode.window.activeTextEditor;
@@ -84,7 +83,7 @@ export function registerCommands(
           }
         } catch (err) {
           expansion.log(
-            `expandMacro error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`
+            `expandMacro error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`
           );
           vscode.window.showErrorMessage(
             `typesugar: ${err instanceof Error ? err.message : String(err)}`

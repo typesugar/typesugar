@@ -87,6 +87,19 @@ Once you've followed your persona guide, you may need environment-specific confi
 | ----------------- | -------------------------------------------- |
 | pnpm/Turborepo/Nx | [Monorepo Setup](./environments/monorepo.md) |
 
+## File Extensions
+
+typesugar supports two file extensions:
+
+| Extension        | Use When                                                                      |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `.ts` / `.tsx`   | JSDoc macros only (`/** @typeclass */`, `let:`, `comptime()`)                 |
+| `.sts` / `.stsx` | Custom operators (`\|>`, `::`), HKT syntax (`F<_>`), decorators on interfaces |
+
+Most typesugar features work in `.ts` files. Use `.sts` only when you need custom syntax that isn't valid TypeScript.
+
+See the [migration guide](../migration/sts-migration.md) for details.
+
 ## Additional Setup
 
 - [Editor Setup](./editor-setup.md) — VSCode extension and ESLint configuration

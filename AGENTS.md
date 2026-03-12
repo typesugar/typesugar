@@ -1,5 +1,30 @@
 # Agent Guidelines for typesugar
 
+## File Extensions: `.ts` vs `.sts`
+
+typesugar uses two file extensions based on whether custom syntax is needed:
+
+| Extension        | Preprocessor | Use When                                                                      |
+| ---------------- | ------------ | ----------------------------------------------------------------------------- |
+| `.ts` / `.tsx`   | No           | JSDoc macros only (`/** @typeclass */`, `let:`, `comptime()`, `summon()`)     |
+| `.sts` / `.stsx` | Yes          | Custom operators (`\|>`, `::`), HKT syntax (`F<_>`), decorators on interfaces |
+
+**Extension routing is automatic.** The build pipeline routes files by extension:
+
+- `.sts`/`.stsx` files ALWAYS go through the preprocessor
+- `.ts`/`.tsx` files NEVER go through the preprocessor
+
+**Module resolution is transparent.** `import { foo } from "./bar"` resolves to:
+
+1. `bar.ts` (preferred)
+2. `bar.tsx`
+3. `bar.sts` (fallback)
+4. `bar.stsx`
+5. `bar/index.ts`
+6. `bar/index.sts`
+
+**Declaration files are standard.** `.sts` files emit `.d.ts` (not `.d.sts.ts`), so consumers don't need typesugar.
+
 ## Key Principles
 
 1. **Zero-Cost or Don't Ship It** — Every abstraction must compile away to what you'd write by hand. No runtime dictionary lookups, no wrapper types, no closure allocation. If it can be done at compile time, it must be.

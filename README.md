@@ -155,6 +155,42 @@ npx ts-patch install
 }
 ```
 
+## File Extensions: `.ts` vs `.sts`
+
+typesugar supports two file extensions:
+
+| Extension        | Preprocessor | Custom Syntax                                                 |
+| ---------------- | ------------ | ------------------------------------------------------------- |
+| `.ts` / `.tsx`   | No           | JSDoc macros only (`/** @typeclass */`, `let:`, `comptime()`) |
+| `.sts` / `.stsx` | Yes          | Full syntax (`\|>`, `::`, `F<_>`, `@typeclass` on interfaces) |
+
+**Use `.ts`** for files that only use JSDoc-style macros — these work with plain `tsc` and all TypeScript tools.
+
+**Use `.sts`** for files that use custom operators or syntax that would be invalid in standard TypeScript:
+
+```typescript
+// math.sts — needs preprocessor for |> operator
+const result = data
+  |> filter(x => x > 0)
+  |> map(x => x * 2)
+  |> sum;
+
+// functor.sts — needs preprocessor for HKT syntax
+type Functor<F<_>> = {
+  map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>;
+};
+```
+
+Add `.sts` files to your tsconfig.json:
+
+```json
+{
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.sts", "src/**/*.stsx"]
+}
+```
+
+See the [migration guide](docs/migration/sts-migration.md) for details on converting existing files.
+
 ## Features
 
 ### Compile-Time Evaluation

@@ -312,13 +312,9 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
         fileExists: (f) => files.has(f),
       });
 
-      const resolved = host.resolveModuleNames(
-        ["./util"],
-        "/test/main.ts",
-        undefined,
-        undefined,
-        { target: ts.ScriptTarget.Latest }
-      );
+      const resolved = host.resolveModuleNames(["./util"], "/test/main.ts", undefined, undefined, {
+        target: ts.ScriptTarget.Latest,
+      });
 
       expect(resolved).toHaveLength(1);
       expect(resolved[0]).toBeDefined();
@@ -337,13 +333,9 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
         fileExists: (f) => files.has(f),
       });
 
-      const resolved = host.resolveModuleNames(
-        ["./util"],
-        "/test/main.ts",
-        undefined,
-        undefined,
-        { target: ts.ScriptTarget.Latest }
-      );
+      const resolved = host.resolveModuleNames(["./util"], "/test/main.ts", undefined, undefined, {
+        target: ts.ScriptTarget.Latest,
+      });
 
       expect(resolved).toHaveLength(1);
       expect(resolved[0]).toBeDefined();
@@ -353,7 +345,10 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
 
     it("should resolve .stsx files for JSX modules", () => {
       const files = new Map<string, string>();
-      files.set("/test/App.tsx", `import { Button } from "./Button";\nexport const App = () => <Button />;`);
+      files.set(
+        "/test/App.tsx",
+        `import { Button } from "./Button";\nexport const App = () => <Button />;`
+      );
       files.set("/test/Button.stsx", `export const Button = () => <button>Click me</button>;`);
 
       const host = new VirtualCompilerHost({
@@ -386,13 +381,9 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
         fileExists: (f) => files.has(f),
       });
 
-      const resolved = host.resolveModuleNames(
-        ["./lib"],
-        "/test/main.ts",
-        undefined,
-        undefined,
-        { target: ts.ScriptTarget.Latest }
-      );
+      const resolved = host.resolveModuleNames(["./lib"], "/test/main.ts", undefined, undefined, {
+        target: ts.ScriptTarget.Latest,
+      });
 
       expect(resolved).toHaveLength(1);
       expect(resolved[0]).toBeDefined();
@@ -406,10 +397,13 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
   describe("TypeScript type-checking mixed projects", () => {
     it("should transform .sts file to valid TypeScript for type checking", () => {
       const files = new Map<string, string>();
-      files.set("/test/math.sts", `
+      files.set(
+        "/test/math.sts",
+        `
         export const add = (a: number, b: number): number => a + b;
         export const piped = 5 |> ((x) => x * 2);
-      `);
+      `
+      );
 
       // Use TransformationPipeline to transform .sts file
       const pipeline = new TransformationPipeline(
@@ -446,10 +440,13 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
     it("should handle .sts files without custom syntax", () => {
       const files = new Map<string, string>();
       // This .sts file doesn't use custom syntax (no |>, ::, or F<_>)
-      files.set("/test/data.sts", `
+      files.set(
+        "/test/data.sts",
+        `
         export const value: number = 42;
         export const greet = (name: string): string => \`Hello, \${name}!\`;
-      `);
+      `
+      );
 
       // Use TransformationPipeline
       const pipeline = new TransformationPipeline(
@@ -506,7 +503,7 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
       expect(result.changed).toBe(true);
 
       // No syntax errors in the transformation diagnostics
-      const syntaxErrors = result.diagnostics.filter(d => d.severity === "error");
+      const syntaxErrors = result.diagnostics.filter((d) => d.severity === "error");
       expect(syntaxErrors).toHaveLength(0);
 
       // The preprocessed file info should be available
@@ -620,6 +617,170 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
       expect(preprocessed).toBeDefined();
       expect(preprocessed!.original).toBe(originalCode);
       expect(preprocessed!.code).not.toBe(originalCode); // Should be transformed
+    });
+  });
+});
+
+// =============================================================================
+// Wave 4: Ecosystem Integration — ESLint, Prettier, CLI
+// =============================================================================
+describe("Ecosystem integration (PEP-001 Wave 4)", () => {
+  // ==========================================================================
+  // Test 1: ESLint processor accepts .sts files
+  // ==========================================================================
+  describe("ESLint processor accepts .sts files", () => {
+    it("should preprocess .sts files in ESLint full processor", async () => {
+      const { createFullProcessor } =
+        await import("../packages/eslint-plugin/src/full-processor.js");
+      const processor = createFullProcessor();
+
+      const stsCode = `const result = 1 |> ((x) => x + 1);`;
+
+      // The processor's preprocess method should accept .sts files
+      const preprocessResult = processor.preprocess?.(stsCode, "test.sts");
+
+      expect(preprocessResult).toBeDefined();
+      expect(Array.isArray(preprocessResult)).toBe(true);
+      // Should return something (either transformed code or original)
+      expect(preprocessResult!.length).toBeGreaterThan(0);
+    });
+
+    it("should preprocess .stsx files in ESLint full processor", async () => {
+      const { createFullProcessor } =
+        await import("../packages/eslint-plugin/src/full-processor.js");
+      const processor = createFullProcessor();
+
+      const stsxCode = `
+        const doubled = x |> double;
+        const el = <div>{doubled}</div>;
+      `;
+
+      const preprocessResult = processor.preprocess?.(stsxCode, "test.stsx");
+
+      expect(preprocessResult).toBeDefined();
+      expect(Array.isArray(preprocessResult)).toBe(true);
+      expect(preprocessResult!.length).toBeGreaterThan(0);
+    });
+
+    it("should not preprocess non-TypeScript files", async () => {
+      const { createFullProcessor } =
+        await import("../packages/eslint-plugin/src/full-processor.js");
+      const processor = createFullProcessor();
+
+      const jsCode = `const x = 1;`;
+
+      const preprocessResult = processor.preprocess?.(jsCode, "test.js");
+
+      expect(preprocessResult).toBeDefined();
+      // Should return original code unchanged for .js files
+      expect(preprocessResult![0]).toBe(jsCode);
+    });
+  });
+
+  // ==========================================================================
+  // Test 2: Prettier plugin accepts .sts files
+  // ==========================================================================
+  describe("Prettier plugin accepts .sts files", () => {
+    it("should register .sts extension in Prettier plugin", async () => {
+      const { plugin } = await import("../packages/prettier-plugin/src/plugin.js");
+
+      expect(plugin.languages).toBeDefined();
+      expect(Array.isArray(plugin.languages)).toBe(true);
+
+      const tsLanguage = plugin.languages!.find((lang) => lang.name === "TypeSugar TypeScript");
+      expect(tsLanguage).toBeDefined();
+      expect(tsLanguage!.extensions).toContain(".sts");
+      expect(tsLanguage!.extensions).toContain(".stsx");
+    });
+
+    it("should include sugared-typescript language ID", async () => {
+      const { plugin } = await import("../packages/prettier-plugin/src/plugin.js");
+
+      const tsLanguage = plugin.languages!.find((lang) => lang.name === "TypeSugar TypeScript");
+      expect(tsLanguage!.vscodeLanguageIds).toContain("sugared-typescript");
+      expect(tsLanguage!.vscodeLanguageIds).toContain("sugared-typescriptreact");
+    });
+
+    it("should preformat .sts files with custom syntax", async () => {
+      const { preFormat } = await import("../packages/prettier-plugin/src/pre-format.js");
+
+      const stsCode = `const result = data |> transform;`;
+      const result = preFormat(stsCode, { fileName: "test.sts" });
+
+      expect(result.changed).toBe(true);
+      expect(result.code).toContain("__binop__");
+    });
+  });
+
+  // ==========================================================================
+  // Test 3: CLI accepts .sts files
+  // ==========================================================================
+  describe("CLI file collection includes .sts files", () => {
+    it("should include .sts in file extension regex", () => {
+      // Test the regex pattern used in CLI
+      const stsPattern = /\.(([jt]sx?)|sts|stsx)$/;
+
+      expect(stsPattern.test("file.sts")).toBe(true);
+      expect(stsPattern.test("file.stsx")).toBe(true);
+      expect(stsPattern.test("file.ts")).toBe(true);
+      expect(stsPattern.test("file.tsx")).toBe(true);
+      expect(stsPattern.test("file.js")).toBe(true);
+      expect(stsPattern.test("file.jsx")).toBe(true);
+      expect(stsPattern.test("file.css")).toBe(false);
+      expect(stsPattern.test("file.json")).toBe(false);
+    });
+
+    it("should match .stsx for JSX files", () => {
+      const stsPattern = /\.(([jt]sx?)|sts|stsx)$/;
+
+      expect(stsPattern.test("Component.stsx")).toBe(true);
+      expect(stsPattern.test("App.stsx")).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // Test 4: tsconfig preset includes .sts files
+  // ==========================================================================
+  describe("tsconfig preset", () => {
+    it("should include .sts and .stsx in preset include patterns", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+
+      const presetPath = path.resolve(
+        import.meta.dirname,
+        "../packages/transformer/tsconfig.preset.json"
+      );
+
+      expect(fs.existsSync(presetPath)).toBe(true);
+
+      const preset = JSON.parse(fs.readFileSync(presetPath, "utf-8"));
+
+      expect(preset.include).toBeDefined();
+      expect(Array.isArray(preset.include)).toBe(true);
+
+      // Should include patterns for .sts and .stsx
+      const includeStr = preset.include.join(" ");
+      expect(includeStr).toContain(".sts");
+      expect(includeStr).toContain(".stsx");
+    });
+
+    it("should configure typesugar transformer plugin", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+
+      const presetPath = path.resolve(
+        import.meta.dirname,
+        "../packages/transformer/tsconfig.preset.json"
+      );
+      const preset = JSON.parse(fs.readFileSync(presetPath, "utf-8"));
+
+      expect(preset.compilerOptions?.plugins).toBeDefined();
+      expect(Array.isArray(preset.compilerOptions.plugins)).toBe(true);
+
+      const transformerPlugin = preset.compilerOptions.plugins.find(
+        (p: { transform?: string }) => p.transform === "@typesugar/transformer"
+      );
+      expect(transformerPlugin).toBeDefined();
     });
   });
 });

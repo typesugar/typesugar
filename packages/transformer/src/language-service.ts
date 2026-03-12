@@ -313,7 +313,8 @@ function init(modules: { typescript: typeof ts }) {
           options,
           {
             fileExists: wrappedFileExists,
-            readFile: (f) => boundGetScriptSnapshot(f)?.getText(0, boundGetScriptSnapshot(f)!.getLength()),
+            readFile: (f) =>
+              boundGetScriptSnapshot(f)?.getText(0, boundGetScriptSnapshot(f)!.getLength()),
             directoryExists: originalHost.directoryExists?.bind(originalHost),
             getCurrentDirectory: () => originalHost.getCurrentDirectory(),
             getDirectories: originalHost.getDirectories?.bind(originalHost),

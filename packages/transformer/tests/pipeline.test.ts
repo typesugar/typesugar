@@ -3,7 +3,12 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { TransformationPipeline, transformCode, restoreBlankLines, formatExpansions } from "../src/pipeline.js";
+import {
+  TransformationPipeline,
+  transformCode,
+  restoreBlankLines,
+  formatExpansions,
+} from "../src/pipeline.js";
 import * as ts from "typescript";
 
 describe("TransformationPipeline", () => {
@@ -189,13 +194,7 @@ describe("TransformationPipeline", () => {
 
   describe("formatExpansions (focused diff)", () => {
     it("shows only changed regions for pipe operators", () => {
-      const code = [
-        "const a = 1;",
-        "",
-        "const b = a |> double;",
-        "",
-        "const c = 3;",
-      ].join("\n");
+      const code = ["const a = 1;", "", "const b = a |> double;", "", "const c = 3;"].join("\n");
 
       // Use .sts extension for files with custom syntax (PEP-001)
       const result = transformCode(code, { fileName: "fmt-pipe.sts", preserveBlankLines: true });

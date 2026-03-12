@@ -117,10 +117,7 @@ export class ExpansionTracker {
    * both the code (`s.toString()`) and source map (`s.generateMap()`).
    * Returns null if there are no expansions for this file.
    */
-  private applyExpansions(
-    originalSource: string,
-    fileName: string
-  ): MagicString | null {
+  private applyExpansions(originalSource: string, fileName: string): MagicString | null {
     const fileExpansions = this.getExpansionsForFile(fileName);
     if (fileExpansions.length === 0) {
       return null;
