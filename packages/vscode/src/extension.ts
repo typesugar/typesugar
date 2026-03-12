@@ -31,7 +31,7 @@ const TS_SELECTOR: vscode.DocumentSelector = [
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const outputChannel = vscode.window.createOutputChannel("typesugar");
+  const outputChannel = vscode.window.createOutputChannel("Typesugar");
   outputChannel.appendLine("typesugar extension activating...");
 
   // --- Core services ---
