@@ -435,6 +435,11 @@ export class MarkdownString {
     this.value += value;
     return this;
   }
+
+  appendCodeblock(value: string, language?: string): MarkdownString {
+    this.value += `\n\`\`\`${language ?? ""}\n${value}\n\`\`\`\n`;
+    return this;
+  }
 }
 
 // --- Configuration ---

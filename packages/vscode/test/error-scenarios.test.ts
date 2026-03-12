@@ -65,6 +65,8 @@ describe("Error Scenarios", () => {
 
       const result: ExpansionResult = {
         expandedText: "expanded",
+        focusedView: "",
+        expansions: [],
         comptimeResults: new Map(),
         bindTypes: new Map(),
         diagnostics,
@@ -134,6 +136,8 @@ describe("Error Scenarios", () => {
 
       const result: ExpansionResult = {
         expandedText: "expanded",
+        focusedView: "",
+        expansions: [],
         comptimeResults: new Map(),
         bindTypes: new Map(),
         diagnostics: [{ message: "error", severity: "error" }],

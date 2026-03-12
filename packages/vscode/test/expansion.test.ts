@@ -21,6 +21,8 @@ describe("ExpansionService", () => {
       // Manually set a cached result via the private cache
       const fakeResult: ExpansionResult = {
         expandedText: "const x = 1;",
+        focusedView: "",
+        expansions: [],
         comptimeResults: new Map(),
         bindTypes: new Map(),
         diagnostics: [],
@@ -44,6 +46,8 @@ describe("ExpansionService", () => {
 
       const fakeResult: ExpansionResult = {
         expandedText: "cached",
+        focusedView: "",
+        expansions: [],
         comptimeResults: new Map(),
         bindTypes: new Map(),
         diagnostics: [],
@@ -66,6 +70,8 @@ describe("ExpansionService", () => {
 
       const fakeResult: ExpansionResult = {
         expandedText: "expanded!",
+        focusedView: "",
+        expansions: [],
         comptimeResults: new Map([[0, 42]]),
         bindTypes: new Map(),
         diagnostics: [],
@@ -88,23 +94,18 @@ describe("ExpansionService", () => {
   });
 
   describe("getExpansionAtPosition", () => {
-    it("returns full expansion when cached", async () => {
+    it("returns undefined when transformer not available", async () => {
+      // getExpansionAtPosition doesn't use the resultCache -
+      // it always calls loadTransformer() which requires a real workspace
       const service = new ExpansionService();
       const doc = createMockTextDocument("const x = comptime(() => 42);", "/test/file.ts");
 
-      const fakeResult: ExpansionResult = {
-        expandedText: "const x = 42;",
-        comptimeResults: new Map(),
-        bindTypes: new Map(),
-        diagnostics: [],
-      };
-      (service as any).resultCache.set(doc.uri.fsPath, fakeResult);
-
+      // Without a workspace or transformer, should return undefined
       const result = await service.getExpansionAtPosition(doc, 10);
-      expect(result).toBe("const x = 42;");
+      expect(result).toBeUndefined();
     });
 
-    it("returns undefined when no expansion available", async () => {
+    it("returns undefined when no workspace folder", async () => {
       const service = new ExpansionService();
       const doc = createMockTextDocument("const x = 1;", "/test/file.ts");
 
@@ -142,6 +143,8 @@ describe("ExpansionService", () => {
 
       (service as any).resultCache.set(doc.uri.fsPath, {
         expandedText: "cached",
+        focusedView: "",
+        expansions: [],
         comptimeResults: new Map(),
         bindTypes: new Map(),
         diagnostics: [],

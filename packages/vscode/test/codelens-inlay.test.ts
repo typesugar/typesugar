@@ -29,6 +29,8 @@ function createMockRange(
 function createMockExpansionService(result?: Partial<ExpansionResult>): ExpansionService {
   const defaultResult: ExpansionResult = {
     expandedText: "",
+    focusedView: "",
+    expansions: [],
     comptimeResults: new Map(),
     bindTypes: new Map(),
     diagnostics: [],
@@ -176,12 +178,21 @@ describe("MacroInlayHintsProvider", () => {
   describe("comptime result hints", () => {
     it("shows comptime result when expansion available", async () => {
       // The comptime() call is at offset ~10 in "const x = comptime(() => 42);"
-      // We need the offset of the comptime CallExpression node
+      // InlayHintsProvider looks at the `expansions` array, not `comptimeResults` map
       const code = "const x = comptime(() => 42);";
       const comptimeOffset = code.indexOf("comptime");
+      const comptimeEnd = code.indexOf(";");
 
       const expansion = createMockExpansionService({
-        comptimeResults: new Map([[comptimeOffset, 42]]),
+        expansions: [
+          {
+            macroName: "comptime",
+            originalStart: comptimeOffset,
+            originalEnd: comptimeEnd,
+            originalText: "comptime(() => 42)",
+            expandedText: "42",
+          },
+        ],
       });
 
       const provider = new MacroInlayHintsProvider(loader, expansion);
