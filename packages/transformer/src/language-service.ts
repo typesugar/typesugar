@@ -10,6 +10,7 @@
  * 2. Serve transformed code through getScriptSnapshot
  * 3. Use modified script versions to trigger TS re-analysis
  * 4. Map diagnostic positions back to original coordinates
+ * 5. Include .sts files via getExternalFiles() for TypeScript to recognize
  *
  * Configure in tsconfig.json:
  * {
@@ -21,8 +22,10 @@
 
 import type * as ts from "typescript";
 import * as path from "path";
+import * as fs from "fs";
 import { TransformationPipeline, type TransformResult } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
+import { preprocess } from "@typesugar/preprocessor";
 
 /**
  * Cache entry for transformed files
@@ -35,6 +38,49 @@ interface TransformCacheEntry {
 function init(modules: { typescript: typeof ts }) {
   console.log("[typesugar] Language service plugin v2 (transform-first) initializing...");
   const tsModule = modules.typescript;
+
+  /**
+   * Get .sts and .stsx files from the project directory.
+   *
+   * This is called by TypeScript to discover external files that should be
+   * included in the project. Without this, .sts files are invisible to the
+   * type checker and language service.
+   */
+  function getExternalFiles(project: ts.server.Project): string[] {
+    const projectDir = project.getCurrentDirectory();
+    const stsFiles: string[] = [];
+
+    function scanDirectory(dir: string) {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+
+          if (entry.isDirectory()) {
+            // Skip node_modules and hidden directories
+            if (entry.name === "node_modules" || entry.name.startsWith(".")) {
+              continue;
+            }
+            scanDirectory(fullPath);
+          } else if (entry.isFile()) {
+            if (/\.stsx?$/.test(entry.name)) {
+              stsFiles.push(fullPath);
+            }
+          }
+        }
+      } catch {
+        // Ignore permission errors, etc.
+      }
+    }
+
+    scanDirectory(projectDir);
+
+    if (stsFiles.length > 0) {
+      console.log(`[typesugar] Found ${stsFiles.length} .sts/.stsx files in project`);
+    }
+
+    return stsFiles;
+  }
 
   function create(info: ts.server.PluginCreateInfo): ts.LanguageService {
     console.log(
@@ -58,6 +104,7 @@ function init(modules: { typescript: typeof ts }) {
     const originalHost = info.languageServiceHost;
     const boundGetScriptSnapshot = originalHost.getScriptSnapshot.bind(originalHost);
     const boundGetScriptVersion = originalHost.getScriptVersion.bind(originalHost);
+    const boundFileExists = originalHost.fileExists?.bind(originalHost);
 
     /**
      * Read file content from original host (bypass our interception)
@@ -156,28 +203,173 @@ function init(modules: { typescript: typeof ts }) {
     // oldLS re-reads from the host when the version string changes.
     // ---------------------------------------------------------------------------
 
-    const wrappedGetScriptSnapshot = (fileName: string): ts.IScriptSnapshot | undefined => {
-      const result = getTransformResult(fileName);
+    /**
+     * Cache for preprocessed .sts files that aren't in the project yet
+     */
+    const stsPreprocessCache = new Map<string, { code: string; version: string }>();
 
+    /**
+     * Preprocess an .sts file directly (for files not yet in the pipeline)
+     */
+    function preprocessStsFile(fileName: string): string | undefined {
+      try {
+        const content = fs.readFileSync(fileName, "utf-8");
+        const result = preprocess(content, {
+          fileName,
+          extensions: ["hkt", "pipeline", "cons", "decorator-rewrite"],
+        });
+        return result.changed ? result.code : content;
+      } catch {
+        return undefined;
+      }
+    }
+
+    const wrappedGetScriptSnapshot = (fileName: string): ts.IScriptSnapshot | undefined => {
+      const normalizedFileName = path.normalize(fileName);
+
+      // Try pipeline transformation first
+      const result = getTransformResult(normalizedFileName);
       if (result && result.changed) {
         return tsModule.ScriptSnapshot.fromString(result.code);
+      }
+
+      // For .sts files not in the pipeline, preprocess directly
+      if (/\.stsx?$/.test(normalizedFileName)) {
+        const cached = stsPreprocessCache.get(normalizedFileName);
+        const currentMtime = fs.existsSync(normalizedFileName)
+          ? fs.statSync(normalizedFileName).mtimeMs.toString()
+          : "";
+
+        if (cached && cached.version === currentMtime) {
+          return tsModule.ScriptSnapshot.fromString(cached.code);
+        }
+
+        const preprocessed = preprocessStsFile(normalizedFileName);
+        if (preprocessed) {
+          stsPreprocessCache.set(normalizedFileName, {
+            code: preprocessed,
+            version: currentMtime,
+          });
+          log(`Preprocessed .sts file: ${normalizedFileName}`);
+          return tsModule.ScriptSnapshot.fromString(preprocessed);
+        }
       }
 
       return boundGetScriptSnapshot(fileName);
     };
 
     const wrappedGetScriptVersion = (fileName: string): string => {
-      const baseVersion = boundGetScriptVersion(fileName);
-      const result = getTransformResult(fileName);
+      const normalizedFileName = path.normalize(fileName);
+      const baseVersion = boundGetScriptVersion(normalizedFileName);
+      const result = getTransformResult(normalizedFileName);
       if (result?.changed) {
         return `${baseVersion}-ts-${result.code.length}`;
       }
+
+      // For .sts files, include mtime in version to trigger re-reads
+      if (/\.stsx?$/.test(normalizedFileName)) {
+        try {
+          const mtime = fs.statSync(normalizedFileName).mtimeMs;
+          return `${baseVersion}-sts-${mtime}`;
+        } catch {
+          // File might not exist
+        }
+      }
+
       return baseVersion;
+    };
+
+    /**
+     * Check if a file exists, including .sts files
+     */
+    const wrappedFileExists = (fileName: string): boolean => {
+      // Use the bound original method to avoid infinite recursion
+      if (boundFileExists?.(fileName)) {
+        return true;
+      }
+      // Check filesystem directly for .sts files
+      if (/\.stsx?$/.test(fileName)) {
+        return fs.existsSync(fileName);
+      }
+      return false;
+    };
+
+    /**
+     * Resolve modules with .sts fallback
+     */
+    const wrappedResolveModuleNames = (
+      moduleNames: string[],
+      containingFile: string,
+      _reusedNames: string[] | undefined,
+      redirectedReference: ts.ResolvedProjectReference | undefined,
+      options: ts.CompilerOptions,
+      _containingSourceFile?: ts.SourceFile
+    ): (ts.ResolvedModule | undefined)[] => {
+      return moduleNames.map((moduleName) => {
+        // Try TypeScript's default resolution first
+        const result = tsModule.resolveModuleName(
+          moduleName,
+          containingFile,
+          options,
+          {
+            fileExists: wrappedFileExists,
+            readFile: (f) => boundGetScriptSnapshot(f)?.getText(0, boundGetScriptSnapshot(f)!.getLength()),
+            directoryExists: originalHost.directoryExists?.bind(originalHost),
+            getCurrentDirectory: () => originalHost.getCurrentDirectory(),
+            getDirectories: originalHost.getDirectories?.bind(originalHost),
+          },
+          undefined,
+          redirectedReference
+        );
+
+        if (result.resolvedModule) {
+          return result.resolvedModule;
+        }
+
+        // Try .sts/.stsx extensions for relative imports
+        if (moduleName.startsWith(".") || moduleName.startsWith("/")) {
+          const baseDir = path.dirname(containingFile);
+          const basePath = path.resolve(baseDir, moduleName);
+          const stsExtensions = [".sts", ".stsx"];
+
+          for (const ext of stsExtensions) {
+            const candidate = basePath + ext;
+            if (fs.existsSync(candidate)) {
+              log(`Resolved ${moduleName} → ${candidate}`);
+              return {
+                resolvedFileName: candidate,
+                isExternalLibraryImport: false,
+                extension: ext === ".stsx" ? tsModule.Extension.Tsx : tsModule.Extension.Ts,
+              };
+            }
+
+            // Try index file
+            const indexCandidate = path.join(basePath, "index" + ext);
+            if (fs.existsSync(indexCandidate)) {
+              log(`Resolved ${moduleName} → ${indexCandidate}`);
+              return {
+                resolvedFileName: indexCandidate,
+                isExternalLibraryImport: false,
+                extension: ext === ".stsx" ? tsModule.Extension.Tsx : tsModule.Extension.Ts,
+              };
+            }
+          }
+        }
+
+        return undefined;
+      });
     };
 
     // Modify the original host (for the existing LS)
     originalHost.getScriptSnapshot = wrappedGetScriptSnapshot;
     originalHost.getScriptVersion = wrappedGetScriptVersion;
+    originalHost.fileExists = wrappedFileExists;
+
+    // Add module resolution if host supports it
+    const hostWithResolution = originalHost as ts.LanguageServiceHost & {
+      resolveModuleNames?: typeof wrappedResolveModuleNames;
+    };
+    hostWithResolution.resolveModuleNames = wrappedResolveModuleNames;
 
     // ---------------------------------------------------------------------------
     // Create proxy for the LanguageService
@@ -949,7 +1141,7 @@ function init(modules: { typescript: typeof ts }) {
     return proxy;
   }
 
-  return { create };
+  return { create, getExternalFiles };
 }
 
 export default init;

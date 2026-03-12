@@ -3,9 +3,15 @@
  *
  * This enables TypeScript to build a Program from valid TypeScript even when
  * the original source contains custom syntax (|>, ::, F<_>).
+ *
+ * Key responsibilities:
+ * 1. Preprocess .sts files (serve valid TypeScript to the type checker)
+ * 2. Module resolution: resolve `import "./foo"` to `foo.sts` when `foo.ts` doesn't exist
+ * 3. Declaration emit: ensure `foo.sts` produces `foo.d.ts` (not `foo.d.sts.ts`)
  */
 
 import * as ts from "typescript";
+import * as path from "path";
 import { preprocess, type RawSourceMap } from "@typesugar/preprocessor";
 
 /**
@@ -185,16 +191,6 @@ export class VirtualCompilerHost implements ts.CompilerHost {
     return this.baseHost.getDefaultLibFileName(options);
   }
 
-  writeFile(
-    fileName: string,
-    data: string,
-    writeByteOrderMark: boolean,
-    onError?: (message: string) => void,
-    sourceFiles?: readonly ts.SourceFile[]
-  ): void {
-    this.baseHost.writeFile(fileName, data, writeByteOrderMark, onError, sourceFiles);
-  }
-
   getCurrentDirectory(): string {
     return this.baseHost.getCurrentDirectory();
   }
@@ -243,6 +239,142 @@ export class VirtualCompilerHost implements ts.CompilerHost {
 
   getEnvironmentVariable?(name: string): string | undefined {
     return this.baseHost.getEnvironmentVariable?.(name);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module resolution for .sts files
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resolve module names with .sts fallback.
+   *
+   * Resolution order:
+   * 1. Standard TypeScript extensions (.ts, .tsx, .d.ts, .js, .jsx)
+   * 2. Sugared TypeScript extensions (.sts, .stsx)
+   * 3. Index files in directories
+   *
+   * This ensures .ts files are preferred over .sts when both exist.
+   */
+  resolveModuleNames(
+    moduleNames: string[],
+    containingFile: string,
+    _reusedNames: string[] | undefined,
+    redirectedReference: ts.ResolvedProjectReference | undefined,
+    options: ts.CompilerOptions,
+    _containingSourceFile?: ts.SourceFile
+  ): (ts.ResolvedModule | undefined)[] {
+    return moduleNames.map((moduleName) => {
+      // For relative imports, do explicit resolution with our file system
+      if (moduleName.startsWith(".") || moduleName.startsWith("/")) {
+        const baseDir = path.dirname(containingFile);
+        const resolved = this.resolveRelativeModule(moduleName, baseDir);
+        if (resolved) {
+          return resolved;
+        }
+      }
+
+      // For non-relative imports (node_modules), use TypeScript's default resolution
+      const result = ts.resolveModuleName(
+        moduleName,
+        containingFile,
+        options,
+        {
+          fileExists: (f) => this.fileExists(f),
+          readFile: (f) => this.readFile(f),
+          directoryExists: (d) => this.directoryExists?.(d) ?? true,
+          getCurrentDirectory: () => this.getCurrentDirectory(),
+          getDirectories: (p) => this.getDirectories?.(p) ?? [],
+          realpath: (p) => this.realpath?.(p) ?? p,
+        },
+        undefined,
+        redirectedReference
+      );
+
+      return result.resolvedModule;
+    });
+  }
+
+  /**
+   * Resolve a relative module path to a file.
+   *
+   * Resolution order ensures .ts is preferred over .sts:
+   * 1. .ts, .tsx (standard TypeScript)
+   * 2. .sts, .stsx (sugared TypeScript)
+   * 3. .d.ts (declaration files)
+   * 4. .js, .jsx (JavaScript)
+   * 5. index files in directories
+   */
+  private resolveRelativeModule(modulePath: string, baseDir: string): ts.ResolvedModule | undefined {
+    const basePath = path.resolve(baseDir, modulePath);
+
+    // Extension order: standard TS first, then sugared TS, then declarations, then JS
+    const extensions = [".ts", ".tsx", ".sts", ".stsx", ".d.ts", ".js", ".jsx"];
+
+    // Try direct file with extensions
+    for (const ext of extensions) {
+      const candidate = basePath + ext;
+      if (this.customFileExists(candidate)) {
+        return {
+          resolvedFileName: candidate,
+          isExternalLibraryImport: false,
+        };
+      }
+    }
+
+    // Try index files in directory
+    for (const ext of extensions) {
+      const indexCandidate = path.join(basePath, "index" + ext);
+      if (this.customFileExists(indexCandidate)) {
+        return {
+          resolvedFileName: indexCandidate,
+          isExternalLibraryImport: false,
+        };
+      }
+    }
+
+    // Try as-is (might be a directory with package.json or exact file)
+    if (this.customFileExists(basePath)) {
+      return {
+        resolvedFileName: basePath,
+        isExternalLibraryImport: false,
+      };
+    }
+
+    return undefined;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Declaration emit for .sts files
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Intercept file writes to fix declaration file naming.
+   *
+   * When emitting declarations for `foo.sts`, TypeScript would normally produce
+   * `foo.d.sts.ts`. We intercept this and write `foo.d.ts` instead.
+   */
+  writeFile(
+    fileName: string,
+    data: string,
+    writeByteOrderMark: boolean,
+    onError?: (message: string) => void,
+    sourceFiles?: readonly ts.SourceFile[]
+  ): void {
+    // Fix declaration file names for .sts files
+    const correctedFileName = this.correctDeclarationFileName(fileName);
+    this.baseHost.writeFile(correctedFileName, data, writeByteOrderMark, onError, sourceFiles);
+  }
+
+  /**
+   * Correct declaration file names for .sts source files.
+   *
+   * Transforms:
+   * - foo.d.sts.ts → foo.d.ts
+   * - foo.d.stsx.ts → foo.d.ts
+   */
+  private correctDeclarationFileName(fileName: string): string {
+    // Match patterns like .d.sts.ts or .d.stsx.ts
+    return fileName.replace(/\.d\.stsx?\.ts$/, ".d.ts");
   }
 
   // ---------------------------------------------------------------------------
