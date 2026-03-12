@@ -52,39 +52,36 @@ export function registerCommands(
 
           expansion.log(`expandMacro: original=${expanded.original.length} chars, expanded=${expanded.expanded.length} chars`);
 
-          // Show the expansion in a virtual document
-          const baseName = path.basename(targetDoc.fileName);
-          const expandedUri = vscode.Uri.parse(
-            `typesugar-expansion:${targetUri.fsPath}?expanded&t=${Date.now()}`
-          );
+          // Show expansion in peek widget (inline, no noise from other providers)
+          const activeEditor = editor ?? vscode.window.activeTextEditor;
+          if (activeEditor && activeEditor.document.uri.fsPath === targetDoc.uri.fsPath) {
+            const peekUri = vscode.Uri.parse(
+              `typesugar-expansion:${expanded.original.split("\n")[0].trim().slice(0, 40)}.ts`
+            );
 
-          const content =
-            `// ${baseName} — macro expansion\n` +
-            `// ─────────────────────────────\n` +
-            `\n` +
-            `// Original:\n` +
-            expanded.original
-              .split("\n")
-              .map((l) => `//   ${l}`)
-              .join("\n") +
-            `\n\n` +
-            `// Expands to:\n` +
-            expanded.expanded +
-            `\n`;
+            const content = expanded.expanded;
+            const provider = new (class implements vscode.TextDocumentContentProvider {
+              provideTextDocumentContent(): string {
+                return content;
+              }
+            })();
 
-          const provider = new (class implements vscode.TextDocumentContentProvider {
-            provideTextDocumentContent(): string {
-              return content;
-            }
-          })();
+            const registration = vscode.workspace.registerTextDocumentContentProvider(
+              "typesugar-expansion",
+              provider
+            );
 
-          const registration = vscode.workspace.registerTextDocumentContentProvider(
-            "typesugar-expansion",
-            provider
-          );
+            const macroPos = targetDoc.positionAt(targetPos);
+            await vscode.commands.executeCommand(
+              "editor.action.peekLocations",
+              targetDoc.uri,
+              macroPos,
+              [new vscode.Location(peekUri, new vscode.Position(0, 0))],
+              "peek"
+            );
 
-          await vscode.commands.executeCommand("vscode.open", expandedUri);
-          setTimeout(() => registration.dispose(), 60000);
+            setTimeout(() => registration.dispose(), 60000);
+          }
         } catch (err) {
           expansion.log(
             `expandMacro error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`

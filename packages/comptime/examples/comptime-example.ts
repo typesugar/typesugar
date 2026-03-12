@@ -7,6 +7,7 @@
 
 import { comptime } from "@typesugar/comptime";
 
+
 console.log("=== Comptime Example ===\n");
 
 // --- Basic Compile-Time Evaluation ---
@@ -95,15 +96,19 @@ Object.entries(patterns).forEach(([name, pattern]) => {
 
 console.log("\n--- Type Metadata ---");
 
-// Embed type information at compile time
-const userSchema = comptime({
-  name: "User",
-  fields: [
-    { name: "id", type: "number", required: true },
-    { name: "name", type: "string", required: true },
-    { name: "email", type: "string", required: true },
-    { name: "age", type: "number", required: false },
-  ],
+// Read and process a schema from disk at compile time
+const userSchema = comptime({ fs: "read" }, () => {
+  const fs = require("fs");
+  const raw = fs.readFileSync("./schemas/user.json", "utf-8");
+  const schema = JSON.parse(raw);
+  return {
+    ...schema,
+    requiredFields: schema.fields.filter((f: any) => f.required).map((f: any) => f.name),
+    optionalFields: schema.fields.filter((f: any) => !f.required).map((f: any) => f.name),
+    fieldTypes: Object.fromEntries(schema.fields.map((f: any) => [f.name, f.type])),
+  };
 });
 
 console.log("User schema:", userSchema);
+console.log("Required:", userSchema.requiredFields);
+console.log("Optional:", userSchema.optionalFields);

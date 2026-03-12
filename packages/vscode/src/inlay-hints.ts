@@ -10,7 +10,7 @@
 import * as vscode from "vscode";
 import * as ts from "typescript";
 import type { ManifestLoader } from "./manifest.js";
-import type { ExpansionService } from "./expansion.js";
+import type { ExpansionService, MacroExpansion } from "./expansion.js";
 
 export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
@@ -61,25 +61,30 @@ export class MacroInlayHintsProvider implements vscode.InlayHintsProvider {
         return;
       }
 
-      // --- Comptime result hints ---
+      // --- Macro expansion hints (comptime, etc.) ---
       if (
         ts.isCallExpression(node) &&
         ts.isIdentifier(node.expression) &&
-        node.expression.text === "comptime" &&
-        expressionNames.has("comptime")
+        expressionNames.has(node.expression.text)
       ) {
-        const result = expansionResult?.comptimeResults?.get(node.getStart(sourceFile));
-        if (result !== undefined) {
+        const nodeStart = node.getStart(sourceFile);
+        const expansion = expansionResult?.expansions?.find(
+          (e: MacroExpansion) => nodeStart >= e.originalStart && nodeStart <= e.originalEnd
+        );
+        if (expansion) {
           const endPos = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+          const preview = expansion.expandedText.replace(/\s+/g, " ").trim();
           const hint = new vscode.InlayHint(
             new vscode.Position(endPos.line, endPos.character),
-            ` = ${truncate(String(result), 40)}`,
+            ` = ${truncate(preview, 50)}`,
             vscode.InlayHintKind.Type
           );
           hint.paddingLeft = true;
-          hint.tooltip = new vscode.MarkdownString(
-            `**Compile-time result:**\n\`\`\`\n${String(result)}\n\`\`\``
-          );
+          const md = new vscode.MarkdownString();
+          md.isTrusted = true;
+          md.appendMarkdown(`**${expansion.macroName}** expansion:\n`);
+          md.appendCodeblock(expansion.expandedText, "typescript");
+          hint.tooltip = md;
           hints.push(hint);
         }
       }

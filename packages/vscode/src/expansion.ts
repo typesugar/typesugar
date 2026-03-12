@@ -17,12 +17,23 @@ import * as path from "path";
 // Result Types
 // ---------------------------------------------------------------------------
 
+export interface MacroExpansion {
+  macroName: string;
+  originalStart: number;
+  originalEnd: number;
+  originalText: string;
+  expandedText: string;
+}
+
 export interface ExpansionResult {
   /** The expanded source text (full file after macro expansion) */
   expandedText: string;
 
   /** Focused view showing only expansion sites with context */
   focusedView: string;
+
+  /** Individual macro expansion records (position → before/after) */
+  expansions: MacroExpansion[];
 
   /** Map from comptime call position → computed value */
   comptimeResults: Map<number, unknown>;
@@ -122,7 +133,30 @@ export class ExpansionService {
         typeof formatExpansionsFn === "function" && transformResult.changed
           ? formatExpansionsFn(transformResult)
           : "";
+
+      // Capture expansion records from the transformer
+      const expansions: MacroExpansion[] = (transformResult.expansions ?? []).map(
+        (exp: { macroName: string; originalStart: number; originalEnd: number; originalText: string; expandedText: string }) => ({
+          macroName: exp.macroName,
+          originalStart: exp.originalStart,
+          originalEnd: exp.originalEnd,
+          originalText: exp.originalText,
+          expandedText: exp.expandedText,
+        })
+      );
+
+      // Build comptimeResults from expansion records (replaces fragile regex heuristic)
       const comptimeResults = new Map<number, unknown>();
+      for (const exp of expansions) {
+        if (exp.macroName === "comptime") {
+          try {
+            comptimeResults.set(exp.originalStart, JSON.parse(exp.expandedText));
+          } catch {
+            comptimeResults.set(exp.originalStart, exp.expandedText);
+          }
+        }
+      }
+
       const bindTypes = new Map<number, string>();
       const diagnostics: ExpansionDiagnostic[] = [];
 
@@ -133,19 +167,10 @@ export class ExpansionService {
         });
       }
 
-      if (expandedText) {
-        const sourceFile = ts.createSourceFile(
-          document.fileName,
-          code,
-          ts.ScriptTarget.Latest,
-          true
-        );
-        this.extractComptimeResults(sourceFile, expandedText, comptimeResults);
-      }
-
       const result: ExpansionResult = {
         expandedText,
         focusedView,
+        expansions,
         comptimeResults,
         bindTypes,
         diagnostics,

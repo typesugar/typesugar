@@ -427,7 +427,12 @@ function evaluateViaVm(
 
   // Get the base directory for relative path resolution
   const baseDir = nodePath.dirname(ctx.sourceFile.fileName);
-  const projectRoot = ctx.program.getCurrentDirectory();
+  let projectRoot = ctx.program.getCurrentDirectory();
+  // Single-file transformCode creates a program with cwd "/" — fall back to
+  // the source file's directory so path validation doesn't reject everything.
+  if (projectRoot === "/" || projectRoot === "") {
+    projectRoot = baseDir;
+  }
 
   try {
     const sandbox = createComptimeSandbox(baseDir, projectRoot, permissions);
