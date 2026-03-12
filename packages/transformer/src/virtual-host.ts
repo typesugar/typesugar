@@ -120,14 +120,17 @@ export class VirtualCompilerHost implements ts.CompilerHost {
 
   /**
    * Check if a file should be preprocessed
+   *
+   * Only .sts and .stsx files go through the preprocessor.
+   * Plain .ts/.tsx files skip preprocessing entirely (they can only use JSDoc syntax).
    */
   private shouldPreprocess(fileName: string): boolean {
     // Skip node_modules and declaration files
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
 
-    // Only preprocess TS/TSX files
-    return /\.[tj]sx?$/.test(fileName);
+    // Only preprocess .sts/.stsx files (sugared TypeScript)
+    return /\.stsx?$/.test(fileName);
   }
 
   // ---------------------------------------------------------------------------

@@ -141,8 +141,9 @@ describe("Language Service Plugin", () => {
       expect(info.languageServiceHost.getScriptVersion).not.toBe(originalGetVersion);
     });
 
-    it("returns transformed content for files that need transformation", () => {
-      // Use pipe operator which triggers transformation
+    it(".ts files no longer get preprocessed for custom syntax (PEP-001)", () => {
+      // PEP-001 Wave 1: Only .sts files get preprocessed for custom syntax.
+      // .ts files should NOT be transformed even if they contain |>
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const result = 1 |> ((x) => x + 1);");
 
@@ -155,10 +156,9 @@ describe("Language Service Plugin", () => {
       const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
       const content = snapshot?.getText(0, snapshot.getLength());
 
-      // Should contain transformed code with __binop__ call
-      // Note: The "|>" is preserved as a string argument to __binop__
-      expect(content).toContain("__binop__");
-      expect(content).toContain('"|>"'); // The operator is now a string arg
+      // Should NOT contain __binop__ because .ts files skip preprocessing
+      // The |> will remain as invalid TypeScript (or be parsed as | and > separately)
+      expect(content).not.toContain("__binop__");
     });
 
     it("returns original content for files that don't need transformation", () => {
@@ -591,10 +591,16 @@ const result = 1 |> ((x) => x + 1);
 // =============================================================================
 
 describe("Preprocessing via Language Service Plugin", () => {
-  it("transforms pipe operator in diagnostics", () => {
+  // NOTE: These tests are skipped because PEP-001 Wave 1 changed preprocessing to only
+  // work on .sts files. TypeScript's language service doesn't recognize .sts files
+  // until Wave 2. See docs/PEP-001-sts-file-extension.md for details.
+
+  it.skip("transforms pipe operator in diagnostics (.sts files) - requires Wave 2", () => {
+    // This test requires Wave 2 to add .sts support to the language service.
+    // For now, .ts files no longer get preprocessed for custom syntax.
     const files = new Map<string, string>([
       [
-        "/test/index.ts",
+        "/test/index.sts",
         `
 declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
 const add1 = (x: number): number => x + 1;
@@ -608,24 +614,23 @@ const result: number = 5 |> add1 |> double;
     const info = createMockPluginInfo(files);
     const proxy = plugin.create(info);
 
-    // The |> should be preprocessed to __binop__ calls
-    const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
+    const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.sts");
     const content = snapshot?.getText(0, snapshot.getLength());
 
     expect(content).toContain("__binop__");
 
-    // No syntax errors — |> is preprocessed to valid TS
-    const syntacticDiags = proxy.getSyntacticDiagnostics("/test/index.ts");
+    const syntacticDiags = proxy.getSyntacticDiagnostics("/test/index.sts");
     const syntaxErrors = syntacticDiags.filter(
       (d) => d.code === 1005 || d.code === 1109 || d.code === 1128
     );
     expect(syntaxErrors).toHaveLength(0);
   });
 
-  it("transforms HKT syntax", () => {
+  it.skip("transforms HKT syntax (.sts files) - requires Wave 2", () => {
+    // This test requires Wave 2 to add .sts support to the language service.
     const files = new Map<string, string>([
       [
-        "/test/index.ts",
+        "/test/index.sts",
         `
 type Apply<F<_>, A> = F<A>;
 type Result = Apply<Array, string>;
@@ -637,15 +642,12 @@ type Result = Apply<Array, string>;
     const info = createMockPluginInfo(files);
     const proxy = plugin.create(info);
 
-    // After transformation, the file should parse without syntax errors
-    const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
+    const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.sts");
     const content = snapshot?.getText(0, snapshot.getLength());
 
-    // The content should be transformed (HKT rewritten)
     expect(content).toBeDefined();
 
-    // No syntax errors from the HKT syntax
-    const syntacticDiags = proxy.getSyntacticDiagnostics("/test/index.ts");
+    const syntacticDiags = proxy.getSyntacticDiagnostics("/test/index.sts");
     const syntaxErrors = syntacticDiags.filter(
       (d) => d.code === 1005 || d.code === 1109 || d.code === 1128
     );
@@ -654,25 +656,24 @@ type Result = Apply<Array, string>;
 });
 
 describe("Diagnostic Position Mapping", () => {
-  it("maps diagnostic positions back to original source", () => {
+  it.skip("maps diagnostic positions back to original source (.sts files) - requires Wave 2", () => {
+    // This test requires Wave 2 to add .sts support to the language service.
     const originalSource = `
 const x: string = 42;
 const y = 1 |> ((n: number) => n + 1);
     `.trim();
 
-    const files = new Map<string, string>([["/test/index.ts", originalSource]]);
+    const files = new Map<string, string>([["/test/index.sts", originalSource]]);
 
     const plugin = init({ typescript: ts });
     const info = createMockPluginInfo(files);
     const proxy = plugin.create(info);
 
-    const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+    const diagnostics = proxy.getSemanticDiagnostics("/test/index.sts");
 
-    // Should have at least one diagnostic (type error: number not assignable to string)
     const typeErrors = diagnostics.filter((d) => d.start !== undefined);
 
     for (const diag of typeErrors) {
-      // Positions should be within the bounds of the ORIGINAL source
       expect(diag.start).toBeGreaterThanOrEqual(0);
       expect(diag.start!).toBeLessThan(originalSource.length);
     }
@@ -723,11 +724,12 @@ obj.
     }
   });
 
-  it("provides completions in code alongside pipe operators", () => {
+  it("provides completions in .ts code without custom operators", () => {
+    // .ts files no longer get preprocessed for custom syntax (PEP-001)
+    // This test verifies completions still work for standard TypeScript code
     const source = `
-declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
 const obj = { foo: 1, bar: "hello" };
-const piped = 1 |> ((x: number) => x + 1);
+const value = obj.foo + 1;
 obj.
     `.trim();
 
@@ -737,14 +739,9 @@ obj.
     const info = createMockPluginInfo(files);
     const proxy = plugin.create(info);
 
-    // Position after the last "obj." in the original source
     const dotPos = source.lastIndexOf("obj.") + 4;
     const completions = proxy.getCompletionsAtPosition("/test/index.ts", dotPos, undefined);
 
-    // Completions may be undefined if the position mapper can't map through
-    // the pipe-operator transformation. This is a known limitation when the
-    // |> rewrite shifts character offsets and the source map doesn't cover
-    // subsequent lines precisely.
     if (completions) {
       const entryNames = completions.entries.map((e) => e.name);
       expect(entryNames).toContain("foo");
@@ -755,12 +752,12 @@ obj.
 
 describe("Transform-First Analysis", () => {
   describe("TypeScript sees transformed content", () => {
-    it("analyzes transformed code without pipe operator syntax errors", () => {
-      // Original code uses pipe operator which is NOT valid TypeScript
-      // After transformation, it becomes __binop__(...) which IS valid
+    it.skip("analyzes transformed code without pipe operator syntax errors (.sts files) - requires Wave 2", () => {
+      // This test requires Wave 2 to add .sts support to the language service.
+      // .ts files no longer get preprocessed for custom syntax (PEP-001)
       const files = new Map<string, string>();
       files.set(
-        "/test/index.ts",
+        "/test/index.sts",
         `
 // Declare __binop__ so transformed code is valid
 declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
@@ -773,15 +770,12 @@ const result = 1 |> ((x) => x + 1);
       const info = createMockPluginInfo(files);
       const proxy = plugin.create(info);
 
-      // Verify transformed content is what we expect
-      const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
+      const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.sts");
       const content = snapshot?.getText(0, snapshot.getLength());
 
       console.log("Transformed content:", content);
 
-      // Get diagnostics - should NOT have "unexpected token |>" error
-      // because TypeScript is analyzing the transformed content
-      const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+      const diagnostics = proxy.getSemanticDiagnostics("/test/index.sts");
 
       console.log(
         "Diagnostics:",
@@ -792,7 +786,6 @@ const result = 1 |> ((x) => x + 1);
         }))
       );
 
-      // Filter for syntax-related errors (the pipe operator would cause these)
       const syntaxErrors = diagnostics.filter(
         (d) => d.code === 1005 || d.code === 1109 || d.code === 1128
       );

@@ -37,14 +37,23 @@ export interface ScannerOptions {
 
 /**
  * Determine the language variant based on file extension.
+ *
+ * Handles both standard TypeScript extensions (.ts, .tsx) and
+ * sugared TypeScript extensions (.sts, .stsx).
  */
 function getLanguageVariant(fileName?: string): ts.LanguageVariant {
   if (fileName) {
     const lowerName = fileName.toLowerCase();
-    if (lowerName.endsWith(".tsx") || lowerName.endsWith(".jsx")) {
+    // JSX variant for .tsx, .jsx, and .stsx (sugared TypeScript with JSX)
+    if (
+      lowerName.endsWith(".tsx") ||
+      lowerName.endsWith(".jsx") ||
+      lowerName.endsWith(".stsx")
+    ) {
       return ts.LanguageVariant.JSX;
     }
   }
+  // Standard variant for .ts, .js, .sts, and unknown extensions
   return ts.LanguageVariant.Standard;
 }
 

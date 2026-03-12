@@ -46,7 +46,8 @@ interface Functor<F<_>> {
 }
     `.trim();
 
-    const result = transformCode(input, { fileName: "hkt.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "hkt.sts" });
 
     expect(result.code).toBeDefined();
     expect(result.changed).toBe(true);
@@ -64,7 +65,8 @@ type Apply<F<_>, A> = F<A>;
 type Result = Apply<Array, string>;
     `.trim();
 
-    const result = transformCode(input, { fileName: "hkt-alias.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "hkt-alias.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.code).toBeDefined();
@@ -95,7 +97,8 @@ describe("Pipeline E2E: pipe operator", () => {
   it("transforms |> to __binop__ calls", () => {
     const input = `const result = 1 |> ((x: number) => x + 1) |> ((x: number) => x * 2);`;
 
-    const result = transformCode(input, { fileName: "pipe.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "pipe.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.code).toContain("__binop__");
@@ -112,7 +115,8 @@ const toString = (x: number): string => String(x);
 const result = 10 |> add1 |> double |> toString;
     `.trim();
 
-    const result = transformCode(input, { fileName: "chained-pipe.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "chained-pipe.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.code).toContain("__binop__");
@@ -139,7 +143,8 @@ describe("Pipeline E2E: cons operator", () => {
   it("transforms :: to __binop__ calls", () => {
     const input = `const list = 1 :: 2 :: [];`;
 
-    const result = transformCode(input, { fileName: "cons.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "cons.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.code).toContain("__binop__");
@@ -151,7 +156,8 @@ describe("Pipeline E2E: cons operator", () => {
   it("handles nested cons expressions", () => {
     const input = `const nested = 1 :: 2 :: 3 :: [];`;
 
-    const result = transformCode(input, { fileName: "nested-cons.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "nested-cons.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.code).toContain("__binop__");
@@ -167,7 +173,8 @@ describe("Pipeline E2E: source map accuracy", () => {
   it("produces a source map for transformed files", () => {
     const input = `const result = 1 |> ((x: number) => x + 1);`;
 
-    const result = transformCode(input, { fileName: "map-test.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "map-test.sts" });
 
     expect(result.sourceMap).not.toBeNull();
     expect(result.mapper).toBeDefined();
@@ -188,7 +195,8 @@ describe("Pipeline E2E: source map accuracy", () => {
   it("maps positions for pipe-transformed code", () => {
     const input = `const result = 1 |> ((x: number) => x + 1);`;
 
-    const result = transformCode(input, { fileName: "pipe-map.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "pipe-map.sts" });
 
     // "const" is at position 0 in the original
     // After transformation, "const" should still map back to 0
@@ -208,7 +216,8 @@ describe("Pipeline E2E: source map accuracy", () => {
   it("maps 'result' identifier position through transformation", () => {
     const input = `const result = 1 |> ((x: number) => x + 1);`;
 
-    const result = transformCode(input, { fileName: "result-map.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "result-map.sts" });
 
     const originalPos = input.indexOf("result");
     expect(originalPos).toBeGreaterThan(0);
@@ -234,7 +243,8 @@ type Apply<F<_>, A> = F<A>;
 const x = 42;
     `.trim();
 
-    const result = transformCode(input, { fileName: "hkt-map.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "hkt-map.sts" });
 
     // "const x" should still be findable after HKT transformation
     const constOriginalPos = input.indexOf("const x");
@@ -315,8 +325,9 @@ export const result = double(21);
   it("handles mixed transformed and untransformed files", () => {
     const files = new Map<string, string>();
     files.set("/test/plain.ts", `export const x = 42;`);
+    // Use .sts extension for files with custom syntax (PEP-001)
     files.set(
-      "/test/piped.ts",
+      "/test/piped.sts",
       `
 import { x } from "./plain";
 const result = x |> ((n: number) => n + 1);
@@ -326,7 +337,7 @@ const result = x |> ((n: number) => n + 1);
     const pipeline = createPipelineFromFiles(files);
 
     const plainResult = pipeline.transform("/test/plain.ts");
-    const pipedResult = pipeline.transform("/test/piped.ts");
+    const pipedResult = pipeline.transform("/test/piped.sts");
 
     // Plain file should be essentially unchanged
     expect(plainResult.code).toContain("42");
@@ -343,12 +354,13 @@ const result = x |> ((n: number) => n + 1);
 describe("Pipeline E2E: cache invalidation", () => {
   it("returns cached result on repeated transforms", () => {
     const files = new Map<string, string>();
-    files.set("/test/main.ts", `const result = 1 |> ((x: number) => x + 1);`);
+    // Use .sts extension for files with custom syntax (PEP-001)
+    files.set("/test/main.sts", `const result = 1 |> ((x: number) => x + 1);`);
 
     const pipeline = createPipelineFromFiles(files);
 
-    const result1 = pipeline.transform("/test/main.ts");
-    const result2 = pipeline.transform("/test/main.ts");
+    const result1 = pipeline.transform("/test/main.sts");
+    const result2 = pipeline.transform("/test/main.sts");
 
     // Cached: same code
     expect(result1.code).toBe(result2.code);
@@ -357,19 +369,20 @@ describe("Pipeline E2E: cache invalidation", () => {
 
   it("returns fresh result after invalidation", () => {
     const files = new Map<string, string>();
-    files.set("/test/main.ts", `const result = 1 |> ((x: number) => x + 1);`);
+    // Use .sts extension for files with custom syntax (PEP-001)
+    files.set("/test/main.sts", `const result = 1 |> ((x: number) => x + 1);`);
 
     const pipeline = createPipelineFromFiles(files);
 
-    const result1 = pipeline.transform("/test/main.ts");
+    const result1 = pipeline.transform("/test/main.sts");
 
     // Update file content
-    files.set("/test/main.ts", `const result = 99 |> ((x: number) => x + 1);`);
+    files.set("/test/main.sts", `const result = 99 |> ((x: number) => x + 1);`);
 
     // Invalidate cache
-    pipeline.invalidate("/test/main.ts");
+    pipeline.invalidate("/test/main.sts");
 
-    const result3 = pipeline.transform("/test/main.ts");
+    const result3 = pipeline.transform("/test/main.sts");
 
     // Should reflect the new content
     expect(result3.original).toContain("99");
@@ -398,14 +411,15 @@ describe("Pipeline E2E: cache invalidation", () => {
 
   it("tracks cache statistics", () => {
     const files = new Map<string, string>();
-    files.set("/test/main.ts", `const x = 1 |> ((n: number) => n + 1);`);
+    // Use .sts extension for files with custom syntax (PEP-001)
+    files.set("/test/main.sts", `const x = 1 |> ((n: number) => n + 1);`);
 
     const pipeline = createPipelineFromFiles(files);
 
     const statsBefore = pipeline.getCacheStats();
     expect(statsBefore.transformedCount).toBe(0);
 
-    pipeline.transform("/test/main.ts");
+    pipeline.transform("/test/main.sts");
 
     const statsAfter = pipeline.getCacheStats();
     expect(statsAfter.transformedCount).toBeGreaterThanOrEqual(1);
@@ -461,13 +475,14 @@ describe("Pipeline E2E: edge cases", () => {
     ).toBe(false);
   });
 
-  it("handles code with all three custom operators", () => {
+  it("handles code with all three custom operators in .sts files", () => {
     const input = `
 const piped = 1 |> ((x: number) => x + 1);
 const consed = 1 :: [];
     `.trim();
 
-    const result = transformCode(input, { fileName: "all-ops.ts" });
+    // Use .sts extension for files with custom syntax (PEP-001)
+    const result = transformCode(input, { fileName: "all-ops.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.code).toContain("__binop__");

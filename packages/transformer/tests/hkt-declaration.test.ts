@@ -4,16 +4,16 @@
  * Verifies that interface/type declarations using F<_> kind syntax
  * get rewritten so that F<A> usages become Kind<F, A>.
  *
- * The AST-level transform is a fallback for the ts-patch path where
- * the preprocessor may not have run. Tests use extensions: [] to
- * disable preprocessing and exercise the AST transform directly.
+ * NOTE: PEP-001 Wave 1 introduced extension-based routing. Custom syntax
+ * like F<_> is only supported in .sts files. These tests use .sts extension.
  */
 
 import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
 
-function transformWithoutPreprocessor(code: string, fileName = "hkt-test.ts") {
-  return transformCode(code, { fileName, extensions: [] });
+function transformHKT(code: string, fileName = "hkt-test.sts") {
+  // Use .sts extension for files with custom HKT syntax (PEP-001)
+  return transformCode(code, { fileName });
 }
 
 describe("HKT F<_> declaration transformation", () => {
@@ -24,7 +24,7 @@ interface Functor<F<_>> {
 }
     `.trim();
 
-    const result = transformWithoutPreprocessor(code);
+    const result = transformHKT(code);
     // F<_> should be stripped to just F in type params
     expect(result.code).toContain("Functor<F>");
     // F<A> should become Kind<F, A>
@@ -41,7 +41,7 @@ interface Functor<F<_>> {
 type Apply<F<_>, A> = F<A>;
     `.trim();
 
-    const result = transformWithoutPreprocessor(code);
+    const result = transformHKT(code);
     expect(result.code).toContain("Apply<F, A>");
     expect(result.code).toContain("Kind<F, A>");
     expect(result.code).not.toMatch(/\bF<A>/);
@@ -55,7 +55,8 @@ interface Container<T> {
 }
     `.trim();
 
-    const result = transformWithoutPreprocessor(code);
+    // Standard TypeScript without custom syntax can use .ts extension
+    const result = transformCode(code, { fileName: "no-hkt.ts" });
     expect(result.code).toContain("Container<T>");
     expect(result.code).toContain("readonly value: T");
     expect(result.code).not.toContain("Kind<");
@@ -68,7 +69,7 @@ interface MapLike<F<_>, K> {
 }
     `.trim();
 
-    const result = transformWithoutPreprocessor(code);
+    const result = transformHKT(code);
     expect(result.code).toContain("MapLike<F, K>");
     expect(result.code).toContain("Kind<F, V>");
     expect(result.code).not.toMatch(/\bF<V>/);
@@ -84,37 +85,29 @@ interface Monad<F<_>> {
 }
     `.trim();
 
-    const result = transformWithoutPreprocessor(code);
+    const result = transformHKT(code);
     expect(result.code).toContain("Monad<F>");
     expect(result.code).toContain("Kind<F,");
     expect(result.code).not.toMatch(/\bF<A>/);
     expect(result.code).not.toMatch(/\bF<B>/);
   });
 
-  it("works alongside preprocessor without double-rewrite", () => {
+  it("transforms HKT in .sts files correctly", () => {
     const code = `
 interface Functor<F<_>> {
   readonly map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>;
 }
     `.trim();
 
-    // With preprocessor enabled (default extensions)
-    const resultWithPreproc = transformCode(code, {
-      fileName: "hkt-preproc.ts",
-    });
+    // .sts files get preprocessed for HKT syntax (PEP-001)
+    const result = transformCode(code, { fileName: "hkt.sts" });
 
-    // With preprocessor disabled (AST transform only)
-    const resultASTOnly = transformWithoutPreprocessor(code, "hkt-ast.ts");
+    // Should produce results with Kind<F, ...>
+    expect(result.code).toContain("Kind<F, A>");
+    expect(result.code).toContain("Kind<F, B>");
 
-    // Both should produce equivalent results with Kind<F, ...>
-    expect(resultWithPreproc.code).toContain("Kind<F, A>");
-    expect(resultWithPreproc.code).toContain("Kind<F, B>");
-    expect(resultASTOnly.code).toContain("Kind<F, A>");
-    expect(resultASTOnly.code).toContain("Kind<F, B>");
-
-    // Neither should contain raw F<A>
-    expect(resultWithPreproc.code).not.toMatch(/\bF<A>/);
-    expect(resultASTOnly.code).not.toMatch(/\bF<A>/);
+    // Should not contain raw F<A>
+    expect(result.code).not.toMatch(/\bF<A>/);
   });
 
   it("handles property signatures with HKT types", () => {
@@ -124,7 +117,7 @@ interface HasDefault<F<_>> {
 }
     `.trim();
 
-    const result = transformWithoutPreprocessor(code);
+    const result = transformHKT(code);
     expect(result.code).toContain("HasDefault<F>");
     expect(result.code).toContain("Kind<F, never>");
   });

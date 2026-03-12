@@ -251,22 +251,26 @@ export class TransformerState {
 }
 
 /**
- * Quick heuristic check for custom syntax that requires preprocessing.
- *
- * Checks for:
- * - `|>` (pipeline operator) outside string literals
- * - `<_>` (HKT declaration syntax) in type context
- * - `::` (cons operator) in value context (rough heuristic)
- *
- * This is intentionally fast and loose — false positives are fine (the
- * preprocessor will just return the code unchanged), but false negatives
- * mean custom syntax won't be handled.
+ * Check if a file is a "sugared TypeScript" file that needs preprocessing.
+ * Only .sts and .stsx files go through the preprocessor.
  */
-const NEEDS_PREPROCESS_RE = /\|>|<_>|[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/;
+function isSugaredTypeScriptFile(fileName: string): boolean {
+  return /\.stsx?$/i.test(fileName);
+}
+
+/**
+ * Regex to detect custom syntax in non-.sts files (for error reporting).
+ * If a .ts file contains this syntax, we should emit a diagnostic.
+ */
+const CUSTOM_SYNTAX_RE = /\|>|<_>|[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/;
 
 /**
  * Detect whether a source file needs preprocessing and, if so, create a
  * new SourceFile from the preprocessed text.
+ *
+ * Extension-based routing:
+ * - `.sts`/`.stsx` files: ALWAYS preprocess (custom syntax allowed)
+ * - `.ts`/`.tsx` files: NEVER preprocess (use JSDoc syntax only)
  *
  * CAVEATS:
  * - The type checker was built against the original (non-preprocessed) program,
@@ -277,35 +281,38 @@ const NEEDS_PREPROCESS_RE = /\|>|<_>|[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/;
  *   `unplugin-typesugar` or the `TransformationPipeline` which creates a
  *   fresh program from preprocessed content.
  * - This inline preprocessing is a best-effort fallback for `tsc` + ts-patch
- *   users who have files with custom syntax mixed with macros.
+ *   users who have .sts files with custom syntax mixed with macros.
  */
 function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.SourceFile {
-  const text = sourceFile.text;
+  const fileName = sourceFile.fileName;
 
-  if (!NEEDS_PREPROCESS_RE.test(text)) {
+  // Only preprocess .sts/.stsx files
+  if (!isSugaredTypeScriptFile(fileName)) {
     return sourceFile;
   }
 
+  const text = sourceFile.text;
+
   try {
-    const result = preprocess(text, { fileName: sourceFile.fileName });
+    const result = preprocess(text, { fileName });
 
     if (!result.changed) {
       return sourceFile;
     }
 
     if (verbose) {
-      console.log("[typesugar] Preprocessing: " + sourceFile.fileName);
+      console.log("[typesugar] Preprocessing: " + fileName);
     }
 
     const scriptKind =
-      sourceFile.fileName.endsWith(".tsx") || sourceFile.fileName.endsWith(".jsx")
+      fileName.endsWith(".stsx") || fileName.endsWith(".tsx") || fileName.endsWith(".jsx")
         ? ts.ScriptKind.TSX
-        : sourceFile.fileName.endsWith(".mts") || sourceFile.fileName.endsWith(".cts")
+        : fileName.endsWith(".mts") || fileName.endsWith(".cts")
           ? ts.ScriptKind.TS
           : ts.ScriptKind.TS;
 
     return ts.createSourceFile(
-      sourceFile.fileName,
+      fileName,
       result.code,
       sourceFile.languageVersion,
       /* setParentNodes */ true,
@@ -313,7 +320,7 @@ function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.Source
     );
   } catch (e) {
     if (verbose) {
-      console.log(`[typesugar] Preprocessing failed for ${sourceFile.fileName}: ${e}`);
+      console.log(`[typesugar] Preprocessing failed for ${fileName}: ${e}`);
     }
     return sourceFile;
   }

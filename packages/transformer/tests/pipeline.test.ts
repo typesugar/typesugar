@@ -8,13 +8,14 @@ import * as ts from "typescript";
 
 describe("TransformationPipeline", () => {
   describe("transformCode (single-file)", () => {
-    it("preprocesses HKT syntax", () => {
+    it("preprocesses HKT syntax in .sts files", () => {
       const code = `
         type F<_> = { value: number };
         type Applied = F<string>;
       `;
 
-      const result = transformCode(code, { fileName: "test.ts" });
+      // Use .sts extension for files with custom syntax (PEP-001)
+      const result = transformCode(code, { fileName: "test.sts" });
 
       // HKT syntax should be transformed
       // F<_> → interface with _ property
@@ -23,12 +24,13 @@ describe("TransformationPipeline", () => {
       expect(result.diagnostics).toHaveLength(0);
     });
 
-    it("transforms pipe operator", () => {
+    it("transforms pipe operator in .sts files", () => {
       const code = `
         const result = 1 |> ((x) => x + 1) |> ((x) => x * 2);
       `;
 
-      const result = transformCode(code, { fileName: "test.ts" });
+      // Use .sts extension for files with custom syntax (PEP-001)
+      const result = transformCode(code, { fileName: "test.sts" });
 
       // Pipe operator should be transformed to __binop__ calls
       // The |> operator itself is replaced, though the string appears as an argument
@@ -164,9 +166,10 @@ describe("TransformationPipeline", () => {
 
   describe("source map composition", () => {
     it("provides a position mapper", () => {
+      // Use .sts extension for files with custom syntax (PEP-001)
       const code = `const result = 1 |> ((x) => x + 1);`;
 
-      const result = transformCode(code, { fileName: "test.ts" });
+      const result = transformCode(code, { fileName: "test.sts" });
 
       expect(result.mapper).toBeDefined();
       expect(typeof result.mapper.toOriginal).toBe("function");
@@ -194,7 +197,8 @@ describe("TransformationPipeline", () => {
         "const c = 3;",
       ].join("\n");
 
-      const result = transformCode(code, { fileName: "fmt-pipe.ts", preserveBlankLines: true });
+      // Use .sts extension for files with custom syntax (PEP-001)
+      const result = transformCode(code, { fileName: "fmt-pipe.sts", preserveBlankLines: true });
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");

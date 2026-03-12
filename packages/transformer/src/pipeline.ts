@@ -535,8 +535,8 @@ export class TransformationPipeline {
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
 
-    // Only transform TS/TSX/JS/JSX files
-    return /\.[tj]sx?$/.test(fileName);
+    // Transform TS/TSX/JS/JSX files and STS/STSX (sugared TypeScript) files
+    return /\.([tj]sx?|stsx?)$/.test(fileName);
   }
 
   // ---------------------------------------------------------------------------
@@ -829,8 +829,8 @@ export class TransformationPipeline {
    * Resolve a module path to an absolute file path
    */
   private resolveModulePath(modulePath: string, baseDir: string): string | undefined {
-    // Try common extensions
-    const extensions = [".ts", ".tsx", ".js", ".jsx", ""];
+    // Try common extensions - .sts/.stsx are sugared TypeScript files
+    const extensions = [".ts", ".tsx", ".sts", ".stsx", ".js", ".jsx", ""];
     const basePath = path.resolve(baseDir, modulePath);
 
     for (const ext of extensions) {

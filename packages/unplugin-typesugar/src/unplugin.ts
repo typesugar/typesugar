@@ -76,7 +76,66 @@ function shouldTransform(
     return include.some((pattern) => normalizedId.includes(pattern));
   }
 
-  return /\.[jt]sx?$/.test(normalizedId);
+  // Match TS/TSX/JS/JSX and STS/STSX (sugared TypeScript) files
+  return /\.([jt]sx?|stsx?)$/.test(normalizedId);
+}
+
+/**
+ * Try to resolve a module specifier to a .sts/.stsx file if no .ts/.tsx file exists.
+ * Used by the resolveId hook to support implicit .sts extension resolution.
+ */
+function tryResolveStsExtension(
+  specifier: string,
+  importer: string | undefined,
+  fileExists: (path: string) => boolean = fs.existsSync
+): string | null {
+  // Only handle relative imports
+  if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+    return null;
+  }
+
+  // If there's already an extension, don't try to resolve
+  if (/\.[a-zA-Z]+$/.test(specifier)) {
+    return null;
+  }
+
+  if (!importer) {
+    return null;
+  }
+
+  const baseDir = path.dirname(importer);
+  const basePath = path.resolve(baseDir, specifier);
+
+  // Check if .ts or .tsx exists first (they take priority)
+  if (fileExists(basePath + ".ts") || fileExists(basePath + ".tsx")) {
+    return null; // Let the default resolver handle it
+  }
+
+  // Try .sts
+  const stsPath = basePath + ".sts";
+  if (fileExists(stsPath)) {
+    return stsPath;
+  }
+
+  // Try .stsx
+  const stsxPath = basePath + ".stsx";
+  if (fileExists(stsxPath)) {
+    return stsxPath;
+  }
+
+  // Try index.sts
+  const indexStsPath = path.join(basePath, "index.sts");
+  if (fileExists(indexStsPath)) {
+    return indexStsPath;
+  }
+
+  // Try index.stsx
+  const indexStsxPath = path.join(basePath, "index.stsx");
+  if (fileExists(indexStsxPath)) {
+    return indexStsxPath;
+  }
+
+  return null;
 }
 
 export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined> = (
@@ -88,6 +147,18 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
   return {
     name: "typesugar",
     enforce: "pre",
+
+    // Resolve .sts files when .ts doesn't exist
+    resolveId(specifier, importer) {
+      const resolved = tryResolveStsExtension(specifier, importer);
+      if (resolved) {
+        if (verbose) {
+          console.log(`[typesugar] Resolved ${specifier} -> ${resolved}`);
+        }
+        return resolved;
+      }
+      return null; // Let other resolvers handle it
+    },
 
     buildStart() {
       try {
