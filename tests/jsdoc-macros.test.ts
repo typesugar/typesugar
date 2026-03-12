@@ -14,6 +14,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { transformCode } from "@typesugar/transformer/pipeline";
+import { preprocess } from "../packages/preprocessor/src/index.js";
 import { clearRegistries, clearSyntaxRegistry } from "@typesugar/macros";
 
 beforeEach(() => {
@@ -301,6 +302,8 @@ interface JsDocEq<A> {
   });
 
   it("decorator @typeclass rewritten by preprocessor to JSDoc", () => {
+    // Test preprocessor rewriting directly (not full transform)
+    // transformCode runs macro expansion which consumes the JSDoc
     const decoratorCode = `
 @typeclass
 interface DecEq<A> {
@@ -308,13 +311,14 @@ interface DecEq<A> {
 }
     `.trim();
 
-    const decoratorResult = transformCode(decoratorCode, {
-      fileName: "decorator-eq.ts",
+    const preprocessResult = preprocess(decoratorCode, {
+      fileName: "decorator-eq.sts",
       extensions: ["decorator-rewrite"],
     });
 
-    expect(decoratorResult.changed).toBe(true);
-    expect(decoratorResult.code).toContain("/** @typeclass */");
+    expect(preprocessResult.changed).toBe(true);
+    expect(preprocessResult.code).toContain("/** @typeclass */");
+    expect(preprocessResult.code).not.toContain("@typeclass\n"); // decorator syntax removed
   });
 
   it("@deriving JSDoc generates derived instances", () => {
