@@ -110,25 +110,31 @@ export class ExpansionTracker {
     this.expansions = [];
   }
 
-  generateSourceMap(originalSource: string, fileName: string = "source.ts"): RawSourceMap | null {
+  /**
+   * Apply expansion records to the original source via MagicString text surgery.
+   *
+   * Returns the modified MagicString instance so callers can extract
+   * both the code (`s.toString()`) and source map (`s.generateMap()`).
+   * Returns null if there are no expansions for this file.
+   */
+  private applyExpansions(
+    originalSource: string,
+    fileName: string
+  ): MagicString | null {
     const fileExpansions = this.getExpansionsForFile(fileName);
     if (fileExpansions.length === 0) {
       return null;
     }
 
     const s = new MagicString(originalSource);
-
     const sorted = [...fileExpansions].sort((a, b) => b.originalStart - a.originalStart);
-
     const appliedRanges: Array<{ start: number; end: number }> = [];
 
     for (const exp of sorted) {
       const isNested = appliedRanges.some(
         (range) => exp.originalStart >= range.start && exp.originalEnd <= range.end
       );
-      if (isNested) {
-        continue;
-      }
+      if (isNested) continue;
 
       try {
         s.overwrite(exp.originalStart, exp.originalEnd, exp.expandedText);
@@ -137,6 +143,13 @@ export class ExpansionTracker {
         continue;
       }
     }
+
+    return s;
+  }
+
+  generateSourceMap(originalSource: string, fileName: string = "source.ts"): RawSourceMap | null {
+    const s = this.applyExpansions(originalSource, fileName);
+    if (!s) return null;
 
     const map = s.generateMap({
       hires: true,
@@ -153,6 +166,20 @@ export class ExpansionTracker {
       names: map.names,
       mappings: map.mappings,
     };
+  }
+
+  /**
+   * Generate expanded code by surgically replacing only macro call sites
+   * in the original source text.
+   *
+   * Unlike printer.printFile() which reprints the entire AST (losing blank
+   * lines, comments, and formatting), this preserves the original source
+   * byte-for-byte except at expansion sites. Returns null if no expansions.
+   */
+  generateExpandedCode(originalSource: string, fileName: string = "source.ts"): string | null {
+    const s = this.applyExpansions(originalSource, fileName);
+    if (!s) return null;
+    return s.toString();
   }
 }
 

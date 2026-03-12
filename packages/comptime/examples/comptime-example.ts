@@ -40,12 +40,12 @@ console.log("Squares[10]:", squares[10]); // 100
 
 console.log("\n--- Build Configuration ---");
 
-const config = comptime({
+const config = comptime({ env: "read" }, () => ({
   version: "1.0.0",
   buildNumber: Date.now(),
   features: ["auth", "logging", "cache"],
   isProd: process.env.NODE_ENV === "production",
-});
+}));
 
 console.log("Config:", config);
 

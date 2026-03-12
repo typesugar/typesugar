@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { TransformationPipeline, transformCode, restoreBlankLines } from "../src/pipeline.js";
+import { TransformationPipeline, transformCode, restoreBlankLines, formatExpansions } from "../src/pipeline.js";
 import * as ts from "typescript";
 
 describe("TransformationPipeline", () => {
@@ -181,6 +181,52 @@ describe("TransformationPipeline", () => {
       // Identity mapper for unchanged files
       expect(result.mapper.toOriginal(5)).toBe(5);
       expect(result.mapper.toTransformed(5)).toBe(5);
+    });
+  });
+
+  describe("formatExpansions (focused diff)", () => {
+    it("shows only changed regions for pipe operators", () => {
+      const code = [
+        "const a = 1;",
+        "",
+        "const b = a |> double;",
+        "",
+        "const c = 3;",
+      ].join("\n");
+
+      const result = transformCode(code, { fileName: "fmt-pipe.ts", preserveBlankLines: true });
+      const focused = formatExpansions(result);
+
+      expect(focused).toContain("changed line");
+      expect(focused).toContain("__binop__");
+      expect(focused).toContain("const a = 1;");
+      expect(focused).toContain("const c = 3;");
+    });
+
+    it("returns 'No changes.' for unchanged files", () => {
+      const code = "const x = 1;\n";
+      const result = transformCode(code, { fileName: "fmt-noop.ts", preserveBlankLines: true });
+      expect(formatExpansions(result)).toBe("No changes.");
+    });
+
+    it("shows comptime expansions with context", () => {
+      const code = [
+        'import { comptime } from "@typesugar/comptime";',
+        "",
+        "const x = comptime(1 + 2);",
+        "",
+        "console.log(x);",
+      ].join("\n");
+
+      const result = transformCode(code, { fileName: "fmt-ct.ts", preserveBlankLines: true });
+      const focused = formatExpansions(result);
+
+      expect(focused).toContain("changed line");
+      // Should show the comptime call as deleted and literal as inserted
+      expect(focused).toContain("- const x = comptime(1 + 2);");
+      expect(focused).toContain("+ const x = 3;");
+      // Context should include surrounding lines
+      expect(focused).toContain("console.log(x);");
     });
   });
 

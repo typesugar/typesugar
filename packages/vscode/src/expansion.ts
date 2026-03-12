@@ -21,6 +21,9 @@ export interface ExpansionResult {
   /** The expanded source text (full file after macro expansion) */
   expandedText: string;
 
+  /** Focused view showing only expansion sites with context */
+  focusedView: string;
+
   /** Map from comptime call position → computed value */
   comptimeResults: Map<number, unknown>;
 
@@ -50,14 +53,17 @@ export interface ExpansionDiagnostic {
 // ---------------------------------------------------------------------------
 
 export class ExpansionService {
-  private program: ts.Program | undefined;
   private resultCache = new Map<string, ExpansionResult>();
-  private configPath: string | undefined;
   private readonly disposables: vscode.Disposable[] = [];
+  readonly log: (msg: string) => void;
 
   constructor() {
+    const channel = vscode.window.createOutputChannel("Typesugar Expansion");
+    this.log = (msg: string) => channel.appendLine(`[${new Date().toISOString()}] ${msg}`);
+
     // Invalidate cache on file save
     this.disposables.push(
+      channel,
       vscode.workspace.onDidSaveTextDocument((doc) => {
         this.resultCache.delete(doc.uri.fsPath);
       })
@@ -69,9 +75,15 @@ export class ExpansionService {
    */
   async getExpansionResult(document: vscode.TextDocument): Promise<ExpansionResult | undefined> {
     const cached = this.resultCache.get(document.uri.fsPath);
-    if (cached) return cached;
+    if (cached) {
+      this.log(`getExpansionResult: cache hit for ${document.uri.fsPath}, expandedText length: ${cached.expandedText.length}`);
+      return cached;
+    }
 
-    return this.expandFile(document);
+    this.log(`getExpansionResult: cache miss, calling expandFile`);
+    const result = await this.expandFile(document);
+    this.log(`getExpansionResult: expandFile returned ${result ? `result with expandedText length ${result.expandedText.length}` : "undefined"}`);
+    return result;
   }
 
   /**
@@ -80,100 +92,159 @@ export class ExpansionService {
    */
   async expandFile(document: vscode.TextDocument): Promise<ExpansionResult | undefined> {
     try {
-      const program = this.getOrCreateProgram(document);
-      if (!program) return undefined;
+      this.log(`expandFile: ${document.uri.fsPath}`);
 
-      // Try to dynamically load the transformer
       const transformerModule = await this.loadTransformer();
-      if (!transformerModule) return undefined;
+      if (!transformerModule) {
+        this.log("expandFile: failed to load transformer module");
+        return undefined;
+      }
 
-      const sourceFile = program.getSourceFile(document.uri.fsPath);
-      if (!sourceFile) return undefined;
+      const transformCode = transformerModule.transformCode;
+      const formatExpansionsFn = transformerModule.formatExpansions;
+      if (typeof transformCode !== "function") {
+        this.log("expandFile: transformer module has no transformCode function");
+        return undefined;
+      }
 
+      const code = document.getText();
+      this.log(`expandFile: running transformCode on ${document.uri.fsPath} (${code.length} chars)`);
+
+      const transformResult = transformCode(code, {
+        fileName: document.uri.fsPath,
+        preserveBlankLines: true,
+      });
+
+      this.log(`expandFile: transformCode returned, changed=${transformResult.changed}, code=${transformResult.code.length} chars, diagnostics=${transformResult.diagnostics?.length ?? 0}`);
+
+      const expandedText = transformResult.changed ? transformResult.code : "";
+      const focusedView =
+        typeof formatExpansionsFn === "function" && transformResult.changed
+          ? formatExpansionsFn(transformResult)
+          : "";
       const comptimeResults = new Map<number, unknown>();
       const bindTypes = new Map<number, string>();
       const diagnostics: ExpansionDiagnostic[] = [];
 
-      // Run the transformer
-      const transformerFactory = transformerModule.default(program, {
-        verbose: false,
-      });
-
-      let expandedText = "";
-
-      const emitResult = program.emit(
-        sourceFile,
-        (fileName, text) => {
-          if (fileName.endsWith(".js") || fileName.endsWith(".ts")) {
-            expandedText = text;
-          }
-        },
-        undefined,
-        false,
-        { before: [transformerFactory] }
-      );
-
-      // Collect diagnostics
-      for (const diag of emitResult.diagnostics) {
-        if (diag.source === "typesugar" || diag.code === 90000) {
-          const message = ts.flattenDiagnosticMessageText(diag.messageText, "\n");
-          let range: ExpansionDiagnostic["range"];
-
-          if (diag.file && diag.start !== undefined && diag.length !== undefined) {
-            const start = diag.file.getLineAndCharacterOfPosition(diag.start);
-            const end = diag.file.getLineAndCharacterOfPosition(diag.start + diag.length);
-            range = {
-              startLine: start.line,
-              startChar: start.character,
-              endLine: end.line,
-              endChar: end.character,
-            };
-          }
-
-          diagnostics.push({
-            message,
-            severity: diag.category === ts.DiagnosticCategory.Error ? "error" : "warning",
-            code: diag.code,
-            range,
-          });
-        }
+      for (const diag of transformResult.diagnostics ?? []) {
+        diagnostics.push({
+          message: diag.message ?? String(diag),
+          severity: diag.category === "error" ? "error" : "warning",
+        });
       }
 
-      // Extract comptime results by diffing original vs expanded
-      this.extractComptimeResults(sourceFile, expandedText, comptimeResults);
-
-      // Extract bind types from the type checker
-      this.extractBindTypes(sourceFile, program.getTypeChecker(), bindTypes);
+      if (expandedText) {
+        const sourceFile = ts.createSourceFile(
+          document.fileName,
+          code,
+          ts.ScriptTarget.Latest,
+          true
+        );
+        this.extractComptimeResults(sourceFile, expandedText, comptimeResults);
+      }
 
       const result: ExpansionResult = {
         expandedText,
+        focusedView,
         comptimeResults,
         bindTypes,
         diagnostics,
       };
 
-      this.resultCache.set(document.uri.fsPath, result);
+      if (result.expandedText) {
+        this.resultCache.set(document.uri.fsPath, result);
+      }
       return result;
-    } catch {
+    } catch (err) {
+      this.log(`expandFile error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
       return undefined;
     }
   }
 
   /**
-   * Get the expanded text for a specific macro at a given position.
-   * Used by the "Expand macro" command.
+   * Get the expansion for the specific macro at the given position.
+   *
+   * Returns `{ original, expanded }` for just the macro call at/near the
+   * cursor, not the entire file. Falls back to the focused diff view if
+   * no specific expansion record matches the position.
    */
   async getExpansionAtPosition(
     document: vscode.TextDocument,
     position: number
-  ): Promise<string | undefined> {
-    const result = await this.getExpansionResult(document);
-    if (!result) return undefined;
+  ): Promise<{ original: string; expanded: string } | undefined> {
+    try {
+      const mod = await this.loadTransformer();
+      if (!mod?.transformCode) return undefined;
 
-    // For now, return the full expanded file.
-    // A more sophisticated version would diff and extract just the
-    // expansion at the given position.
-    return result.expandedText || undefined;
+      const transformCode = mod.transformCode as (
+        code: string,
+        options?: { fileName?: string; preserveBlankLines?: boolean }
+      ) => {
+        code: string;
+        changed: boolean;
+        original: string;
+        expansions?: Array<{
+          macroName: string;
+          originalStart: number;
+          originalEnd: number;
+          originalText: string;
+          expandedText: string;
+        }>;
+      };
+
+      const code = document.getText();
+      const result = transformCode(code, {
+        fileName: document.uri.fsPath,
+        preserveBlankLines: true,
+      });
+
+      if (!result.changed) return undefined;
+
+      // If we have expansion records, find the one at/near the cursor
+      if (result.expansions?.length) {
+        // Find the expansion whose range contains or is nearest to the position
+        let best = result.expansions[0];
+        let bestDist = Infinity;
+
+        for (const exp of result.expansions) {
+          if (position >= exp.originalStart && position <= exp.originalEnd) {
+            best = exp;
+            bestDist = 0;
+            break;
+          }
+          const dist = Math.min(
+            Math.abs(position - exp.originalStart),
+            Math.abs(position - exp.originalEnd)
+          );
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = exp;
+          }
+        }
+
+        return {
+          original: best.originalText,
+          expanded: best.expandedText,
+        };
+      }
+
+      // No expansion records — fall back to focused diff
+      const formatExpansionsFn = mod.formatExpansions as
+        | ((r: { original: string; code: string; changed: boolean }) => string)
+        | undefined;
+
+      if (typeof formatExpansionsFn === "function") {
+        return {
+          original: "(full file)",
+          expanded: formatExpansionsFn(result),
+        };
+      }
+
+      return undefined;
+    } catch (err) {
+      this.log(`getExpansionAtPosition error: ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
   }
 
   /**
@@ -181,117 +252,79 @@ export class ExpansionService {
    * Uses the TransformationPipeline for preprocessing and macro expansion.
    * Used by the "Show Transformed" command.
    */
-  async getTransformedFile(document: vscode.TextDocument): Promise<string | undefined> {
+  async getTransformedFile(document: vscode.TextDocument): Promise<{ code: string; focusedView: string } | undefined> {
     try {
-      // Try to load the pipeline from the workspace's node_modules
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders?.length) return undefined;
+      const mod = await this.loadTransformer();
+      if (!mod?.transformCode) return undefined;
 
-      const root = workspaceFolders[0].uri.fsPath;
+      const transformCode = mod.transformCode as (
+        code: string,
+        options?: { fileName?: string; preserveBlankLines?: boolean }
+      ) => { code: string; changed: boolean; original: string };
 
-      // Find tsconfig.json
-      const configPath = ts.findConfigFile(root, ts.sys.fileExists, "tsconfig.json");
-      if (!configPath) return undefined;
+      const formatExpansionsFn = mod.formatExpansions as
+        | ((result: { original: string; code: string; changed: boolean }) => string)
+        | undefined;
 
-      // Try to load the TransformationPipeline
-      const transformerPath = path.join(
-        root,
-        "node_modules",
-        "@typesugar",
-        "transformer",
-        "dist",
-        "pipeline.js"
-      );
+      const result = transformCode(document.getText(), {
+        fileName: document.uri.fsPath,
+        preserveBlankLines: true,
+      });
 
-      let pipeline: typeof import("@typesugar/transformer/pipeline") | undefined;
-      try {
-        pipeline = await import(transformerPath);
-      } catch {
-        // Try alternative path
-        const altPath = path.join(root, "node_modules", "typesugar", "dist", "pipeline.js");
-        try {
-          pipeline = await import(altPath);
-        } catch {
-          return undefined;
-        }
-      }
+      if (!result.changed) return undefined;
 
-      if (!pipeline?.createPipeline) return undefined;
+      const focusedView =
+        typeof formatExpansionsFn === "function" ? formatExpansionsFn(result) : "";
 
-      // Create pipeline and transform the file
-      const p = pipeline.createPipeline(configPath, { verbose: false });
-      const result = p.transform(document.uri.fsPath);
-
-      // Return transformed code if it changed
-      if (result.changed) {
-        return result.code;
-      }
-
-      // If no transformation, return undefined to indicate no changes
-      return undefined;
+      return { code: result.code, focusedView };
     } catch (error) {
-      console.error("[typesugar] getTransformedFile error:", error);
+      this.log(`getTransformedFile error: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
     }
   }
 
-  private getOrCreateProgram(document: vscode.TextDocument): ts.Program | undefined {
-    // Find tsconfig.json
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-    if (!workspaceFolder) return undefined;
+  private cachedTransformerModule: Record<string, unknown> | undefined;
 
-    const configPath = ts.findConfigFile(
-      workspaceFolder.uri.fsPath,
-      ts.sys.fileExists,
-      "tsconfig.json"
-    );
+  private async loadTransformer(): Promise<Record<string, unknown> | undefined> {
+    if (this.cachedTransformerModule) return this.cachedTransformerModule;
 
-    // Re-use program if config hasn't changed
-    if (this.program && this.configPath === configPath) {
-      return this.program;
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders?.length) {
+      this.log("loadTransformer: no workspace folders");
+      return undefined;
     }
 
-    if (!configPath) return undefined;
+    const root = workspaceFolders[0].uri.fsPath;
 
-    const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-    if (configFile.error) return undefined;
+    const candidates = [
+      path.join(root, "node_modules", "@typesugar", "transformer", "dist", "index.js"),
+      path.join(root, "node_modules", "typesugar", "dist", "index.js"),
+    ];
 
-    const parsed = ts.parseJsonConfigFileContent(
-      configFile.config,
-      ts.sys,
-      path.dirname(configPath)
-    );
-
-    this.program = ts.createProgram(parsed.fileNames, parsed.options);
-    this.configPath = configPath;
-    return this.program;
-  }
-
-  private async loadTransformer(): Promise<
-    | {
-        default: (program: ts.Program, config?: unknown) => ts.TransformerFactory<ts.SourceFile>;
+    for (const candidate of candidates) {
+      try {
+        this.log(`loadTransformer: trying ${candidate}`);
+        // Bust Node's require cache so we always get the latest build
+        const resolved = require.resolve(candidate);
+        delete require.cache[resolved];
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require(candidate);
+        this.log(`loadTransformer: loaded from ${candidate}, keys: ${Object.keys(mod).join(", ")}`);
+        this.cachedTransformerModule = mod;
+        return mod;
+      } catch (err) {
+        this.log(`loadTransformer: failed ${candidate}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
       }
-    | undefined
-  > {
-    try {
-      // Try to load from the workspace's node_modules
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders?.length) return undefined;
-
-      const root = workspaceFolders[0].uri.fsPath;
-      const transformerPath = path.join(
-        root,
-        "node_modules",
-        "typesugar",
-        "dist",
-        "transformer.js"
-      );
-
-      // Dynamic import
-      return await import(transformerPath);
-    } catch {
-      return undefined;
     }
+
+    return undefined;
+  }
+
+  /** Force the transformer to be reloaded on next use (e.g., after rebuild). */
+  reloadTransformer(): void {
+    this.cachedTransformerModule = undefined;
+    this.resultCache.clear();
   }
 
   /**
@@ -390,7 +423,6 @@ export class ExpansionService {
   dispose(): void {
     for (const d of this.disposables) d.dispose();
     this.resultCache.clear();
-    this.program = undefined;
   }
 }
 

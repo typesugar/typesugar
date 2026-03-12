@@ -7,7 +7,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { globalExpansionTracker } from "@typesugar/core";
+import { globalExpansionTracker, type ExpansionRecord } from "@typesugar/core";
 import { type RawSourceMap } from "@typesugar/preprocessor";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps } from "./source-map-utils.js";
@@ -53,6 +53,8 @@ export interface TransformResult {
   diagnostics: TransformDiagnostic[];
   /** Dependencies (files this file imports) */
   dependencies?: Set<string>;
+  /** Individual expansion records (populated when trackExpansions is enabled) */
+  expansions?: ExpansionRecord[];
 }
 
 /**
@@ -76,12 +78,15 @@ export interface PipelineOptions {
   /** Enable strict mode - typecheck expanded output for macro bugs */
   strict?: boolean;
   /**
-   * Preserve blank lines from the original source in the output.
+   * Preserve original formatting in the output.
    *
-   * TypeScript's printer strips blank lines when re-printing the AST.
-   * When true, the output is post-processed to restore blank lines at
-   * their original positions, making diffs between original and expanded
-   * code much more readable.
+   * When true, uses surgical text replacement (MagicString) to only
+   * modify macro call sites, keeping everything else — blank lines,
+   * comments, indentation — byte-for-byte identical to the original.
+   * This produces clean diffs that show only the actual expansions.
+   *
+   * When false (default), reprints the full AST via TypeScript's printer,
+   * which strips blank lines and may reformat code.
    */
   preserveBlankLines?: boolean;
 }
@@ -124,7 +129,14 @@ export class TransformationPipeline {
   ) {
     this.verbose = options.verbose ?? false;
     this.extensions = options.extensions ?? ["hkt", "pipeline", "cons", "decorator-rewrite"];
-    this.transformerConfig = options.transformerConfig ?? { verbose: this.verbose };
+    this.transformerConfig = {
+      verbose: this.verbose,
+      ...options.transformerConfig,
+    };
+    // Surgical text replacement needs expansion tracking to know what changed
+    if (options.preserveBlankLines) {
+      this.transformerConfig.trackExpansions = true;
+    }
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.fileNames = fileNames;
 
@@ -266,6 +278,7 @@ export class TransformationPipeline {
       map: transformMap,
       diagnostics,
       printMs,
+      expansions,
     } = this.runMacroTransformer(sourceFile, codeForTransform);
     const transformerMs = PROFILING_ENABLED ? performance.now() - transformerStart : 0;
 
@@ -286,6 +299,7 @@ export class TransformationPipeline {
       changed,
       diagnostics,
       dependencies,
+      expansions,
     };
 
     // Cache the result with dependencies
@@ -595,6 +609,7 @@ export class TransformationPipeline {
     map: RawSourceMap | null;
     diagnostics: TransformDiagnostic[];
     printMs?: number;
+    expansions?: ExpansionRecord[];
   } {
     // Clear expansion tracker before transformation
     globalExpansionTracker.clear();
@@ -632,16 +647,6 @@ export class TransformationPipeline {
         return { code: originalCode, map: null, diagnostics: [], printMs: 0 };
       }
 
-      profiler.start("printFile");
-      const printStart = PROFILING_ENABLED ? performance.now() : 0;
-      const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-      let transformed = printer.printFile(transformedSourceFile);
-      if (this.options.preserveBlankLines) {
-        transformed = restoreBlankLines(originalCode, transformed);
-      }
-      const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
-      profiler.end("printFile");
-
       // Collect diagnostics from the transformation
       const diagnostics: TransformDiagnostic[] = (result.diagnostics ?? []).map((d) => ({
         file: d.file?.fileName ?? sourceFile.fileName,
@@ -654,10 +659,40 @@ export class TransformationPipeline {
 
       result.dispose();
 
+      profiler.start("printFile");
+      const printStart = PROFILING_ENABLED ? performance.now() : 0;
+
+      let transformed: string;
+      if (this.options.preserveBlankLines) {
+        // Surgical text replacement: only macro call sites change, everything
+        // else (blank lines, comments, formatting) stays byte-for-byte identical.
+        // Falls back to the printer if no tracked expansions (e.g., only AST-level
+        // changes like import removal or extension rewrites).
+        const surgical = globalExpansionTracker.generateExpandedCode(
+          originalCode,
+          sourceFile.fileName
+        );
+        if (surgical !== null) {
+          transformed = surgical;
+        } else {
+          const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+          transformed = printer.printFile(transformedSourceFile);
+        }
+      } else {
+        const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+        transformed = printer.printFile(transformedSourceFile);
+      }
+
+      const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
+      profiler.end("printFile");
+
       // Generate source map from expansion records
       const map = globalExpansionTracker.generateSourceMap(originalCode, sourceFile.fileName);
 
-      // Clear tracker after generating the map
+      // Capture expansion records before clearing
+      const expansions = globalExpansionTracker.getExpansionsForFile(sourceFile.fileName);
+
+      // Clear tracker after extracting data
       globalExpansionTracker.clear();
 
       return {
@@ -665,6 +700,7 @@ export class TransformationPipeline {
         map,
         diagnostics,
         printMs,
+        expansions: expansions.length > 0 ? expansions : undefined,
       };
     } catch (error) {
       if (this.verbose) {
@@ -896,6 +932,168 @@ export function transformCode(
       f === fileName || f === (options?.fileName ?? "input.ts") || ts.sys.fileExists(f),
   });
   return pipeline.transform(fileName);
+}
+
+/**
+ * Format a TransformResult as a focused diff showing only changed regions.
+ *
+ * Uses a Myers-like greedy LCS diff on lines, then emits hunks with
+ * `contextLines` of surrounding unchanged source. Non-adjacent hunks
+ * are separated by `···` markers.
+ *
+ * Works for ALL transformation types — macros, preprocessor rewrites,
+ * AST-level changes — because it compares the actual output, not tracked
+ * expansion records.
+ *
+ * @param result - A TransformResult (needs original and code)
+ * @param contextLines - Number of context lines around each hunk (default 3)
+ */
+export function formatExpansions(result: TransformResult, contextLines: number = 3): string {
+  if (!result.changed) return "No changes.";
+
+  const origLines = result.original.split("\n");
+  const newLines = result.code.split("\n");
+
+  // Build edit script via greedy LCS (Hunt–Szymanski style)
+  type Edit = { kind: "equal" | "delete" | "insert"; line: string; origIdx?: number };
+  const edits: Edit[] = [];
+
+  const oLen = origLines.length;
+  const nLen = newLines.length;
+  let oi = 0;
+  let ni = 0;
+
+  // Build a simple longest common subsequence alignment using a two-pointer
+  // approach with lookahead. This is O(n*k) where k is the max lookahead.
+  const MAX_LOOK = 50;
+
+  while (oi < oLen || ni < nLen) {
+    if (oi < oLen && ni < nLen && origLines[oi] === newLines[ni]) {
+      edits.push({ kind: "equal", line: origLines[oi], origIdx: oi });
+      oi++;
+      ni++;
+      continue;
+    }
+
+    // Try to resync: find the nearest match in both directions
+    let bestOff = -1;
+    let bestNOff = -1;
+    let bestCost = MAX_LOOK * 2 + 1;
+
+    for (let lo = 0; lo < MAX_LOOK && oi + lo < oLen; lo++) {
+      for (let ln = 0; ln < MAX_LOOK && ni + ln < nLen; ln++) {
+        if (origLines[oi + lo] === newLines[ni + ln] && lo + ln < bestCost) {
+          bestOff = lo;
+          bestNOff = ln;
+          bestCost = lo + ln;
+          if (bestCost === 0) break;
+        }
+      }
+      if (bestCost === 0) break;
+    }
+
+    if (bestOff < 0) {
+      // No resync found within lookahead — emit remaining as deletes/inserts
+      while (oi < oLen) {
+        edits.push({ kind: "delete", line: origLines[oi], origIdx: oi });
+        oi++;
+      }
+      while (ni < nLen) {
+        edits.push({ kind: "insert", line: newLines[ni] });
+        ni++;
+      }
+      break;
+    }
+
+    // Emit deletes for skipped original lines
+    for (let i = 0; i < bestOff; i++) {
+      edits.push({ kind: "delete", line: origLines[oi], origIdx: oi });
+      oi++;
+    }
+    // Emit inserts for skipped new lines
+    for (let i = 0; i < bestNOff; i++) {
+      edits.push({ kind: "insert", line: newLines[ni] });
+      ni++;
+    }
+  }
+
+  // Identify changed regions (hunks)
+  interface Hunk {
+    startIdx: number;
+    endIdx: number; // exclusive
+  }
+
+  const hunks: Hunk[] = [];
+  let inHunk = false;
+  let hunkStart = 0;
+
+  for (let i = 0; i < edits.length; i++) {
+    if (edits[i].kind !== "equal") {
+      if (!inHunk) {
+        hunkStart = i;
+        inHunk = true;
+      }
+    } else if (inHunk) {
+      hunks.push({ startIdx: hunkStart, endIdx: i });
+      inHunk = false;
+    }
+  }
+  if (inHunk) {
+    hunks.push({ startIdx: hunkStart, endIdx: edits.length });
+  }
+
+  if (hunks.length === 0) return "No changes.";
+
+  // Expand hunks with context and merge overlapping
+  const contextHunks: Hunk[] = [];
+  for (const h of hunks) {
+    const expanded = {
+      startIdx: Math.max(0, h.startIdx - contextLines),
+      endIdx: Math.min(edits.length, h.endIdx + contextLines),
+    };
+    const last = contextHunks[contextHunks.length - 1];
+    if (last && expanded.startIdx <= last.endIdx) {
+      last.endIdx = Math.max(last.endIdx, expanded.endIdx);
+    } else {
+      contextHunks.push(expanded);
+    }
+  }
+
+  // Render
+  const maxOrigLine = oLen;
+  const gutterWidth = String(maxOrigLine).length;
+  const parts: string[] = [];
+
+  let changeCount = 0;
+  for (const edit of edits) {
+    if (edit.kind === "delete" || edit.kind === "insert") changeCount++;
+  }
+
+  for (let hi = 0; hi < contextHunks.length; hi++) {
+    if (hi > 0) parts.push("···");
+    const ch = contextHunks[hi];
+
+    for (let i = ch.startIdx; i < ch.endIdx; i++) {
+      const edit = edits[i];
+      const lineNum =
+        edit.origIdx !== undefined ? String(edit.origIdx + 1).padStart(gutterWidth) : " ".repeat(gutterWidth);
+
+      switch (edit.kind) {
+        case "equal":
+          parts.push(`${lineNum} |   ${edit.line}`);
+          break;
+        case "delete":
+          parts.push(`${lineNum} | - ${edit.line}`);
+          break;
+        case "insert":
+          parts.push(`${" ".repeat(gutterWidth)} | + ${edit.line}`);
+          break;
+      }
+    }
+  }
+
+  const header = `${changeCount} changed line${changeCount === 1 ? "" : "s"} in ${contextHunks.length} region${contextHunks.length === 1 ? "" : "s"}`;
+  return `${header}\n${parts.join("\n")}`;
 }
 
 /**

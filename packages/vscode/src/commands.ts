@@ -23,50 +23,76 @@ export function registerCommands(
     vscode.commands.registerCommand(
       "typesugar.expandMacro",
       async (uri?: vscode.Uri, position?: number) => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor && !uri) {
-          vscode.window.showWarningMessage("No active editor");
-          return;
-        }
+        try {
+          expansion.log(`expandMacro command: uri=${uri?.fsPath}, position=${position}`);
 
-        const targetUri = uri ?? editor!.document.uri;
-        const targetDoc = uri ? await vscode.workspace.openTextDocument(uri) : editor!.document;
-        const targetPos = position ?? editor!.document.offsetAt(editor!.selection.active);
-
-        const expanded = await expansion.getExpansionAtPosition(targetDoc, targetPos);
-        if (!expanded) {
-          vscode.window.showInformationMessage(
-            "Could not expand macro. Make sure typesugar is installed in this project."
-          );
-          return;
-        }
-
-        // Show expansion in a virtual document
-        const expandedUri = vscode.Uri.parse(`typesugar-expansion:${targetUri.fsPath}?expanded`);
-
-        const provider = new (class implements vscode.TextDocumentContentProvider {
-          provideTextDocumentContent(): string {
-            return expanded;
+          const editor = vscode.window.activeTextEditor;
+          if (!editor && !uri) {
+            vscode.window.showWarningMessage("No active editor");
+            return;
           }
-        })();
 
-        const registration = vscode.workspace.registerTextDocumentContentProvider(
-          "typesugar-expansion",
-          provider
-        );
+          const targetUri = uri ?? editor!.document.uri;
+          const targetDoc = uri
+            ? await vscode.workspace.openTextDocument(uri)
+            : editor!.document;
+          const targetPos =
+            position ?? editor!.document.offsetAt(editor!.selection.active);
 
-        const doc = await vscode.workspace.openTextDocument(expandedUri);
-        await vscode.window.showTextDocument(doc, {
-          viewColumn: vscode.ViewColumn.Beside,
-          preview: true,
-          preserveFocus: true,
-        });
+          expansion.log(`expandMacro: expanding ${targetDoc.uri.fsPath} at position ${targetPos}`);
 
-        // Set language to TypeScript for syntax highlighting
-        await vscode.languages.setTextDocumentLanguage(doc, "typescript");
+          const expanded = await expansion.getExpansionAtPosition(targetDoc, targetPos);
+          if (!expanded) {
+            expansion.log("expandMacro: no expansion result");
+            vscode.window.showInformationMessage(
+              "Could not expand macro. Make sure typesugar is installed in this project."
+            );
+            return;
+          }
 
-        // Clean up the provider after a delay (the document stays open)
-        setTimeout(() => registration.dispose(), 5000);
+          expansion.log(`expandMacro: original=${expanded.original.length} chars, expanded=${expanded.expanded.length} chars`);
+
+          // Show the expansion in a virtual document
+          const baseName = path.basename(targetDoc.fileName);
+          const expandedUri = vscode.Uri.parse(
+            `typesugar-expansion:${targetUri.fsPath}?expanded&t=${Date.now()}`
+          );
+
+          const content =
+            `// ${baseName} — macro expansion\n` +
+            `// ─────────────────────────────\n` +
+            `\n` +
+            `// Original:\n` +
+            expanded.original
+              .split("\n")
+              .map((l) => `//   ${l}`)
+              .join("\n") +
+            `\n\n` +
+            `// Expands to:\n` +
+            expanded.expanded +
+            `\n`;
+
+          const provider = new (class implements vscode.TextDocumentContentProvider {
+            provideTextDocumentContent(): string {
+              return content;
+            }
+          })();
+
+          const registration = vscode.workspace.registerTextDocumentContentProvider(
+            "typesugar-expansion",
+            provider
+          );
+
+          await vscode.commands.executeCommand("vscode.open", expandedUri);
+          setTimeout(() => registration.dispose(), 60000);
+        } catch (err) {
+          expansion.log(
+            `expandMacro error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`
+          );
+          vscode.window.showErrorMessage(
+            `typesugar: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
       }
     )
   );
@@ -92,42 +118,64 @@ export function registerCommands(
       }
 
       // Get transformed content from the extension
-      const transformed = await expansion.getTransformedFile(document);
-      if (!transformed) {
+      const result = await expansion.getTransformedFile(document);
+      if (!result) {
         vscode.window.showInformationMessage(
           "No transformation applied to this file. It may not contain any typesugar syntax or macros."
         );
         return;
       }
 
-      // Create a virtual document for the transformed content
       const baseName = path.basename(fileName);
-      const transformedUri = vscode.Uri.parse(
-        `typesugar-transformed:${fileName}?transformed&t=${Date.now()}`
-      );
 
-      const provider = new (class implements vscode.TextDocumentContentProvider {
-        provideTextDocumentContent(): string {
-          return transformed;
-        }
-      })();
+      if (result.focusedView) {
+        // Show focused view: only changed regions with context
+        const transformedUri = vscode.Uri.parse(
+          `typesugar-transformed:${fileName}?focused&t=${Date.now()}`
+        );
 
-      const registration = vscode.workspace.registerTextDocumentContentProvider(
-        "typesugar-transformed",
-        provider
-      );
+        const content = result.focusedView;
+        const provider = new (class implements vscode.TextDocumentContentProvider {
+          provideTextDocumentContent(): string {
+            return content;
+          }
+        })();
 
-      // Open as diff view: original vs transformed
-      const originalUri = document.uri;
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        originalUri,
-        transformedUri,
-        `typesugar: ${baseName} (original ↔ transformed)`
-      );
+        const registration = vscode.workspace.registerTextDocumentContentProvider(
+          "typesugar-transformed",
+          provider
+        );
 
-      // Clean up the provider after a delay
-      setTimeout(() => registration.dispose(), 60000);
+        await vscode.commands.executeCommand("vscode.open", transformedUri);
+        setTimeout(() => registration.dispose(), 60000);
+      } else {
+        // Fallback: full diff view
+        const transformedUri = vscode.Uri.parse(
+          `typesugar-transformed:${fileName}?transformed&t=${Date.now()}`
+        );
+
+        const content = result.code;
+        const provider = new (class implements vscode.TextDocumentContentProvider {
+          provideTextDocumentContent(): string {
+            return content;
+          }
+        })();
+
+        const registration = vscode.workspace.registerTextDocumentContentProvider(
+          "typesugar-transformed",
+          provider
+        );
+
+        const originalUri = document.uri;
+        await vscode.commands.executeCommand(
+          "vscode.diff",
+          originalUri,
+          transformedUri,
+          `typesugar: ${baseName} (original ↔ transformed)`
+        );
+
+        setTimeout(() => registration.dispose(), 60000);
+      }
     })
   );
 
