@@ -367,7 +367,7 @@ Port remaining macros, achieve full test parity, switch default.
 - [x] Integration with CLI (`typesugar build/check/watch`) — added `--backend <ts|oxc>` flag (2026-03-13)
 - [x] Performance benchmark suite — added `benchmark.test.ts` with backend comparison tests (2026-03-13)
 - [ ] Switch default pipeline to oxc (with `backend: 'ts'` escape hatch) — **blocked on PEP-004**
-- [ ] Update AGENTS.md, docs/architecture.md to document dual pipeline
+- [x] Update AGENTS.md, docs/architecture.md to document dual pipeline (2026-03-13)
 
 **Gate:**
 
