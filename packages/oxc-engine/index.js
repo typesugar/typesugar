@@ -310,7 +310,8 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { transform, benchmarkParse } = nativeBinding
+const { transform, transformWithMacros, benchmarkParse } = nativeBinding
 
 module.exports.transform = transform
+module.exports.transformWithMacros = transformWithMacros
 module.exports.benchmarkParse = benchmarkParse

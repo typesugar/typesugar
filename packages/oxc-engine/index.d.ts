@@ -35,6 +35,16 @@ export interface TransformOptions {
  * Processes syntax-only macros (cfg, staticAssert) in pure Rust.
  */
 export declare function transform(source: string, filename: string, options?: TransformOptions | undefined | null): TransformResult
+/**
+ * Transform TypeScript source code with JS macro callbacks.
+ *
+ * This variant allows type-aware macros to be handled by JS callback functions
+ * that can access the TypeChecker.
+ *
+ * The callback receives a JSON-serialized MacroCallInfo and returns a
+ * JSON-serialized MacroExpansion.
+ */
+export declare function transformWithMacros(source: string, filename: string, options: TransformOptions | undefined | null, macroCallback: (arg: string) => string): TransformResult
 /** Parse TypeScript source and return timing information (for benchmarking) */
 export declare function benchmarkParse(source: string, filename: string): BenchmarkResult
 /** Benchmark result for parse timing */

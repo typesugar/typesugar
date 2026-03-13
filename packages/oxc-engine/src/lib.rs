@@ -28,6 +28,7 @@ mod traverse;
 pub mod syntax_macros;
 
 use jsdoc::{extract_jsdoc_annotations, JsDocAnnotations};
+use protocol::{ExpansionKind, MacroCallInfo, MacroExpansion};
 use splice::Splicer;
 use syntax_macros::{cfg::CfgConfig, evaluate_cfg, process_static_assert, CfgResult, StaticAssertResult};
 
@@ -494,6 +495,419 @@ fn find_statement_end(source: &str, expr_end: u32) -> u32 {
     }
 
     end
+}
+
+/// Transform TypeScript source code with JS macro callbacks.
+///
+/// This variant allows type-aware macros to be handled by JS callback functions
+/// that can access the TypeChecker.
+///
+/// The callback receives a JSON-serialized MacroCallInfo and returns a
+/// JSON-serialized MacroExpansion.
+#[napi]
+pub fn transform_with_macros(
+    source: String,
+    filename: String,
+    options: Option<TransformOptions>,
+    macro_callback: Function<String, String>,
+) -> Result<TransformResult> {
+    let opts = options.unwrap_or_default();
+    let enable_source_map = opts.source_map.unwrap_or(false);
+    let cfg_config = build_cfg_config(&opts);
+
+    let source_type = SourceType::from_path(&filename).unwrap_or_default();
+    let allocator = Allocator::default();
+
+    // Parse
+    let parser_ret = Parser::new(&allocator, &source, source_type).parse();
+
+    // Collect parse errors
+    let mut diagnostics: Vec<Diagnostic> = parser_ret
+        .errors
+        .iter()
+        .map(|e| Diagnostic {
+            severity: "error".to_string(),
+            message: e.to_string(),
+            line: None,
+            column: None,
+        })
+        .collect();
+
+    if !parser_ret.errors.is_empty() {
+        return Ok(TransformResult {
+            code: source.clone(),
+            map: None,
+            changed: false,
+            diagnostics,
+        });
+    }
+
+    let mut splicer = Splicer::new();
+    let mut changed = false;
+
+    // Extract JSDoc annotations
+    let declaration_starts = collect_declaration_starts(&parser_ret.program);
+    let annotations =
+        extract_jsdoc_annotations(&parser_ret.program.comments, &source, &declaration_starts);
+
+    // Process syntax-only macros (cfg, staticAssert) in Rust
+    process_cfg_macros(
+        &source,
+        &parser_ret.program,
+        &annotations,
+        &cfg_config,
+        &mut splicer,
+        &mut changed,
+    );
+
+    process_static_assert_macros(
+        &source,
+        &parser_ret.program,
+        &mut splicer,
+        &mut diagnostics,
+        &mut changed,
+    );
+
+    // Collect and process type-aware macros via JS callback
+    let macro_sites = collect_type_aware_macro_sites(&source, &parser_ret.program, &annotations);
+    process_type_aware_macros(
+        &source,
+        &filename,
+        &macro_sites,
+        &macro_callback,
+        &mut splicer,
+        &mut diagnostics,
+        &mut changed,
+    )?;
+
+    // Apply splices
+    let transformed_source = if changed {
+        splicer.apply(&source)
+    } else {
+        source.clone()
+    };
+
+    // Re-parse and codegen if changed
+    if changed {
+        let allocator2 = Allocator::default();
+        let parser_ret2 = Parser::new(&allocator2, &transformed_source, source_type).parse();
+
+        if !parser_ret2.errors.is_empty() {
+            diagnostics.push(Diagnostic {
+                severity: "error".to_string(),
+                message: "Internal error: transformed code failed to parse".to_string(),
+                line: None,
+                column: None,
+            });
+            return Ok(TransformResult {
+                code: source,
+                map: None,
+                changed: false,
+                diagnostics,
+            });
+        }
+
+        let codegen_options = CodegenOptions {
+            source_map_path: if enable_source_map {
+                Some(PathBuf::from(&filename))
+            } else {
+                None
+            },
+            ..Default::default()
+        };
+
+        let codegen_ret = Codegen::new()
+            .with_options(codegen_options)
+            .build(&parser_ret2.program);
+
+        let map_json = if enable_source_map {
+            codegen_ret.map.map(|m| m.to_json_string())
+        } else {
+            None
+        };
+
+        return Ok(TransformResult {
+            code: codegen_ret.code,
+            map: map_json,
+            changed,
+            diagnostics,
+        });
+    }
+
+    // No changes
+    let codegen_options = CodegenOptions {
+        source_map_path: if enable_source_map {
+            Some(PathBuf::from(&filename))
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+
+    let codegen_ret = Codegen::new()
+        .with_options(codegen_options)
+        .build(&parser_ret.program);
+
+    let map_json = if enable_source_map {
+        codegen_ret.map.map(|m| m.to_json_string())
+    } else {
+        None
+    };
+
+    Ok(TransformResult {
+        code: codegen_ret.code,
+        map: map_json,
+        changed,
+        diagnostics,
+    })
+}
+
+/// Macro site for type-aware macro processing
+#[derive(Debug, Clone)]
+enum MacroSiteKind {
+    /// JSDoc-annotated declaration (@typeclass, @impl, etc.)
+    JsDoc {
+        tag_name: String,
+        tag_value: Option<String>,
+    },
+    /// Expression macro call (__binop__, ops, etc.)
+    CallExpr {
+        macro_name: String,
+        args: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct MacroSite {
+    kind: MacroSiteKind,
+    span_start: u32,
+    span_end: u32,
+    line: u32,
+    column: u32,
+}
+
+/// Expression macros that should be handled by JS callback
+const EXPRESSION_MACROS: &[&str] = &["__binop__", "ops"];
+
+/// Collect type-aware macro sites from the AST
+fn collect_type_aware_macro_sites(
+    source: &str,
+    program: &oxc_ast::ast::Program,
+    annotations: &JsDocAnnotations,
+) -> Vec<MacroSite> {
+    // Type-aware macro tags that require JS callback
+    const TYPE_AWARE_TAGS: &[&str] = &[
+        "typeclass",
+        "impl",
+        "deriving",
+        "extension",
+        "specialize",
+        "reflect",
+        "generic",
+        "implicits",
+    ];
+
+    struct MacroSiteCollector<'a, 'b> {
+        source: &'a str,
+        annotations: &'b JsDocAnnotations,
+        sites: Vec<MacroSite>,
+    }
+
+    impl<'c> Visit<'c> for MacroSiteCollector<'_, '_> {
+        fn visit_statement(&mut self, stmt: &oxc_ast::ast::Statement<'c>) {
+            let span = stmt.span();
+
+            if let Some(info) = self.annotations.get(span.start) {
+                for tag in &info.tags {
+                    if TYPE_AWARE_TAGS.contains(&tag.name.as_str()) {
+                        let (line, column) = calculate_line_column(self.source, span.start);
+                        self.sites.push(MacroSite {
+                            kind: MacroSiteKind::JsDoc {
+                                tag_name: tag.name.clone(),
+                                tag_value: tag.value.clone(),
+                            },
+                            span_start: span.start,
+                            span_end: span.end,
+                            line,
+                            column,
+                        });
+                        break; // Only one macro per statement
+                    }
+                }
+            }
+
+            oxc_ast::visit::walk::walk_statement(self, stmt);
+        }
+
+        fn visit_call_expression(&mut self, call_expr: &oxc_ast::ast::CallExpression<'c>) {
+            // Check if this is an expression macro call
+            if let oxc_ast::ast::Expression::Identifier(ident) = &call_expr.callee {
+                let name = ident.name.as_str();
+                if EXPRESSION_MACROS.contains(&name) {
+                    let span = call_expr.span();
+                    let (line, column) = calculate_line_column(self.source, span.start);
+
+                    // Extract argument source text
+                    let args: Vec<String> = call_expr
+                        .arguments
+                        .iter()
+                        .map(|arg| {
+                            let arg_span = arg.span();
+                            self.source[arg_span.start as usize..arg_span.end as usize].to_string()
+                        })
+                        .collect();
+
+                    self.sites.push(MacroSite {
+                        kind: MacroSiteKind::CallExpr {
+                            macro_name: name.to_string(),
+                            args,
+                        },
+                        span_start: span.start,
+                        span_end: span.end,
+                        line,
+                        column,
+                    });
+                }
+            }
+
+            oxc_ast::visit::walk::walk_call_expression(self, call_expr);
+        }
+    }
+
+    let mut collector = MacroSiteCollector {
+        source,
+        annotations,
+        sites: vec![],
+    };
+    collector.visit_program(program);
+    collector.sites
+}
+
+/// Process type-aware macros by calling JS callback
+fn process_type_aware_macros(
+    source: &str,
+    filename: &str,
+    sites: &[MacroSite],
+    macro_callback: &Function<String, String>,
+    splicer: &mut Splicer,
+    diagnostics: &mut Vec<Diagnostic>,
+    changed: &mut bool,
+) -> Result<()> {
+    for site in sites {
+        // Build MacroCallInfo based on the kind of macro site
+        let call_info = match &site.kind {
+            MacroSiteKind::JsDoc { tag_name, tag_value } => MacroCallInfo {
+                macro_name: tag_name.clone(),
+                call_site_args: vec![],
+                js_doc_tag: tag_value.clone(),
+                filename: filename.to_string(),
+                line: site.line,
+                column: site.column,
+            },
+            MacroSiteKind::CallExpr { macro_name, args } => MacroCallInfo {
+                macro_name: macro_name.clone(),
+                call_site_args: args.clone(),
+                js_doc_tag: None,
+                filename: filename.to_string(),
+                line: site.line,
+                column: site.column,
+            },
+        };
+
+        // Serialize and call JS callback
+        let call_info_json = match serde_json::to_string(&call_info) {
+            Ok(json) => json,
+            Err(e) => {
+                diagnostics.push(Diagnostic {
+                    severity: "error".to_string(),
+                    message: format!("Failed to serialize MacroCallInfo: {}", e),
+                    line: Some(site.line),
+                    column: Some(site.column),
+                });
+                continue;
+            }
+        };
+
+        // Call JS callback
+        let expansion_json = match macro_callback.call(call_info_json) {
+            Ok(json) => json,
+            Err(e) => {
+                diagnostics.push(Diagnostic {
+                    severity: "error".to_string(),
+                    message: format!("Macro callback failed: {}", e),
+                    line: Some(site.line),
+                    column: Some(site.column),
+                });
+                continue;
+            }
+        };
+
+        // Deserialize expansion result
+        let expansion: MacroExpansion = match serde_json::from_str(&expansion_json) {
+            Ok(exp) => exp,
+            Err(e) => {
+                diagnostics.push(Diagnostic {
+                    severity: "error".to_string(),
+                    message: format!("Failed to parse MacroExpansion: {}", e),
+                    line: Some(site.line),
+                    column: Some(site.column),
+                });
+                continue;
+            }
+        };
+
+        // Forward diagnostics from expansion
+        for diag in &expansion.diagnostics {
+            diagnostics.push(Diagnostic {
+                severity: diag.severity.clone(),
+                message: diag.message.clone(),
+                line: diag.line,
+                column: diag.column,
+            });
+        }
+
+        // Apply expansion based on site kind and expansion kind
+        match (&site.kind, &expansion.kind) {
+            // JSDoc macro: replace the entire annotated declaration (including JSDoc comment)
+            (MacroSiteKind::JsDoc { .. }, _) => {
+                let jsdoc_start = find_jsdoc_start(source, site.span_start);
+                splicer.add(jsdoc_start, site.span_end, expansion.code);
+                *changed = true;
+            }
+            // Expression macro: just replace the call expression
+            (MacroSiteKind::CallExpr { .. }, ExpansionKind::Expression) => {
+                splicer.add(site.span_start, site.span_end, expansion.code);
+                *changed = true;
+            }
+            // Other combinations
+            (MacroSiteKind::CallExpr { .. }, _) => {
+                splicer.add(site.span_start, site.span_end, expansion.code);
+                *changed = true;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Calculate line and column from byte offset
+fn calculate_line_column(source: &str, offset: u32) -> (u32, u32) {
+    let mut line = 1u32;
+    let mut column = 0u32;
+
+    for (i, c) in source.char_indices() {
+        if i >= offset as usize {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+
+    (line, column)
 }
 
 /// Parse TypeScript source and return timing information (for benchmarking)

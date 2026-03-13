@@ -262,3 +262,291 @@ describe("source map generation", () => {
     expect(result.map).toBeUndefined();
   });
 });
+
+describe("transformWithMacros - JS callback protocol", () => {
+  // Protocol types
+  interface MacroCallInfo {
+    macroName: string;
+    callSiteArgs: string[];
+    jsDocTag?: string;
+    filename: string;
+    line: number;
+    column: number;
+  }
+
+  interface MacroExpansion {
+    code: string;
+    kind: "expression" | "statements" | "declaration";
+    diagnostics: { severity: string; message: string; line?: number; column?: number }[];
+  }
+
+  test("calls JS callback for @typeclass annotation", () => {
+    const source = `/** @typeclass */
+interface Show<A> {
+  show(a: A): string;
+}`;
+
+    let callbackCalled = false;
+    let receivedCallInfo: MacroCallInfo | null = null;
+
+    const callback = (json: string): string => {
+      callbackCalled = true;
+      receivedCallInfo = JSON.parse(json);
+
+      const expansion: MacroExpansion = {
+        code: `// Expanded Show typeclass
+interface Show<A> { show(a: A): string; }
+const ShowImpl = {};`,
+        kind: "declaration",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    expect(callbackCalled).toBe(true);
+    expect(receivedCallInfo).not.toBeNull();
+    expect(receivedCallInfo!.macroName).toBe("typeclass");
+    expect(receivedCallInfo!.filename).toBe("test.ts");
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("ShowImpl");
+  });
+
+  test("calls JS callback for @impl annotation", () => {
+    const source = `/** @impl Show<number> */
+const showNumber = { show: (n: number) => String(n) };`;
+
+    let receivedCallInfo: MacroCallInfo | null = null;
+
+    const callback = (json: string): string => {
+      receivedCallInfo = JSON.parse(json);
+
+      const expansion: MacroExpansion = {
+        code: `const showNumber = { show: (n: number) => String(n) };
+// Registered as Show<number> implementation`,
+        kind: "declaration",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    expect(receivedCallInfo).not.toBeNull();
+    expect(receivedCallInfo!.macroName).toBe("impl");
+    expect(receivedCallInfo!.jsDocTag).toBe("Show<number>");
+    expect(result.changed).toBe(true);
+  });
+
+  test("forwards diagnostics from macro expansion", () => {
+    const source = `/** @typeclass */
+interface InvalidTypeclass {}`;
+
+    const callback = (json: string): string => {
+      const expansion: MacroExpansion = {
+        code: `interface InvalidTypeclass {}`,
+        kind: "declaration",
+        diagnostics: [
+          {
+            severity: "warning",
+            message: "Typeclass should have at least one method",
+            line: 2,
+            column: 0,
+          },
+        ],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    expect(result.diagnostics.some(d => d.message.includes("at least one method"))).toBe(true);
+  });
+
+  test("handles multiple macro annotations", () => {
+    const source = `/** @typeclass */
+interface Eq<A> { equals(a: A, b: A): boolean; }
+
+/** @impl Eq<number> */
+const eqNumber = { equals: (a: number, b: number) => a === b };`;
+
+    const callbackCalls: MacroCallInfo[] = [];
+
+    const callback = (json: string): string => {
+      const callInfo: MacroCallInfo = JSON.parse(json);
+      callbackCalls.push(callInfo);
+
+      const expansion: MacroExpansion = {
+        code: `// Processed ${callInfo.macroName}`,
+        kind: "declaration",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    expect(callbackCalls.length).toBe(2);
+    expect(callbackCalls[0].macroName).toBe("typeclass");
+    expect(callbackCalls[1].macroName).toBe("impl");
+    expect(result.changed).toBe(true);
+  });
+
+  test("syntax macros still work alongside JS callback macros", () => {
+    const source = `/** @cfg debug */
+const debugOnly = true;
+
+/** @typeclass */
+interface Show<A> { show(a: A): string; }
+
+staticAssert(true, "should pass");`;
+
+    let typeclassCallbackCalled = false;
+
+    const callback = (json: string): string => {
+      typeclassCallbackCalled = true;
+      const callInfo: MacroCallInfo = JSON.parse(json);
+
+      const expansion: MacroExpansion = {
+        code: `interface Show<A> { show(a: A): string; }`,
+        kind: "declaration",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", { cfgConfig: { debug: false } }, callback);
+
+    // cfg macro should remove debugOnly
+    expect(result.code).not.toContain("debugOnly");
+    // JS callback should be called for typeclass
+    expect(typeclassCallbackCalled).toBe(true);
+    // staticAssert should be removed (passes)
+    expect(result.code).not.toContain("staticAssert");
+    expect(result.changed).toBe(true);
+  });
+
+  test("calls JS callback for __binop__ expression macro", () => {
+    const source = `const result = __binop__(x, "|>", double);`;
+
+    let receivedCallInfo: MacroCallInfo | null = null;
+
+    const callback = (json: string): string => {
+      receivedCallInfo = JSON.parse(json);
+
+      // __binop__ with |> (pipeline) should become double(x)
+      const expansion: MacroExpansion = {
+        code: "double(x)",
+        kind: "expression",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    expect(receivedCallInfo).not.toBeNull();
+    expect(receivedCallInfo!.macroName).toBe("__binop__");
+    expect(receivedCallInfo!.callSiteArgs).toHaveLength(3);
+    expect(receivedCallInfo!.callSiteArgs[0]).toBe("x");
+    expect(receivedCallInfo!.callSiteArgs[1]).toBe('"|>"');
+    expect(receivedCallInfo!.callSiteArgs[2]).toBe("double");
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("double(x)");
+    expect(result.code).not.toContain("__binop__");
+  });
+
+  test("handles nested __binop__ calls (outer first)", () => {
+    // Nested __binop__ calls - outer is visited first in AST traversal
+    const source = `const result = __binop__(__binop__(x, "|>", double), "|>", square);`;
+
+    const callbacks: MacroCallInfo[] = [];
+
+    const callback = (json: string): string => {
+      const callInfo: MacroCallInfo = JSON.parse(json);
+      callbacks.push(callInfo);
+
+      // Expand: __binop__(a, "|>", f) -> f(a)
+      const expansion: MacroExpansion = {
+        code: callInfo.callSiteArgs[2] + "(" + callInfo.callSiteArgs[0] + ")",
+        kind: "expression",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    // Both __binop__ calls should be detected
+    expect(callbacks.length).toBe(2);
+    // Outer is visited first (top-down AST traversal)
+    expect(callbacks[0].callSiteArgs[2]).toBe("square");
+    // Inner is visited second
+    expect(callbacks[1].callSiteArgs[2]).toBe("double");
+    expect(result.changed).toBe(true);
+  });
+
+  test("handles :: cons operator", () => {
+    const source = `const list = __binop__(head, "::", tail);`;
+
+    const callback = (json: string): string => {
+      const callInfo: MacroCallInfo = JSON.parse(json);
+
+      // :: (cons) should become [head, ...tail]
+      const expansion: MacroExpansion = {
+        code: `[${callInfo.callSiteArgs[0]}, ...${callInfo.callSiteArgs[2]}]`,
+        kind: "expression",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("[head, ...tail]");
+    expect(result.code).not.toContain("__binop__");
+  });
+
+  test("measures callback overhead (target: <0.5ms per call)", () => {
+    const source = `/** @typeclass */
+interface T1<A> { m(a: A): A; }
+/** @typeclass */
+interface T2<A> { m(a: A): A; }
+/** @typeclass */
+interface T3<A> { m(a: A): A; }
+/** @typeclass */
+interface T4<A> { m(a: A): A; }
+/** @typeclass */
+interface T5<A> { m(a: A): A; }`;
+
+    let callCount = 0;
+    const callback = (json: string): string => {
+      callCount++;
+      const expansion: MacroExpansion = {
+        code: `// expanded`,
+        kind: "declaration",
+        diagnostics: [],
+      };
+      return JSON.stringify(expansion);
+    };
+
+    const start = performance.now();
+    const iterations = 100;
+    
+    for (let i = 0; i < iterations; i++) {
+      oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
+    }
+    
+    const elapsed = performance.now() - start;
+    const totalCalls = callCount; // Should be 5 * iterations = 500
+    const msPerCall = elapsed / totalCalls;
+
+    console.log(`Callback overhead: ${msPerCall.toFixed(3)}ms per call (${totalCalls} calls in ${elapsed.toFixed(1)}ms)`);
+    
+    // Target: <0.5ms per callback
+    expect(msPerCall).toBeLessThan(0.5);
+  });
+});
