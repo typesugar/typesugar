@@ -31,15 +31,21 @@
    - **What:** Functions declare implicit parameters with `= implicit()` default markers, and the transformer automatically resolves and threads typeclass instances through the call graph with propagation.
    - **Status:** Implemented. See `packages/macros/src/implicits.ts` and `examples/implicits/basic.ts`. Future work: extend beyond typeclass instances to general context passing.
 
-6. **Keyword / Named Arguments**
+6. **Standalone `@specialize` Macro (Non-Typeclass)**
+   - **What:** A `@specialize` annotation for generic functions outside the typeclass system, enabling C++-style template specialization.
+   - **Why:** Sometimes you want to monomorphize a generic function for a specific type without defining a full typeclass. The transformer would generate specialized versions at call sites where the type argument is known.
+   - **Challenge:** Tricky when the specialized function is passed as a callback (e.g., to `map`, `reduce`). Would need to trace through higher-order functions or limit to direct call sites.
+   - **Design consideration:** TypeScript generics are erased at runtime, so this would be pure compile-time code generation — similar to how typeclass auto-specialization inlines dictionary methods, but for arbitrary generic functions.
+
+7. **Keyword / Named Arguments**
    - **What:** A preprocessor feature that allows calling functions with named arguments (e.g., `fn(a=1, b=2)`).
    - **Why:** The macro rewrites them into positional arguments at compile time based on the function signature, bringing Python/C#-style named arguments to TS with zero runtime cost.
 
-7. **`transformInto` Macro Expansion (`@typesugar/mapper`)**
+8. **`transformInto` Macro Expansion (`@typesugar/mapper`)**
    - **What:** Implement `transformInto<S, T>()` as a compile-time macro in the transformer. Currently it throws at runtime; the macro must expand to zero-cost object mapping code.
    - **Why:** Mapper tests are skipped until this is implemented. See `packages/mapper/src/__tests__/mapper.test.ts`.
 
-8. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
+9. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
    - **What:** Add recursive deep-type compatibility checking to the `transformInto` macro.
    - **Why:** To ensure nested objects and complex mappings strictly adhere to the target type without runtime mapping errors.
 
