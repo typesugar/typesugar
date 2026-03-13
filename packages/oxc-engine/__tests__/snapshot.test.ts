@@ -7,9 +7,8 @@
 
 import { describe, test, expect } from "vitest";
 
-// We'll import the native module once built
-// For now, test the Rust implementation via transform function
-const oxcEngine = require("../oxc-engine.darwin-arm64.node");
+// Import via the package entry point which handles platform-specific bindings
+const oxcEngine = require("../index.js");
 
 describe("cfg macro", () => {
   test("removes declaration when flag is disabled", () => {

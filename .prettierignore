@@ -33,6 +33,10 @@ docs/showcase/
 *.generated.ts
 *.transformed.js
 
+# NAPI-RS auto-generated files
+packages/oxc-engine/index.js
+packages/oxc-engine/index.d.ts
+
 # VitePress theme components (external)
 docs/.vitepress/theme/
 
