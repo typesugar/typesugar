@@ -317,7 +317,10 @@ const normalConst = 1;
         // debugLog should have @cfg
         assert!(annotations.has_tag(debug_const_start, "cfg"));
         let cfg_info = annotations.get(debug_const_start).unwrap();
-        assert_eq!(cfg_info.get_tag("cfg").unwrap().value.as_deref(), Some("debug"));
+        assert_eq!(
+            cfg_info.get_tag("cfg").unwrap().value.as_deref(),
+            Some("debug")
+        );
 
         // normalConst should have no annotation
         assert!(annotations.get(normal_const_start).is_none());

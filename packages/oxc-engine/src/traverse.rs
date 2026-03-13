@@ -220,7 +220,9 @@ mod tests {
 
         assert_eq!(sites.len(), 1);
         match &sites[0] {
-            MacroSite::CallExpression { macro_name, args, .. } => {
+            MacroSite::CallExpression {
+                macro_name, args, ..
+            } => {
                 assert_eq!(macro_name, "static-assert");
                 assert_eq!(args.len(), 2);
                 assert_eq!(args[0], "true");

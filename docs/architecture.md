@@ -220,10 +220,10 @@ Parameters marked with `= implicit()` are resolved at compile time. The transfor
 
 The transformer supports two backends selectable via the `backend` option:
 
-| Backend      | Parser       | Codegen      | Best For                                       |
-| ------------ | ------------ | ------------ | ---------------------------------------------- |
-| `typescript` | TypeScript   | TypeScript   | Type-aware macros, full compatibility          |
-| `oxc`        | oxc (Rust)   | oxc (Rust)   | Syntax-only macros, performance-critical paths |
+| Backend      | Parser     | Codegen    | Best For                                       |
+| ------------ | ---------- | ---------- | ---------------------------------------------- |
+| `typescript` | TypeScript | TypeScript | Type-aware macros, full compatibility          |
+| `oxc`        | oxc (Rust) | oxc (Rust) | Syntax-only macros, performance-critical paths |
 
 **TypeScript Backend (default)**
 

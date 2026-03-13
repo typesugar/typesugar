@@ -218,10 +218,7 @@ pub fn process_static_assert(
         None => StaticAssertResult::Unevaluable {
             span_start,
             span_end,
-            reason: format!(
-                "Cannot evaluate '{}' at compile time",
-                condition_expr
-            ),
+            reason: format!("Cannot evaluate '{}' at compile time", condition_expr),
         },
     }
 }
@@ -269,7 +266,10 @@ mod tests {
     #[test]
     fn test_evaluate_string_equality() {
         assert_eq!(evaluate_constant_expr(r#""hello" === "hello""#), Some(true));
-        assert_eq!(evaluate_constant_expr(r#""hello" === "world""#), Some(false));
+        assert_eq!(
+            evaluate_constant_expr(r#""hello" === "world""#),
+            Some(false)
+        );
     }
 
     #[test]

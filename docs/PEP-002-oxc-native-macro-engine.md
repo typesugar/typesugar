@@ -380,17 +380,17 @@ Port remaining macros, achieve full test parity, switch default.
 
 ## Files Changed
 
-| File                                          | Change                                                  |
-| --------------------------------------------- | ------------------------------------------------------- |
-| `packages/oxc-engine/`                        | New package (Rust crate + napi bindings)                |
-| `Cargo.toml` (root)                           | New — Rust workspace                                    |
-| `rust-toolchain.toml` (root)                  | New — pin Rust version                                  |
-| `pnpm-workspace.yaml`                         | Add `packages/oxc-engine`                               |
-| `.github/workflows/ci.yml`                    | Add Rust toolchain + `cargo build` + `cargo test`       |
-| `packages/transformer/src/pipeline.ts`        | Add oxc engine as alternative backend, route via config |
-| `packages/unplugin-typesugar/src/unplugin.ts` | Add `pipeline: 'oxc'` option                            |
-| `packages/transformer/src/cli.ts`             | Add `--backend <ts\|oxc>` flag for expand/run commands  |
-| `packages/transformer/tests/benchmark.test.ts`| Backend performance comparison tests                    |
+| File                                           | Change                                                  |
+| ---------------------------------------------- | ------------------------------------------------------- |
+| `packages/oxc-engine/`                         | New package (Rust crate + napi bindings)                |
+| `Cargo.toml` (root)                            | New — Rust workspace                                    |
+| `rust-toolchain.toml` (root)                   | New — pin Rust version                                  |
+| `pnpm-workspace.yaml`                          | Add `packages/oxc-engine`                               |
+| `.github/workflows/ci.yml`                     | Add Rust toolchain + `cargo build` + `cargo test`       |
+| `packages/transformer/src/pipeline.ts`         | Add oxc engine as alternative backend, route via config |
+| `packages/unplugin-typesugar/src/unplugin.ts`  | Add `pipeline: 'oxc'` option                            |
+| `packages/transformer/src/cli.ts`              | Add `--backend <ts\|oxc>` flag for expand/run commands  |
+| `packages/transformer/tests/benchmark.test.ts` | Backend performance comparison tests                    |
 
 ## Consequences
 

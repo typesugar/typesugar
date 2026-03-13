@@ -30,7 +30,9 @@ pub mod syntax_macros;
 use jsdoc::{extract_jsdoc_annotations, JsDocAnnotations};
 use protocol::{ExpansionKind, MacroCallInfo, MacroExpansion};
 use splice::Splicer;
-use syntax_macros::{cfg::CfgConfig, evaluate_cfg, process_static_assert, CfgResult, StaticAssertResult};
+use syntax_macros::{
+    cfg::CfgConfig, evaluate_cfg, process_static_assert, CfgResult, StaticAssertResult,
+};
 
 /// Determine the source type from a filename.
 ///
@@ -145,7 +147,8 @@ pub fn transform(
 
     // Extract JSDoc annotations
     let declaration_starts = collect_declaration_starts(&parser_ret.program);
-    let annotations = extract_jsdoc_annotations(&parser_ret.program.comments, &source, &declaration_starts);
+    let annotations =
+        extract_jsdoc_annotations(&parser_ret.program.comments, &source, &declaration_starts);
 
     // Process @cfg annotations
     process_cfg_macros(
@@ -451,10 +454,7 @@ fn process_static_assert_macros(
                                 self.splicer.remove(span.start, end);
                                 *self.changed = true;
                             }
-                            StaticAssertResult::Fail {
-                                message,
-                                ..
-                            } => {
+                            StaticAssertResult::Fail { message, .. } => {
                                 // Keep the call but emit diagnostic
                                 self.diagnostics.push(Diagnostic {
                                     severity: "error".to_string(),
@@ -579,8 +579,11 @@ pub fn transform_with_macros(
 
     // Extract JSDoc annotations (only needed once, at statement level)
     let declaration_starts = collect_declaration_starts(&parser_ret.program);
-    let annotations =
-        extract_jsdoc_annotations(&parser_ret.program.comments, &current_source, &declaration_starts);
+    let annotations = extract_jsdoc_annotations(
+        &parser_ret.program.comments,
+        &current_source,
+        &declaration_starts,
+    );
 
     // Process syntax-only macros (cfg, staticAssert) in Rust - single pass
     let mut splicer = Splicer::new();
@@ -602,10 +605,11 @@ pub fn transform_with_macros(
     );
 
     // Process JSDoc macros (single pass, they're at statement level, not nested)
-    let jsdoc_sites: Vec<MacroSite> = collect_type_aware_macro_sites(&current_source, &parser_ret.program, &annotations)
-        .into_iter()
-        .filter(|site| matches!(site.kind, MacroSiteKind::JsDoc { .. }))
-        .collect();
+    let jsdoc_sites: Vec<MacroSite> =
+        collect_type_aware_macro_sites(&current_source, &parser_ret.program, &annotations)
+            .into_iter()
+            .filter(|site| matches!(site.kind, MacroSiteKind::JsDoc { .. }))
+            .collect();
 
     if !jsdoc_sites.is_empty() {
         let fb = process_type_aware_macros(
@@ -679,9 +683,9 @@ pub fn transform_with_macros(
             .filter(|site| {
                 if let MacroSiteKind::CallExpr { args, .. } = &site.kind {
                     // A macro is a leaf if none of its arguments contain macro calls
-                    !args.iter().any(|arg| {
-                        EXPRESSION_MACROS.iter().any(|m| arg.contains(m))
-                    })
+                    !args
+                        .iter()
+                        .any(|arg| EXPRESSION_MACROS.iter().any(|m| arg.contains(m)))
                 } else {
                     true
                 }
@@ -913,7 +917,10 @@ fn process_type_aware_macros(
     for site in sites {
         // Build MacroCallInfo based on the kind of macro site
         let call_info = match &site.kind {
-            MacroSiteKind::JsDoc { tag_name, tag_value } => MacroCallInfo {
+            MacroSiteKind::JsDoc {
+                tag_name,
+                tag_value,
+            } => MacroCallInfo {
                 macro_name: tag_name.clone(),
                 call_site_args: vec![],
                 js_doc_tag: tag_value.clone(),

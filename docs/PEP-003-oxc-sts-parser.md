@@ -38,6 +38,7 @@ oxc_parser = { git = "https://github.com/dpovey/oxc", branch = "typesugar-syntax
 **Rationale:** Our changes are additive (new tokens, new expression branches) — they don't modify existing parse paths. Rebases will generally merge cleanly. A well-named branch can be upstreamed if TC39 standardizes the pipeline operator.
 
 Alternatives considered:
+
 - **Vendor + pin:** Too heavy — oxc is a large codebase
 - **Cargo [patch]:** Fragile for parser internals, breaks when oxc restructures
 
@@ -45,16 +46,17 @@ Alternatives considered:
 
 The parser sees custom syntax and **immediately produces desugared AST nodes**:
 
-| Input | Desugared AST |
-|-------|---------------|
-| `a \|> f` | `CallExpr(__binop__(a, "\|>", f))` |
-| `1 :: 2 :: []` | `CallExpr(__binop__(1, "::", __binop__(2, "::", [])))` |
-| `F<_>` in type params | `F` (identifier), arity stored in `HktMetadata` |
-| `F<A>` where `F` is HKT | `Kind<F, A>` (type reference) |
+| Input                   | Desugared AST                                          |
+| ----------------------- | ------------------------------------------------------ |
+| `a \|> f`               | `CallExpr(__binop__(a, "\|>", f))`                     |
+| `1 :: 2 :: []`          | `CallExpr(__binop__(1, "::", __binop__(2, "::", [])))` |
+| `F<_>` in type params   | `F` (identifier), arity stored in `HktMetadata`        |
+| `F<A>` where `F` is HKT | `Kind<F, A>` (type reference)                          |
 
 **Rationale:** Minimal fork surface. Only the lexer and parser are modified — no changes to `oxc_ast`, `oxc_traverse`, `oxc_codegen`, or visitor traits. The standard AST means everything downstream works unchanged.
 
 Alternative considered:
+
 - **Custom AST nodes:** Would require modifying code-generated AST types, arena allocators, and visitor implementations. Much larger fork surface and harder to maintain.
 
 ### HKT arity tracking
@@ -144,30 +146,30 @@ The engine API doesn't change. The difference is in the parser dependency and wh
 
 ### Custom syntax supported
 
-| Syntax | Category | Desugaring |
-|--------|----------|------------|
-| `a \|> f` | Binary operator | `__binop__(a, "\|>", f)` |
-| `h :: t` | Binary operator | `__binop__(h, "::", t)` |
-| `F<_>` | HKT type param (arity 1) | `F` + metadata |
-| `F<_, _>` | HKT type param (arity 2) | `F` + metadata |
-| `F<A>` | HKT application | `Kind<F, A>` |
-| `F<A, B>` | HKT application (arity 2) | `Kind<F, A, B>` |
+| Syntax    | Category                  | Desugaring               |
+| --------- | ------------------------- | ------------------------ |
+| `a \|> f` | Binary operator           | `__binop__(a, "\|>", f)` |
+| `h :: t`  | Binary operator           | `__binop__(h, "::", t)`  |
+| `F<_>`    | HKT type param (arity 1)  | `F` + metadata           |
+| `F<_, _>` | HKT type param (arity 2)  | `F` + metadata           |
+| `F<A>`    | HKT application           | `Kind<F, A>`             |
+| `F<A, B>` | HKT application (arity 2) | `Kind<F, A, B>`          |
 
 ### Operator precedence
 
 | Operator | Precedence | Associativity |
-|----------|------------|---------------|
-| `\|>` | 1 (lowest) | Left |
-| `::` | 5 | Right |
+| -------- | ---------- | ------------- |
+| `\|>`    | 1 (lowest) | Left          |
+| `::`     | 5          | Right         |
 
 These are lower than all standard JS/TS binary operators except comma (0).
 
 ### Not in scope (handled elsewhere)
 
-| Syntax | Handler |
-|--------|---------|
-| `@typeclass` decorator | PEP-001 preprocessor rewrites to JSDoc |
-| `/** @typeclass */` JSDoc | PEP-002 macro engine |
+| Syntax                       | Handler                                 |
+| ---------------------------- | --------------------------------------- |
+| `@typeclass` decorator       | PEP-001 preprocessor rewrites to JSDoc  |
+| `/** @typeclass */` JSDoc    | PEP-002 macro engine                    |
 | `Kind<TypeF, A>` → `Type<A>` | Macro expansion (runtime or type-level) |
 
 ## Waves
@@ -177,6 +179,7 @@ These are lower than all standard JS/TS binary operators except comma (0).
 Set up the oxc fork and add custom token recognition.
 
 **Tasks:**
+
 - [ ] Fork oxc on GitHub (`dpovey/oxc`, create `typesugar-syntax` branch from latest tag)
 - [ ] Document fork maintenance process in AGENTS.md
 - [ ] Add `Pipeline` token kind to `oxc_parser/src/lexer/kind.rs`
@@ -190,6 +193,7 @@ Set up the oxc fork and add custom token recognition.
 - [ ] Test: `.ts` files parse identically to published oxc
 
 **Gate:**
+
 - [ ] Fork builds successfully
 - [ ] All oxc parser tests pass
 - [ ] Custom tokens emitted for `|>` and `::`
@@ -200,6 +204,7 @@ Set up the oxc fork and add custom token recognition.
 Parse custom operators as expressions and desugar inline to `__binop__()` calls.
 
 **Tasks:**
+
 - [ ] Add `Pipeline` and `Cons` to `BinaryOperator` handling in `oxc_parser/src/expression.rs`
 - [ ] Implement precedence: Pipeline = 1, Cons = 5 (configurable via constants from `typesugar-syntax`)
 - [ ] Implement associativity: Pipeline left, Cons right
@@ -213,6 +218,7 @@ Parse custom operators as expressions and desugar inline to `__binop__()` calls.
 - [ ] Test all fixtures from `packages/preprocessor/tests/` and `sugarcube/tests/fixtures/`
 
 **Gate:**
+
 - [ ] `a |> f |> g` parses and desugars correctly (left-associative)
 - [ ] `1 :: 2 :: []` parses and desugars correctly (right-associative)
 - [ ] `F<_>` stripped, arity=1 recorded
@@ -225,6 +231,7 @@ Parse custom operators as expressions and desugar inline to `__binop__()` calls.
 Extract syntax definitions into a shared crate and integrate with sugarcube.
 
 **Tasks:**
+
 - [ ] Create `typesugar-syntax` crate in monorepo (or as separate repo?)
 - [ ] Define operator specs: `Pipeline { precedence: 1, assoc: Left }`, `Cons { precedence: 5, assoc: Right }`
 - [ ] Define HKT rules: arity semantics, Kind encoding
@@ -236,6 +243,7 @@ Extract syntax definitions into a shared crate and integrate with sugarcube.
 - [ ] Document the shared crate API
 
 **Gate:**
+
 - [ ] `typesugar-syntax` crate published (or in monorepo)
 - [ ] Both parsers produce identical output for all test fixtures
 - [ ] Sugarcube tests pass with shared crate
@@ -246,6 +254,7 @@ Extract syntax definitions into a shared crate and integrate with sugarcube.
 Wire the forked parser into PEP-002's oxc-engine and the transformation pipeline.
 
 **Tasks:**
+
 - [ ] Add `parser: 'fork' | 'published'` option to oxc-engine config
 - [ ] When `parser: 'fork'`: use forked oxc crates, `.sts` files parse natively
 - [ ] When `parser: 'published'`: use published oxc crates, `.sts` files go through JS preprocessor
@@ -258,6 +267,7 @@ Wire the forked parser into PEP-002's oxc-engine and the transformation pipeline
 - [ ] Make forked parser the default (with `--parser published` escape hatch)
 
 **Gate:**
+
 - [ ] Full test suite passes with forked parser
 - [ ] Source maps trace to original `.sts` positions accurately
 - [ ] Benchmark shows improvement (target: eliminate preprocessor overhead entirely)
@@ -265,15 +275,15 @@ Wire the forked parser into PEP-002's oxc-engine and the transformation pipeline
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `dpovey/oxc` (external) | Fork with `typesugar-syntax` branch |
-| `typesugar-syntax/` | New crate (location TBD — monorepo or separate) |
-| `packages/oxc-engine/Cargo.toml` | Option to use forked oxc crates |
-| `packages/oxc-engine/src/lib.rs` | Parser selection logic |
-| `packages/transformer/src/pipeline.ts` | Skip preprocessor when forked parser active |
-| `packages/unplugin-typesugar/src/unplugin.ts` | `parser: 'fork'` option |
-| `AGENTS.md` | Document fork maintenance |
+| File                                          | Change                                          |
+| --------------------------------------------- | ----------------------------------------------- |
+| `dpovey/oxc` (external)                       | Fork with `typesugar-syntax` branch             |
+| `typesugar-syntax/`                           | New crate (location TBD — monorepo or separate) |
+| `packages/oxc-engine/Cargo.toml`              | Option to use forked oxc crates                 |
+| `packages/oxc-engine/src/lib.rs`              | Parser selection logic                          |
+| `packages/transformer/src/pipeline.ts`        | Skip preprocessor when forked parser active     |
+| `packages/unplugin-typesugar/src/unplugin.ts` | `parser: 'fork'` option                         |
+| `AGENTS.md`                                   | Document fork maintenance                       |
 
 ## Consequences
 

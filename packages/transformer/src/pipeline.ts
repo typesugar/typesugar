@@ -655,7 +655,8 @@ export class TransformationPipeline {
    */
   private needsTypescriptTransformer(source: string): boolean {
     // 1. Decorator macros: @derive(Eq), @typeclass, etc.
-    const decoratorPattern = /@(\w+)(?:\s*\(|\s*(?:class|interface|type|function|const|let|var|\n))/g;
+    const decoratorPattern =
+      /@(\w+)(?:\s*\(|\s*(?:class|interface|type|function|const|let|var|\n))/g;
     let match;
     while ((match = decoratorPattern.exec(source)) !== null) {
       if (TransformationPipeline.DECORATOR_MACROS.has(match[1])) {

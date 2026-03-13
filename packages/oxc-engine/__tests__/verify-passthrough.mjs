@@ -33,14 +33,16 @@ const tests = [
     source: `interface Person { name: string; age: number; }`,
     check: (result) => {
       if (result.diagnostics.length > 0) throw new Error("Unexpected diagnostics");
-      if (!result.code.includes("interface Person")) throw new Error("Interface should be preserved in passthrough");
+      if (!result.code.includes("interface Person"))
+        throw new Error("Interface should be preserved in passthrough");
     },
   },
   {
     name: "__binop__ parses correctly",
     source: `const result = __binop__(__binop__(1, "|>", double), "|>", square);`,
     check: (result) => {
-      if (result.diagnostics.length > 0) throw new Error("Unexpected diagnostics: " + JSON.stringify(result.diagnostics));
+      if (result.diagnostics.length > 0)
+        throw new Error("Unexpected diagnostics: " + JSON.stringify(result.diagnostics));
       if (!result.code.includes("__binop__")) throw new Error("Missing __binop__");
     },
   },

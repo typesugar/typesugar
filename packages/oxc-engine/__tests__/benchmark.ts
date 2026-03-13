@@ -20,11 +20,7 @@ interface BenchmarkResult {
   opsPerSec: number;
 }
 
-function benchmarkOxc(
-  source: string,
-  filename: string,
-  iterations: number
-): BenchmarkResult {
+function benchmarkOxc(source: string, filename: string, iterations: number): BenchmarkResult {
   const start = performance.now();
   for (let i = 0; i < iterations; i++) {
     oxcEngine.transform(source, filename, {});
@@ -39,11 +35,7 @@ function benchmarkOxc(
   };
 }
 
-function benchmarkTsc(
-  source: string,
-  filename: string,
-  iterations: number
-): BenchmarkResult {
+function benchmarkTsc(source: string, filename: string, iterations: number): BenchmarkResult {
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
   const start = performance.now();
   for (let i = 0; i < iterations; i++) {
@@ -126,16 +118,8 @@ async function runBenchmarks() {
     console.log(`\n## ${testCase.name}`);
     console.log("-".repeat(40));
 
-    const oxcResult = benchmarkOxc(
-      testCase.source,
-      "test.ts",
-      testCase.iterations
-    );
-    const tscResult = benchmarkTsc(
-      testCase.source,
-      "test.ts",
-      testCase.iterations
-    );
+    const oxcResult = benchmarkOxc(testCase.source, "test.ts", testCase.iterations);
+    const tscResult = benchmarkTsc(testCase.source, "test.ts", testCase.iterations);
 
     console.log(formatResult(oxcResult));
     console.log(formatResult(tscResult));
