@@ -285,7 +285,30 @@ For now, files with type-aware macros should use `backend: 'typescript'`.
   - Mixed scenarios, source maps, diagnostics
   - Known limitation: `<|` (reverse pipe) not supported by preprocessor
 
-### Wave 5: Full Parity + Default
+### Wave 5: Hybrid Fallback for Type-Aware Macros
+
+Implement automatic fallback to TypeScript transformer when type-aware macros are detected, enabling the oxc backend to handle all files correctly.
+
+**Problem:** Type-aware macros (typeclass, impl, extension, specialize, derive, reflect) require `ts.TransformationContext` which isn't available in the callback-based oxc architecture.
+
+**Solution:** Hybrid approach — oxc backend detects type-aware macros and signals the pipeline to fall back to the TypeScript transformer for that file. Files without type-aware macros get full oxc performance benefits.
+
+**Tasks:**
+- [ ] Add `needsFallback` field to `MacroExpansion` protocol type
+- [ ] Update Rust `transform_with_macros` to propagate fallback signal from any callback
+- [ ] Update `OxcBackendResult` to include `needsFallback: boolean`
+- [ ] In `processJsDocMacro`, return `needsFallback: true` for type-aware macros
+- [ ] Update `TransformationPipeline.runOxcTransformer` to check `needsFallback` and retry with TS transformer
+- [ ] Add tests: file with only syntax macros → oxc, file with typeclass → fallback to TS
+- [ ] Benchmark: measure overhead of fallback detection (should be negligible for pure-oxc files)
+
+**Gate:**
+- [ ] Files with type-aware macros transform correctly via automatic fallback
+- [ ] Files without type-aware macros use pure oxc path (no TS transformer overhead)
+- [ ] All existing tests pass
+- [ ] Fallback detection adds <1ms overhead
+
+### Wave 6: Full Parity + Default
 
 Port remaining macros, achieve full test parity, switch default.
 
@@ -295,7 +318,7 @@ Port remaining macros, achieve full test parity, switch default.
 - [ ] Diagnostic parity: all error messages match between pipelines
 - [ ] Integration with CLI (`typesugar build/check/watch`)
 - [ ] Performance benchmark suite: compare full transform times on example projects (`.ts` and `.sts`)
-- [ ] Switch default pipeline to oxc (with `pipeline: 'ts'` escape hatch)
+- [ ] Switch default pipeline to oxc (with `backend: 'ts'` escape hatch)
 - [ ] Update AGENTS.md, docs/architecture.md to document dual pipeline
 
 **Gate:**
