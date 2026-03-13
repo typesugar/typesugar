@@ -1,6 +1,6 @@
 # PEP-004: Source-Based Typeclass Features
 
-**Status:** Draft
+**Status:** In Progress (Wave 1 Complete)
 **Date:** 2026-03-13
 **Author:** Dan Povey
 **Depends on:** None
@@ -121,17 +121,25 @@ Port operator-rewrite from registry-based to source-based for the TS transformer
 Port auto-specialize from registry-based to source-based for the TS transformer.
 
 **Tasks:**
-- [ ] Parse `@specialize` annotation from instance JSDoc
-- [ ] Extract method sources from instance object literal at transform time
-- [ ] Update auto-specialize transformer to use source-based method extraction
-- [ ] Deprecate `registerInstanceMethods()` (keep for backwards compat, emit warning)
-- [ ] Migrate existing tests to use `@specialize` annotations
+- [x] Parse `@specialize` annotation from instance JSDoc
+- [x] Extract method sources from instance object literal at transform time
+- [x] Update auto-specialize transformer to use source-based method extraction
+- [x] Deprecate `registerInstanceMethods()` (keep for backwards compat, emit warning)
+- [x] Migrate existing tests to use `@specialize` annotations
 - [ ] Update documentation
 
 **Gate:**
-- [ ] `fn(instance, args)` auto-specializes using `@specialize` annotation
-- [ ] No runtime registry calls needed for auto-specialization
-- [ ] Method inlining works from parsed instance definition
+- [x] `fn(instance, args)` auto-specializes using `@specialize` annotation
+- [x] No runtime registry calls needed for auto-specialization
+- [x] Method inlining works from parsed instance definition
+
+**Implementation Notes (2026-03-13):**
+- `tryExtractInstanceFromSource()` in transformer detects `@specialize` JSDoc annotation on variable declarations
+- Methods are extracted from object literal initializers using `extractMethodsFromObjectLiteral()`
+- Source-based detection runs before registry fallback for backwards compatibility
+- JSDoc parsing handles both `VariableDeclaration` and parent `VariableStatement` for tag extraction
+- `registerInstanceMethods()` now emits deprecation warning after internal built-in registrations complete
+- Added 6 new tests for source-based auto-specialization in `auto-specialize.test.ts`
 
 ### Wave 3: Oxc Detection Patterns
 

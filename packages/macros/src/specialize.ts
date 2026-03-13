@@ -443,21 +443,57 @@ export interface DictMethod {
 const instanceMethodRegistry = new Map<string, DictMethodMap>();
 
 /**
+ * Flag to suppress deprecation warnings during internal registration.
+ * Set to true during module initialization when registering built-in instances.
+ */
+let isInternalRegistration = true;
+
+/**
  * Register a typeclass instance's methods for specialization using source strings.
  * Called at macro registration time for built-in instances.
  *
- * Prefer `registerInstanceMethodsFromAST` when AST nodes are available.
+ * @deprecated Use `@specialize` annotation on instance definitions instead.
+ * This function will be removed in a future version. See PEP-004.
+ *
+ * Migration:
+ * ```typescript
+ * // Before (runtime registry):
+ * registerInstanceMethods("arrayFunctor", "Array", {
+ *   map: { source: "(fa, f) => fa.map(f)", params: ["fa", "f"] },
+ * });
+ *
+ * // After (source-based, preferred):
+ * /** @impl Functor<Array> @specialize *\/
+ * const arrayFunctor: Functor<Array<any>> = {
+ *   map: (fa, f) => fa.map(f),
+ * };
+ * ```
  */
 export function registerInstanceMethods(
   dictName: string,
   brand: string,
   methods: Record<string, { source: string; params: string[] }>
 ): void {
+  if (!isInternalRegistration) {
+    console.warn(
+      `[typesugar] DEPRECATION: registerInstanceMethods("${dictName}") is deprecated.\n` +
+        `  Use @specialize annotation on instance definitions instead.\n` +
+        `  See PEP-004 for migration guidance: docs/PEP-004-source-based-typeclass-features.md`
+    );
+  }
   const methodMap = new Map<string, DictMethod>();
   for (const [name, info] of Object.entries(methods)) {
     methodMap.set(name, { source: info.source, params: info.params });
   }
   instanceMethodRegistry.set(dictName, { brand, methods: methodMap });
+}
+
+/**
+ * Mark the end of internal registration phase.
+ * After this is called, registerInstanceMethods() will emit deprecation warnings.
+ */
+export function endInternalRegistration(): void {
+  isInternalRegistration = false;
 }
 
 /**
@@ -1071,6 +1107,10 @@ registerInstanceMethods("effectEitherMonad", "Either", {
     params: ["fa", "f"],
   },
 });
+
+// End internal registration phase - after this, registerInstanceMethods()
+// will emit deprecation warnings for user code
+endInternalRegistration();
 
 // ============================================================================
 // specialize expression macro

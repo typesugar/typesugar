@@ -41,6 +41,9 @@ import {
   registerTypeclassSyntax,
   extractOpFromReturnType,
   extractOpFromJSDoc,
+  // Source-based specialization
+  extractMethodsFromObjectLiteral,
+  registerInstanceMethodsFromAST,
   type ImplicitScope,
   type DictMethodMap,
   type DictMethod,
@@ -2138,6 +2141,156 @@ class MacroTransformer {
   }
 
   /**
+   * Check if a variable declaration has @specialize in its JSDoc.
+   * Handles JSDoc on both the declaration and its parent statement.
+   */
+  private hasSpecializeAnnotation(decl: ts.Declaration): boolean {
+    // Check the declaration itself
+    const jsDocs = ts.getJSDocTags(decl);
+    for (const tag of jsDocs) {
+      if (tag.tagName.text === "specialize") {
+        return true;
+      }
+    }
+
+    // Check the parent statement (JSDoc is often attached to VariableStatement)
+    if (ts.isVariableDeclaration(decl)) {
+      const parent = decl.parent?.parent; // VariableDeclaration -> VariableDeclarationList -> VariableStatement
+      if (parent && ts.isVariableStatement(parent)) {
+        const parentTags = ts.getJSDocTags(parent);
+        for (const tag of parentTags) {
+          if (tag.tagName.text === "specialize") {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Extract the brand (type name) from @impl annotation.
+   * E.g., @impl Functor<Array> → "Array"
+   * Handles JSDoc on both the declaration and its parent statement.
+   */
+  private extractBrandFromImpl(decl: ts.Declaration): string | undefined {
+    const extractFromTags = (tags: readonly ts.JSDocTag[]): string | undefined => {
+      for (const tag of tags) {
+        if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
+          const comment =
+            typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+          if (comment) {
+            // Extract type from "Typeclass<Type>" pattern
+            const match = comment.trim().match(/<([^>]+)>/);
+            if (match) {
+              return match[1].split(",")[0].trim(); // Handle multi-arg like "Either<E, A>" -> "Either"
+            }
+          }
+        }
+      }
+      return undefined;
+    };
+
+    // Check the declaration itself
+    const result = extractFromTags(ts.getJSDocTags(decl));
+    if (result) return result;
+
+    // Check the parent statement (JSDoc is often attached to VariableStatement)
+    if (ts.isVariableDeclaration(decl)) {
+      const parent = decl.parent?.parent; // VariableDeclaration -> VariableDeclarationList -> VariableStatement
+      if (parent && ts.isVariableStatement(parent)) {
+        return extractFromTags(ts.getJSDocTags(parent));
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Try to extract instance methods from source for auto-specialization.
+   * This implements source-based specialization via @specialize annotation.
+   *
+   * @param argExpr - The argument expression (identifier or property access)
+   * @returns DictMethodMap if @specialize is found and methods can be extracted, undefined otherwise
+   */
+  private tryExtractInstanceFromSource(argExpr: ts.Expression): DictMethodMap | undefined {
+    const argName = this.getInstanceName(argExpr);
+    if (!argName) return undefined;
+
+    try {
+      // Resolve the argument to its declaration
+      const symbol = this.ctx.typeChecker.getSymbolAtLocation(argExpr);
+      if (!symbol) return undefined;
+
+      const declarations = symbol.getDeclarations();
+      if (!declarations || declarations.length === 0) return undefined;
+
+      for (const decl of declarations) {
+        // Check if the declaration has @specialize annotation
+        if (!this.hasSpecializeAnnotation(decl)) continue;
+
+        // Find the object literal initializer
+        let objLiteral: ts.ObjectLiteralExpression | undefined;
+        let varDecl: ts.VariableDeclaration | undefined;
+
+        if (ts.isVariableDeclaration(decl)) {
+          varDecl = decl;
+          if (decl.initializer && ts.isObjectLiteralExpression(decl.initializer)) {
+            objLiteral = decl.initializer;
+          }
+        }
+
+        if (!objLiteral) continue;
+
+        // Extract brand from @impl annotation or infer from type annotation
+        let brand = this.extractBrandFromImpl(decl);
+
+        // Fallback: try to infer brand from type annotation
+        if (!brand && varDecl?.type) {
+          try {
+            // Try to get the type argument from the type annotation
+            if (ts.isTypeReferenceNode(varDecl.type) && varDecl.type.typeArguments) {
+              const firstTypeArg = varDecl.type.typeArguments[0];
+              if (firstTypeArg) {
+                brand = safeGetNodeText(firstTypeArg, this.ctx.sourceFile);
+              }
+            }
+
+            // Fallback: use getText() if type reference extraction didn't work
+            if (!brand) {
+              const typeStr = varDecl.type.getText(this.ctx.sourceFile);
+              const match = typeStr.match(/<([^>]+)>/);
+              if (match) {
+                brand = match[1].split(",")[0].trim();
+              }
+            }
+          } catch {
+            // Brand extraction from type annotation failed, continue with fallbacks
+          }
+        }
+
+        // Fallback: use the variable name as brand
+        if (!brand) {
+          brand = argName;
+        }
+
+        // Extract methods from the object literal
+        const methods = extractMethodsFromObjectLiteral(objLiteral, this.ctx.hygiene);
+        if (methods.size > 0) {
+          // Register for caching (so subsequent calls in the same file use cache)
+          registerInstanceMethodsFromAST(argName, brand, methods);
+          return { brand, methods };
+        }
+      }
+    } catch {
+      // Fallback to registry-based lookup on error
+    }
+
+    return undefined;
+  }
+
+  /**
    * Resolve a function expression to its body for auto-specialization.
    */
   private resolveAutoSpecFunctionBody(
@@ -2336,7 +2489,7 @@ class MacroTransformer {
       }
     }
 
-    // Find which arguments are registered instance dictionaries
+    // Find which arguments are instance dictionaries (source-based or registry-based)
     const instanceArgs: {
       index: number;
       name: string;
@@ -2346,11 +2499,19 @@ class MacroTransformer {
     for (let i = 0; i < node.arguments.length; i++) {
       const arg = node.arguments[i];
       const argName = this.getInstanceName(arg);
-      if (argName && isRegisteredInstance(argName)) {
-        const methods = getInstanceMethods(argName);
-        if (methods) {
-          instanceArgs.push({ index: i, name: argName, methods });
-        }
+      if (!argName) continue;
+
+      // Try source-based detection first (via @specialize annotation)
+      // This is the preferred approach per PEP-004
+      let methods = this.tryExtractInstanceFromSource(arg);
+
+      // Fall back to registry-based lookup for backwards compatibility
+      if (!methods && isRegisteredInstance(argName)) {
+        methods = getInstanceMethods(argName);
+      }
+
+      if (methods) {
+        instanceArgs.push({ index: i, name: argName, methods });
       }
     }
 
