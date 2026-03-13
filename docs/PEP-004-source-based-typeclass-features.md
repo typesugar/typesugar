@@ -289,18 +289,18 @@ const arrayFunctor: Functor<Array<any>> = {
 
 ### Limitations
 
-- `@specialize` only works for object literal instances (method bodies must be parseable)
+- Auto-specialization only works for object literal instances (method bodies must be parseable)
 - Operator syntax must be declared in typeclass definition (can't add operators to third-party typeclasses without wrapper)
 
 ## Files Changed
 
-| File                                                 | Change                               |
-| ---------------------------------------------------- | ------------------------------------ |
-| `packages/transformer/src/typeclass-transformer.ts`  | Parse `@op` from method JSDoc        |
-| `packages/transformer/src/operator-rewrite.ts`       | Use source-based operator lookup     |
-| `packages/transformer/src/auto-specialize.ts`        | Use source-based method extraction   |
-| `packages/macros/src/runtime-stubs.ts`               | Deprecate registry functions         |
-| `packages/transformer/src/needs-ts-transformer.ts`   | Detection heuristic for oxc fallback |
-| `packages/transformer/tests/needs-ts-transformer.ts` | Tests for detection heuristic        |
-| `packages/unplugin-typesugar/src/index.ts`           | Re-export detection functions        |
-| `docs/guides/typeclasses.md`                         | Document `@op` and `@specialize`     |
+| File                                                   | Change                                          |
+| ------------------------------------------------------ | ----------------------------------------------- |
+| `packages/transformer/src/index.ts`                    | Parse `@op` from JSDoc, auto-specialize `@impl` |
+| `packages/macros/src/specialize.ts`                    | Deprecate `registerInstanceMethods()`           |
+| `packages/macros/src/typeclass.ts`                     | Deprecate `registerTypeclassSyntax()`           |
+| `packages/transformer/src/needs-ts-transformer.ts`     | Detection heuristic for oxc fallback            |
+| `packages/transformer/tests/auto-specialize.test.ts`   | Tests for auto-specialization                   |
+| `packages/transformer/tests/needs-ts-transformer.ts`   | Tests for detection heuristic                   |
+| `packages/unplugin-typesugar/src/index.ts`             | Re-export detection functions                   |
+| `docs/guides/typeclasses.md`                           | Document `@op` (no `@specialize` needed)        |

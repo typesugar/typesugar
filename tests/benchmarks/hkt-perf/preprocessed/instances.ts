@@ -1,7 +1,7 @@
 /**
  * Concrete instances - no typeclasses, just specialized functions
  *
- * This is what typesugar's @specialize or auto-specialization produces:
+ * This is what typesugar's auto-specialization produces for @impl instances:
  * Direct function implementations without typeclass indirection.
  */
 

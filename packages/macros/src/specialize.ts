@@ -452,7 +452,8 @@ let isInternalRegistration = true;
  * Register a typeclass instance's methods for specialization using source strings.
  * Called at macro registration time for built-in instances.
  *
- * @deprecated Use `@specialize` annotation on instance definitions instead.
+ * @deprecated Use `@impl` annotation on instance definitions instead.
+ * Auto-specialization happens automatically for all @impl instances.
  * This function will be removed in a future version. See PEP-004.
  *
  * Migration:
@@ -462,8 +463,8 @@ let isInternalRegistration = true;
  *   map: { source: "(fa, f) => fa.map(f)", params: ["fa", "f"] },
  * });
  *
- * // After (source-based, preferred):
- * /** @impl Functor<Array> @specialize *\/
+ * // After (source-based, auto-specialized):
+ * /** @impl Functor<Array> *\/
  * const arrayFunctor: Functor<Array<any>> = {
  *   map: (fa, f) => fa.map(f),
  * };
@@ -477,7 +478,7 @@ export function registerInstanceMethods(
   if (!isInternalRegistration) {
     console.warn(
       `[typesugar] DEPRECATION: registerInstanceMethods("${dictName}") is deprecated.\n` +
-        `  Use @specialize annotation on instance definitions instead.\n` +
+        `  Use @impl annotation on instance definitions instead (auto-specialization is automatic).\n` +
         `  See PEP-004 for migration guidance: docs/PEP-004-source-based-typeclass-features.md`
     );
   }

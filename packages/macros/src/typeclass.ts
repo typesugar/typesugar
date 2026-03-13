@@ -2743,7 +2743,12 @@ export const derivingAttribute = defineAttributeMacro({
           // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
           const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
           if (specMethods && Object.keys(specMethods).length > 0) {
-            registerInstanceMethods(varName, typeName, specMethods);
+            // Convert plain object to Map<string, DictMethod> for registerInstanceMethodsFromAST
+            const methodsMap = new Map<string, { source?: string; params: string[] }>();
+            for (const [name, impl] of Object.entries(specMethods)) {
+              methodsMap.set(name, { source: impl.source, params: impl.params });
+            }
+            registerInstanceMethodsFromAST(varName, typeName, methodsMap);
           }
         }
       } else {

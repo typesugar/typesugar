@@ -7,10 +7,12 @@
  *
  * Detected patterns:
  * - `@op` - Operator syntax definitions in typeclass methods
- * - `@specialize` - Auto-specialization markers on instances
- * - `@impl` - Typeclass instance declarations
+ * - `@impl` - Typeclass instance declarations (auto-specialized)
  * - `@typeclass` - Typeclass definitions
  * - `@deriving` - Automatic typeclass derivation
+ *
+ * Note: @specialize is no longer used. Auto-specialization happens automatically
+ * for all @impl instances where method bodies can be extracted from source.
  *
  * @see PEP-004 for design rationale
  */
@@ -30,7 +32,7 @@ export interface NeedsTransformerResult {
  */
 export interface DetectedPattern {
   /** The pattern type */
-  type: "@op" | "@impl" | "@specialize" | "@typeclass" | "@deriving";
+  type: "@op" | "@impl" | "@typeclass" | "@deriving";
   /** Approximate line number (1-indexed) */
   line: number;
   /** The matched text snippet (for debugging) */
@@ -56,11 +58,8 @@ const PATTERNS = {
 
   // @impl in JSDoc: /** @impl Eq<Point> */ etc.
   // Matches: @impl followed by typeclass name
+  // Note: All @impl instances are auto-specialized - no separate @specialize needed
   impl: /\/\*\*(?:[^*]|\*(?!\/))*@impl\s+\w+(?:[^*]|\*(?!\/))*\*\//g,
-
-  // @specialize in JSDoc: /** @specialize */ or /** @impl ... @specialize */
-  // Matches: @specialize tag
-  specialize: /\/\*\*(?:[^*]|\*(?!\/))*@specialize(?:[^*]|\*(?!\/))*\*\//g,
 
   // @typeclass in JSDoc: /** @typeclass */
   // Matches: @typeclass tag (typeclass definitions)

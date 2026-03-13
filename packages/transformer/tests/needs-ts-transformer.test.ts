@@ -99,25 +99,10 @@ describe("needsTypescriptTransformer", () => {
     });
   });
 
-  describe("@specialize pattern detection", () => {
-    it("detects @specialize standalone annotation", () => {
+  describe("@impl auto-specialization", () => {
+    it("@impl instances are auto-specialized (no @specialize needed)", () => {
       const source = `
-        /** @specialize */
-        const eqPoint: Eq<Point> = {
-          equals: (a, b) => a.x === b.x && a.y === b.y,
-        };
-      `;
-      const result = needsTypescriptTransformer(source);
-      expect(result.needsTs).toBe(true);
-      expect(result.patterns.some((p) => p.type === "@specialize")).toBe(true);
-    });
-
-    it("detects @specialize combined with @impl", () => {
-      const source = `
-        /**
-         * @impl Numeric<Point>
-         * @specialize
-         */
+        /** @impl Numeric<Point> */
         const numericPoint: Numeric<Point> = {
           add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
         };
@@ -125,7 +110,6 @@ describe("needsTypescriptTransformer", () => {
       const result = needsTypescriptTransformer(source);
       expect(result.needsTs).toBe(true);
       expect(result.patterns.some((p) => p.type === "@impl")).toBe(true);
-      expect(result.patterns.some((p) => p.type === "@specialize")).toBe(true);
     });
   });
 
@@ -283,17 +267,14 @@ interface Eq<A> {
           y: number;
         }
 
-        /**
-         * @impl Numeric<Point>
-         * @specialize
-         */
+        /** @impl Numeric<Point> */
         const numericPoint: Numeric<Point> = {
           add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
           sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y }),
           mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
         };
 
-        // Usage
+        // Usage - auto-specialization happens for all @impl instances
         const p1: Point = { x: 1, y: 2 };
         const p2: Point = { x: 3, y: 4 };
         const sum = p1 + p2; // Rewritten to numericPoint.add(p1, p2)
@@ -303,7 +284,6 @@ interface Eq<A> {
       expect(result.patterns.some((p) => p.type === "@typeclass")).toBe(true);
       expect(result.patterns.filter((p) => p.type === "@op").length).toBe(3);
       expect(result.patterns.some((p) => p.type === "@impl")).toBe(true);
-      expect(result.patterns.some((p) => p.type === "@specialize")).toBe(true);
     });
 
     it("handles mixed typeclass and non-typeclass code", () => {

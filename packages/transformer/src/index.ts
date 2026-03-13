@@ -2126,14 +2126,16 @@ class MacroTransformer {
   }
 
   /**
-   * Check if a variable declaration has @specialize in its JSDoc.
+   * Check if a variable declaration has @impl or @instance in its JSDoc.
+   * Auto-specialization happens for ALL @impl instances where method bodies
+   * can be extracted from the source object literal.
    * Handles JSDoc on both the declaration and its parent statement.
    */
-  private hasSpecializeAnnotation(decl: ts.Declaration): boolean {
+  private hasImplAnnotation(decl: ts.Declaration): boolean {
     // Check the declaration itself
     const jsDocs = ts.getJSDocTags(decl);
     for (const tag of jsDocs) {
-      if (tag.tagName.text === "specialize") {
+      if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
         return true;
       }
     }
@@ -2144,7 +2146,7 @@ class MacroTransformer {
       if (parent && ts.isVariableStatement(parent)) {
         const parentTags = ts.getJSDocTags(parent);
         for (const tag of parentTags) {
-          if (tag.tagName.text === "specialize") {
+          if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
             return true;
           }
         }
@@ -2194,10 +2196,12 @@ class MacroTransformer {
 
   /**
    * Try to extract instance methods from source for auto-specialization.
-   * This implements source-based specialization via @specialize annotation.
+   * Auto-specialization happens automatically for ALL @impl instances where
+   * method bodies can be extracted from the source object literal.
+   * No @specialize annotation needed - @impl is sufficient.
    *
    * @param argExpr - The argument expression (identifier or property access)
-   * @returns DictMethodMap if @specialize is found and methods can be extracted, undefined otherwise
+   * @returns DictMethodMap if @impl is found and methods can be extracted, undefined otherwise
    */
   private tryExtractInstanceFromSource(argExpr: ts.Expression): DictMethodMap | undefined {
     const argName = this.getInstanceName(argExpr);
@@ -2212,8 +2216,8 @@ class MacroTransformer {
       if (!declarations || declarations.length === 0) return undefined;
 
       for (const decl of declarations) {
-        // Check if the declaration has @specialize annotation
-        if (!this.hasSpecializeAnnotation(decl)) continue;
+        // Auto-specialize all @impl instances
+        if (!this.hasImplAnnotation(decl)) continue;
 
         // Find the object literal initializer
         let objLiteral: ts.ObjectLiteralExpression | undefined;
@@ -2486,8 +2490,8 @@ class MacroTransformer {
       const argName = this.getInstanceName(arg);
       if (!argName) continue;
 
-      // Try source-based detection first (via @specialize annotation)
-      // This is the preferred approach per PEP-004
+      // Try source-based detection first (via @impl annotation)
+      // Auto-specialization happens for all @impl instances per PEP-004
       let methods = this.tryExtractInstanceFromSource(arg);
 
       // Fall back to registry-based lookup for backwards compatibility
