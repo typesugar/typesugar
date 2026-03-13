@@ -42,7 +42,8 @@ type Apply<F<_>, A> = F<A>;
     `.trim();
 
     const result = transformHKT(code);
-    expect(result.code).toContain("Apply<F, A>");
+    // Check structure allowing for different formatting
+    expect(result.code).toMatch(/type\s+Apply\s*<\s*F\s*,\s*A\s*>/);
     expect(result.code).toContain("Kind<F, A>");
     expect(result.code).not.toMatch(/\bF<A>/);
   });
@@ -70,7 +71,8 @@ interface MapLike<F<_>, K> {
     `.trim();
 
     const result = transformHKT(code);
-    expect(result.code).toContain("MapLike<F, K>");
+    // Check structure allowing for different formatting
+    expect(result.code).toMatch(/interface\s+MapLike\s*<\s*F\s*,\s*K\s*>/);
     expect(result.code).toContain("Kind<F, V>");
     expect(result.code).not.toMatch(/\bF<V>/);
     // K is not HKT, so K references should remain unchanged

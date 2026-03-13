@@ -48,6 +48,10 @@ export declare function transform(source: string, filename: string, options?: Tr
  *
  * The callback receives a JSON-serialized MacroCallInfo and returns a
  * JSON-serialized MacroExpansion.
+ *
+ * For nested expression macros (like chained `__binop__`), this function
+ * iterates until all macros are expanded, since each pass may expose new
+ * macro calls that were previously nested inside other macro arguments.
  */
 export declare function transformWithMacros(source: string, filename: string, options: TransformOptions | undefined | null, macroCallback: (arg: string) => string): TransformResult
 /** Parse TypeScript source and return timing information (for benchmarking) */

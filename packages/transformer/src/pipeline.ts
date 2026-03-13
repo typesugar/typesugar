@@ -61,9 +61,9 @@ export interface TransformResult {
 /**
  * Transformation backend to use
  *
- * - 'typescript' (default): Uses TypeScript's transformer API
- * - 'oxc': Uses the oxc-native macro engine (faster parsing/codegen).
+ * - 'oxc' (default): Uses the oxc-native macro engine (faster parsing/codegen).
  *   Automatically falls back to TypeScript for files with type-aware macros.
+ * - 'typescript': Uses TypeScript's transformer API (handles all macro types)
  */
 export type TransformBackend = "typescript" | "oxc";
 
@@ -74,14 +74,14 @@ export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
   /**
-   * Transformation backend to use (default: 'typescript')
+   * Transformation backend to use (default: 'oxc')
    *
-   * - 'typescript': Traditional TypeScript transformer API (handles all macro types)
    * - 'oxc': oxc-native macro engine (faster parsing/codegen, auto-falls back to TS
    *   when type-aware macros are detected)
+   * - 'typescript': Traditional TypeScript transformer API (handles all macro types)
    *
-   * Note: Use 'oxc' for performance gains on syntax-only macro files. The oxc
-   * backend automatically falls back to TS for type-aware macros.
+   * The oxc backend is the default for performance. Files with type-aware macros
+   * (@typeclass, @impl, @op, @deriving) automatically fall back to TypeScript.
    */
   backend?: TransformBackend;
   /** Syntax extensions to enable (defaults to all) */
@@ -556,8 +556,8 @@ export class TransformationPipeline {
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
 
-    // Transform TS/TSX/JS/JSX files and STS/STSX (sugared TypeScript) files
-    return /\.([tj]sx?|stsx?)$/.test(fileName);
+    // Transform TS/TSX/JS/JSX and STS/STSX files
+    return /\.(([tj]sx?)|sts|stsx)$/.test(fileName);
   }
 
   // ---------------------------------------------------------------------------
@@ -698,6 +698,11 @@ export class TransformationPipeline {
       return true;
     }
 
+    // 9. Labeled block comprehensions (let:, seq:, par:, all:)
+    if (/\b(let|seq|par|all):\s*\{/.test(source)) {
+      return true;
+    }
+
     return false;
   }
 
@@ -711,47 +716,46 @@ export class TransformationPipeline {
     printMs?: number;
     expansions?: ExpansionRecord[];
   } {
-    // Use oxc backend only if explicitly requested
-    // (Wave 6 blocker: type-aware features like auto-specialize and operator-rewrite
-    // depend on runtime registries that can't be detected from source patterns)
-    if (this.options.backend === "oxc") {
-      // Quick check: if type-aware features are present, fall back to TS immediately
-      if (this.needsTypescriptTransformer(originalCode)) {
-        if (this.verbose) {
-          console.log(
-            `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware features detected)`
-          );
-        }
-        return this.runTypescriptTransformer(sourceFile, originalCode);
-      }
-
-      const oxcResult = this.runOxcTransformer(sourceFile, originalCode);
-
-      // If oxc backend signals fallback (e.g., JSDoc type-aware macros detected),
-      // retry with the TypeScript transformer
-      if (oxcResult.needsFallback) {
-        if (this.verbose) {
-          console.log(
-            `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware macros detected)`
-          );
-        }
-        return this.runTypescriptTransformer(sourceFile, originalCode);
-      }
-
-      // Return without the needsFallback/changed fields (not part of the interface)
-      // Note: We intentionally keep oxc diagnostics even if they contain errors,
-      // because syntax-only macros like staticAssert intentionally produce errors
-      return {
-        code: oxcResult.code,
-        map: oxcResult.map,
-        diagnostics: oxcResult.diagnostics,
-        printMs: oxcResult.printMs,
-        expansions: oxcResult.expansions,
-      };
+    // Use TypeScript backend only if explicitly requested
+    // (PEP-004 enabled source-based detection of type-aware features)
+    if (this.options.backend === "typescript") {
+      return this.runTypescriptTransformer(sourceFile, originalCode);
     }
 
-    // Default: TypeScript transformer (handles all macro types)
-    return this.runTypescriptTransformer(sourceFile, originalCode);
+    // Default: oxc backend (faster for syntax-only macros, auto-falls back to TS)
+    // Quick check: if type-aware features are present, fall back to TS immediately
+    if (this.needsTypescriptTransformer(originalCode)) {
+      if (this.verbose) {
+        console.log(
+          `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware features detected)`
+        );
+      }
+      return this.runTypescriptTransformer(sourceFile, originalCode);
+    }
+
+    const oxcResult = this.runOxcTransformer(sourceFile, originalCode);
+
+    // If oxc backend signals fallback (e.g., JSDoc type-aware macros detected),
+    // retry with the TypeScript transformer
+    if (oxcResult.needsFallback) {
+      if (this.verbose) {
+        console.log(
+          `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware macros detected)`
+        );
+      }
+      return this.runTypescriptTransformer(sourceFile, originalCode);
+    }
+
+    // Return without the needsFallback/changed fields (not part of the interface)
+    // Note: We intentionally keep oxc diagnostics even if they contain errors,
+    // because syntax-only macros like staticAssert intentionally produce errors
+    return {
+      code: oxcResult.code,
+      map: oxcResult.map,
+      diagnostics: oxcResult.diagnostics,
+      printMs: oxcResult.printMs,
+      expansions: oxcResult.expansions,
+    };
   }
 
   /**
@@ -1073,8 +1077,8 @@ export class TransformationPipeline {
    * Resolve a module path to an absolute file path
    */
   private resolveModulePath(modulePath: string, baseDir: string): string | undefined {
-    // Try common extensions - .sts/.stsx are sugared TypeScript files
-    const extensions = [".ts", ".tsx", ".sts", ".stsx", ".js", ".jsx", ""];
+    // Try common extensions
+    const extensions = [".ts", ".tsx", ".js", ".jsx", ""];
     const basePath = path.resolve(baseDir, modulePath);
 
     for (const ext of extensions) {

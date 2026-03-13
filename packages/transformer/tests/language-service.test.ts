@@ -179,14 +179,15 @@ describe("Language Service Plugin", () => {
 
     it("adds version marker for transformed files", () => {
       const files = new Map<string, string>();
-      files.set("/test/index.ts", "const result = 1 |> ((x) => x + 1);");
+      // Use .sts extension for files with custom syntax (PEP-001)
+      files.set("/test/index.sts", "const result = 1 |> ((x) => x + 1);");
 
       const plugin = init({ typescript: ts });
       const info = createMockPluginInfo(files);
 
       plugin.create(info);
 
-      const version = info.languageServiceHost.getScriptVersion("/test/index.ts");
+      const version = info.languageServiceHost.getScriptVersion("/test/index.sts");
 
       // Version should contain typesugar marker
       expect(version).toContain("-ts-");
@@ -366,7 +367,8 @@ describe("TransformationPipeline integration", () => {
 
     it("includes changed flag", () => {
       const code = "const result = 1 |> ((x) => x + 1);";
-      const result = transformCode(code, { fileName: "test.ts" });
+      // Use .sts extension for files with custom syntax (PEP-001)
+      const result = transformCode(code, { fileName: "test.sts" });
 
       expect(result.changed).toBe(true);
     });

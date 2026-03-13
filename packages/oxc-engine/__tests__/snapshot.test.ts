@@ -362,7 +362,7 @@ interface InvalidTypeclass {}`;
     const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
 
     expect(result.diagnostics.length).toBeGreaterThan(0);
-    expect(result.diagnostics.some(d => d.message.includes("at least one method"))).toBe(true);
+    expect(result.diagnostics.some((d) => d.message.includes("at least one method"))).toBe(true);
   });
 
   test("handles multiple macro annotations", () => {
@@ -417,7 +417,12 @@ staticAssert(true, "should pass");`;
       return JSON.stringify(expansion);
     };
 
-    const result = oxcEngine.transformWithMacros(source, "test.ts", { cfgConfig: { debug: false } }, callback);
+    const result = oxcEngine.transformWithMacros(
+      source,
+      "test.ts",
+      { cfgConfig: { debug: false } },
+      callback
+    );
 
     // cfg macro should remove debugOnly
     expect(result.code).not.toContain("debugOnly");
@@ -458,8 +463,8 @@ staticAssert(true, "should pass");`;
     expect(result.code).not.toContain("__binop__");
   });
 
-  test("handles nested __binop__ calls (outer first)", () => {
-    // Nested __binop__ calls - outer is visited first in AST traversal
+  test("handles nested __binop__ calls (inner first)", () => {
+    // Nested __binop__ calls - inner is expanded first (leaf-first for correct expansion)
     const source = `const result = __binop__(__binop__(x, "|>", double), "|>", square);`;
 
     const callbacks: MacroCallInfo[] = [];
@@ -479,13 +484,15 @@ staticAssert(true, "should pass");`;
 
     const result = oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
 
-    // Both __binop__ calls should be detected
+    // Both __binop__ calls should be detected, inner first (leaf-first expansion)
     expect(callbacks.length).toBe(2);
-    // Outer is visited first (top-down AST traversal)
-    expect(callbacks[0].callSiteArgs[2]).toBe("square");
-    // Inner is visited second
-    expect(callbacks[1].callSiteArgs[2]).toBe("double");
+    // Inner is expanded first (it has no nested macros in its args)
+    expect(callbacks[0].callSiteArgs[2]).toBe("double");
+    // Outer is expanded second (after inner is resolved)
+    expect(callbacks[1].callSiteArgs[2]).toBe("square");
     expect(result.changed).toBe(true);
+    // Final result should be correctly expanded
+    expect(result.code).toContain("square(double(x))");
   });
 
   test("handles :: cons operator", () => {
@@ -535,17 +542,19 @@ interface T5<A> { m(a: A): A; }`;
 
     const start = performance.now();
     const iterations = 100;
-    
+
     for (let i = 0; i < iterations; i++) {
       oxcEngine.transformWithMacros(source, "test.ts", {}, callback);
     }
-    
+
     const elapsed = performance.now() - start;
     const totalCalls = callCount; // Should be 5 * iterations = 500
     const msPerCall = elapsed / totalCalls;
 
-    console.log(`Callback overhead: ${msPerCall.toFixed(3)}ms per call (${totalCalls} calls in ${elapsed.toFixed(1)}ms)`);
-    
+    console.log(
+      `Callback overhead: ${msPerCall.toFixed(3)}ms per call (${totalCalls} calls in ${elapsed.toFixed(1)}ms)`
+    );
+
     // Target: <0.5ms per callback
     expect(msPerCall).toBeLessThan(0.5);
   });

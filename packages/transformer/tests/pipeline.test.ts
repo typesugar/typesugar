@@ -36,9 +36,9 @@ describe("TransformationPipeline", () => {
       // Use .sts extension to trigger preprocessing for pipe operator
       const result = transformCode(code, { fileName: "test.sts" });
 
-      // Pipe operator should be transformed to __binop__ calls
-      // The |> operator itself is replaced, though the string appears as an argument
-      expect(result.code).toContain("__binop__");
+      // With oxc backend (default), pipe operator is expanded to function calls
+      // 1 |> f |> g becomes g(f(1))
+      expect(result.code).toContain("((x) => x * 2)(((x) => x + 1)(1))");
       expect(result.diagnostics).toHaveLength(0);
     });
 
@@ -194,7 +194,8 @@ describe("TransformationPipeline", () => {
     it("shows only changed regions for pipe operators", () => {
       const code = ["const a = 1;", "", "const b = a |> double;", "", "const c = 3;"].join("\n");
 
-      const result = transformCode(code, { fileName: "fmt-pipe.ts", preserveBlankLines: true });
+      // Use .sts extension for files with custom syntax (PEP-001)
+      const result = transformCode(code, { fileName: "fmt-pipe.sts", preserveBlankLines: true });
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");

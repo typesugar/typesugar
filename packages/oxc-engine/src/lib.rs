@@ -532,6 +532,10 @@ fn find_statement_end(source: &str, expr_end: u32) -> u32 {
 ///
 /// The callback receives a JSON-serialized MacroCallInfo and returns a
 /// JSON-serialized MacroExpansion.
+///
+/// For nested expression macros (like chained `__binop__`), this function
+/// iterates until all macros are expanded, since each pass may expose new
+/// macro calls that were previously nested inside other macro arguments.
 #[napi]
 pub fn transform_with_macros(
     source: String,
@@ -545,26 +549,27 @@ pub fn transform_with_macros(
 
     // Use custom source type detection for .sts/.stsx files
     let source_type = determine_source_type(&filename);
-    let allocator = Allocator::default();
 
-    // Parse
-    let parser_ret = Parser::new(&allocator, &source, source_type).parse();
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+    let mut current_source = source.clone();
+    let mut changed = false;
+    let mut needs_fallback = false;
+
+    // Initial parse
+    let allocator = Allocator::default();
+    let parser_ret = Parser::new(&allocator, &current_source, source_type).parse();
 
     // Collect parse errors
-    let mut diagnostics: Vec<Diagnostic> = parser_ret
-        .errors
-        .iter()
-        .map(|e| Diagnostic {
-            severity: "error".to_string(),
-            message: e.to_string(),
-            line: None,
-            column: None,
-        })
-        .collect();
+    diagnostics.extend(parser_ret.errors.iter().map(|e| Diagnostic {
+        severity: "error".to_string(),
+        message: e.to_string(),
+        line: None,
+        column: None,
+    }));
 
     if !parser_ret.errors.is_empty() {
         return Ok(TransformResult {
-            code: source.clone(),
+            code: source,
             map: None,
             changed: false,
             diagnostics,
@@ -572,17 +577,15 @@ pub fn transform_with_macros(
         });
     }
 
-    let mut splicer = Splicer::new();
-    let mut changed = false;
-
-    // Extract JSDoc annotations
+    // Extract JSDoc annotations (only needed once, at statement level)
     let declaration_starts = collect_declaration_starts(&parser_ret.program);
     let annotations =
-        extract_jsdoc_annotations(&parser_ret.program.comments, &source, &declaration_starts);
+        extract_jsdoc_annotations(&parser_ret.program.comments, &current_source, &declaration_starts);
 
-    // Process syntax-only macros (cfg, staticAssert) in Rust
+    // Process syntax-only macros (cfg, staticAssert) in Rust - single pass
+    let mut splicer = Splicer::new();
     process_cfg_macros(
-        &source,
+        &current_source,
         &parser_ret.program,
         &annotations,
         &cfg_config,
@@ -591,41 +594,55 @@ pub fn transform_with_macros(
     );
 
     process_static_assert_macros(
-        &source,
+        &current_source,
         &parser_ret.program,
         &mut splicer,
         &mut diagnostics,
         &mut changed,
     );
 
-    // Collect and process type-aware macros via JS callback
-    let macro_sites = collect_type_aware_macro_sites(&source, &parser_ret.program, &annotations);
-    let needs_fallback = process_type_aware_macros(
-        &source,
-        &filename,
-        &macro_sites,
-        &macro_callback,
-        &mut splicer,
-        &mut diagnostics,
-        &mut changed,
-    )?;
+    // Process JSDoc macros (single pass, they're at statement level, not nested)
+    let jsdoc_sites: Vec<MacroSite> = collect_type_aware_macro_sites(&current_source, &parser_ret.program, &annotations)
+        .into_iter()
+        .filter(|site| matches!(site.kind, MacroSiteKind::JsDoc { .. }))
+        .collect();
 
-    // Apply splices
-    let transformed_source = if changed {
-        splicer.apply(&source)
-    } else {
-        source.clone()
-    };
+    if !jsdoc_sites.is_empty() {
+        let fb = process_type_aware_macros(
+            &current_source,
+            &filename,
+            &jsdoc_sites,
+            &macro_callback,
+            &mut splicer,
+            &mut diagnostics,
+            &mut changed,
+        )?;
+        needs_fallback = needs_fallback || fb;
+    }
 
-    // Re-parse and codegen if changed
-    if changed {
-        let allocator2 = Allocator::default();
-        let parser_ret2 = Parser::new(&allocator2, &transformed_source, source_type).parse();
+    // Apply initial splices (cfg, staticAssert, JSDoc macros)
+    if !splicer.is_empty() {
+        current_source = splicer.apply(&current_source);
+    }
 
-        if !parser_ret2.errors.is_empty() {
+    // Iterative expansion for expression macros (like nested __binop__)
+    // In each pass, we only expand "leaf" macros - those whose arguments don't
+    // contain other macro calls. This ensures we expand from innermost to outermost.
+    const MAX_ITERATIONS: usize = 20; // Safety limit for deeply nested macros
+
+    for iteration in 0..MAX_ITERATIONS {
+        // Re-parse current source
+        let iter_allocator = Allocator::default();
+        let iter_parser = Parser::new(&iter_allocator, &current_source, source_type).parse();
+
+        if !iter_parser.errors.is_empty() {
+            // Parse failed - this shouldn't happen if our expansions are valid
             diagnostics.push(Diagnostic {
                 severity: "error".to_string(),
-                message: "Internal error: transformed code failed to parse".to_string(),
+                message: format!(
+                    "Internal error: transformed code failed to parse after {} iteration(s)",
+                    iteration
+                ),
                 line: None,
                 column: None,
             });
@@ -638,35 +655,99 @@ pub fn transform_with_macros(
             });
         }
 
-        let codegen_options = CodegenOptions {
-            source_map_path: if enable_source_map {
-                Some(PathBuf::from(&filename))
-            } else {
-                None
-            },
-            ..Default::default()
-        };
+        // Collect only expression macro sites (like __binop__)
+        // We don't need annotations for expression macros
+        let empty_annotations = JsDocAnnotations::new();
+        let all_expr_sites: Vec<MacroSite> = collect_type_aware_macro_sites(
+            &current_source,
+            &iter_parser.program,
+            &empty_annotations,
+        )
+        .into_iter()
+        .filter(|site| matches!(site.kind, MacroSiteKind::CallExpr { .. }))
+        .collect();
 
-        let codegen_ret = Codegen::new()
-            .with_options(codegen_options)
-            .build(&parser_ret2.program);
+        // No more expression macros - we're done
+        if all_expr_sites.is_empty() {
+            break;
+        }
 
-        let map_json = if enable_source_map {
-            codegen_ret.map.map(|m| m.to_json_string())
-        } else {
-            None
-        };
+        // Filter to only "leaf" macros - those whose arguments don't contain
+        // other macro calls. This ensures we expand from innermost to outermost.
+        let leaf_sites: Vec<MacroSite> = all_expr_sites
+            .into_iter()
+            .filter(|site| {
+                if let MacroSiteKind::CallExpr { args, .. } = &site.kind {
+                    // A macro is a leaf if none of its arguments contain macro calls
+                    !args.iter().any(|arg| {
+                        EXPRESSION_MACROS.iter().any(|m| arg.contains(m))
+                    })
+                } else {
+                    true
+                }
+            })
+            .collect();
 
+        // If no leaf macros found but there are expression macros, we might have
+        // a circular dependency or the filtering is too aggressive
+        if leaf_sites.is_empty() {
+            diagnostics.push(Diagnostic {
+                severity: "warning".to_string(),
+                message: format!(
+                    "No expandable macros found in iteration {} (possible circular dependency)",
+                    iteration
+                ),
+                line: None,
+                column: None,
+            });
+            break;
+        }
+
+        // Process this iteration's leaf expression macros
+        let mut iter_splicer = Splicer::new();
+        let mut iter_changed = false;
+
+        let fb = process_type_aware_macros(
+            &current_source,
+            &filename,
+            &leaf_sites,
+            &macro_callback,
+            &mut iter_splicer,
+            &mut diagnostics,
+            &mut iter_changed,
+        )?;
+        needs_fallback = needs_fallback || fb;
+
+        if !iter_changed {
+            // No changes made - macros returned empty expansions, we're done
+            break;
+        }
+
+        // Apply this iteration's splices
+        current_source = iter_splicer.apply(&current_source);
+        changed = true;
+    }
+
+    // Final codegen
+    let final_allocator = Allocator::default();
+    let final_parser = Parser::new(&final_allocator, &current_source, source_type).parse();
+
+    if !final_parser.errors.is_empty() {
+        diagnostics.push(Diagnostic {
+            severity: "error".to_string(),
+            message: "Internal error: final transformed code failed to parse".to_string(),
+            line: None,
+            column: None,
+        });
         return Ok(TransformResult {
-            code: codegen_ret.code,
-            map: map_json,
-            changed,
+            code: source,
+            map: None,
+            changed: false,
             diagnostics,
             needs_fallback,
         });
     }
 
-    // No changes
     let codegen_options = CodegenOptions {
         source_map_path: if enable_source_map {
             Some(PathBuf::from(&filename))
@@ -678,7 +759,7 @@ pub fn transform_with_macros(
 
     let codegen_ret = Codegen::new()
         .with_options(codegen_options)
-        .build(&parser_ret.program);
+        .build(&final_parser.program);
 
     let map_json = if enable_source_map {
         codegen_ret.map.map(|m| m.to_json_string())

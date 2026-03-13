@@ -94,14 +94,16 @@ const c: Container<string> = { value: "hello" };
 // =============================================================================
 
 describe("Pipeline E2E: pipe operator", () => {
-  it("transforms |> to __binop__ calls", () => {
+  it("transforms |> to function calls", () => {
     const input = `const result = 1 |> ((x: number) => x + 1) |> ((x: number) => x * 2);`;
 
     // Use .sts extension for files with custom syntax (PEP-001)
     const result = transformCode(input, { fileName: "pipe.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    expect(result.code).toContain("__binop__");
+    // With oxc backend (default), pipe operator is expanded to function calls
+    // 1 |> f |> g becomes g(f(1))
+    expect(result.code).toContain("((x: number) => x * 2)(((x: number) => x + 1)(1))");
     // The |> token should only appear as a string argument to __binop__, not as an operator
     const codeWithoutStrings = result.code.replace(/"[^"]*"/g, "").replace(/'[^']*'/g, "");
     expect(codeWithoutStrings).not.toContain("|>");
@@ -119,7 +121,8 @@ const result = 10 |> add1 |> double |> toString;
     const result = transformCode(input, { fileName: "chained-pipe.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    expect(result.code).toContain("__binop__");
+    // With oxc backend, chained pipes are expanded to nested function calls
+    expect(result.code).toContain("toString(double(add1(10)))");
     expect(result.changed).toBe(true);
   });
 
@@ -140,15 +143,16 @@ const result = 10 |> add1 |> double |> toString;
 // =============================================================================
 
 describe("Pipeline E2E: cons operator", () => {
-  it("transforms :: to __binop__ calls", () => {
+  it("transforms :: to spread array literals", () => {
     const input = `const list = 1 :: 2 :: [];`;
 
     // Use .sts extension for files with custom syntax (PEP-001)
     const result = transformCode(input, { fileName: "cons.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    expect(result.code).toContain("__binop__");
-    // :: should only appear as a string literal argument
+    // With oxc backend (default), :: is expanded to spread arrays: [h, ...t]
+    expect(result.code).toContain("[1, ...[2, ...[]]]");
+    // :: should only appear as a string literal argument (or not at all with oxc)
     const codeWithoutStrings = result.code.replace(/"[^"]*"/g, "").replace(/'[^']*'/g, "");
     expect(codeWithoutStrings).not.toContain("::");
   });
@@ -160,7 +164,8 @@ describe("Pipeline E2E: cons operator", () => {
     const result = transformCode(input, { fileName: "nested-cons.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    expect(result.code).toContain("__binop__");
+    // With oxc backend (default), :: is expanded to spread arrays: [h, ...t]
+    expect(result.code).toContain("[1, ...[2, ...[3, ...[]]]]");
     expect(result.changed).toBe(true);
   });
 });
@@ -342,8 +347,8 @@ const result = x |> ((n: number) => n + 1);
     // Plain file should be essentially unchanged
     expect(plainResult.code).toContain("42");
 
-    // Piped file should be transformed
-    expect(pipedResult.code).toContain("__binop__");
+    // Piped file should be transformed (pipe expanded to function call)
+    expect(pipedResult.code).toContain("((n: number) => n + 1)(x)");
   });
 });
 
@@ -485,7 +490,9 @@ const consed = 1 :: [];
     const result = transformCode(input, { fileName: "all-ops.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    expect(result.code).toContain("__binop__");
+    // With oxc backend, operators are fully expanded
+    expect(result.code).toContain("((x: number) => x + 1)(1)");
+    expect(result.code).toContain("[1, ...[]]");
     expect(result.changed).toBe(true);
   });
 

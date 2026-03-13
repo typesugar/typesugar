@@ -60,7 +60,7 @@ interface CliOptions {
   cache?: boolean | string;
   /** Enable strict mode - typecheck expanded output */
   strict?: boolean;
-  /** Transform backend: 'typescript' (default) or 'oxc' (experimental) */
+  /** Transform backend: 'oxc' (default) or 'typescript' */
   backend?: "typescript" | "oxc";
 }
 
@@ -204,7 +204,7 @@ OPTIONS:
   --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
   --strict               Typecheck expanded output (catches macro bugs) [build/check]
-  --backend <ts|oxc>     Transform backend: 'typescript' (default) or 'oxc' (experimental)
+  --backend <ts|oxc>     Transform backend: 'oxc' (default) or 'typescript'
   -h, --help             Show this help message
 
 EXPAND OPTIONS:
