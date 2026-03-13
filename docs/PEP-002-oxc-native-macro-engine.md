@@ -240,7 +240,7 @@ Port the major macros and wire the oxc engine into the pipeline as an opt-in alt
 - [ ] Port `reflect` macro — type info extraction
 - [x] Wire oxc engine into `TransformationPipeline` as alternative backend (`backend: 'oxc'` option)
 - [x] Pipeline handles: preprocessor (for `.sts`) → oxc engine → source map composition — same flow as today but replacing the TS transformer step
-- [ ] Integration with unplugin: `backend: 'oxc'` option in plugin config
+- [x] Integration with unplugin: `backend: 'oxc'` option in plugin config
 - [ ] Snapshot test parity for all ported macros (test both `.ts` and `.sts` inputs)
 
 **Gate:**
@@ -260,6 +260,8 @@ Port the major macros and wire the oxc engine into the pipeline as an opt-in alt
 - Expression macros (`__binop__`, `ops`) fully functional via oxc backend
 - Syntax-only macros (`@cfg`, `staticAssert`) work with oxc backend
 - 6 new pipeline tests for oxc backend behavior
+- Unplugin integration: added `backend?: TransformBackend` option to `TypesugarPluginOptions`
+- Re-exported `TransformBackend` type from both `@typesugar/transformer` and `unplugin-typesugar`
 
 ### Wave 5: Full Parity + Default
 

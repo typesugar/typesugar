@@ -10,7 +10,11 @@ import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
 import { createUnplugin, type UnpluginFactory } from "unplugin";
-import { createPipeline, type TransformationPipeline } from "@typesugar/transformer";
+import {
+  createPipeline,
+  type TransformationPipeline,
+  type TransformBackend,
+} from "@typesugar/transformer";
 
 export interface TypesugarPluginOptions {
   /** Path to tsconfig.json (default: auto-detected) */
@@ -33,6 +37,17 @@ export interface TypesugarPluginOptions {
 
   /** Enable strict mode - typecheck expanded output at build end */
   strict?: boolean;
+
+  /**
+   * Transformation backend to use (default: 'typescript')
+   *
+   * - 'typescript': Traditional TypeScript transformer API
+   * - 'oxc': Experimental oxc-native macro engine (faster parsing/codegen)
+   *
+   * Note: The 'oxc' backend is experimental. Some macros may not yet be fully
+   * supported. Use 'typescript' for production builds until all macros are ported.
+   */
+  backend?: TransformBackend;
 }
 
 function findTsConfig(cwd: string, explicit?: string): string {
@@ -168,6 +183,7 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
           extensions: options?.extensions,
           diskCache: options?.diskCache,
           strict: options?.strict,
+          backend: options?.backend,
         });
         if (verbose) {
           console.log(`[typesugar] Loaded config from ${configPath}`);

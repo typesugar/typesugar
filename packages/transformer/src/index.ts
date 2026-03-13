@@ -4669,6 +4669,7 @@ export {
   type TransformResult,
   type TransformDiagnostic,
   type PipelineOptions,
+  type TransformBackend,
 } from "./pipeline.js";
 
 export {
