@@ -167,6 +167,38 @@ const showPoint = specialize((p: Point) => {
 // (p: Point) => `Point(x = ${p.x}, y = ${p.y})`
 ```
 
+### Auto-Specialization with `@specialize`
+
+Mark instances with `@specialize` to enable automatic inlining at call sites:
+
+```typescript
+/**
+ * @impl Numeric<Point>
+ * @specialize
+ */
+const numericPoint: Numeric<Point> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+  mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
+};
+```
+
+When generic functions are called with `@specialize` instances, method bodies are inlined:
+
+```typescript
+function double<A>(a: A, N: Numeric<A>): A {
+  return N.add(a, a);
+}
+
+// Call with @specialize instance:
+double(p, numericPoint);
+
+// Compiles to:
+({ x: p.x + p.x, y: p.y + p.y })
+```
+
+The `@specialize` annotation tells the transformer to extract method bodies from the instance
+definition and inline them at call sites — no runtime dictionary lookup.
+
 ## Common Typeclasses
 
 ### Eq
@@ -325,31 +357,6 @@ If multiple typeclasses define the same operator (e.g., `Semigroup` and `Numeric
 
 1. Only defining an instance for one typeclass
 2. Using explicit method calls instead of operators
-
-### Migration from `registerTypeclassSyntax()`
-
-The legacy `registerTypeclassSyntax()` function is deprecated. Use `@op` annotations instead:
-
-```typescript
-// Before (deprecated):
-registerTypeclassSyntax("Numeric", [
-  ["+", "add"],
-  ["-", "sub"],
-]);
-
-// After (preferred):
-/** @typeclass */
-interface Numeric<A> {
-  /** @op + */ add(a: A, b: A): A;
-  /** @op - */ sub(a: A, b: A): A;
-}
-```
-
-The `@op` approach is:
-
-- Self-documenting (operator is visible in the source)
-- Statically analyzable (no runtime registry)
-- Works with IDE tooling
 
 ## Higher-Kinded Types
 

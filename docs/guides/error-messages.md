@@ -197,7 +197,7 @@ warning[TS9601]: specialize(processItems): falling back to dictionary passing â€
 
 Common reasons for fallback:
 
-- **Dictionary not registered**: The instance isn't known to the compiler. Use `@instance` or `registerInstanceMethods()`.
+- **Dictionary not registered**: The instance isn't known to the compiler. Use `@impl` with `@specialize` annotation.
 - **Function body not resolvable**: Can't find the function definition. Use `const fn = ...` or named `function`.
 - **Early return**: Multiple return paths prevent inlining. Extract into helpers.
 - **try/catch**: Error handling blocks inlining. Handle errors at a higher level.

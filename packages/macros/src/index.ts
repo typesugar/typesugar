@@ -102,10 +102,8 @@ export {
   createTypeclassDeriveMacro,
   generateStandardTypeclasses,
   tryExtractSumType,
-  syntaxRegistry,
   getSyntaxForOperator,
-  registerTypeclassSyntax,
-  clearSyntaxRegistry,
+  clearSyntaxRegistry, // deprecated, no-op
   extractOpFromReturnType,
   extractOpFromJSDoc,
   registerTypeclassDef,

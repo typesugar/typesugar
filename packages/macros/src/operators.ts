@@ -222,12 +222,12 @@ export const operatorMethodAttribute = defineAttributeMacro({
  *
  * Resolution order:
  * 1. Check methodOperatorMappings (@operator decorator)
- * 2. Check syntaxRegistry (typeclass Op<> annotations)
+ * 2. Check typeclassRegistry for typeclass-based operator (@op annotations)
  * 3. Fall back to semantic defaults (|> = pipeline, :: = cons)
  *
  * __binop__(a, "|>", f) resolves to:
  * - a.pipe(f) if the type of a has @operator('|>')
- * - TypeclassInstance.method(a, f) if a typeclass has Op<"|>"> on a method
+ * - TypeclassInstance.method(a, f) if a typeclass has @op on a method
  * - f(a) as fallback for |> (pipeline semantics)
  * - [a, ...b] as fallback for :: (cons semantics)
  */
@@ -273,7 +273,7 @@ export const binopMacro = defineExpressionMacro({
       );
     }
 
-    // 2. Check syntaxRegistry for typeclass-based operator (Op<> annotation)
+    // 2. Check typeclassRegistry for typeclass-based operator (@op annotation)
     const syntaxEntries = getSyntaxForOperator(operator);
     if (syntaxEntries && syntaxEntries.length > 0) {
       // Try to find a typeclass instance for the left operand's type

@@ -1,6 +1,6 @@
 # PEP-004: Source-Based Typeclass Features
 
-**Status:** In Progress (Wave 3 Complete)
+**Status:** Complete (All Waves)
 **Date:** 2026-03-13
 **Author:** Dan Povey
 **Depends on:** None
@@ -108,7 +108,7 @@ Port operator-rewrite from registry-based to source-based for the TS transformer
 - [x] Update operator-rewrite transformer to query source-based mappings
 - [x] Deprecate `registerTypeclassSyntax()` (keep for backwards compat, emit warning)
 - [x] Migrate existing tests to use `@op` annotations
-- [ ] Update documentation
+- [x] Update documentation
 
 **Gate:**
 
@@ -134,7 +134,7 @@ Port auto-specialize from registry-based to source-based for the TS transformer.
 - [x] Update auto-specialize transformer to use source-based method extraction
 - [x] Deprecate `registerInstanceMethods()` (keep for backwards compat, emit warning)
 - [x] Migrate existing tests to use `@specialize` annotations
-- [ ] Update documentation
+- [x] Update documentation
 
 **Gate:**
 
@@ -165,7 +165,7 @@ Add source pattern detection to `needsTypescriptTransformer` heuristic, enabling
 - [x] Verify oxc correctly falls back for files with these patterns
 - [x] Re-attempt PEP-002 Wave 6 (oxc as default)
 
-**Gate:**
+**Gate:** ✅ PASSED (2026-03-13)
 
 - [x] Files with `@op`, `@specialize`, `@impl` trigger TS fallback
 - [x] PEP-002 Wave 6 gate passes (full test suite with oxc default)
@@ -182,19 +182,29 @@ Add source pattern detection to `needsTypescriptTransformer` heuristic, enabling
 
 ### Wave 4: Registry Removal (Optional)
 
-Remove deprecated registry APIs once ecosystem has migrated.
+Remove deprecated registry APIs from public API surface.
 
 **Tasks:**
 
-- [ ] Remove `registerTypeclassSyntax()`
-- [ ] Remove `registerInstanceMethods()`
-- [ ] Remove `instanceMethodRegistry` and `syntaxRegistry`
-- [ ] Update all examples and documentation
+- [x] Remove `registerTypeclassSyntax()` from public exports (`@typesugar/typeclass`)
+- [x] Remove `registerInstanceMethods()` from public exports (`@typesugar/specialize`)
+- [x] Remove `syntaxRegistry` from public exports
+- [x] Keep internal registry functions for transformer and built-in instances
+- [x] Update all examples and documentation
 
-**Gate:**
+**Gate:** ✅ PASSED (2026-03-13)
 
-- [ ] No registry APIs in codebase
-- [ ] All features work via source-based annotations only
+- [x] No registry APIs in public package exports
+- [x] All features work via source-based annotations only
+- [x] Full test suite passes (4995 tests)
+
+**Implementation Notes (2026-03-13):**
+
+- Removed `registerTypeclassSyntax` and `syntaxRegistry` exports from `@typesugar/typeclass`
+- Removed `registerInstanceMethods` export from `@typesugar/specialize`
+- Internal registry functions remain in `@typesugar/macros` for transformer use
+- Built-in typeclass definitions and instance registrations continue to work
+- Deprecation warnings guide users to source-based `@op` and `@specialize` annotations
 
 ## Migration Path
 

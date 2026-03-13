@@ -190,10 +190,9 @@ Functor.registerParameterizedInstance("Effect", {
   params: ["E", "R"],
 });
 
-// Method registration for specialize()
-registerInstanceMethods("effectFunctor", "Effect", {
-  map: { source: "(fa, f) => Effect.map(fa, f)", params: ["fa", "f"] },
-});
+// Method registration for specialize() via @specialize annotation
+// NOTE: registerInstanceMethods() is deprecated. Use @specialize instead:
+// /** @impl Functor<Effect> @specialize */ const effectFunctor = ...
 ```
 
 #### 3. Summon Resolution
@@ -223,7 +222,7 @@ Result: effectFunctor<Error, Deps>()
 
 #### 4. Specialize Integration
 
-The `specialize()` macro currently uses `registerInstanceMethods` with fixed dictionary names.
+The `specialize()` macro now uses `@specialize` annotations on instance definitions (see PEP-004).
 
 For parameterized instances, we need:
 
@@ -234,7 +233,7 @@ For parameterized instances, we need:
    - Look up methods under the base name `"effectFunctor"`
    - Inline as usual
 
-No changes to `registerInstanceMethods` are required — the key is recognizing parameterized instance calls at specialize time.
+With `@specialize` annotations, the key is recognizing parameterized instance calls at specialize time and extracting method sources from the AST.
 
 ### Instance Registry Changes
 
@@ -320,10 +319,10 @@ const effectMonadError: MonadError<Effect<_, E, R>, E> = { ... };
 
 ### Backward Compatibility
 
-1. **Existing `@instance("Type")` syntax**: Unchanged
-2. **Existing `@instance("Typeclass<Type>")` syntax**: Unchanged
+1. **Existing `@instance("Type")` syntax**: Unchanged (now `@impl`)
+2. **Existing `@instance("Typeclass<Type>")` syntax**: Unchanged (now `@impl`)
 3. **Existing factory functions**: Continue to work as imports
-4. **Manual `registerInstanceMethods`**: Continue to work
+4. **`@specialize` annotation**: Source-based method registration (replaces deprecated `registerInstanceMethods`)
 
 New syntax is additive — no breaking changes.
 

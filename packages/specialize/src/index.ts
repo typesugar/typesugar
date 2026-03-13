@@ -66,11 +66,9 @@ export function specializeKind<T, R>(dict: T, expr: (d: T) => R): R {
 export type { Specialized } from "./specialized-type.js";
 
 // Instance method registration (for inlining)
-export {
-  registerInstanceMethods,
-  getInstanceMethods,
-  isRegisteredInstance,
-} from "@typesugar/macros";
+// DEPRECATED: registerInstanceMethods is no longer exported.
+// Use @specialize annotations on instance methods instead. See PEP-004.
+export { getInstanceMethods, isRegisteredInstance } from "@typesugar/macros";
 
 // Inline analysis utilities
 export {

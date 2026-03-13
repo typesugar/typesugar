@@ -38,7 +38,7 @@ import {
   clearDerivationCaches,
   // Registration functions for AST-based extraction
   registerInstanceWithMeta,
-  registerTypeclassSyntax,
+  registerTypeclassDef,
   extractOpFromReturnType,
   extractOpFromJSDoc,
   // Source-based specialization

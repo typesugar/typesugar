@@ -491,7 +491,7 @@ const typeclassRegistry = new Map<string, TypeclassInfo>();
 const instanceRegistry: InstanceInfo[] = [];
 
 // ============================================================================
-// Syntax Registry — operator → typeclass method mappings
+// Operator Syntax Lookup — operator → typeclass method mappings
 // ============================================================================
 
 interface SyntaxEntry {
@@ -500,99 +500,81 @@ interface SyntaxEntry {
 }
 
 /**
- * Maps operator strings (e.g., "+", "==") to the typeclasses that provide
- * syntax for them. Multiple typeclasses may map the same operator — ambiguity
+ * Get all syntax entries for a given operator.
+ *
+ * This function queries the typeclassRegistry directly, looking up
+ * typeclasses that have the given operator in their syntax map.
+ * Multiple typeclasses may map the same operator — ambiguity
  * is resolved at the call site by checking which typeclass has an instance
  * for the operand type.
  */
-const syntaxRegistry = new Map<string, SyntaxEntry[]>();
-
-let _deprecationWarningEmitted = false;
-
-/**
- * Register operator syntax for a typeclass.
- *
- * @deprecated Use `@op` JSDoc annotations on typeclass method signatures instead.
- * This function is kept for backwards compatibility but will emit a deprecation
- * warning when called directly (not from typeclass processing).
- *
- * Example migration:
- * ```typescript
- * // Before (runtime registration):
- * registerTypeclassSyntax("Numeric", [["+", "add"], ["-", "sub"]]);
- *
- * // After (source-based, preferred):
- * /** @typeclass *\/
- * interface Numeric<A> {
- *   /** @op + *\/ add(a: A, b: A): A;
- *   /** @op - *\/ sub(a: A, b: A): A;
- * }
- * ```
- *
- * @param tcName - Typeclass name
- * @param syntax - Map or array of [operator, method] pairs
- * @param _internal - Set to true to suppress deprecation warning (used internally)
- */
-function registerTypeclassSyntax(
-  tcName: string,
-  syntax: Map<string, string> | Iterable<[string, string]>,
-  _internal = false
-): void {
-  if (!_internal && !_deprecationWarningEmitted) {
-    console.warn(
-      `[typesugar] DEPRECATION WARNING: registerTypeclassSyntax() is deprecated.\n` +
-        `Use @op JSDoc annotations on typeclass method signatures instead:\n\n` +
-        `  /** @typeclass */\n` +
-        `  interface ${tcName}<A> {\n` +
-        `    /** @op + */ add(a: A, b: A): A;\n` +
-        `  }\n\n` +
-        `See: https://typesugar.dev/guides/typeclasses#operator-syntax`
-    );
-    _deprecationWarningEmitted = true;
-  }
-
-  for (const [op, method] of syntax) {
-    let entries = syntaxRegistry.get(op);
-    if (!entries) {
-      entries = [];
-      syntaxRegistry.set(op, entries);
-    }
-    entries.push({ typeclass: tcName, method });
-  }
-}
-
-/**
- * Get all syntax entries for a given operator.
- */
 function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined {
-  return syntaxRegistry.get(op);
+  const entries: SyntaxEntry[] = [];
+
+  for (const [tcName, tcInfo] of typeclassRegistry) {
+    if (tcInfo.syntax) {
+      const method = tcInfo.syntax.get(op);
+      if (method) {
+        entries.push({ typeclass: tcName, method });
+      }
+    }
+  }
+
+  return entries.length > 0 ? entries : undefined;
 }
 
 /**
  * Clear syntax registry (for testing).
+ * @deprecated Syntax is now stored in typeclassRegistry. Use clearRegistries() instead.
  */
 function clearSyntaxRegistry(): void {
-  syntaxRegistry.clear();
-  _deprecationWarningEmitted = false;
+  // No-op: syntax is now part of typeclassRegistry
+  // Clear is handled by clearRegistries()
 }
 
 // ============================================================================
-// Standard Typeclass Syntax Registration (Zero-Cost)
+// Standard Typeclass Definitions — Registered at Load Time (Zero-Cost)
 // ============================================================================
 // These are registered when @typesugar/macros loads (at transform time).
 // This ensures standard typeclass operators work without runtime registration.
 
-const STANDARD_TYPECLASS_SYNTAX: Array<{ typeclass: string; ops: Map<string, string> }> = [
+interface StandardTypeclassDef {
+  name: string;
+  typeParam: string;
+  methods: TypeclassMethod[];
+  canDeriveProduct: boolean;
+  canDeriveSum: boolean;
+  syntax: Map<string, string>;
+}
+
+const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
   {
-    typeclass: "Eq",
-    ops: new Map([
+    name: "Eq",
+    typeParam: "A",
+    methods: [
+      { name: "equals", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "===" },
+      { name: "notEquals", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "!==" },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map([
       ["===", "equals"],
       ["!==", "notEquals"],
     ]),
   },
   {
-    typeclass: "Ord",
-    ops: new Map([
+    name: "Ord",
+    typeParam: "A",
+    methods: [
+      { name: "compare", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "number", isSelfMethod: false },
+      { name: "lessThan", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "<" },
+      { name: "lessThanOrEqual", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "<=" },
+      { name: "greaterThan", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: ">" },
+      { name: "greaterThanOrEqual", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: ">=" },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map([
       ["<", "lessThan"],
       ["<=", "lessThanOrEqual"],
       [">", "greaterThan"],
@@ -600,20 +582,51 @@ const STANDARD_TYPECLASS_SYNTAX: Array<{ typeclass: string; ops: Map<string, str
     ]),
   },
   {
-    typeclass: "Semigroup",
-    ops: new Map([["+", "combine"]]),
+    name: "Semigroup",
+    typeParam: "A",
+    methods: [
+      { name: "combine", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: false,
+    syntax: new Map([["+", "combine"]]),
   },
   {
-    typeclass: "Monoid",
-    ops: new Map([["+", "combine"]]),
+    name: "Monoid",
+    typeParam: "A",
+    methods: [
+      { name: "combine", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+      { name: "empty", params: [], returnType: "A", isSelfMethod: false },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: false,
+    syntax: new Map([["+", "combine"]]),
   },
   {
-    typeclass: "Group",
-    ops: new Map([["+", "combine"]]),
+    name: "Group",
+    typeParam: "A",
+    methods: [
+      { name: "combine", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+      { name: "empty", params: [], returnType: "A", isSelfMethod: false },
+      { name: "inverse", params: [{ name: "a", typeString: "A" }], returnType: "A", isSelfMethod: false },
+    ],
+    canDeriveProduct: false,
+    canDeriveSum: false,
+    syntax: new Map([["+", "combine"]]),
   },
   {
-    typeclass: "Numeric",
-    ops: new Map([
+    name: "Numeric",
+    typeParam: "A",
+    methods: [
+      { name: "add", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+      { name: "sub", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "-" },
+      { name: "mul", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "*" },
+      { name: "div", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "/" },
+      { name: "pow", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "**" },
+    ],
+    canDeriveProduct: false,
+    canDeriveSum: false,
+    syntax: new Map([
       ["+", "add"],
       ["-", "sub"],
       ["*", "mul"],
@@ -622,21 +635,34 @@ const STANDARD_TYPECLASS_SYNTAX: Array<{ typeclass: string; ops: Map<string, str
     ]),
   },
   {
-    typeclass: "Integral",
-    ops: new Map([
+    name: "Integral",
+    typeParam: "A",
+    methods: [
+      { name: "div", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "/" },
+      { name: "mod", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "%" },
+    ],
+    canDeriveProduct: false,
+    canDeriveSum: false,
+    syntax: new Map([
       ["/", "div"],
       ["%", "mod"],
     ]),
   },
   {
-    typeclass: "Fractional",
-    ops: new Map([["/", "div"]]),
+    name: "Fractional",
+    typeParam: "A",
+    methods: [
+      { name: "div", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "/" },
+    ],
+    canDeriveProduct: false,
+    canDeriveSum: false,
+    syntax: new Map([["/", "div"]]),
   },
 ];
 
-// Register on module load (transform time, not runtime)
-for (const { typeclass, ops } of STANDARD_TYPECLASS_SYNTAX) {
-  registerTypeclassSyntax(typeclass, ops, true);
+// Register standard typeclasses on module load (transform time, not runtime)
+for (const def of STANDARD_TYPECLASS_DEFS) {
+  typeclassRegistry.set(def.name, def);
 }
 
 const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as readonly string[]);
@@ -1123,11 +1149,6 @@ export const typeclassAttribute = defineAttributeMacro({
       syntax: syntax.size > 0 ? syntax : undefined,
     };
     typeclassRegistry.set(tcName, tcInfo);
-
-    // Register operator syntax in the global registry (internal call)
-    if (syntax.size > 0) {
-      registerTypeclassSyntax(tcName, syntax, true);
-    }
 
     const isExported =
       target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
@@ -3084,11 +3105,6 @@ export const typeclassMacro = defineExpressionMacro({
     };
     typeclassRegistry.set(tcName, tcInfo);
 
-    // Register operator syntax in the global registry (internal call)
-    if (syntax.size > 0) {
-      registerTypeclassSyntax(tcName, syntax, true);
-    }
-
     // The call compiles away to nothing - registration is the side effect
     return ctx.factory.createVoidZero();
   },
@@ -3346,8 +3362,40 @@ ${fieldCombines}
  */
 export function registerTypeclassDef(info: TypeclassInfo): void {
   typeclassRegistry.set(info.name, info);
-  if (info.syntax && info.syntax.size > 0) {
-    registerTypeclassSyntax(info.name, info.syntax, true);
+  // syntax is stored directly in typeclassRegistry as part of TypeclassInfo
+}
+
+/**
+ * Update or create a minimal typeclass registration with operator syntax.
+ * Used by the transformer for pre-scanning typeclass definitions in imports.
+ *
+ * If the typeclass already exists, only updates the syntax field.
+ * If it doesn't exist, creates a minimal placeholder entry.
+ *
+ * @param tcName - Typeclass name
+ * @param syntax - Operator to method name mappings
+ */
+export function updateTypeclassSyntax(tcName: string, syntax: Map<string, string>): void {
+  const existing = typeclassRegistry.get(tcName);
+  if (existing) {
+    // Merge new syntax into existing
+    if (!existing.syntax) {
+      existing.syntax = syntax;
+    } else {
+      for (const [op, method] of syntax) {
+        existing.syntax.set(op, method);
+      }
+    }
+  } else {
+    // Create minimal placeholder - will be fully registered when @typeclass is processed
+    typeclassRegistry.set(tcName, {
+      name: tcName,
+      typeParam: "A",
+      methods: [],
+      canDeriveProduct: false,
+      canDeriveSum: false,
+      syntax,
+    });
   }
 }
 
@@ -3599,10 +3647,8 @@ export {
   getTypeclass,
   instanceVarName,
   createTypeclassDeriveMacro,
-  syntaxRegistry,
   getSyntaxForOperator,
-  registerTypeclassSyntax,
-  clearSyntaxRegistry,
+  clearSyntaxRegistry, // deprecated, no-op
   extractOpFromReturnType,
   extractOpFromJSDoc,
   // Comprehension typeclass support (exported via export function declarations above)

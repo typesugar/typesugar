@@ -1,8 +1,12 @@
 # Plan: Typeclass-Based Operator Overloading — `Op<>` Design
 
-## Status: IMPLEMENTED
+## Status: IMPLEMENTED (Superseded by PEP-004)
 
 The core infrastructure is implemented. This document describes the design and implementation.
+
+> **Note:** The `Op<>` return type syntax is now deprecated in favor of `@op` JSDoc annotations
+> on typeclass methods. See [PEP-004](./PEP-004-source-based-typeclass-features.md) for the
+> migration path. The `registerTypeclassSyntax()` function is no longer exported publicly.
 
 ## The Cats/Scala Model
 

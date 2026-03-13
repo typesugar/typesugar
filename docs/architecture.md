@@ -436,7 +436,7 @@ When the transformer encounters `value.method(args)`, it resolves the method thr
 When the transformer encounters `__binop__(left, op, right)`:
 
 1. `methodOperatorMappings` — Class-level `@operator` decorators
-2. `syntaxRegistry` — Typeclass `Op<S>` annotations
+2. `typeclassRegistry.syntax` — Typeclass `@op` annotations
 3. Hardcoded semantic defaults (e.g., `|>` defaults to `right(left)`, `::` to `[left, ...right]`)
 
 ### HKT Conventions
@@ -480,17 +480,25 @@ function mapArray<A, B>(fa: Array<A>, f: (a: A) => B): Array<B> {
 
 ### Key Functions
 
-| Function                                 | Purpose                             |
-| ---------------------------------------- | ----------------------------------- |
-| `inlineMethod(ctx, method, callArgs)`    | Core inlining logic                 |
-| `registerInstanceMethods(name, methods)` | Register methods for a dictionary   |
-| `getInstanceMethods(name)`               | Retrieve registered methods         |
-| `specializeMacro`                        | `specialize(fn, dict1, dict2, ...)` |
-| `specializeInlineMacro`                  | `specialize$(dict, expr)`           |
+| Function                              | Purpose                               |
+| ------------------------------------- | ------------------------------------- |
+| `inlineMethod(ctx, method, callArgs)` | Core inlining logic                   |
+| `getInstanceMethods(name)`            | Retrieve registered methods           |
+| `specializeMacro`                     | `specialize(fn, dict1, dict2, ...)`   |
+| `specializeInlineMacro`               | `specialize$(dict, expr)`             |
 
-### Built-in Instances
+### Source-Based Specialization
 
-Pre-registered instances for: `Array`, `Promise`, `Option`, `Either` with their `Functor`, `Monad`, `Foldable` implementations.
+Instead of pre-registering instance methods, use `@specialize` on your instance definition:
+
+```typescript
+/** @impl Functor<Array> @specialize */
+const arrayFunctor: Functor<ArrayF> = {
+  map: (fa, f) => fa.map(f),
+};
+```
+
+The `@specialize` annotation causes the transformer to extract method bodies from the AST at compile time.
 
 ---
 

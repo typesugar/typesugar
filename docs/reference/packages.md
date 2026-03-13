@@ -75,7 +75,6 @@ npm install @typesugar/macros
 // Typeclass System
 typeclassRegistry;
 instanceRegistry;
-instanceMethodRegistry;
 
 // Derive Infrastructure
 defineCustomDerive;
@@ -87,7 +86,6 @@ extensionAttribute; // @extension decorator
 // "use extension" directive (file-level)
 
 // Operators
-syntaxRegistry;
 methodOperatorMappings;
 
 // And many more internal implementations...
