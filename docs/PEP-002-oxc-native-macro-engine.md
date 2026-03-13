@@ -1,7 +1,7 @@
 # PEP-002: Oxc-Native Macro Engine
 
 **Status:** In Progress
-**Updated:** 2026-03-13 (Wave 5 complete)
+**Updated:** 2026-03-13 (Wave 5 complete, Wave 6 blocked on decorator detection)
 **Date:** 2026-03-12
 **Author:** Dan Povey
 **Depends on:** PEP-001 (.sts File Extension)
@@ -338,8 +338,15 @@ Implement automatic fallback to TypeScript transformer when type-aware macros ar
 
 Port remaining macros, achieve full test parity, switch default.
 
+**Blocker identified:** The existing test suite uses decorator syntax (`@derive(Eq)`) in `.ts` files, but the oxc engine only detects JSDoc macro syntax (`/** @derive Eq */`). Per PEP-001, `.ts` files should use JSDoc and decorators are an `.sts` feature. Options to unblock:
+
+1. **Update tests to use JSDoc syntax** — align tests with PEP-001 convention
+2. **Add decorator detection to oxc engine** — scan source for `@macro(` patterns and trigger fallback
+3. **Hybrid: detect decorators via regex** — quick source scan before parsing to trigger fallback
+
 **Tasks:**
 
+- [ ] Resolve decorator vs JSDoc syntax blocker (choose option above)
 - [ ] Port `implicits`, `generic`, `auto-derive`, `do-notation`
 - [ ] Port remaining syntax macros to Rust: `comptime`, `tailrec`, `include`
 - [ ] Diagnostic parity: all error messages match between pipelines

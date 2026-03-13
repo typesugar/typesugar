@@ -62,7 +62,7 @@ export interface TransformResult {
  * Transformation backend to use
  *
  * - 'typescript' (default): Uses TypeScript's transformer API
- * - 'oxc': Uses the oxc-native macro engine (faster parsing/codegen, same macro logic)
+ * - 'oxc': Uses the oxc-native macro engine (faster parsing/codegen, with auto-fallback)
  */
 export type TransformBackend = "typescript" | "oxc";
 
@@ -75,8 +75,11 @@ export interface PipelineOptions {
   /**
    * Transformation backend to use (default: 'typescript')
    *
-   * - 'typescript': Traditional TypeScript transformer API
-   * - 'oxc': Experimental oxc-native macro engine (faster)
+   * - 'typescript': Traditional TypeScript transformer API (handles all macro types)
+   * - 'oxc': oxc-native macro engine (faster, auto-falls back to TS for type-aware macros)
+   *
+   * Note: oxc backend currently requires JSDoc macro syntax. Decorator syntax (@macro)
+   * is only supported in .sts files preprocessed by the lexical preprocessor.
    */
   backend?: TransformBackend;
   /** Syntax extensions to enable (defaults to all) */
@@ -627,7 +630,7 @@ export class TransformationPipeline {
     printMs?: number;
     expansions?: ExpansionRecord[];
   } {
-    // Use oxc backend if specified
+    // Use oxc backend if explicitly specified
     if (this.options.backend === "oxc") {
       const oxcResult = this.runOxcTransformer(sourceFile, originalCode);
 
@@ -652,6 +655,7 @@ export class TransformationPipeline {
       };
     }
 
+    // Default: TypeScript transformer (handles all macro syntax including decorators)
     return this.runTypescriptTransformer(sourceFile, originalCode);
   }
 
