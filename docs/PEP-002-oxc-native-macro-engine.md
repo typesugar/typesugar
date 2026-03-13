@@ -228,7 +228,7 @@ Add sync JS callbacks so the Rust traverser can delegate to TypeScript macro fun
 - Expression macros pass args as source text strings
 - 34 TypeScript tests, 51 Rust tests passing
 
-### Wave 4: Core Macros + Pipeline Integration
+### Wave 4: Core Macros + Pipeline Integration (In Progress)
 
 Port the major macros and wire the oxc engine into the pipeline as an opt-in alternative.
 
@@ -238,9 +238,9 @@ Port the major macros and wire the oxc engine into the pipeline as an opt-in alt
 - [ ] Port `specialize` macro — method inlining
 - [ ] Port `derive` macro — receives pre-extracted DeriveTypeInfo from typeclass
 - [ ] Port `reflect` macro — type info extraction
-- [ ] Wire oxc engine into `TransformationPipeline` as alternative backend (`pipeline: 'oxc'` option)
-- [ ] Pipeline handles: preprocessor (for `.sts`) → oxc engine → source map composition — same flow as today but replacing the TS transformer step
-- [ ] Integration with unplugin: `pipeline: 'oxc'` option in plugin config
+- [x] Wire oxc engine into `TransformationPipeline` as alternative backend (`backend: 'oxc'` option)
+- [x] Pipeline handles: preprocessor (for `.sts`) → oxc engine → source map composition — same flow as today but replacing the TS transformer step
+- [ ] Integration with unplugin: `backend: 'oxc'` option in plugin config
 - [ ] Snapshot test parity for all ported macros (test both `.ts` and `.sts` inputs)
 
 **Gate:**
@@ -248,6 +248,18 @@ Port the major macros and wire the oxc engine into the pipeline as an opt-in alt
 - [ ] `pnpm test` passes with oxc engine enabled for ported macro tests
 - [ ] Source maps are correct — trace back to original source positions (including through preprocessor map for `.sts`)
 - [ ] Mixed `.ts`/`.sts` projects transform correctly via the oxc pipeline
+
+**Implementation Notes (2026-03-13 - Pipeline Integration):**
+- Added `TransformBackend` type: `'typescript' | 'oxc'`
+- Added `backend` option to `PipelineOptions` (default: `'typescript'`)
+- Created `oxc-backend.ts` module with:
+  - `createOxcMacroCallback()` — bridges oxc engine to existing macro system
+  - `transformWithOxcBackend()` — convenience wrapper for `transformWithMacros`
+  - `processBinopMacro()` — handles `__binop__` pipeline operator expansion
+  - Placeholder handlers for JSDoc macros (to be ported)
+- Expression macros (`__binop__`, `ops`) fully functional via oxc backend
+- Syntax-only macros (`@cfg`, `staticAssert`) work with oxc backend
+- 6 new pipeline tests for oxc backend behavior
 
 ### Wave 5: Full Parity + Default
 

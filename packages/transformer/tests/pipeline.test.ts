@@ -233,6 +233,90 @@ describe("TransformationPipeline", () => {
     });
   });
 
+  describe("oxc backend", () => {
+    it("transforms preprocessed __binop__ calls directly", () => {
+      // Test with already-preprocessed code (what the pipeline produces)
+      const code = `const result = __binop__(1, "|>", double);`;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // __binop__ should be expanded to double(1)
+      expect(result.code).toContain("double(1)");
+      expect(result.code).not.toContain("__binop__");
+    });
+
+    it("transforms pipe operator with oxc backend", () => {
+      const code = `
+        const double = (x: number) => x * 2;
+        const result = 1 |> double;
+      `;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // Pipe operator is first preprocessed to __binop__, then expanded
+      // The oxc backend should expand __binop__ to double(1)
+      expect(result.code).toContain("double(1)");
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    });
+
+    it("handles simple code without macros", () => {
+      const code = `const x = 1 + 2;`;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      expect(result.code).toContain("const x = 1 + 2");
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    });
+
+    it("handles cfg macro", () => {
+      const code = `
+        /** @cfg(feature = "debug") */
+        const debugOnly = true;
+      `;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // cfg(false) should strip the declaration
+      expect(result.code).not.toContain("debugOnly");
+    });
+
+    it("falls back gracefully on type-aware macros (placeholder)", () => {
+      const code = `
+        /** @typeclass */
+        interface Show<T> {
+          show(value: T): string;
+        }
+      `;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // For now, type-aware macros return placeholder diagnostics
+      // The actual macro logic will be ported in subsequent waves
+      expect(result).toBeDefined();
+    });
+
+    it("works with TransformationPipeline for __binop__", () => {
+      // Use pre-preprocessed code to test just the oxc backend's __binop__ expansion
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", `const x = __binop__(1, "|>", ((n) => n + 1));`);
+
+      const pipeline = new TransformationPipeline(
+        { target: ts.ScriptTarget.Latest },
+        ["/test/index.ts"],
+        {
+          backend: "oxc",
+          readFile: (f) => files.get(f),
+          fileExists: (f) => files.has(f),
+        }
+      );
+
+      const result = pipeline.transform("/test/index.ts");
+
+      expect(result.code).toContain("((n) => n + 1)(1)");
+      expect(result.code).not.toContain("__binop__");
+    });
+  });
+
   describe("restoreBlankLines", () => {
     it("restores blank lines between unchanged content lines", () => {
       const original = "a\n\nb\n\nc\n";

@@ -23,6 +23,7 @@ import macroTransformerFactory, {
   getExpansionCacheStats,
 } from "./index.js";
 import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
+import { transformWithOxcBackend, type OxcBackendResult } from "./oxc-backend.js";
 
 /**
  * Diagnostic from macro expansion
@@ -58,11 +59,26 @@ export interface TransformResult {
 }
 
 /**
+ * Transformation backend to use
+ *
+ * - 'typescript' (default): Uses TypeScript's transformer API
+ * - 'oxc': Uses the oxc-native macro engine (faster parsing/codegen, same macro logic)
+ */
+export type TransformBackend = "typescript" | "oxc";
+
+/**
  * Options for the transformation pipeline
  */
 export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
+  /**
+   * Transformation backend to use (default: 'typescript')
+   *
+   * - 'typescript': Traditional TypeScript transformer API
+   * - 'oxc': Experimental oxc-native macro engine (faster)
+   */
+  backend?: TransformBackend;
   /** Syntax extensions to enable (defaults to all) */
   extensions?: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   /** Macro transformer config */
@@ -611,6 +627,11 @@ export class TransformationPipeline {
     printMs?: number;
     expansions?: ExpansionRecord[];
   } {
+    // Use oxc backend if specified
+    if (this.options.backend === "oxc") {
+      return this.runOxcTransformer(sourceFile, originalCode);
+    }
+
     // Clear expansion tracker before transformation
     globalExpansionTracker.clear();
 
@@ -715,6 +736,79 @@ export class TransformationPipeline {
             start: 0,
             length: 0,
             message: `Transform failed: ${error}`,
+            severity: "error",
+          },
+        ],
+        printMs: 0,
+      };
+    }
+  }
+
+  /**
+   * Run the oxc-native macro transformer.
+   *
+   * Uses the oxc engine for parsing, AST traversal, and code generation,
+   * while delegating type-aware macro expansion to TypeScript callbacks.
+   */
+  private runOxcTransformer(
+    sourceFile: ts.SourceFile,
+    originalCode: string
+  ): {
+    code: string;
+    map: RawSourceMap | null;
+    diagnostics: TransformDiagnostic[];
+    printMs?: number;
+    expansions?: ExpansionRecord[];
+  } {
+    try {
+      profiler.start("oxc.transform");
+      const result = transformWithOxcBackend(
+        originalCode,
+        sourceFile.fileName,
+        this.program!,
+        sourceFile,
+        { sourceMap: true }
+      );
+      profiler.end("oxc.transform");
+
+      // Convert oxc diagnostics to TransformDiagnostic format
+      const diagnostics: TransformDiagnostic[] = result.diagnostics.map((d) => ({
+        file: sourceFile.fileName,
+        start: 0,
+        length: 0,
+        message: d.message,
+        severity: d.severity === "error" ? ("error" as const) : ("warning" as const),
+      }));
+
+      // Parse source map from JSON string if present
+      let map: RawSourceMap | null = null;
+      if (result.map) {
+        try {
+          map = JSON.parse(result.map) as RawSourceMap;
+        } catch {
+          // Ignore invalid source map
+        }
+      }
+
+      return {
+        code: result.code,
+        map,
+        diagnostics,
+        printMs: 0, // oxc handles print internally
+      };
+    } catch (error) {
+      if (this.verbose) {
+        console.error(`[typesugar] Oxc transform error for ${sourceFile.fileName}:`, error);
+      }
+      return {
+        code: originalCode,
+        map: null,
+        diagnostics: [
+          {
+            file: sourceFile.fileName,
+            start: 0,
+            length: 0,
+            message: `Oxc transform failed: ${error}`,
             severity: "error",
           },
         ],

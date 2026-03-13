@@ -576,6 +576,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/oxc-engine':
+        specifier: workspace:*
+        version: link:../oxc-engine
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
