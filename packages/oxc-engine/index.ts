@@ -27,6 +27,11 @@ export interface TransformResult {
   changed: boolean;
   /** Any diagnostics/errors */
   diagnostics: Diagnostic[];
+  /**
+   * If true, at least one macro requested fallback to the TypeScript transformer.
+   * The pipeline should discard this result and re-transform using the TS backend.
+   */
+  needsFallback?: boolean;
 }
 
 export interface Diagnostic {
@@ -56,10 +61,7 @@ export declare function transform(
 ): TransformResult;
 
 /** Benchmark parse timing (for performance comparison) */
-export declare function benchmarkParse(
-  source: string,
-  filename: string
-): BenchmarkResult;
+export declare function benchmarkParse(source: string, filename: string): BenchmarkResult;
 
 // Protocol types for JS callback API
 
@@ -98,6 +100,12 @@ export interface MacroExpansion {
   kind: ExpansionKind;
   /** Any diagnostics from the expansion */
   diagnostics: ExpansionDiagnostic[];
+  /**
+   * If true, this macro requires features not available in the oxc backend
+   * (e.g., ts.TransformationContext). The pipeline should fall back to the
+   * TypeScript transformer for this file.
+   */
+  needsFallback?: boolean;
 }
 
 /** Type for the macro callback function */

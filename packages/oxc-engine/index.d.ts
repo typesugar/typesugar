@@ -13,6 +13,11 @@ export interface TransformResult {
   changed: boolean
   /** Any diagnostics/errors */
   diagnostics: Array<Diagnostic>
+  /**
+   * If true, at least one macro requested fallback to the TypeScript transformer.
+   * The pipeline should discard this result and re-transform using the TS backend.
+   */
+  needsFallback: boolean
 }
 /** A diagnostic message from the transformer */
 export interface Diagnostic {

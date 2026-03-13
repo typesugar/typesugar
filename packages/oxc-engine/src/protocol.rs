@@ -33,6 +33,11 @@ pub struct MacroExpansion {
     pub kind: ExpansionKind,
     /// Any diagnostics from the expansion
     pub diagnostics: Vec<ExpansionDiagnostic>,
+    /// If true, this macro requires features not available in the oxc backend
+    /// (e.g., ts.TransformationContext). The pipeline should fall back to the
+    /// TypeScript transformer for this file.
+    #[serde(default)]
+    pub needs_fallback: bool,
 }
 
 /// What kind of AST node the expansion represents

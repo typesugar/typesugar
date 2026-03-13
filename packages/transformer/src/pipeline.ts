@@ -629,9 +629,48 @@ export class TransformationPipeline {
   } {
     // Use oxc backend if specified
     if (this.options.backend === "oxc") {
-      return this.runOxcTransformer(sourceFile, originalCode);
+      const oxcResult = this.runOxcTransformer(sourceFile, originalCode);
+
+      // If oxc backend signals fallback (e.g., type-aware macros detected),
+      // retry with the TypeScript transformer
+      if (oxcResult.needsFallback) {
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware macros detected)`
+          );
+        }
+        return this.runTypescriptTransformer(sourceFile, originalCode);
+      }
+
+      // Return without the needsFallback field (not part of the interface)
+      return {
+        code: oxcResult.code,
+        map: oxcResult.map,
+        diagnostics: oxcResult.diagnostics,
+        printMs: oxcResult.printMs,
+        expansions: oxcResult.expansions,
+      };
     }
 
+    return this.runTypescriptTransformer(sourceFile, originalCode);
+  }
+
+  /**
+   * Run the TypeScript-based macro transformer.
+   *
+   * Uses ts.transform() with the macro transformer factory for full
+   * type-aware macro expansion.
+   */
+  private runTypescriptTransformer(
+    sourceFile: ts.SourceFile,
+    originalCode: string
+  ): {
+    code: string;
+    map: RawSourceMap | null;
+    diagnostics: TransformDiagnostic[];
+    printMs?: number;
+    expansions?: ExpansionRecord[];
+  } {
     // Clear expansion tracker before transformation
     globalExpansionTracker.clear();
 
@@ -749,6 +788,9 @@ export class TransformationPipeline {
    *
    * Uses the oxc engine for parsing, AST traversal, and code generation,
    * while delegating type-aware macro expansion to TypeScript callbacks.
+   *
+   * Returns `needsFallback: true` if type-aware macros are detected that
+   * require the TypeScript transformer.
    */
   private runOxcTransformer(
     sourceFile: ts.SourceFile,
@@ -759,6 +801,7 @@ export class TransformationPipeline {
     diagnostics: TransformDiagnostic[];
     printMs?: number;
     expansions?: ExpansionRecord[];
+    needsFallback: boolean;
   } {
     try {
       profiler.start("oxc.transform");
@@ -772,13 +815,16 @@ export class TransformationPipeline {
       profiler.end("oxc.transform");
 
       // Convert oxc diagnostics to TransformDiagnostic format
-      const diagnostics: TransformDiagnostic[] = result.diagnostics.map((d) => ({
-        file: sourceFile.fileName,
-        start: 0,
-        length: 0,
-        message: d.message,
-        severity: d.severity === "error" ? ("error" as const) : ("warning" as const),
-      }));
+      // Filter out fallback info messages when fallback is happening
+      const diagnostics: TransformDiagnostic[] = result.diagnostics
+        .filter((d) => !(result.needsFallback && d.severity === "info"))
+        .map((d) => ({
+          file: sourceFile.fileName,
+          start: 0,
+          length: 0,
+          message: d.message,
+          severity: d.severity === "error" ? ("error" as const) : ("warning" as const),
+        }));
 
       // Parse source map from JSON string if present
       let map: RawSourceMap | null = null;
@@ -795,6 +841,7 @@ export class TransformationPipeline {
         map,
         diagnostics,
         printMs: 0, // oxc handles print internally
+        needsFallback: result.needsFallback,
       };
     } catch (error) {
       if (this.verbose) {
@@ -813,6 +860,7 @@ export class TransformationPipeline {
           },
         ],
         printMs: 0,
+        needsFallback: false,
       };
     }
   }

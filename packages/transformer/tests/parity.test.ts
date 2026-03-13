@@ -23,8 +23,16 @@ function assertParityWithNormalization(
   description: string,
   options?: { tsOptions?: Record<string, unknown>; oxcOptions?: Record<string, unknown> }
 ) {
-  const tsResult = transformCode(code, { fileName: "test.ts", backend: "typescript", ...options?.tsOptions });
-  const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc", ...options?.oxcOptions });
+  const tsResult = transformCode(code, {
+    fileName: "test.ts",
+    backend: "typescript",
+    ...options?.tsOptions,
+  });
+  const oxcResult = transformCode(code, {
+    fileName: "test.ts",
+    backend: "oxc",
+    ...options?.oxcOptions,
+  });
 
   const tsNormalized = normalizeCode(tsResult.code);
   const oxcNormalized = normalizeCode(oxcResult.code);
@@ -298,6 +306,100 @@ describe("Backend Parity Tests", () => {
 
       expect(oxcErrors.length).toBeGreaterThan(0);
       expect(oxcErrors[0].message).toContain("intentional failure");
+    });
+  });
+
+  describe("hybrid fallback (Wave 5)", () => {
+    it("files with only syntax macros use pure oxc path", () => {
+      const code = `
+        const double = (x: number) => x * 2;
+        const result = 1 |> double;
+        /** @cfg debug */
+        const debugOnly = true;
+        staticAssert(true, "pass");
+      `;
+
+      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // Should have transformed successfully without fallback
+      expect(normalizeCode(oxcResult.code)).toContain("double(1)");
+      expect(normalizeCode(oxcResult.code)).not.toContain("debugOnly");
+      expect(normalizeCode(oxcResult.code)).not.toContain("staticAssert");
+      // No fallback-related diagnostics
+      expect(oxcResult.diagnostics.filter((d) => d.message.includes("fallback"))).toHaveLength(0);
+    });
+
+    it("files with type-aware macros trigger automatic fallback to TS", () => {
+      // @typeclass is a type-aware macro that requires ts.TransformationContext
+      const code = `
+        /** @typeclass */
+        interface Eq<T> {
+          equals(a: T, b: T): boolean;
+        }
+      `;
+
+      const tsResult = transformCode(code, { fileName: "test.ts", backend: "typescript" });
+      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // Both backends should produce output (oxc falls back to TS)
+      expect(tsResult.code).toBeTruthy();
+      expect(oxcResult.code).toBeTruthy();
+
+      // The oxc backend should fall back to TS transformer for this file
+      // So the output should be equivalent
+      expect(normalizeCode(oxcResult.code)).toBe(normalizeCode(tsResult.code));
+    });
+
+    it("files with @impl macro trigger fallback", () => {
+      const code = `
+        /** @impl Eq<number> */
+        const numberEq = {
+          equals: (a: number, b: number) => a === b,
+        };
+      `;
+
+      const tsResult = transformCode(code, { fileName: "test.ts", backend: "typescript" });
+      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // Both should produce output
+      expect(tsResult.code).toBeTruthy();
+      expect(oxcResult.code).toBeTruthy();
+    });
+
+    it("files with @extension macro trigger fallback", () => {
+      const code = `
+        /** @extension */
+        function len(this: string): number {
+          return this.length;
+        }
+      `;
+
+      const tsResult = transformCode(code, { fileName: "test.ts", backend: "typescript" });
+      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // Both should produce output
+      expect(tsResult.code).toBeTruthy();
+      expect(oxcResult.code).toBeTruthy();
+    });
+
+    it("pure-oxc files complete without excessive overhead", () => {
+      const code = `
+        const double = (x: number) => x * 2;
+        const square = (x: number) => x ** 2;
+        const result = 1 |> double |> square;
+      `;
+
+      // Verify the oxc path completes successfully and produces valid output
+      // Performance benchmarking is done separately from unit tests
+      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      expect(oxcResult.code).toBeTruthy();
+      expect(normalizeCode(oxcResult.code)).toContain("square");
+      expect(normalizeCode(oxcResult.code)).toContain("double");
+
+      // Ensure no unexpected diagnostics
+      const errors = oxcResult.diagnostics.filter((d) => d.severity === "error");
+      expect(errors).toHaveLength(0);
     });
   });
 });

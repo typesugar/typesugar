@@ -10,11 +10,10 @@
 import * as ts from "typescript";
 import {
   transformWithMacros,
-  type MacroCallInfo,
-  type MacroExpansion,
   type TransformResult as OxcTransformResult,
   type TransformOptions as OxcTransformOptions,
 } from "@typesugar/oxc-engine";
+import type { MacroCallInfo, MacroExpansion } from "@typesugar/oxc-engine/protocol";
 import { globalRegistry } from "@typesugar/core";
 
 /**
@@ -35,6 +34,11 @@ export interface OxcBackendResult {
     line?: number;
     column?: number;
   }>;
+  /**
+   * If true, at least one macro requested fallback to the TypeScript transformer.
+   * The pipeline should discard this result and re-transform using the TS backend.
+   */
+  needsFallback: boolean;
 }
 
 /**
@@ -57,12 +61,7 @@ export function createOxcMacroCallback(
     const callInfo: MacroCallInfo = JSON.parse(json);
 
     try {
-      const expansion = processMacroCall(
-        callInfo,
-        program,
-        typeChecker,
-        sourceFile
-      );
+      const expansion = processMacroCall(callInfo, program, typeChecker, sourceFile);
       return JSON.stringify(expansion);
     } catch (error) {
       const expansion: MacroExpansion = {
@@ -175,22 +174,17 @@ function processJsDocMacro(
   // Type-aware macros (typeclass, impl, etc.) require ts.TransformationContext
   // which is not available in the callback-based oxc architecture.
   //
-  // For now, these macros are not expanded by the oxc backend. Files containing
-  // them should use `backend: 'typescript'` until one of these approaches is
-  // implemented:
-  //
-  // 1. Hybrid fallback: Pipeline detects this diagnostic and falls back to TS
-  // 2. Per-site ts.transform(): Run mini transform for each macro site
-  // 3. TransformationContext shim: Create minimal fake context for macro use
-  //
-  // Returning empty code means the original source is preserved unchanged.
+  // Signal the pipeline to fall back to the TypeScript transformer for this file.
+  // The oxc backend handles syntax-only macros (@cfg, staticAssert, __binop__)
+  // while the TS transformer handles type-aware macros.
   return {
-    code: "", // Empty = preserve original source
+    code: "", // Empty = preserve original source (will be discarded anyway)
     kind: "declaration",
+    needsFallback: true,
     diagnostics: [
       {
-        severity: "warning",
-        message: `@${macroName} macro requires TypeScript transformer. Use backend: 'typescript' for files with this macro.`,
+        severity: "info",
+        message: `@${macroName} macro requires TypeScript transformer, falling back.`,
         line,
         column,
       },
@@ -344,5 +338,6 @@ export function transformWithOxcBackend(
     map: result.map ?? null,
     changed: result.changed,
     diagnostics: result.diagnostics,
+    needsFallback: result.needsFallback ?? false,
   };
 }

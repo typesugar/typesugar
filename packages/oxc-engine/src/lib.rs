@@ -44,6 +44,9 @@ pub struct TransformResult {
     pub changed: bool,
     /// Any diagnostics/errors
     pub diagnostics: Vec<Diagnostic>,
+    /// If true, at least one macro requested fallback to the TypeScript transformer.
+    /// The pipeline should discard this result and re-transform using the TS backend.
+    pub needs_fallback: bool,
 }
 
 /// A diagnostic message from the transformer
@@ -111,6 +114,7 @@ pub fn transform(
             map: None,
             changed: false,
             diagnostics,
+            needs_fallback: false,
         });
     }
 
@@ -166,6 +170,7 @@ pub fn transform(
                 map: None,
                 changed: false,
                 diagnostics,
+                needs_fallback: false,
             });
         }
 
@@ -193,6 +198,7 @@ pub fn transform(
             map: map_json,
             changed,
             diagnostics,
+            needs_fallback: false,
         });
     } else {
         // No changes, codegen from original
@@ -222,6 +228,7 @@ pub fn transform(
         map: map_json,
         changed,
         diagnostics,
+        needs_fallback: false,
     })
 }
 
@@ -539,6 +546,7 @@ pub fn transform_with_macros(
             map: None,
             changed: false,
             diagnostics,
+            needs_fallback: false,
         });
     }
 
@@ -570,7 +578,7 @@ pub fn transform_with_macros(
 
     // Collect and process type-aware macros via JS callback
     let macro_sites = collect_type_aware_macro_sites(&source, &parser_ret.program, &annotations);
-    process_type_aware_macros(
+    let needs_fallback = process_type_aware_macros(
         &source,
         &filename,
         &macro_sites,
@@ -604,6 +612,7 @@ pub fn transform_with_macros(
                 map: None,
                 changed: false,
                 diagnostics,
+                needs_fallback,
             });
         }
 
@@ -631,6 +640,7 @@ pub fn transform_with_macros(
             map: map_json,
             changed,
             diagnostics,
+            needs_fallback,
         });
     }
 
@@ -659,6 +669,7 @@ pub fn transform_with_macros(
         map: map_json,
         changed,
         diagnostics,
+        needs_fallback,
     })
 }
 
@@ -783,7 +794,8 @@ fn collect_type_aware_macro_sites(
     collector.sites
 }
 
-/// Process type-aware macros by calling JS callback
+/// Process type-aware macros by calling JS callback.
+/// Returns `true` if any macro requested fallback to the TypeScript transformer.
 fn process_type_aware_macros(
     source: &str,
     filename: &str,
@@ -792,7 +804,9 @@ fn process_type_aware_macros(
     splicer: &mut Splicer,
     diagnostics: &mut Vec<Diagnostic>,
     changed: &mut bool,
-) -> Result<()> {
+) -> Result<bool> {
+    let mut needs_fallback = false;
+
     for site in sites {
         // Build MacroCallInfo based on the kind of macro site
         let call_info = match &site.kind {
@@ -866,6 +880,13 @@ fn process_type_aware_macros(
             });
         }
 
+        // Check if this macro requested fallback
+        if expansion.needs_fallback {
+            needs_fallback = true;
+            // Don't apply this expansion - the pipeline will retry with TS transformer
+            continue;
+        }
+
         // Apply expansion based on site kind and expansion kind
         match (&site.kind, &expansion.kind) {
             // JSDoc macro: replace the entire annotated declaration (including JSDoc comment)
@@ -887,7 +908,7 @@ fn process_type_aware_macros(
         }
     }
 
-    Ok(())
+    Ok(needs_fallback)
 }
 
 /// Calculate line and column from byte offset
