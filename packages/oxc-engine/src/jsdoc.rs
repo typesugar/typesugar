@@ -4,6 +4,8 @@
 //! (@typeclass, @impl, @deriving, @cfg, @op) and associating them
 //! with the AST nodes they precede.
 
+#![allow(dead_code)]
+
 use oxc_ast::Comment;
 use oxc_span::Span;
 use std::collections::HashMap;

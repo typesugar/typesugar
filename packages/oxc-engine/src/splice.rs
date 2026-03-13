@@ -5,6 +5,8 @@
 //! easily mutated in place, we use a text-based splicing approach
 //! for Wave 2 and will migrate to proper AST mutation in later waves.
 
+#![allow(dead_code)]
+
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -15,7 +17,7 @@ pub fn validate_as_expression(code: &str) -> Result<(), Vec<String>> {
     let source_type = SourceType::default().with_typescript(true);
 
     // Wrap in parentheses to parse as expression
-    let wrapped = format!("({})", code);
+    let wrapped = format!("({code})");
     let result = Parser::new(&allocator, &wrapped, source_type).parse();
 
     if result.errors.is_empty() {

@@ -218,7 +218,7 @@ pub fn process_static_assert(
         None => StaticAssertResult::Unevaluable {
             span_start,
             span_end,
-            reason: format!("Cannot evaluate '{}' at compile time", condition_expr),
+            reason: format!("Cannot evaluate '{condition_expr}' at compile time"),
         },
     }
 }

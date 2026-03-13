@@ -3,6 +3,8 @@
 //! This module explores how oxc handles JSDoc comments and how to
 //! associate them with AST nodes.
 
+#![allow(dead_code)]
+
 use oxc_allocator::Allocator;
 use oxc_ast::Comment;
 use oxc_parser::Parser;

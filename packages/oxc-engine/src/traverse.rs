@@ -6,6 +6,8 @@
 //! - Label statements (let:, par:, seq:)
 //! - Binary expressions (for operator overloading)
 
+#![allow(dead_code)]
+
 use crate::jsdoc::{extract_jsdoc_annotations, JsDocAnnotations};
 use oxc_ast::ast::*;
 use oxc_ast::visit::walk;
@@ -56,7 +58,7 @@ pub struct MacroDetector<'a> {
 }
 
 impl<'a> MacroDetector<'a> {
-    pub fn new(source: &'a str, filename: &'a str, comments: &[oxc_ast::Comment]) -> Self {
+    pub fn new(source: &'a str, filename: &'a str, _comments: &[oxc_ast::Comment]) -> Self {
         // First pass: collect all declaration starts
         // For now, we'll populate jsdoc lazily during traversal
         Self {

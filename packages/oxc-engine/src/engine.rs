@@ -3,6 +3,8 @@
 //! This module will coordinate the full transformation pipeline once
 //! macro expansion is implemented.
 
+#![allow(dead_code)]
+
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;

@@ -3,6 +3,8 @@
 //! This module handles source map creation and manipulation for
 //! the transformed output.
 
+#![allow(dead_code)]
+
 use oxc_sourcemap::SourceMap;
 
 /// Convert an oxc SourceMap to a JSON string

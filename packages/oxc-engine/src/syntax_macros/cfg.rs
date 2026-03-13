@@ -17,7 +17,7 @@
 //! - debugLog is kept
 //! - testHelper is removed
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Configuration flags for conditional compilation
 #[derive(Debug, Clone, Default)]

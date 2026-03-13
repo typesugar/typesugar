@@ -442,7 +442,7 @@ fn process_static_assert_macros(
 
                     if !args.is_empty() {
                         let condition = args[0];
-                        let message = args.get(1).map(|s| *s);
+                        let message = args.get(1).copied();
 
                         let result =
                             process_static_assert(condition, message, span.start, span.end);
@@ -459,8 +459,7 @@ fn process_static_assert_macros(
                                 self.diagnostics.push(Diagnostic {
                                     severity: "error".to_string(),
                                     message: format!(
-                                        "staticAssert failed: {} (condition: {})",
-                                        message, condition
+                                        "staticAssert failed: {message} (condition: {condition})"
                                     ),
                                     line: None,
                                     column: None,
@@ -472,8 +471,7 @@ fn process_static_assert_macros(
                                 self.diagnostics.push(Diagnostic {
                                     severity: "warning".to_string(),
                                     message: format!(
-                                        "staticAssert cannot be evaluated at compile time: {}",
-                                        reason
+                                        "staticAssert cannot be evaluated at compile time: {reason}"
                                     ),
                                     line: None,
                                     column: None,
@@ -644,8 +642,7 @@ pub fn transform_with_macros(
             diagnostics.push(Diagnostic {
                 severity: "error".to_string(),
                 message: format!(
-                    "Internal error: transformed code failed to parse after {} iteration(s)",
-                    iteration
+                    "Internal error: transformed code failed to parse after {iteration} iteration(s)"
                 ),
                 line: None,
                 column: None,
@@ -698,8 +695,7 @@ pub fn transform_with_macros(
             diagnostics.push(Diagnostic {
                 severity: "warning".to_string(),
                 message: format!(
-                    "No expandable macros found in iteration {} (possible circular dependency)",
-                    iteration
+                    "No expandable macros found in iteration {iteration} (possible circular dependency)"
                 ),
                 line: None,
                 column: None,
@@ -944,7 +940,7 @@ fn process_type_aware_macros(
             Err(e) => {
                 diagnostics.push(Diagnostic {
                     severity: "error".to_string(),
-                    message: format!("Failed to serialize MacroCallInfo: {}", e),
+                    message: format!("Failed to serialize MacroCallInfo: {e}"),
                     line: Some(site.line),
                     column: Some(site.column),
                 });
@@ -958,7 +954,7 @@ fn process_type_aware_macros(
             Err(e) => {
                 diagnostics.push(Diagnostic {
                     severity: "error".to_string(),
-                    message: format!("Macro callback failed: {}", e),
+                    message: format!("Macro callback failed: {e}"),
                     line: Some(site.line),
                     column: Some(site.column),
                 });
@@ -972,7 +968,7 @@ fn process_type_aware_macros(
             Err(e) => {
                 diagnostics.push(Diagnostic {
                     severity: "error".to_string(),
-                    message: format!("Failed to parse MacroExpansion: {}", e),
+                    message: format!("Failed to parse MacroExpansion: {e}"),
                     line: Some(site.line),
                     column: Some(site.column),
                 });
