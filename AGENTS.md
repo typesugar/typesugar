@@ -73,6 +73,7 @@ packages/
 ├── macros/             # @typesugar/macros — built-in macro implementations
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin
 ├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
+├── oxc-engine/         # @typesugar/oxc-engine — native Rust macro engine (experimental)
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
 ├── ts-plugin/          # @typesugar/ts-plugin — TypeScript language service plugin
 │
