@@ -13,14 +13,13 @@ import * as ts from "typescript";
 
 describe("TransformationPipeline", () => {
   describe("transformCode (single-file)", () => {
-    it("preprocesses HKT syntax in .sts files", () => {
+    it("preprocesses HKT syntax", () => {
       const code = `
         type F<_> = { value: number };
         type Applied = F<string>;
       `;
 
-      // Use .sts extension for files with custom syntax (PEP-001)
-      const result = transformCode(code, { fileName: "test.sts" });
+      const result = transformCode(code, { fileName: "test.ts" });
 
       // HKT syntax should be transformed
       // F<_> → interface with _ property
@@ -29,17 +28,17 @@ describe("TransformationPipeline", () => {
       expect(result.diagnostics).toHaveLength(0);
     });
 
-    it("transforms pipe operator in .sts files", () => {
+    it("transforms pipe operator", () => {
       const code = `
         const result = 1 |> ((x) => x + 1) |> ((x) => x * 2);
       `;
 
-      // Use .sts extension for files with custom syntax (PEP-001)
+      // Use .sts extension to trigger preprocessing for pipe operator
       const result = transformCode(code, { fileName: "test.sts" });
 
-      // Pipe operator should be transformed to __binop__ calls
-      // The |> operator itself is replaced, though the string appears as an argument
-      expect(result.code).toContain("__binop__");
+      // With oxc backend (default), pipe operator is expanded to function calls
+      // 1 |> f |> g becomes g(f(1))
+      expect(result.code).toContain("((x) => x * 2)(((x) => x + 1)(1))");
       expect(result.diagnostics).toHaveLength(0);
     });
 
@@ -171,10 +170,9 @@ describe("TransformationPipeline", () => {
 
   describe("source map composition", () => {
     it("provides a position mapper", () => {
-      // Use .sts extension for files with custom syntax (PEP-001)
       const code = `const result = 1 |> ((x) => x + 1);`;
 
-      const result = transformCode(code, { fileName: "test.sts" });
+      const result = transformCode(code, { fileName: "test.ts" });
 
       expect(result.mapper).toBeDefined();
       expect(typeof result.mapper.toOriginal).toBe("function");
@@ -201,7 +199,8 @@ describe("TransformationPipeline", () => {
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");
-      expect(focused).toContain("__binop__");
+      // After transformation, |> becomes a function call (double(a))
+      expect(focused).toContain("double");
       expect(focused).toContain("const a = 1;");
       expect(focused).toContain("const c = 3;");
     });
@@ -230,6 +229,91 @@ describe("TransformationPipeline", () => {
       expect(focused).toContain("+ const x = 3;");
       // Context should include surrounding lines
       expect(focused).toContain("console.log(x);");
+    });
+  });
+
+  describe("oxc backend", () => {
+    it("transforms preprocessed __binop__ calls directly", () => {
+      // Test with already-preprocessed code (what the pipeline produces)
+      const code = `const result = __binop__(1, "|>", double);`;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // __binop__ should be expanded to double(1)
+      expect(result.code).toContain("double(1)");
+      expect(result.code).not.toContain("__binop__");
+    });
+
+    it("transforms pipe operator with oxc backend", () => {
+      const code = `
+        const double = (x: number) => x * 2;
+        const result = 1 |> double;
+      `;
+
+      // Use .sts extension to trigger preprocessing for pipe operator
+      const result = transformCode(code, { fileName: "test.sts", backend: "oxc" });
+
+      // Pipe operator is first preprocessed to __binop__, then expanded
+      // The oxc backend should expand __binop__ to double(1)
+      expect(result.code).toContain("double(1)");
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    });
+
+    it("handles simple code without macros", () => {
+      const code = `const x = 1 + 2;`;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      expect(result.code).toContain("const x = 1 + 2");
+      expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    });
+
+    it("handles cfg macro", () => {
+      const code = `
+        /** @cfg(feature = "debug") */
+        const debugOnly = true;
+      `;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // cfg(false) should strip the declaration
+      expect(result.code).not.toContain("debugOnly");
+    });
+
+    it("falls back gracefully on type-aware macros (placeholder)", () => {
+      const code = `
+        /** @typeclass */
+        interface Show<T> {
+          show(value: T): string;
+        }
+      `;
+
+      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+
+      // For now, type-aware macros return placeholder diagnostics
+      // The actual macro logic will be ported in subsequent waves
+      expect(result).toBeDefined();
+    });
+
+    it("works with TransformationPipeline for __binop__", () => {
+      // Use pre-preprocessed code to test just the oxc backend's __binop__ expansion
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", `const x = __binop__(1, "|>", ((n) => n + 1));`);
+
+      const pipeline = new TransformationPipeline(
+        { target: ts.ScriptTarget.Latest },
+        ["/test/index.ts"],
+        {
+          backend: "oxc",
+          readFile: (f) => files.get(f),
+          fileExists: (f) => files.has(f),
+        }
+      );
+
+      const result = pipeline.transform("/test/index.ts");
+
+      expect(result.code).toContain("((n) => n + 1)(1)");
+      expect(result.code).not.toContain("__binop__");
     });
   });
 

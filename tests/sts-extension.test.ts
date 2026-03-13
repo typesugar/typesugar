@@ -24,8 +24,8 @@ describe("Extension-based routing (PEP-001 Wave 1)", () => {
 
       const result = transformCode(code, { fileName: "test.sts" });
 
-      // Pipeline operator should be transformed to __binop__ calls
-      expect(result.code).toContain("__binop__");
+      // Pipeline operator should be transformed and expanded to function call
+      expect(result.code).toContain("((x) => x + 1)(1)");
       expect(result.diagnostics).toHaveLength(0);
     });
 
@@ -44,8 +44,8 @@ describe("Extension-based routing (PEP-001 Wave 1)", () => {
 
       const result = transformCode(code, { fileName: "test.sts" });
 
-      // Cons operator should be transformed
-      expect(result.code).toContain("__binop__");
+      // Cons operator should be transformed and expanded to spread expression
+      expect(result.code).toContain("[1, ...[2, 3]]");
       expect(result.diagnostics).toHaveLength(0);
     });
 
@@ -128,9 +128,9 @@ describe("Extension-based routing (PEP-001 Wave 1)", () => {
         }
       );
 
-      // The .sts file should be transformed
+      // The .sts file should be transformed (pipe expanded to function call)
       const stsResult = pipeline.transform("/test/util.sts");
-      expect(stsResult.code).toContain("__binop__");
+      expect(stsResult.code).toContain("((x) => x * 2)(n)");
       expect(stsResult.changed).toBe(true);
     });
 
@@ -148,9 +148,9 @@ describe("Extension-based routing (PEP-001 Wave 1)", () => {
         }
       );
 
-      // The .sts file should be transformed
+      // The .sts file should be transformed (pipe expanded to function call)
       const stsResult = pipeline.transform("/test/main.sts");
-      expect(stsResult.code).toContain("__binop__");
+      expect(stsResult.code).toContain("add(2)(1)");
 
       // The .ts file should NOT have any custom syntax transformation
       const tsResult = pipeline.transform("/test/math.ts");
@@ -425,8 +425,8 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
       // Transform the .sts file
       const result = pipeline.transform("/test/math.sts");
 
-      // The code should be preprocessed (pipe operator transformed)
-      expect(result.code).toContain("__binop__");
+      // The code should be transformed (pipe operator expanded to function call)
+      expect(result.code).toContain("((x) => x * 2)(5)");
       expect(result.changed).toBe(true);
 
       // No pipeline diagnostics should be reported
@@ -498,15 +498,15 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
       // Transform the .sts file
       const result = pipeline.transform("/test/app.sts");
 
-      // The code should be preprocessed (pipe operator transformed)
-      expect(result.code).toContain("__binop__");
+      // The code should be transformed (pipe operator expanded to function call)
+      expect(result.code).toContain("double(5)");
       expect(result.changed).toBe(true);
 
       // No syntax errors in the transformation diagnostics
       const syntaxErrors = result.diagnostics.filter((d) => d.severity === "error");
       expect(syntaxErrors).toHaveLength(0);
 
-      // The preprocessed file info should be available
+      // The preprocessed file info should be available (at intermediate __binop__ stage)
       const preprocessed = pipeline.getPreprocessedFile("/test/app.sts");
       expect(preprocessed).toBeDefined();
       expect(preprocessed!.code).toContain("__binop__");

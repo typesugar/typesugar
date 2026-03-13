@@ -26,7 +26,13 @@ import { preprocess } from "@typesugar/preprocessor";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
-import { TransformationPipeline, createPipeline } from "./pipeline.js";
+import {
+  TransformationPipeline,
+  createPipeline,
+  transformCode,
+  formatExpansions,
+  type TransformBackend,
+} from "./pipeline.js";
 
 type Command =
   | "build"
@@ -54,6 +60,8 @@ interface CliOptions {
   cache?: boolean | string;
   /** Enable strict mode - typecheck expanded output */
   strict?: boolean;
+  /** Transform backend: 'oxc' (default) or 'typescript' */
+  backend?: "typescript" | "oxc";
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -128,6 +136,7 @@ function parseArgs(args: string[]): CliOptions {
   let ast = false;
   let cache: boolean | string | undefined;
   let strict = false;
+  let backend: "typescript" | "oxc" | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -152,6 +161,14 @@ function parseArgs(args: string[]): CliOptions {
       cache = false;
     } else if (arg === "--strict") {
       strict = true;
+    } else if (arg === "--backend") {
+      const next = args[++i];
+      if (next === "typescript" || next === "oxc") {
+        backend = next;
+      } else {
+        console.error(`Invalid backend: ${next}. Must be 'typescript' or 'oxc'`);
+        process.exit(1);
+      }
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -160,7 +177,7 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
-  return { command, project, verbose, file, diff, ast, cache, strict };
+  return { command, project, verbose, file, diff, ast, cache, strict, backend };
 }
 
 function printHelp(): void {
@@ -187,6 +204,7 @@ OPTIONS:
   --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
   --strict               Typecheck expanded output (catches macro bugs) [build/check]
+  --backend <ts|oxc>     Transform backend: 'oxc' (default) or 'typescript'
   -h, --help             Show this help message
 
 EXPAND OPTIONS:
@@ -593,7 +611,6 @@ function expand(options: CliOptions): void {
     process.exit(1);
   }
 
-  const config = readTsConfig(options.project);
   const filePath = path.resolve(options.file);
 
   if (!ts.sys.fileExists(filePath)) {
@@ -603,33 +620,31 @@ function expand(options: CliOptions): void {
 
   const originalContent = ts.sys.readFile(filePath) ?? "";
 
-  const compilerOptions: ts.CompilerOptions = {
-    ...config.options,
-    noEmit: true,
-  };
-
-  // VirtualCompilerHost preprocesses all files (including imports)
-  const host = new VirtualCompilerHost({ compilerOptions });
-
-  const program = ts.createProgram([filePath], compilerOptions, host);
-  const sourceFile = program.getSourceFile(filePath);
-
-  if (!sourceFile) {
-    console.error(`Could not load source file: ${filePath}`);
-    process.exit(1);
-  }
-
-  const transformerFactory = macroTransformerFactory(program, {
-    verbose: options.verbose,
-  });
-
-  const result = ts.transform(sourceFile, [transformerFactory]);
-  const transformedSourceFile = result.transformed[0];
-
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  const expandedContent = printer.printFile(transformedSourceFile as ts.SourceFile);
-
+  // --ast option requires TypeScript AST, always use TS backend
   if (options.ast) {
+    const config = readTsConfig(options.project);
+    const compilerOptions: ts.CompilerOptions = {
+      ...config.options,
+      noEmit: true,
+    };
+
+    // VirtualCompilerHost preprocesses all files (including imports)
+    const host = new VirtualCompilerHost({ compilerOptions });
+    const program = ts.createProgram([filePath], compilerOptions, host);
+    const sourceFile = program.getSourceFile(filePath);
+
+    if (!sourceFile) {
+      console.error(`Could not load source file: ${filePath}`);
+      process.exit(1);
+    }
+
+    const transformerFactory = macroTransformerFactory(program, {
+      verbose: options.verbose,
+    });
+
+    const result = ts.transform(sourceFile, [transformerFactory]);
+    const transformedSourceFile = result.transformed[0];
+
     const ast = JSON.stringify(
       transformedSourceFile,
       (key, value) => {
@@ -647,40 +662,32 @@ function expand(options: CliOptions): void {
       2
     );
     console.log(ast);
-  } else if (options.diff) {
-    const originalLines = originalContent.split("\n");
-    const expandedLines = expandedContent.split("\n");
-
-    console.log(`--- ${options.file} (original)`);
-    console.log(`+++ ${options.file} (expanded)`);
-
-    let inDiff = false;
-    const maxLines = Math.max(originalLines.length, expandedLines.length);
-
-    for (let i = 0; i < maxLines; i++) {
-      const orig = originalLines[i] ?? "";
-      const exp = expandedLines[i] ?? "";
-
-      if (orig !== exp) {
-        if (!inDiff) {
-          console.log(`@@ -${i + 1} +${i + 1} @@`);
-          inDiff = true;
-        }
-        if (originalLines[i] !== undefined) {
-          console.log(`-${orig}`);
-        }
-        if (expandedLines[i] !== undefined) {
-          console.log(`+${exp}`);
-        }
-      } else {
-        inDiff = false;
-      }
-    }
-  } else {
-    console.log(expandedContent);
+    result.dispose();
+    return;
   }
 
-  result.dispose();
+  // Use pipeline (supports backend selection) for normal expand and diff
+  const result = transformCode(originalContent, {
+    fileName: filePath,
+    backend: options.backend,
+    verbose: options.verbose,
+  });
+
+  // Report diagnostics
+  if (result.diagnostics.length > 0) {
+    for (const d of result.diagnostics) {
+      const prefix = d.severity === "error" ? "error" : "warning";
+      console.error(`${d.file}:${d.start}: ${prefix}: ${d.message}`);
+    }
+  }
+
+  if (options.diff) {
+    // Use formatExpansions for a clean focused diff
+    const diffOutput = formatExpansions(result);
+    console.log(diffOutput);
+  } else {
+    console.log(result.code);
+  }
 }
 
 /**
@@ -766,6 +773,7 @@ async function run(options: CliOptions): Promise<void> {
     const pipeline = new TransformationPipeline(config.options, [filePath], {
       verbose: options.verbose,
       diskCache: options.cache,
+      backend: options.backend,
       readFile: (f) => (f === filePath ? fileContent : ts.sys.readFile(f)),
       fileExists: (f) => (f === filePath ? true : ts.sys.fileExists(f)),
     });
@@ -776,8 +784,14 @@ async function run(options: CliOptions): Promise<void> {
     // Save caches for next run
     pipeline.cleanup();
   } else {
-    // Original direct transform (no caching)
-    transformedCode = transformFile(filePath, config, { verbose: options.verbose });
+    // Use transformCode for backend selection support
+    const fileContent = fs.readFileSync(filePath, "utf-8");
+    const result = transformCode(fileContent, {
+      fileName: filePath,
+      backend: options.backend,
+      verbose: options.verbose,
+    });
+    transformedCode = result.code;
   }
 
   // Bundle with esbuild (handles TS transpilation and dependency resolution)
@@ -1020,6 +1034,14 @@ async function main(): Promise<void> {
   }
 
   const options = parseArgs(args);
+
+  // Warn about --backend limitation for build/watch (not yet implemented)
+  if (options.backend === "oxc" && ["build", "watch", "check"].includes(options.command)) {
+    console.warn(
+      "⚠️  --backend oxc is only supported for 'expand' and 'run' commands.\n" +
+        "   Build/watch/check use the TypeScript backend. This limitation will be removed in a future release."
+    );
+  }
 
   switch (options.command) {
     case "build":

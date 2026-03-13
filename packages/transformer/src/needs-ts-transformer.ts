@@ -10,6 +10,7 @@
  * - `@impl` - Typeclass instance declarations (auto-specialized)
  * - `@typeclass` - Typeclass definitions
  * - `@deriving` - Automatic typeclass derivation
+ * - `let:/seq:/par:/all:` - Labeled block comprehension macros
  *
  * Note: @specialize is no longer used. Auto-specialization happens automatically
  * for all @impl instances where method bodies can be extracted from source.
@@ -32,7 +33,7 @@ export interface NeedsTransformerResult {
  */
 export interface DetectedPattern {
   /** The pattern type */
-  type: "@op" | "@impl" | "@typeclass" | "@deriving";
+  type: "@op" | "@impl" | "@typeclass" | "@deriving" | "labeled-block";
   /** Approximate line number (1-indexed) */
   line: number;
   /** The matched text snippet (for debugging) */
@@ -68,6 +69,11 @@ const PATTERNS = {
   // @deriving in JSDoc: /** @deriving Eq, Ord */
   // Matches: @deriving followed by typeclass names
   deriving: /\/\*\*(?:[^*]|\*(?!\/))*@deriving\s+\w+(?:[^*]|\*(?!\/))*\*\//g,
+
+  // Labeled blocks: let: { }, seq: { }, par: { }, all: { }
+  // Matches: label followed by colon, optional whitespace, and opening brace
+  // These are comprehension macros that require type-aware transformation
+  "labeled-block": /\b(let|seq|par|all):\s*\{/g,
 };
 
 /**

@@ -7,6 +7,10 @@ dist/
 *.transformed.js
 .typesugar/
 
+# Rust build output
+target/
+*.node
+
 # IDE
 .idea/
 *.swp

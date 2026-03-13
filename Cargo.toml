@@ -1,0 +1,20 @@
+# Rust workspace for typesugar native packages
+#
+# This workspace contains Rust crates that are built as native Node.js
+# addons using napi-rs.
+
+[workspace]
+resolver = "2"
+members = ["packages/oxc-engine"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/typesugar/typesugar"
+
+[workspace.dependencies]
+# Common dependencies shared across workspace members
+napi = { version = "2", default-features = false, features = ["napi8", "serde-json"] }
+napi-derive = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

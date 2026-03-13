@@ -23,6 +23,9 @@
 
 export { unplugin, unpluginFactory, type TypesugarPluginOptions } from "./unplugin.js";
 
+// Re-export TransformBackend for convenience
+export { type TransformBackend } from "@typesugar/transformer";
+
 // Re-export detection heuristic for oxc integration
 export {
   needsTypescriptTransformer,

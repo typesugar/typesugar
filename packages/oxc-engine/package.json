@@ -1,0 +1,49 @@
+{
+  "name": "@typesugar/oxc-engine",
+  "version": "0.1.0",
+  "description": "Rust-native macro engine for typesugar using oxc",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./protocol": {
+      "types": "./protocol.ts"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "protocol.ts",
+    "protocol.js",
+    "*.node"
+  ],
+  "napi": {
+    "name": "oxc-engine",
+    "triples": {
+      "defaults": true,
+      "additional": []
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "vitest run",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
