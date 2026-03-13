@@ -1,6 +1,6 @@
 # PEP-004: Source-Based Typeclass Features
 
-**Status:** In Progress (Wave 1 Complete)
+**Status:** In Progress (Wave 3 Complete)
 **Date:** 2026-03-13
 **Author:** Dan Povey
 **Depends on:** None
@@ -159,16 +159,26 @@ Add source pattern detection to `needsTypescriptTransformer` heuristic, enabling
 
 **Tasks:**
 
-- [ ] Add `@op` pattern detection to `needsTypescriptTransformer`
-- [ ] Add `@specialize` pattern detection
-- [ ] Add `@impl` pattern detection (instances may trigger operator rewrite)
-- [ ] Verify oxc correctly falls back for files with these patterns
-- [ ] Re-attempt PEP-002 Wave 6 (oxc as default)
+- [x] Add `@op` pattern detection to `needsTypescriptTransformer`
+- [x] Add `@specialize` pattern detection
+- [x] Add `@impl` pattern detection (instances may trigger operator rewrite)
+- [x] Verify oxc correctly falls back for files with these patterns
+- [x] Re-attempt PEP-002 Wave 6 (oxc as default)
 
 **Gate:**
 
-- [ ] Files with `@op`, `@specialize`, `@impl` trigger TS fallback
-- [ ] PEP-002 Wave 6 gate passes (full test suite with oxc default)
+- [x] Files with `@op`, `@specialize`, `@impl` trigger TS fallback
+- [x] PEP-002 Wave 6 gate passes (full test suite with oxc default)
+
+**Implementation Notes (2026-03-13):**
+
+- Created `needsTypescriptTransformer()` function in `packages/transformer/src/needs-ts-transformer.ts`
+- Detects JSDoc patterns via regex: `@op`, `@impl`, `@specialize`, `@typeclass`, `@deriving`
+- Exported from `@typesugar/transformer` and `unplugin-typesugar` for oxc integration
+- Fast path `needsTs()` function returns boolean without pattern details
+- Regex patterns use `(?:[^*]|\*(?!\/))*` to prevent matching across JSDoc comment boundaries
+- 21 comprehensive tests added covering all pattern types and edge cases
+- Full test suite passes (5006 tests)
 
 ### Wave 4: Registry Removal (Optional)
 
@@ -273,11 +283,13 @@ const arrayFunctor: Functor<Array<any>> = {
 
 ## Files Changed
 
-| File                                                | Change                              |
-| --------------------------------------------------- | ----------------------------------- |
-| `packages/transformer/src/typeclass-transformer.ts` | Parse `@op` from method JSDoc       |
-| `packages/transformer/src/operator-rewrite.ts`      | Use source-based operator lookup    |
-| `packages/transformer/src/auto-specialize.ts`       | Use source-based method extraction  |
-| `packages/macros/src/runtime-stubs.ts`              | Deprecate registry functions        |
-| `packages/transformer/src/pipeline.ts`              | Add detection patterns to heuristic |
-| `docs/guides/typeclasses.md`                        | Document `@op` and `@specialize`    |
+| File                                                  | Change                                      |
+| ----------------------------------------------------- | ------------------------------------------- |
+| `packages/transformer/src/typeclass-transformer.ts`   | Parse `@op` from method JSDoc               |
+| `packages/transformer/src/operator-rewrite.ts`        | Use source-based operator lookup            |
+| `packages/transformer/src/auto-specialize.ts`         | Use source-based method extraction          |
+| `packages/macros/src/runtime-stubs.ts`                | Deprecate registry functions                |
+| `packages/transformer/src/needs-ts-transformer.ts`    | Detection heuristic for oxc fallback        |
+| `packages/transformer/tests/needs-ts-transformer.ts`  | Tests for detection heuristic               |
+| `packages/unplugin-typesugar/src/index.ts`            | Re-export detection functions               |
+| `docs/guides/typeclasses.md`                          | Document `@op` and `@specialize`            |

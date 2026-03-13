@@ -4718,3 +4718,10 @@ export {
 } from "./cache.js";
 
 export { generateManifest, createDefaultManifest, type MacroManifest } from "./manifest.js";
+
+export {
+  needsTypescriptTransformer,
+  needsTs,
+  type NeedsTransformerResult,
+  type DetectedPattern,
+} from "./needs-ts-transformer.js";

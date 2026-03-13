@@ -22,3 +22,11 @@
  */
 
 export { unplugin, unpluginFactory, type TypesugarPluginOptions } from "./unplugin.js";
+
+// Re-export detection heuristic for oxc integration
+export {
+  needsTypescriptTransformer,
+  needsTs,
+  type NeedsTransformerResult,
+  type DetectedPattern,
+} from "@typesugar/transformer";
