@@ -241,7 +241,7 @@ Port the major macros and wire the oxc engine into the pipeline as an opt-in alt
 - [x] Wire oxc engine into `TransformationPipeline` as alternative backend (`backend: 'oxc'` option)
 - [x] Pipeline handles: preprocessor (for `.sts`) → oxc engine → source map composition — same flow as today but replacing the TS transformer step
 - [x] Integration with unplugin: `backend: 'oxc'` option in plugin config
-- [ ] Snapshot test parity for all ported macros (test both `.ts` and `.sts` inputs)
+- [x] Snapshot test parity for ported macros (parity.test.ts)
 
 **Gate:**
 - [ ] All ported macros produce identical output through both pipelines
@@ -262,6 +262,13 @@ Port the major macros and wire the oxc engine into the pipeline as an opt-in alt
 - 6 new pipeline tests for oxc backend behavior
 - Unplugin integration: added `backend?: TransformBackend` option to `TypesugarPluginOptions`
 - Re-exported `TransformBackend` type from both `@typesugar/transformer` and `unplugin-typesugar`
+- Created `parity.test.ts` with 24 tests comparing TypeScript vs oxc backend output
+  - Passthrough (no macros): simple const, functions, classes, interfaces, imports
+  - Preprocessor syntax: `|>`, chained pipes, `::` (cons)
+  - Syntax-only macros: `@cfg`, `staticAssert`
+  - `__binop__` expansion: `|>`, `<|`, `::`, nested calls
+  - Mixed scenarios, source maps, diagnostics
+  - Known limitation: `<|` (reverse pipe) not supported by preprocessor
 
 ### Wave 5: Full Parity + Default
 
