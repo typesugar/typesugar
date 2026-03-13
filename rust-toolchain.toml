@@ -1,0 +1,7 @@
+# Rust toolchain configuration for typesugar
+#
+# This ensures consistent Rust version across all contributors and CI.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
