@@ -204,7 +204,8 @@ Remove deprecated registry APIs from public API surface.
 - Removed `registerInstanceMethods` export from `@typesugar/specialize`
 - Internal registry functions remain in `@typesugar/macros` for transformer use
 - Built-in typeclass definitions and instance registrations continue to work
-- Deprecation warnings guide users to source-based `@op` and `@specialize` annotations
+- Deprecation warnings guide users to source-based `@op` annotations
+- `@specialize` annotation removed from design — auto-specialization is automatic for all `@impl` instances
 
 ## Migration Path
 
@@ -293,13 +294,13 @@ const arrayFunctor: Functor<Array<any>> = {
 
 ## Files Changed
 
-| File                                                  | Change                                      |
-| ----------------------------------------------------- | ------------------------------------------- |
-| `packages/transformer/src/typeclass-transformer.ts`   | Parse `@op` from method JSDoc               |
-| `packages/transformer/src/operator-rewrite.ts`        | Use source-based operator lookup            |
-| `packages/transformer/src/auto-specialize.ts`         | Use source-based method extraction          |
-| `packages/macros/src/runtime-stubs.ts`                | Deprecate registry functions                |
-| `packages/transformer/src/needs-ts-transformer.ts`    | Detection heuristic for oxc fallback        |
-| `packages/transformer/tests/needs-ts-transformer.ts`  | Tests for detection heuristic               |
-| `packages/unplugin-typesugar/src/index.ts`            | Re-export detection functions               |
-| `docs/guides/typeclasses.md`                          | Document `@op` and `@specialize`            |
+| File                                                 | Change                               |
+| ---------------------------------------------------- | ------------------------------------ |
+| `packages/transformer/src/typeclass-transformer.ts`  | Parse `@op` from method JSDoc        |
+| `packages/transformer/src/operator-rewrite.ts`       | Use source-based operator lookup     |
+| `packages/transformer/src/auto-specialize.ts`        | Use source-based method extraction   |
+| `packages/macros/src/runtime-stubs.ts`               | Deprecate registry functions         |
+| `packages/transformer/src/needs-ts-transformer.ts`   | Detection heuristic for oxc fallback |
+| `packages/transformer/tests/needs-ts-transformer.ts` | Tests for detection heuristic        |
+| `packages/unplugin-typesugar/src/index.ts`           | Re-export detection functions        |
+| `docs/guides/typeclasses.md`                         | Document `@op` and `@specialize`     |

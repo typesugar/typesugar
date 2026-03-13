@@ -447,7 +447,7 @@ let _deprecationWarningShown = false;
 export function registerTypeclassSyntax(
   tcName: string,
   syntax: Map<string, string>,
-  _internal?: boolean,
+  _internal?: boolean
 ): void {
   if (!_internal && !_deprecationWarningShown) {
     console.warn(
@@ -459,7 +459,7 @@ Use @op JSDoc annotations on typeclass method signatures instead:
     /** @op + */ add(a: A, b: A): A;
   }
 
-See: https://typesugar.dev/guides/typeclasses#operator-syntax`,
+See: https://typesugar.dev/guides/typeclasses#operator-syntax`
     );
     _deprecationWarningShown = true;
   }

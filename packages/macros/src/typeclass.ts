@@ -558,8 +558,26 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Eq",
     typeParam: "A",
     methods: [
-      { name: "equals", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "===" },
-      { name: "notEquals", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "!==" },
+      {
+        name: "equals",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "boolean",
+        isSelfMethod: false,
+        operatorSymbol: "===",
+      },
+      {
+        name: "notEquals",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "boolean",
+        isSelfMethod: false,
+        operatorSymbol: "!==",
+      },
     ],
     canDeriveProduct: true,
     canDeriveSum: true,
@@ -572,11 +590,55 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Ord",
     typeParam: "A",
     methods: [
-      { name: "compare", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "number", isSelfMethod: false },
-      { name: "lessThan", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "<" },
-      { name: "lessThanOrEqual", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: "<=" },
-      { name: "greaterThan", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: ">" },
-      { name: "greaterThanOrEqual", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "boolean", isSelfMethod: false, operatorSymbol: ">=" },
+      {
+        name: "compare",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "number",
+        isSelfMethod: false,
+      },
+      {
+        name: "lessThan",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "boolean",
+        isSelfMethod: false,
+        operatorSymbol: "<",
+      },
+      {
+        name: "lessThanOrEqual",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "boolean",
+        isSelfMethod: false,
+        operatorSymbol: "<=",
+      },
+      {
+        name: "greaterThan",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "boolean",
+        isSelfMethod: false,
+        operatorSymbol: ">",
+      },
+      {
+        name: "greaterThanOrEqual",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "boolean",
+        isSelfMethod: false,
+        operatorSymbol: ">=",
+      },
     ],
     canDeriveProduct: true,
     canDeriveSum: true,
@@ -591,7 +653,16 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Semigroup",
     typeParam: "A",
     methods: [
-      { name: "combine", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+      {
+        name: "combine",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "+",
+      },
     ],
     canDeriveProduct: true,
     canDeriveSum: false,
@@ -601,7 +672,16 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Monoid",
     typeParam: "A",
     methods: [
-      { name: "combine", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+      {
+        name: "combine",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "+",
+      },
       { name: "empty", params: [], returnType: "A", isSelfMethod: false },
     ],
     canDeriveProduct: true,
@@ -612,9 +692,23 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Group",
     typeParam: "A",
     methods: [
-      { name: "combine", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
+      {
+        name: "combine",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "+",
+      },
       { name: "empty", params: [], returnType: "A", isSelfMethod: false },
-      { name: "inverse", params: [{ name: "a", typeString: "A" }], returnType: "A", isSelfMethod: false },
+      {
+        name: "inverse",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "A",
+        isSelfMethod: false,
+      },
     ],
     canDeriveProduct: false,
     canDeriveSum: false,
@@ -624,11 +718,56 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Numeric",
     typeParam: "A",
     methods: [
-      { name: "add", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "+" },
-      { name: "sub", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "-" },
-      { name: "mul", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "*" },
-      { name: "div", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "/" },
-      { name: "pow", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "**" },
+      {
+        name: "add",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "+",
+      },
+      {
+        name: "sub",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "-",
+      },
+      {
+        name: "mul",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "*",
+      },
+      {
+        name: "div",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "/",
+      },
+      {
+        name: "pow",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "**",
+      },
     ],
     canDeriveProduct: false,
     canDeriveSum: false,
@@ -644,8 +783,26 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Integral",
     typeParam: "A",
     methods: [
-      { name: "div", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "/" },
-      { name: "mod", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "%" },
+      {
+        name: "div",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "/",
+      },
+      {
+        name: "mod",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "%",
+      },
     ],
     canDeriveProduct: false,
     canDeriveSum: false,
@@ -658,7 +815,16 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     name: "Fractional",
     typeParam: "A",
     methods: [
-      { name: "div", params: [{ name: "a", typeString: "A" }, { name: "b", typeString: "A" }], returnType: "A", isSelfMethod: false, operatorSymbol: "/" },
+      {
+        name: "div",
+        params: [
+          { name: "a", typeString: "A" },
+          { name: "b", typeString: "A" },
+        ],
+        returnType: "A",
+        isSelfMethod: false,
+        operatorSymbol: "/",
+      },
     ],
     canDeriveProduct: false,
     canDeriveSum: false,

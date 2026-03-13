@@ -480,12 +480,12 @@ function mapArray<A, B>(fa: Array<A>, f: (a: A) => B): Array<B> {
 
 ### Key Functions
 
-| Function                              | Purpose                               |
-| ------------------------------------- | ------------------------------------- |
-| `inlineMethod(ctx, method, callArgs)` | Core inlining logic                   |
-| `getInstanceMethods(name)`            | Retrieve registered methods           |
-| `specializeMacro`                     | `specialize(fn, dict1, dict2, ...)`   |
-| `specializeInlineMacro`               | `specialize$(dict, expr)`             |
+| Function                              | Purpose                             |
+| ------------------------------------- | ----------------------------------- |
+| `inlineMethod(ctx, method, callArgs)` | Core inlining logic                 |
+| `getInstanceMethods(name)`            | Retrieve registered methods         |
+| `specializeMacro`                     | `specialize(fn, dict1, dict2, ...)` |
+| `specializeInlineMacro`               | `specialize$(dict, expr)`           |
 
 ### Source-Based Specialization
 

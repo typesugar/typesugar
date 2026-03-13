@@ -193,7 +193,7 @@ function double<A>(a: A, N: Numeric<A>): A {
 double(p, numericPoint);
 
 // Compiles to:
-({ x: p.x + p.x, y: p.y + p.y })
+({ x: p.x + p.x, y: p.y + p.y });
 ```
 
 The `@specialize` annotation tells the transformer to extract method bodies from the instance
