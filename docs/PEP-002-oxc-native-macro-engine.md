@@ -344,14 +344,19 @@ Port remaining macros, achieve full test parity, switch default.
 
 2. **Intermediate representation tests**: Some tests expect `__binop__` in the output (testing that the preprocessor ran but not full expansion). With oxc as default, `__binop__` gets fully expanded, breaking these test expectations.
 
-**Options to unblock:**
+**Resolution:** See **PEP-004 (Source-Based Typeclass Features)**. Moving operator-rewrite and auto-specialize from runtime registries to source-based `@op` and `@specialize` annotations will:
+1. Make features detectable via static source analysis
+2. Align with "import what you need" principle
+3. Enable Wave 6 once PEP-004 Wave 3 (Oxc Detection Patterns) is complete
 
+**Interim options:**
 1. **Mark type-aware tests explicitly** — add `backend: 'typescript'` to tests that use runtime registries
-2. **Check registry state in heuristic** — query `instanceMethodRegistry` and `syntaxRegistry` before deciding backend
-3. **Conservative default** — keep TS default, let users opt-in to oxc for known-safe files
-4. **Update test expectations** — change tests that expect `__binop__` to expect expanded output
+2. **Update test expectations** — change tests that expect `__binop__` to expect expanded output
 
-**Fix applied (2026-03-13):** Fixed diagnostic fallback bug where oxc error diagnostics (e.g., from `staticAssert(false, ...)`) were being swallowed. The pipeline was falling back to TS when oxc produced errors, but syntax-only macros intentionally produce errors as part of normal operation. Removed the error-based fallback to preserve intentional diagnostics.
+**Fixes applied (2026-03-13):**
+1. Fixed diagnostic fallback bug where oxc error diagnostics (e.g., from `staticAssert(false, ...)`) were being swallowed. The pipeline was falling back to TS when oxc produced errors, but syntax-only macros intentionally produce errors as part of normal operation. Removed the error-based fallback to preserve intentional diagnostics.
+
+2. Fixed `.sts`/`.stsx` parsing as JavaScript instead of TypeScript. The oxc engine's `SourceType::from_path()` didn't recognize typesugar's custom extensions, causing type annotations to fail parsing. Added `determine_source_type()` helper that maps `.sts` → TypeScript and `.stsx` → TSX.
 
 **Tasks:**
 
