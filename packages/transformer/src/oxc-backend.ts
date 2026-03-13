@@ -172,16 +172,25 @@ function processJsDocMacro(
     };
   }
 
-  // For now, return a placeholder - full implementation requires finding
-  // the AST node and calling macro.expand() with proper context
-  // This will be implemented incrementally as we port each macro
+  // Type-aware macros (typeclass, impl, etc.) require ts.TransformationContext
+  // which is not available in the callback-based oxc architecture.
+  //
+  // For now, these macros are not expanded by the oxc backend. Files containing
+  // them should use `backend: 'typescript'` until one of these approaches is
+  // implemented:
+  //
+  // 1. Hybrid fallback: Pipeline detects this diagnostic and falls back to TS
+  // 2. Per-site ts.transform(): Run mini transform for each macro site
+  // 3. TransformationContext shim: Create minimal fake context for macro use
+  //
+  // Returning empty code means the original source is preserved unchanged.
   return {
-    code: "", // Empty means don't change for now
+    code: "", // Empty = preserve original source
     kind: "declaration",
     diagnostics: [
       {
-        severity: "info",
-        message: `@${macroName} macro detected - oxc backend support in progress`,
+        severity: "warning",
+        message: `@${macroName} macro requires TypeScript transformer. Use backend: 'typescript' for files with this macro.`,
         line,
         column,
       },

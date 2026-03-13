@@ -233,11 +233,25 @@ Add sync JS callbacks so the Rust traverser can delegate to TypeScript macro fun
 Port the major macros and wire the oxc engine into the pipeline as an opt-in alternative.
 
 **Tasks:**
-- [ ] Port `typeclass` macro (JSDoc: `/** @typeclass */`, `/** @impl */`) — the most complex, uses TypeChecker heavily
-- [ ] Port `extension` macro — extension method rewriting
-- [ ] Port `specialize` macro — method inlining
-- [ ] Port `derive` macro — receives pre-extracted DeriveTypeInfo from typeclass
-- [ ] Port `reflect` macro — type info extraction
+- [ ] Port `typeclass` macro (JSDoc: `/** @typeclass */`, `/** @impl */`) — **blocked: see architectural note below**
+- [ ] Port `extension` macro — extension method rewriting — **blocked: needs TransformationContext**
+- [ ] Port `specialize` macro — method inlining — **blocked: needs TransformationContext**
+- [ ] Port `derive` macro — receives pre-extracted DeriveTypeInfo from typeclass — **blocked: needs TransformationContext**
+- [ ] Port `reflect` macro — type info extraction — **blocked: needs TransformationContext**
+
+**Architectural Blocker:** Type-aware macros require `ts.TransformationContext`, which provides:
+- `ts.visitEachChild()` for recursive transformation
+- `ts.factory` bound to the transform context
+- Context-aware hygiene and scope management
+
+The callback-based oxc architecture doesn't have a TransformationContext because it doesn't use `ts.transform()`.
+
+**Potential solutions (for future waves):**
+1. **Hybrid fallback**: When type-aware macro detected, signal pipeline to fall back to TS transformer for that file
+2. **Per-site ts.transform()**: Parse affected region, run mini-transform, extract result
+3. **TransformationContext shim**: Create minimal mock context implementing only what macros use
+
+For now, files with type-aware macros should use `backend: 'typescript'`.
 - [x] Wire oxc engine into `TransformationPipeline` as alternative backend (`backend: 'oxc'` option)
 - [x] Pipeline handles: preprocessor (for `.sts`) → oxc engine → source map composition — same flow as today but replacing the TS transformer step
 - [x] Integration with unplugin: `backend: 'oxc'` option in plugin config
