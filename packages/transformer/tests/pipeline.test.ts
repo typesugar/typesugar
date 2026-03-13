@@ -201,7 +201,8 @@ describe("TransformationPipeline", () => {
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");
-      expect(focused).toContain("__binop__");
+      // After transformation, |> becomes a function call (double(a))
+      expect(focused).toContain("double");
       expect(focused).toContain("const a = 1;");
       expect(focused).toContain("const c = 3;");
     });

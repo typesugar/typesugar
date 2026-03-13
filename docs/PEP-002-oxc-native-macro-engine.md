@@ -1,7 +1,7 @@
 # PEP-002: Oxc-Native Macro Engine
 
 **Status:** In Progress
-**Updated:** 2026-03-13 (Wave 5 complete, Wave 6 blocked on decorator detection)
+**Updated:** 2026-03-13 (Wave 5 complete, Wave 6 blocked on runtime registry detection)
 **Date:** 2026-03-12
 **Author:** Dan Povey
 **Depends on:** PEP-001 (.sts File Extension)
@@ -338,11 +338,20 @@ Implement automatic fallback to TypeScript transformer when type-aware macros ar
 
 Port remaining macros, achieve full test parity, switch default.
 
-**Blocker identified:** The existing test suite uses decorator syntax (`@derive(Eq)`) in `.ts` files, but the oxc engine only detects JSDoc macro syntax (`/** @derive Eq */`). Per PEP-001, `.ts` files should use JSDoc and decorators are an `.sts` feature. Options to unblock:
+**Blocker identified (updated):** Making oxc the default backend requires reliable detection of type-aware features. Two blockers:
 
-1. **Update tests to use JSDoc syntax** — align tests with PEP-001 convention
-2. **Add decorator detection to oxc engine** — scan source for `@macro(` patterns and trigger fallback
-3. **Hybrid: detect decorators via regex** — quick source scan before parsing to trigger fallback
+1. **Runtime registry detection**: Auto-specialize and operator-rewrite depend on runtime registries (`registerInstanceMethods`, `registerTypeclassSyntax`). The `needsTypescriptTransformer` heuristic only scans source text, so it can't detect when these registries are populated. Tests that setup registries and then transform code without obvious source markers fail because the heuristic doesn't trigger TS fallback.
+
+2. **Intermediate representation tests**: Some tests expect `__binop__` in the output (testing that the preprocessor ran but not full expansion). With oxc as default, `__binop__` gets fully expanded, breaking these test expectations.
+
+**Options to unblock:**
+
+1. **Mark type-aware tests explicitly** — add `backend: 'typescript'` to tests that use runtime registries
+2. **Check registry state in heuristic** — query `instanceMethodRegistry` and `syntaxRegistry` before deciding backend
+3. **Conservative default** — keep TS default, let users opt-in to oxc for known-safe files
+4. **Update test expectations** — change tests that expect `__binop__` to expect expanded output
+
+**Fix applied (2026-03-13):** Fixed diagnostic fallback bug where oxc error diagnostics (e.g., from `staticAssert(false, ...)`) were being swallowed. The pipeline was falling back to TS when oxc produced errors, but syntax-only macros intentionally produce errors as part of normal operation. Removed the error-based fallback to preserve intentional diagnostics.
 
 **Tasks:**
 

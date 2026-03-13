@@ -62,7 +62,8 @@ export interface TransformResult {
  * Transformation backend to use
  *
  * - 'typescript' (default): Uses TypeScript's transformer API
- * - 'oxc': Uses the oxc-native macro engine (faster parsing/codegen, with auto-fallback)
+ * - 'oxc': Uses the oxc-native macro engine (faster parsing/codegen).
+ *   Automatically falls back to TypeScript for files with type-aware macros.
  */
 export type TransformBackend = "typescript" | "oxc";
 
@@ -76,10 +77,11 @@ export interface PipelineOptions {
    * Transformation backend to use (default: 'typescript')
    *
    * - 'typescript': Traditional TypeScript transformer API (handles all macro types)
-   * - 'oxc': oxc-native macro engine (faster, auto-falls back to TS for type-aware macros)
+   * - 'oxc': oxc-native macro engine (faster parsing/codegen, auto-falls back to TS
+   *   when type-aware macros are detected)
    *
-   * Note: oxc backend currently requires JSDoc macro syntax. Decorator syntax (@macro)
-   * is only supported in .sts files preprocessed by the lexical preprocessor.
+   * Note: Use 'oxc' for performance gains on syntax-only macro files. The oxc
+   * backend automatically falls back to TS for type-aware macros.
    */
   backend?: TransformBackend;
   /** Syntax extensions to enable (defaults to all) */
@@ -620,6 +622,85 @@ export class TransformationPipeline {
     );
   }
 
+  /**
+   * Decorator macro names that require the TypeScript transformer.
+   * These use decorator syntax (@name) rather than JSDoc syntax.
+   */
+  private static readonly DECORATOR_MACROS = new Set([
+    "derive",
+    "deriving",
+    "typeclass",
+    "impl",
+    "instance",
+    "extension",
+    "specialize",
+    "reflect",
+    "generic",
+    "implicits",
+    "operator",
+    "operators",
+  ]);
+
+  /**
+   * Quick check for type-aware features that require the TypeScript transformer.
+   *
+   * The oxc backend handles:
+   * - Pure passthrough (no macros)
+   * - @cfg macro
+   * - staticAssert() macro
+   * - __binop__ expansion (for |>, <|, ::)
+   *
+   * Everything else needs the TypeScript transformer. This function returns true
+   * if ANY pattern is detected that oxc might not handle correctly.
+   */
+  private needsTypescriptTransformer(source: string): boolean {
+    // 1. Decorator macros: @derive(Eq), @typeclass, etc.
+    const decoratorPattern = /@(\w+)(?:\s*\(|\s*(?:class|interface|type|function|const|let|var|\n))/g;
+    let match;
+    while ((match = decoratorPattern.exec(source)) !== null) {
+      if (TransformationPipeline.DECORATOR_MACROS.has(match[1])) {
+        return true;
+      }
+    }
+
+    // 2. HKT syntax: F<_>, Functor<F<_>>, etc.
+    if (/<_>/.test(source)) {
+      return true;
+    }
+
+    // 3. Implicit resolution: = implicit()
+    if (/=\s*implicit\s*\(/.test(source)) {
+      return true;
+    }
+
+    // 4. Extension methods: .specialize(
+    if (/\.specialize\s*\(/.test(source)) {
+      return true;
+    }
+
+    // 5. Typeclass-based operator patterns that need type info
+    if (/(?:Eq|Ord|Numeric|Semigroup|Monoid|Functor|Monad)</.test(source)) {
+      return true;
+    }
+
+    // 6. comptime blocks (need type evaluation)
+    if (/comptime\s*[<({\[]/.test(source)) {
+      return true;
+    }
+
+    // 7. summon() calls (need type resolution)
+    if (/summon\s*[<(]/.test(source)) {
+      return true;
+    }
+
+    // 8. typeInfo() calls (need type introspection)
+    if (/typeInfo\s*[<(]/.test(source)) {
+      return true;
+    }
+
+    return false;
+  }
+
   private runMacroTransformer(
     sourceFile: ts.SourceFile,
     originalCode: string
@@ -630,11 +711,23 @@ export class TransformationPipeline {
     printMs?: number;
     expansions?: ExpansionRecord[];
   } {
-    // Use oxc backend if explicitly specified
+    // Use oxc backend only if explicitly requested
+    // (Wave 6 blocker: type-aware features like auto-specialize and operator-rewrite
+    // depend on runtime registries that can't be detected from source patterns)
     if (this.options.backend === "oxc") {
+      // Quick check: if type-aware features are present, fall back to TS immediately
+      if (this.needsTypescriptTransformer(originalCode)) {
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware features detected)`
+          );
+        }
+        return this.runTypescriptTransformer(sourceFile, originalCode);
+      }
+
       const oxcResult = this.runOxcTransformer(sourceFile, originalCode);
 
-      // If oxc backend signals fallback (e.g., type-aware macros detected),
+      // If oxc backend signals fallback (e.g., JSDoc type-aware macros detected),
       // retry with the TypeScript transformer
       if (oxcResult.needsFallback) {
         if (this.verbose) {
@@ -645,7 +738,9 @@ export class TransformationPipeline {
         return this.runTypescriptTransformer(sourceFile, originalCode);
       }
 
-      // Return without the needsFallback field (not part of the interface)
+      // Return without the needsFallback/changed fields (not part of the interface)
+      // Note: We intentionally keep oxc diagnostics even if they contain errors,
+      // because syntax-only macros like staticAssert intentionally produce errors
       return {
         code: oxcResult.code,
         map: oxcResult.map,
@@ -655,7 +750,7 @@ export class TransformationPipeline {
       };
     }
 
-    // Default: TypeScript transformer (handles all macro syntax including decorators)
+    // Default: TypeScript transformer (handles all macro types)
     return this.runTypescriptTransformer(sourceFile, originalCode);
   }
 
@@ -806,6 +901,7 @@ export class TransformationPipeline {
     printMs?: number;
     expansions?: ExpansionRecord[];
     needsFallback: boolean;
+    changed: boolean;
   } {
     try {
       profiler.start("oxc.transform");
@@ -846,6 +942,7 @@ export class TransformationPipeline {
         diagnostics,
         printMs: 0, // oxc handles print internally
         needsFallback: result.needsFallback,
+        changed: result.changed,
       };
     } catch (error) {
       if (this.verbose) {
@@ -865,6 +962,7 @@ export class TransformationPipeline {
         ],
         printMs: 0,
         needsFallback: false,
+        changed: false,
       };
     }
   }
