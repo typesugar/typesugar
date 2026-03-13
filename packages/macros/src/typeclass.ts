@@ -507,11 +507,50 @@ interface SyntaxEntry {
  */
 const syntaxRegistry = new Map<string, SyntaxEntry[]>();
 
+let _deprecationWarningEmitted = false;
+
 /**
  * Register operator syntax for a typeclass.
- * Called when a typeclass with Op<> annotated methods is registered.
+ *
+ * @deprecated Use `@op` JSDoc annotations on typeclass method signatures instead.
+ * This function is kept for backwards compatibility but will emit a deprecation
+ * warning when called directly (not from typeclass processing).
+ *
+ * Example migration:
+ * ```typescript
+ * // Before (runtime registration):
+ * registerTypeclassSyntax("Numeric", [["+", "add"], ["-", "sub"]]);
+ *
+ * // After (source-based, preferred):
+ * /** @typeclass *\/
+ * interface Numeric<A> {
+ *   /** @op + *\/ add(a: A, b: A): A;
+ *   /** @op - *\/ sub(a: A, b: A): A;
+ * }
+ * ```
+ *
+ * @param tcName - Typeclass name
+ * @param syntax - Map or array of [operator, method] pairs
+ * @param _internal - Set to true to suppress deprecation warning (used internally)
  */
-function registerTypeclassSyntax(tcName: string, syntax: Map<string, string>): void {
+function registerTypeclassSyntax(
+  tcName: string,
+  syntax: Map<string, string> | Iterable<[string, string]>,
+  _internal = false
+): void {
+  if (!_internal && !_deprecationWarningEmitted) {
+    console.warn(
+      `[typesugar] DEPRECATION WARNING: registerTypeclassSyntax() is deprecated.\n` +
+        `Use @op JSDoc annotations on typeclass method signatures instead:\n\n` +
+        `  /** @typeclass */\n` +
+        `  interface ${tcName}<A> {\n` +
+        `    /** @op + */ add(a: A, b: A): A;\n` +
+        `  }\n\n` +
+        `See: https://typesugar.dev/guides/typeclasses#operator-syntax`
+    );
+    _deprecationWarningEmitted = true;
+  }
+
   for (const [op, method] of syntax) {
     let entries = syntaxRegistry.get(op);
     if (!entries) {
@@ -534,6 +573,7 @@ function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined {
  */
 function clearSyntaxRegistry(): void {
   syntaxRegistry.clear();
+  _deprecationWarningEmitted = false;
 }
 
 // ============================================================================
@@ -596,7 +636,7 @@ const STANDARD_TYPECLASS_SYNTAX: Array<{ typeclass: string; ops: Map<string, str
 
 // Register on module load (transform time, not runtime)
 for (const { typeclass, ops } of STANDARD_TYPECLASS_SYNTAX) {
-  registerTypeclassSyntax(typeclass, ops);
+  registerTypeclassSyntax(typeclass, ops, true);
 }
 
 const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as readonly string[]);
@@ -1084,9 +1124,9 @@ export const typeclassAttribute = defineAttributeMacro({
     };
     typeclassRegistry.set(tcName, tcInfo);
 
-    // Register operator syntax in the global registry
+    // Register operator syntax in the global registry (internal call)
     if (syntax.size > 0) {
-      registerTypeclassSyntax(tcName, syntax);
+      registerTypeclassSyntax(tcName, syntax, true);
     }
 
     const isExported =
@@ -3044,9 +3084,9 @@ export const typeclassMacro = defineExpressionMacro({
     };
     typeclassRegistry.set(tcName, tcInfo);
 
-    // Register operator syntax in the global registry
+    // Register operator syntax in the global registry (internal call)
     if (syntax.size > 0) {
-      registerTypeclassSyntax(tcName, syntax);
+      registerTypeclassSyntax(tcName, syntax, true);
     }
 
     // The call compiles away to nothing - registration is the side effect
@@ -3307,7 +3347,7 @@ ${fieldCombines}
 export function registerTypeclassDef(info: TypeclassInfo): void {
   typeclassRegistry.set(info.name, info);
   if (info.syntax && info.syntax.size > 0) {
-    registerTypeclassSyntax(info.name, info.syntax);
+    registerTypeclassSyntax(info.name, info.syntax, true);
   }
 }
 

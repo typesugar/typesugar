@@ -98,17 +98,23 @@ This enables:
 Port operator-rewrite from registry-based to source-based for the TS transformer.
 
 **Tasks:**
-- [ ] Parse `@op` annotations from typeclass method JSDoc
-- [ ] Store operator mappings in typeclass metadata (alongside existing `@typeclass` handling)
-- [ ] Update operator-rewrite transformer to query source-based mappings
-- [ ] Deprecate `registerTypeclassSyntax()` (keep for backwards compat, emit warning)
-- [ ] Migrate existing tests to use `@op` annotations
+- [x] Parse `@op` annotations from typeclass method JSDoc
+- [x] Store operator mappings in typeclass metadata (alongside existing `@typeclass` handling)
+- [x] Update operator-rewrite transformer to query source-based mappings
+- [x] Deprecate `registerTypeclassSyntax()` (keep for backwards compat, emit warning)
+- [x] Migrate existing tests to use `@op` annotations
 - [ ] Update documentation
 
 **Gate:**
-- [ ] `a + b` rewrites to `numeric.add(a, b)` using `@op +` annotation
-- [ ] No runtime registry calls needed for operator rewriting
-- [ ] Existing tests pass with new source-based approach
+- [x] `a + b` rewrites to `numeric.add(a, b)` using `@op +` annotation
+- [x] No runtime registry calls needed for operator rewriting
+- [x] Existing tests pass with new source-based approach
+
+**Implementation Notes (2026-03-13):**
+- `extractOpsFromInterface()` in transformer now uses `extractOpFromJSDoc()` (preferred) with fallback to `extractOpFromReturnType()` (deprecated)
+- `registerTypeclassSyntax()` now emits a deprecation warning when called directly (not from internal processing)
+- Added new source-based tests that define typeclasses with `@op` JSDoc annotations inline
+- Legacy tests kept for backwards compatibility verification
 
 ### Wave 2: TypeScript Backend - Auto-Specialization
 

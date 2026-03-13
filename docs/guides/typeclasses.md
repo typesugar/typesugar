@@ -235,6 +235,115 @@ interface Functor<F> {
 }
 ```
 
+## Operator Syntax {#operator-syntax}
+
+Typeclass methods can be mapped to operators using `@op` annotations. When you write `a + b` and `a` has an instance of a typeclass with `@op +`, the transformer rewrites it to a method call.
+
+### Defining Operator Mappings
+
+Use JSDoc `@op` annotations on method signatures:
+
+```typescript
+/** @typeclass */
+interface Numeric<A> {
+  /** @op + */ add(a: A, b: A): A;
+  /** @op - */ sub(a: A, b: A): A;
+  /** @op * */ mul(a: A, b: A): A;
+  /** @op / */ div(a: A, b: A): A;
+}
+
+/** @typeclass */
+interface Eq<A> {
+  /** @op === */ equals(a: A, b: A): boolean;
+  /** @op !== */ notEquals(a: A, b: A): boolean;
+}
+
+/** @typeclass */
+interface Ord<A> {
+  /** @op < */ lt(a: A, b: A): boolean;
+  /** @op <= */ lte(a: A, b: A): boolean;
+  /** @op > */ gt(a: A, b: A): boolean;
+  /** @op >= */ gte(a: A, b: A): boolean;
+}
+```
+
+### Using Operators
+
+Once you have a typeclass with `@op` annotations and an instance for your type, standard operators automatically rewrite:
+
+```typescript
+interface Point { x: number; y: number; }
+
+/** @impl Numeric<Point> */
+const numericPoint: Numeric<Point> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+  sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y }),
+  mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
+  div: (a, b) => ({ x: a.x / b.x, y: a.y / b.y }),
+};
+
+const p1: Point = { x: 1, y: 2 };
+const p2: Point = { x: 3, y: 4 };
+
+// Written as:
+const p3 = p1 + p2;
+
+// Compiles to:
+const p3 = numericPoint.add(p1, p2);
+```
+
+### Supported Operators
+
+| Operator | Description |
+|----------|-------------|
+| `+` | Addition |
+| `-` | Subtraction |
+| `*` | Multiplication |
+| `/` | Division |
+| `%` | Modulo |
+| `**` | Exponentiation |
+| `===` | Strict equality |
+| `!==` | Strict inequality |
+| `==` | Loose equality |
+| `!=` | Loose inequality |
+| `<` | Less than |
+| `<=` | Less than or equal |
+| `>` | Greater than |
+| `>=` | Greater than or equal |
+| `&` | Bitwise AND |
+| `\|` | Bitwise OR |
+| `^` | Bitwise XOR |
+| `<<` | Left shift |
+| `>>` | Right shift |
+
+### Ambiguity Resolution
+
+If multiple typeclasses define the same operator (e.g., `Semigroup` and `Numeric` both use `+`), the compiler reports an ambiguity error when both instances exist for a type. Choose one by:
+
+1. Only defining an instance for one typeclass
+2. Using explicit method calls instead of operators
+
+### Migration from `registerTypeclassSyntax()`
+
+The legacy `registerTypeclassSyntax()` function is deprecated. Use `@op` annotations instead:
+
+```typescript
+// Before (deprecated):
+registerTypeclassSyntax("Numeric", [["+", "add"], ["-", "sub"]]);
+
+// After (preferred):
+/** @typeclass */
+interface Numeric<A> {
+  /** @op + */ add(a: A, b: A): A;
+  /** @op - */ sub(a: A, b: A): A;
+}
+```
+
+The `@op` approach is:
+- Self-documenting (operator is visible in the source)
+- Statically analyzable (no runtime registry)
+- Works with IDE tooling
+
 ## Higher-Kinded Types
 
 typesugar supports HKTs for typeclasses over type constructors using phantom kind markers:

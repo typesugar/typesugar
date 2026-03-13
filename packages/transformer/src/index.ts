@@ -40,6 +40,7 @@ import {
   registerInstanceWithMeta,
   registerTypeclassSyntax,
   extractOpFromReturnType,
+  extractOpFromJSDoc,
   type ImplicitScope,
   type DictMethodMap,
   type DictMethod,
@@ -450,14 +451,22 @@ function extractOpsFromInterface(
 
   const result = new Map<string, string>();
 
-  // Scan method signatures for Op<> return type annotations
+  // Scan method signatures for @op JSDoc tags (preferred) or Op<> return type annotations (deprecated)
   for (const member of targetInterface.members) {
     if (!ts.isMethodSignature(member)) continue;
     if (!member.name || !ts.isIdentifier(member.name)) continue;
 
     const methodName = member.name.text;
-    const { operatorSymbol } = extractOpFromReturnType(member.type);
 
+    // Check @op JSDoc tag first (preferred source-based approach)
+    const jsdocOp = extractOpFromJSDoc(member);
+    if (jsdocOp) {
+      result.set(jsdocOp, methodName);
+      continue;
+    }
+
+    // Fall back to Op<> return type annotation (deprecated)
+    const { operatorSymbol } = extractOpFromReturnType(member.type);
     if (operatorSymbol) {
       result.set(operatorSymbol, methodName);
     }
@@ -596,10 +605,10 @@ function ensureImportedRegistrations(
                       `[typesugar] Pre-registered syntax for ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
                     );
                   }
-                  registerTypeclassSyntax(tcName, opsMap);
+                  registerTypeclassSyntax(tcName, opsMap, true);
                 }
               } else {
-                // No explicit ops argument — extract Op<> from interface definition
+                // No explicit ops argument — extract @op from interface definition
                 // This is the zero-cost path: syntax is extracted at transform time
                 const opsMap = extractOpsFromInterface(importedSf, tcName);
                 if (opsMap && opsMap.size > 0) {
@@ -608,7 +617,7 @@ function ensureImportedRegistrations(
                       `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
                     );
                   }
-                  registerTypeclassSyntax(tcName, opsMap);
+                  registerTypeclassSyntax(tcName, opsMap, true);
                 }
               }
             }
@@ -630,7 +639,7 @@ function ensureImportedRegistrations(
             }
           }
 
-          // Handle registerTypeclassSyntax("Name", ...)
+          // Handle registerTypeclassSyntax("Name", ...) - legacy API, still processed
           if (fnName === "registerTypeclassSyntax" && node.arguments.length >= 2) {
             const nameArg = node.arguments[0];
             const syntaxArg = node.arguments[1];
@@ -644,7 +653,7 @@ function ensureImportedRegistrations(
                     `[typesugar] Pre-registered syntax (call): ${tcName}: ${[...syntaxMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
                   );
                 }
-                registerTypeclassSyntax(tcName, syntaxMap);
+                registerTypeclassSyntax(tcName, syntaxMap, true);
               }
             }
           }
