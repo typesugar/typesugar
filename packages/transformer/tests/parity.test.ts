@@ -112,8 +112,9 @@ describe("Backend Parity Tests", () => {
         const result = 1 |> double;
       `;
 
-      const tsResult = transformCode(code, { fileName: "test.ts", backend: "typescript" });
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for custom syntax
+      const tsResult = transformCode(code, { fileName: "test.sts", backend: "typescript" });
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
 
       expect(normalizeCode(oxcResult.code)).toContain("double(1)");
       expect(normalizeCode(tsResult.code)).toContain("__binop__");
@@ -126,8 +127,9 @@ describe("Backend Parity Tests", () => {
         const result = 1 |> double |> square;
       `;
 
-      const tsResult = transformCode(code, { fileName: "test.ts", backend: "typescript" });
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for custom syntax
+      const tsResult = transformCode(code, { fileName: "test.sts", backend: "typescript" });
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
 
       expect(normalizeCode(oxcResult.code)).toContain("square");
       expect(normalizeCode(oxcResult.code)).toContain("double");
@@ -141,7 +143,7 @@ describe("Backend Parity Tests", () => {
         const result = double <| 1;
       `;
 
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
       expect(normalizeCode(oxcResult.code)).toContain("double(1)");
     });
 
@@ -152,7 +154,8 @@ describe("Backend Parity Tests", () => {
         const list = head :: tail;
       `;
 
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for custom syntax
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
       expect(normalizeCode(oxcResult.code)).toContain("[head, ...tail]");
     });
   });
@@ -265,7 +268,8 @@ describe("Backend Parity Tests", () => {
         const result = 2 |> double;
       `;
 
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for custom syntax
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
 
       expect(normalizeCode(oxcResult.code)).not.toContain("debugResult");
       expect(normalizeCode(oxcResult.code)).toContain("double(2)");
@@ -319,7 +323,8 @@ describe("Backend Parity Tests", () => {
         staticAssert(true, "pass");
       `;
 
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for pipe operator
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
 
       // Should have transformed successfully without fallback
       expect(normalizeCode(oxcResult.code)).toContain("double(1)");
@@ -391,7 +396,8 @@ describe("Backend Parity Tests", () => {
 
       // Verify the oxc path completes successfully and produces valid output
       // Performance benchmarking is done separately from unit tests
-      const oxcResult = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for pipe operators
+      const oxcResult = transformCode(code, { fileName: "test.sts", backend: "oxc" });
 
       expect(oxcResult.code).toBeTruthy();
       expect(normalizeCode(oxcResult.code)).toContain("square");

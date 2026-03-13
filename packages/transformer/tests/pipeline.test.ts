@@ -13,14 +13,13 @@ import * as ts from "typescript";
 
 describe("TransformationPipeline", () => {
   describe("transformCode (single-file)", () => {
-    it("preprocesses HKT syntax in .sts files", () => {
+    it("preprocesses HKT syntax", () => {
       const code = `
         type F<_> = { value: number };
         type Applied = F<string>;
       `;
 
-      // Use .sts extension for files with custom syntax (PEP-001)
-      const result = transformCode(code, { fileName: "test.sts" });
+      const result = transformCode(code, { fileName: "test.ts" });
 
       // HKT syntax should be transformed
       // F<_> → interface with _ property
@@ -29,12 +28,12 @@ describe("TransformationPipeline", () => {
       expect(result.diagnostics).toHaveLength(0);
     });
 
-    it("transforms pipe operator in .sts files", () => {
+    it("transforms pipe operator", () => {
       const code = `
         const result = 1 |> ((x) => x + 1) |> ((x) => x * 2);
       `;
 
-      // Use .sts extension for files with custom syntax (PEP-001)
+      // Use .sts extension to trigger preprocessing for pipe operator
       const result = transformCode(code, { fileName: "test.sts" });
 
       // Pipe operator should be transformed to __binop__ calls
@@ -171,10 +170,9 @@ describe("TransformationPipeline", () => {
 
   describe("source map composition", () => {
     it("provides a position mapper", () => {
-      // Use .sts extension for files with custom syntax (PEP-001)
       const code = `const result = 1 |> ((x) => x + 1);`;
 
-      const result = transformCode(code, { fileName: "test.sts" });
+      const result = transformCode(code, { fileName: "test.ts" });
 
       expect(result.mapper).toBeDefined();
       expect(typeof result.mapper.toOriginal).toBe("function");
@@ -196,8 +194,7 @@ describe("TransformationPipeline", () => {
     it("shows only changed regions for pipe operators", () => {
       const code = ["const a = 1;", "", "const b = a |> double;", "", "const c = 3;"].join("\n");
 
-      // Use .sts extension for files with custom syntax (PEP-001)
-      const result = transformCode(code, { fileName: "fmt-pipe.sts", preserveBlankLines: true });
+      const result = transformCode(code, { fileName: "fmt-pipe.ts", preserveBlankLines: true });
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");
@@ -252,7 +249,8 @@ describe("TransformationPipeline", () => {
         const result = 1 |> double;
       `;
 
-      const result = transformCode(code, { fileName: "test.ts", backend: "oxc" });
+      // Use .sts extension to trigger preprocessing for pipe operator
+      const result = transformCode(code, { fileName: "test.sts", backend: "oxc" });
 
       // Pipe operator is first preprocessed to __binop__, then expanded
       // The oxc backend should expand __binop__ to double(1)

@@ -32,6 +32,25 @@ use protocol::{ExpansionKind, MacroCallInfo, MacroExpansion};
 use splice::Splicer;
 use syntax_macros::{cfg::CfgConfig, evaluate_cfg, process_static_assert, CfgResult, StaticAssertResult};
 
+/// Determine the source type from a filename.
+///
+/// This handles typesugar's custom extensions:
+/// - `.sts` and `.stsx` are "sugared TypeScript" files (preprocessed before reaching this engine)
+/// - They should be parsed as TypeScript, not JavaScript
+///
+/// For standard extensions (.ts, .tsx, .js, .jsx), defers to oxc's built-in detection.
+fn determine_source_type(filename: &str) -> SourceType {
+    // Check for typesugar's custom extensions first
+    if filename.ends_with(".sts") {
+        return SourceType::ts();
+    }
+    if filename.ends_with(".stsx") {
+        return SourceType::tsx();
+    }
+    // Fallback to oxc's built-in path detection
+    SourceType::from_path(filename).unwrap_or_default()
+}
+
 /// Result of transforming a source file
 #[napi(object)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +107,9 @@ pub fn transform(
     let cfg_config = build_cfg_config(&opts);
 
     // Determine source type from filename
-    let source_type = SourceType::from_path(&filename).unwrap_or_default();
+    // Note: .sts and .stsx are typesugar's "sugared TypeScript" extensions
+    // They should be parsed as TypeScript (not JavaScript)
+    let source_type = determine_source_type(&filename);
 
     // Allocate arena for oxc
     let allocator = Allocator::default();
@@ -522,7 +543,8 @@ pub fn transform_with_macros(
     let enable_source_map = opts.source_map.unwrap_or(false);
     let cfg_config = build_cfg_config(&opts);
 
-    let source_type = SourceType::from_path(&filename).unwrap_or_default();
+    // Use custom source type detection for .sts/.stsx files
+    let source_type = determine_source_type(&filename);
     let allocator = Allocator::default();
 
     // Parse
@@ -934,7 +956,7 @@ fn calculate_line_column(source: &str, offset: u32) -> (u32, u32) {
 /// Parse TypeScript source and return timing information (for benchmarking)
 #[napi]
 pub fn benchmark_parse(source: String, filename: String) -> Result<BenchmarkResult> {
-    let source_type = SourceType::from_path(&filename).unwrap_or_default();
+    let source_type = determine_source_type(&filename);
     let allocator = Allocator::default();
 
     let start = std::time::Instant::now();
