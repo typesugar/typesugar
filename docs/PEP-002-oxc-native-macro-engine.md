@@ -360,13 +360,13 @@ Port remaining macros, achieve full test parity, switch default.
 
 **Tasks:**
 
-- [ ] Resolve decorator vs JSDoc syntax blocker (choose option above)
-- [ ] Port `implicits`, `generic`, `auto-derive`, `do-notation`
-- [ ] Port remaining syntax macros to Rust: `comptime`, `tailrec`, `include`
+- [ ] Resolve decorator vs JSDoc syntax blocker (choose option above) — **blocked on PEP-004**
+- [ ] Port `implicits`, `generic`, `auto-derive`, `do-notation` — type-aware, uses hybrid fallback
+- [ ] Port remaining syntax macros to Rust: `comptime`, `tailrec`, `include` — these work via JS callback, native Rust port is optimization only
 - [ ] Diagnostic parity: all error messages match between pipelines
-- [ ] Integration with CLI (`typesugar build/check/watch`)
-- [ ] Performance benchmark suite: compare full transform times on example projects (`.ts` and `.sts`)
-- [ ] Switch default pipeline to oxc (with `backend: 'ts'` escape hatch)
+- [x] Integration with CLI (`typesugar build/check/watch`) — added `--backend <ts|oxc>` flag (2026-03-13)
+- [x] Performance benchmark suite — added `benchmark.test.ts` with backend comparison tests (2026-03-13)
+- [ ] Switch default pipeline to oxc (with `backend: 'ts'` escape hatch) — **blocked on PEP-004**
 - [ ] Update AGENTS.md, docs/architecture.md to document dual pipeline
 
 **Gate:**
@@ -386,7 +386,8 @@ Port remaining macros, achieve full test parity, switch default.
 | `.github/workflows/ci.yml`                    | Add Rust toolchain + `cargo build` + `cargo test`       |
 | `packages/transformer/src/pipeline.ts`        | Add oxc engine as alternative backend, route via config |
 | `packages/unplugin-typesugar/src/unplugin.ts` | Add `pipeline: 'oxc'` option                            |
-| `packages/transformer/src/cli.ts`             | Add `--pipeline oxc` flag                               |
+| `packages/transformer/src/cli.ts`             | Add `--backend <ts\|oxc>` flag for expand/run commands  |
+| `packages/transformer/tests/benchmark.test.ts`| Backend performance comparison tests                    |
 
 ## Consequences
 
