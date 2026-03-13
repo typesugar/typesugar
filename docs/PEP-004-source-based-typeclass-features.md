@@ -14,6 +14,7 @@ Two typeclass features currently depend on runtime registries rather than source
 2. **Operator-rewrite**: `registerTypeclassSyntax("Numeric", [["+", "add"], ...])` populates a registry that the transformer queries to rewrite `a + b` to `numeric.add(a, b)`
 
 This violates the "import what you need" principle. Behavior is determined by runtime state rather than source imports, making it:
+
 - Implicit and hard to reason about
 - Undetectable via static source analysis (blocking PEP-002 oxc-as-default)
 - Order-dependent (registry must be populated before transform runs)
@@ -47,6 +48,7 @@ interface Ord<A> {
 ```
 
 When the transformer sees `a + b` where `a: Point` and `Numeric<Point>` is in scope:
+
 1. Look up `Numeric` typeclass definition (from imports or local)
 2. Find method with `@op +` annotation → `add`
 3. Find instance for `Point` → `numericPoint`
@@ -57,7 +59,7 @@ When the transformer sees `a + b` where `a: Point` and `Numeric<Point>` is in sc
 Instance definitions carry inline method sources for auto-specialization:
 
 ```typescript
-/** 
+/**
  * @impl Numeric<Point>
  * @specialize
  */
@@ -69,6 +71,7 @@ const numericPoint: Numeric<Point> = {
 ```
 
 When the transformer sees `genericFn(numericPoint, p1, p2)`:
+
 1. Detect `numericPoint` is a `@specialize` instance
 2. Parse method bodies from the instance definition
 3. Create specialized version with inlined methods
@@ -78,15 +81,16 @@ When the transformer sees `genericFn(numericPoint, p1, p2)`:
 
 With this design, the transformer can detect features from source patterns:
 
-| Pattern | Indicates |
-|---------|-----------|
-| `/** @op ... */` in interface method | Operator syntax definition |
-| `/** @impl ... */ const x = {` | Typeclass instance |
-| `/** @specialize */` on instance | Auto-specialization candidate |
-| Binary expr with typed operands + `@op` in scope | Operator rewrite site |
-| Call with `@specialize` instance arg | Auto-specialize site |
+| Pattern                                          | Indicates                     |
+| ------------------------------------------------ | ----------------------------- |
+| `/** @op ... */` in interface method             | Operator syntax definition    |
+| `/** @impl ... */ const x = {`                   | Typeclass instance            |
+| `/** @specialize */` on instance                 | Auto-specialization candidate |
+| Binary expr with typed operands + `@op` in scope | Operator rewrite site         |
+| Call with `@specialize` instance arg             | Auto-specialize site          |
 
 This enables:
+
 - Static analysis for oxc `needsTypescriptTransformer` heuristic
 - Explicit, import-based behavior ("import what you need")
 - IDE support (can show operator mappings, specialization sites)
@@ -98,6 +102,7 @@ This enables:
 Port operator-rewrite from registry-based to source-based for the TS transformer.
 
 **Tasks:**
+
 - [x] Parse `@op` annotations from typeclass method JSDoc
 - [x] Store operator mappings in typeclass metadata (alongside existing `@typeclass` handling)
 - [x] Update operator-rewrite transformer to query source-based mappings
@@ -106,11 +111,13 @@ Port operator-rewrite from registry-based to source-based for the TS transformer
 - [ ] Update documentation
 
 **Gate:**
+
 - [x] `a + b` rewrites to `numeric.add(a, b)` using `@op +` annotation
 - [x] No runtime registry calls needed for operator rewriting
 - [x] Existing tests pass with new source-based approach
 
 **Implementation Notes (2026-03-13):**
+
 - `extractOpsFromInterface()` in transformer now uses `extractOpFromJSDoc()` (preferred) with fallback to `extractOpFromReturnType()` (deprecated)
 - `registerTypeclassSyntax()` now emits a deprecation warning when called directly (not from internal processing)
 - Added new source-based tests that define typeclasses with `@op` JSDoc annotations inline
@@ -121,6 +128,7 @@ Port operator-rewrite from registry-based to source-based for the TS transformer
 Port auto-specialize from registry-based to source-based for the TS transformer.
 
 **Tasks:**
+
 - [x] Parse `@specialize` annotation from instance JSDoc
 - [x] Extract method sources from instance object literal at transform time
 - [x] Update auto-specialize transformer to use source-based method extraction
@@ -129,11 +137,13 @@ Port auto-specialize from registry-based to source-based for the TS transformer.
 - [ ] Update documentation
 
 **Gate:**
+
 - [x] `fn(instance, args)` auto-specializes using `@specialize` annotation
 - [x] No runtime registry calls needed for auto-specialization
 - [x] Method inlining works from parsed instance definition
 
 **Implementation Notes (2026-03-13):**
+
 - `tryExtractInstanceFromSource()` in transformer detects `@specialize` JSDoc annotation on variable declarations
 - Methods are extracted from object literal initializers using `extractMethodsFromObjectLiteral()`
 - Source-based detection runs before registry fallback for backwards compatibility
@@ -148,6 +158,7 @@ Add source pattern detection to `needsTypescriptTransformer` heuristic, enabling
 **Depends on:** Waves 1-2
 
 **Tasks:**
+
 - [ ] Add `@op` pattern detection to `needsTypescriptTransformer`
 - [ ] Add `@specialize` pattern detection
 - [ ] Add `@impl` pattern detection (instances may trigger operator rewrite)
@@ -155,6 +166,7 @@ Add source pattern detection to `needsTypescriptTransformer` heuristic, enabling
 - [ ] Re-attempt PEP-002 Wave 6 (oxc as default)
 
 **Gate:**
+
 - [ ] Files with `@op`, `@specialize`, `@impl` trigger TS fallback
 - [ ] PEP-002 Wave 6 gate passes (full test suite with oxc default)
 
@@ -163,12 +175,14 @@ Add source pattern detection to `needsTypescriptTransformer` heuristic, enabling
 Remove deprecated registry APIs once ecosystem has migrated.
 
 **Tasks:**
-- [ ] Remove `registerTypeclassSyntax()` 
+
+- [ ] Remove `registerTypeclassSyntax()`
 - [ ] Remove `registerInstanceMethods()`
 - [ ] Remove `instanceMethodRegistry` and `syntaxRegistry`
 - [ ] Update all examples and documentation
 
 **Gate:**
+
 - [ ] No registry APIs in codebase
 - [ ] All features work via source-based annotations only
 
@@ -177,9 +191,13 @@ Remove deprecated registry APIs once ecosystem has migrated.
 ### For Operator Syntax
 
 Before:
+
 ```typescript
 // In module initialization or test setup
-registerTypeclassSyntax("Numeric", [["+", "add"], ["-", "sub"]]);
+registerTypeclassSyntax("Numeric", [
+  ["+", "add"],
+  ["-", "sub"],
+]);
 
 // Typeclass definition (no operator info)
 interface Numeric<A> {
@@ -189,6 +207,7 @@ interface Numeric<A> {
 ```
 
 After:
+
 ```typescript
 // Typeclass definition carries operator info
 /** @typeclass */
@@ -203,6 +222,7 @@ interface Numeric<A> {
 ### For Auto-Specialization
 
 Before:
+
 ```typescript
 // In module initialization or test setup
 registerInstanceMethods("arrayFunctor", "Array", {
@@ -216,14 +236,15 @@ const arrayFunctor: Functor<Array<any>> = {
 ```
 
 After:
+
 ```typescript
 // Instance definition carries specialization info
-/** 
+/**
  * @impl Functor<Array>
  * @specialize
  */
 const arrayFunctor: Functor<Array<any>> = {
-  map: (fa, f) => fa.map(f),  // Source extracted at transform time
+  map: (fa, f) => fa.map(f), // Source extracted at transform time
 };
 
 // No runtime registration needed
@@ -252,11 +273,11 @@ const arrayFunctor: Functor<Array<any>> = {
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `packages/transformer/src/typeclass-transformer.ts` | Parse `@op` from method JSDoc |
-| `packages/transformer/src/operator-rewrite.ts` | Use source-based operator lookup |
-| `packages/transformer/src/auto-specialize.ts` | Use source-based method extraction |
-| `packages/macros/src/runtime-stubs.ts` | Deprecate registry functions |
-| `packages/transformer/src/pipeline.ts` | Add detection patterns to heuristic |
-| `docs/guides/typeclasses.md` | Document `@op` and `@specialize` |
+| File                                                | Change                              |
+| --------------------------------------------------- | ----------------------------------- |
+| `packages/transformer/src/typeclass-transformer.ts` | Parse `@op` from method JSDoc       |
+| `packages/transformer/src/operator-rewrite.ts`      | Use source-based operator lookup    |
+| `packages/transformer/src/auto-specialize.ts`       | Use source-based method extraction  |
+| `packages/macros/src/runtime-stubs.ts`              | Deprecate registry functions        |
+| `packages/transformer/src/pipeline.ts`              | Add detection patterns to heuristic |
+| `docs/guides/typeclasses.md`                        | Document `@op` and `@specialize`    |

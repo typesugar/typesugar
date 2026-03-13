@@ -272,7 +272,10 @@ interface Ord<A> {
 Once you have a typeclass with `@op` annotations and an instance for your type, standard operators automatically rewrite:
 
 ```typescript
-interface Point { x: number; y: number; }
+interface Point {
+  x: number;
+  y: number;
+}
 
 /** @impl Numeric<Point> */
 const numericPoint: Numeric<Point> = {
@@ -294,27 +297,27 @@ const p3 = numericPoint.add(p1, p2);
 
 ### Supported Operators
 
-| Operator | Description |
-|----------|-------------|
-| `+` | Addition |
-| `-` | Subtraction |
-| `*` | Multiplication |
-| `/` | Division |
-| `%` | Modulo |
-| `**` | Exponentiation |
-| `===` | Strict equality |
-| `!==` | Strict inequality |
-| `==` | Loose equality |
-| `!=` | Loose inequality |
-| `<` | Less than |
-| `<=` | Less than or equal |
-| `>` | Greater than |
-| `>=` | Greater than or equal |
-| `&` | Bitwise AND |
-| `\|` | Bitwise OR |
-| `^` | Bitwise XOR |
-| `<<` | Left shift |
-| `>>` | Right shift |
+| Operator | Description           |
+| -------- | --------------------- |
+| `+`      | Addition              |
+| `-`      | Subtraction           |
+| `*`      | Multiplication        |
+| `/`      | Division              |
+| `%`      | Modulo                |
+| `**`     | Exponentiation        |
+| `===`    | Strict equality       |
+| `!==`    | Strict inequality     |
+| `==`     | Loose equality        |
+| `!=`     | Loose inequality      |
+| `<`      | Less than             |
+| `<=`     | Less than or equal    |
+| `>`      | Greater than          |
+| `>=`     | Greater than or equal |
+| `&`      | Bitwise AND           |
+| `\|`     | Bitwise OR            |
+| `^`      | Bitwise XOR           |
+| `<<`     | Left shift            |
+| `>>`     | Right shift           |
 
 ### Ambiguity Resolution
 
@@ -329,7 +332,10 @@ The legacy `registerTypeclassSyntax()` function is deprecated. Use `@op` annotat
 
 ```typescript
 // Before (deprecated):
-registerTypeclassSyntax("Numeric", [["+", "add"], ["-", "sub"]]);
+registerTypeclassSyntax("Numeric", [
+  ["+", "add"],
+  ["-", "sub"],
+]);
 
 // After (preferred):
 /** @typeclass */
@@ -340,6 +346,7 @@ interface Numeric<A> {
 ```
 
 The `@op` approach is:
+
 - Self-documenting (operator is visible in the source)
 - Statically analyzable (no runtime registry)
 - Works with IDE tooling
