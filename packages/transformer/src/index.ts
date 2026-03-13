@@ -39,6 +39,7 @@ import {
   // Registration functions for AST-based extraction
   registerInstanceWithMeta,
   registerTypeclassDef,
+  updateTypeclassSyntax,
   extractOpFromReturnType,
   extractOpFromJSDoc,
   // Source-based specialization
@@ -541,7 +542,7 @@ function ensureImportedRegistrations(
       !fileText.includes("instance(") &&
       !fileText.includes("typeclass(") &&
       !fileText.includes("registerInstanceWithMeta(") &&
-      !fileText.includes("registerTypeclassSyntax(")
+      !fileText.includes("updateTypeclassSyntax(")
     ) {
       // File doesn't have any registration calls — just recurse into imports
       ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
@@ -608,7 +609,7 @@ function ensureImportedRegistrations(
                       `[typesugar] Pre-registered syntax for ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
                     );
                   }
-                  registerTypeclassSyntax(tcName, opsMap, true);
+                  updateTypeclassSyntax(tcName, opsMap);
                 }
               } else {
                 // No explicit ops argument — extract @op from interface definition
@@ -620,7 +621,7 @@ function ensureImportedRegistrations(
                       `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
                     );
                   }
-                  registerTypeclassSyntax(tcName, opsMap, true);
+                  updateTypeclassSyntax(tcName, opsMap);
                 }
               }
             }
@@ -642,24 +643,8 @@ function ensureImportedRegistrations(
             }
           }
 
-          // Handle registerTypeclassSyntax("Name", ...) - legacy API, still processed
-          if (fnName === "registerTypeclassSyntax" && node.arguments.length >= 2) {
-            const nameArg = node.arguments[0];
-            const syntaxArg = node.arguments[1];
-
-            if (ts.isStringLiteral(nameArg)) {
-              const tcName = nameArg.text;
-              const syntaxMap = extractSyntaxMapFromArg(syntaxArg);
-              if (syntaxMap && syntaxMap.size > 0) {
-                if (verbose) {
-                  console.log(
-                    `[typesugar] Pre-registered syntax (call): ${tcName}: ${[...syntaxMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
-                  );
-                }
-                registerTypeclassSyntax(tcName, syntaxMap, true);
-              }
-            }
-          }
+          // Legacy registerTypeclassSyntax() calls are no longer supported.
+          // Use @op annotations on typeclass method signatures instead.
         }
       }
 

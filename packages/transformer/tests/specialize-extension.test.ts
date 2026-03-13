@@ -7,11 +7,27 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries, registerInstanceMethods } from "@typesugar/macros";
+import { clearRegistries, registerInstanceMethodsFromAST } from "@typesugar/macros";
 
 beforeEach(() => {
   clearRegistries();
 });
+
+/**
+ * Test helper: register instance methods from source strings.
+ * This is a test-only utility that mirrors the old registerInstanceMethods API.
+ */
+function registerInstanceMethods(
+  dictName: string,
+  brand: string,
+  methods: Record<string, { source: string; params: string[] }>
+): void {
+  const methodMap = new Map<string, { source: string; params: string[] }>();
+  for (const [name, info] of Object.entries(methods)) {
+    methodMap.set(name, { source: info.source, params: info.params });
+  }
+  registerInstanceMethodsFromAST(dictName, brand, methodMap);
+}
 
 function setupOrdInstance(dictName: string) {
   registerInstanceMethods(dictName, "Ord", {

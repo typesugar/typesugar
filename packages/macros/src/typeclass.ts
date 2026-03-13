@@ -524,12 +524,18 @@ function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined {
 }
 
 /**
- * Clear syntax registry (for testing).
- * @deprecated Syntax is now stored in typeclassRegistry. Use clearRegistries() instead.
+ * Clear syntax mappings from all typeclasses.
+ * For testing only - clears syntax while keeping typeclass definitions.
  */
 function clearSyntaxRegistry(): void {
-  // No-op: syntax is now part of typeclassRegistry
-  // Clear is handled by clearRegistries()
+  for (const tc of typeclassRegistry.values()) {
+    if (tc.syntax) {
+      tc.syntax.clear();
+    }
+    for (const method of tc.methods) {
+      delete method.operatorSymbol;
+    }
+  }
 }
 
 // ============================================================================
@@ -829,8 +835,21 @@ export function getInstances(): Map<string, InstanceInfo> {
 }
 
 /**
+ * Re-register standard typeclass definitions.
+ * Called to restore standard typeclasses after clearRegistries().
+ */
+export function registerStandardTypeclasses(): void {
+  for (const def of STANDARD_TYPECLASS_DEFS) {
+    typeclassRegistry.set(def.name, def);
+  }
+}
+
+/**
  * Clear all typeclass-related registries.
  * Useful for testing to ensure clean state between tests.
+ *
+ * Note: This DOES clear standard typeclasses. Call registerStandardTypeclasses()
+ * if you need them restored.
  */
 export function clearRegistries(): void {
   typeclassRegistry.clear();

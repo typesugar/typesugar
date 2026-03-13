@@ -96,6 +96,7 @@ export {
   findInstance,
   getTypeclass,
   clearRegistries,
+  registerStandardTypeclasses,
   getTypeclasses,
   getInstances,
   instanceVarName,
@@ -104,6 +105,7 @@ export {
   tryExtractSumType,
   getSyntaxForOperator,
   clearSyntaxRegistry, // deprecated, no-op
+  updateTypeclassSyntax,
   extractOpFromReturnType,
   extractOpFromJSDoc,
   registerTypeclassDef,
@@ -128,7 +130,7 @@ export {
   specializeInlineMacro,
   monoMacro,
   inlineCallMacro,
-  registerInstanceMethods,
+  // Internal: registerInstanceMethodsFromAST is used by @impl macro, not public API
   registerInstanceMethodsFromAST,
   extractMethodsFromObjectLiteral,
   getInstanceMethods,
@@ -426,3 +428,44 @@ export {
   // HKT
   hkt,
 } from "./runtime-stubs.js";
+
+// ============================================================================
+// Deprecated APIs (backwards compatibility)
+// ============================================================================
+import { updateTypeclassSyntax as _updateTypeclassSyntax } from "./typeclass.js";
+
+let _deprecationWarningShown = false;
+
+/**
+ * @deprecated Use @op annotations on typeclass method signatures instead.
+ * This function is provided for backwards compatibility only.
+ *
+ * @param tcName - Typeclass name
+ * @param syntax - Operator to method name mappings
+ * @param _internal - If true, suppress deprecation warning (for internal transformer use)
+ */
+export function registerTypeclassSyntax(
+  tcName: string,
+  syntax: Map<string, string>,
+  _internal?: boolean,
+): void {
+  if (!_internal && !_deprecationWarningShown) {
+    console.warn(
+      `[typesugar] DEPRECATION WARNING: registerTypeclassSyntax() is deprecated.
+Use @op JSDoc annotations on typeclass method signatures instead:
+
+  /** @typeclass */
+  interface ${tcName}<A> {
+    /** @op + */ add(a: A, b: A): A;
+  }
+
+See: https://typesugar.dev/guides/typeclasses#operator-syntax`,
+    );
+    _deprecationWarningShown = true;
+  }
+  _updateTypeclassSyntax(tcName, syntax);
+}
+
+// Deprecated: syntaxRegistry is no longer used, syntax is stored in typeclassRegistry.syntax
+// Provide empty Map for backwards compatibility with imports
+export const syntaxRegistry = new Map<string, unknown>();
