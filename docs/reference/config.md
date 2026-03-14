@@ -53,6 +53,8 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
+      backend: "oxc",
+      strict: false,
       verbose: false,
       include: ["**/*.ts", "**/*.tsx"],
       exclude: ["node_modules/**", "**/*.d.ts"],
@@ -66,14 +68,16 @@ export default defineConfig({
 
 **Options:**
 
-| Option         | Type     | Default                   | Description                    |
-| -------------- | -------- | ------------------------- | ------------------------------ |
-| `verbose`      | boolean  | `false`                   | Enable verbose logging         |
-| `include`      | string[] | `["**/*.ts", "**/*.tsx"]` | File patterns to process       |
-| `exclude`      | string[] | `["node_modules/**"]`     | File patterns to ignore        |
-| `tsconfig`     | string   | Auto-detected             | Path to tsconfig.json          |
-| `macroModules` | string[] | `[]`                      | Additional macro module paths  |
-| `config`       | object   | `{}`                      | Conditional compilation config |
+| Option         | Type                         | Default                   | Description                                                         |
+| -------------- | ---------------------------- | ------------------------- | ------------------------------------------------------------------- |
+| `backend`      | `"oxc"` \| `"typescript"`   | `"oxc"`                   | Transformation backend (oxc auto-falls back to TS for type-aware macros) |
+| `strict`       | boolean                      | `false`                   | Typecheck expanded output at build end                              |
+| `verbose`      | boolean                      | `false`                   | Enable verbose logging                                              |
+| `include`      | string[]                     | `["**/*.ts", "**/*.tsx"]` | File patterns to process                                            |
+| `exclude`      | string[]                     | `["node_modules/**"]`     | File patterns to ignore                                             |
+| `tsconfig`     | string                       | Auto-detected             | Path to tsconfig.json                                               |
+| `macroModules` | string[]                     | `[]`                      | Additional macro module paths                                       |
+| `config`       | object                       | `{}`                      | Conditional compilation config                                      |
 
 ## Webpack Plugin
 
@@ -84,6 +88,8 @@ const typesugar = require("unplugin-typesugar/webpack");
 module.exports = {
   plugins: [
     typesugar({
+      backend: "oxc",
+      strict: false,
       verbose: false,
       include: ["**/*.ts"],
       exclude: ["node_modules/**"],
@@ -104,6 +110,8 @@ import typesugar from "unplugin-typesugar/esbuild";
 build({
   plugins: [
     typesugar({
+      backend: "oxc",
+      strict: false,
       verbose: false,
     }),
   ],
@@ -121,6 +129,8 @@ import typesugar from "unplugin-typesugar/rollup";
 export default {
   plugins: [
     typesugar({
+      backend: "oxc",    // or "typescript"
+      strict: false,     // typecheck expanded output
       verbose: false,
     }),
   ],
@@ -128,6 +138,8 @@ export default {
 ```
 
 Same options as Vite plugin.
+
+**Typechecking:** Rollup does NOT typecheck. Use `strict: true` or run `tsc --noEmit` separately. For integrated typechecking, use `@rollup/plugin-typescript` instead of the unplugin (but note it doesn't support the oxc backend).
 
 ## Conditional Compilation Config
 

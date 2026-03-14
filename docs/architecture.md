@@ -838,6 +838,59 @@ Each package extends `tsconfig.base.json` from the monorepo root. The base confi
 
 ---
 
+## 11. Typechecking Model
+
+typesugar follows the standard TypeScript ecosystem pattern: **fast builds, background IDE checking, CI correctness gate.**
+
+### Three Layers
+
+```
+Build tool (Vite, esbuild, …)    →  Macros expand, types stripped, NO typecheck
+IDE (tsserver + language service) →  Background incremental typecheck
+CI (tsc --noEmit)                 →  Full correctness gate
+```
+
+The only exception is `tsc` with ts-patch, where transformation and typechecking happen in the same pass.
+
+### Why Pre-Macro Code Is Type-Incomplete
+
+Macros create type structure. `@derive(Eq)` generates `.equals()`, `summon<Eq<Point>>()` resolves to a concrete instance, extension methods rewrite `point.show()` to `showPoint.show(point)`. Before macros run, this code is intentionally type-incomplete — methods don't exist yet, instances aren't resolved, extension methods haven't been rewritten.
+
+The language service plugin (`typesugar/language-service`) runs macros before the IDE typechecks, so the IDE sees expanded code and reports accurate errors.
+
+### Strict Mode
+
+The `strict` option runs `tsc` on macro-expanded output at build end:
+
+| Option | Behavior |
+|--------|----------|
+| `strict: false` (default) | Build only — no typecheck |
+| `strict: true` | Build + typecheck expanded output |
+
+`strict: true` catches type errors that macros might introduce (e.g., wrong return types in generated code). It's recommended for CI but adds overhead in development.
+
+### Backend and Typechecking
+
+| Backend | TypeChecker Available | Type-Aware Macros |
+|---------|----------------------|-------------------|
+| `"oxc"` (default) | No | Auto-fallback to TypeScript |
+| `"typescript"` | Yes | Fully supported |
+
+The oxc backend handles syntax-only transformations natively. Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`) automatically fall back to the TypeScript backend.
+
+### Macro Diagnostics
+
+Macros report errors via two mechanisms:
+
+1. **`ctx.reportError(node, message)`** — Simple string diagnostics
+2. **`DiagnosticBuilder`** — Rich diagnostics with labeled spans, fix suggestions, and see-also references
+
+Both use typesugar's error code range (TS9001–TS9999) to distinguish macro errors from native TypeScript errors.
+
+For the full user-facing guide, see [Type Safety](./guides/type-safety.md).
+
+---
+
 ## Summary
 
 The typesugar macro system is built on these principles:

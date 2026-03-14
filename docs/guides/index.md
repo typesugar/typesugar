@@ -78,10 +78,11 @@ Supercharge your existing tools:
 
 ## Developer Experience
 
-When something goes wrong, you should know exactly what happened:
+When something goes wrong, you should know exactly what happened and how to get the level of type safety you want:
 
 | Guide                                     | Description                                       |
 | ----------------------------------------- | ------------------------------------------------- |
+| [Type Safety](./type-safety.md)           | The three-layer model: build, IDE, CI             |
 | [Overview](./developer-experience.md)     | How error messages, suggestions, and tooling work |
 | [Error Messages](./error-messages.md)     | Rust-style errors with labeled spans              |
 | [Opt-Out Directives](./opt-out.md)        | Disable transformations for debugging             |
