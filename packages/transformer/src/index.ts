@@ -4132,11 +4132,10 @@ class MacroTransformer {
     const receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
 
     if (!this.ctx.isTypeReliable(receiverType)) {
-      if (this.verbose) {
-        console.log(
-          `[typesugar] Skipping extension rewrite for '${methodName}' — receiver type is unreliable (any/never). Fix upstream type errors.`
-        );
-      }
+      this.ctx.reportWarning(
+        node,
+        `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
+      );
       return undefined;
     }
 
