@@ -50,6 +50,8 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
+import { TS9001 } from "@typesugar/core";
+import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
 import {
   formatResolutionTrace,
@@ -418,15 +420,24 @@ export function transformImplicitsCall(
       const helpMessage = generateHelpFromTrace(trace, typeclassName, concreteType);
 
       const paramName = ts.isIdentifier(param.name) ? param.name.text : `param[${i}]`;
-      const errorLines = [
-        `No instance found for \`${typeclassName}<${concreteType}>\``,
-        "",
-        ...traceNotes.map((note) => `  = note: ${note}`),
-        `  = note: implicit parameter: ${paramName}`,
-        `  = help: ${helpMessage}`,
-      ];
 
-      ctx.reportError(callExpr, errorLines.join("\n"));
+      const builder = ctx.diagnostic(TS9001)
+        .at(callExpr)
+        .withArgs({ typeclass: typeclassName, type: concreteType });
+
+      for (const traceNote of traceNotes) {
+        builder.note(traceNote);
+      }
+      builder.note(`implicit parameter: ${paramName}`);
+
+      const tcSuggestions = getSuggestionsForTypeclass(typeclassName);
+      if (tcSuggestions.length > 0) {
+        builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
+      } else {
+        builder.help(helpMessage);
+      }
+
+      builder.emit();
       return undefined;
     }
   }

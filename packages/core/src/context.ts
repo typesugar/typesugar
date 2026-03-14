@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene, FileBindingCache } from "./hygiene.js";
 import { stripPositions } from "./ast-utils.js";
+import { DiagnosticBuilder, type DiagnosticDescriptor, richToLegacyDiagnostic } from "./diagnostics.js";
 
 export class MacroContextImpl implements MacroContext {
   private diagnostics: MacroDiagnostic[] = [];
@@ -196,6 +197,18 @@ export class MacroContextImpl implements MacroContext {
       severity: "warning",
       message,
       node,
+    });
+  }
+
+  diagnostic(descriptor: DiagnosticDescriptor): DiagnosticBuilder {
+    return new DiagnosticBuilder(descriptor, this.sourceFile, (rich) => {
+      const legacy = richToLegacyDiagnostic(rich);
+      this.diagnostics.push({
+        severity: legacy.severity,
+        message: legacy.message,
+        node: legacy.node,
+        suggestion: legacy.suggestion,
+      });
     });
   }
 

@@ -79,21 +79,21 @@ Audit all built-in macros and upgrade their error reporting to use `DiagnosticBu
 
 **Tasks:**
 
-- [ ] Inventory all `ctx.reportError()` / `ctx.reportWarning()` calls in `packages/macros/src/`
-- [ ] Identify calls that should use `DiagnosticBuilder` instead (i.e., they have enough context to provide labeled spans, fix suggestions, or see-also links)
-- [ ] Upgrade priority macros:
-  - [ ] `summon()` — already has resolution trace, ensure it uses `DiagnosticBuilder`
-  - [ ] `@derive` failures — "field X has type Y which lacks Eq"
-  - [ ] Operator rewrite — "no instance for Numeric<Color>"
-  - [ ] Extension method resolution — "did you mean to import X?"
-  - [ ] `= implicit()` resolution — "no implicit Eq<T> in scope"
-- [ ] Ensure all diagnostics include import suggestions via `getSuggestionsForSymbol()` / `getSuggestionsForMethod()`
+- [x] Inventory all `ctx.reportError()` / `ctx.reportWarning()` calls in `packages/macros/src/`
+- [x] Identify calls that should use `DiagnosticBuilder` instead (i.e., they have enough context to provide labeled spans, fix suggestions, or see-also links)
+- [x] Upgrade priority macros:
+  - [x] `summon()` — uses `DiagnosticBuilder` with TS9001/TS9005/TS9008, resolution trace as notes, import suggestions
+  - [x] `@derive` failures — uses TS9060/TS9101/TS9102 with labeled spans and suggestions
+  - [x] Operator rewrite — uses TS9203/TS9803 with fix suggestions
+  - [x] Extension method resolution — uses TS9206/TS9402/TS9403 with usage help
+  - [x] `= implicit()` resolution — uses TS9001 with resolution trace and import suggestions
+- [x] Ensure all diagnostics include import suggestions via `getSuggestionsForSymbol()` / `getSuggestionsForTypeclass()`
 
 **Gate:**
 
-- [ ] All type-aware macros use `DiagnosticBuilder` for user-facing errors
-- [ ] At least 5 error scenarios produce labeled-span diagnostics with fix suggestions
-- [ ] No bare string `ctx.reportError()` calls for resolvable type errors
+- [x] All type-aware macros use `DiagnosticBuilder` for user-facing errors
+- [x] At least 5 error scenarios produce labeled-span diagnostics with fix suggestions
+- [x] No bare string `ctx.reportError()` calls for resolvable type errors
 
 ### Wave 3: Type Confidence Detection
 

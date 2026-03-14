@@ -17,6 +17,7 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
+import { TS9203, TS9803 } from "@typesugar/core";
 import { getSyntaxForOperator, findInstance } from "./typeclass.js";
 
 /**
@@ -115,7 +116,11 @@ export const operatorsAttribute = defineAttributeMacro({
     args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isClassDeclaration(target) || !target.name) {
-      ctx.reportError(decorator, "@operators can only be applied to named classes");
+      ctx.diagnostic(TS9203)
+        .at(decorator)
+        .withArgs({ macro: "@operators", expected: "a named class declaration" })
+        .help("Apply @operators to a class with a name, e.g.: @operators({...}) class Vector { ... }")
+        .emit();
       return target;
     }
 
@@ -311,10 +316,11 @@ export const binopMacro = defineExpressionMacro({
 
       default:
         // Unknown operator - leave as is (will fail at runtime)
-        ctx.reportWarning(
-          callExpr,
-          `Unknown custom operator "${operator}" with no registered method`
-        );
+        ctx.diagnostic(TS9803)
+          .at(callExpr)
+          .withArgs({ operator })
+          .help(`Register an operator method with @operator("${operator}") or use a built-in operator: |>, <|, ::`)
+          .emit();
         return callExpr;
     }
   },

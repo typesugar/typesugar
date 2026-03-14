@@ -167,6 +167,9 @@ export interface MacroContext {
   /** Report a compile-time warning */
   reportWarning(node: ts.Node, message: string): void;
 
+  /** Create a rich diagnostic builder for structured error reporting */
+  diagnostic(descriptor: import("./diagnostics.js").DiagnosticDescriptor): import("./diagnostics.js").DiagnosticBuilder;
+
   // -------------------------------------------------------------------------
   // Compile-Time Evaluation
   // -------------------------------------------------------------------------

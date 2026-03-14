@@ -28,6 +28,7 @@ import type {
 } from "@typesugar/core";
 import { defineExpressionMacro, defineAttributeMacro } from "@typesugar/core";
 import { globalRegistry } from "@typesugar/core";
+import { TS9206, TS9402, TS9403 } from "@typesugar/core";
 import {
   standaloneExtensionRegistry,
   registerStandaloneExtensionEntry,
@@ -84,16 +85,22 @@ export const extensionAttribute: AttributeMacro = defineAttributeMacro({
     if (ts.isFunctionDeclaration(target)) {
       const name = target.name?.text;
       if (!name) {
-        ctx.reportError(target, "@extension function must have a name");
+        ctx.diagnostic(TS9206)
+          .at(target)
+          .withArgs({ macro: "@extension" })
+          .help("Give the function a name: @extension function myMethod(...) { ... }")
+          .emit();
         return target;
       }
 
       const params = target.parameters;
       if (params.length === 0) {
-        ctx.reportError(
-          target,
-          "@extension function must have at least one parameter (the receiver type)"
-        );
+        ctx.diagnostic(TS9206)
+          .at(target)
+          .withArgs({ macro: "@extension" })
+          .note("Extension functions use the first parameter as the receiver type")
+          .help(`Add a receiver parameter: function ${name}(self: MyType, ...) { ... }`)
+          .emit();
         return target;
       }
 
@@ -257,10 +264,10 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.reportError(
-        callExpr,
-        "registerExtensions() requires two arguments: a type name string and a namespace object"
-      );
+      ctx.diagnostic(TS9402)
+        .at(callExpr)
+        .help('Usage: registerExtensions("number", NumberOps)')
+        .emit();
       return ctx.factory.createVoidZero();
     }
 
@@ -269,10 +276,11 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
 
     // Extract type name from string literal
     if (!ts.isStringLiteral(typeNameArg)) {
-      ctx.reportError(
-        typeNameArg,
-        "First argument to registerExtensions() must be a string literal"
-      );
+      ctx.diagnostic(TS9402)
+        .at(typeNameArg)
+        .note("First argument must be a string literal type name")
+        .help('Usage: registerExtensions("number", NumberOps)')
+        .emit();
       return ctx.factory.createVoidZero();
     }
     const forType = typeNameArg.text;
@@ -320,10 +328,10 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.reportError(
-        callExpr,
-        "registerExtension() requires two arguments: a type name string and a function"
-      );
+      ctx.diagnostic(TS9403)
+        .at(callExpr)
+        .help('Usage: registerExtension("string", capitalize)')
+        .emit();
       return ctx.factory.createVoidZero();
     }
 
@@ -331,10 +339,11 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     const fnArg = args[1];
 
     if (!ts.isStringLiteral(typeNameArg)) {
-      ctx.reportError(
-        typeNameArg,
-        "First argument to registerExtension() must be a string literal"
-      );
+      ctx.diagnostic(TS9403)
+        .at(typeNameArg)
+        .note("First argument must be a string literal type name")
+        .help('Usage: registerExtension("string", capitalize)')
+        .emit();
       return ctx.factory.createVoidZero();
     }
     const forType = typeNameArg.text;
@@ -346,10 +355,11 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     }
 
     if (!methodName) {
-      ctx.reportError(
-        fnArg,
-        "Second argument to registerExtension() must be a function identifier"
-      );
+      ctx.diagnostic(TS9403)
+        .at(fnArg)
+        .note("Second argument must be a named function identifier")
+        .help('Usage: registerExtension("string", capitalize)')
+        .emit();
       return ctx.factory.createVoidZero();
     }
 

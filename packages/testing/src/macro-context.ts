@@ -4,7 +4,8 @@
 
 import * as ts from "typescript";
 import type { MacroContext, ComptimeValue } from "@typesugar/core";
-import { HygieneContext } from "@typesugar/core";
+import { HygieneContext, DiagnosticBuilder, richToLegacyDiagnostic } from "@typesugar/core";
+import type { DiagnosticDescriptor } from "@typesugar/core";
 
 /** Test context with additional test-specific properties */
 export interface TestMacroContext extends MacroContext {
@@ -123,6 +124,17 @@ export function createMacroTestContext(source: string): TestMacroContext {
     reportWarning(node: ts.Node, message: string): void {
       const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart());
       warnings.push(`Warning at ${pos.line + 1}:${pos.character + 1}: ${message}`);
+    },
+
+    diagnostic(descriptor: DiagnosticDescriptor): DiagnosticBuilder {
+      return new DiagnosticBuilder(descriptor, sourceFile, (rich) => {
+        const legacy = richToLegacyDiagnostic(rich);
+        if (legacy.severity === "error") {
+          errors.push(legacy.message);
+        } else {
+          warnings.push(legacy.message);
+        }
+      });
     },
 
     // Compile-time evaluation

@@ -85,6 +85,19 @@ import {
   type ResolutionTrace,
 } from "@typesugar/core";
 import { globalResolutionScope } from "@typesugar/core";
+import {
+  TS9001,
+  TS9005,
+  TS9008,
+  TS9060,
+  TS9101,
+  TS9102,
+  TS9203,
+} from "@typesugar/core";
+import {
+  getSuggestionsForSymbol,
+  getSuggestionsForTypeclass,
+} from "@typesugar/core";
 
 // ============================================================================
 // Primitive Registration Hook
@@ -2557,10 +2570,11 @@ export const derivingAttribute = defineAttributeMacro({
       !ts.isClassDeclaration(target) &&
       !ts.isTypeAliasDeclaration(target)
     ) {
-      ctx.reportError(
-        target,
-        "@deriving can only be applied to interfaces, classes, or type aliases"
-      );
+      ctx.diagnostic(TS9102)
+        .at(target)
+        .withArgs({ typeclass: "@deriving" })
+        .help("Apply @deriving to an interface, class, or type alias declaration")
+        .emit();
       return target;
     }
 
@@ -2664,7 +2678,11 @@ export const derivingAttribute = defineAttributeMacro({
       }
 
       if (!ts.isIdentifier(arg)) {
-        ctx.reportError(arg, "@deriving arguments must be typeclass names");
+        ctx.diagnostic(TS9060)
+          .at(arg)
+          .withArgs({ name: arg.getText() })
+          .help("@deriving arguments must be typeclass names like Eq, Ord, Show")
+          .emit();
         continue;
       }
 
@@ -2758,11 +2776,19 @@ export const derivingAttribute = defineAttributeMacro({
           const stmts = deriveMacro.expand(ctx, target, typeInfo);
           allStatements.push(...stmts);
         } else {
-          ctx.reportError(
-            arg,
-            `No derivation strategy found for typeclass '${tcName}'. ` +
-              `Define a custom derivation or provide a manual instance.`
-          );
+          const tcSuggestions = getSuggestionsForSymbol(tcName);
+          const builder = ctx.diagnostic(TS9101)
+            .at(arg)
+            .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
+            .note(`No derivation strategy found for typeclass '${tcName}'`);
+
+          if (tcSuggestions.length > 0) {
+            builder.help(`Import ${tcName}: ${tcSuggestions[0].importStatement}`);
+          } else {
+            builder.help(`Define a custom derivation or provide a manual @impl ${tcName}<${typeName}>`);
+          }
+
+          builder.emit();
         }
       }
     }
@@ -2796,13 +2822,19 @@ export const summonMacro = defineExpressionMacro({
     // Get the type argument: summon<Show<Point>>()
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
-      ctx.reportError(callExpr, "summon requires a type argument, e.g., summon<Show<Point>>()");
+      ctx.diagnostic(TS9005)
+        .at(callExpr)
+        .help("Provide a type argument: summon<Show<Point>>()")
+        .emit();
       return callExpr;
     }
 
     const typeArg = typeArgs[0];
     if (!ts.isTypeReferenceNode(typeArg)) {
-      ctx.reportError(callExpr, "summon type argument must be a type reference like Show<Point>");
+      ctx.diagnostic(TS9008)
+        .at(callExpr)
+        .help("Use a typeclass applied to a type: summon<Show<Point>>()")
+        .emit();
       return callExpr;
     }
 
@@ -2810,10 +2842,11 @@ export const summonMacro = defineExpressionMacro({
     const innerTypeArgs = typeArg.typeArguments;
 
     if (!innerTypeArgs || innerTypeArgs.length === 0) {
-      ctx.reportError(
-        callExpr,
-        `summon<${tcName}<...>>() requires the typeclass to have a type argument`
-      );
+      ctx.diagnostic(TS9008)
+        .at(callExpr)
+        .note(`summon<${tcName}<...>>() requires the typeclass to have a type argument`)
+        .help(`Provide a type argument: summon<${tcName}<YourType>>()`)
+        .emit();
       return callExpr;
     }
 
@@ -2877,15 +2910,22 @@ export const summonMacro = defineExpressionMacro({
     const traceNotes = formatResolutionTrace(trace);
     const helpMessage = generateHelpFromTrace(trace, tcName, typeName);
 
-    // Build a rich error message with the trace
-    const errorLines = [
-      `No instance found for \`${tcName}<${typeName}>\``,
-      "",
-      ...traceNotes.map((note) => `  = note: ${note}`),
-      `  = help: ${helpMessage}`,
-    ];
+    const builder = ctx.diagnostic(TS9001)
+      .at(callExpr)
+      .withArgs({ typeclass: tcName, type: typeName });
 
-    ctx.reportError(callExpr, errorLines.join("\n"));
+    for (const traceNote of traceNotes) {
+      builder.note(traceNote);
+    }
+
+    const tcSuggestions = getSuggestionsForTypeclass(tcName);
+    if (tcSuggestions.length > 0) {
+      builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
+    } else {
+      builder.help(helpMessage);
+    }
+
+    builder.emit();
     return callExpr;
   },
 });
