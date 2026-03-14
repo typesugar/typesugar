@@ -50,7 +50,7 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
-import { TS9001 } from "@typesugar/core";
+import { TS9001, TS9008 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
 import {
@@ -489,7 +489,10 @@ export const summonAllMacro = defineExpressionMacro({
       const innerTypeArgs = typeArg.typeArguments;
 
       if (!innerTypeArgs || innerTypeArgs.length === 0) {
-        ctx.reportError(typeArg, `Type ${tcName} requires a type argument`);
+        ctx.diagnostic(TS9008)
+          .at(typeArg)
+          .help(`Use summonAll<${tcName}<YourType>>() with a concrete type argument`)
+          .emit();
         continue;
       }
 

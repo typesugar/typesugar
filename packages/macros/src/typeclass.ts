@@ -2431,11 +2431,11 @@ function createTypeclassDeriveMacro(tcName: string) {
     ): ts.Statement[] {
       const derivation = builtinDerivations[tcName];
       if (!derivation) {
-        ctx.reportError(
-          target,
-          `No built-in derivation strategy for typeclass '${tcName}'. ` +
-            `Register a custom derivation or provide a manual instance.`
-        );
+        ctx.diagnostic(TS9101)
+          .at(target)
+          .withArgs({ typeclass: tcName, type: typeInfo.name, field: "*", fieldType: "*" })
+          .help(`Register a custom derivation or provide a manual @impl ${tcName}<${typeInfo.name}>`)
+          .emit();
         return [];
       }
 
@@ -2694,16 +2694,21 @@ export const derivingAttribute = defineAttributeMacro({
         // First, derive any nested types that need instances
         const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
 
-        // Report any errors
         for (const err of plan.errors) {
-          ctx.reportError(target, err);
+          ctx.diagnostic(TS9101)
+            .at(target)
+            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
+            .note(err)
+            .help(`Ensure all nested types have ${tcName} instances`)
+            .emit();
         }
         for (const cycle of plan.cycles) {
-          ctx.reportError(
-            target,
-            `Circular reference in transitive derivation: ${cycle.join(" → ")}. ` +
-              `Add explicit @derive(${tcName}) to break the cycle.`
-          );
+          ctx.diagnostic(TS9101)
+            .at(target)
+            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
+            .note(`Circular reference: ${cycle.join(" → ")}`)
+            .help(`Add explicit @derive(${tcName}) to one of the types in the cycle to break it`)
+            .emit();
         }
 
         // Execute transitive derivation for nested types (dependencies first)
