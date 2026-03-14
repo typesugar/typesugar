@@ -919,6 +919,10 @@ export default function macroTransformerFactory(
           }
         }
 
+        // Extract typesugar error code from [TS9XXX] prefix in message
+        const codeMatch = diag.message.match(/\[TS(\d{4})\]/);
+        const errorCode = codeMatch ? parseInt(codeMatch[1], 10) : 90000;
+
         const tsDiag: ts.Diagnostic = {
           file: sourceFile,
           start,
@@ -926,7 +930,7 @@ export default function macroTransformerFactory(
           messageText: `[typesugar] ${diag.message}`,
           category:
             diag.severity === "error" ? ts.DiagnosticCategory.Error : ts.DiagnosticCategory.Warning,
-          code: 90000,
+          code: errorCode,
           source: "typesugar",
         };
 

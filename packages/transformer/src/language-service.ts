@@ -23,7 +23,7 @@
 import type * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import { TransformationPipeline, type TransformResult } from "./pipeline.js";
+import { TransformationPipeline, type TransformResult, type TransformDiagnostic } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import { preprocess } from "@typesugar/preprocessor";
 
@@ -33,6 +33,16 @@ import { preprocess } from "@typesugar/preprocessor";
 interface TransformCacheEntry {
   result: TransformResult;
   version: string;
+}
+
+/**
+ * Stored suggestion keyed by "fileName:start" for Quick Fix lookup
+ */
+interface StoredSuggestion {
+  description: string;
+  start: number;
+  length: number;
+  replacement: string;
 }
 
 function init(modules: { typescript: typeof ts }) {
@@ -98,6 +108,10 @@ function init(modules: { typescript: typeof ts }) {
     // Transform cache and pipeline
     // ---------------------------------------------------------------------------
     const transformCache = new Map<string, TransformCacheEntry>();
+    /** Per-file macro diagnostic cache (ts.Diagnostic[]) for injection into getSemanticDiagnostics */
+    const macroDiagnosticCache = new Map<string, ts.Diagnostic[]>();
+    /** Per-file suggestion cache for Quick Fix code actions */
+    const suggestionCache = new Map<string, StoredSuggestion[]>();
     let pipeline: TransformationPipeline | null = null;
 
     // Store original host methods BEFORE we modify them
@@ -141,6 +155,62 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     /**
+     * Extract typesugar error code from [TS9XXX] prefix in a message string.
+     * Falls back to 9999 if no code is found.
+     */
+    function extractErrorCode(message: string): number {
+      const match = message.match(/\[TS(\d{4})\]/);
+      return match ? parseInt(match[1], 10) : 9999;
+    }
+
+    /**
+     * Convert pipeline TransformDiagnostics to ts.Diagnostic[] for a given file.
+     * Positions are in preprocessed space which equals original space for .ts files.
+     */
+    function convertMacroDiagnostics(
+      transformDiags: TransformDiagnostic[],
+      fileName: string,
+    ): ts.Diagnostic[] {
+      const program = oldLS.getProgram();
+      const sourceFile = program?.getSourceFile(fileName);
+
+      const tsDiags: ts.Diagnostic[] = [];
+      const suggestions: StoredSuggestion[] = [];
+
+      for (const diag of transformDiags) {
+        // Only include diagnostics for this file
+        if (path.normalize(diag.file) !== path.normalize(fileName)) continue;
+
+        const code = diag.code ?? extractErrorCode(diag.message);
+
+        tsDiags.push({
+          file: sourceFile,
+          start: diag.start,
+          length: diag.length,
+          messageText: diag.message,
+          category: diag.severity === "error"
+            ? tsModule.DiagnosticCategory.Error
+            : tsModule.DiagnosticCategory.Warning,
+          code,
+          source: "typesugar",
+        });
+
+        if (diag.suggestion) {
+          suggestions.push(diag.suggestion);
+        }
+      }
+
+      // Cache suggestions for Quick Fix lookup
+      if (suggestions.length > 0) {
+        suggestionCache.set(path.normalize(fileName), suggestions);
+      } else {
+        suggestionCache.delete(path.normalize(fileName));
+      }
+
+      return tsDiags;
+    }
+
+    /**
      * Transform a file and cache the result
      */
     function getTransformResult(fileName: string): TransformResult | null {
@@ -160,10 +230,12 @@ function init(modules: { typescript: typeof ts }) {
         return cached.result;
       }
 
-      // Invalidate stale cache entry
+      // Invalidate stale cache entry and clear associated diagnostic caches
       if (cached) {
         p.invalidate(normalizedFileName);
       }
+      macroDiagnosticCache.delete(normalizedFileName);
+      suggestionCache.delete(normalizedFileName);
 
       try {
         const result = p.transform(normalizedFileName);
@@ -175,12 +247,28 @@ function init(modules: { typescript: typeof ts }) {
           }
         }
 
+        // Convert and cache macro diagnostics for IDE surfacing
+        const tsDiags = convertMacroDiagnostics(result.diagnostics, normalizedFileName);
+        if (tsDiags.length > 0) {
+          macroDiagnosticCache.set(normalizedFileName, tsDiags);
+          log(`Cached ${tsDiags.length} macro diagnostics for ${path.basename(normalizedFileName)}`);
+        } else {
+          macroDiagnosticCache.delete(normalizedFileName);
+        }
+
         if (result.changed) {
           transformCache.set(normalizedFileName, {
             result,
             version: currentVersion,
           });
           log(`Transformed ${normalizedFileName} (changed, ${result.code.length} chars)`);
+        } else {
+          // Even for unchanged files, cache the result if there are diagnostics
+          // so we don't re-transform on every getSemanticDiagnostics call
+          transformCache.set(normalizedFileName, {
+            result,
+            version: currentVersion,
+          });
         }
 
         return result;
@@ -445,14 +533,26 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     proxy.getSemanticDiagnostics = (fileName: string): ts.Diagnostic[] => {
+      const normalizedFileName = path.normalize(fileName);
+
+      // Ensure transformation has run (populates macroDiagnosticCache)
+      getTransformResult(normalizedFileName);
+
+      // Get TypeScript's own diagnostics and map positions back
       const diagnostics = oldLS.getSemanticDiagnostics(fileName);
       const mapped = mapDiagnostics(diagnostics, fileName);
-      if (mapped.length > 0) {
+
+      // Inject macro diagnostics from the transformation pipeline
+      const macroDiags = macroDiagnosticCache.get(normalizedFileName) ?? [];
+      const combined = [...mapped, ...macroDiags];
+
+      if (combined.length > 0) {
         log(
-          `Semantic diagnostics for ${path.basename(fileName)}: ${diagnostics.length} raw → ${mapped.length} mapped`
+          `Semantic diagnostics for ${path.basename(fileName)}: ` +
+          `${diagnostics.length} TS raw → ${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
         );
       }
-      return mapped;
+      return combined;
     };
 
     proxy.getSyntacticDiagnostics = (fileName: string): ts.DiagnosticWithLocation[] => {
@@ -463,6 +563,65 @@ function init(modules: { typescript: typeof ts }) {
     proxy.getSuggestionDiagnostics = (fileName: string): ts.DiagnosticWithLocation[] => {
       const diagnostics = oldLS.getSuggestionDiagnostics(fileName);
       return mapDiagnostics(diagnostics, fileName);
+    };
+
+    // ---------------------------------------------------------------------------
+    // Override: Code fixes for macro diagnostics (Quick Fix menu)
+    // ---------------------------------------------------------------------------
+
+    proxy.getCodeFixesAtPosition = (
+      fileName: string,
+      start: number,
+      end: number,
+      errorCodes: readonly number[],
+      formatOptions: ts.FormatCodeSettings,
+      preferences: ts.UserPreferences,
+    ): readonly ts.CodeFixAction[] => {
+      const normalizedFileName = path.normalize(fileName);
+
+      // Get TS's own code fixes
+      const original = oldLS.getCodeFixesAtPosition(
+        fileName, start, end, errorCodes, formatOptions, preferences,
+      );
+
+      // Check if any of the error codes are in the typesugar range (9001-9999)
+      const hasTypesugarCodes = errorCodes.some((c) => c >= 9001 && c <= 9999);
+      if (!hasTypesugarCodes) {
+        return original;
+      }
+
+      // Look for typesugar diagnostics with suggestions at this position
+      const fileSuggestions = suggestionCache.get(normalizedFileName);
+      if (!fileSuggestions || fileSuggestions.length === 0) {
+        return original;
+      }
+
+      const fixes: ts.CodeFixAction[] = [];
+      for (const suggestion of fileSuggestions) {
+        // Check if the suggestion overlaps with the requested range
+        const suggestionEnd = suggestion.start + suggestion.length;
+        if (suggestion.start <= end && suggestionEnd >= start) {
+          fixes.push({
+            fixName: "typesugar-fix",
+            description: suggestion.description,
+            changes: [{
+              fileName: normalizedFileName,
+              textChanges: [{
+                span: { start: suggestion.start, length: suggestion.length },
+                newText: suggestion.replacement,
+              }],
+            }],
+            fixId: "typesugar-fix",
+            fixAllDescription: suggestion.description,
+          });
+        }
+      }
+
+      if (fixes.length > 0) {
+        log(`Providing ${fixes.length} typesugar Quick Fix(es) for ${path.basename(fileName)}`);
+      }
+
+      return [...original, ...fixes];
     };
 
     // ---------------------------------------------------------------------------

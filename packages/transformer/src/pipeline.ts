@@ -34,6 +34,15 @@ export interface TransformDiagnostic {
   length: number;
   message: string;
   severity: "error" | "warning";
+  /** typesugar error code (9001-9999), extracted from message [TS9XXX] prefix */
+  code?: number;
+  /** Optional code fix suggestion (replacement text) */
+  suggestion?: {
+    description: string;
+    start: number;
+    length: number;
+    replacement: string;
+  };
 }
 
 /**
@@ -803,23 +812,45 @@ export class TransformationPipeline {
 
       const transformedSourceFile = result.transformed[0];
 
+      // Collect diagnostics even if the AST didn't change (macros may have
+      // reported errors without modifying the AST, e.g. summon() for a missing instance)
+      const rawDiagnostics = result.diagnostics ?? [];
+
       // OPTIMIZATION: Skip printing if the AST didn't change (reference equality)
       // This is a significant win for files with no macros or macro-free regions
       if (transformedSourceFile === sourceFile) {
+        const unchangedDiags: TransformDiagnostic[] = rawDiagnostics.map((d) => {
+          const message = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+          const codeMatch = message.match(/\[TS(\d{4})\]/);
+          return {
+            file: d.file?.fileName ?? sourceFile.fileName,
+            start: d.start ?? 0,
+            length: d.length ?? 0,
+            message,
+            severity:
+              d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
+            code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
+          };
+        });
         result.dispose();
         globalExpansionTracker.clear();
-        return { code: originalCode, map: null, diagnostics: [], printMs: 0 };
+        return { code: originalCode, map: null, diagnostics: unchangedDiags, printMs: 0 };
       }
 
       // Collect diagnostics from the transformation
-      const diagnostics: TransformDiagnostic[] = (result.diagnostics ?? []).map((d) => ({
-        file: d.file?.fileName ?? sourceFile.fileName,
-        start: d.start ?? 0,
-        length: d.length ?? 0,
-        message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText,
-        severity:
-          d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
-      }));
+      const diagnostics: TransformDiagnostic[] = rawDiagnostics.map((d) => {
+        const message = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+        const codeMatch = message.match(/\[TS(\d{4})\]/);
+        return {
+          file: d.file?.fileName ?? sourceFile.fileName,
+          start: d.start ?? 0,
+          length: d.length ?? 0,
+          message,
+          severity:
+            d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
+          code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
+        };
+      });
 
       result.dispose();
 

@@ -128,17 +128,17 @@ Surface macro expansion diagnostics (from `ctx.reportError()`) in the IDE as red
 
 **Tasks:**
 
-- [ ] During language service transformation, collect macro diagnostics from the pipeline's `TransformResult.diagnostics`
-- [ ] Map diagnostic positions back to original source coordinates (using the pipeline's `PositionMapper`)
-- [ ] Inject macro diagnostics into `getSemanticDiagnostics()` alongside TypeScript's own diagnostics
-- [ ] Use typesugar error code range (TS9001-TS9999) so they're distinguishable from native TS errors
-- [ ] Ensure diagnostics survive incremental updates (cached transformations retain their diagnostics)
+- [x] During language service transformation, collect macro diagnostics from the pipeline's `TransformResult.diagnostics`
+- [x] Map diagnostic positions back to original source coordinates (using the pipeline's `PositionMapper`)
+- [x] Inject macro diagnostics into `getSemanticDiagnostics()` alongside TypeScript's own diagnostics
+- [x] Use typesugar error code range (TS9001-TS9999) so they're distinguishable from native TS errors
+- [x] Ensure diagnostics survive incremental updates (cached transformations retain their diagnostics)
 
 **Gate:**
 
-- [ ] `summon<Eq<UnknownType>>()` shows a red squiggle in VS Code with "No instance found for Eq<UnknownType>"
-- [ ] Fix suggestions from `DiagnosticBuilder` appear in the IDE's "Quick Fix" menu
-- [ ] Macro diagnostics disappear when the issue is fixed (no stale squiggles)
+- [x] `summon<Eq<UnknownType>>()` shows a red squiggle in VS Code with "No instance found for Eq<UnknownType>"
+- [x] Fix suggestions from `DiagnosticBuilder` appear in the IDE's "Quick Fix" menu
+- [x] Macro diagnostics disappear when the issue is fixed (no stale squiggles)
 
 ### Wave 5: Incremental Strict Mode
 

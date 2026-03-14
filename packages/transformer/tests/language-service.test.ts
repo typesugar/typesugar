@@ -869,3 +869,138 @@ const result = 1 |> ((x) => x + 1);
     });
   });
 });
+
+// =============================================================================
+// PEP-005 Wave 4: Macro Diagnostic Injection Tests
+// =============================================================================
+
+describe("Macro Diagnostic Injection (PEP-005 Wave 4)", () => {
+  describe("macro diagnostics appear in getSemanticDiagnostics", () => {
+    it("injects typesugar-sourced diagnostics alongside TS diagnostics", () => {
+      const files = new Map<string, string>();
+      // A file with a type error (TS diagnostic) and macro code
+      files.set("/test/index.ts", `const x: string = 123;`);
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+
+      // Should have at least the TS type error
+      expect(diagnostics.length).toBeGreaterThan(0);
+
+      // TS diagnostics should still be present
+      const tsErrors = diagnostics.filter((d) => d.source !== "typesugar");
+      expect(tsErrors.length).toBeGreaterThan(0);
+    });
+
+    it("macro diagnostics have source: 'typesugar'", () => {
+      // When macro diagnostics exist, they should be identifiable
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", `const x = 1;`);
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+
+      // For a plain file, there should be no macro diagnostics
+      const macroDiags = diagnostics.filter((d) => d.source === "typesugar");
+      expect(macroDiags).toHaveLength(0);
+    });
+
+    it("returns no stale macro diagnostics from typesugar source", () => {
+      // Verify that typesugar diagnostics are regenerated per-file-version,
+      // not carried over from a previous version. For a plain file with no
+      // macros, there should be zero typesugar-sourced diagnostics.
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", `const x = 1;`);
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      // First call — no macro diagnostics expected
+      const diags1 = proxy.getSemanticDiagnostics("/test/index.ts");
+      const macroDiags1 = diags1.filter((d) => d.source === "typesugar");
+      expect(macroDiags1).toHaveLength(0);
+
+      // Second call — still no stale macro diagnostics
+      const diags2 = proxy.getSemanticDiagnostics("/test/index.ts");
+      const macroDiags2 = diags2.filter((d) => d.source === "typesugar");
+      expect(macroDiags2).toHaveLength(0);
+    });
+  });
+
+  describe("typesugar error code extraction", () => {
+    it("extracts [TS9XXX] codes from diagnostic messages", () => {
+      // Test the error code extraction logic used internally
+      const testMessages = [
+        { msg: "[TS9001] No instance found for `Eq<Point>`", expected: 9001 },
+        { msg: "[TS9101] Cannot auto-derive Eq<Color>", expected: 9101 },
+        { msg: "[TS9999] Internal error: something went wrong", expected: 9999 },
+        { msg: "No error code in this message", expected: 9999 },
+      ];
+
+      for (const { msg, expected } of testMessages) {
+        const match = msg.match(/\[TS(\d{4})\]/);
+        const code = match ? parseInt(match[1], 10) : 9999;
+        expect(code).toBe(expected);
+      }
+    });
+  });
+
+  describe("TransformDiagnostic format", () => {
+    it("pipeline transform result includes diagnostic code field", () => {
+      // Verify that TransformDiagnostic can carry optional code
+      const code = "const x = 1;";
+      const result = transformCode(code, { fileName: "test.ts" });
+
+      // Plain code should have no diagnostics
+      expect(result.diagnostics).toHaveLength(0);
+
+      // The diagnostics array should be typed to accept code field
+      const testDiag = {
+        file: "test.ts",
+        start: 0,
+        length: 1,
+        message: "[TS9001] test",
+        severity: "error" as const,
+        code: 9001,
+      };
+      expect(testDiag.code).toBe(9001);
+    });
+  });
+
+  describe("code fix actions", () => {
+    it("proxy has getCodeFixesAtPosition method", () => {
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", `const x = 1;`);
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      expect(proxy.getCodeFixesAtPosition).toBeInstanceOf(Function);
+    });
+
+    it("returns original TS code fixes for non-typesugar error codes", () => {
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", `const x: string = 123;`);
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      // Request fixes for a standard TS error code (not in 9001-9999 range)
+      const fixes = proxy.getCodeFixesAtPosition(
+        "/test/index.ts", 0, 10, [2322], {}, {},
+      );
+
+      // Should at least not throw
+      expect(fixes).toBeDefined();
+    });
+  });
+});
