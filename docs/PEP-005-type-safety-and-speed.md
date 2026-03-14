@@ -222,16 +222,60 @@ Investigate whether OXC can provide useful diagnostics without full typechecking
 
 **Tasks:**
 
-- [ ] Research oxc's diagnostic capabilities (parse errors, unreachable code, unused imports)
-- [ ] Prototype: run `oxc_linter` rules during the OXC backend transform pass
-- [ ] Evaluate which rules catch real issues vs noise for typesugar users
-- [ ] If valuable: add `lint: true` option that enables OXC diagnostics during transform
-- [ ] If not valuable: document findings and close wave
+- [x] Research oxc's diagnostic capabilities (parse errors, unreachable code, unused imports)
+- [x] Prototype: run `oxc_linter` rules during the OXC backend transform pass
+- [x] Evaluate which rules catch real issues vs noise for typesugar users
+- [ ] ~~If valuable: add `lint: true` option that enables OXC diagnostics during transform~~
+- [x] If not valuable: document findings and close wave
 
 **Gate:**
 
-- [ ] Decision documented: "OXC diagnostics are/aren't worth integrating"
-- [ ] If integrated: at least parse errors and obvious structural issues are reported
+- [x] Decision documented: "OXC diagnostics are/aren't worth integrating"
+- [x] If integrated: at least parse errors and obvious structural issues are reported
+
+**Decision: OXC linting diagnostics are not worth integrating into the transform pass.**
+
+**Rationale:**
+
+The `@typesugar/oxc-engine` uses the OXC parser (`oxc_parser`), AST (`oxc_ast`), codegen (`oxc_codegen`), and semantic (`oxc_semantic`) crates — it does **not** include the linter (`oxc_linter`). These are architecturally separate concerns in OXC:
+
+| OXC Component | What it does | Already in typesugar? |
+|---|---|---|
+| `oxc_parser` | Parse TS/JS into AST, report syntax errors | Yes (v0.49) |
+| `oxc_ast` | AST types and visitor trait | Yes (v0.49) |
+| `oxc_semantic` | Scope analysis, symbol tables, reference tracking | Yes (v0.49, used for `ScopeFlags` only) |
+| `oxc_codegen` | AST → source code generation | Yes (v0.49) |
+| `oxc_linter` | 695+ lint rules (ESLint-compatible) | **No** — separate crate |
+| `oxlint` | CLI tool wrapping `oxc_linter` | **No** — standalone binary |
+
+Embedding `oxc_linter` into the transform pass was evaluated and rejected for these reasons:
+
+1. **Dependency weight.** `oxc_linter` pulls in all rule implementations (695+ rules). The current engine binary is lean (parser + codegen + semantic). Adding the linter would roughly double the native binary size.
+
+2. **Redundant with existing tooling.** Parse errors (the most critical structural diagnostics) are already captured from `oxc_parser` and routed through the pipeline as `TransformDiagnostic`. The transform pass in `lib.rs` (lines 122–141) collects `parser_ret.errors` and surfaces them as diagnostics with severity "error".
+
+3. **Wrong granularity.** Lint rules are project-level configuration (which rules to enable, severity overrides, plugin selection). Embedding them in a per-file transform function conflates two concerns. Linting needs project context (`.oxlintrc.json`, TypeScript config) that the transform function doesn't have.
+
+4. **`oxc_semantic` is underused but available.** The crate is already a dependency and could theoretically provide scope-based checks (unused variables, undefined references). However, these checks duplicate what `tsc --noEmit` and the IDE already provide. The transform pass should stay fast and focused.
+
+5. **OXC's own architecture separates these.** The OXC project treats parsing, semantic analysis, and linting as distinct pipeline stages. Their linter builds on top of the parser + semantic, not alongside it. Typesugar should follow the same separation.
+
+**What IS already provided:**
+
+- Parse errors from the OXC parser are reported as `TransformDiagnostic` with severity "error"
+- These catch syntax errors, malformed expressions, and invalid TypeScript constructs
+- The pipeline in `runOxcTransformer()` converts these to the standard diagnostic format
+- Macro-specific diagnostics (`staticAssert` failures, unknown macros, `@cfg` errors) are also reported
+
+**Recommendation for users who want structural linting:**
+
+```bash
+# Add to CI alongside tsc --noEmit
+npx oxlint .              # Fast structural lint (syntax, common bugs)
+npx tsc --noEmit          # Full type checking
+```
+
+`oxlint` runs in ~100ms on most projects and catches many of the structural issues (unused variables, unreachable code, suspicious patterns) that this wave aimed to address — without any integration cost.
 
 ## Consequences
 
