@@ -531,6 +531,13 @@ function extractMetaFromTypeChecker(ctx: MacroContext, typeName: string): Generi
     // Structural typeclasses (Eq, Ord, Show) only operate on data properties.
     if (propType.getCallSignatures().length > 0) continue;
 
+    if (!ctx.isTypeReliable(propType)) {
+      ctx.reportWarning(
+        prop.valueDeclaration ?? sourceFile,
+        `field '${prop.name}' has type 'any' (possibly unresolved) — derived instance may be incorrect`
+      );
+    }
+
     fieldNames.push(prop.name);
     fieldTypes.push(typeChecker.typeToString(propType));
   }

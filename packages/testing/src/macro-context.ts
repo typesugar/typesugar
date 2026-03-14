@@ -183,6 +183,15 @@ export function createMacroTestContext(source: string): TestMacroContext {
       return node;
     },
 
+    // Type confidence (tests assume reliable types by default)
+    isTypeReliable(_type: ts.Type): boolean {
+      return true;
+    },
+
+    assertTypeReliable(node: ts.Node, _purpose: string): ts.Type | null {
+      return typeChecker.getTypeAtLocation(node);
+    },
+
     // Safe reference generation (test implementation just returns bare identifier)
     safeRef(symbol: string, _from: string): ts.Identifier {
       return ts.factory.createIdentifier(symbol);

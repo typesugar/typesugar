@@ -4130,6 +4130,16 @@ class MacroTransformer {
     }
 
     const receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
+
+    if (!this.ctx.isTypeReliable(receiverType)) {
+      if (this.verbose) {
+        console.log(
+          `[typesugar] Skipping extension rewrite for '${methodName}' — receiver type is unreliable (any/never). Fix upstream type errors.`
+        );
+      }
+      return undefined;
+    }
+
     const existingProp = receiverType.getProperty(methodName);
 
     // If the property exists natively, we usually skip rewriting.

@@ -101,26 +101,26 @@ Add infrastructure for macros to detect when the TypeChecker is returning unreli
 
 **Tasks:**
 
-- [ ] Add `ctx.isTypeReliable(type: ts.Type): boolean` to `MacroContext`:
+- [x] Add `ctx.isTypeReliable(type: ts.Type): boolean` to `MacroContext`:
   - Returns `false` if type is `any` (implicit — not annotated)
   - Returns `false` if type is `error` type
   - Returns `false` if the containing file has semantic errors affecting this node
   - Returns `true` otherwise
-- [ ] Add `ctx.assertTypeReliable(node: ts.Node, purpose: string)` convenience:
+- [x] Add `ctx.assertTypeReliable(node: ts.Node, purpose: string)` convenience:
   - Checks `isTypeReliable` on the node's type
   - If unreliable, emits a diagnostic: "typesugar skipped [purpose] because the type of [node] could not be resolved. Fix upstream type errors first."
   - Returns the type if reliable, `null` if not
-- [ ] Integrate into key macro sites:
-  - [ ] `extractMetaFromTypeChecker()` — warn when field types resolve to `any`
-  - [ ] Operator rewrite — warn when operand type is unreliable
-  - [ ] Extension method resolution — warn when receiver type is unreliable
-  - [ ] Auto-specialization — warn when function parameter types are unreliable
+- [x] Integrate into key macro sites:
+  - [x] `extractMetaFromTypeChecker()` — warn when field types resolve to `any`
+  - [x] Operator rewrite — warn when operand type is unreliable
+  - [x] Extension method resolution — warn when receiver type is unreliable
+  - [x] Auto-specialization — warn when function parameter types are unreliable
 
 **Gate:**
 
-- [ ] `ctx.isTypeReliable()` exists and is tested
-- [ ] Macros that skip rewriting due to unreliable types emit a diagnostic
-- [ ] A test case demonstrates: file with type error → macro skips with clear message → fix type error → macro works
+- [x] `ctx.isTypeReliable()` exists and is tested
+- [x] Macros that skip rewriting due to unreliable types emit a diagnostic
+- [x] A test case demonstrates: file with type error → macro skips with clear message → fix type error → macro works
 
 ### Wave 4: Language Service Macro Diagnostics
 

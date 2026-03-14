@@ -216,6 +216,16 @@ export interface MacroContext {
   safeRef(symbol: string, from: string): ts.Identifier;
 
   // -------------------------------------------------------------------------
+  // Type Confidence
+  // -------------------------------------------------------------------------
+
+  /** Check if a type is reliable (not implicit any, not error type) */
+  isTypeReliable(type: import("typescript").Type): boolean;
+
+  /** Assert type is reliable; emits diagnostic and returns null if not */
+  assertTypeReliable(node: import("typescript").Node, purpose: string): import("typescript").Type | null;
+
+  // -------------------------------------------------------------------------
   // Tree-Shaking Annotations
   // -------------------------------------------------------------------------
 

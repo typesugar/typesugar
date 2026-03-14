@@ -639,6 +639,21 @@ export function createSpecializedFunction(
   const { fnExpr, dictExprs, callExpr, suppressWarnings = false } = options;
   const fnName = getFunctionDisplayName(fnExpr);
 
+  // Check if the function's type is reliable before attempting specialization.
+  // Skip for synthetic nodes (pos === -1) which are created during macro expansion.
+  if (fnExpr.pos >= 0) {
+    const fnType = ctx.getTypeOf(fnExpr);
+    if (!ctx.isTypeReliable(fnType)) {
+      if (!suppressWarnings) {
+        ctx.reportWarning(
+          callExpr,
+          `typesugar skipped specialization of '${fnName}' because its type could not be resolved. Fix upstream type errors first.`
+        );
+      }
+      return createPartialApplication(ctx, fnExpr, dictExprs[0], callExpr);
+    }
+  }
+
   // Resolve all dictionaries
   const resolvedDicts: ResolvedDict[] = [];
   const unresolvedDicts: string[] = [];

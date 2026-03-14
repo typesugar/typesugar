@@ -371,6 +371,20 @@ function transformExpression(ctx: MacroContext, expr: ts.Expression): ts.Express
 
     // Try to determine the type of the left operand
     const leftType = ctx.getTypeOf(expr.left);
+
+    if (!ctx.isTypeReliable(leftType)) {
+      ctx.reportWarning(
+        expr.left,
+        `typesugar skipped operator rewrite for '${operator}' because the left operand type could not be resolved. Fix upstream type errors first.`
+      );
+      return factory.updateBinaryExpression(
+        expr,
+        transformExpression(ctx, expr.left),
+        expr.operatorToken,
+        transformExpression(ctx, expr.right)
+      );
+    }
+
     const typeName = ctx.typeChecker.typeToString(leftType);
 
     // Clean up the type name (remove generics, etc.)
@@ -405,6 +419,13 @@ function transformExpression(ctx: MacroContext, expr: ts.Expression): ts.Express
     const operator = getPrefixOperatorString(expr.operator);
     if (operator) {
       const operandType = ctx.getTypeOf(expr.operand);
+      if (!ctx.isTypeReliable(operandType)) {
+        ctx.reportWarning(
+          expr.operand,
+          `typesugar skipped operator rewrite for '${operator}' because the operand type could not be resolved. Fix upstream type errors first.`
+        );
+        return factory.updatePrefixUnaryExpression(expr, transformExpression(ctx, expr.operand));
+      }
       const typeName = ctx.typeChecker.typeToString(operandType).split("<")[0].trim();
       const method = getOperatorMethod(typeName, operator);
 

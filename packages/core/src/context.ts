@@ -181,6 +181,38 @@ export class MacroContextImpl implements MacroContext {
   }
 
   // -------------------------------------------------------------------------
+  // Type Confidence
+  // -------------------------------------------------------------------------
+
+  isTypeReliable(type: ts.Type): boolean {
+    if (type.flags & ts.TypeFlags.Any) {
+      return false;
+    }
+    if (type.flags & ts.TypeFlags.Never) {
+      return false;
+    }
+    return true;
+  }
+
+  assertTypeReliable(node: ts.Node, purpose: string): ts.Type | null {
+    const type = this.typeChecker.getTypeAtLocation(node);
+    if (!this.isTypeReliable(type)) {
+      let nodeText: string;
+      try {
+        nodeText = node.getText();
+      } catch {
+        nodeText = this.printer.printNode(ts.EmitHint.Expression, node, this.sourceFile);
+      }
+      this.reportWarning(
+        node,
+        `typesugar skipped ${purpose} because the type of '${nodeText}' could not be resolved. Fix upstream type errors first.`
+      );
+      return null;
+    }
+    return type;
+  }
+
+  // -------------------------------------------------------------------------
   // Diagnostics
   // -------------------------------------------------------------------------
 
