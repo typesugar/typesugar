@@ -1,6 +1,6 @@
 # PEP-005: Type Safety and Speed — Matching the TypeScript Developer Experience
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-14
 **Author:** Dean Povey
 **Depends on:** PEP-002 (oxc backend), PEP-004 (source-based typeclass features)
@@ -216,9 +216,11 @@ Systematically try to write code that bypasses typesugar's type safety guarantee
 - [x] Findings tracked in `sandbox/red-team/FINDINGS.md` with status
 - [x] `pnpm test red-team-type-safety` passes
 
-### Wave 7: OXC Diagnostic Pass (Exploratory)
+### Wave 7: OXC Diagnostic Pass (Exploratory) ✓
 
 Investigate whether OXC can provide useful diagnostics without full typechecking — catching structural errors that don't require type resolution.
+
+**Wave 7 complete (2026-03-14):** Decision documented; parse errors already reported via OXC parser; lint integration rejected.
 
 **Tasks:**
 
