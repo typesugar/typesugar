@@ -45,8 +45,8 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 
 ### Statistics
 
-- **Total Findings:** 32
-- **Fixed:** 6 (#8, #13, #14, #15, #16, #23)
+- **Total Findings:** 51 (32 original + 19 from PEP-005 Wave 6)
+- **Fixed:** 8 (#8, #13, #14, #15, #16, #23, #TS-2/type-confidence, #TS-49/show-crash)
 - **High Severity:** 0 remaining (2 fixed)
 - **Medium Severity:** 7 remaining (1 fixed)
 - **Low Severity:** 14 remaining (3 fixed)
@@ -78,7 +78,7 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 
 ### Test Coverage
 
-- **1900+ tests** across 44 test files
+- **1950+ tests** across 45 test files
 - All tests passing (documenting both correct and edge case behavior)
 
 ### Test Files
@@ -123,6 +123,7 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | `red-team-unplugin-typesugar.test.ts` | 36    | Bundler plugin configuration                   |
 | `red-team-validate.test.ts`           | 40    | Schema validation, type coercion               |
 | `red-team-vscode.test.ts`             | 26    | VS Code extension configuration                |
+| `red-team-type-safety.test.ts`        | 51    | Type safety bypass, error quality (PEP-005 W6) |
 
 ---
 
@@ -781,5 +782,86 @@ match(val, { ja: () => "Japanese", en: () => "English" }, "lang");
 The runtime fallback tries common discriminant names. Non-standard names like `lang` aren't detected automatically.
 
 **Recommendation:** Document the supported discriminant names and how to specify custom ones.
+
+---
+
+## PEP-005 Wave 6: Type Safety Bypass and Error Quality
+
+Date: 2026-03-14
+
+### Type Safety Findings Summary
+
+| #     | Category           | Finding                                                    | Status   | Notes                                                    |
+| ----- | ------------------ | ---------------------------------------------------------- | -------- | -------------------------------------------------------- |
+| TS-1  | Silent Wrong Code  | Derived Eq uses === (reference equality for objects)       | Accepted | By design — === is fast; structural Eq needs explicit impl |
+| TS-2  | Silent Wrong Code  | Type confidence correctly flags `any` as unreliable        | Working  | Wave 3 infrastructure handles this                       |
+| TS-3  | Silent Wrong Code  | NaN !== NaN breaks derived Eq                              | Accepted | JavaScript semantics; document in derive guide           |
+| TS-4  | Silent Wrong Code  | NaN breaks derived Ord (appears equal to everything)       | Accepted | JavaScript semantics; document in derive guide           |
+| TS-5  | Silent Wrong Code  | NaN/Infinity/0 all hash to same value                      | Accepted | `(NaN \| 0) === 0`; document limitation                  |
+| TS-6  | Silent Wrong Code  | Type confidence flags `any` in operator context            | Working  | Wave 3 integration works correctly                       |
+| TS-7  | Silent Wrong Code  | `any & T` collapses to `any`, caught by type confidence    | Working  | TypeScript simplifies intersection with any              |
+| TS-8  | Silent Wrong Code  | summon() runtime stub throws clear error                   | Working  | Error message is actionable                              |
+| TS-9  | Silent Wrong Code  | Missing import → field resolves to error/any               | Working  | Type confidence check catches this                       |
+| TS-10 | Silent Wrong Code  | Derived Eq on nested objects uses reference equality       | Accepted | Same as TS-1; by design                                  |
+| TS-11 | Typecheck Bypass   | instance() with wrong signatures passes through at runtime | Accepted | Validation happens at compile time via transformer        |
+| TS-12 | Typecheck Bypass   | Derive on class with private fields — only public compared | Accepted | TypeChecker only exposes public fields; by design        |
+| TS-13 | Typecheck Bypass   | implicit() runtime stub throws clear error                 | Working  | Error includes setup instructions                        |
+| TS-14 | Typecheck Bypass   | summon() runtime stub throws                               | Working  | Error message is actionable                              |
+| TS-15 | Typecheck Bypass   | Registry allows overwriting typeclass entries               | Deferred | Low risk; last-write-wins is acceptable                  |
+| TS-16 | Typecheck Bypass   | Instance registry accepts entries without validation       | Deferred | Array-based registry; validation at compile time         |
+| TS-17 | Typecheck Bypass   | @deriving decorator is no-op at runtime                    | Working  | By design; compile-time only                             |
+| TS-18 | Typecheck Bypass   | extend() runtime stub throws                               | Working  | Error message is actionable                              |
+| TS-19 | Confusing Errors   | Typo in typeclass name → getDerive returns undefined       | Accepted | Transformer emits DiagnosticBuilder error with TS9101    |
+| TS-20 | Confusing Errors   | summon() without transformer gives generic error           | Working  | Error includes setup instructions                        |
+| TS-21 | Confusing Errors   | Circular types → derivation fails gracefully               | Working  | hasFieldInstance returns false; no infinite recursion     |
+| TS-22 | Confusing Errors   | Empty interface → vacuous equality (always true)           | Accepted | Mathematically correct; document                         |
+| TS-23 | Confusing Errors   | Functor has code-gen derivation                            | Working  | Both code-gen and TC derive macros registered            |
+| TS-24 | Confusing Errors   | builtinDerivations is case-sensitive                       | Accepted | Standard behavior; consistent with TypeScript            |
+| TS-25 | Confusing Errors   | assertTypeReliable on never includes clear diagnostic      | Working  | Diagnostic includes purpose and resolution hint          |
+| TS-26 | Confusing Errors   | getDerive for empty/whitespace returns undefined           | Accepted | No crash; graceful handling                              |
+| TS-27 | Edge Case          | Conditional types resolved correctly by TypeChecker        | Working  | No issue found                                           |
+| TS-28 | Edge Case          | Mapped types → properties inspectable                      | Working  | No issue found                                           |
+| TS-29 | Edge Case          | Template literal types → reliable and inspectable          | Working  | No issue found                                           |
+| TS-30 | Edge Case          | Intersection types → all fields accessible                 | Working  | No issue found                                           |
+| TS-31 | Edge Case          | Re-exported types → TypeChecker inspects them              | Working  | No issue found                                           |
+| TS-32 | Edge Case          | Built-in types from .d.ts → reliable                       | Working  | No issue found                                           |
+| TS-33 | Edge Case          | Recursive types → no crash                                 | Working  | No issue found                                           |
+| TS-34 | Edge Case          | Index signature types → named props accessible             | Working  | No issue found                                           |
+| TS-35 | Edge Case          | Enum types → reliable                                      | Working  | No issue found                                           |
+| TS-36 | Derivation         | makePrimitiveChecker strips null/undefined correctly       | Working  | No issue found                                           |
+| TS-37 | Derivation         | makePrimitiveChecker handles arrays recursively            | Working  | No issue found                                           |
+| TS-38 | Derivation         | makePrimitiveChecker rejects complex types                 | Working  | No issue found                                           |
+| TS-39 | Derivation         | Eq deriveProduct with empty fields → vacuous equality      | Working  | Generates `true` as expected                             |
+| TS-40 | Derivation         | Show deriveProduct generates valid code                    | Working  | No issue found                                           |
+| TS-41 | Derivation         | Ord deriveProduct generates correct comparison chain       | Working  | No issue found                                           |
+| TS-42 | Derivation         | Hash deriveProduct uses `>>> 0` for unsigned               | Working  | No issue found                                           |
+| TS-43 | Derivation         | Clone deriveProduct uses structuredClone                   | Working  | No issue found                                           |
+| TS-44 | Type Confidence    | isTypeReliable detects any and never                       | Working  | Wave 3 infrastructure                                    |
+| TS-45 | Type Confidence    | isTypeReliable returns true for standard types             | Working  | Wave 3 infrastructure                                    |
+| TS-46 | Type Confidence    | assertTypeReliable includes operation name                 | Working  | Diagnostic is clear and actionable                       |
+| TS-47 | Type Confidence    | Multiple warnings accumulate correctly                     | Working  | No diagnostic loss                                       |
+| TS-48 | Degenerate Meta    | Eq deriveProduct with undefined fieldNames → null          | Working  | Null guard in place                                      |
+| TS-49 | Degenerate Meta    | Show deriveProduct crashes on mismatched array lengths     | **Fixed** | primitiveShowExpr now handles undefined fieldType        |
+| TS-50 | Degenerate Meta    | Show deriveSum without discriminant → null                 | Working  | Null guard in place                                      |
+| TS-51 | Degenerate Meta    | All expected Generic derivation strategies registered      | Working  | Eq, Ord, Show, Hash, Clone all present                   |
+
+### Wave 6 Statistics
+
+- **Total test cases:** 51
+- **Findings requiring fix:** 1 (TS-49: Show crash on mismatched meta)
+- **Accepted limitations:** 9 (TS-1, TS-3, TS-4, TS-5, TS-10, TS-19, TS-22, TS-24, TS-26)
+- **Deferred:** 2 (TS-15, TS-16: registry validation)
+- **Working as expected:** 39
+
+### Fix Details
+
+#### TS-49: primitiveShowExpr crashes on undefined fieldType
+
+**File:** `packages/macros/src/auto-derive.ts`
+**Severity:** Medium (crashes transformer on malformed GenericMeta)
+
+**Before:** `primitiveShowExpr` and `primitiveHashExpr` assumed `fieldType` was always a string. When `fieldTypes` array was shorter than `fieldNames`, accessing `fieldTypes[i]` returned `undefined`, and `.replace()` on `undefined` threw a TypeError.
+
+**Fix:** Changed parameter type to `string | undefined` with early `null` return for falsy values. This makes the derivation gracefully return `null` (indicating it can't derive) instead of crashing.
 
 ---

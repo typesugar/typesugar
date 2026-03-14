@@ -697,7 +697,8 @@ registerGenericDerivation("Clone", {
 // Helpers for code generation
 // ============================================================================
 
-function primitiveShowExpr(fieldType: string): string | null {
+function primitiveShowExpr(fieldType: string | undefined): string | null {
+  if (!fieldType) return null;
   const stripped = fieldType
     .replace(/\s*\|\s*null\s*/g, "")
     .replace(/\s*null\s*\|\s*/g, "")
@@ -715,7 +716,8 @@ function primitiveShowExpr(fieldType: string): string | null {
   }
 }
 
-function primitiveHashExpr(fieldType: string, accessor: string): string | null {
+function primitiveHashExpr(fieldType: string | undefined, accessor: string): string | null {
+  if (!fieldType) return null;
   const stripped = fieldType
     .replace(/\s*\|\s*null\s*/g, "")
     .replace(/\s*null\s*\|\s*/g, "")

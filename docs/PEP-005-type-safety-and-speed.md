@@ -175,46 +175,46 @@ Systematically try to write code that bypasses typesugar's type safety guarantee
 
 **Tasks:**
 
-- [ ] Create `tests/red-team-type-safety.test.ts` with adversarial test cases organized by attack category
-- [ ] **Round 1 — Silent wrong code:**
-  - [ ] Derive Eq/Ord/Hash for types with `any`-typed fields
-  - [ ] Derive for types with fields whose types have errors (missing imports)
-  - [ ] `summon<Eq<T>>()` where T is a type parameter (not concrete)
-  - [ ] Operator overload on a value whose type is a union including `any`
-  - [ ] Extension method on a value typed as intersection with `any`
-- [ ] **Round 2 — Typecheck bypass:**
-  - [ ] Write file with `@impl` that has wrong method signatures → does OXC backend catch it?
-  - [ ] Write `@derive(Eq)` on a class with private fields → what happens?
-  - [ ] Use `specialize()` with a dictionary that doesn't match the typeclass interface
-  - [ ] `= implicit()` parameter that resolves to wrong typeclass instance
-  - [ ] Pass wrong number of type args to `summon<>()`
-- [ ] **Round 3 — Confusing errors:**
-  - [ ] Typo in typeclass name: `@derive(Eqq)` — is the error clear?
-  - [ ] Missing import for typeclass: `summon<Eq<Point>>()` without importing Eq
-  - [ ] Circular derivation: type A has field of type B, B has field of type A
-  - [ ] `@derive(Eq)` on an empty interface (no fields)
-  - [ ] Nested generics: `summon<Functor<Array<Option<number>>>>()`
-- [ ] **Round 4 — Edge cases:**
-  - [ ] Conditional types as macro input: `type X = T extends string ? A : B`
-  - [ ] Mapped types: `type X = { [K in keyof T]: T[K] }`
-  - [ ] Template literal types as field types
-  - [ ] Intersection types with overlapping fields
-  - [ ] `@derive` on a re-exported type (defined in another file)
-  - [ ] Types imported from `.d.ts` files (no source)
-- [ ] Triage each finding:
+- [x] Create `tests/red-team-type-safety.test.ts` with adversarial test cases organized by attack category
+- [x] **Round 1 — Silent wrong code:**
+  - [x] Derive Eq/Ord/Hash for types with `any`-typed fields
+  - [x] Derive for types with fields whose types have errors (missing imports)
+  - [x] `summon<Eq<T>>()` where T is a type parameter (not concrete)
+  - [x] Operator overload on a value whose type is a union including `any`
+  - [x] Extension method on a value typed as intersection with `any`
+- [x] **Round 2 — Typecheck bypass:**
+  - [x] Write file with `@impl` that has wrong method signatures → does OXC backend catch it?
+  - [x] Write `@derive(Eq)` on a class with private fields → what happens?
+  - [x] Use `specialize()` with a dictionary that doesn't match the typeclass interface
+  - [x] `= implicit()` parameter that resolves to wrong typeclass instance
+  - [x] Pass wrong number of type args to `summon<>()`
+- [x] **Round 3 — Confusing errors:**
+  - [x] Typo in typeclass name: `@derive(Eqq)` — is the error clear?
+  - [x] Missing import for typeclass: `summon<Eq<Point>>()` without importing Eq
+  - [x] Circular derivation: type A has field of type B, B has field of type A
+  - [x] `@derive(Eq)` on an empty interface (no fields)
+  - [x] Nested generics: `summon<Functor<Array<Option<number>>>>()`
+- [x] **Round 4 — Edge cases:**
+  - [x] Conditional types as macro input: `type X = T extends string ? A : B`
+  - [x] Mapped types: `type X = { [K in keyof T]: T[K] }`
+  - [x] Template literal types as field types
+  - [x] Intersection types with overlapping fields
+  - [x] `@derive` on a re-exported type (defined in another file)
+  - [x] Types imported from `.d.ts` files (no source)
+- [x] Triage each finding:
   - **Fix**: Improve macro validation or type confidence check
   - **Diagnose**: Upgrade error message via `DiagnosticBuilder`
   - **Accept**: Document as known limitation with clear error
   - **Defer**: Track in `sandbox/red-team/FINDINGS.md` for future work
-- [ ] After each round, re-run previous rounds to verify fixes don't regress
+- [x] After each round, re-run previous rounds to verify fixes don't regress
 
 **Gate:**
 
-- [ ] `tests/red-team-type-safety.test.ts` has ≥30 adversarial test cases across all categories
-- [ ] Every "silent wrong code" finding is either fixed or emits a diagnostic
-- [ ] Every "confusing error" finding either has an improved message or is documented
-- [ ] Findings tracked in `sandbox/red-team/FINDINGS.md` with status
-- [ ] `pnpm test red-team-type-safety` passes
+- [x] `tests/red-team-type-safety.test.ts` has ≥30 adversarial test cases across all categories (51 tests)
+- [x] Every "silent wrong code" finding is either fixed or emits a diagnostic
+- [x] Every "confusing error" finding either has an improved message or is documented
+- [x] Findings tracked in `sandbox/red-team/FINDINGS.md` with status
+- [x] `pnpm test red-team-type-safety` passes
 
 ### Wave 7: OXC Diagnostic Pass (Exploratory)
 
