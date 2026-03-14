@@ -822,7 +822,8 @@ export class TransformationPipeline {
         const unchangedDiags: TransformDiagnostic[] = rawDiagnostics.map((d) => {
           const message = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
           const codeMatch = message.match(/\[TS(\d{4})\]/);
-          return {
+          const suggestionText = (d as { __typesugarSuggestion?: string }).__typesugarSuggestion;
+          const result: TransformDiagnostic = {
             file: d.file?.fileName ?? sourceFile.fileName,
             start: d.start ?? 0,
             length: d.length ?? 0,
@@ -831,17 +832,26 @@ export class TransformationPipeline {
               d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
             code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
           };
+          if (suggestionText) {
+            result.suggestion = {
+              description: "Apply suggested fix",
+              start: d.start ?? 0,
+              length: d.length ?? 0,
+              replacement: suggestionText,
+            };
+          }
+          return result;
         });
         result.dispose();
         globalExpansionTracker.clear();
         return { code: originalCode, map: null, diagnostics: unchangedDiags, printMs: 0 };
       }
 
-      // Collect diagnostics from the transformation
       const diagnostics: TransformDiagnostic[] = rawDiagnostics.map((d) => {
         const message = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
         const codeMatch = message.match(/\[TS(\d{4})\]/);
-        return {
+        const suggestionText = (d as { __typesugarSuggestion?: string }).__typesugarSuggestion;
+        const result: TransformDiagnostic = {
           file: d.file?.fileName ?? sourceFile.fileName,
           start: d.start ?? 0,
           length: d.length ?? 0,
@@ -850,6 +860,15 @@ export class TransformationPipeline {
             d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
           code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
         };
+        if (suggestionText) {
+          result.suggestion = {
+            description: "Apply suggested fix",
+            start: d.start ?? 0,
+            length: d.length ?? 0,
+            replacement: suggestionText,
+          };
+        }
+        return result;
       });
 
       result.dispose();

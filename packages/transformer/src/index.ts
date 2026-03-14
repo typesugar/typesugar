@@ -923,7 +923,7 @@ export default function macroTransformerFactory(
         const codeMatch = diag.message.match(/\[TS(\d{4})\]/);
         const errorCode = codeMatch ? parseInt(codeMatch[1], 10) : 90000;
 
-        const tsDiag: ts.Diagnostic = {
+        const tsDiag: ts.Diagnostic & { __typesugarSuggestion?: string } = {
           file: sourceFile,
           start,
           length,
@@ -933,6 +933,9 @@ export default function macroTransformerFactory(
           code: errorCode,
           source: "typesugar",
         };
+        if (diag.suggestion) {
+          tsDiag.__typesugarSuggestion = diag.suggestion;
+        }
 
         // Use the transformation context's addDiagnostic if available (TS 5.x+)
         const ctxWithDiag = context as ts.TransformationContext & {
