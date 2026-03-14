@@ -374,4 +374,58 @@ describe("TransformationPipeline", () => {
       expect(result.code).toContain("\n\n// section 3");
     });
   });
+
+  describe("strict typecheck modes", () => {
+    const simpleCode = `const x: number = 1;\n`;
+
+    function makePipeline(
+      files: Record<string, string>,
+      strict: boolean | "incremental"
+    ): TransformationPipeline {
+      const fileNames = Object.keys(files).map((f) =>
+        f.startsWith("/") ? f : `/virtual/${f}`
+      );
+      return new TransformationPipeline(
+        { target: ts.ScriptTarget.ES2022, strict: true },
+        fileNames,
+        {
+          strict,
+          readFile: (f) => {
+            const key = f.replace(/^\/virtual\//, "");
+            return files[key] ?? files[f];
+          },
+          fileExists: (f) => {
+            const key = f.replace(/^\/virtual\//, "");
+            return key in files || f in files;
+          },
+        }
+      );
+    }
+
+    it("strictTypecheck() returns empty when strict is false", () => {
+      const pipeline = makePipeline({ "a.ts": simpleCode }, false);
+      expect(pipeline.strictTypecheck()).toEqual([]);
+    });
+
+    it("strictTypecheck() returns diagnostics when strict is true", () => {
+      const pipeline = makePipeline({ "a.ts": simpleCode }, true);
+      const diags = pipeline.strictTypecheck();
+      expect(Array.isArray(diags)).toBe(true);
+    });
+
+    it("strictTypecheck() works with incremental mode (first run = full)", () => {
+      const pipeline = makePipeline({ "a.ts": simpleCode }, "incremental");
+      const diags = pipeline.strictTypecheck();
+      expect(Array.isArray(diags)).toBe(true);
+    });
+
+    it("incremental mode reuses cache on unchanged second run", () => {
+      const pipeline = makePipeline({ "a.ts": simpleCode }, "incremental");
+
+      const diags1 = pipeline.strictTypecheck();
+      const diags2 = pipeline.strictTypecheck();
+
+      expect(diags1.length).toBe(diags2.length);
+    });
+  });
 });

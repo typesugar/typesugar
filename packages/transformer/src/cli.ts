@@ -58,8 +58,8 @@ interface CliOptions {
   inPlace?: boolean;
   /** Enable disk-backed transform cache for faster incremental builds */
   cache?: boolean | string;
-  /** Enable strict mode - typecheck expanded output */
-  strict?: boolean;
+  /** Enable strict mode — typecheck expanded output */
+  strict?: boolean | "incremental";
   /** Transform backend: 'oxc' (default) or 'typescript' */
   backend?: "typescript" | "oxc";
 }
@@ -135,7 +135,7 @@ function parseArgs(args: string[]): CliOptions {
   let diff = false;
   let ast = false;
   let cache: boolean | string | undefined;
-  let strict = false;
+  let strict: boolean | "incremental" = false;
   let backend: "typescript" | "oxc" | undefined;
 
   for (let i = 1; i < args.length; i++) {
@@ -159,6 +159,8 @@ function parseArgs(args: string[]): CliOptions {
       }
     } else if (arg === "--no-cache") {
       cache = false;
+    } else if (arg === "--strict=incremental") {
+      strict = "incremental";
     } else if (arg === "--strict") {
       strict = true;
     } else if (arg === "--backend") {
@@ -204,6 +206,7 @@ OPTIONS:
   --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
   --strict               Typecheck expanded output (catches macro bugs) [build/check]
+  --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --backend <ts|oxc>     Transform backend: 'oxc' (default) or 'typescript'
   -h, --help             Show this help message
 
@@ -224,7 +227,8 @@ EXAMPLES:
   typesugar build
   typesugar build --cache                      # Enable disk cache
   typesugar build --project tsconfig.build.json
-  typesugar build --strict                     # Typecheck expanded output
+  typesugar build --strict                     # Typecheck expanded output (full)
+  typesugar build --strict=incremental          # Incremental strict typecheck
   typesugar watch --verbose
   typesugar check --strict
   typesugar expand src/main.ts
@@ -473,8 +477,9 @@ function build(options: CliOptions): void {
 
     const strictElapsed = profiler.end("cli.build.strictTypecheck");
     if (options.verbose) {
+      const modeLabel = options.strict === "incremental" ? " (incremental, first run — full)" : "";
       console.log(
-        `🧊 Strict typecheck: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`
+        `🧊 Strict typecheck${modeLabel}: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`
       );
     }
   }

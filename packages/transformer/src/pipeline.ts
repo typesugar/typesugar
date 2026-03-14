@@ -16,7 +16,12 @@ import {
   IdentityPositionMapper,
   type PositionMapper,
 } from "./position-mapper.js";
-import { TransformCache, hashContent, DiskTransformCache, initHasher } from "./cache.js";
+import {
+  TransformCache,
+  hashContent,
+  DiskTransformCache,
+  initHasher,
+} from "./cache.js";
 import macroTransformerFactory, {
   type MacroTransformerConfig,
   saveExpansionCache,
@@ -105,8 +110,15 @@ export interface PipelineOptions {
   maxCacheSize?: number;
   /** Enable disk-backed transform cache (defaults to false) */
   diskCache?: boolean | string;
-  /** Enable strict mode - typecheck expanded output for macro bugs */
-  strict?: boolean;
+  /**
+   * Enable strict mode — typecheck expanded output for macro bugs.
+   *
+   * - `true`: Full typecheck of all files on every build
+   * - `"incremental"`: Only typecheck files whose expanded output changed
+   *   (+ their dependents). Falls back to full on first build.
+   * - `false` / `undefined`: No strict typecheck
+   */
+  strict?: boolean | "incremental";
   /**
    * Preserve original formatting in the output.
    *
@@ -137,6 +149,20 @@ export interface PipelineOptions {
  * console.log(result.code);
  * ```
  */
+/**
+ * Cache for incremental strict typechecking.
+ * Stores per-file results from the previous strict typecheck run so
+ * only changed files (and their dependents) need re-checking.
+ */
+interface StrictTypecheckCache {
+  /** Hash of effective content (expanded or original) per file from last run */
+  effectiveHashes: Map<string, string>;
+  /** Per-file diagnostics (syntactic + semantic) from last run */
+  fileDiagnostics: Map<string, readonly ts.Diagnostic[]>;
+  /** Previous expanded program for ts.createProgram structural reuse */
+  expandedProgram: ts.Program | null;
+}
+
 export class TransformationPipeline {
   private host: VirtualCompilerHost;
   private program: ts.Program | null = null;
@@ -151,6 +177,12 @@ export class TransformationPipeline {
   private contentHashes = new Map<string, string>();
   /** Cached transformer factory - reused across all file transforms */
   private cachedTransformerFactory: ts.TransformerFactory<ts.SourceFile> | null = null;
+  /** Cache for incremental strict typechecking */
+  private strictCache: StrictTypecheckCache = {
+    effectiveHashes: new Map(),
+    fileDiagnostics: new Map(),
+    expandedProgram: null,
+  };
 
   constructor(
     private compilerOptions: ts.CompilerOptions,
@@ -482,26 +514,41 @@ export class TransformationPipeline {
    * Typecheck expanded output (strict mode).
    * Transforms all files and typechecks the result to catch macro bugs.
    *
+   * Respects `options.strict`:
+   * - `true`: Full typecheck of all files every time
+   * - `"incremental"`: Only re-check files whose expanded output changed
+   * - `false`/`undefined`: Returns empty (caller should not call in this case)
+   *
    * @returns Array of diagnostics from typechecking expanded code
    */
   strictTypecheck(): ts.Diagnostic[] {
+    const mode = this.options.strict;
+    if (!mode) return [];
+
+    if (mode === "incremental") {
+      return this.incrementalStrictTypecheck();
+    }
+
+    return this.fullStrictTypecheck();
+  }
+
+  /**
+   * Full strict typecheck — checks every file. Used when `strict: true`.
+   */
+  private fullStrictTypecheck(): ts.Diagnostic[] {
     profiler.start("strictTypecheck");
 
     this.ensureProgram();
 
-    // Transform all source files and collect expanded code
-    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
     const expandedFiles = new Map<string, string>();
 
     for (const fileName of this.fileNames) {
-      // Transform the file
       const result = this.transform(fileName);
       if (result.changed) {
         expandedFiles.set(path.normalize(fileName), result.code);
       }
     }
 
-    // Create a virtual host serving expanded files
     const expandedHost = ts.createCompilerHost(this.compilerOptions);
     const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
     expandedHost.readFile = (fileName) => {
@@ -513,8 +560,6 @@ export class TransformationPipeline {
       return origExpandedReadFile(fileName);
     };
 
-    // Create a new program with expanded files for type checking
-    // Use the original program for structural reuse
     const expandedProgram = ts.createProgram(
       this.fileNames,
       { ...this.compilerOptions, noEmit: true },
@@ -522,17 +567,134 @@ export class TransformationPipeline {
       this.program ?? undefined
     );
 
-    // Get type errors from expanded program
     const diagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
 
     const elapsed = profiler.end("strictTypecheck");
     if (this.verbose) {
       console.log(
-        `[typesugar] Strict typecheck: ${diagnostics.length} diagnostics (${elapsed.toFixed(0)}ms)`
+        `[typesugar] Strict typecheck: ${diagnostics.length} diagnostics, ` +
+          `${this.fileNames.length} files (${elapsed.toFixed(0)}ms)`
       );
     }
 
     return diagnostics;
+  }
+
+  /**
+   * Incremental strict typecheck — only re-checks files whose effective
+   * content (expanded or original) changed since the last run, plus their
+   * transitive dependents. Falls back to full check on first invocation.
+   */
+  private incrementalStrictTypecheck(): ts.Diagnostic[] {
+    profiler.start("strictTypecheck");
+
+    this.ensureProgram();
+
+    // 1. Transform all files, collect expanded code + effective hashes
+    const expandedFiles = new Map<string, string>();
+    const currentEffectiveHashes = new Map<string, string>();
+
+    for (const fileName of this.fileNames) {
+      const result = this.transform(fileName);
+      const normalized = path.normalize(fileName);
+      const effectiveContent = result.changed ? result.code : result.original;
+
+      if (result.changed) {
+        expandedFiles.set(normalized, result.code);
+      }
+      currentEffectiveHashes.set(normalized, hashContent(effectiveContent));
+    }
+
+    // 2. Determine which files changed since the last strict typecheck
+    const isFirstRun = this.strictCache.effectiveHashes.size === 0;
+    const changedFiles = new Set<string>();
+
+    if (!isFirstRun) {
+      for (const [normalized, currentHash] of currentEffectiveHashes) {
+        const previousHash = this.strictCache.effectiveHashes.get(normalized);
+        if (previousHash !== currentHash) {
+          changedFiles.add(normalized);
+        }
+      }
+      // Files removed since last run
+      for (const prev of this.strictCache.effectiveHashes.keys()) {
+        if (!currentEffectiveHashes.has(prev)) {
+          changedFiles.add(prev);
+        }
+      }
+    }
+
+    // 3. Expand to include transitive dependents
+    const filesToCheck = new Set(changedFiles);
+    for (const changed of changedFiles) {
+      for (const dep of this.cache.getTransitiveDependents(changed)) {
+        filesToCheck.add(dep);
+      }
+    }
+
+    // 4. Create expanded host
+    const expandedHost = ts.createCompilerHost(this.compilerOptions);
+    const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
+    expandedHost.readFile = (fileName) => {
+      const normalized = path.normalize(fileName);
+      const expanded = expandedFiles.get(normalized);
+      if (expanded !== undefined) return expanded;
+      return origExpandedReadFile(fileName);
+    };
+
+    // 5. Create expanded program (reuse previous for structural sharing)
+    const expandedProgram = ts.createProgram(
+      this.fileNames,
+      { ...this.compilerOptions, noEmit: true },
+      expandedHost,
+      this.strictCache.expandedProgram ?? this.program ?? undefined
+    );
+
+    // 6. Collect diagnostics — re-check changed+dependent files, reuse cache for rest
+    const allDiagnostics: ts.Diagnostic[] = [];
+    const newFileDiagnostics = new Map<string, readonly ts.Diagnostic[]>();
+
+    for (const fileName of this.fileNames) {
+      const normalized = path.normalize(fileName);
+
+      if (isFirstRun || filesToCheck.has(normalized)) {
+        const sourceFile = expandedProgram.getSourceFile(normalized);
+        if (sourceFile) {
+          const fileDiags = [
+            ...expandedProgram.getSyntacticDiagnostics(sourceFile),
+            ...expandedProgram.getSemanticDiagnostics(sourceFile),
+          ];
+          newFileDiagnostics.set(normalized, fileDiags);
+          allDiagnostics.push(...fileDiags);
+        }
+      } else {
+        const cached = this.strictCache.fileDiagnostics.get(normalized);
+        if (cached && cached.length > 0) {
+          newFileDiagnostics.set(normalized, cached);
+          allDiagnostics.push(...cached);
+        }
+      }
+    }
+
+    // Global + options diagnostics always included
+    allDiagnostics.push(...expandedProgram.getGlobalDiagnostics());
+    allDiagnostics.push(...expandedProgram.getOptionsDiagnostics());
+
+    // 7. Update cache
+    this.strictCache.effectiveHashes = currentEffectiveHashes;
+    this.strictCache.fileDiagnostics = newFileDiagnostics;
+    this.strictCache.expandedProgram = expandedProgram;
+
+    const checkedCount = isFirstRun ? this.fileNames.length : filesToCheck.size;
+    const elapsed = profiler.end("strictTypecheck");
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Strict typecheck (incremental): ${checkedCount} of ${this.fileNames.length} files, ` +
+          `${allDiagnostics.length} diagnostics (${elapsed.toFixed(0)}ms)`
+      );
+    }
+
+    return allDiagnostics;
   }
 
   /**

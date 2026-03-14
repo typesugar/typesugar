@@ -35,8 +35,15 @@ export interface TypesugarPluginOptions {
   /** Enable disk-backed transform cache */
   diskCache?: boolean | string;
 
-  /** Enable strict mode - typecheck expanded output at build end */
-  strict?: boolean;
+  /**
+   * Enable strict mode — typecheck expanded output at build end.
+   *
+   * - `true`: Full typecheck of all files on every build
+   * - `"incremental"`: Only typecheck files whose macro output changed
+   *   (+ their dependents). Falls back to full on first build.
+   * - `false` / `undefined`: No strict typecheck
+   */
+  strict?: boolean | "incremental";
 
   /**
    * Transformation backend to use (default: 'oxc')

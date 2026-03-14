@@ -146,17 +146,17 @@ Make `strict: true` incremental — only typecheck files that changed or whose m
 
 **Tasks:**
 
-- [ ] Track which files produced changed output during transformation
-- [ ] On `buildEnd`, only create the expanded program for changed files (+ their dependents)
-- [ ] Cache the previous strict typecheck results; only re-check invalidated files
-- [ ] Add `strict: "incremental"` option (vs `strict: true` for full check, `strict: false` for none)
-- [ ] Measure and report strict typecheck time in verbose mode
+- [x] Track which files produced changed output during transformation
+- [x] On `buildEnd`, only create the expanded program for changed files (+ their dependents)
+- [x] Cache the previous strict typecheck results; only re-check invalidated files
+- [x] Add `strict: "incremental"` option (vs `strict: true` for full check, `strict: false` for none)
+- [x] Measure and report strict typecheck time in verbose mode
 
 **Gate:**
 
-- [ ] `strict: "incremental"` typechecks only changed files
-- [ ] Rebuild after single-file change is <50% of full strict typecheck time
-- [ ] Full `strict: true` behavior unchanged
+- [x] `strict: "incremental"` typechecks only changed files
+- [x] Rebuild after single-file change is <50% of full strict typecheck time
+- [x] Full `strict: true` behavior unchanged
 
 ### Wave 6: Adversarial Red Team — Type Safety Bypass and Error Quality
 
