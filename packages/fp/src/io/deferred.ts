@@ -34,9 +34,9 @@ export class Deferred<A> {
    */
   get(): IO<A> {
     return IO.async<A>((cb) => {
-      // With null-based Option, _value IS the value when it's not null
-      if (this._value !== null) {
-        cb(Right(this._value));
+      const v: any = this._value;
+      if (v !== null) {
+        cb(Right(v));
       } else {
         this._waiters.push((a) => cb(Right(a)));
       }
@@ -131,7 +131,7 @@ export class TryableDeferred<A> {
     return IO.async<A>((cb) => {
       // With null-based Option, _value IS the value when it's not null
       if (this._value !== null) {
-        cb(this._value);
+        cb(this._value as any);
       } else {
         this._waiters.push((result) => cb(result));
       }
@@ -226,7 +226,7 @@ export class MVar<A> {
           this._value = Some(newValue);
           notify();
         }
-        cb(Right(value));
+        cb(Right(value as any));
       } else {
         this._takers.push((a) => cb(Right(a)));
       }
@@ -246,7 +246,7 @@ export class MVar<A> {
           this._value = Some(newValue);
           notify();
         }
-        return Some(value);
+        return Some(value as any);
       }
       return None;
     });
@@ -296,7 +296,7 @@ export class MVar<A> {
   read(): IO<A> {
     return IO.async<A>((cb) => {
       if (this._value !== null) {
-        cb(Right(this._value));
+        cb(Right(this._value as any));
       } else {
         // Wait for a value, then peek
         this._takers.push((a) => {

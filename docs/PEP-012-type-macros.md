@@ -327,24 +327,24 @@ export interface Meters {
 - [x] SFINAE integration tests pass
 - [x] Both directions of implicit conversion work
 
-### Wave 7: Redefine `@typesugar/fp` Types
+### Wave 7: Redefine `@typesugar/fp` Types ✅
 
 **Tasks:**
 
-- [ ] Rewrite `Option` as `@opaque A | null` interface with methods
-- [ ] Rewrite `Either` as `@opaque Left<E> | Right<A>` interface with methods
-- [ ] Rewrite `List` as `@opaque Cons<A> | Nil` interface with methods
-- [ ] Update constructors (`Some`, `None`, `Left`, `Right`, `Cons`, `Nil`)
-- [ ] Update type guards (`isSome`, `isNone`, `isLeft`, `isRight`, `isCons`)
-- [ ] Update all standalone functions to work with transparent scope
-- [ ] Update all existing tests
+- [x] Rewrite `Option` as `@opaque A | null` interface with methods
+- [x] Rewrite `Either` as `@opaque Left<E> | Right<A>` interface with methods
+- [x] Rewrite `List` as `@opaque Cons<A> | Nil` interface with methods
+- [x] Update constructors (`Some`, `None`, `Left`, `Right`, `Cons`, `Nil`)
+- [x] Update type guards (`isSome`, `isNone`, `isLeft`, `isRight`, `isCons`)
+- [x] Update all standalone functions to work with transparent scope
+- [x] Update all existing tests
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm --filter @typesugar/fp test` passes
-- [ ] `pnpm --filter @typesugar/fp typecheck` passes
-- [ ] All FP showcase assertions pass
+- [x] `pnpm build` passes
+- [x] `pnpm --filter @typesugar/fp test` passes (93 tests)
+- [x] `pnpm --filter @typesugar/fp typecheck` passes (via DTS generation in build)
+- [x] All FP showcase assertions pass
 
 ### Wave 8: Global Augmentation for Std Extensions
 

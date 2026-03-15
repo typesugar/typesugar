@@ -52,12 +52,13 @@ import * as V from "../src/data/validated.js";
 // 1. OPTION — Zero-Cost Optional Values
 // ============================================================================
 
-// Option<A> = A | null at runtime. Some(x) returns x, None is null.
+// Option<A> is opaque at the type level but A | null at runtime.
+// Some(x) returns x, None is null.
 const x: Option<number> = Some(42);
 const y: Option<number> = None;
 
-typeAssert<Equal<Option<number>, number | null>>();
-typeAssert<Equal<typeof x, number | null>>();
+typeAssert<Equal<typeof x, Option<number>>>();
+typeAssert<Not<Equal<Option<number>, number | null>>>();
 
 assert(x === 42, "Some(42) is just 42 at runtime");
 assert(y === null, "None is just null at runtime");

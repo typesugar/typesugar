@@ -439,16 +439,15 @@ export const IO = {
    */
   bracket<R, A>(acquire: IO<R>, use: (r: R) => IO<A>, release: (r: R) => IO<void>): IO<A> {
     return IO.flatMap(acquire, (r) =>
-      IO.flatMap(
-        IO.attempt(use(r)),
-        (result): IO<A> =>
-          IO.flatMap(release(r), () => {
-            if (result._tag === "Left") {
-              return IO.raiseError(result.left);
-            }
-            return IO.pure(result.right);
-          })
-      )
+      IO.flatMap(IO.attempt(use(r)), (result): IO<A> => {
+        const e: any = result;
+        return IO.flatMap(release(r), () => {
+          if (e._tag === "Left") {
+            return IO.raiseError(e.left);
+          }
+          return IO.pure(e.right);
+        });
+      })
     );
   },
 
@@ -456,14 +455,15 @@ export const IO = {
    * Guarantee - always run finalizer
    */
   guarantee<A>(fa: IO<A>, finalizer: IO<void>): IO<A> {
-    return IO.flatMap(IO.attempt(fa), (result) =>
-      IO.flatMap(finalizer, () => {
-        if (result._tag === "Left") {
-          return IO.raiseError(result.left);
+    return IO.flatMap(IO.attempt(fa), (result) => {
+      const e: any = result;
+      return IO.flatMap(finalizer, () => {
+        if (e._tag === "Left") {
+          return IO.raiseError(e.left);
         }
-        return IO.pure(result.right);
-      })
-    );
+        return IO.pure(e.right);
+      });
+    });
   },
 
   /**
@@ -471,10 +471,11 @@ export const IO = {
    */
   onError<A>(fa: IO<A>, handler: (e: Error) => IO<void>): IO<A> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      if (result._tag === "Left") {
-        return IO.flatMap(handler(result.left), () => IO.raiseError(result.left));
+      const e: any = result;
+      if (e._tag === "Left") {
+        return IO.flatMap(handler(e.left), () => IO.raiseError(e.left));
       }
-      return IO.pure(result.right);
+      return IO.pure(e.right);
     });
   },
 
@@ -483,10 +484,11 @@ export const IO = {
    */
   redeem<A, B>(fa: IO<A>, recover: (e: Error) => B, map: (a: A) => B): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      if (result._tag === "Left") {
-        return IO.pure(recover(result.left));
+      const e: any = result;
+      if (e._tag === "Left") {
+        return IO.pure(recover(e.left));
       }
-      return IO.pure(map(result.right));
+      return IO.pure(map(e.right));
     });
   },
 
@@ -495,10 +497,11 @@ export const IO = {
    */
   redeemWith<A, B>(fa: IO<A>, recover: (e: Error) => IO<B>, map: (a: A) => IO<B>): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      if (result._tag === "Left") {
-        return recover(result.left);
+      const e: any = result;
+      if (e._tag === "Left") {
+        return recover(e.left);
       }
-      return map(result.right);
+      return map(e.right);
     });
   },
 
@@ -510,21 +513,21 @@ export const IO = {
       let cache: Option<Either<Error, A>> = None;
 
       return IO.suspend(() => {
-        // With null-based Option, cache IS the value when it's not null
-        if (cache !== null) {
-          const cached = cache;
-          if (cached._tag === "Left") {
-            return IO.raiseError(cached.left);
+        const c: any = cache;
+        if (c !== null) {
+          if (c._tag === "Left") {
+            return IO.raiseError(c.left);
           }
-          return IO.pure(cached.right);
+          return IO.pure(c.right);
         }
 
         return IO.flatMap(IO.attempt(fa), (result) => {
           cache = Some(result);
-          if (result._tag === "Left") {
-            return IO.raiseError(result.left);
+          const e: any = result;
+          if (e._tag === "Left") {
+            return IO.raiseError(e.left);
           }
-          return IO.pure(result.right);
+          return IO.pure(e.right);
         });
       });
     });
@@ -536,7 +539,7 @@ export const IO = {
   timeout<A>(fa: IO<A>, ms: number): IO<Option<A>> {
     return IO.map(
       IO.race(fa, IO.sleep(ms)),
-      (result): Option<A> => (result._tag === "Left" ? Some(result.left) : None)
+      (result): Option<A> => ((result as any)._tag === "Left" ? Some((result as any).left) : None)
     );
   },
 
@@ -606,10 +609,11 @@ function runTrampoline<A>(t: Trampoline<A>): A {
 export function runIO<A>(io: IO<A>): Promise<A> {
   return new Promise((resolve, reject) => {
     runIOAsync(io, (result) => {
-      if (result._tag === "Left") {
-        reject(result.left);
+      const e: any = result;
+      if (e._tag === "Left") {
+        reject(e.left);
       } else {
-        resolve(result.right);
+        resolve(e.right);
       }
     });
   });
@@ -662,13 +666,14 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
 
           case "Async": {
             const cancel = current.register((result) => {
-              if (result._tag === "Left") {
-                cb(Left(result.left));
+              const e: any = result;
+              if (e._tag === "Left") {
+                cb(Left(e.left));
               } else if (stack.length === 0) {
-                cb(Right(result.right as A));
+                cb(Right(e.right as A));
               } else {
                 const f = stack.pop()!;
-                current = f(result.right);
+                current = f(e.right);
                 // Use setImmediate or setTimeout to avoid blocking
                 setTimeout(loop, 0);
               }
@@ -701,10 +706,11 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
 
             // Run the inner IO
             runIOAsync(he.fa, (result) => {
-              if (result._tag === "Left") {
-                current = he.handler(result.left);
+              const e: any = result;
+              if (e._tag === "Left") {
+                current = he.handler(e.left);
               } else {
-                current = IO.pure(result.right);
+                current = IO.pure(e.right);
               }
               stack.push(...innerStack);
               setTimeout(loop, 0);

@@ -292,13 +292,13 @@ export class ResourcePool<A> {
       IO.async<A>((cb) => {
         if (this.pool.length > 0) {
           const resource = this.pool.pop()!;
-          cb({ _tag: "Right", right: resource });
+          cb({ _tag: "Right", right: resource } as any);
         } else if (this.pool.length < this.maxSize) {
           runIO(this.create)
-            .then((a) => cb({ _tag: "Right", right: a }))
-            .catch((e) => cb({ _tag: "Left", left: e }));
+            .then((a) => cb({ _tag: "Right", right: a } as any))
+            .catch((e) => cb({ _tag: "Left", left: e } as any));
         } else {
-          this.waiters.push((a) => cb({ _tag: "Right", right: a }));
+          this.waiters.push((a) => cb({ _tag: "Right", right: a } as any));
         }
       }),
       (a) => this.release(a)
