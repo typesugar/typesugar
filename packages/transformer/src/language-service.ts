@@ -38,6 +38,7 @@ import {
   createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
+import { createExtensionMethodCallRule } from "@typesugar/macros";
 
 /**
  * Cache entry for transformed files
@@ -377,6 +378,14 @@ function init(modules: { typescript: typeof ts }) {
 
       registerSfinaeRule(createMacroGeneratedRule(positionMapFn));
       log("Registered MacroGenerated SFINAE rule");
+    }
+
+    // Register ExtensionMethodCall rule: suppresses TS2339 when an extension
+    // method is resolvable for the receiver type (PEP-011 Wave 3).
+    const hasExtRule = getSfinaeRules().some((r) => r.name === "ExtensionMethodCall");
+    if (!hasExtRule) {
+      registerSfinaeRule(createExtensionMethodCallRule());
+      log("Registered ExtensionMethodCall SFINAE rule");
     }
 
     if (isSfinaeAuditEnabled()) {

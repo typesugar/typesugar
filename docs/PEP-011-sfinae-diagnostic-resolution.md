@@ -186,16 +186,16 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Implement Rule 1 (ExtensionMethodCall) for TS2339
-- [ ] Reuse extension resolution logic from `tryRewriteExtensionMethod`
-- [ ] Handle both standalone extensions and import-scoped resolution
-- [ ] Tests: `(42).clamp(0, 100)` with `import { clamp }` suppresses TS2339
+- [x] Implement Rule 1 (ExtensionMethodCall) for TS2339
+- [x] Reuse extension resolution logic from `tryRewriteExtensionMethod`
+- [x] Handle both standalone extensions and import-scoped resolution
+- [x] Tests: `(42).clamp(0, 100)` with `import { clamp }` suppresses TS2339
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Extension method SFINAE tests pass
-- [ ] No false positives: `(42).nonExistent()` still errors
+- [x] `pnpm build` passes
+- [x] Extension method SFINAE tests pass (15 passed)
+- [x] No false positives: `(42).nonExistent()` still errors
 
 ### Wave 4: NewtypeAssignment Rule
 
@@ -253,7 +253,10 @@ This makes the system transparent and debuggable.
 | `packages/core/tests/sfinae.test.ts`                  | New: SFINAE rule unit tests                               | 1    |
 | `packages/transformer/src/language-service.ts`        | Integrate SFINAE filter into diagnostic methods           | 2    |
 | `packages/transformer/tests/language-service.test.ts` | SFINAE integration tests for IDE scenarios                | 2    |
-| `packages/macros/src/sfinae-rules.ts`                 | Future: Built-in SFINAE rules (Rules 1-3)                 | 3-5  |
+| `packages/macros/src/sfinae-rules.ts`                 | New: `createExtensionMethodCallRule()` (Rule 1)           | 3    |
+| `packages/macros/src/index.ts`                        | Export `createExtensionMethodCallRule`                    | 3    |
+| `packages/transformer/src/language-service.ts`        | Register ExtensionMethodCall rule at init                 | 3    |
+| `tests/sfinae-extension.test.ts`                      | New: ExtensionMethodCall SFINAE tests (15 tests)          | 3    |
 | `packages/transformer/src/pipeline.ts`                | Future: SFINAE filter in CLI diagnostic collection        | 6    |
 
 ## Security Considerations

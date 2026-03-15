@@ -27,6 +27,11 @@ import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
 import "./verify-laws.js"; // Typeclass law verification
 import "./extension.js"; // Standalone extension methods for concrete types
 
+// --- SFINAE rules ---
+// NOTE: sfinae-rules.ts is NOT imported as a side-effect module.
+// Rules are registered explicitly during transformer/language-service init.
+// See createExtensionMethodCallRule() export below.
+
 // --- Testing macros ---
 // NOTE: @typesugar/testing/macros is NOT imported here to avoid duplicate
 // registration of typeInfo macro. Import it separately when needed.
@@ -349,6 +354,9 @@ export {
   standaloneExtensionRegistry,
   type StandaloneExtensionInfo,
 } from "./extension.js";
+
+// --- SFINAE Rules ---
+export { createExtensionMethodCallRule } from "./sfinae-rules.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
 // HKT enables typeclasses parameterized by type constructors (F<_>).
