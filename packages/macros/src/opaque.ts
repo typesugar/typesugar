@@ -28,6 +28,7 @@ import {
   registerTypeRewrite,
   type TypeRewriteEntry,
   type ConstructorRewrite,
+  type AccessorRewrite,
 } from "@typesugar/core";
 
 /**
@@ -212,6 +213,27 @@ function findFunctionConstructors(
 }
 
 /**
+ * Collect property signatures from an interface that should become accessors.
+ *
+ * A property named "value" on an opaque type is treated as an identity accessor
+ * (the value IS the underlying representation). Other properties are noted but
+ * not given automatic rewrite rules (they'd need explicit annotation).
+ */
+function collectInterfaceAccessors(iface: ts.InterfaceDeclaration): Map<string, AccessorRewrite> {
+  const accessors = new Map<string, AccessorRewrite>();
+  for (const member of iface.members) {
+    if (ts.isPropertySignature(member) && member.name && ts.isIdentifier(member.name)) {
+      const name = member.name.text;
+      // "value" is the conventional identity accessor for opaque types
+      if (name === "value") {
+        accessors.set(name, { kind: "identity" });
+      }
+    }
+  }
+  return accessors;
+}
+
+/**
  * Resolve the source module specifier for the current file.
  *
  * Attempts to use the file's path relative to the package to construct
@@ -301,14 +323,17 @@ export const opaqueAttribute: AttributeMacro = defineAttributeMacro({
       ...constConstructors,
     ]);
 
-    // 6. Register the TypeRewriteEntry
+    // 6. Collect accessor rewrites from property signatures
+    const accessors = collectInterfaceAccessors(target);
+
+    // 7. Register the TypeRewriteEntry
     const entry: TypeRewriteEntry = {
       typeName,
       underlyingTypeText,
       sourceModule: resolveSourceModule(ctx.sourceFile),
       methods: methods.size > 0 ? methods : undefined,
       constructors: constructors.size > 0 ? constructors : undefined,
-      accessors: undefined,
+      accessors: accessors.size > 0 ? accessors : undefined,
       transparent: true,
     };
 

@@ -89,7 +89,11 @@ import {
   MacroExpansionCache,
   // Type rewrite registry (PEP-012)
   findTypeRewrite,
+  getTypeRewrite,
+  getAllTypeRewrites,
   type TypeRewriteEntry,
+  type ConstructorRewrite,
+  type AccessorRewrite,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -3078,6 +3082,39 @@ class MacroTransformer {
       }
     }
 
+    // PEP-012 Wave 4: Constructor erasure — `Some(x)` → `x`, `None` → `null`
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const result = this.tryEraseConstructorCall(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
+    // PEP-012 Wave 4: Constant constructor identifier erasure — `None` → `null`
+    // Handles bare identifier references to constant constructors (not call expressions).
+    // Guard: node.parent may be undefined on synthetic nodes created during transformation.
+    if (ts.isIdentifier(node) && (!node.parent || !ts.isCallExpression(node.parent))) {
+      const result = this.tryEraseConstantConstructorRef(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
+    // PEP-012 Wave 4: Accessor erasure — `x.value` → `x` (non-call property access)
+    // Skip when the property access is the callee of a call expression (that's a method call,
+    // handled by tryRewriteExtensionMethod above).
+    // Guard: node.parent may be undefined on synthetic nodes.
+    if (ts.isPropertyAccessExpression(node)) {
+      const isCallCallee =
+        node.parent != null && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      if (!isCallCallee) {
+        const result = this.tryEraseAccessor(node);
+        if (result !== undefined) {
+          return result;
+        }
+      }
+    }
+
     if (ts.isBinaryExpression(node)) {
       const result = this.tryRewriteTypeclassOperator(node);
       if (result !== undefined) {
@@ -4434,6 +4471,222 @@ class MacroTransformer {
       this.ctx.reportError(node, `Type rewrite method erasure failed: ${error}`);
       return undefined;
     }
+  }
+
+  /**
+   * Erase a constructor call for an @opaque type (PEP-012 Wave 4).
+   *
+   * For identity constructors (e.g., `Some(x)`), replaces with the argument.
+   * For constant constructors (e.g., `None`), replaces with the constant.
+   * Constant constructors that are identifiers (not calls) are handled as
+   * identifier references elsewhere; this method only handles call expressions.
+   *
+   * @returns The erased expression, or `undefined` if not a registered constructor
+   */
+  private tryEraseConstructorCall(node: ts.CallExpression): ts.Expression | undefined {
+    if (!ts.isIdentifier(node.expression)) return undefined;
+
+    const ctorName = node.expression.text;
+
+    // Search all registered types for a matching constructor
+    for (const entry of this.iterTypeRewriteEntries()) {
+      if (!entry.constructors) continue;
+
+      const ctor = entry.constructors.get(ctorName);
+      if (!ctor) continue;
+
+      // Transparent scope: skip erasure inside the defining module
+      if (entry.transparent && entry.sourceModule) {
+        const currentFile = this.ctx.sourceFile.fileName;
+        if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+          return undefined;
+        }
+      }
+
+      if (ctor.kind === "identity") {
+        if (node.arguments.length !== 1) {
+          this.ctx.reportWarning(
+            node,
+            `Identity constructor '${ctorName}' expects exactly 1 argument, got ${node.arguments.length}`
+          );
+          return undefined;
+        }
+
+        if (this.verbose) {
+          console.log(`[typesugar] Constructor erasure: ${ctorName}(arg) → arg`);
+        }
+
+        const arg = node.arguments[0];
+        const visited = ts.visitNode(arg, this.visit.bind(this)) as ts.Expression;
+        return preserveSourceMap(visited, node);
+      }
+
+      if (ctor.kind === "constant") {
+        if (this.verbose) {
+          console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
+        }
+
+        const constant = this.buildConstantExpression(ctor.value ?? "undefined");
+        return preserveSourceMap(constant, node);
+      }
+
+      if (ctor.kind === "custom" && ctor.value) {
+        if (this.verbose) {
+          console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
+        }
+
+        const custom = this.ctx.factory.createIdentifier(ctor.value);
+        return preserveSourceMap(custom, node);
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Erase a bare identifier reference to a constant constructor (PEP-012 Wave 4).
+   *
+   * Handles `None` → `null` where `None` is used as an identifier (not a call).
+   * Only applies to constant constructors — identity constructors are calls
+   * and handled by {@link tryEraseConstructorCall}.
+   *
+   * Guards against false positives by checking that the identifier resolves to
+   * a symbol whose declaration is in the constructor's source module.
+   */
+  private tryEraseConstantConstructorRef(node: ts.Identifier): ts.Expression | undefined {
+    const name = node.text;
+
+    // Skip identifiers in declaration positions (e.g., `const None = ...`)
+    if (
+      node.parent &&
+      ((ts.isVariableDeclaration(node.parent) && node.parent.name === node) ||
+        (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) ||
+        (ts.isParameter(node.parent) && node.parent.name === node) ||
+        (ts.isPropertyDeclaration(node.parent) && node.parent.name === node) ||
+        ts.isImportSpecifier(node.parent) ||
+        ts.isExportSpecifier(node.parent))
+    ) {
+      return undefined;
+    }
+
+    // Skip identifiers that are property names in property access or member access
+    if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
+      return undefined;
+    }
+
+    for (const entry of this.iterTypeRewriteEntries()) {
+      if (!entry.constructors) continue;
+
+      const ctor = entry.constructors.get(name);
+      if (!ctor || ctor.kind !== "constant") continue;
+
+      // Transparent scope: skip erasure inside the defining module
+      if (entry.transparent && entry.sourceModule) {
+        const currentFile = this.ctx.sourceFile.fileName;
+        if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+          return undefined;
+        }
+      }
+
+      if (this.verbose) {
+        console.log(`[typesugar] Constant constructor ref erasure: ${name} → ${ctor.value}`);
+      }
+
+      return preserveSourceMap(this.buildConstantExpression(ctor.value ?? "undefined"), node);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Erase a property access on an @opaque type (PEP-012 Wave 4).
+   *
+   * For identity accessors (e.g., `x.value`), replaces with the receiver.
+   * For custom accessors, replaces with the custom expression.
+   *
+   * @returns The erased expression, or `undefined` if not a registered accessor
+   */
+  private tryEraseAccessor(node: ts.PropertyAccessExpression): ts.Expression | undefined {
+    const propName = node.name.text;
+    const receiver = node.expression;
+
+    let receiverType: ts.Type;
+    try {
+      receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
+    } catch {
+      return undefined;
+    }
+
+    if (!this.ctx.isTypeReliable(receiverType)) return undefined;
+
+    const typeName = this.ctx.typeChecker.typeToString(receiverType);
+    const entry = findTypeRewrite(typeName);
+    if (!entry) return undefined;
+    if (!entry.accessors) return undefined;
+
+    const accessor = entry.accessors.get(propName);
+    if (!accessor) return undefined;
+
+    // Transparent scope: skip erasure inside the defining module
+    if (entry.transparent && entry.sourceModule) {
+      const currentFile = this.ctx.sourceFile.fileName;
+      if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    if (accessor.kind === "identity") {
+      if (this.verbose) {
+        console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} → receiver`);
+      }
+
+      const visited = ts.visitNode(receiver, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    }
+
+    if (accessor.kind === "custom" && accessor.value) {
+      if (this.verbose) {
+        console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} → ${accessor.value}`);
+      }
+
+      const custom = this.ctx.factory.createIdentifier(accessor.value);
+      return preserveSourceMap(custom, node);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Build a constant expression AST node from a string value.
+   */
+  private buildConstantExpression(value: string): ts.Expression {
+    switch (value) {
+      case "null":
+        return this.ctx.factory.createNull();
+      case "undefined":
+        return this.ctx.factory.createIdentifier("undefined");
+      case "true":
+        return this.ctx.factory.createTrue();
+      case "false":
+        return this.ctx.factory.createFalse();
+      default: {
+        const num = Number(value);
+        if (!isNaN(num)) {
+          return this.ctx.factory.createNumericLiteral(num);
+        }
+        if (value.startsWith('"') || value.startsWith("'")) {
+          return this.ctx.factory.createStringLiteral(value.slice(1, -1));
+        }
+        return this.ctx.factory.createIdentifier(value);
+      }
+    }
+  }
+
+  /**
+   * Iterate over all type rewrite entries for constructor/accessor lookup.
+   */
+  private *iterTypeRewriteEntries(): Iterable<TypeRewriteEntry> {
+    yield* getAllTypeRewrites();
   }
 
   /**

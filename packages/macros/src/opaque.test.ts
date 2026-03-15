@@ -453,4 +453,48 @@ export function isSome<A>(o: Option<A>): boolean {
     expect(entry!.constructors!.get("None")).toBeDefined();
     expect(entry!.constructors!.get("None")!.kind).toBe("constant");
   });
+
+  it("detects identity accessors from property signatures (value)", () => {
+    const source = `
+/** @opaque A | null */
+export interface Option<A> {
+  readonly value: A;
+  map<B>(f: (a: A) => B): Option<B>;
+}
+
+export function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B> {
+  return (o as any) === null ? null as any : f(o as any);
+}
+
+export function Some<A>(a: A): Option<A> {
+  return a as unknown as Option<A>;
+}
+`;
+
+    const entry = runOpaqueMacro(source);
+
+    expect(entry).toBeDefined();
+    expect(entry!.accessors).toBeDefined();
+    expect(entry!.accessors!.get("value")).toEqual({ kind: "identity" });
+  });
+
+  it("does not register non-value properties as accessors", () => {
+    const source = `
+/** @opaque number */
+export interface Meters {
+  readonly raw: number;
+  add(other: Meters): Meters;
+}
+
+export function add(a: Meters, b: Meters): Meters {
+  return ((a as any) + (b as any)) as any;
+}
+`;
+
+    const entry = runOpaqueMacro(source);
+
+    expect(entry).toBeDefined();
+    // Only "value" is auto-detected as an identity accessor
+    expect(entry!.accessors).toBeUndefined();
+  });
 });

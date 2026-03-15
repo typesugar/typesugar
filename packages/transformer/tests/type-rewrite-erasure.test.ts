@@ -32,7 +32,7 @@ function registerOptionType(): void {
       ["Some", { kind: "identity" }],
       ["None", { kind: "constant", value: "null" }],
     ]),
-    accessors: new Map(),
+    accessors: new Map([["value", { kind: "identity" }]]),
     transparent: true,
   });
 }
@@ -53,7 +53,8 @@ const result = Some(5).map(n => n * 2);
 
     const result = transformCode(code, { fileName: "type-rewrite-basic.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("map(Some(5)");
+    // Some(5) is also erased by constructor erasure (Wave 4), so expect map(5, ...)
+    expect(result.code).toContain("map(5,");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 
@@ -74,9 +75,8 @@ const result = Some(5).map(n => n * 2).filter(n => n > 5);
 
     const result = transformCode(code, { fileName: "type-rewrite-chain.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // Inner call: Some(5).map(n => n * 2) → map(Some(5), n => n * 2)
-    // Outer call: <inner>.filter(n => n > 5) → filter(map(Some(5), n => n * 2), n => n > 5)
-    expect(result.code).toContain("filter(map(Some(5)");
+    // Some(5) erased to 5 (Wave 4), methods erased to function calls (Wave 3)
+    expect(result.code).toContain("filter(map(5,");
     expect(result.code).not.toMatch(/\.map\(/);
     expect(result.code).not.toMatch(/\.filter\(/);
   });
@@ -159,9 +159,8 @@ const result = Some(5).map(n => n * 2);
 
     const result = transformCode(code, { fileName: "type-rewrite-import-inject.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // Should inject an import for `map` from the sourceModule
-    expect(result.code).toContain("map(Some(5)");
-    // The import may or may not appear depending on whether `map` was already declared
+    // Some(5) erased to 5, map injected as standalone call
+    expect(result.code).toContain("map(5,");
     // In this test, map is not declared as a function, so the import should be injected
     expect(result.code).toContain("@typesugar/fp/data/option");
   });
@@ -180,7 +179,7 @@ const result = Some(5).map(n => n * 2);
 
     const result = transformCode(code, { fileName: "type-rewrite-no-dup-import.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("map(Some(5)");
+    expect(result.code).toContain("map(5,");
     // Count occurrences of the import — should be exactly 1
     const importMatches = result.code.match(/@typesugar\/fp\/data\/option/g);
     expect(importMatches?.length).toBe(1);
@@ -201,8 +200,9 @@ const b = Some(10).filter(n => n > 3);
 
     const result = transformCode(code, { fileName: "type-rewrite-grouped-imports.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("map(Some(5)");
-    expect(result.code).toContain("filter(Some(10)");
+    // Some() erased by constructor erasure
+    expect(result.code).toContain("map(5,");
+    expect(result.code).toContain("filter(10,");
     // Both map and filter should be in one import from the same module
     const importMatches = result.code.match(/@typesugar\/fp\/data\/option/g);
     expect(importMatches?.length).toBe(1);
@@ -252,5 +252,214 @@ const value = io.run();
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("unsafeRunSync(io)");
     expect(result.code).not.toMatch(/\.run\(/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEP-012 Wave 4: Constructor erasure
+// ---------------------------------------------------------------------------
+
+describe("PEP-012 Wave 4: constructor erasure", () => {
+  it("erases identity constructor: Some(5) → 5", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare function Some<A>(a: A): Option<A>;
+const result = Some(5);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "ctor-identity.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.code).toContain("const result = 5");
+    expect(result.code).not.toContain("Some(");
+  });
+
+  it("erases identity constructor with expression argument: Some(x + 1) → x + 1", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare function Some<A>(a: A): Option<A>;
+declare const x: number;
+const result = Some(x + 1);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "ctor-identity-expr.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.code).toContain("x + 1");
+    expect(result.code).not.toContain("Some(");
+  });
+
+  it("erases constant constructor reference: None → null", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare const None: Option<never>;
+const result = None;
+    `.trim();
+
+    const result = transformCode(code, { fileName: "ctor-constant.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.code).toContain("const result = null");
+    expect(result.code).not.toMatch(/\bNone\b.*=/);
+  });
+
+  it("does not erase constructors for unregistered types", () => {
+    registerOptionType();
+
+    const code = `
+declare function MyWrapper(x: number): number;
+const result = MyWrapper(42);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "ctor-unregistered.ts" });
+    expect(result.code).toContain("MyWrapper(42)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEP-012 Wave 4: Accessor erasure
+// ---------------------------------------------------------------------------
+
+describe("PEP-012 Wave 4: accessor erasure", () => {
+  it("erases identity accessor: x.value → x", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  readonly value: A;
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare const opt: Option<number>;
+const result = opt.value;
+    `.trim();
+
+    const result = transformCode(code, { fileName: "accessor-identity.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.code).toContain("const result = opt");
+    expect(result.code).not.toContain(".value");
+  });
+
+  it("does not erase unregistered property accesses", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  readonly value: A;
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare const opt: Option<number>;
+const result = opt.toString();
+    `.trim();
+
+    const result = transformCode(code, { fileName: "accessor-unregistered.ts" });
+    // toString is not an accessor in the registry, so it should remain
+    expect(result.code).toContain(".toString()");
+  });
+
+  it("does not erase accessor when used as method call callee", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
+declare const opt: Option<number>;
+const result = opt.map(n => n + 1);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "accessor-not-method.ts" });
+    // .map() is a method call, should be rewritten via method erasure not accessor erasure
+    expect(result.code).toContain("map(opt");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEP-012 Wave 4: End-to-end pipeline test
+// ---------------------------------------------------------------------------
+
+describe("PEP-012 Wave 4: end-to-end pipeline", () => {
+  it("full pipeline: Some(5).map(f).getOrElse(() => 0) → getOrElse(map(5, f), () => 0)", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  getOrElse(defaultValue: () => A): A;
+}
+declare function Some<A>(a: A): Option<A>;
+declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
+declare function getOrElse<A>(o: Option<A>, defaultValue: () => A): A;
+const f = (n: number) => n * 2;
+const result = Some(5).map(f).getOrElse(() => 0);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "e2e-pipeline.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+
+    // Some(5) should be erased to 5
+    // .map(f) on that should become map(5, f)
+    // .getOrElse(() => 0) should become getOrElse(map(5, f), () => 0)
+    expect(result.code).toContain("getOrElse(map(5,");
+    expect(result.code).not.toContain("Some(");
+    expect(result.code).not.toMatch(/\.map\(/);
+    expect(result.code).not.toMatch(/\.getOrElse\(/);
+  });
+
+  it("None propagates through pipeline: None should become null", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  getOrElse(defaultValue: () => A): A;
+}
+declare const None: Option<never>;
+declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
+declare function getOrElse<A>(o: Option<A>, defaultValue: () => A): A;
+const result = None;
+    `.trim();
+
+    const result = transformCode(code, { fileName: "e2e-none.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.code).toContain("const result = null");
+  });
+
+  it("combined constructor + method erasure in complex expression", () => {
+    registerOptionType();
+
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+  filter(pred: (a: A) => boolean): Option<A>;
+  getOrElse(defaultValue: () => A): A;
+}
+declare function Some<A>(a: A): Option<A>;
+declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
+declare function flatMap<A, B>(o: Option<A>, f: (a: A) => Option<B>): Option<B>;
+declare function filter<A>(o: Option<A>, pred: (a: A) => boolean): Option<A>;
+declare function getOrElse<A>(o: Option<A>, defaultValue: () => A): A;
+const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "e2e-complex.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+
+    // Some(10) → 10, then chained method erasure
+    expect(result.code).toContain("getOrElse(filter(map(10,");
+    expect(result.code).not.toContain("Some(");
+    expect(result.code).not.toMatch(/\.map\(/);
+    expect(result.code).not.toMatch(/\.filter\(/);
+    expect(result.code).not.toMatch(/\.getOrElse\(/);
   });
 });

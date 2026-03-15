@@ -283,20 +283,20 @@ export interface Meters {
 - [x] Method erasure tests pass
 - [x] Existing extension method behavior not broken
 
-### Wave 4: Constructor and Accessor Erasure
+### Wave 4: Constructor and Accessor Erasure ✅
 
 **Tasks:**
 
-- [ ] Implement constructor erasure: `Some(a)` → `a`, `None` → `null`
-- [ ] Implement accessor erasure: `x.value` (after narrowing) → `x`
-- [ ] Register constructor/accessor rewrites in the `@opaque` macro
-- [ ] Tests: full Option pipeline erases to null-check code
+- [x] Implement constructor erasure: `Some(a)` → `a`, `None` → `null`
+- [x] Implement accessor erasure: `x.value` (after narrowing) → `x`
+- [x] Register constructor/accessor rewrites in the `@opaque` macro
+- [x] Tests: full Option pipeline erases to null-check code
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Constructor/accessor erasure tests pass
-- [ ] End-to-end: `Some(5).map(f).getOrElse(() => 0)` emits `getOrElse(map(5, f), () => 0)`
+- [x] `pnpm build` passes
+- [x] Constructor/accessor erasure tests pass
+- [x] End-to-end: `Some(5).map(f).getOrElse(() => 0)` emits `getOrElse(map(5, f), () => 0)`
 
 ### Wave 5: Transparent Scope
 
