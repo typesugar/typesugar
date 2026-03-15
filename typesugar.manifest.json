@@ -42,11 +42,6 @@
         "module": "@typesugar/sql",
         "description": "Typed SQL template",
         "contentType": "sql"
-      },
-      "html": {
-        "module": "@typesugar/react",
-        "description": "HTML template",
-        "contentType": "html"
       }
     },
     "labeledBlock": {

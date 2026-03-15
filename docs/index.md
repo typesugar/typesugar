@@ -277,25 +277,6 @@ const program = let: {
 yield: { posts.length };
 ```
 
-### React
-
-Vue/Svelte-style reactivity with compile-time dependency tracking:
-
-```tsx
-function Counter() {
-  const count = state(0);
-  const doubled = derived(() => count.value * 2);
-
-  return (
-    <div>
-      <p>Count: {count.value}</p>
-      <p>Doubled: {doubled.value}</p>
-      <button onClick={() => count.value++}>Increment</button>
-    </div>
-  );
-}
-```
-
 ### Testing
 
 Power assertions and property-based testing:
@@ -406,10 +387,9 @@ specialize(add); // @ts-no-typesugar     // one line
 
 ### Syntax Sugar
 
-| Package                                             | Description                             |
-| --------------------------------------------------- | --------------------------------------- |
-| [@typesugar/strings](/reference/packages#strings)   | `regex`, `html`, `raw` tagged templates |
-| [@typesugar/comptime](/reference/packages#comptime) | `comptime()` compile-time evaluation    |
+| Package                                           | Description                             |
+| ------------------------------------------------- | --------------------------------------- |
+| [@typesugar/strings](/reference/packages#strings) | `regex`, `html`, `raw` tagged templates |
 
 ### Type Safety & Contracts
 
@@ -437,11 +417,10 @@ specialize(add); // @ts-no-typesugar     // one line
 
 ### Ecosystem Integrations
 
-| Package                                         | Description                 |
-| ----------------------------------------------- | --------------------------- |
-| [@typesugar/effect](/reference/packages#effect) | Effect-TS adapter           |
-| [@typesugar/react](/reference/packages#react)   | Vue/Svelte-style reactivity |
-| [@typesugar/sql](/reference/packages#sql)       | Doobie-like SQL DSL         |
+| Package                                         | Description       |
+| ----------------------------------------------- | ----------------- |
+| [@typesugar/effect](/reference/packages#effect) | Effect-TS adapter |
+| [@typesugar/sql](/reference/packages#sql)       | Doobie-like SQL   |
 
 ### Developer Experience
 

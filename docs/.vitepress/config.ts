@@ -52,10 +52,7 @@ export default defineConfig({
           },
           {
             text: "Syntax Sugar",
-            items: [
-              { text: "@typesugar/strings", link: "/reference/packages#strings" },
-              { text: "@typesugar/comptime", link: "/reference/packages#comptime" },
-            ],
+            items: [{ text: "@typesugar/strings", link: "/reference/packages#strings" }],
           },
           {
             text: "Type Safety & Contracts",
@@ -80,7 +77,7 @@ export default defineConfig({
             text: "Ecosystem Integrations",
             items: [
               { text: "@typesugar/effect", link: "/reference/packages#effect" },
-              { text: "@typesugar/react", link: "/reference/packages#react" },
+              { text: "@typesugar/sql", link: "/reference/packages#sql" },
             ],
           },
           {
@@ -219,7 +216,6 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { text: "Effect-TS", link: "/guides/effect" },
-                { text: "React", link: "/guides/react" },
                 { text: "SQL", link: "/guides/sql" },
               ],
             },
