@@ -587,6 +587,9 @@ export * from "./par-combine.js";
 // Re-export generic numeric operations
 export * from "./numeric-ops.js";
 
+// Re-export Destructure typeclass (for pattern matching, PEP-008)
+export * from "./destructure.js";
+
 // ============================================================================
 // Bounded — Haskell Bounded, Rust: implicit via type, Scala: not built-in
 // Types with a minimum and maximum value.

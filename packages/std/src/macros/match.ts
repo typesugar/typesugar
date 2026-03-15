@@ -78,6 +78,7 @@
 
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
+import { expandFluentMatch } from "./match-v2.js";
 
 // ============================================================================
 // Type-Level API
@@ -1388,6 +1389,13 @@ function expandMatch(
   callExpr: ts.CallExpression,
   args: readonly ts.Expression[]
 ): ts.Expression {
+  // Fluent chain mode: match(x).case(...).then(...).else(...)
+  // Detected when the transformer passes the outermost chain CallExpression,
+  // whose callee is a PropertyAccessExpression (not the "match" Identifier).
+  if (ts.isPropertyAccessExpression(callExpr.expression)) {
+    return expandFluentMatch(ctx, callExpr, args);
+  }
+
   if (args.length < 2) {
     ctx.reportError(callExpr, "match() requires at least 2 arguments: value and handlers/arms");
     return callExpr;
@@ -1433,6 +1441,7 @@ export const matchMacro = defineExpressionMacro({
   name: "match",
   module: "@typesugar/std",
   description: "Zero-cost exhaustive pattern matching with compile-time optimization",
+  chainable: true,
   expand: expandMatch,
 });
 
