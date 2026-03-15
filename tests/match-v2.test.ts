@@ -1,11 +1,12 @@
 /**
- * Tests for the fluent match() chain macro (PEP-008 Waves 1+2)
+ * Tests for the fluent match() chain macro (PEP-008 Waves 1–3)
  *
  * Covers:
  * - Wave 1: literal patterns, wildcard, variable binding, guards,
  *   .else() catch-all, MatchError generation, ternary optimization.
  * - Wave 2: array patterns, object patterns, nested patterns,
  *   rest/spread patterns, mixed literal+binding in objects.
+ * - Wave 3: type constructor patterns, OR patterns, AS patterns, regex patterns.
  */
 
 import { describe, it, expect } from "vitest";
@@ -1037,6 +1038,689 @@ describe("fluent match() macro (PEP-008 Wave 2)", () => {
       expect(text).toContain("const tail");
       expect(text).toContain(".slice(1)");
       expect(text).toContain("tail.length");
+    });
+  });
+});
+
+// ============================================================================
+// Wave 3: Type Constructors + OR + AS + Regex
+// ============================================================================
+
+/** Build a CallExpression like `String(s)` or `Date(d)` for type constructor patterns. */
+function ctorPat(ctorName: string, binding: ts.Expression): ts.CallExpression {
+  return f.createCallExpression(ident(ctorName), undefined, [binding]);
+}
+
+/** Build a regex literal AST node. */
+function regex(pattern: string): ts.Expression {
+  return f.createRegularExpressionLiteral(pattern);
+}
+
+describe("fluent match() macro (PEP-008 Wave 3)", () => {
+  // ==========================================================================
+  // Type Constructor Patterns
+  // ==========================================================================
+  describe("type constructor patterns", () => {
+    it("GATE: .case(String(s)).then(s.length) generates typeof === 'string'", () => {
+      const { ctx, printExpr } = createTestContext();
+      const sLen = f.createPropertyAccessExpression(ident("s"), "length");
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("String", ident("s"))] },
+        { method: "then", args: [sLen] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"string"');
+      expect(text).toContain("const s =");
+      expect(text).toContain("s.length");
+    });
+
+    it("should generate typeof === 'number' for Number(n)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Number", ident("n"))] },
+        { method: "then", args: [ident("n")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"number"');
+      expect(text).toContain("const n =");
+    });
+
+    it("should generate typeof === 'boolean' for Boolean(b)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Boolean", ident("b"))] },
+        { method: "then", args: [ident("b")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"boolean"');
+      expect(text).toContain("const b =");
+    });
+
+    it("should generate typeof === 'bigint' for BigInt(n)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("BigInt", ident("n"))] },
+        { method: "then", args: [ident("n")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"bigint"');
+    });
+
+    it("should generate typeof === 'symbol' for Symbol(s)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Symbol", ident("s"))] },
+        { method: "then", args: [ident("s")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"symbol"');
+    });
+
+    it("should generate typeof === 'function' for Function(fn)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Function", ident("fn"))] },
+        { method: "then", args: [ident("fn")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"function"');
+    });
+
+    it("should generate typeof === 'object' && !== null for Object(o)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Object", ident("o"))] },
+        { method: "then", args: [ident("o")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"object"');
+      expect(text).toContain("!== null");
+      expect(text).toContain("const o =");
+    });
+
+    it("GATE: .case(Array(a)).then(a.length) generates Array.isArray()", () => {
+      const { ctx, printExpr } = createTestContext();
+      const aLen = f.createPropertyAccessExpression(ident("a"), "length");
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Array", ident("a"))] },
+        { method: "then", args: [aLen] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain("const a =");
+      expect(text).toContain("a.length");
+    });
+
+    it("GATE: .case(Date(d)).then(d.toISOString()) generates instanceof Date", () => {
+      const { ctx, printExpr } = createTestContext();
+      const dIso = f.createCallExpression(
+        f.createPropertyAccessExpression(ident("d"), "toISOString"),
+        undefined,
+        []
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Date", ident("d"))] },
+        { method: "then", args: [dIso] },
+        { method: "else", args: [str("not a date")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("instanceof Date");
+      expect(text).toContain("const d =");
+      expect(text).toContain("d.toISOString()");
+    });
+
+    it("should generate instanceof for user-defined constructors (TypeError)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const eMsg = f.createPropertyAccessExpression(ident("e"), "message");
+      const { outermost, rootArgs } = buildChain(
+        ident("err"),
+        { method: "case", args: [ctorPat("TypeError", ident("e"))] },
+        { method: "then", args: [eMsg] },
+        { method: "else", args: [str("unknown error")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("instanceof TypeError");
+      expect(text).toContain("const e =");
+      expect(text).toContain("e.message");
+    });
+
+    it("should handle type constructor with wildcard binding", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("String", ident("_"))] },
+        { method: "then", args: [str("it's a string")] },
+        { method: "else", args: [str("nope")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"string"');
+      expect(text).not.toContain("const _ =");
+    });
+
+    it("should handle type constructor with guard", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(
+        f.createPropertyAccessExpression(ident("s"), "length"),
+        ts.SyntaxKind.GreaterThanToken,
+        num(5)
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("String", ident("s"))] },
+        { method: "if", args: [guard] },
+        { method: "then", args: [ident("s")] },
+        { method: "else", args: [str("short or not string")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"string"');
+      expect(text).toContain("const s =");
+      expect(text).toContain("s.length > 5");
+    });
+
+    it("should handle multiple type constructor arms", () => {
+      const { ctx, printExpr } = createTestContext();
+      const sLen = f.createPropertyAccessExpression(ident("s"), "length");
+      const nStr = f.createCallExpression(
+        f.createPropertyAccessExpression(ident("n"), "toString"),
+        undefined,
+        []
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("String", ident("s"))] },
+        { method: "then", args: [sLen] },
+        { method: "case", args: [ctorPat("Number", ident("n"))] },
+        { method: "then", args: [nStr] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"string"');
+      expect(text).toContain('"number"');
+      expect(text).toContain("const s =");
+      expect(text).toContain("const n =");
+    });
+  });
+
+  // ==========================================================================
+  // OR Patterns
+  // ==========================================================================
+  describe("OR patterns", () => {
+    it("GATE: .case(200).or(201).or(204).then('ok') generates OR chain", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("status"),
+        { method: "case", args: [num(200)] },
+        { method: "or", args: [num(201)] },
+        { method: "or", args: [num(204)] },
+        { method: "then", args: [str("ok")] },
+        { method: "else", args: [str("error")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("=== 200");
+      expect(text).toContain("=== 201");
+      expect(text).toContain("=== 204");
+      expect(text).toContain("||");
+      expect(text).toContain('"ok"');
+    });
+
+    it("should handle two-alternative OR pattern", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [str("a")] },
+        { method: "or", args: [str("b")] },
+        { method: "then", args: [str("ab")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"a"');
+      expect(text).toContain('"b"');
+      expect(text).toContain("||");
+    });
+
+    it("should handle OR pattern with guard", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(ident("x"), ts.SyntaxKind.GreaterThanToken, num(100));
+      const { outermost, rootArgs } = buildChain(
+        ident("status"),
+        { method: "case", args: [num(200)] },
+        { method: "or", args: [num(201)] },
+        { method: "if", args: [guard] },
+        { method: "then", args: [str("ok and big")] },
+        { method: "else", args: [str("nope")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("=== 200");
+      expect(text).toContain("||");
+      expect(text).toContain("=== 201");
+      expect(text).toContain("&&");
+      expect(text).toContain("x > 100");
+    });
+
+    it("should handle OR pattern mixed with normal arms", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [num(1)] },
+        { method: "or", args: [num(2)] },
+        { method: "then", args: [str("low")] },
+        { method: "case", args: [num(99)] },
+        { method: "then", args: [str("high")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("=== 1");
+      expect(text).toContain("||");
+      expect(text).toContain("=== 2");
+      expect(text).toContain("=== 99");
+    });
+  });
+
+  // ==========================================================================
+  // AS Patterns
+  // ==========================================================================
+  describe("AS patterns", () => {
+    it("GATE: .case([x, y]).as(p).then(p) binds both p and x, y", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("val"),
+        { method: "case", args: [arr(ident("x"), ident("y"))] },
+        { method: "as", args: [ident("p")] },
+        { method: "then", args: [ident("p")] },
+        { method: "else", args: [str("no match")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("const p =");
+      expect(text).toContain("const x =");
+      expect(text).toContain("const y =");
+      expect(text).toContain("return p");
+    });
+
+    it("should bind AS pattern with object destructuring", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("val"),
+        { method: "case", args: [obj(shortProp("name"), shortProp("age"))] },
+        { method: "as", args: [ident("person")] },
+        { method: "then", args: [ident("person")] },
+        { method: "else", args: [str("no match")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("const person =");
+      expect(text).toContain("const name =");
+      expect(text).toContain("const age =");
+      expect(text).toContain("return person");
+    });
+
+    it("should handle AS pattern with literal match (no destructured bindings)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [num(42)] },
+        { method: "as", args: [ident("val")] },
+        { method: "then", args: [ident("val")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("=== 42");
+      expect(text).toContain("const val =");
+      expect(text).toContain("return val");
+    });
+
+    it("should handle AS with wildcard (ignore) binding", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [arr(ident("a"), ident("b"))] },
+        { method: "as", args: [ident("_")] },
+        { method: "then", args: [ident("a")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("const a =");
+      expect(text).toContain("const b =");
+      expect(text).not.toContain("const _ =");
+    });
+
+    it("should handle AS pattern with guard", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(
+        f.createPropertyAccessExpression(ident("p"), "length"),
+        ts.SyntaxKind.GreaterThanToken,
+        num(0)
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("val"),
+        { method: "case", args: [arr(ident("x"), ident("y"))] },
+        { method: "as", args: [ident("p")] },
+        { method: "if", args: [guard] },
+        { method: "then", args: [ident("p")] },
+        { method: "else", args: [str("empty")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("const p =");
+      expect(text).toContain("const x =");
+      expect(text).toContain("const y =");
+      expect(text).toContain("p.length > 0");
+    });
+  });
+
+  // ==========================================================================
+  // Regex Patterns
+  // ==========================================================================
+  describe("regex patterns", () => {
+    it("GATE: .case(/regex/).as([_, user, domain]).then(...) extracts captures", () => {
+      const { ctx, printExpr } = createTestContext();
+      const resultExpr = obj(prop("user", ident("user")), prop("domain", ident("domain")));
+      const { outermost, rootArgs } = buildChain(
+        ident("email"),
+        {
+          method: "case",
+          args: [regex("/^(\\w+)@(\\w+)$/")],
+        },
+        {
+          method: "as",
+          args: [arr(ident("_"), ident("user"), ident("domain"))],
+        },
+        { method: "then", args: [resultExpr] },
+        { method: "else", args: [str("invalid")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain(".match(");
+      expect(text).toContain("!== null");
+      expect(text).toContain("const user =");
+      expect(text).toContain("const domain =");
+    });
+
+    it("should handle regex without AS pattern (just match test)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("s"),
+        {
+          method: "case",
+          args: [regex("/^\\d+$/")],
+        },
+        { method: "then", args: [str("numeric")] },
+        { method: "else", args: [str("not numeric")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain(".match(");
+      expect(text).toContain("!== null");
+      expect(text).toContain('"numeric"');
+    });
+
+    it("should handle regex with guard", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(
+        f.createPropertyAccessExpression(ident("user"), "length"),
+        ts.SyntaxKind.GreaterThanToken,
+        num(3)
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("email"),
+        {
+          method: "case",
+          args: [regex("/^(\\w+)@(\\w+)$/")],
+        },
+        {
+          method: "as",
+          args: [arr(ident("_"), ident("user"), ident("domain"))],
+        },
+        { method: "if", args: [guard] },
+        { method: "then", args: [ident("user")] },
+        { method: "else", args: [str("invalid")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain(".match(");
+      expect(text).toContain("!== null");
+      expect(text).toContain("const user =");
+      expect(text).toContain("user.length > 3");
+    });
+
+    it("should handle regex mixed with other pattern arms", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("input"),
+        { method: "case", args: [str("")] },
+        { method: "then", args: [str("empty")] },
+        {
+          method: "case",
+          args: [regex("/^\\d+$/")],
+        },
+        { method: "then", args: [str("numeric")] },
+        { method: "else", args: [str("text")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('=== ""');
+      expect(text).toContain('"empty"');
+      expect(text).toContain(".match(");
+      expect(text).toContain('"numeric"');
+    });
+  });
+
+  // ==========================================================================
+  // Wave 3 Gate Criteria (all in one place)
+  // ==========================================================================
+  describe("Wave 3 gate criteria", () => {
+    it("GATE: String(s) → typeof === 'string'", () => {
+      const { ctx, printExpr } = createTestContext();
+      const sLen = f.createPropertyAccessExpression(ident("s"), "length");
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("String", ident("s"))] },
+        { method: "then", args: [sLen] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"string"');
+    });
+
+    it("GATE: Date(d) → instanceof Date", () => {
+      const { ctx, printExpr } = createTestContext();
+      const dIso = f.createCallExpression(
+        f.createPropertyAccessExpression(ident("d"), "toISOString"),
+        undefined,
+        []
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Date", ident("d"))] },
+        { method: "then", args: [dIso] },
+        { method: "else", args: [str("nope")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("instanceof Date");
+    });
+
+    it("GATE: Array(a) → Array.isArray()", () => {
+      const { ctx, printExpr } = createTestContext();
+      const aLen = f.createPropertyAccessExpression(ident("a"), "length");
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [ctorPat("Array", ident("a"))] },
+        { method: "then", args: [aLen] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+    });
+
+    it("GATE: .case(200).or(201).or(204) → OR chain", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("s"),
+        { method: "case", args: [num(200)] },
+        { method: "or", args: [num(201)] },
+        { method: "or", args: [num(204)] },
+        { method: "then", args: [str("ok")] },
+        { method: "else", args: [str("error")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("||");
+      expect(text).toContain("=== 200");
+      expect(text).toContain("=== 201");
+      expect(text).toContain("=== 204");
+    });
+
+    it("GATE: .case([x, y]).as(p) → binds both p and x, y", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("val"),
+        { method: "case", args: [arr(ident("x"), ident("y"))] },
+        { method: "as", args: [ident("p")] },
+        { method: "then", args: [ident("p")] },
+        { method: "else", args: [str("no")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("const p =");
+      expect(text).toContain("const x =");
+      expect(text).toContain("const y =");
+    });
+
+    it("GATE: .case(/regex/).as([_, user, domain]) → extracts captures", () => {
+      const { ctx, printExpr } = createTestContext();
+      const resultExpr = obj(prop("user", ident("user")), prop("domain", ident("domain")));
+      const { outermost, rootArgs } = buildChain(
+        ident("email"),
+        {
+          method: "case",
+          args: [regex("/^(\\w+)@(\\w+)$/")],
+        },
+        {
+          method: "as",
+          args: [arr(ident("_"), ident("user"), ident("domain"))],
+        },
+        { method: "then", args: [resultExpr] },
+        { method: "else", args: [str("invalid")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain(".match(");
+      expect(text).toContain("!== null");
+      expect(text).toContain("const user =");
+      expect(text).toContain("const domain =");
     });
   });
 });

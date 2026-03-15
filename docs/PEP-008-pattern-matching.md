@@ -1,6 +1,6 @@
 # PEP-008: Scala-Style Pattern Matching
 
-**Status:** In Progress (Wave 1 complete)
+**Status:** In Progress (Waves 1–3 complete)
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -893,31 +893,31 @@ Core macro infrastructure: parse `.case().if().then()` chains, extract pattern v
 
 **Tasks:**
 
-- [ ] Type patterns via `Constructor(binding)`: `.case(String(s)).then(s.length)`
+- [x] Type patterns via `Constructor(binding)`: `.case(String(s)).then(s.length)`
   - Detect `CallExpression` where callee is a known type constructor
   - Map constructor names to runtime checks (typeof / instanceof / Array.isArray)
   - Known constructors: `String`, `Number`, `Boolean`, `BigInt`, `Symbol`, `Array`, `Function`, `Object`
   - All other constructors: `instanceof` check
   - Narrow the binding type in `.if()` and `.then()`
   - This uses the same AST shape as extractor patterns (Wave 4), just with built-in dispatch
-- [ ] OR patterns via `.or()`: `.case(200).or(201).or(204).then("ok")`
+- [x] OR patterns via `.or()`: `.case(200).or(201).or(204).then("ok")`
   - Collect alternatives into `||` chain
   - Verify no variable bindings in OR alternatives
-- [ ] AS patterns via `.as()`: `.case([x, y]).as(p).then(p)`
+- [x] AS patterns via `.as()`: `.case([x, y]).as(p).then(p)`
   - Bind whole matched value to alias alongside destructured bindings
-- [ ] Regex patterns: `.case(/regex/).as([_, g1, g2]).then(...)`
+- [x] Regex patterns: `.case(/regex/).as([_, g1, g2]).then(...)`
   - Detect `RegularExpressionLiteral` in `.case()` argument
   - Generate `.match()` call, bind capture groups via `.as()` array pattern
-- [ ] Tests: all type patterns, OR combinations, AS with arrays/objects, regex captures
+- [x] Tests: all type patterns, OR combinations, AS with arrays/objects, regex captures
 
 **Gate:**
 
-- [ ] `.case(String(s)).then(s.length)` generates `typeof === "string"`
-- [ ] `.case(Date(d)).then(d.toISOString())` generates `instanceof Date`
-- [ ] `.case(Array(a)).then(a.length)` generates `Array.isArray()`
-- [ ] `.case(200).or(201).or(204).then("ok")` generates OR chain
-- [ ] `.case([x, y]).as(p).then(p)` binds both `p` and `x`, `y`
-- [ ] `.case(/^(\w+)@(\w+)$/).as([_, user, domain]).then(...)` extracts captures
+- [x] `.case(String(s)).then(s.length)` generates `typeof === "string"`
+- [x] `.case(Date(d)).then(d.toISOString())` generates `instanceof Date`
+- [x] `.case(Array(a)).then(a.length)` generates `Array.isArray()`
+- [x] `.case(200).or(201).or(204).then("ok")` generates OR chain
+- [x] `.case([x, y]).as(p).then(p)` binds both `p` and `x`, `y`
+- [x] `.case(/^(\w+)@(\w+)$/).as([_, user, domain]).then(...)` extracts captures
 
 ### Wave 4: Destructure Typeclass + Extractor Patterns (~8 files)
 

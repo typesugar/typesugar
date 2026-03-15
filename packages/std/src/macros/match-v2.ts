@@ -1,5 +1,5 @@
 /**
- * Fluent Pattern Matching — Waves 1+2 (PEP-008)
+ * Fluent Pattern Matching — Waves 1–3 (PEP-008)
  *
  * Implements the `.case().if().then().else()` fluent chain for the `match()` macro.
  * This module is called from the existing match macro when a chain call is detected.
@@ -10,21 +10,21 @@
  *           Object patterns (`{ a, b }`, `{ name: n }`, `{ kind: "circle" }`),
  *           Nested patterns (`{ user: { name } }`, `[{ x }, { y }]`),
  *           Rest/spread patterns for both arrays and objects
+ * - Wave 3: Type constructor patterns (`String(s)`, `Date(d)`, `Array(a)`),
+ *           OR patterns (`.or()`), AS patterns (`.as()`),
+ *           Regex patterns (`/regex/` with `.as()` capture group binding)
  *
  * Compilation target: IIFE with scrutinee evaluated once.
  *
  * @example
  * ```typescript
- * match(arr).case([first, _, _]).if(first > 0).then(first)
- * // compiles to:
- * (() => {
- *   const __m = arr;
- *   if (Array.isArray(__m) && __m.length === 3) {
- *     const first = __m[0];
- *     if (first > 0) return first;
- *   }
- *   throw new MatchError(__m);
- * })()
+ * match(value)
+ *   .case(String(s)).then(s.length)
+ *   .case(Date(d)).then(d.toISOString())
+ *   .case(200).or(201).or(204).then("ok")
+ *   .case([x, y]).as(p).then(p)
+ *   .case(/^(\w+)@(\w+)$/).as([_, user, domain]).then({ user, domain })
+ *   .else("unknown")
  * ```
  */
 
@@ -43,8 +43,10 @@ interface ChainLink {
 
 interface CaseArm {
   pattern: ts.Expression;
+  alternatives: ts.Expression[];
   guard?: ts.Expression;
   result: ts.Expression;
+  asPattern?: ts.Expression;
 }
 
 // ============================================================================
@@ -68,6 +70,8 @@ type PatternInfo =
   | { kind: "variable"; name: string }
   | { kind: "array"; elements: ArrayElementPattern[]; hasRest: boolean }
   | { kind: "object"; properties: ObjectPropertyPattern[]; hasRest: boolean }
+  | { kind: "type-constructor"; constructorName: string; binding: PatternInfo }
+  | { kind: "regex"; node: ts.Expression }
   | { kind: "unsupported"; node: ts.Expression };
 
 /**
@@ -101,7 +105,9 @@ function parseChain(outermost: ts.CallExpression): { root: ts.CallExpression; li
  * Parse chain links into structured case arms and an optional else clause.
  *
  * Grammar:
- *   chain := match(scrutinee) (.case(pattern) [.if(guard)] .then(result))* [.else(default)]
+ *   chain := match(scrutinee)
+ *            (.case(pattern) [.or(alt)]* [.as(binding)] [.if(guard)] .then(result))*
+ *            [.else(default)]
  */
 function parseArms(
   ctx: MacroContext,
@@ -109,7 +115,9 @@ function parseArms(
 ): { arms: CaseArm[]; elseResult?: ts.Expression } {
   const arms: CaseArm[] = [];
   let currentPattern: ts.Expression | undefined;
+  let currentAlternatives: ts.Expression[] = [];
   let currentGuard: ts.Expression | undefined;
+  let currentAsPattern: ts.Expression | undefined;
   let elseResult: ts.Expression | undefined;
 
   for (const link of links) {
@@ -120,7 +128,25 @@ function parseArms(
           break;
         }
         currentPattern = link.args[0];
+        currentAlternatives = [];
         currentGuard = undefined;
+        currentAsPattern = undefined;
+        break;
+
+      case "or":
+        if (link.args.length < 1) {
+          ctx.reportError(link.node, "match: .or() requires a pattern argument");
+          break;
+        }
+        currentAlternatives.push(link.args[0]);
+        break;
+
+      case "as":
+        if (link.args.length < 1) {
+          ctx.reportError(link.node, "match: .as() requires a binding argument");
+          break;
+        }
+        currentAsPattern = link.args[0];
         break;
 
       case "if":
@@ -142,11 +168,15 @@ function parseArms(
         }
         arms.push({
           pattern: currentPattern,
+          alternatives: currentAlternatives,
           guard: currentGuard,
           result: link.args[0],
+          asPattern: currentAsPattern,
         });
         currentPattern = undefined;
+        currentAlternatives = [];
         currentGuard = undefined;
+        currentAsPattern = undefined;
         break;
 
       case "else":
@@ -266,12 +296,39 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     return { kind: "object", properties, hasRest };
   }
 
+  // Type constructor patterns: String(s), Date(d), Array(a), etc.
+  if (ts.isCallExpression(pattern) && ts.isIdentifier(pattern.expression)) {
+    const ctorName = pattern.expression.text;
+    const binding =
+      pattern.arguments.length >= 1
+        ? analyzePattern(pattern.arguments[0])
+        : ({ kind: "wildcard" } as const);
+    return { kind: "type-constructor", constructorName: ctorName, binding };
+  }
+
+  // Regex patterns: /regex/
+  if (pattern.kind === ts.SyntaxKind.RegularExpressionLiteral) {
+    return { kind: "regex", node: pattern };
+  }
+
   return { kind: "unsupported", node: pattern };
 }
 
 // ============================================================================
 // Code Generation
 // ============================================================================
+
+/**
+ * Map of built-in type constructor names to their `typeof` check strings.
+ */
+const TYPEOF_MAP: Record<string, string> = {
+  String: "string",
+  Number: "number",
+  Boolean: "boolean",
+  BigInt: "bigint",
+  Symbol: "symbol",
+  Function: "function",
+};
 
 /**
  * Generate the IIFE that implements the match expression.
@@ -299,11 +356,14 @@ export function expandFluentMatch(
     return chainExpr;
   }
 
-  // Optimization: single literal arm + else, no guard → ternary
+  // Optimization: single literal arm + else, no guard, no or, no as → ternary
   if (arms.length === 1 && elseResult !== undefined) {
-    const pattern = analyzePattern(arms[0].pattern);
-    if (pattern.kind === "literal" && !arms[0].guard) {
-      return generateTernary(ctx, scrutinee, arms[0], pattern.node, elseResult);
+    const arm = arms[0];
+    if (arm.alternatives.length === 0 && !arm.asPattern) {
+      const pattern = analyzePattern(arm.pattern);
+      if (pattern.kind === "literal" && !arm.guard) {
+        return generateTernary(ctx, scrutinee, arm, pattern.node, elseResult);
+      }
     }
   }
 
@@ -460,12 +520,9 @@ function collectBindings(
       }
 
       if (restProp && restProp.pattern.kind === "variable") {
-        // const rest = (({ key1, key2, ...rest }) => rest)(accessor)
-        // Simpler: use object destructuring with rest
         const excludeKeys = nonRestProps.map((p) => p.key);
         const restName = restProp.pattern.name;
 
-        // Build: const { key1: _k1, key2: _k2, ...rest } = accessor
         const bindingElements = [
           ...excludeKeys.map((k) =>
             f.createBindingElement(
@@ -501,6 +558,12 @@ function collectBindings(
 
       return stmts;
     }
+
+    case "type-constructor":
+      return collectBindings(f, pattern.binding, accessor);
+
+    case "regex":
+      return [];
 
     default:
       return [];
@@ -545,7 +608,6 @@ function buildCondition(
 
       // Length check
       if (hasRest) {
-        // length >= nonRestElements.length
         if (nonRestElements.length > 0) {
           parts.push(
             f.createBinaryExpression(
@@ -556,7 +618,6 @@ function buildCondition(
           );
         }
       } else {
-        // Exact length check
         parts.push(
           f.createBinaryExpression(
             f.createPropertyAccessExpression(accessor, "length"),
@@ -578,7 +639,6 @@ function buildCondition(
             )
           );
         } else if (elem.pattern.kind !== "wildcard" && elem.pattern.kind !== "variable") {
-          // Nested pattern — recurse for structural conditions
           const nested = buildCondition(
             f,
             elem.pattern,
@@ -614,7 +674,6 @@ function buildCondition(
       );
 
       for (const prop of nonRestProps) {
-        // "key" in accessor
         parts.push(
           f.createBinaryExpression(
             f.createStringLiteral(prop.key),
@@ -623,7 +682,6 @@ function buildCondition(
           )
         );
 
-        // Literal value check: accessor.key === literal
         if (prop.pattern.kind === "literal") {
           parts.push(
             f.createBinaryExpression(
@@ -633,7 +691,6 @@ function buildCondition(
             )
           );
         } else if (prop.pattern.kind !== "wildcard" && prop.pattern.kind !== "variable") {
-          // Nested pattern — recurse
           const nested = buildCondition(
             f,
             prop.pattern,
@@ -648,14 +705,218 @@ function buildCondition(
       );
     }
 
+    case "type-constructor": {
+      const { constructorName } = pattern;
+
+      if (constructorName in TYPEOF_MAP) {
+        return f.createBinaryExpression(
+          f.createTypeOfExpression(accessor),
+          ts.SyntaxKind.EqualsEqualsEqualsToken,
+          f.createStringLiteral(TYPEOF_MAP[constructorName])
+        );
+      }
+
+      if (constructorName === "Object") {
+        return f.createBinaryExpression(
+          f.createBinaryExpression(
+            f.createTypeOfExpression(accessor),
+            ts.SyntaxKind.EqualsEqualsEqualsToken,
+            f.createStringLiteral("object")
+          ),
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          f.createBinaryExpression(
+            accessor,
+            ts.SyntaxKind.ExclamationEqualsEqualsToken,
+            f.createNull()
+          )
+        );
+      }
+
+      if (constructorName === "Array") {
+        return f.createCallExpression(
+          f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
+          undefined,
+          [accessor]
+        );
+      }
+
+      // Default: instanceof check for user-defined or other built-in classes
+      return f.createBinaryExpression(
+        accessor,
+        ts.SyntaxKind.InstanceOfKeyword,
+        f.createIdentifier(constructorName)
+      );
+    }
+
+    case "regex":
+      // Regex conditions are handled in generateRegexArmStatements
+      return undefined;
+
     case "unsupported":
       return undefined;
   }
 }
 
+// ============================================================================
+// AS Pattern Binding Helper
+// ============================================================================
+
+/**
+ * Generate binding statements for an `.as()` pattern.
+ * For identifiers: `const p = accessor;`
+ * For array patterns: destructure from accessor (used for regex capture groups).
+ */
+function generateAsBindings(
+  f: ts.NodeFactory,
+  asPattern: ts.Expression,
+  accessor: ts.Expression
+): ts.Statement[] {
+  if (ts.isIdentifier(asPattern)) {
+    if (asPattern.text === "_") return [];
+    return [
+      f.createVariableStatement(
+        undefined,
+        f.createVariableDeclarationList(
+          [
+            f.createVariableDeclaration(
+              f.createIdentifier(asPattern.text),
+              undefined,
+              undefined,
+              accessor
+            ),
+          ],
+          ts.NodeFlags.Const
+        )
+      ),
+    ];
+  }
+
+  // Array/object AS patterns — analyze and collect bindings
+  const analyzed = analyzePattern(asPattern);
+  return collectBindings(f, analyzed, accessor);
+}
+
+// ============================================================================
+// OR Pattern Generation
+// ============================================================================
+
+/**
+ * Generate statements for an OR pattern arm: `.case(A).or(B).or(C).then(result)`
+ * Produces: `if (condA || condB || condC) return result;`
+ */
+function generateOrArmStatements(
+  ctx: MacroContext,
+  f: ts.NodeFactory,
+  arm: CaseArm,
+  scrutineeRef: ts.Expression
+): ts.Statement[] {
+  const allPatterns = [arm.pattern, ...arm.alternatives];
+  const conditions: ts.Expression[] = [];
+
+  for (const pat of allPatterns) {
+    const analyzed = analyzePattern(pat);
+    const cond = buildCondition(f, analyzed, scrutineeRef);
+    if (cond) {
+      conditions.push(cond);
+    }
+  }
+
+  if (conditions.length === 0) {
+    return [f.createReturnStatement(arm.result)];
+  }
+
+  const combined = conditions.reduce((a, b) =>
+    f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b)
+  );
+
+  if (arm.guard) {
+    const check = f.createBinaryExpression(
+      f.createParenthesizedExpression(combined),
+      ts.SyntaxKind.AmpersandAmpersandToken,
+      arm.guard
+    );
+    return [f.createIfStatement(check, f.createReturnStatement(arm.result))];
+  }
+
+  return [f.createIfStatement(combined, f.createReturnStatement(arm.result))];
+}
+
+// ============================================================================
+// Regex Pattern Generation
+// ============================================================================
+
+/**
+ * Generate statements for a regex pattern arm:
+ * `.case(/regex/).as([_, user, domain]).then({ user, domain })`
+ *
+ * Produces:
+ * ```
+ * {
+ *   const __r = __m.match(/regex/);
+ *   if (__r !== null) {
+ *     const [_, user, domain] = __r;
+ *     return { user, domain };
+ *   }
+ * }
+ * ```
+ */
+function generateRegexArmStatements(
+  ctx: MacroContext,
+  f: ts.NodeFactory,
+  pattern: PatternInfo & { kind: "regex" },
+  arm: CaseArm,
+  scrutineeRef: ts.Expression
+): ts.Statement[] {
+  const regexResultId = ctx.generateUniqueName("r");
+
+  // const __r = __m.match(/regex/);
+  const matchCall = f.createCallExpression(
+    f.createPropertyAccessExpression(scrutineeRef, "match"),
+    undefined,
+    [pattern.node]
+  );
+  const regexDecl = f.createVariableStatement(
+    undefined,
+    f.createVariableDeclarationList(
+      [f.createVariableDeclaration(regexResultId, undefined, undefined, matchCall)],
+      ts.NodeFlags.Const
+    )
+  );
+
+  const regexRef = f.createIdentifier(regexResultId.text);
+
+  // Inner body: AS bindings from regex result + guard + return
+  const innerBody: ts.Statement[] = [];
+
+  if (arm.asPattern) {
+    innerBody.push(...generateAsBindings(f, arm.asPattern, regexRef));
+  }
+
+  if (arm.guard) {
+    innerBody.push(f.createIfStatement(arm.guard, f.createReturnStatement(arm.result)));
+  } else {
+    innerBody.push(f.createReturnStatement(arm.result));
+  }
+
+  // if (__r !== null) { ... }
+  const nullCheck = f.createBinaryExpression(
+    regexRef,
+    ts.SyntaxKind.ExclamationEqualsEqualsToken,
+    f.createNull()
+  );
+  const ifStmt = f.createIfStatement(nullCheck, f.createBlock(innerBody, true));
+
+  return [f.createBlock([regexDecl, ifStmt], true)];
+}
+
+// ============================================================================
+// Arm Statement Generation
+// ============================================================================
+
 /**
  * Generate statements for a single match arm (pattern + optional guard + result).
- * Handles all pattern kinds including array, object, and nested.
+ * Handles all pattern kinds including array, object, nested, and type-constructor.
+ * Supports optional AS pattern binding.
  */
 function generateArmStatements(
   ctx: MacroContext,
@@ -663,8 +924,11 @@ function generateArmStatements(
   pattern: PatternInfo,
   scrutineeRef: ts.Expression,
   guard: ts.Expression | undefined,
-  result: ts.Expression
+  result: ts.Expression,
+  asPattern?: ts.Expression
 ): ts.Statement[] {
+  const asBindings = asPattern ? generateAsBindings(f, asPattern, scrutineeRef) : [];
+
   switch (pattern.kind) {
     case "literal": {
       const condition = f.createBinaryExpression(
@@ -672,6 +936,15 @@ function generateArmStatements(
         ts.SyntaxKind.EqualsEqualsEqualsToken,
         pattern.node
       );
+      if (asBindings.length > 0) {
+        const bodyStatements: ts.Statement[] = [...asBindings];
+        if (guard) {
+          bodyStatements.push(f.createIfStatement(guard, f.createReturnStatement(result)));
+        } else {
+          bodyStatements.push(f.createReturnStatement(result));
+        }
+        return [f.createIfStatement(condition, f.createBlock(bodyStatements, true))];
+      }
       const check = guard
         ? f.createBinaryExpression(condition, ts.SyntaxKind.AmpersandAmpersandToken, guard)
         : condition;
@@ -679,6 +952,15 @@ function generateArmStatements(
     }
 
     case "wildcard": {
+      if (asBindings.length > 0) {
+        const bodyStatements: ts.Statement[] = [...asBindings];
+        if (guard) {
+          bodyStatements.push(f.createIfStatement(guard, f.createReturnStatement(result)));
+        } else {
+          bodyStatements.push(f.createReturnStatement(result));
+        }
+        return [f.createBlock(bodyStatements, true)];
+      }
       if (guard) {
         return [f.createIfStatement(guard, f.createReturnStatement(result))];
       }
@@ -700,7 +982,7 @@ function generateArmStatements(
           ts.NodeFlags.Const
         )
       );
-      const bodyStatements: ts.Statement[] = [binding];
+      const bodyStatements: ts.Statement[] = [...asBindings, binding];
       if (guard) {
         bodyStatements.push(f.createIfStatement(guard, f.createReturnStatement(result)));
       } else {
@@ -710,11 +992,12 @@ function generateArmStatements(
     }
 
     case "array":
-    case "object": {
+    case "object":
+    case "type-constructor": {
       const condition = buildCondition(f, pattern, scrutineeRef);
       const bindings = collectBindings(f, pattern, scrutineeRef);
 
-      const bodyStatements: ts.Statement[] = [...bindings];
+      const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
       if (guard) {
         bodyStatements.push(f.createIfStatement(guard, f.createReturnStatement(result)));
       } else {
@@ -726,18 +1009,25 @@ function generateArmStatements(
       if (condition) {
         return [f.createIfStatement(condition, body)];
       }
-      // No condition (unlikely for array/object but defensive)
       return [body];
     }
+
+    case "regex":
+      // Handled separately via generateRegexArmStatements
+      return [];
 
     case "unsupported":
       ctx.reportError(
         pattern.node,
-        `match: unsupported pattern kind (only literals, _, identifiers, arrays, and objects supported)`
+        `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, and regex supported)`
       );
       return [];
   }
 }
+
+// ============================================================================
+// IIFE Generation
+// ============================================================================
 
 function generateIIFE(
   ctx: MacroContext,
@@ -762,15 +1052,31 @@ function generateIIFE(
   );
 
   for (const arm of arms) {
-    const pattern = analyzePattern(arm.pattern);
     const scrutineeRef = f.createIdentifier(scrutineeName.text);
+
+    // OR patterns: build || chain of conditions
+    if (arm.alternatives.length > 0) {
+      statements.push(...generateOrArmStatements(ctx, f, arm, scrutineeRef));
+      continue;
+    }
+
+    const pattern = analyzePattern(arm.pattern);
+
+    // Regex patterns: special block with temp variable
+    if (pattern.kind === "regex") {
+      statements.push(...generateRegexArmStatements(ctx, f, pattern, arm, scrutineeRef));
+      continue;
+    }
+
+    // Normal patterns (possibly with AS binding)
     const armStatements = generateArmStatements(
       ctx,
       f,
       pattern,
       scrutineeRef,
       arm.guard,
-      arm.result
+      arm.result,
+      arm.asPattern
     );
     statements.push(...armStatements);
   }
