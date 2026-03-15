@@ -1092,9 +1092,11 @@ Remove deprecated `matchLiteral` and `matchGuard` shims that now delegate to the
 - [ ] No references to `matchLiteral` or `matchGuard` remain
 - [ ] Unified `match()` API continues to work for all existing use cases
 
-### Wave 9: Internal Dogfooding (~25 files)
+### Wave 9: Internal Dogfooding (~15 files)
 
 Adopt `match()` throughout typesugar's own codebase to validate the API and demonstrate best practices.
+
+**Note:** Build infrastructure packages (`transformer`, `macros`, `parser`, `preprocessor`) cannot use `match()` due to bootstrapping — they must compile before any macro expansion can happen.
 
 **High-Value Targets (expression tree traversal):**
 
@@ -1114,13 +1116,6 @@ Adopt `match()` throughout typesugar's own codebase to validate the API and demo
 - [ ] `packages/fp/src/io/io.ts` — `switch (current._tag)` over IO operations
 - [ ] `packages/sql/src/connection-io.ts` — `switch (op._tag)` over SQL operations
 - [ ] `packages/fusion/src/lazy.ts` — `switch (step.type)` over iterator steps
-
-**Macro Infrastructure:**
-
-- [ ] `packages/transformer/src/manifest.ts` — `switch (macro.kind)`
-- [ ] `packages/transformer/src/index.ts` — macro dispatch
-- [ ] `packages/parser/src/grammar.ts` — `switch (rule.type)` for grammar rules
-- [ ] `packages/macros/src/typeclass.ts` — `switch (tcName)` for typeclass codegen
 
 **Conversion Pattern:**
 
@@ -1142,14 +1137,14 @@ match(expr, {
 
 **Gate:**
 
-- [ ] At least 10 high-value switch statements converted
+- [ ] All symbolic package switches converted (~10 files)
+- [ ] Interpreter patterns converted (io.ts, connection-io.ts, lazy.ts)
 - [ ] All converted code passes `pnpm build` and `pnpm test`
 - [ ] No regressions in affected modules
-- [ ] Document any patterns where `match()` was NOT appropriate (lessons learned)
 
 ## Files Changed (All Waves)
 
-### Code (~45 files modified, ~4 new)
+### Code (~35 files modified, ~4 new)
 
 | File                                          | Wave   | Change                                       |
 | --------------------------------------------- | ------ | -------------------------------------------- |
@@ -1158,11 +1153,10 @@ match(expr, {
 | `packages/std/src/macros/match.ts`            | 7, 8   | Add deprecation notices; remove legacy shims |
 | `packages/std/src/macros/index.ts`            | 8      | Remove legacy exports                        |
 | `packages/std/src/index.ts`                   | 1, 8   | Export new match; remove legacy exports      |
-| `packages/macros/src/typeclass.ts`            | 4, 9   | Add Destructure; convert switches to match   |
+| `packages/macros/src/typeclass.ts`            | 4      | Add Destructure derivation rules             |
 | `packages/macros/src/generic.ts`              | 4      | Destructure via Product/Sum                  |
 | `packages/preprocessor/src/scanner.ts`        | 6      | Add `match \| pattern =>` syntax             |
-| `packages/transformer/src/index.ts`           | 1, 9   | Register macro; convert switches to match    |
-| `packages/transformer/src/manifest.ts`        | 9      | Convert switch to match                      |
+| `packages/transformer/src/index.ts`           | 1      | Register new macro                           |
 | `packages/symbolic/src/eval.ts`               | 9      | Convert switch to match                      |
 | `packages/symbolic/src/simplify/simplify.ts`  | 9      | Convert switch to match                      |
 | `packages/symbolic/src/pattern.ts`            | 9      | Convert switch to match                      |
@@ -1173,7 +1167,6 @@ match(expr, {
 | `packages/fp/src/io/io.ts`                    | 9      | Convert switch to match                      |
 | `packages/sql/src/connection-io.ts`           | 9      | Convert switch to match                      |
 | `packages/fusion/src/lazy.ts`                 | 9      | Convert switch to match                      |
-| `packages/parser/src/grammar.ts`              | 9      | Convert switch to match                      |
 | `packages/fp/README.md`                       | 8      | Remove legacy references                     |
 
 ### Tests (~4 new files, ~1 modified)
