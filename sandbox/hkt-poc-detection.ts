@@ -175,13 +175,18 @@ function visit(node: ts.Node): void {
         const kindArgs = [name, ...argTexts].join(", ");
 
         let enclosing = node.parent;
-        while (enclosing && !ts.isInterfaceDeclaration(enclosing) &&
-               !ts.isFunctionDeclaration(enclosing) && !ts.isTypeAliasDeclaration(enclosing)) {
+        while (
+          enclosing &&
+          !ts.isInterfaceDeclaration(enclosing) &&
+          !ts.isFunctionDeclaration(enclosing) &&
+          !ts.isTypeAliasDeclaration(enclosing)
+        ) {
           enclosing = enclosing.parent;
         }
-        const enclosingName = enclosing && "name" in enclosing && enclosing.name
-          ? (enclosing.name as ts.Identifier).text
-          : "<anonymous>";
+        const enclosingName =
+          enclosing && "name" in enclosing && enclosing.name
+            ? (enclosing.name as ts.Identifier).text
+            : "<anonymous>";
 
         rewriteTargets.push({
           line: line + 1,
@@ -229,62 +234,98 @@ function check(desc: string, cond: boolean) {
 }
 
 // Case 1: Basic F<A> rewrites
-check("Case 1: F<A> in param is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Functor" && t.text === "F<A>"));
-check("Case 1: F<B> in return is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Functor" && t.text === "F<B>"));
+check(
+  "Case 1: F<A> in param is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Functor" && t.text === "F<A>")
+);
+check(
+  "Case 1: F<B> in return is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Functor" && t.text === "F<B>")
+);
 
 // Case 2: Nested F<F<A>>
-check("Case 2: F<F<A>> outer is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Monad" && t.text === "F<F<A>>"));
-check("Case 2: F<A> inner is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Monad" && t.text === "F<A>" && t.rewriteTo === "Kind<F, A>"));
+check(
+  "Case 2: F<F<A>> outer is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Monad" && t.text === "F<F<A>>")
+);
+check(
+  "Case 2: F<A> inner is rewritten",
+  rewriteTargets.some(
+    (t) => t.enclosingDecl === "Monad" && t.text === "F<A>" && t.rewriteTo === "Kind<F, A>"
+  )
+);
 
 // Case 4: Concrete generics NOT rewritten
-check("Case 4: Array<A> is NOT rewritten",
-  correctlyIgnored.some(c => c.text === "Array<A>"));
-check("Case 4: Promise<A> is NOT rewritten",
-  correctlyIgnored.some(c => c.text === "Promise<A>"));
+check(
+  "Case 4: Array<A> is NOT rewritten",
+  correctlyIgnored.some((c) => c.text === "Array<A>")
+);
+check(
+  "Case 4: Promise<A> is NOT rewritten",
+  correctlyIgnored.some((c) => c.text === "Promise<A>")
+);
 
 // Case 5: Generic function
-check("Case 5: F<A> in function sig is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "lift" && t.text === "F<A>"));
+check(
+  "Case 5: F<A> in function sig is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "lift" && t.text === "F<A>")
+);
 
 // Case 6: Type alias
-check("Case 6: F<A> in type alias is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Lifted" && t.text === "F<A>"));
+check(
+  "Case 6: F<A> in type alias is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Lifted" && t.text === "F<A>")
+);
 
 // Case 7: Conditional type
-check("Case 7: F<A> in conditional type is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "IsNullable" && t.text === "F<A>"));
+check(
+  "Case 7: F<A> in conditional type is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "IsNullable" && t.text === "F<A>")
+);
 
 // Case 8: Mapped type
-check("Case 8: F<T[K]> in mapped type is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "MapAll" && t.text === "F<T[K]>"));
+check(
+  "Case 8: F<T[K]> in mapped type is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "MapAll" && t.text === "F<T[K]>")
+);
 
 // Case 9: Tuple/union/intersection
-check("Case 9: F<A> in tuple is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Pair"));
-check("Case 9: F<A> in union is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "OrNull"));
-check("Case 9: F<A> in intersection is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "AndMeta"));
+check(
+  "Case 9: F<A> in tuple is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Pair")
+);
+check(
+  "Case 9: F<A> in union is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "OrNull")
+);
+check(
+  "Case 9: F<A> in intersection is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "AndMeta")
+);
 
 // Case 10: extends clause — Functor<F> has no type args to rewrite (F is bare)
-check("Case 10: Functor<F> in extends is NOT rewritten (F is bare, not F<A>)",
-  !rewriteTargets.some(t => t.text === "Functor<F>"));
+check(
+  "Case 10: Functor<F> in extends is NOT rewritten (F is bare, not F<A>)",
+  !rewriteTargets.some((t) => t.text === "Functor<F>")
+);
 
 // Case 11: Bare type usage — Option used without args (a different kind of issue)
-check("Case 11: Functor<Option> is detected as concrete generic (not rewritten)",
-  correctlyIgnored.some(c => c.text.includes("Functor<Option>")));
+check(
+  "Case 11: Functor<Option> is detected as concrete generic (not rewritten)",
+  correctlyIgnored.some((c) => c.text.includes("Functor<Option>"))
+);
 
 // Case 12: Multi-arity
-check("Case 12: F<A, B> in Bifunctor is rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Bifunctor" && t.text === "F<A, B>"));
+check(
+  "Case 12: F<A, B> in Bifunctor is rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Bifunctor" && t.text === "F<A, B>")
+);
 
 // Case 13: Non-applied type param is NOT rewritten
-check("Case 13: F<A> in Container IS rewritten",
-  rewriteTargets.some(t => t.enclosingDecl === "Container" && t.text === "F<A>"));
+check(
+  "Case 13: F<A> in Container IS rewritten",
+  rewriteTargets.some((t) => t.enclosingDecl === "Container" && t.text === "F<A>")
+);
 
 console.log("=== VERIFICATION ===\n");
 let allPass = true;

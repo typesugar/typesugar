@@ -85,7 +85,8 @@ export const extensionAttribute: AttributeMacro = defineAttributeMacro({
     if (ts.isFunctionDeclaration(target)) {
       const name = target.name?.text;
       if (!name) {
-        ctx.diagnostic(TS9206)
+        ctx
+          .diagnostic(TS9206)
           .at(target)
           .withArgs({ macro: "@extension" })
           .help("Give the function a name: @extension function myMethod(...) { ... }")
@@ -95,7 +96,8 @@ export const extensionAttribute: AttributeMacro = defineAttributeMacro({
 
       const params = target.parameters;
       if (params.length === 0) {
-        ctx.diagnostic(TS9206)
+        ctx
+          .diagnostic(TS9206)
           .at(target)
           .withArgs({ macro: "@extension" })
           .note("Extension functions use the first parameter as the receiver type")
@@ -264,7 +266,8 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.diagnostic(TS9402)
+      ctx
+        .diagnostic(TS9402)
         .at(callExpr)
         .help('Usage: registerExtensions("number", NumberOps)')
         .emit();
@@ -276,7 +279,8 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
 
     // Extract type name from string literal
     if (!ts.isStringLiteral(typeNameArg)) {
-      ctx.diagnostic(TS9402)
+      ctx
+        .diagnostic(TS9402)
         .at(typeNameArg)
         .note("First argument must be a string literal type name")
         .help('Usage: registerExtensions("number", NumberOps)')
@@ -328,7 +332,8 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     if (args.length < 2) {
-      ctx.diagnostic(TS9403)
+      ctx
+        .diagnostic(TS9403)
         .at(callExpr)
         .help('Usage: registerExtension("string", capitalize)')
         .emit();
@@ -339,7 +344,8 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     const fnArg = args[1];
 
     if (!ts.isStringLiteral(typeNameArg)) {
-      ctx.diagnostic(TS9403)
+      ctx
+        .diagnostic(TS9403)
         .at(typeNameArg)
         .note("First argument must be a string literal type name")
         .help('Usage: registerExtension("string", capitalize)')
@@ -355,7 +361,8 @@ export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
     }
 
     if (!methodName) {
-      ctx.diagnostic(TS9403)
+      ctx
+        .diagnostic(TS9403)
         .at(fnArg)
         .note("Second argument must be a named function identifier")
         .help('Usage: registerExtension("string", capitalize)')

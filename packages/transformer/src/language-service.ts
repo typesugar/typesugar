@@ -23,7 +23,11 @@
 import type * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import { TransformationPipeline, type TransformResult, type TransformDiagnostic } from "./pipeline.js";
+import {
+  TransformationPipeline,
+  type TransformResult,
+  type TransformDiagnostic,
+} from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import { preprocess } from "@typesugar/preprocessor";
 
@@ -118,10 +122,7 @@ function init(modules: { typescript: typeof ts }) {
 
   function create(info: ts.server.PluginCreateInfo): ts.LanguageService {
     const projectName = info.project.getProjectName();
-    console.log(
-      "[typesugar] Creating language service proxy for project:",
-      projectName
-    );
+    console.log("[typesugar] Creating language service proxy for project:", projectName);
 
     const log = (msg: string) => {
       info.project.projectService.logger.info(`[typesugar] ${msg}`);
@@ -131,7 +132,8 @@ function init(modules: { typescript: typeof ts }) {
     // 1. InferredProjects (virtual projects for files without tsconfig, e.g. macro-generated virtual files)
     // 2. Build infrastructure packages (don't use typesugar macros)
     // Processing these wastes TS server resources and causes multi-minute hangs.
-    const infraPattern = /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|oxc-engine|eslint-plugin|prettier-plugin)[\\/]/;
+    const infraPattern =
+      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|oxc-engine|eslint-plugin|prettier-plugin)[\\/]/;
     if (projectName.includes("/dev/null/inferredProject") || infraPattern.test(projectName)) {
       log(`Skipping typesugar plugin for non-user project: ${projectName}`);
       return info.languageService;
@@ -204,7 +206,7 @@ function init(modules: { typescript: typeof ts }) {
      */
     function convertMacroDiagnostics(
       transformDiags: TransformDiagnostic[],
-      fileName: string,
+      fileName: string
     ): ts.Diagnostic[] {
       const program = oldLS.getProgram();
       let sourceFile = program?.getSourceFile(fileName);
@@ -246,9 +248,10 @@ function init(modules: { typescript: typeof ts }) {
           start: diag.start,
           length: diag.length,
           messageText: diag.message,
-          category: diag.severity === "error"
-            ? tsModule.DiagnosticCategory.Error
-            : tsModule.DiagnosticCategory.Warning,
+          category:
+            diag.severity === "error"
+              ? tsModule.DiagnosticCategory.Error
+              : tsModule.DiagnosticCategory.Warning,
           code,
           source: "typesugar",
         });
@@ -309,7 +312,9 @@ function init(modules: { typescript: typeof ts }) {
         // in getSemanticDiagnostics when the program/sourceFile is available
         if (result.diagnostics.length > 0) {
           rawMacroDiagnosticCache.set(normalizedFileName, result.diagnostics);
-          log(`Cached ${result.diagnostics.length} raw macro diagnostics for ${path.basename(normalizedFileName)}`);
+          log(
+            `Cached ${result.diagnostics.length} raw macro diagnostics for ${path.basename(normalizedFileName)}`
+          );
         } else {
           rawMacroDiagnosticCache.delete(normalizedFileName);
         }
@@ -608,7 +613,7 @@ function init(modules: { typescript: typeof ts }) {
       if (combined.length > 0) {
         log(
           `Semantic diagnostics for ${path.basename(fileName)}: ` +
-          `${diagnostics.length} TS raw → ${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
+            `${diagnostics.length} TS raw → ${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
         );
       }
       return combined;
@@ -634,13 +639,18 @@ function init(modules: { typescript: typeof ts }) {
       end: number,
       errorCodes: readonly number[],
       formatOptions: ts.FormatCodeSettings,
-      preferences: ts.UserPreferences,
+      preferences: ts.UserPreferences
     ): readonly ts.CodeFixAction[] => {
       const normalizedFileName = path.normalize(fileName);
 
       // Get TS's own code fixes
       const original = oldLS.getCodeFixesAtPosition(
-        fileName, start, end, errorCodes, formatOptions, preferences,
+        fileName,
+        start,
+        end,
+        errorCodes,
+        formatOptions,
+        preferences
       );
 
       // Check if any of the error codes are in the typesugar range (9001-9999)
@@ -663,13 +673,17 @@ function init(modules: { typescript: typeof ts }) {
           fixes.push({
             fixName: "typesugar-fix",
             description: suggestion.description,
-            changes: [{
-              fileName: normalizedFileName,
-              textChanges: [{
-                span: { start: suggestion.start, length: suggestion.length },
-                newText: suggestion.replacement,
-              }],
-            }],
+            changes: [
+              {
+                fileName: normalizedFileName,
+                textChanges: [
+                  {
+                    span: { start: suggestion.start, length: suggestion.length },
+                    newText: suggestion.replacement,
+                  },
+                ],
+              },
+            ],
             fixId: "typesugar-fix",
             fixAllDescription: suggestion.description,
           });

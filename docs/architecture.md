@@ -862,19 +862,19 @@ The language service plugin (`typesugar/language-service`) runs macros before th
 
 The `strict` option runs `tsc` on macro-expanded output at build end:
 
-| Option | Behavior |
-|--------|----------|
-| `strict: false` (default) | Build only — no typecheck |
-| `strict: true` | Build + typecheck expanded output |
+| Option                    | Behavior                          |
+| ------------------------- | --------------------------------- |
+| `strict: false` (default) | Build only — no typecheck         |
+| `strict: true`            | Build + typecheck expanded output |
 
 `strict: true` catches type errors that macros might introduce (e.g., wrong return types in generated code). It's recommended for CI but adds overhead in development.
 
 ### Backend and Typechecking
 
-| Backend | TypeChecker Available | Type-Aware Macros |
-|---------|----------------------|-------------------|
-| `"oxc"` (default) | No | Auto-fallback to TypeScript |
-| `"typescript"` | Yes | Fully supported |
+| Backend           | TypeChecker Available | Type-Aware Macros           |
+| ----------------- | --------------------- | --------------------------- |
+| `"oxc"` (default) | No                    | Auto-fallback to TypeScript |
+| `"typescript"`    | Yes                   | Fully supported             |
 
 The oxc backend handles syntax-only transformations natively. Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`) automatically fall back to the TypeScript backend.
 

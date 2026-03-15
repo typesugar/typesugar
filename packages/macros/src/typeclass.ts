@@ -97,10 +97,7 @@ import {
   TS9104,
   TS9203,
 } from "@typesugar/core";
-import {
-  getSuggestionsForSymbol,
-  getSuggestionsForTypeclass,
-} from "@typesugar/core";
+import { getSuggestionsForSymbol, getSuggestionsForTypeclass } from "@typesugar/core";
 
 // ============================================================================
 // Primitive Registration Hook
@@ -287,8 +284,7 @@ function extractFieldsFromTypeLiteral(typeLiteral: ts.TypeLiteralNode): DeriveFi
         typeString,
         type: undefined as unknown as ts.Type,
         optional: !!member.questionToken,
-        readonly:
-          member.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false,
+        readonly: member.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false,
       });
     }
   }
@@ -350,7 +346,12 @@ function extractFieldsFromAST(target: ts.Declaration): DeriveFieldInfo[] {
  */
 function tryExtractSumTypeFromAST(
   target: ts.TypeAliasDeclaration
-): { discriminant: string; variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }> } | undefined {
+):
+  | {
+      discriminant: string;
+      variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>;
+    }
+  | undefined {
   if (!ts.isUnionTypeNode(target.type)) {
     return undefined;
   }
@@ -380,7 +381,7 @@ function tryExtractSumTypeFromAST(
             variants.push({
               tag,
               typeName: `${target.name.text}_${tag}`,
-              fields: fields.filter(f => f.name !== discriminant),
+              fields: fields.filter((f) => f.name !== discriminant),
             });
             break;
           }
@@ -2582,10 +2583,13 @@ function createTypeclassDeriveMacro(tcName: string) {
     ): ts.Statement[] {
       const derivation = builtinDerivations[tcName];
       if (!derivation) {
-        ctx.diagnostic(TS9101)
+        ctx
+          .diagnostic(TS9101)
           .at(target)
           .withArgs({ typeclass: tcName, type: typeInfo.name, field: "*", fieldType: "*" })
-          .help(`Register a custom derivation or provide a manual @impl ${tcName}<${typeInfo.name}>`)
+          .help(
+            `Register a custom derivation or provide a manual @impl ${tcName}<${typeInfo.name}>`
+          )
           .emit();
         return [];
       }
@@ -2732,7 +2736,8 @@ export const derivingAttribute = defineAttributeMacro({
       !ts.isClassDeclaration(target) &&
       !ts.isTypeAliasDeclaration(target)
     ) {
-      ctx.diagnostic(TS9102)
+      ctx
+        .diagnostic(TS9102)
         .at(target)
         .withArgs({ typeclass: "@deriving" })
         .help("Apply @deriving to an interface, class, or type alias declaration")
@@ -2764,15 +2769,13 @@ export const derivingAttribute = defineAttributeMacro({
       const astFields = extractFieldsFromAST(target);
 
       // TS9103: Union type without discriminant
-      if (
-        ts.isTypeAliasDeclaration(target) &&
-        ts.isUnionTypeNode(target.type)
-      ) {
+      if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type)) {
         const astSum = tryExtractSumTypeFromAST(target);
         if (!astSum) {
-          ctx.diagnostic(TS9103)
+          ctx
+            .diagnostic(TS9103)
             .at(target)
-            .help("Add a discriminant field like `kind: \"a\"` to each variant")
+            .help('Add a discriminant field like `kind: "a"` to each variant')
             .emit();
         }
         // Valid discriminated union or unresolvable — skip code generation
@@ -2783,7 +2786,8 @@ export const derivingAttribute = defineAttributeMacro({
       if (astFields.length === 0) {
         for (const arg of args) {
           if (ts.isIdentifier(arg)) {
-            ctx.diagnostic(TS9104)
+            ctx
+              .diagnostic(TS9104)
               .at(target)
               .withArgs({ typeclass: arg.text, type: typeName })
               .help("Add fields to the type, or provide a manual @instance")
@@ -2799,10 +2803,13 @@ export const derivingAttribute = defineAttributeMacro({
         if (t.includes("=>") || t === "unknown" || t === "never" || t === "any") {
           for (const arg of args) {
             if (ts.isIdentifier(arg)) {
-              ctx.diagnostic(TS9101)
+              ctx
+                .diagnostic(TS9101)
                 .at(target)
                 .withArgs({ typeclass: arg.text, type: typeName, field: field.name, fieldType: t })
-                .help(`Field \`${field.name}\` has type \`${t}\` which likely can't derive ${arg.text}`)
+                .help(
+                  `Field \`${field.name}\` has type \`${t}\` which likely can't derive ${arg.text}`
+                )
                 .emit();
             }
           }
@@ -2912,14 +2919,11 @@ export const derivingAttribute = defineAttributeMacro({
     }
 
     // Check for union types without discriminant - emit TS9103
-    if (
-      ts.isTypeAliasDeclaration(target) &&
-      ts.isUnionTypeNode(target.type) &&
-      !sumInfo
-    ) {
-      ctx.diagnostic(TS9103)
+    if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type) && !sumInfo) {
+      ctx
+        .diagnostic(TS9103)
         .at(target)
-        .help("Add a discriminant field like `kind: \"a\"` to each variant")
+        .help('Add a discriminant field like `kind: "a"` to each variant')
         .emit();
       return target;
     }
@@ -2949,7 +2953,8 @@ export const derivingAttribute = defineAttributeMacro({
       }
 
       if (!ts.isIdentifier(arg)) {
-        ctx.diagnostic(TS9060)
+        ctx
+          .diagnostic(TS9060)
           .at(arg)
           .withArgs({ name: arg.getText() })
           .help("@deriving arguments must be typeclass names like Eq, Ord, Show")
@@ -2966,7 +2971,8 @@ export const derivingAttribute = defineAttributeMacro({
         const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
 
         for (const err of plan.errors) {
-          ctx.diagnostic(TS9101)
+          ctx
+            .diagnostic(TS9101)
             .at(target)
             .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
             .note(err)
@@ -2974,7 +2980,8 @@ export const derivingAttribute = defineAttributeMacro({
             .emit();
         }
         for (const cycle of plan.cycles) {
-          ctx.diagnostic(TS9101)
+          ctx
+            .diagnostic(TS9101)
             .at(target)
             .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
             .note(`Circular reference: ${cycle.join(" → ")}`)
@@ -3053,7 +3060,8 @@ export const derivingAttribute = defineAttributeMacro({
           allStatements.push(...stmts);
         } else {
           const tcSuggestions = getSuggestionsForSymbol(tcName);
-          const builder = ctx.diagnostic(TS9101)
+          const builder = ctx
+            .diagnostic(TS9101)
             .at(arg)
             .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
             .note(`No derivation strategy found for typeclass '${tcName}'`);
@@ -3061,7 +3069,9 @@ export const derivingAttribute = defineAttributeMacro({
           if (tcSuggestions.length > 0) {
             builder.help(`Import ${tcName}: ${tcSuggestions[0].importStatement}`);
           } else {
-            builder.help(`Define a custom derivation or provide a manual @impl ${tcName}<${typeName}>`);
+            builder.help(
+              `Define a custom derivation or provide a manual @impl ${tcName}<${typeName}>`
+            );
           }
 
           builder.emit();
@@ -3098,7 +3108,8 @@ export const summonMacro = defineExpressionMacro({
     // Get the type argument: summon<Show<Point>>()
     const typeArgs = callExpr.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
-      ctx.diagnostic(TS9005)
+      ctx
+        .diagnostic(TS9005)
         .at(callExpr)
         .help("Provide a type argument: summon<Show<Point>>()")
         .emit();
@@ -3107,7 +3118,8 @@ export const summonMacro = defineExpressionMacro({
 
     const typeArg = typeArgs[0];
     if (!ts.isTypeReferenceNode(typeArg)) {
-      ctx.diagnostic(TS9008)
+      ctx
+        .diagnostic(TS9008)
         .at(callExpr)
         .help("Use a typeclass applied to a type: summon<Show<Point>>()")
         .emit();
@@ -3118,7 +3130,8 @@ export const summonMacro = defineExpressionMacro({
     const innerTypeArgs = typeArg.typeArguments;
 
     if (!innerTypeArgs || innerTypeArgs.length === 0) {
-      ctx.diagnostic(TS9008)
+      ctx
+        .diagnostic(TS9008)
         .at(callExpr)
         .note(`summon<${tcName}<...>>() requires the typeclass to have a type argument`)
         .help(`Provide a type argument: summon<${tcName}<YourType>>()`)
@@ -3165,7 +3178,14 @@ export const summonMacro = defineExpressionMacro({
     } catch {
       derivationResult = {
         expression: null,
-        trace: [{ step: "auto-derive", target: `${tcName}<${typeName}>`, result: "rejected", reason: "Auto-derive module not available" }],
+        trace: [
+          {
+            step: "auto-derive",
+            target: `${tcName}<${typeName}>`,
+            result: "rejected",
+            reason: "Auto-derive module not available",
+          },
+        ],
       };
     }
 
@@ -3194,7 +3214,8 @@ export const summonMacro = defineExpressionMacro({
     const traceNotes = formatResolutionTrace(trace);
     const helpMessage = generateHelpFromTrace(trace, tcName, typeName);
 
-    const builder = ctx.diagnostic(TS9001)
+    const builder = ctx
+      .diagnostic(TS9001)
       .at(callExpr)
       .withArgs({ typeclass: tcName, type: typeName });
 

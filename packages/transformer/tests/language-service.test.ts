@@ -995,9 +995,7 @@ describe("Macro Diagnostic Injection (PEP-005 Wave 4)", () => {
       const proxy = plugin.create(info);
 
       // Request fixes for a standard TS error code (not in 9001-9999 range)
-      const fixes = proxy.getCodeFixesAtPosition(
-        "/test/index.ts", 0, 10, [2322], {}, {},
-      );
+      const fixes = proxy.getCodeFixesAtPosition("/test/index.ts", 0, 10, [2322], {}, {});
 
       // Should at least not throw
       expect(fixes).toBeDefined();

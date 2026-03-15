@@ -7,11 +7,13 @@ Development area for experimental code and testing.
 This file intentionally contains code that triggers typesugar diagnostic errors. It's designed for testing the VS Code plugin's error display.
 
 **Purpose:**
+
 - Verify that each typesugar error code renders correctly in the IDE
 - Test error message quality and help suggestions
 - Serve as a reference for what triggers each error
 
 **Error codes covered:**
+
 - TS9001: No typeclass instance found
 - TS9101: Cannot auto-derive (field lacks instance)
 - TS9103: Union without discriminant
@@ -26,11 +28,13 @@ This file intentionally contains code that triggers typesugar diagnostic errors.
 - TS9801: Wrong parameter count for operator
 
 **Excluded from:**
+
 - ESLint (via `eslint.config.mjs`)
 - Main build/typecheck (sandbox has its own `tsconfig.json`)
 - Test runs
 
 **How to use:**
+
 1. Open `error-showcase.ts` in VS Code/Cursor
 2. Ensure the typesugar plugin is active
 3. Open the Problems panel (Cmd/Ctrl+Shift+M)

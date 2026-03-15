@@ -24,13 +24,13 @@ This means:
 
 ### Current State
 
-| Context | Typechecking | Speed |
-|---------|--------------|-------|
-| OXC backend build | ❌ None | ⚡ Fast |
-| TS backend build | ⚠️ Macro validation only (ctx.reportError) | Slower |
-| `strict: true` | ✅ Post-macro typecheck | +Full tsc pass |
-| IDE (language service) | ✅ Transform-first, then typecheck | Background |
-| CI (`tsc --noEmit`) | ✅ Full typecheck | Separate step |
+| Context                | Typechecking                               | Speed          |
+| ---------------------- | ------------------------------------------ | -------------- |
+| OXC backend build      | ❌ None                                    | ⚡ Fast        |
+| TS backend build       | ⚠️ Macro validation only (ctx.reportError) | Slower         |
+| `strict: true`         | ✅ Post-macro typecheck                    | +Full tsc pass |
+| IDE (language service) | ✅ Transform-first, then typecheck         | Background     |
+| CI (`tsc --noEmit`)    | ✅ Full typecheck                          | Separate step  |
 
 ### The Gap
 
@@ -164,14 +164,14 @@ Systematically try to write code that bypasses typesugar's type safety guarantee
 
 **Attack Categories:**
 
-| Category | Goal | Example |
-|----------|------|---------|
-| Silent wrong code | Macro generates code that compiles but does the wrong thing | Derive Eq for type with `any` field → comparison always true |
-| Typecheck bypass | Code that should error but doesn't | Use OXC backend to skip type-aware validation entirely |
-| Confusing errors | Valid typesugar code that produces incomprehensible errors | Typo in type name → "Cannot read properties of undefined" in macro internals |
-| Misleading errors | Error points to wrong location or suggests wrong fix | Missing import → error appears on unrelated line |
-| Degraded expansion | Macro silently skips or produces suboptimal code | Type resolves to `any` → operator not rewritten → runtime `[object Object]` |
-| Edge case crashes | Unusual but valid patterns that crash the transformer | Recursive types, conditional types, mapped types as macro inputs |
+| Category           | Goal                                                        | Example                                                                      |
+| ------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Silent wrong code  | Macro generates code that compiles but does the wrong thing | Derive Eq for type with `any` field → comparison always true                 |
+| Typecheck bypass   | Code that should error but doesn't                          | Use OXC backend to skip type-aware validation entirely                       |
+| Confusing errors   | Valid typesugar code that produces incomprehensible errors  | Typo in type name → "Cannot read properties of undefined" in macro internals |
+| Misleading errors  | Error points to wrong location or suggests wrong fix        | Missing import → error appears on unrelated line                             |
+| Degraded expansion | Macro silently skips or produces suboptimal code            | Type resolves to `any` → operator not rewritten → runtime `[object Object]`  |
+| Edge case crashes  | Unusual but valid patterns that crash the transformer       | Recursive types, conditional types, mapped types as macro inputs             |
 
 **Tasks:**
 
@@ -241,14 +241,14 @@ Investigate whether OXC can provide useful diagnostics without full typechecking
 
 The `@typesugar/oxc-engine` uses the OXC parser (`oxc_parser`), AST (`oxc_ast`), codegen (`oxc_codegen`), and semantic (`oxc_semantic`) crates — it does **not** include the linter (`oxc_linter`). These are architecturally separate concerns in OXC:
 
-| OXC Component | What it does | Already in typesugar? |
-|---|---|---|
-| `oxc_parser` | Parse TS/JS into AST, report syntax errors | Yes (v0.49) |
-| `oxc_ast` | AST types and visitor trait | Yes (v0.49) |
+| OXC Component  | What it does                                      | Already in typesugar?                   |
+| -------------- | ------------------------------------------------- | --------------------------------------- |
+| `oxc_parser`   | Parse TS/JS into AST, report syntax errors        | Yes (v0.49)                             |
+| `oxc_ast`      | AST types and visitor trait                       | Yes (v0.49)                             |
 | `oxc_semantic` | Scope analysis, symbol tables, reference tracking | Yes (v0.49, used for `ScopeFlags` only) |
-| `oxc_codegen` | AST → source code generation | Yes (v0.49) |
-| `oxc_linter` | 695+ lint rules (ESLint-compatible) | **No** — separate crate |
-| `oxlint` | CLI tool wrapping `oxc_linter` | **No** — standalone binary |
+| `oxc_codegen`  | AST → source code generation                      | Yes (v0.49)                             |
+| `oxc_linter`   | 695+ lint rules (ESLint-compatible)               | **No** — separate crate                 |
+| `oxlint`       | CLI tool wrapping `oxc_linter`                    | **No** — standalone binary              |
 
 Embedding `oxc_linter` into the transform pass was evaluated and rejected for these reasons:
 

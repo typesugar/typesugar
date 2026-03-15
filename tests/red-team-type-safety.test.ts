@@ -195,8 +195,8 @@ describe("Red Team: Type Safety", () => {
     it("any & T collapses to any — type confidence catches it", () => {
       const ctx = createCtxForSource("const x: any & { name: string } = {} as any;");
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[0] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[0] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       if (type.flags & ts.TypeFlags.Any) {
@@ -213,9 +213,7 @@ describe("Red Team: Type Safety", () => {
 
     // Finding TS-9: Derive for type with error-typed field
     it("type with missing import — field resolves to error/any", () => {
-      const ctx = createCtxForSource(
-        "interface Broken { x: number; y: MissingType; }"
-      );
+      const ctx = createCtxForSource("interface Broken { x: number; y: MissingType; }");
       const sourceFile = ctx.sourceFile;
       const interfaceDecl = sourceFile.statements[0] as ts.InterfaceDeclaration;
       const yProp = interfaceDecl.members[1] as ts.PropertySignature;
@@ -279,7 +277,10 @@ describe("Red Team: Type Safety", () => {
       clearRegistries();
 
       const tc1 = { name: "TestTC", methods: [] };
-      const tc2 = { name: "TestTC", methods: [{ name: "run", typeParams: [], params: [], returnType: "void" }] };
+      const tc2 = {
+        name: "TestTC",
+        methods: [{ name: "run", typeParams: [], params: [], returnType: "void" }],
+      };
 
       typeclassRegistry.set("TestTC", tc1 as any);
       typeclassRegistry.set("TestTC", tc2 as any);
@@ -381,8 +382,8 @@ describe("Red Team: Type Safety", () => {
     it("assertTypeReliable on never type includes purpose in message", () => {
       const ctx = createCtxForSource("const x: never = undefined as never;");
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[0] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[0] as ts.VariableStatement).declarationList
+        .declarations[0];
 
       const type = ctx.assertTypeReliable(varDecl, "derive Eq");
       expect(type).toBeNull();
@@ -412,8 +413,8 @@ describe("Red Team: Type Safety", () => {
         declare const x: IsString<"hello">;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[1] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[1] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
       const typeStr = ctx.typeChecker.typeToString(type);
 
@@ -429,8 +430,8 @@ describe("Red Team: Type Safety", () => {
         declare const p: MyReadonly<Point>;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[2] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[2] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       const props = type.getProperties();
@@ -464,11 +465,14 @@ describe("Red Team: Type Safety", () => {
         declare const ab: A & B;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[2] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[2] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
-      const propNames = type.getProperties().map((p) => p.name).sort();
+      const propNames = type
+        .getProperties()
+        .map((p) => p.name)
+        .sort();
       expect(propNames).toContain("x");
       expect(propNames).toContain("y");
       expect(propNames).toContain("shared");
@@ -482,8 +486,8 @@ describe("Red Team: Type Safety", () => {
         declare const p: ImportedPoint;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[1] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[1] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       expect(type.getProperties().length).toBe(2);
@@ -494,8 +498,8 @@ describe("Red Team: Type Safety", () => {
     it("built-in types (Array, Map) from .d.ts — reliable", () => {
       const ctx = createCtxForSource("declare const arr: Array<number>;");
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[0] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[0] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       expect(ctx.isTypeReliable(type)).toBe(true);
@@ -511,8 +515,8 @@ describe("Red Team: Type Safety", () => {
         declare const tree: TreeNode;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[1] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[1] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       const propNames = type.getProperties().map((p) => p.name);
@@ -531,8 +535,8 @@ describe("Red Team: Type Safety", () => {
         declare const m: StringMap;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[1] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[1] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       expect(ctx.isTypeReliable(type)).toBe(true);
@@ -547,8 +551,8 @@ describe("Red Team: Type Safety", () => {
         declare const c: Color;
       `);
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[1] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[1] as ts.VariableStatement).declarationList
+        .declarations[0];
       const type = ctx.typeChecker.getTypeAtLocation(varDecl);
 
       expect(ctx.isTypeReliable(type)).toBe(true);
@@ -710,8 +714,8 @@ describe("Red Team: Type Safety", () => {
     it("assertTypeReliable diagnostic includes the operation name", () => {
       const ctx = createCtxForSource("const x: any = 42;");
       const sourceFile = ctx.sourceFile;
-      const varDecl = (sourceFile.statements[0] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl = (sourceFile.statements[0] as ts.VariableStatement).declarationList
+        .declarations[0];
 
       ctx.assertTypeReliable(varDecl, "operator ===");
 
@@ -725,10 +729,10 @@ describe("Red Team: Type Safety", () => {
       const ctx = createCtxForSource("const x: any = 1; const y: any = 2;");
       const sourceFile = ctx.sourceFile;
 
-      const varDecl1 = (sourceFile.statements[0] as ts.VariableStatement)
-        .declarationList.declarations[0];
-      const varDecl2 = (sourceFile.statements[1] as ts.VariableStatement)
-        .declarationList.declarations[0];
+      const varDecl1 = (sourceFile.statements[0] as ts.VariableStatement).declarationList
+        .declarations[0];
+      const varDecl2 = (sourceFile.statements[1] as ts.VariableStatement).declarationList
+        .declarations[0];
 
       ctx.assertTypeReliable(varDecl1, "first op");
       ctx.assertTypeReliable(varDecl2, "second op");

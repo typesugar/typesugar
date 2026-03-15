@@ -116,10 +116,13 @@ export const operatorsAttribute = defineAttributeMacro({
     args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isClassDeclaration(target) || !target.name) {
-      ctx.diagnostic(TS9203)
+      ctx
+        .diagnostic(TS9203)
         .at(decorator)
         .withArgs({ macro: "@operators", expected: "a named class declaration" })
-        .help("Apply @operators to a class with a name, e.g.: @operators({...}) class Vector { ... }")
+        .help(
+          "Apply @operators to a class with a name, e.g.: @operators({...}) class Vector { ... }"
+        )
         .emit();
       return target;
     }
@@ -316,10 +319,13 @@ export const binopMacro = defineExpressionMacro({
 
       default:
         // Unknown operator - leave as is (will fail at runtime)
-        ctx.diagnostic(TS9803)
+        ctx
+          .diagnostic(TS9803)
           .at(callExpr)
           .withArgs({ operator })
-          .help(`Register an operator method with @operator("${operator}") or use a built-in operator: |>, <|, ::`)
+          .help(
+            `Register an operator method with @operator("${operator}") or use a built-in operator: |>, <|, ::`
+          )
           .emit();
         return callExpr;
     }
