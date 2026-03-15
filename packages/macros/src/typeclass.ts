@@ -344,9 +344,7 @@ function extractFieldsFromAST(target: ts.Declaration): DeriveFieldInfo[] {
  * Works with inline union types like:
  *   type X = { kind: "a"; name: string } | { kind: "b"; age: number }
  */
-function tryExtractSumTypeFromAST(
-  target: ts.TypeAliasDeclaration
-):
+function tryExtractSumTypeFromAST(target: ts.TypeAliasDeclaration):
   | {
       discriminant: string;
       variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>;
