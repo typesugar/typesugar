@@ -1,5 +1,5 @@
 /**
- * Fluent Pattern Matching — Waves 1–3 (PEP-008)
+ * Fluent Pattern Matching — Waves 1–5 (PEP-008)
  *
  * Implements the `.case().if().then().else()` fluent chain for the `match()` macro.
  * This module is called from the existing match macro when a chain call is detected.
@@ -13,6 +13,8 @@
  * - Wave 3: Type constructor patterns (`String(s)`, `Date(d)`, `Array(a)`),
  *           OR patterns (`.or()`), AS patterns (`.as()`),
  *           Regex patterns (`/regex/` with `.as()` capture group binding)
+ * - Wave 5: Exhaustiveness analysis, dead arm elimination, switch optimization,
+ *           unreachable pattern detection
  *
  * Compilation target: IIFE with scrutinee evaluated once.
  *
@@ -465,6 +467,478 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
 }
 
 // ============================================================================
+// Wave 5: Type Analysis
+// ============================================================================
+
+export interface ScrutineeAnalysis {
+  kind: "literal-union" | "boolean" | "discriminated-union" | "non-enumerable" | "unknown";
+  literalMembers?: Set<string>;
+  discriminantField?: string;
+  variantValues?: Set<string>;
+}
+
+function getLiteralValueFromType(type: ts.Type): string | undefined {
+  if (type.isStringLiteral()) return JSON.stringify(type.value);
+  if (type.isNumberLiteral()) return String(type.value);
+  if (type.flags & ts.TypeFlags.BooleanLiteral) {
+    return (type as { intrinsicName?: string }).intrinsicName;
+  }
+  return undefined;
+}
+
+export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): ScrutineeAnalysis {
+  if (type.flags & ts.TypeFlags.Boolean) {
+    return { kind: "boolean", literalMembers: new Set(["true", "false"]) };
+  }
+
+  if (type.isUnion()) {
+    const members = type.types;
+
+    const allBoolLiterals =
+      members.every((t) => t.flags & ts.TypeFlags.BooleanLiteral) && members.length === 2;
+    if (allBoolLiterals) {
+      return { kind: "boolean", literalMembers: new Set(["true", "false"]) };
+    }
+
+    const allLiterals = members.every((t) => getLiteralValueFromType(t) !== undefined);
+    if (allLiterals) {
+      const litMembers = new Set<string>();
+      for (const t of members) {
+        const v = getLiteralValueFromType(t);
+        if (v !== undefined) litMembers.add(v);
+      }
+      return { kind: "literal-union", literalMembers: litMembers };
+    }
+
+    const disc = findDiscriminant(checker, members);
+    if (disc) {
+      return {
+        kind: "discriminated-union",
+        discriminantField: disc.field,
+        variantValues: disc.values,
+      };
+    }
+
+    return { kind: "non-enumerable" };
+  }
+
+  const litVal = getLiteralValueFromType(type);
+  if (litVal !== undefined) {
+    return { kind: "literal-union", literalMembers: new Set([litVal]) };
+  }
+
+  if (type.flags & (ts.TypeFlags.String | ts.TypeFlags.Number | ts.TypeFlags.BigInt)) {
+    return { kind: "non-enumerable" };
+  }
+
+  if (type.flags & (ts.TypeFlags.Object | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+    return { kind: "non-enumerable" };
+  }
+
+  return { kind: "unknown" };
+}
+
+function findDiscriminant(
+  checker: ts.TypeChecker,
+  memberTypes: ts.Type[]
+): { field: string; values: Set<string> } | undefined {
+  if (!memberTypes.every((t) => t.flags & ts.TypeFlags.Object || t.isIntersection())) {
+    return undefined;
+  }
+
+  const firstProps = checker.getPropertiesOfType(memberTypes[0]);
+
+  for (const prop of firstProps) {
+    const propName = prop.getName();
+    let allHaveLiteral = true;
+    const values = new Set<string>();
+
+    for (const memberType of memberTypes) {
+      const memberProp = checker.getPropertyOfType(memberType, propName);
+      if (!memberProp) {
+        allHaveLiteral = false;
+        break;
+      }
+
+      const propType = checker.getTypeOfSymbol(memberProp);
+      const litVal = getLiteralValueFromType(propType);
+      if (litVal === undefined) {
+        allHaveLiteral = false;
+        break;
+      }
+      values.add(litVal);
+    }
+
+    if (allHaveLiteral && values.size === memberTypes.length) {
+      return { field: propName, values };
+    }
+  }
+
+  return undefined;
+}
+
+// ============================================================================
+// Wave 5: Exhaustiveness Checking
+// ============================================================================
+
+function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
+  if (pattern.kind !== "literal") return undefined;
+  const node = pattern.node;
+  if (ts.isStringLiteral(node)) return JSON.stringify(node.text);
+  if (ts.isNumericLiteral(node)) return node.text;
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return "true";
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return "false";
+  if (node.kind === ts.SyntaxKind.NullKeyword) return "null";
+  if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) {
+    return "-" + node.operand.text;
+  }
+  return undefined;
+}
+
+function patternCoversAll(pattern: PatternInfo): boolean {
+  return pattern.kind === "wildcard" || pattern.kind === "variable";
+}
+
+function checkExhaustiveness(
+  ctx: MacroContext,
+  chainExpr: ts.CallExpression,
+  scrutinee: ts.Expression,
+  arms: CaseArm[],
+  hasElse: boolean
+): void {
+  if (hasElse) return;
+
+  for (const arm of arms) {
+    const pattern = analyzePattern(arm.pattern);
+    if (patternCoversAll(pattern) && !arm.guard) return;
+  }
+
+  let analysis: ScrutineeAnalysis | undefined;
+  try {
+    const type = ctx.getTypeOf(scrutinee);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return;
+    analysis = analyzeScrutineeType(ctx.typeChecker, type);
+  } catch {
+    return;
+  }
+
+  if (!analysis) return;
+
+  switch (analysis.kind) {
+    case "literal-union":
+    case "boolean": {
+      if (!analysis.literalMembers) return;
+      const covered = new Set<string>();
+      for (const arm of arms) {
+        if (arm.guard) continue;
+        const pattern = analyzePattern(arm.pattern);
+        const key = getPatternLiteralKey(pattern);
+        if (key !== undefined) covered.add(key);
+        for (const alt of arm.alternatives) {
+          const altKey = getPatternLiteralKey(analyzePattern(alt));
+          if (altKey !== undefined) covered.add(altKey);
+        }
+      }
+
+      const missing = [...analysis.literalMembers].filter((m) => !covered.has(m));
+      if (missing.length > 0) {
+        ctx.reportError(
+          chainExpr,
+          `Non-exhaustive match — missing cases: ${missing.join(", ")}. Add the missing cases or use .else() / _ to handle remaining values.`
+        );
+      }
+      break;
+    }
+
+    case "discriminated-union": {
+      if (!analysis.variantValues || !analysis.discriminantField) return;
+      const covered = new Set<string>();
+
+      for (const arm of arms) {
+        if (arm.guard) continue;
+        const pattern = analyzePattern(arm.pattern);
+
+        if (pattern.kind === "object") {
+          for (const prop of pattern.properties) {
+            if (prop.key === analysis.discriminantField && prop.pattern.kind === "literal") {
+              const key = getPatternLiteralKey(prop.pattern);
+              if (key !== undefined) covered.add(key);
+            }
+          }
+        }
+
+        if (pattern.kind === "extractor" && pattern.def.kind === "sum-variant") {
+          const discValue = pattern.def.discriminantValue;
+          if (discValue !== undefined) {
+            covered.add(
+              typeof discValue === "boolean" ? String(discValue) : JSON.stringify(discValue)
+            );
+          }
+        }
+      }
+
+      const missing = [...analysis.variantValues].filter((m) => !covered.has(m));
+      if (missing.length > 0) {
+        ctx.reportError(
+          chainExpr,
+          `Non-exhaustive match — missing variants: ${missing.join(", ")} (discriminant: "${analysis.discriminantField}"). Add the missing cases or use .else() / _ to handle remaining values.`
+        );
+      }
+      break;
+    }
+
+    case "non-enumerable": {
+      ctx.reportError(
+        chainExpr,
+        `Non-exhaustive match — scrutinee type is not enumerable. Add .else() or a _ wildcard to handle all remaining values.`
+      );
+      break;
+    }
+
+    case "unknown":
+      break;
+  }
+}
+
+// ============================================================================
+// Wave 5: Dead Arm & Unreachable Pattern Detection
+// ============================================================================
+
+function checkUnreachablePatterns(ctx: MacroContext, arms: CaseArm[]): void {
+  const seenLiterals = new Set<string>();
+  let seenCatchAll = false;
+
+  for (const arm of arms) {
+    const pattern = analyzePattern(arm.pattern);
+
+    if (seenCatchAll && !arm.guard) {
+      ctx.reportWarning(
+        arm.pattern,
+        "Unreachable pattern — preceding wildcard/variable pattern catches all values"
+      );
+      continue;
+    }
+
+    if (pattern.kind === "literal" && !arm.guard) {
+      const key = getPatternLiteralKey(pattern);
+      if (key !== undefined && seenLiterals.has(key)) {
+        ctx.reportWarning(
+          arm.pattern,
+          `Unreachable pattern — value ${key} is already matched by an earlier arm`
+        );
+      }
+      if (key !== undefined) seenLiterals.add(key);
+    }
+
+    if (patternCoversAll(pattern) && !arm.guard) {
+      seenCatchAll = true;
+    }
+  }
+}
+
+/**
+ * Check if a pattern's type domain has zero overlap with the scrutinee type.
+ * Reports compile errors for impossible patterns.
+ */
+function checkDeadArms(
+  ctx: MacroContext,
+  chainExpr: ts.CallExpression,
+  scrutinee: ts.Expression,
+  arms: CaseArm[]
+): void {
+  let analysis: ScrutineeAnalysis | undefined;
+  try {
+    const type = ctx.getTypeOf(scrutinee);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return;
+    analysis = analyzeScrutineeType(ctx.typeChecker, type);
+  } catch {
+    return;
+  }
+
+  if (!analysis || analysis.kind === "unknown" || analysis.kind === "non-enumerable") return;
+
+  if (
+    (analysis.kind === "literal-union" || analysis.kind === "boolean") &&
+    analysis.literalMembers
+  ) {
+    for (const arm of arms) {
+      if (arm.guard) continue;
+      const pattern = analyzePattern(arm.pattern);
+      if (pattern.kind !== "literal") continue;
+      const key = getPatternLiteralKey(pattern);
+      if (key !== undefined && !analysis.literalMembers.has(key)) {
+        ctx.reportError(
+          arm.pattern,
+          `Pattern ${key} can never match type ${[...analysis.literalMembers].join(" | ")}`
+        );
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Wave 5: Switch Optimization
+// ============================================================================
+
+const SWITCH_THRESHOLD = 7;
+
+export function isAllPureLiteralArms(arms: CaseArm[]): boolean {
+  return arms.every(
+    (arm) =>
+      arm.alternatives.length === 0 &&
+      !arm.guard &&
+      !arm.asPattern &&
+      analyzePattern(arm.pattern).kind === "literal"
+  );
+}
+
+function generateSwitchIIFE(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  arms: CaseArm[],
+  elseResult: ts.Expression | undefined
+): ts.Expression {
+  const f = ctx.factory;
+  const scrutineeName = ctx.generateUniqueName("m");
+
+  const clauses: ts.CaseOrDefaultClause[] = [];
+
+  for (const arm of arms) {
+    const pattern = analyzePattern(arm.pattern);
+    if (pattern.kind !== "literal") continue;
+    clauses.push(f.createCaseClause(pattern.node, [f.createReturnStatement(arm.result)]));
+  }
+
+  if (elseResult !== undefined) {
+    clauses.push(f.createDefaultClause([f.createReturnStatement(elseResult)]));
+  } else {
+    clauses.push(
+      f.createDefaultClause([
+        f.createThrowStatement(
+          f.createNewExpression(f.createIdentifier("MatchError"), undefined, [
+            f.createIdentifier(scrutineeName.text),
+          ])
+        ),
+      ])
+    );
+  }
+
+  const switchStmt = f.createSwitchStatement(
+    f.createIdentifier(scrutineeName.text),
+    f.createCaseBlock(clauses)
+  );
+
+  const stmts: ts.Statement[] = [
+    f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList(
+        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        ts.NodeFlags.Const
+      )
+    ),
+    switchStmt,
+  ];
+
+  const arrowBody = f.createBlock(stmts, true);
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    [],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    arrowBody
+  );
+  const paren = f.createParenthesizedExpression(arrow);
+  return f.createCallExpression(paren, undefined, []);
+}
+
+// ============================================================================
+// Wave 5: Dead Arm Elimination (Output Optimization)
+// ============================================================================
+
+/**
+ * If the scrutinee is a single literal type, we can emit only the matching
+ * arm's result directly — no IIFE, no branching, no checks.
+ */
+function tryDirectEmit(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  arms: CaseArm[],
+  elseResult: ts.Expression | undefined
+): ts.Expression | undefined {
+  let analysis: ScrutineeAnalysis | undefined;
+  try {
+    const type = ctx.getTypeOf(scrutinee);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    analysis = analyzeScrutineeType(ctx.typeChecker, type);
+  } catch {
+    return undefined;
+  }
+
+  if (!analysis) return undefined;
+
+  if (analysis.kind === "literal-union" && analysis.literalMembers?.size === 1) {
+    const singleValue = [...analysis.literalMembers][0];
+    for (const arm of arms) {
+      if (arm.guard) continue;
+      const pattern = analyzePattern(arm.pattern);
+      const key = getPatternLiteralKey(pattern);
+      if (key === singleValue) return arm.result;
+      if (patternCoversAll(pattern)) return arm.result;
+    }
+    if (elseResult !== undefined) return elseResult;
+  }
+
+  return undefined;
+}
+
+/**
+ * For union scrutinees, check if after all preceding arms the remaining type
+ * is fully covered by the current arm, allowing unconditional emit.
+ * Returns the index of the first arm that can be emitted unconditionally
+ * (covers all remaining type slots), or -1 if none.
+ */
+function findFullyCoveredArmIndex(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  arms: CaseArm[]
+): number {
+  let analysis: ScrutineeAnalysis | undefined;
+  try {
+    const type = ctx.getTypeOf(scrutinee);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return -1;
+    analysis = analyzeScrutineeType(ctx.typeChecker, type);
+  } catch {
+    return -1;
+  }
+
+  if (!analysis) return -1;
+
+  if (
+    (analysis.kind === "literal-union" || analysis.kind === "boolean") &&
+    analysis.literalMembers
+  ) {
+    const remaining = new Set(analysis.literalMembers);
+    for (let i = 0; i < arms.length; i++) {
+      const arm = arms[i];
+      if (arm.guard) continue;
+      const pattern = analyzePattern(arm.pattern);
+      const key = getPatternLiteralKey(pattern);
+      if (key !== undefined) remaining.delete(key);
+      for (const alt of arm.alternatives) {
+        const altKey = getPatternLiteralKey(analyzePattern(alt));
+        if (altKey !== undefined) remaining.delete(altKey);
+      }
+      if (remaining.size === 0 && i < arms.length - 1) {
+        return i + 1;
+      }
+    }
+  }
+
+  return -1;
+}
+
+// ============================================================================
 // Code Generation
 // ============================================================================
 
@@ -506,6 +980,19 @@ export function expandFluentMatch(
     return chainExpr;
   }
 
+  // Wave 5: Exhaustiveness check (type-driven, gracefully degrades)
+  checkExhaustiveness(ctx, chainExpr, scrutinee, arms, elseResult !== undefined);
+
+  // Wave 5: Dead arm detection (type-driven)
+  checkDeadArms(ctx, chainExpr, scrutinee, arms);
+
+  // Wave 5: Unreachable pattern detection (pattern-driven)
+  checkUnreachablePatterns(ctx, arms);
+
+  // Wave 5: Direct emit for single-literal scrutinee types
+  const directResult = tryDirectEmit(ctx, scrutinee, arms, elseResult);
+  if (directResult !== undefined) return directResult;
+
   // Optimization: single literal arm + else, no guard, no or, no as → ternary
   if (arms.length === 1 && elseResult !== undefined) {
     const arm = arms[0];
@@ -515,6 +1002,11 @@ export function expandFluentMatch(
         return generateTernary(ctx, scrutinee, arm, pattern.node, elseResult);
       }
     }
+  }
+
+  // Wave 5: Switch optimization for 7+ pure literal arms
+  if (arms.length >= SWITCH_THRESHOLD && isAllPureLiteralArms(arms)) {
+    return generateSwitchIIFE(ctx, scrutinee, arms, elseResult);
   }
 
   return generateIIFE(ctx, scrutinee, arms, elseResult);
