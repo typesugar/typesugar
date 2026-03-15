@@ -313,19 +313,19 @@ export interface Meters {
 - [x] Transparent scope tests pass
 - [x] Option module builds without `as any` casts in implementations
 
-### Wave 6: SFINAE Integration
+### Wave 6: SFINAE Integration ✅
 
 **Tasks:**
 
-- [ ] Wire PEP-011 Rule 2 (TypeRewriteAssignment) to consult `typeRewriteRegistry`
-- [ ] Verify implicit conversions work at assignment and argument boundaries
-- [ ] Tests: `Option<T> ↔ T | null` assignments produce no diagnostics
+- [x] Wire PEP-011 Rule 2 (TypeRewriteAssignment) to consult `typeRewriteRegistry`
+- [x] Verify implicit conversions work at assignment and argument boundaries
+- [x] Tests: `Option<T> ↔ T | null` assignments produce no diagnostics
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] SFINAE integration tests pass
-- [ ] Both directions of implicit conversion work
+- [x] `pnpm build` passes
+- [x] SFINAE integration tests pass
+- [x] Both directions of implicit conversion work
 
 ### Wave 7: Redefine `@typesugar/fp` Types
 
@@ -391,6 +391,7 @@ export interface Meters {
 | `packages/macros/src/index.ts`               | Register `@opaque` macro                           |
 | `packages/transformer/src/index.ts`          | New resolution path in `tryRewriteExtensionMethod` |
 | `packages/transformer/src/pipeline.ts`       | Type rewrite registry fallback to TS backend       |
+| `tests/sfinae-opaque-integration.test.ts`    | New: Wave 6 SFINAE × @opaque integration tests     |
 | `packages/fp/src/data/option.ts`             | Redefine as `@opaque` interface                    |
 | `packages/fp/src/data/either.ts`             | Redefine as `@opaque` interface                    |
 | `packages/fp/src/data/list.ts`               | Redefine as `@opaque` interface                    |
