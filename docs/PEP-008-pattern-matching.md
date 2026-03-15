@@ -1068,22 +1068,115 @@ Match is always exhaustive — this wave implements the compile-time verificatio
 - [x] Existing `match()` usage continues to work
 - [x] New patterns documented with before/after comparisons
 
+### Wave 8: Legacy API Removal (~2 files)
+
+Remove deprecated `matchLiteral` and `matchGuard` shims that now delegate to the unified `match()`.
+
+**Tasks:**
+
+- [ ] Search codebase for any usages of `matchLiteral` or `matchGuard`
+- [ ] Update any usages to use unified `match()` syntax
+- [ ] Remove `matchLiteral()` runtime function (lines 354-363)
+- [ ] Remove `matchGuard()` runtime function (lines 366-374)
+- [ ] Remove `matchLiteralMacro` definition (lines 1439-1444)
+- [ ] Remove `matchGuardMacro` definition (lines 1446-1451)
+- [ ] Remove legacy macro registrations from global registry (lines 1453-1455)
+- [ ] Remove exports from `packages/std/src/macros/index.ts` and `packages/std/src/index.ts`
+- [ ] Remove legacy tests from `tests/match.test.ts`
+- [ ] Update `packages/fp/README.md` to remove legacy references
+
+**Gate:**
+
+- [ ] `pnpm build` passes
+- [ ] `pnpm test` passes
+- [ ] No references to `matchLiteral` or `matchGuard` remain
+- [ ] Unified `match()` API continues to work for all existing use cases
+
+### Wave 9: Internal Dogfooding (~25 files)
+
+Adopt `match()` throughout typesugar's own codebase to validate the API and demonstrate best practices.
+
+**High-Value Targets (expression tree traversal):**
+
+- [ ] `packages/symbolic/src/eval.ts` — `switch (expr.kind)` over 11 variants
+- [ ] `packages/symbolic/src/simplify/simplify.ts` — recursive simplification rules
+- [ ] `packages/symbolic/src/pattern.ts` — pattern matching on patterns (meta!)
+- [ ] `packages/symbolic/src/render/latex.ts` — LaTeX rendering dispatch
+- [ ] `packages/symbolic/src/render/text.ts` — text rendering dispatch
+- [ ] `packages/symbolic/src/render/mathml.ts` — MathML rendering dispatch
+- [ ] `packages/symbolic/src/calculus/diff.ts` — differentiation rules
+- [ ] `packages/symbolic/src/calculus/integrate.ts` — integration rules
+- [ ] `packages/symbolic/src/solve.ts` — equation solving logic
+- [ ] `packages/symbolic/src/expression.ts` — tree traversal utilities
+
+**Interpreter Patterns:**
+
+- [ ] `packages/fp/src/io/io.ts` — `switch (current._tag)` over IO operations
+- [ ] `packages/sql/src/connection-io.ts` — `switch (op._tag)` over SQL operations
+- [ ] `packages/fusion/src/lazy.ts` — `switch (step.type)` over iterator steps
+
+**Macro Infrastructure:**
+
+- [ ] `packages/transformer/src/manifest.ts` — `switch (macro.kind)`
+- [ ] `packages/transformer/src/index.ts` — macro dispatch
+- [ ] `packages/parser/src/grammar.ts` — `switch (rule.type)` for grammar rules
+- [ ] `packages/macros/src/typeclass.ts` — `switch (tcName)` for typeclass codegen
+
+**Conversion Pattern:**
+
+```typescript
+// Before
+switch (expr.kind) {
+  case "constant": return expr.value;
+  case "variable": return evalVariable(expr.name, bindings, opts);
+  case "binary": return evalBinary(expr.op, ...);
+}
+
+// After
+match(expr, {
+  constant: ({ value }) => value,
+  variable: ({ name }) => evalVariable(name, bindings, opts),
+  binary: ({ op, left, right }) => evalBinary(op, ...),
+});
+```
+
+**Gate:**
+
+- [ ] At least 10 high-value switch statements converted
+- [ ] All converted code passes `pnpm build` and `pnpm test`
+- [ ] No regressions in affected modules
+- [ ] Document any patterns where `match()` was NOT appropriate (lessons learned)
+
 ## Files Changed (All Waves)
 
-### Code (~20 files modified, ~4 new)
+### Code (~45 files modified, ~4 new)
 
-| File                                          | Wave | Change                                     |
-| --------------------------------------------- | ---- | ------------------------------------------ |
-| `packages/std/src/typeclasses/destructure.ts` | 1, 4 | **New** — Destructure typeclass definition |
-| `packages/std/src/macros/match-v2.ts`         | 1–5  | **New** — Fluent match macro (core engine) |
-| `packages/std/src/macros/match.ts`            | 7    | Add deprecation notices, keep working      |
-| `packages/std/src/index.ts`                   | 1    | Export new match, Destructure              |
-| `packages/macros/src/typeclass.ts`            | 4    | Add Destructure derivation rules           |
-| `packages/macros/src/generic.ts`              | 4    | Destructure via Product/Sum                |
-| `packages/preprocessor/src/scanner.ts`        | 6    | Add `match \| pattern =>` syntax           |
-| `packages/transformer/src/index.ts`           | 1    | Register new macro                         |
+| File                                          | Wave   | Change                                       |
+| --------------------------------------------- | ------ | -------------------------------------------- |
+| `packages/std/src/typeclasses/destructure.ts` | 1, 4   | **New** — Destructure typeclass definition   |
+| `packages/std/src/macros/match-v2.ts`         | 1–5    | **New** — Fluent match macro (core engine)   |
+| `packages/std/src/macros/match.ts`            | 7, 8   | Add deprecation notices; remove legacy shims |
+| `packages/std/src/macros/index.ts`            | 8      | Remove legacy exports                        |
+| `packages/std/src/index.ts`                   | 1, 8   | Export new match; remove legacy exports      |
+| `packages/macros/src/typeclass.ts`            | 4, 9   | Add Destructure; convert switches to match   |
+| `packages/macros/src/generic.ts`              | 4      | Destructure via Product/Sum                  |
+| `packages/preprocessor/src/scanner.ts`        | 6      | Add `match \| pattern =>` syntax             |
+| `packages/transformer/src/index.ts`           | 1, 9   | Register macro; convert switches to match    |
+| `packages/transformer/src/manifest.ts`        | 9      | Convert switch to match                      |
+| `packages/symbolic/src/eval.ts`               | 9      | Convert switch to match                      |
+| `packages/symbolic/src/simplify/simplify.ts`  | 9      | Convert switch to match                      |
+| `packages/symbolic/src/pattern.ts`            | 9      | Convert switch to match                      |
+| `packages/symbolic/src/render/*.ts`           | 9      | Convert switch to match                      |
+| `packages/symbolic/src/calculus/*.ts`         | 9      | Convert switch to match                      |
+| `packages/symbolic/src/solve.ts`              | 9      | Convert switch to match                      |
+| `packages/symbolic/src/expression.ts`         | 9      | Convert switch to match                      |
+| `packages/fp/src/io/io.ts`                    | 9      | Convert switch to match                      |
+| `packages/sql/src/connection-io.ts`           | 9      | Convert switch to match                      |
+| `packages/fusion/src/lazy.ts`                 | 9      | Convert switch to match                      |
+| `packages/parser/src/grammar.ts`              | 9      | Convert switch to match                      |
+| `packages/fp/README.md`                       | 8      | Remove legacy references                     |
 
-### Tests (~4 new files)
+### Tests (~4 new files, ~1 modified)
 
 | File                                  | Wave | Coverage                                     |
 | ------------------------------------- | ---- | -------------------------------------------- |
@@ -1091,6 +1184,7 @@ Match is always exhaustive — this wave implements the compile-time verificatio
 | `tests/match-v2-destructure.test.ts`  | 4    | **New** — Destructure typeclass + extractors |
 | `tests/match-v2-preprocessor.test.ts` | 6    | **New** — Preprocessor syntax                |
 | `tests/match-v2-exhaustive.test.ts`   | 5    | **New** — Always-exhaustive verification     |
+| `tests/match.test.ts`                 | 8    | Remove legacy `matchLiteral`/`matchGuard` tests |
 
 ### Documentation (~8 files)
 
