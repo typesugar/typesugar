@@ -346,22 +346,26 @@ export interface Meters {
 - [x] `pnpm --filter @typesugar/fp typecheck` passes (via DTS generation in build)
 - [x] All FP showcase assertions pass
 
-### Wave 8: Global Augmentation for Std Extensions
+### Wave 8: Global Augmentation for Std Extensions ✅
 
 **Tasks:**
 
-- [ ] Add `declare global { interface Number { clamp(...): number; abs(): number; ... } }` in `@typesugar/std`
-- [ ] Add augmentations for `String`, `Array`, `Map`, `Promise`, `Date`, etc.
-- [ ] Method signatures match the standalone extension functions
-- [ ] Transformer still rewrites augmented methods to function calls (existing `forceRewrite` path)
-- [ ] Tests: `(42).clamp(0, 100)` type-checks and compiles
+- [x] Add `declare global { interface Number { clamp(...): number; abs(): number; ... } }` in `@typesugar/std`
+- [x] Add augmentations for `String`, `Array`, `Map`, `Promise`, `Date`, `Boolean`
+- [x] Method signatures match the standalone extension functions
+- [x] Transformer still rewrites augmented methods to function calls (existing `forceRewrite` path)
+- [x] Tests: `(42).clamp(0, 100)` type-checks and compiles
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm --filter @typesugar/std test` passes
-- [ ] `pnpm --filter @typesugar/std typecheck` passes
-- [ ] No TS2339 for extension methods with augmentation
+- [x] `pnpm build` passes
+- [x] `pnpm --filter @typesugar/std test` passes
+- [x] `pnpm --filter @typesugar/std typecheck` passes
+- [x] No TS2339 for extension methods with augmentation
+
+**Notes:** `Set`, `Object`, and `Function` were intentionally excluded from augmentation.
+Set methods overlap with ES2025 native Set methods (union, intersection, etc.).
+Object and Function interfaces are too broad for safe augmentation.
 
 ### Wave 9: Update Showcases and Docs
 
