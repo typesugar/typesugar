@@ -232,6 +232,7 @@ npm install @typesugar/std
 
 // Pattern matching
 match();
+MatchError; // Runtime error when no pattern matches (extends Error, has .value)
 
 // FlatMap for do-notation
 FlatMap;

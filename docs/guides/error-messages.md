@@ -92,6 +92,34 @@ error[TS9101]: Cannot auto-derive Eq<UserProfile>: field `metadata` has type `un
    = help: Use a concrete type instead of `unknown`, or provide @instance Eq<UserProfile>
 ```
 
+### Non-Exhaustive Match (Pattern Matching)
+
+The fluent `match().case().then()` API requires all cases to be handled. Missing cases produce a compile error:
+
+```
+error: Non-exhaustive match — missing cases: blue, green. Add the missing cases or use .else() / _ to handle remaining values.
+  --> src/color.ts:12:5
+   |
+10 | type Color = "red" | "green" | "blue";
+11 |
+12 | match(color).case("red").then(0xff0000);
+   |       ^^^^^ missing cases: blue, green
+   |
+   = help: Add .case("blue").then(0x0000ff).case("green").then(0x00ff00), or use .else(value) for a catch-all
+```
+
+For non-enumerable types (string, number, objects), you must add `.else()` or a `_` wildcard:
+
+```
+error: Non-exhaustive match — scrutinee type is not enumerable. Add .else() or a _ wildcard to handle all remaining values.
+```
+
+**Fixes:**
+
+- Add the missing `.case()` arms for literal unions and discriminated unions
+- Use `.else(value)` or `.case(_).then(value)` for catch-all
+- Runtime safety net: when no pattern matches, the generated code throws `MatchError` with `.value` set to the unmatched value
+
 ### Import Suggestion (TS9061)
 
 Forgot to import something? typesugar knows what's available:

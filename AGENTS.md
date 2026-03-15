@@ -192,37 +192,38 @@ packages/
 
 ## Quick Lookup: "I Need To..."
 
-| Need                            | Use                                                                  | Location                                  |
-| ------------------------------- | -------------------------------------------------------------------- | ----------------------------------------- |
-| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                | `packages/macros/src/specialize.ts`       |
-| Create specialized function     | `createSpecializedFunction(ctx, options)`                            | `packages/macros/src/specialize.ts`       |
-| Register a new expression macro | `defineExpressionMacro(name, macro)`                                 | `packages/core/src/registry.ts`           |
-| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `packages/core/src/registry.ts`           |
-| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `packages/core/src/registry.ts`           |
-| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`             | `packages/core/src/context.ts`            |
-| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``               | `packages/macros/src/quote.ts`            |
-| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`  | `packages/core/src/context.ts`            |
-| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `packages/core/src/context.ts`            |
-| Report compile error            | `ctx.reportError(node, message)`                                     | `packages/core/src/context.ts`            |
-| Generate unique names           | `ctx.generateUniqueName(prefix)`                                     | `packages/core/src/context.ts`            |
-| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                          | `packages/core/src/context.ts`            |
-| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `packages/macros/src/typeclass.ts`        |
-| Mark file as extension source   | `"use extension";` directive at file top                             | `packages/core/src/resolution-scope.ts`   |
-| Mark function as extension      | `@extension` decorator                                               | `packages/macros/src/extension.ts`        |
-| Register instance methods       | `registerInstanceMethods(dictName, brand, methods)`                  | `packages/macros/src/specialize.ts`       |
-| Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                          | `packages/macros/src/auto-derive.ts`      |
-| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                     | `packages/macros/src/typeclass.ts`        |
-| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                   | `packages/macros/src/syntax-macro.ts`     |
-| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                 | `packages/macros/src/custom-derive.ts`    |
-| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                   | `packages/core/src/pipeline.ts`           |
-| Read config values              | `config.get(path)`, `config.evaluate(condition)`                     | `packages/core/src/config.ts`             |
-| Include file at compile time    | `includeStr()`, `includeJson()`                                      | `packages/macros/src/include.ts`          |
-| Assert at compile time          | `staticAssert(cond, msg)`                                            | `packages/macros/src/static-assert.ts`    |
-| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                     | `packages/std/src/typeclasses/flatmap.ts` |
-| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                   | `packages/std/src/macros/let-yield.ts`    |
-| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`             | `packages/core/src/resolution-scope.ts`   |
-| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`     | `packages/core/src/import-suggestions.ts` |
-| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()` | `packages/core/src/diagnostics.ts`        |
+| Need                            | Use                                                                     | Location                                  |
+| ------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------- |
+| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                   | `packages/macros/src/specialize.ts`       |
+| Create specialized function     | `createSpecializedFunction(ctx, options)`                               | `packages/macros/src/specialize.ts`       |
+| Register a new expression macro | `defineExpressionMacro(name, macro)`                                    | `packages/core/src/registry.ts`           |
+| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                     | `packages/core/src/registry.ts`           |
+| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                        | `packages/core/src/registry.ts`           |
+| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`                | `packages/core/src/context.ts`            |
+| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``                  | `packages/macros/src/quote.ts`            |
+| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`     | `packages/core/src/context.ts`            |
+| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                            | `packages/core/src/context.ts`            |
+| Report compile error            | `ctx.reportError(node, message)`                                        | `packages/core/src/context.ts`            |
+| Generate unique names           | `ctx.generateUniqueName(prefix)`                                        | `packages/core/src/context.ts`            |
+| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                             | `packages/core/src/context.ts`            |
+| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                    | `packages/macros/src/typeclass.ts`        |
+| Mark file as extension source   | `"use extension";` directive at file top                                | `packages/core/src/resolution-scope.ts`   |
+| Mark function as extension      | `@extension` decorator                                                  | `packages/macros/src/extension.ts`        |
+| Register instance methods       | `registerInstanceMethods(dictName, brand, methods)`                     | `packages/macros/src/specialize.ts`       |
+| Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                             | `packages/macros/src/auto-derive.ts`      |
+| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                        | `packages/macros/src/typeclass.ts`        |
+| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                      | `packages/macros/src/syntax-macro.ts`     |
+| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                    | `packages/macros/src/custom-derive.ts`    |
+| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                      | `packages/core/src/pipeline.ts`           |
+| Read config values              | `config.get(path)`, `config.evaluate(condition)`                        | `packages/core/src/config.ts`             |
+| Include file at compile time    | `includeStr()`, `includeJson()`                                         | `packages/macros/src/include.ts`          |
+| Assert at compile time          | `staticAssert(cond, msg)`                                               | `packages/macros/src/static-assert.ts`    |
+| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                        | `packages/std/src/typeclasses/flatmap.ts` |
+| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                      | `packages/std/src/macros/let-yield.ts`    |
+| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`                | `packages/core/src/resolution-scope.ts`   |
+| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`        | `packages/core/src/import-suggestions.ts` |
+| Work on match exhaustiveness    | `analyzeScrutineeType()`, `isAllPureLiteralArms()`, `ScrutineeAnalysis` | `packages/std/src/macros/match-v2.ts`     |
+| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()`    | `packages/core/src/diagnostics.ts`        |
 
 ---
 

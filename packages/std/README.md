@@ -249,6 +249,24 @@ Rich extension methods for every basic type:
 | **PromiseExt**  | 20+ methods: `tap`, `timeout`, `retry`, `mapError`, ...            |
 | **FunctionExt** | 25+ methods: `memoize`, `debounce`, `throttle`, `compose`, ...     |
 
+## Pattern Matching
+
+`match()` provides zero-cost pattern matching with **compile-time exhaustiveness checking**. Every match must handle all possible inputs — missing cases produce a compile error. Non-enumerable types (string, number, objects) require `.else()` or a `_` wildcard.
+
+```typescript
+import { match } from "@typesugar/std";
+
+type Color = "red" | "green" | "blue";
+
+// Compile error if you miss a case:
+match(color).case("red").then(0xff0000).case("green").then(0x00ff00).case("blue").then(0x0000ff);
+
+// Or use .else() for catch-all:
+match(color).case("red").then(0xff0000).else(0x000000);
+```
+
+When no pattern matches at runtime (e.g. type widened via `any`), the generated code throws `MatchError` with the unmatched value. See [PEP-008](../../docs/PEP-008-pattern-matching.md) for the full pattern catalogue.
+
 ## Data Types
 
 ### Tuples
@@ -333,6 +351,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
 
 ### Data Type Exports
 
+- `MatchError` — Runtime error thrown when a match is non-exhaustive and no arm matches (extends `Error`, has `.value` property)
 - `Pair<A, B>`, `Triple<A, B, C>` — Tuple types with utilities
 - `Range` — Numeric ranges with iteration support
   - Creation: `to(n, end)`, `until(n, end)` (extension methods on number)
