@@ -26,6 +26,7 @@ import "./tailrec.js";
 import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
 import "./verify-laws.js"; // Typeclass law verification
 import "./extension.js"; // Standalone extension methods for concrete types
+import "./opaque.js"; // @opaque type macro (PEP-012)
 
 // --- SFINAE rules ---
 // NOTE: sfinae-rules.ts is NOT imported as a side-effect module.
@@ -354,6 +355,9 @@ export {
   standaloneExtensionRegistry,
   type StandaloneExtensionInfo,
 } from "./extension.js";
+
+// --- Opaque type macro (PEP-012) ---
+export { opaqueAttribute } from "./opaque.js";
 
 // --- SFINAE Rules ---
 export {

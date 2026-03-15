@@ -250,22 +250,22 @@ export interface Meters {
 - [x] `pnpm build` passes
 - [x] `pnpm vitest run packages/core` passes
 
-### Wave 2: `@opaque` Attribute Macro
+### Wave 2: `@opaque` Attribute Macro ✅
 
 **Tasks:**
 
-- [ ] Implement `@opaque` macro in `@typesugar/macros`
-- [ ] Parse JSDoc `@opaque <underlying-type>` annotation
-- [ ] Scan interface for method signatures
-- [ ] Find companion standalone functions in the same module (via type checker)
-- [ ] Register `TypeRewriteEntry` with methods, constructors, accessors
-- [ ] Tests: verify registry population for a sample `@opaque` interface
+- [x] Implement `@opaque` macro in `@typesugar/macros`
+- [x] Parse JSDoc `@opaque <underlying-type>` annotation
+- [x] Scan interface for method signatures
+- [x] Find companion standalone functions in the same module (via type checker)
+- [x] Register `TypeRewriteEntry` with methods, constructors, accessors
+- [x] Tests: verify registry population for a sample `@opaque` interface
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm vitest run packages/macros` passes
-- [ ] Registry contains correct entries after macro expansion
+- [x] `pnpm build` passes
+- [x] `pnpm vitest run packages/macros` passes
+- [x] Registry contains correct entries after macro expansion
 
 ### Wave 3: Transformer Method Erasure
 
