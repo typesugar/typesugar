@@ -46,7 +46,7 @@
  */
 
 // Re-export core HKT infrastructure from type-system
-export type { _, Kind, Apply, TypeFunction } from "@typesugar/type-system";
+export type { _, Kind, Apply, TypeFunction, ArrayF, PromiseF } from "@typesugar/type-system";
 export { unsafeCoerce } from "@typesugar/type-system";
 
 // Import TypeFunction for use in interface definitions
@@ -81,36 +81,6 @@ export type { EitherF } from "./data/either.js";
 export type { ListF } from "./data/list.js";
 export type { NonEmptyListF } from "./data/nonempty-list.js";
 export type { ValidatedF } from "./data/validated.js";
-
-// ============================================================================
-// Type-Level Functions for Built-in Types
-// ============================================================================
-
-/**
- * Type-level function for `Array<A>`.
- *
- * @example
- * ```typescript
- * type NumberArray = Kind<ArrayF, number>; // → Array<number>
- * ```
- */
-export interface ArrayF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Array<this["__kind__"]>;
-}
-
-/**
- * Type-level function for `Promise<A>`.
- *
- * @example
- * ```typescript
- * type AsyncNumber = Kind<PromiseF, number>; // → Promise<number>
- * ```
- */
-export interface PromiseF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Promise<this["__kind__"]>;
-}
 
 // ============================================================================
 // Type-Level Functions for Class-based @typesugar/fp Types

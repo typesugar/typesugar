@@ -146,25 +146,79 @@ export type Apply<F extends TypeFunction, A> = (F & { readonly __kind__: A })["_
 // ============================================================================
 // Built-in Type-Level Functions for Standard TypeScript Types
 //
-// These use the Tier 3 @hkt form. The transformer generates equivalent
-// TypeFunction interfaces at compile time. Without the transformer,
-// they're type aliases that the preprocessor resolves by name.
+// These are kept as manual interfaces because the library build (tsup)
+// does not run the typesugar transformer. The @hkt Tier 3 form
+// (e.g. `type ArrayF = Array<_>`) is for user code where the
+// transformer runs. In user code, the equivalent would be:
+//   /** @hkt */ type ArrayF = Array<_>;
 // ============================================================================
 
-/** @hkt Type-level function for `Array<A>`. Kind<ArrayF, number> → Array<number>. */
-export type ArrayF = Array /*@ts:hkt*/;
+/**
+ * Type-level function for `Array<A>`.
+ *
+ * @example
+ * ```typescript
+ * type Numbers = Apply<ArrayF, number>; // Array<number>
+ * // Or after preprocessor resolution:
+ * type Numbers = Kind<ArrayF, number>;  // → Array<number>
+ * ```
+ */
+export interface ArrayF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Array<this["__kind__"]>;
+}
 
-/** @hkt Type-level function for `Promise<A>`. Kind<PromiseF, number> → Promise<number>. */
-export type PromiseF = Promise /*@ts:hkt*/;
+/**
+ * Type-level function for `Promise<A>`.
+ *
+ * @example
+ * ```typescript
+ * type AsyncNumber = Apply<PromiseF, number>; // Promise<number>
+ * ```
+ */
+export interface PromiseF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Promise<this["__kind__"]>;
+}
 
-/** @hkt Type-level function for `Set<A>`. Kind<SetF, number> → Set<number>. */
-export type SetF = Set /*@ts:hkt*/;
+/**
+ * Type-level function for `Set<A>`.
+ *
+ * @example
+ * ```typescript
+ * type NumberSet = Apply<SetF, number>; // Set<number>
+ * ```
+ */
+export interface SetF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Set<this["__kind__"]>;
+}
 
-/** @hkt Type-level function for `ReadonlyArray<A>`. Kind<ReadonlyArrayF, number> → ReadonlyArray<number>. */
-export type ReadonlyArrayF = ReadonlyArray /*@ts:hkt*/;
+/**
+ * Type-level function for `ReadonlyArray<A>`.
+ *
+ * @example
+ * ```typescript
+ * type RONumbers = Apply<ReadonlyArrayF, number>; // readonly number[]
+ * ```
+ */
+export interface ReadonlyArrayF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: ReadonlyArray<this["__kind__"]>;
+}
 
-/** @hkt Type-level function for `Map<K, V>` with K fixed. Kind<MapF<string>, number> → Map<string, number>. */
-export type MapF<K> = Map<K, _>;
+/**
+ * Type-level function for `Map<K, V>` with K fixed.
+ *
+ * @example
+ * ```typescript
+ * type StringToNumber = Apply<MapF<string>, number>; // Map<string, number>
+ * ```
+ */
+export interface MapF<K> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Map<K, this["__kind__"]>;
+}
 
 // ============================================================================
 // Utilities

@@ -257,7 +257,7 @@ Start with the most explicit form — handles all edge cases, no environment res
 - [x] Migrate `packages/fp/src/data/validated.ts`: add `/** @hkt */` to `Validated<E, A>`
 - [x] Update `packages/fp/src/hkt.ts`: remove migrated manual `*F` interfaces, re-export from data modules
 - [x] Keep manual `*F` in `hkt.ts` for class-based types (State, Reader, Writer, IO, Resource)
-- [x] Migrate `packages/type-system/src/hkt.ts` built-ins to Tier 3 `@hkt` (ArrayF, PromiseF, SetF, MapF, ReadonlyArrayF)
+- [ ] ~~Migrate `packages/type-system/src/hkt.ts` built-ins to Tier 3 `@hkt`~~ — **Deferred**: library build (`tsup`) doesn't run the transformer, so DTS output would be wrong. Manual interfaces kept; `ArrayF`/`PromiseF` re-exported from `type-system` into `fp/hkt.ts`.
 - [x] Update barrel exports in `packages/fp/src/index.ts`
 - [x] Tier 2 tests: `Option<A>`, `Either<E, A>`, `State<S, A>` companion generation
 
@@ -274,7 +274,7 @@ Start with the most explicit form — handles all edge cases, no environment res
 | `packages/fp/src/data/validated.ts`     | Add `/** @hkt */` to `Validated<E, A>`                                  |
 | `packages/fp/src/hkt.ts`                | Remove manual `*F` for migrated types, add re-exports from data modules |
 | `packages/fp/src/index.ts`              | Adjust barrel re-exports for `*F` types                                 |
-| `packages/type-system/src/hkt.ts`       | Migrate ArrayF, PromiseF, SetF, MapF, ReadonlyArrayF to `@hkt` Tier 3   |
+| `packages/type-system/src/hkt.ts`       | Keep manual interfaces (deferred: tsup doesn't run transformer)          |
 | `tests/hkt-macro.test.ts`               | Add Tier 2 tests                                                        |
 
 **Import compatibility:** `OptionF`, `EitherF`, etc. stay exported from `@typesugar/fp` via `hkt.ts` re-exports. No consumer import changes.
