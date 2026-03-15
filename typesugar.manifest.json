@@ -2,7 +2,7 @@
   "version": 1,
   "macros": {
     "expression": {
-      "comptime": { "module": "@typesugar/comptime", "description": "Compile-time evaluation" },
+      "comptime": { "module": "@typesugar/macros", "description": "Compile-time evaluation" },
       "specialize": {
         "module": "@typesugar/specialize",
         "description": "Zero-cost specialization"

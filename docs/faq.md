@@ -154,7 +154,7 @@ The transformer caches some internal state, but macro results themselves aren't 
 Make sure you've installed the package:
 
 ```bash
-npm install @typesugar/comptime
+npm install typesugar
 ```
 
 ### "comptime is not a function"

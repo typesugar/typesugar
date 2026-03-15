@@ -571,7 +571,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Current issues:**
 
 - **@typesugar/mapper** — Sparse documentation (44 lines), single test file. Needs showcase.
-- **@typesugar/comptime** — Re-export wrapper only. Consider deprecating.
+- ~~**@typesugar/comptime**~~ — _(Removed 2026-03-15)_ Re-export wrapper removed.
 - **@typesugar/erased** — Undertested: only red-team tests, no package-level tests.
 - **@typesugar/sql** — Comprehensive but no package-level tests (only red-team).
 - **@typesugar/units** — .to() method documented but not implemented.
@@ -637,7 +637,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 1. **Expand @typesugar/mapper** — Needs showcase.ts, more examples, extended README
 2. **Add package-level tests** to sql, erased, specialize, reflect
 3. **Implement @typesugar/units .to() method** — Documented but not implemented
-4. **Consider deprecating @typesugar/comptime** — It's just a re-export wrapper
+4. ~~**Consider deprecating @typesugar/comptime**~~ — _(Done 2026-03-15)_ Package removed
 
 **Previously resolved:**
 

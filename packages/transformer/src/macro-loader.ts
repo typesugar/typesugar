@@ -30,7 +30,6 @@ const loadedPackages = new Set<string>();
  * (which contains the actual macro implementations) instead.
  */
 const FACADE_TO_PROVIDER: Record<string, string> = {
-  "@typesugar/comptime": "@typesugar/macros",
   "@typesugar/derive": "@typesugar/macros",
   "@typesugar/reflect": "@typesugar/macros",
   "@typesugar/typeclass": "@typesugar/macros",
