@@ -929,8 +929,8 @@ function findFullyCoveredArmIndex(
         const altKey = getPatternLiteralKey(analyzePattern(alt));
         if (altKey !== undefined) remaining.delete(altKey);
       }
-      if (remaining.size === 0 && i < arms.length - 1) {
-        return i + 1;
+      if (remaining.size === 0) {
+        return i;
       }
     }
   }
@@ -1914,8 +1914,18 @@ function generateIIFE(
     )
   );
 
-  for (const arm of arms) {
+  // Wave 5: Find the arm index where the type is fully narrowed
+  const fullyCoveredIdx = findFullyCoveredArmIndex(ctx, scrutinee, arms);
+
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
     const scrutineeRef = f.createIdentifier(scrutineeName.text);
+
+    // Wave 5: Emit unconditional return when type is fully narrowed
+    if (fullyCoveredIdx !== -1 && i >= fullyCoveredIdx && !arm.guard) {
+      statements.push(f.createReturnStatement(arm.result));
+      continue;
+    }
 
     // OR patterns: build || chain of conditions
     if (arm.alternatives.length > 0) {

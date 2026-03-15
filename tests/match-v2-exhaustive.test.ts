@@ -635,3 +635,99 @@ describe("Wave 5: switch output shape", () => {
     expect(output).toContain('case "a":');
   });
 });
+
+// ============================================================================
+// Fully-Covered Arm Optimization
+// ============================================================================
+
+describe("Wave 5: fully-covered arm optimization", () => {
+  function createTypedContext(unionMembers: string[]): {
+    ctx: MacroContextImpl;
+    printExpr: (node: ts.Expression) => string;
+  } {
+    const { ctx, printExpr } = createTestContext();
+    const checker = getSharedProgram().getTypeChecker();
+    const memberTypes = unionMembers.map((m) => checker.getStringLiteralType(m));
+    const unionType = memberTypes.length === 1 ? memberTypes[0] : checker.getUnionType(memberTypes);
+    ctx.getTypeOf = () => unionType;
+    return { ctx, printExpr };
+  }
+
+  it('should omit runtime check for second arm when scrutinee is "ok" | "fail"', () => {
+    const { ctx, printExpr } = createTypedContext(["ok", "fail"]);
+
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [str("ok")] },
+      { method: "then", args: [num(1)] },
+      { method: "case", args: [str("fail")] },
+      { method: "then", args: [num(2)] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const output = printExpr(result);
+
+    expect(output).toContain('=== "ok"');
+    expect(output).not.toContain('=== "fail"');
+    expect(output).toContain("return 2");
+  });
+
+  it("should omit runtime check for last arm of 3-member union", () => {
+    const { ctx, printExpr } = createTypedContext(["a", "b", "c"]);
+
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [str("a")] },
+      { method: "then", args: [num(1)] },
+      { method: "case", args: [str("b")] },
+      { method: "then", args: [num(2)] },
+      { method: "case", args: [str("c")] },
+      { method: "then", args: [num(3)] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const output = printExpr(result);
+
+    expect(output).toContain('=== "a"');
+    expect(output).toContain('=== "b"');
+    expect(output).not.toContain('=== "c"');
+    expect(output).toContain("return 3");
+  });
+
+  it("should NOT optimize when arm has a guard", () => {
+    const { ctx, printExpr } = createTypedContext(["ok", "fail"]);
+
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [str("ok")] },
+      { method: "then", args: [num(1)] },
+      { method: "case", args: [str("fail")] },
+      { method: "if", args: [ident("cond")] },
+      { method: "then", args: [num(2)] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const output = printExpr(result);
+
+    expect(output).toContain('=== "fail"');
+  });
+
+  it("should still work with else clause present", () => {
+    const { ctx, printExpr } = createTypedContext(["ok", "fail"]);
+
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [str("ok")] },
+      { method: "then", args: [num(1)] },
+      { method: "case", args: [str("fail")] },
+      { method: "then", args: [num(2)] },
+      { method: "else", args: [num(0)] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const output = printExpr(result);
+
+    expect(output).toContain('=== "ok"');
+    expect(output).not.toContain('=== "fail"');
+  });
+});
