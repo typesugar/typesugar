@@ -1,6 +1,6 @@
 # PEP-011: SFINAE Diagnostic Resolution
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -231,17 +231,17 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Integrate `evaluateSfinae()` into `TransformationPipeline` diagnostic collection
-- [ ] Ensure CLI build (`typesugar build`, `tspc`) filters diagnostics consistently with IDE
-- [ ] Add `--show-sfinae` flag to CLI
-- [ ] End-to-end test: build a file with SFINAE-suppressible errors, verify clean output
+- [x] Integrate `evaluateSfinae()` into `TransformationPipeline` diagnostic collection
+- [x] Ensure CLI build (`typesugar build`, `tspc`) filters diagnostics consistently with IDE
+- [x] Add `--show-sfinae` flag to CLI
+- [x] End-to-end test: build a file with SFINAE-suppressible errors, verify clean output
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] CLI produces same filtered diagnostics as IDE
-- [ ] `--show-sfinae` works in CLI
-- [ ] Full test suite passes
+- [x] `pnpm build` passes
+- [x] CLI produces same filtered diagnostics as IDE
+- [x] `--show-sfinae` works in CLI
+- [x] Full test suite passes (13 CLI pipeline tests)
 
 ## Files Changed
 
@@ -267,7 +267,8 @@ This makes the system transparent and debuggable.
 | `packages/macros/src/index.ts`                        | Export `createTypeRewriteAssignmentRule`                  | 5    |
 | `packages/transformer/src/language-service.ts`        | Register TypeRewriteAssignment rule at init               | 5    |
 | `tests/sfinae-type-rewrite.test.ts`                   | New: TypeRewriteAssignment SFINAE tests (17 tests)        | 5    |
-| `packages/transformer/src/pipeline.ts`                | Future: SFINAE filter in CLI diagnostic collection        | 6    |
+| `packages/transformer/src/cli.ts`                     | Integrate SFINAE filtering + `--show-sfinae` flag         | 6    |
+| `tests/sfinae-cli-pipeline.test.ts`                   | New: CLI pipeline SFINAE integration tests (13 tests)     | 6    |
 
 ## Security Considerations
 
@@ -292,7 +293,7 @@ SFINAE suppresses diagnostics, which could theoretically hide real errors. Mitig
 
 - Adds a diagnostic filtering layer that must be maintained alongside rewrite logic
 - False negatives possible if a SFINAE rule is too broad (mitigated by specificity and audit mode)
-- CLI users without the language service plugin still see phantom errors until Wave 6
+- CLI users now get the same filtered diagnostics as IDE users (Wave 6)
 
 **Future work:**
 

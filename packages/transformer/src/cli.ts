@@ -33,6 +33,18 @@ import {
   formatExpansions,
   type TransformBackend,
 } from "./pipeline.js";
+import {
+  filterDiagnostics,
+  registerSfinaeRule,
+  getSfinaeRules,
+  setSfinaeAuditMode,
+  createMacroGeneratedRule,
+} from "@typesugar/core";
+import {
+  createExtensionMethodCallRule,
+  createNewtypeAssignmentRule,
+  createTypeRewriteAssignmentRule,
+} from "@typesugar/macros";
 
 type Command =
   | "build"
@@ -62,6 +74,8 @@ interface CliOptions {
   strict?: boolean | "incremental";
   /** Transform backend: 'oxc' (default) or 'typescript' */
   backend?: "typescript" | "oxc";
+  /** Show SFINAE-suppressed diagnostics for debugging */
+  showSfinae?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -137,6 +151,7 @@ function parseArgs(args: string[]): CliOptions {
   let cache: boolean | string | undefined;
   let strict: boolean | "incremental" = false;
   let backend: "typescript" | "oxc" | undefined;
+  let showSfinae = false;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -171,6 +186,8 @@ function parseArgs(args: string[]): CliOptions {
         console.error(`Invalid backend: ${next}. Must be 'typescript' or 'oxc'`);
         process.exit(1);
       }
+    } else if (arg === "--show-sfinae") {
+      showSfinae = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -179,7 +196,7 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
-  return { command, project, verbose, file, diff, ast, cache, strict, backend };
+  return { command, project, verbose, file, diff, ast, cache, strict, backend, showSfinae };
 }
 
 function printHelp(): void {
@@ -208,6 +225,7 @@ OPTIONS:
   --strict               Typecheck expanded output (catches macro bugs) [build/check]
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --backend <ts|oxc>     Transform backend: 'oxc' (default) or 'typescript'
+  --show-sfinae          Show SFINAE-suppressed diagnostics (audit mode)
   -h, --help             Show this help message
 
 EXPAND OPTIONS:
@@ -294,11 +312,37 @@ function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
   return errorCount;
 }
 
+/**
+ * Register built-in SFINAE rules for the CLI pipeline.
+ *
+ * These are the same rules used by the language service (IDE), ensuring
+ * consistent diagnostic filtering between `typesugar build` and the editor.
+ */
+function registerCliSfinaeRules(): void {
+  if (!getSfinaeRules().some((r) => r.name === "ExtensionMethodCall")) {
+    registerSfinaeRule(createExtensionMethodCallRule());
+  }
+  if (!getSfinaeRules().some((r) => r.name === "NewtypeAssignment")) {
+    registerSfinaeRule(createNewtypeAssignmentRule());
+  }
+  if (!getSfinaeRules().some((r) => r.name === "TypeRewriteAssignment")) {
+    registerSfinaeRule(createTypeRewriteAssignmentRule());
+  }
+}
+
 function build(options: CliOptions): void {
   // Fire-and-forget hasher init (fallback works if not ready)
   initHasher().catch(() => {
     /* ignore - fallback available */
   });
+
+  // Enable SFINAE audit mode if requested via --show-sfinae flag or env var
+  if (options.showSfinae) {
+    setSfinaeAuditMode(true);
+  }
+
+  // Register built-in SFINAE rules (same as language service for consistency)
+  registerCliSfinaeRules();
 
   profiler.start("cli.build.total");
 
@@ -491,11 +535,19 @@ function build(options: CliOptions): void {
   profiler.end("cli.build.emit");
 
   // Combine pre-emit diagnostics, emit diagnostics, and strict mode diagnostics
-  const allDiagnostics = [
+  const rawDiagnostics = [
     ...ts.getPreEmitDiagnostics(program),
     ...emitResult.diagnostics,
     ...strictDiagnostics,
   ];
+
+  // Filter diagnostics through SFINAE rules (suppress phantom errors from
+  // typesugar rewrites — extension methods, newtype assignment, opaque types)
+  const checker = program.getTypeChecker();
+  const allDiagnostics =
+    getSfinaeRules().length > 0
+      ? filterDiagnostics(rawDiagnostics, checker, (fn) => program.getSourceFile(fn))
+      : rawDiagnostics;
 
   const errorCount = reportDiagnostics(allDiagnostics);
 
@@ -538,6 +590,11 @@ function build(options: CliOptions): void {
 }
 
 function watch(options: CliOptions): void {
+  if (options.showSfinae) {
+    setSfinaeAuditMode(true);
+  }
+  registerCliSfinaeRules();
+
   const configPath = ts.findConfigFile(
     path.dirname(path.resolve(options.project)),
     ts.sys.fileExists,
@@ -554,12 +611,23 @@ function watch(options: CliOptions): void {
     verbose: options.verbose,
   });
 
+  // Track the current program for SFINAE filtering in watch mode
+  let currentProgram: ts.Program | undefined;
+
   const host = ts.createWatchCompilerHost(
     configPath,
     {},
     ts.sys,
     ts.createEmitAndSemanticDiagnosticsBuilderProgram,
     (diagnostic) => {
+      // Filter through SFINAE rules before reporting
+      if (currentProgram && getSfinaeRules().length > 0) {
+        const checker = currentProgram.getTypeChecker();
+        const filtered = filterDiagnostics([diagnostic], checker, (fn) =>
+          currentProgram!.getSourceFile(fn)
+        );
+        if (filtered.length === 0) return;
+      }
       reportDiagnostics([diagnostic]);
     },
     (diagnostic) => {
@@ -579,6 +647,7 @@ function watch(options: CliOptions): void {
   const origAfterProgramCreate = host.afterProgramCreate;
   host.afterProgramCreate = (builderProgram) => {
     const program = builderProgram.getProgram();
+    currentProgram = program;
     // Reuse transformer state across rebuilds for efficiency
     const transformerFactory = macroTransformerFactory(
       program,
