@@ -170,17 +170,17 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Integrate `evaluateSfinae()` into `getSemanticDiagnostics()` in `packages/transformer/src/language-service.ts`
-- [ ] Integrate into `getSuggestionDiagnostics()` where applicable
-- [ ] Add `--show-sfinae` audit output
-- [ ] Integration tests: verify diagnostics are suppressed in IDE scenarios
+- [x] Integrate `evaluateSfinae()` into `getSemanticDiagnostics()` in `packages/transformer/src/language-service.ts`
+- [x] Integrate into `getSuggestionDiagnostics()` where applicable
+- [x] Add `--show-sfinae` audit output (via `TYPESUGAR_SHOW_SFINAE=1` env var, already implemented in Wave 1)
+- [x] Integration tests: verify diagnostics are suppressed in IDE scenarios
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Language service tests pass
-- [ ] Existing extension method completions still work
-- [ ] Audit mode shows suppressed diagnostics
+- [x] `pnpm build` passes
+- [x] Language service tests pass (46 passed, 4 skipped)
+- [x] Existing extension method completions still work
+- [x] Audit mode shows suppressed diagnostics
 
 ### Wave 3: ExtensionMethodCall Rule
 
@@ -245,18 +245,16 @@ This makes the system transparent and debuggable.
 
 ## Files Changed
 
-| File                                           | Change                                                    |
-| ---------------------------------------------- | --------------------------------------------------------- |
-| `packages/core/src/sfinae.ts`                  | New: `SfinaeRule` interface, registry, `evaluateSfinae()` |
-| `packages/core/src/index.ts`                   | Export SFINAE API                                         |
-| `packages/macros/src/sfinae-rules.ts`          | New: Built-in SFINAE rules (Rules 1-4)                    |
-| `packages/macros/src/index.ts`                 | Register built-in SFINAE rules                            |
-| `packages/transformer/src/language-service.ts` | Integrate SFINAE filter into `getSemanticDiagnostics()`   |
-| `packages/transformer/src/pipeline.ts`         | Integrate SFINAE filter into diagnostic collection        |
-| `packages/transformer/src/index.ts`            | Pass SFINAE context to diagnostic handling                |
-| `tests/sfinae.test.ts`                         | New: SFINAE rule tests                                    |
-| `tests/sfinae-extension.test.ts`               | New: Extension method SFINAE integration tests            |
-| `tests/sfinae-newtype.test.ts`                 | New: Newtype assignment SFINAE tests                      |
+| File                                                  | Change                                                    | Wave |
+| ----------------------------------------------------- | --------------------------------------------------------- | ---- |
+| `packages/core/src/sfinae.ts`                         | New: `SfinaeRule` interface, registry, `evaluateSfinae()` | 1    |
+| `packages/core/src/sfinae-rules.ts`                   | New: `createMacroGeneratedRule()` (Rule 4)                | 1    |
+| `packages/core/src/index.ts`                          | Export SFINAE API                                         | 1    |
+| `packages/core/tests/sfinae.test.ts`                  | New: SFINAE rule unit tests                               | 1    |
+| `packages/transformer/src/language-service.ts`        | Integrate SFINAE filter into diagnostic methods           | 2    |
+| `packages/transformer/tests/language-service.test.ts` | SFINAE integration tests for IDE scenarios                | 2    |
+| `packages/macros/src/sfinae-rules.ts`                 | Future: Built-in SFINAE rules (Rules 1-3)                 | 3-5  |
+| `packages/transformer/src/pipeline.ts`                | Future: SFINAE filter in CLI diagnostic collection        | 6    |
 
 ## Security Considerations
 

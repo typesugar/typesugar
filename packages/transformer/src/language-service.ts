@@ -30,6 +30,14 @@ import {
 } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import { preprocess } from "@typesugar/preprocessor";
+import {
+  filterDiagnostics,
+  registerSfinaeRule,
+  getSfinaeRules,
+  isSfinaeAuditEnabled,
+  createMacroGeneratedRule,
+  type PositionMapFn,
+} from "@typesugar/core";
 
 /**
  * Cache entry for transformed files
@@ -350,6 +358,32 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     // ---------------------------------------------------------------------------
+    // Register SFINAE rules
+    // ---------------------------------------------------------------------------
+
+    // Register MacroGenerated rule (Rule 4) — suppresses diagnostics in
+    // macro-generated code whose positions can't map back to original source.
+    // This formalizes the ad-hoc suppression previously handled only by
+    // mapDiagnostic returning null.
+    const alreadyRegistered = getSfinaeRules().some((r) => r.name === "MacroGenerated");
+    if (!alreadyRegistered) {
+      const positionMapFn: PositionMapFn = (
+        fileName: string,
+        transformedPos: number
+      ): number | null => {
+        const mapper = getMapper(fileName);
+        return mapper.toOriginal(transformedPos);
+      };
+
+      registerSfinaeRule(createMacroGeneratedRule(positionMapFn));
+      log("Registered MacroGenerated SFINAE rule");
+    }
+
+    if (isSfinaeAuditEnabled()) {
+      log("SFINAE audit mode enabled (TYPESUGAR_SHOW_SFINAE=1)");
+    }
+
+    // ---------------------------------------------------------------------------
     // Intercept the original host to serve transformed content.
     // oldLS re-reads from the host when the version string changes.
     // ---------------------------------------------------------------------------
@@ -601,19 +635,35 @@ function init(modules: { typescript: typeof ts }) {
       // Ensure transformation has run (populates rawMacroDiagnosticCache)
       getTransformResult(normalizedFileName);
 
-      // Get TypeScript's own diagnostics and map positions back
+      // Get TypeScript's own diagnostics (positions in transformed code)
       const diagnostics = oldLS.getSemanticDiagnostics(fileName);
-      const mapped = mapDiagnostics(diagnostics, fileName);
+
+      // Apply SFINAE filtering before position mapping — this runs all
+      // registered rules (including MacroGenerated) to suppress diagnostics
+      // that typesugar's rewrite system handles.
+      const program = oldLS.getProgram();
+      let sfinaeFiltered: readonly ts.Diagnostic[];
+      if (program && getSfinaeRules().length > 0) {
+        const checker = program.getTypeChecker();
+        sfinaeFiltered = filterDiagnostics(diagnostics, checker, (fn) => program.getSourceFile(fn));
+      } else {
+        sfinaeFiltered = diagnostics;
+      }
+
+      // Map remaining diagnostics back to original positions
+      const mapped = mapDiagnostics(sfinaeFiltered, fileName);
 
       // Convert raw macro diagnostics to ts.Diagnostic[] now that the program is available
       const rawDiags = rawMacroDiagnosticCache.get(normalizedFileName) ?? [];
       const macroDiags = convertMacroDiagnostics(rawDiags, normalizedFileName);
       const combined = [...mapped, ...macroDiags];
 
-      if (combined.length > 0) {
+      if (combined.length > 0 || sfinaeFiltered.length < diagnostics.length) {
+        const suppressedCount = diagnostics.length - sfinaeFiltered.length;
         log(
           `Semantic diagnostics for ${path.basename(fileName)}: ` +
-            `${diagnostics.length} TS raw → ${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
+            `${diagnostics.length} TS raw → ${sfinaeFiltered.length} after SFINAE (${suppressedCount} suppressed) → ` +
+            `${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
         );
       }
       return combined;
@@ -626,7 +676,20 @@ function init(modules: { typescript: typeof ts }) {
 
     proxy.getSuggestionDiagnostics = (fileName: string): ts.DiagnosticWithLocation[] => {
       const diagnostics = oldLS.getSuggestionDiagnostics(fileName);
-      return mapDiagnostics(diagnostics, fileName);
+
+      // Apply SFINAE filtering to suggestion diagnostics
+      const program = oldLS.getProgram();
+      let sfinaeFiltered: readonly ts.DiagnosticWithLocation[];
+      if (program && getSfinaeRules().length > 0) {
+        const checker = program.getTypeChecker();
+        sfinaeFiltered = filterDiagnostics(diagnostics, checker, (fn) =>
+          program.getSourceFile(fn)
+        ) as ts.DiagnosticWithLocation[];
+      } else {
+        sfinaeFiltered = diagnostics;
+      }
+
+      return mapDiagnostics(sfinaeFiltered, fileName);
     };
 
     // ---------------------------------------------------------------------------
