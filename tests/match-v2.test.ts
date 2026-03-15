@@ -1,8 +1,11 @@
 /**
- * Tests for the fluent match() chain macro (PEP-008 Wave 1)
+ * Tests for the fluent match() chain macro (PEP-008 Waves 1+2)
  *
- * Covers: literal patterns, wildcard, variable binding, guards,
- * .else() catch-all, MatchError generation, ternary optimization.
+ * Covers:
+ * - Wave 1: literal patterns, wildcard, variable binding, guards,
+ *   .else() catch-all, MatchError generation, ternary optimization.
+ * - Wave 2: array patterns, object patterns, nested patterns,
+ *   rest/spread patterns, mixed literal+binding in objects.
  */
 
 import { describe, it, expect } from "vitest";
@@ -512,6 +515,528 @@ describe("fluent match() macro (PEP-008 Wave 1)", () => {
       expect(text).toContain("n > 0");
       expect(text).toContain('"positive"');
       expect(text).toContain('"negative"');
+    });
+  });
+});
+
+// ============================================================================
+// Wave 2: Array + Object Patterns
+// ============================================================================
+
+function arr(...elements: ts.Expression[]): ts.ArrayLiteralExpression {
+  return f.createArrayLiteralExpression(elements);
+}
+
+function spread(expr: ts.Expression): ts.SpreadElement {
+  return f.createSpreadElement(expr);
+}
+
+function obj(...props: ts.ObjectLiteralElementLike[]): ts.ObjectLiteralExpression {
+  return f.createObjectLiteralExpression(props);
+}
+
+function shortProp(name: string): ts.ShorthandPropertyAssignment {
+  return f.createShorthandPropertyAssignment(name);
+}
+
+function prop(key: string, value: ts.Expression): ts.PropertyAssignment {
+  return f.createPropertyAssignment(key, value);
+}
+
+function spreadAssign(name: string): ts.SpreadAssignment {
+  return f.createSpreadAssignment(ident(name));
+}
+
+describe("fluent match() macro (PEP-008 Wave 2)", () => {
+  // ==========================================================================
+  // Array Patterns
+  // ==========================================================================
+  describe("array patterns", () => {
+    it("should match empty array []", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr()] },
+        { method: "then", args: [str("empty")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length === 0");
+      expect(text).toContain('"empty"');
+    });
+
+    it("should match [a, b] with exact length 2", () => {
+      const { ctx, printExpr } = createTestContext();
+      const sum = f.createBinaryExpression(ident("a"), ts.SyntaxKind.PlusToken, ident("b"));
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("a"), ident("b"))] },
+        { method: "then", args: [sum] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length === 2");
+      expect(text).toContain("const a =");
+      expect(text).toContain("const b =");
+      expect(text).toContain("a + b");
+    });
+
+    it("should handle [first, _, _] — wildcard positions not bound (gate criterion)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(
+        ident("first"),
+        ts.SyntaxKind.GreaterThanToken,
+        num(0)
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("first"), ident("_"), ident("_"))] },
+        { method: "if", args: [guard] },
+        { method: "then", args: [ident("first")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length === 3");
+      expect(text).toContain("const first =");
+      expect(text).toContain("first > 0");
+      // wildcards should NOT create bindings (but allow __typesugar_ prefixed names)
+      expect(text).not.toContain("const _ =");
+      expect(text).not.toMatch(/const _\b(?!_)/); // const _ but not const __
+    });
+
+    it("should handle [head, ...tail] — rest pattern (gate criterion)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const tailLen = f.createPropertyAccessExpression(ident("tail"), "length");
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("head"), spread(ident("tail")))] },
+        { method: "then", args: [tailLen] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length >= 1");
+      expect(text).toContain("const head =");
+      expect(text).toContain("const tail =");
+      expect(text).toContain(".slice(1)");
+      expect(text).toContain("tail.length");
+    });
+
+    it("should handle [_, ...rest] — discard head, capture rest", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("_"), spread(ident("rest")))] },
+        { method: "then", args: [ident("rest")] },
+        { method: "else", args: [arr()] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length >= 1");
+      expect(text).not.toMatch(/const _ =/);
+      expect(text).toContain("const rest =");
+      expect(text).toContain(".slice(1)");
+    });
+
+    it("should match [x] — singleton array", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("x"))] },
+        { method: "then", args: [ident("x")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length === 1");
+      expect(text).toContain("const x =");
+    });
+
+    it("should handle multiple array arms", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr()] },
+        { method: "then", args: [str("empty")] },
+        { method: "case", args: [arr(ident("x"))] },
+        { method: "then", args: [ident("x")] },
+        { method: "else", args: [str("many")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain(".length === 0");
+      expect(text).toContain(".length === 1");
+      expect(text).toContain('"empty"');
+      expect(text).toContain('"many"');
+    });
+  });
+
+  // ==========================================================================
+  // Object Patterns
+  // ==========================================================================
+  describe("object patterns", () => {
+    it("should match { name, age } — shorthand bindings (gate criterion)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const ageCheck = f.createBinaryExpression(
+        ident("age"),
+        ts.SyntaxKind.GreaterThanToken,
+        num(18)
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("obj"),
+        { method: "case", args: [obj(shortProp("name"), shortProp("age"))] },
+        { method: "if", args: [ageCheck] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("minor")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"object"');
+      expect(text).toContain("!== null");
+      expect(text).toContain('"name" in');
+      expect(text).toContain('"age" in');
+      expect(text).toContain("const name =");
+      expect(text).toContain("const age =");
+      expect(text).toContain("age > 18");
+    });
+
+    it("should match { name: n } — renamed binding", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("obj"),
+        { method: "case", args: [obj(prop("name", ident("n")))] },
+        { method: "then", args: [ident("n")] },
+        { method: "else", args: [str("none")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"name" in');
+      expect(text).toContain("const n =");
+      expect(text).toContain(".name");
+    });
+
+    it("should match { kind: 'circle' } — literal property value (structural check)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("shape"),
+        { method: "case", args: [obj(prop("kind", str("circle")))] },
+        { method: "then", args: [str("round")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"kind" in');
+      expect(text).toContain('.kind === "circle"');
+      expect(text).toContain('"round"');
+      // No binding for literal value
+      expect(text).not.toContain("const kind =");
+    });
+
+    it("should match { kind: 'circle', radius: r } — literal + binding", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("shape"),
+        {
+          method: "case",
+          args: [obj(prop("kind", str("circle")), prop("radius", ident("r")))],
+        },
+        { method: "then", args: [ident("r")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"kind" in');
+      expect(text).toContain('.kind === "circle"');
+      expect(text).toContain('"radius" in');
+      expect(text).toContain("const r =");
+      expect(text).toContain(".radius");
+    });
+
+    it("should match { ...rest } — rest pattern", () => {
+      const { ctx, printExpr } = createTestContext();
+      const keysLen = f.createCallExpression(
+        f.createPropertyAccessExpression(
+          f.createCallExpression(
+            f.createPropertyAccessExpression(ident("Object"), "keys"),
+            undefined,
+            [ident("rest")]
+          ),
+          "length"
+        ),
+        undefined,
+        []
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("obj"),
+        { method: "case", args: [obj(spreadAssign("rest"))] },
+        { method: "then", args: [ident("rest")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("typeof");
+      expect(text).toContain('"object"');
+      expect(text).toContain("...rest");
+    });
+
+    it("should handle object pattern without guard", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("obj"),
+        { method: "case", args: [obj(shortProp("x"))] },
+        { method: "then", args: [ident("x")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"x" in');
+      expect(text).toContain("const x =");
+      expect(text).toContain("return x");
+    });
+  });
+
+  // ==========================================================================
+  // Nested Patterns
+  // ==========================================================================
+  describe("nested patterns", () => {
+    it("should match { user: { name } } — nested object (gate criterion)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const innerObj = obj(shortProp("name"));
+      const outerObj = obj(prop("user", innerObj));
+      const { outermost, rootArgs } = buildChain(
+        ident("data"),
+        { method: "case", args: [outerObj] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("unknown")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      // Outer checks
+      expect(text).toContain('"user" in');
+      // Nested checks on .user
+      expect(text).toContain('"name" in');
+      // Binding
+      expect(text).toContain("const name =");
+      expect(text).toContain(".user");
+    });
+
+    it("should match { user: { name, age } } — nested with multiple props", () => {
+      const { ctx, printExpr } = createTestContext();
+      const innerObj = obj(shortProp("name"), shortProp("age"));
+      const outerObj = obj(prop("user", innerObj));
+      const { outermost, rootArgs } = buildChain(
+        ident("data"),
+        { method: "case", args: [outerObj] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("none")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"user" in');
+      expect(text).toContain('"name" in');
+      expect(text).toContain('"age" in');
+      expect(text).toContain("const name =");
+      expect(text).toContain("const age =");
+    });
+
+    it("should match [{ x }, { y }] — array of objects", () => {
+      const { ctx, printExpr } = createTestContext();
+      const sum = f.createBinaryExpression(ident("x"), ts.SyntaxKind.PlusToken, ident("y"));
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(obj(shortProp("x")), obj(shortProp("y")))] },
+        { method: "then", args: [sum] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length === 2");
+      // Nested object checks for elements
+      expect(text).toContain('"x" in');
+      expect(text).toContain('"y" in');
+      expect(text).toContain("const x =");
+      expect(text).toContain("const y =");
+    });
+
+    it("should match { items: [first, ...rest] } — object with nested array", () => {
+      const { ctx, printExpr } = createTestContext();
+      const innerArr = arr(ident("first"), spread(ident("rest")));
+      const outerObj = obj(prop("items", innerArr));
+      const { outermost, rootArgs } = buildChain(
+        ident("data"),
+        { method: "case", args: [outerObj] },
+        { method: "then", args: [ident("first")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      // Outer object check
+      expect(text).toContain('"items" in');
+      // Nested array check on .items
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length >= 1");
+      expect(text).toContain("const first =");
+      expect(text).toContain("const rest =");
+      expect(text).toContain(".slice(1)");
+    });
+
+    it("should match { user: { name }, active: true } — mixed nested + literal", () => {
+      const { ctx, printExpr } = createTestContext();
+      const innerObj = obj(shortProp("name"));
+      const outerObj = obj(prop("user", innerObj), prop("active", f.createTrue()));
+      const { outermost, rootArgs } = buildChain(
+        ident("data"),
+        { method: "case", args: [outerObj] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("inactive")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"user" in');
+      expect(text).toContain('"active" in');
+      expect(text).toContain(".active === true");
+      expect(text).toContain('"name" in');
+      expect(text).toContain("const name =");
+    });
+  });
+
+  // ==========================================================================
+  // Gate Criteria (explicit verification)
+  // ==========================================================================
+  describe("Wave 2 gate criteria", () => {
+    it("GATE: match(arr).case([first, _, _]).if(first > 0).then(first) works", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(
+        ident("first"),
+        ts.SyntaxKind.GreaterThanToken,
+        num(0)
+      );
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("first"), ident("_"), ident("_"))] },
+        { method: "if", args: [guard] },
+        { method: "then", args: [ident("first")] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length === 3");
+      expect(text).toContain("const first");
+      expect(text).toContain("first > 0");
+      expect(text).toContain("return first");
+    });
+
+    it("GATE: match(obj).case({ name, age }).if(age > 18).then(name) works", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(ident("age"), ts.SyntaxKind.GreaterThanToken, num(18));
+      const { outermost, rootArgs } = buildChain(
+        ident("obj"),
+        { method: "case", args: [obj(shortProp("name"), shortProp("age"))] },
+        { method: "if", args: [guard] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("minor")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"name" in');
+      expect(text).toContain('"age" in');
+      expect(text).toContain("const name");
+      expect(text).toContain("const age");
+      expect(text).toContain("age > 18");
+      expect(text).toContain("return name");
+    });
+
+    it("GATE: match(data).case({ user: { name } }).then(name) works with nesting", () => {
+      const { ctx, printExpr } = createTestContext();
+      const innerObj = obj(shortProp("name"));
+      const outerObj = obj(prop("user", innerObj));
+      const { outermost, rootArgs } = buildChain(
+        ident("data"),
+        { method: "case", args: [outerObj] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("unknown")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain('"user" in');
+      expect(text).toContain('"name" in');
+      expect(text).toContain("const name");
+      expect(text).toContain("return name");
+    });
+
+    it("GATE: match(arr).case([head, ...tail]).then(tail.length) works with rest", () => {
+      const { ctx, printExpr } = createTestContext();
+      const tailLen = f.createPropertyAccessExpression(ident("tail"), "length");
+      const { outermost, rootArgs } = buildChain(
+        ident("arr"),
+        { method: "case", args: [arr(ident("head"), spread(ident("tail")))] },
+        { method: "then", args: [tailLen] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("Array.isArray");
+      expect(text).toContain(".length >= 1");
+      expect(text).toContain("const head");
+      expect(text).toContain("const tail");
+      expect(text).toContain(".slice(1)");
+      expect(text).toContain("tail.length");
     });
   });
 });

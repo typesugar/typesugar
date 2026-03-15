@@ -865,27 +865,27 @@ Core macro infrastructure: parse `.case().if().then()` chains, extract pattern v
 
 **Tasks:**
 
-- [ ] Array patterns: `[a, b]`, `[a, _, _]`, `[head, ...tail]`, `[]`
+- [x] Array patterns: `[a, b]`, `[a, _, _]`, `[head, ...tail]`, `[]`
   - Detect `ArrayLiteralExpression` in `.case()` argument
   - Generate `Array.isArray()` + length check + destructuring
   - Handle `_` as non-binding position
   - Handle `SpreadElement` for rest patterns
-- [ ] Object patterns: `{ a, b }`, `{ name: n }`, `{ kind: "circle", radius: r }`
+- [x] Object patterns: `{ a, b }`, `{ name: n }`, `{ kind: "circle", radius: r }`
   - Detect `ObjectLiteralExpression` in `.case()` argument
   - `ShorthandPropertyAssignment` → binding (check `in` + destructure)
   - `PropertyAssignment` with identifier value → renamed binding
   - `PropertyAssignment` with literal value → structural check (no binding)
   - Handle `SpreadAssignment` for rest patterns
-- [ ] Nested patterns: `{ user: { name, age } }`, `[{ x }, { y }]`
+- [x] Nested patterns: `{ user: { name, age } }`, `[{ x }, { y }]`
   - Recursive pattern extraction at arbitrary depth
-- [ ] Tests: all array/object shapes, nesting, rest patterns, mixed literal+binding
+- [x] Tests: all array/object shapes, nesting, rest patterns, mixed literal+binding
 
 **Gate:**
 
-- [ ] `match(arr).case([first, _, _]).if(first > 0).then(first)` works
-- [ ] `match(obj).case({ name, age }).if(age > 18).then(name)` works
-- [ ] `match(data).case({ user: { name } }).then(name)` works with nesting
-- [ ] `match(arr).case([head, ...tail]).then(tail.length)` works with rest
+- [x] `match(arr).case([first, _, _]).if(first > 0).then(first)` works
+- [x] `match(obj).case({ name, age }).if(age > 18).then(name)` works
+- [x] `match(data).case({ user: { name } }).then(name)` works with nesting
+- [x] `match(arr).case([head, ...tail]).then(tail.length)` works with rest
 
 ### Wave 3: Type Patterns + OR Patterns + AS Patterns (~4 files)
 
