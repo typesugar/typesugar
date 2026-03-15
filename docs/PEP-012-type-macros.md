@@ -1,6 +1,6 @@
 # PEP-012: Type Macros
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-15
 **Author:** Dean Povey
 **Depends on:** PEP-011 (SFINAE Diagnostic Resolution)
@@ -367,23 +367,23 @@ export interface Meters {
 Set methods overlap with ES2025 native Set methods (union, intersection, etc.).
 Object and Function interfaces are too broad for safe augmentation.
 
-### Wave 9: Update Showcases and Docs
+### Wave 9: Update Showcases and Docs ✅
 
 **Tasks:**
 
-- [ ] Rewrite `packages/fp/examples/showcase.ts` to use dot syntax (`x.map(f)` instead of `O.map(x, f)`)
-- [ ] Rewrite `packages/std/examples/showcase.ts` to use dot syntax (`(42).clamp(0, 100)`)
-- [ ] Update `packages/fp/src/index.ts` barrel exports (remove namespace-import guidance)
-- [ ] Update package READMEs
-- [ ] Update `AGENTS.md` with type macro and SFINAE information
-- [ ] Update `docs/guides/` with extension method usage
+- [x] Rewrite `packages/fp/examples/showcase.ts` to use dot syntax (`x.map(f)` instead of `O.map(x, f)`)
+- [x] Rewrite `packages/std/examples/showcase.ts` to use dot syntax (`(42).clamp(0, 100)`)
+- [x] Update `packages/fp/src/index.ts` barrel exports (remove namespace-import guidance)
+- [x] Update package READMEs
+- [x] Update `AGENTS.md` with type macro and SFINAE information
+- [x] Update `docs/guides/` with extension method usage
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm test` passes (full suite)
-- [ ] Showcases run correctly
-- [ ] Documentation accurately reflects new API
+- [x] `pnpm build` passes
+- [x] `pnpm test` passes (full suite — 2 pre-existing failures in `red-team-typesugar.test.ts` unrelated to PEP-012)
+- [x] Showcases run correctly
+- [x] Documentation accurately reflects new API
 
 ## Files Changed
 

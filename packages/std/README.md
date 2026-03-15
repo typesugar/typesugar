@@ -16,16 +16,15 @@ pnpm add @typesugar/std
 
 ## Usage
 
-### Extension Methods (Scala 3-style UFCS)
+### Extension Methods (Dot Syntax via Global Augmentation)
 
-Any imported function whose first parameter matches the receiver type can be called as a method.
-Just import what you need:
+With PEP-012 Wave 8, importing `@typesugar/std` adds type-checked methods to `Number`, `String`, `Array`, `Map`, `Promise`, `Date`, and `Boolean` via global augmentation. The transformer rewrites dot-syntax calls to standalone function calls — zero runtime overhead.
 
 ```typescript
 import { clamp, isEven, abs, capitalize, head } from "@typesugar/std";
 
-// Functions become methods automatically
-(-5).abs(); // → Math.abs(-5) → 5
+// Dot syntax — type-checked, zero-cost
+(-5).abs(); // → abs(-5) → 5
 (42).clamp(0, 100); // → clamp(42, 0, 100) → 42
 (7).isEven(); // → isEven(7) → false
 "hello".capitalize(); // → capitalize("hello") → "Hello"
@@ -40,20 +39,17 @@ clamp(42, 0, 100); // → 42
 ```typescript
 import { abs, ceil, floor, sqrt, sin, cos } from "@typesugar/std";
 
-(-5).abs(); // → Math.abs(-5) → 5
-(3.7).ceil(); // → Math.ceil(3.7) → 4
-(3.7).floor(); // → Math.floor(3.7) → 3
-(16).sqrt(); // → Math.sqrt(16) → 4
-(0).sin(); // → Math.sin(0) → 0
+(-5).abs(); // 5
+(3.7).ceil(); // 4
+(3.7).floor(); // 3
+(16).sqrt(); // 4
+(0).sin(); // 0
 ```
 
-**Legacy namespace imports (deprecated):**
+**How it works:** `@typesugar/std` declares `declare global { interface Number { clamp(min: number, max: number): number; ... } }` so TypeScript sees the methods. The transformer rewrites `(42).clamp(0, 100)` → `clamp(42, 0, 100)` — no prototype mutation, no runtime cost.
 
-```typescript
-// Still works for backward compatibility, but prefer direct function imports
-import { NumberExt } from "@typesugar/std";
-NumberExt.clamp(42, 0, 100); // direct call
-```
+**Augmented types:** Number, String, Array, Map, Promise, Date, Boolean.
+**Not augmented (intentionally):** Set (conflicts with ES2025 Set methods), Object, Function (too broad).
 
 ### Ranges (Scala/Kotlin-style)
 

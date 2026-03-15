@@ -2,7 +2,13 @@
  * @typesugar/std Showcase
  *
  * Self-documenting examples of the typesugar standard library: typeclasses,
- * extension methods, data types, pattern matching, and do-notation.
+ * extension methods (with dot syntax via global augmentation), data types,
+ * pattern matching, and do-notation.
+ *
+ * With PEP-012 Wave 8, extension methods work as dot syntax on primitives:
+ *   (42).clamp(0, 100)         → clamp(42, 0, 100)
+ *   "hello".capitalize()       → capitalize("hello")
+ *   [1, 2, 3].head()           → head([1, 2, 3])
  *
  * Type assertions used:
  *   typeAssert<Equal<A, B>>()        - A and B are the same type
@@ -328,81 +334,85 @@ function genericSum<A>(xs: A[], N: Numeric<A>): A {
 assert(genericSum([1, 2, 3, 4, 5], numericNumber) === 15);
 
 // ============================================================================
-// 6. NUMBER EXTENSIONS — Arithmetic, predicates, formatting
+// 6. NUMBER EXTENSIONS — Dot syntax via global augmentation (PEP-012 Wave 8)
 // ============================================================================
 
-assert(clamp(150, 0, 100) === 100);
-assert(clamp(-5, 0, 100) === 0);
-assert(lerp(0, 100, 0.5) === 50);
-assert(roundTo(3.14159, 2) === 3.14);
+// With global augmentation, Number has .clamp(), .isEven(), etc.
+// The transformer rewrites (42).clamp(0, 100) → clamp(42, 0, 100)
+assert((150).clamp(0, 100) === 100);
+assert((-5).clamp(0, 100) === 0);
+assert((0).lerp(100, 0.5) === 50);
+assert((3.14159).roundTo(2) === 3.14);
 
-assert(isEven(4) === true);
-assert(isOdd(7) === true);
-assert(isPrime(17) === true);
-assert(isPrime(15) === false);
+assert((4).isEven() === true);
+assert((7).isOdd() === true);
+assert((17).isPrime() === true);
+assert((15).isPrime() === false);
 assert(gcd(12, 8) === 4);
 assert(lcm(4, 6) === 12);
 
 // ============================================================================
-// 7. STRING EXTENSIONS — Case transforms, parsing, predicates
+// 7. STRING EXTENSIONS — Dot syntax via global augmentation
 // ============================================================================
 
-assert(capitalize("hello") === "Hello");
-assert(camelCase("hello world") === "helloWorld");
-assert(snakeCase("helloWorld") === "hello_world");
-assert(kebabCase("HelloWorld") === "hello-world");
-assert(truncate("a long string that should be cut", 15) === "a long strin...");
-assert(isBlank("") === true);
-assert(isBlank("  ") === true);
-assert(isBlank("x") === false);
+// String has .capitalize(), .camelCase(), etc.
+assert("hello".capitalize() === "Hello");
+assert("hello world".camelCase() === "helloWorld");
+assert("helloWorld".snakeCase() === "hello_world");
+assert("HelloWorld".kebabCase() === "hello-world");
+assert("a long string that should be cut".truncate(15) === "a long strin...");
+assert("".isBlank() === true);
+assert("  ".isBlank() === true);
+assert("x".isBlank() === false);
 
-const w = words("camelCaseString");
+const w = "camelCaseString".words();
 assert(w.length > 0);
 
 // ============================================================================
-// 8. ARRAY EXTENSIONS — Functional collection operations
+// 8. ARRAY EXTENSIONS — Dot syntax via global augmentation
 // ============================================================================
 
-assert(head([1, 2, 3]) === 1);
-assert(last([1, 2, 3]) === 3);
+// Array has .head(), .tail(), .chunk(), etc.
+assert([1, 2, 3].head() === 1);
+assert([1, 2, 3].last() === 3);
 
-const tl = tail([1, 2, 3]);
+const tl = [1, 2, 3].tail();
 assert(tl[0] === 2 && tl[1] === 3);
 
-const chunks = chunk([1, 2, 3, 4, 5], 2);
+const chunks = [1, 2, 3, 4, 5].chunk(2);
 assert(chunks.length === 3);
 assert(chunks[0][0] === 1 && chunks[0][1] === 2);
 assert(chunks[2][0] === 5);
 
-assert(unique([1, 2, 2, 3, 3, 3])[2] === 3);
-assert(unique([1, 2, 2, 3]).length === 3);
+assert([1, 2, 2, 3, 3, 3].unique()[2] === 3);
+assert([1, 2, 2, 3].unique().length === 3);
 
-const zipped = zip([1, 2, 3], ["a", "b", "c"]);
+const zipped = [1, 2, 3].zip(["a", "b", "c"]);
 assert(zipped[0][0] === 1 && zipped[0][1] === "a");
 
-const [evens, odds] = partition([1, 2, 3, 4, 5, 6], (n) => n % 2 === 0);
+const [evens, odds] = [1, 2, 3, 4, 5, 6].partition((n) => n % 2 === 0);
 assert(evens[0] === 2);
 assert(odds[0] === 1);
 
-const grouped = arrayGroupBy(["ant", "apple", "bee", "bat"], (s) => s[0]);
+const grouped = ["ant", "apple", "bee", "bat"].groupBy((s) => s[0]);
 assert(grouped["a"].length === 2);
 assert(grouped["b"].length === 2);
 
-const sorted = sortBy([{ n: 3 }, { n: 1 }, { n: 2 }], (x) => x.n);
+const sorted = [{ n: 3 }, { n: 1 }, { n: 2 }].sortBy((x) => x.n);
 assert(sorted[0].n === 1);
 
-const inter = intersperse([1, 2, 3], 0);
+const inter = [1, 2, 3].intersperse(0);
 assert(inter.length === 5);
 assert(inter[1] === 0);
 
-const taken = takeWhile([1, 2, 3, 4, 5], (n) => n < 4);
+const taken = [1, 2, 3, 4, 5].takeWhile((n) => n < 4);
 assert(taken.length === 3);
 
-const dropped = dropWhile([1, 2, 3, 4, 5], (n) => n < 3);
+const dropped = [1, 2, 3, 4, 5].dropWhile((n) => n < 3);
 assert(dropped[0] === 3);
 
-assert(flatten([[1, 2], [3], [4, 5]]).length === 5);
-assert(compact([1, null, 2, undefined, 3]).length === 3);
+assert([[1, 2], [3], [4, 5]].flatten().length === 5);
+assert([1, null, 2, undefined, 3].compact().length === 3);
 
 // ============================================================================
 // 9. OBJECT EXTENSIONS — pick, omit, deep merge

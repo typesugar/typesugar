@@ -8,7 +8,7 @@ Everyday features from `@typesugar/std`:
 
 | Guide                                        | Description                                             |
 | -------------------------------------------- | ------------------------------------------------------- |
-| [Extension Methods](./extension-methods.md)  | UFCS: call functions as methods (`"use extension"`)     |
+| [Extension Methods](./extension-methods.md)  | UFCS, @opaque dot syntax, global augmentation           |
 | [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions          |
 | [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:` |
 | [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Hash, Show, Monoid, FlatMap                    |
@@ -54,7 +54,7 @@ Powerful abstractions with zero runtime cost:
 
 | Guide                             | Description                                             |
 | --------------------------------- | ------------------------------------------------------- |
-| [Functional Programming](./fp.md) | Option, Either, IO, and HKT                             |
+| [Functional Programming](./fp.md) | Option, Either, IO with @opaque dot syntax              |
 | [HList](./hlist.md)               | Heterogeneous lists (Boost.Fusion)                      |
 | [Type Erasure](./erased.md)       | dyn Trait for heterogeneous collections                 |
 | [Loop Fusion](./fusion.md)        | Single-pass iterator pipelines                          |
