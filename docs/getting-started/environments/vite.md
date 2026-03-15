@@ -174,7 +174,7 @@ Even with the Vite plugin, you should configure `tsconfig.json` for IDE support 
 
 ```typescript
 // src/test-macros.ts
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 
 export const buildTime = comptime(new Date().toISOString());
 console.log(`Built at: ${buildTime}`);

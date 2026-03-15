@@ -4,8 +4,7 @@
  * This template demonstrates common typesugar features for applications.
  */
 
-import { comptime } from "@typesugar/comptime";
-import { derive, Eq, Clone, Debug, Json } from "@typesugar/derive";
+import { comptime, derive, Eq, Clone, Debug, Json } from "typesugar";
 import { sql } from "@typesugar/sql";
 
 // Compile-time evaluation

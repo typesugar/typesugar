@@ -380,8 +380,7 @@ function createExampleFile(cwd: string): void {
  * Run \`typesugar build\` or your bundler to see macro expansion.
  */
 
-import { comptime } from "@typesugar/comptime";
-import { derive, Eq, Clone, Debug, Json } from "@typesugar/derive";
+import { comptime, derive, Eq, Clone, Debug, Json } from "typesugar";
 
 // Compile-time evaluation: this runs at build time, not runtime
 const BUILD_TIME = comptime(new Date().toISOString());
@@ -431,7 +430,7 @@ function getPackagesForPersona(
 
     case "app-developer":
       return {
-        runtime: ["@typesugar/comptime", "@typesugar/derive", "@typesugar/reflect"],
+        runtime: ["typesugar", "@typesugar/derive", "@typesugar/reflect"],
         dev,
       };
 

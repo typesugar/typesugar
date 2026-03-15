@@ -1,5 +1,5 @@
 /**
- * Red Team Tests for @typesugar/comptime
+ * Red Team Tests for comptime macro
  *
  * Attack surfaces:
  * - Sandbox security

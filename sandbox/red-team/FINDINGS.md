@@ -36,8 +36,8 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | 24  | NonZero.is(NaN) Returns True               | `@typesugar/contracts-refined` | Low      | JavaScript semantics  |
 | 25  | ~~Z3 Parser: Scientific Notation Missing~~ | ~~`@typesugar/contracts-z3`~~  | —        | Package removed       |
 | 26  | Synthetic Nodes Crash ExpansionTracker     | `@typesugar/core`              | Low      | Known limitation      |
-| 27  | Signal Function Values as Updaters         | `@typesugar/react`             | Medium   | Design limitation     |
-| 28  | Computed Diamond Deps Not Tracked          | `@typesugar/react`             | Medium   | Bug                   |
+| 27  | ~~Signal Function Values as Updaters~~     | ~~`@typesugar/react`~~         | —        | Package removed       |
+| 28  | ~~Computed Diamond Deps Not Tracked~~      | ~~`@typesugar/react`~~         | —        | Package removed       |
 | 29  | Phantom State Machine Runtime State        | `@typesugar/type-system`       | Medium   | Bug                   |
 | 30  | Sparse Array Validation Vulnerability      | `@typesugar/validate`          | Medium   | Bug                   |
 | 31  | Async Validators Pass (Promise Truthy)     | `@typesugar/validate`          | Medium   | Bug                   |
@@ -47,8 +47,9 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 
 - **Total Findings:** 51 (32 original + 19 from PEP-005 Wave 6)
 - **Fixed:** 8 (#8, #13, #14, #15, #16, #23, #TS-2/type-confidence, #TS-49/show-crash)
+- **Package Removed:** 2 (#27, #28 — `@typesugar/react` removed 2026-03-15)
 - **High Severity:** 0 remaining (2 fixed)
-- **Medium Severity:** 7 remaining (1 fixed)
+- **Medium Severity:** 5 remaining (2 from removed package, 1 fixed)
 - **Low Severity:** 14 remaining (3 fixed)
 - **Very Low Severity:** 5
 
@@ -70,7 +71,7 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 - `@typesugar/erased` (type erasure)
 - `@typesugar/graph` (graph algorithms)
 - `@typesugar/parser` (PEG parser)
-- `@typesugar/react` (reactive signals)
+- ~~`@typesugar/react` (reactive signals)~~ — Package removed 2026-03-15
 - `@typesugar/type-system` (HKT, newtype, refined types)
 - `@typesugar/units` (physical units)
 - `@typesugar/validate` (validation schemas)
@@ -109,7 +110,7 @@ Systematic adversarial testing of typesugar to find edge cases, type safety hole
 | `red-team-mapper.test.ts`             | 38    | Object mapping edge cases                      |
 | `red-team-parser.test.ts`             | 76    | PEG parsing, grammar edge cases                |
 | `red-team-prettier-plugin.test.ts`    | 40    | Custom syntax formatting                       |
-| `red-team-react.test.ts`              | 39    | Signals, computed, effects, batching           |
+| ~~`red-team-react.test.ts`~~          | —     | Package removed 2026-03-15                     |
 | `red-team-reflect.test.ts`            | 49    | Type info, validators, field names             |
 | `red-team-specialize.test.ts`         | 47    | Specialization, instance methods               |
 | `red-team-sql.test.ts`                | 94    | SQL DSL, type mapping, ConnectionIO            |

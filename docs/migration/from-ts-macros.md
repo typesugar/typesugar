@@ -204,7 +204,7 @@ const value = $$comptime!(() => {
 });
 
 // typesugar
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 
 const value = comptime(() => {
   return 1 + 2 + 3;

@@ -2,7 +2,7 @@
   "version": 1,
   "macros": {
     "expression": {
-      "comptime": { "module": "@typesugar/comptime", "description": "Compile-time evaluation" },
+      "comptime": { "module": "@typesugar/macros", "description": "Compile-time evaluation" },
       "specialize": {
         "module": "@typesugar/specialize",
         "description": "Zero-cost specialization"
@@ -42,11 +42,6 @@
         "module": "@typesugar/sql",
         "description": "Typed SQL template",
         "contentType": "sql"
-      },
-      "html": {
-        "module": "@typesugar/react",
-        "description": "HTML template",
-        "contentType": "html"
       }
     },
     "labeledBlock": {

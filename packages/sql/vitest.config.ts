@@ -5,5 +5,6 @@ export default defineConfig({
     name: "@typesugar/sql",
     globals: true,
     environment: "node",
+    include: ["tests/**/*.test.ts"],
   },
 });

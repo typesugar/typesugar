@@ -71,7 +71,7 @@ Macros expand before tests run, so you can test both the macro output and the be
 ```typescript
 // src/user.test.ts
 import { describe, it, expect } from "vitest";
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 import { derive, Eq, Clone } from "@typesugar/derive";
 
 describe("comptime", () => {
@@ -121,7 +121,7 @@ import { expandCode, assertExpands } from "@typesugar/testing";
 describe("macro expansion", () => {
   it("expands comptime correctly", async () => {
     const result = await expandCode(`
-      import { comptime } from "@typesugar/comptime";
+      import { comptime } from "typesugar";
       const x = comptime(1 + 1);
     `);
 
@@ -130,7 +130,7 @@ describe("macro expansion", () => {
 
   it("matches expected output", () => {
     assertExpands(
-      `import { comptime } from "@typesugar/comptime"; const x = comptime(21 * 2);`,
+      `import { comptime } from "typesugar"; const x = comptime(21 * 2);`,
       `const x = 42;`
     );
   });

@@ -78,7 +78,7 @@ Common reasons:
    const x = comptime(1 + 1);
 
    // ✓ Will expand
-   import { comptime } from "@typesugar/comptime";
+   import { comptime } from "typesugar";
    const x = comptime(1 + 1);
    ```
 
@@ -107,7 +107,7 @@ This logs every expansion to the console.
 Yes, `comptime()` can run arbitrary code at compile time:
 
 ```typescript
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 import fs from "fs";
 
 const schema = comptime(fs.readFileSync("schema.json", "utf8"));
@@ -123,7 +123,7 @@ Yes. Macros have access to TypeScript's type checker and can use type informatio
 
 ### What's the difference between @typesugar/typesugar and individual packages?
 
-`@typesugar/typesugar` is an umbrella package that re-exports commonly used macros. Individual packages (`@typesugar/comptime`, `@typesugar/derive`, etc.) can be installed separately if you only need specific functionality.
+`typesugar` is an umbrella package that re-exports commonly used macros. Individual packages (`@typesugar/derive`, `@typesugar/reflect`, etc.) can be installed separately if you only need specific functionality.
 
 ### Do I need @typesugar/core?
 
@@ -154,7 +154,7 @@ The transformer caches some internal state, but macro results themselves aren't 
 Make sure you've installed the package:
 
 ```bash
-npm install @typesugar/comptime
+npm install typesugar
 ```
 
 ### "comptime is not a function"

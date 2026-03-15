@@ -136,7 +136,7 @@ console.log(`
 3. Add to your bundler config
 
 4. Import and use macros in your code:
-   import { comptime } from "@typesugar/comptime";
+   import { comptime } from "typesugar";
    import { sql } from "@typesugar/sql";
    
    const buildTime = comptime(new Date().toISOString());

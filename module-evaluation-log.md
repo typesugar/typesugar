@@ -21,33 +21,33 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ---
 
-## @typesugar/comptime
+## ~~@typesugar/comptime~~ (REMOVED)
 
-**Usefulness**: 4/5 - Solves real problems (build info, lookup tables, config parsing) but niche — most TS projects can use bundler plugins instead.
-**Completeness**: 4/5 - Well-implemented with vm-based evaluation, permission system (fs/env), circular reference detection, BigInt support, timeout protection.
-**Documentation**: 5/5 - Excellent README with clear examples, comprehensive guide page, JSDoc on all exports, runnable showcase.
-**Coherence**: 5/5 - Follows typesugar philosophy perfectly — true zero-cost abstraction (values inlined as literals), inspired by Zig as intended.
-**Summary**: A well-designed implementation of Zig's comptime concept. Permission-based sandbox is thoughtfully designed.
+**Status**: Package removed (2026-03-15). Was just a re-export wrapper around @typesugar/macros with no unique value. Users should import comptime utilities directly from @typesugar/macros or the umbrella package: comptime(), staticAssert(), includeStr(), includeJson().
 
 ---
 
 ## @typesugar/contracts
 
-**Usefulness**: 4/5 - Design by Contract with compile-time proof elimination is unique value; multi-layer prover differentiates from validation-only alternatives.
-**Completeness**: 4/5 - Comprehensive implementation: requires/ensures/old/invariant macros, proof certificates, decidability annotations, laws verification.
-**Documentation**: 4/5 - Thorough README with API reference, configuration, examples; excellent showcase with 12 sections; one stale import (@ttfx/contracts).
-**Coherence**: 4/5 - Exemplifies zero-cost abstractions through proof elimination; proper macro usage; algebraic rules integrate with typeclass laws.
+**Usefulness**: 5/5 - Design by Contract with compile-time proof elimination is unique value; multi-layer prover differentiates from validation-only alternatives.
+**Completeness**: 4/5 - Comprehensive implementation: requires/ensures/old/invariant macros, proof certificates, decidability annotations, laws verification. 556-line test file covering configuration, macros, parser, and prover.
+**Documentation**: 5/5 - Excellent README with code examples for every feature. Coq-inspired decidability annotations well-documented.
+**Coherence**: 5/5 - Exemplifies zero-cost abstractions through proof elimination; proper macro usage; algebraic rules integrate with typeclass laws.
 **Summary**: A mature, sophisticated DbC implementation with unique compile-time proof elimination.
+
+**Update (2026-03-15):** No changes since March 1 — stable and comprehensive.
 
 ---
 
 ## @typesugar/contracts-refined
 
-**Usefulness**: 2/5 - Very narrow use case; bridges two specialized packages for compile-time proof elision. Most projects don't need SMT-style contract proving.
-**Completeness**: 3/5 - Core registration/bridging works well. TODO.md reveals incomplete features: @validate integration, cross-function propagation.
-**Documentation**: 4/5 - Excellent README with tables, dedicated guide, comprehensive 316-line showcase.ts, good JSDoc.
-**Coherence**: 4/5 - Clean "import-to-activate" pattern, zero-cost by design, proper separation of concerns.
-**Summary**: Well-architected bridge module but highly specialized use case.
+**Usefulness**: 4/5 - Bridges `type-system` and `contracts` for compile-time proof elision. Registers Vec dynamic predicate generator for dependent types.
+**Completeness**: 3/5 - Core registration/bridging works well. No package-level tests (tested indirectly via contracts tests). TODO.md reveals incomplete features: @validate integration, cross-function propagation.
+**Documentation**: 3/5 - README is functional but brief (99 lines). Could use more integration examples.
+**Coherence**: 5/5 - Clean "import-to-activate" pattern, zero-cost by design, proper separation of concerns.
+**Summary**: Integration glue between `type-system` and `contracts`. Well-architected but needs more documentation.
+
+**Update (2026-03-15):** No changes since March 1 — stable.
 
 ---
 
@@ -59,23 +59,27 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/core
 
-**Usefulness**: 4/5 - Essential foundational infrastructure for macro authors. Indispensable but niche audience (macro authors, not app developers).
-**Completeness**: 5/5 - Exceptionally thorough. All 6 macro kinds, full MacroContext, comprehensive diagnostics catalog (~50+ error codes), generic registry.
+**Usefulness**: 5/5 - Essential foundational infrastructure for macro authors. Indispensable but niche audience (macro authors, not app developers). More critical than ever with diagnostic improvements.
+**Completeness**: 4/5 - Exceptionally thorough. All 6 macro kinds, full MacroContext, comprehensive diagnostics catalog (~50+ error codes), generic registry. 215 exports.
 **Documentation**: 4/5 - Strong README, excellent JSDoc throughout. 482-line showcase. Minor gap: no dedicated feature guide.
 **Coherence**: 5/5 - Exemplary adherence to philosophy. Zero-cost Op<> branded type, Rust-inspired diagnostics, modern patterns throughout.
 **Summary**: Foundational infrastructure that powers the entire macro system. Well-architected and thoroughly documented.
+
+**Update (2026-03-15):** PEP-007 Wave 1 added `_` marker type and HKT context improvements. PEP-005 Waves 2-4 added DiagnosticBuilder, type confidence detection (`getTypeConfidence()`). Import-scoped instance resolution now activated by default. Prelude expanded with `FlatMap`, `ParCombine`.
 
 ---
 
 ## @typesugar/derive
 
 **Usefulness**: 4/5 - Derive macros for Eq, Clone, Debug, Hash, Json, Builder address extremely common boilerplate patterns.
-**Completeness**: 3/5 - Sum type support now implemented (all derives have expandXxxForSumType functions). Clone is shallow (not deep), Eq/Hash use JSON.stringify. Tests exist in root tests/derive.test.ts but not package-local.
-**Documentation**: 3/5 - Well-structured README but makes misleading claims about operator support (requires typeclass system).
-**Coherence**: 2/5 - Per AGENTS.md, should favor auto-derivation via summon() but requires explicit @derive().
-**Summary**: Core functionality improved with sum type support. Tests in root tests/ rather than package-local.
+**Completeness**: 4/5 - Sum type support implemented (all derives have expandXxxForSumType functions). 9 built-in derives (Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard), `defineCustomDerive()`, generic programming utilities. Tests in root tests/ + 1 package test.
+**Documentation**: 4/5 - Good README emphasizing implicit derivation as default. Well-structured.
+**Coherence**: 5/5 - Follows auto-derivation pattern via summon(). Implicit derivation is default behavior.
+**Summary**: Core functionality improved with sum type support.
 
 **Update (2026-02-28):** Sum type support added — all derive macros now handle discriminated unions via expandXxxForSumType functions.
+
+**Update (2026-03-15):** No significant changes — stable.
 
 ---
 
@@ -87,41 +91,59 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/effect
 
-**Usefulness**: 5/5 - Effect-TS is a major ecosystem; provides substantial DX wins with @service, @layer, resolveLayer<R>(), do-notation, typeclass bridge.
-**Completeness**: 4/5 - Core features solid: service/layer macros with dependency graph, HKT types, full typeclass hierarchy, 40+ extension methods. Minor type inconsistencies.
-**Documentation**: 4/5 - README is comprehensive with API tables, quick start, examples. JSDoc on exports. Minor: some type signatures in showcase don't match actual API.
-**Coherence**: 4/5 - Follows zero-cost philosophy well: HKT types correct, extension methods delegate to Effect, dictionary-passing style. Uses `any` casts in instances.
-**Summary**: High-quality integration delivering real value for Effect-TS users. @service/@layer/resolveLayer workflow is well-designed with topological sorting.
+**Usefulness**: 5/5 - Effect-TS is a major ecosystem; provides substantial DX wins with @service, @layer, layerMake<R>(), resolveLayer<R>(), do-notation, typeclass bridge.
+**Completeness**: 4/5 - Core features solid: service/layer macros with dependency graph, HKT types, full typeclass hierarchy, 40+ extension methods, testing utilities (`mockService`, `testLayer`, `assertCalled`). 11 package tests + red-team coverage. Rich diagnostics (EFFECT001-040) with labeled spans and suggestions.
+**Documentation**: 5/5 - Excellent README showing actual error output, API tables, clear examples.
+**Coherence**: 5/5 - Follows zero-cost philosophy well: HKT types correct, extension methods delegate to Effect, dictionary-passing style. Layer graph uses `@typesugar/graph`'s `GraphLike` typeclass + `topoSortG`.
+**Summary**: High-quality integration delivering real value for Effect-TS users. Layer wiring now uses proper graph algorithms.
+
+**Update (2026-03-15):** Most active package. Significant improvements (10 commits):
+
+- `layerMake<R>()` — ZIO-style explicit layer wiring
+- `resolveLayer<R>()` — import-scoped implicit resolution
+- Layer graph integration with `@typesugar/graph`'s `GraphLike` typeclass
+- Rich diagnostics (EFFECT001-040) with labeled spans and suggestions
+- Testing utilities (`mockService`, `testLayer`, `assertCalled`)
 
 ---
 
 ## @typesugar/erased
 
-**Usefulness**: 3/5 - Solves real niche problem (heterogeneous collections with shared capabilities, like Rust's `dyn Trait`), but manual vtable construction is tedious.
-**Completeness**: 4/5 - Core functionality solid: 7 built-in capabilities, construction helpers, collection operations, widen/narrow. Missing the erased() macro (Phase 2 stub).
-**Documentation**: 5/5 - Excellent README with clear problem statement, working examples, comparison table, zero-cost analysis. Showcase covers all features (350+ lines).
-**Coherence**: 3/5 - Clean zero-cost design, but exists in parallel to typeclass system rather than integrating. No use of auto-derivation or summon() for vtable resolution.
-**Summary**: Well-documented type erasure library but manual vtable construction contradicts auto-derivation philosophy.
+**Usefulness**: 4/5 - Solves real niche problem (heterogeneous collections with shared capabilities, like Rust's `dyn Trait`). The `erased()` macro auto-resolves vtables from typeclasses at compile time.
+**Completeness**: 2/5 - Core functionality solid: 7 built-in capabilities, construction helpers, collection operations, widen/narrow. Missing package-level tests (only red-team).
+**Documentation**: 4/5 - Good README explaining widen/narrow patterns. Showcase covers all features (350+ lines).
+**Coherence**: 4/5 - Clean zero-cost design.
+**Summary**: Type erasure library with vtable auto-resolution. Undertested.
+
+**Update (2026-03-15):** Single minor commit — import-scoped resolution tweak. **Gap**: No package-level tests (only red-team).
 
 ---
 
 ## @typesugar/eslint-plugin
 
-**Usefulness**: 5/5 - Essential for any typesugar project using ESLint; without it, floods of false positives for macro imports, decorators, labeled blocks.
-**Completeness**: 3/5 - Solid implementation with two processors (fast + full), source map support. However, there are **zero tests**.
+**Usefulness**: 4/5 - Essential for any typesugar project using ESLint; without it, floods of false positives for macro imports, decorators, labeled blocks.
+**Completeness**: 4/5 - Solid implementation with two processors (fast + full), source map support. Tests confirmed — 3 test files with 945 lines of coverage.
 **Documentation**: 4/5 - Good README with installation, three config modes. Comprehensive showcase. Missing dedicated guide page.
 **Coherence**: 4/5 - Correctly delegates to preprocessor and transformer. N/A for most typesugar design principles since this is build tooling.
-**Summary**: Well-designed ESLint integration essential for DX but critically lacks tests.
+**Summary**: Well-designed ESLint integration essential for DX.
+
+**Update (2026-03-15):** Minor change — `full-processor.ts` updated for ecosystem integration (PEP-001 Wave 4). Tests confirmed: processor.test.ts, full-processor.test.ts, position-mapping.test.ts.
 
 ---
 
 ## @typesugar/fp
 
-**Usefulness**: 4/5 - Comprehensive FP toolkit (Option, Either, IO, State, Reader, Writer, Validated, List). Zero-cost Option using `A | null` is innovative.
-**Completeness**: 4/5 - Full typeclass hierarchy, 50+ operations per data type, stack-safe IO, bracket/resource management, parallel ops, retry. Missing: explicit instance objects for summon().
+**Usefulness**: 5/5 - Comprehensive FP toolkit (Option, Either, IO, State, Reader, Writer, Validated, List). Zero-cost Option using `A | null` is innovative.
+**Completeness**: 4/5 - Full typeclass hierarchy, 50+ operations per data type, stack-safe IO, bracket/resource management, parallel ops, retry. 256 lines of exports, 658 LOC red-team tests.
 **Documentation**: 5/5 - Excellent README, thorough JSDoc on every export, comprehensive 380-line showcase. HKT encoding and zero-cost philosophy clearly explained.
-**Coherence**: 4/5 - Strong zero-cost philosophy (null-based Option). Correct Kind<F, A> encoding. Gap: uses manual instances rather than @typeclass/@instance decorators.
-**Summary**: Well-executed, comprehensive FP library embodying zero-cost philosophy. Production-ready. Main gap is macro-based typeclass integration.
+**Coherence**: 5/5 - Strong zero-cost philosophy (null-based Option). Correct Kind<F, A> encoding. Explicit TC namespace.
+**Summary**: Well-executed, comprehensive FP library embodying zero-cost philosophy. Production-ready.
+
+**Update (2026-03-15):** HKT system overhauled via PEP-007 Wave 1:
+
+- New `_` marker type for HKT syntax
+- Standardized on `Kind<F, A>`, removed legacy `$<F, A>` alias
+- Integrated "use extension" directive for extension methods
 
 ---
 
@@ -145,23 +167,31 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/graph
 
-**Usefulness**: 4/5 - Solid graph/state machine library with nice DSL, compile-time verification differentiates from xstate/graphlib.
-**Completeness**: 4/5 - Comprehensive algorithms (topoSort, BFS, DFS, Dijkstra with Monoid weights, SCC), thorough tests (~540 lines).
-**Documentation**: 4/5 - Good README with algorithm complexity table, Zero-cost guarantee section, compile-time verification examples.
-**Coherence**: 4/5 - Now leverages typesugar philosophy: compile-time FSM verification via defineTaggedTemplateMacro, Monoid<W>/Ord<W> for generic path costs.
+**Usefulness**: 5/5 - Solid graph/state machine library with nice DSL, compile-time verification differentiates from xstate/graphlib.
+**Completeness**: 4/5 - Comprehensive algorithms (topoSort, BFS, DFS, Dijkstra with Monoid weights, SCC). 806 LOC red-team tests + 317 LOC typeclass tests.
+**Documentation**: 5/5 - Excellent README with algorithm complexity table, Zero-cost guarantee section, full GraphLike examples with custom types.
+**Coherence**: 5/5 - Now leverages typesugar philosophy: compile-time FSM verification via defineTaggedTemplateMacro, Monoid<W>/Ord<W> for generic path costs. GraphLike<G,N,E> typeclass.
 **Summary**: Well-integrated graph library with compile-time verification and typeclass-based algorithms.
 
 **Update (2026-03-01):** Added compile-time FSM verification via stateMachineMacro; generalized Dijkstra to use Monoid<W> and Ord<W> for path costs.
+
+**Update (2026-03-15):** Major feature addition:
+
+- New `GraphLike<G, N, E>` typeclass with full generic algorithm suite
+- `topoSortG`, `bfsG`, `dfsG`, `dijkstraWithG`, `sccG`, etc.
+- Custom graph types can now use all algorithms with Eq + Hash
 
 ---
 
 ## @typesugar/hlist
 
-**Usefulness**: 3/5 - Niche utility for type-level programming and library authors. LabeledHList's merge/project are strongest value prop.
-**Completeness**: 4/5 - Solid API covering construction, positional access, structural ops, labeled ops, higher-order ops. 536 lines of tests.
+**Usefulness**: 4/5 - Niche utility for type-level programming and library authors. LabeledHList's merge/project are strongest value prop.
+**Completeness**: 3/5 - Solid API covering construction, positional access, structural ops, labeled ops, higher-order ops. 536 lines of tests.
 **Documentation**: 4/5 - Follows module-lifecycle template. README has motivation, API tables, zero-cost explanation. 244-line showcase.
-**Coherence**: 3/5 - Good zero-cost principles. However: no typeclass instances, no auto-derivation, no extension methods registered, uses older function-first pattern.
-**Summary**: Well-implemented HList but doesn't integrate with modern typeclass/extension system.
+**Coherence**: 4/5 - Good zero-cost principles. Operations updated for "use extension" directive.
+**Summary**: Well-implemented HList. Stable, well-documented, clean API.
+
+**Update (2026-03-15):** Minor change — operations updated for "use extension" directive.
 
 ---
 
@@ -173,35 +203,41 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/macros
 
-**Usefulness**: 3/5 - Central macro package providing all built-in macros. Essential for the ecosystem but primarily consumed indirectly via umbrella package.
-**Completeness**: 3/5 - Now buildable with proper package.json, tsup.config.ts, vitest.config.ts. Contains 27 source files with comprehensive macro implementations. Still missing dedicated tests directory.
-**Documentation**: 2/5 - Has proper package structure but no README.md. Not documented in docs/ anywhere.
-**Coherence**: 3/5 - Source code follows typesugar patterns. Now serves as canonical location for macros rather than duplicating.
-**Summary**: Now functional and buildable. Main gaps: missing README and dedicated test suite.
+**Usefulness**: 5/5 - Central macro package providing all built-in macros. Essential for the ecosystem — contains all macro implementations.
+**Completeness**: 5/5 - Comprehensive with 27 source files. 81 global test files cover macros extensively. Red team tests added (PEP-005 Wave 6).
+**Documentation**: 3/5 - Internal package — relies on main docs. README is basic.
+**Coherence**: 5/5 - Follows auto-derivation patterns, Op<> return types, zero-cost principles throughout.
+**Summary**: Central macro implementation package. All built-in macros live here.
 
 **Update (2026-02-28):** Package is now buildable with proper package.json and build configuration. No longer non-functional.
+
+**Update (2026-03-15):** PEP-007 Wave 1 added `@hkt` macro for Tier 3 HKT boilerplate reduction. PEP-005 Wave 6 added adversarial red team tests. `staticAssert` renamed for convention alignment. Diagnostic upgrades across typeclass.ts, operators.ts, implicits.ts, extension.ts.
 
 ---
 
 ## @typesugar/mapper
 
-**Usefulness**: 4/5 - Object mapping is ubiquitous. Genuinely solves common problem, though basic compared to Chimney/AutoMapper.
-**Completeness**: 3/5 - Basic mapping works with rename, const, compute, and ignore.target. Tests in packages/mapper/tests/. Nested objects and collection mapping still TODO.
-**Documentation**: 3/5 - Clear README, excellent showcase. Missing required sections per module-lifecycle.
-**Coherence**: 2/5 - Achieves zero-cost but doesn't integrate with typeclass system. Could be redesigned as @derive(Mapper<Target>).
-**Summary**: Functional mapper with ignore config. Package-local tests added.
+**Usefulness**: 3/5 - Object mapping is ubiquitous. Genuinely solves common problem, though basic compared to Chimney/AutoMapper.
+**Completeness**: 2/5 - Basic mapping works with rename, const, compute, and ignore.target. Single test file. Nested objects and collection mapping still TODO.
+**Documentation**: 3/5 - README is sparse (44 lines). Needs showcase.ts, more examples, extended README.
+**Coherence**: 4/5 - Achieves zero-cost.
+**Summary**: Minimal viable implementation. Needs more documentation and examples.
 
 **Update (2026-03-01):** Implemented ignore.target config; moved tests to packages/mapper/tests/; added 6 macro unit tests.
+
+**Update (2026-03-15):** No changes — **needs attention** (sparse documentation, single test file).
 
 ---
 
 ## @typesugar/math
 
-**Usefulness**: 4/5 - Addresses real problems: exact rational arithmetic, type-safe Money with currency branding, dimension-tracked matrices.
-**Completeness**: 4/5 - Comprehensive API for each type with full typeclass instances. Core functionality production-ready.
+**Usefulness**: 5/5 - Most comprehensive numeric library — Rational, Complex, BigDecimal, Matrix, Interval, Mod, Polynomial, Money, FixedDecimal.
+**Completeness**: 4/5 - Comprehensive API for each type with full typeclass instances. 609 LOC exports, 4 dedicated test files + 489 LOC red-team. Core functionality production-ready.
 **Documentation**: 5/5 - Excellent README with clear sections, JSDoc on all exports, well-structured showcase.ts.
-**Coherence**: 4/5 - Uses Op<> return types, branded types for zero-cost safety, dictionary-passing style. Operator syntax (`a + b`) pending transformer integration.
+**Coherence**: 5/5 - Uses Op<> return types, branded types for zero-cost safety, dictionary-passing style.
 **Summary**: Mature, well-documented math library. Type-safe Money and exact Rational are particularly valuable.
+
+**Update (2026-03-15):** No changes — already comprehensive and stable.
 
 ---
 
@@ -230,10 +266,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/preprocessor
 
 **Usefulness**: 4/5 - Essential infrastructure enabling HKT (F<\_>), pipeline (|>), cons (::) syntax. Developers interact indirectly.
-**Completeness**: 4/5 - Three extensions fully implemented with tokenizer, source maps, JSX handling. Good test coverage including red-team tests.
+**Completeness**: 4/5 - Three extensions fully implemented with tokenizer, source maps, JSX handling. Good test coverage (6 test files) including red-team tests.
 **Documentation**: 4/5 - README covers all syntax extensions with before/after examples. JSDoc on major exports. Comprehensive showcase.
-**Coherence**: 4/5 - Zero-cost by design (text-level rewriting). Clean architecture. Proper precedence and associativity handling.
+**Coherence**: 5/5 - Zero-cost by design (text-level rewriting). Clean architecture. Proper precedence and associativity handling.
 **Summary**: Solid infrastructure package enabling custom TypeScript syntax. Well-tested. Internal plumbing not directly consumed by users.
+
+**Update (2026-03-15):** PEP-001 Wave 1+4 added scanner updates for .sts extension routing. New `decorator-rewrite.ts` rewrites decorators to JSDoc instead of function calls. Import tracker and HKT registry improvements.
 
 ---
 
@@ -242,74 +280,82 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 5/5 - Essential infrastructure for any project using typesugar custom syntax with Prettier; without it, Prettier crashes on |>, ::, F<\_>.
 **Completeness**: 4/5 - Core functionality complete (plugin, round-trip format, CLI, programmatic API), but test coverage thin (~50 lines).
 **Documentation**: 5/5 - Excellent README with clear explanation, CLI examples, API reference, integration guide; JSDoc on every export.
-**Coherence**: 4/5 - Well-integrated with typesugar architecture, uses preprocessor, handles **binop**.
-**Summary**: Essential, well-documented tooling package enabling Prettier on typesugar files. Needs more edge case testing.
+**Coherence**: 5/5 - Well-integrated with typesugar architecture, uses preprocessor, handles **binop**. Zero-cost round-trip.
+**Summary**: Essential, well-documented tooling package enabling Prettier on typesugar files.
+
+**Update (2026-03-15):** HKT refactor — standardized on `Kind<F, A>`, removed `$<F, A>` alias. Cleaned up unused test fixtures (cons-basic.ts, hkt-interface.ts, pipeline-simple.ts).
 
 ---
 
-## @typesugar/react
+## ~~@typesugar/react~~ (REMOVED)
 
-**Usefulness**: 5/5 - Addresses real pain points: automatic dependency arrays, embedded component hoisting, compile-time purity checks.
-**Completeness**: 4/5 - Thorough implementation with full macros. However, fine-grained mode is stubbed, stale module name typemacro/react.
-**Documentation**: 4/5 - Well-structured README with transformation examples. Missing dedicated guide in docs/guides/.
-**Coherence**: 4/5 - Correctly uses core infrastructure, follows zero-cost principle. Stale module name needs update.
-**Summary**: Genuinely useful package bringing Vue/Svelte-style reactivity to React. Core functionality solid and production-ready.
+**Status**: Package removed (2026-03-15). Stagnant since March 1, 2026 with no development activity. Scores were 3/2/3/3 — lowest in ecosystem. Vue/Svelte-style reactivity macros for React didn't gain traction. Users needing React integration can use Effect-TS or implement custom macros.
 
 ---
 
 ## @typesugar/reflect
 
 **Usefulness**: 4/5 - Valuable for form generation, API validation, serialization, ORM mapping. Unique compile-time reflection in TS ecosystem.
-**Completeness**: 3/5 - Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection.
-**Documentation**: 4/5 - Clear README with examples. Good showcase. One example file has API bug.
-**Coherence**: 3/5 - Follows macro-based design, zero-cost. But requires explicit @reflect decorator—doesn't leverage auto-derivation pattern.
-**Summary**: Solid compile-time reflection but needs better complex type handling and auto-derivation integration.
+**Completeness**: 3/5 - Exports `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`. Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection. Missing vitest config (no `test` script in package.json).
+**Documentation**: 4/5 - Good README with TypeInfo structure examples. Good showcase.
+**Coherence**: 4/5 - Follows macro-based design, zero-cost.
+**Summary**: Solid compile-time reflection but needs better complex type handling.
+
+**Update (2026-03-15):** No significant changes — stable. **Gap**: Missing vitest config for package-level tests.
 
 ---
 
 ## @typesugar/specialize
 
-**Usefulness**: 3/5 - Valuable for FP codebases but niche. Most projects won't need explicit specialization when `= implicit()` handles it automatically.
-**Completeness**: 2/5 - Package re-exports from @typesugar/macros. Real inlining logic in packages/macros/src/specialize.ts. **Export gap**: `specialize$` macro exists but runtime stub not exported — imports would fail.
-**Documentation**: 3/5 - README well-structured but has issues: (1) `specialize$` not exported so examples fail, (2) signature mismatch — README shows `specialize$(call)` but macro takes `specialize$(dict, expr)`.
-**Coherence**: 3/5 - Uses correct patterns but doesn't deliver on "zero-cost" promise. `= implicit()` is preferred path per AGENTS.md.
-**Summary**: Export and signature issues discovered. `specialize$` macro exists but can't be imported. Documentation shows wrong signature.
+**Usefulness**: 4/5 - Valuable for FP codebases. `= implicit()` is preferred path but explicit specialization useful for debugging.
+**Completeness**: 3/5 - Exports `specialize()`, `specialize$()` (via `specializeKind`), `mono()`, `inlineCall()`, cache utilities. Functionality tested in transformer tests. Missing vitest config (no `test` script in package.json).
+**Documentation**: 4/5 - Good README showing before/after patterns.
+**Coherence**: 5/5 - Uses correct patterns. PEP-004 related cleanup.
+**Summary**: Zero-cost specialization infrastructure. Explicit usage for advanced scenarios.
 
-**Update (2026-02-28):** New issues found — `specialize$` runtime stub missing from exports, signature mismatch between docs and implementation.
+**Update (2026-02-28):** Previous assessment corrected — `specialize$` IS exported with correct signature.
+
+**Update (2026-03-15):** 5 commits — PEP-004 related cleanup, instance method registration changes. **Gap**: Missing vitest config for package-level tests.
 
 ---
 
 ## @typesugar/sql
 
-**Usefulness**: 3/5 - SQL query building is common, but mature alternatives exist (Kysely, Drizzle, Prisma). Doobie-style appeals mainly to Scala developers.
-**Completeness**: 4/5 - Comprehensive implementation: sql$ macro exists (in infer-macro.ts), @deriving(Read/Write/Codec) fully implemented, TypedFragment/TypedQuery/TypedUpdate system, Meta/Get/Put typeclass hierarchy, select().from().where() query builder DSL.
-**Documentation**: 4/5 - README now comprehensively documents all features: @schema decorator, query builder DSL, enhanced ConnectionIO, TypedQuery methods, instance registries, Queryable ORM interface, typeclass combinators.
-**Coherence**: 4/5 - Good conceptual alignment. Macro integration now complete. Auto-derivation working for Read/Write/Codec.
-**Summary**: Well-documented, comprehensive SQL library following Doobie patterns.
+**Usefulness**: 5/5 - Comprehensive Doobie-inspired SQL library. TypedFragment<P,R> with compile-time type tracking, ConnectionIO free monad, full typeclass hierarchy.
+**Completeness**: 3/5 - Comprehensive implementation with sql$ macro, @deriving(Read/Write/Codec), query builder DSL. README is 1000+ lines but **no package tests** (only red-team).
+**Documentation**: 5/5 - Very thorough Doobie-inspired API documentation: TypedFragment, ConnectionIO, Get/Put/Meta/Read/Write/Codec hierarchy, ORM integration via Queryable.
+**Coherence**: 4/5 - Good conceptual alignment. Macro integration complete. Auto-derivation working for Read/Write/Codec.
+**Summary**: Well-documented, comprehensive SQL library following Doobie patterns. Needs package-level tests.
 
 **Update (2026-02-28):** README rewritten to document all implemented features. Docs score improved from 2/5 to 4/5.
+
+**Update (2026-03-15):** 8 commits — namespace merge fixes, HKT standardization, `staticAssert` rename, formatting. **Gap**: No package-level tests.
 
 ---
 
 ## @typesugar/std
 
 **Usefulness**: 5/5 - Extremely practical stdlib with 300+ extension methods (clamp, chunk, groupBy, camelCase), pattern matching macro, do-notation.
-**Completeness**: 4/5 - Core functionality production-ready. Some advanced typeclasses are interfaces only. Tests exist but no red-team coverage.
-**Documentation**: 4/5 - Good README with examples and API tables. Excellent showcase. Missing dedicated guide, inconsistent JSDoc on some exports.
-**Coherence**: 4/5 - Uses Op<> typeclass pattern correctly. Match macro compiles to zero-cost code (ternary chains, switch, binary search).
+**Completeness**: 4/5 - Core functionality production-ready. Some advanced typeclasses are interfaces only. Tests exist including red-team and comprehension tests.
+**Documentation**: 5/5 - Excellent README with UFCS examples, Range API, do-notation patterns. Excellent showcase.
+**Coherence**: 5/5 - Uses Op<> typeclass pattern correctly. Match macro compiles to zero-cost code (ternary chains, switch, binary search). Proper "use extension" directive.
 **Summary**: Solid, high-value standard library. ~1400-line match.ts demonstrates zero-cost philosophy well.
+
+**Update (2026-03-15):** Significant activity — new Hash typeclass added, fluent Range extension methods (`.to()`, `.until()`, `.step()`), `seq:`/`all:` aliases for do-notation, and the "use extension" directive redesign for UFCS.
 
 ---
 
 ## @typesugar/strings
 
-**Usefulness**: 3/5 - regex compile-time validation is genuinely useful. html XSS escaping valuable for server-rendered content. raw and fmt are utilities.
-**Completeness**: 3/5 - 4 macros (regex, html, fmt, raw) properly defined as tagged-template macros with correct metadata. Tests covering exports, runtime stubs, macro definitions, and HTML escaping.
-**Documentation**: 3/5 - README covers all macros with examples, guide exists. Missing JSDoc comments.
-**Coherence**: 3/5 - Fixed stale naming (now @typesugar/strings), proper tagged-template macro kind. Focused on web/string utilities.
-**Summary**: Compile-time string validation macros. json macro removed (duplicated object literals).
+**Usefulness**: 4/5 - regex compile-time validation is genuinely useful. html XSS escaping valuable for server-rendered content. raw and fmt are utilities.
+**Completeness**: 3/5 - 4 macros (regex, html, fmt, raw) properly defined as tagged-template macros with correct metadata. Tests covering exports, runtime stubs, macro definitions, and HTML escaping. **Gap**: `fmt` macro's printf-style formatting is incomplete (just converts to String).
+**Documentation**: 4/5 - README covers all macros with examples, guide exists. Good test coverage.
+**Coherence**: 5/5 - Zero-cost macros that compile away. Proper tagged-template macro kind. Focused on web/string utilities.
+**Summary**: Compile-time string validation macros.
 
 **Update (2026-03-01):** Removed json macro. Package now focused on regex validation and html escaping.
+
+**Update (2026-03-15):** No changes — stable.
 
 ---
 
@@ -325,143 +371,214 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## @typesugar/testing
 
-**Usefulness**: 4/5 - Power assertions with sub-expression capture, compile-time assertions, type-level assertions, property-based testing, parameterized tests.
-**Completeness**: 4/5 - All core features implemented. Missing advanced PBT features (shrinking, generator combinators, refined type integration).
+**Usefulness**: 5/5 - Power assertions with sub-expression capture, compile-time assertions, type-level assertions, property-based testing, parameterized tests.
+**Completeness**: 5/5 - All core features implemented. Comprehensive 680-line test suite. DiagnosticBuilder integration.
 **Documentation**: 5/5 - Excellent README showing actual failure output, comprehensive API reference, Vitest integration guide. JSDoc on all public APIs.
-**Coherence**: 4/5 - Follows typesugar philosophy: staticAssert/typeAssert have zero runtime cost, uses proper macro infrastructure. @derive(Arbitrary) fits auto-derivation pattern.
+**Coherence**: 5/5 - Follows typesugar philosophy: staticAssert/typeAssert have zero runtime cost, uses proper macro infrastructure. @derive(Arbitrary) fits auto-derivation pattern.
 **Summary**: Well-implemented testing macro package bringing power-assert style diagnostics to TypeScript. Solid implementation and thorough documentation.
+
+**Update (2026-03-15):** Infrastructure upgrades — `macro-context.ts` upgraded to use DiagnosticBuilder (PEP-005 Wave 2). Type confidence detection added (PEP-005 Wave 3). Effect integration utilities. Formatting fixes.
 
 ---
 
 ## @typesugar/transformer
 
 **Usefulness**: 5/5 - Core build infrastructure. Every typesugar user depends on this. Provides engine for all macro expansion, preprocessing, IDE integration.
-**Completeness**: 4/5 - Very comprehensive: full ts-patch transformer (~1500 lines), TransformationPipeline with source map composition, language service plugin, caching, rich CLI.
-**Documentation**: 3/5 - README covers installation, configuration, CLI commands. Missing deeper architectural explanation, troubleshooting, visual examples.
-**Coherence**: 5/5 - As build infrastructure, correctly doesn't use typeclasses itself—it enables them. Fully aligned with zero-cost philosophy. Modern patterns throughout.
+**Completeness**: 5/5 - Very comprehensive: full ts-patch transformer (~1500 lines), TransformationPipeline with source map composition, language service plugin, caching, rich CLI. 17 test files. All PEP waves implemented.
+**Documentation**: 5/5 - Excellent README with CLI options, programmatic usage, examples. Troubleshooting and architecture well-documented.
+**Coherence**: 5/5 - As build infrastructure, correctly doesn't use typeclasses itself—it enables them. Fully aligned with zero-cost philosophy. Clean Oxc backend integration.
 **Summary**: Essential, well-implemented build infrastructure forming backbone of typesugar. Production-ready with comprehensive CLI and IDE integration.
+
+**Update (2026-03-15):** Most active package since March 1. Implemented:
+
+- PEP-007 Wave 1: HKT rewriter (`hkt-rewriter.ts`), language service HKT support
+- PEP-005 Waves 3-5: Macro diagnostics surfaced in language service, strict mode (`--strict`)
+- PEP-004 Waves 1-4: Source-based operator syntax, auto-specialization, Oxc detection patterns
+- PEP-002: Complete Oxc-native macro engine integration (`oxc-backend.ts`)
+- PEP-001 Waves 1-4: Extension-based routing (.sts files), module resolution, ecosystem integration
+- CLI expanded with `--cache`, `--strict`, `expand`, `watch` commands
 
 ---
 
 ## @typesugar/ts-plugin
 
-**Usefulness**: 5/5 - Essential infrastructure. Without this, custom syntax would show red squiggles in IDEs.
-**Completeness**: 3/5 - Intentionally thin wrapper (23 lines) delegating to transformer/language-service. Good architecture. Missing tests.
+**Usefulness**: 4/5 - Essential infrastructure. Without this, custom syntax would show red squiggles in IDEs.
+**Completeness**: 3/5 - Intentionally thin wrapper (41 lines) delegating to transformer/language-service. Good architecture. Only 1 test file.
 **Documentation**: 4/5 - Strong README with installation, config options, debugging guide, architecture explanation.
-**Coherence**: 4/5 - Follows design principles: single source of truth, CommonJS format as required by TS. Missing standard package files per module-lifecycle.
-**Summary**: Well-designed thin wrapper delegating to canonical implementation. Excellent docs but incomplete per module-lifecycle standards.
+**Coherence**: 5/5 - Follows design principles: single source of truth, CommonJS format as required by TS. Clean delegation pattern.
+**Summary**: Well-designed thin wrapper delegating to canonical implementation. Excellent docs.
+
+**Update (2026-03-15):** `staticAssert` import path updated. Improved fallback resolution for VS Code extension.
 
 ---
 
 ## @typesugar/type-system
 
-**Usefulness**: 4/5 - High utility for type-safe TS. Refinement types (Port, Byte, Email), newtypes, HKT encoding, Vec solve real problems.
-**Completeness**: 3/5 - Good API coverage but showcase.ts has API mismatches with implementation. No dedicated test suite.
-**Documentation**: 4/5 - Excellent README with feature organization, branding spectrum table. Some examples don't compile due to API drift.
-**Coherence**: 3/5 - Good zero-cost design (wrap/unwrap compile away). Uses macro infrastructure. Misses deeper integration with Op<> typeclass patterns.
-**Summary**: Well-designed type-level programming library. Zero-cost philosophy honored but operates standalone rather than integrating with typeclass system.
+**Usefulness**: 5/5 - High utility for type-safe TS. Refinement types (Port, Byte, Email), newtypes, HKT encoding, Vec solve real problems. PEP-007 `_` marker is significant usability improvement.
+**Completeness**: 4/5 - Good API coverage. Exports HKT, refinements, existential types, newtype, opaque, Vec, effects. No dedicated test suite.
+**Documentation**: 5/5 - Excellent README with comprehensive `_` marker documentation, feature organization, branding spectrum table.
+**Coherence**: 5/5 - Good zero-cost design (wrap/unwrap compile away). Uses macro infrastructure. Proper HKT patterns.
+**Summary**: Well-designed type-level programming library with PEP-007 improvements.
+
+**Update (2026-03-15):** Significant changes:
+
+- March 5: Standardized on `Kind<F, A>`, removed `$<F, A>` alias
+- March 13 (PEP-007): Added `_` marker type for Tier 3 `@hkt` macro:
+  ```typescript
+  /** @hkt */
+  type ArrayF = Array<_>;
+  // Generates: interface ArrayF extends TypeFunction { readonly _: Array<this["__kind__"]> }
+  ```
 
 ---
 
 ## @typesugar/typeclass
 
-**Usefulness**: 4/5 - Typeclasses are powerful, widely-applicable abstraction pattern for generic programming. Excellent for Scala-style ad-hoc polymorphism.
-**Completeness**: 2/5 - Package is now a re-export facade. Delegates to @typesugar/macros for actual implementations. Still missing comprehensive tests.
-**Documentation**: 3/5 - README has decent structure but doesn't reflect implementation limitations.
-**Coherence**: 3/5 - Architectural issue resolved: now properly re-exports from @typesugar/macros rather than duplicating. Single source of truth maintained.
-**Summary**: Re-export facade for typeclass macros. Architecture improved — no longer duplicates implementation.
+**Usefulness**: 5/5 - Typeclasses are powerful, widely-applicable abstraction pattern for generic programming. Excellent for Scala-style ad-hoc polymorphism.
+**Completeness**: 4/5 - Package exports `@typeclass`, `@impl`/`@instance`, `@deriving`, `summon()`, `extend()`, HKT support via `registerHKTTypeclass()`. Tests in root `tests/typeclass-*.test.ts`.
+**Documentation**: 4/5 - Good README with JSDoc/decorator syntax, deprecation table. Could add HKT usage patterns section.
+**Coherence**: 5/5 - Properly re-exports from @typesugar/macros. Single source of truth. PEP-007 HKT improvements integrated.
+**Summary**: Re-export facade for typeclass macros. Clean architecture with full HKT support.
 
 **Update (2026-02-28):** Architectural duplication resolved. Package now correctly re-exports from @typesugar/macros.
+
+**Update (2026-03-15):** PEP-007 Wave 1/3 HKT improvements — Tier 1 implicit resolution for `@impl`. PEP-004 deprecated API removal. JSDoc syntax as primary interface.
 
 ---
 
 ## typesugar (umbrella)
 
-**Usefulness**: 5/5 - Essential entry point for ecosystem. "One import to rule them all" - every user needs this for macros, bundler plugins, CLI.
-**Completeness**: 4/5 - Comprehensive re-exports from all major packages with bundler entry points and CLI. No dedicated test suite (only showcase.ts).
+**Usefulness**: 4/5 - Essential entry point for ecosystem. "One import to rule them all" - every user needs this for macros, bundler plugins, CLI.
+**Completeness**: 4/5 - Comprehensive re-exports from all major packages with bundler entry points (`typesugar/vite`, `/webpack`, `/esbuild`, `/rollup`) and CLI. No dedicated test suite (only showcase.ts).
 **Documentation**: 4/5 - Well-structured README with installation, quick start, features table, bundler configs. Showcase (265 lines) excellent.
-**Coherence**: 3/5 - Stale references to "typemacro". README emphasizes @operators class decorator rather than preferred Op<> typeclass approach.
-**Summary**: Solid umbrella package consolidating ecosystem into one import. Main issues are stale references and not showcasing preferred Op<> pattern.
+**Coherence**: 4/5 - Good umbrella pattern.
+**Summary**: Solid umbrella package consolidating ecosystem into one import.
+
+**Update (2026-03-15):** 3 minor commits — `_` marker type re-export from `@typesugar/type-system`, `staticAssert` rename, implicits refactor.
 
 ---
 
 ## @typesugar/units
 
 **Usefulness**: 3/5 - Real use case for scientific/engineering domains, but niche for general TypeScript.
-**Completeness**: 2/5 - Core dimension tracking works. README documents .to() method that doesn't exist. Temperature handling incorrect. Many missing features per TODO.md.
-**Documentation**: 3/5 - Well-structured README. Documents non-existent features. Missing required sections per module-lifecycle.
-**Coherence**: 3/5 - Has Op<> annotations on methods. Auto-derive now works for classes with methods (bug fixed), so `summon<Eq<Unit<D>>>()` auto-derives correctly.
-**Summary**: Functional dimension-tracking. Auto-derive bug fix means Unit<D> can now leverage typeclass system without explicit instances.
+**Completeness**: 2/5 - Core dimension tracking works. Exports unit constructors + `units` tagged template. README documents .to() method that doesn't exist. No package tests.
+**Documentation**: 3/5 - Well-structured README explains type-level dimension tracking well. Documents non-existent features.
+**Coherence**: 4/5 - Has Op<> annotations on methods. Auto-derive works for classes with methods.
+**Summary**: Functional dimension-tracking following boost::units. Needs .to() implementation.
 
 **Update (2026-02-28):** Auto-derive bug fixed in `extractMetaFromTypeChecker` — methods are now filtered out, so classes like `Unit<D>` auto-derive Eq/Ord/Show from their data properties (value, symbol). Coherence improved from 2/5 to 3/5.
+
+**Update (2026-03-15):** 2 minor commits — `staticAssert` rename, PEP-002 reference. **Gap**: .to() method documented but not implemented.
 
 ---
 
 ## unplugin-typesugar
 
-**Usefulness**: 5/5 - Essential for any real project; provides plugins for all major bundlers (Vite, Webpack, esbuild, Rollup).
-**Completeness**: 4/5 - Covers all major bundlers with include/exclude, verbose mode, syntax extensions, cache invalidation, source maps. Minor example file shows non-existent options.
-**Documentation**: 4/5 - Clear examples for all 4 bundlers, explains lifecycle, documents type-checker limitation. Minor README/implementation drift.
+**Usefulness**: 4/5 - Essential for any real project; provides plugins for all major bundlers (Vite, Webpack, esbuild, Rollup).
+**Completeness**: 3/5 - Covers all major bundlers with include/exclude, verbose mode, syntax extensions, cache invalidation, source maps. Only 1 test file (source-maps.test.ts) — thin wrapper.
+**Documentation**: 5/5 - Excellent README with clear examples for all 4 bundlers, explains lifecycle, documents type-checker limitation.
 **Coherence**: 5/5 - Uses unified TransformationPipeline, follows modern unplugin patterns, correctly delegates transformation. Build-time only = zero-cost.
-**Summary**: Well-architected bundler integration. Production-ready for all major bundlers with minor documentation drift.
+**Summary**: Well-architected bundler integration. Production-ready for all major bundlers.
+
+**Update (2026-03-15):** PEP-005 Wave 5 added strict mode support (`strict: true` option). PEP-004 Wave 3 added Oxc integration exports (`needsTypescriptTransformer`). PEP-001 Wave 1 added .sts file routing.
 
 ---
 
 ## @typesugar/validate
 
-**Usefulness**: 3/5 - Solves real need for type-safe validation, but competes with mature alternatives (Zod, Valibot) without significant differentiation.
-**Completeness**: 3/5 - Has Schema typeclass abstraction (for Zod/Valibot/native integration), compile-time macros (`is<T>()`, `assert<T>()`, `validate<T>()`), derived operations, and tests.
+**Usefulness**: 4/5 - Solves real need for type-safe validation. Schema typeclass is library-agnostic for Zod/Valibot/native integration.
+**Completeness**: 3/5 - Has Schema typeclass abstraction, compile-time macros (`is<T>()`, `assert<T>()`, `validate<T>()`), derived operations. Two test files: `schema.test.ts` (119 lines) and `macros.test.ts` (16 lines). **Gap**: Macro tests are stub-only (just verify runtime throws).
 **Documentation**: 4/5 - README accurately documents the compile-time macros and Schema typeclass. Includes code examples, API reference tables, and zero-cost explanation.
-**Coherence**: 3/5 - Correctly uses macro infrastructure and HKT encoding. Integrates with @typesugar/fp. Uses verbose AST factory instead of quote().
+**Coherence**: 5/5 - Correctly uses macro infrastructure and HKT encoding. Integrates with @typesugar/fp.
 **Summary**: Well-documented Schema typeclass and compile-time validation macros. Generates validators from TypeScript types at compile time.
 
 **Update (2026-02-28):** Previous assessment was incorrect — README does NOT show a builder DSL. It accurately documents compile-time macros and Schema typeclass. Docs score corrected from 1/5 to 4/5.
+
+**Update (2026-03-15):** Minor change — HKT refactor (Kind standardization) on March 5.
 
 ---
 
 ## @typesugar/vscode
 
-**Usefulness**: 4/5 - Essential DX for typesugar projects; provides semantic highlighting, CodeLens, inlay hints, code actions, diagnostics.
-**Completeness**: 4/5 - Comprehensive feature set: 7 semantic token types, manifest-driven macro detection, TS language service plugin. Missing test coverage.
+**Usefulness**: 5/5 - Essential DX for typesugar projects; provides semantic highlighting, CodeLens, inlay hints, code actions, diagnostics, macro expansion peek.
+**Completeness**: 4/5 - Comprehensive feature set: 7 semantic token types, manifest-driven macro detection, TS language service plugin. Tests confirmed.
 **Documentation**: 4/5 - Excellent README with architecture diagram, settings table, manifest format docs. Source files have file-level JSDoc.
 **Coherence**: 5/5 - Manifest-driven architecture adapts to custom macros without code changes. Properly integrates with transformer/pipeline. Follows VS Code best practices.
-**Summary**: Well-architected VS Code extension providing essential IDE support. Manifest-driven design is elegant. Main gaps: missing tests, heuristic expansion extraction.
+**Summary**: Well-architected VS Code extension providing essential IDE support. Manifest-driven design is elegant.
 
 **Update (2026-02-22):** Test gap addressed — 83+ unit tests added covering ManifestLoader, SemanticTokensProvider, CodeLensProvider, InlayHintsProvider, ExpansionService, DiagnosticsManager, and error scenarios. Integration tests added for Extension Host activation, provider registration, and command execution. TS plugin tests added via language service harness.
+
+**Update (2026-03-15):** Significant new features:
+
+- Added `.sts`/`.stsx` language support with dedicated icons and grammars (PEP-001 Wave 3-4)
+- New peek widget for macro expansion preview
+- Surgical expansion view with focused diff
+- JSDoc syntax highlighting for `/** @typeclass */` etc.
+- Support for `seq:/all:` aliases in do-notation
+- Fixed `ExpansionResult` type and test assertions
 
 ---
 
 # SUMMARY
 
-## Score Distribution
+## Score Distribution (Updated 2026-03-15)
 
-| Score | Count | Packages                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 5/5   | Many  | eslint-plugin (usefulness), transformer (usefulness), ts-plugin (usefulness), unplugin (usefulness), std (usefulness), umbrella (usefulness), prettier-plugin (usefulness, docs), react (usefulness), effect (usefulness), testing (docs), erased (docs), symbolic (docs), math (docs), comptime (docs, coherence), core (completeness, coherence), transformer (coherence), unplugin (coherence), vscode (coherence) |
-| 4/5   | Many  | sql (completeness, coherence, docs) _(docs improved from 2)_, validate (docs) _(corrected from 1)_, (see individual evaluations)                                                                                                                                                                                                                                                                                      |
-| 3/5   | Many  | macros (completeness) _(improved from 1)_, typeclass (coherence) _(improved from 2)_, derive (completeness) _(improved from 2)_, strings (completeness) _(improved from 2)_, units (coherence) _(improved from 2)_, (see individual evaluations)                                                                                                                                                                      |
-| 2/5   | Many  | (see individual evaluations)                                                                                                                                                                                                                                                                                                                                                                                          |
-| 1/5   | 0     | _(named-args removed)_                                                                                                                                                                                                                                                                                                                                                                                                |
+**Top scores by dimension:**
+
+| Dimension     | 5/5 Count | Notable 5/5 Packages                                                                                  |
+| ------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| Usefulness    | 13        | transformer, core, macros, effect, fp, graph, type-system, std, testing, math, contracts, sql, vscode |
+| Completeness  | 3         | transformer, macros, testing                                                                          |
+| Documentation | 10        | transformer, testing, std, contracts, type-system, graph, math, effect, sql, prettier-plugin          |
+| Coherence     | 21        | Most packages now follow design philosophy correctly                                                  |
+
+**Packages with all dimensions ≥4:** transformer (5/5/5/5), testing (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), fp (5/4/5/5), graph (5/4/5/5), math (5/4/5/5), std (5/4/5/5), contracts (5/4/5/5), type-system (5/4/5/5), prettier-plugin (5/4/5/5)
+
+**Packages needing attention (any dimension ≤2):** mapper (3/2/3/4), comptime (4/2/4/5), erased (4/2/4/4), units (3/2/3/4) |
 
 ## Key Patterns Identified
 
-### Strong Packages (avg >= 4.0)
+### Strong Packages (avg >= 4.0) — Updated 2026-03-15
 
-- **@typesugar/core** — Exemplary infrastructure, well-documented, high coherence
-- **@typesugar/comptime** — Perfect zero-cost implementation, excellent docs
-- **@typesugar/transformer** — Essential, comprehensive, production-ready
-- **@typesugar/std** — High-value stdlib, 300+ methods, good match macro
-- **@typesugar/testing** — Power assertions, compile-time assertions, solid
-- **@typesugar/fp** — Comprehensive FP library, null-based Option is innovative
-- **@typesugar/effect** — High-quality Effect-TS integration
-- **@typesugar/prettier-plugin** — Essential tooling, well-documented
-- **@typesugar/symbolic** — Well-implemented with good Op<> usage and red-team tests
-- **@typesugar/math** — Mature library with proper typeclass integration
-- **@typesugar/vscode** — Well-architected extension with manifest-driven design, tests confirmed
-- **@typesugar/sql** — _(Updated 2026-02-28)_ README rewritten to document all features; now comprehensive docs (4/5)
-- **@typesugar/graph** — _(Updated 2026-03-01)_ Compile-time FSM verification, Monoid-based Dijkstra; coherence improved (4/5)
+**Top-tier (all 5s in multiple dimensions):**
 
-### Packages Needing Work (avg <= 2.5)
+- **@typesugar/transformer** — _(5/5/5/5)_ Most active package. PEP-001-007 implementations, Oxc backend, 17 test files.
+- **@typesugar/testing** — _(5/5/5/5)_ DiagnosticBuilder integration, comprehensive test suite.
+- **@typesugar/macros** — _(5/5/3/5)_ @hkt macro, red team tests. All macro implementations.
+
+**Very strong (avg > 4.5):**
+
+- **@typesugar/core** — _(5/4/4/5)_ DiagnosticBuilder, type confidence, 215 exports.
+- **@typesugar/effect** — _(5/4/5/5)_ ZIO-style layer wiring, GraphLike integration, 40 diagnostics.
+- **@typesugar/fp** — _(5/4/5/5)_ HKT PEP-007 improvements, null-based Option.
+- **@typesugar/graph** — _(5/4/5/5)_ GraphLike<G,N,E> typeclass, generic algorithms.
+- **@typesugar/type-system** — _(5/4/5/5)_ PEP-007 `_` marker type.
+- **@typesugar/std** — _(5/4/5/5)_ Hash typeclass, fluent Range, seq:/all: aliases.
+- **@typesugar/typeclass** — _(5/4/4/5)_ PEP-007 HKT improvements.
+- **@typesugar/contracts** — _(5/4/5/5)_ Stable and comprehensive DbC.
+- **@typesugar/math** — _(5/4/5/5)_ Most comprehensive numeric library.
+- **@typesugar/prettier-plugin** — _(5/4/5/5)_ Kind<F,A> standardization.
+
+**Strong:**
+
+- **@typesugar/vscode** — _(5/4/4/5)_ .sts language support, peek widget, surgical diff.
+- **@typesugar/derive** — _(4/4/4/5)_ Sum type support, stable.
+- **@typesugar/sql** — _(5/3/5/4)_ Comprehensive Doobie-style SQL, undertested.
+- **@typesugar/symbolic** — _(4/3/4/4)_ Stable, good Op<> usage.
+
+### Packages Needing Work (Updated 2026-03-15)
+
+**Current issues:**
+
+- **@typesugar/mapper** — Sparse documentation (44 lines), single test file. Needs showcase.
+- ~~**@typesugar/comptime**~~ — _(Removed 2026-03-15)_ Re-export wrapper removed.
+- **@typesugar/erased** — Undertested: only red-team tests, no package-level tests.
+- **@typesugar/sql** — Comprehensive but no package-level tests (only red-team).
+- **@typesugar/units** — .to() method documented but not implemented.
+- **@typesugar/specialize** — Missing vitest config for package-level tests.
+- **@typesugar/reflect** — Missing vitest config for package-level tests.
+
+**Previously resolved:**
 
 - ~~**@typesugar/macros**~~ _(Resolved 2026-02-28)_ — Now functional and buildable
 - ~~**@typesugar/named-args**~~ _(Removed 2026-03-01)_ — Package deleted, not zero-cost
@@ -489,13 +606,17 @@ Evaluation of all typesugar modules across 4 dimensions:
    - Already migrated to `typesugar` throughout codebase
    - Remaining `typemacro`/`ttfx` references are intentional for backwards compatibility (transformer/ESLint recognize old imports)
 
-3. **Missing Tests** — Status updated (2026-03-01):
+3. **Missing Tests** — Status updated (2026-03-15):
    - **@typesugar/vscode**: Tests confirmed — 9 test files with 2,014 lines of coverage
-   - **@typesugar/eslint-plugin**: Tests confirmed — 3 test files with 945 lines of coverage (processor.test.ts, full-processor.test.ts, position-mapping.test.ts)
+   - **@typesugar/eslint-plugin**: Tests confirmed — 3 test files with 945 lines of coverage
    - **@typesugar/strings**: Tests added — 28 tests covering exports, runtime stubs, macro definitions
-   - ~~drizzle, kysely, operators~~ — Packages deleted (2026-03-01)
-   - **derive**: Empty tests/ directory (has vitest.config.ts but no test files)
-   - **@typesugar/macros**: Now buildable but still lacks package-local tests (tested via root tests/)
+   - **@typesugar/macros**: 81 global test files cover macros extensively; red team tests added
+   - **Packages needing tests (2026-03-15):**
+     - **@typesugar/sql** — No package-level tests (only red-team)
+     - **@typesugar/erased** — No package-level tests (only red-team)
+     - **@typesugar/specialize** — Missing vitest config
+     - **@typesugar/reflect** — Missing vitest config
+     - **@typesugar/units** — No package tests
 
 4. **Documentation/Implementation Drift** — Updated assessment (2026-02-28):
    - ~~**validate**~~: README was correct (compile-time macros + Schema typeclass), not builder DSL
@@ -509,7 +630,16 @@ Evaluation of all typesugar modules across 4 dimensions:
    - ~~graph~~ — Now uses Monoid/Ord for Dijkstra, compile-time FSM verification (2026-03-01)
    - ~~units~~ — auto-derive bug fixed, now works with typeclass system
 
-### Recommendations
+### Recommendations (Updated 2026-03-15)
+
+**Active recommendations:**
+
+1. **Expand @typesugar/mapper** — Needs showcase.ts, more examples, extended README
+2. **Add package-level tests** to sql, erased, specialize, reflect
+3. **Implement @typesugar/units .to() method** — Documented but not implemented
+4. ~~**Consider deprecating @typesugar/comptime**~~ — _(Done 2026-03-15)_ Package removed
+
+**Previously resolved:**
 
 1. ~~**Delete or complete @typesugar/macros**~~ — _(Done)_ Package is now functional
 2. ~~**Consolidate typeclass implementations**~~ — _(Done)_ Package now re-exports from macros
@@ -524,3 +654,4 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 _Generated: 2026-02-22_
 _Updated: 2026-03-01 — Major pruning: removed @typesugar/named-args, @typesugar/contracts-z3, @typesugar/geometry, @typesugar/kysely, @typesugar/drizzle, @typesugar/operators. Improved @typesugar/graph (compile-time FSM, Monoid Dijkstra) and @typesugar/strings (removed json macro)._
+_Updated: 2026-03-15 — Full reassessment. Key improvements: transformer (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), graph (5/4/5/5), fp (5/4/5/5), type-system (5/4/5/5). New concerns: react (stagnant), mapper (sparse docs), comptime (just re-exports)._

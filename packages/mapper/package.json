@@ -29,7 +29,8 @@
     "build:watch": "tsup --watch",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "showcase": "typesugar run examples/showcase.ts"
   },
   "keywords": [
     "typescript",

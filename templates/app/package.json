@@ -10,8 +10,7 @@
     "prepare": "ts-patch install -s"
   },
   "dependencies": {
-    "@typesugar/comptime": "^0.1.0",
-    "@typesugar/derive": "^0.1.0",
+    "typesugar": "^0.1.0",
     "@typesugar/sql": "^0.1.0"
   },
   "devDependencies": {

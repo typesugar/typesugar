@@ -14,7 +14,7 @@
  *
  * ## Integration with comptime()
  *
- * The `comptime()` macro from `@typesugar/comptime` evaluates expressions at build
+ * The `comptime()` macro from `@typesugar/macros` (or the umbrella `typesugar` package) evaluates expressions at build
  * time. Values produced by `comptime()` are treated as constants by the prover:
  *
  * ```typescript

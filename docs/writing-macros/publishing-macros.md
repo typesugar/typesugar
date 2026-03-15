@@ -333,7 +333,7 @@ Always document:
 
 Look at typesugar's own packages for reference:
 
-- `@typesugar/comptime`
+- `@typesugar/macros` (comptime, derive, operators, etc.)
 - `@typesugar/derive`
 - `@typesugar/sql`
 

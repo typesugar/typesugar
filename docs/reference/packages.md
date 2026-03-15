@@ -12,7 +12,7 @@ Umbrella package including all common packages.
 npm install typesugar
 ```
 
-Includes: core, comptime, derive, reflect, operators, typeclass, specialize.
+Includes: core, derive, reflect, typeclass, specialize.
 
 **Inspired by:** Umbrella packages (Lodash, Effect)
 
@@ -370,30 +370,6 @@ fmt`...`; // tagged template
 ```
 
 [Guide](/guides/strings)
-
-### @typesugar/comptime {#comptime}
-
-Compile-time evaluation.
-
-```bash
-npm install @typesugar/comptime
-```
-
-**Exports:**
-
-```typescript
-comptime();
-includeStr();
-includeJson();
-includeBytes();
-staticAssert();
-```
-
-**Inspired by:** Zig comptime
-
-[Guide](/guides/comptime)
-
----
 
 ## Type Safety & Contracts
 
@@ -838,30 +814,6 @@ formatDebugTree(); // resolved graph visualization
 **Inspired by:** Scala ZIO
 
 [Guide](/guides/effect)
-
-### @typesugar/react {#react}
-
-Vue/Svelte-style reactivity for React.
-
-```bash
-npm install @typesugar/react
-```
-
-**Exports:**
-
-```typescript
-state();
-derived();
-effect();
-watch();
-component();
-each();
-match();
-```
-
-**Inspired by:** Vue 3 Composition API, Solid.js
-
-[Guide](/guides/react)
 
 ### @typesugar/sql {#sql}
 

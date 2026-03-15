@@ -108,7 +108,6 @@ packages/
 │
 │   ## Syntax Sugar
 ├── strings/            # @typesugar/strings — string manipulation macros
-├── comptime/           # @typesugar/comptime — compile-time evaluation
 │
 │   ## Type Safety & Contracts
 ├── type-system/        # @typesugar/type-system — refined types, newtype, vec
@@ -132,7 +131,6 @@ packages/
 │
 │   ## Ecosystem Integrations
 ├── effect/             # @typesugar/effect — Effect TS integration (@service, @layer, layerMake, resolveLayer, derives)
-├── react/              # @typesugar/react — reactive signals, JSX macros
 └── sql/                # @typesugar/sql — typed SQL fragments
 ```
 

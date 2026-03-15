@@ -284,7 +284,7 @@ configure({
 });
 ```
 
-### @typesugar/comptime
+### Comptime Configuration
 
 Timeout for compile-time evaluation (default: 5000ms):
 
