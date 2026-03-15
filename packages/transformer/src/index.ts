@@ -4691,13 +4691,30 @@ class MacroTransformer {
 
   /**
    * Check whether a file path is within a given source module (for transparent scope).
+   *
+   * Handles two forms of `sourceModule`:
+   * - Absolute file path (from `@opaque` macro's `resolveSourceModule`): direct comparison
+   * - Module specifier like `@typesugar/fp/data/option`: path-segment containment check
    */
   private isWithinSourceModule(filePath: string, sourceModule: string): boolean {
-    // Normalize: sourceModule is like "@typesugar/fp/data/option"
-    // filePath is an absolute path. Check if the file path contains the module path segments.
-    const moduleParts = sourceModule.replace(/^@/, "").split("/");
-    const normalizedPath = filePath.replace(/\\/g, "/");
-    return moduleParts.every((part) => normalizedPath.includes(part));
+    const normFile = filePath.replace(/\\/g, "/");
+    const normModule = sourceModule.replace(/\\/g, "/");
+
+    // If sourceModule looks like an absolute path, compare directly
+    if (normModule.startsWith("/") || /^[A-Za-z]:\//.test(normModule)) {
+      return normFile === normModule;
+    }
+
+    // Module specifier form: strip leading @ and check that the file path
+    // ends with the module's path segments (e.g., "typesugar/fp/data/option"
+    // matches ".../typesugar/fp/data/option.ts")
+    const modulePath = normModule.replace(/^@/, "");
+    const fileNoExt = normFile.replace(/\.[^/.]+$/, "");
+    return (
+      fileNoExt.endsWith(modulePath) ||
+      normFile.includes("/" + modulePath + "/") ||
+      normFile.includes("/" + modulePath + ".")
+    );
   }
 
   /**

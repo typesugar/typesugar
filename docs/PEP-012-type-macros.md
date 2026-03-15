@@ -298,20 +298,20 @@ export interface Meters {
 - [x] Constructor/accessor erasure tests pass
 - [x] End-to-end: `Some(5).map(f).getOrElse(() => 0)` emits `getOrElse(map(5, f), () => 0)`
 
-### Wave 5: Transparent Scope
+### Wave 5: Transparent Scope ✅
 
 **Tasks:**
 
-- [ ] Implement transparent scope detection in the transformer
-- [ ] Skip method/constructor/accessor rewriting within the defining file
-- [ ] Allow underlying representation usage in implementations
-- [ ] Tests: the option module's `map` function can use `=== null` directly
+- [x] Implement transparent scope detection in the transformer
+- [x] Skip method/constructor/accessor rewriting within the defining file
+- [x] Allow underlying representation usage in implementations
+- [x] Tests: the option module's `map` function can use `=== null` directly
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Transparent scope tests pass
-- [ ] Option module builds without `as any` casts in implementations
+- [x] `pnpm build` passes
+- [x] Transparent scope tests pass
+- [x] Option module builds without `as any` casts in implementations
 
 ### Wave 6: SFINAE Integration
 
