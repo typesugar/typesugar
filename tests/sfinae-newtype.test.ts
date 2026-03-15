@@ -352,6 +352,78 @@ const bad = undeclaredVariable;
     });
   });
 
+  describe("multi-constituent base newtypes", () => {
+    it("suppresses TS2322 for a newtype whose base is an intersection (Base1 & Base2)", () => {
+      const rule = createNewtypeAssignmentRule();
+      registerSfinaeRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/test.ts": `${NEWTYPE_PREAMBLE}
+interface Serializable { serialize(): string; }
+interface Identifiable { id: string; }
+
+type Tagged = Serializable & Identifiable & { readonly [__brand]: "Tagged" };
+
+declare const obj: Serializable & Identifiable;
+const tagged: Tagged = obj;
+`,
+      });
+
+      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
+      expect(assignDiags.length).toBeGreaterThan(0);
+
+      const sourceFile = assignDiags[0].file!;
+      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+    });
+
+    it("does NOT suppress when source satisfies only one constituent of a multi-base newtype", () => {
+      const rule = createNewtypeAssignmentRule();
+      registerSfinaeRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/test.ts": `${NEWTYPE_PREAMBLE}
+interface Serializable { serialize(): string; }
+interface Identifiable { id: string; }
+
+type Tagged = Serializable & Identifiable & { readonly [__brand]: "Tagged" };
+
+declare const partial: Serializable;
+const tagged: Tagged = partial;
+`,
+      });
+
+      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
+      expect(assignDiags.length).toBeGreaterThan(0);
+
+      const sourceFile = assignDiags[0].file!;
+      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+    });
+
+    it("suppresses TS2345 for multi-base newtype in function argument position", () => {
+      const rule = createNewtypeAssignmentRule();
+      registerSfinaeRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/test.ts": `${NEWTYPE_PREAMBLE}
+interface Serializable { serialize(): string; }
+interface Identifiable { id: string; }
+
+type Tagged = Serializable & Identifiable & { readonly [__brand]: "Tagged" };
+
+function process(t: Tagged): void {}
+declare const obj: Serializable & Identifiable;
+process(obj);
+`,
+      });
+
+      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
+      expect(assignDiags.length).toBeGreaterThan(0);
+
+      const sourceFile = assignDiags[0].file!;
+      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+    });
+  });
+
   describe("wrap()/unwrap() compatibility", () => {
     it("SFINAE suppresses the TS2345 from wrap<UserId>(42) since the base type matches", () => {
       const rule = createNewtypeAssignmentRule();

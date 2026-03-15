@@ -18,7 +18,7 @@
 
 import ts from "typescript";
 import type { SfinaeRule } from "@typesugar/core";
-import { findStandaloneExtension, findTypeRewrite } from "@typesugar/core";
+import { findStandaloneExtension, findTypeRewrite, isSfinaeAuditEnabled } from "@typesugar/core";
 
 /**
  * Create the ExtensionMethodCall SFINAE rule.
@@ -65,7 +65,10 @@ export function createExtensionMethodCallRule(): SfinaeRule {
       let receiverType: ts.Type;
       try {
         receiverType = checker.getTypeAtLocation(receiver);
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] ExtensionMethodCall: ${e}`);
+        }
         return false;
       }
 
@@ -113,8 +116,10 @@ function findInRegistry(
     if (baseName !== typeName && findStandaloneExtension(propertyName, baseName)) {
       return true;
     }
-  } catch {
-    // getBaseTypeOfLiteralType may not be available in all TS versions
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] findInRegistry: ${e}`);
+    }
   }
 
   // Strip generics: Array<number> → Array
@@ -248,7 +253,10 @@ function checkImportedSymbol(
   let symbol: ts.Symbol | undefined;
   try {
     symbol = checker.getSymbolAtLocation(ident);
-  } catch {
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+    }
     return false;
   }
   if (!symbol) return false;
@@ -256,7 +264,10 @@ function checkImportedSymbol(
   let identType: ts.Type;
   try {
     identType = checker.getTypeOfSymbolAtLocation(symbol, ident);
-  } catch {
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+    }
     return false;
   }
 
@@ -271,7 +282,10 @@ function checkImportedSymbol(
         if (checker.isTypeAssignableTo(receiverType, firstParamType)) {
           return true;
         }
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+        }
         continue;
       }
     }
@@ -284,7 +298,10 @@ function checkImportedSymbol(
   let propType: ts.Type;
   try {
     propType = checker.getTypeOfSymbolAtLocation(prop, ident);
-  } catch {
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+    }
     return false;
   }
 
@@ -297,7 +314,10 @@ function checkImportedSymbol(
       if (checker.isTypeAssignableTo(receiverType, firstParamType)) {
         return true;
       }
-    } catch {
+    } catch (e) {
+      if (isSfinaeAuditEnabled()) {
+        console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+      }
       continue;
     }
   }
@@ -354,15 +374,21 @@ export function createNewtypeAssignmentRule(): SfinaeRule {
 
       const { sourceType, targetType } = types;
 
-      // Check: target is Newtype, source assignable to its base
-      const targetBase = extractNewtypeBase(targetType, checker);
-      if (targetBase && checker.isTypeAssignableTo(sourceType, targetBase)) {
+      // Check: target is Newtype, source assignable to ALL its base constituents
+      const targetBases = extractNewtypeBaseTypes(targetType);
+      if (
+        targetBases.length > 0 &&
+        targetBases.every((base) => checker.isTypeAssignableTo(sourceType, base))
+      ) {
         return true;
       }
 
-      // Check: source is Newtype, target assignable from its base
-      const sourceBase = extractNewtypeBase(sourceType, checker);
-      if (sourceBase && checker.isTypeAssignableTo(sourceBase, targetType)) {
+      // Check: source is Newtype, ALL its base constituents assignable to target
+      const sourceBases = extractNewtypeBaseTypes(sourceType);
+      if (
+        sourceBases.length > 0 &&
+        sourceBases.every((base) => checker.isTypeAssignableTo(base, targetType))
+      ) {
         return true;
       }
 
@@ -393,7 +419,10 @@ function extractAssignmentTypes(
         const targetType = checker.getTypeFromTypeNode(current.type);
         const sourceType = checker.getTypeAtLocation(current.initializer);
         return { sourceType, targetType };
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        }
         return undefined;
       }
     }
@@ -406,7 +435,10 @@ function extractAssignmentTypes(
         if (targetType !== sourceType) {
           return { sourceType, targetType };
         }
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        }
         return undefined;
       }
     }
@@ -420,7 +452,10 @@ function extractAssignmentTypes(
         const targetType = checker.getTypeAtLocation(current.left);
         const sourceType = checker.getTypeAtLocation(current.right);
         return { sourceType, targetType };
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        }
         return undefined;
       }
     }
@@ -440,7 +475,10 @@ function extractAssignmentTypes(
           const targetType = checker.getTypeFromTypeNode(fn.type);
           return { sourceType, targetType };
         }
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        }
         return undefined;
       }
     }
@@ -453,7 +491,10 @@ function extractAssignmentTypes(
           const sourceType = checker.getTypeAtLocation(current.initializer);
           return { sourceType, targetType: contextualType };
         }
-      } catch {
+      } catch (e) {
+        if (isSfinaeAuditEnabled()) {
+          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        }
         return undefined;
       }
     }
@@ -493,7 +534,10 @@ function matchCallArgument(
     const paramType = checker.getTypeOfSymbolAtLocation(params[argIndex], call);
     const argType = checker.getTypeAtLocation(call.arguments[argIndex]);
     return { sourceType: argType, targetType: paramType };
-  } catch {
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] matchCallArgument: ${e}`);
+    }
     return undefined;
   }
 }
@@ -534,29 +578,25 @@ function hasBrandProperty(type: ts.Type): boolean {
 }
 
 /**
- * Check if a type is a `Newtype<Base, Brand>` and extract the base type.
+ * Check if a type is a `Newtype<Base, Brand>` and extract all base type
+ * constituents.
  *
  * A Newtype is detected by the presence of a `__brand` property (the phantom
- * field declared as `readonly [__brand]: Brand`). The base type is the
- * intersection type minus the brand member — i.e., the non-brand constituent
- * of the intersection `Base & { readonly [__brand]: Brand }`.
+ * field declared as `readonly [__brand]: Brand`). The base types are the
+ * intersection constituents minus the brand member — e.g., for
+ * `Base1 & Base2 & { readonly [__brand]: Brand }`, returns `[Base1, Base2]`.
+ *
+ * The caller must check assignability against ALL returned types to correctly
+ * handle multi-constituent bases.
  */
-function extractNewtypeBase(type: ts.Type, _checker: ts.TypeChecker): ts.Type | undefined {
-  if (!hasBrandProperty(type)) return undefined;
+function extractNewtypeBaseTypes(type: ts.Type): ts.Type[] {
+  if (!hasBrandProperty(type)) return [];
 
-  // The type is an intersection: Base & { readonly [__brand]: Brand }
-  // Extract the non-brand constituent(s) as the base type.
   if (type.isIntersection()) {
-    const baseConstituents = type.types.filter((t) => !hasBrandProperty(t));
-    if (baseConstituents.length === 1) {
-      return baseConstituents[0];
-    }
-    if (baseConstituents.length > 1) {
-      return baseConstituents[0];
-    }
+    return type.types.filter((t) => !hasBrandProperty(t));
   }
 
-  return undefined;
+  return [];
 }
 
 // ===========================================================================
@@ -660,8 +700,10 @@ function collectTypeTextVariants(
     if (baseName !== typeText && !variants.includes(baseName)) {
       variants.push(baseName);
     }
-  } catch {
-    // getBaseTypeOfLiteralType may not be available in all TS versions
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] collectTypeTextVariants: ${e}`);
+    }
   }
 
   return variants;
@@ -814,7 +856,10 @@ function checkReturnTypeRewrite(node: ts.Node, checker: ts.TypeChecker): boolean
 
     const stripped = returnText.replace(/<.*>$/, "");
     if (stripped !== returnText && findTypeRewrite(stripped)) return true;
-  } catch {
+  } catch (e) {
+    if (isSfinaeAuditEnabled()) {
+      console.error(`[SFINAE] checkReturnTypeRewrite: ${e}`);
+    }
     return false;
   }
 

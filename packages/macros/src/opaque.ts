@@ -93,7 +93,12 @@ function findExportedFunctions(sourceFile: ts.SourceFile): Set<string> {
  * Constructors are PascalCase by convention.
  */
 function isConstructorLike(name: string): boolean {
-  return name.length > 0 && name[0] === name[0].toUpperCase() && name[0] !== name[0].toLowerCase();
+  if (name.length === 0) return false;
+  // Must start with uppercase letter (not a number or symbol)
+  if (name[0] !== name[0].toUpperCase() || name[0] === name[0].toLowerCase()) return false;
+  // Reject ALL_CAPS_SNAKE_CASE names (constants, not constructors)
+  if (/^[A-Z][A-Z0-9_]*$/.test(name)) return false;
+  return true;
 }
 
 /**
@@ -239,8 +244,19 @@ function collectInterfaceAccessors(iface: ts.InterfaceDeclaration): Map<string, 
  * Attempts to use the file's path relative to the package to construct
  * a reasonable module identifier. Falls back to the file path.
  */
-function resolveSourceModule(sourceFile: ts.SourceFile): string {
-  return sourceFile.fileName;
+export function resolveSourceModule(sourceFile: ts.SourceFile): string {
+  const filePath = sourceFile.fileName.replace(/\\/g, "/");
+
+  // Try to extract a @typesugar package path from the file path
+  // e.g., ".../packages/fp/src/data/option.ts" → "@typesugar/fp/data/option"
+  const packagesMatch = /\/packages\/([^/]+)\/src\/(.+?)(?:\.[^/.]+)?$/.exec(filePath);
+  if (packagesMatch) {
+    const [, pkg, relPath] = packagesMatch;
+    return `@typesugar/${pkg}/${relPath}`;
+  }
+
+  // Fallback: return the raw file path (works for transparent scope checks)
+  return filePath;
 }
 
 // ============================================================================

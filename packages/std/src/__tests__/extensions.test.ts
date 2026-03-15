@@ -925,3 +925,6 @@ describe("Global Augmentation type-checks", () => {
     void [_timeout, _tap, _recover];
   });
 });
+
+// Global augmentation consistency test lives in tests/augmentation-consistency.test.ts
+// (this file is excluded from vitest due to requiring the typesugar transformer).

@@ -32,7 +32,7 @@ import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.j
 import { preprocess } from "@typesugar/preprocessor";
 import {
   filterDiagnostics,
-  registerSfinaeRule,
+  registerSfinaeRuleOnce,
   getSfinaeRules,
   isSfinaeAuditEnabled,
   createMacroGeneratedRule,
@@ -370,8 +370,7 @@ function init(modules: { typescript: typeof ts }) {
     // macro-generated code whose positions can't map back to original source.
     // This formalizes the ad-hoc suppression previously handled only by
     // mapDiagnostic returning null.
-    const alreadyRegistered = getSfinaeRules().some((r) => r.name === "MacroGenerated");
-    if (!alreadyRegistered) {
+    {
       const positionMapFn: PositionMapFn = (
         fileName: string,
         transformedPos: number
@@ -380,32 +379,27 @@ function init(modules: { typescript: typeof ts }) {
         return mapper.toOriginal(transformedPos);
       };
 
-      registerSfinaeRule(createMacroGeneratedRule(positionMapFn));
-      log("Registered MacroGenerated SFINAE rule");
+      if (registerSfinaeRuleOnce(createMacroGeneratedRule(positionMapFn))) {
+        log("Registered MacroGenerated SFINAE rule");
+      }
     }
 
     // Register ExtensionMethodCall rule: suppresses TS2339 when an extension
     // method is resolvable for the receiver type (PEP-011 Wave 3).
-    const hasExtRule = getSfinaeRules().some((r) => r.name === "ExtensionMethodCall");
-    if (!hasExtRule) {
-      registerSfinaeRule(createExtensionMethodCallRule());
+    if (registerSfinaeRuleOnce(createExtensionMethodCallRule())) {
       log("Registered ExtensionMethodCall SFINAE rule");
     }
 
     // Register NewtypeAssignment rule: suppresses TS2322/TS2345 when a
     // Newtype<Base, Brand> is involved and the other side matches Base (PEP-011 Wave 4).
-    const hasNewtypeRule = getSfinaeRules().some((r) => r.name === "NewtypeAssignment");
-    if (!hasNewtypeRule) {
-      registerSfinaeRule(createNewtypeAssignmentRule());
+    if (registerSfinaeRuleOnce(createNewtypeAssignmentRule())) {
       log("Registered NewtypeAssignment SFINAE rule");
     }
 
     // Register TypeRewriteAssignment rule: suppresses TS2322/TS2345/TS2355 when a
     // type registered in the typeRewriteRegistry (@opaque) is involved and the
     // other side matches the underlying representation (PEP-011 Wave 5).
-    const hasTypeRewriteRule = getSfinaeRules().some((r) => r.name === "TypeRewriteAssignment");
-    if (!hasTypeRewriteRule) {
-      registerSfinaeRule(createTypeRewriteAssignmentRule());
+    if (registerSfinaeRuleOnce(createTypeRewriteAssignmentRule())) {
       log("Registered TypeRewriteAssignment SFINAE rule");
     }
 

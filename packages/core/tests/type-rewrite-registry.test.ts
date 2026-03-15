@@ -21,6 +21,11 @@ import {
   type ConstructorRewrite,
   type AccessorRewrite,
 } from "@typesugar/core";
+import { withIsolatedTypeRewrites } from "../src/test-helpers.js";
+import {
+  registerTypeRewrite as srcRegisterTypeRewrite,
+  hasTypeRewrite as srcHasTypeRewrite,
+} from "../src/type-rewrite-registry.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -174,6 +179,15 @@ describe("TypeRewriteRegistry", () => {
     it("strips nested generics: Result<Option<A>, Error>", () => {
       registerTypeRewrite(resultEntry());
       expect(findTypeRewrite("Result<Option<A>, Error>")?.typeName).toBe("Result");
+    });
+
+    it("strips deeply nested generics: Map<string, Option<number>>", () => {
+      const mapEntry: TypeRewriteEntry = {
+        typeName: "Map",
+        underlyingTypeText: "Map<K, V>",
+      };
+      registerTypeRewrite(mapEntry);
+      expect(findTypeRewrite("Map<string, Option<number>>")?.typeName).toBe("Map");
     });
 
     it("returns undefined for unregistered type", () => {
@@ -353,6 +367,39 @@ describe("TypeRewriteRegistry", () => {
       const ar: AccessorRewrite = { kind: "custom", value: "unwrap($0)" };
       expect(ar.kind).toBe("custom");
       expect(ar.value).toBe("unwrap($0)");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // withIsolatedTypeRewrites helper
+  // -------------------------------------------------------------------------
+
+  // Uses source-level imports (srcRegisterTypeRewrite, srcHasTypeRewrite) so
+  // the test operates on the same module instances as withIsolatedTypeRewrites.
+  describe("withIsolatedTypeRewrites", () => {
+    it("should restore clean state after cleanup", () => {
+      const cleanup = withIsolatedTypeRewrites();
+      srcRegisterTypeRewrite({ typeName: "IsolatedTest", underlyingTypeText: "string" });
+      expect(srcHasTypeRewrite("IsolatedTest")).toBe(true);
+      cleanup();
+      expect(srcHasTypeRewrite("IsolatedTest")).toBe(false);
+    });
+
+    it("should start with a clean registry", () => {
+      srcRegisterTypeRewrite({ typeName: "PreExisting", underlyingTypeText: "number" });
+      const cleanup = withIsolatedTypeRewrites();
+      expect(srcHasTypeRewrite("PreExisting")).toBe(false);
+      cleanup();
+    });
+
+    it("should not leak state between isolated scopes", () => {
+      const cleanup1 = withIsolatedTypeRewrites();
+      srcRegisterTypeRewrite({ typeName: "Scope1", underlyingTypeText: "string" });
+      cleanup1();
+
+      const cleanup2 = withIsolatedTypeRewrites();
+      expect(srcHasTypeRewrite("Scope1")).toBe(false);
+      cleanup2();
     });
   });
 });

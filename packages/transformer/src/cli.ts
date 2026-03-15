@@ -35,7 +35,7 @@ import {
 } from "./pipeline.js";
 import {
   filterDiagnostics,
-  registerSfinaeRule,
+  registerSfinaeRuleOnce,
   getSfinaeRules,
   setSfinaeAuditMode,
   createMacroGeneratedRule,
@@ -319,15 +319,9 @@ function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
  * consistent diagnostic filtering between `typesugar build` and the editor.
  */
 function registerCliSfinaeRules(): void {
-  if (!getSfinaeRules().some((r) => r.name === "ExtensionMethodCall")) {
-    registerSfinaeRule(createExtensionMethodCallRule());
-  }
-  if (!getSfinaeRules().some((r) => r.name === "NewtypeAssignment")) {
-    registerSfinaeRule(createNewtypeAssignmentRule());
-  }
-  if (!getSfinaeRules().some((r) => r.name === "TypeRewriteAssignment")) {
-    registerSfinaeRule(createTypeRewriteAssignmentRule());
-  }
+  registerSfinaeRuleOnce(createExtensionMethodCallRule());
+  registerSfinaeRuleOnce(createNewtypeAssignmentRule());
+  registerSfinaeRuleOnce(createTypeRewriteAssignmentRule());
 }
 
 function build(options: CliOptions): void {
@@ -622,9 +616,10 @@ function watch(options: CliOptions): void {
     (diagnostic) => {
       // Filter through SFINAE rules before reporting
       if (currentProgram && getSfinaeRules().length > 0) {
-        const checker = currentProgram.getTypeChecker();
+        const program = currentProgram;
+        const checker = program.getTypeChecker();
         const filtered = filterDiagnostics([diagnostic], checker, (fn) =>
-          currentProgram!.getSourceFile(fn)
+          program.getSourceFile(fn)
         );
         if (filtered.length === 0) return;
       }

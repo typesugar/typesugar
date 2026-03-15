@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as ts from "typescript";
 import {
   registerSfinaeRule,
+  registerSfinaeRuleOnce,
   clearSfinaeRules,
   getSfinaeRules,
   evaluateSfinae,
@@ -86,6 +87,26 @@ describe("SFINAE Registry", () => {
 
     clearSfinaeRules();
     expect(getSfinaeRules()).toHaveLength(0);
+  });
+
+  it("registerSfinaeRuleOnce deduplicates by name", () => {
+    const ruleA: SfinaeRule = { name: "Dedup", errorCodes: [1], shouldSuppress: () => true };
+    const ruleB: SfinaeRule = { name: "Dedup", errorCodes: [2], shouldSuppress: () => false };
+
+    expect(registerSfinaeRuleOnce(ruleA)).toBe(true);
+    expect(registerSfinaeRuleOnce(ruleB)).toBe(false);
+    expect(getSfinaeRules()).toHaveLength(1);
+    expect(getSfinaeRules()[0].errorCodes).toEqual([1]);
+  });
+
+  it("registerSfinaeRuleOnce allows different names", () => {
+    expect(registerSfinaeRuleOnce({ name: "R1", errorCodes: [], shouldSuppress: () => true })).toBe(
+      true
+    );
+    expect(registerSfinaeRuleOnce({ name: "R2", errorCodes: [], shouldSuppress: () => true })).toBe(
+      true
+    );
+    expect(getSfinaeRules()).toHaveLength(2);
   });
 });
 
@@ -185,6 +206,31 @@ describe("evaluateSfinae", () => {
 
     const diag = makeDiagnostic(2339, "test", sf);
     expect(evaluateSfinae(diag, dummyChecker, sf)).toBe(true);
+  });
+
+  it("logs thrown rule errors when audit mode is enabled", () => {
+    setSfinaeAuditMode(true);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    registerSfinaeRule({
+      name: "Exploding",
+      errorCodes: [],
+      shouldSuppress: () => {
+        throw new Error("kaboom");
+      },
+    });
+
+    const diag = makeDiagnostic(2339, "test", sf);
+    evaluateSfinae(diag, dummyChecker, sf);
+
+    expect(errSpy).toHaveBeenCalledOnce();
+    const output = errSpy.mock.calls[0][0] as string;
+    expect(output).toContain("[SFINAE]");
+    expect(output).toContain("Exploding");
+    expect(output).toContain("kaboom");
+
+    errSpy.mockRestore();
+    setSfinaeAuditMode(undefined);
   });
 });
 

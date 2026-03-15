@@ -15,7 +15,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { clearTypeRewrites, getTypeRewrite, type TypeRewriteEntry } from "@typesugar/core";
-import { opaqueAttribute } from "./opaque.js";
+import { opaqueAttribute, resolveSourceModule } from "./opaque.js";
 import { createMacroContext } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
@@ -496,5 +496,110 @@ export function add(a: Meters, b: Meters): Meters {
     expect(entry).toBeDefined();
     // Only "value" is auto-detected as an identity accessor
     expect(entry!.accessors).toBeUndefined();
+  });
+
+  it("does not treat ALL_CAPS constants as constructors", () => {
+    const source = `
+/** @opaque number */
+export interface Score {
+  add(other: Score): Score;
+}
+
+export function add(a: Score, b: Score): Score {
+  return ((a as any) + (b as any)) as any;
+}
+
+export function MakeScore(n: number): Score {
+  return n as unknown as Score;
+}
+
+export const MAX_RETRIES: Score = 3 as unknown as Score;
+export const DEFAULT_VALUE: Score = 0 as unknown as Score;
+export const API_KEY: Score = 999 as unknown as Score;
+`;
+
+    const entry = runOpaqueMacro(source);
+
+    expect(entry).toBeDefined();
+    expect(entry!.constructors?.has("MakeScore")).toBe(true);
+    expect(entry!.constructors?.has("MAX_RETRIES")).toBeFalsy();
+    expect(entry!.constructors?.has("DEFAULT_VALUE")).toBeFalsy();
+    expect(entry!.constructors?.has("API_KEY")).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSourceModule tests
+// ---------------------------------------------------------------------------
+
+describe("resolveSourceModule", () => {
+  it("converts monorepo package paths to @typesugar/ specifiers", () => {
+    const sf = createSourceFile("", "/home/user/src/typesugar/packages/fp/src/data/option.ts");
+    expect(resolveSourceModule(sf)).toBe("@typesugar/fp/data/option");
+  });
+
+  it("handles nested paths within src/", () => {
+    const sf = createSourceFile("", "/workspace/packages/core/src/utils/deep/helper.ts");
+    expect(resolveSourceModule(sf)).toBe("@typesugar/core/utils/deep/helper");
+  });
+
+  it("strips file extensions", () => {
+    const sf = createSourceFile("", "/workspace/packages/strings/src/index.ts");
+    expect(resolveSourceModule(sf)).toBe("@typesugar/strings/index");
+  });
+
+  it("handles .tsx extensions", () => {
+    const sf = createSourceFile("", "/workspace/packages/ui/src/components/button.tsx");
+    expect(resolveSourceModule(sf)).toBe("@typesugar/ui/components/button");
+  });
+
+  it("falls back to raw path for non-package files", () => {
+    const sf = createSourceFile("", "/tmp/test-file.ts");
+    expect(resolveSourceModule(sf)).toBe("/tmp/test-file.ts");
+  });
+
+  it("handles Windows-style backslash paths", () => {
+    const sf = createSourceFile("", "C:\\Users\\dev\\packages\\fp\\src\\data\\option.ts");
+    expect(resolveSourceModule(sf)).toBe("@typesugar/fp/data/option");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isConstructorLike heuristic (tested via macro behavior)
+// ---------------------------------------------------------------------------
+
+describe("isConstructorLike heuristic", () => {
+  it("accepts PascalCase names: Some, None, Left, Right", () => {
+    for (const name of ["Some", "None", "Left", "Right"]) {
+      const source = `
+/** @opaque number */
+export interface Wrap {
+  unwrap(): number;
+}
+
+export function ${name}(n: number): Wrap {
+  return n as unknown as Wrap;
+}
+`;
+      clearTypeRewrites();
+      const entry = runOpaqueMacro(source);
+      expect(entry!.constructors?.has(name)).toBe(true);
+    }
+  });
+
+  it("rejects ALL_CAPS names: MAX_RETRIES, DEFAULT_VALUE, API_KEY", () => {
+    for (const name of ["MAX_RETRIES", "DEFAULT_VALUE", "API_KEY"]) {
+      const source = `
+/** @opaque number */
+export interface Wrap {
+  unwrap(): number;
+}
+
+export const ${name}: Wrap = 0 as unknown as Wrap;
+`;
+      clearTypeRewrites();
+      const entry = runOpaqueMacro(source);
+      expect(entry!.constructors?.has(name)).toBeFalsy();
+    }
   });
 });

@@ -92,6 +92,18 @@ export function clearSfinaeRules(): void {
 }
 
 /**
+ * Register a SFINAE rule, skipping if a rule with the same name is already registered.
+ * Returns `true` if the rule was registered, `false` if it was already present.
+ */
+export function registerSfinaeRuleOnce(rule: SfinaeRule): boolean {
+  if (sfinaeRules.some((r) => r.name === rule.name)) {
+    return false;
+  }
+  sfinaeRules.push(rule);
+  return true;
+}
+
+/**
  * Get a snapshot of currently registered SFINAE rules.
  */
 export function getSfinaeRules(): readonly SfinaeRule[] {
@@ -179,8 +191,10 @@ export function evaluateSfinae(
     let suppressed: boolean;
     try {
       suppressed = rule.shouldSuppress(diagnostic, checker, sourceFile);
-    } catch {
-      // A broken rule should not crash the compiler — skip it
+    } catch (e) {
+      if (isSfinaeAuditEnabled()) {
+        console.error(`[SFINAE] Rule "${rule.name}" threw during evaluation: ${e}`);
+      }
       continue;
     }
 

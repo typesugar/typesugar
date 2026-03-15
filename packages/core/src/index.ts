@@ -216,6 +216,7 @@ export {
 // SFINAE Diagnostic Resolution
 export {
   registerSfinaeRule,
+  registerSfinaeRuleOnce,
   clearSfinaeRules,
   getSfinaeRules,
   getSfinaeAuditLog,

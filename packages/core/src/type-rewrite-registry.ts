@@ -128,6 +128,9 @@ export interface TypeRewriteEntry {
 // Registry state
 // ---------------------------------------------------------------------------
 
+// Module-level singleton registry. Populated by @opaque macro at transformer init,
+// consulted by SFINAE rules and the transformer during compilation.
+// For test isolation, use clearTypeRewrites() or the test helpers in test-helpers.ts.
 const byName = new Map<string, TypeRewriteEntry>();
 const byModule = new Map<string, TypeRewriteEntry[]>();
 
@@ -203,7 +206,8 @@ export function findTypeRewrite(typeText: string): TypeRewriteEntry | undefined 
   const exact = byName.get(typeText);
   if (exact) return exact;
 
-  // Strip generic parameters: "Option<number>" → "Option"
+  // Greedy match is intentional: strips everything from the first '<' to the final '>'
+  // at end of string, correctly handling nested generics (e.g., "Map<string, Option<number>>" → "Map")
   const stripped = typeText.replace(/<.*>$/, "");
   if (stripped !== typeText) {
     const generic = byName.get(stripped);
