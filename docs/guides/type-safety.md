@@ -74,7 +74,10 @@ If you've used `@derive(Eq)` on a class, the `.equals()` method doesn't exist in
 ```typescript
 @derive(Eq)
 class Point {
-  constructor(public x: number, public y: number) {}
+  constructor(
+    public x: number,
+    public y: number
+  ) {}
 }
 
 const p1 = new Point(1, 2);
@@ -125,12 +128,12 @@ typesugar({
 });
 ```
 
-| Scenario | `strict: false` | `strict: true` |
-|----------|-----------------|----------------|
-| Dev server startup | Fast | Slower (typecheck at build end) |
-| Macro expansion errors | Reported via `ctx.reportError()` | Same + post-expansion tsc errors |
-| Type errors in macro output | Not caught until `tsc --noEmit` | Caught during build |
-| Recommended for | Development | CI, production builds |
+| Scenario                    | `strict: false`                  | `strict: true`                   |
+| --------------------------- | -------------------------------- | -------------------------------- |
+| Dev server startup          | Fast                             | Slower (typecheck at build end)  |
+| Macro expansion errors      | Reported via `ctx.reportError()` | Same + post-expansion tsc errors |
+| Type errors in macro output | Not caught until `tsc --noEmit`  | Caught during build              |
+| Recommended for             | Development                      | CI, production builds            |
 
 **Rule of thumb:** Use `strict: false` for development (fast iteration), `strict: true` or `tsc --noEmit` for CI.
 
@@ -142,10 +145,10 @@ typesugar({
 # .github/workflows/ci.yml
 steps:
   - run: npm ci
-  - run: npx ts-patch install  # if using tsc directly
-  - run: tsc --noEmit           # typecheck
-  - run: npm run build          # build (macros expand here)
-  - run: npm test               # tests
+  - run: npx ts-patch install # if using tsc directly
+  - run: tsc --noEmit # typecheck
+  - run: npm run build # build (macros expand here)
+  - run: npm test # tests
 ```
 
 ### With strict mode (no separate tsc step)
@@ -153,7 +156,7 @@ steps:
 ```yaml
 steps:
   - run: npm ci
-  - run: npm run build  # typesugar({ strict: true }) handles typechecking
+  - run: npm run build # typesugar({ strict: true }) handles typechecking
   - run: npm test
 ```
 
@@ -181,10 +184,10 @@ steps:
 
 typesugar supports two transformation backends:
 
-| Backend | Speed | TypeChecker | Type-Aware Macros |
-|---------|-------|-------------|-------------------|
-| `"oxc"` (default) | ~5x faster | No | Auto-fallback to TS |
-| `"typescript"` | Slower | Full | Fully supported |
+| Backend           | Speed      | TypeChecker | Type-Aware Macros   |
+| ----------------- | ---------- | ----------- | ------------------- |
+| `"oxc"` (default) | ~5x faster | No          | Auto-fallback to TS |
+| `"typescript"`    | Slower     | Full        | Fully supported     |
 
 The oxc backend is a Rust-based parser/codegen that handles syntax-only transformations natively. When it encounters a type-aware macro (`@typeclass`, `@impl`, `@op`, `@deriving`), it automatically falls back to the TypeScript backend for that file.
 
@@ -192,10 +195,10 @@ This means `backend: "oxc"` is safe — you get speed for files that don't need 
 
 ## Summary
 
-| What | Where | Typechecks? | Speed |
-|------|-------|-------------|-------|
-| Dev build | Vite/esbuild/Webpack | No (unless `strict: true`) | Fast |
-| IDE | VS Code/Cursor + language service | Yes (background) | Incremental |
-| CI gate | `tsc --noEmit` | Yes (full) | Depends on project size |
-| tsc build | ts-patch | Yes (built-in) | Depends on project size |
-| `strict: true` | Any build tool | Yes (at build end) | Adds tsc pass |
+| What           | Where                             | Typechecks?                | Speed                   |
+| -------------- | --------------------------------- | -------------------------- | ----------------------- |
+| Dev build      | Vite/esbuild/Webpack              | No (unless `strict: true`) | Fast                    |
+| IDE            | VS Code/Cursor + language service | Yes (background)           | Incremental             |
+| CI gate        | `tsc --noEmit`                    | Yes (full)                 | Depends on project size |
+| tsc build      | ts-patch                          | Yes (built-in)             | Depends on project size |
+| `strict: true` | Any build tool                    | Yes (at build end)         | Adds tsc pass           |

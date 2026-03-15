@@ -76,8 +76,11 @@ npx typesugar --explain TS9001
 
 ## HKT Errors (TS9301-TS9399)
 
-- [TS9301](./TS9301.md) - Invalid HKT parameter
+- [TS9301](./TS9301.md) - Invalid HKT parameter (phantom type)
 - [TS9302](./TS9302.md) - HKT kind mismatch
+- [TS9303](./TS9303.md) - @hkt type alias must contain `_` placeholder
+- [TS9304](./TS9304.md) - @hkt must contain exactly one `_` placeholder
+- [TS9305](./TS9305.md) - Cannot resolve type constructor for @impl
 
 ## Extension Method Errors (TS9401-TS9499)
 

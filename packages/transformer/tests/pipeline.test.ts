@@ -382,9 +382,7 @@ describe("TransformationPipeline", () => {
       files: Record<string, string>,
       strict: boolean | "incremental"
     ): TransformationPipeline {
-      const fileNames = Object.keys(files).map((f) =>
-        f.startsWith("/") ? f : `/virtual/${f}`
-      );
+      const fileNames = Object.keys(files).map((f) => (f.startsWith("/") ? f : `/virtual/${f}`));
       return new TransformationPipeline(
         { target: ts.ScriptTarget.ES2022, strict: true },
         fileNames,

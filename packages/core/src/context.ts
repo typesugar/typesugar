@@ -6,7 +6,11 @@ import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene, FileBindingCache } from "./hygiene.js";
 import { stripPositions } from "./ast-utils.js";
-import { DiagnosticBuilder, type DiagnosticDescriptor, richToLegacyDiagnostic } from "./diagnostics.js";
+import {
+  DiagnosticBuilder,
+  type DiagnosticDescriptor,
+  richToLegacyDiagnostic,
+} from "./diagnostics.js";
 
 export class MacroContextImpl implements MacroContext {
   private diagnostics: MacroDiagnostic[] = [];

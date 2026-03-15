@@ -17,6 +17,7 @@
  */
 
 import type { Op } from "@typesugar/core";
+import type { TypeFunction } from "@typesugar/type-system";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
 import type { Show } from "../typeclasses/show.js";
 import type { Semigroup, Monoid } from "../typeclasses/semigroup.js";
@@ -98,8 +99,18 @@ export function unwrapDefined<T>(d: Defined<T>): T {
  *
  * @see Defined<T> for the escape hatch when you need Option<null | ...>
  * @see Finding #1, #5 in FINDINGS.md - Type collapse prevention
+ * @hkt
  */
 export type Option<A> = A | null;
+
+/**
+ * Type-level function for `Option<A>`.
+ * Kind<OptionF, number> resolves to Option<number>.
+ */
+export interface OptionF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Option<this["__kind__"]>;
+}
 
 /**
  * Some type - represents presence of a non-null value

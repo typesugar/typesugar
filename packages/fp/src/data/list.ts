@@ -6,6 +6,7 @@
  */
 
 import type { Op } from "@typesugar/core";
+import type { TypeFunction } from "@typesugar/type-system";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
@@ -18,8 +19,18 @@ import type { Semigroup, Monoid } from "../typeclasses/semigroup.js";
 
 /**
  * List data type - either Cons (non-empty) or Nil (empty)
+ * @hkt
  */
 export type List<A> = Cons<A> | Nil;
+
+/**
+ * Type-level function for `List<A>`.
+ * Kind<ListF, number> resolves to List<number>.
+ */
+export interface ListF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: List<this["__kind__"]>;
+}
 
 /**
  * Cons variant - contains head and tail

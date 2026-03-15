@@ -46,7 +46,7 @@
  */
 
 // Re-export core HKT infrastructure from type-system
-export type { Kind, Apply, TypeFunction } from "@typesugar/type-system";
+export type { _, Kind, Apply, TypeFunction, ArrayF, PromiseF } from "@typesugar/type-system";
 export { unsafeCoerce } from "@typesugar/type-system";
 
 // Import TypeFunction for use in interface definitions
@@ -75,104 +75,17 @@ import type { Resource } from "./io/resource.js";
 export type { Option, Either, List, NonEmptyList, Validated };
 export type { State, Reader, Writer, IO, Resource };
 
-// ============================================================================
-// Type-Level Functions for Built-in Types
-// ============================================================================
-
-/**
- * Type-level function for `Array<A>`.
- *
- * @example
- * ```typescript
- * type NumberArray = Kind<ArrayF, number>; // → Array<number>
- * ```
- */
-export interface ArrayF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Array<this["__kind__"]>;
-}
-
-/**
- * Type-level function for `Promise<A>`.
- *
- * @example
- * ```typescript
- * type AsyncNumber = Kind<PromiseF, number>; // → Promise<number>
- * ```
- */
-export interface PromiseF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Promise<this["__kind__"]>;
-}
+// Re-export type-level functions from data modules (colocated with their types)
+export type { OptionF } from "./data/option.js";
+export type { EitherF } from "./data/either.js";
+export type { ListF } from "./data/list.js";
+export type { NonEmptyListF } from "./data/nonempty-list.js";
+export type { ValidatedF } from "./data/validated.js";
 
 // ============================================================================
-// Type-Level Functions for @typesugar/fp Data Types
+// Type-Level Functions for Class-based @typesugar/fp Types
+// (kept manual because class-based types can't use @hkt annotation)
 // ============================================================================
-
-/**
- * Type-level function for `Option<A>`.
- *
- * @example
- * ```typescript
- * type MaybeNumber = Kind<OptionF, number>; // → Option<number>
- * ```
- */
-export interface OptionF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Option<this["__kind__"]>;
-}
-
-/**
- * Type-level function for `Either<E, A>` with E fixed.
- *
- * @example
- * ```typescript
- * type StringResult<A> = Kind<EitherF<string>, A>; // → Either<string, A>
- * ```
- */
-export interface EitherF<E> extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Either<E, this["__kind__"]>;
-}
-
-/**
- * Type-level function for `List<A>`.
- *
- * @example
- * ```typescript
- * type NumberList = Kind<ListF, number>; // → List<number>
- * ```
- */
-export interface ListF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: List<this["__kind__"]>;
-}
-
-/**
- * Type-level function for `NonEmptyList<A>`.
- *
- * @example
- * ```typescript
- * type NonEmptyNumbers = Kind<NonEmptyListF, number>; // → NonEmptyList<number>
- * ```
- */
-export interface NonEmptyListF extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: NonEmptyList<this["__kind__"]>;
-}
-
-/**
- * Type-level function for `Validated<E, A>` with E fixed.
- *
- * @example
- * ```typescript
- * type ValidationResult<A> = Kind<ValidatedF<string[]>, A>; // → Validated<string[], A>
- * ```
- */
-export interface ValidatedF<E> extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: Validated<E, this["__kind__"]>;
-}
 
 /**
  * Type-level function for `State<S, A>` with S fixed.

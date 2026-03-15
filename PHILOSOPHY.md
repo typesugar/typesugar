@@ -117,49 +117,53 @@ type Kind<F, A> = F & { readonly __kind__: A };
 
 `Kind<F, A>` is just an intersection type. TypeScript stores it without recursive computation -- no indexed access, no conditional types, no registry. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
 
-The type-level functions look similar but use the phantom marker:
+Users write natural `F<A>` syntax in `.ts` files -- the transformer rewrites it to `Kind<F, A>` before type-checking:
 
 ```typescript
-interface OptionF extends TypeFunction {
-  _: Option<this["__kind__"]>;
-}
-```
-
-And users write natural `F<A>` syntax that the preprocessor converts to `Kind<F, A>`:
-
-```typescript
-// You write:
-interface Functor<F<_>> {
+// You write (valid TypeScript syntax):
+/** @typeclass */
+interface Functor<F> {
   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
 
-// Preprocessor emits:
+// Transformer emits:
 interface Functor<F> {
   map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
 }
 ```
 
-**Lesson**: Each generation fought TypeScript less. The current design is just an intersection type -- the simplest possible encoding. Complex encodings usually mean we're fighting the language instead of using it.
+And implementing a typeclass instance requires zero HKT boilerplate:
+
+```typescript
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+```
+
+No `OptionF`, no `TypeFunction`, no `_` marker. The `@impl` macro resolves `Option` via the TypeChecker, determines it has one type parameter, and generates the encoding internally.
+
+**Lesson**: Each generation fought TypeScript less. The current design is just an intersection type -- the simplest possible encoding. Complex encodings usually mean we're fighting the language instead of using it. And the user never sees the encoding at all.
 
 ### The Build-Tooling Trade-off
 
-typesugar's `F<_>` syntax is cleaner than fp-ts or Effect-TS's HKT encodings, but it comes with a trade-off: **it requires build tooling**.
+typesugar's HKT workflow requires build tooling -- the `F<A>` rewriting and `@impl` resolution happen in the transformer. Libraries like fp-ts and Effect-TS work in vanilla TypeScript with no preprocessing.
 
-Libraries like fp-ts and Effect-TS work in vanilla TypeScript with no preprocessing. Their HKT encodings are more verbose, but:
+However, the setup cost is minimal for production codebases with existing build systems (Vite, esbuild, webpack). And the ergonomic payoff is significant -- compare:
 
-- They work in the TypeScript playground
-- They require no build configuration
-- They integrate with any TypeScript toolchain out of the box
+```typescript
+// typesugar: just write it
+/** @impl Functor<Option> */
+const optionFunctor = { map: (fa, f) => fa === null ? null : f(fa) };
 
-typesugar's HKT requires a preprocessor to transform `F<_>` syntax into valid TypeScript. This is simpler to _write_ but harder to _adopt_. Users must configure:
+// fp-ts: manual URI branding + module augmentation
+declare module "fp-ts/HKT" { interface URItoKind<A> { Option: Option<A> } }
+const URI = "Option";
+type URI = typeof URI;
+const Functor: Functor1<URI> = { URI, map: (fa, f) => ... };
+```
 
-- The preprocessor in their build tool (Vite, esbuild, webpack, etc.)
-- The language service plugin for IDE support
-- The transformer for `tsc` (via ts-patch or ttypescript)
-
-For most production codebases with existing build systems, this integration is straightforward. But it's not zero-configuration -- there's a setup cost.
-
-**Honest assessment**: typesugar's HKT syntax is more ergonomic than alternatives, but it's not strictly superior. It's a trade-off between author-time ergonomics and adoption friction. fp-ts's URI branding works everywhere; typesugar's `F<_>` requires tooling.
+**Honest assessment**: the trade-off is real, but the gap has narrowed. The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For `.sts` files, the preprocessor still handles `F<_>` syntax. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
 
 ---
 

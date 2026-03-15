@@ -168,7 +168,9 @@ export interface MacroContext {
   reportWarning(node: ts.Node, message: string): void;
 
   /** Create a rich diagnostic builder for structured error reporting */
-  diagnostic(descriptor: import("./diagnostics.js").DiagnosticDescriptor): import("./diagnostics.js").DiagnosticBuilder;
+  diagnostic(
+    descriptor: import("./diagnostics.js").DiagnosticDescriptor
+  ): import("./diagnostics.js").DiagnosticBuilder;
 
   // -------------------------------------------------------------------------
   // Compile-Time Evaluation
@@ -223,7 +225,10 @@ export interface MacroContext {
   isTypeReliable(type: import("typescript").Type): boolean;
 
   /** Assert type is reliable; emits diagnostic and returns null if not */
-  assertTypeReliable(node: import("typescript").Node, purpose: string): import("typescript").Type | null;
+  assertTypeReliable(
+    node: import("typescript").Node,
+    purpose: string
+  ): import("typescript").Type | null;
 
   // -------------------------------------------------------------------------
   // Tree-Shaking Annotations
@@ -569,6 +574,9 @@ export interface MacroDiagnostic {
 
   /** Source node that caused the diagnostic */
   node?: ts.Node;
+
+  /** Diagnostic code (TS9xxx) */
+  code?: number;
 
   /** Optional fix suggestion */
   suggestion?: string;

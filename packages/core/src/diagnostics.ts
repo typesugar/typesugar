@@ -958,6 +958,69 @@ It can only be applied to interface or type alias declarations.`,
   seeAlso: "https://typesugar.dev/errors/TS9302",
 };
 
+export const TS9303: DiagnosticDescriptor = {
+  code: 9303,
+  severity: "error",
+  category: DiagnosticCategory.HKT,
+  messageTemplate: "@hkt type alias must contain `_` placeholder",
+  explanation: `The @hkt macro on a type alias expects the RHS to contain the \`_\` marker type
+from @typesugar/type-system. The \`_\` marks where \`this["__kind__"]\` should go
+in the generated TypeFunction interface.
+
+Correct:
+  import type { _ } from "@typesugar/type-system";
+  /** @hkt */
+  type ArrayF = Array<_>;
+
+Incorrect:
+  /** @hkt */
+  type ArrayF = Array<number>;  // No _ placeholder`,
+  seeAlso: "https://typesugar.dev/errors/TS9303",
+};
+
+export const TS9304: DiagnosticDescriptor = {
+  code: 9304,
+  severity: "error",
+  category: DiagnosticCategory.HKT,
+  messageTemplate: "@hkt must contain exactly one `_` placeholder, found {count}",
+  explanation: `The @hkt macro requires exactly one \`_\` marker in the type alias RHS.
+Multiple \`_\` markers create ambiguity about which position is the HKT hole.
+
+Correct:
+  /** @hkt */
+  type MapF<K> = Map<K, _>;   // One _ — K is fixed, _ is the hole
+
+Incorrect:
+  /** @hkt */
+  type PairF = [_, _];        // Two _ — which is the hole?
+
+For multi-arity type constructors, fix all but one parameter:
+  /** @hkt */
+  type MapF<K> = Map<K, _>;   // Fix K, vary the value type`,
+  seeAlso: "https://typesugar.dev/errors/TS9304",
+};
+
+export const TS9305: DiagnosticDescriptor = {
+  code: 9305,
+  severity: "error",
+  category: DiagnosticCategory.HKT,
+  messageTemplate: "Cannot resolve type constructor `{type}` for HKT instance",
+  explanation: `The @impl macro could not resolve \`{type}\` as a valid type constructor.
+
+For HKT typeclasses like Functor and Monad, the type argument must be a generic
+type constructor (a type that takes at least one type parameter).
+
+Valid:
+  /** @impl Functor<Option> */      // Option<A> has one type param
+  /** @impl Functor<Array> */       // Array<A> has one type param
+  /** @impl Functor<Either<string>> */  // Partially applied: fixes E, varies A
+
+Invalid:
+  /** @impl Functor<number> */      // number is not a type constructor
+  /** @impl Functor<UnknownType> */ // Type not found in scope`,
+  seeAlso: "https://typesugar.dev/errors/TS9305",
+};
+
 // ============================================================================
 // Error Catalog: Extension Methods (9400-9499)
 // ============================================================================
@@ -1231,6 +1294,9 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   // HKT Issues (9300-9399)
   [9301, TS9301],
   [9302, TS9302],
+  [9303, TS9303],
+  [9304, TS9304],
+  [9305, TS9305],
 
   // Extension Methods (9400-9499)
   [9401, TS9401],
@@ -1295,6 +1361,7 @@ export function richToLegacyDiagnostic(rich: RichDiagnostic): MacroDiagnostic {
     severity: rich.severity,
     message,
     node: rich.primarySpan?.node,
+    code: rich.code,
     suggestion: rich.suggestions.length > 0 ? rich.suggestions[0].replacement : undefined,
   };
 }

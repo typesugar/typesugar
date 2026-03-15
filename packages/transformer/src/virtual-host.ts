@@ -13,6 +13,7 @@
 import * as ts from "typescript";
 import * as path from "path";
 import { preprocess, type RawSourceMap } from "@typesugar/preprocessor";
+import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
 
 /**
  * Cached preprocessed file content
@@ -100,43 +101,68 @@ export class VirtualCompilerHost implements ts.CompilerHost {
     const content = this.customReadFile(fileName);
     if (!content) return undefined;
 
-    // Only preprocess TypeScript files
-    if (!this.shouldPreprocess(fileName)) {
+    // .sts/.stsx → full preprocessor (|>, ::, F<_>)
+    if (this.shouldPreprocess(fileName)) {
+      const result = preprocess(content, {
+        fileName,
+        extensions: this.extensions,
+      });
+
+      if (result.changed) {
+        const preprocessed: PreprocessedFile = {
+          code: result.code,
+          map: result.map,
+          original: content,
+          hash: hashContent(content),
+        };
+        this.preprocessedFiles.set(fileName, preprocessed);
+        return preprocessed;
+      }
+
       return undefined;
     }
 
-    const result = preprocess(content, {
-      fileName,
-      extensions: this.extensions,
-    });
+    // .ts/.tsx → HKT rewrite only (F<A> → Kind<F, A>)
+    if (this.shouldRewriteHKT(fileName) && hasHKTPatterns(content)) {
+      const result = rewriteHKTTypeReferences(content, fileName);
 
-    if (result.changed) {
-      const preprocessed: PreprocessedFile = {
-        code: result.code,
-        map: result.map,
-        original: content,
-        hash: hashContent(content),
-      };
-      this.preprocessedFiles.set(fileName, preprocessed);
-      return preprocessed;
+      if (result.changed) {
+        const preprocessed: PreprocessedFile = {
+          code: result.code,
+          map: result.map,
+          original: content,
+          hash: hashContent(content),
+        };
+        this.preprocessedFiles.set(fileName, preprocessed);
+        return preprocessed;
+      }
     }
 
     return undefined;
   }
 
   /**
-   * Check if a file should be preprocessed
+   * Check if a file should be preprocessed (custom syntax: |>, ::, F<_>).
    *
    * Only .sts and .stsx files go through the preprocessor.
-   * Plain .ts/.tsx files skip preprocessing entirely (they can only use JSDoc syntax).
    */
   private shouldPreprocess(fileName: string): boolean {
-    // Skip node_modules and declaration files
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
-
-    // Only preprocess .sts/.stsx files (sugared TypeScript)
     return /\.stsx?$/.test(fileName);
+  }
+
+  /**
+   * Check if a file should be checked for HKT type reference rewriting.
+   *
+   * Only .ts/.tsx files are candidates (`.sts` files are handled by the
+   * preprocessor which already rewrites `F<_>` syntax).
+   */
+  private shouldRewriteHKT(fileName: string): boolean {
+    if (fileName.includes("node_modules")) return false;
+    if (fileName.endsWith(".d.ts")) return false;
+    if (/\.stsx?$/.test(fileName)) return false;
+    return /\.tsx?$/.test(fileName);
   }
 
   // ---------------------------------------------------------------------------

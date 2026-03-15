@@ -258,14 +258,16 @@ const MonoidString: Monoid<string> = {
 
 ### Functor
 
-Mappable containers.
+Mappable containers (uses HKT — see [Higher-Kinded Types](#higher-kinded-types) above).
 
 ```typescript
-@typeclass
+/** @typeclass */
 interface Functor<F> {
-  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
 ```
+
+The `F<A>` syntax is rewritten to `Kind<F, A>` by the transformer. In raw `tsc` (without the transformer), use `Kind<F, A>` directly.
 
 ## Operator Syntax {#operator-syntax}
 
@@ -360,23 +362,147 @@ If multiple typeclasses define the same operator (e.g., `Semigroup` and `Numeric
 
 ## Higher-Kinded Types
 
-typesugar supports HKTs for typeclasses over type constructors using phantom kind markers:
+Typeclasses like Functor and Monad abstract over type constructors — `Option`, `Array`, `Either<string>`, etc. TypeScript doesn't natively support higher-kinded types, but typesugar makes them feel native.
+
+Here's the full workflow — define a typeclass, implement it, use it generically:
 
 ```typescript
-import { Kind, type TypeFunction } from "@typesugar/type-system";
+type Option<A> = A | null;
+type Either<E, A> = { _tag: "Left"; error: E } | { _tag: "Right"; value: A };
+
+/** @typeclass */
+interface Functor<F> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
+
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+
+/** @impl Functor<Either<string>> */
+const eitherStringFunctor = {
+  map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
+};
+
+function lift<F, A, B>(F: Functor<F>, f: (a: A) => B): (fa: F<A>) => F<B> {
+  return (fa) => F.map(fa, f);
+}
+```
+
+No `Kind`, no `OptionF`, no `TypeFunction`, no `_`. Compare to Scala 3:
+
+```scala
+given Functor[Option] with
+  extension [A](fa: Option[A]) def map[B](f: A => B): Option[B] = fa.map(f)
+```
+
+Equally concise.
+
+### How It Works
+
+The transformer handles the encoding behind the scenes via two mechanisms:
+
+1. **`F<A>` rewriting (Tier 0)** — In typeclass bodies and generic functions, `F<A>` where `F` is a type parameter is rewritten to `Kind<F, A>` before type-checking. This is a pure AST operation — no TypeChecker needed.
+
+2. **Implicit resolution in `@impl` (Tier 1)** — `@impl Functor<Option>` sees that `Option` is a generic type with one parameter, generates the HKT encoding internally, and registers the instance. No `OptionF` or `@hkt` annotation needed.
+
+### Partial Application
+
+For multi-parameter types, fix all parameters except the last:
+
+```typescript
+/** @impl Functor<Either<string>> */
+const eitherStringFunctor = {
+  map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
+};
+
+/** @impl Functor<Either<number>> */
+const eitherNumberFunctor = {
+  map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
+};
+```
+
+`Either<string>` fixes `E = string` and varies `A` — this is the Scala convention (last parameter is the "hole").
+
+### When You Need More Control
+
+For types you don't own or edge cases where implicit resolution can't work, typesugar offers explicit tiers:
+
+**Tier 2: `@hkt` on type definitions** — generates a companion type function:
+
+```typescript
+/** @hkt */
+type Option<A> = A | null;
+// Generates: interface OptionF extends TypeFunction { _: Option<this["__kind__"]> }
+```
+
+**Tier 3: `@hkt` with `_` marker** — for types you don't own:
+
+```typescript
+import type { _ } from "@typesugar/type-system";
+
+/** @hkt */
+type ArrayF = Array<_>;
+// Generates: interface ArrayF extends TypeFunction { _: Array<this["__kind__"]> }
+```
+
+**Manual `TypeFunction`** — the escape hatch for full control:
+
+```typescript
+import type { Kind, TypeFunction } from "@typesugar/type-system";
 
 interface ArrayF extends TypeFunction {
   _: Array<this["__kind__"]>;
 }
-
-@instance
-const FunctorArray: Functor<ArrayF> = {
-  map: (fa, f) => fa.map(f),
-};
-
-summon<Functor<ArrayF>>().map([1, 2, 3], x => x * 2);
-// [2, 4, 6]
 ```
+
+Most users never need anything beyond Tier 0/1. The explicit tiers exist for library authors and edge cases.
+
+### Summoning HKT Instances
+
+```typescript
+summon<Functor<Option>>().map(null, (x: number) => x); // null
+summon<Functor<Array>>().map([1, 2, 3], (x) => x * 2); // [2, 4, 6]
+```
+
+## Migrating from `TypeFunction` to `@impl`
+
+If you have existing code using manual `TypeFunction` interfaces:
+
+**Before (manual boilerplate):**
+
+```typescript
+import { Kind, type TypeFunction } from "@typesugar/type-system";
+
+interface OptionF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Option<this["__kind__"]>;
+}
+
+/** @impl Functor<OptionF> */
+const optionFunctor: Functor<OptionF> = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+```
+
+**After (zero boilerplate):**
+
+```typescript
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+```
+
+The migration is straightforward:
+
+1. Remove the `*F` interface (`OptionF`, `EitherF`, etc.)
+2. Change `@impl Functor<OptionF>` to `@impl Functor<Option>`
+3. Remove the explicit type annotation — the macro infers it
+4. Remove unused `Kind` and `TypeFunction` imports
+
+Existing `TypeFunction` interfaces still work — this is backwards compatible. Migrate at your own pace.
 
 ## Instance Resolution
 

@@ -68,16 +68,16 @@ export default defineConfig({
 
 **Options:**
 
-| Option         | Type                         | Default                   | Description                                                         |
-| -------------- | ---------------------------- | ------------------------- | ------------------------------------------------------------------- |
-| `backend`      | `"oxc"` \| `"typescript"`   | `"oxc"`                   | Transformation backend (oxc auto-falls back to TS for type-aware macros) |
-| `strict`       | boolean                      | `false`                   | Typecheck expanded output at build end                              |
-| `verbose`      | boolean                      | `false`                   | Enable verbose logging                                              |
-| `include`      | string[]                     | `["**/*.ts", "**/*.tsx"]` | File patterns to process                                            |
-| `exclude`      | string[]                     | `["node_modules/**"]`     | File patterns to ignore                                             |
-| `tsconfig`     | string                       | Auto-detected             | Path to tsconfig.json                                               |
-| `macroModules` | string[]                     | `[]`                      | Additional macro module paths                                       |
-| `config`       | object                       | `{}`                      | Conditional compilation config                                      |
+| Option         | Type                      | Default                   | Description                                                              |
+| -------------- | ------------------------- | ------------------------- | ------------------------------------------------------------------------ |
+| `backend`      | `"oxc"` \| `"typescript"` | `"oxc"`                   | Transformation backend (oxc auto-falls back to TS for type-aware macros) |
+| `strict`       | boolean                   | `false`                   | Typecheck expanded output at build end                                   |
+| `verbose`      | boolean                   | `false`                   | Enable verbose logging                                                   |
+| `include`      | string[]                  | `["**/*.ts", "**/*.tsx"]` | File patterns to process                                                 |
+| `exclude`      | string[]                  | `["node_modules/**"]`     | File patterns to ignore                                                  |
+| `tsconfig`     | string                    | Auto-detected             | Path to tsconfig.json                                                    |
+| `macroModules` | string[]                  | `[]`                      | Additional macro module paths                                            |
+| `config`       | object                    | `{}`                      | Conditional compilation config                                           |
 
 ## Webpack Plugin
 
@@ -129,8 +129,8 @@ import typesugar from "unplugin-typesugar/rollup";
 export default {
   plugins: [
     typesugar({
-      backend: "oxc",    // or "typescript"
-      strict: false,     // typecheck expanded output
+      backend: "oxc", // or "typescript"
+      strict: false, // typecheck expanded output
       verbose: false,
     }),
   ],

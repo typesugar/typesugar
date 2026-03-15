@@ -54,6 +54,9 @@
 
 export * from "@typesugar/core";
 
+// HKT marker type (re-exported from @typesugar/type-system for convenience)
+export type { _ } from "@typesugar/type-system";
+
 // ============================================================================
 // All built-in macros
 // ============================================================================

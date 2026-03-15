@@ -23,7 +23,11 @@
 import type * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import { TransformationPipeline, type TransformResult, type TransformDiagnostic } from "./pipeline.js";
+import {
+  TransformationPipeline,
+  type TransformResult,
+  type TransformDiagnostic,
+} from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import { preprocess } from "@typesugar/preprocessor";
 
@@ -57,7 +61,31 @@ function init(modules: { typescript: typeof ts }) {
    * type checker and language service.
    */
   function getExternalFiles(project: ts.server.Project): string[] {
+    const projectName = project.getProjectName();
+
+    // Skip inferred projects (virtual, no real directory)
+    // These are created for virtual files and have currentDirectory: "/"
+    if (projectName.includes("inferredProject")) {
+      return [];
+    }
+
     const projectDir = project.getCurrentDirectory();
+
+    // Skip filesystem roots — scanning from "/" or "C:\" is never intentional
+    // and takes 4+ minutes
+    if (projectDir === "/" || /^[A-Z]:\\?$/i.test(projectDir)) {
+      return [];
+    }
+
+    // Skip directories that aren't real project roots to avoid scanning
+    // unrelated directory trees (typesugar projects always have tsconfig or package.json)
+    if (
+      !fs.existsSync(path.join(projectDir, "tsconfig.json")) &&
+      !fs.existsSync(path.join(projectDir, "package.json"))
+    ) {
+      return [];
+    }
+
     const stsFiles: string[] = [];
 
     function scanDirectory(dir: string) {
@@ -93,14 +121,23 @@ function init(modules: { typescript: typeof ts }) {
   }
 
   function create(info: ts.server.PluginCreateInfo): ts.LanguageService {
-    console.log(
-      "[typesugar] Creating language service proxy for project:",
-      info.project.getProjectName()
-    );
+    const projectName = info.project.getProjectName();
+    console.log("[typesugar] Creating language service proxy for project:", projectName);
 
     const log = (msg: string) => {
       info.project.projectService.logger.info(`[typesugar] ${msg}`);
     };
+
+    // Skip entirely for:
+    // 1. InferredProjects (virtual projects for files without tsconfig, e.g. macro-generated virtual files)
+    // 2. Build infrastructure packages (don't use typesugar macros)
+    // Processing these wastes TS server resources and causes multi-minute hangs.
+    const infraPattern =
+      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|oxc-engine|eslint-plugin|prettier-plugin)[\\/]/;
+    if (projectName.includes("/dev/null/inferredProject") || infraPattern.test(projectName)) {
+      log(`Skipping typesugar plugin for non-user project: ${projectName}`);
+      return info.languageService;
+    }
 
     log("typesugar language service plugin v2 initialized");
 
@@ -108,8 +145,8 @@ function init(modules: { typescript: typeof ts }) {
     // Transform cache and pipeline
     // ---------------------------------------------------------------------------
     const transformCache = new Map<string, TransformCacheEntry>();
-    /** Per-file macro diagnostic cache (ts.Diagnostic[]) for injection into getSemanticDiagnostics */
-    const macroDiagnosticCache = new Map<string, ts.Diagnostic[]>();
+    /** Per-file raw macro diagnostic cache — converted to ts.Diagnostic[] lazily in getSemanticDiagnostics */
+    const rawMacroDiagnosticCache = new Map<string, TransformDiagnostic[]>();
     /** Per-file suggestion cache for Quick Fix code actions */
     const suggestionCache = new Map<string, StoredSuggestion[]>();
     let pipeline: TransformationPipeline | null = null;
@@ -169,10 +206,28 @@ function init(modules: { typescript: typeof ts }) {
      */
     function convertMacroDiagnostics(
       transformDiags: TransformDiagnostic[],
-      fileName: string,
+      fileName: string
     ): ts.Diagnostic[] {
       const program = oldLS.getProgram();
-      const sourceFile = program?.getSourceFile(fileName);
+      let sourceFile = program?.getSourceFile(fileName);
+
+      if (!sourceFile) {
+        // Try normalized path variants — the program may store files
+        // under a different path format (e.g., with or without symlink resolution)
+        const normalized = path.normalize(fileName);
+        for (const sf of program?.getSourceFiles() ?? []) {
+          if (path.normalize(sf.fileName) === normalized) {
+            sourceFile = sf;
+            break;
+          }
+        }
+      }
+
+      if (!sourceFile) {
+        log(`convertMacroDiagnostics: sourceFile not found for ${fileName}`);
+      } else {
+        log(`convertMacroDiagnostics: sourceFile.fileName = ${sourceFile.fileName}`);
+      }
 
       const tsDiags: ts.Diagnostic[] = [];
       const suggestions: StoredSuggestion[] = [];
@@ -183,14 +238,20 @@ function init(modules: { typescript: typeof ts }) {
 
         const code = diag.code ?? extractErrorCode(diag.message);
 
+        // TS server filters semantic diagnostics by d.file.fileName === requestedFile.
+        // If the sourceFile path doesn't match exactly, the diagnostic is dropped.
+        // We pass the sourceFile when available so that positions can be computed,
+        // but fall back to undefined (passes the !d.file filter) if there's a
+        // risk of path mismatch.
         tsDiags.push({
           file: sourceFile,
           start: diag.start,
           length: diag.length,
           messageText: diag.message,
-          category: diag.severity === "error"
-            ? tsModule.DiagnosticCategory.Error
-            : tsModule.DiagnosticCategory.Warning,
+          category:
+            diag.severity === "error"
+              ? tsModule.DiagnosticCategory.Error
+              : tsModule.DiagnosticCategory.Warning,
           code,
           source: "typesugar",
         });
@@ -234,7 +295,7 @@ function init(modules: { typescript: typeof ts }) {
       if (cached) {
         p.invalidate(normalizedFileName);
       }
-      macroDiagnosticCache.delete(normalizedFileName);
+      rawMacroDiagnosticCache.delete(normalizedFileName);
       suggestionCache.delete(normalizedFileName);
 
       try {
@@ -247,13 +308,15 @@ function init(modules: { typescript: typeof ts }) {
           }
         }
 
-        // Convert and cache macro diagnostics for IDE surfacing
-        const tsDiags = convertMacroDiagnostics(result.diagnostics, normalizedFileName);
-        if (tsDiags.length > 0) {
-          macroDiagnosticCache.set(normalizedFileName, tsDiags);
-          log(`Cached ${tsDiags.length} macro diagnostics for ${path.basename(normalizedFileName)}`);
+        // Cache raw diagnostics — they'll be converted to ts.Diagnostic lazily
+        // in getSemanticDiagnostics when the program/sourceFile is available
+        if (result.diagnostics.length > 0) {
+          rawMacroDiagnosticCache.set(normalizedFileName, result.diagnostics);
+          log(
+            `Cached ${result.diagnostics.length} raw macro diagnostics for ${path.basename(normalizedFileName)}`
+          );
         } else {
-          macroDiagnosticCache.delete(normalizedFileName);
+          rawMacroDiagnosticCache.delete(normalizedFileName);
         }
 
         if (result.changed) {
@@ -535,21 +598,22 @@ function init(modules: { typescript: typeof ts }) {
     proxy.getSemanticDiagnostics = (fileName: string): ts.Diagnostic[] => {
       const normalizedFileName = path.normalize(fileName);
 
-      // Ensure transformation has run (populates macroDiagnosticCache)
+      // Ensure transformation has run (populates rawMacroDiagnosticCache)
       getTransformResult(normalizedFileName);
 
       // Get TypeScript's own diagnostics and map positions back
       const diagnostics = oldLS.getSemanticDiagnostics(fileName);
       const mapped = mapDiagnostics(diagnostics, fileName);
 
-      // Inject macro diagnostics from the transformation pipeline
-      const macroDiags = macroDiagnosticCache.get(normalizedFileName) ?? [];
+      // Convert raw macro diagnostics to ts.Diagnostic[] now that the program is available
+      const rawDiags = rawMacroDiagnosticCache.get(normalizedFileName) ?? [];
+      const macroDiags = convertMacroDiagnostics(rawDiags, normalizedFileName);
       const combined = [...mapped, ...macroDiags];
 
       if (combined.length > 0) {
         log(
           `Semantic diagnostics for ${path.basename(fileName)}: ` +
-          `${diagnostics.length} TS raw → ${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
+            `${diagnostics.length} TS raw → ${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
         );
       }
       return combined;
@@ -575,13 +639,18 @@ function init(modules: { typescript: typeof ts }) {
       end: number,
       errorCodes: readonly number[],
       formatOptions: ts.FormatCodeSettings,
-      preferences: ts.UserPreferences,
+      preferences: ts.UserPreferences
     ): readonly ts.CodeFixAction[] => {
       const normalizedFileName = path.normalize(fileName);
 
       // Get TS's own code fixes
       const original = oldLS.getCodeFixesAtPosition(
-        fileName, start, end, errorCodes, formatOptions, preferences,
+        fileName,
+        start,
+        end,
+        errorCodes,
+        formatOptions,
+        preferences
       );
 
       // Check if any of the error codes are in the typesugar range (9001-9999)
@@ -604,13 +673,17 @@ function init(modules: { typescript: typeof ts }) {
           fixes.push({
             fixName: "typesugar-fix",
             description: suggestion.description,
-            changes: [{
-              fileName: normalizedFileName,
-              textChanges: [{
-                span: { start: suggestion.start, length: suggestion.length },
-                newText: suggestion.replacement,
-              }],
-            }],
+            changes: [
+              {
+                fileName: normalizedFileName,
+                textChanges: [
+                  {
+                    span: { start: suggestion.start, length: suggestion.length },
+                    newText: suggestion.replacement,
+                  },
+                ],
+              },
+            ],
             fixId: "typesugar-fix",
             fixAllDescription: suggestion.description,
           });

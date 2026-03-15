@@ -421,7 +421,8 @@ export function transformImplicitsCall(
 
       const paramName = ts.isIdentifier(param.name) ? param.name.text : `param[${i}]`;
 
-      const builder = ctx.diagnostic(TS9001)
+      const builder = ctx
+        .diagnostic(TS9001)
         .at(callExpr)
         .withArgs({ typeclass: typeclassName, type: concreteType });
 
@@ -489,7 +490,8 @@ export const summonAllMacro = defineExpressionMacro({
       const innerTypeArgs = typeArg.typeArguments;
 
       if (!innerTypeArgs || innerTypeArgs.length === 0) {
-        ctx.diagnostic(TS9008)
+        ctx
+          .diagnostic(TS9008)
           .at(typeArg)
           .help(`Use summonAll<${tcName}<YourType>>() with a concrete type argument`)
           .emit();

@@ -16,12 +16,7 @@ import {
   IdentityPositionMapper,
   type PositionMapper,
 } from "./position-mapper.js";
-import {
-  TransformCache,
-  hashContent,
-  DiskTransformCache,
-  initHasher,
-} from "./cache.js";
+import { TransformCache, hashContent, DiskTransformCache, initHasher } from "./cache.js";
 import macroTransformerFactory, {
   type MacroTransformerConfig,
   saveExpansionCache,
@@ -840,6 +835,11 @@ export class TransformationPipeline {
       return true;
     }
 
+    // 2b. @hkt JSDoc macro (Tier 3 _ marker on type aliases)
+    if (/@hkt\b/.test(source)) {
+      return true;
+    }
+
     // 3. Implicit resolution: = implicit()
     if (/=\s*implicit\s*\(/.test(source)) {
       return true;
@@ -982,7 +982,8 @@ export class TransformationPipeline {
       // This is a significant win for files with no macros or macro-free regions
       if (transformedSourceFile === sourceFile) {
         const unchangedDiags: TransformDiagnostic[] = rawDiagnostics.map((d) => {
-          const message = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+          const message =
+            typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
           const codeMatch = message.match(/\[TS(\d{4})\]/);
           const suggestionText = (d as { __typesugarSuggestion?: string }).__typesugarSuggestion;
           const result: TransformDiagnostic = {
@@ -991,7 +992,9 @@ export class TransformationPipeline {
             length: d.length ?? 0,
             message,
             severity:
-              d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
+              d.category === ts.DiagnosticCategory.Error
+                ? ("error" as const)
+                : ("warning" as const),
             code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
           };
           if (suggestionText) {
@@ -1010,7 +1013,8 @@ export class TransformationPipeline {
       }
 
       const diagnostics: TransformDiagnostic[] = rawDiagnostics.map((d) => {
-        const message = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+        const message =
+          typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
         const codeMatch = message.match(/\[TS(\d{4})\]/);
         const suggestionText = (d as { __typesugarSuggestion?: string }).__typesugarSuggestion;
         const result: TransformDiagnostic = {

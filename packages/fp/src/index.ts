@@ -29,21 +29,7 @@
 // ============================================================================
 
 export { unsafeCoerce } from "./hkt.js";
-export type {
-  Kind,
-  OptionF,
-  EitherF,
-  ListF,
-  NonEmptyListF,
-  ValidatedF,
-  StateF,
-  ReaderF,
-  WriterF,
-  IOF,
-  IdF,
-  ResourceF,
-  Resource,
-} from "./hkt.js";
+export type { _, Kind, StateF, ReaderF, WriterF, IOF, IdF, ResourceF, Resource } from "./hkt.js";
 
 // ============================================================================
 // Typeclasses
@@ -75,7 +61,7 @@ export type {
 // Option — Zero-cost (null-based)
 // ============================================================================
 
-export type { Option, Defined } from "./data/option.js";
+export type { Option, OptionF, Defined } from "./data/option.js";
 export { Some, None, isSome, isNone, defined, unwrapDefined } from "./data/option.js";
 export {
   getEq as getOptionEq,
@@ -91,7 +77,7 @@ export {
 // Either — Typed error handling
 // ============================================================================
 
-export type { Either } from "./data/either.js";
+export type { Either, EitherF } from "./data/either.js";
 export { Left, Right, isLeft, isRight } from "./data/either.js";
 export {
   getEq as getEitherEq,
@@ -104,7 +90,7 @@ export {
 // List — Persistent linked list
 // ============================================================================
 
-export type { List } from "./data/list.js";
+export type { List, ListF } from "./data/list.js";
 export { Cons, Nil, isCons, isNil } from "./data/list.js";
 export {
   of as listOf,
@@ -120,7 +106,7 @@ export {
 // NonEmptyList — List with at least one element
 // ============================================================================
 
-export type { NonEmptyList } from "./data/nonempty-list.js";
+export type { NonEmptyList, NonEmptyListF } from "./data/nonempty-list.js";
 export {
   of as nelOf,
   singleton as nelSingleton,
@@ -136,7 +122,7 @@ export {
 // Validated — Error accumulation
 // ============================================================================
 
-export type { Validated, ValidatedNel } from "./data/validated.js";
+export type { Validated, ValidatedF, ValidatedNel } from "./data/validated.js";
 export {
   Valid,
   Invalid,

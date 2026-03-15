@@ -31,7 +31,7 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@deriving` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@deriving(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
 
-3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @deriving Eq, Ord */`, `/** @op + */`. No preprocessor required. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
+3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @deriving Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
 
 4. **Extensions are Import-Scoped (Scala 3 Model)** — Extension methods only activate when you import the function. `import { clamp } from "@typesugar/std"` makes `n.clamp(0, 100)` work. No import, no extension. This prevents surprising method injection and makes dependencies explicit. Extension files must have `"use extension"` at the top. The package's `index.ts` must barrel-export all extensions.
 
@@ -52,7 +52,7 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 10. **Respect Package Boundaries** — Typeclass machinery in `@typesugar/typeclass`, typeclass definitions in `@typesugar/std`, FP data types in `@typesugar/fp`, collection hierarchy in `@typesugar/collections`. Don't mix.
 
-11. **HKT Must Be Sound** — Every `interface FooF { _: ... }` must use `this["__kind__"]`. If `Kind<FooF, string>` and `Kind<FooF, number>` resolve to the same type, it's phantom/unsound. Unsound types must NOT implement Functor/Monad. Use `F<_>` syntax, never Scala's `F[_]`.
+11. **HKT: Use Tier 0/1 by Default** — Write `F<A>` in typeclass bodies (the transformer rewrites to `Kind<F, A>`). Use `@impl Functor<Option>` for instances (the macro resolves the type constructor). Manual `TypeFunction` interfaces are the escape hatch. When writing manual interfaces, `_` MUST use `this["__kind__"]` — unsound phantom types must NOT implement Functor/Monad. Use `F<_>` syntax in `.sts` files, `F<A>` in `.ts` files, never Scala's `F[_]`.
 
 12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
 

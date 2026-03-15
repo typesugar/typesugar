@@ -96,48 +96,58 @@ This module provides three levels of type branding:
 
 ### Higher-Kinded Types (HKT)
 
-Type constructors as type parameters via phantom kind markers.
+Type constructors as type parameters. Most users never touch this directly — `@impl Functor<Option>` handles everything. This package provides the low-level primitives for library authors and advanced use cases.
+
+#### The `_` Marker Type (Tier 3)
+
+For types you don't own, the `_` marker lets you define type-level functions with `@hkt`:
 
 ```typescript
-import {
-  type $,
-  type Kind,
-  type TypeFunction,
-  type ArrayF,
-  type PromiseF,
-} from "@typesugar/type-system";
+import type { _ } from "@typesugar/type-system";
 
-// F is a type constructor (Array, Promise, etc.)
-interface Functor<F> {
-  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
-}
+/** @hkt */
+type ArrayF = Array<_>;
 
-// Apply a type constructor — preprocessor resolves known type functions
+/** @hkt */
+type MapF<K> = Map<K, _>;
+```
+
+The `_` type is `never & "__kind__"` — TypeScript reduces it to `never` (valid anywhere), but the AST preserves the intersection for macro detection. The `@hkt` macro finds the `_` position, replaces it with `this["__kind__"]`, and generates the full `TypeFunction` interface.
+
+#### Kind and TypeFunction (Manual)
+
+For full control, define type-level functions manually:
+
+```typescript
+import { type Kind, type TypeFunction, type ArrayF, type PromiseF } from "@typesugar/type-system";
+
+// Apply a type constructor
 type Result = Kind<ArrayF, number>; // → number[]
 type AsyncResult = Kind<PromiseF, string>; // → Promise<string>
+
+// Define your own
+interface ArrayF extends TypeFunction {
+  _: Array<this["__kind__"]>;
+}
 ```
 
 #### Warning: Phantom HKT Types
 
-When defining your own type-level functions for HKT, the `_` property **must** reference
-`this["__kind__"]` to be sound. If `Kind<F, A>` always resolves to the same type regardless
-of `A`, the HKT encoding is phantom/unsound.
+The `_` property **must** reference `this["__kind__"]` to be sound. If `Kind<F, A>` always resolves to the same type regardless of `A`, the encoding is phantom/unsound.
 
 ```typescript
-// ✓ CORRECT: _ uses this["__kind__"] - Kind<ArrayF, A> resolves to A[]
+// ✓ CORRECT: Kind<ArrayF, A> resolves to A[]
 interface ArrayF extends TypeFunction {
   _: Array<this["__kind__"]>;
 }
 
-// ✗ WRONG: _ doesn't use this["__kind__"] - Kind<StringF, A> always resolves to string
+// ✗ WRONG: Kind<StringF, A> always resolves to string
 interface StringF extends TypeFunction {
   _: string;
 }
 ```
 
-Types that cannot be parameterized (e.g., primitives) should NOT implement typeclasses
-like `Functor` that change the element type via `map`. Use read-only typeclasses like
-`Foldable` instead. See Finding #2 in FINDINGS.md.
+Phantom types must NOT implement typeclasses that change the element type (`Functor`, `Monad`). Use read-only typeclasses like `Foldable` instead.
 
 ### Existential Types
 
@@ -300,7 +310,8 @@ assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
 
 ### HKT
 
-- `Kind<F, A>` / `Kind<F, A>` — Phantom kind marker: type constructor F applied to type A
+- `Kind<F, A>` / `$<F, A>` — Phantom kind marker: type constructor F applied to type A
+- `_` — Hole marker for `@hkt` type aliases (Tier 3): `type ArrayF = Array<_>`
 - `TypeFunction` — Base interface for type-level functions
 - `Apply<F, A>` — Eagerly resolve a type-level function (rarely needed)
 - `ArrayF`, `PromiseF`, `SetF`, `MapF`, `ReadonlyArrayF` — Built-in type-level functions
