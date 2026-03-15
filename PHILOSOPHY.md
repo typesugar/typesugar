@@ -82,70 +82,57 @@ TypeScript's type system is more capable than it appears. Before reaching for co
 
 ### The HKT lesson
 
-HKT (Higher-Kinded Types) encoding in typesugar has evolved through three generations, each simpler than the last.
+TypeScript lacks higher-kinded types. `Option` is `* -> *` (a type constructor that takes one type argument), but TypeScript has no way to express "a type parameter that itself takes type arguments." You can't write `F<A>` where `F` is a type parameter.
 
-**First generation** (URI branding -- fp-ts style):
+Or can you?
 
-```typescript
-interface HKTRegistry {}
-type Kind<F, A> = F extends { __hkt_uri__: infer URI }
-  ? URI extends keyof HKTRegistry
-    ? (HKTRegistry[URI] & { __arg__: A })["type"]
-    : never
-  : never;
-```
+### The key insight: `F<A>` is valid syntax
 
-This required brand interfaces, module augmentation, registry population, and `as unknown as` casts everywhere.
+`F<A>` where `F` is a type parameter **parses correctly** in TypeScript. It produces a clean AST with zero parse errors. TypeScript's type checker will later reject it with TS2315 ("Type 'F' is not generic"), but by then the AST is fully formed.
 
-**Second generation** (indexed access):
+The type error IS the signal. If a `TypeReferenceNode`'s identifier matches a type parameter of any enclosing scope and has type arguments, it's an HKT usage. The transformer rewrites it before the type checker sees it.
+
+This means users write natural code:
 
 ```typescript
-type Kind<F, A> = (F & { readonly _: A })["_"];
-
-interface OptionF {
-  _: Option<this["_"]>;
-}
-```
-
-Simpler -- no registry, no module augmentation. But `Kind<F, A>` forced TypeScript to eagerly compute the result type via indexed access, which slowed down type checking on large codebases.
-
-**Current generation** (phantom kind markers):
-
-```typescript
-type Kind<F, A> = F & { readonly __kind__: A };
-```
-
-`Kind<F, A>` is just an intersection type. TypeScript stores it without recursive computation -- no indexed access, no conditional types, no registry. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
-
-Users write natural `F<A>` syntax in `.ts` files -- the transformer rewrites it to `Kind<F, A>` before type-checking:
-
-```typescript
-// You write (valid TypeScript syntax):
 /** @typeclass */
 interface Functor<F> {
   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
-
-// Transformer emits:
-interface Functor<F> {
-  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
-}
 ```
 
-And implementing a typeclass instance requires zero HKT boilerplate:
+The transformer rewrites `F<A>` to `Kind<F, A>` -- the internal encoding. Users never see or think about `Kind`.
 
-```typescript
-/** @impl Functor<Option> */
-const optionFunctor = {
-  map: (fa, f) => (fa === null ? null : f(fa)),
-};
-```
+### The encoding underneath
 
-No `OptionF`, no `TypeFunction`, no `_` marker. The `@impl` macro resolves `Option` via the TypeChecker, determines it has one type parameter, and generates the encoding internally.
+The encoding has evolved through three generations, each fighting TypeScript less:
 
-**Lesson**: Each generation fought TypeScript less. The current design is just an intersection type -- the simplest possible encoding. Complex encodings usually mean we're fighting the language instead of using it. And the user never sees the encoding at all.
+1. **URI branding** (fp-ts style) -- Registry interfaces, module augmentation, `as unknown as` casts everywhere. Complex and fragile.
 
-### The Build-Tooling Trade-off
+2. **Indexed access** -- `type Kind<F, A> = (F & { readonly _: A })["_"]`. Simpler, but forced TypeScript to eagerly compute result types. Slow on large codebases.
+
+3. **Phantom kind markers** (current) -- `type Kind<F, A> = F & { readonly __kind__: A }`. Just an intersection type. No computation, no recursion, no registry. TypeScript stores it lazily.
+
+The current encoding is the simplest possible: an intersection type that tags the type constructor with its argument. The preprocessor resolves known applications (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
+
+### The tier system
+
+HKT usage falls into tiers, from most automatic to most manual:
+
+| Tier | What you write                                          | What happens                                                           |
+| ---- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 0    | `F<A>` in typeclass bodies                              | Transformer rewrites to `Kind<F, A>` (pure syntax, no TypeChecker)     |
+| 1    | `@impl Functor<Option>`                                 | Macro resolves `Option` via TypeChecker, generates encoding internally |
+| 2    | `/** @hkt */ type OptionF = Option<_>`                  | Macro generates the `TypeFunction` interface from a one-liner          |
+| 3    | Manual `interface OptionF extends TypeFunction { ... }` | Full control, escape hatch                                             |
+
+Most users stay at Tier 0 and 1. They write `F<A>` in typeclass definitions and `@impl Functor<Option>` for instances. No `OptionF`, no `TypeFunction`, no `Kind`, no `_` marker. The machinery is invisible.
+
+Tier 2 and 3 exist for library authors who need to define type-level functions for new types. Even there, the `@hkt` macro reduces it to a single line.
+
+**Lesson**: The encoding matters (it determines type-checking performance), but the user should never see it. Each tier is an escape hatch that progressively reveals the machinery -- but the default is full automation.
+
+### The build-tooling trade-off
 
 typesugar's HKT workflow requires build tooling -- the `F<A>` rewriting and `@impl` resolution happen in the transformer. Libraries like fp-ts and Effect-TS work in vanilla TypeScript with no preprocessing.
 
@@ -153,6 +140,11 @@ However, the setup cost is minimal for production codebases with existing build 
 
 ```typescript
 // typesugar: just write it
+/** @typeclass */
+interface Functor<F> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
+
 /** @impl Functor<Option> */
 const optionFunctor = { map: (fa, f) => fa === null ? null : f(fa) };
 
@@ -160,10 +152,11 @@ const optionFunctor = { map: (fa, f) => fa === null ? null : f(fa) };
 declare module "fp-ts/HKT" { interface URItoKind<A> { Option: Option<A> } }
 const URI = "Option";
 type URI = typeof URI;
+interface Functor<F extends URIS> { map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> }
 const Functor: Functor1<URI> = { URI, map: (fa, f) => ... };
 ```
 
-**Honest assessment**: the trade-off is real, but the gap has narrowed. The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For `.sts` files, the preprocessor still handles `F<_>` syntax. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
+The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For `.sts` files, the preprocessor handles `F<_>` syntax. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
 
 ---
 
@@ -358,6 +351,134 @@ This is Scala 3's `extension` syntax, adapted to TypeScript's module system.
 
 ---
 
+## SFINAE: Substitution Failure Is Not An Error
+
+typesugar's macro system rewrites code at compile time, but TypeScript's type checker runs on the original source. This creates a gap: the type checker reports errors that the transformer will resolve. These are phantom errors -- valid from TypeScript's perspective, invalid from typesugar's.
+
+C++ templates solved the same class of problem with SFINAE: when template argument substitution produces an invalid type, the compiler silently removes that candidate instead of reporting an error. The substitution "failed," but it's not an error -- it's information that guides resolution.
+
+typesugar applies the same principle. When TypeScript reports an error at a site where the macro system has a valid rewrite, the error is suppressed:
+
+```typescript
+import { clamp } from "@typesugar/std";
+
+// TypeScript: "Property 'clamp' does not exist on type 'number'" (TS2339)
+// typesugar:  clamp(n, ...) is imported and its first param matches → not an error
+n.clamp(0, 100);
+```
+
+```typescript
+type UserId = Newtype<number, "UserId">;
+
+// TypeScript: "Type 'number' is not assignable to type 'UserId'" (TS2322)
+// typesugar:  UserId is a newtype over number → runtime identity → not an error
+const id: UserId = 42;
+```
+
+### What makes this principled
+
+SFINAE is not blanket diagnostic suppression. Each suppression is justified by a specific rewrite rule:
+
+1. **Extension methods** -- A function with matching first parameter is in scope → TS2339 suppressed
+2. **Newtype assignment** -- Source matches the newtype's base type → TS2322/TS2345 suppressed
+3. **Opaque type boundaries** -- Source matches the opaque type's underlying representation → TS2322/TS2345 suppressed
+4. **Macro-generated code** -- Diagnostic position doesn't map to original source → suppressed
+
+If no rule matches, the error stands. The system is auditable: `--show-sfinae` prints every suppressed diagnostic with its justification.
+
+### Why not just fix the types?
+
+For some cases, we can. Global augmentations (`interface Number { clamp(): number }`) make TypeScript happy about extension methods on concrete types. Type macros (`@opaque`) make TypeScript happy about methods on FP types.
+
+But there will always be edges where the type checker and the transformer disagree. SFINAE is the general safety net that bridges those edges without ad-hoc workarounds.
+
+---
+
+## Type Macros: Rich Types, Cheap Runtime
+
+typesugar's existing macros operate on expressions and declarations. Type macros extend this to types themselves: define how a type appears to the type checker while controlling its runtime representation.
+
+### The problem
+
+Zero-cost types face a fundamental tension. `Option<A> = A | null` is zero-cost at runtime (no wrapper allocation), but it loses all methods -- you can't write `x.map(f)` because `null` has no properties. Making `Option` a class gives you methods but costs a wrapper allocation for every value.
+
+Other languages resolve this:
+
+- **Scala 3** -- `opaque type` aliases are transparent inside the companion, opaque outside, with extension methods adding the API surface
+- **Rust** -- `newtype` pattern with `Deref` and trait implementations
+- **Haskell** -- `newtype` with automatic coercions
+
+### The solution
+
+A type macro annotates a type definition and registers a rewrite:
+
+```typescript
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+  getOrElse(defaultValue: () => A): A;
+  // ...
+}
+```
+
+TypeScript sees an interface with methods. Type inference works. IDE completions work. But the transformer erases everything:
+
+- `x.map(f)` → `map(x, f)` (standalone function call)
+- `Some(5)` → `5` (constructor erasure)
+- `None` → `null` (constant erasure)
+
+The runtime representation is `A | null`. The methods exist only at author-time.
+
+### Transparent scope
+
+Within the file that defines the `@opaque` type, the underlying representation is visible -- Scala 3 semantics. This lets implementations use natural patterns:
+
+```typescript
+// Inside option.ts -- transparent scope
+export function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B> {
+  return o === null ? null : f(o); // Just works -- Option<A> is A | null here
+}
+```
+
+Outside the defining file, `Option<A>` is opaque -- you interact through its methods.
+
+### Implicit conversions
+
+Assignment between an `@opaque` type and its underlying representation is free, handled by SFINAE:
+
+```typescript
+const nullable: number | null = fetchValue();
+const opt: Option<number> = nullable; // No error, no ceremony, no fromNullable()
+const back: number | null = opt; // Same in reverse
+```
+
+At runtime, all three variables hold the same value. The type boundary exists only in the type checker.
+
+### Beyond Option
+
+The infrastructure is general. Any "rich interface, cheap runtime" pattern benefits:
+
+```typescript
+/** @opaque number */
+interface Meters {
+  add(other: Meters): Meters;
+  scale(factor: number): Meters;
+  toFeet(): number;
+}
+
+/** @opaque () => A */
+interface IO<A> {
+  map<B>(f: (a: A) => B): IO<B>;
+  flatMap<B>(f: (a: A) => IO<B>): IO<B>;
+  run(): A;
+}
+```
+
+Newtypes get methods. Effect types get fluent APIs. All zero-cost.
+
+---
+
 ## Drop What Doesn't Deliver
 
 Not every abstraction earns its keep. Be willing to remove code that:
@@ -410,6 +531,7 @@ typesugar exists to prove that TypeScript developers don't have to choose betwee
 - **Abstract code becomes concrete** -- Generics resolve, dictionaries inline, method bodies are substituted at call sites. The abstraction exists at author-time and is gone at runtime.
 - **Type information drives code generation** -- The compiler reads your types and generates optimal code from their structure. Reflection replaces boilerplate.
 - **The type system does more work** -- Native encodings over complex tricks. If TypeScript already handles it, don't build machinery around it.
+- **Types have two faces** -- Type macros let types appear rich to the type checker (with methods, constraints, APIs) while erasing to cheap representations at runtime. SFINAE handles the seams.
 - **What runs is what you'd write by hand** -- If you had infinite patience and perfect knowledge of every type in your program.
 
 Zero-cost abstractions aren't a feature. They're the philosophy.
