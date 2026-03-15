@@ -356,7 +356,8 @@ match(data)
 Match using custom extractors via the `Destructure` typeclass — typesugar's equivalent of Scala's `unapply`:
 
 ```typescript
-import { match, Some, None, Left, Right } from "@typesugar/std";
+import { match } from "@typesugar/std";
+import { Some, None, Left, Right } from "@typesugar/fp";
 
 // Option matching
 match(option)
@@ -677,6 +678,14 @@ function evaluate(expr: Expr, env: Record<string, number>): number {
   | { kind: "var", name: n } => env[n] ?? 0
 }
 ```
+
+---
+
+## IDE Experience
+
+The fluent API uses compile-time macros, so your editor's TypeScript language service won't recognise pattern variables (`r`, `s`, `w`, `h` in the examples above) as declared bindings. **You'll see red squiggles on those identifiers — this is expected.** The macro rewrites them into valid JavaScript at build time.
+
+If the squiggles bother you, use the preprocessor `.sts` syntax instead — the preprocessor emits valid TypeScript that the language service can check. See [Two Syntaxes](#two-syntaxes) above.
 
 ---
 

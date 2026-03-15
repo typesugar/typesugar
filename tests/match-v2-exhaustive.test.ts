@@ -731,3 +731,77 @@ describe("Wave 5: fully-covered arm optimization", () => {
     expect(output).not.toContain('=== "fail"');
   });
 });
+
+// ============================================================================
+// Code Review Fixes (PEP-008)
+// ============================================================================
+
+describe("Code review fixes", () => {
+  function createTypedCtx(unionMembers: string[]): {
+    ctx: MacroContextImpl;
+    printExpr: (node: ts.Expression) => string;
+  } {
+    const { ctx, printExpr } = createTestContext();
+    const checker = getSharedProgram().getTypeChecker();
+    const memberTypes = unionMembers.map((m) => checker.getStringLiteralType(m));
+    const unionType = memberTypes.length === 1 ? memberTypes[0] : checker.getUnionType(memberTypes);
+    ctx.getTypeOf = () => unionType;
+    return { ctx, printExpr };
+  }
+
+  it("C2: fully-covered arm with AS binding should still generate binding", () => {
+    const { ctx, printExpr } = createTypedCtx(["ok", "fail"]);
+
+    const { outermost, rootArgs } = buildChain(
+      ident("status"),
+      { method: "case", args: [str("ok")] },
+      { method: "then", args: [num(1)] },
+      { method: "case", args: [str("fail")] },
+      { method: "as", args: [ident("s")] },
+      { method: "then", args: [ident("s")] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const output = printExpr(result);
+    // Must generate binding for `s` even though arm is fully covered
+    expect(output).toContain("const s");
+  });
+
+  it("H2: wildcard in OR alternative should make match exhaustive", () => {
+    const { ctx } = createTestContext();
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [num(42)] },
+      { method: "or", args: [ident("_")] },
+      { method: "then", args: [str("yes")] }
+    );
+
+    expandFluentMatch(ctx, outermost, rootArgs);
+    const diagnostics = ctx.getDiagnostics();
+    // Should NOT report non-exhaustive because _ in .or() covers everything
+    expect(diagnostics.filter((d) => d.message.includes("Non-exhaustive"))).toHaveLength(0);
+  });
+
+  it("M5: duplicate literal in OR should be reported as unreachable", () => {
+    const { ctx } = createTestContext();
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [num(42)] },
+      { method: "or", args: [num(42)] },
+      { method: "then", args: [str("yes")] },
+      { method: "else", args: [str("no")] }
+    );
+
+    expandFluentMatch(ctx, outermost, rootArgs);
+    const diagnostics = ctx.getDiagnostics();
+    const warnings = diagnostics.filter((d) => d.severity === "warning");
+    expect(
+      warnings.some(
+        (w) =>
+          w.message.includes("already matched") ||
+          w.message.includes("Unreachable") ||
+          w.message.includes("duplicate")
+      )
+    ).toBe(true);
+  });
+});
