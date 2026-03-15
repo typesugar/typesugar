@@ -2546,7 +2546,9 @@ ${cases}
         const { signature } = buildGenericFactorySignature("Ord", typeName, typeParams);
         const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
         const fullTypeName = `${typeName}<${typeParamsStr}>`;
-        const eqParams = typeParams.map((tp) => getInstanceParamName("Ord", tp.name.text)).join(", ");
+        const eqParams = typeParams
+          .map((tp) => getInstanceParamName("Ord", tp.name.text))
+          .join(", ");
 
         return `
 export function ${signature} {
@@ -3035,7 +3037,8 @@ export const derivingAttribute = defineAttributeMacro({
               // For inline type literals, match by checking the discriminant value
               try {
                 const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
-                const discProp = ctx.typeChecker.getPropertiesOfType(memberType)
+                const discProp = ctx.typeChecker
+                  .getPropertiesOfType(memberType)
                   .find((p: ts.Symbol) => p.name === sumInfo!.discriminant);
                 if (discProp) {
                   const decl = discProp.getDeclarations()?.[0];
@@ -3100,7 +3103,8 @@ export const derivingAttribute = defineAttributeMacro({
     ) {
       for (const arg of args) {
         if (ts.isIdentifier(arg)) {
-          ctx.diagnostic(TS9104)
+          ctx
+            .diagnostic(TS9104)
             .at(target)
             .withArgs({ typeclass: arg.text, type: typeName })
             .help("Add fields to the type, or provide a manual @instance")

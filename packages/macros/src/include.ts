@@ -113,7 +113,8 @@ function extractPathArg(
     return result.value;
   }
 
-  ctx.diagnostic(TS9205)
+  ctx
+    .diagnostic(TS9205)
     .at(callExpr)
     .help(`Pass a string literal: ${macroName}("./path/to/file")`)
     .emit();
@@ -149,7 +150,8 @@ export const includeStrMacro = defineExpressionMacro({
       const contents = fs.readFileSync(absolutePath, "utf-8");
       return ctx.factory.createStringLiteral(contents);
     } catch (error) {
-      ctx.diagnostic(TS9212)
+      ctx
+        .diagnostic(TS9212)
         .at(callExpr)
         .withArgs({ path: relativePath })
         .note(`Resolved to: ${absolutePath}`)
@@ -198,7 +200,8 @@ export const includeBytesMacro = defineExpressionMacro({
         [ctx.factory.createArrayLiteralExpression(elements)]
       );
     } catch (error) {
-      ctx.diagnostic(TS9212)
+      ctx
+        .diagnostic(TS9212)
         .at(callExpr)
         .withArgs({ path: relativePath })
         .note(`Resolved to: ${absolutePath}`)
@@ -241,13 +244,15 @@ export const includeJsonMacro = defineExpressionMacro({
       return jsValueToExpression(ctx, parsed, callExpr);
     } catch (error) {
       if (error instanceof SyntaxError) {
-        ctx.diagnostic(TS9213)
+        ctx
+          .diagnostic(TS9213)
           .at(callExpr)
           .withArgs({ path: relativePath })
           .note(error.message)
           .emit();
       } else {
-        ctx.diagnostic(TS9212)
+        ctx
+          .diagnostic(TS9212)
           .at(callExpr)
           .withArgs({ path: relativePath })
           .note(`Resolved to: ${absolutePath}`)
