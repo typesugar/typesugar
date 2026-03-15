@@ -155,16 +155,16 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Define `SfinaeRule` interface in `@typesugar/core`
-- [ ] Create `sfinaeRuleRegistry` with `registerSfinaeRule()` and `evaluateSfinae()`
-- [ ] Port existing position-mapping suppression to Rule 4 (MacroGenerated)
-- [ ] Unit tests for registry operations
+- [x] Define `SfinaeRule` interface in `@typesugar/core`
+- [x] Create `sfinaeRuleRegistry` with `registerSfinaeRule()` and `evaluateSfinae()`
+- [x] Port existing position-mapping suppression to Rule 4 (MacroGenerated)
+- [x] Unit tests for registry operations
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm vitest run packages/core` passes
-- [ ] Existing diagnostic suppression behavior is preserved (no regression)
+- [x] `pnpm build` passes
+- [x] `pnpm vitest run packages/core` passes
+- [x] Existing diagnostic suppression behavior is preserved (no regression)
 
 ### Wave 2: Language Service Integration
 

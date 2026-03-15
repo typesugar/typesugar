@@ -212,3 +212,22 @@ export {
   MacroPipeline,
   type PipelineStep,
 } from "./pipeline.js";
+
+// SFINAE Diagnostic Resolution
+export {
+  registerSfinaeRule,
+  clearSfinaeRules,
+  getSfinaeRules,
+  getSfinaeAuditLog,
+  clearSfinaeAuditLog,
+  evaluateSfinae,
+  filterDiagnostics,
+  isSfinaeAuditEnabled,
+  setSfinaeAuditMode,
+  type SfinaeRule,
+  type SfinaeAuditEntry,
+  type SfinaeEvalResult,
+} from "./sfinae.js";
+
+// Built-in SFINAE Rules
+export { createMacroGeneratedRule, type PositionMapFn } from "./sfinae-rules.js";
