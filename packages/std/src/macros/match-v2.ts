@@ -94,7 +94,7 @@ type PatternInfo =
   | { kind: "type-constructor"; constructorName: string; binding: PatternInfo }
   | { kind: "extractor"; extractorName: string; bindings: PatternInfo[]; def: ExtractorDef }
   | { kind: "regex"; node: ts.Expression }
-  | { kind: "unsupported"; node: ts.Expression };
+  | { kind: "unsupported"; node: ts.Expression; reason?: string };
 
 // ============================================================================
 // Extractor Registry
@@ -255,6 +255,10 @@ function parseArms(
         break;
 
       case "or":
+        if (currentPattern === undefined) {
+          ctx.reportError(link.node, "match: .or() must follow .case()");
+          break;
+        }
         if (link.args.length < 1) {
           ctx.reportError(link.node, "match: .or() requires a pattern argument");
           break;
@@ -263,6 +267,10 @@ function parseArms(
         break;
 
       case "as":
+        if (currentPattern === undefined) {
+          ctx.reportError(link.node, "match: .as() must follow .case()");
+          break;
+        }
         if (link.args.length < 1) {
           ctx.reportError(link.node, "match: .as() requires a binding argument");
           break;
@@ -271,6 +279,10 @@ function parseArms(
         break;
 
       case "if":
+        if (currentPattern === undefined) {
+          ctx.reportError(link.node, "match: .if() must follow .case()");
+          break;
+        }
         if (link.args.length < 1) {
           ctx.reportError(link.node, "match: .if() requires a guard expression");
           break;
@@ -359,7 +371,9 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     let hasRest = false;
 
     for (const elem of pattern.elements) {
-      if (ts.isSpreadElement(elem)) {
+      if (ts.isOmittedExpression(elem)) {
+        elements.push({ pattern: { kind: "wildcard" }, isRest: false });
+      } else if (ts.isSpreadElement(elem)) {
         hasRest = true;
         elements.push({
           pattern: analyzePattern(elem.expression),
@@ -405,7 +419,11 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
             : undefined;
 
         if (keyName === undefined) {
-          continue;
+          return {
+            kind: "unsupported",
+            node: pattern,
+            reason: "computed property keys are not supported in object patterns",
+          };
         }
 
         // Recursively analyze the value — could be literal, identifier, nested object/array
@@ -429,6 +447,15 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     const knownDef = KNOWN_EXTRACTORS[name];
     const productFields = registeredProductExtractors.get(name);
     const isCustom = registeredCustomExtractors.has(name);
+
+    // Zero-arg extractors (e.g. None, Nil) should not be called with arguments
+    if (knownDef && knownDef.zeroArg && pattern.arguments.length > 0) {
+      return {
+        kind: "unsupported",
+        node: pattern,
+        reason: `${name} is a zero-arg extractor and cannot be called with arguments`,
+      };
+    }
 
     if (knownDef && !knownDef.zeroArg) {
       const bindings =
@@ -609,8 +636,12 @@ function checkExhaustiveness(
   if (hasElse) return;
 
   for (const arm of arms) {
+    if (arm.guard) continue;
     const pattern = analyzePattern(arm.pattern);
-    if (patternCoversAll(pattern) && !arm.guard) return;
+    if (patternCoversAll(pattern)) return;
+    for (const alt of arm.alternatives) {
+      if (patternCoversAll(analyzePattern(alt))) return;
+    }
   }
 
   let analysis: ScrutineeAnalysis | undefined;
@@ -728,6 +759,21 @@ function checkUnreachablePatterns(ctx: MacroContext, arms: CaseArm[]): void {
         );
       }
       if (key !== undefined) seenLiterals.add(key);
+    }
+
+    // Also check OR alternatives for duplicates
+    for (const alt of arm.alternatives) {
+      const altPattern = analyzePattern(alt);
+      if (altPattern.kind === "literal" && !arm.guard) {
+        const altKey = getPatternLiteralKey(altPattern);
+        if (altKey !== undefined && seenLiterals.has(altKey)) {
+          ctx.reportWarning(alt, `Duplicate pattern in .or() — value ${altKey} is already matched`);
+        }
+        if (altKey !== undefined) seenLiterals.add(altKey);
+      }
+      if (patternCoversAll(altPattern) && !arm.guard) {
+        seenCatchAll = true;
+      }
     }
 
     if (patternCoversAll(pattern) && !arm.guard) {
@@ -965,7 +1011,7 @@ export function expandFluentMatch(
   chainExpr: ts.CallExpression,
   rootArgs: readonly ts.Expression[]
 ): ts.Expression {
-  const { root, links } = parseChain(chainExpr);
+  const { links } = parseChain(chainExpr);
   const scrutinee = rootArgs[0];
 
   if (!scrutinee) {
@@ -1546,6 +1592,10 @@ function generateAsBindings(
 /**
  * Generate statements for an OR pattern arm: `.case(A).or(B).or(C).then(result)`
  * Produces: `if (condA || condB || condC) return result;`
+ *
+ * If any alternative is a wildcard or variable (always matches), the entire
+ * OR is unconditional. Variable bindings inside OR alternatives are not
+ * supported — only literals and wildcards are valid OR operands.
  */
 function generateOrArmStatements(
   ctx: MacroContext,
@@ -1555,16 +1605,24 @@ function generateOrArmStatements(
 ): ts.Statement[] {
   const allPatterns = [arm.pattern, ...arm.alternatives];
   const conditions: ts.Expression[] = [];
+  let hasUnconditional = false;
 
   for (const pat of allPatterns) {
     const analyzed = analyzePattern(pat);
+    if (patternCoversAll(analyzed)) {
+      hasUnconditional = true;
+      break;
+    }
     const cond = buildCondition(f, analyzed, scrutineeRef);
     if (cond) {
       conditions.push(cond);
     }
   }
 
-  if (conditions.length === 0) {
+  if (hasUnconditional || conditions.length === 0) {
+    if (arm.guard) {
+      return [f.createIfStatement(arm.guard, f.createReturnStatement(arm.result))];
+    }
     return [f.createReturnStatement(arm.result)];
   }
 
@@ -1882,7 +1940,9 @@ function generateArmStatements(
     case "unsupported":
       ctx.reportError(
         pattern.node,
-        `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
+        pattern.reason
+          ? `match: ${pattern.reason}`
+          : `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
       );
       return [];
   }
@@ -1922,7 +1982,17 @@ function generateIIFE(
     const scrutineeRef = f.createIdentifier(scrutineeName.text);
 
     // Wave 5: Emit unconditional return when type is fully narrowed
+    // Still generate bindings for AS patterns and complex patterns that need destructuring
     if (fullyCoveredIdx !== -1 && i >= fullyCoveredIdx && !arm.guard) {
+      if (arm.asPattern) {
+        const asBindings = generateAsBindings(f, arm.asPattern, scrutineeRef);
+        statements.push(...asBindings);
+      }
+      const armPattern = analyzePattern(arm.pattern);
+      if (armPattern.kind !== "literal" && armPattern.kind !== "wildcard") {
+        const bindings = collectBindings(f, armPattern, scrutineeRef);
+        statements.push(...bindings);
+      }
       statements.push(f.createReturnStatement(arm.result));
       continue;
     }

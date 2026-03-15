@@ -293,4 +293,13 @@ describe("match-syntax extension", () => {
       expect(code).toContain(".case(true).then(1)");
     });
   });
+
+  describe("Code review fixes", () => {
+    it("H4: should not transform method calls like str.match()", () => {
+      const input = `const result = str.match(/\\d+/)\n| fallback`;
+      const { code } = ppMatch(input);
+      // Should NOT be transformed — str.match() is a method call, not the match macro
+      expect(code).not.toContain(".case(");
+    });
+  });
 });
