@@ -4789,6 +4789,8 @@ export {
   type PreprocessedFile,
 } from "./virtual-host.js";
 
+export { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
+
 export {
   type PositionMapper,
   SourceMapPositionMapper,

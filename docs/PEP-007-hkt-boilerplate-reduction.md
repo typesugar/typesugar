@@ -354,20 +354,20 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 
 **Tasks:**
 
-- [ ] Create `packages/transformer/src/hkt-rewriter.ts` (**new file**):
+- [x] Create `packages/transformer/src/hkt-rewriter.ts` (**new file**):
   - `rewriteHKTTypeReferences(source: string, fileName: string): { code: string; map: RawSourceMap | null; changed: boolean }`
   - `hasHKTPatterns(source: string): boolean` — fast regex heuristic for early bailout
   - `injectKindImport(code: string)` — add `import type { Kind }` when not already present
   - Use `MagicString` for text replacements and source map generation (same as preprocessor)
   - Walk `TypeReferenceNode`s, collect type params from enclosing scopes, rewrite matches
   - Handle nested: innermost `F<A>` first, then outer `F<Kind<F, A>>` → `Kind<F, Kind<F, A>>`
-- [ ] Extend `VirtualCompilerHost` in `packages/transformer/src/virtual-host.ts`:
+- [x] Extend `VirtualCompilerHost` in `packages/transformer/src/virtual-host.ts`:
   - Add `shouldRewriteHKT(fileName: string): boolean` — `.ts`/`.tsx` files only
   - In `getPreprocessedFile()`: after `.sts` check, try HKT rewrite for `.ts` files
   - In `readFile()`: mirror the same logic for consistency
   - Use `hasHKTPatterns()` for fast early bailout (most `.ts` files skip this entirely)
-- [ ] Source map composition: HKT rewrite map feeds into existing `composeSourceMaps()` — no changes to pipeline
-- [ ] Tests: all 13 edge cases from POC, plus environment verification
+- [x] Source map composition: HKT rewrite map feeds into existing `composeSourceMaps()` — no changes to pipeline
+- [x] Tests: all 13 edge cases from POC, plus environment verification
 
 **Files changed:**
 
