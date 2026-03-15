@@ -9,6 +9,7 @@
  */
 
 import type { Op } from "@typesugar/core";
+import type { TypeFunction } from "@typesugar/type-system";
 import type { NonEmptyList } from "./nonempty-list.js";
 import * as NEL from "./nonempty-list.js";
 import type { Either } from "./either.js";
@@ -25,8 +26,18 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 
 /**
  * Validated data type - either Valid (success) or Invalid (errors)
+ * @hkt
  */
 export type Validated<E, A> = Valid<A> | Invalid<E>;
+
+/**
+ * Type-level function for `Validated<E, A>` with E fixed.
+ * Kind<ValidatedF<string[]>, number> resolves to Validated<string[], number>.
+ */
+export interface ValidatedF<E> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Validated<E, this["__kind__"]>;
+}
 
 /**
  * Valid variant - represents success

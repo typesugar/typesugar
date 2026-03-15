@@ -7,6 +7,7 @@
  */
 
 import type { Op } from "@typesugar/core";
+import type { TypeFunction } from "@typesugar/type-system";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
@@ -19,8 +20,18 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 
 /**
  * Either data type - either Left (error) or Right (success)
+ * @hkt
  */
 export type Either<E, A> = Left<E> | Right<A>;
+
+/**
+ * Type-level function for `Either<E, A>` with E fixed.
+ * Kind<EitherF<string>, number> resolves to Either<string, number>.
+ */
+export interface EitherF<E> extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: Either<E, this["__kind__"]>;
+}
 
 /**
  * Left variant - represents failure/error

@@ -114,7 +114,7 @@ type MapF<K extends string> = Map<K, _>;
 // ============================================================================
 
 describe("@hkt error cases", () => {
-  it("reports TS9303 when type alias has no _ placeholder", () => {
+  it("reports TS9302 when type alias has no type params and no _ placeholder", () => {
     const code = `
 /** @hkt */
 type BadF = Array<number>;
@@ -123,7 +123,7 @@ type BadF = Array<number>;
     const result = transformCode(code, { fileName: "hkt-no-underscore.ts" });
 
     expect(result.diagnostics.length).toBeGreaterThan(0);
-    expect(result.diagnostics[0].message).toContain("TS9303");
+    expect(result.diagnostics[0].message).toContain("TS9302");
   });
 
   it("reports TS9304 when type alias has multiple _ placeholders", () => {
@@ -137,5 +137,115 @@ type PairF = [_, _];
 
     expect(result.diagnostics.length).toBeGreaterThan(0);
     expect(result.diagnostics[0].message).toContain("TS9304");
+  });
+
+  it("reports TS9302 when interface has no type parameters", () => {
+    const code = `
+/** @hkt */
+interface EmptyF {}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-no-params-interface.ts" });
+
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    expect(result.diagnostics[0].message).toContain("TS9302");
+  });
+});
+
+// ============================================================================
+// @hkt Tier 2: companion generation for parameterized types
+// ============================================================================
+
+describe("@hkt Tier 2 companion generation", () => {
+  it("generates OptionF from Option<A> = A | null", () => {
+    const code = `
+/** @hkt */
+type Option<A> = A | null;
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-option.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("type Option<A> = A | null");
+    expect(result.code).toContain("interface OptionF");
+    expect(result.code).toContain("extends TypeFunction");
+    expect(result.code).toContain('this["__kind__"]');
+    expect(result.code).toContain("Option<");
+  });
+
+  it("generates EitherF<E> from Either<E, A> (multi-arity, last param as hole)", () => {
+    const code = `
+interface Left<E> { readonly _tag: "Left"; readonly left: E; }
+interface Right<A> { readonly _tag: "Right"; readonly right: A; }
+/** @hkt */
+type Either<E, A> = Left<E> | Right<A>;
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-either.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("type Either<E, A>");
+    expect(result.code).toContain("interface EitherF<E>");
+    expect(result.code).toContain("extends TypeFunction");
+    expect(result.code).toContain('Either<E, this["__kind__"]>');
+  });
+
+  it("generates companion for interface with type params (NonEmptyList)", () => {
+    const code = `
+/** @hkt */
+interface NonEmptyList<A> {
+  readonly _tag: "NonEmptyList";
+  readonly head: A;
+}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-nel.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("interface NonEmptyList<A>");
+    expect(result.code).toContain("interface NonEmptyListF");
+    expect(result.code).toContain("extends TypeFunction");
+    expect(result.code).toContain('NonEmptyList<this["__kind__"]>');
+  });
+
+  it("preserves export modifier on companion", () => {
+    const code = `
+/** @hkt */
+export type Option<A> = A | null;
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-option-export.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("export type Option<A>");
+    expect(result.code).toContain("export interface OptionF");
+  });
+
+  it("fixes all-but-last parameters correctly for State<S, A>", () => {
+    const code = `
+/** @hkt */
+type State<S, A> = (s: S) => [A, S];
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-state.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("type State<S, A>");
+    expect(result.code).toContain("interface StateF<S>");
+    expect(result.code).toContain("extends TypeFunction");
+    expect(result.code).toContain('State<S, this["__kind__"]>');
+  });
+
+  it("handles three type parameters (last as hole)", () => {
+    const code = `
+/** @hkt */
+type Triple<A, B, C> = [A, B, C];
+    `.trim();
+
+    const result = transformCode(code, { fileName: "hkt-triple.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("interface TripleF<A, B>");
+    expect(result.code).toContain('Triple<A, B, this["__kind__"]>');
   });
 });

@@ -6,6 +6,7 @@
  */
 
 import type { Op } from "@typesugar/core";
+import type { TypeFunction } from "@typesugar/type-system";
 import type { List } from "./list.js";
 import * as L from "./list.js";
 import type { Option } from "./option.js";
@@ -20,11 +21,21 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 
 /**
  * NonEmptyList - guaranteed to have at least one element
+ * @hkt
  */
 export interface NonEmptyList<A> {
   readonly _tag: "NonEmptyList";
   readonly head: A;
   readonly tail: List<A>;
+}
+
+/**
+ * Type-level function for `NonEmptyList<A>`.
+ * Kind<NonEmptyListF, number> resolves to NonEmptyList<number>.
+ */
+export interface NonEmptyListF extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: NonEmptyList<this["__kind__"]>;
 }
 
 // ============================================================================

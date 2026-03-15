@@ -544,11 +544,72 @@ function expandTier3HKT(
 }
 
 // ============================================================================
+// Tier 2: Companion Generation for Parameterized Type Aliases
+// ============================================================================
+
+/**
+ * Generate a companion `*F` TypeFunction interface for a parameterized type.
+ *
+ * The LAST type parameter becomes the HKT hole. All preceding parameters
+ * become fixed parameters on the generated companion interface.
+ *
+ * Works for both type aliases and interfaces:
+ *   `/** @hkt *\/ type Option<A> = A | null`        → OptionF extends TypeFunction
+ *   `/** @hkt *\/ type Either<E, A> = ...`           → EitherF<E> extends TypeFunction
+ *   `/** @hkt *\/ interface NonEmptyList<A> { ... }`  → NonEmptyListF extends TypeFunction
+ *
+ * Returns the original node plus the generated companion.
+ */
+function expandTier2Companion(
+  ctx: MacroContext,
+  node: ts.TypeAliasDeclaration | ts.InterfaceDeclaration,
+  typeParams: ts.NodeArray<ts.TypeParameterDeclaration>
+): ts.Node[] {
+  const typeName = node.name.text;
+  const companionName = `${typeName}F`;
+
+  const lastParam = typeParams[typeParams.length - 1];
+  const fixedParams = typeParams.slice(0, -1);
+
+  const fixedParamsStr =
+    fixedParams.length > 0
+      ? `<${fixedParams
+          .map((tp) => {
+            let s = tp.name.text;
+            if (tp.constraint) s += ` extends ${printTypeNode(tp.constraint)}`;
+            if (tp.default) s += ` = ${printTypeNode(tp.default)}`;
+            return s;
+          })
+          .join(", ")}>`
+      : "";
+
+  const allParamNames = typeParams.map((tp) => tp.name.text);
+  const typeArgsStr = allParamNames
+    .map((name) => (name === lastParam.name.text ? 'this["__kind__"]' : name))
+    .join(", ");
+
+  const hasExport = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+  const exportPrefix = hasExport ? "export " : "";
+
+  const companionCode = `${exportPrefix}interface ${companionName}${fixedParamsStr} extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: ${typeName}<${typeArgsStr}>;
+}`;
+
+  const companionStmts = ctx.parseStatements(companionCode);
+  return [node, ...companionStmts];
+}
+
+// ============================================================================
 // Macro Registration
 // ============================================================================
 
 /**
  * @hkt attribute macro for interfaces/type aliases
+ *
+ * Tier 2 (type alias with type params, no `_` in RHS):
+ *   Generates a companion `*F` interface (last param as hole).
+ *   Returns BOTH the original type alias AND the generated companion.
  *
  * Tier 3 (type alias with `_` marker):
  *   Detects `_` in RHS, replaces with `this["__kind__"]`, emits TypeFunction interface.
@@ -563,11 +624,42 @@ export const hktAttribute = defineAttributeMacro({
   validTargets: ["interface", "type"],
   expand(ctx, decorator, node) {
     if (ts.isTypeAliasDeclaration(node)) {
-      return expandTier3HKT(ctx, node, decorator);
+      const checker = ctx.typeChecker;
+      const hasUnderscore = countUnderscoreMarkers(node.type, checker) > 0;
+      const hasTypeParams = node.typeParameters && node.typeParameters.length > 0;
+
+      if (hasUnderscore) {
+        return expandTier3HKT(ctx, node, decorator);
+      }
+
+      if (hasTypeParams) {
+        return expandTier2Companion(ctx, node, node.typeParameters!);
+      }
+
+      ctx.reportError(
+        decorator,
+        `[TS9302] @hkt on a type alias with no type parameters requires a \`_\` placeholder (Tier 3 form)`
+      );
+      return node;
     }
 
     if (ts.isInterfaceDeclaration(node)) {
-      return transformHKTDeclaration(ctx, node);
+      const hasKindParams = node.typeParameters?.some((p) => isKindAnnotation(p)) ?? false;
+      const hasTypeParams = node.typeParameters && node.typeParameters.length > 0;
+
+      if (hasKindParams) {
+        return transformHKTDeclaration(ctx, node);
+      }
+
+      if (hasTypeParams) {
+        return expandTier2Companion(ctx, node, node.typeParameters!);
+      }
+
+      ctx.reportError(
+        decorator,
+        `[TS9302] @hkt on an interface with no type parameters requires F<_> kind parameters`
+      );
+      return node;
     }
 
     ctx.reportError(decorator, "@hkt can only be applied to interfaces or type aliases");
