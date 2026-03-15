@@ -20,6 +20,7 @@ import { hktExtension } from "./extensions/hkt.js";
 import { pipelineExtension } from "./extensions/pipeline.js";
 import { consExtension } from "./extensions/cons.js";
 import { decoratorRewriteExtension } from "./extensions/decorator-rewrite.js";
+import { matchSyntaxExtension } from "./extensions/match-syntax.js";
 
 /**
  * Union type for any preprocessor extension
@@ -31,6 +32,7 @@ const BUILT_IN_EXTENSIONS: Record<string, AnyExtension> = {
   pipeline: pipelineExtension,
   cons: consExtension,
   "decorator-rewrite": decoratorRewriteExtension,
+  "match-syntax": matchSyntaxExtension,
 };
 
 const BUILT_IN_OPERATORS: CustomOperatorExtension[] = [pipelineExtension, consExtension];

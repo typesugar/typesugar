@@ -1025,24 +1025,24 @@ Match is always exhaustive — this wave implements the compile-time verificatio
 
 **Tasks:**
 
-- [ ] Add `match ... | pattern => expr` to preprocessor scanner in `packages/preprocessor/src/scanner.ts`
+- [x] Add `match ... | pattern => expr` to preprocessor scanner in `packages/preprocessor/src/scanner.ts`
   - Detect `match(expr)` followed by `|`
   - Parse each `| pattern guard? => expr` clause
   - Handle multi-line expressions (brace blocks, parenthesized expressions)
   - Handle `=>` disambiguation (pattern result vs arrow function)
-- [ ] Transform preprocessor syntax to fluent macro syntax:
+- [x] Transform preprocessor syntax to fluent macro syntax:
   - `| [first, _, _] if first > 0 => first` → `.case([first, _, _]).if(first > 0).then(first)`
   - `| s: string => s.length` → `.case(String(s)).then(s.length)`
   - `| p @ [x, y] => p` → `.case([x, y]).as(p).then(p)`
   - `| 200 | 201 => "ok"` → `.case(200).or(201).then("ok")`
-- [ ] Source map generation for preprocessor transforms
-- [ ] Tests: all pattern types through preprocessor, source map accuracy
+- [x] Source map generation for preprocessor transforms
+- [x] Tests: all pattern types through preprocessor, source map accuracy
 
 **Gate:**
 
-- [ ] `match(x) | [a, b] => a + b | _ => 0` compiles correctly in `.sts` files
-- [ ] Source maps point to original pattern positions
-- [ ] All pattern types from Waves 1-5 work through preprocessor syntax
+- [x] `match(x) | [a, b] => a + b | _ => 0` compiles correctly in `.sts` files
+- [x] Source maps point to original pattern positions
+- [x] All pattern types from Waves 1-5 work through preprocessor syntax
 
 ### Wave 7: Documentation + Migration (~10 files)
 
