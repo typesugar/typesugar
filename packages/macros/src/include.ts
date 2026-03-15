@@ -27,6 +27,7 @@ import * as fs from "fs";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { jsValueToExpression } from "@typesugar/core";
+import { TS9205, TS9212, TS9213 } from "@typesugar/core";
 
 // =============================================================================
 // Dependency Tracking
@@ -112,10 +113,10 @@ function extractPathArg(
     return result.value;
   }
 
-  ctx.reportError(
-    callExpr,
-    `${macroName}: path argument must be a string literal or compile-time constant`
-  );
+  ctx.diagnostic(TS9205)
+    .at(callExpr)
+    .help(`Pass a string literal: ${macroName}("./path/to/file")`)
+    .emit();
   return undefined;
 }
 
@@ -148,12 +149,12 @@ export const includeStrMacro = defineExpressionMacro({
       const contents = fs.readFileSync(absolutePath, "utf-8");
       return ctx.factory.createStringLiteral(contents);
     } catch (error) {
-      ctx.reportError(
-        callExpr,
-        `includeStr: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      ctx.diagnostic(TS9212)
+        .at(callExpr)
+        .withArgs({ path: relativePath })
+        .note(`Resolved to: ${absolutePath}`)
+        .note(error instanceof Error ? error.message : String(error))
+        .emit();
       return callExpr;
     }
   },
@@ -197,12 +198,12 @@ export const includeBytesMacro = defineExpressionMacro({
         [ctx.factory.createArrayLiteralExpression(elements)]
       );
     } catch (error) {
-      ctx.reportError(
-        callExpr,
-        `includeBytes: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      ctx.diagnostic(TS9212)
+        .at(callExpr)
+        .withArgs({ path: relativePath })
+        .note(`Resolved to: ${absolutePath}`)
+        .note(error instanceof Error ? error.message : String(error))
+        .emit();
       return callExpr;
     }
   },
@@ -240,17 +241,18 @@ export const includeJsonMacro = defineExpressionMacro({
       return jsValueToExpression(ctx, parsed, callExpr);
     } catch (error) {
       if (error instanceof SyntaxError) {
-        ctx.reportError(
-          callExpr,
-          `includeJson: Invalid JSON in '${relativePath}': ${error.message}`
-        );
+        ctx.diagnostic(TS9213)
+          .at(callExpr)
+          .withArgs({ path: relativePath })
+          .note(error.message)
+          .emit();
       } else {
-        ctx.reportError(
-          callExpr,
-          `includeJson: Cannot read file '${relativePath}' (resolved to '${absolutePath}'): ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
+        ctx.diagnostic(TS9212)
+          .at(callExpr)
+          .withArgs({ path: relativePath })
+          .note(`Resolved to: ${absolutePath}`)
+          .note(error instanceof Error ? error.message : String(error))
+          .emit();
       }
       return callExpr;
     }

@@ -301,6 +301,9 @@ class MacroRegistryImpl implements MacroRegistry {
           );
         }
         this.expressionMacros.set(macro.name, macro);
+        if (macro.exportName && macro.exportName !== macro.name) {
+          this.expressionMacros.set(macro.exportName, macro);
+        }
         break;
       }
 
@@ -311,6 +314,9 @@ class MacroRegistryImpl implements MacroRegistry {
           throw new Error(`Attribute macro '${macro.name}' is already registered`);
         }
         this.attributeMacros.set(macro.name, macro);
+        if (macro.exportName && macro.exportName !== macro.name) {
+          this.attributeMacros.set(macro.exportName, macro);
+        }
         break;
       }
 
@@ -321,6 +327,9 @@ class MacroRegistryImpl implements MacroRegistry {
           throw new Error(`Derive macro '${macro.name}' is already registered`);
         }
         this.deriveMacros.set(macro.name, macro);
+        if (macro.exportName && macro.exportName !== macro.name) {
+          this.deriveMacros.set(macro.exportName, macro);
+        }
         break;
       }
 
@@ -331,6 +340,9 @@ class MacroRegistryImpl implements MacroRegistry {
           throw new Error(`Tagged template macro '${macro.name}' is already registered`);
         }
         this.taggedTemplateMacros.set(macro.name, macro);
+        if (macro.exportName && macro.exportName !== macro.name) {
+          this.taggedTemplateMacros.set(macro.exportName, macro);
+        }
         break;
       }
 
@@ -341,6 +353,9 @@ class MacroRegistryImpl implements MacroRegistry {
           throw new Error(`Type macro '${macro.name}' is already registered`);
         }
         this.typeMacros.set(macro.name, macro);
+        if (macro.exportName && macro.exportName !== macro.name) {
+          this.typeMacros.set(macro.exportName, macro);
+        }
         break;
       }
 

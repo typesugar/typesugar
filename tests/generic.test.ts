@@ -417,16 +417,18 @@ describe("deriveGenericSum for parameterized sum types", () => {
     assert(code!.includes("tagOrder"));
   });
 
-  it("deriveGenericSum returns undefined for empty type params", () => {
+  it("deriveGenericSum generates const for non-generic sum type", () => {
     const derivation = builtinDerivations["Show"];
     const code = derivation.deriveGenericSum!(
       "Status",
       "_tag",
       [{ tag: "Active", typeName: "Active", fields: [] }],
-      [] // No type parameters - should fall back to regular derivation
+      [] // No type parameters — generates a const, not a factory function
     );
-    // Should return undefined when there are no type parameters
-    assert(code === undefined);
+    assert(code !== undefined);
+    assert(code!.includes("const showStatus"));
+    assert(code!.includes("registerInstance"));
+    assert(!code!.includes("export function"));
   });
 });
 

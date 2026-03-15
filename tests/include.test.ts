@@ -134,7 +134,7 @@ describe("compile-time file I/O macros", () => {
 
       const diags = ctx.getDiagnostics();
       expect(diags.length).toBeGreaterThan(0);
-      expect(diags[0].message).toContain("Cannot read file");
+      expect(diags[0].message).toContain("Failed to read file");
     });
   });
 

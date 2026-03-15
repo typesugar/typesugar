@@ -2295,13 +2295,11 @@ ${cases}
       variants: DeriveVariantInfo[],
       typeParams: ts.TypeParameterDeclaration[]
     ): string | undefined {
-      if (typeParams.length === 0) return undefined;
+      const isGeneric = typeParams.length > 0;
+      const paramMap: Map<string, string> = isGeneric
+        ? buildGenericFactorySignature("Show", typeName, typeParams).paramMap
+        : new Map();
 
-      const { signature, paramMap } = buildGenericFactorySignature("Show", typeName, typeParams);
-      const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
-      const fullTypeName = `${typeName}<${typeParamsStr}>`;
-
-      // Build cases for each variant - show the variant name with its field values
       const cases = variants
         .map((v) => {
           const fields = v.fields.filter((f) => f.name !== discriminant);
@@ -2313,7 +2311,6 @@ ${cases}
             const inst = getFieldInstanceRef("Show", f, paramMap);
             return `      case "${v.tag}": return \`${v.tag}(\${${inst}.show((a as any).${f.name})})\`;`;
           }
-          // Multiple fields: show as "Tag(field1 = val1, field2 = val2)"
           const fieldShows = fields
             .map((f) => {
               const inst = getFieldInstanceRef("Show", f, paramMap);
@@ -2324,7 +2321,12 @@ ${cases}
         })
         .join("\n");
 
-      return `
+      if (isGeneric) {
+        const { signature } = buildGenericFactorySignature("Show", typeName, typeParams);
+        const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
+        const fullTypeName = `${typeName}<${typeParamsStr}>`;
+
+        return `
 export function ${signature} {
   return {
     show: (a: ${fullTypeName}): string => {
@@ -2335,6 +2337,20 @@ ${cases}
     },
   };
 }
+`;
+      }
+
+      const varName = instanceVarName("show", typeName);
+      return `
+const ${varName}: Show<${typeName}> = {
+  show: (a: ${typeName}): string => {
+    switch ((a as any).${discriminant}) {
+${cases}
+      default: return String(a);
+    }
+  },
+};
+/*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2391,28 +2407,31 @@ ${cases}
       variants: DeriveVariantInfo[],
       typeParams: ts.TypeParameterDeclaration[]
     ): string | undefined {
-      if (typeParams.length === 0) return undefined;
+      const isGeneric = typeParams.length > 0;
+      const paramMap: Map<string, string> = isGeneric
+        ? buildGenericFactorySignature("Eq", typeName, typeParams).paramMap
+        : new Map();
+      const eqMethod = isGeneric ? "eqv" : "eq";
 
-      const { signature, paramMap } = buildGenericFactorySignature("Eq", typeName, typeParams);
-      const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
-      const fullTypeName = `${typeName}<${typeParamsStr}>`;
-
-      // Build cases for each variant
       const cases = variants
         .map((v) => {
-          // For each variant, compare its fields using the appropriate instance
           const fieldEqs = v.fields
             .filter((f) => f.name !== discriminant)
             .map((f) => {
               const inst = getFieldInstanceRef("Eq", f, paramMap);
-              return `${inst}.eqv((x as any).${f.name}, (y as any).${f.name})`;
+              return `${inst}.${eqMethod}((x as any).${f.name}, (y as any).${f.name})`;
             });
           const body = fieldEqs.length > 0 ? fieldEqs.join(" && ") : "true";
           return `      case "${v.tag}": return ${body};`;
         })
         .join("\n");
 
-      return `
+      if (isGeneric) {
+        const { signature } = buildGenericFactorySignature("Eq", typeName, typeParams);
+        const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
+        const fullTypeName = `${typeName}<${typeParamsStr}>`;
+
+        return `
 export function ${signature} {
   return {
     eqv: (x: ${fullTypeName}, y: ${fullTypeName}): boolean => {
@@ -2424,6 +2443,22 @@ ${cases}
     },
   };
 }
+`;
+      }
+
+      const varName = instanceVarName("eq", typeName);
+      return `
+const ${varName}: Eq<${typeName}> = {
+  eq: (x: ${typeName}, y: ${typeName}): boolean => {
+    if ((x as any).${discriminant} !== (y as any).${discriminant}) return false;
+    switch ((x as any).${discriminant}) {
+${cases}
+      default: return false;
+    }
+  },
+  neq: (x: ${typeName}, y: ${typeName}): boolean => !${varName}.eq(x, y),
+};
+/*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2486,19 +2521,13 @@ ${cases}
       variants: DeriveVariantInfo[],
       typeParams: ts.TypeParameterDeclaration[]
     ): string | undefined {
-      if (typeParams.length === 0) return undefined;
+      const isGeneric = typeParams.length > 0;
+      const paramMap: Map<string, string> = isGeneric
+        ? buildGenericFactorySignature("Ord", typeName, typeParams).paramMap
+        : new Map();
 
-      const { signature, paramMap } = buildGenericFactorySignature("Ord", typeName, typeParams);
-      const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
-      const fullTypeName = `${typeName}<${typeParamsStr}>`;
-
-      // Build Eq signature for eqv method (needed by Ord)
-      const eqParams = typeParams.map((tp) => getInstanceParamName("Ord", tp.name.text)).join(", ");
-
-      // Build cases for each variant
       const cases = variants
         .map((v) => {
-          // For each variant, compare its fields using the appropriate instance
           const fieldComps = v.fields
             .filter((f) => f.name !== discriminant)
             .map((f) => {
@@ -2511,10 +2540,15 @@ ${cases}
         })
         .join("\n");
 
-      // Tag ordering (first variant < second variant < ...)
       const tagOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
 
-      return `
+      if (isGeneric) {
+        const { signature } = buildGenericFactorySignature("Ord", typeName, typeParams);
+        const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
+        const fullTypeName = `${typeName}<${typeParamsStr}>`;
+        const eqParams = typeParams.map((tp) => getInstanceParamName("Ord", tp.name.text)).join(", ");
+
+        return `
 export function ${signature} {
   const tagOrder: Record<string, number> = { ${tagOrder} };
   return {
@@ -2530,6 +2564,24 @@ ${cases}
     },
   };
 }
+`;
+      }
+
+      const varName = instanceVarName("ord", typeName);
+      return `
+const ${varName}: Ord<${typeName}> = {
+  compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
+    const tagOrder: Record<string, number> = { ${tagOrder} };
+    const aTag = (a as any).${discriminant};
+    const bTag = (b as any).${discriminant};
+    if (aTag !== bTag) return aTag < bTag ? -1 : 1;
+    switch (aTag) {
+${cases}
+      default: return 0;
+    }
+  },
+};
+/*#__PURE__*/ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2713,49 +2765,75 @@ export function tryExtractSumType(
     return undefined;
   }
 
+  const KNOWN_DISCRIMINANTS = ["kind", "_tag", "type", "tag", "__typename"];
   const variants: Array<{ tag: string; typeName: string }> = [];
   let discriminant: string | undefined;
 
   for (const member of target.type.types) {
-    if (!ts.isTypeReferenceNode(member)) {
-      return undefined; // Not a named type reference
-    }
-
-    const typeName = member.typeName.getText();
-    let type: ts.Type;
     let props: ts.Symbol[];
-    try {
-      type = ctx.typeChecker.getTypeFromTypeNode(member);
-      props = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
-    } catch {
-      return undefined;
-    }
 
-    // Look for common discriminant fields
-    for (const prop of props) {
-      if (!prop) continue;
-      const name = prop.name;
-      if (name === "kind" || name === "_tag" || name === "type" || name === "tag") {
+    if (ts.isTypeReferenceNode(member)) {
+      const memberTypeName = member.typeName.getText();
+      try {
+        const type = ctx.typeChecker.getTypeFromTypeNode(member);
+        props = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
+      } catch {
+        return undefined;
+      }
+
+      for (const prop of props) {
+        if (!prop) continue;
+        if (!KNOWN_DISCRIMINANTS.includes(prop.name)) continue;
         if (!discriminant) {
-          discriminant = name;
-        } else if (discriminant !== name) {
+          discriminant = prop.name;
+        } else if (discriminant !== prop.name) {
           continue;
         }
 
-        // Get the literal type of the discriminant
         const declarations = prop.getDeclarations();
         if (declarations && declarations.length > 0) {
-          const decl = declarations[0];
           try {
-            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, declarations[0]);
             if (propType.isStringLiteral()) {
-              variants.push({ tag: propType.value, typeName });
+              variants.push({ tag: propType.value, typeName: memberTypeName });
             }
           } catch {
             continue;
           }
         }
       }
+    } else if (ts.isTypeLiteralNode(member)) {
+      try {
+        const type = ctx.typeChecker.getTypeFromTypeNode(member);
+        props = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
+      } catch {
+        return undefined;
+      }
+
+      for (const prop of props) {
+        if (!prop) continue;
+        if (!KNOWN_DISCRIMINANTS.includes(prop.name)) continue;
+        if (!discriminant) {
+          discriminant = prop.name;
+        } else if (discriminant !== prop.name) {
+          continue;
+        }
+
+        const declarations = prop.getDeclarations();
+        if (declarations && declarations.length > 0) {
+          try {
+            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, declarations[0]);
+            if (propType.isStringLiteral()) {
+              const tag = propType.value;
+              variants.push({ tag, typeName: `${target.name.text}_${tag}` });
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+    } else {
+      return undefined;
     }
   }
 
@@ -2950,7 +3028,30 @@ export const derivingAttribute = defineAttributeMacro({
         const variantFields: DeriveFieldInfo[] = [];
         if (ts.isUnionTypeNode(target.type)) {
           for (const member of target.type.types) {
+            let matched = false;
             if (ts.isTypeReferenceNode(member) && member.typeName.getText() === variant.typeName) {
+              matched = true;
+            } else if (ts.isTypeLiteralNode(member)) {
+              // For inline type literals, match by checking the discriminant value
+              try {
+                const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
+                const discProp = ctx.typeChecker.getPropertiesOfType(memberType)
+                  .find((p: ts.Symbol) => p.name === sumInfo!.discriminant);
+                if (discProp) {
+                  const decl = discProp.getDeclarations()?.[0];
+                  if (decl) {
+                    const discType = ctx.typeChecker.getTypeOfSymbolAtLocation(discProp, decl);
+                    if (discType.isStringLiteral() && discType.value === variant.tag) {
+                      matched = true;
+                    }
+                  }
+                }
+              } catch {
+                // TypeChecker not ready
+              }
+            }
+
+            if (matched) {
               try {
                 const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
                 const props = ctx.typeChecker.getPropertiesOfType(variantType);
@@ -2989,6 +3090,23 @@ export const derivingAttribute = defineAttributeMacro({
         .at(target)
         .help('Add a discriminant field like `kind: "a"` to each variant')
         .emit();
+      return target;
+    }
+
+    // TS9104: Empty type (no fields) — not a union, has no derivable content
+    if (
+      fields.length === 0 &&
+      !(ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type))
+    ) {
+      for (const arg of args) {
+        if (ts.isIdentifier(arg)) {
+          ctx.diagnostic(TS9104)
+            .at(target)
+            .withArgs({ typeclass: arg.text, type: typeName })
+            .help("Add fields to the type, or provide a manual @instance")
+            .emit();
+        }
+      }
       return target;
     }
 
@@ -3031,37 +3149,39 @@ export const derivingAttribute = defineAttributeMacro({
 
       if (derivation) {
         // === TRANSITIVE DERIVATION ===
-        // First, derive any nested types that need instances
-        const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
+        // Skip for sum types — variant decomposition is handled by deriveSum/deriveGenericSum.
+        // Transitive derivation on sum types would inspect the union's common properties
+        // (e.g., the discriminant field's literal union type), not the actual variant fields.
+        if (typeInfo.kind !== "sum") {
+          const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
 
-        for (const err of plan.errors) {
-          ctx
-            .diagnostic(TS9101)
-            .at(target)
-            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
-            .note(err)
-            .help(`Ensure all nested types have ${tcName} instances`)
-            .emit();
-        }
-        for (const cycle of plan.cycles) {
-          ctx
-            .diagnostic(TS9101)
-            .at(target)
-            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
-            .note(`Circular reference: ${cycle.join(" → ")}`)
-            .help(`Add explicit @derive(${tcName}) to one of the types in the cycle to break it`)
-            .emit();
-        }
+          for (const err of plan.errors) {
+            ctx
+              .diagnostic(TS9101)
+              .at(target)
+              .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
+              .note(err)
+              .help(`Ensure all nested types have ${tcName} instances`)
+              .emit();
+          }
+          for (const cycle of plan.cycles) {
+            ctx
+              .diagnostic(TS9101)
+              .at(target)
+              .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
+              .note(`Circular reference: ${cycle.join(" → ")}`)
+              .help(`Add explicit @derive(${tcName}) to one of the types in the cycle to break it`)
+              .emit();
+          }
 
-        // Execute transitive derivation for nested types (dependencies first)
-        // Skip the root type - we'll derive it below
-        const nestedTypes = plan.types.filter((t) => t.typeName !== typeName);
-        if (nestedTypes.length > 0) {
-          const nestedStatements = executeTransitiveDerivation(ctx, tcName, {
-            ...plan,
-            types: nestedTypes,
-          });
-          allStatements.push(...nestedStatements);
+          const nestedTypes = plan.types.filter((t) => t.typeName !== typeName);
+          if (nestedTypes.length > 0) {
+            const nestedStatements = executeTransitiveDerivation(ctx, tcName, {
+              ...plan,
+              types: nestedTypes,
+            });
+            allStatements.push(...nestedStatements);
+          }
         }
 
         // === DERIVE ROOT TYPE ===
@@ -3071,8 +3191,9 @@ export const derivingAttribute = defineAttributeMacro({
 
         // Use typeInfo.kind to determine derivation method
         if (typeInfo.kind === "sum" && typeInfo.discriminant && variants.length > 0) {
-          // For generic types with type parameters, try factory function derivation
-          if (typeParameters.length > 0 && derivation.deriveGenericSum) {
+          // Prefer deriveGenericSum — it generates inline field comparisons per variant,
+          // which works for both named type references AND inline type literals.
+          if (derivation.deriveGenericSum) {
             code = derivation.deriveGenericSum(
               typeName,
               typeInfo.discriminant,
@@ -3081,7 +3202,7 @@ export const derivingAttribute = defineAttributeMacro({
             );
           }
 
-          // Fall back to non-generic derivation if generic not supported
+          // Fall back to non-generic derivation (requires named variant types with instances)
           if (!code) {
             code = derivation.deriveSum(typeName, typeInfo.discriminant, variants);
           }

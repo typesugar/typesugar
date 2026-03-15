@@ -16,9 +16,9 @@
  * - Some constructs trigger BOTH (macro error + TS error)
  *
  * Categories covered:
- * - TS9001-9099: Typeclass Resolution
- * - TS9100-9199: Derive Failures
- * - TS9200-9299: Macro Syntax
+ * - TS9001-9099: Typeclass Resolution (TS9001, TS9005, TS9008)
+ * - TS9100-9199: Derive Failures (TS9101, TS9103, TS9104)
+ * - TS9200-9299: Macro Syntax (TS9205, TS9209, TS9212, TS9217, TS9219)
  * - TS9500-9599: Comptime
  */
 
@@ -66,7 +66,7 @@ interface HasFunction {
 /** @deriving Eq */
 type NoDiscriminant = { name: string } | { age: number };
 
-// Compare to valid union (has 'kind' discriminant):
+// Compare to valid union (has 'kind' discriminant) — should NOT error
 /** @deriving Eq */
 type WithDiscriminant = { kind: "a"; name: string } | { kind: "b"; age: number };
 
@@ -75,6 +75,7 @@ type WithDiscriminant = { kind: "a"; name: string } | { kind: "b"; age: number }
 // ============================================================================
 // Error: "Cannot derive Eq: type EmptyType has no fields"
 
+// MACRO ERROR: TS9104 - empty interface has nothing to derive from
 /** @deriving Eq */
 interface EmptyType {}
 
@@ -123,6 +124,30 @@ static_assert(1 + 1 === 2, "Math works correctly");
 declare const dynamicCondition: boolean;
 // MACRO ERROR: TS9219 - condition not known at compile time
 static_assert(dynamicCondition, "Dynamic conditions not allowed");
+
+// ============================================================================
+// TS9005: summon requires a type argument
+// ============================================================================
+// Error: "summon requires a type argument: summon<Typeclass<Type>>()"
+
+// MACRO ERROR: TS9005 - summon() called without type parameter
+const noTypeArg = summon();
+
+// ============================================================================
+// TS9008: summon type argument must be a type reference
+// ============================================================================
+// Error: "summon type argument must be a type reference like Show<Point>"
+
+// MACRO ERROR: TS9008 - number is not a typeclass type reference (needs Eq<T>)
+const notATypeclass = summon<number>();
+
+// ============================================================================
+// TS9212: Failed to read file
+// ============================================================================
+// Error: "Failed to read file: ./this-file-does-not-exist.txt"
+
+// MACRO ERROR: TS9212 - file doesn't exist
+const missingFile = includeStr("./this-file-does-not-exist.txt");
 
 // ============================================================================
 // TS9800/TS9801: Operator errors (disabled)
@@ -219,7 +244,11 @@ Valid examples (no errors expected):
 - ValidMapF<K> with @hkt + _ marker (Tier 3 multi-arity)
 - optionFunctorExample with @impl Functor<Option> (Tier 1)
 
-Not yet testable in IDE:
+Valid examples (should NOT produce errors):
+- WithDiscriminant: union with 'kind' discriminant derives Eq cleanly
+- ValidPoint: interface with primitive fields derives Eq, Ord cleanly
+
+Not yet testable in IDE (.ts file):
 - TS9800/TS9801 - Operator errors (crashes transformer, disabled)
 
 To see these errors:
