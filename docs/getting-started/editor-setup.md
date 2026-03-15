@@ -250,8 +250,8 @@ Type `user.` on a derived class and verify:
 
 ### "Cannot find name 'comptime'"
 
-1. Ensure `@typesugar/comptime` is installed
-2. Add the import: `import { comptime } from "@typesugar/comptime"`
+1. Ensure `typesugar` is installed
+2. Add the import: `import { comptime } from "typesugar"`
 3. Check that the language service plugin is configured
 
 ### No CodeLens / Inlay Hints

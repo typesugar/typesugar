@@ -250,7 +250,7 @@ Test macros in realistic scenarios:
 describe("integration", () => {
   it("works with multiple macros", async () => {
     const result = await expandCode(`
-      import { comptime } from "@typesugar/comptime";
+      import { comptime } from "typesugar";
       import { derive, Eq } from "@typesugar/derive";
       
       const VERSION = comptime("1.0.0");

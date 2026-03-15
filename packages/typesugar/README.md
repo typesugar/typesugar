@@ -68,7 +68,7 @@ const process = pipe(data, parse, validate, transform);
 
 ## Features
 
-### Compile-Time Evaluation (`@typesugar/comptime`)
+### Compile-Time Evaluation
 
 Evaluate expressions during compilation — constants, computed values, complex logic.
 
@@ -101,7 +101,7 @@ Eliminate typeclass dictionary passing at compile time for true zero-cost abstra
 | `typesugar`              | Umbrella package (this one)         |
 | `@typesugar/core`        | Foundation types, registry, context |
 | `@typesugar/transformer` | TypeScript transformer              |
-| `@typesugar/comptime`    | Compile-time evaluation             |
+| `@typesugar/macros`      | Built-in macro implementations      |
 | `@typesugar/derive`      | Derive macros                       |
 | `@typesugar/reflect`     | Type reflection                     |
 | `@typesugar/typeclass`   | Typeclass system                    |
@@ -149,7 +149,6 @@ All core types: `MacroKind`, `MacroContext`, `MacroDefinition`, etc.
 
 ### Re-exported Namespaces
 
-- `comptime` — from `@typesugar/comptime`
 - `reflect` — from `@typesugar/reflect`
 - `derive` — from `@typesugar/derive`
 - `typeclass` — from `@typesugar/typeclass`

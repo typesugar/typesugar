@@ -16,7 +16,7 @@ macroName<TypeArg>(arg1, arg2, ...)
 ### Examples
 
 ```typescript
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 import { typeInfo, fieldNames } from "@typesugar/reflect";
 import { summon } from "@typesugar/typeclass";
 

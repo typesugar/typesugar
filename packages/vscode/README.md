@@ -99,7 +99,7 @@ The manifest contains all macro names, types, and metadata. The extension watche
   "macros": {
     "expression": {
       "comptime": {
-        "module": "@typesugar/comptime",
+        "module": "@typesugar/macros",
         "description": "Compile-time evaluation"
       }
     },

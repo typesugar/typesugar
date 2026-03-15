@@ -495,7 +495,7 @@ function checkVersionMismatch(cwd: string): DiagnosticCheck {
 
 function tryMacroExpansion(cwd: string, verbose: boolean): DiagnosticCheck {
   const testCode = `
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 const x = comptime(1 + 1);
 `;
 

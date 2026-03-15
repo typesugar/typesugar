@@ -20,7 +20,7 @@ import {
 } from "typesugar";
 
 // Alternatively, you can import directly from specific packages:
-// import { comptime } from "@typesugar/comptime";
+// import { comptime } from "@typesugar/macros";
 // import { ops, pipe, compose } from "@typesugar/macros";
 
 // ============================================================================

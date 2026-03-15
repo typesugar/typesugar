@@ -213,7 +213,7 @@ describe("TransformationPipeline", () => {
 
     it("shows comptime expansions with context", () => {
       const code = [
-        'import { comptime } from "@typesugar/comptime";',
+        'import { comptime } from "typesugar";',
         "",
         "const x = comptime(1 + 2);",
         "",
@@ -351,7 +351,7 @@ describe("TransformationPipeline", () => {
 
     it("integrates with transformCode", () => {
       const code = [
-        'import { comptime } from "@typesugar/comptime";',
+        'import { comptime } from "typesugar";',
         "",
         "// section 1",
         "const a = 1;",

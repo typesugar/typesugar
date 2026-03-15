@@ -138,10 +138,6 @@ export {
 // Namespace exports for backward compatibility
 // ============================================================================
 
-// Compile-time evaluation
-import * as comptimeNs from "@typesugar/comptime";
-export { comptimeNs as comptimeNamespace };
-
 // Reflection and introspection
 import * as reflectNs from "@typesugar/reflect";
 export { reflectNs as reflectNamespace };

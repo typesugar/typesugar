@@ -20,7 +20,6 @@ export default defineConfig({
     "@typesugar/core",
     "@typesugar/macros",
     "@typesugar/transformer",
-    "@typesugar/comptime",
     "@typesugar/reflect",
     "@typesugar/derive",
     "@typesugar/typeclass",

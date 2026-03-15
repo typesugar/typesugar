@@ -151,7 +151,7 @@ console.log("Macros are resolved based on imports:");
 console.log("  import { sql } from '@typesugar/sql';");
 console.log("  sql`SELECT * FROM users`  // Expands with sqlMacro");
 console.log("");
-console.log("  import { comptime } from '@typesugar/comptime';");
+console.log("  import { comptime } from 'typesugar';");
 console.log("  comptime(Date.now())  // Evaluates at compile time");
 
 // --- CLI Usage ---

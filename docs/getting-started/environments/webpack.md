@@ -184,7 +184,7 @@ Create a test file and run webpack build:
 
 ```typescript
 // src/test.ts
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 export const buildTime = comptime(new Date().toISOString());
 ```
 
