@@ -251,21 +251,72 @@ Rich extension methods for every basic type:
 
 ## Pattern Matching
 
-`match()` provides zero-cost pattern matching with **compile-time exhaustiveness checking**. Every match must handle all possible inputs — missing cases produce a compile error. Non-enumerable types (string, number, objects) require `.else()` or a `_` wildcard.
+Scala-style pattern matching with **compile-time exhaustiveness checking** and zero runtime overhead. Two syntaxes: fluent API (any `.ts` file) and preprocessor syntax (`.sts` files).
+
+### Fluent API
 
 ```typescript
 import { match } from "@typesugar/std";
 
-type Color = "red" | "green" | "blue";
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number }
+  | { kind: "rect"; w: number; h: number };
 
-// Compile error if you miss a case:
-match(color).case("red").then(0xff0000).case("green").then(0x00ff00).case("blue").then(0x0000ff);
-
-// Or use .else() for catch-all:
-match(color).case("red").then(0xff0000).else(0x000000);
+const area = match(shape)
+  .case({ kind: "circle", radius: r })
+  .then(Math.PI * r ** 2)
+  .case({ kind: "square", side: s })
+  .then(s ** 2)
+  .case({ kind: "rect", w, h })
+  .then(w * h);
+// Compile error if you miss a variant. Zero runtime overhead.
 ```
 
-When no pattern matches at runtime (e.g. type widened via `any`), the generated code throws `MatchError` with the unmatched value. See [PEP-008](../../docs/PEP-008-pattern-matching.md) for the full pattern catalogue.
+### Preprocessor Syntax (`.sts` files)
+
+```typescript
+const area = match(shape)
+| { kind: "circle", radius: r } => Math.PI * r ** 2
+| { kind: "square", side: s } => s ** 2
+| { kind: "rect", w, h } => w * h
+```
+
+### Pattern Types
+
+The fluent API supports all structural patterns — literals, variable binding, wildcards, arrays/tuples, objects, discriminated unions, type patterns (`String(s)`, `Date(d)`), OR patterns (`.or()`), AS patterns (`.as()`), regex, nested patterns, and extractors via the `Destructure` typeclass.
+
+### Exhaustiveness
+
+Every `match()` is always exhaustive. Missing cases produce a compile error:
+
+```
+error[TS9401]: Non-exhaustive match — missing cases: "blue"
+  --> src/colors.ts:5:1
+   |
+ 5 | match(color)
+   | ^^^^^ missing case "blue"
+```
+
+Use `.else(value)` as a catch-all. When no pattern matches at runtime, the generated code throws `MatchError`.
+
+### Legacy API (Deprecated)
+
+The old object-handler form continues to work for backwards compatibility:
+
+```typescript
+import { match, when, otherwise, P } from "@typesugar/std";
+
+// Still works — but prefer the fluent API above
+const area = match(shape, {
+  circle: ({ radius }) => Math.PI * radius ** 2,
+  square: ({ side }) => side ** 2,
+});
+```
+
+`when()`, `otherwise()`, and `P.*` helpers have `@deprecated` notices suggesting the fluent alternative.
+
+See the [Pattern Matching Guide](../../docs/guides/pattern-matching.md) for the full pattern catalogue, migration guide, and optimization details.
 
 ## Data Types
 

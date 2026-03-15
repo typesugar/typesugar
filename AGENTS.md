@@ -68,6 +68,8 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
 
+13. **Pattern Matching Conventions** — `match()` supports two forms: fluent (`.case().then().else()`) and legacy (object handler). Always prefer the fluent API for new code. The fluent API supports structural patterns (array, object, type, regex, OR, AS, nested, extractors), compile-time exhaustiveness, and optimized code generation. The preprocessor syntax (`| pattern => expr`) in `.sts` files rewrites to the fluent API. `when()`, `otherwise()`, and `P.*` are deprecated — use `.case().if().then()` and `.else()` instead. `match` lives in `@typesugar/std`, not `@typesugar/fp`. See [docs/guides/pattern-matching.md](docs/guides/pattern-matching.md) for the full guide and [PEP-008](docs/PEP-008-pattern-matching.md) for the spec.
+
 See [PHILOSOPHY.md](PHILOSOPHY.md) for the full design philosophy.
 
 ---
@@ -223,6 +225,8 @@ packages/
 | Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`                | `packages/core/src/resolution-scope.ts`   |
 | Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`        | `packages/core/src/import-suggestions.ts` |
 | Work on match exhaustiveness    | `analyzeScrutineeType()`, `isAllPureLiteralArms()`, `ScrutineeAnalysis` | `packages/std/src/macros/match-v2.ts`     |
+| Write fluent pattern match      | `match(v).case(...).if(...).then(...).else(...)`                        | `packages/std/src/macros/match.ts`        |
+| Write preprocessor match        | `match(v) \| pattern => expr` (`.sts` files only)                       | `packages/preprocessor/src/scanner.ts`    |
 | Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()`    | `packages/core/src/diagnostics.ts`        |
 
 ---

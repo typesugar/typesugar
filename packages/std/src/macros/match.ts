@@ -104,7 +104,11 @@ export interface GuardArm<T, R> {
   readonly handler: (value: T) => R;
 }
 
-/** Create a guard arm — matches when predicate returns true */
+/**
+ * Create a guard arm — matches when predicate returns true.
+ *
+ * @deprecated Use the fluent API instead: `match(value).case(x).if(pred).then(handler)`
+ */
 export function when<T, R>(
   predicate: (value: T) => boolean,
   handler: (value: T) => R
@@ -112,7 +116,11 @@ export function when<T, R>(
   return { predicate, handler };
 }
 
-/** Create a catch-all guard arm — always matches */
+/**
+ * Create a catch-all guard arm — always matches.
+ *
+ * @deprecated Use the fluent API instead: `match(value).else(handler)`
+ */
 export function otherwise<T, R>(handler: (value: T) => R): GuardArm<T, R> {
   return { predicate: () => true, handler };
 }
@@ -132,6 +140,9 @@ type PrimitiveTypeName =
 
 /**
  * Create a type guard predicate for use in match() guard arms.
+ *
+ * @deprecated Use the fluent API with constructor patterns instead:
+ * `match(value).case(String(s)).then(s.length).case(Number(n)).then(n.toFixed(2)).else("unknown")`
  *
  * For primitives: generates `typeof x === "..."` checks.
  * For classes: pass the constructor directly for `instanceof` checks.
@@ -168,6 +179,9 @@ export function isType(
 
 /**
  * Pattern helpers for array/tuple matching in guard arms.
+ *
+ * @deprecated Use the fluent API with first-class array patterns instead:
+ * `match(list).case([]).then("empty").case([x]).then(\`one: \${x}\`).else("default")`
  *
  * These are recognized by the match macro and compiled to optimal checks.
  * At runtime they work as regular predicates.

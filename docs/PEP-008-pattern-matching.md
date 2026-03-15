@@ -1,6 +1,6 @@
 # PEP-008: Scala-Style Pattern Matching
 
-**Status:** In Progress (Waves 1–3 complete)
+**Status:** Done (All waves complete)
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -1050,23 +1050,23 @@ Match is always exhaustive — this wave implements the compile-time verificatio
 
 **Tasks:**
 
-- [ ] Create `docs/guides/pattern-matching.md` — comprehensive guide with examples
-- [ ] Update `docs/reference/packages.md` — new exports from `@typesugar/std`
-- [ ] Update `packages/std/README.md` — pattern matching section
-- [ ] Update `AGENTS.md` — pattern matching conventions
-- [ ] Add pattern matching examples to `sandbox/error-showcase.ts`
-- [ ] Migration guide: old `match()` → new fluent `match()`
+- [x] Create `docs/guides/pattern-matching.md` — comprehensive guide with examples
+- [x] Update `docs/reference/packages.md` — new exports from `@typesugar/std`
+- [x] Update `packages/std/README.md` — pattern matching section
+- [x] Update `AGENTS.md` — pattern matching conventions
+- [x] Add pattern matching examples to `sandbox/error-showcase.ts`
+- [x] Migration guide: old `match()` → new fluent `match()`
   - Old object-handler form still works (backwards compatible)
   - New fluent form adds structural patterns
-- [ ] Deprecation notices on old `when()`, `otherwise()`, `P.*` helpers
+- [x] Deprecation notices on old `when()`, `otherwise()`, `P.*` helpers
   - Keep working for backwards compat
   - Suggest new fluent syntax in deprecation message
 
 **Gate:**
 
-- [ ] Documentation shows compelling examples for all pattern types
-- [ ] Existing `match()` usage continues to work
-- [ ] New patterns documented with before/after comparisons
+- [x] Documentation shows compelling examples for all pattern types
+- [x] Existing `match()` usage continues to work
+- [x] New patterns documented with before/after comparisons
 
 ## Files Changed (All Waves)
 
