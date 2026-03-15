@@ -68,13 +68,15 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
 
-13. **Type Macros (`@opaque`) — Rich Types with Cheap Runtime (PEP-012)** — The `@opaque` JSDoc macro defines types where TypeScript sees a rich interface (with methods, IDE completions, full type inference) but the runtime uses a simpler underlying representation. `Option<A>` is `A | null` at runtime, `Either<E, A>` is `{ _tag, left/right }`, but you call `.map()`, `.flatMap()`, `.getOrElse()` as dot syntax. The transformer rewrites method calls to standalone function calls via the type rewrite registry. No namespace imports needed — importing the constructor (`Some`, `Right`) is enough to activate methods.
+13. **Pattern Matching Conventions** — `match()` supports two forms: fluent (`.case().then().else()`) and legacy (object handler). Always prefer the fluent API for new code. The fluent API supports structural patterns (array, object, type, regex, OR, AS, nested, extractors), compile-time exhaustiveness, and optimized code generation. The preprocessor syntax (`| pattern => expr`) in `.sts` files rewrites to the fluent API. `when()`, `otherwise()`, and `P.*` are deprecated — use `.case().if().then()` and `.else()` instead. `match` lives in `@typesugar/std`, not `@typesugar/fp`. See [docs/guides/pattern-matching.md](docs/guides/pattern-matching.md) for the full guide and [PEP-008](docs/PEP-008-pattern-matching.md) for the spec.
 
-14. **SFINAE Diagnostic Resolution (PEP-011)** — When TypeScript would report errors at type rewrite boundaries (e.g., assigning `T | null` to `Option<T>`), SFINAE rules suppress the diagnostic because the types are runtime-identical. Three rules: (1) TypeRewriteAssignment — assignment/argument passing between `@opaque` type and its underlying; (2) MethodOnUnderlyingType — calling a method on the underlying representation that exists on the opaque interface; (3) PropertyAccessOnUnderlyingType — accessing properties that exist on the opaque interface. All SFINAE suppressions are logged and can be reviewed via `// @typesugar-sfinae-log`.
+14. **Type Macros (`@opaque`) — Rich Types with Cheap Runtime (PEP-012)** — The `@opaque` JSDoc macro defines types where TypeScript sees a rich interface (with methods, IDE completions, full type inference) but the runtime uses a simpler underlying representation. `Option<A>` is `A | null` at runtime, `Either<E, A>` is `{ _tag, left/right }`, but you call `.map()`, `.flatMap()`, `.getOrElse()` as dot syntax. The transformer rewrites method calls to standalone function calls via the type rewrite registry. No namespace imports needed — importing the constructor (`Some`, `Right`) is enough to activate methods.
 
-15. **Type Rewrite Registry** — Central registry in `@typesugar/core` that maps opaque type names to their underlying representation, companion functions, constructors, and accessors. Populated by `@opaque` macros, consulted by the transformer (for method erasure), SFINAE rules (for implicit conversions), and the language service plugin (for completions). Lookup by type name, type symbol, or source module.
+15. **SFINAE Diagnostic Resolution (PEP-011)** — When TypeScript would report errors at type rewrite boundaries (e.g., assigning `T | null` to `Option<T>`), SFINAE rules suppress the diagnostic because the types are runtime-identical. Three rules: (1) TypeRewriteAssignment — assignment/argument passing between `@opaque` type and its underlying; (2) MethodOnUnderlyingType — calling a method on the underlying representation that exists on the opaque interface; (3) PropertyAccessOnUnderlyingType — accessing properties that exist on the opaque interface. All SFINAE suppressions are logged and can be reviewed via `// @typesugar-sfinae-log`.
 
-16. **Global Augmentation for Extension Methods** — `@typesugar/std` uses `declare global { interface Number { ... } }` to add type-checked methods to built-in types. The transformer still rewrites these to function calls (no prototype mutation). Augmented: Number, String, Array, Map, Promise, Date, Boolean. Not augmented: Set (ES2025 conflicts), Object, Function (too broad).
+16. **Type Rewrite Registry** — Central registry in `@typesugar/core` that maps opaque type names to their underlying representation, companion functions, constructors, and accessors. Populated by `@opaque` macros, consulted by the transformer (for method erasure), SFINAE rules (for implicit conversions), and the language service plugin (for completions). Lookup by type name, type symbol, or source module.
+
+17. **Global Augmentation for Extension Methods** — `@typesugar/std` uses `declare global { interface Number { ... } }` to add type-checked methods to built-in types. The transformer still rewrites these to function calls (no prototype mutation). Augmented: Number, String, Array, Map, Promise, Date, Boolean. Not augmented: Set (ES2025 conflicts), Object, Function (too broad).
 
 See [PHILOSOPHY.md](PHILOSOPHY.md) for the full design philosophy.
 
@@ -198,41 +200,44 @@ packages/
 
 ## Quick Lookup: "I Need To..."
 
-| Need                            | Use                                                                  | Location                                     |
-| ------------------------------- | -------------------------------------------------------------------- | -------------------------------------------- |
-| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                | `packages/macros/src/specialize.ts`          |
-| Create specialized function     | `createSpecializedFunction(ctx, options)`                            | `packages/macros/src/specialize.ts`          |
-| Register a new expression macro | `defineExpressionMacro(name, macro)`                                 | `packages/core/src/registry.ts`              |
-| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                  | `packages/core/src/registry.ts`              |
-| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                     | `packages/core/src/registry.ts`              |
-| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`             | `packages/core/src/context.ts`               |
-| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``               | `packages/macros/src/quote.ts`               |
-| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`  | `packages/core/src/context.ts`               |
-| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                         | `packages/core/src/context.ts`               |
-| Report compile error            | `ctx.reportError(node, message)`                                     | `packages/core/src/context.ts`               |
-| Generate unique names           | `ctx.generateUniqueName(prefix)`                                     | `packages/core/src/context.ts`               |
-| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                          | `packages/core/src/context.ts`               |
-| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                 | `packages/macros/src/typeclass.ts`           |
-| Mark file as extension source   | `"use extension";` directive at file top                             | `packages/core/src/resolution-scope.ts`      |
-| Mark function as extension      | `@extension` decorator                                               | `packages/macros/src/extension.ts`           |
-| Register instance methods       | `registerInstanceMethods(dictName, brand, methods)`                  | `packages/macros/src/specialize.ts`          |
-| Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                          | `packages/macros/src/auto-derive.ts`         |
-| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                     | `packages/macros/src/typeclass.ts`           |
-| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                   | `packages/macros/src/syntax-macro.ts`        |
-| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                 | `packages/macros/src/custom-derive.ts`       |
-| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                   | `packages/core/src/pipeline.ts`              |
-| Read config values              | `config.get(path)`, `config.evaluate(condition)`                     | `packages/core/src/config.ts`                |
-| Include file at compile time    | `includeStr()`, `includeJson()`                                      | `packages/macros/src/include.ts`             |
-| Assert at compile time          | `staticAssert(cond, msg)`                                            | `packages/macros/src/static-assert.ts`       |
-| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                     | `packages/std/src/typeclasses/flatmap.ts`    |
-| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                   | `packages/std/src/macros/let-yield.ts`       |
-| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`             | `packages/core/src/resolution-scope.ts`      |
-| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`     | `packages/core/src/import-suggestions.ts`    |
-| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()` | `packages/core/src/diagnostics.ts`           |
-| Register an @opaque type        | `/** @opaque UnderlyingType */` on interface                         | `packages/macros/src/opaque.ts`              |
-| Look up type rewrite entry      | `typeRewriteRegistry.get(typeName)`                                  | `packages/core/src/type-rewrite-registry.ts` |
-| Register type rewrite           | `typeRewriteRegistry.register(entry)`                                | `packages/core/src/type-rewrite-registry.ts` |
-| Check SFINAE suppression        | `shouldSuppressDiagnostic(code, node, ctx)`                          | `packages/transformer/src/sfinae.ts`         |
+| Need                            | Use                                                                     | Location                                     |
+| ------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                   | `packages/macros/src/specialize.ts`          |
+| Create specialized function     | `createSpecializedFunction(ctx, options)`                               | `packages/macros/src/specialize.ts`          |
+| Register a new expression macro | `defineExpressionMacro(name, macro)`                                    | `packages/core/src/registry.ts`              |
+| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                     | `packages/core/src/registry.ts`              |
+| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                        | `packages/core/src/registry.ts`              |
+| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`                | `packages/core/src/context.ts`               |
+| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``                  | `packages/macros/src/quote.ts`               |
+| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`     | `packages/core/src/context.ts`               |
+| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                            | `packages/core/src/context.ts`               |
+| Report compile error            | `ctx.reportError(node, message)`                                        | `packages/core/src/context.ts`               |
+| Generate unique names           | `ctx.generateUniqueName(prefix)`                                        | `packages/core/src/context.ts`               |
+| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                             | `packages/core/src/context.ts`               |
+| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                    | `packages/macros/src/typeclass.ts`           |
+| Mark file as extension source   | `"use extension";` directive at file top                                | `packages/core/src/resolution-scope.ts`      |
+| Mark function as extension      | `@extension` decorator                                                  | `packages/macros/src/extension.ts`           |
+| Register instance methods       | `registerInstanceMethods(dictName, brand, methods)`                     | `packages/macros/src/specialize.ts`          |
+| Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                             | `packages/macros/src/auto-derive.ts`         |
+| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                        | `packages/macros/src/typeclass.ts`           |
+| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                      | `packages/macros/src/syntax-macro.ts`        |
+| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                    | `packages/macros/src/custom-derive.ts`       |
+| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                      | `packages/core/src/pipeline.ts`              |
+| Read config values              | `config.get(path)`, `config.evaluate(condition)`                        | `packages/core/src/config.ts`                |
+| Include file at compile time    | `includeStr()`, `includeJson()`                                         | `packages/macros/src/include.ts`             |
+| Assert at compile time          | `staticAssert(cond, msg)`                                               | `packages/macros/src/static-assert.ts`       |
+| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                        | `packages/std/src/typeclasses/flatmap.ts`    |
+| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                      | `packages/std/src/macros/let-yield.ts`       |
+| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`                | `packages/core/src/resolution-scope.ts`      |
+| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`        | `packages/core/src/import-suggestions.ts`    |
+| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()`    | `packages/core/src/diagnostics.ts`           |
+| Register an @opaque type        | `/** @opaque UnderlyingType */` on interface                            | `packages/macros/src/opaque.ts`              |
+| Look up type rewrite entry      | `typeRewriteRegistry.get(typeName)`                                     | `packages/core/src/type-rewrite-registry.ts` |
+| Register type rewrite           | `typeRewriteRegistry.register(entry)`                                   | `packages/core/src/type-rewrite-registry.ts` |
+| Check SFINAE suppression        | `shouldSuppressDiagnostic(code, node, ctx)`                             | `packages/transformer/src/sfinae.ts`         |
+| Work on match exhaustiveness    | `analyzeScrutineeType()`, `isAllPureLiteralArms()`, `ScrutineeAnalysis` | `packages/std/src/macros/match-v2.ts`        |
+| Write fluent pattern match      | `match(v).case(...).if(...).then(...).else(...)`                        | `packages/std/src/macros/match.ts`           |
+| Write preprocessor match        | `match(v) \| pattern => expr` (`.sts` files only)                       | `packages/preprocessor/src/scanner.ts`       |
 
 ---
 

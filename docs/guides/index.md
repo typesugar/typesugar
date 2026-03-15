@@ -6,12 +6,13 @@ Deep-dive guides for typesugar features, organized by category.
 
 Everyday features from `@typesugar/std`:
 
-| Guide                                        | Description                                             |
-| -------------------------------------------- | ------------------------------------------------------- |
-| [Extension Methods](./extension-methods.md)  | UFCS, @opaque dot syntax, global augmentation           |
-| [Pattern Matching](./match.md)               | Exhaustive `match()` with discriminated unions          |
-| [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:` |
-| [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Hash, Show, Monoid, FlatMap                    |
+| Guide                                          | Description                                                 |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| [Extension Methods](./extension-methods.md)    | UFCS, @opaque dot syntax, global augmentation               |
+| [Pattern Matching](./match.md)                 | Exhaustive `match()` with discriminated unions              |
+| [Pattern Matching (v2)](./pattern-matching.md) | Scala-style structural patterns, exhaustiveness, extractors |
+| [Do-Notation](./do-notation.md)                | Monadic `let:`/`yield:` and applicative `par:`/`yield:`     |
+| [Standard Typeclasses](./std-typeclasses.md)   | Eq, Ord, Hash, Show, Monoid, FlatMap                        |
 
 ## Typeclasses & Derivation
 

@@ -3023,6 +3023,16 @@ class MacroTransformer {
       }
     }
 
+    // Chain macro detection: fluent APIs like match(x).case(42).then("yes")
+    // Must run before expression macros to intercept the outermost chain call
+    // before visitEachChild would expand the root call in isolation.
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const chainResult = this.tryExpandChainMacro(node);
+      if (chainResult !== undefined) {
+        return chainResult;
+      }
+    }
+
     if (ts.isCallExpression(node)) {
       const result = this.tryExpandExpressionMacro(node);
       if (result !== undefined) {
@@ -3398,6 +3408,92 @@ class MacroTransformer {
     // Copy position info from the tag for error reporting
     // Note: This is a best-effort - synthetic nodes may not have valid positions
     return ts.setTextRange(decorator, tag);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chain macro expansion (fluent API support)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Walk down a method-call chain to find its root CallExpression.
+   * e.g. match(x).case(42).then("yes").else("no") → match(x)
+   */
+  private findChainRoot(node: ts.CallExpression): ts.CallExpression | undefined {
+    let current: ts.Expression = node;
+    while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+      current = current.expression.expression;
+    }
+    return ts.isCallExpression(current) ? current : undefined;
+  }
+
+  /**
+   * Check if this call is the outermost in a method chain.
+   * Returns false if the parent is `.method(...)` wrapping this node.
+   */
+  private isOutermostChainCall(node: ts.CallExpression): boolean {
+    const parent = node.parent;
+    if (!parent) return true;
+    if (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.parent &&
+      ts.isCallExpression(parent.parent)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Detect and expand chainable expression macros.
+   * For a chain like match(x).case(42).then("yes"), this finds the root
+   * macro (match), verifies it's chainable, and passes the outermost
+   * CallExpression to expand().
+   */
+  private tryExpandChainMacro(node: ts.CallExpression): ts.Expression | undefined {
+    const rootCall = this.findChainRoot(node);
+    if (!rootCall) return undefined;
+
+    if (!ts.isIdentifier(rootCall.expression)) return undefined;
+    const macroName = rootCall.expression.text;
+
+    const macro = this.resolveMacroFromSymbol(rootCall.expression, macroName, "expression") as
+      | ExpressionMacro
+      | undefined;
+    if (!macro?.chainable) return undefined;
+
+    if (!this.isOutermostChainCall(node)) return undefined;
+
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    if (this.verbose) {
+      console.log(`[typesugar] Expanding chain macro: ${macroName} (chain depth)`);
+    }
+
+    try {
+      const result = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, node, Array.from(rootCall.arguments))
+      );
+
+      if (this.verbose) {
+        const expandedText = this.printNodeSafe(result);
+        if (expandedText && this.expansionTracker) {
+          this.expansionTracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);
+        }
+      }
+
+      if (result === (node as ts.Expression)) {
+        return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      }
+      const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    } catch (error) {
+      this.ctx.reportError(node, `Chain macro expansion failed: ${error}`);
+      return this.createMacroErrorExpression(
+        `typesugar: chain expansion of '${macroName}' failed: ${error}`
+      );
+    }
   }
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
