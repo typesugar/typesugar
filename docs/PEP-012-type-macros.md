@@ -267,21 +267,21 @@ export interface Meters {
 - [x] `pnpm vitest run packages/macros` passes
 - [x] Registry contains correct entries after macro expansion
 
-### Wave 3: Transformer Method Erasure
+### Wave 3: Transformer Method Erasure ✅
 
 **Tasks:**
 
-- [ ] Add type rewrite registry resolution path to `tryRewriteExtensionMethod`
-- [ ] Check registry BEFORE existing extension/import resolution
-- [ ] Rewrite `x.method(args)` → `method(x, args)` using registry info
-- [ ] Handle import injection (add import for the standalone function if not present)
-- [ ] Tests: `Some(5).map(n => n * 2)` rewrites to `map(Some(5), n => n * 2)`
+- [x] Add type rewrite registry resolution path to `tryRewriteExtensionMethod`
+- [x] Check registry BEFORE existing extension/import resolution
+- [x] Rewrite `x.method(args)` → `method(x, args)` using registry info
+- [x] Handle import injection (add import for the standalone function if not present)
+- [x] Tests: `Some(5).map(n => n * 2)` rewrites to `map(Some(5), n => n * 2)`
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Method erasure tests pass
-- [ ] Existing extension method behavior not broken
+- [x] `pnpm build` passes
+- [x] Method erasure tests pass
+- [x] Existing extension method behavior not broken
 
 ### Wave 4: Constructor and Accessor Erasure
 
@@ -390,6 +390,7 @@ export interface Meters {
 | `packages/macros/src/opaque.ts`              | New: `@opaque` attribute macro                     |
 | `packages/macros/src/index.ts`               | Register `@opaque` macro                           |
 | `packages/transformer/src/index.ts`          | New resolution path in `tryRewriteExtensionMethod` |
+| `packages/transformer/src/pipeline.ts`       | Type rewrite registry fallback to TS backend       |
 | `packages/fp/src/data/option.ts`             | Redefine as `@opaque` interface                    |
 | `packages/fp/src/data/either.ts`             | Redefine as `@opaque` interface                    |
 | `packages/fp/src/data/list.ts`               | Redefine as `@opaque` interface                    |
