@@ -379,8 +379,8 @@ const eitherStringFunctor = {
   map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
 };
 
-summon<Functor<Option>>().map(null, (x: number) => x);  // null
-summon<Functor<Array>>().map([1, 2, 3], x => x * 2);   // [2, 4, 6]
+summon<Functor<Option>>().map(null, (x: number) => x); // null
+summon<Functor<Array>>().map([1, 2, 3], (x) => x * 2); // [2, 4, 6]
 ```
 
 No `OptionF`, `ArrayF`, or `@hkt` needed. The macro resolves `Option`, `Array`, and `Either<string>` via the TypeChecker and generates the encoding internally.

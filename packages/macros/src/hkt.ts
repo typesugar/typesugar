@@ -89,9 +89,7 @@ export interface TypeConstructorResolution {
  * "Either<string>"  → { base: "Either", fixedArgs: ["string"] }
  * "Map<string>"     → { base: "Map", fixedArgs: ["string"] }
  */
-export function parseTypeConstructor(
-  typeStr: string
-): { base: string; fixedArgs: string[] } {
+export function parseTypeConstructor(typeStr: string): { base: string; fixedArgs: string[] } {
   const openBracket = typeStr.indexOf("<");
   if (openBracket === -1) {
     return { base: typeStr.trim(), fixedArgs: [] };
@@ -189,8 +187,9 @@ export function resolveTypeConstructorViaTypeChecker(
       ts.forEachChild(sf, (node) => {
         if (symbol) return; // already found
         if (
-          (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) ||
-           ts.isClassDeclaration(node)) &&
+          (ts.isInterfaceDeclaration(node) ||
+            ts.isTypeAliasDeclaration(node) ||
+            ts.isClassDeclaration(node)) &&
           node.name?.text === base
         ) {
           symbol = checker.getSymbolAtLocation(node.name);
@@ -293,14 +292,14 @@ export const kindParamRegistry = new Map<string, KindParamInfo>();
 // ============================================================================
 
 /**
- * Check if a type parameter declaration has a kind annotation (F<_>)
+ * Check if a type parameter declaration has a kind annotation (F\<_\>)
  *
- * In the AST, `F<_>` appears as a type parameter with a constraint or
- * default that uses the `_` identifier.
+ * In the AST, F\<_\> appears as a type parameter with a constraint or
+ * default that uses the _ identifier.
  *
- * Actually, TypeScript parses `F<_>` as an error, so we need to detect
- * it differently. The syntax `interface Foo<F<_>>` is parsed with `F`
- * as the type param and `<_>` as... nothing valid.
+ * Actually, TypeScript parses F\<_\> as an error, so we need to detect
+ * it differently. The syntax "interface Foo\<F\<_\>\>" is parsed with F
+ * as the type param and \<_\> as nothing valid.
  *
  * We need to handle this at the source text level or use a marker.
  */
@@ -354,8 +353,8 @@ export function isKindApplication(node: ts.TypeReferenceNode, kindParams: Set<st
 /**
  * Transform HKT syntax in a type/interface declaration.
  *
- * 1. Replace `F<_>` type parameters with plain `F`
- * 2. Replace `F<A>` type applications with `Kind<F, A>`
+ * 1. Replace F\<_\> type parameters with plain F
+ * 2. Replace F\<A\> type applications with Kind\<F, A\>
  */
 export function transformHKTDeclaration(
   ctx: MacroContext,
