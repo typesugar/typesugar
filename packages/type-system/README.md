@@ -119,12 +119,7 @@ The `_` type is `never & "__kind__"` — TypeScript reduces it to `never` (valid
 For full control, define type-level functions manually:
 
 ```typescript
-import {
-  type Kind,
-  type TypeFunction,
-  type ArrayF,
-  type PromiseF,
-} from "@typesugar/type-system";
+import { type Kind, type TypeFunction, type ArrayF, type PromiseF } from "@typesugar/type-system";
 
 // Apply a type constructor
 type Result = Kind<ArrayF, number>; // → number[]

@@ -159,7 +159,7 @@ type Either<E, A> = { _tag: "Left"; error: E } | { _tag: "Right"; value: A };
 
 // Tier 3: @hkt with _ marker (for types you don't own)
 /** @hkt */
-type ValidArrayF = Array<_>;
+type ValidArrayF = Array /*@ts:hkt*/;
 
 /** @hkt */
 type ValidMapF<K> = Map<K, _>;

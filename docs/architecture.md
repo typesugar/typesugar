@@ -556,11 +556,11 @@ No `OptionF`, `ArrayF`, or `@hkt` needed. Partial application works: `@impl Func
 
 ```typescript
 /** @hkt */
-type Option<A> = A | null;  // Tier 2: generates OptionF companion
+type Option<A> = A | null; // Tier 2: generates OptionF companion
 
 import type { _ } from "@typesugar/type-system";
 /** @hkt */
-type ArrayF = Array<_>;     // Tier 3: _ marks the hole
+type ArrayF = Array<_>; // Tier 3: _ marks the hole
 ```
 
 **Manual `TypeFunction` — escape hatch** for full control:
