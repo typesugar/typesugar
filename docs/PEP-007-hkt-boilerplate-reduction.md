@@ -187,7 +187,7 @@ The transformer rewrites every `F<A>` (where F is a type parameter) to `Kind<F, 
 
 | Condition                   | Error Code | Message                                       |
 | --------------------------- | ---------- | --------------------------------------------- |
-| Tier 1: Can't resolve type  | TS9301     | `Cannot resolve type constructor 'Foo'`       |
+| Tier 1: Can't resolve type  | TS9305     | `Cannot resolve type constructor 'Foo'`       |
 | Tier 2: No type params      | TS9302     | `@hkt requires at least one type parameter`   |
 | Tier 3: No `_` in RHS       | TS9303     | `@hkt type alias must contain _ placeholder`  |
 | Tier 3: Multiple `_` in RHS | TS9304     | `@hkt must contain exactly one _ placeholder` |
@@ -274,7 +274,7 @@ Start with the most explicit form — handles all edge cases, no environment res
 | `packages/fp/src/data/validated.ts`     | Add `/** @hkt */` to `Validated<E, A>`                                  |
 | `packages/fp/src/hkt.ts`                | Remove manual `*F` for migrated types, add re-exports from data modules |
 | `packages/fp/src/index.ts`              | Adjust barrel re-exports for `*F` types                                 |
-| `packages/type-system/src/hkt.ts`       | Keep manual interfaces (deferred: tsup doesn't run transformer)          |
+| `packages/type-system/src/hkt.ts`       | Keep manual interfaces (deferred: tsup doesn't run transformer)         |
 | `tests/hkt-macro.test.ts`               | Add Tier 2 tests                                                        |
 
 **Import compatibility:** `OptionF`, `EitherF`, etc. stay exported from `@typesugar/fp` via `hkt.ts` re-exports. No consumer import changes.
@@ -304,19 +304,19 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Tasks:**
 
-- [ ] Replace regex parsing in `implAttribute.expand` (`packages/macros/src/typeclass.ts` line ~1690):
+- [x] Replace regex parsing in `implAttribute.expand` (`packages/macros/src/typeclass.ts` line ~1690):
   - Current: `^(\w+)<(\w+)>$` — fails on `Functor<Either<string>>`
   - Replace with bracket-aware `parseTypeclassInstantiation` (already exists in same file)
-- [ ] Add TypeChecker-based resolution in `implAttribute.expand`:
+- [x] Add TypeChecker-based resolution in `implAttribute.expand`:
   - If `typeName` (e.g. `"Option"`) is not in `hktExpansionRegistry`, resolve via `ctx.typeChecker`
   - Check if it's a generic type, count type params, determine hole
   - Generate internal TypeFunction encoding
-- [ ] Add helper `resolveTypeConstructorViaTypeChecker(ctx, typeNameStr)` in `packages/macros/src/hkt.ts`
-- [ ] Handle partial application: `Either<string>` → fix `E=string`, hole is `A`
-- [ ] Fix `extractBrandFromImpl` in `packages/transformer/src/index.ts` for nested brackets
-- [ ] Support `brand` like `"Either<string>"` in `narrowKindType` (`packages/macros/src/specialize.ts`)
-- [ ] Update `summonMacro.expand` to use full type string for `typeName`
-- [ ] Add TS9301 diagnostic (or new TS9305) for "Cannot resolve type constructor"
+- [x] Add helper `resolveTypeConstructorViaTypeChecker(ctx, typeNameStr)` in `packages/macros/src/hkt.ts`
+- [x] Handle partial application: `Either<string>` → fix `E=string`, hole is `A`
+- [x] Fix `extractBrandFromImpl` in `packages/transformer/src/index.ts` for nested brackets
+- [x] Support `brand` like `"Either<string>"` in `narrowKindType` (`packages/macros/src/specialize.ts`)
+- [x] Update `summonMacro.expand` to use full type string for `typeName`
+- [x] Add TS9305 diagnostic for "Cannot resolve type constructor"
 
 **Files changed:**
 
@@ -339,12 +339,12 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Gate:**
 
-- [ ] `/** @impl Functor<Option> */` works without any `@hkt` or `OptionF` declaration
-- [ ] `/** @impl Functor<Either<string>> */` works with partial application
-- [ ] `/** @impl Functor<Array> */` works for built-in types
-- [ ] `summon<Functor<Option>>()` resolves correctly
-- [ ] Auto-specialization works with the new brands
-- [ ] Works in all environments (IDE, bundlers, `tsc`)
+- [x] `/** @impl Functor<Option> */` works without any `@hkt` or `OptionF` declaration
+- [x] `/** @impl Functor<Either<string>> */` works with partial application
+- [x] `/** @impl Functor<Array> */` works for built-in types
+- [x] `summon<Functor<Option>>()` resolves correctly
+- [x] Auto-specialization works with the new brands
+- [x] Works in all environments (IDE, bundlers, `tsc`)
 
 ### Wave 4: Tier 0 — `F<A>` → `Kind<F, A>` Rewriting (~4 files, 1 new)
 

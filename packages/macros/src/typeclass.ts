@@ -96,8 +96,10 @@ import {
   TS9103,
   TS9104,
   TS9203,
+  TS9305,
 } from "@typesugar/core";
 import { getSuggestionsForSymbol, getSuggestionsForTypeclass } from "@typesugar/core";
+import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 
 // ============================================================================
 // Primitive Registration Hook
@@ -1686,11 +1688,11 @@ export const implAttribute = defineAttributeMacro({
     if (ts.isStringLiteral(firstArg)) {
       const text = firstArg.text;
 
-      // Check for "Typeclass<Type>" format
-      const hktMatch = text.match(/^(\w+)<(\w+)>$/);
-      if (hktMatch) {
-        tcName = hktMatch[1];
-        typeName = hktMatch[2];
+      // Check for "Typeclass<Type>" format using bracket-aware parser
+      const parsed = parseTypeclassInstantiation(text);
+      if (parsed) {
+        tcName = parsed.typeclassName;
+        typeName = parsed.forType;
         isHKTInstance = isHKTTypeclass(tcName);
       } else {
         // Simple type name - typeclass comes from type annotation
@@ -1753,12 +1755,24 @@ export const implAttribute = defineAttributeMacro({
       return target;
     }
 
-    // For HKT typeclasses, generate expanded type annotation
+    // For HKT typeclasses, try implicit resolution then generate expanded type
     let updatedTarget: ts.Node = target;
     if (isHKTInstance && decl) {
+      // Tier 1 implicit resolution: if typeName isn't a known type function,
+      // try to resolve it via TypeChecker and auto-register
+      const { base: resolvedBase } = parseTypeConstructor(typeName);
+      if (!hktExpansionRegistry.has(typeName) && !hktExpansionRegistry.has(resolvedBase)) {
+        const resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
+        if (resolution) {
+          // Auto-register the base type as an HKT expansion
+          registerHKTExpansion(resolution.baseType, resolution.baseType);
+        } else {
+          ctx.diagnostic(TS9305).at(target).withArgs({ type: typeName }).emit();
+        }
+      }
+
       const expandedType = generateHKTExpandedType(ctx, tcName, typeName);
       if (expandedType) {
-        // Update the variable declaration with the expanded type
         const newDecl = factory.updateVariableDeclaration(
           decl,
           decl.name,
@@ -1930,24 +1944,43 @@ function generateHKTExpandedType(
   typeclassName: string,
   hktParam: string
 ): ts.TypeNode | undefined {
-  const expansion = getHKTExpansion(hktParam);
+  // Handle partial application: "Either<string>" → base="Either", fixedArgs=["string"]
+  const { base, fixedArgs } = parseTypeConstructor(hktParam);
 
-  // First, try dynamic expansion from registered typeclass
+  // Resolve the expansion: try the full param first, then the base type
+  let expansion = hktExpansionRegistry.has(hktParam)
+    ? getHKTExpansion(hktParam)
+    : getHKTExpansion(base);
+
+  // For partial application, the expansion substitution needs to include fixed args.
+  // e.g., Kind<F, A> → Either<string, A> instead of Either<A>
+  const expansionWithFixedArgs =
+    fixedArgs.length > 0 ? `${expansion}<${fixedArgs.join(", ")}, $1>` : `${expansion}<$1>`;
+
   const tcInfo = typeclassRegistry.get(typeclassName);
   let signature: string | undefined;
 
   if (tcInfo?.fullSignatureText) {
-    // Dynamic substitution: replace Kind<F, A> with ConcreteType<A>
-    // where F is the type parameter from the typeclass (e.g., "F" in Monad<F>)
-    signature = expandHKTInSignature(tcInfo.fullSignatureText, tcInfo.typeParam, expansion);
+    if (fixedArgs.length > 0) {
+      signature = expandHKTInSignatureWithPartialApp(
+        tcInfo.fullSignatureText,
+        tcInfo.typeParam,
+        expansion,
+        fixedArgs
+      );
+    } else {
+      signature = expandHKTInSignature(tcInfo.fullSignatureText, tcInfo.typeParam, expansion);
+    }
   } else {
-    // Fall back to hardcoded templates for unregistered typeclasses (e.g., cats)
-    signature = getTypeclassSignatureTemplate(typeclassName, expansion);
+    if (fixedArgs.length > 0) {
+      signature = getTypeclassSignatureTemplate(typeclassName, expansion, fixedArgs);
+    } else {
+      signature = getTypeclassSignatureTemplate(typeclassName, expansion);
+    }
   }
 
   if (!signature) return undefined;
 
-  // Parse the signature into a TypeNode
   try {
     // SAFE: __T is only used for parsing, never emitted into generated code.
     const tempSource = `type __T = ${signature};`;
@@ -1987,59 +2020,92 @@ function expandHKTInSignature(signatureText: string, typeParam: string, expansio
 }
 
 /**
+ * Expand HKT patterns with partial application.
+ * For "Either<string>": Kind<F, A> → Either<string, A>
+ */
+function expandHKTInSignatureWithPartialApp(
+  signatureText: string,
+  typeParam: string,
+  expansion: string,
+  fixedArgs: string[]
+): string {
+  const fixedPrefix = fixedArgs.join(", ");
+  const pattern = new RegExp(`\\Kind<${typeParam},\\s*([^<>]+(?:<[^>]+>)?)>`, "g");
+
+  let result = signatureText;
+  let prevResult = "";
+
+  while (result !== prevResult) {
+    prevResult = result;
+    result = result.replace(pattern, `${expansion}<${fixedPrefix}, $1>`);
+  }
+
+  return result;
+}
+
+/**
  * Get the concrete type signature template for a typeclass.
  * Returns a string representation of the expanded type.
+ *
+ * When fixedArgs is provided, generates partially applied types:
+ * e.g., Functor with expansion="Either", fixedArgs=["string"]
+ * produces `Either<string, A>` instead of `Either<A>`.
  */
 function getTypeclassSignatureTemplate(
   typeclassName: string,
-  concreteType: string
+  concreteType: string,
+  fixedArgs?: string[]
 ): string | undefined {
-  const exp = concreteType;
+  // Build the type application helper: T(A) → "ConcreteType<...fixedArgs, A>"
+  const t = (inner: string): string => {
+    if (fixedArgs && fixedArgs.length > 0) {
+      return `${concreteType}<${fixedArgs.join(", ")}, ${inner}>`;
+    }
+    return `${concreteType}<${inner}>`;
+  };
 
-  // Templates for common HKT typeclasses
-  // These expand Kind<F, A> to ConcreteType<A>
   const templates: Record<string, string> = {
-    Functor: `{ readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B> }`,
+    Functor: `{ readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")} }`,
 
     Applicative: `{
-      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
-      readonly pure: <A>(a: A) => ${exp}<A>;
-      readonly ap: <A, B>(fab: ${exp}<(a: A) => B>, fa: ${exp}<A>) => ${exp}<B>
+      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
+      readonly pure: <A>(a: A) => ${t("A")};
+      readonly ap: <A, B>(fab: ${t("(a: A) => B")}, fa: ${t("A")}) => ${t("B")}
     }`,
 
     Monad: `{
-      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
-      readonly flatMap: <A, B>(fa: ${exp}<A>, f: (a: A) => ${exp}<B>) => ${exp}<B>;
-      readonly pure: <A>(a: A) => ${exp}<A>;
-      readonly ap: <A, B>(fab: ${exp}<(a: A) => B>, fa: ${exp}<A>) => ${exp}<B>
+      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
+      readonly flatMap: <A, B>(fa: ${t("A")}, f: (a: A) => ${t("B")}) => ${t("B")};
+      readonly pure: <A>(a: A) => ${t("A")};
+      readonly ap: <A, B>(fab: ${t("(a: A) => B")}, fa: ${t("A")}) => ${t("B")}
     }`,
 
     Foldable: `{
-      readonly foldLeft: <A, B>(fa: ${exp}<A>, b: B, f: (b: B, a: A) => B) => B;
-      readonly foldRight: <A, B>(fa: ${exp}<A>, b: B, f: (a: A, b: B) => B) => B
+      readonly foldLeft: <A, B>(fa: ${t("A")}, b: B, f: (b: B, a: A) => B) => B;
+      readonly foldRight: <A, B>(fa: ${t("A")}, b: B, f: (a: A, b: B) => B) => B
     }`,
 
     Traverse: `{
-      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
-      readonly foldLeft: <A, B>(fa: ${exp}<A>, b: B, f: (b: B, a: A) => B) => B;
-      readonly foldRight: <A, B>(fa: ${exp}<A>, b: B, f: (a: A, b: B) => B) => B;
-      readonly traverse: <G>(G: any) => <A, B>(fa: ${exp}<A>, f: (a: A) => any) => any
+      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
+      readonly foldLeft: <A, B>(fa: ${t("A")}, b: B, f: (b: B, a: A) => B) => B;
+      readonly foldRight: <A, B>(fa: ${t("A")}, b: B, f: (a: A, b: B) => B) => B;
+      readonly traverse: <G>(G: any) => <A, B>(fa: ${t("A")}, f: (a: A) => any) => any
     }`,
 
-    SemigroupK: `{ readonly combineK: <A>(x: ${exp}<A>, y: ${exp}<A>) => ${exp}<A> }`,
+    SemigroupK: `{ readonly combineK: <A>(x: ${t("A")}, y: ${t("A")}) => ${t("A")} }`,
 
     MonoidK: `{
-      readonly combineK: <A>(x: ${exp}<A>, y: ${exp}<A>) => ${exp}<A>;
-      readonly emptyK: <A>() => ${exp}<A>
+      readonly combineK: <A>(x: ${t("A")}, y: ${t("A")}) => ${t("A")};
+      readonly emptyK: <A>() => ${t("A")}
     }`,
 
     Alternative: `{
-      readonly map: <A, B>(fa: ${exp}<A>, f: (a: A) => B) => ${exp}<B>;
-      readonly flatMap: <A, B>(fa: ${exp}<A>, f: (a: A) => ${exp}<B>) => ${exp}<B>;
-      readonly pure: <A>(a: A) => ${exp}<A>;
-      readonly ap: <A, B>(fab: ${exp}<(a: A) => B>, fa: ${exp}<A>) => ${exp}<B>;
-      readonly combineK: <A>(x: ${exp}<A>, y: ${exp}<A>) => ${exp}<A>;
-      readonly emptyK: <A>() => ${exp}<A>
+      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
+      readonly flatMap: <A, B>(fa: ${t("A")}, f: (a: A) => ${t("B")}) => ${t("B")};
+      readonly pure: <A>(a: A) => ${t("A")};
+      readonly ap: <A, B>(fab: ${t("(a: A) => B")}, fa: ${t("A")}) => ${t("B")};
+      readonly combineK: <A>(x: ${t("A")}, y: ${t("A")}) => ${t("A")};
+      readonly emptyK: <A>() => ${t("A")}
     }`,
   };
 
@@ -3141,7 +3207,13 @@ export const summonMacro = defineExpressionMacro({
     let typeName: string;
 
     if (ts.isTypeReferenceNode(innerType)) {
-      typeName = innerType.typeName.getText();
+      // Use full type text including type arguments for partial application
+      // e.g., Either<string> → "Either<string>", not just "Either"
+      if (innerType.typeArguments && innerType.typeArguments.length > 0) {
+        typeName = innerType.getText();
+      } else {
+        typeName = innerType.typeName.getText();
+      }
     } else if (innerType.kind === ts.SyntaxKind.NumberKeyword) {
       typeName = "number";
     } else if (innerType.kind === ts.SyntaxKind.StringKeyword) {

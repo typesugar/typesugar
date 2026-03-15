@@ -1000,6 +1000,27 @@ For multi-arity type constructors, fix all but one parameter:
   seeAlso: "https://typesugar.dev/errors/TS9304",
 };
 
+export const TS9305: DiagnosticDescriptor = {
+  code: 9305,
+  severity: "error",
+  category: DiagnosticCategory.HKT,
+  messageTemplate: "Cannot resolve type constructor `{type}` for HKT instance",
+  explanation: `The @impl macro could not resolve \`{type}\` as a valid type constructor.
+
+For HKT typeclasses like Functor and Monad, the type argument must be a generic
+type constructor (a type that takes at least one type parameter).
+
+Valid:
+  /** @impl Functor<Option> */      // Option<A> has one type param
+  /** @impl Functor<Array> */       // Array<A> has one type param
+  /** @impl Functor<Either<string>> */  // Partially applied: fixes E, varies A
+
+Invalid:
+  /** @impl Functor<number> */      // number is not a type constructor
+  /** @impl Functor<UnknownType> */ // Type not found in scope`,
+  seeAlso: "https://typesugar.dev/errors/TS9305",
+};
+
 // ============================================================================
 // Error Catalog: Extension Methods (9400-9499)
 // ============================================================================
@@ -1275,6 +1296,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9302, TS9302],
   [9303, TS9303],
   [9304, TS9304],
+  [9305, TS9305],
 
   // Extension Methods (9400-9499)
   [9401, TS9401],

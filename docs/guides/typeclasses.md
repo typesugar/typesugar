@@ -360,7 +360,32 @@ If multiple typeclasses define the same operator (e.g., `Semigroup` and `Numeric
 
 ## Higher-Kinded Types
 
-typesugar supports HKTs for typeclasses over type constructors using phantom kind markers:
+typesugar supports HKTs for typeclasses over type constructors. **Tier 1** (recommended) requires no boilerplate — the macro resolves the type constructor automatically:
+
+```typescript
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: (fa, f) => fa.map(f),
+};
+
+// Partial application: fix E=string, vary A
+/** @impl Functor<Either<string>> */
+const eitherStringFunctor = {
+  map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
+};
+
+summon<Functor<Option>>().map(null, (x: number) => x);  // null
+summon<Functor<Array>>().map([1, 2, 3], x => x * 2);   // [2, 4, 6]
+```
+
+No `OptionF`, `ArrayF`, or `@hkt` needed. The macro resolves `Option`, `Array`, and `Either<string>` via the TypeChecker and generates the encoding internally.
+
+For types you don't own, use the explicit `TypeFunction` interface:
 
 ```typescript
 import { Kind, type TypeFunction } from "@typesugar/type-system";
@@ -373,9 +398,6 @@ interface ArrayF extends TypeFunction {
 const FunctorArray: Functor<ArrayF> = {
   map: (fa, f) => fa.map(f),
 };
-
-summon<Functor<ArrayF>>().map([1, 2, 3], x => x * 2);
-// [2, 4, 6]
 ```
 
 ## Instance Resolution

@@ -76,6 +76,18 @@ const stringEq: Eq<string> = {
 };
 ```
 
+For HKT typeclasses (Functor, Monad), use the same syntax — no `*F` companion needed:
+
+```typescript
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+
+/** @impl Functor<Either<string>> */  // Partial application: fixes E, varies A
+const eitherStringFunctor = { ... };
+```
+
 ### Auto-Derive Instances
 
 ```typescript

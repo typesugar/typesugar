@@ -49,6 +49,7 @@ import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl, markPure } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
+import { parseTypeConstructor } from "./hkt.js";
 
 // Printer for safe text extraction from nodes (works on synthetic nodes too)
 const printer = ts.createPrinter();
@@ -1579,59 +1580,66 @@ function narrowKindType(
   typeParamName: string | undefined,
   brand: string
 ): ts.TypeNode {
-  // Visit the type node and transform Kind references
+  // Parse compound brands like "Either<string>" into base + fixed args
+  const { base: brandBase, fixedArgs: brandFixedArgs } = parseTypeConstructor(brand);
+
+  /**
+   * Build a TypeReferenceNode for the brand with the given trailing type args.
+   * For simple brands like "Array", creates Array<...trailingArgs>.
+   * For compound brands like "Either<string>", creates Either<string, ...trailingArgs>.
+   */
+  function makeBrandTypeRef(trailingArgs: ts.TypeNode[]): ts.TypeReferenceNode {
+    const allArgs: ts.TypeNode[] = [];
+    for (const fixed of brandFixedArgs) {
+      // Parse each fixed arg string into a TypeNode
+      const tempSrc = `type __X = ${fixed};`;
+      const tempFile = ts.createSourceFile("__narrow.ts", tempSrc, ts.ScriptTarget.Latest, true);
+      for (const stmt of tempFile.statements) {
+        if (ts.isTypeAliasDeclaration(stmt)) {
+          allArgs.push(stmt.type);
+        }
+      }
+    }
+    allArgs.push(...trailingArgs);
+    return ctx.factory.createTypeReferenceNode(ctx.factory.createIdentifier(brandBase), allArgs);
+  }
+
   function visit(node: ts.Node): ts.Node {
     if (ts.isTypeReferenceNode(node)) {
       const typeName = getNodeText(node.typeName);
 
-      // Check for Kind<F, A> or Kind2<F, E, A> patterns
       if ((typeName === "Kind" || typeName === "Kind2") && node.typeArguments) {
         const args = node.typeArguments;
 
-        // Kind<F, A> - replace if F matches the type parameter
         if (typeName === "Kind" && args.length >= 2) {
           const fArg = args[0];
           if (
             ts.isTypeReferenceNode(fArg) &&
             (!typeParamName || getNodeText(fArg.typeName) === typeParamName)
           ) {
-            // Replace with concrete type: brand<A>
-            // e.g., Array<number>
             const innerTypeArg = ts.visitNode(args[1], visit) as ts.TypeNode;
-            return ctx.factory.createTypeReferenceNode(ctx.factory.createIdentifier(brand), [
-              innerTypeArg,
-            ]);
+            return makeBrandTypeRef([innerTypeArg]);
           }
         }
 
-        // Kind2<F, E, A> - replace if F matches
         if (typeName === "Kind2" && args.length >= 3) {
           const fArg = args[0];
           if (
             ts.isTypeReferenceNode(fArg) &&
             (!typeParamName || getNodeText(fArg.typeName) === typeParamName)
           ) {
-            // Replace with concrete type: brand<E, A>
-            // e.g., Either<string, number>
             const eArg = ts.visitNode(args[1], visit) as ts.TypeNode;
             const aArg = ts.visitNode(args[2], visit) as ts.TypeNode;
-            return ctx.factory.createTypeReferenceNode(ctx.factory.createIdentifier(brand), [
-              eArg,
-              aArg,
-            ]);
+            return makeBrandTypeRef([eArg, aArg]);
           }
         }
       }
 
-      // Check if this is the type parameter itself (e.g., just "F")
-      // In some cases, the type param appears raw and should be replaced with the brand
       if (typeParamName && typeName === typeParamName) {
-        return ctx.factory.createTypeReferenceNode(
-          ctx.factory.createIdentifier(brand),
-          node.typeArguments
-            ? (node.typeArguments.map((a) => ts.visitNode(a, visit)) as ts.TypeNode[])
-            : undefined
-        );
+        const visitedArgs = node.typeArguments
+          ? (node.typeArguments.map((a) => ts.visitNode(a, visit)) as ts.TypeNode[])
+          : [];
+        return makeBrandTypeRef(visitedArgs);
       }
     }
 

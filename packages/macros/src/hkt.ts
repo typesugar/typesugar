@@ -65,6 +65,208 @@ export {
 } from "./typeclass.js";
 
 // ============================================================================
+// Type Constructor Resolution via TypeChecker (Tier 1 Implicit Resolution)
+// ============================================================================
+
+/**
+ * Result of resolving a type constructor string like "Option" or "Either<string>".
+ */
+export interface TypeConstructorResolution {
+  /** Base type name (e.g., "Either" for "Either<string>") */
+  baseType: string;
+  /** Fixed type arguments from partial application (e.g., ["string"] for "Either<string>") */
+  fixedArgs: string[];
+  /** Total arity of the base type (number of type parameters) */
+  arity: number;
+  /** Name of the hole type parameter (the one that varies, typically the last) */
+  holeName: string;
+}
+
+/**
+ * Parse a type constructor string into its base type and any fixed arguments.
+ *
+ * "Option"          → { base: "Option", fixedArgs: [] }
+ * "Either<string>"  → { base: "Either", fixedArgs: ["string"] }
+ * "Map<string>"     → { base: "Map", fixedArgs: ["string"] }
+ */
+export function parseTypeConstructor(
+  typeStr: string
+): { base: string; fixedArgs: string[] } {
+  const openBracket = typeStr.indexOf("<");
+  if (openBracket === -1) {
+    return { base: typeStr.trim(), fixedArgs: [] };
+  }
+
+  const base = typeStr.slice(0, openBracket).trim();
+
+  // Find matching closing bracket with depth tracking
+  let depth = 0;
+  let closeBracket = -1;
+  for (let i = openBracket; i < typeStr.length; i++) {
+    if (typeStr[i] === "<") depth++;
+    else if (typeStr[i] === ">") {
+      depth--;
+      if (depth === 0) {
+        closeBracket = i;
+        break;
+      }
+    }
+  }
+
+  if (closeBracket === -1) {
+    return { base, fixedArgs: [] };
+  }
+
+  // Split args respecting nested brackets
+  const argsStr = typeStr.slice(openBracket + 1, closeBracket);
+  const fixedArgs: string[] = [];
+  let currentArg = "";
+  let argDepth = 0;
+
+  for (const ch of argsStr) {
+    if (ch === "<") argDepth++;
+    else if (ch === ">") argDepth--;
+
+    if (ch === "," && argDepth === 0) {
+      fixedArgs.push(currentArg.trim());
+      currentArg = "";
+    } else {
+      currentArg += ch;
+    }
+  }
+  if (currentArg.trim()) {
+    fixedArgs.push(currentArg.trim());
+  }
+
+  return { base, fixedArgs };
+}
+
+/**
+ * Resolve a type constructor string via the TypeScript TypeChecker.
+ *
+ * Given a string like "Option" or "Either<string>", determines:
+ * - Whether the base type is a valid generic type
+ * - How many type parameters it has
+ * - Which type parameter is the "hole" (the one HKT varies over)
+ * - What arguments are "fixed" by partial application
+ *
+ * For partial application (e.g., "Either<string>"):
+ * - Either has params [E, A], arity=2
+ * - "Either<string>" fixes E=string, hole=A
+ * - fixedArgs=["string"], holeName="A"
+ *
+ * Returns undefined if the type can't be resolved or isn't generic.
+ */
+export function resolveTypeConstructorViaTypeChecker(
+  ctx: MacroContext,
+  typeNameStr: string
+): TypeConstructorResolution | undefined {
+  const checker = ctx.typeChecker;
+  if (!checker) return undefined;
+
+  const { base, fixedArgs } = parseTypeConstructor(typeNameStr);
+
+  // Find the symbol for the base type in the current source file's scope
+  const sourceFile = ctx.sourceFile;
+  let symbol: ts.Symbol | undefined;
+
+  // Try to resolve via a temporary type reference parse
+  try {
+    const tempSource = `type __Probe = ${base}<${Array(10).fill("unknown").join(",")}>;`;
+    const tempFile = ts.createSourceFile("__probe.ts", tempSource, ts.ScriptTarget.Latest, true);
+    // This approach is fragile; instead, walk the source file's symbols
+  } catch {
+    // Fall through to symbol-based approach
+  }
+
+  // Look up the type name in the current program's type checker
+  // Walk the source file to find a matching type declaration
+  const program = ctx.program;
+  if (!program) return undefined;
+
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile || sf === sourceFile) {
+      ts.forEachChild(sf, (node) => {
+        if (symbol) return; // already found
+        if (
+          (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) ||
+           ts.isClassDeclaration(node)) &&
+          node.name?.text === base
+        ) {
+          symbol = checker.getSymbolAtLocation(node.name);
+        }
+      });
+    }
+    if (symbol) break;
+  }
+
+  // Also try resolving from the checker's global scope for built-in types
+  if (!symbol) {
+    // For built-in types like Array, Map, Set, Promise
+    try {
+      const tempCode = `declare const __x: ${base}<any>;`;
+      const tempSf = ts.createSourceFile("__resolve.ts", tempCode, ts.ScriptTarget.Latest, true);
+      for (const stmt of tempSf.statements) {
+        if (ts.isVariableStatement(stmt)) {
+          const decl = stmt.declarationList.declarations[0];
+          if (decl?.type && ts.isTypeReferenceNode(decl.type)) {
+            // Try to resolve via the real checker using the original source file
+            // Built-in types like Array are globally available
+            symbol = checker.resolveName(base, sourceFile, ts.SymbolFlags.Type, false);
+          }
+        }
+      }
+    } catch {
+      // Fall through
+    }
+  }
+
+  if (!symbol) return undefined;
+
+  // Get the type and its declarations to find type parameters
+  const declarations = symbol.getDeclarations();
+  if (!declarations || declarations.length === 0) return undefined;
+
+  let typeParams: readonly ts.TypeParameterDeclaration[] | undefined;
+  for (const decl of declarations) {
+    if (
+      ts.isInterfaceDeclaration(decl) ||
+      ts.isTypeAliasDeclaration(decl) ||
+      ts.isClassDeclaration(decl)
+    ) {
+      if (decl.typeParameters && decl.typeParameters.length > 0) {
+        typeParams = decl.typeParameters;
+        break;
+      }
+    }
+  }
+
+  if (!typeParams || typeParams.length === 0) {
+    return undefined; // Not a generic type
+  }
+
+  const arity = typeParams.length;
+
+  // Determine the hole: last unfixed parameter
+  // For "Either<string>" with params [E, A]: fixedArgs fixes E, hole is A
+  // For "Option" with params [A]: no fixed args, hole is A
+  const numFixed = fixedArgs.length;
+  if (numFixed >= arity) {
+    return undefined; // All params are fixed, no hole left for HKT
+  }
+
+  const holeIndex = arity - 1; // Convention: hole is always the last param
+  const holeName = typeParams[holeIndex].name.text;
+
+  return {
+    baseType: base,
+    fixedArgs,
+    arity,
+    holeName,
+  };
+}
+
+// ============================================================================
 // HKT Registry
 // ============================================================================
 

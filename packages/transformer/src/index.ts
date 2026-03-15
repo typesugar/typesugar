@@ -2222,10 +2222,26 @@ class MacroTransformer {
           const comment =
             typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
           if (comment) {
-            // Extract type from "Typeclass<Type>" pattern
-            const match = comment.trim().match(/<([^>]+)>/);
-            if (match) {
-              return match[1].split(",")[0].trim(); // Handle multi-arg like "Either<E, A>" -> "Either"
+            // Extract type argument from "Typeclass<Type>" with bracket-aware parsing
+            const text = comment.trim();
+            const openBracket = text.indexOf("<");
+            if (openBracket === -1) continue;
+
+            let depth = 0;
+            let closeBracket = -1;
+            for (let i = openBracket; i < text.length; i++) {
+              if (text[i] === "<") depth++;
+              else if (text[i] === ">") {
+                depth--;
+                if (depth === 0) {
+                  closeBracket = i;
+                  break;
+                }
+              }
+            }
+
+            if (closeBracket !== -1) {
+              return text.slice(openBracket + 1, closeBracket).trim();
             }
           }
         }

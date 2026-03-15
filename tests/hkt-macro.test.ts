@@ -249,3 +249,135 @@ type Triple<A, B, C> = [A, B, C];
     expect(result.code).toContain('Triple<A, B, this["__kind__"]>');
   });
 });
+
+// ============================================================================
+// Wave 3: Tier 1 Implicit Resolution (@impl without @hkt)
+// ============================================================================
+
+describe("@impl Tier 1 implicit resolution", () => {
+  it("@impl Functor<Option> works without explicit @hkt or OptionF", () => {
+    const code = `
+/** @typeclass */
+interface Functor<F> {
+  map: <A, B>(fa: any, f: (a: A) => B) => any;
+}
+
+type Option<A> = A | null;
+
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
+    fa !== null ? f(fa) : null,
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-option.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("registerInstance");
+    expect(result.code).toContain("optionFunctor");
+  });
+
+  it("@impl Functor<Array> works for built-in types", () => {
+    const code = `
+/** @typeclass */
+interface Functor<F> {
+  map: <A, B>(fa: any, f: (a: A) => B) => any;
+}
+
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: <A, B>(fa: Array<A>, f: (a: A) => B): Array<B> => fa.map(f),
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-array.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("registerInstance");
+    expect(result.code).toContain("arrayFunctor");
+  });
+
+  it("@impl Functor<Either<string>> works with partial application", () => {
+    const code = `
+/** @typeclass */
+interface Functor<F> {
+  map: <A, B>(fa: any, f: (a: A) => B) => any;
+}
+
+type Either<E, A> = { _tag: "Left"; left: E } | { _tag: "Right"; right: A };
+
+/** @impl Functor<Either<string>> */
+const eitherStringFunctor = {
+  map: <A, B>(fa: Either<string, A>, f: (a: A) => B): Either<string, B> =>
+    fa._tag === "Right" ? { _tag: "Right", right: f(fa.right) } : fa,
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-either-string.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("registerInstance");
+    expect(result.code).toContain("eitherStringFunctor");
+    // The type in the registry should be the full "Either<string>"
+    expect(result.code).toContain("Either<string>");
+  });
+
+  it("parseTypeclassInstantiation handles nested brackets correctly", () => {
+    const code = `
+/** @typeclass */
+interface Monad<F> {
+  pure: <A>(a: A) => any;
+  flatMap: <A, B>(fa: any, f: (a: A) => any) => any;
+  map: <A, B>(fa: any, f: (a: A) => B) => any;
+  ap: <A, B>(fab: any, fa: any) => any;
+}
+
+type Either<E, A> = { _tag: "Left"; left: E } | { _tag: "Right"; right: A };
+
+/** @impl Monad<Either<string>> */
+const eitherStringMonad = {
+  pure: <A>(a: A): Either<string, A> => ({ _tag: "Right", right: a }),
+  flatMap: <A, B>(fa: Either<string, A>, f: (a: A) => Either<string, B>): Either<string, B> =>
+    fa._tag === "Right" ? f(fa.right) : fa,
+  map: <A, B>(fa: Either<string, A>, f: (a: A) => B): Either<string, B> =>
+    fa._tag === "Right" ? { _tag: "Right", right: f(fa.right) } : fa,
+  ap: <A, B>(fab: Either<string, (a: A) => B>, fa: Either<string, A>): Either<string, B> =>
+    fab._tag === "Right" && fa._tag === "Right"
+      ? { _tag: "Right", right: fab.right(fa.right) }
+      : fab._tag === "Left" ? fab : fa as Either<string, B>,
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-monad-either.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("registerInstance");
+    expect(result.code).toContain("eitherStringMonad");
+  });
+
+  it("still works with explicit OptionF (backward compatibility)", () => {
+    const code = `
+import type { _ } from "@typesugar/type-system";
+
+/** @typeclass */
+interface Functor<F> {
+  map: <A, B>(fa: any, f: (a: A) => B) => any;
+}
+
+/** @hkt */
+type OptionF = (number | null)<_>;
+
+/** @impl Functor<OptionF> */
+const optionFunctor = {
+  map: <A, B>(fa: any, f: (a: A) => B) => null,
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-optionf-compat.ts" });
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("registerInstance");
+    expect(result.code).toContain("optionFunctor");
+  });
+});
