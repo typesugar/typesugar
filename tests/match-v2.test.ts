@@ -1724,3 +1724,73 @@ describe("fluent match() macro (PEP-008 Wave 3)", () => {
     });
   });
 });
+
+// ============================================================================
+// Code Review Fixes (PEP-008)
+// ============================================================================
+
+describe("Code review fixes", () => {
+  it("C1: OR pattern with wildcard should be unconditional match", () => {
+    const { ctx, printExpr } = createTestContext();
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [ident("_")] },
+      { method: "or", args: [num(42)] },
+      { method: "then", args: [str("yes")] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const text = printExpr(result);
+    // Wildcard in OR makes entire arm unconditional — no condition check needed
+    expect(text).not.toContain("=== 42");
+    expect(text).toContain("return");
+  });
+
+  it("H1: zero-arg extractor with arguments should report error", () => {
+    const { ctx } = createTestContext();
+    const nilCall = f.createCallExpression(ident("Nil"), undefined, [ident("v")]);
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [nilCall] },
+      { method: "then", args: [ident("v")] }
+    );
+
+    expandFluentMatch(ctx, outermost, rootArgs);
+    const diagnostics = ctx.getDiagnostics();
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors.some((e) => e.message.includes("zero-arg"))).toBe(true);
+  });
+
+  it("H3: computed property key in object pattern should report error", () => {
+    const { ctx } = createTestContext();
+    const computedProp = f.createPropertyAssignment(
+      f.createComputedPropertyName(f.createPropertyAccessExpression(ident("Symbol"), "foo")),
+      ident("bar")
+    );
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [obj(computedProp)] },
+      { method: "then", args: [ident("bar")] }
+    );
+
+    expandFluentMatch(ctx, outermost, rootArgs);
+    const diagnostics = ctx.getDiagnostics();
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors.some((e) => e.message.includes("computed"))).toBe(true);
+  });
+
+  it("M4: .or() before .case() should report error", () => {
+    const { ctx } = createTestContext();
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "or", args: [num(42)] },
+      { method: "case", args: [num(1)] },
+      { method: "then", args: [str("one")] }
+    );
+
+    expandFluentMatch(ctx, outermost, rootArgs);
+    const diagnostics = ctx.getDiagnostics();
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors.some((e) => e.message.includes(".or() must follow .case()"))).toBe(true);
+  });
+});

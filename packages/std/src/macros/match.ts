@@ -119,7 +119,7 @@ export function when<T, R>(
 /**
  * Create a catch-all guard arm — always matches.
  *
- * @deprecated Use the fluent API instead: `match(value).else(handler)`
+ * @deprecated Use the fluent API instead: `match(value).case(...).then(...).else(defaultValue)`
  */
 export function otherwise<T, R>(handler: (value: T) => R): GuardArm<T, R> {
   return { predicate: () => true, handler };
@@ -377,7 +377,7 @@ export function matchLiteral<T extends string | number, R>(
   throw new Error(`Non-exhaustive match: no handler for '${value}'`);
 }
 
-/** @deprecated Use `match()` with when()/otherwise() arms instead */
+/** @deprecated Use the fluent API instead: `match(value).case(x).if(pred).then(result).else(fallback)` */
 export function matchGuard<T, R>(
   value: T,
   arms: Array<[(value: T) => boolean, (value: T) => R]>
