@@ -23,7 +23,6 @@ Install the core transformer and the macro packages you want to use:
 npm install --save-dev @typesugar/transformer ts-patch
 
 # Popular macro packages (install what you need)
-npm install @typesugar/comptime      # Compile-time evaluation
 npm install @typesugar/derive        # Auto-derive implementations
 npm install @typesugar/reflect       # Type reflection
 npm install @typesugar/sql           # Type-safe SQL
@@ -98,7 +97,7 @@ See [environment-specific guides](./index.md#environment-specific-guides) for ot
 `comptime()` runs code at build time and inlines the result:
 
 ```typescript
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 
 // This runs at compile time, not runtime
 const BUILD_TIME = comptime(new Date().toISOString());
@@ -212,7 +211,7 @@ npx typesugar doctor
 
 | Package                | Features                                                                                      |
 | ---------------------- | --------------------------------------------------------------------------------------------- |
-| `@typesugar/comptime`  | `comptime()`                                                                                  |
+| `typesugar`            | `comptime()`, `derive`, `reflect`, `operators`, etc. (umbrella package)                       |
 | `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `Builder`, `TypeGuard` |
 | `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                              |
 | `@typesugar/sql`       | `sql` tagged template                                                                         |

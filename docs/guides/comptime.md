@@ -5,7 +5,7 @@ The `comptime()` macro evaluates expressions at build time and inlines the resul
 ## Basic Usage
 
 ```typescript
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 
 // Simple expression
 const answer = comptime(21 * 2); // → const answer = 42;

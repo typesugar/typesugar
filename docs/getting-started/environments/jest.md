@@ -123,7 +123,7 @@ Jest with ts-jest **always uses the TypeScript backend** and provides full typec
 
 ```typescript
 // src/utils.test.ts
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 import { derive, Eq } from "@typesugar/derive";
 
 describe("comptime", () => {

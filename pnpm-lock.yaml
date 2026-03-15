@@ -141,15 +141,6 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
-  packages/comptime:
-    dependencies:
-      '@typesugar/macros':
-        specifier: workspace:*
-        version: link:../macros
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-
   packages/contracts:
     dependencies:
       '@typesugar/core':
@@ -463,25 +454,6 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
-  packages/react:
-    dependencies:
-      '@typesugar/core':
-        specifier: workspace:*
-        version: link:../core
-      react:
-        specifier: '>=18.0.0'
-        version: 19.2.4
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      '@types/react':
-        specifier: ^18.2.0
-        version: 18.3.28
-      '@typesugar/testing':
-        specifier: workspace:*
-        version: link:../testing
-
   packages/reflect:
     dependencies:
       '@typesugar/macros':
@@ -499,6 +471,10 @@ importers:
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3
+    devDependencies:
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.19.13)
 
   packages/sql:
     dependencies:
@@ -638,9 +614,6 @@ importers:
 
   packages/typesugar:
     dependencies:
-      '@typesugar/comptime':
-        specifier: workspace:*
-        version: link:../comptime
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
@@ -1826,12 +1799,6 @@ packages:
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
-
-  '@types/prop-types@15.7.15':
-    resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
-
-  '@types/react@18.3.28':
-    resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
 
   '@types/react@19.2.14':
     resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
@@ -5578,13 +5545,6 @@ snapshots:
 
   '@types/normalize-package-data@2.4.4': {}
 
-  '@types/prop-types@15.7.15': {}
-
-  '@types/react@18.3.28':
-    dependencies:
-      '@types/prop-types': 15.7.15
-      csstype: 3.2.3
-
   '@types/react@19.2.14':
     dependencies:
       csstype: 3.2.3
@@ -6278,10 +6238,6 @@ snapshots:
   css-what@6.2.2: {}
 
   csstype@3.2.3: {}
-
-  debug@4.4.3:
-    dependencies:
-      ms: 2.1.3
 
   debug@4.4.3(supports-color@8.1.1):
     dependencies:
@@ -8114,7 +8070,7 @@ snapshots:
       cac: 6.7.14
       chokidar: 4.0.3
       consola: 3.4.2
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@8.1.1)
       esbuild: 0.27.3
       fix-dts-default-cjs-exports: 1.0.1
       joycon: 3.1.1
@@ -8268,7 +8224,7 @@ snapshots:
   vite-node@2.1.9(@types/node@22.19.13):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@8.1.1)
       es-module-lexer: 1.7.0
       pathe: 1.1.2
       vite: 5.4.21(@types/node@22.19.13)
@@ -8455,7 +8411,7 @@ snapshots:
       '@vitest/spy': 2.1.9
       '@vitest/utils': 2.1.9
       chai: 5.3.3
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@8.1.1)
       expect-type: 1.3.0
       magic-string: 0.30.21
       pathe: 1.1.2

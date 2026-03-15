@@ -51,7 +51,7 @@ Add to your `prepare` script to persist:
 **Fix:** Ensure all `@typesugar/*` packages are the same version:
 
 ```bash
-npm update @typesugar/transformer @typesugar/core @typesugar/comptime
+npm update @typesugar/transformer @typesugar/core @typesugar/macros
 ```
 
 ## Macro Expansion Issues

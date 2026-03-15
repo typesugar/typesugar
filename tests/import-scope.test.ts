@@ -228,7 +228,7 @@ describe("Module matching - umbrella ↔ sub-package", () => {
     const { transformCode } = await import("@typesugar/transformer");
 
     const code = `
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 const buildTime = comptime(new Date().toISOString());
     `.trim();
 

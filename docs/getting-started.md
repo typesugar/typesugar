@@ -75,7 +75,7 @@ npx ts-patch install
 ### comptime — Compile-Time Evaluation
 
 ```typescript
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 
 // This runs at compile time, not runtime!
 const buildTime = comptime(new Date().toISOString());
@@ -134,8 +134,7 @@ console.log(query.params); // [42]
 Install only what you need:
 
 ```bash
-# Compile-time evaluation
-npm install @typesugar/comptime
+# Compile-time evaluation (included in typesugar umbrella)
 
 # Auto-derive implementations
 npm install @typesugar/derive
