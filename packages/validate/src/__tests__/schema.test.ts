@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { invalidNel, Valid } from "@typesugar/fp";
+import type { ValidationError } from "../types.js";
 import {
   NativeSchema,
   nativeSchema,
@@ -91,16 +93,9 @@ describe("Schema typeclass", () => {
         },
         (validator, data) => {
           if (validator(data)) {
-            return { _tag: "Valid" as const, value: data };
+            return Valid(data);
           }
-          return {
-            _tag: "Invalid" as const,
-            error: {
-              _tag: "NonEmptyList" as const,
-              head: { path: "$", message: "Custom error" },
-              tail: { _tag: "Nil" as const },
-            },
-          };
+          return invalidNel<ValidationError>({ path: "$", message: "Custom error" });
         }
       );
 

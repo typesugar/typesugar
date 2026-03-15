@@ -83,25 +83,25 @@ describe("Either", () => {
     it("Right should wrap a success value", () => {
       const either = Right(42);
       expect(either._tag).toBe("Right");
-      expect((either as { right: number }).right).toBe(42);
+      expect((either as unknown as { right: number }).right).toBe(42);
     });
 
     it("Left should wrap an error value", () => {
       const either = Left("error");
       expect(either._tag).toBe("Left");
-      expect((either as { left: string }).left).toBe("error");
+      expect((either as unknown as { left: string }).left).toBe("error");
     });
 
     it("fromNullable should convert null to Left", () => {
       const either = eitherFromNullable(null, () => "was null");
       expect(isLeft(either)).toBe(true);
-      expect((either as { left: string }).left).toBe("was null");
+      expect((either as unknown as { left: string }).left).toBe("was null");
     });
 
     it("fromNullable should convert value to Right", () => {
       const either = eitherFromNullable(42, () => "was null");
       expect(isRight(either)).toBe(true);
-      expect((either as { right: number }).right).toBe(42);
+      expect((either as unknown as { right: number }).right).toBe(42);
     });
   });
 
@@ -162,7 +162,7 @@ describe("List", () => {
       const t = tail(list);
       expect(isSome(t)).toBe(true);
       // Zero-cost: t IS the list when it's Some
-      expect(toArray(t as List<number>)).toEqual([2, 3]);
+      expect(toArray(t as unknown as List<number>)).toEqual([2, 3]);
     });
 
     it("tail of empty list should be None", () => {
