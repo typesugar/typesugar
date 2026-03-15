@@ -77,6 +77,28 @@
 // ============================================================================
 
 /**
+ * Marker type for the HKT hole position in `@hkt` type aliases.
+ *
+ * Place `_` where `this["__kind__"]` should go. The `@hkt` macro detects
+ * it by symbol resolution (falls back to structural match on `never & "__kind__"`),
+ * replaces it with `this["__kind__"]`, and emits a full `TypeFunction` interface.
+ *
+ * @example
+ * ```typescript
+ * import type { _ } from "@typesugar/type-system";
+ *
+ * /** @hkt *\/
+ * type ArrayF = Array<_>;
+ * // Generates: interface ArrayF extends TypeFunction { readonly _: Array<this["__kind__"]> }
+ *
+ * /** @hkt *\/
+ * type MapF<K> = Map<K, _>;
+ * // Generates: interface MapF<K> extends TypeFunction { readonly _: Map<K, this["__kind__"]> }
+ * ```
+ */
+export type _ = never & "__kind__";
+
+/**
  * Base interface for type-level functions.
  *
  * All type-level functions (like `OptionF`, `ArrayF`) should extend this

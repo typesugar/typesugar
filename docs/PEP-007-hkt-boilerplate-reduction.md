@@ -52,22 +52,22 @@ The type error IS the signal that tells the macro what to rewrite.
 
 `F<A>` where F is a type parameter parses correctly in ALL 14 tested positions:
 
-| Position | Example | Parses? |
-|----------|---------|---------|
-| Parameter type | `map(fa: F<A>)` | ✅ |
-| Return type | `pure(a: A): F<A>` | ✅ |
-| Nested | `flatten(ffa: F<F<A>>)` | ✅ |
-| Generic function | `function lift<F>(fa: F<A>)` | ✅ |
-| Type alias | `type Lifted<F> = F<A>` | ✅ |
-| Conditional type | `F<A> extends null ? ...` | ✅ |
-| Mapped type | `{ [K in keyof T]: F<T[K]> }` | ✅ |
-| Extends clause | `extends Functor<F>` | ✅ |
-| Union | `F<A> \| null` | ✅ |
-| Intersection | `F<A> & { meta: true }` | ✅ |
-| Tuple | `[F<A>, F<B>]` | ✅ |
-| Generic constraint | `<F extends { length: number }>` | ✅ |
-| Default type param | `<F = Array>` | ✅ |
-| Multi-arity | `F<A, B>` | ✅ |
+| Position           | Example                          | Parses? |
+| ------------------ | -------------------------------- | ------- |
+| Parameter type     | `map(fa: F<A>)`                  | ✅      |
+| Return type        | `pure(a: A): F<A>`               | ✅      |
+| Nested             | `flatten(ffa: F<F<A>>)`          | ✅      |
+| Generic function   | `function lift<F>(fa: F<A>)`     | ✅      |
+| Type alias         | `type Lifted<F> = F<A>`          | ✅      |
+| Conditional type   | `F<A> extends null ? ...`        | ✅      |
+| Mapped type        | `{ [K in keyof T]: F<T[K]> }`    | ✅      |
+| Extends clause     | `extends Functor<F>`             | ✅      |
+| Union              | `F<A> \| null`                   | ✅      |
+| Intersection       | `F<A> & { meta: true }`          | ✅      |
+| Tuple              | `[F<A>, F<B>]`                   | ✅      |
+| Generic constraint | `<F extends { length: number }>` | ✅      |
+| Default type param | `<F = Array>`                    | ✅      |
+| Multi-arity        | `F<A, B>`                        | ✅      |
 
 All produce TS2315/TS2314 type-checker errors (not parse errors). The AST is fully intact.
 
@@ -80,10 +80,12 @@ This has zero false positives because TypeScript type parameters can NEVER take 
 **Critically, detection requires only `ts.createSourceFile()` — no Program, no TypeChecker, no module resolution.** The check is: walk up parent chain, collect `typeParameters` arrays from enclosing scopes, check if the identifier matches. This is a purely structural/syntactic operation.
 
 Verified with two proof-of-concept scripts:
+
 - `sandbox/hkt-poc-detection.ts` — 13 cases, 29 correct rewrites, 5 correctly ignored, 0 false positives
 - Standalone test with raw `ts.createSourceFile()` (no Program, no TypeChecker) — same correct results
 
 This means the rewrite works in:
+
 - **oxc engine** (parse-only, no TypeChecker) ✅
 - **Degraded IDE mode** (TypeChecker unavailable) ✅
 - **Any parser** producing type parameter + type reference AST nodes ✅
@@ -112,12 +114,12 @@ The `VirtualCompilerHost` feeds preprocessed content to `ts.createProgram()`. Ty
 
 The HKT rewriter for `.ts` files slots into the same position as the preprocessor for `.sts` files — before `ts.Program` creation. Since `TransformationPipeline` creates the Program via `VirtualCompilerHost`, the type checker sees the rewritten code in ALL environments:
 
-| Environment | Uses Pipeline? | F<A> rewrite | @impl Functor<Option> |
-|---|---|---|---|
-| **IDE** (language service) | ✅ Yes — `getScriptSnapshot` | ✅ Works | ✅ Works |
-| **Bundlers** (unplugin) | ✅ Yes — `transform()` | ✅ Works | ✅ Works |
-| **`tsc` + ts-patch** | ⚠️ Partial — macro transform during emit, but preprocessor runs via `VirtualCompilerHost` | ✅ Works (if HKT rewrite is in host) | ✅ Works (JSDoc only) |
-| **oxc engine** | ✅ Yes — own pipeline | ✅ Works (AST-only) | ✅ Works |
+| Environment                | Uses Pipeline?                                                                            | F<A> rewrite                         | @impl Functor<Option> |
+| -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------ | --------------------- |
+| **IDE** (language service) | ✅ Yes — `getScriptSnapshot`                                                              | ✅ Works                             | ✅ Works              |
+| **Bundlers** (unplugin)    | ✅ Yes — `transform()`                                                                    | ✅ Works                             | ✅ Works              |
+| **`tsc` + ts-patch**       | ⚠️ Partial — macro transform during emit, but preprocessor runs via `VirtualCompilerHost` | ✅ Works (if HKT rewrite is in host) | ✅ Works (JSDoc only) |
+| **oxc engine**             | ✅ Yes — own pipeline                                                                     | ✅ Works (AST-only)                  | ✅ Works              |
 
 **Key insight:** By putting the `F<A>` → `Kind<F, A>` rewrite in the `VirtualCompilerHost` (alongside the existing `.sts` preprocessor), it runs before `ts.Program` creation in all environments. No ts-patch v3 migration needed. No timing issues.
 
@@ -160,7 +162,7 @@ Last type parameter is the hole (Scala convention). `@hkt` generates a `*F` comp
 ```typescript
 /** @impl Functor<Option> */
 const optionFunctor = {
-  map: (fa, f) => fa === null ? null : f(fa),
+  map: (fa, f) => (fa === null ? null : f(fa)),
 };
 ```
 
@@ -183,12 +185,12 @@ The transformer rewrites every `F<A>` (where F is a type parameter) to `Kind<F, 
 
 ### Error Cases
 
-| Condition | Error Code | Message |
-|-----------|-----------|---------|
-| Tier 1: Can't resolve type | TS9301 | `Cannot resolve type constructor 'Foo'` |
-| Tier 2: No type params | TS9302 | `@hkt requires at least one type parameter` |
-| Tier 3: No `_` in RHS | TS9303 | `@hkt type alias must contain _ placeholder` |
-| Tier 3: Multiple `_` in RHS | TS9304 | `@hkt must contain exactly one _ placeholder` |
+| Condition                   | Error Code | Message                                       |
+| --------------------------- | ---------- | --------------------------------------------- |
+| Tier 1: Can't resolve type  | TS9301     | `Cannot resolve type constructor 'Foo'`       |
+| Tier 2: No type params      | TS9302     | `@hkt requires at least one type parameter`   |
+| Tier 3: No `_` in RHS       | TS9303     | `@hkt type alias must contain _ placeholder`  |
+| Tier 3: Multiple `_` in RHS | TS9304     | `@hkt must contain exactly one _ placeholder` |
 
 ## Waves
 
@@ -198,43 +200,43 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Tasks:**
 
-- [ ] Add `export type _ = never & "__kind__"` to `packages/type-system/src/hkt.ts`
-- [ ] Re-export `_` from `packages/type-system/src/index.ts`
-- [ ] Re-export `_` from `packages/fp/src/hkt.ts` and `packages/fp/src/index.ts`
-- [ ] Re-export `_` from `packages/typesugar/src/index.ts` (umbrella)
-- [ ] Rewrite `hktAttribute.expand` in `packages/macros/src/hkt.ts` for Tier 3:
+- [x] Add `export type _ = never & "__kind__"` to `packages/type-system/src/hkt.ts`
+- [x] Re-export `_` from `packages/type-system/src/index.ts`
+- [x] Re-export `_` from `packages/fp/src/hkt.ts` and `packages/fp/src/index.ts`
+- [x] Re-export `_` from `packages/typesugar/src/index.ts` (umbrella)
+- [x] Rewrite `hktAttribute.expand` in `packages/macros/src/hkt.ts` for Tier 3:
   - Detect `@hkt` on type aliases whose RHS contains `_`
   - Find `_` position (symbol resolution + structural fallback for `never & "__kind__"`)
   - Replace `_` with `this["__kind__"]`, emit full `TypeFunction` interface
   - Emit TS9303 when no `_` found, TS9304 when multiple `_` found
-- [ ] Add TS9303 and TS9304 descriptors to `packages/core/src/diagnostics.ts`
-- [ ] Re-add `["hkt", "hkt"]` to `JSDOC_MACRO_TAGS` in `packages/transformer/src/index.ts`
-- [ ] Tests: `ArrayF`, `MapF<K>`, `PromiseF`, `SetF` generation from `@hkt` + `_`
-- [ ] Add `@hkt` error examples to `sandbox/error-showcase.ts`
+- [x] Add TS9303 and TS9304 descriptors to `packages/core/src/diagnostics.ts`
+- [x] Re-add `["hkt", "hkt"]` to `JSDOC_MACRO_TAGS` in `packages/transformer/src/index.ts`
+- [x] Tests: `ArrayF`, `MapF<K>`, `PromiseF`, `SetF` generation from `@hkt` + `_`
+- [x] Add `@hkt` error examples to `sandbox/error-showcase.ts`
 
 **Files changed:**
 
-| File | Change |
-|------|--------|
-| `packages/type-system/src/hkt.ts` | Add `export type _ = never & "__kind__"` |
-| `packages/type-system/src/index.ts` | Add `_` to re-exports |
-| `packages/fp/src/hkt.ts` | Re-export `_` from `@typesugar/type-system` |
-| `packages/fp/src/index.ts` | Add `_` to barrel exports |
-| `packages/typesugar/src/index.ts` | Re-export `_` |
-| `packages/macros/src/hkt.ts` | Rewrite `hktAttribute.expand` for Tier 3 |
-| `packages/core/src/diagnostics.ts` | Add TS9303, TS9304 descriptors |
-| `packages/transformer/src/index.ts` | Add `"hkt"` to `JSDOC_MACRO_TAGS` |
-| `sandbox/error-showcase.ts` | Add `@hkt` error examples |
-| `tests/hkt-macro.test.ts` | **New** — Tier 3 tests |
+| File                                | Change                                      |
+| ----------------------------------- | ------------------------------------------- |
+| `packages/type-system/src/hkt.ts`   | Add `export type _ = never & "__kind__"`    |
+| `packages/type-system/src/index.ts` | Add `_` to re-exports                       |
+| `packages/fp/src/hkt.ts`            | Re-export `_` from `@typesugar/type-system` |
+| `packages/fp/src/index.ts`          | Add `_` to barrel exports                   |
+| `packages/typesugar/src/index.ts`   | Re-export `_`                               |
+| `packages/macros/src/hkt.ts`        | Rewrite `hktAttribute.expand` for Tier 3    |
+| `packages/core/src/diagnostics.ts`  | Add TS9303, TS9304 descriptors              |
+| `packages/transformer/src/index.ts` | Add `"hkt"` to `JSDOC_MACRO_TAGS`           |
+| `sandbox/error-showcase.ts`         | Add `@hkt` error examples                   |
+| `tests/hkt-macro.test.ts`           | **New** — Tier 3 tests                      |
 
 **No conflict:** No existing `type _` found in the codebase. No imports from `@typesugar/type-system/hkt` subpath.
 
 **Gate:**
 
-- [ ] `/** @hkt */ type ArrayF = Array<_>` produces correct `TypeFunction` interface
-- [ ] `Kind<ArrayF, number>` resolves to `Array<number>`
-- [ ] Error on missing `_`, multiple `_`
-- [ ] Existing tests pass
+- [x] `/** @hkt */ type ArrayF = Array<_>` produces correct `TypeFunction` interface
+- [x] `Kind<ArrayF, number>` resolves to `Array<number>`
+- [x] Error on missing `_`, multiple `_`
+- [x] Existing tests pass
 
 ### Wave 2: Tier 2 — `@hkt` Companion Generation (~18 files)
 
@@ -261,19 +263,19 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Files changed:**
 
-| File | Change |
-|------|--------|
-| `packages/macros/src/hkt.ts` | Add Tier 2 detection and companion generation |
-| `packages/core/src/diagnostics.ts` | Add TS9302 |
-| `packages/fp/src/data/option.ts` | Add `/** @hkt */` to `Option<A>` |
-| `packages/fp/src/data/either.ts` | Add `/** @hkt */` to `Either<E, A>` |
-| `packages/fp/src/data/list.ts` | Add `/** @hkt */` to `List<A>` |
-| `packages/fp/src/data/nonempty-list.ts` | Add `/** @hkt */` to `NonEmptyList<A>` |
-| `packages/fp/src/data/validated.ts` | Add `/** @hkt */` to `Validated<E, A>` |
-| `packages/fp/src/hkt.ts` | Remove manual `*F` for migrated types, add re-exports from data modules |
-| `packages/fp/src/index.ts` | Adjust barrel re-exports for `*F` types |
-| `packages/type-system/src/hkt.ts` | Migrate ArrayF, PromiseF, SetF, MapF, ReadonlyArrayF to `@hkt` Tier 3 |
-| `tests/hkt-macro.test.ts` | Add Tier 2 tests |
+| File                                    | Change                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| `packages/macros/src/hkt.ts`            | Add Tier 2 detection and companion generation                           |
+| `packages/core/src/diagnostics.ts`      | Add TS9302                                                              |
+| `packages/fp/src/data/option.ts`        | Add `/** @hkt */` to `Option<A>`                                        |
+| `packages/fp/src/data/either.ts`        | Add `/** @hkt */` to `Either<E, A>`                                     |
+| `packages/fp/src/data/list.ts`          | Add `/** @hkt */` to `List<A>`                                          |
+| `packages/fp/src/data/nonempty-list.ts` | Add `/** @hkt */` to `NonEmptyList<A>`                                  |
+| `packages/fp/src/data/validated.ts`     | Add `/** @hkt */` to `Validated<E, A>`                                  |
+| `packages/fp/src/hkt.ts`                | Remove manual `*F` for migrated types, add re-exports from data modules |
+| `packages/fp/src/index.ts`              | Adjust barrel re-exports for `*F` types                                 |
+| `packages/type-system/src/hkt.ts`       | Migrate ArrayF, PromiseF, SetF, MapF, ReadonlyArrayF to `@hkt` Tier 3   |
+| `tests/hkt-macro.test.ts`               | Add Tier 2 tests                                                        |
 
 **Import compatibility:** `OptionF`, `EitherF`, etc. stay exported from `@typesugar/fp` via `hkt.ts` re-exports. No consumer import changes.
 
@@ -281,12 +283,12 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Docs (can be done in Wave 5):**
 
-| File | Change |
-|------|--------|
+| File                         | Change                                    |
+| ---------------------------- | ----------------------------------------- |
 | `docs/guides/typeclasses.md` | Update HKT examples from manual to `@hkt` |
-| `docs/architecture.md` | Update HKT examples |
-| `docs/reference/packages.md` | Update HKT examples |
-| `PHILOSOPHY.md` | Update manual OptionF examples |
+| `docs/architecture.md`       | Update HKT examples                       |
+| `docs/reference/packages.md` | Update HKT examples                       |
+| `PHILOSOPHY.md`              | Update manual OptionF examples            |
 
 **Gate:**
 
@@ -318,18 +320,19 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Files changed:**
 
-| File | Change |
-|------|--------|
-| `packages/macros/src/typeclass.ts` | Replace regex with bracket-aware parsing; add TypeChecker resolution; update `summonMacro` |
-| `packages/macros/src/hkt.ts` | Add `resolveTypeConstructorViaTypeChecker` and `generateTypeFunctionInterface` helpers |
-| `packages/macros/src/specialize.ts` | Support partial-application brands in `narrowKindType` and `instanceMethodRegistry` |
-| `packages/transformer/src/index.ts` | Fix `extractBrandFromImpl` for nested generics |
-| `packages/core/src/diagnostics.ts` | Add TS9301 / TS9305 |
-| `tests/hkt-macro.test.ts` | Add `@impl Functor<Option>`, `@impl Functor<Array>`, `@impl Functor<Either<string>>` tests |
-| `tests/jsdoc-macros.test.ts` | Add JSDoc @impl with bare type tests |
-| `packages/transformer/tests/auto-specialize.test.ts` | Add partial-application tests |
+| File                                                 | Change                                                                                     |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `packages/macros/src/typeclass.ts`                   | Replace regex with bracket-aware parsing; add TypeChecker resolution; update `summonMacro` |
+| `packages/macros/src/hkt.ts`                         | Add `resolveTypeConstructorViaTypeChecker` and `generateTypeFunctionInterface` helpers     |
+| `packages/macros/src/specialize.ts`                  | Support partial-application brands in `narrowKindType` and `instanceMethodRegistry`        |
+| `packages/transformer/src/index.ts`                  | Fix `extractBrandFromImpl` for nested generics                                             |
+| `packages/core/src/diagnostics.ts`                   | Add TS9301 / TS9305                                                                        |
+| `tests/hkt-macro.test.ts`                            | Add `@impl Functor<Option>`, `@impl Functor<Array>`, `@impl Functor<Either<string>>` tests |
+| `tests/jsdoc-macros.test.ts`                         | Add JSDoc @impl with bare type tests                                                       |
+| `packages/transformer/tests/auto-specialize.test.ts` | Add partial-application tests                                                              |
 
 **Key dependencies:**
+
 - `implAttribute.expand` already has `ctx.typeChecker` available
 - `parseTypeclassInstantiation` (bracket-aware) already exists in `typeclass.ts`
 - `hktExpansionRegistry` provides fallback for known types
@@ -368,12 +371,12 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 
 **Files changed:**
 
-| File | Change |
-|------|--------|
-| `packages/transformer/src/hkt-rewriter.ts` | **New** — AST-based rewriter, MagicString, Kind import injection |
+| File                                       | Change                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| `packages/transformer/src/hkt-rewriter.ts` | **New** — AST-based rewriter, MagicString, Kind import injection    |
 | `packages/transformer/src/virtual-host.ts` | Add HKT rewrite path for `.ts` files alongside `.sts` preprocessing |
-| `packages/transformer/src/index.ts` | Export `rewriteHKTTypeReferences` if part of public API |
-| `tests/hkt-rewriter.test.ts` | **New** — all 13 edge cases, environment tests |
+| `packages/transformer/src/index.ts`        | Export `rewriteHKTTypeReferences` if part of public API             |
+| `tests/hkt-rewriter.test.ts`               | **New** — all 13 edge cases, environment tests                      |
 
 **No changes needed:** `pipeline.ts`, `language-service.ts`, `unplugin.ts`, `oxc-engine/` — all consume from VirtualCompilerHost, which handles the rewrite transparently.
 
@@ -410,18 +413,18 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 
 **Files changed:**
 
-| File | Change |
-|------|--------|
-| `docs/guides/typeclasses.md` | Replace manual HKT examples with Tier 0/1 workflow |
-| `docs/architecture.md` | Update three-layer HKT architecture |
-| `docs/reference/packages.md` | Update HKT exports |
-| `PHILOSOPHY.md` | Update OptionF examples |
-| `packages/type-system/README.md` | Document `_` marker type |
-| `packages/fp/README.md` | Update HKT section |
-| `.cursor/rules/hkt-conventions.mdc` | New tier-based conventions |
-| `AGENTS.md` | Update HKT section |
-| `sandbox/error-showcase.ts` | Complete `@hkt` examples |
-| `docs/PEP-007-hkt-boilerplate-reduction.md` | Mark as complete |
+| File                                        | Change                                             |
+| ------------------------------------------- | -------------------------------------------------- |
+| `docs/guides/typeclasses.md`                | Replace manual HKT examples with Tier 0/1 workflow |
+| `docs/architecture.md`                      | Update three-layer HKT architecture                |
+| `docs/reference/packages.md`                | Update HKT exports                                 |
+| `PHILOSOPHY.md`                             | Update OptionF examples                            |
+| `packages/type-system/README.md`            | Document `_` marker type                           |
+| `packages/fp/README.md`                     | Update HKT section                                 |
+| `.cursor/rules/hkt-conventions.mdc`         | New tier-based conventions                         |
+| `AGENTS.md`                                 | Update HKT section                                 |
+| `sandbox/error-showcase.ts`                 | Complete `@hkt` examples                           |
+| `docs/PEP-007-hkt-boilerplate-reduction.md` | Mark as complete                                   |
 
 **Gate:**
 
@@ -444,12 +447,12 @@ interface Functor<F> {
 
 /** @impl Functor<Option> */
 const optionFunctor = {
-  map: (fa, f) => fa === null ? null : f(fa),
+  map: (fa, f) => (fa === null ? null : f(fa)),
 };
 
 /** @impl Functor<Either<string>> */
 const eitherStringFunctor = {
-  map: (fa, f) => fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) },
+  map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
 };
 
 function lift<F, A, B>(F: Functor<F>, f: (a: A) => B): (fa: F<A>) => F<B> {
@@ -470,49 +473,49 @@ Equally concise.
 
 ### Code (~20 files modified, ~3 new)
 
-| File | Wave | Change |
-|------|------|--------|
-| `packages/type-system/src/hkt.ts` | 1, 2 | Add `type _`; migrate built-in `*F` to `@hkt` Tier 3 |
-| `packages/type-system/src/index.ts` | 1 | Re-export `_` |
-| `packages/fp/src/hkt.ts` | 1, 2 | Re-export `_`; remove migrated `*F`, add re-exports from data modules |
-| `packages/fp/src/index.ts` | 1, 2 | Barrel export `_` and `*F` types |
-| `packages/fp/src/data/option.ts` | 2 | Add `/** @hkt */` to `Option<A>` |
-| `packages/fp/src/data/either.ts` | 2 | Add `/** @hkt */` to `Either<E, A>` |
-| `packages/fp/src/data/list.ts` | 2 | Add `/** @hkt */` to `List<A>` |
-| `packages/fp/src/data/nonempty-list.ts` | 2 | Add `/** @hkt */` to `NonEmptyList<A>` |
-| `packages/fp/src/data/validated.ts` | 2 | Add `/** @hkt */` to `Validated<E, A>` |
-| `packages/typesugar/src/index.ts` | 1 | Re-export `_` |
-| `packages/macros/src/hkt.ts` | 1, 2, 3 | Tier 3 `_` detection; Tier 2 companion generation; TypeChecker helpers |
-| `packages/macros/src/typeclass.ts` | 3 | Bracket-aware parsing; TypeChecker resolution in `@impl`; `summonMacro` update |
-| `packages/macros/src/specialize.ts` | 3 | Support partial-application brands in `narrowKindType` |
-| `packages/core/src/diagnostics.ts` | 1, 2, 3 | Add TS9301–TS9304 descriptors |
-| `packages/transformer/src/index.ts` | 1, 3 | Re-add `@hkt` to tags; fix `extractBrandFromImpl` |
-| `packages/transformer/src/virtual-host.ts` | 4 | Add HKT rewrite path for `.ts` files |
-| `packages/transformer/src/hkt-rewriter.ts` | 4 | **New** — AST-based `F<A>` → `Kind<F, A>` rewriter |
+| File                                       | Wave    | Change                                                                         |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------ |
+| `packages/type-system/src/hkt.ts`          | 1, 2    | Add `type _`; migrate built-in `*F` to `@hkt` Tier 3                           |
+| `packages/type-system/src/index.ts`        | 1       | Re-export `_`                                                                  |
+| `packages/fp/src/hkt.ts`                   | 1, 2    | Re-export `_`; remove migrated `*F`, add re-exports from data modules          |
+| `packages/fp/src/index.ts`                 | 1, 2    | Barrel export `_` and `*F` types                                               |
+| `packages/fp/src/data/option.ts`           | 2       | Add `/** @hkt */` to `Option<A>`                                               |
+| `packages/fp/src/data/either.ts`           | 2       | Add `/** @hkt */` to `Either<E, A>`                                            |
+| `packages/fp/src/data/list.ts`             | 2       | Add `/** @hkt */` to `List<A>`                                                 |
+| `packages/fp/src/data/nonempty-list.ts`    | 2       | Add `/** @hkt */` to `NonEmptyList<A>`                                         |
+| `packages/fp/src/data/validated.ts`        | 2       | Add `/** @hkt */` to `Validated<E, A>`                                         |
+| `packages/typesugar/src/index.ts`          | 1       | Re-export `_`                                                                  |
+| `packages/macros/src/hkt.ts`               | 1, 2, 3 | Tier 3 `_` detection; Tier 2 companion generation; TypeChecker helpers         |
+| `packages/macros/src/typeclass.ts`         | 3       | Bracket-aware parsing; TypeChecker resolution in `@impl`; `summonMacro` update |
+| `packages/macros/src/specialize.ts`        | 3       | Support partial-application brands in `narrowKindType`                         |
+| `packages/core/src/diagnostics.ts`         | 1, 2, 3 | Add TS9301–TS9304 descriptors                                                  |
+| `packages/transformer/src/index.ts`        | 1, 3    | Re-add `@hkt` to tags; fix `extractBrandFromImpl`                              |
+| `packages/transformer/src/virtual-host.ts` | 4       | Add HKT rewrite path for `.ts` files                                           |
+| `packages/transformer/src/hkt-rewriter.ts` | 4       | **New** — AST-based `F<A>` → `Kind<F, A>` rewriter                             |
 
 ### Tests (~3 new files)
 
-| File | Wave | Coverage |
-|------|------|----------|
-| `tests/hkt-macro.test.ts` | 1, 2, 3 | **New** — Tier 3 `_`, Tier 2 companion, Tier 1 `@impl` resolution |
-| `tests/hkt-rewriter.test.ts` | 4 | **New** — all 13 edge cases for `F<A>` rewriting |
-| `tests/jsdoc-macros.test.ts` | 3 | Add `@impl Functor<Option>` tests |
-| `packages/transformer/tests/auto-specialize.test.ts` | 3 | Add partial-application tests |
+| File                                                 | Wave    | Coverage                                                          |
+| ---------------------------------------------------- | ------- | ----------------------------------------------------------------- |
+| `tests/hkt-macro.test.ts`                            | 1, 2, 3 | **New** — Tier 3 `_`, Tier 2 companion, Tier 1 `@impl` resolution |
+| `tests/hkt-rewriter.test.ts`                         | 4       | **New** — all 13 edge cases for `F<A>` rewriting                  |
+| `tests/jsdoc-macros.test.ts`                         | 3       | Add `@impl Functor<Option>` tests                                 |
+| `packages/transformer/tests/auto-specialize.test.ts` | 3       | Add partial-application tests                                     |
 
 ### Documentation (~10 files)
 
-| File | Wave | Change |
-|------|------|--------|
-| `docs/guides/typeclasses.md` | 5 | Replace manual HKT examples with Tier 0/1 |
-| `docs/architecture.md` | 5 | Update HKT architecture section |
-| `docs/reference/packages.md` | 5 | Update HKT exports |
-| `PHILOSOPHY.md` | 5 | Update OptionF examples |
-| `packages/type-system/README.md` | 5 | Document `_` marker |
-| `packages/fp/README.md` | 5 | Update HKT section |
-| `.cursor/rules/hkt-conventions.mdc` | 5 | New tier-based conventions |
-| `AGENTS.md` | 5 | Update HKT section |
-| `sandbox/error-showcase.ts` | 1, 5 | Add `@hkt` error examples |
-| `sandbox/hkt-poc-detection.ts` | — | Already exists (POC) |
+| File                                | Wave | Change                                    |
+| ----------------------------------- | ---- | ----------------------------------------- |
+| `docs/guides/typeclasses.md`        | 5    | Replace manual HKT examples with Tier 0/1 |
+| `docs/architecture.md`              | 5    | Update HKT architecture section           |
+| `docs/reference/packages.md`        | 5    | Update HKT exports                        |
+| `PHILOSOPHY.md`                     | 5    | Update OptionF examples                   |
+| `packages/type-system/README.md`    | 5    | Document `_` marker                       |
+| `packages/fp/README.md`             | 5    | Update HKT section                        |
+| `.cursor/rules/hkt-conventions.mdc` | 5    | New tier-based conventions                |
+| `AGENTS.md`                         | 5    | Update HKT section                        |
+| `sandbox/error-showcase.ts`         | 1, 5 | Add `@hkt` error examples                 |
+| `sandbox/hkt-poc-detection.ts`      | —    | Already exists (POC)                      |
 
 ## Consequences
 
@@ -535,14 +538,14 @@ Equally concise.
 
 ### Risk Assessment
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `F<A>` detection has false positives | **None** | High | Impossible — type params can't take args in TS |
-| `F<A>` rewrite doesn't run early enough | **None** | High | Rewrite in `VirtualCompilerHost`, before `ts.Program` creation |
-| `F<A>` detection needs TypeChecker | **None** | High | Verified: pure `ts.createSourceFile()` suffices |
-| `@impl` resolution fails in degraded mode | Medium | Low | Tier 1 needs TypeChecker for `Option` resolution; fallback to Tier 2/3 |
-| Multi-arity `Kind2<F, A, B>` complexity | Low | Medium | Defer to future work, use `_` marker for now |
-| Source maps for rewritten positions | Low | Low | Text-level replacement preserves line numbers; same approach as preprocessor |
+| Risk                                      | Likelihood | Impact | Mitigation                                                                   |
+| ----------------------------------------- | ---------- | ------ | ---------------------------------------------------------------------------- |
+| `F<A>` detection has false positives      | **None**   | High   | Impossible — type params can't take args in TS                               |
+| `F<A>` rewrite doesn't run early enough   | **None**   | High   | Rewrite in `VirtualCompilerHost`, before `ts.Program` creation               |
+| `F<A>` detection needs TypeChecker        | **None**   | High   | Verified: pure `ts.createSourceFile()` suffices                              |
+| `@impl` resolution fails in degraded mode | Medium     | Low    | Tier 1 needs TypeChecker for `Option` resolution; fallback to Tier 2/3       |
+| Multi-arity `Kind2<F, A, B>` complexity   | Low        | Medium | Defer to future work, use `_` marker for now                                 |
+| Source maps for rewritten positions       | Low        | Low    | Text-level replacement preserves line numbers; same approach as preprocessor |
 
 ### Future Work
 

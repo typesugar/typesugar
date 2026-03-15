@@ -912,7 +912,9 @@ export default function macroTransformerFactory(
         let length = 0;
         if (diag.node) {
           if (verbose) {
-            console.log(`[typesugar] Diagnostic node: kind=${ts.SyntaxKind[diag.node.kind]}, pos=${diag.node.pos}, end=${diag.node.end}`);
+            console.log(
+              `[typesugar] Diagnostic node: kind=${ts.SyntaxKind[diag.node.kind]}, pos=${diag.node.pos}, end=${diag.node.end}`
+            );
           }
           // Try multiple approaches to get position
           // 1. Check if node has pos/end properties directly (most reliable)
@@ -944,7 +946,9 @@ export default function macroTransformerFactory(
               length = diag.node.getWidth(sourceFile);
             } catch (e) {
               if (verbose) {
-                console.log(`[typesugar] Fallback getStart failed: ${e}, node.pos=${diag.node.pos}, node.end=${diag.node.end}`);
+                console.log(
+                  `[typesugar] Fallback getStart failed: ${e}, node.pos=${diag.node.pos}, node.end=${diag.node.end}`
+                );
               }
             }
           }
@@ -959,8 +963,12 @@ export default function macroTransformerFactory(
 
         // Use the structured code from MacroDiagnostic if available,
         // otherwise try to extract from [TS9XXX] prefix in message text
-        const errorCode = diag.code
-          ?? (() => { const m = diag.message.match(/\[TS(\d{4})\]/); return m ? parseInt(m[1], 10) : 9999; })();
+        const errorCode =
+          diag.code ??
+          (() => {
+            const m = diag.message.match(/\[TS(\d{4})\]/);
+            return m ? parseInt(m[1], 10) : 9999;
+          })();
 
         const tsDiag: ts.Diagnostic & { __typesugarSuggestion?: string } = {
           file: sourceFile,
@@ -3087,6 +3095,7 @@ class MacroTransformer {
     ["operator", "operator"],
     ["extension", "extension"],
     ["reflect", "reflect"],
+    ["hkt", "hkt"],
   ]);
 
   /**
@@ -3203,9 +3212,14 @@ class MacroTransformer {
       } catch (err) {
         const macroTag = tag.tagName.text;
         const errMsg = err instanceof Error ? err.message : String(err);
-        this.ctx.reportError(tag, `@${macroTag} macro failed (this may be transient — try saving again)`);
+        this.ctx.reportError(
+          tag,
+          `@${macroTag} macro failed (this may be transient — try saving again)`
+        );
         if (this.verbose) {
-          console.error(`[typesugar] @${macroTag} expand threw: ${err instanceof Error ? err.stack : errMsg}`);
+          console.error(
+            `[typesugar] @${macroTag} expand threw: ${err instanceof Error ? err.stack : errMsg}`
+          );
         }
       }
     }
@@ -3517,10 +3531,7 @@ class MacroTransformer {
     try {
       visited = ts.visitNode(currentNode, this.visit.bind(this)) as ts.Node;
     } catch (error) {
-      this.ctx.reportError(
-        node,
-        `Visiting attribute macro result failed: ${error}`
-      );
+      this.ctx.reportError(node, `Visiting attribute macro result failed: ${error}`);
       visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
     }
     const mappedNode = preserveSourceMap(visited, node);

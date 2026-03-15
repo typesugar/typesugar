@@ -46,7 +46,7 @@
  */
 
 // Re-export core HKT infrastructure from type-system
-export type { Kind, Apply, TypeFunction } from "@typesugar/type-system";
+export type { _, Kind, Apply, TypeFunction } from "@typesugar/type-system";
 export { unsafeCoerce } from "@typesugar/type-system";
 
 // Import TypeFunction for use in interface definitions

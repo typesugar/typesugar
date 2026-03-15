@@ -52,7 +52,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro } from "@typesugar/core";
+import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 
 // Import HKT registries from typeclass.ts (single source of truth)
@@ -390,24 +390,189 @@ function transformTypeHKT(
 }
 
 // ============================================================================
+// Tier 3: _ Marker Detection for @hkt on Type Aliases
+// ============================================================================
+
+/**
+ * Check if a type node is the `_` marker type.
+ *
+ * Detection strategy:
+ * 1. Symbol resolution: resolve the type reference and check if its declaration
+ *    is the `type _ = never & "__kind__"` from @typesugar/type-system
+ * 2. Structural fallback: match `never & "__kind__"` intersection pattern
+ */
+function isUnderscoreMarker(node: ts.TypeNode, checker: ts.TypeChecker | undefined): boolean {
+  if (
+    ts.isTypeReferenceNode(node) &&
+    ts.isIdentifier(node.typeName) &&
+    node.typeName.text === "_"
+  ) {
+    if (checker) {
+      const symbol = checker.getSymbolAtLocation(node.typeName);
+      if (symbol) {
+        const decl = symbol.declarations?.[0];
+        if (decl && ts.isTypeAliasDeclaration(decl)) {
+          const typeNode = decl.type;
+          return isNeverAndKindIntersection(typeNode);
+        }
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Structural check: is this `never & "__kind__"`?
+ */
+function isNeverAndKindIntersection(node: ts.TypeNode): boolean {
+  if (!ts.isIntersectionTypeNode(node)) return false;
+  let hasNever = false;
+  let hasKindLiteral = false;
+  for (const member of node.types) {
+    if (member.kind === ts.SyntaxKind.NeverKeyword) hasNever = true;
+    if (
+      ts.isLiteralTypeNode(member) &&
+      ts.isStringLiteral(member.literal) &&
+      member.literal.text === "__kind__"
+    ) {
+      hasKindLiteral = true;
+    }
+  }
+  return hasNever && hasKindLiteral;
+}
+
+/**
+ * Count occurrences of `_` marker in a type node tree.
+ */
+function countUnderscoreMarkers(node: ts.TypeNode, checker: ts.TypeChecker | undefined): number {
+  if (isUnderscoreMarker(node, checker)) return 1;
+
+  let count = 0;
+  ts.forEachChild(node, (child) => {
+    if (ts.isTypeNode(child as ts.Node)) {
+      count += countUnderscoreMarkers(child as ts.TypeNode, checker);
+    }
+  });
+  return count;
+}
+
+/**
+ * Replace all `_` marker occurrences with `this["__kind__"]` in source text.
+ * Returns the transformed type string.
+ */
+function replaceUnderscoreInTypeText(typeText: string): string {
+  // We need to replace the standalone identifier `_` used as a type, not inside strings.
+  // A simple regex handles the common case: `_` surrounded by non-identifier chars.
+  return typeText.replace(/(?<![a-zA-Z0-9_$])_(?![a-zA-Z0-9_$])/g, 'this["__kind__"]');
+}
+
+/**
+ * Print a type node to string using the TypeScript printer.
+ */
+function printTypeNode(node: ts.TypeNode): string {
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const sourceFile = ts.createSourceFile(
+    "__print__.ts",
+    "",
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TS
+  );
+  return printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
+}
+
+/**
+ * Expand a Tier 3 `@hkt` type alias with `_` marker into a TypeFunction interface.
+ *
+ * Input: `/** @hkt *\/ type ArrayF = Array<_>`
+ * Output: `interface ArrayF extends TypeFunction { readonly __kind__: unknown; readonly _: Array<this["__kind__"]> }`
+ *
+ * Input: `/** @hkt *\/ type MapF<K> = Map<K, _>`
+ * Output: `interface MapF<K> extends TypeFunction { readonly __kind__: unknown; readonly _: Map<K, this["__kind__"]> }`
+ */
+function expandTier3HKT(
+  ctx: MacroContext,
+  node: ts.TypeAliasDeclaration,
+  decorator: ts.Node
+): ts.Node | ts.Node[] {
+  const typeName = node.name.text;
+  const typeParams = node.typeParameters;
+  const rhs = node.type;
+  const checker = ctx.typeChecker;
+
+  const underscoreCount = countUnderscoreMarkers(rhs, checker);
+
+  if (underscoreCount === 0) {
+    ctx.reportError(decorator, `[TS9303] @hkt type alias must contain \`_\` placeholder`);
+    return node;
+  }
+
+  if (underscoreCount > 1) {
+    ctx.reportError(
+      decorator,
+      `[TS9304] @hkt must contain exactly one \`_\` placeholder, found ${underscoreCount}`
+    );
+    return node;
+  }
+
+  const rhsText = printTypeNode(rhs);
+  const replacedRhs = replaceUnderscoreInTypeText(rhsText);
+
+  const typeParamsStr =
+    typeParams && typeParams.length > 0
+      ? `<${typeParams
+          .map((tp) => {
+            let s = tp.name.text;
+            if (tp.constraint) s += ` extends ${printTypeNode(tp.constraint)}`;
+            if (tp.default) s += ` = ${printTypeNode(tp.default)}`;
+            return s;
+          })
+          .join(", ")}>`
+      : "";
+
+  const hasExport = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+  const exportPrefix = hasExport ? "export " : "";
+
+  const code = `${exportPrefix}interface ${typeName}${typeParamsStr} extends TypeFunction {
+  readonly __kind__: unknown;
+  readonly _: ${replacedRhs};
+}`;
+
+  const stmts = ctx.parseStatements(code);
+  return stmts.length === 1 ? stmts[0] : stmts;
+}
+
+// ============================================================================
 // Macro Registration
 // ============================================================================
 
 /**
  * @hkt attribute macro for interfaces/type aliases
  *
- * Enables the F<_> kind syntax in the decorated declaration.
- * This is optional - the transformer also auto-detects F<_> syntax.
+ * Tier 3 (type alias with `_` marker):
+ *   Detects `_` in RHS, replaces with `this["__kind__"]`, emits TypeFunction interface.
+ *
+ * Legacy (interface with F<_> params):
+ *   Transforms F<A> to Kind<F, A> within the declaration.
  */
 export const hktAttribute = defineAttributeMacro({
   name: "hkt",
-  description: "Enable HKT syntax (F<_> kind annotations) in an interface or type alias",
+  description:
+    "Generate a TypeFunction interface from a type alias with _ placeholder, or enable F<_> syntax",
   validTargets: ["interface", "type"],
   expand(ctx, decorator, node) {
-    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
+    if (ts.isTypeAliasDeclaration(node)) {
+      return expandTier3HKT(ctx, node, decorator);
+    }
+
+    if (ts.isInterfaceDeclaration(node)) {
       return transformHKTDeclaration(ctx, node);
     }
+
     ctx.reportError(decorator, "@hkt can only be applied to interfaces or type aliases");
     return node;
   },
 });
+
+globalRegistry.register(hktAttribute);

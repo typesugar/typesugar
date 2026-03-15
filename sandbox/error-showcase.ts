@@ -26,12 +26,7 @@
 // IMPORTS
 // ============================================================================
 
-import {
-  comptime,
-  summon,
-  static_assert,
-  includeStr,
-} from "typesugar";
+import { comptime, summon, static_assert, includeStr } from "typesugar";
 import type { Eq, Ord } from "@typesugar/std";
 
 // ============================================================================
@@ -73,9 +68,7 @@ type NoDiscriminant = { name: string } | { age: number };
 
 // Compare to valid union (has 'kind' discriminant):
 /** @deriving Eq */
-type WithDiscriminant =
-  | { kind: "a"; name: string }
-  | { kind: "b"; age: number };
+type WithDiscriminant = { kind: "a"; name: string } | { kind: "b"; age: number };
 
 // ============================================================================
 // TS9104: Cannot derive - type has no fields
@@ -154,6 +147,22 @@ interface ValidPoint {
 }
 
 // ============================================================================
+// TS9303 - @hkt type alias missing _ placeholder
+// ============================================================================
+
+/** @hkt */
+type BadNoPlaceholder = Array<number>; // Should report TS9303
+
+// ============================================================================
+// TS9304 - @hkt type alias with multiple _ placeholders
+// ============================================================================
+
+import type { _ } from "@typesugar/type-system";
+
+/** @hkt */
+type BadMultiplePlaceholders = [_, _]; // Should report TS9304
+
+// ============================================================================
 // SUMMARY OF ERRORS IN THIS FILE
 // ============================================================================
 /*
@@ -167,6 +176,8 @@ Expected macro errors (TS9xxx):
 6. TS9209 - comptime can't evaluate runtimeValue
 7. TS9217 - static_assert(1+1===3) failed (IDE: requires macro package loading)
 8. TS9219 - static_assert condition is not compile-time (IDE: requires macro package loading)
+9. TS9303 - @hkt type alias missing _ placeholder
+10. TS9304 - @hkt must contain exactly one _ placeholder
 
 Not yet testable in IDE:
 - TS9800/TS9801 - Operator errors (crashes transformer, disabled)

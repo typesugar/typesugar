@@ -30,6 +30,7 @@
 
 export { unsafeCoerce } from "./hkt.js";
 export type {
+  _,
   Kind,
   OptionF,
   EitherF,
