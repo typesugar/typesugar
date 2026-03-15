@@ -862,7 +862,7 @@ export const TS9217: DiagnosticDescriptor = {
   severity: "error",
   category: DiagnosticCategory.MacroSyntax,
   messageTemplate: "Static assertion failed: {message}",
-  explanation: `A static_assert() or compileError() check failed.
+  explanation: `A staticAssert() or compileError() check failed.
 
 The condition evaluated to false at compile time, or compileError()
 was reached unconditionally.`,
@@ -884,15 +884,15 @@ export const TS9219: DiagnosticDescriptor = {
   code: 9219,
   severity: "error",
   category: DiagnosticCategory.MacroSyntax,
-  messageTemplate: "static_assert condition must be a compile-time constant",
-  explanation: `The condition in static_assert() must be evaluable at compile time.
+  messageTemplate: "staticAssert condition must be a compile-time constant",
+  explanation: `The condition in staticAssert() must be evaluable at compile time.
 
 Correct:
-  static_assert(1 + 1 === 2, "math works")
-  static_assert(typeof x === "string", "x must be string")
+  staticAssert(1 + 1 === 2, "math works")
+  staticAssert(typeof x === "string", "x must be string")
 
 Incorrect:
-  static_assert(fetchData().length > 0, "...")  // Runtime call`,
+  staticAssert(fetchData().length > 0, "...")  // Runtime call`,
   seeAlso: "https://typesugar.dev/errors/TS9219",
 };
 

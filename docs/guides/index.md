@@ -109,7 +109,7 @@ import { typeclass, instance, deriving, summon } from "@typesugar/typeclass";
 import { operators, ops, pipe } from "typesugar";
 
 // Compile-time
-import { comptime, includeStr, static_assert } from "@typesugar/comptime";
+import { comptime, includeStr, staticAssert } from "@typesugar/comptime";
 
 // Contracts
 import { requires, ensures, invariant } from "@typesugar/contracts";

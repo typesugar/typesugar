@@ -351,7 +351,7 @@ const defaultExports: ExportedSymbol[] = [
     description: "Include file as JSON",
   },
   {
-    name: "static_assert",
+    name: "staticAssert",
     module: "typesugar",
     kind: "macro",
     isReexport: false,

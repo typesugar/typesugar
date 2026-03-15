@@ -16,9 +16,15 @@ import tseslint from "typescript-eslint";
 // (the plugin needs to be built first)
 
 export default tseslint.config(
-  // Ignore build artifacts
+  // Ignore build artifacts and error showcase
   {
-    ignores: ["**/node_modules/**", "**/dist/**", "**/.turbo/**", "**/coverage/**"],
+    ignores: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.turbo/**",
+      "**/coverage/**",
+      "**/sandbox/error-showcase.ts", // Intentional errors for VS Code plugin testing
+    ],
   },
 
   // Base config for all files

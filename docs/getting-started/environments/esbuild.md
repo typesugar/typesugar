@@ -44,11 +44,45 @@ build({
 
 ```typescript
 typesugar({
+  // Transformation backend (default: "oxc")
+  // - "oxc": Fast native Rust engine (~5x faster)
+  // - "typescript": Full TypeScript transformer API
+  backend: "oxc",
+
+  // Typecheck expanded output at build end
+  strict: false,
+
+  // Logging and file patterns
   verbose: false,
   include: ["**/*.ts", "**/*.tsx"],
   exclude: ["node_modules/**"],
   tsconfig: "./tsconfig.json",
 });
+```
+
+### Backend Selection
+
+| Backend           | Speed      | Best For                 |
+| ----------------- | ---------- | ------------------------ |
+| `"oxc"` (default) | ~5x faster | Production builds        |
+| `"typescript"`    | Slower     | Debugging, compatibility |
+
+Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`) automatically fall back to the TypeScript backend.
+
+### Typechecking
+
+**esbuild does NOT typecheck** — it only transforms. To get type errors:
+
+```typescript
+// Option 1: Strict mode
+typesugar({
+  strict: true, // Typechecks expanded output at build end
+});
+```
+
+```bash
+# Option 2: Run tsc separately (recommended)
+tsc --noEmit && node build.ts
 ```
 
 ## Watch Mode

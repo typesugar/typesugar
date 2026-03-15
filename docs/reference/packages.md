@@ -377,7 +377,7 @@ comptime();
 includeStr();
 includeJson();
 includeBytes();
-static_assert();
+staticAssert();
 ```
 
 **Inspired by:** Zig comptime

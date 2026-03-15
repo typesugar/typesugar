@@ -575,7 +575,7 @@ export interface MacroDiagnostic {
   /** Source node that caused the diagnostic */
   node?: ts.Node;
 
-  /** Diagnostic code (TS9xxx) */
+  /** typesugar error code (9001-9999), set by DiagnosticBuilder */
   code?: number;
 
   /** Optional fix suggestion */

@@ -31,6 +31,7 @@ import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, ComptimeValue } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
 import { jsValueToExpression } from "@typesugar/core";
+import { TS9209 } from "@typesugar/core";
 
 /**
  * Permissions that can be granted to comptime blocks.
@@ -446,7 +447,11 @@ function evaluateViaVm(
     return jsValueToExpression(ctx, result, callExpr);
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    ctx.reportError(callExpr, formatComptimeError(error, sourceText, ctx, callExpr));
+    ctx
+      .diagnostic(TS9209)
+      .at(callExpr)
+      .note(formatComptimeError(error, sourceText, ctx, callExpr))
+      .emit();
     // Return an IIFE that throws the error at runtime
     // This prevents the transformer from trying to re-expand the call
     const factory = ctx.factory;

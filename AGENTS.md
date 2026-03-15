@@ -1,5 +1,17 @@
 # Agent Guidelines for typesugar
 
+## GitHub Repository
+
+- **Repo:** `typesugar/typesugar` (org account, NOT `dpovey/typesugar`)
+- **URL:** `https://github.com/typesugar/typesugar`
+- **Auth user:** `dpovey` (personal account — has push access to the org)
+- **Push pattern:**
+  ```bash
+  TOKEN=$(gh auth token --user dpovey)
+  git remote set-url origin "https://x-access-token:${TOKEN}@github.com/typesugar/typesugar.git"
+  git push -u origin HEAD
+  ```
+
 ## File Extensions: `.ts` vs `.sts`
 
 typesugar uses two file extensions based on whether custom syntax is needed:
@@ -205,7 +217,7 @@ packages/
 | Chain macro transformations     | `pipeline(name).pipe(...).build()`                                   | `packages/core/src/pipeline.ts`           |
 | Read config values              | `config.get(path)`, `config.evaluate(condition)`                     | `packages/core/src/config.ts`             |
 | Include file at compile time    | `includeStr()`, `includeJson()`                                      | `packages/macros/src/include.ts`          |
-| Assert at compile time          | `static_assert(cond, msg)`                                           | `packages/macros/src/static-assert.ts`    |
+| Assert at compile time          | `staticAssert(cond, msg)`                                            | `packages/macros/src/static-assert.ts`    |
 | Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                     | `packages/std/src/typeclasses/flatmap.ts` |
 | Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                   | `packages/std/src/macros/let-yield.ts`    |
 | Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`             | `packages/core/src/resolution-scope.ts`   |

@@ -227,7 +227,12 @@ import { defineConfig } from "vite";
 import typesugar from "unplugin-typesugar/vite";
 
 export default defineConfig({
-  plugins: [typesugar()],
+  plugins: [
+    typesugar({
+      backend: "oxc", // Fast native backend (default)
+      strict: true, // Typecheck expanded output (Vite doesn't typecheck)
+    }),
+  ],
   resolve: {
     // Resolve workspace packages
     alias: {
@@ -235,6 +240,27 @@ export default defineConfig({
     },
   },
 });
+```
+
+### Typechecking in Monorepos
+
+Vite doesn't typecheck. For monorepos, common patterns:
+
+```json
+// turbo.json — separate typecheck task
+{
+  "pipeline": {
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "command": "tsc --noEmit"
+    }
+  }
+}
+```
+
+```bash
+# Run typecheck across all packages
+turbo typecheck
 ```
 
 ## ts-patch in Monorepos

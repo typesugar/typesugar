@@ -641,11 +641,11 @@ export function includeJson<T = unknown>(_path: string): T {
  *
  * @example
  * ```typescript
- * static_assert(config.version > 0, "Version must be positive");
+ * staticAssert(config.version > 0, "Version must be positive");
  * ```
  */
-export function static_assert(_condition: boolean, _message: string): void {
-  throw new Error("static_assert() must be processed by the typesugar transformer at compile time");
+export function staticAssert(_condition: boolean, _message: string): void {
+  throw new Error("staticAssert() must be processed by the typesugar transformer at compile time");
 }
 
 // ============================================================================

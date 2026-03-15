@@ -722,6 +722,15 @@ export class TransformationPipeline {
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
 
+    // Skip build infrastructure packages (they don't use typesugar macros)
+    if (
+      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|oxc-engine)[\\/]src[\\/]/.test(
+        fileName
+      )
+    ) {
+      return false;
+    }
+
     // Transform TS/TSX/JS/JSX and STS/STSX files
     return /\.(([tj]sx?)|sts|stsx)$/.test(fileName);
   }
@@ -978,6 +987,14 @@ export class TransformationPipeline {
       // reported errors without modifying the AST, e.g. summon() for a missing instance)
       const rawDiagnostics = result.diagnostics ?? [];
 
+      if (rawDiagnostics.length > 0 && this.options.verbose) {
+        for (const d of rawDiagnostics) {
+          console.log(
+            `[typesugar pipeline] raw diag: start=${d.start}, length=${d.length}, file=${d.file?.fileName ?? "none"}`
+          );
+        }
+      }
+
       // OPTIMIZATION: Skip printing if the AST didn't change (reference equality)
       // This is a significant win for files with no macros or macro-free regions
       if (transformedSourceFile === sourceFile) {
@@ -995,7 +1012,7 @@ export class TransformationPipeline {
               d.category === ts.DiagnosticCategory.Error
                 ? ("error" as const)
                 : ("warning" as const),
-            code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
+            code: d.code ?? (codeMatch ? parseInt(codeMatch[1], 10) : undefined),
           };
           if (suggestionText) {
             result.suggestion = {
@@ -1024,7 +1041,7 @@ export class TransformationPipeline {
           message,
           severity:
             d.category === ts.DiagnosticCategory.Error ? ("error" as const) : ("warning" as const),
-          code: codeMatch ? parseInt(codeMatch[1], 10) : undefined,
+          code: d.code ?? (codeMatch ? parseInt(codeMatch[1], 10) : undefined),
         };
         if (suggestionText) {
           result.suggestion = {
@@ -1083,8 +1100,9 @@ export class TransformationPipeline {
         expansions: expansions.length > 0 ? expansions : undefined,
       };
     } catch (error) {
+      const stack = error instanceof Error ? error.stack : String(error);
       if (this.verbose) {
-        console.error(`[typesugar] Transform error for ${sourceFile.fileName}:`, error);
+        console.error(`[typesugar] Transform error for ${sourceFile.fileName}:\n${stack}`);
       }
       return {
         code: originalCode,

@@ -117,7 +117,7 @@ export {
   includeStr,
   includeJson,
   // Static assert
-  static_assert,
+  staticAssert,
   // Tail recursion
   tailrec,
   // HKT

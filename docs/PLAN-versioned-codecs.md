@@ -107,7 +107,7 @@ import { checkCompatibility } from "@typesugar/codec";
 
 // Compile-time: verifies that v3 can decode data from v1 and v2
 // Generates: test fixtures for each version
-static_assert(
+staticAssert(
   checkCompatibility<UserProfile>([1, 2, 3]),
   "UserProfile must be backward-compatible across all versions"
 );

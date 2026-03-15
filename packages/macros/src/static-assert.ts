@@ -25,6 +25,7 @@ import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
+import { TS9217, TS9219 } from "@typesugar/core";
 
 // =============================================================================
 // staticAssert — Compile-time assertion
@@ -72,18 +73,12 @@ export const staticAssertMacro = defineExpressionMacro({
     const result = ctx.evaluate(conditionArg);
 
     if (result.kind === "error") {
-      // Can't evaluate at compile time — try checking if it's a boolean literal
       if (conditionArg.kind === ts.SyntaxKind.FalseKeyword) {
-        ctx.reportError(callExpr, `staticAssert: ${message}`);
+        ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
       } else if (conditionArg.kind === ts.SyntaxKind.TrueKeyword) {
         // Assertion passes — remove the call
       } else {
-        ctx.reportError(
-          callExpr,
-          `staticAssert: Cannot evaluate condition at compile time. ` +
-            `The condition must be a compile-time constant. ` +
-            `Original message: ${message}`
-        );
+        ctx.diagnostic(TS9219).at(callExpr).note(`Original message: ${message}`).emit();
       }
       return ctx.factory.createIdentifier("undefined");
     }
@@ -92,13 +87,13 @@ export const staticAssertMacro = defineExpressionMacro({
     const boolValue = comptimeToBoolean(result);
 
     if (boolValue === false) {
-      ctx.reportError(callExpr, `staticAssert: ${message}`);
+      ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
     } else if (boolValue === null) {
-      ctx.reportError(
-        callExpr,
-        `staticAssert: Cannot convert ${result.kind} to boolean for assertion. ` +
-          `Original message: ${message}`
-      );
+      ctx
+        .diagnostic(TS9219)
+        .at(callExpr)
+        .note(`Cannot convert ${result.kind} to boolean. Original message: ${message}`)
+        .emit();
     }
 
     // Assertion passes (or error reported) — remove the call entirely

@@ -28,7 +28,14 @@ import { defineConfig } from "vite";
 import typesugar from "unplugin-typesugar/vite";
 
 export default defineConfig({
-  plugins: [typesugar()],
+  plugins: [
+    typesugar({
+      // Use fast oxc backend (default)
+      backend: "oxc",
+      // Typecheck expanded output (since Vite doesn't typecheck)
+      strict: true,
+    }),
+  ],
   build: {
     target: "esnext",
     outDir: "dist",

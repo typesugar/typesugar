@@ -21,7 +21,7 @@ This file intentionally contains code that triggers typesugar diagnostic errors.
 - TS9205: Non-literal string argument
 - TS9209: Runtime value in comptime
 - TS9217: Static assertion failed
-- TS9219: Non-constant static_assert condition
+- TS9219: Non-constant staticAssert condition
 - TS9301: Phantom HKT (doesn't use `this["__kind__"]`)
 - TS9302: @hkt on class
 - TS9800: Forbidden operator

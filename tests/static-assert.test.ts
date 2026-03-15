@@ -106,7 +106,7 @@ describe("static assertion and diagnostic macros", () => {
 
       const diags = ctx.getDiagnostics();
       expect(diags.length).toBeGreaterThan(0);
-      expect(diags[0].message).toContain("staticAssert");
+      expect(diags[0].message).toContain("Static assertion failed");
     });
 
     it("should pass for truthy numeric conditions", () => {

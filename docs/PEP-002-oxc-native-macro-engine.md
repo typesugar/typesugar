@@ -133,7 +133,7 @@ packages/oxc-engine/
 │   └── syntax_macros/      # Pure-Rust macro implementations
 │       ├── mod.rs
 │       ├── cfg.rs
-│       ├── static_assert.rs
+│       ├── staticAssert.rs
 │       └── comptime.rs
 ├── npm/                    # napi-rs platform-specific packages
 ├── __tests__/

@@ -16,7 +16,7 @@ import { transformCode, type TransformDiagnostic } from "@typesugar/transformer"
 // integration tests that only inspect diagnostics.
 
 const IMPORTS = `
-import { comptime, summon, static_assert, includeStr } from "typesugar";
+import { comptime, summon, staticAssert, includeStr } from "typesugar";
 import type { Eq, Ord } from "@typesugar/std";
 `.trim();
 
@@ -42,7 +42,11 @@ function expectDiag(
   expect(
     matching.length,
     `Expected ${count} TS${code} diagnostic(s), got ${matching.length}. ` +
-      `All errors: ${errors(result).map((d) => `TS${d.code}`).join(", ") || "(none)"}`
+      `All errors: ${
+        errors(result)
+          .map((d) => `TS${d.code}`)
+          .join(", ") || "(none)"
+      }`
   ).toBe(count);
   if (opts?.messageContains) {
     expect(matching[0].message).toContain(opts.messageContains);
@@ -161,24 +165,24 @@ describe("Macro Syntax Diagnostics", () => {
     expectDiag(result, 9212, { messageContains: "this-file-does-not-exist.txt" });
   });
 
-  it("TS9217: static_assert with false condition", () => {
+  it("TS9217: staticAssert with false condition", () => {
     const result = transform(`
-      static_assert(1 + 1 === 3, "Math is broken");
+      staticAssert(1 + 1 === 3, "Math is broken");
     `);
     expectDiag(result, 9217, { messageContains: "Math is broken" });
   });
 
-  it("TS9217: static_assert with falsy numeric literal", () => {
+  it("TS9217: staticAssert with falsy numeric literal", () => {
     const result = transform(`
-      static_assert(0, "zero is falsy");
+      staticAssert(0, "zero is falsy");
     `);
     expectDiag(result, 9217, { messageContains: "zero is falsy" });
   });
 
-  it("TS9219: static_assert with non-constant condition", () => {
+  it("TS9219: staticAssert with non-constant condition", () => {
     const result = transform(`
       declare const dynamicCondition: boolean;
-      static_assert(dynamicCondition, "Dynamic not allowed");
+      staticAssert(dynamicCondition, "Dynamic not allowed");
     `);
     expectDiag(result, 9219, { messageContains: "compile-time constant" });
   });
@@ -189,16 +193,16 @@ describe("Macro Syntax Diagnostics", () => {
 // ===========================================================================
 
 describe("Valid code produces no macro errors", () => {
-  it("static_assert with true condition", () => {
+  it("staticAssert with true condition", () => {
     const result = transform(`
-      static_assert(1 + 1 === 2, "Math works");
+      staticAssert(1 + 1 === 2, "Math works");
     `);
     expectNoDiags(result);
   });
 
-  it("static_assert with truthy numeric literal", () => {
+  it("staticAssert with truthy numeric literal", () => {
     const result = transform(`
-      static_assert(42, "truthy");
+      staticAssert(42, "truthy");
     `);
     expectNoDiags(result);
   });
@@ -334,16 +338,16 @@ describe("Inline union derivation generates correct code", () => {
 describe("Diagnostic edge cases", () => {
   it("multiple diagnostics from single file", () => {
     const result = transform(`
-      static_assert(1 + 1 === 3, "first failure");
-      static_assert(2 + 2 === 5, "second failure");
+      staticAssert(1 + 1 === 3, "first failure");
+      staticAssert(2 + 2 === 5, "second failure");
     `);
     expectDiag(result, 9217, { count: 2 });
   });
 
-  it("mixed valid and invalid static_assert", () => {
+  it("mixed valid and invalid staticAssert", () => {
     const result = transform(`
-      static_assert(1 + 1 === 2, "this passes");
-      static_assert(1 + 1 === 3, "this fails");
+      staticAssert(1 + 1 === 2, "this passes");
+      staticAssert(1 + 1 === 3, "this fails");
     `);
     expectDiag(result, 9217, { count: 1, messageContains: "this fails" });
   });

@@ -39,12 +39,54 @@ export default config;
 
 ```javascript
 typesugar({
+  // Transformation backend (default: "oxc")
+  // - "oxc": Fast native Rust engine (~5x faster)
+  // - "typescript": Full TypeScript transformer API
+  backend: "oxc",
+
+  // Typecheck expanded output at build end
+  strict: false,
+
+  // Logging and file patterns
   verbose: false,
   include: ["**/*.ts", "**/*.tsx"],
   exclude: ["node_modules/**"],
   tsconfig: "./tsconfig.json",
-  macroModules: [],
 });
+```
+
+### Backend Selection
+
+| Backend           | Speed      | Best For                 |
+| ----------------- | ---------- | ------------------------ |
+| `"oxc"` (default) | ~5x faster | Production builds        |
+| `"typescript"`    | Slower     | Debugging, compatibility |
+
+Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`) automatically fall back to the TypeScript backend.
+
+### Typechecking
+
+**Webpack does NOT typecheck by default** — it only transforms. To get type errors:
+
+```javascript
+// Option 1: Strict mode
+typesugar({
+  strict: true, // Typechecks expanded output at build end
+});
+```
+
+```bash
+# Option 2: Run tsc separately (recommended for CI)
+tsc --noEmit && webpack build
+```
+
+```javascript
+// Option 3: Use fork-ts-checker-webpack-plugin for parallel typechecking
+const ForkTsCheckerWebpackPlugin = require("fork-ts-checker-webpack-plugin");
+
+module.exports = {
+  plugins: [typesugar(), new ForkTsCheckerWebpackPlugin()],
+};
 ```
 
 ## Next.js Setup

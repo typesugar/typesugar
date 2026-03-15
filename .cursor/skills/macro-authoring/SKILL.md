@@ -301,7 +301,7 @@ yield: ({ user, config })
 | `@tailrec` | `packages/macros/src/tailrec.ts` | Tail-call → while loop |
 | `cfg()` / `@cfgAttr` | `packages/macros/src/cfg.ts` | Conditional compilation |
 | `includeStr()` / `includeJson()` | `packages/macros/src/include.ts` | Compile-time file I/O |
-| `static_assert()` | `packages/macros/src/static-assert.ts` | Compile-time assertions |
+| `staticAssert()` | `packages/macros/src/static-assert.ts` | Compile-time assertions |
 | `defineSyntaxMacro()` | `packages/macros/src/syntax-macro.ts` | Pattern-based macros (macro_rules!) |
 | `collectTypes()` / `moduleIndex()` | `packages/macros/src/module-graph.ts` | Project introspection |
 | `@genericDerive` | `packages/macros/src/generic.ts` | Structural type representations |

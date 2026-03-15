@@ -24,7 +24,7 @@ This package provides implementations for:
 - **Operators**: `@operators`, `ops()`, `pipe()`, `compose()`
 - **HKT support**: `@hkt`, HKT parameter transformation
 - **Conditional compilation**: `cfg()`, `@cfgAttr`
-- **Static assertions**: `static_assert()`, `compileError()`, `compileWarning()`
+- **Static assertions**: `staticAssert()`, `compileError()`, `compileWarning()`
 - **File inclusion**: `includeStr()`, `includeJson()`, `includeBytes()`
 - **Tail recursion**: `@tailrec`
 - **Extensions**: `registerExtensions()`, `registerExtension()`

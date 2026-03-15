@@ -144,7 +144,7 @@ Move computation from runtime to compile time:
 - **`comptime()`** — evaluate any expression at build time
 - **`@tailrec`** — tail-call elimination for stack-safe recursion
 - **`includeStr()` / `includeJson()`** — embed file contents at compile time
-- **`static_assert()`** — compile-time assertions that disappear in output
+- **`staticAssert()`** — compile-time assertions that disappear in output
 - **`cfg()` / `@cfgAttr`** — conditional compilation for feature flags
 - **`collectTypes()`** — introspect your entire project at compile time
 - **`"use no typesugar"`** — [opt-out directives](/guides/opt-out) for debugging and interop

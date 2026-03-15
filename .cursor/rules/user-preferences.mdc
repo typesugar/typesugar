@@ -35,13 +35,16 @@ When encountering old names (`@ttfx/*`, `typemacro`, `macrots`) in code, comment
 
 ## GitHub Account
 
-Use `dpovey` (personal account) for this repo.
+- **Auth user:** `dpovey` (personal account)
+- **Repo:** `typesugar/typesugar` (org account — NOT `dpovey/typesugar`)
+- **Remote URL pattern:** `https://x-access-token:${TOKEN}@github.com/typesugar/typesugar.git`
 
-If you hit SSH key issues when pushing:
+If you hit SSH key issues or push failures:
 
 1. Check if `.envrc` exists and is loaded (`direnv status`)
 2. Run `gh auth status` to verify the active account
 3. Switch if needed: `gh auth switch --user dpovey`
+4. Re-set remote URL: `TOKEN=$(gh auth token --user dpovey) && git remote set-url origin "https://x-access-token:${TOKEN}@github.com/typesugar/typesugar.git"`
 
 ## Git Hygiene
 

@@ -1,4 +1,6 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.tsserver.pluginPaths": ["/Users/deapovey/src/typesugar/node_modules"]
+  "typescript.tsserver.pluginPaths": ["/Users/deapovey/src/typesugar/node_modules"],
+  "typescript.tsserver.log": "normal",
+  "cSpell.enabled": false
 }

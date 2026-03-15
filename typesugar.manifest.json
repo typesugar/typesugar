@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "macros": {
+    "expression": {
+      "comptime": { "module": "@typesugar/comptime", "description": "Compile-time evaluation" },
+      "specialize": {
+        "module": "@typesugar/specialize",
+        "description": "Zero-cost specialization"
+      },
+      "summon": { "module": "@typesugar/typeclass", "description": "Typeclass instance lookup" },
+      "match": { "module": "@typesugar/std", "description": "Exhaustive pattern matching" },
+      "includeStr": {
+        "module": "@typesugar/macros",
+        "description": "Include file as string at compile time"
+      },
+      "includeJson": {
+        "module": "@typesugar/macros",
+        "description": "Include JSON file at compile time"
+      },
+      "staticAssert": { "module": "@typesugar/macros", "description": "Compile-time assertion" }
+    },
+    "decorator": {
+      "derive": {
+        "module": "@typesugar/derive",
+        "description": "Auto-derive implementations",
+        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder", "Show"]
+      },
+      "typeclass": { "module": "@typesugar/typeclass", "description": "Define a typeclass" },
+      "instance": {
+        "module": "@typesugar/typeclass",
+        "description": "Define a typeclass instance"
+      },
+      "impl": {
+        "module": "@typesugar/typeclass",
+        "description": "Define a typeclass instance (alias)"
+      },
+      "operator": { "module": "@typesugar/macros", "description": "Operator overloading" },
+      "extension": { "module": "@typesugar/macros", "description": "Extension method" }
+    },
+    "taggedTemplate": {
+      "sql": {
+        "module": "@typesugar/sql",
+        "description": "Typed SQL template",
+        "contentType": "sql"
+      },
+      "html": {
+        "module": "@typesugar/react",
+        "description": "HTML template",
+        "contentType": "html"
+      }
+    },
+    "labeledBlock": {
+      "let": {
+        "module": "@typesugar/std",
+        "description": "Monadic do-notation (sequential flatMap chain)",
+        "continuations": ["yield", "pure"]
+      },
+      "seq": {
+        "module": "@typesugar/std",
+        "description": "Monadic do-notation (alias for let)",
+        "continuations": ["yield", "pure"]
+      },
+      "par": {
+        "module": "@typesugar/std",
+        "description": "Parallel applicative comprehension (Promise.all)",
+        "continuations": ["yield", "pure"]
+      },
+      "all": {
+        "module": "@typesugar/std",
+        "description": "Parallel applicative comprehension (alias for par)",
+        "continuations": ["yield", "pure"]
+      }
+    },
+    "type": {},
+    "extensionMethods": {
+      "show": {
+        "typeclass": "Show",
+        "description": "String representation",
+        "returnType": "string"
+      },
+      "clone": { "typeclass": "Clone", "description": "Deep copy", "returnType": "self" },
+      "equals": {
+        "typeclass": "Eq",
+        "description": "Structural equality",
+        "returnType": "boolean"
+      },
+      "compare": {
+        "typeclass": "Ord",
+        "description": "Ordering comparison",
+        "returnType": "number"
+      },
+      "hash": { "typeclass": "Hash", "description": "Hash code", "returnType": "number" }
+    }
+  }
+}

@@ -39,6 +39,15 @@ export default defineConfig({
 
 ```typescript
 typesugar({
+  // Transformation backend (default: "oxc")
+  // - "oxc": Fast native Rust engine (~5x faster parsing/codegen)
+  // - "typescript": Full TypeScript transformer API
+  // Files with type-aware macros auto-fallback to TypeScript
+  backend: "oxc",
+
+  // Typecheck expanded output at build end (catches macro bugs)
+  strict: false,
+
   // Enable verbose logging for debugging
   verbose: false,
 
@@ -50,9 +59,40 @@ typesugar({
 
   // Path to tsconfig.json (auto-detected by default)
   tsconfig: "./tsconfig.json",
+});
+```
 
-  // Custom macro module paths to load
-  macroModules: ["./src/macros/index.ts"],
+### Backend Selection
+
+| Backend           | Speed      | Best For                                  |
+| ----------------- | ---------- | ----------------------------------------- |
+| `"oxc"` (default) | ~5x faster | Production builds, most projects          |
+| `"typescript"`    | Slower     | Debugging, when you need to force TS path |
+
+The oxc backend automatically falls back to TypeScript for files containing type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`).
+
+### Typechecking
+
+**Vite does NOT typecheck your code** — it only transforms. To get type errors:
+
+```typescript
+// vite.config.ts — Option 1: Strict mode (typechecks expanded output)
+typesugar({
+  strict: true, // Runs tsc on expanded code at build end
+});
+```
+
+```bash
+# Option 2: Run tsc separately (recommended for CI)
+tsc --noEmit && vite build
+```
+
+```typescript
+// Option 3: Use vite-plugin-checker for dev server type errors
+import checker from "vite-plugin-checker";
+
+export default defineConfig({
+  plugins: [typesugar(), checker({ typescript: true })],
 });
 ```
 
