@@ -5,7 +5,11 @@
  * on type 'Y'") when an extension method named 'X' is resolvable for type 'Y'
  * through the standalone extension registry or import-scoped resolution.
  *
- * @see PEP-011 Wave 3
+ * Rule 3 (NewtypeAssignment): Suppresses TS2322/TS2345 when a `Newtype<Base, Brand>`
+ * is involved in an assignment and the other side is assignable to `Base`. Since
+ * newtypes erase to their base type at runtime, these assignments are safe.
+ *
+ * @see PEP-011 Waves 3-4
  */
 
 import ts from "typescript";
@@ -295,4 +299,258 @@ function checkImportedSymbol(
   }
 
   return false;
+}
+
+// ===========================================================================
+// Rule 3: NewtypeAssignment — suppress TS2322/TS2345 for Newtype<Base, Brand>
+// ===========================================================================
+
+/**
+ * Pattern matching the escaped property name of the `__brand` unique symbol.
+ * TypeScript encodes unique symbol properties as `__@variableName@uniqueId`.
+ * The variable `__brand` gets an extra `_` from TS's internal `__` escaping,
+ * yielding `__@___brand@<digits>`.
+ */
+const BRAND_PROP_PATTERN = /__brand/;
+
+/**
+ * Create the NewtypeAssignment SFINAE rule.
+ *
+ * Suppresses TS2322 ("Type 'X' is not assignable to type 'Y'") and TS2345
+ * ("Argument of type 'X' is not assignable to parameter of type 'Y'") when
+ * the assignment involves a `Newtype<Base, Brand>` and the other side is
+ * assignable to `Base`.
+ *
+ * At runtime, a `Newtype<Base, Brand>` IS just `Base` — the brand exists
+ * only in the type system and is erased by the transformer. So assignments
+ * like `const id: UserId = 42` are safe (where `type UserId = Newtype<number, "UserId">`).
+ */
+export function createNewtypeAssignmentRule(): SfinaeRule {
+  return {
+    name: "NewtypeAssignment",
+    errorCodes: [2322, 2345],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined || diagnostic.length === undefined) {
+        return false;
+      }
+
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node) return false;
+
+      // For TS2322 the diagnostic is on the variable/property being assigned to.
+      // For TS2345 the diagnostic is on the argument expression.
+      // In both cases we need source and target types from the assignment context.
+      const types = extractAssignmentTypes(node, checker);
+      if (!types) return false;
+
+      const { sourceType, targetType } = types;
+
+      // Check: target is Newtype, source assignable to its base
+      const targetBase = extractNewtypeBase(targetType, checker);
+      if (targetBase && checker.isTypeAssignableTo(sourceType, targetBase)) {
+        return true;
+      }
+
+      // Check: source is Newtype, target assignable from its base
+      const sourceBase = extractNewtypeBase(sourceType, checker);
+      if (sourceBase && checker.isTypeAssignableTo(sourceBase, targetType)) {
+        return true;
+      }
+
+      return false;
+    },
+  };
+}
+
+/**
+ * Extract source and target types from an assignment or argument context.
+ *
+ * Handles:
+ * - Variable declarations: `const x: TargetType = sourceExpr`
+ * - Assignments: `x = sourceExpr` (where x has a declared type)
+ * - Call arguments: `fn(sourceExpr)` where param has TargetType
+ */
+function extractAssignmentTypes(
+  node: ts.Node,
+  checker: ts.TypeChecker
+): { sourceType: ts.Type; targetType: ts.Type } | undefined {
+  // Walk up to find the relevant parent context
+  let current: ts.Node | undefined = node;
+
+  for (let i = 0; i < 10 && current; i++) {
+    // Variable declaration: const x: T = expr
+    if (ts.isVariableDeclaration(current) && current.initializer && current.type) {
+      try {
+        const targetType = checker.getTypeFromTypeNode(current.type);
+        const sourceType = checker.getTypeAtLocation(current.initializer);
+        return { sourceType, targetType };
+      } catch {
+        return undefined;
+      }
+    }
+
+    // Variable declaration without explicit type annotation — target inferred
+    if (ts.isVariableDeclaration(current) && current.initializer && !current.type) {
+      try {
+        const targetType = checker.getTypeAtLocation(current.name);
+        const sourceType = checker.getTypeAtLocation(current.initializer);
+        if (targetType !== sourceType) {
+          return { sourceType, targetType };
+        }
+      } catch {
+        return undefined;
+      }
+    }
+
+    // Binary expression (assignment): x = expr
+    if (
+      ts.isBinaryExpression(current) &&
+      current.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      try {
+        const targetType = checker.getTypeAtLocation(current.left);
+        const sourceType = checker.getTypeAtLocation(current.right);
+        return { sourceType, targetType };
+      } catch {
+        return undefined;
+      }
+    }
+
+    // Call expression argument: fn(expr) — match the argument to its parameter
+    if (ts.isCallExpression(current) && current.arguments.length > 0) {
+      const argResult = matchCallArgument(current, node, checker);
+      if (argResult) return argResult;
+    }
+
+    // Return statement: return expr (in a function with declared return type)
+    if (ts.isReturnStatement(current) && current.expression) {
+      try {
+        const sourceType = checker.getTypeAtLocation(current.expression);
+        const fn = findEnclosingFunction(current);
+        if (fn?.type) {
+          const targetType = checker.getTypeFromTypeNode(fn.type);
+          return { sourceType, targetType };
+        }
+      } catch {
+        return undefined;
+      }
+    }
+
+    // Property assignment in object literal: { key: expr }
+    if (ts.isPropertyAssignment(current) && current.initializer) {
+      try {
+        const contextualType = checker.getContextualType(current.initializer);
+        if (contextualType) {
+          const sourceType = checker.getTypeAtLocation(current.initializer);
+          return { sourceType, targetType: contextualType };
+        }
+      } catch {
+        return undefined;
+      }
+    }
+
+    current = current.parent;
+  }
+
+  return undefined;
+}
+
+/**
+ * For a call expression, find which argument the diagnostic node corresponds to
+ * and return the source (argument) and target (parameter) types.
+ */
+function matchCallArgument(
+  call: ts.CallExpression,
+  diagNode: ts.Node,
+  checker: ts.TypeChecker
+): { sourceType: ts.Type; targetType: ts.Type } | undefined {
+  let argIndex = -1;
+  for (let i = 0; i < call.arguments.length; i++) {
+    const arg = call.arguments[i];
+    if (arg === diagNode || isDescendantOf(diagNode, arg)) {
+      argIndex = i;
+      break;
+    }
+  }
+  if (argIndex < 0) return undefined;
+
+  try {
+    const sig = checker.getResolvedSignature(call);
+    if (!sig) return undefined;
+
+    const params = sig.getParameters();
+    if (argIndex >= params.length) return undefined;
+
+    const paramType = checker.getTypeOfSymbolAtLocation(params[argIndex], call);
+    const argType = checker.getTypeAtLocation(call.arguments[argIndex]);
+    return { sourceType: argType, targetType: paramType };
+  } catch {
+    return undefined;
+  }
+}
+
+function isDescendantOf(child: ts.Node, ancestor: ts.Node): boolean {
+  let current: ts.Node | undefined = child.parent;
+  while (current) {
+    if (current === ancestor) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function findEnclosingFunction(
+  node: ts.Node
+): ts.FunctionDeclaration | ts.MethodDeclaration | ts.ArrowFunction | undefined {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isArrowFunction(current)
+    ) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return undefined;
+}
+
+/**
+ * Check if a type has the `__brand` phantom field. Since `__brand` is a
+ * unique symbol, TypeScript encodes it as `__@___brand@<id>` internally.
+ * We match on the escaped property name rather than using `getProperty()`.
+ */
+function hasBrandProperty(type: ts.Type): boolean {
+  return type.getProperties().some((p) => BRAND_PROP_PATTERN.test(p.escapedName as string));
+}
+
+/**
+ * Check if a type is a `Newtype<Base, Brand>` and extract the base type.
+ *
+ * A Newtype is detected by the presence of a `__brand` property (the phantom
+ * field declared as `readonly [__brand]: Brand`). The base type is the
+ * intersection type minus the brand member — i.e., the non-brand constituent
+ * of the intersection `Base & { readonly [__brand]: Brand }`.
+ */
+function extractNewtypeBase(type: ts.Type, _checker: ts.TypeChecker): ts.Type | undefined {
+  if (!hasBrandProperty(type)) return undefined;
+
+  // The type is an intersection: Base & { readonly [__brand]: Brand }
+  // Extract the non-brand constituent(s) as the base type.
+  if (type.isIntersection()) {
+    const baseConstituents = type.types.filter((t) => !hasBrandProperty(t));
+    if (baseConstituents.length === 1) {
+      return baseConstituents[0];
+    }
+    if (baseConstituents.length > 1) {
+      return baseConstituents[0];
+    }
+  }
+
+  return undefined;
 }

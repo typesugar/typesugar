@@ -38,7 +38,7 @@ import {
   createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
-import { createExtensionMethodCallRule } from "@typesugar/macros";
+import { createExtensionMethodCallRule, createNewtypeAssignmentRule } from "@typesugar/macros";
 
 /**
  * Cache entry for transformed files
@@ -386,6 +386,14 @@ function init(modules: { typescript: typeof ts }) {
     if (!hasExtRule) {
       registerSfinaeRule(createExtensionMethodCallRule());
       log("Registered ExtensionMethodCall SFINAE rule");
+    }
+
+    // Register NewtypeAssignment rule: suppresses TS2322/TS2345 when a
+    // Newtype<Base, Brand> is involved and the other side matches Base (PEP-011 Wave 4).
+    const hasNewtypeRule = getSfinaeRules().some((r) => r.name === "NewtypeAssignment");
+    if (!hasNewtypeRule) {
+      registerSfinaeRule(createNewtypeAssignmentRule());
+      log("Registered NewtypeAssignment SFINAE rule");
     }
 
     if (isSfinaeAuditEnabled()) {

@@ -356,7 +356,7 @@ export {
 } from "./extension.js";
 
 // --- SFINAE Rules ---
-export { createExtensionMethodCallRule } from "./sfinae-rules.js";
+export { createExtensionMethodCallRule, createNewtypeAssignmentRule } from "./sfinae-rules.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
 // HKT enables typeclasses parameterized by type constructors (F<_>).

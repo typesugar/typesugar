@@ -201,16 +201,16 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Implement Rule 3 (NewtypeAssignment) for TS2322/TS2345
-- [ ] Detect `Newtype<Base, Brand>` types via the `__brand` phantom field
-- [ ] Handle both directions: `Base → Newtype` and `Newtype → Base`
-- [ ] Tests: `const id: UserId = 42` suppresses without `wrap()`
+- [x] Implement Rule 3 (NewtypeAssignment) for TS2322/TS2345
+- [x] Detect `Newtype<Base, Brand>` types via the `__brand` phantom field
+- [x] Handle both directions: `Base → Newtype` and `Newtype → Base`
+- [x] Tests: `const id: UserId = 42` suppresses without `wrap()`
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Newtype SFINAE tests pass
-- [ ] `wrap()` / `unwrap()` still work (not broken by SFINAE)
+- [x] `pnpm build` passes
+- [x] Newtype SFINAE tests pass (14 passed)
+- [x] `wrap()` / `unwrap()` still work (not broken by SFINAE)
 
 ### Wave 5: TypeRewriteAssignment Rule
 
@@ -257,6 +257,10 @@ This makes the system transparent and debuggable.
 | `packages/macros/src/index.ts`                        | Export `createExtensionMethodCallRule`                    | 3    |
 | `packages/transformer/src/language-service.ts`        | Register ExtensionMethodCall rule at init                 | 3    |
 | `tests/sfinae-extension.test.ts`                      | New: ExtensionMethodCall SFINAE tests (15 tests)          | 3    |
+| `packages/macros/src/sfinae-rules.ts`                 | Add `createNewtypeAssignmentRule()` (Rule 3)              | 4    |
+| `packages/macros/src/index.ts`                        | Export `createNewtypeAssignmentRule`                      | 4    |
+| `packages/transformer/src/language-service.ts`        | Register NewtypeAssignment rule at init                   | 4    |
+| `tests/sfinae-newtype.test.ts`                        | New: NewtypeAssignment SFINAE tests (14 tests)            | 4    |
 | `packages/transformer/src/pipeline.ts`                | Future: SFINAE filter in CLI diagnostic collection        | 6    |
 
 ## Security Considerations
