@@ -147,6 +147,38 @@ interface ValidPoint {
 }
 
 // ============================================================================
+// @hkt VALID EXAMPLES — Tier 0/1/2/3 HKT workflow
+// ============================================================================
+
+// Tier 2: @hkt on type definitions (generates companion *F interface)
+/** @hkt */
+type Option<A> = A | null;
+
+/** @hkt */
+type Either<E, A> = { _tag: "Left"; error: E } | { _tag: "Right"; value: A };
+
+// Tier 3: @hkt with _ marker (for types you don't own)
+/** @hkt */
+type ValidArrayF = Array<_>;
+
+/** @hkt */
+type ValidMapF<K> = Map<K, _>;
+
+// Tier 1: @impl with implicit resolution (zero boilerplate)
+/** @impl Functor<Option> */
+const optionFunctorExample = {
+  map: (fa: Option<any>, f: (a: any) => any) => (fa === null ? null : f(fa)),
+};
+
+// Tier 0: F<A> in typeclass bodies (transformer rewrites to Kind<F, A>)
+// This is valid in .ts files — the transformer handles it before type-checking.
+// Uncomment to test in IDE with transformer active:
+// /** @typeclass */
+// interface Functor<F> {
+//   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+// }
+
+// ============================================================================
 // TS9303 - @hkt type alias missing _ placeholder
 // ============================================================================
 
@@ -176,12 +208,19 @@ Expected macro errors (TS9xxx):
 6. TS9209 - comptime can't evaluate runtimeValue
 7. TS9217 - static_assert(1+1===3) failed (IDE: requires macro package loading)
 8. TS9219 - static_assert condition is not compile-time (IDE: requires macro package loading)
-9. TS9303 - @hkt type alias missing _ placeholder
-10. TS9304 - @hkt must contain exactly one _ placeholder
+9. TS9303 - @hkt type alias missing _ placeholder (BadNoPlaceholder)
+10. TS9304 - @hkt must contain exactly one _ placeholder (BadMultiplePlaceholders)
+
+Valid examples (no errors expected):
+- ValidPoint with @deriving Eq, Ord
+- Option<A> with @hkt (Tier 2 companion generation)
+- Either<E, A> with @hkt (Tier 2 multi-arity)
+- ValidArrayF with @hkt + _ marker (Tier 3)
+- ValidMapF<K> with @hkt + _ marker (Tier 3 multi-arity)
+- optionFunctorExample with @impl Functor<Option> (Tier 1)
 
 Not yet testable in IDE:
 - TS9800/TS9801 - Operator errors (crashes transformer, disabled)
-- TS9301/TS9302 - HKT errors (@hkt is preprocessor-only, F<_> is not valid .ts syntax)
 
 To see these errors:
 1. Open in VS Code/Cursor with typesugar plugin

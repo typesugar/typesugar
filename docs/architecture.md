@@ -13,10 +13,10 @@ typesugar transforms TypeScript source code in two phases:
 
 The build pipeline routes files by extension:
 
-| Extension        | Preprocessor | Macro Transformer | Custom Syntax Allowed                                     |
-| ---------------- | ------------ | ----------------- | --------------------------------------------------------- |
-| `.sts` / `.stsx` | Yes          | Yes               | `F<_>`, `\|>`, `::`, `@typeclass` on interfaces           |
-| `.ts` / `.tsx`   | No           | Yes               | JSDoc only: `/** @typeclass */`, `let:`, `summon()`, etc. |
+| Extension        | Preprocessor | HKT Rewriter | Macro Transformer | Custom Syntax Allowed                                      |
+| ---------------- | ------------ | ------------ | ----------------- | ---------------------------------------------------------- |
+| `.sts` / `.stsx` | Yes          | No           | Yes               | `F<_>`, `\|>`, `::`, `@typeclass` on interfaces            |
+| `.ts` / `.tsx`   | No           | Yes          | Yes               | `F<A>` in generics, JSDoc: `/** @typeclass */`, `let:` etc |
 
 This separation provides:
 
@@ -37,14 +37,14 @@ This separation provides:
            │                                   │
     .sts / .stsx                        .ts / .tsx
            │                                   │
-           ▼                                   │
-┌─────────────────────────────────┐            │
-│  1. PREPROCESSOR (text-level)   │            │
-│  - Tokenize with custom ops     │            │
-│  - HKT: F<_> → Kind<F, A>      │            │
-│  - Operators: |> → __binop__    │            │
-│  - Generate source map          │            │
-└─────────────────────────────────┘            │
+           ▼                                   ▼
+┌─────────────────────────────────┐  ┌─────────────────────────────────┐
+│  1a. PREPROCESSOR (text-level)  │  │  1b. HKT REWRITER (AST-only)   │
+│  - Tokenize with custom ops     │  │  - F<A> → Kind<F, A> where F   │
+│  - HKT: F<_> → Kind<F, A>      │  │    is a type parameter          │
+│  - Operators: |> → __binop__    │  │  - Inject Kind import           │
+│  - Generate source map          │  │  - Generate source map          │
+└─────────────────────────────────┘  └─────────────────────────────────┘
            │                                   │
            └─────────────────┬─────────────────┘
                              │
@@ -526,22 +526,52 @@ When the transformer encounters `__binop__(left, op, right)`:
 
 ### HKT Conventions
 
-typesugar uses phantom kind markers for higher-kinded type encoding:
+typesugar provides four tiers for higher-kinded type encoding, from most ergonomic to most explicit:
+
+**Tier 0 — `F<A>` in typeclass bodies (recommended).** The transformer rewrites `F<A>` (where `F` is a type parameter) to `Kind<F, A>` before type-checking. Pure AST operation, works in all environments:
 
 ```typescript
-type Kind<F, A> = F & { readonly __kind__: A };
-type Kind<F, A> = Kind<F, A>; // shorthand alias
+/** @typeclass */
+interface Functor<F> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
 
-// Type-level function
+function lift<F, A, B>(F: Functor<F>, f: (a: A) => B): (fa: F<A>) => F<B> {
+  return (fa) => F.map(fa, f);
+}
+```
+
+**Tier 1 — Implicit resolution in `@impl`.** The macro resolves the type constructor via the TypeChecker:
+
+```typescript
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+```
+
+No `OptionF`, `ArrayF`, or `@hkt` needed. Partial application works: `@impl Functor<Either<string>>`.
+
+**Tier 2/3 — `@hkt` annotations.** For explicit control or types you don't own:
+
+```typescript
+/** @hkt */
+type Option<A> = A | null;  // Tier 2: generates OptionF companion
+
+import type { _ } from "@typesugar/type-system";
+/** @hkt */
+type ArrayF = Array<_>;     // Tier 3: _ marks the hole
+```
+
+**Manual `TypeFunction` — escape hatch** for full control:
+
+```typescript
 interface ArrayF extends TypeFunction {
   _: Array<this["__kind__"]>; // MUST use this["__kind__"]
 }
-
-// Usage — preprocessor resolves known type functions
-type ArrayOfNumber = Kind<ArrayF, number>; // resolves to Array<number>
 ```
 
-**Important:** The `_` property MUST reference `this["__kind__"]` for the encoding to be sound.
+The underlying encoding uses phantom kind markers: `type Kind<F, A> = F & { readonly __kind__: A }`. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
 
 ---
 

@@ -1,6 +1,6 @@
 # PEP-007: HKT Boilerplate Reduction for `.ts` Files
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-14
 **Author:** Dean Povey
 
@@ -399,17 +399,17 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 
 **Tasks:**
 
-- [ ] Update `docs/guides/typeclasses.md` — show Tier 0/1 as the primary approach, replace manual `TypeFunction` examples
-- [ ] Update `docs/architecture.md` — update HKT three-layer architecture with new tiers
-- [ ] Update `docs/reference/packages.md` — update HKT exports and examples
-- [ ] Update `PHILOSOPHY.md` — update manual OptionF examples to `@hkt`
-- [ ] Update `packages/type-system/README.md` — document `_` marker, Tier 3
-- [ ] Update `packages/fp/README.md` — update HKT section
-- [ ] Update `.cursor/rules/hkt-conventions.mdc` — new conventions for `.ts` files
-- [ ] Update `AGENTS.md` — update HKT section with new approach
-- [ ] Add migration guide: old `extends TypeFunction` → new tiers
-- [ ] Add complete `@hkt` examples to `sandbox/error-showcase.ts`
-- [ ] Language service: show generated `*F` type in hover/completion
+- [x] Update `docs/guides/typeclasses.md` — show Tier 0/1 as the primary approach, replace manual `TypeFunction` examples
+- [x] Update `docs/architecture.md` — update HKT three-layer architecture with new tiers
+- [x] Update `docs/reference/packages.md` — update HKT exports and examples
+- [x] Update `PHILOSOPHY.md` — update manual OptionF examples to `@hkt`
+- [x] Update `packages/type-system/README.md` — document `_` marker, Tier 3
+- [x] Update `packages/fp/README.md` — update HKT section
+- [x] Update `.cursor/rules/hkt-conventions.mdc` — new conventions for `.ts` files
+- [x] Update `AGENTS.md` — update HKT section with new approach
+- [x] Add migration guide: old `extends TypeFunction` → new tiers
+- [x] Add complete `@hkt` examples to `sandbox/error-showcase.ts`
+- [ ] Language service: show generated `*F` type in hover/completion — **Deferred**: stretch goal, requires language service plugin changes
 
 **Files changed:**
 
@@ -428,9 +428,9 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 
 **Gate:**
 
-- [ ] Documentation showcases the Scala-like workflow as primary
-- [ ] Migration path is clear for existing codebases
-- [ ] All doc examples are syntactically valid and match real API
+- [x] Documentation showcases the Scala-like workflow as primary
+- [x] Migration path is clear for existing codebases
+- [x] All doc examples are syntactically valid and match real API
 
 ## End-State Example
 

@@ -176,23 +176,34 @@ Writer.run(program); // [["Started", "Got 42"], 42]
 
 ## Typeclasses
 
+Implement Functor, Monad, and friends for your own types — no boilerplate:
+
+```typescript
+type Option<A> = A | null;
+
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+
+/** @impl Monad<Option> */
+const optionMonad = {
+  pure: (a) => a,
+  flatMap: (fa, f) => (fa === null ? null : f(fa)),
+};
+```
+
+No `OptionF`, no `TypeFunction`, no `Kind`. The `@impl` macro resolves the type constructor automatically.
+
+Use the `TC` namespace for built-in instances:
+
 ```typescript
 import { TC } from "@typesugar/fp";
 
-// Functor
 TC.Functor.map(someOption, f);
-
-// Applicative
 TC.Applicative.pure(42);
-TC.Applicative.ap(Some(f), Some(x));
-
-// Monad
 TC.Monad.flatMap(effect, f);
-
-// Foldable
 TC.Foldable.foldLeft(list, init, f);
-
-// Traverse
 TC.Traverse.traverse(list, f);
 ```
 

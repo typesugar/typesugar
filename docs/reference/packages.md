@@ -400,7 +400,7 @@ npm install @typesugar/type-system
 
 ```typescript
 // HKT
-($, Kind, ArrayF, PromiseF);
+($, Kind, _, TypeFunction, ArrayF, PromiseF);
 
 // Newtype
 (Newtype, wrap, unwrap, newtypeCtor);

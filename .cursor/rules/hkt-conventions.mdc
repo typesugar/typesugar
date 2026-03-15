@@ -1,89 +1,113 @@
 ---
-description: HKT (Higher-Kinded Type) conventions for typesugar
-globs: ["packages/*/src/**/*.ts", "src/**/*.ts"]
+description: Conventions for higher-kinded types in typesugar
+globs: ["**/*.ts", "**/*.tsx"]
 alwaysApply: false
 ---
 
 # HKT Conventions
 
-## Syntax
+## Recommended Workflow (Tier 0 + Tier 1)
 
-- TypeScript HKT uses angle brackets: `F<_>` — NEVER Scala's square brackets `F[_]`
-- The `@hkt` macro and preprocessor auto-detect `F<_>` syntax and rewrite `F<A>` to `Kind<F, A>`
-- `$<F, A>` is a shorthand alias for `Kind<F, A>` — both are valid, prefer `Kind` in new code
+Write `F<A>` directly in typeclass bodies and generic functions. The transformer rewrites it to `Kind<F, A>` automatically:
+
+```typescript
+/** @typeclass */
+interface Functor<F> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
+
+function lift<F, A, B>(F: Functor<F>, f: (a: A) => B): (fa: F<A>) => F<B> {
+  return (fa) => F.map(fa, f);
+}
+```
+
+Implement instances with `@impl` — no manual type-level functions needed:
+
+```typescript
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: (fa, f) => (fa === null ? null : f(fa)),
+};
+
+/** @impl Functor<Either<string>> */
+const eitherStringFunctor = {
+  map: (fa, f) => (fa._tag === "Left" ? fa : { _tag: "Right", value: f(fa.value) }),
+};
+```
+
+## Tier Summary
+
+| Tier | Syntax | Use When |
+|------|--------|----------|
+| 0 | `F<A>` in generics | Typeclass bodies, generic functions |
+| 1 | `@impl Functor<Option>` | Implementing instances for known types |
+| 2 | `/** @hkt */ type Option<A> = ...` | Generating companion `*F` type |
+| 3 | `/** @hkt */ type ArrayF = Array<_>` | Types you don't own |
+| Manual | `interface ArrayF extends TypeFunction` | Full control, escape hatch |
+
+## Rules
+
+1. **Prefer Tier 0/1** — most code should use `F<A>` and `@impl` with no manual encoding
+2. **Last parameter is the hole** — `Either<E, A>` varies `A`; `@impl Functor<Either<string>>` fixes `E=string`
+3. **`_` property MUST reference `this["__kind__"]`** — if `Kind<F, A>` resolves to the same type for all `A`, the encoding is unsound
+4. **Phantom HKT types must NOT implement Functor/Monad** — types that can't change their element type should use read-only typeclasses (Foldable)
+5. **`F<A>` rewriting is AST-only** — no TypeChecker needed, works in all environments
+6. **`@impl` resolution needs TypeChecker** — falls back to Tier 2/3 in degraded mode
+
+## `.sts` vs `.ts` Files
+
+| File type | HKT syntax |
+|-----------|-----------|
+| `.sts` | `F<_>` declaration syntax (preprocessor) |
+| `.ts` | `F<A>` in generics (transformer rewriter) |
+
+Both emit `Kind<F, A>` after processing.
 
 ## Core Encoding
 
-The HKT encoding uses phantom kind markers:
-
 ```typescript
 type Kind<F, A> = F & { readonly __kind__: A };
-type $<F, A> = Kind<F, A>; // shorthand alias
+type $<F, A> = Kind<F, A>;
+export type _ = never & "__kind__";
 ```
 
-`Kind<F, A>` is just an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
-
-## Type-Level Functions
-
-A type-level function is an interface extending `TypeFunction` whose `_` property uses `this["__kind__"]`:
-
-```typescript
-// CORRECT — parameterized, sound
-interface ArrayF extends TypeFunction {
-  _: Array<this["__kind__"]>;
-}
-interface SetF extends TypeFunction {
-  _: Set<this["__kind__"]>;
-}
-interface MapF<K> extends TypeFunction {
-  _: Map<K, this["__kind__"]>;
-}
-
-// WRONG — phantom type, Kind<StringF, B> = string for ALL B
-interface StringF extends TypeFunction {
-  _: string;
-}
-```
-
-### Rules
-
-1. The `_` property MUST reference `this["__kind__"]` for the encoding to be sound
-2. If `Kind<F, A>` resolves to the same type for all `A`, the type is phantom/unsound
-3. Phantom HKT types must NOT implement typeclasses that change the element type (Functor.map, Monad.flatMap, Iterable.map, Seq.zip, etc.)
-4. Phantom HKT types MAY implement read-only typeclasses (IterableOnce, Foldable) where the output type doesn't depend on HKT application
-5. Never use `as unknown as` to paper over HKT type mismatches — it means the type-level function definition is wrong
-
-## Dictionary-Passing Style
-
-All derived operations take the typeclass dictionary as the first argument:
-
-```typescript
-// CORRECT — works with specialize() for zero-cost
-function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B> {
-  return (fa, f) => F.map(fa, f);
-}
-
-// WRONG — can't be specialized, dictionary not explicit
-function map<F, A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B> { ... }
-```
+`Kind<F, A>` is an intersection type — TypeScript stores it without recursive computation. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`).
 
 ## Multi-Arity Type Constructors
 
-Fix all type parameters except one (the one that varies):
+Fix all type parameters except the last (the one that varies):
 
 ```typescript
-interface MapF<K> extends TypeFunction {
-  _: Map<K, this["__kind__"]>;
-} // varies V
-interface EitherF<E> extends TypeFunction {
-  _: Either<E, this["__kind__"]>;
-} // varies A
+/** @impl Functor<Either<string>> */  // fixes E=string, varies A
+/** @impl Functor<Map<string>> */     // fixes K=string, varies V
+```
+
+Or with explicit Tier 3:
+
+```typescript
+import type { _ } from "@typesugar/type-system";
+
+/** @hkt */
+type MapF<K> = Map<K, _>;
+
+/** @hkt */
+type EitherF<E> = Either<E, _>;
+```
+
+## Dictionary-Passing Style
+
+For zero-cost specialization, take the typeclass dictionary as an explicit parameter:
+
+```typescript
+function map<F>(F: Functor<F>): <A, B>(fa: F<A>, f: (a: A) => B) => F<B> {
+  return (fa, f) => F.map(fa, f);
+}
 ```
 
 ## Common Mistakes
 
 1. Writing `F[_]` instead of `F<_>` (Scala vs TypeScript syntax)
-2. Forgetting `this["__kind__"]` in type-level function definitions (using `this["_"]` is the old encoding)
-3. Implementing Functor/map for types that can't change their element type
+2. Forgetting `this["__kind__"]` in manual TypeFunction definitions
+3. Using `@impl Functor<OptionF>` instead of `@impl Functor<Option>` (use the original type, not the companion)
 4. Using `as unknown as` casts instead of fixing the HKT encoding
-5. Not testing that `Kind<F, DifferentType>` actually resolves to a different concrete type
+5. Implementing Functor for types that can't change their element type

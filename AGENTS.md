@@ -52,7 +52,7 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 10. **Respect Package Boundaries** — Typeclass machinery in `@typesugar/typeclass`, typeclass definitions in `@typesugar/std`, FP data types in `@typesugar/fp`, collection hierarchy in `@typesugar/collections`. Don't mix.
 
-11. **HKT Must Be Sound** — Every `interface FooF { _: ... }` must use `this["__kind__"]`. If `Kind<FooF, string>` and `Kind<FooF, number>` resolve to the same type, it's phantom/unsound. Unsound types must NOT implement Functor/Monad. Use `F<_>` syntax, never Scala's `F[_]`.
+11. **HKT: Use Tier 0/1 by Default** — Write `F<A>` in typeclass bodies (the transformer rewrites to `Kind<F, A>`). Use `@impl Functor<Option>` for instances (the macro resolves the type constructor). Manual `TypeFunction` interfaces are the escape hatch. When writing manual interfaces, `_` MUST use `this["__kind__"]` — unsound phantom types must NOT implement Functor/Monad. Use `F<_>` syntax in `.sts` files, `F<A>` in `.ts` files, never Scala's `F[_]`.
 
 12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
 
