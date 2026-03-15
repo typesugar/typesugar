@@ -231,3 +231,14 @@ export {
 
 // Built-in SFINAE Rules
 export { createMacroGeneratedRule, type PositionMapFn } from "./sfinae-rules.js";
+
+// Type Rewrite Registry (populated by @opaque in PEP-012)
+export {
+  registerTypeRewrite,
+  getTypeRewrite,
+  hasTypeRewrite,
+  getAllTypeRewrites,
+  clearTypeRewrites,
+  findTypeRewrite,
+  type TypeRewriteEntry,
+} from "./type-rewrite-registry.js";

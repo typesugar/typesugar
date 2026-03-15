@@ -216,16 +216,16 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Implement Rule 2 (TypeRewriteAssignment) for TS2322/TS2345/TS2355
-- [ ] Consult `typeRewriteRegistry` (populated by PEP-012's `@opaque`)
-- [ ] Handle both directions: underlying → opaque and opaque → underlying
-- [ ] Tests with mock registry entries (actual `@opaque` types come in PEP-012)
+- [x] Implement Rule 2 (TypeRewriteAssignment) for TS2322/TS2345/TS2355
+- [x] Consult `typeRewriteRegistry` (populated by PEP-012's `@opaque`)
+- [x] Handle both directions: underlying → opaque and opaque → underlying
+- [x] Tests with mock registry entries (actual `@opaque` types come in PEP-012)
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Type rewrite SFINAE tests pass
-- [ ] No false positives for unrelated assignment errors
+- [x] `pnpm build` passes
+- [x] Type rewrite SFINAE tests pass (17 passed)
+- [x] No false positives for unrelated assignment errors
 
 ### Wave 6: CLI Pipeline Integration
 
@@ -261,6 +261,12 @@ This makes the system transparent and debuggable.
 | `packages/macros/src/index.ts`                        | Export `createNewtypeAssignmentRule`                      | 4    |
 | `packages/transformer/src/language-service.ts`        | Register NewtypeAssignment rule at init                   | 4    |
 | `tests/sfinae-newtype.test.ts`                        | New: NewtypeAssignment SFINAE tests (14 tests)            | 4    |
+| `packages/core/src/type-rewrite-registry.ts`          | New: `typeRewriteRegistry` for opaque type mappings       | 5    |
+| `packages/core/src/index.ts`                          | Export type rewrite registry API                          | 5    |
+| `packages/macros/src/sfinae-rules.ts`                 | Add `createTypeRewriteAssignmentRule()` (Rule 2)          | 5    |
+| `packages/macros/src/index.ts`                        | Export `createTypeRewriteAssignmentRule`                  | 5    |
+| `packages/transformer/src/language-service.ts`        | Register TypeRewriteAssignment rule at init               | 5    |
+| `tests/sfinae-type-rewrite.test.ts`                   | New: TypeRewriteAssignment SFINAE tests (17 tests)        | 5    |
 | `packages/transformer/src/pipeline.ts`                | Future: SFINAE filter in CLI diagnostic collection        | 6    |
 
 ## Security Considerations

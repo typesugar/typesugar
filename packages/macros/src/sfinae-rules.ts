@@ -5,16 +5,20 @@
  * on type 'Y'") when an extension method named 'X' is resolvable for type 'Y'
  * through the standalone extension registry or import-scoped resolution.
  *
+ * Rule 2 (TypeRewriteAssignment): Suppresses TS2322/TS2345/TS2355 when a type
+ * registered in the `typeRewriteRegistry` (from `@opaque`) is involved in an
+ * assignment and the other side matches the registered underlying type.
+ *
  * Rule 3 (NewtypeAssignment): Suppresses TS2322/TS2345 when a `Newtype<Base, Brand>`
  * is involved in an assignment and the other side is assignable to `Base`. Since
  * newtypes erase to their base type at runtime, these assignments are safe.
  *
- * @see PEP-011 Waves 3-4
+ * @see PEP-011 Waves 3-5
  */
 
 import ts from "typescript";
 import type { SfinaeRule } from "@typesugar/core";
-import { findStandaloneExtension } from "@typesugar/core";
+import { findStandaloneExtension, findTypeRewrite } from "@typesugar/core";
 
 /**
  * Create the ExtensionMethodCall SFINAE rule.
@@ -552,5 +556,294 @@ function extractNewtypeBase(type: ts.Type, _checker: ts.TypeChecker): ts.Type | 
     }
   }
 
+  return undefined;
+}
+
+// ===========================================================================
+// Rule 2: TypeRewriteAssignment — suppress TS2322/TS2345/TS2355 for @opaque
+// ===========================================================================
+
+/**
+ * Create the TypeRewriteAssignment SFINAE rule.
+ *
+ * Suppresses TS2322, TS2345, and TS2355 when one side of an assignment is a
+ * type registered in the `typeRewriteRegistry` (populated by `@opaque` in
+ * PEP-012) and the other side matches the registered underlying representation.
+ *
+ * At runtime, an `@opaque` type IS its underlying type — the opaque interface
+ * only exists in the type system. So assignments like
+ * `const o: Option<number> = nullableValue` are safe when `Option<T>` maps to
+ * `T | null`.
+ *
+ * @see PEP-011 Wave 5
+ * @see PEP-012 — Type Macros (`@opaque`)
+ */
+export function createTypeRewriteAssignmentRule(): SfinaeRule {
+  return {
+    name: "TypeRewriteAssignment",
+    errorCodes: [2322, 2345, 2355],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined || diagnostic.length === undefined) {
+        return false;
+      }
+
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node) return false;
+
+      // TS2355 is special: "A function whose declared type is neither 'void' nor 'any'
+      // must return a value." — the diagnostic is on the function declaration, not an
+      // assignment. We handle it by checking if the return type is a registered opaque
+      // type (the function returns the underlying type implicitly).
+      if (diagnostic.code === 2355) {
+        return checkReturnTypeRewrite(node, checker);
+      }
+
+      // For TS2322/TS2345, extract source and target from the assignment context.
+      const types = extractAssignmentTypes(node, checker);
+      if (!types) return false;
+
+      const { sourceType, targetType } = types;
+
+      return checkTypeRewriteAssignability(sourceType, targetType, checker);
+    },
+  };
+}
+
+/**
+ * Check whether source→target assignment is valid because one side is a
+ * registered opaque type and the other matches its underlying representation.
+ */
+function checkTypeRewriteAssignability(
+  sourceType: ts.Type,
+  targetType: ts.Type,
+  checker: ts.TypeChecker
+): boolean {
+  const targetText = checker.typeToString(targetType);
+  const sourceText = checker.typeToString(sourceType);
+
+  // Collect candidate type names for the source, including widened forms.
+  // e.g., for literal type "user@test.com" we also try "string".
+  const sourceTexts = collectTypeTextVariants(sourceType, sourceText, checker);
+  const targetTexts = collectTypeTextVariants(targetType, targetText, checker);
+
+  for (const st of sourceTexts) {
+    for (const tt of targetTexts) {
+      if (checkRewritePair(st, tt, sourceTexts, targetTexts)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Collect type name variants for matching: the literal form, the widened
+ * base type, and stripped generics.
+ */
+function collectTypeTextVariants(
+  type: ts.Type,
+  typeText: string,
+  checker: ts.TypeChecker
+): string[] {
+  const variants = [typeText];
+
+  // Widen literal types: "user@test.com" → string, 42 → number, true → boolean
+  try {
+    const baseType = checker.getBaseTypeOfLiteralType(type);
+    const baseName = checker.typeToString(baseType);
+    if (baseName !== typeText && !variants.includes(baseName)) {
+      variants.push(baseName);
+    }
+  } catch {
+    // getBaseTypeOfLiteralType may not be available in all TS versions
+  }
+
+  return variants;
+}
+
+/**
+ * Check a single (sourceText, targetText) pair against the type rewrite registry.
+ */
+function checkRewritePair(
+  sourceText: string,
+  targetText: string,
+  allSourceTexts: string[],
+  allTargetTexts: string[]
+): boolean {
+  // Case 1: target is an opaque type, source matches its underlying
+  const targetEntry = findTypeRewrite(targetText);
+  if (targetEntry) {
+    for (const st of allSourceTexts) {
+      if (targetEntry.matchesUnderlying && targetEntry.matchesUnderlying(st)) return true;
+      if (isUnderlyingMatch(st, targetEntry.underlyingTypeText)) return true;
+    }
+  }
+
+  // Case 2: source is an opaque type, target matches its underlying
+  const sourceEntry = findTypeRewrite(sourceText);
+  if (sourceEntry) {
+    for (const tt of allTargetTexts) {
+      if (sourceEntry.matchesUnderlying && sourceEntry.matchesUnderlying(tt)) return true;
+      if (isUnderlyingMatch(tt, sourceEntry.underlyingTypeText)) return true;
+    }
+  }
+
+  // Case 3: strip generic parameters and retry (e.g., "Option<number>" → "Option")
+  const targetStripped = targetText.replace(/<.*>$/, "");
+  if (targetStripped !== targetText) {
+    const entry = findTypeRewrite(targetStripped);
+    if (entry) {
+      for (const st of allSourceTexts) {
+        if (entry.matchesUnderlying && entry.matchesUnderlying(st)) return true;
+        if (matchesUnderlyingWithTypeArgs(st, entry.underlyingTypeText, targetText)) return true;
+      }
+    }
+  }
+
+  const sourceStripped = sourceText.replace(/<.*>$/, "");
+  if (sourceStripped !== sourceText) {
+    const entry = findTypeRewrite(sourceStripped);
+    if (entry) {
+      for (const tt of allTargetTexts) {
+        if (entry.matchesUnderlying && entry.matchesUnderlying(tt)) return true;
+        if (matchesUnderlyingWithTypeArgs(tt, entry.underlyingTypeText, sourceText)) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a type text matches an underlying type text representation.
+ *
+ * Handles simple cases like exact match and normalized whitespace comparison.
+ * For complex cases (union types with different orderings, etc.), the
+ * `matchesUnderlying` callback on the registry entry should be used.
+ */
+function isUnderlyingMatch(candidateText: string, underlyingText: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+  if (norm(candidateText) === norm(underlyingText)) return true;
+
+  // Handle union type ordering: "null | T" vs "T | null"
+  const normalizeParts = (s: string) =>
+    s
+      .split("|")
+      .map((p) => p.trim())
+      .sort()
+      .join(" | ");
+
+  if (normalizeParts(candidateText) === normalizeParts(underlyingText)) return true;
+
+  return false;
+}
+
+/**
+ * For generic opaque types like `Option<number>`, substitute type arguments
+ * into the underlying type pattern and compare.
+ *
+ * e.g., opaque "Option" with underlying "T | null", instantiated as
+ * "Option<number>" → underlying becomes "number | null".
+ */
+function matchesUnderlyingWithTypeArgs(
+  candidateText: string,
+  underlyingTemplate: string,
+  opaqueInstantiation: string
+): boolean {
+  // Extract type arguments from the opaque instantiation: "Option<number>" → "number"
+  const match = /<(.+)>$/.exec(opaqueInstantiation);
+  if (!match) return false;
+
+  const typeArgs = splitTypeArgs(match[1]);
+  if (typeArgs.length === 0) return false;
+
+  // Simple single-parameter substitution: replace "T" with the actual type arg
+  // This covers the common case like Option<T> = T | null → Option<number> = number | null
+  let substituted = underlyingTemplate;
+  const typeParamNames = ["T", "U", "V", "W", "A", "B", "C"];
+  for (let i = 0; i < typeArgs.length && i < typeParamNames.length; i++) {
+    substituted = substituted.replace(new RegExp(`\\b${typeParamNames[i]}\\b`, "g"), typeArgs[i]);
+  }
+
+  return isUnderlyingMatch(candidateText, substituted);
+}
+
+/**
+ * Split comma-separated type arguments, respecting nested angle brackets.
+ */
+function splitTypeArgs(args: string): string[] {
+  const result: string[] = [];
+  let depth = 0;
+  let current = "";
+
+  for (const ch of args) {
+    if (ch === "<") depth++;
+    else if (ch === ">") depth--;
+    else if (ch === "," && depth === 0) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
+
+/**
+ * Handle TS2355 by checking if the function's return type is a registered
+ * opaque type. If so, the function body may return the underlying type
+ * implicitly, which the transformer will handle.
+ */
+function checkReturnTypeRewrite(node: ts.Node, checker: ts.TypeChecker): boolean {
+  const fn = findEnclosingFunctionFromNode(node);
+  if (!fn?.type) return false;
+
+  try {
+    const returnType = checker.getTypeFromTypeNode(fn.type);
+    const returnText = checker.typeToString(returnType);
+
+    if (findTypeRewrite(returnText)) return true;
+
+    const stripped = returnText.replace(/<.*>$/, "");
+    if (stripped !== returnText && findTypeRewrite(stripped)) return true;
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Find the enclosing function-like declaration from any node.
+ * Similar to `findEnclosingFunction` but starts from the node itself.
+ */
+function findEnclosingFunctionFromNode(
+  node: ts.Node
+):
+  | ts.FunctionDeclaration
+  | ts.MethodDeclaration
+  | ts.ArrowFunction
+  | ts.FunctionExpression
+  | undefined {
+  let current: ts.Node | undefined = node;
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isArrowFunction(current) ||
+      ts.isFunctionExpression(current)
+    ) {
+      return current;
+    }
+    current = current.parent;
+  }
   return undefined;
 }

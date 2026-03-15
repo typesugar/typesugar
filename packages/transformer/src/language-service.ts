@@ -38,7 +38,11 @@ import {
   createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
-import { createExtensionMethodCallRule, createNewtypeAssignmentRule } from "@typesugar/macros";
+import {
+  createExtensionMethodCallRule,
+  createNewtypeAssignmentRule,
+  createTypeRewriteAssignmentRule,
+} from "@typesugar/macros";
 
 /**
  * Cache entry for transformed files
@@ -394,6 +398,15 @@ function init(modules: { typescript: typeof ts }) {
     if (!hasNewtypeRule) {
       registerSfinaeRule(createNewtypeAssignmentRule());
       log("Registered NewtypeAssignment SFINAE rule");
+    }
+
+    // Register TypeRewriteAssignment rule: suppresses TS2322/TS2345/TS2355 when a
+    // type registered in the typeRewriteRegistry (@opaque) is involved and the
+    // other side matches the underlying representation (PEP-011 Wave 5).
+    const hasTypeRewriteRule = getSfinaeRules().some((r) => r.name === "TypeRewriteAssignment");
+    if (!hasTypeRewriteRule) {
+      registerSfinaeRule(createTypeRewriteAssignmentRule());
+      log("Registered TypeRewriteAssignment SFINAE rule");
     }
 
     if (isSfinaeAuditEnabled()) {
