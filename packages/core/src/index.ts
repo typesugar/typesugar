@@ -212,3 +212,38 @@ export {
   MacroPipeline,
   type PipelineStep,
 } from "./pipeline.js";
+
+// SFINAE Diagnostic Resolution
+export {
+  registerSfinaeRule,
+  registerSfinaeRuleOnce,
+  clearSfinaeRules,
+  getSfinaeRules,
+  getSfinaeAuditLog,
+  clearSfinaeAuditLog,
+  evaluateSfinae,
+  filterDiagnostics,
+  isSfinaeAuditEnabled,
+  setSfinaeAuditMode,
+  type SfinaeRule,
+  type SfinaeAuditEntry,
+  type SfinaeEvalResult,
+} from "./sfinae.js";
+
+// Built-in SFINAE Rules
+export { createMacroGeneratedRule, type PositionMapFn } from "./sfinae-rules.js";
+
+// Type Rewrite Registry (populated by @opaque in PEP-012)
+export {
+  registerTypeRewrite,
+  getTypeRewrite,
+  hasTypeRewrite,
+  getAllTypeRewrites,
+  clearTypeRewrites,
+  findTypeRewrite,
+  getTypeRewritesByModule,
+  getTypeRewriteBySymbol,
+  type TypeRewriteEntry,
+  type ConstructorRewrite,
+  type AccessorRewrite,
+} from "./type-rewrite-registry.js";

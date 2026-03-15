@@ -7,7 +7,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { globalExpansionTracker, type ExpansionRecord } from "@typesugar/core";
+import { globalExpansionTracker, type ExpansionRecord, getAllTypeRewrites } from "@typesugar/core";
 import { type RawSourceMap } from "@typesugar/preprocessor";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps } from "./source-map-utils.js";
@@ -882,6 +882,18 @@ export class TransformationPipeline {
     // 9. Labeled block comprehensions (let:, seq:, par:, all:)
     if (/\b(let|seq|par|all):\s*\{/.test(source)) {
       return true;
+    }
+
+    // 10. Type rewrite registry (PEP-012): if any @opaque types are registered,
+    // method calls on those types need the TS transformer for type-aware erasure.
+    // Check if the source references any registered type names.
+    const typeRewrites = getAllTypeRewrites();
+    if (typeRewrites.length > 0) {
+      for (const entry of typeRewrites) {
+        if (source.includes(entry.typeName)) {
+          return true;
+        }
+      }
     }
 
     return false;

@@ -1,123 +1,118 @@
 # Functional Programming
 
-The `@typesugar/fp` package provides functional programming utilities with zero-cost abstractions.
+The `@typesugar/fp` package provides functional programming utilities with zero-cost abstractions. All data types use `@opaque` type macros for dot-syntax methods — `Option<A>` is `A | null` at runtime, but TypeScript sees a rich interface.
 
 ## Option
 
-Represents optional values without null/undefined:
+Represents optional values. `Some(x)` wraps a value; `None` is empty. At runtime: `Some(42)` is `42`, `None` is `null`.
 
 ```typescript
-import { Option, Some, None } from "@typesugar/fp";
+import { Some, None, isSome } from "@typesugar/fp";
+import type { Option } from "@typesugar/fp";
 
 function findUser(id: number): Option<User> {
   const user = db.get(id);
   return user ? Some(user) : None;
 }
 
+// Dot syntax — methods resolve via type rewrite registry
 const result = findUser(42)
   .map((user) => user.name)
-  .getOrElse("Unknown");
+  .getOrElse(() => "Unknown");
 ```
 
 ### Creating Options
 
 ```typescript
 Some(42); // Option<number> containing 42
-None; // Empty Option
-Option.from(value); // Some if value is truthy, None otherwise
-Option.fromNullable(x); // Some if x is not null/undefined
+None; // Empty Option<never>
+
+// Implicit conversion via SFINAE — no fromNullable() needed
+const nullable: number | null = getFromDb();
+const opt: Option<number> = nullable; // Just works
 ```
 
-### Methods
+### Methods (Dot Syntax)
 
 ```typescript
 const opt = Some(42);
 
-opt.isSome(); // true
-opt.isNone(); // false
+isSome(opt); // true — type guard
 opt.map((x) => x * 2); // Some(84)
 opt.flatMap((x) => Some(x * 2)); // Some(84)
 opt.filter((x) => x > 0); // Some(42)
-opt.getOrElse(0); // 42
-opt.getOrThrow(); // 42
-opt.match({
-  some: (x) => `Got ${x}`,
-  none: () => "Nothing",
-}); // "Got 42"
+opt.getOrElse(() => 0); // 42
+opt.fold(
+  () => "empty",
+  (x) => `${x}`
+); // "42"
+opt.contains(42); // true
+opt.toArray(); // [42]
 ```
 
-### Pattern Matching
+### Chained Operations
 
 ```typescript
-import { match } from "@typesugar/std";
+Some(5)
+  .map((n) => n * 2)
+  .filter((n) => n > 5)
+  .getOrElse(() => 0);
+// → 10
 
-const message = match(findUser(42), {
-  some: (user) => `Hello, ${user.name}`,
-  none: () => "User not found",
-});
+// Emitted JS: getOrElse(filter(map(5, n => n * 2), n => n > 5), () => 0)
 ```
 
-## Result
+## Either
 
-Represents success or failure:
+Represents success (`Right`) or failure (`Left`). Dot syntax via `@opaque`.
 
 ```typescript
-import { Result, Ok, Err } from "@typesugar/fp";
+import { Right, Left, isRight } from "@typesugar/fp";
+import type { Either } from "@typesugar/fp";
 
-function parseNumber(s: string): Result<number, string> {
+function parseNumber(s: string): Either<string, number> {
   const n = parseInt(s, 10);
-  return isNaN(n) ? Err("Invalid number") : Ok(n);
+  return isNaN(n) ? Left("Invalid number") : Right(n);
 }
 
+// Dot syntax — chain validations fluently
 const result = parseNumber("42")
   .map((n) => n * 2)
-  .mapErr((e) => `Error: ${e}`);
+  .flatMap((n) => (n > 50 ? Right(n) : Left("too small")))
+  .getOrElse(() => -1);
 ```
 
-### Creating Results
+### Methods (Dot Syntax)
 
 ```typescript
-Ok(42); // Success with value 42
-Err("failed"); // Failure with error
-Result.try(() => JSON.parse(s)); // Ok or Err based on exception
-```
+const res = Right<string, number>(42);
 
-### Methods
-
-```typescript
-const res = Ok(42);
-
-res.isOk(); // true
-res.isErr(); // false
-res.map((x) => x * 2); // Ok(84)
-res.mapErr((e) => `Error: ${e}`); // Ok(42) (no change)
-res.flatMap((x) => Ok(x * 2)); // Ok(84)
-res.getOrElse(0); // 42
-res.getOrThrow(); // 42
-res.match({
-  ok: (x) => `Got ${x}`,
-  err: (e) => `Failed: ${e}`,
-});
+isRight(res); // true — type guard
+res.map((x) => x * 2); // Right(84)
+res.flatMap((x) => Right(x * 2)); // Right(84)
+res.getOrElse(() => 0); // 42
+res.fold(
+  (e) => `Error: ${e}`,
+  (x) => `Got ${x}`
+); // "Got 42"
 ```
 
 ### Error Accumulation
 
 ```typescript
-import { Validated, Valid, Invalid } from "@typesugar/fp";
+import { validNel, invalidNel } from "@typesugar/fp";
+import * as V from "@typesugar/fp/data/validated";
 
-function validateAge(age: number): Validated<string[], number> {
-  return age >= 0 && age <= 150 ? Valid(age) : Invalid(["Age must be between 0 and 150"]);
+function validateAge(age: number) {
+  return age >= 0 && age <= 150 ? validNel(age) : invalidNel("Age out of range");
 }
 
-function validateName(name: string): Validated<string[], string> {
-  return name.length > 0 ? Valid(name) : Invalid(["Name cannot be empty"]);
+function validateName(name: string) {
+  return name.length > 0 ? validNel(name) : invalidNel("Name empty");
 }
 
-const result = Validated.mapN(validateName(name), validateAge(age), (n, a) => ({
-  name: n,
-  age: a,
-}));
-// Collects all errors, doesn't short-circuit
+// Collects ALL errors, doesn't short-circuit
+V.map2Nel(validateName(name), validateAge(age), (n, a) => ({ name: n, age: a }));
 ```
 
 ## IO
@@ -162,19 +157,23 @@ list.filter((x) => x % 2 === 0); // List(2, 4)
 list.foldLeft(0, (a, b) => a + b); // 15
 ```
 
-## Either
+## How @opaque Works
 
-Like Result, but for any two types:
+`@typesugar/fp` data types use `@opaque` type macros (PEP-012):
 
 ```typescript
-import { Either, Left, Right } from "@typesugar/fp";
-
-type Response = Either<Error, Data>;
-
-const response: Response = fetchData()
-  .map((data) => processData(data))
-  .mapLeft((err) => new Error(`Fetch failed: ${err}`));
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+  getOrElse(defaultValue: () => A): A;
+}
 ```
+
+- **TypeScript sees**: Interface with methods (IDE completions, type inference)
+- **Runtime**: `A | null` (zero allocations)
+- **Transformer**: Rewrites `x.map(f)` → `map(x, f)`
+- **SFINAE**: `Option<T>` and `T | null` are implicitly convertible
 
 ## Higher-Kinded Types
 

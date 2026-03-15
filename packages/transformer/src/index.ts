@@ -87,6 +87,13 @@ import {
   globalExpansionTracker,
   // Expansion caching
   MacroExpansionCache,
+  // Type rewrite registry (PEP-012)
+  findTypeRewrite,
+  getTypeRewrite,
+  getAllTypeRewrites,
+  type TypeRewriteEntry,
+  type ConstructorRewrite,
+  type AccessorRewrite,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -1060,6 +1067,13 @@ class MacroTransformer {
    */
   private specCache = new SpecializationCache();
 
+  /**
+   * Pending imports for type-rewrite method erasure (PEP-012 Wave 3).
+   * Tracks `{ name, module }` pairs that need import declarations injected.
+   * Deduped by name+module so the same function is only imported once.
+   */
+  private pendingTypeRewriteImports = new Map<string, { name: string; module: string }>();
+
   constructor(
     private ctx: MacroContextImpl,
     private verbose: boolean,
@@ -1980,8 +1994,8 @@ class MacroTransformer {
       ? this.cleanupMacroImports(newStatements)
       : newStatements;
 
-    // For source files: inject pending aliased imports from reference hygiene
-    // and hoisted specialization declarations
+    // For source files: inject pending aliased imports from reference hygiene,
+    // hoisted specialization declarations, and type-rewrite method erasure imports
     if (ts.isSourceFile(node)) {
       // Get pending aliased imports from FileBindingCache (for reference hygiene)
       const pendingImports = this.ctx.fileBindingCache.getPendingImports();
@@ -1989,7 +2003,13 @@ class MacroTransformer {
       // Get hoisted specialization declarations
       const hoistedDecls = this.specCache.getHoistedDeclarations();
 
-      if (pendingImports.length > 0 || hoistedDecls.length > 0) {
+      // Build type-rewrite import declarations (PEP-012 Wave 3)
+      const typeRewriteImports = this.buildTypeRewriteImportDeclarations();
+
+      const hasInjections =
+        pendingImports.length > 0 || hoistedDecls.length > 0 || typeRewriteImports.length > 0;
+
+      if (hasInjections) {
         // Find insertion point after existing imports
         let insertIndex = 0;
         for (let i = 0; i < cleanedStatements.length; i++) {
@@ -2000,15 +2020,21 @@ class MacroTransformer {
           }
         }
 
-        // Inject: [existing imports..., aliased imports, hoisted decls, rest of file...]
+        // Inject: [existing imports..., type-rewrite imports, aliased imports, hoisted decls, rest of file...]
         cleanedStatements = [
           ...cleanedStatements.slice(0, insertIndex),
+          ...typeRewriteImports,
           ...pendingImports,
           ...hoistedDecls,
           ...cleanedStatements.slice(insertIndex),
         ];
 
         if (this.verbose) {
+          if (typeRewriteImports.length > 0) {
+            console.log(
+              `[typesugar] Injected ${typeRewriteImports.length} type-rewrite import(s) for method erasure`
+            );
+          }
           if (pendingImports.length > 0) {
             console.log(
               `[typesugar] Injected ${pendingImports.length} aliased import(s) for reference hygiene`
@@ -3063,6 +3089,39 @@ class MacroTransformer {
       const result = this.tryRewriteExtensionMethod(node);
       if (result !== undefined) {
         return result;
+      }
+    }
+
+    // PEP-012 Wave 4: Constructor erasure — `Some(x)` → `x`, `None` → `null`
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const result = this.tryEraseConstructorCall(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
+    // PEP-012 Wave 4: Constant constructor identifier erasure — `None` → `null`
+    // Handles bare identifier references to constant constructors (not call expressions).
+    // Guard: node.parent may be undefined on synthetic nodes created during transformation.
+    if (ts.isIdentifier(node) && (!node.parent || !ts.isCallExpression(node.parent))) {
+      const result = this.tryEraseConstantConstructorRef(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
+    // PEP-012 Wave 4: Accessor erasure — `x.value` → `x` (non-call property access)
+    // Skip when the property access is the callee of a call expression (that's a method call,
+    // handled by tryRewriteExtensionMethod above).
+    // Guard: node.parent may be undefined on synthetic nodes.
+    if (ts.isPropertyAccessExpression(node)) {
+      const isCallCallee =
+        node.parent != null && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      if (!isCallCallee) {
+        const result = this.tryEraseAccessor(node);
+        if (result !== undefined) {
+          return result;
+        }
       }
     }
 
@@ -4304,6 +4363,11 @@ class MacroTransformer {
 
   /**
    * Try to rewrite an implicit extension method call.
+   *
+   * Resolution order:
+   * 1. Type rewrite registry (PEP-012) — authoritative for @opaque types
+   * 2. Standalone extension registry (pre-registered)
+   * 3. Import-scoped extension scanning (Scala 3-style)
    */
   private tryRewriteExtensionMethod(node: ts.CallExpression): ts.Expression | undefined {
     // Check for inline opt-out of extensions
@@ -4335,6 +4399,24 @@ class MacroTransformer {
         `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
       );
       return undefined;
+    }
+
+    // -----------------------------------------------------------------------
+    // PEP-012 Wave 3: Type rewrite registry resolution (checked FIRST)
+    //
+    // For @opaque types, the interface declares the method (for type checking),
+    // but at runtime the method must be erased to a standalone function call.
+    // The registry is authoritative — if the type is registered and the method
+    // is in its methods map, we rewrite without import scanning.
+    // -----------------------------------------------------------------------
+    const typeRewriteResult = this.tryResolveFromTypeRewriteRegistry(
+      node,
+      receiver,
+      methodName,
+      receiverType
+    );
+    if (typeRewriteResult) {
+      return typeRewriteResult;
     }
 
     const existingProp = receiverType.getProperty(methodName);
@@ -4420,6 +4502,393 @@ class MacroTransformer {
       this.ctx.reportError(node, `Extension method rewrite failed: ${error}`);
       return undefined;
     }
+  }
+
+  /**
+   * Resolve a method call via the type rewrite registry (PEP-012).
+   *
+   * If the receiver's type is registered as an @opaque type and the method
+   * is in its methods map, rewrites `x.method(args)` → `fn(x, args)` and
+   * schedules an import injection for `fn` from the registry entry's sourceModule.
+   *
+   * @returns The rewritten expression, or `undefined` if the registry doesn't apply
+   */
+  private tryResolveFromTypeRewriteRegistry(
+    node: ts.CallExpression,
+    receiver: ts.Expression,
+    methodName: string,
+    receiverType: ts.Type
+  ): ts.Expression | undefined {
+    const typeName = this.ctx.typeChecker.typeToString(receiverType);
+    const entry = findTypeRewrite(typeName);
+    if (!entry) return undefined;
+
+    // Check transparent scope: skip rewriting inside the defining module
+    if (entry.transparent && entry.sourceModule) {
+      const currentFile = this.ctx.sourceFile.fileName;
+      if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    const methods = entry.methods;
+    if (!methods) return undefined;
+
+    const standaloneFnName = methods.get(methodName);
+    if (!standaloneFnName) return undefined;
+
+    // Schedule import injection if we have a sourceModule
+    if (entry.sourceModule) {
+      this.scheduleTypeRewriteImport(standaloneFnName, entry.sourceModule);
+    }
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Type rewrite: ${typeName}.${methodName}() → ${standaloneFnName}(...)`
+      );
+    }
+
+    const ext: StandaloneExtensionInfo = {
+      methodName: standaloneFnName,
+      forType: entry.typeName,
+    };
+
+    const rewritten = buildStandaloneExtensionCall(
+      this.ctx.factory,
+      ext,
+      receiver,
+      Array.from(node.arguments)
+    );
+
+    try {
+      const visited = ts.visitNode(rewritten, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    } catch (error) {
+      this.ctx.reportError(node, `Type rewrite method erasure failed: ${error}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Erase a constructor call for an @opaque type (PEP-012 Wave 4).
+   *
+   * For identity constructors (e.g., `Some(x)`), replaces with the argument.
+   * For constant constructors (e.g., `None`), replaces with the constant.
+   * Constant constructors that are identifiers (not calls) are handled as
+   * identifier references elsewhere; this method only handles call expressions.
+   *
+   * @returns The erased expression, or `undefined` if not a registered constructor
+   */
+  private tryEraseConstructorCall(node: ts.CallExpression): ts.Expression | undefined {
+    if (!ts.isIdentifier(node.expression)) return undefined;
+
+    const ctorName = node.expression.text;
+
+    // Search all registered types for a matching constructor
+    for (const entry of this.iterTypeRewriteEntries()) {
+      if (!entry.constructors) continue;
+
+      const ctor = entry.constructors.get(ctorName);
+      if (!ctor) continue;
+
+      // Transparent scope: skip erasure inside the defining module
+      if (entry.transparent && entry.sourceModule) {
+        const currentFile = this.ctx.sourceFile.fileName;
+        if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+          return undefined;
+        }
+      }
+
+      if (ctor.kind === "identity") {
+        if (node.arguments.length !== 1) {
+          this.ctx.reportWarning(
+            node,
+            `Identity constructor '${ctorName}' expects exactly 1 argument, got ${node.arguments.length}`
+          );
+          return undefined;
+        }
+
+        if (this.verbose) {
+          console.log(`[typesugar] Constructor erasure: ${ctorName}(arg) → arg`);
+        }
+
+        const arg = node.arguments[0];
+        const visited = ts.visitNode(arg, this.visit.bind(this)) as ts.Expression;
+        return preserveSourceMap(visited, node);
+      }
+
+      if (ctor.kind === "constant") {
+        if (this.verbose) {
+          console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
+        }
+
+        const constant = this.buildConstantExpression(ctor.value ?? "undefined");
+        return preserveSourceMap(constant, node);
+      }
+
+      if (ctor.kind === "custom" && ctor.value) {
+        if (this.verbose) {
+          console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
+        }
+
+        const custom = this.ctx.factory.createIdentifier(ctor.value);
+        return preserveSourceMap(custom, node);
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Erase a bare identifier reference to a constant constructor (PEP-012 Wave 4).
+   *
+   * Handles `None` → `null` where `None` is used as an identifier (not a call).
+   * Only applies to constant constructors — identity constructors are calls
+   * and handled by {@link tryEraseConstructorCall}.
+   *
+   * Guards against false positives by checking that the identifier resolves to
+   * a symbol whose declaration is in the constructor's source module.
+   */
+  private tryEraseConstantConstructorRef(node: ts.Identifier): ts.Expression | undefined {
+    const name = node.text;
+
+    // Skip identifiers in declaration positions (e.g., `const None = ...`)
+    if (
+      node.parent &&
+      ((ts.isVariableDeclaration(node.parent) && node.parent.name === node) ||
+        (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) ||
+        (ts.isParameter(node.parent) && node.parent.name === node) ||
+        (ts.isPropertyDeclaration(node.parent) && node.parent.name === node) ||
+        ts.isImportSpecifier(node.parent) ||
+        ts.isExportSpecifier(node.parent))
+    ) {
+      return undefined;
+    }
+
+    // Skip identifiers that are property names in property access or member access
+    if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
+      return undefined;
+    }
+
+    for (const entry of this.iterTypeRewriteEntries()) {
+      if (!entry.constructors) continue;
+
+      const ctor = entry.constructors.get(name);
+      if (!ctor || ctor.kind !== "constant") continue;
+
+      // Transparent scope: skip erasure inside the defining module
+      if (entry.transparent && entry.sourceModule) {
+        const currentFile = this.ctx.sourceFile.fileName;
+        if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+          return undefined;
+        }
+      }
+
+      if (this.verbose) {
+        console.log(`[typesugar] Constant constructor ref erasure: ${name} → ${ctor.value}`);
+      }
+
+      return preserveSourceMap(this.buildConstantExpression(ctor.value ?? "undefined"), node);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Erase a property access on an @opaque type (PEP-012 Wave 4).
+   *
+   * For identity accessors (e.g., `x.value`), replaces with the receiver.
+   * For custom accessors, replaces with the custom expression.
+   *
+   * @returns The erased expression, or `undefined` if not a registered accessor
+   */
+  private tryEraseAccessor(node: ts.PropertyAccessExpression): ts.Expression | undefined {
+    const propName = node.name.text;
+    const receiver = node.expression;
+
+    let receiverType: ts.Type;
+    try {
+      receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
+    } catch {
+      return undefined;
+    }
+
+    if (!this.ctx.isTypeReliable(receiverType)) return undefined;
+
+    const typeName = this.ctx.typeChecker.typeToString(receiverType);
+    const entry = findTypeRewrite(typeName);
+    if (!entry) return undefined;
+    if (!entry.accessors) return undefined;
+
+    const accessor = entry.accessors.get(propName);
+    if (!accessor) return undefined;
+
+    // Transparent scope: skip erasure inside the defining module
+    if (entry.transparent && entry.sourceModule) {
+      const currentFile = this.ctx.sourceFile.fileName;
+      if (this.isWithinSourceModule(currentFile, entry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    if (accessor.kind === "identity") {
+      if (this.verbose) {
+        console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} → receiver`);
+      }
+
+      const visited = ts.visitNode(receiver, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    }
+
+    if (accessor.kind === "custom" && accessor.value) {
+      if (this.verbose) {
+        console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} → ${accessor.value}`);
+      }
+
+      const custom = this.ctx.factory.createIdentifier(accessor.value);
+      return preserveSourceMap(custom, node);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Build a constant expression AST node from a string value.
+   */
+  private buildConstantExpression(value: string): ts.Expression {
+    switch (value) {
+      case "null":
+        return this.ctx.factory.createNull();
+      case "undefined":
+        return this.ctx.factory.createIdentifier("undefined");
+      case "true":
+        return this.ctx.factory.createTrue();
+      case "false":
+        return this.ctx.factory.createFalse();
+      default: {
+        const num = Number(value);
+        if (!isNaN(num)) {
+          return this.ctx.factory.createNumericLiteral(num);
+        }
+        if (value.startsWith('"') || value.startsWith("'")) {
+          return this.ctx.factory.createStringLiteral(value.slice(1, -1));
+        }
+        return this.ctx.factory.createIdentifier(value);
+      }
+    }
+  }
+
+  /**
+   * Iterate over all type rewrite entries for constructor/accessor lookup.
+   */
+  private *iterTypeRewriteEntries(): Iterable<TypeRewriteEntry> {
+    yield* getAllTypeRewrites();
+  }
+
+  /**
+   * Check whether a file path is within a given source module (for transparent scope).
+   *
+   * Handles two forms of `sourceModule`:
+   * - Absolute file path (from `@opaque` macro's `resolveSourceModule`): direct comparison
+   * - Module specifier like `@typesugar/fp/data/option`: path-segment containment check
+   */
+  private isWithinSourceModule(filePath: string, sourceModule: string): boolean {
+    const normFile = filePath.replace(/\\/g, "/");
+    const normModule = sourceModule.replace(/\\/g, "/");
+
+    // If sourceModule looks like an absolute path, compare directly
+    if (normModule.startsWith("/") || /^[A-Za-z]:\//.test(normModule)) {
+      return normFile === normModule;
+    }
+
+    // Module specifier form: strip leading @ and check that the file path
+    // ends with the module's path segments (e.g., "typesugar/fp/data/option"
+    // matches ".../typesugar/fp/data/option.ts")
+    const modulePath = normModule.replace(/^@/, "");
+    const fileNoExt = normFile.replace(/\.[^/.]+$/, "");
+    return (
+      fileNoExt.endsWith(modulePath) ||
+      normFile.includes("/" + modulePath + "/") ||
+      normFile.includes("/" + modulePath + ".")
+    );
+  }
+
+  /**
+   * Schedule an import for a standalone function used by type-rewrite method erasure.
+   * Deduplicates by function name + module.
+   */
+  private scheduleTypeRewriteImport(fnName: string, sourceModule: string): void {
+    // Check if this function is already imported in the current file
+    if (this.isAlreadyImported(fnName)) return;
+
+    const key = `${fnName}::${sourceModule}`;
+    if (!this.pendingTypeRewriteImports.has(key)) {
+      this.pendingTypeRewriteImports.set(key, { name: fnName, module: sourceModule });
+    }
+  }
+
+  /**
+   * Check whether a name is already imported in the current source file.
+   */
+  private isAlreadyImported(name: string): boolean {
+    for (const stmt of this.ctx.sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+      const clause = stmt.importClause;
+      if (!clause) continue;
+
+      // Check named imports
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const spec of clause.namedBindings.elements) {
+          if (spec.name.text === name) return true;
+        }
+      }
+
+      // Check namespace import — would shadow via qualifier
+      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        if (clause.namedBindings.name.text === name) return true;
+      }
+
+      // Check default import
+      if (clause.name && clause.name.text === name) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Build import declarations for type-rewrite method erasure functions.
+   * Groups by module for cleaner output.
+   */
+  private buildTypeRewriteImportDeclarations(): ts.ImportDeclaration[] {
+    if (this.pendingTypeRewriteImports.size === 0) return [];
+
+    const factory = this.ctx.factory;
+
+    // Group by module
+    const byModule = new Map<string, string[]>();
+    for (const { name, module } of this.pendingTypeRewriteImports.values()) {
+      const list = byModule.get(module);
+      if (list) {
+        if (!list.includes(name)) list.push(name);
+      } else {
+        byModule.set(module, [name]);
+      }
+    }
+
+    const imports: ts.ImportDeclaration[] = [];
+    for (const [module, names] of byModule) {
+      const specifiers = names.map((n) =>
+        factory.createImportSpecifier(false, undefined, factory.createIdentifier(n))
+      );
+      imports.push(
+        factory.createImportDeclaration(
+          undefined,
+          factory.createImportClause(false, undefined, factory.createNamedImports(specifiers)),
+          factory.createStringLiteral(module)
+        )
+      );
+    }
+
+    return imports;
   }
 
   /**

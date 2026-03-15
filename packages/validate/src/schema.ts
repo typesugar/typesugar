@@ -182,11 +182,9 @@ export function safeParseAll<F>(
       if (result._tag === "Valid") {
         values.push(result.value);
       } else {
-        // Access the NonEmptyList error
-        const nel = result.error;
+        const nel: any = result.error;
         errors.push(nel.head);
-        // Traverse the tail (which is a List)
-        let current = nel.tail;
+        let current: any = nel.tail;
         while (current._tag === "Cons") {
           errors.push(current.head);
           current = current.tail;
@@ -251,9 +249,9 @@ export function nativeSafeParseAll(
       if (result._tag === "Valid") {
         values.push(result.value);
       } else {
-        const nel = result.error;
+        const nel: any = result.error;
         errors.push(nel.head);
-        let current = nel.tail;
+        let current: any = nel.tail;
         while (current._tag === "Cons") {
           errors.push(current.head);
           current = current.tail;

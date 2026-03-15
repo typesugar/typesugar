@@ -6,6 +6,8 @@
 
 `@typesugar/fp` provides a complete functional programming toolkit: typeclasses (Functor, Monad, Applicative), data types (Option, Either, List, Validated), monad transformers (State, Reader, Writer), and an IO monad with stack-safe interpreter.
 
+All data types use **@opaque type macros** for zero-cost dot syntax — `Option<A>` is `A | null` at runtime, but TypeScript sees a rich interface with `.map()`, `.flatMap()`, `.getOrElse()`, and more.
+
 ## Installation
 
 ```bash
@@ -17,15 +19,23 @@ pnpm add @typesugar/fp
 ## Quick Start
 
 ```typescript
-import { Option, Some, None, Either, Left, Right, IO, runIO, pipe, flow } from "@typesugar/fp";
+import { Some, None, Right, Left, IO, runIO, pipe, flow } from "@typesugar/fp";
+import type { Option, Either } from "@typesugar/fp";
 
-// Option — nullable values
-const user = Option.flatMap(Some(2), (x) => Some(x * 3));
-// Some(6)
+// Option — dot syntax, zero-cost (null at runtime)
+const user = Some(2).flatMap((x) => Some(x * 3));
+// Some(6) — really just 6 at runtime
 
-// Either — error handling
-const result = Either.map(Right(42), (x) => x.toString());
+// Either — dot syntax, zero-cost
+const result = Right<string, number>(42).map((x) => x.toString());
 // Right("42")
+
+// Chain operations fluently
+const output = Some(5)
+  .map((n) => n * 2)
+  .filter((n) => n > 5)
+  .getOrElse(() => 0);
+// 10
 
 // IO — pure effects
 const program = IO.flatMap(
@@ -46,72 +56,98 @@ const transformed = pipe(
 
 ## Data Types
 
-### Option<A>
+### Option\<A\>
 
-Represents optional values — `Some<A>` or `None`.
+Represents optional values. `Some(x)` wraps a value; `None` is empty. At runtime, `Some(42)` is just `42` and `None` is `null`.
 
 ```typescript
-import { Option, Some, None, isSome, isNone } from "@typesugar/fp";
+import { Some, None, isSome, isNone } from "@typesugar/fp";
+import type { Option } from "@typesugar/fp";
 
-const value = Some(42);
-const empty = None<number>();
+const value: Option<number> = Some(42);
+const empty: Option<number> = None;
 
-Option.map(value, (x) => x * 2); // Some(84)
-Option.flatMap(value, (x) => Some(x + 1)); // Some(43)
-Option.getOrElse(empty, 0); // 0
-Option.filter(value, (x) => x > 50); // None
+// Dot syntax — methods resolve via type rewrite registry
+value.map((x) => x * 2); // Some(84)
+value.flatMap((x) => Some(x + 1)); // Some(43)
+value.getOrElse(() => 0); // 42
+value.filter((x) => x > 50); // None
+value.fold(
+  () => "empty",
+  (x) => `got ${x}`
+); // "got 42"
+
+// Chain fluently
+Some(5)
+  .map((n) => n * 2)
+  .filter((n) => n > 5)
+  .getOrElse(() => 0); // 10
+
+// Implicit conversion via SFINAE (no fromNullable needed)
+const nullable: number | null = getFromDatabase();
+const opt: Option<number> = nullable; // Just works — runtime identity
 ```
 
-### Either<L, R>
+### Either\<E, A\>
 
 Represents success (`Right`) or failure (`Left`).
 
 ```typescript
-import { Either, Left, Right, isLeft, isRight } from "@typesugar/fp";
+import { Left, Right, isLeft, isRight } from "@typesugar/fp";
+import type { Either } from "@typesugar/fp";
 
-const success = Right<string, number>(42);
-const failure = Left<string, number>("error");
+const success: Either<string, number> = Right(42);
+const failure: Either<string, number> = Left("error");
 
-Either.map(success, (x) => x * 2); // Right(84)
-Either.mapLeft(failure, (e) => e.toUpperCase()); // Left("ERROR")
-Either.fold(
-  success,
+// Dot syntax
+success.map((x) => x * 2); // Right(84)
+success.flatMap((x) => Right(x + 1)); // Right(43)
+failure.map((x) => x * 2); // Left("error") — no-op
+success.fold(
   (e) => 0,
   (x) => x
 ); // 42
+
+// Chain validations
+Right<string, number>(10)
+  .map((n) => n * 2)
+  .flatMap((n) => (n > 10 ? Right(n) : Left("too small")))
+  .getOrElse(() => -1); // 20
 ```
 
-### List<A>
+### List\<A\>
 
 Immutable linked list.
 
 ```typescript
-import { List, Cons, Nil } from "@typesugar/fp";
+import { Cons, Nil } from "@typesugar/fp";
+import * as L from "@typesugar/fp/data/list";
 
-const list = List.of(1, 2, 3);
+const list = L.of(1, 2, 3);
 
-List.map(list, (x) => x * 2); // [2, 4, 6]
-List.filter(list, (x) => x > 1); // [2, 3]
-List.foldLeft(list, 0, (a, b) => a + b); // 6
+L.map(list, (x) => x * 2); // [2, 4, 6]
+L.filter(list, (x) => x > 1); // [2, 3]
+L.foldLeft(list, 0, (a, b) => a + b); // 6
 ```
 
-### Validated<E, A>
+### Validated\<E, A\>
 
 Accumulates errors instead of failing fast.
 
 ```typescript
-import { Validated, valid, invalid, validNel, invalidNel } from "@typesugar/fp";
+import { validNel, invalidNel } from "@typesugar/fp";
+import * as V from "@typesugar/fp/data/validated";
 
-const v1 = valid<string[], number>(42);
-const v2 = invalid<string[], number>(["error 1"]);
-const v3 = invalid<string[], number>(["error 2"]);
+const v1 = validNel(42);
+const v2 = invalidNel("error 1");
+const v3 = invalidNel("error 2");
 
-// Combine with error accumulation
-Validated.mapN(v2, v3, (a, b) => a + b);
+// Combine with error accumulation — collects ALL errors
+V.map2Nel(v2, v3, (a, b) => a + b);
 // Invalid(["error 1", "error 2"])
 ```
 
-### IO<A>
+### IO\<A\>
 
 Pure description of side effects with stack-safe interpreter.
 
@@ -123,141 +159,80 @@ const program = IO.flatMap(
   (response) => IO.delay(() => response.json())
 );
 
-// Run the effect
 const result = await runIO(program);
 ```
 
 ## Monad Transformers
 
-### State<S, A>
-
-Stateful computations.
+### State\<S, A\>
 
 ```typescript
-import { State, IndexedState } from "@typesugar/fp";
+import { State } from "@typesugar/fp";
 
 const increment = State.modify<number>((n) => n + 1);
 const getDouble = State.gets<number, number>((n) => n * 2);
-
 const program = State.flatMap(increment, () => getDouble);
-State.run(program, 5); // [12, 6] (new state, result)
+State.run(program, 5); // [12, 6]
 ```
 
-### Reader<R, A>
-
-Dependency injection.
+### Reader\<R, A\>
 
 ```typescript
-import { Reader, Kleisli } from "@typesugar/fp";
+import { Reader } from "@typesugar/fp";
 
-interface Config {
-  apiUrl: string;
-}
-
-const getUrl = Reader.ask<Config>().map((c) => c.apiUrl);
-const fetchData = Reader.flatMap(getUrl, (url) => Reader.pure(fetch(url)));
-
-Reader.run(fetchData, { apiUrl: "http://api.example.com" });
+const getUrl = Reader.ask<{ apiUrl: string }>().map((c) => c.apiUrl);
+Reader.run(getUrl, { apiUrl: "http://api.example.com" });
 ```
 
-### Writer<W, A>
-
-Logging and accumulation.
+### Writer\<W, A\>
 
 ```typescript
-import { Writer, LogWriter } from "@typesugar/fp";
+import { Writer, LogWriterMonoid } from "@typesugar/fp";
 
-const program = Writer.flatMap(Writer.tell(["Started"]), () =>
-  Writer.flatMap(Writer.pure(42), (x) => Writer.tell([`Got ${x}`]).map(() => x))
+const program = Writer.flatMap(
+  Writer.tell(["Started"]),
+  () => Writer.writer(42, ["Done"]),
+  LogWriterMonoid
 );
-
-Writer.run(program); // [["Started", "Got 42"], 42]
+Writer.run(program); // [42, ["Started", "Done"]]
 ```
 
-## Typeclasses
+## How It Works: @opaque Type Macros
 
-Implement Functor, Monad, and friends for your own types — no boilerplate:
-
-```typescript
-type Option<A> = A | null;
-
-/** @impl Functor<Option> */
-const optionFunctor = {
-  map: (fa, f) => (fa === null ? null : f(fa)),
-};
-
-/** @impl Monad<Option> */
-const optionMonad = {
-  pure: (a) => a,
-  flatMap: (fa, f) => (fa === null ? null : f(fa)),
-};
-```
-
-No `OptionF`, no `TypeFunction`, no `Kind`. The `@impl` macro resolves the type constructor automatically.
-
-Use the `TC` namespace for built-in instances:
+`@typesugar/fp` data types use `@opaque` type macros (PEP-012) for zero-cost dot syntax:
 
 ```typescript
-import { TC } from "@typesugar/fp";
-
-TC.Functor.map(someOption, f);
-TC.Applicative.pure(42);
-TC.Monad.flatMap(effect, f);
-TC.Foldable.foldLeft(list, init, f);
-TC.Traverse.traverse(list, f);
-```
-
-## Zero-Cost Abstractions
-
-Compile-time-optimized variants of common functional patterns with zero runtime overhead.
-
-```typescript
-import {
-  type ZeroCostOption,
-  ZeroCostOptionOps,
-  type ZeroCostResult,
-  ZeroCostResultOps,
-  match,
-  matchLiteral,
-  matchGuard,
-} from "@typesugar/fp";
-
-// Zero-cost Option — just T | null at runtime
-const opt: ZeroCostOption<number> = 42;
-if (ZeroCostOptionOps.isSome(opt)) {
-  console.log(opt * 2);
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+  getOrElse(defaultValue: () => A): A;
+  // ...
 }
-
-// Zero-cost Result — minimal object wrapper
-const result = ZeroCostResultOps.ok<number, string>(42);
-if (ZeroCostResultOps.isOk(result)) {
-  console.log(result.value);
-}
-
-// Pattern matching (compiles to if/else chains)
-type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
-
-const area = match(shape, {
-  circle: (s) => Math.PI * s.radius ** 2,
-  square: (s) => s.side * s.side,
-});
 ```
 
-See also: `@typesugar/fp/zero-cost` for direct imports.
+- **TypeScript sees**: An interface with methods (full IDE support, type inference)
+- **Runtime emits**: `A | null` (zero-cost, no wrapper objects)
+- **Transformer rewrites**: `x.map(f)` → `map(x, f)` (standalone function call)
+
+Implicit conversions via SFINAE mean `Option<T>` and `T | null` are interchangeable:
+
+```typescript
+const nullable: number | null = someApi();
+const opt: Option<number> = nullable; // No error — runtime identity
+const raw: number | null = opt; // Also fine
+```
 
 ## Syntax Utilities
 
 ```typescript
 import { pipe, flow } from "@typesugar/fp";
 
-// Left-to-right application
 const result = pipe(
   5,
   (x) => x * 2,
   (x) => x + 1
 );
-
-// Function composition
 const transform = flow(
   (x: number) => x * 2,
   (x) => x + 1,
@@ -269,8 +244,8 @@ const transform = flow(
 
 ### Data Types
 
-- `Option`, `Some`, `None` — Optional values
-- `Either`, `Left`, `Right` — Error handling
+- `Option`, `Some`, `None` — Optional values (dot syntax)
+- `Either`, `Left`, `Right` — Error handling (dot syntax)
 - `List`, `Cons`, `Nil` — Immutable lists
 - `NonEmptyList` — Non-empty lists
 - `Validated`, `Valid`, `Invalid` — Error accumulation

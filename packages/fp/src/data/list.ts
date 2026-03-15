@@ -18,10 +18,44 @@ import type { Semigroup, Monoid } from "../typeclasses/semigroup.js";
 // ============================================================================
 
 /**
- * List data type - either Cons (non-empty) or Nil (empty)
+ * Immutable singly-linked list — an opaque wrapper over a discriminated union
+ * of Cons (non-empty) and Nil (empty).
+ *
+ * The `@opaque` macro erases method calls to companion standalone functions,
+ * so `list.map(f)` compiles to `map(list, f)` with full type inference.
+ *
+ * Within this defining file the type is transparent — implementations use
+ * the underlying discriminated union directly.
+ *
+ * @opaque { _tag: "Cons"; head: A; tail: List<A> } | { _tag: "Nil" }
  * @hkt
  */
-export type List<A> = Cons<A> | Nil;
+export interface List<A> {
+  readonly _tag: "Cons" | "Nil";
+  map<B>(f: (a: A) => B): List<B>;
+  flatMap<B>(f: (a: A) => List<B>): List<B>;
+  filter(predicate: (a: A) => boolean): List<A>;
+  fold<B>(init: B, f: (acc: B, a: A) => B): B;
+  foldRight<B>(init: B, f: (a: A, acc: B) => B): B;
+  head(): Option<A>;
+  tail(): Option<List<A>>;
+  last(): Option<A>;
+  take(n: number): List<A>;
+  drop(n: number): List<A>;
+  reverse(): List<A>;
+  append(other: List<A>): List<A>;
+  prepend(a: A): List<A>;
+  toArray(): A[];
+  length(): number;
+  isEmpty(): boolean;
+  nonEmpty(): boolean;
+  exists(predicate: (a: A) => boolean): boolean;
+  forall(predicate: (a: A) => boolean): boolean;
+  find(predicate: (a: A) => boolean): Option<A>;
+  contains(value: A, eq?: (a: A, b: A) => boolean): boolean;
+  zip<B>(other: List<B>): List<[A, B]>;
+  forEach(f: (a: A) => void): void;
+}
 
 /**
  * Type-level function for `List<A>`.
@@ -33,20 +67,16 @@ export interface ListF extends TypeFunction {
 }
 
 /**
- * Cons variant - contains head and tail
+ * Cons variant — a List known to be non-empty.
+ * At runtime it's `{ _tag: "Cons"; head: A; tail: List<A> }`.
  */
-export interface Cons<A> {
-  readonly _tag: "Cons";
-  readonly head: A;
-  readonly tail: List<A>;
-}
+export type Cons<A> = List<A>;
 
 /**
- * Nil variant - empty list
+ * Nil variant — a List known to be empty.
+ * At runtime it's `{ _tag: "Nil" }`.
  */
-export interface Nil {
-  readonly _tag: "Nil";
-}
+export type Nil = List<never>;
 
 // ============================================================================
 // Constructors
@@ -56,13 +86,13 @@ export interface Nil {
  * Create a Cons cell
  */
 export function Cons<A>(head: A, tail: List<A>): List<A> {
-  return { _tag: "Cons", head, tail };
+  return { _tag: "Cons", head, tail } as any;
 }
 
 /**
  * The empty list (singleton)
  */
-export const Nil: List<never> = { _tag: "Nil" };
+export const Nil: List<never> = { _tag: "Nil" } as any;
 
 /**
  * Create a list from variadic arguments
@@ -133,14 +163,14 @@ export function empty<A = never>(): List<A> {
  * Check if List is Cons (non-empty)
  */
 export function isCons<A>(list: List<A>): list is Cons<A> {
-  return list._tag === "Cons";
+  return (list as any)._tag === "Cons";
 }
 
 /**
  * Check if List is Nil (empty)
  */
 export function isNil<A>(list: List<A>): list is Nil {
-  return list._tag === "Nil";
+  return (list as any)._tag === "Nil";
 }
 
 /**
@@ -165,14 +195,16 @@ export function nonEmpty<A>(list: List<A>): boolean {
  * Get the head of the list
  */
 export function head<A>(list: List<A>): Option<A> {
-  return isCons(list) ? Some(list.head) : None;
+  const l: any = list;
+  return l._tag === "Cons" ? Some(l.head) : None;
 }
 
 /**
  * Get the tail of the list
  */
 export function tail<A>(list: List<A>): Option<List<A>> {
-  return isCons(list) ? Some(list.tail) : None;
+  const l: any = list;
+  return l._tag === "Cons" ? Some(l.tail) : None;
 }
 
 /**
@@ -180,8 +212,8 @@ export function tail<A>(list: List<A>): Option<List<A>> {
  */
 export function last<A>(list: List<A>): Option<A> {
   if (isNil(list)) return None;
-  let current = list;
-  while (isCons(current.tail)) {
+  let current: any = list;
+  while (current.tail && current.tail._tag === "Cons") {
     current = current.tail;
   }
   return Some(current.head);
@@ -199,9 +231,9 @@ export function init<A>(list: List<A>): Option<List<A>> {
  * Get the nth element (0-indexed)
  */
 export function get<A>(list: List<A>, index: number): Option<A> {
-  let current = list;
+  let current: any = list;
   let i = 0;
-  while (isCons(current)) {
+  while (current._tag === "Cons") {
     if (i === index) return Some(current.head);
     current = current.tail;
     i++;
@@ -214,8 +246,8 @@ export function get<A>(list: List<A>, index: number): Option<A> {
  */
 export function length<A>(list: List<A>): number {
   let count = 0;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     count++;
     current = current.tail;
   }
@@ -231,8 +263,8 @@ export function length<A>(list: List<A>): number {
  */
 export function map<A, B>(list: List<A>, f: (a: A) => B): List<B> {
   let acc: List<B> = Nil;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     acc = Cons(f(current.head), acc);
     current = current.tail;
   }
@@ -244,11 +276,10 @@ export function map<A, B>(list: List<A>, f: (a: A) => B): List<B> {
  */
 export function flatMap<A, B>(list: List<A>, f: (a: A) => List<B>): List<B> {
   let acc: List<B> = Nil;
-  let current = list;
-  while (isCons(current)) {
-    // Prepend f(current.head) in reverse to acc
-    let inner = f(current.head);
-    while (isCons(inner)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
+    let inner: any = f(current.head);
+    while (inner._tag === "Cons") {
       acc = Cons(inner.head, acc);
       inner = inner.tail;
     }
@@ -262,8 +293,8 @@ export function flatMap<A, B>(list: List<A>, f: (a: A) => List<B>): List<B> {
  */
 export function filter<A>(list: List<A>, predicate: (a: A) => boolean): List<A> {
   let acc: List<A> = Nil;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     if (predicate(current.head)) {
       acc = Cons(current.head, acc);
     }
@@ -277,12 +308,11 @@ export function filter<A>(list: List<A>, predicate: (a: A) => boolean): List<A> 
  */
 export function filterMap<A, B>(list: List<A>, f: (a: A) => Option<B>): List<B> {
   let acc: List<B> = Nil;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     const result = f(current.head);
     if (isSome(result)) {
-      // With null-based Option, result IS the value when it's not null
-      acc = Cons(result, acc);
+      acc = Cons(result as any, acc);
     }
     current = current.tail;
   }
@@ -294,8 +324,8 @@ export function filterMap<A, B>(list: List<A>, f: (a: A) => Option<B>): List<B> 
  */
 export function reverse<A>(list: List<A>): List<A> {
   let result: List<A> = Nil;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     result = Cons(current.head, result);
     current = current.tail;
   }
@@ -322,10 +352,9 @@ export function appendOne<A>(list: List<A>, a: A): List<A> {
 export function append<A>(list1: List<A>, list2: List<A>): List<A> {
   if (isNil(list1)) return list2;
   if (isNil(list2)) return list1;
-  // Reverse list1, then prepend each element to list2
-  let reversed: List<A> = reverse(list1);
+  let reversed: any = reverse(list1);
   let result: List<A> = list2;
-  while (isCons(reversed)) {
+  while (reversed._tag === "Cons") {
     result = Cons(reversed.head, result);
     reversed = reversed.tail;
   }
@@ -344,9 +373,9 @@ export function flatten<A>(lists: List<List<A>>): List<A> {
  */
 export function take<A>(list: List<A>, n: number): List<A> {
   let acc: List<A> = Nil;
-  let current = list;
+  let current: any = list;
   let count = n;
-  while (count > 0 && isCons(current)) {
+  while (count > 0 && current._tag === "Cons") {
     acc = Cons(current.head, acc);
     current = current.tail;
     count--;
@@ -358,9 +387,9 @@ export function take<A>(list: List<A>, n: number): List<A> {
  * Drop the first n elements (stack-safe)
  */
 export function drop<A>(list: List<A>, n: number): List<A> {
-  let current = list;
+  let current: any = list;
   let count = n;
-  while (count > 0 && isCons(current)) {
+  while (count > 0 && current._tag === "Cons") {
     current = current.tail;
     count--;
   }
@@ -380,8 +409,8 @@ export function dropLast<A>(list: List<A>, n: number): List<A> {
  */
 export function takeWhile<A>(list: List<A>, predicate: (a: A) => boolean): List<A> {
   let acc: List<A> = Nil;
-  let current = list;
-  while (isCons(current) && predicate(current.head)) {
+  let current: any = list;
+  while (current._tag === "Cons" && predicate(current.head)) {
     acc = Cons(current.head, acc);
     current = current.tail;
   }
@@ -392,8 +421,8 @@ export function takeWhile<A>(list: List<A>, predicate: (a: A) => boolean): List<
  * Drop elements while predicate holds
  */
 export function dropWhile<A>(list: List<A>, predicate: (a: A) => boolean): List<A> {
-  let current = list;
-  while (isCons(current) && predicate(current.head)) {
+  let current: any = list;
+  while (current._tag === "Cons" && predicate(current.head)) {
     current = current.tail;
   }
   return current;
@@ -404,9 +433,9 @@ export function dropWhile<A>(list: List<A>, predicate: (a: A) => boolean): List<
  */
 export function zip<A, B>(listA: List<A>, listB: List<B>): List<[A, B]> {
   let acc: List<[A, B]> = Nil;
-  let currentA = listA;
-  let currentB = listB;
-  while (isCons(currentA) && isCons(currentB)) {
+  let currentA: any = listA;
+  let currentB: any = listB;
+  while (currentA._tag === "Cons" && currentB._tag === "Cons") {
     acc = Cons([currentA.head, currentB.head], acc);
     currentA = currentA.tail;
     currentB = currentB.tail;
@@ -419,9 +448,9 @@ export function zip<A, B>(listA: List<A>, listB: List<B>): List<[A, B]> {
  */
 export function zipWith<A, B, C>(listA: List<A>, listB: List<B>, f: (a: A, b: B) => C): List<C> {
   let acc: List<C> = Nil;
-  let currentA = listA;
-  let currentB = listB;
-  while (isCons(currentA) && isCons(currentB)) {
+  let currentA: any = listA;
+  let currentB: any = listB;
+  while (currentA._tag === "Cons" && currentB._tag === "Cons") {
     acc = Cons(f(currentA.head, currentB.head), acc);
     currentA = currentA.tail;
     currentB = currentB.tail;
@@ -435,8 +464,8 @@ export function zipWith<A, B, C>(listA: List<A>, listB: List<B>, f: (a: A, b: B)
 export function unzip<A, B>(list: List<[A, B]>): [List<A>, List<B>] {
   let accA: List<A> = Nil;
   let accB: List<B> = Nil;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     accA = Cons(current.head[0], accA);
     accB = Cons(current.head[1], accB);
     current = current.tail;
@@ -449,9 +478,10 @@ export function unzip<A, B>(list: List<[A, B]>): [List<A>, List<B>] {
  */
 export function intersperse<A>(list: List<A>, sep: A): List<A> {
   if (isNil(list)) return Nil;
-  let acc: List<A> = Cons(list.head, Nil);
-  let current = list.tail;
-  while (isCons(current)) {
+  const l: any = list;
+  let acc: List<A> = Cons(l.head, Nil);
+  let current: any = l.tail;
+  while (current._tag === "Cons") {
     acc = Cons(current.head, Cons(sep, acc));
     current = current.tail;
   }
@@ -467,8 +497,8 @@ export function intersperse<A>(list: List<A>, sep: A): List<A> {
  */
 export function foldLeft<A, B>(list: List<A>, init: B, f: (b: B, a: A) => B): B {
   let acc = init;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     acc = f(acc, current.head);
     current = current.tail;
   }
@@ -491,7 +521,8 @@ export function foldRight<A, B>(list: List<A>, init: B, f: (a: A, b: B) => B): B
  */
 export function reduce<A>(list: List<A>, f: (a: A, b: A) => A): Option<A> {
   if (isNil(list)) return None;
-  return Some(foldLeft(list.tail, list.head, f));
+  const l: any = list;
+  return Some(foldLeft(l.tail, l.head, f));
 }
 
 // ============================================================================
@@ -502,8 +533,8 @@ export function reduce<A>(list: List<A>, f: (a: A, b: A) => A): Option<A> {
  * Find the first element matching a predicate
  */
 export function find<A>(list: List<A>, predicate: (a: A) => boolean): Option<A> {
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     if (predicate(current.head)) return Some(current.head);
     current = current.tail;
   }
@@ -514,9 +545,9 @@ export function find<A>(list: List<A>, predicate: (a: A) => boolean): Option<A> 
  * Find index of first element matching a predicate
  */
 export function findIndex<A>(list: List<A>, predicate: (a: A) => boolean): Option<number> {
-  let current = list;
+  let current: any = list;
   let i = 0;
-  while (isCons(current)) {
+  while (current._tag === "Cons") {
     if (predicate(current.head)) return Some(i);
     current = current.tail;
     i++;
@@ -535,8 +566,8 @@ export function exists<A>(list: List<A>, predicate: (a: A) => boolean): boolean 
  * Check if all elements satisfy the predicate
  */
 export function forall<A>(list: List<A>, predicate: (a: A) => boolean): boolean {
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     if (!predicate(current.head)) return false;
     current = current.tail;
   }
@@ -570,8 +601,8 @@ export function count<A>(list: List<A>, predicate: (a: A) => boolean): number {
  */
 export function toArray<A>(list: List<A>): A[] {
   const result: A[] = [];
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     result.push(current.head);
     current = current.tail;
   }
@@ -601,12 +632,11 @@ export function mkStringShow<A>(list: List<A>, show: (a: A) => string, sep: stri
  */
 export function traverse<A, B>(list: List<A>, f: (a: A) => Option<B>): Option<List<B>> {
   let acc: List<B> = Nil;
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     const result = f(current.head);
     if (!isSome(result)) return None;
-    // With null-based Option, result IS the value when it's not null
-    acc = Cons(result, acc);
+    acc = Cons(result as any, acc);
     current = current.tail;
   }
   return Some(reverse(acc));
@@ -629,9 +659,9 @@ export function sequence<A>(list: List<Option<A>>): Option<List<A>> {
 export function getEq<A>(E: Eq<A>): Eq<List<A>> {
   return {
     eqv: (x, y) => {
-      let currentX = x;
-      let currentY = y;
-      while (isCons(currentX) && isCons(currentY)) {
+      let currentX: any = x;
+      let currentY: any = y;
+      while (currentX._tag === "Cons" && currentY._tag === "Cons") {
         if (!E.eqv(currentX.head, currentY.head)) return false;
         currentX = currentX.tail;
         currentY = currentY.tail;
@@ -647,9 +677,9 @@ export function getEq<A>(E: Eq<A>): Eq<List<A>> {
  */
 export function getOrd<A>(O: Ord<A>): Ord<List<A>> {
   const compare = (x: List<A>, y: List<A>): Ordering => {
-    let currentX = x;
-    let currentY = y;
-    while (isCons(currentX) && isCons(currentY)) {
+    let currentX: any = x;
+    let currentY: any = y;
+    while (currentX._tag === "Cons" && currentY._tag === "Cons") {
       const cmp = O.compare(currentX.head, currentY.head);
       if (cmp !== 0) return cmp;
       currentX = currentX.tail;
@@ -740,8 +770,8 @@ export function let_<N extends string, A extends object, B>(
  * Perform a side effect for each element
  */
 export function forEach<A>(list: List<A>, f: (a: A) => void): void {
-  let current = list;
-  while (isCons(current)) {
+  let current: any = list;
+  while (current._tag === "Cons") {
     f(current.head);
     current = current.tail;
   }
@@ -752,9 +782,9 @@ export function forEach<A>(list: List<A>, f: (a: A) => void): void {
  */
 export function mapWithIndex<A, B>(list: List<A>, f: (index: number, a: A) => B): List<B> {
   let acc: List<B> = Nil;
-  let current = list;
+  let current: any = list;
   let i = 0;
-  while (isCons(current)) {
+  while (current._tag === "Cons") {
     acc = Cons(f(i, current.head), acc);
     current = current.tail;
     i++;
@@ -791,17 +821,16 @@ export function groupBy<A, K>(
   if (isNil(list)) return Nil;
 
   let groups: List<List<A>> = Nil;
-  let current: List<A> = list;
+  let current: any = list;
 
-  while (isCons(current)) {
+  while (current._tag === "Cons") {
     const key = f(current.head);
     let groupAcc: List<A> = Cons(current.head, Nil);
-    current = current.tail as List<A>;
+    current = current.tail;
 
-    // Collect all consecutive elements with the same key
-    while (isCons(current) && eq(f(current.head), key)) {
+    while (current._tag === "Cons" && eq(f(current.head), key)) {
       groupAcc = Cons(current.head, groupAcc);
-      current = current.tail as List<A>;
+      current = current.tail;
     }
 
     groups = Cons(reverse(groupAcc), groups);

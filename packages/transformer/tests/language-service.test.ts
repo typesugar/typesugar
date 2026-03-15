@@ -8,10 +8,19 @@
  * 4. IDE features work with position mapping
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as ts from "typescript";
 import init from "../src/language-service.js";
 import { TransformationPipeline, transformCode } from "../src/pipeline.js";
+import {
+  getSfinaeRules,
+  clearSfinaeRules,
+  getSfinaeAuditLog,
+  clearSfinaeAuditLog,
+  setSfinaeAuditMode,
+  registerSfinaeRule,
+  type SfinaeRule,
+} from "@typesugar/core";
 
 /**
  * Creates a mock LanguageServiceHost for testing
@@ -999,6 +1008,224 @@ describe("Macro Diagnostic Injection (PEP-005 Wave 4)", () => {
 
       // Should at least not throw
       expect(fixes).toBeDefined();
+    });
+  });
+});
+
+// =============================================================================
+// PEP-011 Wave 2: SFINAE Language Service Integration Tests
+// =============================================================================
+
+describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
+  afterEach(() => {
+    clearSfinaeRules();
+    clearSfinaeAuditLog();
+    setSfinaeAuditMode(undefined);
+  });
+
+  describe("MacroGenerated rule registration", () => {
+    it("registers MacroGenerated rule during plugin create", () => {
+      clearSfinaeRules();
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x = 1;");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      plugin.create(info);
+
+      const rules = getSfinaeRules();
+      expect(rules.some((r) => r.name === "MacroGenerated")).toBe(true);
+    });
+
+    it("does not register duplicate MacroGenerated rules on second create", () => {
+      clearSfinaeRules();
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x = 1;");
+
+      const plugin = init({ typescript: ts });
+
+      // Create twice
+      const info1 = createMockPluginInfo(files);
+      plugin.create(info1);
+
+      const info2 = createMockPluginInfo(files);
+      plugin.create(info2);
+
+      const macroRules = getSfinaeRules().filter((r) => r.name === "MacroGenerated");
+      expect(macroRules).toHaveLength(1);
+    });
+  });
+
+  describe("SFINAE filtering in getSemanticDiagnostics", () => {
+    it("still returns real type errors (not suppressed by SFINAE)", () => {
+      clearSfinaeRules();
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x: string = 123;");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+
+      // TS2322: Type 'number' is not assignable to type 'string'
+      expect(diagnostics.length).toBeGreaterThan(0);
+      const typeError = diagnostics.find((d) => d.code === 2322);
+      expect(typeError).toBeDefined();
+    });
+
+    it("preserves diagnostics with valid original positions", () => {
+      clearSfinaeRules();
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x: string = 42;\nconst y: number = 'hello';");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+
+      // Both type errors should survive SFINAE filtering
+      expect(diagnostics.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("allows custom SFINAE rules to suppress specific diagnostics", () => {
+      clearSfinaeRules();
+
+      // Register a custom rule that suppresses TS2322 for testing
+      const suppressedCodes: number[] = [];
+      const testRule: SfinaeRule = {
+        name: "TestSuppressor",
+        errorCodes: [2322],
+        shouldSuppress(diagnostic) {
+          suppressedCodes.push(diagnostic.code);
+          return true;
+        },
+      };
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x: string = 123;");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      // Register AFTER create so MacroGenerated is also registered
+      registerSfinaeRule(testRule);
+
+      const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
+
+      // The TS2322 error should be suppressed by our custom rule
+      const typeError = diagnostics.find((d) => d.code === 2322);
+      expect(typeError).toBeUndefined();
+      expect(suppressedCodes).toContain(2322);
+    });
+  });
+
+  describe("SFINAE filtering in getSuggestionDiagnostics", () => {
+    it("returns suggestion diagnostics for clean files", () => {
+      clearSfinaeRules();
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x = 1;");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      // Should not throw
+      const suggestions = proxy.getSuggestionDiagnostics("/test/index.ts");
+      expect(suggestions).toBeDefined();
+    });
+  });
+
+  describe("audit mode", () => {
+    it("populates audit log when SFINAE audit mode is enabled", () => {
+      clearSfinaeRules();
+      clearSfinaeAuditLog();
+      setSfinaeAuditMode(true);
+
+      // Register a rule that always suppresses TS2322
+      registerSfinaeRule({
+        name: "TestAuditRule",
+        errorCodes: [2322],
+        shouldSuppress() {
+          return true;
+        },
+      });
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x: string = 123;");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      proxy.getSemanticDiagnostics("/test/index.ts");
+
+      const auditLog = getSfinaeAuditLog();
+      expect(auditLog.length).toBeGreaterThan(0);
+
+      const entry = auditLog.find((e) => e.ruleName === "TestAuditRule");
+      expect(entry).toBeDefined();
+      expect(entry!.errorCode).toBe(2322);
+    });
+
+    it("does not populate audit log when audit mode is disabled", () => {
+      clearSfinaeRules();
+      clearSfinaeAuditLog();
+      setSfinaeAuditMode(false);
+
+      registerSfinaeRule({
+        name: "TestAuditRule",
+        errorCodes: [2322],
+        shouldSuppress() {
+          return true;
+        },
+      });
+
+      const files = new Map<string, string>();
+      files.set("/test/index.ts", "const x: string = 123;");
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      proxy.getSemanticDiagnostics("/test/index.ts");
+
+      const auditLog = getSfinaeAuditLog();
+      expect(auditLog).toHaveLength(0);
+    });
+  });
+
+  describe("extension method completions still work", () => {
+    it("provides completions for object properties after SFINAE integration", () => {
+      clearSfinaeRules();
+
+      const source = `
+const obj = { name: "test", value: 42 };
+obj.
+      `.trim();
+
+      const files = new Map<string, string>([["/test/index.ts", source]]);
+
+      const plugin = init({ typescript: ts });
+      const info = createMockPluginInfo(files);
+      const proxy = plugin.create(info);
+
+      const dotPos = source.indexOf("obj.") + 4;
+      const completions = proxy.getCompletionsAtPosition("/test/index.ts", dotPos, undefined);
+
+      expect(completions).toBeDefined();
+      if (completions) {
+        const entryNames = completions.entries.map((e) => e.name);
+        expect(entryNames).toContain("name");
+        expect(entryNames).toContain("value");
+      }
     });
   });
 });

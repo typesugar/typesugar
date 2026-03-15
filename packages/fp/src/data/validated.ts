@@ -132,22 +132,23 @@ export function fromPredicateNel<E, A>(
  * Create a Validated from an Either
  */
 export function fromEither<E, A>(either: Either<E, A>): Validated<E, A> {
-  return isEitherRight(either) ? Valid(either.right) : Invalid(either.left);
+  const e: any = either;
+  return e._tag === "Right" ? Valid(e.right) : Invalid(e.left);
 }
 
 /**
  * Create a ValidatedNel from an Either
  */
 export function fromEitherNel<E, A>(either: Either<E, A>): ValidatedNel<E, A> {
-  return isEitherRight(either) ? Valid(either.right) : invalidNel(either.left);
+  const e: any = either;
+  return e._tag === "Right" ? Valid(e.right) : invalidNel(e.left);
 }
 
 /**
  * Create a Validated from an Option
  */
 export function fromOption<E, A>(opt: Option<A>, onNone: () => E): Validated<E, A> {
-  // With null-based Option, opt IS the value when it's not null
-  return isSome(opt) ? Valid(opt) : Invalid(onNone());
+  return isSome(opt) ? Valid(opt as any) : Invalid(onNone());
 }
 
 /**

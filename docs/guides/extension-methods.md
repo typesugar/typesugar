@@ -162,18 +162,31 @@ Ranges are lazy — they don't allocate arrays until you call `.toArray()`, `.ma
 When the transformer encounters `value.method()`:
 
 1. **Native property**: If `value` has a property `method`, use it
-2. **Extension functions in scope**: Imported functions with matching first parameter
-3. **Typeclass methods**: Auto-derived via `summon()`
+2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
+3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
+4. **Extension functions in scope**: Imported functions with matching first parameter
+5. **Typeclass methods**: Auto-derived via `summon()`
 
-Extensions take priority over typeclasses because concrete functions are more specific.
+Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
 
 ```typescript
 import { clamp } from "@typesugar/std";
 
 (42).clamp(0, 100);
-// 1. number has no property 'clamp'
-// 2. Found: clamp(number, number, number) in imports
+// 1. number has no property 'clamp' (natively)
+// 2. Not an @opaque type
+// 3. Found via global augmentation: Number.clamp()
 // → clamp(42, 0, 100)
+```
+
+```typescript
+import { Some } from "@typesugar/fp";
+import type { Option } from "@typesugar/fp";
+
+Some(5).map((n) => n * 2);
+// 1. Option has no native property 'map'
+// 2. Type rewrite registry: Option.map → map(receiver, ...args)
+// → map(Some(5), n => n * 2)
 ```
 
 ## Ambiguity Detection
@@ -311,6 +324,105 @@ Prefer the `"use extension"` directive for new code.
 | Typeclass-derived | Yes                     | Yes        | No           | No           |
 | Zero-cost         | Yes                     | Yes        | Yes          | Yes          |
 | File directive    | Yes (`"use extension"`) | No         | No           | No           |
+
+## @opaque Type Macros (PEP-012)
+
+For types you define with `@opaque`, methods are resolved via the **type rewrite registry** — no import of individual extension functions needed. Just importing the type's constructors is enough:
+
+```typescript
+import { Some, None } from "@typesugar/fp";
+import type { Option } from "@typesugar/fp";
+
+// Before PEP-012: namespace imports required
+// import * as O from "@typesugar/fp/data/option";
+// O.map(Some(5), n => n * 2);
+
+// After PEP-012: dot syntax works directly
+Some(5).map((n) => n * 2); // → map(Some(5), n => n * 2)
+Some(3).flatMap((n) => Some(n * 10)); // → flatMap(Some(3), n => Some(n * 10))
+Some("hi").getOrElse(() => ""); // → getOrElse(Some("hi"), () => "")
+```
+
+Chain operations fluently:
+
+```typescript
+const result = Some(5)
+  .map((n) => n * 2)
+  .filter((n) => n > 5)
+  .getOrElse(() => 0);
+// Compiles to: getOrElse(filter(map(5, n => n * 2), n => n > 5), () => 0)
+```
+
+The same works for `Either`:
+
+```typescript
+import { Right, Left } from "@typesugar/fp";
+
+Right<string, number>(42)
+  .map((n) => n * 2)
+  .flatMap((n) => (n > 50 ? Right(n) : Left("too small")))
+  .getOrElse(() => -1);
+```
+
+### How @opaque Works
+
+The `@opaque` JSDoc macro on an interface tells the system:
+
+1. **TypeScript sees**: The interface with all its methods (IDE completions, type inference)
+2. **Runtime uses**: The underlying type (`A | null` for Option, tagged union for Either)
+3. **Transformer rewrites**: `.method(args)` → `standaloneFn(receiver, args)`
+
+```typescript
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+  getOrElse(defaultValue: () => A): A;
+  // ...
+}
+```
+
+Within the defining module, the type is "transparent" — implementations can use `=== null` directly without fighting the type system.
+
+### Implicit Conversions
+
+SFINAE (PEP-011) allows implicit conversion between an `@opaque` type and its underlying representation:
+
+```typescript
+const nullable: number | null = getFromDatabase();
+const opt: Option<number> = nullable; // No error — same representation
+const raw: number | null = opt; // Also fine
+```
+
+No `fromNullable()` or `toNullable()` ceremony needed.
+
+## Global Augmentation (Built-in Types)
+
+For methods on built-in types (`Number`, `String`, `Array`, etc.), `@typesugar/std` uses global augmentation:
+
+```typescript
+// In @typesugar/std (behind the scenes):
+declare global {
+  interface Number {
+    clamp(min: number, max: number): number;
+    isEven(): boolean;
+    abs(): number;
+    // ...
+  }
+  interface String {
+    capitalize(): string;
+    camelCase(): string;
+    // ...
+  }
+  interface Array<T> {
+    head(): T | undefined;
+    chunk(size: number): T[][];
+    // ...
+  }
+}
+```
+
+TypeScript sees the methods; the transformer rewrites to function calls. No prototype mutation.
 
 ## Zero-Cost Guarantee
 
