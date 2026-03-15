@@ -244,22 +244,22 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Tasks:**
 
-- [ ] Extend `hktAttribute.expand` in `packages/macros/src/hkt.ts`:
+- [x] Extend `hktAttribute.expand` in `packages/macros/src/hkt.ts`:
   - Detect Tier 2: type alias with type params, no `_` in RHS
   - Generate companion `*F` interface (last param as hole)
   - Return `[originalNode, generatedCompanion]`
   - Emit TS9302 when `@hkt` on type with no type params
-- [ ] Add TS9302 descriptor to `packages/core/src/diagnostics.ts`
-- [ ] Migrate `packages/fp/src/data/option.ts`: add `/** @hkt */` to `Option<A>`
-- [ ] Migrate `packages/fp/src/data/either.ts`: add `/** @hkt */` to `Either<E, A>`
-- [ ] Migrate `packages/fp/src/data/list.ts`: add `/** @hkt */` to `List<A>`
-- [ ] Migrate `packages/fp/src/data/nonempty-list.ts`: add `/** @hkt */` to `NonEmptyList<A>`
-- [ ] Migrate `packages/fp/src/data/validated.ts`: add `/** @hkt */` to `Validated<E, A>`
-- [ ] Update `packages/fp/src/hkt.ts`: remove migrated manual `*F` interfaces, re-export from data modules
-- [ ] Keep manual `*F` in `hkt.ts` for class-based types (State, Reader, Writer, IO, Resource)
-- [ ] Migrate `packages/type-system/src/hkt.ts` built-ins to Tier 3 `@hkt` (ArrayF, PromiseF, SetF, MapF, ReadonlyArrayF)
-- [ ] Update barrel exports in `packages/fp/src/index.ts`
-- [ ] Tier 2 tests: `Option<A>`, `Either<E, A>`, `State<S, A>` companion generation
+- [x] Add TS9302 descriptor to `packages/core/src/diagnostics.ts`
+- [x] Migrate `packages/fp/src/data/option.ts`: add `/** @hkt */` to `Option<A>`
+- [x] Migrate `packages/fp/src/data/either.ts`: add `/** @hkt */` to `Either<E, A>`
+- [x] Migrate `packages/fp/src/data/list.ts`: add `/** @hkt */` to `List<A>`
+- [x] Migrate `packages/fp/src/data/nonempty-list.ts`: add `/** @hkt */` to `NonEmptyList<A>`
+- [x] Migrate `packages/fp/src/data/validated.ts`: add `/** @hkt */` to `Validated<E, A>`
+- [x] Update `packages/fp/src/hkt.ts`: remove migrated manual `*F` interfaces, re-export from data modules
+- [x] Keep manual `*F` in `hkt.ts` for class-based types (State, Reader, Writer, IO, Resource)
+- [x] Migrate `packages/type-system/src/hkt.ts` built-ins to Tier 3 `@hkt` (ArrayF, PromiseF, SetF, MapF, ReadonlyArrayF)
+- [x] Update barrel exports in `packages/fp/src/index.ts`
+- [x] Tier 2 tests: `Option<A>`, `Either<E, A>`, `State<S, A>` companion generation
 
 **Files changed:**
 
@@ -292,11 +292,11 @@ Start with the most explicit form — handles all edge cases, no environment res
 
 **Gate:**
 
-- [ ] `/** @hkt */ type Option<A> = A | null` generates `OptionF extends TypeFunction`
-- [ ] `/** @hkt */ type Either<E, A> = ...` generates `EitherF<E> extends TypeFunction`
-- [ ] Multi-arity types fix all-but-last parameters correctly
-- [ ] All existing imports of `OptionF`, `EitherF`, etc. still resolve
-- [ ] Preprocessor `Kind<OptionF, number>` → `Option<number>` still works
+- [x] `/** @hkt */ type Option<A> = A | null` generates `OptionF extends TypeFunction`
+- [x] `/** @hkt */ type Either<E, A> = ...` generates `EitherF<E> extends TypeFunction`
+- [x] Multi-arity types fix all-but-last parameters correctly
+- [x] All existing imports of `OptionF`, `EitherF`, etc. still resolve
+- [x] Preprocessor `Kind<OptionF, number>` → `Option<number>` still works
 
 ### Wave 3: Tier 1 — Implicit Resolution in `@impl` (~8 files)
 
