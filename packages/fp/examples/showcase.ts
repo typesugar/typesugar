@@ -37,8 +37,7 @@ import {
   tuple, fst, snd, swap,
   memoize, memoize1,
 
-  // HKT
-  type $, type OptionF, type EitherF,
+  // HKT 
   type Option, type Either, type List, type NonEmptyList, type Validated,
 } from "../src/index.js";
 
