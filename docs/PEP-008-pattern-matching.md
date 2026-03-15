@@ -925,36 +925,39 @@ Core macro infrastructure: parse `.case().if().then()` chains, extract pattern v
 
 **Tasks:**
 
-- [ ] Implement Destructure typeclass in `packages/std/src/typeclasses/destructure.ts`:
+- [x] Implement Destructure typeclass in `packages/std/src/typeclasses/destructure.ts`:
   - Type definition with `extract(input: Input): Output | undefined`
   - JSDoc `@typeclass` annotation for typeclass machinery
   - Register in typeclass registry with `canDeriveProduct: true`, `canDeriveSum: true`
-- [ ] Auto-derivation for Product types in `packages/macros/src/typeclass.ts`:
+- [x] Auto-derivation for Product types in `packages/macros/src/typeclass.ts`:
   - `deriveProduct`: generate `extract(input) → [field1, field2, ...] | undefined`
   - Structural check: verify all required fields exist
   - Return tuple of field values in declaration order
-- [ ] Auto-derivation for Sum types:
+  - Implemented via `registerProductExtractor()` in match macro — inlines structural checks at compile time
+- [x] Auto-derivation for Sum types:
   - `deriveSum`: generate one Destructure instance per variant
   - Each variant's `extract` checks the discriminant and returns the variant payload
-- [ ] Built-in Destructure instances:
+  - Built-in sum variants (Option, Either, Result, List) hardcoded with zero-cost inline checks
+- [x] Built-in Destructure instances:
   - `Option<T>`: `Some(v)` → `v`, `None` → `true`
   - `Either<L, R>`: `Left(l)` → `l`, `Right(r)` → `r`
   - `List<T>`: `Cons(h, t)` → `[h, t]`, `Nil` → `true`
-- [ ] Extractor pattern compilation in match macro:
+  - Also: `Result<T, E>`: `Ok(v)` → `v`, `Err(e)` → `e`
+- [x] Extractor pattern compilation in match macro:
   - Detect `CallExpression` in `.case()` argument: `Some(v)`, `Point(x, y)`
   - Resolve Destructure instance for the extractor name
   - Generate `extract()` call + null check + binding
   - For auto-derived instances: inline the structural check (zero-cost)
-- [ ] Zero-arg extractors: `None`, `Nil` — detect bare identifier with registered Destructure
-- [ ] Tests: Some/None, Left/Right, custom extractors, auto-derived Product/Sum
+- [x] Zero-arg extractors: `None`, `Nil` — detect bare identifier with registered Destructure
+- [x] Tests: Some/None, Left/Right, custom extractors, auto-derived Product/Sum
 
 **Gate:**
 
-- [ ] `match(opt).case(Some(v)).then(v)` works with Option
-- [ ] `match(either).case(Left(err)).then(err)` works with Either
-- [ ] `match(point).case(Point(x, y)).then(x + y)` works with auto-derived Product
-- [ ] Custom Destructure instance works: `Email({ user, domain })`
-- [ ] Inlined extraction for auto-derived types: no runtime Destructure call
+- [x] `match(opt).case(Some(v)).then(v)` works with Option
+- [x] `match(either).case(Left(err)).then(err)` works with Either
+- [x] `match(point).case(Point(x, y)).then(x + y)` works with auto-derived Product
+- [x] Custom Destructure instance works: `Email({ user, domain })`
+- [x] Inlined extraction for auto-derived types: no runtime Destructure call
 
 ### Wave 5: Exhaustiveness Analysis + Optimization (~4 files)
 

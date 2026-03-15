@@ -64,6 +64,25 @@ interface ObjectPropertyPattern {
   isRest: boolean;
 }
 
+/**
+ * Defines how an extractor pattern checks and binds values.
+ *
+ * - `sum-variant`: Tagged union variant (e.g. Some, Left). Checks a discriminant
+ *   field and extracts payload fields.
+ * - `product`: Structural type (e.g. Point). Checks required fields exist and
+ *   maps positional bindings to field names.
+ * - `custom`: User-defined Destructure instance. Generates an `extract()` call
+ *   with undefined check.
+ */
+interface ExtractorDef {
+  kind: "sum-variant" | "product" | "custom";
+  discriminantField?: string;
+  discriminantValue?: string | boolean;
+  payloadFields?: string[];
+  productFields?: string[];
+  zeroArg: boolean;
+}
+
 type PatternInfo =
   | { kind: "literal"; node: ts.Expression }
   | { kind: "wildcard" }
@@ -71,8 +90,108 @@ type PatternInfo =
   | { kind: "array"; elements: ArrayElementPattern[]; hasRest: boolean }
   | { kind: "object"; properties: ObjectPropertyPattern[]; hasRest: boolean }
   | { kind: "type-constructor"; constructorName: string; binding: PatternInfo }
+  | { kind: "extractor"; extractorName: string; bindings: PatternInfo[]; def: ExtractorDef }
   | { kind: "regex"; node: ts.Expression }
   | { kind: "unsupported"; node: ts.Expression };
+
+// ============================================================================
+// Extractor Registry
+// ============================================================================
+
+/**
+ * Built-in extractors for standard FP sum types.
+ * These generate inlined structural checks (zero-cost — no runtime Destructure call).
+ */
+const KNOWN_EXTRACTORS: Record<string, ExtractorDef> = {
+  Some: {
+    kind: "sum-variant",
+    discriminantField: "_tag",
+    discriminantValue: "Some",
+    payloadFields: ["value"],
+    zeroArg: false,
+  },
+  None: {
+    kind: "sum-variant",
+    discriminantField: "_tag",
+    discriminantValue: "None",
+    zeroArg: true,
+  },
+  Left: {
+    kind: "sum-variant",
+    discriminantField: "_tag",
+    discriminantValue: "Left",
+    payloadFields: ["value"],
+    zeroArg: false,
+  },
+  Right: {
+    kind: "sum-variant",
+    discriminantField: "_tag",
+    discriminantValue: "Right",
+    payloadFields: ["value"],
+    zeroArg: false,
+  },
+  Ok: {
+    kind: "sum-variant",
+    discriminantField: "ok",
+    discriminantValue: true,
+    payloadFields: ["value"],
+    zeroArg: false,
+  },
+  Err: {
+    kind: "sum-variant",
+    discriminantField: "ok",
+    discriminantValue: false,
+    payloadFields: ["error"],
+    zeroArg: false,
+  },
+  Cons: {
+    kind: "sum-variant",
+    discriminantField: "_tag",
+    discriminantValue: "Cons",
+    payloadFields: ["head", "tail"],
+    zeroArg: false,
+  },
+  Nil: { kind: "sum-variant", discriminantField: "_tag", discriminantValue: "Nil", zeroArg: true },
+};
+
+const registeredProductExtractors: Map<string, string[]> = new Map();
+const registeredCustomExtractors: Set<string> = new Set();
+
+/**
+ * Register a product type extractor for pattern matching.
+ * Maps positional bindings to field names in declaration order.
+ *
+ * @example
+ * ```typescript
+ * registerProductExtractor("Point", ["x", "y"]);
+ * // Now match(p).case(Point(x, y)).then(x + y) works
+ * ```
+ */
+export function registerProductExtractor(name: string, fields: string[]): void {
+  registeredProductExtractors.set(name, fields);
+}
+
+/**
+ * Register a custom Destructure extractor for pattern matching.
+ * The extractor must have a static `extract(input): Output | undefined` method.
+ *
+ * @example
+ * ```typescript
+ * registerCustomExtractor("Email");
+ * // Now match(s).case(Email({ user, domain })).then(...) works
+ * ```
+ */
+export function registerCustomExtractor(name: string): void {
+  registeredCustomExtractors.add(name);
+}
+
+/**
+ * Clear all registered extractors. Useful for test isolation.
+ */
+export function clearRegisteredExtractors(): void {
+  registeredProductExtractors.clear();
+  registeredCustomExtractors.clear();
+}
 
 /**
  * Walk from the outermost chain CallExpression inward to collect all links.
@@ -217,13 +336,17 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     return { kind: "literal", node: pattern };
   }
 
-  // Identifiers: wildcard, undefined literal, variable binding
+  // Identifiers: wildcard, undefined literal, zero-arg extractors, variable binding
   if (ts.isIdentifier(pattern)) {
     if (pattern.text === "_") {
       return { kind: "wildcard" };
     }
     if (pattern.text === "undefined") {
       return { kind: "literal", node: pattern };
+    }
+    const zeroArgDef = KNOWN_EXTRACTORS[pattern.text];
+    if (zeroArgDef && zeroArgDef.zeroArg) {
+      return { kind: "extractor", extractorName: pattern.text, bindings: [], def: zeroArgDef };
     }
     return { kind: "variable", name: pattern.text };
   }
@@ -296,14 +419,41 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     return { kind: "object", properties, hasRest };
   }
 
-  // Type constructor patterns: String(s), Date(d), Array(a), etc.
+  // CallExpression: Type constructors or extractor patterns
   if (ts.isCallExpression(pattern) && ts.isIdentifier(pattern.expression)) {
-    const ctorName = pattern.expression.text;
+    const name = pattern.expression.text;
+
+    // Check extractor registries before falling back to type-constructor
+    const knownDef = KNOWN_EXTRACTORS[name];
+    const productFields = registeredProductExtractors.get(name);
+    const isCustom = registeredCustomExtractors.has(name);
+
+    if (knownDef && !knownDef.zeroArg) {
+      const bindings =
+        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
+      return { kind: "extractor", extractorName: name, bindings, def: knownDef };
+    }
+
+    if (productFields) {
+      const def: ExtractorDef = { kind: "product", productFields, zeroArg: false };
+      const bindings =
+        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
+      return { kind: "extractor", extractorName: name, bindings, def };
+    }
+
+    if (isCustom) {
+      const def: ExtractorDef = { kind: "custom", zeroArg: false };
+      const bindings =
+        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
+      return { kind: "extractor", extractorName: name, bindings, def };
+    }
+
+    // Fall through to type-constructor for String, Date, etc.
     const binding =
       pattern.arguments.length >= 1
         ? analyzePattern(pattern.arguments[0])
         : ({ kind: "wildcard" } as const);
-    return { kind: "type-constructor", constructorName: ctorName, binding };
+    return { kind: "type-constructor", constructorName: name, binding };
   }
 
   // Regex patterns: /regex/
@@ -562,6 +712,38 @@ function collectBindings(
     case "type-constructor":
       return collectBindings(f, pattern.binding, accessor);
 
+    case "extractor": {
+      const { def, bindings } = pattern;
+      const stmts: ts.Statement[] = [];
+
+      if (def.kind === "sum-variant") {
+        const payloadFields = def.payloadFields ?? [];
+        for (let i = 0; i < bindings.length; i++) {
+          const binding = bindings[i];
+          const field = payloadFields[i];
+          if (!field) continue;
+          const fieldAccess = f.createPropertyAccessExpression(accessor, field);
+          stmts.push(...collectBindings(f, binding, fieldAccess));
+        }
+      } else if (def.kind === "product") {
+        const fields = def.productFields ?? [];
+        for (let i = 0; i < bindings.length; i++) {
+          const binding = bindings[i];
+          const field = fields[i];
+          if (!field) continue;
+          const fieldAccess = f.createPropertyAccessExpression(accessor, field);
+          stmts.push(...collectBindings(f, binding, fieldAccess));
+        }
+      } else if (def.kind === "custom") {
+        // Custom extractors: bindings apply to the extracted result.
+        // The temp variable for the result is set up in generateArmStatements;
+        // here we collect from the first binding against that temp.
+        // This path is handled in generateArmStatements for custom extractors.
+      }
+
+      return stmts;
+    }
+
     case "regex":
       return [];
 
@@ -748,6 +930,75 @@ function buildCondition(
       );
     }
 
+    case "extractor": {
+      const { def, bindings } = pattern;
+
+      if (def.kind === "sum-variant") {
+        const discField = def.discriminantField ?? "_tag";
+        const discValue = def.discriminantValue;
+
+        const discCheck = f.createBinaryExpression(
+          f.createPropertyAccessExpression(accessor, discField),
+          ts.SyntaxKind.EqualsEqualsEqualsToken,
+          typeof discValue === "boolean"
+            ? discValue
+              ? f.createTrue()
+              : f.createFalse()
+            : f.createStringLiteral(discValue as string)
+        );
+
+        // Recurse into nested patterns on payload fields
+        const nestedParts: ts.Expression[] = [];
+        const payloadFields = def.payloadFields ?? [];
+        for (let i = 0; i < bindings.length; i++) {
+          const binding = bindings[i];
+          const field = payloadFields[i];
+          if (!field || binding.kind === "wildcard" || binding.kind === "variable") continue;
+          const nested = buildCondition(
+            f,
+            binding,
+            f.createPropertyAccessExpression(accessor, field)
+          );
+          if (nested) nestedParts.push(nested);
+        }
+
+        if (nestedParts.length === 0) return discCheck;
+        return [discCheck, ...nestedParts].reduce((a, b) =>
+          f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
+        );
+      }
+
+      if (def.kind === "product") {
+        // Inlined structural check: verify all required fields exist
+        const fields = def.productFields ?? [];
+        const checks: ts.Expression[] = fields.map((field) =>
+          f.createBinaryExpression(f.createStringLiteral(field), ts.SyntaxKind.InKeyword, accessor)
+        );
+
+        // Recurse into nested patterns
+        for (let i = 0; i < bindings.length; i++) {
+          const binding = bindings[i];
+          const field = fields[i];
+          if (!field || binding.kind === "wildcard" || binding.kind === "variable") continue;
+          const nested = buildCondition(
+            f,
+            binding,
+            f.createPropertyAccessExpression(accessor, field)
+          );
+          if (nested) checks.push(nested);
+        }
+
+        if (checks.length === 0) return undefined;
+        return checks.reduce((a, b) =>
+          f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
+        );
+      }
+
+      // Custom extractors: condition is handled in generateArmStatements
+      // with extract() call + undefined check
+      return undefined;
+    }
+
     case "regex":
       // Regex conditions are handled in generateRegexArmStatements
       return undefined;
@@ -910,13 +1161,108 @@ function generateRegexArmStatements(
 }
 
 // ============================================================================
+// Custom Extractor Arm Generation
+// ============================================================================
+
+/**
+ * Generate statements for a custom Destructure extractor pattern.
+ * Calls `ExtractorName.extract(scrutinee)`, checks for undefined,
+ * then binds the result and recurses into nested patterns.
+ *
+ * Generated shape:
+ * ```
+ * {
+ *   const __ext = ExtractorName.extract(__m);
+ *   if (__ext !== undefined) {
+ *     // bindings from nested patterns applied to __ext
+ *     return result;
+ *   }
+ * }
+ * ```
+ */
+function generateCustomExtractorArm(
+  ctx: MacroContext,
+  f: ts.NodeFactory,
+  pattern: PatternInfo & { kind: "extractor" },
+  scrutineeRef: ts.Expression,
+  guard: ts.Expression | undefined,
+  result: ts.Expression,
+  asBindings: ts.Statement[]
+): ts.Statement[] {
+  const extName = pattern.extractorName;
+  const tempName = ctx.generateUniqueName("ext");
+
+  // const __ext = ExtractorName.extract(__m)
+  const extractCall = f.createCallExpression(
+    f.createPropertyAccessExpression(f.createIdentifier(extName), "extract"),
+    undefined,
+    [scrutineeRef]
+  );
+  const extDecl = f.createVariableStatement(
+    undefined,
+    f.createVariableDeclarationList(
+      [f.createVariableDeclaration(tempName, undefined, undefined, extractCall)],
+      ts.NodeFlags.Const
+    )
+  );
+
+  const extRef = f.createIdentifier(tempName.text);
+
+  // Collect bindings from the first nested pattern against __ext
+  const innerBindings: ts.Statement[] = [];
+  if (pattern.bindings.length === 1) {
+    innerBindings.push(...collectBindings(f, pattern.bindings[0], extRef));
+  } else if (pattern.bindings.length > 1) {
+    // Multiple positional bindings: treat __ext as tuple-like
+    for (let i = 0; i < pattern.bindings.length; i++) {
+      const binding = pattern.bindings[i];
+      const elemAccess = f.createElementAccessExpression(extRef, i);
+      innerBindings.push(...collectBindings(f, binding, elemAccess));
+    }
+  }
+
+  const innerBody: ts.Statement[] = [...asBindings, ...innerBindings];
+
+  // Build nested conditions for non-trivial inner patterns
+  let nestedCondition: ts.Expression | undefined;
+  if (pattern.bindings.length === 1) {
+    nestedCondition = buildCondition(f, pattern.bindings[0], extRef);
+  }
+
+  if (guard && nestedCondition) {
+    innerBody.push(
+      f.createIfStatement(
+        f.createBinaryExpression(nestedCondition, ts.SyntaxKind.AmpersandAmpersandToken, guard),
+        f.createReturnStatement(result)
+      )
+    );
+  } else if (guard) {
+    innerBody.push(f.createIfStatement(guard, f.createReturnStatement(result)));
+  } else if (nestedCondition) {
+    innerBody.push(f.createIfStatement(nestedCondition, f.createReturnStatement(result)));
+  } else {
+    innerBody.push(f.createReturnStatement(result));
+  }
+
+  // if (__ext !== undefined) { ... }
+  const nullCheck = f.createBinaryExpression(
+    extRef,
+    ts.SyntaxKind.ExclamationEqualsEqualsToken,
+    f.createIdentifier("undefined")
+  );
+  const ifStmt = f.createIfStatement(nullCheck, f.createBlock(innerBody, true));
+
+  return [f.createBlock([extDecl, ifStmt], true)];
+}
+
+// ============================================================================
 // Arm Statement Generation
 // ============================================================================
 
 /**
  * Generate statements for a single match arm (pattern + optional guard + result).
- * Handles all pattern kinds including array, object, nested, and type-constructor.
- * Supports optional AS pattern binding.
+ * Handles all pattern kinds including array, object, nested, type-constructor,
+ * and extractor patterns. Supports optional AS pattern binding.
  */
 function generateArmStatements(
   ctx: MacroContext,
@@ -1012,6 +1358,31 @@ function generateArmStatements(
       return [body];
     }
 
+    case "extractor": {
+      const { def } = pattern;
+
+      if (def.kind === "custom") {
+        return generateCustomExtractorArm(ctx, f, pattern, scrutineeRef, guard, result, asBindings);
+      }
+
+      // Sum-variant and product extractors: inlined structural checks (zero-cost)
+      const condition = buildCondition(f, pattern, scrutineeRef);
+      const bindings = collectBindings(f, pattern, scrutineeRef);
+
+      const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
+      if (guard) {
+        bodyStatements.push(f.createIfStatement(guard, f.createReturnStatement(result)));
+      } else {
+        bodyStatements.push(f.createReturnStatement(result));
+      }
+
+      const body = f.createBlock(bodyStatements, true);
+      if (condition) {
+        return [f.createIfStatement(condition, body)];
+      }
+      return [body];
+    }
+
     case "regex":
       // Handled separately via generateRegexArmStatements
       return [];
@@ -1019,7 +1390,7 @@ function generateArmStatements(
     case "unsupported":
       ctx.reportError(
         pattern.node,
-        `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, and regex supported)`
+        `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
       );
       return [];
   }
