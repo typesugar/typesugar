@@ -1295,6 +1295,7 @@ export function richToLegacyDiagnostic(rich: RichDiagnostic): MacroDiagnostic {
     severity: rich.severity,
     message,
     node: rich.primarySpan?.node,
+    code: rich.code,
     suggestion: rich.suggestions.length > 0 ? rich.suggestions[0].replacement : undefined,
   };
 }

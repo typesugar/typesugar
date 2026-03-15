@@ -84,6 +84,7 @@ import {
   type ResolutionAttempt,
   type ResolutionTrace,
 } from "@typesugar/core";
+import type { DerivationResult } from "./auto-derive.js";
 import { globalResolutionScope } from "@typesugar/core";
 import {
   TS9001,
@@ -92,6 +93,8 @@ import {
   TS9060,
   TS9101,
   TS9102,
+  TS9103,
+  TS9104,
   TS9203,
 } from "@typesugar/core";
 import {
@@ -268,6 +271,138 @@ function hasPrimitiveOrInstance(typeName: string, typeclassName: string): boolea
 }
 
 /**
+ * Extract fields from a TypeLiteralNode (inline object type like `{ x: number; y: string }`).
+ */
+function extractFieldsFromTypeLiteral(typeLiteral: ts.TypeLiteralNode): DeriveFieldInfo[] {
+  const fields: DeriveFieldInfo[] = [];
+  for (const member of typeLiteral.members) {
+    if (ts.isPropertySignature(member)) {
+      if (!member.name || !ts.isIdentifier(member.name)) continue;
+      const name = member.name.text;
+      const typeString = member.type
+        ? member.type.getText().replace(/\s+/g, " ").trim()
+        : "unknown";
+      fields.push({
+        name,
+        typeString,
+        type: undefined as unknown as ts.Type,
+        optional: !!member.questionToken,
+        readonly:
+          member.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false,
+      });
+    }
+  }
+  return fields;
+}
+
+/**
+ * Fallback: extract field info from the AST when the TypeChecker is unavailable.
+ * Uses type annotation text instead of resolved types.
+ */
+function extractFieldsFromAST(target: ts.Declaration): DeriveFieldInfo[] {
+  const fields: DeriveFieldInfo[] = [];
+
+  // Handle interface and class declarations
+  let members: readonly (ts.TypeElement | ts.ClassElement)[] | undefined;
+  if (ts.isInterfaceDeclaration(target)) {
+    members = target.members;
+  } else if (ts.isClassDeclaration(target)) {
+    members = target.members;
+  }
+
+  if (members) {
+    for (const member of members) {
+      if (ts.isPropertySignature(member) || ts.isPropertyDeclaration(member)) {
+        if (!member.name || !ts.isIdentifier(member.name)) continue;
+        const name = member.name.text;
+        const typeString = member.type
+          ? member.type.getText().replace(/\s+/g, " ").trim()
+          : "unknown";
+        fields.push({
+          name,
+          typeString,
+          type: undefined as unknown as ts.Type,
+          optional: !!member.questionToken,
+          readonly:
+            member.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false,
+        });
+      }
+    }
+    return fields;
+  }
+
+  // Handle type alias with inline object type: type Point = { x: number; y: number }
+  if (ts.isTypeAliasDeclaration(target)) {
+    if (ts.isTypeLiteralNode(target.type)) {
+      return extractFieldsFromTypeLiteral(target.type);
+    }
+    // For union types, we can't extract fields directly - they need sum type handling
+    // Return empty to trigger sum type detection
+  }
+
+  return fields;
+}
+
+/**
+ * AST-based fallback for extracting sum type information when TypeChecker is unavailable.
+ * Works with inline union types like:
+ *   type X = { kind: "a"; name: string } | { kind: "b"; age: number }
+ */
+function tryExtractSumTypeFromAST(
+  target: ts.TypeAliasDeclaration
+): { discriminant: string; variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }> } | undefined {
+  if (!ts.isUnionTypeNode(target.type)) {
+    return undefined;
+  }
+
+  const KNOWN_DISCRIMINANTS = ["kind", "_tag", "type", "tag", "__typename"];
+  const variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }> = [];
+  let discriminant: string | undefined;
+
+  for (const member of target.type.types) {
+    // Handle inline object types: { kind: "a"; name: string }
+    if (ts.isTypeLiteralNode(member)) {
+      const fields = extractFieldsFromTypeLiteral(member);
+
+      // Look for discriminant field with literal type
+      for (const field of fields) {
+        if (KNOWN_DISCRIMINANTS.includes(field.name)) {
+          // Check if the type is a string literal (e.g., "a" or 'a')
+          const literalMatch = field.typeString.match(/^["'](.+)["']$/);
+          if (literalMatch) {
+            const tag = literalMatch[1];
+            if (!discriminant) {
+              discriminant = field.name;
+            } else if (discriminant !== field.name) {
+              continue; // Different discriminant field, skip
+            }
+            // Use anonymous variant name based on tag
+            variants.push({
+              tag,
+              typeName: `${target.name.text}_${tag}`,
+              fields: fields.filter(f => f.name !== discriminant),
+            });
+            break;
+          }
+        }
+      }
+    }
+    // Handle named type references: Circle | Rectangle
+    else if (ts.isTypeReferenceNode(member)) {
+      // For named types, we can't extract discriminant without TypeChecker
+      // Return undefined to let the caller handle it differently
+      return undefined;
+    }
+  }
+
+  if (discriminant && variants.length === target.type.types.length) {
+    return { discriminant, variants };
+  }
+
+  return undefined;
+}
+
+/**
  * Build a derivation plan for transitive derivation.
  * Returns types to derive in dependency order (leaves first).
  */
@@ -327,22 +462,38 @@ function buildTransitiveDerivationPlan(
 
     visiting.add(typeName);
 
-    // Get fields
-    const type = ctx.typeChecker.getTypeAtLocation(typeNode);
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
+    // Get fields — guard against TypeChecker failures (IDE background processing)
+    let type: ts.Type;
+    let properties: ts.Symbol[];
+    try {
+      type = ctx.typeChecker.getTypeAtLocation(typeNode);
+      properties = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
+    } catch {
+      result.errors.push(`TypeChecker could not resolve type '${typeName}' (IDE background)`);
+      visiting.delete(typeName);
+      return false;
+    }
+
     const fields: DeriveFieldInfo[] = [];
     let allOk = true;
 
     for (const prop of properties) {
+      if (!prop) continue;
       const decls = prop.getDeclarations();
       if (!decls || decls.length === 0) continue;
 
-      const decl = decls[0];
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-      const propTypeString = ctx.typeChecker.typeToString(propType);
+      let propType: ts.Type;
+      let propTypeString: string;
+      try {
+        const decl = decls[0];
+        propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+        propTypeString = ctx.typeChecker.typeToString(propType);
+      } catch {
+        continue;
+      }
+
       const baseTypeName = normalizeTypeNameForLookup(propTypeString);
 
-      // Recursively analyze field type
       if (!analyze(baseTypeName, depth + 1)) {
         allOk = false;
       }
@@ -2503,11 +2654,18 @@ export function tryExtractSumType(
     }
 
     const typeName = member.typeName.getText();
-    const type = ctx.typeChecker.getTypeFromTypeNode(member);
-    const props = ctx.typeChecker.getPropertiesOfType(type);
+    let type: ts.Type;
+    let props: ts.Symbol[];
+    try {
+      type = ctx.typeChecker.getTypeFromTypeNode(member);
+      props = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
+    } catch {
+      return undefined;
+    }
 
     // Look for common discriminant fields
     for (const prop of props) {
+      if (!prop) continue;
       const name = prop.name;
       if (name === "kind" || name === "_tag" || name === "type" || name === "tag") {
         if (!discriminant) {
@@ -2520,9 +2678,13 @@ export function tryExtractSumType(
         const declarations = prop.getDeclarations();
         if (declarations && declarations.length > 0) {
           const decl = declarations[0];
-          const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-          if (propType.isStringLiteral()) {
-            variants.push({ tag: propType.value, typeName });
+          try {
+            const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+            if (propType.isStringLiteral()) {
+              variants.push({ tag: propType.value, typeName });
+            }
+          } catch {
+            continue;
           }
         }
       }
@@ -2579,18 +2741,106 @@ export const derivingAttribute = defineAttributeMacro({
     }
 
     const typeName = target.name?.text ?? "Anonymous";
-    const type = ctx.typeChecker.getTypeAtLocation(target);
+
+    let type: ts.Type | undefined;
+    try {
+      type = ctx.typeChecker.getTypeAtLocation(target);
+    } catch {
+      // TypeChecker not ready — fall through to AST-based extraction
+    }
+
+    // -----------------------------------------------------------------------
+    // DEGRADED MODE: TypeChecker unavailable (IDE background)
+    //
+    // When the TypeChecker can't resolve types, we can only do AST-based
+    // error detection. We must NOT generate derivation code because it would
+    // reference identifiers (eqNumber, ordNumber, etc.) that don't exist
+    // in the IDE's type scope, producing cascading spurious TS errors.
+    //
+    // Real derivation code generation happens during tspc build when the
+    // TypeChecker is fully operational.
+    // -----------------------------------------------------------------------
+    if (!type) {
+      const astFields = extractFieldsFromAST(target);
+
+      // TS9103: Union type without discriminant
+      if (
+        ts.isTypeAliasDeclaration(target) &&
+        ts.isUnionTypeNode(target.type)
+      ) {
+        const astSum = tryExtractSumTypeFromAST(target);
+        if (!astSum) {
+          ctx.diagnostic(TS9103)
+            .at(target)
+            .help("Add a discriminant field like `kind: \"a\"` to each variant")
+            .emit();
+        }
+        // Valid discriminated union or unresolvable — skip code generation
+        return target;
+      }
+
+      // TS9104: Empty type (no fields)
+      if (astFields.length === 0) {
+        for (const arg of args) {
+          if (ts.isIdentifier(arg)) {
+            ctx.diagnostic(TS9104)
+              .at(target)
+              .withArgs({ typeclass: arg.text, type: typeName })
+              .help("Add fields to the type, or provide a manual @instance")
+              .emit();
+          }
+        }
+        return target;
+      }
+
+      // TS9101: Fields contain non-derivable types (functions, unknown, etc.)
+      for (const field of astFields) {
+        const t = field.typeString;
+        if (t.includes("=>") || t === "unknown" || t === "never" || t === "any") {
+          for (const arg of args) {
+            if (ts.isIdentifier(arg)) {
+              ctx.diagnostic(TS9101)
+                .at(target)
+                .withArgs({ typeclass: arg.text, type: typeName, field: field.name, fieldType: t })
+                .help(`Field \`${field.name}\` has type \`${t}\` which likely can't derive ${arg.text}`)
+                .emit();
+            }
+          }
+          return target;
+        }
+      }
+
+      // Type looks valid but we can't generate code without TypeChecker.
+      // Return unchanged — derivation will happen during tspc build.
+      return target;
+    }
+
     const typeParameters = target.typeParameters ? Array.from(target.typeParameters) : [];
 
-    // Extract fields
-    const fields: DeriveFieldInfo[] = [];
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
+    // Extract fields via TypeChecker (available in this branch)
+    let fields: DeriveFieldInfo[] = [];
+    let properties: ts.Symbol[];
+    try {
+      properties = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
+    } catch {
+      properties = [];
+    }
+
     for (const prop of properties) {
+      if (!prop) continue;
       const declarations = prop.getDeclarations();
       if (!declarations || declarations.length === 0) continue;
       const decl = declarations[0];
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-      const propTypeString = ctx.typeChecker.typeToString(propType);
+
+      let propType: ts.Type;
+      let propTypeString: string;
+      try {
+        propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+        propTypeString = ctx.typeChecker.typeToString(propType);
+      } catch {
+        continue;
+      }
+
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
       const readonly =
         ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
@@ -2604,6 +2854,11 @@ export const derivingAttribute = defineAttributeMacro({
         optional,
         readonly,
       });
+    }
+
+    // AST fallback when TypeChecker returned empty properties
+    if (fields.length === 0) {
+      fields = extractFieldsFromAST(target);
     }
 
     // Detect if this is a sum type and populate metadata
@@ -2622,24 +2877,27 @@ export const derivingAttribute = defineAttributeMacro({
     if (sumInfo && ts.isTypeAliasDeclaration(target)) {
       for (const variant of sumInfo.variants) {
         const variantFields: DeriveFieldInfo[] = [];
-        // Find the variant type and extract its fields
         if (ts.isUnionTypeNode(target.type)) {
           for (const member of target.type.types) {
             if (ts.isTypeReferenceNode(member) && member.typeName.getText() === variant.typeName) {
-              const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
-              const props = ctx.typeChecker.getPropertiesOfType(variantType);
-              for (const prop of props) {
-                if (prop.name === sumInfo.discriminant) continue;
-                const decl = prop.getDeclarations()?.[0];
-                if (!decl) continue;
-                const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-                variantFields.push({
-                  name: prop.name,
-                  typeString: ctx.typeChecker.typeToString(propType),
-                  type: propType,
-                  optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
-                  readonly: false,
-                });
+              try {
+                const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
+                const props = ctx.typeChecker.getPropertiesOfType(variantType);
+                for (const prop of props) {
+                  if (!prop || prop.name === sumInfo.discriminant) continue;
+                  const decl = prop.getDeclarations()?.[0];
+                  if (!decl) continue;
+                  const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+                  variantFields.push({
+                    name: prop.name,
+                    typeString: ctx.typeChecker.typeToString(propType),
+                    type: propType,
+                    optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
+                    readonly: false,
+                  });
+                }
+              } catch {
+                // TypeChecker not ready for variant resolution
               }
               break;
             }
@@ -2653,12 +2911,25 @@ export const derivingAttribute = defineAttributeMacro({
       }
     }
 
+    // Check for union types without discriminant - emit TS9103
+    if (
+      ts.isTypeAliasDeclaration(target) &&
+      ts.isUnionTypeNode(target.type) &&
+      !sumInfo
+    ) {
+      ctx.diagnostic(TS9103)
+        .at(target)
+        .help("Add a discriminant field like `kind: \"a\"` to each variant")
+        .emit();
+      return target;
+    }
+
     // Construct complete DeriveTypeInfo with sum type metadata
     const typeInfo: DeriveTypeInfo = {
       name: typeName,
       fields,
       typeParameters,
-      type,
+      type: type as ts.Type,
       kind: sumInfo ? "sum" : "product",
       ...(sumInfo && {
         discriminant: sumInfo.discriminant,
@@ -2886,9 +3157,17 @@ export const summonMacro = defineExpressionMacro({
     });
 
     // 2. Try Scala 3-style derivation via Generic (GenericMeta)
-    const { tryDeriveViaGeneric } =
-      require("./auto-derive.js") as typeof import("./auto-derive.js");
-    const derivationResult = tryDeriveViaGeneric(ctx, tcName, typeName);
+    let derivationResult: DerivationResult;
+    try {
+      const { tryDeriveViaGeneric } =
+        require("./auto-derive.js") as typeof import("./auto-derive.js");
+      derivationResult = tryDeriveViaGeneric(ctx, tcName, typeName);
+    } catch {
+      derivationResult = {
+        expression: null,
+        trace: [{ step: "auto-derive", target: `${tcName}<${typeName}>`, result: "rejected", reason: "Auto-derive module not available" }],
+      };
+    }
 
     // Merge derivation trace into our attempts
     if (derivationResult.trace.length > 0) {

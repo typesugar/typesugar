@@ -910,18 +910,57 @@ export default function macroTransformerFactory(
         // Safely get start position - synthetic nodes throw on getStart
         let start = 0;
         let length = 0;
-        try {
-          start = diag.node ? diag.node.getStart(sourceFile) : 0;
-          length = diag.node ? diag.node.getWidth(sourceFile) : 0;
-        } catch {
+        if (diag.node) {
           if (verbose) {
-            console.log(`[typesugar] Warning: diagnostic node has no position: ${diag.message}`);
+            console.log(`[typesugar] Diagnostic node: kind=${ts.SyntaxKind[diag.node.kind]}, pos=${diag.node.pos}, end=${diag.node.end}`);
+          }
+          // Try multiple approaches to get position
+          // 1. Check if node has pos/end properties directly (most reliable)
+          if (diag.node.pos >= 0 && diag.node.end > diag.node.pos) {
+            start = diag.node.pos;
+            length = diag.node.end - diag.node.pos;
+            // Adjust start to skip leading trivia (whitespace/comments)
+            // Use the node's getStart method if available, as it handles trivia correctly
+            try {
+              const nodeSourceFile = diag.node.getSourceFile?.();
+              if (nodeSourceFile) {
+                // getStart skips leading trivia
+                const textStart = diag.node.getStart(nodeSourceFile);
+                if (textStart >= start && textStart < diag.node.end) {
+                  start = textStart;
+                  length = diag.node.end - textStart;
+                }
+              }
+            } catch (e) {
+              if (verbose) {
+                console.log(`[typesugar] getStart failed: ${e}`);
+              }
+              // Keep the pos/end values if getStart fails
+            }
+          } else {
+            // 2. Fallback: try getStart/getWidth with provided sourceFile
+            try {
+              start = diag.node.getStart(sourceFile);
+              length = diag.node.getWidth(sourceFile);
+            } catch (e) {
+              if (verbose) {
+                console.log(`[typesugar] Fallback getStart failed: ${e}, node.pos=${diag.node.pos}, node.end=${diag.node.end}`);
+              }
+            }
+          }
+          if (verbose) {
+            console.log(`[typesugar] Final position: start=${start}, length=${length}`);
+          }
+        } else {
+          if (verbose) {
+            console.log(`[typesugar] Diagnostic has no node: ${diag.message.substring(0, 50)}...`);
           }
         }
 
-        // Extract typesugar error code from [TS9XXX] prefix in message
-        const codeMatch = diag.message.match(/\[TS(\d{4})\]/);
-        const errorCode = codeMatch ? parseInt(codeMatch[1], 10) : 90000;
+        // Use the structured code from MacroDiagnostic if available,
+        // otherwise try to extract from [TS9XXX] prefix in message text
+        const errorCode = diag.code
+          ?? (() => { const m = diag.message.match(/\[TS(\d{4})\]/); return m ? parseInt(m[1], 10) : 9999; })();
 
         const tsDiag: ts.Diagnostic & { __typesugarSuggestion?: string } = {
           file: sourceFile,
@@ -3041,9 +3080,13 @@ class MacroTransformer {
    */
   private static readonly JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
     ["typeclass", "typeclass"],
-    ["impl", "impl"], // @impl -> impl macro (preferred name)
-    ["instance", "instance"], // @instance -> instance macro (deprecated alias)
+    ["impl", "impl"],
+    ["instance", "instance"],
     ["deriving", "deriving"],
+    ["operators", "operators"],
+    ["operator", "operator"],
+    ["extension", "extension"],
+    ["reflect", "reflect"],
   ]);
 
   /**
@@ -3054,11 +3097,13 @@ class MacroTransformer {
     node: ts.Node
   ): node is
     | ts.InterfaceDeclaration
+    | ts.ClassDeclaration
     | ts.TypeAliasDeclaration
     | ts.VariableStatement
     | ts.VariableDeclaration {
     return (
       ts.isInterfaceDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
       ts.isTypeAliasDeclaration(node) ||
       ts.isVariableStatement(node) ||
       ts.isVariableDeclaration(node)
@@ -3156,10 +3201,12 @@ class MacroTransformer {
           currentNode = expanded as ts.Declaration;
         }
       } catch (err) {
-        this.ctx.reportError(
-          tag,
-          `Error expanding @${tag.tagName.text}: ${err instanceof Error ? err.message : String(err)}`
-        );
+        const macroTag = tag.tagName.text;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.ctx.reportError(tag, `@${macroTag} macro failed (this may be transient — try saving again)`);
+        if (this.verbose) {
+          console.error(`[typesugar] @${macroTag} expand threw: ${err instanceof Error ? err.stack : errMsg}`);
+        }
       }
     }
 
@@ -3345,6 +3392,9 @@ class MacroTransformer {
         }
       }
 
+      if (result === node) {
+        return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      }
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
       return preserveSourceMap(visited, node);
     } catch (error) {
@@ -3463,7 +3513,16 @@ class MacroTransformer {
       currentNode = this.updateDecorators(currentNode, remainingDecorators);
     }
 
-    const visited = ts.visitNode(currentNode, this.visit.bind(this)) as ts.Node;
+    let visited: ts.Node;
+    try {
+      visited = ts.visitNode(currentNode, this.visit.bind(this)) as ts.Node;
+    } catch (error) {
+      this.ctx.reportError(
+        node,
+        `Visiting attribute macro result failed: ${error}`
+      );
+      visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    }
     const mappedNode = preserveSourceMap(visited, node);
 
     if (extraStatements.length > 0) {
@@ -3977,6 +4036,9 @@ class MacroTransformer {
 
         // Wrap expansion in a hygiene scope so generated names are isolated
         const result = this.ctx.hygiene.withScope(() => taggedMacro.expand(this.ctx, node));
+        if (result === (node as ts.Node)) {
+          return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+        }
         const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
         return preserveSourceMap(visited, node);
       } catch (error) {
@@ -4003,6 +4065,9 @@ class MacroTransformer {
           node.template as unknown as ts.Expression,
         ])
       );
+      if (result === (node as unknown as ts.Expression)) {
+        return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      }
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
       return preserveSourceMap(visited, node);
     } catch (error) {
@@ -4050,11 +4115,14 @@ class MacroTransformer {
       const typeArgs = node.typeArguments ? Array.from(node.typeArguments) : [];
       // Wrap expansion in a hygiene scope so generated names are isolated
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, typeArgs));
+      if (result === (node as ts.Node)) {
+        return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      }
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.TypeNode;
       return preserveSourceMap(visited, node);
     } catch (error) {
       this.ctx.reportError(node, `Type macro expansion failed: ${error}`);
-      return node;
+      return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
     }
   }
 
