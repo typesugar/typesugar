@@ -61,7 +61,12 @@ const isRound = match(shape, {
 });
 ```
 
+## Exhaustiveness and MatchError
+
+The fluent `match().case().then().else()` API (see [PEP-008](../PEP-008-pattern-matching.md)) enforces compile-time exhaustiveness. Missing cases produce a clear error (e.g. "Non-exhaustive match — missing cases: blue, green"). When no pattern matches at runtime, the generated code throws `MatchError` with the unmatched value on `.value`.
+
 ## Learn More
 
+- [PEP-008: Pattern Matching](../PEP-008-pattern-matching.md) — Fluent API, exhaustiveness, MatchError, full pattern catalogue
 - [API Reference](/reference/packages#std)
 - [Package README](https://github.com/typesugar/typesugar/tree/main/packages/std)

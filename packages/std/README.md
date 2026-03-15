@@ -249,6 +249,75 @@ Rich extension methods for every basic type:
 | **PromiseExt**  | 20+ methods: `tap`, `timeout`, `retry`, `mapError`, ...            |
 | **FunctionExt** | 25+ methods: `memoize`, `debounce`, `throttle`, `compose`, ...     |
 
+## Pattern Matching
+
+Scala-style pattern matching with **compile-time exhaustiveness checking** and zero runtime overhead. Two syntaxes: fluent API (any `.ts` file) and preprocessor syntax (`.sts` files).
+
+### Fluent API
+
+```typescript
+import { match } from "@typesugar/std";
+
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number }
+  | { kind: "rect"; w: number; h: number };
+
+const area = match(shape)
+  .case({ kind: "circle", radius: r })
+  .then(Math.PI * r ** 2)
+  .case({ kind: "square", side: s })
+  .then(s ** 2)
+  .case({ kind: "rect", w, h })
+  .then(w * h);
+// Compile error if you miss a variant. Zero runtime overhead.
+```
+
+### Preprocessor Syntax (`.sts` files)
+
+```typescript
+const area = match(shape)
+| { kind: "circle", radius: r } => Math.PI * r ** 2
+| { kind: "square", side: s } => s ** 2
+| { kind: "rect", w, h } => w * h
+```
+
+### Pattern Types
+
+The fluent API supports all structural patterns — literals, variable binding, wildcards, arrays/tuples, objects, discriminated unions, type patterns (`String(s)`, `Date(d)`), OR patterns (`.or()`), AS patterns (`.as()`), regex, nested patterns, and extractors via the `Destructure` typeclass.
+
+### Exhaustiveness
+
+Every `match()` is always exhaustive. Missing cases produce a compile error:
+
+```
+error[TS9401]: Non-exhaustive match — missing cases: "blue"
+  --> src/colors.ts:5:1
+   |
+ 5 | match(color)
+   | ^^^^^ missing case "blue"
+```
+
+Use `.else(value)` as a catch-all. When no pattern matches at runtime, the generated code throws `MatchError`.
+
+### Legacy API (Deprecated)
+
+The old object-handler form continues to work for backwards compatibility:
+
+```typescript
+import { match, when, otherwise, P } from "@typesugar/std";
+
+// Still works — but prefer the fluent API above
+const area = match(shape, {
+  circle: ({ radius }) => Math.PI * radius ** 2,
+  square: ({ side }) => side ** 2,
+});
+```
+
+`when()`, `otherwise()`, and `P.*` helpers have `@deprecated` notices suggesting the fluent alternative.
+
+See the [Pattern Matching Guide](../../docs/guides/pattern-matching.md) for the full pattern catalogue, migration guide, and optimization details.
+
 ## Data Types
 
 ### Tuples
@@ -333,6 +402,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
 
 ### Data Type Exports
 
+- `MatchError` — Runtime error thrown when a match is non-exhaustive and no arm matches (extends `Error`, has `.value` property)
 - `Pair<A, B>`, `Triple<A, B, C>` — Tuple types with utilities
 - `Range` — Numeric ranges with iteration support
   - Creation: `to(n, end)`, `until(n, end)` (extension methods on number)
