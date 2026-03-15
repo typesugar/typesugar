@@ -73,7 +73,6 @@ Supercharge your existing tools:
 | Guide                    | Description                               |
 | ------------------------ | ----------------------------------------- |
 | [Effect-TS](./effect.md) | `@service`, `@layer`, `resolveLayer<R>()` |
-| [React](./react.md)      | Vue/Svelte-style reactivity               |
 | [SQL](./sql.md)          | Doobie-like type-safe SQL                 |
 
 ## Developer Experience
@@ -109,7 +108,7 @@ import { typeclass, instance, deriving, summon } from "@typesugar/typeclass";
 import { operators, ops, pipe } from "typesugar";
 
 // Compile-time
-import { comptime, includeStr, staticAssert } from "@typesugar/comptime";
+import { comptime, includeStr, staticAssert } from "@typesugar/macros";
 
 // Contracts
 import { requires, ensures, invariant } from "@typesugar/contracts";
@@ -128,7 +127,7 @@ import { assert, staticAssert, typeAssert, forAll } from "@typesugar/testing";
 
 | Feature         | Package                | Macro Type      |
 | --------------- | ---------------------- | --------------- |
-| `comptime()`    | `@typesugar/comptime`  | Expression      |
+| `comptime()`    | `@typesugar/macros`    | Expression      |
 | `@derive()`     | `@typesugar/derive`    | Attribute       |
 | `@typeclass`    | `@typesugar/typeclass` | Attribute       |
 | `@operators()`  | `typesugar` (legacy)   | Attribute       |

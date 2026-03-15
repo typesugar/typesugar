@@ -73,10 +73,9 @@ alice.toJson(); // JSON serialization
 
 ### Syntax Sugar
 
-| Package                                  | Description                             |
-| ---------------------------------------- | --------------------------------------- |
-| [@typesugar/strings](packages/strings)   | `regex`, `html`, `raw` tagged templates |
-| [@typesugar/comptime](packages/comptime) | `comptime()` compile-time evaluation    |
+| Package                                | Description                             |
+| -------------------------------------- | --------------------------------------- |
+| [@typesugar/strings](packages/strings) | `regex`, `html`, `raw` tagged templates |
 
 ### Type Safety & Contracts
 
@@ -109,7 +108,6 @@ alice.toJson(); // JSON serialization
 | Package                              | Description                              |
 | ------------------------------------ | ---------------------------------------- |
 | [@typesugar/effect](packages/effect) | Effect-TS services, layers, optimization |
-| [@typesugar/react](packages/react)   | Vue/Svelte-style reactivity              |
 | [@typesugar/sql](packages/sql)       | Doobie-like SQL DSL                      |
 
 ### Developer Experience
@@ -196,7 +194,7 @@ See the [migration guide](docs/migration/sts-migration.md) for details on conver
 ### Compile-Time Evaluation
 
 ```typescript
-import { comptime } from "@typesugar/comptime";
+import { comptime } from "typesugar";
 
 const fib10 = comptime(() => {
   const fib = (n: number): number => (n <= 1 ? n : fib(n - 1) + fib(n - 2));
