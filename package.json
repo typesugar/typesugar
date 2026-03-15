@@ -4,7 +4,7 @@
   "description": "🧊 Compile-time macros for TypeScript -- inspired by Rust, Scala 3, and Zig",
   "type": "module",
   "scripts": {
-    "postinstall": "simple-git-hooks && node scripts/setup-ts-plugin.js",
+    "postinstall": "node scripts/setup-ts-plugin.js",
     "build": "pnpm -r --filter '!typesugar-example-*' --workspace-concurrency=1 build",
     "build:watch": "pnpm -r --parallel --filter '!typesugar-example-*' build:watch",
     "build:all": "pnpm -r build",
@@ -57,7 +57,6 @@
     "magic-string": "^0.30.21",
     "prettier": "^3.5.0",
     "react": "^19.2.4",
-    "simple-git-hooks": "^2.13.1",
     "ts-patch": "^3.3.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
@@ -70,9 +69,6 @@
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=18"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,md,json,css,yaml,yml}": "prettier --write"
