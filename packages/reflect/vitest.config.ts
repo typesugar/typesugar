@@ -5,5 +5,6 @@ export default defineConfig({
     name: "@typesugar/reflect",
     globals: true,
     environment: "node",
+    include: ["tests/**/*.test.ts"],
   },
 });
