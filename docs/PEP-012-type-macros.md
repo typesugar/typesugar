@@ -236,19 +236,19 @@ export interface Meters {
 
 ## Waves
 
-### Wave 1: Type Rewrite Registry
+### Wave 1: Type Rewrite Registry ✅
 
 **Tasks:**
 
-- [ ] Define `TypeRewriteEntry`, `ConstructorRewrite`, `AccessorRewrite` interfaces in `@typesugar/core`
-- [ ] Create `typeRewriteRegistry` with registration and lookup functions
-- [ ] Lookup by type name, by type symbol, and by source module
-- [ ] Unit tests for registry operations
+- [x] Define `TypeRewriteEntry`, `ConstructorRewrite`, `AccessorRewrite` interfaces in `@typesugar/core`
+- [x] Create `typeRewriteRegistry` with registration and lookup functions
+- [x] Lookup by type name, by type symbol, and by source module
+- [x] Unit tests for registry operations
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm vitest run packages/core` passes
+- [x] `pnpm build` passes
+- [x] `pnpm vitest run packages/core` passes
 
 ### Wave 2: `@opaque` Attribute Macro
 

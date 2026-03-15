@@ -240,5 +240,9 @@ export {
   getAllTypeRewrites,
   clearTypeRewrites,
   findTypeRewrite,
+  getTypeRewritesByModule,
+  getTypeRewriteBySymbol,
   type TypeRewriteEntry,
+  type ConstructorRewrite,
+  type AccessorRewrite,
 } from "./type-rewrite-registry.js";

@@ -2,28 +2,69 @@
  * Type Rewrite Registry
  *
  * Maps opaque type names to their underlying representations. Populated by
- * PEP-012's `@opaque` macro at transformer init time; consulted by the
- * TypeRewriteAssignment SFINAE rule (PEP-011 Wave 5) to suppress assignment
- * errors when the other side of the assignment matches the underlying type.
+ * PEP-012's `@opaque` macro at transformer init time; consulted by:
+ *
+ * - The transformer (for method/constructor/accessor erasure)
+ * - PEP-011's SFINAE Rule 2 (for implicit conversion diagnostics)
+ * - The language service plugin (for completions and quick info)
  *
  * @example
  * ```typescript
- * // @opaque transforms `type Option<T> = T | null` into an interface,
- * // but registers the underlying type so SFINAE can still suppress:
- * registerTypeRewrite("Option", "T | null");
- *
- * // The SFINAE rule then allows:
- * //   const o: Option<number> = nullableValue;  // no error
- * //   const n: number | null  = someOption;     // no error
+ * registerTypeRewrite({
+ *   typeName: "Option",
+ *   sourceModule: "@typesugar/fp/data/option",
+ *   underlyingTypeText: "T | null",
+ *   methods: new Map([["map", "map"], ["flatMap", "flatMap"]]),
+ *   constructors: new Map([
+ *     ["Some", { kind: "identity" }],
+ *     ["None", { kind: "constant", value: "null" }],
+ *   ]),
+ *   accessors: new Map(),
+ *   transparent: true,
+ * });
  * ```
  *
  * @see PEP-011 Wave 5 — TypeRewriteAssignment SFINAE rule
  * @see PEP-012 — Type Macros (@opaque)
  */
 
+// ---------------------------------------------------------------------------
+// Rewrite sub-entry interfaces
+// ---------------------------------------------------------------------------
+
+/**
+ * Describes how a constructor call for an opaque type is erased at runtime.
+ *
+ * - `"identity"`: erase to the argument itself (e.g., `Some(x)` → `x`)
+ * - `"constant"`: erase to a constant value (e.g., `None` → `null`)
+ * - `"custom"`: erase to an arbitrary expression in {@link value}
+ */
+export interface ConstructorRewrite {
+  readonly kind: "identity" | "constant" | "custom";
+  /** The constant or custom expression. Required for `"constant"` and `"custom"`. */
+  readonly value?: string;
+}
+
+/**
+ * Describes how a property access on an opaque type is erased at runtime.
+ *
+ * - `"identity"`: erase to the receiver itself (e.g., `x.value` → `x`)
+ * - `"custom"`: erase to an arbitrary expression in {@link value}
+ */
+export interface AccessorRewrite {
+  readonly kind: "identity" | "custom";
+  /** The custom expression. Required for `"custom"`. */
+  readonly value?: string;
+}
+
+// ---------------------------------------------------------------------------
+// TypeRewriteEntry
+// ---------------------------------------------------------------------------
+
 /**
  * Entry in the type rewrite registry describing how an opaque type
- * maps to its underlying runtime representation.
+ * maps to its underlying runtime representation, including method,
+ * constructor, and accessor erasure rules.
  */
 export interface TypeRewriteEntry {
   /**
@@ -49,13 +90,46 @@ export interface TypeRewriteEntry {
    * assignability checking via the type checker.
    */
   readonly matchesUnderlying?: (typeText: string) => boolean;
+
+  /**
+   * The module where the type and its companion functions are defined.
+   * Used for import injection when rewriting method calls.
+   *
+   * @example "@typesugar/fp/data/option"
+   */
+  readonly sourceModule?: string;
+
+  /**
+   * Method name → standalone function name that implements it.
+   * The transformer rewrites `x.method(args)` to `fn(x, args)`.
+   */
+  readonly methods?: ReadonlyMap<string, string>;
+
+  /**
+   * Constructor name → rewrite rule.
+   * The transformer erases constructor calls according to the rule.
+   */
+  readonly constructors?: ReadonlyMap<string, ConstructorRewrite>;
+
+  /**
+   * Property name → rewrite rule.
+   * The transformer erases property accesses according to the rule.
+   */
+  readonly accessors?: ReadonlyMap<string, AccessorRewrite>;
+
+  /**
+   * Whether the type is transparent within its defining file.
+   * When `true`, the transformer skips rewriting inside {@link sourceModule}.
+   */
+  readonly transparent?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Registry state
 // ---------------------------------------------------------------------------
 
-const registry = new Map<string, TypeRewriteEntry>();
+const byName = new Map<string, TypeRewriteEntry>();
+const byModule = new Map<string, TypeRewriteEntry[]>();
 
 /**
  * Register an opaque type's underlying representation.
@@ -67,7 +141,21 @@ const registry = new Map<string, TypeRewriteEntry>();
  * @param entry - The type rewrite entry to register
  */
 export function registerTypeRewrite(entry: TypeRewriteEntry): void {
-  registry.set(entry.typeName, entry);
+  byName.set(entry.typeName, entry);
+
+  if (entry.sourceModule) {
+    const list = byModule.get(entry.sourceModule);
+    if (list) {
+      const idx = list.findIndex((e) => e.typeName === entry.typeName);
+      if (idx >= 0) {
+        list[idx] = entry;
+      } else {
+        list.push(entry);
+      }
+    } else {
+      byModule.set(entry.sourceModule, [entry]);
+    }
+  }
 }
 
 /**
@@ -77,28 +165,29 @@ export function registerTypeRewrite(entry: TypeRewriteEntry): void {
  * @returns The registry entry, or `undefined` if not registered
  */
 export function getTypeRewrite(typeName: string): TypeRewriteEntry | undefined {
-  return registry.get(typeName);
+  return byName.get(typeName);
 }
 
 /**
  * Check whether a type name is registered in the rewrite registry.
  */
 export function hasTypeRewrite(typeName: string): boolean {
-  return registry.has(typeName);
+  return byName.has(typeName);
 }
 
 /**
  * Get all registered type rewrite entries (snapshot).
  */
 export function getAllTypeRewrites(): readonly TypeRewriteEntry[] {
-  return Array.from(registry.values());
+  return Array.from(byName.values());
 }
 
 /**
  * Remove all registered type rewrites. Intended for testing only.
  */
 export function clearTypeRewrites(): void {
-  registry.clear();
+  byName.clear();
+  byModule.clear();
 }
 
 /**
@@ -111,16 +200,39 @@ export function clearTypeRewrites(): void {
  * @returns The matching entry, or `undefined`
  */
 export function findTypeRewrite(typeText: string): TypeRewriteEntry | undefined {
-  // Exact match
-  const exact = registry.get(typeText);
+  const exact = byName.get(typeText);
   if (exact) return exact;
 
   // Strip generic parameters: "Option<number>" → "Option"
   const stripped = typeText.replace(/<.*>$/, "");
   if (stripped !== typeText) {
-    const generic = registry.get(stripped);
+    const generic = byName.get(stripped);
     if (generic) return generic;
   }
 
   return undefined;
+}
+
+/**
+ * Look up all type rewrite entries originating from a given source module.
+ *
+ * @param sourceModule - The module specifier (e.g., "@typesugar/fp/data/option")
+ * @returns Matching entries (snapshot), or an empty array
+ */
+export function getTypeRewritesByModule(sourceModule: string): readonly TypeRewriteEntry[] {
+  return byModule.get(sourceModule) ?? [];
+}
+
+/**
+ * Find a type rewrite entry whose {@link TypeRewriteEntry.typeName} matches
+ * the name of a TypeScript `ts.Symbol`.
+ *
+ * This is a convenience for transformer code that already has a resolved
+ * symbol and needs to check the registry without calling `typeToString`.
+ *
+ * @param symbolName - The symbol's `getName()` result
+ * @returns The matching entry, or `undefined`
+ */
+export function getTypeRewriteBySymbol(symbolName: string): TypeRewriteEntry | undefined {
+  return byName.get(symbolName);
 }
