@@ -476,11 +476,21 @@ npm install @typesugar/units
 **Exports:**
 
 ```typescript
-(meters, kilometers, feet);
-(seconds, minutes, hours);
-(kilograms, grams);
-(newtons, joules, watts);
+// Unit class with .add(), .sub(), .mul(), .div(), .to(), .scale(), .equals()
+Unit;
+
+// Constructors
+(meters, kilometers, centimeters, millimeters, feet, inches, miles);
+(kilograms, grams, milligrams, pounds);
+(seconds, minutes, hours, days, milliseconds);
+(metersPerSecond, kilometersPerHour, milesPerHour);
+(newtons, joules, kilojoules, watts, kilowatts);
+(kelvin, celsius, pascals, kilopascals, atmospheres);
 units`...`; // tagged template
+
+// Dimension types
+(Length, Mass, Time, Velocity, Force, Energy, Power, Pressure, Temperature);
+(MulDimensions, DivDimensions, SameDimensions);
 ```
 
 **Inspired by:** Boost.Units, F# Units of Measure

@@ -61,11 +61,23 @@ const mass = units`5.5 kg`; // Type: Unit<Mass>
 
 ## Conversion
 
+Use `.to()` with a unit constructor to convert between units of the same dimension:
+
 ```typescript
+import { kilometers, meters, feet, hours, minutes } from "@typesugar/units";
+
 const d = kilometers(1);
-const inMeters = d.to(meters); // 1000 meters
-const inFeet = d.to(feet); // ~3280.84 feet
+d.to(meters); // Unit(1000, "m")
+d.to(feet); // Unit(~3280.84, "ft")
+
+const t = hours(2);
+t.to(minutes); // Unit(120, "min")
+
+// Type-safe: can't convert across dimensions
+// d.to(minutes);  // ✗ Compile error
 ```
+
+`.to()` takes a unit constructor function (e.g., `meters`, `feet`) — not a string.
 
 ## How It Works
 
