@@ -1,0 +1,641 @@
+/**
+ * Extension method rewriting, operator overloading, HKT transformation,
+ * tagged template macros, type macros, and specialize-extension handling.
+ *
+ * Each function takes explicit parameters instead of relying on class state,
+ * so the MacroTransformer methods become thin delegation wrappers.
+ */
+
+import * as ts from "typescript";
+
+import {
+  getOperatorString,
+  getSyntaxForOperator,
+  findInstance,
+  getInstanceMethods,
+  createSpecializedFunction,
+  isKindAnnotation,
+  transformHKTDeclaration,
+  instanceRegistry,
+} from "@typesugar/macros";
+
+import {
+  MacroContextImpl,
+  globalRegistry,
+  type MacroDefinition,
+  findStandaloneExtension,
+  buildStandaloneExtensionCall,
+  type StandaloneExtensionInfo,
+  ExpressionMacro,
+  TaggedTemplateMacroDef,
+  TypeMacro,
+  globalResolutionScope,
+  isInOptedOutScope,
+  preserveSourceMap,
+} from "@typesugar/core";
+
+import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
+
+// ---------------------------------------------------------------------------
+// Callback types for cross-cutting concerns
+// ---------------------------------------------------------------------------
+
+export type ResolveMacroFn = (
+  node: ts.Node,
+  macroName: string,
+  kind: MacroDefinition["kind"]
+) => MacroDefinition | undefined;
+
+export type ResolveExtensionFn = (
+  node: ts.CallExpression,
+  methodName: string,
+  receiverType: ts.Type
+) => StandaloneExtensionInfo | undefined;
+
+// ---------------------------------------------------------------------------
+// Tagged template expansion
+// ---------------------------------------------------------------------------
+
+export function tryExpandTaggedTemplate(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
+  node: ts.TaggedTemplateExpression
+): ts.Expression | undefined {
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "macros")) {
+    return undefined;
+  }
+
+  if (!ts.isIdentifier(node.tag)) return undefined;
+
+  const tagName = node.tag.text;
+
+  const taggedMacro = resolveMacroFromSymbol(node.tag, tagName, "tagged-template") as
+    | TaggedTemplateMacroDef
+    | undefined;
+  if (taggedMacro) {
+    if (verbose) {
+      console.log(`[typesugar] Expanding tagged template macro: ${tagName}`);
+    }
+
+    try {
+      if (taggedMacro.validate && !taggedMacro.validate(ctx, node)) {
+        ctx.reportError(node, `Tagged template validation failed for '${tagName}'`);
+        return createMacroErrorExpression(
+          ctx.factory,
+          `typesugar: tagged template '${tagName}' validation failed`
+        );
+      }
+
+      const result = ctx.hygiene.withScope(() => taggedMacro.expand(ctx, node));
+      if (result === (node as ts.Node)) {
+        return ts.visitEachChild(node, visit, ctx.transformContext) as ts.Expression;
+      }
+      const visited = ts.visitNode(result, visit) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    } catch (error) {
+      ctx.reportError(node, `Tagged template macro expansion failed: ${error}`);
+      return createMacroErrorExpression(
+        ctx.factory,
+        `typesugar: tagged template '${tagName}' expansion failed: ${error}`
+      );
+    }
+  }
+
+  const exprMacro = resolveMacroFromSymbol(node.tag, tagName, "expression") as
+    | ExpressionMacro
+    | undefined;
+  if (!exprMacro) return undefined;
+
+  if (verbose) {
+    console.log(`[typesugar] Expanding tagged template via expression macro: ${tagName}`);
+  }
+
+  try {
+    const result = ctx.hygiene.withScope(() =>
+      exprMacro.expand(ctx, node as unknown as ts.CallExpression, [
+        node.template as unknown as ts.Expression,
+      ])
+    );
+    if (result === (node as unknown as ts.Expression)) {
+      return ts.visitEachChild(node, visit, ctx.transformContext) as ts.Expression;
+    }
+    const visited = ts.visitNode(result, visit) as ts.Expression;
+    return preserveSourceMap(visited, node);
+  } catch (error) {
+    ctx.reportError(node, `Tagged template macro expansion failed: ${error}`);
+    return createMacroErrorExpression(
+      ctx.factory,
+      `typesugar: tagged template '${tagName}' expansion failed: ${error}`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Type macro expansion
+// ---------------------------------------------------------------------------
+
+export function tryExpandTypeMacro(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
+  node: ts.TypeReferenceNode
+): ts.TypeNode | undefined {
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "macros")) {
+    return undefined;
+  }
+
+  let macroName: string | undefined;
+  let identNode: ts.Node | undefined;
+
+  if (ts.isIdentifier(node.typeName)) {
+    macroName = node.typeName.text;
+    identNode = node.typeName;
+  } else if (ts.isQualifiedName(node.typeName)) {
+    if (
+      ts.isIdentifier(node.typeName.left) &&
+      (node.typeName.left.text === "typesugar" || node.typeName.left.text === "typemacro")
+    ) {
+      macroName = node.typeName.right.text;
+      identNode = node.typeName;
+    }
+  }
+
+  if (!macroName || !identNode) return undefined;
+
+  const macro = resolveMacroFromSymbol(identNode, macroName, "type") as TypeMacro | undefined;
+  if (!macro) return undefined;
+
+  if (verbose) {
+    console.log(`[typesugar] Expanding type macro: ${macroName}`);
+  }
+
+  try {
+    const typeArgs = node.typeArguments ? Array.from(node.typeArguments) : [];
+    const result = ctx.hygiene.withScope(() => macro.expand(ctx, node, typeArgs));
+    if (result === (node as ts.Node)) {
+      return ts.visitEachChild(node, visit, ctx.transformContext) as ts.TypeNode;
+    }
+    const visited = ts.visitNode(result, visit) as ts.TypeNode;
+    return preserveSourceMap(visited, node);
+  } catch (error) {
+    ctx.reportError(node, `Type macro expansion failed: ${error}`);
+    return ts.visitEachChild(node, visit, ctx.transformContext) as ts.TypeNode;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// fn.specialize(dict) extension
+// ---------------------------------------------------------------------------
+
+export function tryRewriteSpecializeExtension(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.CallExpression
+): ts.Expression | undefined {
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "macros")) {
+    return undefined;
+  }
+
+  const propAccess = node.expression as ts.PropertyAccessExpression;
+  const fnExpr = propAccess.expression;
+
+  const fnType = ctx.typeChecker.getTypeAtLocation(fnExpr);
+  const callSignatures = fnType.getCallSignatures();
+  if (callSignatures.length === 0) {
+    return undefined;
+  }
+
+  if (node.arguments.length === 0) {
+    ctx.reportError(node, "fn.specialize() requires at least one typeclass instance argument");
+    return node;
+  }
+
+  const dictArgs = Array.from(node.arguments);
+
+  if (verbose) {
+    const fnName = ts.isIdentifier(fnExpr) ? fnExpr.text : "<expr>";
+    const dictNames = dictArgs.map((d) => (ts.isIdentifier(d) ? d.text : "<expr>")).join(", ");
+    console.log(`[typesugar] Rewriting ${fnName}.specialize(${dictNames})`);
+  }
+
+  const specialized = createSpecializedFunction(ctx, {
+    fnExpr,
+    dictExprs: dictArgs,
+    callExpr: node,
+    suppressWarnings: false,
+  });
+
+  try {
+    const visited = ts.visitNode(specialized, visit) as ts.Expression;
+    return preserveSourceMap(visited, node);
+  } catch (error) {
+    ctx.reportError(node, `specialize() extension method failed: ${error}`);
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Extension method rewriting
+// ---------------------------------------------------------------------------
+
+export function tryRewriteExtensionMethod(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  node: ts.CallExpression
+): ts.Expression | undefined {
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
+    return undefined;
+  }
+
+  const propAccess = node.expression as ts.PropertyAccessExpression;
+  const methodName = propAccess.name.text;
+  const receiver = propAccess.expression;
+
+  if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression)) {
+    const calleeName = receiver.expression.text;
+    const calleeMacro = resolveMacroFromSymbol(receiver.expression, calleeName, "expression");
+    if (calleeMacro) {
+      return undefined;
+    }
+  }
+
+  const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+
+  if (!ctx.isTypeReliable(receiverType)) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
+    );
+    return undefined;
+  }
+
+  const existingProp = receiverType.getProperty(methodName);
+
+  let forceRewrite = false;
+  if (existingProp) {
+    const potentialExt = resolveExtensionFromImports(node, methodName, receiverType);
+    if (potentialExt) {
+      const receiverText = ts.isIdentifier(receiver) ? receiver.text : null;
+      const isSameObject = receiverText && potentialExt.qualifier === receiverText;
+      if (!isSameObject) {
+        forceRewrite = true;
+      }
+    }
+  }
+
+  if (existingProp && !forceRewrite) {
+    return undefined;
+  }
+
+  const typeName = ctx.typeChecker.typeToString(receiverType);
+
+  let standaloneExt = findStandaloneExtension(methodName, typeName);
+  if (!standaloneExt) {
+    const baseTypeName = typeName.replace(/<.*>$/, "");
+    if (baseTypeName !== typeName) {
+      standaloneExt = findStandaloneExtension(methodName, baseTypeName);
+    }
+  }
+
+  if (!standaloneExt) {
+    standaloneExt = resolveExtensionFromImports(node, methodName, receiverType);
+    if (standaloneExt) {
+      const receiverText = ts.isIdentifier(receiver) ? receiver.text : null;
+      if (receiverText && standaloneExt.qualifier === receiverText) {
+        standaloneExt = undefined;
+      }
+    }
+  }
+
+  if (!standaloneExt) {
+    return undefined;
+  }
+
+  if (verbose) {
+    const qual = standaloneExt.qualifier
+      ? `${standaloneExt.qualifier}.${standaloneExt.methodName}`
+      : standaloneExt.methodName;
+    console.log(
+      `[typesugar] Rewriting standalone extension: ${typeName}.${methodName}() → ${qual}(...)`
+    );
+  }
+
+  const rewritten = buildStandaloneExtensionCall(
+    ctx.factory,
+    standaloneExt,
+    receiver,
+    Array.from(node.arguments)
+  );
+
+  try {
+    const visited = ts.visitNode(rewritten, visit) as ts.Expression;
+    return preserveSourceMap(visited, node);
+  } catch (error) {
+    ctx.reportError(node, `Extension method rewrite failed: ${error}`);
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HKT transformation
+// ---------------------------------------------------------------------------
+
+export function tryTransformHKTDeclaration(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | undefined {
+  const typeParams = node.typeParameters;
+  if (!typeParams) return undefined;
+
+  let hasKA = false;
+  for (const param of typeParams) {
+    if (isKindAnnotation(param)) {
+      hasKA = true;
+      break;
+    }
+  }
+
+  if (!hasKA) return undefined;
+
+  if (verbose) {
+    const name = node.name?.text ?? "Anonymous";
+    console.log(`[typesugar] Transforming HKT declaration: ${name}`);
+  }
+
+  try {
+    const transformed = transformHKTDeclaration(ctx, node);
+    const visited = ts.visitEachChild(transformed, visit, ctx.transformContext) as
+      | ts.InterfaceDeclaration
+      | ts.TypeAliasDeclaration;
+    return preserveSourceMap(visited, node);
+  } catch (error) {
+    ctx.reportError(node, `HKT transformation failed: ${error}`);
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Operator rewriting helpers
+// ---------------------------------------------------------------------------
+
+export function inferIdentifierResultType(
+  ctx: MacroContextImpl,
+  node: ts.Identifier
+): string | undefined {
+  const symbol = ctx.typeChecker.getSymbolAtLocation(node);
+  if (!symbol) return undefined;
+
+  const decls = symbol.getDeclarations();
+  if (!decls || decls.length === 0) return undefined;
+
+  for (const decl of decls) {
+    if (ts.isVariableDeclaration(decl) && decl.initializer) {
+      let init: ts.Expression = decl.initializer;
+      while (ts.isParenthesizedExpression(init)) {
+        init = init.expression;
+      }
+
+      if (ts.isBinaryExpression(init)) {
+        const inferred = inferBinaryExprResultType(ctx, init);
+        if (inferred) return inferred;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function inferBinaryExprResultType(
+  ctx: MacroContextImpl,
+  node: ts.BinaryExpression
+): string | undefined {
+  const opString = getOperatorString(node.operatorToken.kind);
+  if (!opString) return undefined;
+
+  const entries = getSyntaxForOperator(opString);
+  if (!entries || entries.length === 0) return undefined;
+
+  let unwrappedLeft: ts.Expression = node.left;
+  while (ts.isParenthesizedExpression(unwrappedLeft)) {
+    unwrappedLeft = unwrappedLeft.expression;
+  }
+
+  let leftTypeName: string;
+  if (ts.isBinaryExpression(unwrappedLeft)) {
+    const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
+    leftTypeName =
+      inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
+  } else {
+    leftTypeName = ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
+  }
+
+  const baseTypeName = leftTypeName.replace(/<.*>$/, "");
+  const typeArg = leftTypeName.match(/<(.+)>$/)?.[1] ?? "";
+
+  const currentFileName = ctx.sourceFile.fileName;
+  for (const entry of entries) {
+    let inst =
+      findInstance(entry.typeclass, leftTypeName, currentFileName) ??
+      findInstance(entry.typeclass, baseTypeName, currentFileName);
+
+    if (!inst) {
+      const candidateInstances = instanceRegistry.filter(
+        (i) => i.typeclassName === entry.typeclass
+      );
+      for (const candidate of candidateInstances) {
+        const candidateBase = candidate.forType.replace(/<.*>$/, "");
+        const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+
+        for (const sf of ctx.program.getSourceFiles()) {
+          if (sf.isDeclarationFile) continue;
+          for (const stmt of sf.statements) {
+            if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
+              const aliasType = ctx.typeChecker.getTypeAtLocation(stmt.type);
+              if (aliasType.isUnion?.()) {
+                for (const unionMember of aliasType.types) {
+                  const memberName = ctx.typeChecker.typeToString(unionMember);
+                  const memberBase = memberName.replace(/<.*>$/, "");
+                  if (
+                    memberBase === baseTypeName &&
+                    (candidateArg === typeArg ||
+                      candidateArg === typeArg.split("<")[0] ||
+                      !candidateArg)
+                  ) {
+                    inst = candidate;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          if (inst) break;
+        }
+        if (inst) break;
+      }
+    }
+
+    if (inst) {
+      return inst.forType;
+    }
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Operator rewriting entry point
+// ---------------------------------------------------------------------------
+
+export function tryRewriteTypeclassOperator(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.BinaryExpression
+): ts.Expression | undefined {
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
+    return undefined;
+  }
+
+  const opString = getOperatorString(node.operatorToken.kind);
+  if (!opString) return undefined;
+
+  const entries = getSyntaxForOperator(opString);
+  if (!entries || entries.length === 0) return undefined;
+
+  let unwrappedLeft: ts.Expression = node.left;
+  while (ts.isParenthesizedExpression(unwrappedLeft)) {
+    unwrappedLeft = unwrappedLeft.expression;
+  }
+
+  let typeName: string;
+  if (ts.isBinaryExpression(unwrappedLeft)) {
+    const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
+    typeName =
+      inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
+  } else if (ts.isIdentifier(unwrappedLeft)) {
+    const inferred = inferIdentifierResultType(ctx, unwrappedLeft);
+    typeName =
+      inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
+  } else {
+    const leftType = ctx.typeChecker.getTypeAtLocation(node.left);
+    typeName = ctx.typeChecker.typeToString(leftType);
+  }
+  typeName = typeName.replace(/\s*&\s*Op<[^>]+>/, "");
+  const baseTypeName = typeName.replace(/<.*>$/, "");
+  const typeArg = typeName.match(/<(.+)>$/)?.[1] ?? "";
+
+  const PRIMITIVE_TYPES = new Set([
+    "number",
+    "string",
+    "boolean",
+    "bigint",
+    "null",
+    "undefined",
+    "any",
+    "unknown",
+  ]);
+  if (PRIMITIVE_TYPES.has(baseTypeName)) {
+    return undefined;
+  }
+
+  let matchedEntry: { typeclass: string; method: string } | undefined;
+  let matchedInstance: { typeclassName: string; forType: string; instanceName: string } | undefined;
+
+  const sfn = ctx.sourceFile.fileName;
+  for (const entry of entries) {
+    let inst =
+      findInstance(entry.typeclass, typeName, sfn) ??
+      findInstance(entry.typeclass, baseTypeName, sfn);
+
+    if (!inst) {
+      const candidateInstances = instanceRegistry.filter(
+        (i) => i.typeclassName === entry.typeclass
+      );
+      for (const candidate of candidateInstances) {
+        const candidateBase = candidate.forType.replace(/<.*>$/, "");
+        const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+
+        for (const sf of ctx.program.getSourceFiles()) {
+          if (sf.isDeclarationFile) continue;
+          for (const stmt of sf.statements) {
+            if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
+              const aliasType = ctx.typeChecker.getTypeAtLocation(stmt.type);
+
+              if (aliasType.isUnion?.()) {
+                for (const unionMember of aliasType.types) {
+                  const memberName = ctx.typeChecker.typeToString(unionMember);
+                  const memberBase = memberName.replace(/<.*>$/, "");
+                  if (
+                    memberBase === baseTypeName &&
+                    (candidateArg === typeArg ||
+                      candidateArg === typeArg.split("<")[0] ||
+                      !candidateArg)
+                  ) {
+                    inst = candidate;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          if (inst) break;
+        }
+        if (inst) break;
+      }
+    }
+
+    if (inst) {
+      if (matchedEntry) {
+        ctx.reportError(
+          node,
+          `Ambiguous operator '${opString}' for type '${typeName}': ` +
+            `both ${matchedEntry.typeclass}.${matchedEntry.method} and ` +
+            `${entry.typeclass}.${entry.method} apply. ` +
+            `Use explicit method calls to disambiguate.`
+        );
+        return undefined;
+      }
+      matchedEntry = entry;
+      matchedInstance = inst;
+    }
+  }
+
+  if (!matchedEntry || !matchedInstance) {
+    return undefined;
+  }
+
+  if (verbose) {
+    console.log(
+      `[typesugar] Rewriting operator: ${typeName} ${opString} → ` +
+        `${matchedEntry.typeclass}.${matchedEntry.method}()`
+    );
+  }
+
+  const factory = ctx.factory;
+  const left = ts.visitNode(node.left, visit) as ts.Expression;
+  const right = ts.visitNode(node.right, visit) as ts.Expression;
+
+  const dictMethodMap = getInstanceMethods(matchedInstance.instanceName);
+  if (dictMethodMap) {
+    const dictMethod = dictMethodMap.methods.get(matchedEntry.method);
+    if (dictMethod && dictMethod.source) {
+      // TODO: Full inlining will be added in Step 6 (auto-specialization).
+    }
+  }
+
+  const methodAccess = factory.createPropertyAccessExpression(
+    factory.createIdentifier(matchedInstance.instanceName),
+    matchedEntry.method
+  );
+  const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
+  return preserveSourceMap(rewritten, node);
+}
