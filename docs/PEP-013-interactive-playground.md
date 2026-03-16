@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** In Progress (Wave 2 complete)
+**Status:** In Progress (Wave 3 complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -370,20 +370,33 @@ For running transformed code:
 
 **Tasks:**
 
-- [ ] Create `docs/playground.md` with full-page layout
-- [ ] Add toolbar: file type selector, TypeScript version, Run button
-- [ ] Add output tabs: JS, AST (optional), Errors
-- [ ] Add console output panel for runtime results
-- [ ] Implement iframe execution sandbox
-- [ ] Add error display with source mapping to original code
-- [ ] Add keyboard shortcuts (Cmd+Enter to run, Cmd+S to share)
+- [x] Create `docs/playground.md` with full-page layout
+- [x] Add toolbar: file type selector, TypeScript version, Run button
+- [x] Add output tabs: JS, AST (optional), Errors
+- [x] Add console output panel for runtime results
+- [x] Implement iframe execution sandbox
+- [x] Add error display with source mapping to original code
+- [x] Add keyboard shortcuts (Cmd+Enter to run, Cmd+S to share)
 
 **Gate:**
 
-- [ ] `/playground` route works in docs dev server
-- [ ] Can type code, see transform, run result
-- [ ] Errors show with correct line numbers
-- [ ] Console output displays
+- [x] `/playground` route works in docs dev server
+- [x] Can type code, see transform, run result
+- [x] Errors show with correct line numbers
+- [x] Console output displays
+
+**Notes (Wave 3 implementation):**
+
+- Created `Playground.vue` component with full toolbar, output tabs, console panel, and iframe sandbox
+- Toolbar includes: file type toggle (.ts/.sts), TypeScript version selector (5.6-5.8), Run button, Share button
+- Output panel has switchable tabs for JS Output and Errors (with error count badge)
+- Console panel captures console.log/error/warn/info from sandboxed execution
+- iframe sandbox uses `sandbox="allow-scripts"` attribute for security isolation
+- Execution uses TypeScript's `transpileModule` to convert TS to JS before running
+- 5-second timeout prevents infinite loops; errors are captured and displayed
+- Keyboard shortcuts: Cmd+Enter to run, Cmd+S to copy share URL
+- Errors display in dedicated tab with clickable items to jump to source line
+- Share URL encodes code, file type, and TS version in URL hash (base64)
 
 ### Wave 4: Sharing & Persistence
 

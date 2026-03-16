@@ -22,6 +22,7 @@ export default defineConfig({
     logo: { src: "/logo.png", alt: "typesugar" },
 
     nav: [
+      { text: "Playground", link: "/playground" },
       { text: "Guide", link: "/getting-started/" },
       { text: "Reference", link: "/reference/" },
       { text: "Writing Macros", link: "/writing-macros/" },
