@@ -604,6 +604,9 @@ importers:
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
+      '@typesugar/transformer-core':
+        specifier: workspace:*
+        version: link:../transformer-core
       esbuild:
         specifier: ^0.20.0
         version: 0.20.2
@@ -632,6 +635,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       typescript:
         specifier: '>=5.0.0'
         version: 5.9.3

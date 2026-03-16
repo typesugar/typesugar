@@ -39,7 +39,8 @@
   ],
   "dependencies": {
     "@ampproject/remapping": "^2.3.0",
-    "@typesugar/core": "workspace:*"
+    "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^3.0.0"

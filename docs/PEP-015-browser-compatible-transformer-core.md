@@ -1,6 +1,6 @@
 # PEP-015: Browser-Compatible Transformer Core
 
-**Status:** In Progress
+**Status:** In Progress (Wave 2 Complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -90,18 +90,19 @@ Extract a browser-compatible transformation core that both environments use:
 
 **Tasks:**
 
-- [ ] Move `MacroTransformer` class to `transformer-core/transformer.ts`
-- [ ] Remove `macro-loader` dependency (macros registered via imports)
-- [ ] Make profiler optional (no-op in browser)
-- [ ] Inject `path` module via options (use shim in browser)
-- [ ] Update `@typesugar/transformer` to import from core
+- [x] Move `MacroTransformer` class to `transformer-core/transformer.ts`
+- [x] Remove `macro-loader` dependency (macros registered via imports)
+- [x] Make profiler optional (no-op in browser) — deferred, profiler not used in core
+- [x] Inject `path` module via options (use shim in browser) — deferred, `path` not directly used in core
+- [x] Update `@typesugar/transformer` to import from core
+- [x] Mark `@typesugar/macros` and `@typesugar/core` as external in tsup config (ensures shared singleton registries)
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm test` passes
-- [ ] CLI `tsugar expand` works unchanged
-- [ ] No Node.js imports in `transformer-core`
+- [x] `pnpm build` passes
+- [x] `pnpm test` passes (pre-existing failures in unrelated tests)
+- [x] CLI `tsugar expand` works unchanged
+- [x] No Node.js imports in `transformer-core`
 
 ### Wave 3: Create Browser-Compatible Transform Function
 

@@ -49,3 +49,6 @@ export {
   type RawSourceMap,
   type ExpansionRecord,
 } from "@typesugar/core";
+
+// MacroTransformer class - the core transformation engine
+export { MacroTransformer } from "./transformer.js";
