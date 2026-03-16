@@ -569,7 +569,6 @@ describe("match() macro", () => {
       expect(catchAll.predicate(999)).toBe(true);
       expect(catchAll.handler(999)).toBe(0);
     });
-
   });
 
   describe("OR patterns (pipe-separated keys)", () => {
