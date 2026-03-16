@@ -95,6 +95,7 @@ packages/
 ├── eslint-plugin/      # @typesugar/eslint-plugin — ESLint processor and rules
 ├── prettier-plugin/    # @typesugar/prettier-plugin — Prettier formatting
 ├── testing/            # @typesugar/testing — powerAssert, comptimeAssert, ArbitraryDerive
+├── playground/         # @typesugar/playground — browser playground (runtime bundle + transform)
 │
 │   ## Standard Library
 ├── std/                # @typesugar/std — standard library extensions, match(), FlatMap
@@ -188,6 +189,38 @@ packages/
 4. All imports must be at the top of the file — no mid-file imports
 5. Re-export everything from `index.ts` — including derived operations
 6. Don't export dead code — if a type has no instances, don't export it
+
+## Playground & Examples
+
+The interactive playground at `/playground` runs the typesugar transformer in-browser via `@typesugar/playground`. Runtime `@typesugar/*` packages are bundled as an IIFE (`packages/playground/dist/runtime.global.js`) and injected into the sandbox iframe, so `import { Some } from "@typesugar/fp"` works at runtime.
+
+### Playground examples
+
+Examples live in `docs/examples/<module>/<name>.ts` and are auto-discovered at build time by `docs/.vitepress/components/playground-examples.ts` using Vite's `import.meta.glob`.
+
+**File format:**
+
+```typescript
+//! Example Title
+//! Short description
+
+import { ... } from "@typesugar/fp";
+
+console.log(...);
+```
+
+- First `//!` → name in dropdown. Second `//!` → description tooltip.
+- Directory name → group label (mapped via `GROUP_META` in `playground-examples.ts`).
+- Use `.ts` for JSDoc macros, `.sts` for preprocessor syntax.
+- Keep examples runnable — use `console.log()` to produce visible output.
+
+### Adding a runtime package to the playground
+
+If you add a new `@typesugar/*` package with runtime exports:
+
+1. Add an import + `register()` call in `packages/playground/src/runtime-entry.ts`
+2. Add type declarations in the `setupTypeDeclarations()` function in `Playground.vue`
+3. Add at least one example in `docs/examples/<module>/`
 
 ---
 

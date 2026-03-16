@@ -364,7 +364,7 @@ interface User { id: string; name: string; }
 
 See the [docs/](docs/) directory:
 
-- **[Interactive Playground](https://typesugar.org/playground)** — Try typesugar in your browser
+- **[Interactive Playground](https://typesugar.org/playground)** — Try typesugar in your browser with full runtime library support (`@typesugar/fp`, `@typesugar/collections`, `@typesugar/graph`, and more)
 - [Getting Started](docs/getting-started.md)
 - [Macro Types](docs/macro-types.md)
 - [Writing Macros](docs/writing-macros.md)

@@ -4,78 +4,124 @@ typesugar includes an interactive playground that lets you try code directly in 
 
 **[Open the Playground →](/playground)**
 
-## Getting Started Examples
+## What Works in the Playground
 
-New to typesugar? Try these examples to see what it can do:
+The playground runs the full typesugar transformer in your browser. You can:
 
-| Example               | What It Shows                                     |
-| --------------------- | ------------------------------------------------- |
-| **Welcome**           | Basic macros and transformation                   |
-| **@typeclass Eq**     | Define typeclasses for ad-hoc polymorphism        |
-| **@derive**           | Auto-generate implementations from type structure |
-| **Pipeline Operator** | Functional composition with `\|>`                 |
-| **@extension**        | UFCS extension methods                            |
-| **HKT Syntax**        | Higher-kinded types with `F<_>`                   |
+- **Write and transform** — see your code compiled in real time
+- **Run the output** — execute transformed code with console output
+- **Use runtime libraries** — `import` from `@typesugar/*` packages and run real code
+- **Toggle file types** — switch between `.ts` (JSDoc macros) and `.sts` (custom syntax)
+- **Share** — copy a URL that encodes your code
 
-Each example is available from the "Examples" dropdown in the playground.
+### Runtime Library Support
 
-## Full Playground
+The playground bundles runtime implementations of `@typesugar/*` packages, so imports actually work at runtime — not just at the type level. When you press Run, your code executes with real `@typesugar/fp`, `@typesugar/collections`, `@typesugar/graph`, and more.
 
-The [full playground](/playground) provides a complete development environment with:
+Available packages:
 
-- Side-by-side input and output editors
-- File type toggle (`.ts` for JSDoc macros, `.sts` for custom syntax)
-- TypeScript version selection
-- Code execution with console output
-- Share URLs for collaboration
-- Example presets to explore features
+| Package                         | What You Can Use                              |
+| ------------------------------- | --------------------------------------------- |
+| `typesugar` / `@typesugar/core` | `staticAssert`, `comptime`, macro APIs        |
+| `@typesugar/fp`                 | `Some`, `None`, `Left`, `Right`, `pipe`, `IO` |
+| `@typesugar/std`                | Extension methods, pattern matching, ranges   |
+| `@typesugar/collections`        | `HashSet`, `HashMap`                          |
+| `@typesugar/graph`              | `DiGraph`, `StateMachine`                     |
+| `@typesugar/contracts`          | `requires`, `ensures`, `invariant`            |
+| `@typesugar/units`              | Dimensional analysis                          |
+| `@typesugar/codec`              | Schema codecs                                 |
+| `@typesugar/parser`             | Parser combinators                            |
+| `@typesugar/symbolic`           | Symbolic expressions, calculus                |
+| `@typesugar/type-system`        | Newtype, refined types                        |
+| `@typesugar/typeclass`          | `@typeclass`, `@instance`, `summon`           |
+| `@typesugar/validate`           | Schema validation                             |
+| `@typesugar/mapper`             | Object mapping                                |
+
+Packages with heavy Node.js dependencies (`@typesugar/math`, `@typesugar/testing`, `@typesugar/effect`) are excluded from the runtime bundle.
+
+## Examples
+
+The playground ships with 20+ examples organized by module. Pick one from the **Examples** dropdown to see a feature in action.
+
+| Category                   | Examples                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| **Getting Started**        | Welcome                                                                                    |
+| **Core Macros**            | @typeclass, @derive, extension, comptime, pipe & compose, static-assert, reflect, @tailrec |
+| **@typesugar/fp**          | Option & Either, Validated, Linked List                                                    |
+| **@typesugar/std**         | Pattern Matching, Ranges                                                                   |
+| **@typesugar/collections** | HashSet & HashMap                                                                          |
+| **@typesugar/graph**       | Directed Graph, State Machine                                                              |
+| **@typesugar/contracts**   | Design by Contract                                                                         |
+| **@typesugar/units**       | Dimensional Analysis                                                                       |
+| **@typesugar/codec**       | Schema Codec                                                                               |
+| **@typesugar/parser**      | Arithmetic Parser                                                                          |
+| **@typesugar/symbolic**    | Calculus                                                                                   |
+| **Preprocessor (.sts)**    | _(coming soon)_                                                                            |
+
+All examples are runnable — they use real runtime libraries, not stubs.
+
+## Adding Examples
+
+Examples live in `docs/examples/` and are auto-discovered at build time. To add one:
+
+### 1. Create a file
+
+```
+docs/examples/<module>/<example-name>.ts
+```
+
+The directory name becomes the group in the dropdown. Use an existing directory, or create a new one.
+
+### 2. Add metadata
+
+Every example starts with `//!` metadata lines:
+
+```typescript
+//! Example Title
+//! Short description of what this demonstrates
+
+import { Some, None } from "@typesugar/fp";
+
+// Your code here...
+console.log(Some(42));
+```
+
+The first `//!` line is the **name** shown in the dropdown. The second is the **description** shown on hover. Everything after the metadata block is the code loaded into the editor.
+
+### 3. Register the group (optional)
+
+If you created a new directory, add it to the `GROUP_META` object in `docs/.vitepress/components/playground-examples.ts`:
+
+```typescript
+const GROUP_META: Record<string, { label: string; order: number }> = {
+  // ...existing groups...
+  "my-module": { label: "@typesugar/my-module", order: 55 },
+};
+```
+
+Groups without an entry still appear — they just use the directory name as-is and sort to the middle.
+
+### Tips for good examples
+
+- **Make it runnable.** Use `console.log()` so pressing Run shows output.
+- **Keep it focused.** One concept per example. 20–40 lines is ideal.
+- **Use real imports.** `import { ... } from "@typesugar/fp"` works in the sandbox.
+- **Show the value.** Don't just define types — demonstrate behavior.
 
 ## Embedded Playgrounds
 
-You can also embed smaller playgrounds directly in documentation pages. These are great for interactive examples and tutorials.
+You can embed smaller playgrounds directly in documentation pages:
 
-### Basic Example
-
-Here's a simple embedded playground:
-
+```vue
 <PlaygroundEmbed
-  code="// Try editing this code!
-const add = (a: number, b: number): number => a + b;
-console.log('Sum:', add(2, 3));"
+  code="const x = 42;
+console.log(x);"
   mode=".ts"
   height="150px"
 />
+```
 
-### Read-Only Example
-
-Use `readonly` for display-only examples that users can inspect but not modify:
-
-<PlaygroundEmbed
-  code="// This example demonstrates a simple pattern
-const greet = (name: string): string => 'Hello, ' + name + '!';
-console.log(greet('World'));"
-  mode=".ts"
-  height="150px"
-  readonly
-  title="Greeting function"
-/>
-
-### Compact Display
-
-For simple examples, hide the output panel:
-
-<PlaygroundEmbed
-  code="// A pure function
-const double = (n: number): number => n * 2;
-const triple = (n: number): number => n * 3;"
-  mode=".ts"
-  height="100px"
-  hideOutput
-/>
-
-## Component API
-
-The `<PlaygroundEmbed>` component accepts these props:
+### Props
 
 | Prop         | Type                | Default   | Description              |
 | ------------ | ------------------- | --------- | ------------------------ |
@@ -86,38 +132,15 @@ The `<PlaygroundEmbed>` component accepts these props:
 | `hideOutput` | `boolean`           | `false`   | Hide the output panel    |
 | `title`      | `string`            | `""`      | Optional title in header |
 
-## Usage in Markdown
-
-To add an embedded playground to your documentation:
-
-```vue
-<PlaygroundEmbed code="// Your code here" mode=".ts" height="200px" />
-```
-
-Or with all options:
-
-```vue
-<PlaygroundEmbed
-  code="const x = 42;"
-  mode=".ts"
-  height="250px"
-  readonly
-  hideOutput
-  title="Example"
-/>
-```
+Every embedded playground has an **Open in Playground** button that opens the code in the full playground with all settings preserved.
 
 ::: tip
 For code containing angle brackets (like generics), use the [full playground](/playground) or the "Open in Playground" button to expand embedded examples.
 :::
 
-## Open in Playground
+## Keyboard Shortcuts
 
-Every embedded playground has an "Open in Playground" button that opens the code in the full playground page. This lets users:
-
-- See the complete transformed output
-- Run the code
-- Modify and experiment further
-- Share their changes
-
-The code, file type, and settings are preserved when opening in the full playground.
+| Shortcut           | Action                      |
+| ------------------ | --------------------------- |
+| `Cmd/Ctrl + Enter` | Run code                    |
+| `Cmd/Ctrl + S`     | Transform (without running) |
