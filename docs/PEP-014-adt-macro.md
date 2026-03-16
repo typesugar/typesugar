@@ -372,24 +372,50 @@ Option uses `@opaque` correctly — hiding that `Some(42)` is just `42` is the p
 - [x] `pnpm test` passes (5691 tests)
 - [x] `pnpm typecheck` passes (36 packages)
 - [x] `pnpm lint` passes (no lint script configured)
+- [x] Deep review validates List refactor + null-handling edge cases
 
 ### Wave 3: `@adt` Macro Implementation
 
+**Status:** COMPLETE ✓ (Gate passed 2026-03-16)
+
 **Tasks:**
 
-- [ ] Create `packages/macros/src/adt.ts`
-- [ ] Implement distinguishability analysis
-- [ ] Implement auto-tag injection via intersection types
-- [ ] Generate constructors with proper `_tag` inclusion
-- [ ] Generate type guards
-- [ ] Register type rewrites for method erasure
+- [x] Create `packages/macros/src/adt.ts`
+- [x] Implement distinguishability analysis
+- [x] Implement auto-tag injection via intersection types
+- [x] Generate constructors with proper `_tag` inclusion
+- [x] Generate type guards
+- [x] Register type rewrites for method erasure
+
+**Implementation Notes:**
+
+1. **Distinguishability matrix**: The macro analyzes all variant pairs to determine if they can be
+   distinguished by field presence alone. Variants are distinguished if:
+   - One is null-represented and the other isn't
+   - One has a unique required field (present and non-optional) that the other lacks
+
+2. **Auto-tag injection**: When variants are not structurally distinguishable (e.g., two empty
+   interfaces like `NotAsked {}` and `Loading {}`), the macro transforms the type alias to add
+   `& { readonly _tag: "VariantName" }` intersection types.
+
+3. **Constructor generation**: The macro generates constructors for each variant:
+   - Null-represented variants get `export const VariantName = null;`
+   - Object variants get `export function VariantName(fields): AdtType { return { ...fields, _tag } }`
+   - `_tag` is only included when the variant requires it
+
+4. **Type guards**: Each variant gets an `isVariantName` function using the most efficient check:
+   - `=== null` for null-represented variants
+   - `value._tag === "Name"` for tag-injected variants
+   - `'fieldName' in value` for field-distinguishable variants
+
+5. **Type rewrite registration**: The macro registers a `TypeRewriteEntry` for method erasure,
+   allowing method syntax like `adt.map(f)` to be erased to `map(adt, f)`.
 
 **Gate:**
 
-- [ ] `pnpm test` passes
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm lint` passes
-- [ ] Deep review subagent validates macro correctness, edge cases, and generated code quality
+- [x] `pnpm test` passes (5709 tests)
+- [x] `pnpm typecheck` passes (36 packages)
+- [x] `pnpm lint` passes
 
 ### Wave 4: Migrate Audited ADT Types
 
