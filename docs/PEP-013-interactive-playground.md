@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** In Progress (Wave 1 complete)
+**Status:** In Progress (Wave 2 complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -343,20 +343,28 @@ For running transformed code:
 
 **Tasks:**
 
-- [ ] Add `vite-plugin-monaco-editor` to docs dev dependencies
-- [ ] Create `docs/.vitepress/components/MonacoEditor.vue` component
-- [ ] Configure Monaco for TypeScript with typesugar lib.d.ts
-- [ ] Add custom `.sts` language definition (syntax highlighting)
-- [ ] Wire editor content changes to transformation pipeline
-- [ ] Display transformed output in read-only Monaco panel
-- [ ] Add file type toggle (`.ts` / `.sts`)
+- [x] Add `vite-plugin-monaco-editor` to docs dev dependencies
+- [x] Create `docs/.vitepress/components/MonacoEditor.vue` component
+- [x] Configure Monaco for TypeScript with typesugar lib.d.ts
+- [x] Add custom `.sts` language definition (syntax highlighting)
+- [x] Wire editor content changes to transformation pipeline
+- [x] Display transformed output in read-only Monaco panel
+- [x] Add file type toggle (`.ts` / `.sts`)
 
 **Gate:**
 
-- [ ] Monaco editor renders in VitePress dev server
-- [ ] Typing in editor triggers transformation
-- [ ] Both `.ts` and `.sts` modes work
-- [ ] Syntax highlighting works for typesugar-specific syntax
+- [x] Monaco editor renders in VitePress dev server
+- [x] Typing in editor triggers transformation
+- [x] Both `.ts` and `.sts` modes work
+- [x] Syntax highlighting works for typesugar-specific syntax
+
+**Notes (Wave 2 implementation):**
+
+- Used `monaco-editor` + `@monaco-editor/loader` instead of `vite-plugin-monaco-editor` for better SSR compatibility with VitePress
+- Custom `.sts` language definition includes typesugar-specific tokens: decorators (`@typeclass`, `@derive`), operators (`|>`, `<|`, `::`), and HKT syntax (`F<_>`)
+- Custom themes (`typesugar-dark`, `typesugar-light`) with distinct highlighting for typesugar constructs
+- Playground bundle required process shim for browser compatibility (added `browser-shims/process.ts`)
+- Test page at `docs/playground-test.md` for verification
 
 ### Wave 3: Playground Page
 

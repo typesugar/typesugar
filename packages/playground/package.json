@@ -57,5 +57,8 @@
     "dist",
     "src"
   ],
-  "sideEffects": false
+  "sideEffects": [
+    "./src/browser-shims/process-global.ts",
+    "./src/browser-shims/process-global.js"
+  ]
 }

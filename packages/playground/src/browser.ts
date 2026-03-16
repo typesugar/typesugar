@@ -6,6 +6,8 @@
  * dependencies are bundled together for browser use.
  */
 
+import "./browser-shims/process-global.js";
+
 export * from "./index.js";
 
 import * as ts from "typescript";

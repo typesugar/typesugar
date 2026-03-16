@@ -31,6 +31,7 @@ export default defineConfig([
         fs: "./src/browser-shims/fs.ts",
         path: "./src/browser-shims/path.ts",
         crypto: "./src/browser-shims/crypto.ts",
+        process: "./src/browser-shims/process.ts",
       };
     },
   },

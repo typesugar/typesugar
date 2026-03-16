@@ -38,6 +38,7 @@
   "license": "MIT",
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
+    "@monaco-editor/loader": "^1.7.0",
     "@types/node": "^22.15.30",
     "@types/react": "^19.2.14",
     "@typesugar/contracts": "workspace:*",
@@ -46,6 +47,7 @@
     "@typesugar/fp": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "@typesugar/mapper": "workspace:*",
+    "@typesugar/playground": "workspace:^",
     "@typesugar/prettier-plugin": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/strings": "workspace:*",
@@ -55,6 +57,7 @@
     "@typesugar/type-system": "workspace:*",
     "lint-staged": "^16.4.0",
     "magic-string": "^0.30.21",
+    "monaco-editor": "^0.55.1",
     "prettier": "^3.5.0",
     "react": "^19.2.4",
     "ts-patch": "^3.3.0",
