@@ -6,9 +6,9 @@
    - **What:** A macro that generates type-safe, zero-cost lenses for data structures.
    - **Why:** Deep immutable updates in TypeScript are verbose. This compiles to direct object spread operations with zero runtime overhead and fully typed paths.
 
-2. **Algebraic Data Types (`@adt`)**
+2. ~~**Algebraic Data Types (`@adt`)**~~ ✅ **Done** (PEP-014)
    - **What:** A concise syntax for defining ADTs that auto-generates constructors, type guards, and matchers.
-   - **Why:** Reduces boilerplate for sum types and pairs perfectly with the existing `match` macro in `@typesugar/std`.
+   - **Status:** Implemented. See `docs/PEP-014-adt-macro.md` and `packages/macros/src/adt.ts`. Generates constructors, type guards, match arms, and auto-derives `Eq`, `Show`, `Clone`.
 
 3. ~~**Structural Pattern Matching (`match!`)**~~ ✅ **Done**
    - Unified `match()` macro in `@typesugar/std` with:
@@ -125,30 +125,30 @@ typesugar, not just Result. Tracked inline in `src/macros/specialize.ts`.
 ## Soundness & Type Safety
 
 - [ ] **Post-expansion type checking** — Macro expansions are not re-type-checked after the transformer runs. Explore running a second `tsc` pass on expanded output, or integrating with TypeScript's incremental checker to validate generated code. (Analysis §4.1)
-- [ ] **Specialization diagnostics** — Emit compile-time warnings when `specialize` falls back to dictionary passing (early returns, try/catch, loops, mutable state). Currently the fallback is silent — users have no way to know their "zero-cost" code isn't actually zero-cost. (Analysis §4.6)
+- [x] **Specialization diagnostics** — ✅ Done. `specialize()` now emits compile-time warnings with specific fallback reasons (early return, try/catch, loop, mutation).
 - [ ] **Binding-time analysis for specialization** — Replace the ad-hoc "can we inline this?" checks in `specialize.ts` with a proper binding-time analysis pass that statically determines specialization feasibility before attempting it. (Analysis §4.6)
 - [ ] **Macro expansion cycle detection** — No expansion depth limit or cycle detection exists for recursive re-expansion of macro results. Add a configurable max depth with a clear compile error when exceeded. (Analysis §4.7)
 
 ## Coherence & Instance Resolution
 
 - [ ] **Orphan instance detection** — `CoherenceChecker` exists with priority-based conflict detection, but there are no orphan rules (instances must be defined in the module of the typeclass or the type). In JS, this is especially dangerous since module execution order can be non-deterministic. (Analysis §4.3)
-- [ ] **Integrate resolution traces into error messages** — `packages/core/src/resolution-trace.ts` collects resolution events but they're not attached to `summon()` failure diagnostics. When resolution fails, show what was tried and why each path failed.
+- [x] **Integrate resolution traces into error messages** — ✅ Done. `summon()` failure diagnostics now include resolution traces showing what was tried and why each path failed. See `packages/core/src/resolution-trace.ts` and `packages/macros/src/typeclass.ts`.
 - [ ] **Migrate all error paths to rich diagnostics** — Some code still uses legacy `ctx.reportError()` (string-based) instead of `ctx.diagnostic()` (rich builder with spans, notes, suggestions). Audit and migrate remaining call sites.
 
 ## Source Maps & Debugging
 
-- [ ] **AST transformer source maps** — The preprocessor generates source maps via `magic-string`, but the AST transformer returns `map: null`. Breakpoints and stack traces for macro-expanded code point to generated code rather than the original macro call site. `ExpansionTracker.generateSourceMap()` is referenced in comments but not implemented.
+- [x] **AST transformer source maps** — ✅ Done. `ExpansionTracker.generateSourceMap()` is implemented in `packages/core/src/source-map.ts` using MagicString. The transformer pipeline calls it and composes with preprocessor source maps via `composeSourceMaps()`. Remaining: verify breakpoints and stack traces in real debugging sessions.
 - [ ] **Debug mode with expansion comments** — Consider a debug/development mode that emits inline comments in generated code showing the original macro invocation, making transformed output easier to read.
 
 ## Build & Bundle Optimization
 
 - [ ] **Tree-shaking: `/*#__PURE__*/` annotations on generated code** — The transformer should auto-emit `/*#__PURE__*/` on generated instance constants and other side-effect-free expressions. Currently only the unplugin export has this annotation. Without it, bundlers can't eliminate unused auto-derived instances.
-- [ ] **`sideEffects: false` in package.json** — None of the packages declare `sideEffects: false`, so bundlers treat all exports as potentially side-effectful.
+- [ ] **`sideEffects: false` in package.json** — Most packages now declare `sideEffects: false`, but audit for completeness and add to any remaining packages.
 - [ ] **Lazy/tree-shakeable instance registration** — `registerInstance()` calls are side-effectful and anchor unused instances in the bundle. Consider lazy registration (register on first `summon()`) or making registration eliminable.
 
 ## Tooling & DX
 
-- [ ] **Prettier plugin** — Custom syntax (`|>`, `::`, `F<_>`) breaks Prettier. Need a Prettier plugin or pre-processor integration so files can be auto-formatted.
+- [x] **Prettier plugin** — ✅ Done. Full Prettier plugin in `packages/prettier-plugin/` with pre-format/post-format pipeline for custom syntax.
 - [ ] **Unplugin HMR/watch mode** — The unplugin creates `ts.Program` once at `buildStart` and never invalidates it. During dev mode, type information goes stale as files change. Add watch mode support with incremental program updates and proper cache invalidation.
 
 ## Language Design

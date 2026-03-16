@@ -300,12 +300,12 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/reflect
 
 **Usefulness**: 4/5 - Valuable for form generation, API validation, serialization, ORM mapping. Unique compile-time reflection in TS ecosystem.
-**Completeness**: 3/5 - Exports `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`. Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection. Missing vitest config (no `test` script in package.json).
+**Completeness**: 3/5 - Exports `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`. Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection. Vitest config and package-level tests exist (36 tests, 2 files).
 **Documentation**: 4/5 - Good README with TypeInfo structure examples. Good showcase.
 **Coherence**: 4/5 - Follows macro-based design, zero-cost.
 **Summary**: Solid compile-time reflection but needs better complex type handling.
 
-**Update (2026-03-15):** No significant changes — stable. **Gap**: Missing vitest config for package-level tests.
+**Update (2026-03-16):** Vitest config and tests verified. 36 tests (28 in reflect.test.ts + 8 in reflect-behavioral.test.ts) covering exports, TypeInfo structures, runtime stub behavior, and edge cases. Module-evaluation-log updated: "Missing vitest config" was incorrect — config and tests exist.
 
 ---
 
@@ -582,9 +582,10 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 - **@typesugar/mapper** — Sparse documentation (44 lines), few tests. Needs showcase.
 - ~~**@typesugar/comptime**~~ — _(Removed 2026-03-15)_ Re-export wrapper removed.
-- **@typesugar/reflect** — Missing vitest config for package-level tests.
 
 **Resolved (2026-03-16):**
+
+- ~~**@typesugar/reflect**~~ — Vitest config and 36 tests verified; 8 behavioral tests added.
 
 - ~~**@typesugar/erased**~~ — _(Resolved 2026-03-16)_ 25 package-level tests added, 57 total.
 - ~~**@typesugar/sql**~~ — _(Resolved 2026-03-16)_ 49 package-level tests added, 179 total.
@@ -624,9 +625,9 @@ Evaluation of all typesugar modules across 4 dimensions:
    - **@typesugar/eslint-plugin**: Tests confirmed — 3 test files with 945 lines of coverage
    - **@typesugar/strings**: Tests added — 28 tests covering exports, runtime stubs, macro definitions
    - **@typesugar/macros**: 81 global test files cover macros extensively; red team tests added
-   - **Packages needing tests (2026-03-16):**
-     - **@typesugar/reflect** — Missing vitest config
+   - **Packages needing tests (2026-03-16):** None
    - **Resolved (2026-03-16):**
+     - ~~**@typesugar/reflect**~~ — Vitest config and 36 tests verified
      - ~~**@typesugar/sql**~~ — 49 tests added (179 total)
      - ~~**@typesugar/erased**~~ — 25 tests added (57 total)
      - ~~**@typesugar/specialize**~~ — 54 behavioral tests added (88 total)
@@ -649,7 +650,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Active recommendations:**
 
 1. **Expand @typesugar/mapper** — Needs showcase.ts, more examples, extended README
-2. **Add package-level tests** to reflect (only remaining untested package)
+2. ~~**Add package-level tests to reflect**~~ — _(Done 2026-03-17)_ 36 tests verified
 3. ~~**Implement @typesugar/units .to() method**~~ — _(Done 2026-03-16)_ Implemented with 115 tests
 4. ~~**Consider deprecating @typesugar/comptime**~~ — _(Done 2026-03-15)_ Package removed
 5. ~~**Add package-level tests to sql, erased, specialize**~~ — _(Done 2026-03-16)_ All three now have comprehensive tests
@@ -670,4 +671,5 @@ Evaluation of all typesugar modules across 4 dimensions:
 _Generated: 2026-02-22_
 _Updated: 2026-03-01 — Major pruning: removed @typesugar/named-args, @typesugar/contracts-z3, @typesugar/geometry, @typesugar/kysely, @typesugar/drizzle, @typesugar/operators. Improved @typesugar/graph (compile-time FSM, Monoid Dijkstra) and @typesugar/strings (removed json macro)._
 _Updated: 2026-03-15 — Full reassessment. Key improvements: transformer (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), graph (5/4/5/5), fp (5/4/5/5), type-system (5/4/5/5). New concerns: react (stagnant), mapper (sparse docs), comptime (just re-exports)._
-_Updated: 2026-03-16 — Test coverage wave: units (.to() implemented + 115 tests, 2→3), sql (49 tests added, 3→4), erased (25 tests added, 2→3), specialize (54 behavioral tests), mapper (10 API tests). Only reflect remains without package-level tests._
+_Updated: 2026-03-16 — Test coverage wave: units (.to() implemented + 115 tests, 2→3), sql (49 tests added, 3→4), erased (25 tests added, 2→3), specialize (54 behavioral tests), mapper (10 API tests)._
+_Updated: 2026-03-17 — @typesugar/reflect tests verified: 36 tests (28 + 8 behavioral) pass; vitest config and package-level tests confirmed._

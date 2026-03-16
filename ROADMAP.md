@@ -1,6 +1,6 @@
 # typesugar Roadmap
 
-> Last updated: 2026-02-21
+> Last updated: 2026-03-16
 
 This roadmap is ordered by **adoption impact**, not coolness. The core thesis: typesugar has a compelling macro system with ~30 packages — but zero external users. More features won't fix that. Debuggability, trust, and killer demos will.
 
@@ -10,52 +10,52 @@ This roadmap is ordered by **adoption impact**, not coolness. The core thesis: t
 
 These gate adoption. Nothing else matters until these work. A developer evaluating typesugar who can't debug their code, format their files, or understand error messages will walk away immediately.
 
-### Source Maps for Macro-Expanded Code
+### Source Maps for Macro-Expanded Code ✅ Mostly Complete
 
 **Difficulty: 4 · Impact: 5**
 
-The preprocessor generates source maps via `magic-string`, but the AST transformer returns `map: null`. Breakpoints and stack traces for macro-expanded code point to generated code rather than the original macro call site. `ExpansionTracker.generateSourceMap()` is referenced in comments but not implemented.
+`ExpansionTracker.generateSourceMap()` is implemented using MagicString text surgery in `packages/core/src/source-map.ts`. The transformer pipeline calls it at the end of `runMacroTransformerTS()` and composes the result with preprocessor source maps via `composeSourceMaps()`.
 
-- [ ] Implement `ExpansionTracker.generateSourceMap()`
-- [ ] Thread source maps through the transformer pipeline
+- [x] Implement `ExpansionTracker.generateSourceMap()`
+- [x] Thread source maps through the transformer pipeline
 - [ ] Verify breakpoints land on original macro call sites
 - [ ] Verify stack traces show original source locations
 
-**Where:** `src/core/source-map.ts`, `src/transforms/macro-transformer.ts`
+**Where:** `packages/core/src/source-map.ts`, `packages/transformer/src/pipeline.ts`
 
-### Prettier Plugin
+### Prettier Plugin ✅ Complete
 
 **Difficulty: 3 · Impact: 5**
 
-Custom syntax (`|>`, `::`, `F<_>`) breaks Prettier. Every file save produces mangled output. Developers format code dozens of times per day — this is constant friction.
+Full Prettier plugin implemented in `packages/prettier-plugin/` with pre-format/post-format pipeline for custom syntax.
 
-- [ ] Prettier plugin or preprocessor integration for custom operators
-- [ ] Handle `F<_>` HKT syntax
-- [ ] Handle `|>` pipeline and `::` cons operators
+- [x] Prettier plugin or preprocessor integration for custom operators
+- [x] Handle `F<_>` HKT syntax
+- [x] Handle `|>` pipeline and `::` cons operators
 
-### Specialization Diagnostics
+### Specialization Diagnostics ✅ Complete
 
 **Difficulty: 2 · Impact: 4**
 
-`specialize()` silently falls back to dictionary passing when it encounters early returns, try/catch, loops, or mutable state. Users think they have zero-cost code when they don't. This is a trust problem.
+`specialize()` emits compile-time warnings with specific reasons when falling back to dictionary passing.
 
 - [x] Emit compile-time warnings on fallback to dictionary passing
 - [x] Include reason (early return, try/catch, loop, mutation)
 - [x] Suggest refactoring to enable inlining
 
-**Where:** `src/macros/specialize.ts`
+**Where:** `packages/macros/src/specialize.ts`
 
-### Resolution Traces in Error Messages
+### Resolution Traces in Error Messages ✅ Mostly Complete
 
 **Difficulty: 2 · Impact: 4**
 
-When `summon()` fails, the error is opaque. `packages/core/src/resolution-trace.ts` collects resolution events but they're not attached to failure diagnostics. Show what was tried and why each path failed.
+Resolution trace infrastructure is fully implemented in `packages/core/src/resolution-trace.ts` with `ResolutionTrace`, `ResolutionAttempt`, `formatResolutionTrace()`, and `generateHelpFromTrace()`. The `summon()` path in `packages/macros/src/typeclass.ts` constructs and uses traces for failure diagnostics.
 
-- [ ] Attach resolution trace to `summon()` failure diagnostics
-- [ ] Show: typeclass sought, types checked, instances found/rejected, reason for each rejection
-- [ ] Format as a readable "resolution trace" in the compile error
+- [x] Attach resolution trace to `summon()` failure diagnostics
+- [x] Show: typeclass sought, types checked, instances found/rejected, reason for each rejection
+- [x] Format as a readable "resolution trace" in the compile error
 
-**Where:** `packages/core/src/resolution-trace.ts`, `src/macros/typeclass.ts`
+**Where:** `packages/core/src/resolution-trace.ts`, `packages/macros/src/typeclass.ts`
 
 ### Tree-Shaking: `/*#__PURE__*/` and `sideEffects: false`
 
@@ -74,15 +74,15 @@ Half-day fix with immediate impact on every bundler integration.
 
 These are what goes in the README, blog posts, and conference talks. Each one solves a real, universal TypeScript pain point and makes a compelling "before/after" demo.
 
-### Algebraic Data Types (`@adt`)
+### Algebraic Data Types (`@adt`) ✅ Complete (PEP-014)
 
 **Difficulty: 2 · Impact: 4**
 
-Best bang-for-buck on the entire roadmap. Easy to build, pairs perfectly with the existing `match` macro, and instantly useful for every codebase with discriminated unions.
+Implemented via PEP-014. The `@adt` JSDoc macro generates constructors, type guards, and match arms from discriminated union types.
 
-- [ ] `@adt` decorator generates constructors, type guards, and match arms
-- [ ] Integration with `match()` for exhaustive pattern matching
-- [ ] Auto-derive `Eq`, `Show`, `Clone` for ADT variants
+- [x] `@adt` decorator generates constructors, type guards, and match arms
+- [x] Integration with `match()` for exhaustive pattern matching
+- [x] Auto-derive `Eq`, `Show`, `Clone` for ADT variants
 
 ```typescript
 @adt
