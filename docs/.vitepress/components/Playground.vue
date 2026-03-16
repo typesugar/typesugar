@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, shallowRef, computed, nextTick } from "vue";
 import type * as Monaco from "monaco-editor";
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
+import ErrorBoundary from "./ErrorBoundary.vue";
 
 interface TransformResult {
   original: string;
@@ -283,6 +284,9 @@ const fileType = ref<".ts" | ".sts">(props.initialFileType);
 const tsVersion = ref("5.8");
 const isLoading = ref(true);
 const isRunning = ref(false);
+const isTransforming = ref(false);
+const loadingProgress = ref(0);
+const loadingMessage = ref("Initializing...");
 const transformError = ref<string | null>(null);
 const lastResult = ref<TransformResult | null>(null);
 const transformTime = ref<number>(0);
@@ -302,6 +306,7 @@ const errorCount = computed(() => lastResult.value?.diagnostics?.length ?? 0);
 
 const statusText = computed(() => {
   if (isLoading.value) return "Loading...";
+  if (isTransforming.value) return "Transforming...";
   if (transformError.value) return `Error`;
   if (!lastResult.value) return "Ready";
   const changed = lastResult.value.changed ? "transformed" : "unchanged";
@@ -312,9 +317,11 @@ const statusText = computed(() => {
 
 const statusClass = computed(() => {
   if (isLoading.value) return "loading";
+  if (isTransforming.value) return "transforming";
   if (transformError.value || errorCount.value > 0) return "error";
   return "success";
 });
+
 
 function registerStsLanguage(monacoInstance: typeof Monaco) {
   if (monacoInstance.languages.getLanguages().some((lang) => lang.id === "sts")) {
@@ -500,6 +507,7 @@ function doTransform() {
 
   const code = inputEditor.value.getValue();
   transformError.value = null;
+  isTransforming.value = true;
 
   try {
     const start = performance.now();
@@ -530,6 +538,8 @@ function doTransform() {
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     transformError.value = err.message;
+  } finally {
+    isTransforming.value = false;
   }
 }
 
@@ -542,11 +552,18 @@ function scheduleTransform() {
 
 async function loadPlayground() {
   try {
+    loadingProgress.value = 20;
+    loadingMessage.value = "Loading TypeScript...";
     const ts = await import("typescript");
     (window as Record<string, unknown>).ts = ts;
 
+    loadingProgress.value = 60;
+    loadingMessage.value = "Loading transformer...";
     const playgroundModule = await import("@typesugar/playground");
     playground.value = playgroundModule;
+    
+    loadingProgress.value = 80;
+    loadingMessage.value = "Ready";
   } catch (e) {
     console.error("Failed to load playground:", e);
     transformError.value = `Failed to load playground: ${e}`;
@@ -856,10 +873,17 @@ async function initMonaco() {
   if (typeof window === "undefined") return;
 
   try {
+    loadingProgress.value = 5;
+    loadingMessage.value = "Loading editor...";
     const loader = await import("@monaco-editor/loader");
+    
+    loadingProgress.value = 10;
+    loadingMessage.value = "Initializing Monaco...";
     const monacoInstance = await loader.default.init();
     monaco.value = monacoInstance;
 
+    loadingProgress.value = 15;
+    loadingMessage.value = "Configuring syntax...";
     registerStsLanguage(monacoInstance);
     await loadPlayground();
 
@@ -914,7 +938,8 @@ async function initMonaco() {
       });
     }
 
-    isLoading.value = false;
+    loadingProgress.value = 90;
+    loadingMessage.value = "Loading saved state...";
     
     // Priority: URL hash > localStorage > default
     const loadedFromUrl = loadFromUrl();
@@ -932,6 +957,10 @@ async function initMonaco() {
         monacoInstance.editor.setModelLanguage(model, fileType.value === ".sts" ? "sts" : "typescript");
       }
     }
+    
+    loadingProgress.value = 100;
+    loadingMessage.value = "Ready";
+    isLoading.value = false;
     
     doTransform();
 
@@ -1014,35 +1043,48 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="playground-container">
+  <ErrorBoundary fallback-message="The playground encountered an error. Please try refreshing the page.">
+  <div class="playground-container" role="application" aria-label="typesugar Interactive Playground">
+    <!-- Skip link for keyboard navigation -->
+    <a href="#input-editor" class="skip-link">Skip to editor</a>
+    
     <!-- Tooltip for copy feedback -->
     <Transition name="tooltip">
-      <div v-if="shareTooltip" class="share-tooltip">
+      <div v-if="shareTooltip" class="share-tooltip" role="status" aria-live="polite">
         {{ shareTooltip }}
       </div>
     </Transition>
 
     <!-- Toolbar -->
-    <div class="toolbar">
+    <div class="toolbar" role="toolbar" aria-label="Playground controls">
       <div class="toolbar-left">
         <!-- Example Presets Dropdown -->
         <div class="presets-dropdown-container">
           <button 
             class="presets-btn"
             @click="togglePresetsDropdown"
-            title="Load example preset"
+            :aria-expanded="showPresetsDropdown"
+            aria-haspopup="listbox"
+            aria-label="Load example preset"
           >
-            <span class="presets-icon">📚</span>
+            <span class="presets-icon" aria-hidden="true">📚</span>
             Examples
-            <span class="dropdown-arrow">▼</span>
+            <span class="dropdown-arrow" aria-hidden="true">▼</span>
           </button>
           <Transition name="dropdown">
-            <div v-if="showPresetsDropdown" class="presets-dropdown">
+            <div 
+              v-if="showPresetsDropdown" 
+              class="presets-dropdown"
+              role="listbox"
+              aria-label="Example presets"
+            >
               <button 
                 v-for="preset in EXAMPLE_PRESETS" 
                 :key="preset.name"
                 class="preset-item"
                 :class="{ active: selectedPreset === preset.name }"
+                :aria-selected="selectedPreset === preset.name"
+                role="option"
                 @click="loadPreset(preset)"
               >
                 <span class="preset-name">{{ preset.name }}</span>
@@ -1053,24 +1095,34 @@ onUnmounted(() => {
           </Transition>
         </div>
 
-        <div class="file-type-toggle">
+        <div class="file-type-toggle" role="radiogroup" aria-label="File type">
           <button
             :class="{ active: fileType === '.ts' }"
+            :aria-pressed="fileType === '.ts'"
+            role="radio"
+            :aria-checked="fileType === '.ts'"
             @click="setFileType('.ts')"
-            title="TypeScript mode - JSDoc macros only"
+            aria-label="TypeScript mode - JSDoc macros only"
           >
             .ts
           </button>
           <button
             :class="{ active: fileType === '.sts' }"
+            :aria-pressed="fileType === '.sts'"
+            role="radio"
+            :aria-checked="fileType === '.sts'"
             @click="setFileType('.sts')"
-            title="Sugar TypeScript mode - custom syntax"
+            aria-label="Sugar TypeScript mode - custom syntax"
           >
             .sts
           </button>
         </div>
         
-        <select v-model="tsVersion" class="ts-version-select" title="TypeScript version">
+        <select 
+          v-model="tsVersion" 
+          class="ts-version-select" 
+          aria-label="TypeScript version"
+        >
           <option value="5.8">TypeScript 5.8</option>
           <option value="5.7">TypeScript 5.7</option>
           <option value="5.6">TypeScript 5.6</option>
@@ -1078,7 +1130,14 @@ onUnmounted(() => {
       </div>
 
       <div class="toolbar-center">
-        <div class="status" :class="statusClass">
+        <div 
+          class="status" 
+          :class="statusClass"
+          role="status"
+          aria-live="polite"
+          :aria-busy="isTransforming"
+        >
+          <span v-if="isTransforming" class="status-spinner" aria-hidden="true"></span>
           {{ statusText }}
         </div>
       </div>
@@ -1088,98 +1147,149 @@ onUnmounted(() => {
           class="run-btn" 
           @click="runCode" 
           :disabled="isRunning || !lastResult"
-          title="Run code (Cmd+Enter)"
+          :aria-disabled="isRunning || !lastResult"
+          aria-label="Run code, keyboard shortcut Command Enter"
         >
-          <span v-if="isRunning" class="spinner"></span>
-          <span v-else>▶</span>
+          <span v-if="isRunning" class="spinner" aria-hidden="true"></span>
+          <span v-else aria-hidden="true">▶</span>
           Run
         </button>
         <div class="share-buttons">
           <button 
             class="share-btn" 
             @click="copyShareUrl"
-            title="Copy share URL (Cmd+S)"
+            aria-label="Copy share URL, keyboard shortcut Command S"
           >
-            🔗 Share
+            <span aria-hidden="true">🔗</span> Share
           </button>
           <button 
             class="copy-btn" 
             @click="copyCode"
-            title="Copy input code"
+            aria-label="Copy input code to clipboard"
           >
-            📋 Copy
+            <span aria-hidden="true">📋</span> Copy
           </button>
         </div>
       </div>
     </div>
 
     <!-- Main content area -->
-    <div class="main-content">
+    <main class="main-content">
       <!-- Editors -->
       <div class="editors-container">
         <div class="editor-panel input-panel">
           <div class="panel-header">
-            <span class="panel-title">Input</span>
+            <span class="panel-title" id="input-editor-label">Input</span>
             <span class="panel-filename">{{ fileName }}</span>
           </div>
-          <div ref="inputContainer" class="editor-container" />
+          <div 
+            id="input-editor"
+            ref="inputContainer" 
+            class="editor-container"
+            role="textbox"
+            aria-multiline="true"
+            aria-labelledby="input-editor-label"
+            tabindex="0"
+          />
         </div>
 
         <div class="editor-panel output-panel">
           <div class="panel-header">
-            <div class="output-tabs">
+            <div class="output-tabs" role="tablist" aria-label="Output view tabs">
               <button 
                 :class="{ active: activeTab === 'js' }" 
                 @click="activeTab = 'js'"
+                role="tab"
+                :aria-selected="activeTab === 'js'"
+                aria-controls="output-js-panel"
+                id="output-js-tab"
               >
                 JS Output
               </button>
               <button 
                 :class="{ active: activeTab === 'errors' }" 
                 @click="activeTab = 'errors'"
+                role="tab"
+                :aria-selected="activeTab === 'errors'"
+                aria-controls="output-errors-panel"
+                id="output-errors-tab"
               >
                 Errors
-                <span v-if="errorCount > 0" class="error-badge">{{ errorCount }}</span>
+                <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{ errorCount }}</span>
               </button>
             </div>
             <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
           </div>
           
-          <div v-show="activeTab === 'js'" ref="outputContainer" class="editor-container" />
+          <div 
+            v-show="activeTab === 'js'" 
+            ref="outputContainer" 
+            class="editor-container"
+            id="output-js-panel"
+            role="tabpanel"
+            aria-labelledby="output-js-tab"
+          />
           
-          <div v-show="activeTab === 'errors'" class="errors-container">
-            <div v-if="errorCount === 0" class="no-errors">
+          <div 
+            v-show="activeTab === 'errors'" 
+            class="errors-container"
+            id="output-errors-panel"
+            role="tabpanel"
+            aria-labelledby="output-errors-tab"
+          >
+            <div v-if="errorCount === 0" class="no-errors" role="status">
               No errors
             </div>
-            <div v-else class="error-list">
-              <div 
+            <div v-else class="error-list" role="list" aria-label="Transformation errors">
+              <button 
                 v-for="(diag, i) in lastResult?.diagnostics" 
                 :key="i" 
                 class="error-item"
                 :class="diag.severity"
+                role="listitem"
                 @click="goToErrorLine(diag.line)"
+                :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
               >
                 <div class="error-location">
                   <span class="error-severity">{{ diag.severity }}</span>
                   <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
                 </div>
                 <div class="error-message">{{ diag.message }}</div>
-              </div>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Console -->
-      <div v-show="showConsole" class="console-panel">
+      <section 
+        v-show="showConsole" 
+        class="console-panel"
+        aria-label="Console output"
+      >
         <div class="console-header">
-          <span class="console-title">Console</span>
+          <span class="console-title" id="console-title">Console</span>
           <div class="console-actions">
-            <button @click="clearConsole" title="Clear console">Clear</button>
-            <button @click="showConsole = false" title="Hide console">×</button>
+            <button 
+              @click="clearConsole" 
+              aria-label="Clear console output"
+            >
+              Clear
+            </button>
+            <button 
+              @click="showConsole = false" 
+              aria-label="Hide console panel"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
           </div>
         </div>
-        <div class="console-output">
+        <div 
+          class="console-output"
+          role="log"
+          aria-live="polite"
+          aria-labelledby="console-title"
+        >
           <div v-if="consoleMessages.length === 0" class="console-placeholder">
             Press Run (Cmd+Enter) to execute the code
           </div>
@@ -1188,22 +1298,24 @@ onUnmounted(() => {
             :key="i" 
             class="console-message"
             :class="msg.type"
+            :role="msg.type === 'error' ? 'alert' : undefined"
           >
-            <span class="console-type">[{{ msg.type }}]</span>
+            <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
             <span class="console-text">{{ msg.args.join(" ") }}</span>
           </div>
         </div>
-      </div>
+      </section>
 
       <!-- Toggle console button when hidden -->
       <button 
         v-if="!showConsole" 
         class="show-console-btn"
         @click="showConsole = true"
+        aria-label="Show console panel"
       >
         Show Console
       </button>
-    </div>
+    </main>
 
     <!-- Hidden sandbox iframe -->
     <iframe 
@@ -1211,17 +1323,57 @@ onUnmounted(() => {
       class="sandbox-iframe"
       sandbox="allow-scripts"
       title="Code execution sandbox"
+      aria-hidden="true"
     />
 
     <!-- Loading overlay -->
-    <div v-if="isLoading" class="loading-overlay">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Loading playground...</div>
+    <div 
+      v-if="isLoading" 
+      class="loading-overlay"
+      role="progressbar"
+      :aria-valuenow="loadingProgress"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label="Loading playground"
+    >
+      <div class="loading-content">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <div class="loading-text">{{ loadingMessage }}</div>
+        <div class="loading-progress-bar">
+          <div 
+            class="loading-progress-fill" 
+            :style="{ width: `${loadingProgress}%` }"
+          ></div>
+        </div>
+        <div class="loading-progress-text">{{ loadingProgress }}%</div>
+      </div>
     </div>
   </div>
+  </ErrorBoundary>
 </template>
 
 <style scoped>
+/* Skip link for keyboard navigation */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--vp-c-brand-1);
+  color: white;
+  padding: 8px 16px;
+  z-index: 1000;
+  border-radius: 0 0 6px 0;
+  text-decoration: none;
+  font-weight: 500;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 2px solid var(--vp-c-brand-2);
+  outline-offset: 2px;
+}
+
 .playground-container {
   display: flex;
   flex-direction: column;
@@ -1306,9 +1458,26 @@ onUnmounted(() => {
   background: var(--vp-c-bg);
 }
 
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .status.loading { color: var(--vp-c-text-2); }
+.status.transforming { color: var(--vp-c-brand-1); }
 .status.success { color: var(--vp-c-green-1); }
 .status.error { color: var(--vp-c-red-1); }
+
+.status-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--vp-c-divider);
+  border-top-color: var(--vp-c-brand-1);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
 
 .run-btn,
 .share-btn {
@@ -1472,20 +1641,31 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.error-item {
+button.error-item {
+  display: block;
+  width: 100%;
+  text-align: left;
   padding: 12px;
   background: var(--vp-c-bg-soft);
   border-radius: 6px;
+  border: none;
   border-left: 3px solid var(--vp-c-red-1);
   cursor: pointer;
   transition: background 0.2s;
+  font-family: inherit;
+  font-size: inherit;
 }
 
-.error-item:hover {
+button.error-item:hover {
   background: var(--vp-c-bg-mute);
 }
 
-.error-item.warning {
+button.error-item:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+button.error-item.warning {
   border-left-color: var(--vp-c-yellow-1);
 }
 
@@ -1644,12 +1824,20 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
   background: var(--vp-c-bg);
   z-index: 100;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 300px;
+  width: 100%;
+  padding: 24px;
 }
 
 .loading-spinner {
@@ -1663,6 +1851,29 @@ onUnmounted(() => {
 
 .loading-text {
   font-size: 14px;
+  color: var(--vp-c-text-1);
+  font-weight: 500;
+  text-align: center;
+}
+
+.loading-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--vp-c-divider);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.loading-progress-fill {
+  height: 100%;
+  background: var(--vp-c-brand-1);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.loading-progress-text {
+  font-size: 12px;
+  font-family: var(--vp-font-family-mono);
   color: var(--vp-c-text-2);
 }
 
@@ -1824,12 +2035,34 @@ onUnmounted(() => {
   color: var(--vp-c-text-1);
 }
 
+/* Mobile responsiveness */
 @media (max-width: 768px) {
+  .playground-container {
+    height: auto;
+    min-height: 100vh;
+  }
+  
   .editors-container {
     grid-template-columns: 1fr;
+    min-height: 400px;
+  }
+  
+  .editor-panel {
+    min-height: 250px;
+  }
+  
+  .input-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--vp-c-divider);
   }
   
   .toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  
+  .toolbar-left {
     flex-wrap: wrap;
     gap: 8px;
   }
@@ -1840,12 +2073,111 @@ onUnmounted(() => {
     justify-content: flex-start;
   }
   
+  .toolbar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
   .presets-dropdown {
     min-width: 240px;
+    max-width: calc(100vw - 48px);
   }
   
   .share-buttons {
     flex-wrap: wrap;
+  }
+  
+  .file-type-toggle button {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  
+  .run-btn {
+    flex: 1;
+  }
+  
+  .console-panel {
+    height: 150px;
+  }
+  
+  .show-console-btn {
+    bottom: 8px;
+    right: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .toolbar {
+    padding: 8px;
+  }
+  
+  .presets-btn {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  
+  .presets-icon {
+    display: none;
+  }
+  
+  .ts-version-select {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  
+  .share-btn,
+  .copy-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  
+  .status {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+}
+
+/* Focus visible styles for better keyboard navigation */
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .error-badge {
+    border: 1px solid white;
+  }
+  
+  .file-type-toggle button.active {
+    border-width: 2px;
+  }
+  
+  .status {
+    font-weight: 600;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner,
+  .spinner,
+  .status-spinner {
+    animation: none;
+  }
+  
+  .loading-progress-fill {
+    transition: none;
+  }
+  
+  .tooltip-enter-active,
+  .tooltip-leave-active,
+  .dropdown-enter-active,
+  .dropdown-leave-active {
+    transition: none;
   }
 }
 </style>

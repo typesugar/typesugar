@@ -23,10 +23,10 @@ Here's a simple embedded playground:
 
 <PlaygroundEmbed
   code="// Try editing this code!
-const greet = (name: string) => `Hello, ${name}!`;
-console.log(greet('World'));"
+const add = (a: number, b: number): number => a + b;
+console.log('Sum:', add(2, 3));"
   mode=".ts"
-  height="180px"
+  height="150px"
 />
 
 ### Read-Only Example
@@ -34,36 +34,13 @@ console.log(greet('World'));"
 Use `readonly` for display-only examples that users can inspect but not modify:
 
 <PlaygroundEmbed
-code="/\*_ @typeclass _/
-interface Eq<T> {
-equals(a: T, b: T): boolean;
-}
-
-/\*_ @impl _/
-const EqNumber: Eq<number> = {
-equals: (a, b) => a === b,
-};"
-mode=".ts"
-height="220px"
-readonly
-title="Typeclass definition"
-/>
-
-### Sugar TypeScript (.sts) Example
-
-The `.sts` mode enables custom syntax like the pipeline operator:
-
-<PlaygroundEmbed
-code="// Pipeline operator chains transformations
-const result = [1, 2, 3, 4, 5]
-|> (nums => nums.filter(n => n % 2 === 0))
-|> (nums => nums.map(n => n \* 2))
-|> (nums => nums.reduce((a, b) => a + b, 0));
-
-console.log('Result:', result); // 12"
-mode=".sts"
-height="200px"
-title="Pipeline operator"
+  code="// This example demonstrates a simple pattern
+const greet = (name: string): string => 'Hello, ' + name + '!';
+console.log(greet('World'));"
+  mode=".ts"
+  height="150px"
+  readonly
+  title="Greeting function"
 />
 
 ### Compact Display
@@ -71,13 +48,12 @@ title="Pipeline operator"
 For simple examples, hide the output panel:
 
 <PlaygroundEmbed
-code="import { staticAssert } from 'typesugar';
-
-staticAssert(1 + 1 === 2);
-staticAssert<string extends unknown, true>();"
-mode=".ts"
-height="120px"
-hideOutput
+  code="// A pure function
+const double = (n: number): number => n * 2;
+const triple = (n: number): number => n * 3;"
+  mode=".ts"
+  height="100px"
+  hideOutput
 />
 
 ## Component API
@@ -113,6 +89,10 @@ Or with all options:
   title="Example"
 />
 ```
+
+::: tip
+For code containing angle brackets (like generics), use the [full playground](/playground) or the "Open in Playground" button to expand embedded examples.
+:::
 
 ## Open in Playground
 
