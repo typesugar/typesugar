@@ -664,11 +664,15 @@ async function runCode() {
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
 
-  if (sandboxIframe.value) {
-    sandboxIframe.value.src = url;
-  }
+  // Track if execution completed normally
+  let executionCompleted = false;
 
   const messageHandler = (event: MessageEvent) => {
+    // Only handle messages from our blob URL or same origin
+    if (event.source !== sandboxIframe.value?.contentWindow) {
+      return;
+    }
+    
     if (event.data.type === "console") {
       consoleMessages.value.push({
         type: event.data.method,
@@ -676,17 +680,33 @@ async function runCode() {
         timestamp: Date.now(),
       });
     } else if (event.data.type === "done") {
+      executionCompleted = true;
       isRunning.value = false;
       window.removeEventListener("message", messageHandler);
       URL.revokeObjectURL(url);
     }
   };
 
+  // Set up message handler BEFORE loading the iframe to avoid race condition
   window.addEventListener("message", messageHandler);
 
-  // Fallback timeout
+  // Now load the iframe
+  if (sandboxIframe.value) {
+    sandboxIframe.value.src = url;
+  }
+
+  // Fallback timeout - handles cases where iframe execution hangs (e.g., infinite loops)
+  // The iframe's internal 5s timeout can't fire for sync infinite loops, so this catches them
   setTimeout(() => {
     if (isRunning.value) {
+      // Only show timeout message if execution didn't complete normally
+      if (!executionCompleted) {
+        consoleMessages.value.push({
+          type: "error",
+          args: ["Execution timed out (code may contain an infinite loop)"],
+          timestamp: Date.now(),
+        });
+      }
       isRunning.value = false;
       window.removeEventListener("message", messageHandler);
       URL.revokeObjectURL(url);
