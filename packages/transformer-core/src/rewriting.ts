@@ -24,6 +24,7 @@ import {
   globalRegistry,
   type MacroDefinition,
   findStandaloneExtension,
+  getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
   type StandaloneExtensionInfo,
   ExpressionMacro,
@@ -269,10 +270,13 @@ export function tryRewriteExtensionMethod(
   const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
 
   if (!ctx.isTypeReliable(receiverType)) {
-    ctx.reportWarning(
-      node,
-      `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
-    );
+    const couldBeExtension = getAllStandaloneExtensions().some((e) => e.methodName === methodName);
+    if (couldBeExtension) {
+      ctx.reportWarning(
+        node,
+        `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
+      );
+    }
     return undefined;
   }
 
