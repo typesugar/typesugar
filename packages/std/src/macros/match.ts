@@ -84,13 +84,16 @@ import { expandFluentMatch } from "./match-v2.js";
 // Type-Level API
 // ============================================================================
 
-/** Extracts discriminant literal values from a union type */
-type DiscriminantOf<T, K extends keyof T> =
-  T extends Record<K, infer V> ? (V extends string | number | boolean ? V : never) : never;
+/** Extracts discriminant literal values from a union type, distributing over T */
+type DiscriminantOf<T, K extends keyof T> = T extends unknown
+  ? T[K] extends string | number | boolean
+    ? T[K]
+    : never
+  : never;
 
 /** Handler map for discriminated union matching — each handler receives the narrowed variant */
 type DiscriminantHandlers<T, K extends keyof T, R> = {
-  [V in DiscriminantOf<T, K>]: (value: Extract<T, Record<K, V>>) => R;
+  [V in DiscriminantOf<T, K> & (string | number)]: (value: Extract<T, { [P in K]: V }>) => R;
 } & { _?: (value: T) => R };
 
 /** Handler map for literal value matching */
@@ -274,11 +277,18 @@ export const P = {
  * 2. `match(value, { variant: handler, ... }, "discriminant")` — explicit discriminant
  * 3. `match(value, [when(...), otherwise(...)])` — guard predicates
  */
-export function match<T extends Record<string, unknown>, K extends keyof T, R>(
+// Overload 1: Types with `kind` property — most common case
+export function match<T extends { kind: string }, R>(
+  value: T,
+  handlers: DiscriminantHandlers<T, "kind", R>
+): R;
+// Overload 2: Explicit discriminant key
+export function match<T extends object, K extends keyof T & string, R>(
   value: T,
   handlers: DiscriminantHandlers<T, K, R>,
-  discriminant?: K
+  discriminant: K
 ): R;
+// Overload 3: Literal matching
 export function match<T extends string | number, R>(value: T, handlers: LiteralHandlers<T, R>): R;
 export function match<T, R>(value: T, arms: GuardArm<T, R>[]): R;
 export function match(value: any, handlersOrArms: any, discriminant?: any): any {
@@ -364,7 +374,6 @@ function inferDiscriminant(
   // Default fallback
   return "kind";
 }
-
 
 // ============================================================================
 // Exhaustiveness Checking

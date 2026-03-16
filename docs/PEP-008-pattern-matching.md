@@ -1,6 +1,6 @@
 # PEP-008: Scala-Style Pattern Matching
 
-**Status:** Waves 1-8 Complete, Wave 9 Blocked (Type constraint issue)
+**Status:** Waves 1-9 Complete
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -1096,80 +1096,55 @@ Remove deprecated `matchLiteral` and `matchGuard` shims that now delegate to the
 
 Adopt `match()` throughout typesugar's own codebase to validate the API and demonstrate best practices.
 
-**Status:** ⚠️ Blocked — Type constraint issue discovered
-
 **Note:** Build infrastructure packages (`transformer`, `macros`, `parser`, `preprocessor`) cannot use `match()` due to bootstrapping — they must compile before any macro expansion can happen.
 
-**Finding: Type Constraint Too Restrictive**
+**Fixed: Type Constraint Issues (2026-03-16)**
 
-The `match()` macro's discriminated union overload has a type constraint that is too restrictive:
+Two issues blocked Wave 9:
+
+1. **Readonly interface constraint:** The original `T extends Record<string, unknown>` constraint failed for discriminated unions with readonly interface members (no index signature).
+
+2. **Discriminant inference from phantom types:** When `Expression<T>` has a `_type?: T` phantom type property alongside `kind`, TypeScript would infer `K` as `"kind" | "_type"` instead of just `"kind"`, causing `Extract` to produce `never`.
+
+**Solution:** Separate overloads for common vs. explicit discriminant cases:
 
 ```typescript
-export function match<T extends Record<string, unknown>, K extends keyof T, R>(
+// Overload 1: Types with `kind` property — fixes K to "kind", avoids phantom type inference
+export function match<T extends { kind: string }, R>(
+  value: T,
+  handlers: DiscriminantHandlers<T, "kind", R>
+): R;
+
+// Overload 2: Explicit discriminant for non-`kind` properties
+export function match<T extends object, K extends keyof T & string, R>(
   value: T,
   handlers: DiscriminantHandlers<T, K, R>,
-  discriminant?: K
+  discriminant: K // Required for this overload
 ): R;
 ```
 
-The `T extends Record<string, unknown>` constraint fails for discriminated unions that use readonly interface members without index signatures:
+This prioritizes the `{ kind: string }` overload for discriminated unions (the common case), while still allowing explicit discriminant keys when needed.
 
-```typescript
-// This union doesn't satisfy Record<string, unknown>:
-type Expression<T> =
-  | { readonly kind: "constant"; readonly value: T }
-  | { readonly kind: "variable"; readonly name: string }
-  | { readonly kind: "binary"; readonly op: string; readonly left: Expression<T>; ... }
-  // ... more variants
+**Conversion Targets (all complete 2026-03-16):**
 
-// TypeScript error: Type 'Expression<T>' is not assignable to type 'Record<string, unknown>'.
-//   Type 'Constant<T>' is not assignable to type 'Record<string, unknown>'.
-//     Index signature for type 'string' is missing in type 'Constant<T>'.
-```
+- [x] `packages/symbolic/src/eval.ts` — `switch (expr.kind)` over 11 variants
+- [x] `packages/symbolic/src/simplify/simplify.ts` — multiple `switch (expr.kind)` blocks
+- [x] `packages/symbolic/src/pattern.ts` — pattern matching on expression kinds
+- [x] `packages/symbolic/src/render/latex.ts` — expression rendering
+- [x] `packages/symbolic/src/render/text.ts` — expression rendering
+- [x] `packages/symbolic/src/render/mathml.ts` — expression rendering
+- [x] `packages/symbolic/src/calculus/diff.ts` — differentiation rules per kind
+- [x] `packages/symbolic/src/calculus/integrate.ts` — integration rules per kind
+- [x] `packages/symbolic/src/solve.ts` — equation solving dispatch
+- [x] `packages/sql/src/connection-io.ts` — `ConnectionOp<A>` discriminated union
+- [x] `packages/symbolic/src/expression.ts` — utility functions (collect, search, depth, nodeCount)
 
-This affects both `Expression<T>` (symbolic package) and `ConnectionOp<A>` (sql package). The runtime `match()` works correctly — the issue is purely in the type signature.
+**Excluded (imperative control flow):**
 
-**Proposed Fix (Future Wave):**
+- `packages/fp/src/io/io.ts` — Uses `while(true)` + `break`/`return` for interpreter loop
+- `packages/fusion/src/lazy.ts` — Uses `while(true)` + `break`/`return` for generator loop
 
-Update the type signature to accept union types with literal discriminants:
-
-```typescript
-// Option 1: Use mapped type to extract discriminant
-export function match<T, K extends string, R>(
-  value: T,
-  handlers: { [Tag in T[K]]: (v: Extract<T, { [P in K]: Tag }>) => R },
-  discriminant?: K
-): R;
-
-// Option 2: Accept any object type, infer discriminant at call site
-export function match<T extends object, R>(
-  value: T,
-  handlers: ...,
-  discriminant?: string
-): R;
-```
-
-**Blocked Conversions:**
-
-- [x] `packages/symbolic/src/eval.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/simplify/simplify.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/pattern.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/render/latex.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/render/text.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/render/mathml.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/calculus/diff.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/calculus/integrate.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/solve.ts` — ❌ `Expression<T>` typing issue
-- [x] `packages/symbolic/src/expression.ts` — ❌ Defines `Expression<T>` type
-- [x] `packages/fp/src/io/io.ts` — ❌ Imperative interpreter loop (break/return control flow)
-- [x] `packages/sql/src/connection-io.ts` — ❌ `ConnectionOp<A>` typing issue
-- [x] `packages/fusion/src/lazy.ts` — ❌ Imperative generator loop (break/return control flow)
-
-**Additional Blockers:**
-
-1. **Interpreter loops:** The `runIOAsync`, `runIOSync` (io.ts) and `execute` (lazy.ts) functions use `switch` inside `while(true)` loops with `break` for continuation and `return` for early exit. This imperative pattern doesn't map to `match()` because:
-   - `return` inside a `match()` handler returns from the handler lambda, not the outer function
-   - `break` inside a handler doesn't exit the loop
+These use imperative patterns where `match()` handlers can't control outer loop flow (`return` returns from handler, not outer function; `break` doesn't exit loop).
 
 **Original Conversion Pattern (for reference):**
 

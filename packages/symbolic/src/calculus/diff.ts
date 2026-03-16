@@ -11,6 +11,7 @@
  * ```
  */
 
+import { match } from "@typesugar/std";
 import type { Expression } from "../expression.js";
 import {
   const_,
@@ -55,80 +56,61 @@ export function nthDiff<T>(expr: Expression<T>, variable: string, n: number): Ex
 }
 
 function diffNode(expr: Expression<unknown>, v: string): Expression<unknown> {
-  switch (expr.kind) {
-    case "constant":
-      return ZERO;
-
-    case "variable":
-      return expr.name === v ? ONE : ZERO;
-
-    case "binary":
-      return diffBinary(expr, v);
-
-    case "unary":
-      return diffUnary(expr, v);
-
-    case "function":
-      return diffFunction(expr, v);
-
-    case "derivative":
-      return {
-        kind: "derivative",
-        expr: diffNode(expr.expr, v),
-        variable: expr.variable,
-        order: expr.order,
-      };
-
-    case "integral":
-      if (expr.variable === v) {
-        return expr.expr;
+  return match(expr, {
+    constant: () => ZERO,
+    variable: ({ name }) => (name === v ? ONE : ZERO),
+    binary: (e) => diffBinary(e, v),
+    unary: (e) => diffUnary(e, v),
+    function: (e) => diffFunction(e, v),
+    derivative: (e) => ({
+      kind: "derivative" as const,
+      expr: diffNode(e.expr, v),
+      variable: e.variable,
+      order: e.order,
+    }),
+    integral: (e) => {
+      if (e.variable === v) {
+        return e.expr;
       }
-      return {
-        kind: "integral",
-        expr: diffNode(expr.expr, v),
-        variable: expr.variable,
-      };
-
-    case "limit":
-      return {
-        kind: "limit",
-        expr: diffNode(expr.expr, v),
-        variable: expr.variable,
-        approaching: expr.approaching,
-        direction: expr.direction,
-      };
-
-    case "equation":
-      return {
-        kind: "equation",
-        left: diffNode(expr.left, v),
-        right: diffNode(expr.right, v),
-      };
-
-    case "sum":
-      if (expr.variable === v) {
+      return { kind: "integral" as const, expr: diffNode(e.expr, v), variable: e.variable };
+    },
+    limit: (e) => ({
+      kind: "limit" as const,
+      expr: diffNode(e.expr, v),
+      variable: e.variable,
+      approaching: e.approaching,
+      direction: e.direction,
+    }),
+    equation: (e) => ({
+      kind: "equation" as const,
+      left: diffNode(e.left, v),
+      right: diffNode(e.right, v),
+    }),
+    sum: (e) => {
+      if (e.variable === v) {
         throw new Error(`Cannot differentiate sum with respect to its index variable '${v}'`);
       }
       return {
-        kind: "sum",
-        expr: diffNode(expr.expr, v),
-        variable: expr.variable,
-        from: expr.from,
-        to: expr.to,
+        kind: "sum" as const,
+        expr: diffNode(e.expr, v),
+        variable: e.variable,
+        from: e.from,
+        to: e.to,
       };
-
-    case "product":
-      if (expr.variable === v) {
+    },
+    product: (e) => {
+      if (e.variable === v) {
         throw new Error(`Cannot differentiate product with respect to its index variable '${v}'`);
       }
       return {
-        kind: "product",
-        expr: diffNode(expr.expr, v),
-        variable: expr.variable,
-        from: expr.from,
-        to: expr.to,
+        kind: "product" as const,
+        expr: diffNode(e.expr, v),
+        variable: e.variable,
+        from: e.from,
+        to: e.to,
       };
-  }
+    },
+  });
 }
 
 function diffBinary(
