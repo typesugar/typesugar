@@ -6,6 +6,7 @@
  */
 
 import remapping from "@ampproject/remapping";
+import type { SourceMapLoader } from "@ampproject/remapping";
 import type { RawSourceMap } from "@typesugar/core";
 
 /**
@@ -25,20 +26,14 @@ export function composeSourceMaps(
   if (!preprocessMap) return transformMap;
   if (!transformMap) return preprocessMap;
 
-  // Use @ampproject/remapping to compose the maps
-  // The loader function provides upstream source maps when requested
-  const composed = remapping(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transformMap as any,
-    ((file: string) => {
-      // Return the preprocessor's map as the upstream source
-      if (file === preprocessMap.sources?.[0]) {
-        return preprocessMap;
-      }
-      return null;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any
-  );
+  const loader: SourceMapLoader = (file: string) => {
+    if (file === preprocessMap.sources?.[0]) {
+      return preprocessMap;
+    }
+    return null;
+  };
+
+  const composed = remapping(transformMap, loader);
 
   return {
     version: 3,
