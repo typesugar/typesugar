@@ -94,6 +94,8 @@ import {
   type TypeRewriteEntry,
   type ConstructorRewrite,
   type AccessorRewrite,
+  // Statement removal sentinel
+  isRemoveExpression,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -740,6 +742,16 @@ function extractMapFromArray(arr: ts.ArrayLiteralExpression): Map<string, string
     }
   }
   return result.size > 0 ? result : undefined;
+}
+
+/**
+ * True when a statement is an ExpressionStatement whose expression is a
+ * removal sentinel (created by `createRemoveExpression`). The transformer
+ * drops these statements entirely so that macros like `staticAssert` produce
+ * zero runtime output.
+ */
+function isRemovedStatement(node: ts.Node): boolean {
+  return ts.isExpressionStatement(node) && isRemoveExpression(node.expression);
 }
 
 function isPrimitiveType(type: ts.Type): boolean {
@@ -1981,10 +1993,17 @@ class MacroTransformer {
       const visited = this.visit(stmt);
       if (visited) {
         if (Array.isArray(visited)) {
-          newStatements.push(...(visited as ts.Node[]).filter(ts.isStatement));
+          const filtered = (visited as ts.Node[]).filter(
+            (n) => ts.isStatement(n) && !isRemovedStatement(n)
+          );
+          newStatements.push(...(filtered as ts.Statement[]));
           modified = true;
         } else if (ts.isStatement(visited)) {
-          newStatements.push(visited);
+          if (isRemovedStatement(visited)) {
+            modified = true;
+          } else {
+            newStatements.push(visited);
+          }
         }
       }
     }

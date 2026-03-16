@@ -183,6 +183,8 @@ export {
   findMatchingParen,
   getNestedValue,
   evaluateConditionExpr,
+  createRemoveExpression,
+  isRemoveExpression,
   type JsValueContext,
 } from "./ast-utils.js";
 
