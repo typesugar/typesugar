@@ -18,8 +18,8 @@
  * Inspired by Scala's Cats Effect IO
  */
 
-import { Either, Left, Right } from "../data/either";
-import { Option, Some, None } from "../data/option";
+import { Either, Left, Right, isLeft, isRight } from "../data/either";
+import { Option, Some, None, isSome } from "../data/option";
 
 // ============================================================================
 // IO ADT Definition
@@ -440,12 +440,11 @@ export const IO = {
   bracket<R, A>(acquire: IO<R>, use: (r: R) => IO<A>, release: (r: R) => IO<void>): IO<A> {
     return IO.flatMap(acquire, (r) =>
       IO.flatMap(IO.attempt(use(r)), (result): IO<A> => {
-        const e: any = result;
         return IO.flatMap(release(r), () => {
-          if (e._tag === "Left") {
-            return IO.raiseError(e.left);
+          if (isLeft(result)) {
+            return IO.raiseError(result.left!);
           }
-          return IO.pure(e.right);
+          return IO.pure(result.right);
         });
       })
     );
@@ -456,12 +455,11 @@ export const IO = {
    */
   guarantee<A>(fa: IO<A>, finalizer: IO<void>): IO<A> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      const e: any = result;
       return IO.flatMap(finalizer, () => {
-        if (e._tag === "Left") {
-          return IO.raiseError(e.left);
+        if (isLeft(result)) {
+          return IO.raiseError(result.left!);
         }
-        return IO.pure(e.right);
+        return IO.pure(result.right);
       });
     });
   },
@@ -471,11 +469,10 @@ export const IO = {
    */
   onError<A>(fa: IO<A>, handler: (e: Error) => IO<void>): IO<A> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      const e: any = result;
-      if (e._tag === "Left") {
-        return IO.flatMap(handler(e.left), () => IO.raiseError(e.left));
+      if (isLeft(result)) {
+        return IO.flatMap(handler(result.left!), () => IO.raiseError(result.left!));
       }
-      return IO.pure(e.right);
+      return IO.pure(result.right);
     });
   },
 
@@ -484,11 +481,10 @@ export const IO = {
    */
   redeem<A, B>(fa: IO<A>, recover: (e: Error) => B, map: (a: A) => B): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      const e: any = result;
-      if (e._tag === "Left") {
-        return IO.pure(recover(e.left));
+      if (isLeft(result)) {
+        return IO.pure(recover(result.left!));
       }
-      return IO.pure(map(e.right));
+      return IO.pure(map(result.right));
     });
   },
 
@@ -497,11 +493,10 @@ export const IO = {
    */
   redeemWith<A, B>(fa: IO<A>, recover: (e: Error) => IO<B>, map: (a: A) => IO<B>): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      const e: any = result;
-      if (e._tag === "Left") {
-        return recover(e.left);
+      if (isLeft(result)) {
+        return recover(result.left!);
       }
-      return map(e.right);
+      return map(result.right);
     });
   },
 
@@ -513,21 +508,22 @@ export const IO = {
       let cache: Option<Either<Error, A>> = None;
 
       return IO.suspend(() => {
-        const c: any = cache;
-        if (c !== null) {
-          if (c._tag === "Left") {
-            return IO.raiseError(c.left);
+        // With zero-cost Option, cache is the Either value when Some, null when None
+        if (isSome(cache)) {
+          // isSome narrows cache to non-null; cast through unknown for opaque Option
+          const c = cache as unknown as Either<Error, A>;
+          if (isLeft(c)) {
+            return IO.raiseError(c.left!);
           }
           return IO.pure(c.right);
         }
 
         return IO.flatMap(IO.attempt(fa), (result) => {
           cache = Some(result);
-          const e: any = result;
-          if (e._tag === "Left") {
-            return IO.raiseError(e.left);
+          if (isLeft(result)) {
+            return IO.raiseError(result.left!);
           }
-          return IO.pure(e.right);
+          return IO.pure(result.right);
         });
       });
     });
@@ -539,7 +535,7 @@ export const IO = {
   timeout<A>(fa: IO<A>, ms: number): IO<Option<A>> {
     return IO.map(
       IO.race(fa, IO.sleep(ms)),
-      (result): Option<A> => ((result as any)._tag === "Left" ? Some((result as any).left) : None)
+      (result): Option<A> => (isLeft(result) ? Some(result.left as A) : None)
     );
   },
 
@@ -609,11 +605,10 @@ function runTrampoline<A>(t: Trampoline<A>): A {
 export function runIO<A>(io: IO<A>): Promise<A> {
   return new Promise((resolve, reject) => {
     runIOAsync(io, (result) => {
-      const e: any = result;
-      if (e._tag === "Left") {
-        reject(e.left);
+      if (isLeft(result)) {
+        reject(result.left);
       } else {
-        resolve(e.right);
+        resolve(result.right);
       }
     });
   });
@@ -666,14 +661,13 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
 
           case "Async": {
             const cancel = current.register((result) => {
-              const e: any = result;
-              if (e._tag === "Left") {
-                cb(Left(e.left));
+              if (isLeft(result)) {
+                cb(Left(result.left!));
               } else if (stack.length === 0) {
-                cb(Right(e.right as A));
+                cb(Right(result.right as A));
               } else {
                 const f = stack.pop()!;
-                current = f(e.right);
+                current = f(result.right);
                 // Use setImmediate or setTimeout to avoid blocking
                 setTimeout(loop, 0);
               }
@@ -706,11 +700,10 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
 
             // Run the inner IO
             runIOAsync(he.fa, (result) => {
-              const e: any = result;
-              if (e._tag === "Left") {
-                current = he.handler(e.left);
+              if (isLeft(result)) {
+                current = he.handler(result.left!);
               } else {
-                current = IO.pure(e.right);
+                current = IO.pure(result.right);
               }
               stack.push(...innerStack);
               setTimeout(loop, 0);

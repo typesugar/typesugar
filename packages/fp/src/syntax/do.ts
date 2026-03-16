@@ -14,7 +14,7 @@
  */
 
 import { Option, Some, None } from "../data/option";
-import { Either, Left, Right } from "../data/either";
+import { Either, Left, Right, isLeft } from "../data/either";
 import { IO } from "../io/io";
 
 // ============================================================================
@@ -164,12 +164,12 @@ export function EitherDo<E>() {
   return {
     pure: <A>(a: A): Either<E, A> => Right(a),
     flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> => {
-      if (fa._tag === "Left") return fa as unknown as Either<E, B>;
-      return f((fa as any).right);
+      if (isLeft(fa)) return fa as Either<E, B>;
+      return f(fa.right);
     },
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> => {
-      if (fa._tag === "Left") return fa as unknown as Either<E, B>;
-      return Right(f((fa as any).right));
+      if (isLeft(fa)) return fa as Either<E, B>;
+      return Right(f(fa.right));
     },
   };
 }

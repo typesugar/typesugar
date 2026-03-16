@@ -541,7 +541,7 @@ registerInstanceWithMeta({
 export function eitherFunctor<E>(): EitherFunctor<E> {
   return {
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> =>
-      isRight(fa) ? Right(f((fa as any).right)) : (fa as any),
+      isRight(fa) ? Right(f(fa.right)) : (fa as Left<E, B>),
   };
 }
 
@@ -553,12 +553,12 @@ export function eitherMonad<E>(): EitherMonad<E> {
   return {
     map: functor.map,
     flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> =>
-      isRight(fa) ? f((fa as any).right) : (fa as any),
+      isRight(fa) ? f(fa.right) : (fa as Left<E, B>),
     pure: <A>(a: A): Either<E, A> => Right(a),
     ap: <A, B>(fab: Either<E, (a: A) => B>, fa: Either<E, A>): Either<E, B> => {
-      if (isLeft(fab)) return fab as any;
-      if (isLeft(fa)) return fa as any;
-      return Right((fab as any).right((fa as any).right));
+      if (isLeft(fab)) return fab as Left<E, B>;
+      if (isLeft(fa)) return fa as Left<E, B>;
+      return Right(fab.right(fa.right));
     },
   };
 }
@@ -572,7 +572,7 @@ export function eitherMonadError<E>(): EitherMonadError<E> {
     ...monad,
     raiseError: <A>(e: E): Either<E, A> => Left(e),
     handleErrorWith: <A>(fa: Either<E, A>, f: (e: E) => Either<E, A>): Either<E, A> =>
-      isLeft(fa) ? f((fa as any).left) : fa,
+      isLeft(fa) ? f(fa.left!) : fa,
   };
 }
 
@@ -582,9 +582,9 @@ export function eitherMonadError<E>(): EitherMonadError<E> {
 export function eitherFoldable<E>(): EitherFoldable<E> {
   return {
     foldLeft: <A, B>(fa: Either<E, A>, b: B, f: (b: B, a: A) => B): B =>
-      isRight(fa) ? f(b, (fa as any).right) : b,
+      isRight(fa) ? f(b, fa.right) : b,
     foldRight: <A, B>(fa: Either<E, A>, b: B, f: (a: A, b: B) => B): B =>
-      isRight(fa) ? f((fa as any).right, b) : b,
+      isRight(fa) ? f(fa.right, b) : b,
   };
 }
 
@@ -601,9 +601,9 @@ export function eitherTraverse<E>(): EitherTraverse<E> {
       <G>(G: Applicative<G>) =>
       <A, B>(fa: Either<E, A>, f: (a: A) => Kind<G, B>): Kind<G, Either<E, B>> => {
         if (isRight(fa)) {
-          return G.map(f((fa as any).right), (b: B) => Right(b));
+          return G.map(f(fa.right), (b: B) => Right(b));
         }
-        return G.pure(fa as unknown as Either<E, B>);
+        return G.pure(fa as Left<E, B>);
       },
   };
 }
@@ -679,9 +679,9 @@ export function flatMapEither<E>() {
   return {
     _tag: "Either" as const,
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> =>
-      isRight(fa) ? Right(f((fa as any).right)) : (fa as any),
+      isRight(fa) ? Right(f(fa.right)) : (fa as Left<E, B>),
     flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> =>
-      isRight(fa) ? f((fa as any).right) : (fa as any),
+      isRight(fa) ? f(fa.right) : (fa as Left<E, B>),
   };
 }
 

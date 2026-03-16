@@ -2,8 +2,17 @@
  * Either Data Type
  *
  * Either represents a value of one of two possible types (a disjoint union).
- * An Either<E, A> is either Left<E> (representing failure/error) or Right<A> (representing success).
+ * An Either<E, A> is either Left<E, A> (representing failure/error) or Right<E, A> (representing success).
  * By convention, Right is the "right" (correct/success) case.
+ *
+ * This implementation uses field-based discrimination for native TypeScript narrowing:
+ * - Left has `left: E` and `right?: undefined`
+ * - Right has `left?: undefined` and `right: A`
+ *
+ * Narrowing options:
+ * - `isRight(e)` / `isLeft(e)` — recommended, works for all cases including Either<E, void>
+ * - `e.right !== undefined` — works when A is not undefined/void
+ * - `'right' in e` — checks property presence (use with type guards for best results)
  */
 
 import type { Op } from "@typesugar/core";
@@ -19,40 +28,53 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 // ============================================================================
 
 /**
- * Either data type — an opaque wrapper over a discriminated union
- * of Left (error) and Right (success).
+ * Left variant — represents failure/error.
+ * Has `left: E` field, and `right?: undefined` for safe union access.
+ */
+export interface Left<E, A = never> {
+  readonly left: E;
+  readonly right?: undefined;
+}
+
+/**
+ * Right variant — represents success.
+ * Has `right: A` field, and `left?: undefined` for safe union access.
+ */
+export interface Right<E = never, A = unknown> {
+  readonly left?: undefined;
+  readonly right: A;
+}
+
+/**
+ * Either data type — a discriminated union of Left (error) and Right (success).
  *
- * The `@opaque` macro erases method calls to companion standalone functions,
- * so `either.map(f)` compiles to `map(either, f)` with full type inference.
+ * Uses field-based discrimination for native TypeScript narrowing:
+ * - `isRight(e)` / `isLeft(e)` — recommended type guards
+ * - `e.right !== undefined` narrows to Right (when A is not void/undefined)
+ * - `e.left !== undefined` narrows to Left (when E is not void/undefined)
  *
- * Within this defining file the type is transparent — implementations use
- * the underlying discriminated union directly.
+ * @example
+ * ```typescript
+ * const e: Either<string, number> = Right(42);
  *
- * @opaque { _tag: "Left"; left: E } | { _tag: "Right"; right: A }
+ * // Recommended: use type guards
+ * if (isRight(e)) {
+ *   e.right; // number (narrowed to Right)
+ * }
+ *
+ * // Also works when A is not undefined
+ * if (e.right !== undefined) {
+ *   e.right; // number (narrowed to Right)
+ * }
+ *
+ * // Safe union access (before narrowing)
+ * e.right; // number | undefined
+ * e.left;  // string | undefined
+ * ```
+ *
  * @hkt
  */
-export interface Either<E, A> {
-  readonly _tag: "Left" | "Right";
-  map<B>(f: (a: A) => B): Either<E, B>;
-  mapLeft<E2>(f: (e: E) => E2): Either<E2, A>;
-  bimap<E2, B>(f: (e: E) => E2, g: (a: A) => B): Either<E2, B>;
-  flatMap<B>(f: (a: A) => Either<E, B>): Either<E, B>;
-  fold<B>(onLeft: (e: E) => B, onRight: (a: A) => B): B;
-  match<B>(patterns: { Left: (e: E) => B; Right: (a: A) => B }): B;
-  swap(): Either<A, E>;
-  getOrElse(defaultValue: (e: E) => A): A;
-  getOrElseStrict(defaultValue: A): A;
-  getOrThrow(): A;
-  orElse<E2>(fallback: (e: E) => Either<E2, A>): Either<E2, A>;
-  filterOrElse(predicate: (a: A) => boolean, onFalse: (a: A) => E): Either<E, A>;
-  toOption(): Option<A>;
-  toArray(): A[];
-  tap(f: (a: A) => void): Either<E, A>;
-  tapLeft(f: (e: E) => void): Either<E, A>;
-  exists(predicate: (a: A) => boolean): boolean;
-  forall(predicate: (a: A) => boolean): boolean;
-  contains(value: A, eq?: (a: A, b: A) => boolean): boolean;
-}
+export type Either<E, A> = Left<E, A> | Right<E, A>;
 
 /**
  * Type-level function for `Either<E, A>` with E fixed.
@@ -63,18 +85,6 @@ export interface EitherF<E> extends TypeFunction {
   readonly _: Either<E, this["__kind__"]>;
 }
 
-/**
- * Left variant — an Either known to be a failure.
- * At runtime it's `{ _tag: "Left"; left: E }`.
- */
-export type Left<E> = Either<E, never>;
-
-/**
- * Right variant — an Either known to be a success.
- * At runtime it's `{ _tag: "Right"; right: A }`.
- */
-export type Right<A> = Either<never, A>;
-
 // ============================================================================
 // Constructors
 // ============================================================================
@@ -83,14 +93,14 @@ export type Right<A> = Either<never, A>;
  * Create a Left value
  */
 export function Left<E, A = never>(left: E): Either<E, A> {
-  return { _tag: "Left", left } as any;
+  return { left };
 }
 
 /**
  * Create a Right value
  */
 export function Right<E = never, A = unknown>(right: A): Either<E, A> {
-  return { _tag: "Right", right } as any;
+  return { right };
 }
 
 /**
@@ -140,7 +150,7 @@ export function tryCatch<E, A>(f: () => A, onError: (error: unknown) => E): Eith
  * Create an Either from an Option
  */
 export function fromOption<E, A>(opt: Option<A>, onNone: () => E): Either<E, A> {
-  return isSome(opt) ? Right(opt as any) : Left(onNone());
+  return isSome(opt) ? Right(opt as A) : Left(onNone());
 }
 
 /**
@@ -155,19 +165,45 @@ export function of<E = never, A = unknown>(a: A): Either<E, A> {
 // ============================================================================
 
 /**
- * Check if Either is Left
+ * Check if Either is Left.
+ * Uses property presence check to handle Right(undefined) correctly.
  */
-export function isLeft<E, A>(either: Either<E, A>): either is Left<E> {
-  const e: any = either;
-  return e._tag === "Left";
+export function isLeft<E, A>(either: Either<E, A>): either is Left<E, A> {
+  return !("right" in either);
 }
 
 /**
- * Check if Either is Right
+ * Check if Either is Right.
+ * Uses property presence check to handle Right(undefined) correctly.
  */
-export function isRight<E, A>(either: Either<E, A>): either is Right<A> {
-  const e: any = either;
-  return e._tag === "Right";
+export function isRight<E, A>(either: Either<E, A>): either is Right<E, A> {
+  return "right" in either;
+}
+
+// ============================================================================
+// Unsafe Accessors
+// ============================================================================
+
+/**
+ * Get the Left value, throwing if Right.
+ * @throws Error if the Either is Right
+ */
+export function unsafeLeft<E, A>(either: Either<E, A>): E {
+  if (isRight(either)) {
+    throw new Error("unsafeLeft called on Right");
+  }
+  return either.left!;
+}
+
+/**
+ * Get the Right value, throwing if Left.
+ * @throws Error if the Either is Left
+ */
+export function unsafeRight<E, A>(either: Either<E, A>): A {
+  if (isLeft(either)) {
+    throw new Error("unsafeRight called on Left");
+  }
+  return either.right;
 }
 
 // ============================================================================
@@ -178,16 +214,20 @@ export function isRight<E, A>(either: Either<E, A>): either is Right<A> {
  * Map over the Right value
  */
 export function map<E, A, B>(either: Either<E, A>, f: (a: A) => B): Either<E, B> {
-  const e: any = either;
-  return e._tag === "Right" ? ({ _tag: "Right", right: f(e.right) } as any) : (either as any);
+  if (isRight(either)) {
+    return { right: f(either.right) };
+  }
+  return either as Left<E, B>;
 }
 
 /**
  * Map over the Left value
  */
 export function mapLeft<E, A, E2>(either: Either<E, A>, f: (e: E) => E2): Either<E2, A> {
-  const e: any = either;
-  return e._tag === "Left" ? ({ _tag: "Left", left: f(e.left) } as any) : (either as any);
+  if (isRight(either)) {
+    return either as Right<E2, A>;
+  }
+  return { left: f(either.left!) };
 }
 
 /**
@@ -198,18 +238,20 @@ export function bimap<E, A, E2, B>(
   f: (e: E) => E2,
   g: (a: A) => B
 ): Either<E2, B> {
-  const e: any = either;
-  return e._tag === "Left"
-    ? ({ _tag: "Left", left: f(e.left) } as any)
-    : ({ _tag: "Right", right: g(e.right) } as any);
+  if (isRight(either)) {
+    return { right: g(either.right) };
+  }
+  return { left: f(either.left!) };
 }
 
 /**
  * FlatMap over the Right value
  */
 export function flatMap<E, A, B>(either: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> {
-  const e: any = either;
-  return e._tag === "Right" ? f(e.right) : (either as any);
+  if (isRight(either)) {
+    return f(either.right);
+  }
+  return either as Left<E, B>;
 }
 
 /**
@@ -223,8 +265,10 @@ export function ap<E, A, B>(eitherF: Either<E, (a: A) => B>, eitherA: Either<E, 
  * Fold over Either - provide handlers for both cases
  */
 export function fold<E, A, B>(either: Either<E, A>, onLeft: (e: E) => B, onRight: (a: A) => B): B {
-  const e: any = either;
-  return e._tag === "Right" ? onRight(e.right) : onLeft(e.left);
+  if (isRight(either)) {
+    return onRight(either.right);
+  }
+  return onLeft(either.left!);
 }
 
 /**
@@ -234,52 +278,60 @@ export function match<E, A, B>(
   either: Either<E, A>,
   patterns: { Left: (e: E) => B; Right: (a: A) => B }
 ): B {
-  const e: any = either;
-  return e._tag === "Right" ? patterns.Right(e.right) : patterns.Left(e.left);
+  if (isRight(either)) {
+    return patterns.Right(either.right);
+  }
+  return patterns.Left(either.left!);
 }
 
 /**
  * Swap Left and Right
  */
 export function swap<E, A>(either: Either<E, A>): Either<A, E> {
-  const e: any = either;
-  return e._tag === "Right"
-    ? ({ _tag: "Left", left: e.right } as any)
-    : ({ _tag: "Right", right: e.left } as any);
+  if (isRight(either)) {
+    return { left: either.right };
+  }
+  return { right: either.left! };
 }
 
 /**
  * Get the Right value or a default
  */
 export function getOrElse<E, A>(either: Either<E, A>, defaultValue: (e: E) => A): A {
-  const e: any = either;
-  return e._tag === "Right" ? e.right : defaultValue(e.left);
+  if (isRight(either)) {
+    return either.right;
+  }
+  return defaultValue(either.left!);
 }
 
 /**
  * Get the Right value or a default (strict version)
  */
 export function getOrElseStrict<E, A>(either: Either<E, A>, defaultValue: A): A {
-  const e: any = either;
-  return e._tag === "Right" ? e.right : defaultValue;
+  if (isRight(either)) {
+    return either.right;
+  }
+  return defaultValue;
 }
 
 /**
  * Get the Right value or throw
  */
 export function getOrThrow<E, A>(either: Either<E, A>): A {
-  const e: any = either;
-  if (e._tag === "Right") return e.right;
-  throw e.left;
+  if (isRight(either)) {
+    return either.right;
+  }
+  throw either.left;
 }
 
 /**
  * Get the Right value or throw with custom message
  */
 export function getOrThrowWith<E, A>(either: Either<E, A>, toError: (e: E) => Error): A {
-  const e: any = either;
-  if (e._tag === "Right") return e.right;
-  throw toError(e.left);
+  if (isRight(either)) {
+    return either.right;
+  }
+  throw toError(either.left!);
 }
 
 /**
@@ -289,8 +341,10 @@ export function orElse<E, A, E2>(
   either: Either<E, A>,
   fallback: (e: E) => Either<E2, A>
 ): Either<E2, A> {
-  const e: any = either;
-  return e._tag === "Right" ? (either as any) : fallback(e.left);
+  if (isRight(either)) {
+    return either as Right<E2, A>;
+  }
+  return fallback(either.left!);
 }
 
 /**
@@ -301,28 +355,33 @@ export function filterOrElse<E, A>(
   predicate: (a: A) => boolean,
   onFalse: (a: A) => E
 ): Either<E, A> {
-  const e: any = either;
-  return e._tag === "Right"
-    ? predicate(e.right)
-      ? either
-      : ({ _tag: "Left", left: onFalse(e.right) } as any)
-    : either;
+  if (isRight(either)) {
+    if (predicate(either.right)) {
+      return either;
+    }
+    return { left: onFalse(either.right) };
+  }
+  return either;
 }
 
 /**
  * Convert Either to Option (discards the error)
  */
 export function toOption<E, A>(either: Either<E, A>): Option<A> {
-  const e: any = either;
-  return e._tag === "Right" ? Some(e.right) : None;
+  if (isRight(either)) {
+    return Some(either.right);
+  }
+  return None;
 }
 
 /**
  * Convert Either to Validated
  */
 export function toValidated<E, A>(either: Either<E, A>): Validated<E, A> {
-  const e: any = either;
-  return e._tag === "Right" ? Valid(e.right) : Invalid(e.left);
+  if (isRight(either)) {
+    return Valid(either.right);
+  }
+  return Invalid(either.left!);
 }
 
 // Simple Validated for toValidated
@@ -339,24 +398,30 @@ const Invalid = <E, A>(error: E): Validated<E, A> => ({
  * Merge Left and Right into a single value
  */
 export function merge<A>(either: Either<A, A>): A {
-  const e: any = either;
-  return e._tag === "Right" ? e.right : e.left;
+  if (isRight(either)) {
+    return either.right;
+  }
+  return either.left!;
 }
 
 /**
  * Check if the Right value satisfies a predicate
  */
 export function exists<E, A>(either: Either<E, A>, predicate: (a: A) => boolean): boolean {
-  const e: any = either;
-  return e._tag === "Right" && predicate(e.right);
+  if (isRight(either)) {
+    return predicate(either.right);
+  }
+  return false;
 }
 
 /**
  * Check if all Right values satisfy a predicate
  */
 export function forall<E, A>(either: Either<E, A>, predicate: (a: A) => boolean): boolean {
-  const e: any = either;
-  return e._tag === "Left" || predicate(e.right);
+  if (isRight(either)) {
+    return predicate(either.right);
+  }
+  return true;
 }
 
 /**
@@ -367,16 +432,20 @@ export function contains<E, A>(
   value: A,
   eq: (a: A, b: A) => boolean = (a, b) => a === b
 ): boolean {
-  const e: any = either;
-  return e._tag === "Right" && eq(e.right, value);
+  if (isRight(either)) {
+    return eq(either.right, value);
+  }
+  return false;
 }
 
 /**
  * Convert Either to array
  */
 export function toArray<E, A>(either: Either<E, A>): A[] {
-  const e: any = either;
-  return e._tag === "Right" ? [e.right] : [];
+  if (isRight(either)) {
+    return [either.right];
+  }
+  return [];
 }
 
 /**
@@ -390,9 +459,8 @@ export function flatten<E, A>(either: Either<E, Either<E, A>>): Either<E, A> {
  * Tap - perform a side effect on Right and return the original Either
  */
 export function tap<E, A>(either: Either<E, A>, f: (a: A) => void): Either<E, A> {
-  const e: any = either;
-  if (e._tag === "Right") {
-    f(e.right);
+  if (isRight(either)) {
+    f(either.right);
   }
   return either;
 }
@@ -401,9 +469,8 @@ export function tap<E, A>(either: Either<E, A>, f: (a: A) => void): Either<E, A>
  * TapLeft - perform a side effect on Left and return the original Either
  */
 export function tapLeft<E, A>(either: Either<E, A>, f: (e: E) => void): Either<E, A> {
-  const e: any = either;
-  if (e._tag === "Left") {
-    f(e.left);
+  if (isLeft(either)) {
+    f(either.left!);
   }
   return either;
 }
@@ -412,8 +479,10 @@ export function tapLeft<E, A>(either: Either<E, A>, f: (e: E) => void): Either<E
  * Handle errors with a recovery function
  */
 export function handleError<E, A>(either: Either<E, A>, f: (e: E) => A): Either<never, A> {
-  const e: any = either;
-  return e._tag === "Right" ? (either as any) : Right(f(e.left));
+  if (isRight(either)) {
+    return either as Right<never, A>;
+  }
+  return Right(f(either.left!));
 }
 
 /**
@@ -423,8 +492,10 @@ export function handleErrorWith<E, E2, A>(
   either: Either<E, A>,
   f: (e: E) => Either<E2, A>
 ): Either<E2, A> {
-  const e: any = either;
-  return e._tag === "Right" ? (either as any) : f(e.left);
+  if (isRight(either)) {
+    return either as Right<E2, A>;
+  }
+  return f(either.left!);
 }
 
 /**
@@ -445,9 +516,10 @@ export function traverse<E, A, B>(arr: A[], f: (a: A) => Either<E, B>): Either<E
   const results: B[] = [];
   for (const a of arr) {
     const either = f(a);
-    const e: any = either;
-    if (e._tag === "Left") return either as any;
-    results.push(e.right);
+    if (isLeft(either)) {
+      return either as Left<E, B[]>;
+    }
+    results.push(either.right);
   }
   return Right(results);
 }
@@ -470,11 +542,10 @@ export function partition<A, E, B>(
   const rights: B[] = [];
   for (const a of arr) {
     const either = f(a);
-    const e: any = either;
-    if (e._tag === "Left") {
-      lefts.push(e.left);
+    if (isRight(either)) {
+      rights.push(either.right);
     } else {
-      rights.push(e.right);
+      lefts.push(either.left!);
     }
   }
   return { lefts, rights };
@@ -492,10 +563,12 @@ export function partition<A, E, B>(
 export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
   return {
     eqv: ((x, y) => {
-      const a: any = x,
-        b: any = y;
-      if (a._tag === "Left" && b._tag === "Left") return EE.eqv(a.left, b.left);
-      if (a._tag === "Right" && b._tag === "Right") return EA.eqv(a.right, b.right);
+      if (isRight(x) && isRight(y)) {
+        return EA.eqv(x.right, y.right);
+      }
+      if (isLeft(x) && isLeft(y)) {
+        return EE.eqv(x.left!, y.left!);
+      }
       return false;
     }) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"===">,
   };
@@ -518,12 +591,16 @@ export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
  */
 export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Either<E, A>> {
   const compare = (x: Either<E, A>, y: Either<E, A>): Ordering => {
-    const a: any = x,
-      b: any = y;
-    if (a._tag === "Left" && b._tag === "Left") return OE.compare(a.left, b.left);
-    if (a._tag === "Right" && b._tag === "Right") return OA.compare(a.right, b.right);
-    if (a._tag === "Left") return -1 as Ordering;
-    return 1 as Ordering;
+    if (isRight(x) && isRight(y)) {
+      return OA.compare(x.right, y.right);
+    }
+    if (isLeft(x) && isLeft(y)) {
+      return OE.compare(x.left!, y.left!);
+    }
+    if (isLeft(x)) {
+      return -1 as Ordering; // Left < Right
+    }
+    return 1 as Ordering; // Right > Left
   };
   return {
     eqv: getEq(OE, OA).eqv,
@@ -553,8 +630,10 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Either<E, A>> {
 export function getShow<E, A>(SE: Show<E>, SA: Show<A>): Show<Either<E, A>> {
   return {
     show: (either) => {
-      const e: any = either;
-      return e._tag === "Right" ? `Right(${SA.show(e.right)})` : `Left(${SE.show(e.left)})`;
+      if (isRight(either)) {
+        return `Right(${SA.show(either.right)})`;
+      }
+      return `Left(${SE.show(either.left!)})`;
     },
   };
 }
@@ -565,11 +644,9 @@ export function getShow<E, A>(SE: Show<E>, SA: Show<A>): Show<Either<E, A>> {
 export function getSemigroup<E, A>(S: Semigroup<A>): Semigroup<Either<E, A>> {
   return {
     combine: (x, y) => {
-      const a: any = x,
-        b: any = y;
-      if (a._tag === "Left") return x;
-      if (b._tag === "Left") return y;
-      return Right(S.combine(a.right, b.right));
+      if (isLeft(x)) return x;
+      if (isLeft(y)) return y;
+      return Right(S.combine(x.right, y.right));
     },
   };
 }
@@ -607,10 +684,6 @@ export function let_<N extends string, E, A extends object, B>(
 }
 
 // ============================================================================
-// Fluent API (Either class)
-// ============================================================================
-
-// ============================================================================
 // Either Namespace Object
 // ============================================================================
 
@@ -640,6 +713,10 @@ export const Either = {
   // Type guards
   isLeft,
   isRight,
+
+  // Unsafe accessors
+  unsafeLeft,
+  unsafeRight,
 
   // Core operations
   map,

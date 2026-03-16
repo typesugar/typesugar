@@ -305,21 +305,36 @@ Option uses `@opaque` correctly — hiding that `Some(42)` is just `42` is the p
 
 ### Wave 1: Manual Either Refactor
 
+**Status:** COMPLETE
+
 **Tasks:**
 
-- [ ] Rewrite `packages/fp/src/data/either.ts` with field-based discrimination
-- [ ] Add `Left<E, A>` and `Right<E, A>` interfaces — no `_tag`, use `left`/`right` presence
-- [ ] Add `right?: undefined` on Left, `left?: undefined` on Right for safe union access
-- [ ] Add unsafe throwing accessors (`unsafeLeft`, `unsafeRight`)
-- [ ] Update narrowing to use `'right' in e` or `e.right !== undefined`
-- [ ] Fix all tests — remove `as unknown as` casts, use proper narrowing
+- [x] Rewrite `packages/fp/src/data/either.ts` with field-based discrimination
+- [x] Add `Left<E, A>` and `Right<E, A>` interfaces — no `_tag`, use `left`/`right` presence
+- [x] Add `right?: undefined` on Left, `left?: undefined` on Right for safe union access
+- [x] Add unsafe throwing accessors (`unsafeLeft`, `unsafeRight`)
+- [x] Update narrowing to use `isRight`/`isLeft` type guards (see notes)
+- [x] Fix all tests — remove `as unknown as` casts, use proper narrowing
+
+**Implementation Notes:**
+
+1. **Type guards over `'right' in`:** The `'right' in e` check doesn't narrow correctly in TypeScript when
+   the interface has optional properties (`right?: undefined`). We use `isRight(e)` and `isLeft(e)` type
+   guards internally, which properly narrow the type. Users can still use `e.right !== undefined` for
+   non-void types.
+
+2. **`Either<E, void>` support:** The `isRight`/`isLeft` implementation uses `'right' in either` internally,
+   which correctly handles `Right(undefined)` for void success types.
+
+3. **Safe union access preserved:** Both variants have optional undefined fields for safe access before
+   narrowing: `e.right` returns `A | undefined`, `e.left` returns `E | undefined`.
 
 **Gate:**
 
-- [ ] `pnpm test` passes
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm lint` passes
-- [ ] Deep review subagent validates Either refactor
+- [x] `pnpm test` passes (96 tests)
+- [x] `pnpm typecheck` passes
+- [x] `pnpm lint` passes (no lint script in fp package)
+- [x] Deep review subagent validates Either refactor
 
 ### Wave 2: Manual List Refactor
 

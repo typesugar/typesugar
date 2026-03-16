@@ -82,26 +82,34 @@ describe("Either", () => {
   describe("constructors", () => {
     it("Right should wrap a success value", () => {
       const either = Right(42);
-      expect(either._tag).toBe("Right");
-      expect((either as unknown as { right: number }).right).toBe(42);
+      // Field-based discrimination: Right has .right field
+      expect(either.right).toBe(42);
+      expect(either.left).toBeUndefined();
     });
 
     it("Left should wrap an error value", () => {
       const either = Left("error");
-      expect(either._tag).toBe("Left");
-      expect((either as unknown as { left: string }).left).toBe("error");
+      // Field-based discrimination: Left has .left field
+      expect(either.left).toBe("error");
+      expect(either.right).toBeUndefined();
     });
 
     it("fromNullable should convert null to Left", () => {
       const either = eitherFromNullable(null, () => "was null");
       expect(isLeft(either)).toBe(true);
-      expect((either as unknown as { left: string }).left).toBe("was null");
+      // Native narrowing works after isLeft check
+      if (isLeft(either)) {
+        expect(either.left).toBe("was null");
+      }
     });
 
     it("fromNullable should convert value to Right", () => {
       const either = eitherFromNullable(42, () => "was null");
       expect(isRight(either)).toBe(true);
-      expect((either as unknown as { right: number }).right).toBe(42);
+      // Native narrowing works after isRight check
+      if (isRight(either)) {
+        expect(either.right).toBe(42);
+      }
     });
   });
 
@@ -114,6 +122,34 @@ describe("Either", () => {
     it("isLeft should identify Left", () => {
       expect(isLeft(Left("error"))).toBe(true);
       expect(isLeft(Right(42))).toBe(false);
+    });
+  });
+
+  describe("field-based narrowing", () => {
+    it("should narrow via e.right !== undefined", () => {
+      const e: Either<string, number> = Right(42);
+      if (e.right !== undefined) {
+        // TypeScript narrows to Right
+        expect(e.right).toBe(42);
+      }
+    });
+
+    it("should narrow via e.left !== undefined", () => {
+      const e: Either<string, number> = Left("oops");
+      if (e.left !== undefined) {
+        // TypeScript narrows to Left
+        expect(e.left).toBe("oops");
+      }
+    });
+
+    it("should allow safe access on union (returns undefined)", () => {
+      const r: Either<string, number> = Right(42);
+      const l: Either<string, number> = Left("oops");
+      // Before narrowing, both fields are accessible but one is undefined
+      expect(r.right).toBe(42);
+      expect(r.left).toBeUndefined();
+      expect(l.left).toBe("oops");
+      expect(l.right).toBeUndefined();
     });
   });
 });
