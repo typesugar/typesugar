@@ -271,7 +271,26 @@ function createBrowserTransformerFactory(
 ): ts.TransformerFactory<ts.SourceFile> {
   return (context: ts.TransformationContext) => {
     return (sourceFile: ts.SourceFile) => {
-      const visitor = (node: ts.Node): ts.Node => {
+      const visitor = (node: ts.Node): ts.Node | ts.Node[] => {
+        // Handle attribute macros (decorators like @tailrec, @derive, @operators)
+        if (hasDecorators(node)) {
+          const transformed = tryExpandAttributeMacros(
+            node as ts.HasDecorators,
+            program,
+            sourceFile,
+            context,
+            verbose
+          );
+          if (transformed !== node) {
+            // If we got an array, visit each child and return
+            if (Array.isArray(transformed)) {
+              return transformed.map((n) => ts.visitEachChild(n, visitor, context));
+            }
+            return ts.visitEachChild(transformed, visitor, context);
+          }
+        }
+
+        // Handle expression macros (call expressions like staticAssert(), comptime())
         if (ts.isCallExpression(node)) {
           const transformed = tryExpandMacroCall(node, program, sourceFile, context, verbose);
           if (transformed !== node) {
@@ -285,6 +304,85 @@ function createBrowserTransformerFactory(
       return ts.visitNode(sourceFile, visitor) as ts.SourceFile;
     };
   };
+}
+
+function hasDecorators(node: ts.Node): node is ts.HasDecorators {
+  return (
+    ts.canHaveDecorators(node) &&
+    ts.getDecorators(node) !== undefined &&
+    ts.getDecorators(node)!.length > 0
+  );
+}
+
+function isDeclarationNode(node: ts.Node): node is ts.Declaration {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isClassDeclaration(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isVariableDeclaration(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isPropertyDeclaration(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isModuleDeclaration(node)
+  );
+}
+
+function tryExpandAttributeMacros(
+  node: ts.HasDecorators,
+  program: ts.Program,
+  sourceFile: ts.SourceFile,
+  context: ts.TransformationContext,
+  verbose: boolean
+): ts.Node | ts.Node[] {
+  const decorators = ts.getDecorators(node);
+  if (!decorators || decorators.length === 0) {
+    return node;
+  }
+
+  let currentNode: ts.Node | ts.Node[] = node;
+
+  for (const decorator of decorators) {
+    // Get decorator name
+    let macroName: string | undefined;
+    let args: ts.Expression[] = [];
+
+    if (ts.isIdentifier(decorator.expression)) {
+      macroName = decorator.expression.text;
+    } else if (ts.isCallExpression(decorator.expression)) {
+      if (ts.isIdentifier(decorator.expression.expression)) {
+        macroName = decorator.expression.expression.text;
+        args = Array.from(decorator.expression.arguments);
+      }
+    }
+
+    if (!macroName) continue;
+
+    // Look up the attribute macro
+    const macro = globalRegistry.getAttribute(macroName);
+    if (!macro) continue;
+
+    if (verbose) {
+      console.log(`[playground] Expanding attribute macro: @${macroName}`);
+    }
+
+    // Get the current target (may have been transformed by previous decorator)
+    const target = Array.isArray(currentNode) ? currentNode[0] : currentNode;
+    if (!isDeclarationNode(target)) continue;
+
+    const ctx = createMacroContext(program, sourceFile, context);
+
+    try {
+      const expanded = macro.expand(ctx, decorator, target as ts.Declaration, args);
+      currentNode = expanded;
+    } catch (e) {
+      if (verbose) {
+        console.warn(`[playground] Attribute macro @${macroName} failed: ${e}`);
+      }
+    }
+  }
+
+  return currentNode;
 }
 
 function tryExpandMacroCall(

@@ -66,78 +66,63 @@ const EXAMPLE_PRESETS: ExamplePreset[] = [
     code: DEFAULT_CODE,
   },
   {
-    name: "@typeclass Eq",
-    description: "Define a typeclass for equality",
+    name: "staticAssert",
+    description: "Compile-time assertions that vanish",
     fileType: ".ts",
-    code: `import { typeclass, impl } from "typesugar";
+    code: `import { staticAssert } from "typesugar";
 
-/**
- * @typeclass
- * A typeclass for types that can be compared for equality
- */
-interface Eq<T> {
-  equals(a: T, b: T): boolean;
-}
+// staticAssert() checks conditions at COMPILE TIME
+// If true: the call is removed from output (zero runtime cost)
+// If false: the BUILD fails with an error
 
-// Instance for number
-/** @impl */
-const EqNumber: Eq<number> = {
-  equals: (a, b) => a === b,
-};
+// These assertions disappear from JS Output:
+staticAssert(1 + 1 === 2, "basic math");
+staticAssert("hello".length === 5, "string length");
+staticAssert([1, 2, 3].includes(2), "array check");
 
-// Instance for string
-/** @impl */
-const EqString: Eq<string> = {
-  equals: (a, b) => a === b,
-};
+// Useful for configuration validation
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 5000;
+staticAssert(MAX_RETRIES > 0, "retries must be positive");
+staticAssert(TIMEOUT_MS <= 30000, "timeout must be reasonable");
 
-// Generic array equality (requires Eq for element type)
-/** @impl */
-function EqArray<T>(eq: Eq<T>): Eq<T[]> {
-  return {
-    equals: (a, b) => 
-      a.length === b.length && 
-      a.every((val, i) => eq.equals(val, b[i])),
-  };
-}
+// This code runs - staticAssert calls are gone
+console.log("Config validated at compile time!");
+console.log("MAX_RETRIES:", MAX_RETRIES);
+console.log("TIMEOUT_MS:", TIMEOUT_MS);
 
-// Test it out
-console.log("1 === 1:", EqNumber.equals(1, 1));
-console.log("'hello' === 'world':", EqString.equals("hello", "world"));
-console.log("[1,2,3] === [1,2,3]:", EqArray(EqNumber).equals([1,2,3], [1,2,3]));
+// Try changing a condition to false and see the error!
 `,
   },
   {
-    name: "@derive",
-    description: "Auto-generate trait implementations",
+    name: "comptime",
+    description: "Evaluate code at compile time",
     fileType: ".ts",
-    code: `import { derive, Eq, Clone, Debug } from "typesugar";
+    code: `import { comptime } from "typesugar";
 
-/**
- * @derive Eq, Clone, Debug
- * A simple 2D point class with auto-generated implementations
- */
-class Point {
-  constructor(
-    public x: number,
-    public y: number
-  ) {}
-}
+// comptime() evaluates its argument at BUILD TIME
+// The result is inlined into the output as a literal
 
-const p1 = new Point(10, 20);
-const p2 = new Point(10, 20);
-const p3 = new Point(5, 15);
+// Compile-time math - result is inlined
+const factorial5 = comptime(() => {
+  let result = 1;
+  for (let i = 2; i <= 5; i++) result *= i;
+  return result;
+});
 
-// Derived Eq - structural equality
-console.log("p1 equals p2:", p1.equals(p2)); // true
-console.log("p1 equals p3:", p1.equals(p3)); // false
+// Compile-time string building
+const greeting = comptime(() => {
+  const parts = ["Hello", "from", "compile", "time!"];
+  return parts.join(" ");
+});
 
-// Derived Clone - deep copy
-const p1Clone = p1.clone();
-console.log("Cloned:", p1Clone);
+// Compile-time date (frozen at build time)
+const buildDate = comptime(() => new Date().toISOString().split("T")[0]);
 
-// Derived Debug - pretty print
-console.log("Debug:", p1.debug());
+// Check the JS Output - you'll see literal values, not function calls!
+console.log("5! =", factorial5);        // Inlined as: 120
+console.log("Greeting:", greeting);     // Inlined as: "Hello from compile time!"
+console.log("Built on:", buildDate);    // Inlined as: "2024-XX-XX"
 `,
   },
   {
@@ -177,83 +162,90 @@ console.log(transformed); // "Value: 11"
 `,
   },
   {
-    name: "@extension",
-    description: "Add methods to existing types",
+    name: "pipe & compose",
+    description: "Zero-cost function composition",
     fileType: ".ts",
-    code: `import { extension } from "typesugar";
+    code: `import { pipe, compose, flow } from "typesugar";
 
-/**
- * @extension Array
- * Add useful methods to arrays
- */
-interface ArrayExtensions<T> {
-  first(): T | undefined;
-  last(): T | undefined;
-  isEmpty(): boolean;
-  sum(this: number[]): number;
-  groupBy<K extends string | number>(fn: (item: T) => K): Record<K, T[]>;
-}
+// pipe(), compose(), and flow() transform at compile time
+// Check the JS Output - no function calls, just inlined code!
 
-// Now use the extensions
-const numbers = [1, 2, 3, 4, 5];
+const double = (x: number) => x * 2;
+const addTen = (x: number) => x + 10;
+const toString = (x: number) => \`Result: \${x}\`;
 
-console.log("First:", numbers.first()); // 1
-console.log("Last:", numbers.last());   // 5
-console.log("Empty?:", numbers.isEmpty()); // false
-console.log("Sum:", numbers.sum()); // 15
+// pipe: value flows left-to-right through functions
+// Compiles to: toString(addTen(double(5)))
+const result1 = pipe(5, double, addTen, toString);
+console.log("pipe:", result1); // "Result: 20"
 
-const people = [
+// compose: creates a new function (right-to-left)
+// Compiles to: (x) => toString(addTen(double(x)))
+const process = compose(toString, addTen, double);
+console.log("compose:", process(5)); // "Result: 20"
+
+// flow: like compose but left-to-right (more readable)
+// Compiles to: (x) => toString(addTen(double(x)))
+const processFlow = flow(double, addTen, toString);
+console.log("flow:", processFlow(5)); // "Result: 20"
+
+// Real-world example: data pipeline
+const users = [
   { name: "Alice", age: 30 },
   { name: "Bob", age: 25 },
-  { name: "Charlie", age: 30 },
+  { name: "Charlie", age: 35 },
 ];
 
-const byAge = people.groupBy(p => p.age);
-console.log("Grouped by age:", byAge);
+const result2 = pipe(
+  users,
+  (arr) => arr.filter(u => u.age >= 30),
+  (arr) => arr.map(u => u.name),
+  (names) => names.join(", ")
+);
+console.log("Adults:", result2); // "Alice, Charlie"
 `,
   },
   {
-    name: "HKT Syntax",
-    description: "Higher-Kinded Types with F<_>",
-    fileType: ".sts",
-    code: `// Higher-Kinded Types (HKT) with F<_> syntax
-// (Sugar TypeScript syntax - .sts file)
+    name: "reflect & typeInfo",
+    description: "Compile-time reflection",
+    fileType: ".ts",
+    code: `import { reflect, typeInfo, fieldNames } from "typesugar";
 
-// Define a Functor typeclass using HKT
-interface Functor<F<_>> {
-  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+// reflect(), typeInfo(), and fieldNames() extract type info at COMPILE TIME
+// Check the JS Output - you'll see literal values, not runtime introspection!
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  age?: number;
 }
 
-// Array is a Functor
-const ArrayFunctor: Functor<Array> = {
-  map: (fa, f) => fa.map(f),
-};
+// fieldNames<T>() extracts field names as string literals
+// Compiles to: ["id", "name", "email", "age"]
+const userFields = fieldNames<User>();
+console.log("User fields:", userFields);
 
-// Maybe/Option type
-type Maybe<A> = { tag: "Some"; value: A } | { tag: "None" };
+// typeInfo<T>() extracts detailed type information
+// Compiles to a literal object with type metadata
+const info = typeInfo<User>();
+console.log("Type info:", JSON.stringify(info, null, 2));
 
-const some = <A>(value: A): Maybe<A> => ({ tag: "Some", value });
-const none: Maybe<never> = { tag: "None" };
-
-// Maybe is also a Functor
-const MaybeFunctor: Functor<Maybe> = {
-  map: (fa, f) => fa.tag === "Some" 
-    ? some(f(fa.value)) 
-    : none,
-};
-
-// Generic function that works with any Functor
-function doubleAll<F<_>>(functor: Functor<F>, fa: F<number>): F<number> {
-  return functor.map(fa, n => n * 2);
+// reflect<T>() creates runtime values from types
+// Useful for validation, serialization, ORMs, etc.
+class Product {
+  id!: number;
+  name!: string;
+  price!: number;
+  inStock!: boolean;
 }
 
-// Works with Array
-const doubled = doubleAll(ArrayFunctor, [1, 2, 3]);
-console.log("Doubled array:", doubled); // [2, 4, 6]
+const productMeta = reflect<Product>();
+console.log("Product fields:", productMeta);
 
-// Works with Maybe
-const maybeDouble = doubleAll(MaybeFunctor, some(21));
-console.log("Doubled maybe:", maybeDouble); // { tag: "Some", value: 42 }
+// Practical use: auto-generate column names for a query
+const columns = fieldNames<User>().join(", ");
+console.log(\`SELECT \${columns} FROM users\`);
 `,
   },
 ];
@@ -498,6 +490,553 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
     ],
     colors: {},
   });
+}
+
+function registerTypesugarTypes(monacoInstance: typeof Monaco) {
+  // Configure TypeScript compiler options first
+  monacoInstance.languages.typescript.typescriptDefaults.setCompilerOptions({
+    target: monacoInstance.languages.typescript.ScriptTarget.Latest,
+    module: monacoInstance.languages.typescript.ModuleKind.ESNext,
+    moduleResolution: monacoInstance.languages.typescript.ModuleResolutionKind.NodeJs,
+    allowSyntheticDefaultImports: true,
+    esModuleInterop: true,
+    strict: false,
+    noEmit: true,
+    allowJs: true,
+    jsx: monacoInstance.languages.typescript.JsxEmit.React,
+    experimentalDecorators: true,
+    emitDecoratorMetadata: true,
+  });
+
+  // Main typesugar module
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "typesugar" {
+  // Static assertions
+  export function staticAssert(condition: boolean, message?: string): void;
+  
+  // Compile-time evaluation
+  export function comptime<T>(fn: () => T): T;
+  
+  // Derive decorators
+  export function derive(...traits: symbol[]): ClassDecorator;
+  export const Eq: unique symbol;
+  export const Ord: unique symbol;
+  export const Clone: unique symbol;
+  export const Debug: unique symbol;
+  export const Hash: unique symbol;
+  export const Default: unique symbol;
+  export const Json: unique symbol;
+  export const Builder: unique symbol;
+  export const TypeGuard: unique symbol;
+  
+  // Typeclass decorators
+  export function typeclass(target: any): any;
+  export function instance(name: string): ClassDecorator;
+  export function impl(name: string): ClassDecorator;
+  export function deriving(...traits: symbol[]): ClassDecorator;
+  export function summon<T>(): T;
+  export function extend<T, U>(base: T, extension: U): T & U;
+  export function implicit<T>(): T;
+  
+  // Operators
+  export function operators(target: any): any;
+  export function ops<T>(expr: T): T;
+  export function pipe<A, B>(a: A, fn: (a: A) => B): B;
+  export function pipe<A, B, C>(a: A, fn1: (a: A) => B, fn2: (b: B) => C): C;
+  export function pipe<A, B, C, D>(a: A, fn1: (a: A) => B, fn2: (b: B) => C, fn3: (c: C) => D): D;
+  export function pipe<A, B, C, D, E>(a: A, fn1: (a: A) => B, fn2: (b: B) => C, fn3: (c: C) => D, fn4: (d: D) => E): E;
+  export function compose<A, B, C>(f: (b: B) => C, g: (a: A) => B): (a: A) => C;
+  export function flow<A, B>(f: (a: A) => B): (a: A) => B;
+  export function flow<A, B, C>(f: (a: A) => B, g: (b: B) => C): (a: A) => C;
+  export function flow<A, B, C, D>(f: (a: A) => B, g: (b: B) => C, h: (c: C) => D): (a: A) => D;
+  
+  // Reflection
+  export function reflect(target: any): any;
+  export function typeInfo<T>(): object;
+  export function fieldNames<T>(): string[];
+  export function validator<T>(): (value: unknown) => value is T;
+  
+  // Conditional compilation
+  export function cfg(condition: string): PropertyDecorator;
+  
+  // File includes
+  export function includeStr(path: string): string;
+  export function includeJson<T = unknown>(path: string): T;
+  
+  // Specialization
+  export function specialize<T>(fn: T): T;
+  export function mono<T>(fn: T): T;
+  export function inlineCall<T>(fn: T): T;
+  
+  // Tail recursion
+  export function tailrec(target: any, propertyKey: string, descriptor: PropertyDescriptor): PropertyDescriptor;
+  
+  // Higher-Kinded Types
+  export function hkt(target: any): any;
+  export type _  = { readonly _: unique symbol };
+  
+  // Extension methods
+  export function extension(target: any): any;
+  export function registerExtensions(target: any): any;
+  export function registerExtension(name: string): MethodDecorator;
+}
+`, "file:///node_modules/typesugar/index.d.ts");
+
+  // @typesugar/core
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/core" {
+  export interface MacroContext {
+    readonly program: any;
+    readonly sourceFile: any;
+    readonly factory: any;
+    readonly checker: any;
+  }
+  
+  export interface ExpressionMacro {
+    name: string;
+    kind: "expression";
+    module?: string;
+    description?: string;
+    expand(ctx: MacroContext, node: any, args: any[]): any;
+  }
+  
+  export interface AttributeMacro {
+    name: string;
+    kind: "attribute";
+    module?: string;
+    description?: string;
+    expand(ctx: MacroContext, node: any): any;
+  }
+  
+  export interface DeriveMacro {
+    name: string;
+    kind: "derive";
+    module?: string;
+    description?: string;
+    expand(ctx: MacroContext, node: any): any[];
+  }
+  
+  export const globalRegistry: {
+    register(macro: ExpressionMacro | AttributeMacro | DeriveMacro): void;
+    getExpression(name: string): ExpressionMacro | undefined;
+    getAttribute(name: string): AttributeMacro | undefined;
+    getDerive(name: string): DeriveMacro | undefined;
+  };
+  
+  export function createMacroContext(program: any, sourceFile: any, context: any): MacroContext;
+}
+`, "file:///node_modules/@typesugar/core/index.d.ts");
+
+  // @typesugar/macros
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/macros" {
+  export * from "typesugar";
+  
+  // Quasiquoting
+  export function quote(strings: TemplateStringsArray, ...values: any[]): any;
+  export function quoteStatements(strings: TemplateStringsArray, ...values: any[]): any[];
+  export function quoteType(strings: TemplateStringsArray, ...values: any[]): any;
+  export function ident(name: string): any;
+  export function raw(node: any): any;
+  export function spread(nodes: any[]): any;
+  
+  // Pattern macros
+  export function defineSyntaxMacro(pattern: string, replacement: string): void;
+  export function defineRewrite(from: string, to: string): void;
+  
+  // Custom derive
+  export function defineCustomDerive(name: string, impl: (info: any) => string): void;
+  export function defineFieldDerive(name: string, impl: (field: any) => string): void;
+}
+`, "file:///node_modules/@typesugar/macros/index.d.ts");
+
+  // @typesugar/testing
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/testing" {
+  // Power assertions
+  export function assert(condition: boolean, message?: string): void;
+  export function powerAssert(condition: boolean, message?: string): void;
+  
+  // Static assertions
+  export function staticAssert(condition: boolean, message?: string): void;
+  export function comptimeAssert(condition: boolean, message?: string): void;
+  
+  // Type assertions
+  export function typeAssert<T>(): void;
+  export function assertType<T>(value: T): void;
+  export type Equal<A, B> = A extends B ? (B extends A ? true : false) : false;
+  export type Extends<A, B> = A extends B ? true : false;
+  
+  // Snapshot testing
+  export function assertSnapshot<T>(value: T): void;
+  
+  // Property-based testing
+  export function forAll<T>(gen: any, prop: (value: T) => boolean | void): void;
+  
+  // Arbitrary generation
+  export const Arbitrary: unique symbol;
+}
+`, "file:///node_modules/@typesugar/testing/index.d.ts");
+
+  // @typesugar/fp - Functional programming utilities
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/fp" {
+  // Option type
+  export type Option<A> = Some<A> | None;
+  export interface Some<A> { readonly _tag: "Some"; readonly value: A; }
+  export interface None { readonly _tag: "None"; }
+  export function some<A>(value: A): Option<A>;
+  export const none: None;
+  export function isSome<A>(opt: Option<A>): opt is Some<A>;
+  export function isNone<A>(opt: Option<A>): opt is None;
+  
+  // Either type
+  export type Either<E, A> = Left<E> | Right<A>;
+  export interface Left<E> { readonly _tag: "Left"; readonly left: E; }
+  export interface Right<A> { readonly _tag: "Right"; readonly right: A; }
+  export function left<E, A = never>(e: E): Either<E, A>;
+  export function right<A, E = never>(a: A): Either<E, A>;
+  export function isLeft<E, A>(e: Either<E, A>): e is Left<E>;
+  export function isRight<E, A>(e: Either<E, A>): e is Right<A>;
+  
+  // Function utilities
+  export function identity<A>(a: A): A;
+  export function constant<A>(a: A): () => A;
+  export function flip<A, B, C>(f: (a: A, b: B) => C): (b: B, a: A) => C;
+  export function curry<A, B, C>(f: (a: A, b: B) => C): (a: A) => (b: B) => C;
+  export function uncurry<A, B, C>(f: (a: A) => (b: B) => C): (a: A, b: B) => C;
+}
+`, "file:///node_modules/@typesugar/fp/index.d.ts");
+
+  // @typesugar/effect - Effect system
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/effect" {
+  export interface Effect<R, E, A> {
+    readonly _R: (_: R) => void;
+    readonly _E: () => E;
+    readonly _A: () => A;
+  }
+  
+  export function succeed<A>(value: A): Effect<unknown, never, A>;
+  export function fail<E>(error: E): Effect<unknown, E, never>;
+  export function sync<A>(fn: () => A): Effect<unknown, never, A>;
+  export function async<A>(fn: (cb: (a: A) => void) => void): Effect<unknown, never, A>;
+  
+  export function map<R, E, A, B>(self: Effect<R, E, A>, f: (a: A) => B): Effect<R, E, B>;
+  export function flatMap<R, E, A, R2, E2, B>(self: Effect<R, E, A>, f: (a: A) => Effect<R2, E2, B>): Effect<R | R2, E | E2, B>;
+  export function catchAll<R, E, A, R2, E2, B>(self: Effect<R, E, A>, f: (e: E) => Effect<R2, E2, B>): Effect<R | R2, E2, A | B>;
+  
+  export function runSync<E, A>(effect: Effect<unknown, E, A>): A;
+  export function runPromise<E, A>(effect: Effect<unknown, E, A>): Promise<A>;
+}
+`, "file:///node_modules/@typesugar/effect/index.d.ts");
+
+  // @typesugar/std - Standard library
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/std" {
+  // Array utilities
+  export function head<A>(arr: A[]): A | undefined;
+  export function tail<A>(arr: A[]): A[];
+  export function last<A>(arr: A[]): A | undefined;
+  export function init<A>(arr: A[]): A[];
+  export function take<A>(n: number, arr: A[]): A[];
+  export function drop<A>(n: number, arr: A[]): A[];
+  export function chunk<A>(size: number, arr: A[]): A[][];
+  export function zip<A, B>(as: A[], bs: B[]): [A, B][];
+  export function unzip<A, B>(pairs: [A, B][]): [A[], B[]];
+  export function groupBy<A, K extends string | number>(arr: A[], fn: (a: A) => K): Record<K, A[]>;
+  export function sortBy<A>(arr: A[], fn: (a: A) => number | string): A[];
+  export function unique<A>(arr: A[]): A[];
+  export function partition<A>(arr: A[], pred: (a: A) => boolean): [A[], A[]];
+  
+  // Object utilities
+  export function keys<T extends object>(obj: T): (keyof T)[];
+  export function values<T extends object>(obj: T): T[keyof T][];
+  export function entries<T extends object>(obj: T): [keyof T, T[keyof T]][];
+  export function fromEntries<K extends string | number | symbol, V>(entries: [K, V][]): Record<K, V>;
+  export function pick<T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K>;
+  export function omit<T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K>;
+  export function merge<T extends object, U extends object>(a: T, b: U): T & U;
+  
+  // String utilities
+  export function capitalize(s: string): string;
+  export function uncapitalize(s: string): string;
+  export function camelCase(s: string): string;
+  export function snakeCase(s: string): string;
+  export function kebabCase(s: string): string;
+  export function pascalCase(s: string): string;
+  export function words(s: string): string[];
+  export function trim(s: string): string;
+  export function padLeft(s: string, len: number, char?: string): string;
+  export function padRight(s: string, len: number, char?: string): string;
+}
+`, "file:///node_modules/@typesugar/std/index.d.ts");
+
+  // @typesugar/collections - Immutable collections
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/collections" {
+  export class List<A> {
+    static of<A>(...items: A[]): List<A>;
+    static from<A>(iterable: Iterable<A>): List<A>;
+    static empty<A>(): List<A>;
+    
+    head(): A | undefined;
+    tail(): List<A>;
+    cons(value: A): List<A>;
+    concat(other: List<A>): List<A>;
+    map<B>(f: (a: A) => B): List<B>;
+    flatMap<B>(f: (a: A) => List<B>): List<B>;
+    filter(pred: (a: A) => boolean): List<A>;
+    fold<B>(init: B, f: (acc: B, a: A) => B): B;
+    toArray(): A[];
+    [Symbol.iterator](): Iterator<A>;
+  }
+  
+  export class Vector<A> {
+    static of<A>(...items: A[]): Vector<A>;
+    static from<A>(iterable: Iterable<A>): Vector<A>;
+    static empty<A>(): Vector<A>;
+    
+    get(index: number): A | undefined;
+    set(index: number, value: A): Vector<A>;
+    push(value: A): Vector<A>;
+    pop(): Vector<A>;
+    map<B>(f: (a: A) => B): Vector<B>;
+    filter(pred: (a: A) => boolean): Vector<A>;
+    toArray(): A[];
+    readonly length: number;
+    [Symbol.iterator](): Iterator<A>;
+  }
+  
+  export class HashMap<K, V> {
+    static of<K, V>(...entries: [K, V][]): HashMap<K, V>;
+    static from<K, V>(entries: Iterable<[K, V]>): HashMap<K, V>;
+    static empty<K, V>(): HashMap<K, V>;
+    
+    get(key: K): V | undefined;
+    set(key: K, value: V): HashMap<K, V>;
+    delete(key: K): HashMap<K, V>;
+    has(key: K): boolean;
+    keys(): Iterable<K>;
+    values(): Iterable<V>;
+    entries(): Iterable<[K, V]>;
+    map<V2>(f: (v: V, k: K) => V2): HashMap<K, V2>;
+    readonly size: number;
+  }
+  
+  export class HashSet<A> {
+    static of<A>(...items: A[]): HashSet<A>;
+    static from<A>(iterable: Iterable<A>): HashSet<A>;
+    static empty<A>(): HashSet<A>;
+    
+    add(value: A): HashSet<A>;
+    delete(value: A): HashSet<A>;
+    has(value: A): boolean;
+    union(other: HashSet<A>): HashSet<A>;
+    intersection(other: HashSet<A>): HashSet<A>;
+    difference(other: HashSet<A>): HashSet<A>;
+    map<B>(f: (a: A) => B): HashSet<B>;
+    filter(pred: (a: A) => boolean): HashSet<A>;
+    toArray(): A[];
+    readonly size: number;
+    [Symbol.iterator](): Iterator<A>;
+  }
+}
+`, "file:///node_modules/@typesugar/collections/index.d.ts");
+
+  // @typesugar/validate - Runtime validation
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/validate" {
+  export interface Schema<T> {
+    parse(value: unknown): T;
+    safeParse(value: unknown): { success: true; data: T } | { success: false; error: ValidationError };
+    optional(): Schema<T | undefined>;
+    nullable(): Schema<T | null>;
+    default(value: T): Schema<T>;
+    transform<U>(fn: (value: T) => U): Schema<U>;
+    refine(pred: (value: T) => boolean, message?: string): Schema<T>;
+  }
+  
+  export class ValidationError extends Error {
+    readonly issues: { path: string[]; message: string }[];
+  }
+  
+  export function string(): Schema<string>;
+  export function number(): Schema<number>;
+  export function boolean(): Schema<boolean>;
+  export function literal<T extends string | number | boolean>(value: T): Schema<T>;
+  export function array<T>(schema: Schema<T>): Schema<T[]>;
+  export function object<T extends Record<string, Schema<any>>>(shape: T): Schema<{ [K in keyof T]: T[K] extends Schema<infer U> ? U : never }>;
+  export function union<T extends Schema<any>[]>(...schemas: T): Schema<T[number] extends Schema<infer U> ? U : never>;
+  export function intersection<A, B>(a: Schema<A>, b: Schema<B>): Schema<A & B>;
+  export function record<K extends string, V>(keySchema: Schema<K>, valueSchema: Schema<V>): Schema<Record<K, V>>;
+  export function tuple<T extends Schema<any>[]>(...schemas: T): Schema<{ [K in keyof T]: T[K] extends Schema<infer U> ? U : never }>;
+}
+`, "file:///node_modules/@typesugar/validate/index.d.ts");
+
+  // @typesugar/contracts - Design by contract
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/contracts" {
+  export function requires(condition: boolean, message?: string): void;
+  export function ensures(condition: boolean, message?: string): void;
+  export function invariant(condition: boolean, message?: string): void;
+  export function unreachable(message?: string): never;
+  
+  export function pre(condition: () => boolean, message?: string): MethodDecorator;
+  export function post(condition: (result: any) => boolean, message?: string): MethodDecorator;
+  export function classInvariant(condition: () => boolean, message?: string): ClassDecorator;
+}
+`, "file:///node_modules/@typesugar/contracts/index.d.ts");
+
+  // @typesugar/math - Math utilities
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/math" {
+  export function clamp(value: number, min: number, max: number): number;
+  export function lerp(a: number, b: number, t: number): number;
+  export function inverseLerp(a: number, b: number, value: number): number;
+  export function remap(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number;
+  export function deg2rad(degrees: number): number;
+  export function rad2deg(radians: number): number;
+  export function gcd(a: number, b: number): number;
+  export function lcm(a: number, b: number): number;
+  export function factorial(n: number): number;
+  export function isPrime(n: number): boolean;
+  export function fibonacci(n: number): number;
+  
+  export class Vec2 {
+    constructor(x: number, y: number);
+    readonly x: number;
+    readonly y: number;
+    add(other: Vec2): Vec2;
+    sub(other: Vec2): Vec2;
+    mul(scalar: number): Vec2;
+    div(scalar: number): Vec2;
+    dot(other: Vec2): number;
+    length(): number;
+    normalize(): Vec2;
+    static zero: Vec2;
+    static one: Vec2;
+  }
+  
+  export class Vec3 {
+    constructor(x: number, y: number, z: number);
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    add(other: Vec3): Vec3;
+    sub(other: Vec3): Vec3;
+    mul(scalar: number): Vec3;
+    div(scalar: number): Vec3;
+    dot(other: Vec3): number;
+    cross(other: Vec3): Vec3;
+    length(): number;
+    normalize(): Vec3;
+    static zero: Vec3;
+    static one: Vec3;
+  }
+}
+`, "file:///node_modules/@typesugar/math/index.d.ts");
+
+  // @typesugar/strings - String utilities
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/strings" {
+  // String interpolation
+  export function fmt(strings: TemplateStringsArray, ...values: any[]): string;
+  export function dedent(strings: TemplateStringsArray, ...values: any[]): string;
+  export function indent(s: string, spaces: number): string;
+  
+  // Formatting
+  export function pluralize(word: string, count: number): string;
+  export function truncate(s: string, maxLength: number, suffix?: string): string;
+  export function wordWrap(s: string, width: number): string;
+  
+  // Escaping
+  export function escapeHtml(s: string): string;
+  export function unescapeHtml(s: string): string;
+  export function escapeRegex(s: string): string;
+  
+  // Comparison
+  export function levenshtein(a: string, b: string): number;
+  export function fuzzyMatch(pattern: string, text: string): boolean;
+  export function similarity(a: string, b: string): number;
+}
+`, "file:///node_modules/@typesugar/strings/index.d.ts");
+
+  // @typesugar/parser - Parser combinators
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/parser" {
+  export interface Parser<A> {
+    parse(input: string): ParseResult<A>;
+    map<B>(f: (a: A) => B): Parser<B>;
+    flatMap<B>(f: (a: A) => Parser<B>): Parser<B>;
+    or(other: Parser<A>): Parser<A>;
+    many(): Parser<A[]>;
+    many1(): Parser<A[]>;
+    optional(): Parser<A | undefined>;
+    sepBy(sep: Parser<any>): Parser<A[]>;
+    between(left: Parser<any>, right: Parser<any>): Parser<A>;
+  }
+  
+  export type ParseResult<A> = 
+    | { success: true; value: A; rest: string }
+    | { success: false; error: string; position: number };
+  
+  export function str(s: string): Parser<string>;
+  export function regex(r: RegExp): Parser<string>;
+  export function digit(): Parser<string>;
+  export function letter(): Parser<string>;
+  export function whitespace(): Parser<string>;
+  export function eof(): Parser<void>;
+  export function satisfy(pred: (char: string) => boolean): Parser<string>;
+  export function seq<T extends Parser<any>[]>(...parsers: T): Parser<{ [K in keyof T]: T[K] extends Parser<infer U> ? U : never }>;
+  export function choice<T extends Parser<any>[]>(...parsers: T): Parser<T[number] extends Parser<infer U> ? U : never>;
+  export function lazy<A>(fn: () => Parser<A>): Parser<A>;
+}
+`, "file:///node_modules/@typesugar/parser/index.d.ts");
+
+  // @typesugar/codec - Encoding/decoding
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/codec" {
+  export interface Codec<A> {
+    encode(value: A): string;
+    decode(data: string): A;
+  }
+  
+  export const json: <A>() => Codec<A>;
+  export const base64: Codec<Uint8Array>;
+  export const hex: Codec<Uint8Array>;
+  export const url: Codec<Record<string, string>>;
+}
+`, "file:///node_modules/@typesugar/codec/index.d.ts");
+
+  // @typesugar/type-system - Type-level utilities
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+declare module "@typesugar/type-system" {
+  // HKT marker
+  export type _ = { readonly _: unique symbol };
+  
+  // Type-level utilities
+  export type Head<T extends any[]> = T extends [infer H, ...any[]] ? H : never;
+  export type Tail<T extends any[]> = T extends [any, ...infer R] ? R : never;
+  export type Last<T extends any[]> = T extends [...any[], infer L] ? L : never;
+  export type Init<T extends any[]> = T extends [...infer I, any] ? I : never;
+  export type Length<T extends any[]> = T["length"];
+  export type Reverse<T extends any[]> = T extends [infer H, ...infer R] ? [...Reverse<R>, H] : [];
+  export type Concat<A extends any[], B extends any[]> = [...A, ...B];
+  
+  // Conditional types
+  export type If<C extends boolean, T, F> = C extends true ? T : F;
+  export type Not<T extends boolean> = T extends true ? false : true;
+  export type And<A extends boolean, B extends boolean> = A extends true ? B : false;
+  export type Or<A extends boolean, B extends boolean> = A extends true ? true : B;
+  
+  // Object utilities
+  export type DeepPartial<T> = T extends object ? { [K in keyof T]?: DeepPartial<T[K]> } : T;
+  export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
+  export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+  export type DeepMutable<T> = T extends object ? { -readonly [K in keyof T]: DeepMutable<T[K]> } : T;
+}
+`, "file:///node_modules/@typesugar/type-system/index.d.ts");
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -905,6 +1444,7 @@ async function initMonaco() {
     loadingProgress.value = 15;
     loadingMessage.value = "Configuring syntax...";
     registerStsLanguage(monacoInstance);
+    registerTypesugarTypes(monacoInstance);
     await loadPlayground();
 
     const isDark = document.documentElement.classList.contains("dark");
@@ -1209,6 +1749,8 @@ onUnmounted(() => {
             role="textbox"
             aria-multiline="true"
             aria-labelledby="input-editor-label"
+            @keydown.stop
+            @keypress.stop
             tabindex="0"
           />
         </div>
@@ -1248,6 +1790,8 @@ onUnmounted(() => {
             id="output-js-panel"
             role="tabpanel"
             aria-labelledby="output-js-tab"
+            @keydown.stop
+            @keypress.stop
           />
           
           <div 

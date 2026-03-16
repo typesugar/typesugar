@@ -8,6 +8,10 @@
 
 import "./browser-shims/process-global.js";
 
+// Import @typesugar/macros to register all built-in macros with globalRegistry
+// This is a side-effect import - the macros register themselves on import
+import "@typesugar/macros";
+
 export * from "./index.js";
 
 import * as ts from "typescript";

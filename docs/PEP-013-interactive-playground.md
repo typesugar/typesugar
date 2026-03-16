@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** In Progress (Wave 7 complete)
+**Status:** Complete (Waves 1-7 done, Wave 8 deferred)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
