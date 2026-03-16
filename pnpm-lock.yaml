@@ -416,6 +416,34 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
+  packages/playground:
+    dependencies:
+      '@typesugar/core':
+        specifier: workspace:*
+        version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
+      '@typesugar/preprocessor':
+        specifier: workspace:*
+        version: link:../preprocessor
+      magic-string:
+        specifier: ^0.30.21
+        version: 0.30.21
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+    devDependencies:
+      esbuild:
+        specifier: ^0.20.0
+        version: 0.20.2
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
+
   packages/preprocessor:
     dependencies:
       magic-string:

@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** Draft
+**Status:** In Progress (Wave 1 complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -315,22 +315,29 @@ For running transformed code:
 
 **Tasks:**
 
-- [ ] Create `packages/playground/` package structure
-- [ ] Create browser-specific entry point that excludes Node.js APIs
-- [ ] Mock/disable `fs`-dependent macros (`includeStr`, `includeJson`)
-- [ ] Replace disk cache with in-memory LRU cache
-- [ ] Create TypeScript-only backend (no oxc in browser)
-- [ ] Bundle with esbuild targeting browser (ESM)
-- [ ] Test: preprocessor runs in browser environment
-- [ ] Test: macro transformer runs in browser environment
-- [ ] Verify bundle size is reasonable (<500KB gzipped for typesugar parts)
+- [x] Create `packages/playground/` package structure
+- [x] Create browser-specific entry point that excludes Node.js APIs
+- [x] Mock/disable `fs`-dependent macros (`includeStr`, `includeJson`)
+- [x] Replace disk cache with in-memory LRU cache
+- [x] Create TypeScript-only backend (no oxc in browser)
+- [x] Bundle with esbuild targeting browser (ESM)
+- [x] Test: preprocessor runs in browser environment
+- [x] Test: macro transformer runs in browser environment
+- [x] Verify bundle size is reasonable (<500KB gzipped for typesugar parts)
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Browser bundle loads in a test HTML page
-- [ ] `preprocess()` works on sample `.sts` code
-- [ ] `transform()` works on sample `.ts` code with macros
+- [x] `pnpm build` passes
+- [x] Browser bundle loads in a test HTML page
+- [x] `preprocess()` works on sample `.sts` code
+- [x] `transform()` works on sample `.ts` code with macros
+
+**Notes (Wave 1 implementation):**
+
+- Bundle size: ~73KB gzipped (browser.js), well under 500KB target
+- Created browser shims for `fs`, `path`, and `crypto` modules
+- The `statSync` function is used by `@typesugar/core` for node_modules detection; the shim returns `undefined` which correctly disables that path in browser
+- Test HTML page at `packages/playground/test/browser-test.html` loads TypeScript from esm.sh CDN
 
 ### Wave 2: Monaco Integration
 

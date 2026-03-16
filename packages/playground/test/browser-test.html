@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>typesugar Playground - Browser Test</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 {
+      color: #00d4ff;
+    }
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .panel {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .panel h2 {
+      margin-top: 0;
+      color: #00d4ff;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    textarea {
+      width: 100%;
+      height: 300px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 14px;
+      background: #0f0f23;
+      color: #00ff00;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 12px;
+      resize: vertical;
+    }
+    #output {
+      color: #fff;
+    }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    button {
+      background: #00d4ff;
+      color: #000;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover {
+      background: #00a8cc;
+    }
+    select {
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      padding: 8px 12px;
+      border-radius: 4px;
+    }
+    #status {
+      background: #0f0f23;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #888;
+      margin-top: 20px;
+    }
+    #status.success {
+      color: #00ff00;
+    }
+    #status.error {
+      color: #ff4444;
+    }
+    .diagnostics {
+      margin-top: 10px;
+      padding: 10px;
+      background: #331111;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #ff8888;
+    }
+    .diagnostics:empty {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧊 typesugar Playground - Browser Test</h1>
+  
+  <div class="toolbar">
+    <button id="transform-btn">Transform</button>
+    <select id="file-type">
+      <option value=".ts">.ts (TypeScript)</option>
+      <option value=".sts">.sts (Sugar TypeScript)</option>
+    </select>
+    <button id="preprocess-btn">Preprocess Only</button>
+  </div>
+
+  <div class="container">
+    <div class="panel">
+      <h2>Input</h2>
+      <textarea id="input">// Try typesugar macros!
+import { staticAssert } from "typesugar";
+
+// Static assertion at compile time
+staticAssert(1 + 1 === 2);
+
+// Regular TypeScript
+const greet = (name: string) => \`Hello, \${name}!\`;
+console.log(greet("World"));
+</textarea>
+    </div>
+    <div class="panel">
+      <h2>Output</h2>
+      <textarea id="output" readonly></textarea>
+      <div id="diagnostics" class="diagnostics"></div>
+    </div>
+  </div>
+
+  <div id="status">Loading typesugar playground bundle...</div>
+
+  <script type="module">
+    import * as ts from 'https://esm.sh/typescript@5.8.3';
+    
+    // Make TypeScript available globally for the playground bundle
+    window.ts = ts;
+    
+    // Load the playground bundle
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.textContent = `
+      import * as playground from '../dist/browser.js';
+      window.playground = playground;
+      window.dispatchEvent(new Event('playground-loaded'));
+    `;
+    document.body.appendChild(script);
+
+    window.addEventListener('playground-loaded', () => {
+      const status = document.getElementById('status');
+      const input = document.getElementById('input');
+      const output = document.getElementById('output');
+      const diagnostics = document.getElementById('diagnostics');
+      const transformBtn = document.getElementById('transform-btn');
+      const preprocessBtn = document.getElementById('preprocess-btn');
+      const fileType = document.getElementById('file-type');
+
+      status.textContent = '✓ Playground loaded successfully!';
+      status.className = 'success';
+
+      function getFileName() {
+        return 'test' + fileType.value;
+      }
+
+      function showResult(result) {
+        output.value = result.code;
+        
+        if (result.diagnostics && result.diagnostics.length > 0) {
+          diagnostics.innerHTML = result.diagnostics
+            .map(d => `${d.severity}: ${d.message}`)
+            .join('<br>');
+        } else {
+          diagnostics.innerHTML = '';
+        }
+
+        const changed = result.changed ? 'changed' : 'unchanged';
+        const preprocessed = result.preprocessed ? ', preprocessed' : '';
+        status.textContent = `Transform complete (${changed}${preprocessed})`;
+        status.className = result.diagnostics?.length ? 'error' : 'success';
+      }
+
+      transformBtn.addEventListener('click', () => {
+        try {
+          const code = input.value;
+          const result = window.playground.transform(code, {
+            fileName: getFileName(),
+            verbose: true,
+          });
+          showResult(result);
+        } catch (e) {
+          status.textContent = 'Error: ' + e.message;
+          status.className = 'error';
+          console.error(e);
+        }
+      });
+
+      preprocessBtn.addEventListener('click', () => {
+        try {
+          const code = input.value;
+          const result = window.playground.preprocessCode(code, {
+            fileName: getFileName(),
+          });
+          output.value = result.code;
+          diagnostics.innerHTML = '';
+          status.textContent = result.changed ? 'Preprocessing complete (changed)' : 'No preprocessing needed';
+          status.className = 'success';
+        } catch (e) {
+          status.textContent = 'Error: ' + e.message;
+          status.className = 'error';
+          console.error(e);
+        }
+      });
+
+      // Auto-transform on input with debounce
+      let debounceTimer;
+      input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          transformBtn.click();
+        }, 500);
+      });
+
+      // Initial transform
+      transformBtn.click();
+    });
+
+    window.addEventListener('error', (e) => {
+      const status = document.getElementById('status');
+      status.textContent = 'Failed to load: ' + e.message;
+      status.className = 'error';
+    });
+  </script>
+</body>
+</html>
