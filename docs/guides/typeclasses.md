@@ -21,6 +21,35 @@ interface Show<A> {
 }
 ```
 
+<details>
+<summary><strong>Try it</strong></summary>
+
+<PlaygroundEmbed
+code="/\*_ @typeclass _/
+interface Show<A> {
+show(a: A): string;
+}
+
+/\*_ @impl _/
+const ShowNumber: Show<number> = {
+show: (n) => n.toString(),
+};
+
+/\*_ @impl _/
+const ShowString: Show<string> = {
+show: (s) => `\"${s}\"`,
+};
+
+// Use the instances
+console.log(ShowNumber.show(42));
+console.log(ShowString.show('hello'));"
+mode=".ts"
+height="280px"
+title="Typeclass basics"
+/>
+
+</details>
+
 This generates:
 
 - A namespace `Show` with helper methods

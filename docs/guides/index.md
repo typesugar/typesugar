@@ -87,6 +87,7 @@ When something goes wrong, you should know exactly what happened and how to get 
 | [Opt-Out Directives](./opt-out.md)        | Disable transformations for debugging             |
 | [Testing](./testing.md)                   | Power assertions, property testing                |
 | [Library Manifest](./library-manifest.md) | Publishing typesugar-powered libraries            |
+| [Interactive Playground](./playground.md) | Try code in-browser, embed examples in docs       |
 
 ---
 

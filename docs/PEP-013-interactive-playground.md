@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** In Progress (Wave 4 complete)
+**Status:** In Progress (Wave 5 complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -429,19 +429,31 @@ For running transformed code:
 
 **Tasks:**
 
-- [ ] Create `<Playground>` component for embedding in docs
-- [ ] Support `code` prop for initial content
-- [ ] Support `mode` prop for `.ts` / `.sts`
-- [ ] Support `readonly` prop for display-only examples
-- [ ] Support `height` prop for sizing
-- [ ] Add "Open in Playground" button to expand inline example
-- [ ] Add "Try it" feature to existing code blocks in docs
+- [x] Create `<Playground>` component for embedding in docs
+- [x] Support `code` prop for initial content
+- [x] Support `mode` prop for `.ts` / `.sts`
+- [x] Support `readonly` prop for display-only examples
+- [x] Support `height` prop for sizing
+- [x] Add "Open in Playground" button to expand inline example
+- [x] Add "Try it" feature to existing code blocks in docs
 
 **Gate:**
 
-- [ ] `<Playground code="..." />` works in any markdown file
-- [ ] Embedded playgrounds are appropriately sized
-- [ ] "Open in Playground" navigates to full page with code
+- [x] `<Playground code="..." />` works in any markdown file
+- [x] Embedded playgrounds are appropriately sized
+- [x] "Open in Playground" navigates to full page with code
+
+**Notes (Wave 5 implementation):**
+
+- Created `PlaygroundEmbed.vue` component with props: `code`, `mode`, `readonly`, `height`, `hideOutput`, `title`
+- Component registered in theme as `<PlaygroundEmbed>` for use in any markdown file
+- Compact header with file type badge, optional title, readonly indicator, and error count
+- "Open in Playground" button encodes code with lz-string and opens full playground in new tab
+- Output panel can be toggled or hidden completely with `hideOutput` prop
+- Responsive design with mobile-friendly layout (stacked panels on small screens)
+- Created `docs/guides/playground.md` demonstrating all embed features
+- Added "Try it" collapsible example to `docs/guides/typeclasses.md`
+- Added playground guide to `docs/guides/index.md` Developer Experience section
 
 ### Wave 6: Polish & Performance
 
