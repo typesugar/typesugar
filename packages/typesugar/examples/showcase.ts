@@ -42,10 +42,8 @@ import {
   // Namespace re-exports — access each macro subsystem
   // These are the full module namespaces with registration functions
   // ======================================================================
-  comptimeNamespace,
   reflectNamespace,
   deriveNamespace,
-  operatorsNamespace,
   typeclassNamespace,
   specializeNamespace,
 
@@ -109,10 +107,8 @@ typeAssert<Extends<{ debug?: boolean }, TypesugarConfig>>();
 
 // Each built-in macro module is available as a full namespace
 // These provide access to internals, registration functions, and types
-assert(comptimeNamespace !== undefined, "comptime namespace");
 assert(reflectNamespace !== undefined, "reflect namespace");
 assert(deriveNamespace !== undefined, "derive namespace");
-assert(operatorsNamespace !== undefined, "operators namespace");
 assert(typeclassNamespace !== undefined, "typeclass namespace");
 assert(specializeNamespace !== undefined, "specialize namespace");
 

@@ -836,3 +836,95 @@ describe("Typeclasses", () => {
     expect(sizedString.size("hello")).toBe(5);
   });
 });
+
+// ============================================================================
+// Global Augmentation Type-Check Tests (PEP-012 Wave 8)
+// ============================================================================
+// These tests verify that the global augmentation declarations compile
+// without TS2339. The transformer rewrites method-call syntax to standalone
+// function calls, so here we call the functions directly and assert the
+// augmented interface types are structurally correct (the test file compiling
+// is itself the primary assertion).
+
+import "../extensions/global-augmentations";
+import type { Range } from "../data/range";
+
+describe("Global Augmentation type-checks", () => {
+  it("Number interface augmentation compiles", () => {
+    // Verify the augmented Number interface has the expected method types.
+    // We use a type-level assertion: this block compiles iff the augmentation works.
+    const n: number = 42;
+    const _clamp: number = n.clamp(0, 100);
+    const _abs: number = n.abs();
+    const _isEven: boolean = n.isEven();
+    const _toHex: string = n.toHex();
+    const _toOrdinal: string = n.toOrdinal();
+    const _range: Range = n.to(100);
+    const _times: string[] = n.times((i) => String(i));
+    void [_clamp, _abs, _isEven, _toHex, _toOrdinal, _range, _times];
+  });
+
+  it("String interface augmentation compiles", () => {
+    const s: string = "hello world";
+    const _cap: string = s.capitalize();
+    const _camel: string = s.camelCase();
+    const _words: string[] = s.words();
+    const _isBlank: boolean = s.isBlank();
+    const _slug: string = s.toSlug();
+    const _before: string = s.substringBefore(" ");
+    void [_cap, _camel, _words, _isBlank, _slug, _before];
+  });
+
+  it("Array interface augmentation compiles", () => {
+    const arr: number[] = [1, 2, 3];
+    const _head: number | undefined = arr.head();
+    const _tail: number[] = arr.tail();
+    const _chunk: number[][] = arr.chunk(2);
+    const _unique: number[] = arr.unique();
+    const _sortBy: number[] = arr.sortBy((x) => x);
+    const _grouped: Record<string, number[]> = arr.groupBy((x) => (x % 2 === 0 ? "even" : "odd"));
+    const _mkStr: string = arr.mkString(", ");
+    void [_head, _tail, _chunk, _unique, _sortBy, _grouped, _mkStr];
+  });
+
+  it("Boolean interface augmentation compiles", () => {
+    const b: boolean = true;
+    const _int: 0 | 1 = b.toInt();
+    const _toggled: boolean = b.toggle();
+    const _yn: "yes" | "no" = b.toYesNo();
+    const _fold: string = b.fold(
+      () => "no",
+      () => "yes"
+    );
+    void [_int, _toggled, _yn, _fold];
+  });
+
+  it("Date interface augmentation compiles", () => {
+    const d: Date = new Date();
+    const _add: Date = d.addDays(5);
+    const _isWknd: boolean = d.isWeekend();
+    const _q: number = d.quarter();
+    const _fmt: string = d.formatISO();
+    const _start: Date = d.startOfDay();
+    void [_add, _isWknd, _q, _fmt, _start];
+  });
+
+  it("Map interface augmentation compiles", () => {
+    const m: Map<string, number> = new Map([["a", 1]]);
+    const _get: number = m.getOrDefault("b", 0);
+    const _filter: Map<string, number> = m.filterMap((v) => v > 0);
+    const _pairs: [string, number][] = m.mapToPairs();
+    void [_get, _filter, _pairs];
+  });
+
+  it("Promise interface augmentation compiles", () => {
+    const p: Promise<number> = Promise.resolve(42);
+    const _timeout: Promise<number> = p.timeout(1000);
+    const _tap: Promise<number> = p.tap(() => {});
+    const _recover: Promise<number> = p.recover(() => 0);
+    void [_timeout, _tap, _recover];
+  });
+});
+
+// Global augmentation consistency test lives in tests/augmentation-consistency.test.ts
+// (this file is excluded from vitest due to requiring the typesugar transformer).

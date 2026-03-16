@@ -317,10 +317,18 @@ export interface ExpressionMacro extends MacroDefinitionBase {
   kind: "expression";
 
   /**
+   * When true, the transformer detects method chains rooted in this macro
+   * (e.g., `match(x).case(42).then("yes")`) and passes the outermost chain
+   * CallExpression to expand() instead of just the root call. The root call's
+   * arguments are passed as `args`.
+   */
+  chainable?: boolean;
+
+  /**
    * Expand the macro call into new AST nodes
    * @param ctx - The macro context
-   * @param callExpr - The macro call expression
-   * @param args - The arguments passed to the macro
+   * @param callExpr - The macro call expression (or outermost chain call if chainable)
+   * @param args - The arguments passed to the macro (root call args if chainable)
    */
   expand(
     ctx: MacroContext,

@@ -1,6 +1,6 @@
 # PEP-011: SFINAE Diagnostic Resolution
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -155,108 +155,120 @@ This makes the system transparent and debuggable.
 
 **Tasks:**
 
-- [ ] Define `SfinaeRule` interface in `@typesugar/core`
-- [ ] Create `sfinaeRuleRegistry` with `registerSfinaeRule()` and `evaluateSfinae()`
-- [ ] Port existing position-mapping suppression to Rule 4 (MacroGenerated)
-- [ ] Unit tests for registry operations
+- [x] Define `SfinaeRule` interface in `@typesugar/core`
+- [x] Create `sfinaeRuleRegistry` with `registerSfinaeRule()` and `evaluateSfinae()`
+- [x] Port existing position-mapping suppression to Rule 4 (MacroGenerated)
+- [x] Unit tests for registry operations
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm vitest run packages/core` passes
-- [ ] Existing diagnostic suppression behavior is preserved (no regression)
+- [x] `pnpm build` passes
+- [x] `pnpm vitest run packages/core` passes
+- [x] Existing diagnostic suppression behavior is preserved (no regression)
 
 ### Wave 2: Language Service Integration
 
 **Tasks:**
 
-- [ ] Integrate `evaluateSfinae()` into `getSemanticDiagnostics()` in `packages/transformer/src/language-service.ts`
-- [ ] Integrate into `getSuggestionDiagnostics()` where applicable
-- [ ] Add `--show-sfinae` audit output
-- [ ] Integration tests: verify diagnostics are suppressed in IDE scenarios
+- [x] Integrate `evaluateSfinae()` into `getSemanticDiagnostics()` in `packages/transformer/src/language-service.ts`
+- [x] Integrate into `getSuggestionDiagnostics()` where applicable
+- [x] Add `--show-sfinae` audit output (via `TYPESUGAR_SHOW_SFINAE=1` env var, already implemented in Wave 1)
+- [x] Integration tests: verify diagnostics are suppressed in IDE scenarios
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Language service tests pass
-- [ ] Existing extension method completions still work
-- [ ] Audit mode shows suppressed diagnostics
+- [x] `pnpm build` passes
+- [x] Language service tests pass (46 passed, 4 skipped)
+- [x] Existing extension method completions still work
+- [x] Audit mode shows suppressed diagnostics
 
 ### Wave 3: ExtensionMethodCall Rule
 
 **Tasks:**
 
-- [ ] Implement Rule 1 (ExtensionMethodCall) for TS2339
-- [ ] Reuse extension resolution logic from `tryRewriteExtensionMethod`
-- [ ] Handle both standalone extensions and import-scoped resolution
-- [ ] Tests: `(42).clamp(0, 100)` with `import { clamp }` suppresses TS2339
+- [x] Implement Rule 1 (ExtensionMethodCall) for TS2339
+- [x] Reuse extension resolution logic from `tryRewriteExtensionMethod`
+- [x] Handle both standalone extensions and import-scoped resolution
+- [x] Tests: `(42).clamp(0, 100)` with `import { clamp }` suppresses TS2339
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Extension method SFINAE tests pass
-- [ ] No false positives: `(42).nonExistent()` still errors
+- [x] `pnpm build` passes
+- [x] Extension method SFINAE tests pass (15 passed)
+- [x] No false positives: `(42).nonExistent()` still errors
 
 ### Wave 4: NewtypeAssignment Rule
 
 **Tasks:**
 
-- [ ] Implement Rule 3 (NewtypeAssignment) for TS2322/TS2345
-- [ ] Detect `Newtype<Base, Brand>` types via the `__brand` phantom field
-- [ ] Handle both directions: `Base → Newtype` and `Newtype → Base`
-- [ ] Tests: `const id: UserId = 42` suppresses without `wrap()`
+- [x] Implement Rule 3 (NewtypeAssignment) for TS2322/TS2345
+- [x] Detect `Newtype<Base, Brand>` types via the `__brand` phantom field
+- [x] Handle both directions: `Base → Newtype` and `Newtype → Base`
+- [x] Tests: `const id: UserId = 42` suppresses without `wrap()`
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Newtype SFINAE tests pass
-- [ ] `wrap()` / `unwrap()` still work (not broken by SFINAE)
+- [x] `pnpm build` passes
+- [x] Newtype SFINAE tests pass (14 passed)
+- [x] `wrap()` / `unwrap()` still work (not broken by SFINAE)
 
 ### Wave 5: TypeRewriteAssignment Rule
 
 **Tasks:**
 
-- [ ] Implement Rule 2 (TypeRewriteAssignment) for TS2322/TS2345/TS2355
-- [ ] Consult `typeRewriteRegistry` (populated by PEP-012's `@opaque`)
-- [ ] Handle both directions: underlying → opaque and opaque → underlying
-- [ ] Tests with mock registry entries (actual `@opaque` types come in PEP-012)
+- [x] Implement Rule 2 (TypeRewriteAssignment) for TS2322/TS2345/TS2355
+- [x] Consult `typeRewriteRegistry` (populated by PEP-012's `@opaque`)
+- [x] Handle both directions: underlying → opaque and opaque → underlying
+- [x] Tests with mock registry entries (actual `@opaque` types come in PEP-012)
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Type rewrite SFINAE tests pass
-- [ ] No false positives for unrelated assignment errors
+- [x] `pnpm build` passes
+- [x] Type rewrite SFINAE tests pass (17 passed)
+- [x] No false positives for unrelated assignment errors
 
 ### Wave 6: CLI Pipeline Integration
 
 **Tasks:**
 
-- [ ] Integrate `evaluateSfinae()` into `TransformationPipeline` diagnostic collection
-- [ ] Ensure CLI build (`typesugar build`, `tspc`) filters diagnostics consistently with IDE
-- [ ] Add `--show-sfinae` flag to CLI
-- [ ] End-to-end test: build a file with SFINAE-suppressible errors, verify clean output
+- [x] Integrate `evaluateSfinae()` into `TransformationPipeline` diagnostic collection
+- [x] Ensure CLI build (`typesugar build`, `tspc`) filters diagnostics consistently with IDE
+- [x] Add `--show-sfinae` flag to CLI
+- [x] End-to-end test: build a file with SFINAE-suppressible errors, verify clean output
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] CLI produces same filtered diagnostics as IDE
-- [ ] `--show-sfinae` works in CLI
-- [ ] Full test suite passes
+- [x] `pnpm build` passes
+- [x] CLI produces same filtered diagnostics as IDE
+- [x] `--show-sfinae` works in CLI
+- [x] Full test suite passes (13 CLI pipeline tests)
 
 ## Files Changed
 
-| File                                           | Change                                                    |
-| ---------------------------------------------- | --------------------------------------------------------- |
-| `packages/core/src/sfinae.ts`                  | New: `SfinaeRule` interface, registry, `evaluateSfinae()` |
-| `packages/core/src/index.ts`                   | Export SFINAE API                                         |
-| `packages/macros/src/sfinae-rules.ts`          | New: Built-in SFINAE rules (Rules 1-4)                    |
-| `packages/macros/src/index.ts`                 | Register built-in SFINAE rules                            |
-| `packages/transformer/src/language-service.ts` | Integrate SFINAE filter into `getSemanticDiagnostics()`   |
-| `packages/transformer/src/pipeline.ts`         | Integrate SFINAE filter into diagnostic collection        |
-| `packages/transformer/src/index.ts`            | Pass SFINAE context to diagnostic handling                |
-| `tests/sfinae.test.ts`                         | New: SFINAE rule tests                                    |
-| `tests/sfinae-extension.test.ts`               | New: Extension method SFINAE integration tests            |
-| `tests/sfinae-newtype.test.ts`                 | New: Newtype assignment SFINAE tests                      |
+| File                                                  | Change                                                    | Wave |
+| ----------------------------------------------------- | --------------------------------------------------------- | ---- |
+| `packages/core/src/sfinae.ts`                         | New: `SfinaeRule` interface, registry, `evaluateSfinae()` | 1    |
+| `packages/core/src/sfinae-rules.ts`                   | New: `createMacroGeneratedRule()` (Rule 4)                | 1    |
+| `packages/core/src/index.ts`                          | Export SFINAE API                                         | 1    |
+| `packages/core/tests/sfinae.test.ts`                  | New: SFINAE rule unit tests                               | 1    |
+| `packages/transformer/src/language-service.ts`        | Integrate SFINAE filter into diagnostic methods           | 2    |
+| `packages/transformer/tests/language-service.test.ts` | SFINAE integration tests for IDE scenarios                | 2    |
+| `packages/macros/src/sfinae-rules.ts`                 | New: `createExtensionMethodCallRule()` (Rule 1)           | 3    |
+| `packages/macros/src/index.ts`                        | Export `createExtensionMethodCallRule`                    | 3    |
+| `packages/transformer/src/language-service.ts`        | Register ExtensionMethodCall rule at init                 | 3    |
+| `tests/sfinae-extension.test.ts`                      | New: ExtensionMethodCall SFINAE tests (15 tests)          | 3    |
+| `packages/macros/src/sfinae-rules.ts`                 | Add `createNewtypeAssignmentRule()` (Rule 3)              | 4    |
+| `packages/macros/src/index.ts`                        | Export `createNewtypeAssignmentRule`                      | 4    |
+| `packages/transformer/src/language-service.ts`        | Register NewtypeAssignment rule at init                   | 4    |
+| `tests/sfinae-newtype.test.ts`                        | New: NewtypeAssignment SFINAE tests (14 tests)            | 4    |
+| `packages/core/src/type-rewrite-registry.ts`          | New: `typeRewriteRegistry` for opaque type mappings       | 5    |
+| `packages/core/src/index.ts`                          | Export type rewrite registry API                          | 5    |
+| `packages/macros/src/sfinae-rules.ts`                 | Add `createTypeRewriteAssignmentRule()` (Rule 2)          | 5    |
+| `packages/macros/src/index.ts`                        | Export `createTypeRewriteAssignmentRule`                  | 5    |
+| `packages/transformer/src/language-service.ts`        | Register TypeRewriteAssignment rule at init               | 5    |
+| `tests/sfinae-type-rewrite.test.ts`                   | New: TypeRewriteAssignment SFINAE tests (17 tests)        | 5    |
+| `packages/transformer/src/cli.ts`                     | Integrate SFINAE filtering + `--show-sfinae` flag         | 6    |
+| `tests/sfinae-cli-pipeline.test.ts`                   | New: CLI pipeline SFINAE integration tests (13 tests)     | 6    |
 
 ## Security Considerations
 
@@ -281,7 +293,7 @@ SFINAE suppresses diagnostics, which could theoretically hide real errors. Mitig
 
 - Adds a diagnostic filtering layer that must be maintained alongside rewrite logic
 - False negatives possible if a SFINAE rule is too broad (mitigated by specificity and audit mode)
-- CLI users without the language service plugin still see phantom errors until Wave 6
+- CLI users now get the same filtered diagnostics as IDE users (Wave 6)
 
 **Future work:**
 

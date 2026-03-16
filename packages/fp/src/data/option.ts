@@ -70,38 +70,40 @@ export function unwrapDefined<T>(d: Defined<T>): T {
 }
 
 /**
- * Option data type - either a value A or null
+ * Option data type — an opaque wrapper over `A | null`.
  *
- * This is a true zero-cost abstraction: at runtime, Some(42) is just 42,
- * and None is just null. No wrapper objects are allocated.
+ * At runtime, `Some(42)` is just `42` and `None` is just `null`.
+ * No wrapper objects are allocated — this is a true zero-cost abstraction.
  *
- * **Important**: A must not include null. If you need to represent nullable values
- * inside an Option, use `Option<Defined<YourType>>`.
+ * The `@opaque` macro erases method calls to companion standalone functions,
+ * so `opt.map(f)` compiles to `map(opt, f)` with full type inference.
  *
- * **Caution with `unknown`**: `Option<unknown>` is degenerate because `unknown | null`
- * simplifies to `unknown`. Use `Option<Defined<unknown>>` if you need to wrap truly
- * unknown values. See Finding #5 in FINDINGS.md.
+ * Within this defining file the type is transparent — implementations use
+ * the underlying `A | null` representation directly.
  *
- * @example
- * ```ts
- * // Good usage
- * type MaybeNumber = Option<number>;  // number | null
- *
- * // Type error - null would collapse the Option
- * type BadOption = Option<null>;  // Compile error!
- *
- * // Use Defined<T> for values that include null
- * type NullableInside = Option<Defined<null>>;  // { value: null } | null
- *
- * // Use Defined<unknown> for truly unknown values
- * type SafeUnknown = Option<Defined<unknown>>;  // { value: unknown } | null
- * ```
- *
- * @see Defined<T> for the escape hatch when you need Option<null | ...>
- * @see Finding #1, #5 in FINDINGS.md - Type collapse prevention
+ * @opaque A | null
  * @hkt
  */
-export type Option<A> = A | null;
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+  fold<B>(onNone: () => B, onSome: (a: A) => B): B;
+  match<B>(patterns: { None: () => B; Some: (a: A) => B }): B;
+  getOrElse(defaultValue: () => A): A;
+  getOrElseStrict(defaultValue: A): A;
+  getOrThrow(message?: string): A;
+  orElse(fallback: () => Option<A>): Option<A>;
+  filter(predicate: (a: A) => boolean): Option<A>;
+  filterNot(predicate: (a: A) => boolean): Option<A>;
+  exists(predicate: (a: A) => boolean): boolean;
+  forall(predicate: (a: A) => boolean): boolean;
+  contains(value: A, eq?: (a: A, b: A) => boolean): boolean;
+  tap(f: (a: A) => void): Option<A>;
+  toArray(): A[];
+  toNullable(): A | null;
+  toUndefined(): A | undefined;
+  zip<B>(optB: Option<B>): Option<[A, B]>;
+}
 
 /**
  * Type-level function for `Option<A>`.
@@ -113,18 +115,16 @@ export interface OptionF extends TypeFunction {
 }
 
 /**
- * Some type - represents presence of a non-null value
- * This is a type-level alias; at runtime it's just A
- *
- * Note: A must not include null.
+ * Some type — an Option known to contain a value.
+ * At runtime it's just A (identity representation).
  */
-export type Some<A> = A;
+export type Some<A> = Option<A>;
 
 /**
- * None type - represents absence of value
- * This is a type-level alias; at runtime it's null
+ * None type — an Option known to be empty.
+ * At runtime it's just null.
  */
-export type None = null;
+export type None = Option<never>;
 
 // ============================================================================
 // Constructors
@@ -134,27 +134,27 @@ export type None = null;
  * Create a Some value (just returns the value as-is)
  */
 export function Some<A>(value: A): Option<A> {
-  return value;
+  return value as any;
 }
 
 /**
  * The None value (null)
  */
-export const None: Option<never> = null;
+export const None: Option<never> = null as any;
 
 /**
  * Create an Option from a nullable value
  * Identity function - Option<A> is already A | null
  */
 export function fromNullable<A>(value: A | null | undefined): Option<A> {
-  return value === undefined ? null : value;
+  return (value === undefined ? null : value) as any;
 }
 
 /**
  * Create an Option from a predicate
  */
 export function fromPredicate<A>(value: A, predicate: (a: A) => boolean): Option<A> {
-  return predicate(value) ? value : null;
+  return (predicate(value) ? value : null) as any;
 }
 
 /**
@@ -162,9 +162,9 @@ export function fromPredicate<A>(value: A, predicate: (a: A) => boolean): Option
  */
 export function tryCatch<A>(f: () => A): Option<A> {
   try {
-    return f();
+    return f() as any;
   } catch {
-    return null;
+    return null as any;
   }
 }
 
@@ -172,21 +172,21 @@ export function tryCatch<A>(f: () => A): Option<A> {
  * Create Some(a) if defined, None otherwise
  */
 export function of<A>(a: A): Option<A> {
-  return a;
+  return a as any;
 }
 
 /**
  * Create None
  */
 export function none<A = never>(): Option<A> {
-  return null;
+  return null as any;
 }
 
 /**
  * Create Some(a)
  */
 export function some<A>(a: A): Option<A> {
-  return a;
+  return a as any;
 }
 
 // ============================================================================
@@ -196,15 +196,15 @@ export function some<A>(a: A): Option<A> {
 /**
  * Check if Option is Some (has a value)
  */
-export function isSome<A>(opt: Option<A>): opt is A {
-  return opt !== null;
+export function isSome<A>(opt: Option<A>): boolean {
+  return (opt as any) !== null;
 }
 
 /**
  * Check if Option is None (is null)
  */
-export function isNone<A>(opt: Option<A>): opt is null {
-  return opt === null;
+export function isNone<A>(opt: Option<A>): boolean {
+  return (opt as any) === null;
 }
 
 // ============================================================================
@@ -215,56 +215,65 @@ export function isNone<A>(opt: Option<A>): opt is null {
  * Map over the Option value
  */
 export function map<A, B>(opt: Option<A>, f: (a: A) => B): Option<B> {
-  return opt !== null ? f(opt) : null;
+  const o: any = opt;
+  return (o !== null ? f(o) : null) as any;
 }
 
 /**
  * FlatMap over the Option value
  */
 export function flatMap<A, B>(opt: Option<A>, f: (a: A) => Option<B>): Option<B> {
-  return opt !== null ? f(opt) : null;
+  const o: any = opt;
+  return (o !== null ? f(o) : null) as any;
 }
 
 /**
  * Apply a function in Option to a value in Option
  */
 export function ap<A, B>(optF: Option<(a: A) => B>, optA: Option<A>): Option<B> {
-  return optF !== null && optA !== null ? optF(optA) : null;
+  const f: any = optF;
+  const a: any = optA;
+  return (f !== null && a !== null ? f(a) : null) as any;
 }
 
 /**
  * Fold over Option - provide handlers for both cases
  */
 export function fold<A, B>(opt: Option<A>, onNone: () => B, onSome: (a: A) => B): B {
-  return opt !== null ? onSome(opt) : onNone();
+  const o: any = opt;
+  return o !== null ? onSome(o) : onNone();
 }
 
 /**
  * Match over Option (alias for fold with object syntax)
  */
 export function match<A, B>(opt: Option<A>, patterns: { None: () => B; Some: (a: A) => B }): B {
-  return opt !== null ? patterns.Some(opt) : patterns.None();
+  const o: any = opt;
+  return o !== null ? patterns.Some(o) : patterns.None();
 }
 
 /**
  * Get the value or a default
  */
 export function getOrElse<A>(opt: Option<A>, defaultValue: () => A): A {
-  return opt !== null ? opt : defaultValue();
+  const o: any = opt;
+  return o !== null ? o : defaultValue();
 }
 
 /**
  * Get the value or a default (strict version)
  */
 export function getOrElseStrict<A>(opt: Option<A>, defaultValue: A): A {
-  return opt !== null ? opt : defaultValue;
+  const o: any = opt;
+  return o !== null ? o : defaultValue;
 }
 
 /**
  * Get the value or throw
  */
 export function getOrThrow<A>(opt: Option<A>, message?: string): A {
-  if (opt !== null) return opt;
+  const o: any = opt;
+  if (o !== null) return o;
   throw new Error(message ?? "Called getOrThrow on None");
 }
 
@@ -272,14 +281,16 @@ export function getOrThrow<A>(opt: Option<A>, message?: string): A {
  * Return the first Some, or evaluate the fallback
  */
 export function orElse<A>(opt: Option<A>, fallback: () => Option<A>): Option<A> {
-  return opt !== null ? opt : fallback();
+  const o: any = opt;
+  return o !== null ? o : fallback();
 }
 
 /**
  * Filter the Option value
  */
 export function filter<A>(opt: Option<A>, predicate: (a: A) => boolean): Option<A> {
-  return opt !== null && predicate(opt) ? opt : null;
+  const o: any = opt;
+  return (o !== null && predicate(o) ? o : null) as any;
 }
 
 /**
@@ -293,14 +304,16 @@ export function filterNot<A>(opt: Option<A>, predicate: (a: A) => boolean): Opti
  * Check if the value satisfies a predicate
  */
 export function exists<A>(opt: Option<A>, predicate: (a: A) => boolean): boolean {
-  return opt !== null && predicate(opt);
+  const o: any = opt;
+  return o !== null && predicate(o);
 }
 
 /**
  * Check if all values satisfy a predicate (vacuously true for None)
  */
 export function forall<A>(opt: Option<A>, predicate: (a: A) => boolean): boolean {
-  return opt === null || predicate(opt);
+  const o: any = opt;
+  return o === null || predicate(o);
 }
 
 /**
@@ -311,14 +324,16 @@ export function contains<A>(
   value: A,
   eq: (a: A, b: A) => boolean = (a, b) => a === b
 ): boolean {
-  return opt !== null && eq(opt, value);
+  const o: any = opt;
+  return o !== null && eq(o, value);
 }
 
 /**
  * Convert Option to Either
  */
 export function toEither<E, A>(opt: Option<A>, left: () => E): Either<E, A> {
-  return opt !== null ? Right(opt) : Left(left());
+  const o: any = opt;
+  return o !== null ? Right(o) : Left(left());
 }
 
 // Simple Either for toEither
@@ -332,28 +347,32 @@ const Right = <E, A>(right: A): Either<E, A> => ({ _tag: "Right", right });
  * Convert Option to array
  */
 export function toArray<A>(opt: Option<A>): A[] {
-  return opt !== null ? [opt] : [];
+  const o: any = opt;
+  return o !== null ? [o] : [];
 }
 
 /**
  * Convert Option to nullable (identity for null-based Option)
  */
 export function toNullable<A>(opt: Option<A>): A | null {
-  return opt;
+  return opt as any;
 }
 
 /**
  * Convert Option to undefined
  */
 export function toUndefined<A>(opt: Option<A>): A | undefined {
-  return opt !== null ? opt : undefined;
+  const o: any = opt;
+  return o !== null ? o : undefined;
 }
 
 /**
  * Zip two Options
  */
 export function zip<A, B>(optA: Option<A>, optB: Option<B>): Option<[A, B]> {
-  return optA !== null && optB !== null ? [optA, optB] : null;
+  const a: any = optA;
+  const b: any = optB;
+  return (a !== null && b !== null ? [a, b] : null) as any;
 }
 
 /**
@@ -364,31 +383,36 @@ export function zipWith<A, B, C>(
   optB: Option<B>,
   f: (a: A, b: B) => C
 ): Option<C> {
-  return optA !== null && optB !== null ? f(optA, optB) : null;
+  const a: any = optA;
+  const b: any = optB;
+  return (a !== null && b !== null ? f(a, b) : null) as any;
 }
 
 /**
  * Unzip an Option of tuple
  */
 export function unzip<A, B>(opt: Option<[A, B]>): [Option<A>, Option<B>] {
-  return opt !== null ? [opt[0], opt[1]] : [null, null];
+  const o: any = opt;
+  return (o !== null ? [o[0], o[1]] : [null, null]) as any;
 }
 
 /**
  * Flatten a nested Option
  */
 export function flatten<A>(opt: Option<Option<A>>): Option<A> {
-  return opt !== null ? opt : null;
+  const o: any = opt;
+  return (o !== null ? o : null) as any;
 }
 
 /**
  * Tap - perform a side effect and return the original Option
  */
 export function tap<A>(opt: Option<A>, f: (a: A) => void): Option<A> {
-  if (opt !== null) {
-    f(opt);
+  const o: any = opt;
+  if (o !== null) {
+    f(o);
   }
-  return opt;
+  return o;
 }
 
 /**
@@ -397,11 +421,11 @@ export function tap<A>(opt: Option<A>, f: (a: A) => void): Option<A> {
 export function traverse<A, B>(arr: A[], f: (a: A) => Option<B>): Option<B[]> {
   const results: B[] = [];
   for (const a of arr) {
-    const opt = f(a);
-    if (opt === null) return null;
-    results.push(opt);
+    const o: any = f(a);
+    if (o === null) return null as any;
+    results.push(o);
   }
-  return results;
+  return results as any;
 }
 
 /**
@@ -415,14 +439,14 @@ export function sequence<A>(opts: Option<A>[]): Option<A[]> {
  * Check if Option is defined (has value)
  */
 export function isDefined<A>(opt: Option<A>): boolean {
-  return opt !== null;
+  return (opt as any) !== null;
 }
 
 /**
  * Check if Option is empty
  */
 export function isEmpty<A>(opt: Option<A>): boolean {
-  return opt === null;
+  return (opt as any) === null;
 }
 
 // ============================================================================
@@ -445,7 +469,7 @@ export function isEmpty<A>(opt: Option<A>): boolean {
  */
 export function getEq<A>(E: Eq<A>): Eq<Option<A>> {
   return {
-    eqv: ((x, y) => {
+    eqv: ((x: any, y: any) => {
       if (x === null && y === null) return true;
       if (x !== null && y !== null) return E.eqv(x, y);
       return false;
@@ -470,10 +494,12 @@ export function getEq<A>(E: Eq<A>): Eq<Option<A>> {
  */
 export function getOrd<A>(O: Ord<A>): Ord<Option<A>> {
   const compare = (x: Option<A>, y: Option<A>): Ordering => {
-    if (x === null && y === null) return 0 as Ordering;
-    if (x === null) return -1 as Ordering;
-    if (y === null) return 1 as Ordering;
-    return O.compare(x, y);
+    const a: any = x;
+    const b: any = y;
+    if (a === null && b === null) return 0 as Ordering;
+    if (a === null) return -1 as Ordering;
+    if (b === null) return 1 as Ordering;
+    return O.compare(a, b);
   };
   return {
     eqv: getEq(O).eqv,
@@ -499,7 +525,7 @@ export function getOrd<A>(O: Ord<A>): Ord<Option<A>> {
  */
 export function getShow<A>(S: Show<A>): Show<Option<A>> {
   return {
-    show: (opt) => (opt !== null ? `Some(${S.show(opt)})` : "None"),
+    show: (opt: any) => (opt !== null ? `Some(${S.show(opt)})` : "None"),
   };
 }
 
@@ -508,7 +534,7 @@ export function getShow<A>(S: Show<A>): Show<Option<A>> {
  */
 export function getSemigroup<A>(S: Semigroup<A>): Semigroup<Option<A>> {
   return {
-    combine: (x, y) => {
+    combine: (x: any, y: any) => {
       if (x === null) return y;
       if (y === null) return x;
       return S.combine(x, y);
@@ -522,7 +548,7 @@ export function getSemigroup<A>(S: Semigroup<A>): Semigroup<Option<A>> {
 export function getMonoid<A>(S: Semigroup<A>): Monoid<Option<A>> {
   return {
     ...getSemigroup(S),
-    empty: null,
+    empty: null as any,
   };
 }
 
@@ -531,8 +557,8 @@ export function getMonoid<A>(S: Semigroup<A>): Monoid<Option<A>> {
  */
 export function getFirstMonoid<A>(): Monoid<Option<A>> {
   return {
-    combine: (x, y) => (x !== null ? x : y),
-    empty: null,
+    combine: (x: any, y: any) => (x !== null ? x : y),
+    empty: null as any,
   };
 }
 
@@ -541,8 +567,8 @@ export function getFirstMonoid<A>(): Monoid<Option<A>> {
  */
 export function getLastMonoid<A>(): Monoid<Option<A>> {
   return {
-    combine: (x, y) => (y !== null ? y : x),
-    empty: null,
+    combine: (x: any, y: any) => (y !== null ? y : x),
+    empty: null as any,
   };
 }
 
@@ -553,7 +579,7 @@ export function getLastMonoid<A>(): Monoid<Option<A>> {
 /**
  * Start a do-comprehension with Option
  */
-export const Do: Option<{}> = {};
+export const Do: Option<{}> = {} as any;
 
 /**
  * Bind a value in do-notation style
@@ -562,12 +588,12 @@ export function bind<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
   f: (a: A) => Option<B>
 ): (opt: Option<A>) => Option<A & { readonly [K in N]: B }> {
-  return (opt) => {
+  return ((opt: any) => {
     if (opt === null) return null;
-    const b = f(opt);
+    const b: any = f(opt);
     if (b === null) return null;
-    return { ...opt, [name]: b } as A & { readonly [K in N]: B };
-  };
+    return { ...opt, [name]: b };
+  }) as any;
 }
 
 /**
@@ -577,10 +603,10 @@ export function let_<N extends string, A extends object, B>(
   name: Exclude<N, keyof A>,
   f: (a: A) => B
 ): (opt: Option<A>) => Option<A & { readonly [K in N]: B }> {
-  return (opt) => {
+  return ((opt: any) => {
     if (opt === null) return null;
-    return { ...opt, [name]: f(opt) } as A & { readonly [K in N]: B };
-  };
+    return { ...opt, [name]: f(opt) };
+  }) as any;
 }
 
 // ============================================================================
@@ -683,11 +709,11 @@ export class OptionImpl<A> {
   private constructor(private readonly opt: Option<A>) {}
 
   static some<A>(value: A): OptionImpl<A> {
-    return new OptionImpl(value);
+    return new OptionImpl(value as any);
   }
 
   static none<A>(): OptionImpl<A> {
-    return new OptionImpl(null as Option<A>);
+    return new OptionImpl(null as any);
   }
 
   static fromNullable<A>(value: A | null | undefined): OptionImpl<A> {
@@ -703,11 +729,11 @@ export class OptionImpl<A> {
   }
 
   isSome(): boolean {
-    return this.opt !== null;
+    return (this.opt as any) !== null;
   }
 
   isNone(): boolean {
-    return this.opt === null;
+    return (this.opt as any) === null;
   }
 
   map<B>(f: (a: A) => B): OptionImpl<B> {

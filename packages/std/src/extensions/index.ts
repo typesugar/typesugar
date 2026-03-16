@@ -12,9 +12,16 @@
  *   arr.head();           // → head(arr)
  *   s.capitalize();       // → capitalize(s)
  *
+ * Global augmentations are imported below so that extension methods
+ * type-check on built-in types (Number, String, Array, etc.) without
+ * TS2339 errors. The transformer rewrites these calls to function calls.
+ *
  * Legacy: NumberExt, StringExt, etc. namespaces are still exported for
  * backward compatibility with registerExtensions().
  */
+
+// Global type augmentations for built-in interfaces (PEP-012 Wave 8)
+import "./global-augmentations";
 
 // Legacy extension namespace objects (deprecated, use direct imports instead)
 //

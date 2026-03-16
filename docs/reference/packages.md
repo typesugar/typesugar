@@ -230,8 +230,17 @@ npm install @typesugar/std
 (capitalize, titleCase, strip, truncate); // string
 (head, tail, chunk, unique, groupBy); // array
 
-// Pattern matching
-match();
+// Pattern matching — fluent API (PEP-008)
+match(); // Fluent: match(v).case(...).then(...).else(...)
+MatchError; // Runtime error when no pattern matches (extends Error, has .value)
+
+// Pattern matching — legacy helpers (deprecated, use fluent API)
+when(); // Guard arm: when(pred, handler)
+otherwise(); // Catch-all arm: otherwise(handler)
+P; // Array helpers: P.empty, P.length(n), P.oneOf(...), etc.
+isType(); // Type guard: isType("string"), isType(Date)
+matchLiteral(); // Deprecated — use match() with literal keys
+matchGuard(); // Deprecated — use match() with when()/otherwise()
 
 // FlatMap for do-notation
 FlatMap;
@@ -247,7 +256,7 @@ registerFlatMap();
 
 **Inspired by:** Scala 3 extension methods, Rust derives, Kotlin stdlib
 
-[Extension Methods Guide](/guides/extension-methods) · [Pattern Matching Guide](/guides/match) · [Do-Notation Guide](/guides/do-notation) · [Standard Typeclasses Guide](/guides/std-typeclasses)
+[Extension Methods Guide](/guides/extension-methods) · [Pattern Matching Guide](/guides/pattern-matching) · [Do-Notation Guide](/guides/do-notation) · [Standard Typeclasses Guide](/guides/std-typeclasses)
 
 ---
 

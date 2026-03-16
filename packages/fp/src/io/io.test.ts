@@ -227,7 +227,7 @@ describe("IO", () => {
       const result = await runIO(io);
       expect(result._tag).toBe("Left");
       if (result._tag === "Left") {
-        expect(result.left.message).toBe("oops");
+        expect((result as unknown as { left: Error }).left.message).toBe("oops");
       }
     });
 

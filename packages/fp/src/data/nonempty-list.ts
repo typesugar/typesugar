@@ -75,8 +75,9 @@ export function fromArray<A>(arr: readonly A[]): Option<NonEmptyList<A>> {
  * Create a NonEmptyList from a List (fails if empty)
  */
 export function fromList<A>(list: List<A>): Option<NonEmptyList<A>> {
-  if (L.isNil(list)) return None;
-  return Some(NonEmptyList(list.head, list.tail));
+  const l: any = list;
+  if (l._tag === "Nil") return None;
+  return Some(NonEmptyList(l.head, l.tail));
 }
 
 /**
@@ -120,8 +121,7 @@ export function tail<A>(nel: NonEmptyList<A>): List<A> {
  */
 export function last<A>(nel: NonEmptyList<A>): A {
   const listLast = L.last(nel.tail);
-  // With null-based Option, listLast IS the value when it's not null
-  return isSome(listLast) ? listLast : nel.head;
+  return isSome(listLast) ? (listLast as any) : nel.head;
 }
 
 /**
@@ -309,8 +309,9 @@ export function reduceRight<A>(nel: NonEmptyList<A>, f: (a: A, b: A) => A): A {
 }
 
 function unsafeFromList<A>(list: List<A>): NonEmptyList<A> {
-  if (L.isNil(list)) throw new Error("Cannot create NonEmptyList from empty list");
-  return NonEmptyList(list.head, list.tail);
+  const l: any = list;
+  if (l._tag === "Nil") throw new Error("Cannot create NonEmptyList from empty list");
+  return NonEmptyList(l.head, l.tail);
 }
 
 // ============================================================================
@@ -406,8 +407,7 @@ export function traverse<A, B>(
   const tailResult = L.traverse(nel.tail, f);
   if (!isSome(tailResult)) return None;
 
-  // With null-based Option, the results ARE the values when they're not null
-  return Some(NonEmptyList(headResult, tailResult));
+  return Some(NonEmptyList(headResult as any, tailResult as any));
 }
 
 /**

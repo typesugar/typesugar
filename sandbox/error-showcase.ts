@@ -27,6 +27,7 @@
 // ============================================================================
 
 import { comptime, summon, staticAssert, includeStr } from "typesugar";
+import { match } from "@typesugar/std";
 import type { Eq, Ord } from "@typesugar/std";
 
 // ============================================================================
@@ -220,6 +221,55 @@ import type { _ } from "@typesugar/type-system";
 type BadMultiplePlaceholders = [_, _]; // Should report TS9304
 
 // ============================================================================
+// TS9401: Non-exhaustive match — missing cases
+// ============================================================================
+// Error: "Non-exhaustive match — missing cases: "blue""
+
+type TrafficLight = "red" | "green" | "blue";
+declare const light: TrafficLight;
+
+// MACRO ERROR: TS9401 - Missing "blue" case
+const lightMsg = match(light).case("red").then("stop").case("green").then("go");
+// Fix: add .case("blue").then("wait") or .else("unknown")
+
+// ============================================================================
+// TS9402: Pattern can never match (dead arm)
+// ============================================================================
+// Error: "Pattern "pending" can never match type "ok" | "fail""
+
+type Status = "ok" | "fail";
+declare const status: Status;
+
+// MACRO ERROR: TS9402 - "pending" is not in the union
+const statusMsg = match(status)
+  .case("ok")
+  .then("success")
+  .case("fail")
+  .then("failure")
+  .case("pending" as any)
+  .then("waiting");
+
+// ============================================================================
+// Pattern Matching — VALID EXAMPLES (no errors)
+// ============================================================================
+
+// Exhaustive discriminated union match — all variants covered, no .else() needed
+type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+
+declare const shape: Shape;
+const area = match(shape)
+  .case({ kind: "circle", radius: "r" })
+  .then(Math.PI)
+  .case({ kind: "square", side: "s" })
+  .then(1);
+
+// Literal match with .else() — exhaustive via catch-all
+const grade = match(42 as number)
+  .case(100)
+  .then("perfect")
+  .else("other");
+
+// ============================================================================
 // SUMMARY OF ERRORS IN THIS FILE
 // ============================================================================
 /*
@@ -235,6 +285,8 @@ Expected macro errors (TS9xxx):
 8. TS9219 - staticAssert condition is not compile-time (IDE: requires macro package loading)
 9. TS9303 - @hkt type alias missing _ placeholder (BadNoPlaceholder)
 10. TS9304 - @hkt must contain exactly one _ placeholder (BadMultiplePlaceholders)
+11. TS9401 - Non-exhaustive match: missing "blue" case for TrafficLight
+12. TS9402 - Pattern "pending" can never match type "ok" | "fail"
 
 Valid examples (no errors expected):
 - ValidPoint with @deriving Eq, Ord
@@ -243,6 +295,8 @@ Valid examples (no errors expected):
 - ValidArrayF with @hkt + _ marker (Tier 3)
 - ValidMapF<K> with @hkt + _ marker (Tier 3 multi-arity)
 - optionFunctorExample with @impl Functor<Option> (Tier 1)
+- Shape discriminated union match (all variants covered)
+- Literal match with .else() (exhaustive via catch-all)
 
 Valid examples (should NOT produce errors):
 - WithDiscriminant: union with 'kind' discriminant derives Eq cleanly

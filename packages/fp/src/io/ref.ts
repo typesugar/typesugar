@@ -94,9 +94,9 @@ export class Ref<A> {
   tryModify<B>(f: (a: A) => Option<[B, A]>): IO<Option<B>> {
     return IO.delay(() => {
       const result = f(this._value);
-      // With null-based Option, result IS the value when it's not null
-      if (result !== null) {
-        const [b, newA] = result;
+      const r: any = result;
+      if (r !== null) {
+        const [b, newA] = r;
         this._value = newA;
         return Some(b);
       }
