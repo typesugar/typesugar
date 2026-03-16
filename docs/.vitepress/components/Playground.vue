@@ -248,6 +248,160 @@ const columns = fieldNames<User>().join(", ");
 console.log(\`SELECT \${columns} FROM users\`);
 `,
   },
+  {
+    name: "@tailrec",
+    description: "Tail call optimization",
+    fileType: ".ts",
+    code: `import { tailrec } from "typesugar";
+
+// @tailrec transforms recursive functions into loops
+// This prevents stack overflow for deep recursion!
+
+class Math {
+  // Factorial with tail recursion
+  // Without @tailrec: factorial(10000) would overflow the stack
+  // With @tailrec: it uses a while loop internally
+  @tailrec
+  static factorial(n: number, acc: number = 1): number {
+    if (n <= 1) return acc;
+    return Math.factorial(n - 1, n * acc);  // Tail call - last operation
+  }
+
+  // Sum of list with tail recursion
+  @tailrec
+  static sumList(nums: number[], acc: number = 0): number {
+    if (nums.length === 0) return acc;
+    const [head, ...tail] = nums;
+    return Math.sumList(tail, acc + head);  // Tail call
+  }
+
+  // Fibonacci with tail recursion (accumulator pattern)
+  @tailrec
+  static fibonacci(n: number, a: number = 0, b: number = 1): number {
+    if (n === 0) return a;
+    if (n === 1) return b;
+    return Math.fibonacci(n - 1, b, a + b);  // Tail call
+  }
+}
+
+// Check the JS Output - recursive calls become while loops!
+console.log("5! =", Math.factorial(5));           // 120
+console.log("Sum [1,2,3,4,5] =", Math.sumList([1, 2, 3, 4, 5]));  // 15
+console.log("Fib(10) =", Math.fibonacci(10));     // 55
+
+// These would stack overflow without @tailrec:
+// console.log("100! =", Math.factorial(100));
+`,
+  },
+  {
+    name: "@derive",
+    description: "Auto-generate implementations",
+    fileType: ".ts",
+    code: `import { derive, Eq, Clone, Debug } from "typesugar";
+
+// @derive() auto-generates implementations at compile time
+// For interfaces: generates standalone functions (pointEq, clonePoint, etc.)
+// For classes: generates methods on the class (equals, clone, debug)
+
+// Example with an interface - generates standalone functions
+@derive(Eq, Clone, Debug)
+interface Point {
+  x: number;
+  y: number;
+}
+
+// Create some points
+const p1: Point = { x: 1, y: 2 };
+const p2: Point = { x: 1, y: 2 };
+const p3: Point = { x: 3, y: 4 };
+
+// Use the generated functions
+// pointEq(a, b): boolean - structural equality
+console.log("pointEq(p1, p2):", pointEq(p1, p2));  // true - same values!
+console.log("pointEq(p1, p3):", pointEq(p1, p3));  // false
+
+// clonePoint(value): Point - deep copy
+const p1Copy = clonePoint(p1);
+console.log("clonePoint(p1):", p1Copy);
+console.log("Clone equals original:", pointEq(p1Copy, p1));  // true
+
+// debugPoint(value): string - readable representation
+console.log("debugPoint(p1):", debugPoint(p1));
+// Output: "Point { x: 1, y: 2 }"
+
+// Check the JS Output tab to see the generated functions!
+// Each @derive generates predictably named functions:
+//   @derive(Eq)    → pointEq(a, b): boolean
+//   @derive(Clone) → clonePoint(value): Point
+//   @derive(Debug) → debugPoint(value): string
+`,
+  },
+  {
+    name: "@typeclass",
+    description: "Typeclasses and instances",
+    fileType: ".ts",
+    code: `import { typeclass, impl } from "typesugar";
+
+// Typeclasses define shared behavior that types can implement
+// Similar to Rust traits or Haskell typeclasses
+
+/**
+ * @typeclass
+ * Show: types that can be converted to a string representation
+ */
+interface Show<A> {
+  show(value: A): string;
+}
+
+/**
+ * @typeclass
+ * Semigroup: types that can be combined/concatenated
+ */
+interface Semigroup<A> {
+  combine(x: A, y: A): A;
+}
+
+// Implement Show for number
+/** @impl Show<number> */
+const showNumber: Show<number> = {
+  show: (n) => String(n),
+};
+
+// Implement Show for string
+/** @impl Show<string> */
+const showString: Show<string> = {
+  show: (s) => \`"\${s}"\`,
+};
+
+// Implement Semigroup for number (addition)
+/** @impl Semigroup<number> */
+const addNumbers: Semigroup<number> = {
+  combine: (x, y) => x + y,
+};
+
+// Implement Semigroup for string (concatenation)
+/** @impl Semigroup<string> */
+const concatStrings: Semigroup<string> = {
+  combine: (x, y) => x + y,
+};
+
+// Generic function using typeclass constraints
+function showAndCombine<A>(x: A, y: A, show: Show<A>, semi: Semigroup<A>): string {
+  const combined = semi.combine(x, y);
+  return \`\${show.show(x)} + \${show.show(y)} = \${show.show(combined)}\`;
+}
+
+// Use with numbers
+console.log(showAndCombine(1, 2, showNumber, addNumbers));
+// "1 + 2 = 3"
+
+// Use with strings
+console.log(showAndCombine("Hello", "World", showString, concatStrings));
+// '"Hello" + "World" = "HelloWorld"'
+
+// Check the JS Output - instances are resolved at compile time!
+`,
+  },
 ];
 
 const props = withDefaults(

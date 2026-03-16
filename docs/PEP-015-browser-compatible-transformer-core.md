@@ -138,16 +138,16 @@ Extract a browser-compatible transformation core that both environments use:
 
 **Tasks:**
 
-- [ ] Verify JSDoc macros (`@typeclass`, `@impl`) work in playground
-- [ ] Verify derive macros (`@derive(Eq, Ord)`) work in playground
-- [ ] Add example presets demonstrating each macro type
-- [ ] Fix any browser-specific issues discovered
+- [x] Verify JSDoc macros (`@typeclass`, `@impl`) work in playground
+- [x] Verify derive macros (`@derive(Eq, Ord)`) work in playground
+- [x] Add example presets demonstrating each macro type
+- [x] Fix any browser-specific issues discovered (none needed)
 
 **Gate:**
 
-- [ ] All macro types work in playground
-- [ ] Manual testing of each example preset
-- [ ] Console shows no transformation errors
+- [x] All macro types work in playground
+- [x] Manual testing of each example preset
+- [x] Console shows no transformation errors
 
 ### Wave 6: Documentation and Cleanup
 
