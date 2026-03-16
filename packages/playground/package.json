@@ -40,10 +40,26 @@
     "interactive"
   ],
   "dependencies": {
+    "@typesugar/codec": "workspace:*",
+    "@typesugar/collections": "workspace:*",
+    "@typesugar/contracts": "workspace:*",
     "@typesugar/core": "workspace:*",
+    "@typesugar/effect": "workspace:*",
+    "@typesugar/fp": "workspace:*",
+    "@typesugar/graph": "workspace:*",
     "@typesugar/macros": "workspace:*",
+    "@typesugar/mapper": "workspace:*",
+    "@typesugar/math": "workspace:*",
+    "@typesugar/parser": "workspace:*",
     "@typesugar/preprocessor": "workspace:*",
+    "@typesugar/std": "workspace:*",
+    "@typesugar/symbolic": "workspace:*",
+    "@typesugar/testing": "workspace:*",
     "@typesugar/transformer-core": "workspace:*",
+    "@typesugar/type-system": "workspace:*",
+    "@typesugar/typeclass": "workspace:*",
+    "@typesugar/units": "workspace:*",
+    "@typesugar/validate": "workspace:*",
     "magic-string": "^0.30.21"
   },
   "devDependencies": {

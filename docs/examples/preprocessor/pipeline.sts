@@ -1,0 +1,33 @@
+//! Pipeline Operator
+//! Chain transformations with |>
+
+// Pipeline operator |> for readable data transformations
+// (Sugar TypeScript syntax - .sts file)
+
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// Without pipeline - hard to read
+const result1 = numbers
+  .filter(n => n % 2 === 0)
+  .map(n => n * 2)
+  .reduce((a, b) => a + b, 0);
+
+// With pipeline - clear data flow
+const result2 = numbers
+  |> (nums => nums.filter(n => n % 2 === 0))
+  |> (nums => nums.map(n => n * 2))
+  |> (nums => nums.reduce((a, b) => a + b, 0));
+
+console.log("Result:", result2); // 60 (2+4+6+8+10 doubled)
+
+// Works great with custom functions
+const double = (x: number) => x * 2;
+const addOne = (x: number) => x + 1;
+const toString = (x: number) => `Value: ${x}`;
+
+const transformed = 5
+  |> double
+  |> addOne
+  |> toString;
+
+console.log(transformed); // "Value: 11"

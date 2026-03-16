@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onErrorCaptured, provide, defineExpose } from "vue";
+import { ref, onErrorCaptured, provide } from "vue";
 
 const props = withDefaults(
   defineProps<{
@@ -54,15 +54,11 @@ defineExpose({ reset, captureError, hasError });
         <pre v-if="errorStack" class="error-stack">{{ errorStack }}</pre>
       </details>
       <div class="error-actions">
-        <button 
-          class="reset-btn" 
-          @click="reset"
-          aria-label="Try again to recover from error"
-        >
+        <button class="reset-btn" @click="reset" aria-label="Try again to recover from error">
           Try Again
         </button>
-        <button 
-          class="reload-btn" 
+        <button
+          class="reload-btn"
           @click="() => window.location.reload()"
           aria-label="Reload the page"
         >

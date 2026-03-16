@@ -52,7 +52,10 @@ const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null
 const monaco = shallowRef<typeof Monaco | null>(null);
 const playground = shallowRef<{
   transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-  preprocessCode: (code: string, options: { fileName: string }) => { code: string; changed: boolean };
+  preprocessCode: (
+    code: string,
+    options: { fileName: string }
+  ) => { code: string; changed: boolean };
 } | null>(null);
 
 const fileType = ref<".ts" | ".sts">(props.initialFileType);
@@ -333,7 +336,10 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
       ],
 
       regexp: [
-        [/(\{)(\d+(?:,\d*)?)(\})/, ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"]],
+        [
+          /(\{)(\d+(?:,\d*)?)(\})/,
+          ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"],
+        ],
         [
           /(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/,
           ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }],
@@ -344,7 +350,10 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/[^\\\/]/, "regexp"],
         [/@regexpesc/, "regexp.escape"],
         [/\\\./, "regexp.invalid"],
-        [/(\/)([dgimsuy]*)/, [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"]],
+        [
+          /(\/)([dgimsuy]*)/,
+          [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"],
+        ],
       ],
 
       regexrange: [
@@ -642,7 +651,12 @@ defineExpose({
     </div>
 
     <div v-if="lastResult?.diagnostics?.length" class="diagnostics">
-      <div v-for="(diag, i) in lastResult.diagnostics" :key="i" class="diagnostic" :class="diag.severity">
+      <div
+        v-for="(diag, i) in lastResult.diagnostics"
+        :key="i"
+        class="diagnostic"
+        :class="diag.severity"
+      >
         <span class="diagnostic-severity">{{ diag.severity }}</span>
         <span class="diagnostic-message">{{ diag.message }}</span>
       </div>

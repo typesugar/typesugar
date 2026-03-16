@@ -433,18 +433,66 @@ importers:
 
   packages/playground:
     dependencies:
+      '@typesugar/codec':
+        specifier: workspace:*
+        version: link:../codec
+      '@typesugar/collections':
+        specifier: workspace:*
+        version: link:../collections
+      '@typesugar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/effect':
+        specifier: workspace:*
+        version: link:../effect
+      '@typesugar/fp':
+        specifier: workspace:*
+        version: link:../fp
+      '@typesugar/graph':
+        specifier: workspace:*
+        version: link:../graph
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
+      '@typesugar/mapper':
+        specifier: workspace:*
+        version: link:../mapper
+      '@typesugar/math':
+        specifier: workspace:*
+        version: link:../math
+      '@typesugar/parser':
+        specifier: workspace:*
+        version: link:../parser
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
+      '@typesugar/std':
+        specifier: workspace:*
+        version: link:../std
+      '@typesugar/symbolic':
+        specifier: workspace:*
+        version: link:../symbolic
+      '@typesugar/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@typesugar/transformer-core':
         specifier: workspace:*
         version: link:../transformer-core
+      '@typesugar/type-system':
+        specifier: workspace:*
+        version: link:../type-system
+      '@typesugar/typeclass':
+        specifier: workspace:*
+        version: link:../typeclass
+      '@typesugar/units':
+        specifier: workspace:*
+        version: link:../units
+      '@typesugar/validate':
+        specifier: workspace:*
+        version: link:../validate
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21

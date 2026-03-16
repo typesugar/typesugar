@@ -44,7 +44,10 @@ const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null
 const monaco = shallowRef<typeof Monaco | null>(null);
 const playground = shallowRef<{
   transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-  preprocessCode: (code: string, options: { fileName: string }) => { code: string; changed: boolean };
+  preprocessCode: (
+    code: string,
+    options: { fileName: string }
+  ) => { code: string; changed: boolean };
 } | null>(null);
 
 const isLoading = ref(true);
@@ -68,25 +71,133 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
     tokenPostfix: ".sts",
 
     keywords: [
-      "abstract", "any", "as", "asserts", "async", "await", "boolean", "break",
-      "case", "catch", "class", "const", "constructor", "continue", "debugger",
-      "declare", "default", "delete", "do", "else", "enum", "export", "extends",
-      "false", "finally", "for", "from", "function", "get", "if", "implements",
-      "import", "in", "infer", "instanceof", "interface", "is", "keyof", "let",
-      "module", "namespace", "never", "new", "null", "number", "object", "of",
-      "package", "private", "protected", "public", "readonly", "require", "return",
-      "satisfies", "set", "static", "string", "super", "switch", "symbol", "this",
-      "throw", "true", "try", "type", "typeof", "undefined", "unique", "unknown",
-      "var", "void", "while", "with", "yield",
+      "abstract",
+      "any",
+      "as",
+      "asserts",
+      "async",
+      "await",
+      "boolean",
+      "break",
+      "case",
+      "catch",
+      "class",
+      "const",
+      "constructor",
+      "continue",
+      "debugger",
+      "declare",
+      "default",
+      "delete",
+      "do",
+      "else",
+      "enum",
+      "export",
+      "extends",
+      "false",
+      "finally",
+      "for",
+      "from",
+      "function",
+      "get",
+      "if",
+      "implements",
+      "import",
+      "in",
+      "infer",
+      "instanceof",
+      "interface",
+      "is",
+      "keyof",
+      "let",
+      "module",
+      "namespace",
+      "never",
+      "new",
+      "null",
+      "number",
+      "object",
+      "of",
+      "package",
+      "private",
+      "protected",
+      "public",
+      "readonly",
+      "require",
+      "return",
+      "satisfies",
+      "set",
+      "static",
+      "string",
+      "super",
+      "switch",
+      "symbol",
+      "this",
+      "throw",
+      "true",
+      "try",
+      "type",
+      "typeof",
+      "undefined",
+      "unique",
+      "unknown",
+      "var",
+      "void",
+      "while",
+      "with",
+      "yield",
     ],
 
     typeKeywords: ["F", "HKT", "Kind", "Type", "Functor", "Monad", "Apply", "Applicative"],
 
     operators: [
-      "<=", ">=", "==", "!=", "===", "!==", "=>", "+", "-", "**", "*", "/", "%",
-      "++", "--", "<<", "</", ">>", ">>>", "&", "|", "^", "!", "~", "&&", "||",
-      "??", "?", ":", "=", "+=", "-=", "*=", "**=", "/=", "%=", "<<=", ">>=",
-      ">>>=", "&=", "|=", "^=", "@", "|>", "<|", "::", "~>",
+      "<=",
+      ">=",
+      "==",
+      "!=",
+      "===",
+      "!==",
+      "=>",
+      "+",
+      "-",
+      "**",
+      "*",
+      "/",
+      "%",
+      "++",
+      "--",
+      "<<",
+      "</",
+      ">>",
+      ">>>",
+      "&",
+      "|",
+      "^",
+      "!",
+      "~",
+      "&&",
+      "||",
+      "??",
+      "?",
+      ":",
+      "=",
+      "+=",
+      "-=",
+      "*=",
+      "**=",
+      "/=",
+      "%=",
+      "<<=",
+      ">>=",
+      ">>>=",
+      "&=",
+      "|=",
+      "^=",
+      "@",
+      "|>",
+      "<|",
+      "::",
+      "~>",
     ],
 
     symbols: /[=><!~?:&|+\-*\/\^%@]+/,
@@ -117,16 +228,22 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/<\|/, "operator.pipeline"],
         [/::/, "operator.cons"],
         [/~>/, "operator.kind"],
-        [/[a-z_$][\w$]*/, {
-          cases: {
-            "@typeKeywords": "type.identifier",
-            "@keywords": "keyword",
-            "@default": "identifier",
+        [
+          /[a-z_$][\w$]*/,
+          {
+            cases: {
+              "@typeKeywords": "type.identifier",
+              "@keywords": "keyword",
+              "@default": "identifier",
+            },
           },
-        }],
+        ],
         [/[A-Z][\w\$]*/, "type.identifier"],
         { include: "@whitespace" },
-        [/\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/, { token: "regexp", bracket: "@open", next: "@regexp" }],
+        [
+          /\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/,
+          { token: "regexp", bracket: "@open", next: "@regexp" },
+        ],
         [/[()\[\]]/, "@brackets"],
         [/[<>](?!@symbols)/, "@brackets"],
         [/!(?=([^=]|$))/, "delimiter"],
@@ -152,19 +269,36 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\/\/.*$/, "comment"],
       ],
 
-      comment: [[/[^\/*]+/, "comment"], [/\*\//, "comment", "@pop"], [/[\/*]/, "comment"]],
-      jsdoc: [[/[^\/*]+/, "comment.doc"], [/\*\//, "comment.doc", "@pop"], [/[\/*]/, "comment.doc"]],
+      comment: [
+        [/[^\/*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/[\/*]/, "comment"],
+      ],
+      jsdoc: [
+        [/[^\/*]+/, "comment.doc"],
+        [/\*\//, "comment.doc", "@pop"],
+        [/[\/*]/, "comment.doc"],
+      ],
 
       regexp: [
-        [/(\{)(\d+(?:,\d*)?)(\})/, ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"]],
-        [/(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/, ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }]],
+        [
+          /(\{)(\d+(?:,\d*)?)(\})/,
+          ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"],
+        ],
+        [
+          /(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/,
+          ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }],
+        ],
         [/(\()(\?:|\?=|\?!)/, ["regexp.escape.control", "regexp.escape.control"]],
         [/[()]/, "regexp.escape.control"],
         [/@regexpctl/, "regexp.escape.control"],
         [/[^\\\/]/, "regexp"],
         [/@regexpesc/, "regexp.escape"],
         [/\\\./, "regexp.invalid"],
-        [/(\/)([dgimsuy]*)/, [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"]],
+        [
+          /(\/)([dgimsuy]*)/,
+          [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"],
+        ],
       ],
 
       regexrange: [
@@ -175,8 +309,18 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\]/, { token: "regexp.escape.control", next: "@pop", bracket: "@close" }],
       ],
 
-      string_double: [[/[^\\"]+/, "string"], [/@escapes/, "string.escape"], [/\\./, "string.escape.invalid"], [/"/, "string", "@pop"]],
-      string_single: [[/[^\\']+/, "string"], [/@escapes/, "string.escape"], [/\\./, "string.escape.invalid"], [/'/, "string", "@pop"]],
+      string_double: [
+        [/[^\\"]+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/"/, "string", "@pop"],
+      ],
+      string_single: [
+        [/[^\\']+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/'/, "string", "@pop"],
+      ],
       string_backtick: [
         [/\$\{/, { token: "delimiter.bracket", next: "@bracketCounting" }],
         [/[^\\`$]+/, "string"],
@@ -184,7 +328,11 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\\./, "string.escape.invalid"],
         [/`/, "string", "@pop"],
       ],
-      bracketCounting: [[/\{/, "delimiter.bracket", "@bracketCounting"], [/\}/, "delimiter.bracket", "@pop"], { include: "common" }],
+      bracketCounting: [
+        [/\{/, "delimiter.bracket", "@bracketCounting"],
+        [/\}/, "delimiter.bracket", "@pop"],
+        { include: "common" },
+      ],
     },
   });
 
@@ -401,21 +549,27 @@ async function initMonaco() {
   }
 }
 
-watch(() => props.code, (newCode) => {
-  if (inputEditor.value && newCode !== inputEditor.value.getValue()) {
-    inputEditor.value.setValue(newCode);
-  }
-});
-
-watch(() => props.mode, (newMode) => {
-  if (inputEditor.value && monaco.value) {
-    const model = inputEditor.value.getModel();
-    if (model) {
-      monaco.value.editor.setModelLanguage(model, newMode === ".sts" ? "sts" : "typescript");
+watch(
+  () => props.code,
+  (newCode) => {
+    if (inputEditor.value && newCode !== inputEditor.value.getValue()) {
+      inputEditor.value.setValue(newCode);
     }
-    doTransform();
   }
-});
+);
+
+watch(
+  () => props.mode,
+  (newMode) => {
+    if (inputEditor.value && monaco.value) {
+      const model = inputEditor.value.getModel();
+      if (model) {
+        monaco.value.editor.setModelLanguage(model, newMode === ".sts" ? "sts" : "typescript");
+      }
+      doTransform();
+    }
+  }
+);
 
 onMounted(() => {
   initMonaco();
@@ -438,22 +592,20 @@ onUnmounted(() => {
         <span v-if="title" class="embed-title">{{ title }}</span>
         <span class="embed-file-type">{{ mode }}</span>
         <span v-if="readonly" class="embed-readonly-badge">Read-only</span>
-        <span v-if="errorCount > 0" class="embed-error-badge">{{ errorCount }} error{{ errorCount > 1 ? 's' : '' }}</span>
+        <span v-if="errorCount > 0" class="embed-error-badge"
+          >{{ errorCount }} error{{ errorCount > 1 ? "s" : "" }}</span
+        >
       </div>
       <div class="embed-header-right">
-        <button 
+        <button
           v-if="!hideOutput"
           class="embed-toggle-btn"
           @click="toggleOutput"
           :title="showOutput ? 'Hide output' : 'Show output'"
         >
-          {{ showOutput ? '◀ Hide Output' : '▶ Show Output' }}
+          {{ showOutput ? "◀ Hide Output" : "▶ Show Output" }}
         </button>
-        <button 
-          class="embed-open-btn"
-          @click="openInPlayground"
-          title="Open in full playground"
-        >
+        <button class="embed-open-btn" @click="openInPlayground" title="Open in full playground">
           ↗ Open in Playground
         </button>
       </div>
@@ -654,29 +806,31 @@ onUnmounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 640px) {
   .embed-content {
     grid-template-columns: 1fr;
   }
-  
+
   .input-panel {
     border-right: none;
     border-bottom: 1px solid var(--vp-c-divider);
   }
-  
+
   .embed-content:not(.hide-output) {
     height: calc(var(--embed-height) * 2);
   }
-  
+
   .embed-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
-  
+
   .embed-header-right {
     width: 100%;
     justify-content: flex-end;
