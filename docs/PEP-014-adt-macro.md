@@ -1,6 +1,6 @@
 # PEP-014: ADT Macro for Zero-Cost Discriminated Unions
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-15
 **Author:** Dean Povey
 **Depends on:** PEP-011 (SFINAE Diagnostic Resolution), PEP-012 (Type Macros)
