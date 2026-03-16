@@ -239,8 +239,6 @@ when(); // Guard arm: when(pred, handler)
 otherwise(); // Catch-all arm: otherwise(handler)
 P; // Array helpers: P.empty, P.length(n), P.oneOf(...), etc.
 isType(); // Type guard: isType("string"), isType(Date)
-matchLiteral(); // Deprecated — use match() with literal keys
-matchGuard(); // Deprecated — use match() with when()/otherwise()
 
 // FlatMap for do-notation
 FlatMap;

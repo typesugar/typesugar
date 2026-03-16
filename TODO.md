@@ -20,7 +20,6 @@
      - **Array/structural helpers**: `P.empty`, `P.length(n)`, `P.minLength(n)`, `P.between(lo, hi)`, `P.oneOf(...)`, `P.head(pred)`, `P.has(key)`, `P.regex(re)` — all inlined at compile time
      - Binary search for sparse integers (O(log n))
      - Switch IIFE for large case counts (V8-optimized)
-     - Backwards-compatible `matchLiteral`/`matchGuard` aliases
    - **Future enhancement:** Nested pattern merging (decision tree fusion across nested `match()` calls).
 
 4. **Zero-Cost Array Comprehensions**

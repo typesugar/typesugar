@@ -365,28 +365,6 @@ function inferDiscriminant(
   return "kind";
 }
 
-/** @deprecated Use `match()` with literal keys instead */
-export function matchLiteral<T extends string | number, R>(
-  value: T,
-  handlers: LiteralHandlers<T, R>
-): R {
-  const handler = (handlers as Record<string | number, ((v: T) => R) | undefined>)[value];
-  if (handler) return handler(value);
-  const wildcard = (handlers as Record<string, ((v: T) => R) | undefined>)["_"];
-  if (wildcard) return wildcard(value);
-  throw new Error(`Non-exhaustive match: no handler for '${value}'`);
-}
-
-/** @deprecated Use the fluent API instead: `match(value).case(x).if(pred).then(result).else(fallback)` */
-export function matchGuard<T, R>(
-  value: T,
-  arms: Array<[(value: T) => boolean, (value: T) => R]>
-): R {
-  for (const [pred, handler] of arms) {
-    if (pred(value)) return handler(value);
-  }
-  throw new Error("Non-exhaustive match: no guard matched");
-}
 
 // ============================================================================
 // Exhaustiveness Checking
@@ -1459,20 +1437,4 @@ export const matchMacro = defineExpressionMacro({
   expand: expandMatch,
 });
 
-export const matchLiteralMacro = defineExpressionMacro({
-  name: "matchLiteral",
-  module: "@typesugar/std",
-  description: "Zero-cost literal matching (deprecated — use match())",
-  expand: expandMatch,
-});
-
-export const matchGuardMacro = defineExpressionMacro({
-  name: "matchGuard",
-  module: "@typesugar/std",
-  description: "Zero-cost guard matching (deprecated — use match())",
-  expand: expandMatch,
-});
-
 globalRegistry.register(matchMacro);
-globalRegistry.register(matchLiteralMacro);
-globalRegistry.register(matchGuardMacro);

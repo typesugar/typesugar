@@ -1074,23 +1074,23 @@ Remove deprecated `matchLiteral` and `matchGuard` shims that now delegate to the
 
 **Tasks:**
 
-- [ ] Search codebase for any usages of `matchLiteral` or `matchGuard`
-- [ ] Update any usages to use unified `match()` syntax
-- [ ] Remove `matchLiteral()` runtime function (lines 354-363)
-- [ ] Remove `matchGuard()` runtime function (lines 366-374)
-- [ ] Remove `matchLiteralMacro` definition (lines 1439-1444)
-- [ ] Remove `matchGuardMacro` definition (lines 1446-1451)
-- [ ] Remove legacy macro registrations from global registry (lines 1453-1455)
-- [ ] Remove exports from `packages/std/src/macros/index.ts` and `packages/std/src/index.ts`
-- [ ] Remove legacy tests from `tests/match.test.ts`
-- [ ] Update `packages/fp/README.md` to remove legacy references
+- [x] Search codebase for any usages of `matchLiteral` or `matchGuard`
+- [x] Update any usages to use unified `match()` syntax (none found outside tests)
+- [x] Remove `matchLiteral()` runtime function (lines 354-363)
+- [x] Remove `matchGuard()` runtime function (lines 366-374)
+- [x] Remove `matchLiteralMacro` definition (lines 1439-1444)
+- [x] Remove `matchGuardMacro` definition (lines 1446-1451)
+- [x] Remove legacy macro registrations from global registry (lines 1453-1455)
+- [x] Remove exports from `packages/std/src/macros/index.ts` and `packages/std/src/index.ts`
+- [x] Remove legacy tests from `tests/match.test.ts`
+- [x] Update `packages/fp/README.md` to remove legacy references (none found)
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm test` passes
-- [ ] No references to `matchLiteral` or `matchGuard` remain
-- [ ] Unified `match()` API continues to work for all existing use cases
+- [x] `pnpm build` passes
+- [x] `pnpm test` passes (5682 tests)
+- [x] No references to `matchLiteral` or `matchGuard` remain
+- [x] Unified `match()` API continues to work for all existing use cases
 
 ### Wave 9: Internal Dogfooding (~15 files)
 
