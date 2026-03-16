@@ -5,6 +5,8 @@
  * browser-compatible in-memory implementation.
  */
 
+import type { TransformDiagnostic } from "@typesugar/transformer-core";
+
 export interface CacheEntry<T> {
   value: T;
   hash: string;
@@ -77,6 +79,7 @@ export interface TransformCacheEntry {
   code: string;
   sourceMap: string | null;
   changed: boolean;
+  diagnostics: TransformDiagnostic[];
 }
 
 export class BrowserTransformCache {

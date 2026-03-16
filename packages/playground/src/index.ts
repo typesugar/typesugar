@@ -100,7 +100,7 @@ export function transform(code: string, options: BrowserTransformOptions = {}): 
       code: cached.code,
       sourceMap: cached.sourceMap ? JSON.parse(cached.sourceMap) : null,
       changed: cached.changed,
-      diagnostics: [],
+      diagnostics: cached.diagnostics,
     };
   }
 
@@ -154,6 +154,7 @@ export function transform(code: string, options: BrowserTransformOptions = {}): 
       code: result.code,
       sourceMap: finalSourceMap ? JSON.stringify(finalSourceMap) : null,
       changed: result.changed || wasPreprocessed,
+      diagnostics: result.diagnostics,
     };
     cache.set(fileName, contentHash, cacheEntry);
 
