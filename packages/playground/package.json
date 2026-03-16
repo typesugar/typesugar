@@ -43,6 +43,7 @@
     "@typesugar/core": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "@typesugar/preprocessor": "workspace:*",
+    "@typesugar/transformer-core": "workspace:*",
     "magic-string": "^0.30.21"
   },
   "devDependencies": {

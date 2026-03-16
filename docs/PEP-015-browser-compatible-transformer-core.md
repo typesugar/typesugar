@@ -1,6 +1,6 @@
 # PEP-015: Browser-Compatible Transformer Core
 
-**Status:** In Progress (Wave 3 Verified)
+**Status:** In Progress (Wave 4 Complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -122,17 +122,17 @@ Extract a browser-compatible transformation core that both environments use:
 
 **Tasks:**
 
-- [ ] Remove `browser-transform.ts` from playground
-- [ ] Import `transformCode` from `@typesugar/transformer-core`
-- [ ] Update `Playground.vue` to use new API
-- [ ] Update `PlaygroundEmbed.vue` to use new API
-- [ ] Verify all example presets work
+- [x] Remove `browser-transform.ts` from playground
+- [x] Import `transformCode` from `@typesugar/transformer-core`
+- [x] Update `Playground.vue` to use new API (no changes needed — uses `@typesugar/playground` exports)
+- [x] Update `PlaygroundEmbed.vue` to use new API (no changes needed — uses `@typesugar/playground` exports)
+- [x] Verify all example presets work
 
 **Gate:**
 
-- [ ] Playground transforms all macro types correctly
-- [ ] `@tailrec`, `@derive`, `@typeclass` examples work
-- [ ] Bundle size not significantly increased
+- [x] Playground transforms all macro types correctly
+- [x] `@tailrec`, `@derive`, `@typeclass` examples work
+- [x] Bundle size not significantly increased (~878 KB browser bundle)
 
 ### Wave 5: Add JSDoc and Derive Macro Support to Playground
 

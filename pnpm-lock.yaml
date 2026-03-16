@@ -442,6 +442,9 @@ importers:
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor
+      '@typesugar/transformer-core':
+        specifier: workspace:*
+        version: link:../transformer-core
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21
