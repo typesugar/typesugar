@@ -12,6 +12,7 @@
  * - ValidationError path formatting
  */
 import { describe, it, expect } from "vitest";
+import { isValid, isInvalid, Valid, invalidNel } from "@typesugar/fp";
 import {
   nativeSchema,
   parseOrElse,
@@ -76,7 +77,7 @@ describe("Validate Edge Cases", () => {
       };
       expect(isNumber(malicious)).toBe(false);
       const result = nativeSchema.safeParse(isNumber, malicious);
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
 
     it("should reject numeric strings for number validation", () => {
@@ -84,7 +85,7 @@ describe("Validate Edge Cases", () => {
       expect(isNumber("0")).toBe(false);
       expect(isNumber("")).toBe(false);
       const result = nativeSchema.safeParse(isNumber, "123");
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
 
     it("should reject boolean-like values for string validation", () => {
@@ -103,7 +104,7 @@ describe("Validate Edge Cases", () => {
       // Standard isNumber should reject NaN
       expect(isNumber(NaN)).toBe(false);
       const result = nativeSchema.safeParse(isNumber, NaN);
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
 
     it("should handle Infinity correctly", () => {
@@ -210,8 +211,8 @@ describe("Validate Edge Cases", () => {
 
       const result1 = nativeSchema.safeParse(isUser, null);
       const result2 = nativeSchema.safeParse(isUser, undefined);
-      expect(result1._tag).toBe("Invalid");
-      expect(result2._tag).toBe("Invalid");
+      expect(isInvalid(result1)).toBe(true);
+      expect(isInvalid(result2)).toBe(true);
     });
 
     it("should handle object with null prototype", () => {
@@ -221,7 +222,7 @@ describe("Validate Edge Cases", () => {
 
       expect(isUser(nullProtoObj)).toBe(true);
       const result = nativeSchema.safeParse(isUser, nullProtoObj);
-      expect(result._tag).toBe("Valid");
+      expect(isValid(result)).toBe(true);
     });
 
     it("should reject null masquerading as object", () => {
@@ -292,7 +293,7 @@ describe("Validate Edge Cases", () => {
     it("should validate empty arrays correctly", () => {
       expect(isStringArray([])).toBe(true);
       const result = nativeSchema.safeParse(isStringArray, []);
-      expect(result._tag).toBe("Valid");
+      expect(isValid(result)).toBe(true);
     });
 
     it("should handle typed arrays vs regular arrays", () => {
@@ -352,7 +353,7 @@ describe("Validate Edge Cases", () => {
       const data = [1, "two", 3, "four", 5];
       const result = safeParseAllNative(isString, data);
 
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
       // Note: Current implementation only returns first error via invalidNel
       // This is a design choice worth documenting
     });
@@ -361,16 +362,16 @@ describe("Validate Edge Cases", () => {
       const data = ["a", "b", "c"];
       const result = safeParseAllNative(isString, data);
 
-      expect(result._tag).toBe("Valid");
-      if (result._tag === "Valid") {
+      expect(isValid(result)).toBe(true);
+      if (isValid(result)) {
         expect(result.value).toEqual(["a", "b", "c"]);
       }
     });
 
     it("should handle empty array", () => {
       const result = safeParseAllNative(isString, []);
-      expect(result._tag).toBe("Valid");
-      if (result._tag === "Valid") {
+      expect(isValid(result)).toBe(true);
+      if (isValid(result)) {
         expect(result.value).toEqual([]);
       }
     });
@@ -378,7 +379,7 @@ describe("Validate Edge Cases", () => {
     it("should handle mixed valid/invalid at boundaries", () => {
       const data = ["valid", 123, "also valid"];
       const result = safeParseAllNative(isString, data);
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
   });
 
@@ -400,7 +401,7 @@ describe("Validate Edge Cases", () => {
 
       // This should still work because 1 is truthy
       const result = nativeSchema.safeParse(badValidator, "test");
-      expect(result._tag).toBe("Valid");
+      expect(isValid(result)).toBe(true);
     });
 
     it("should handle async validator (should fail)", () => {
@@ -411,7 +412,7 @@ describe("Validate Edge Cases", () => {
       // The Promise object is truthy, so this incorrectly passes
       const result = nativeSchema.safeParse(asyncValidator, "test");
       // This documents the (incorrect) behavior with async validators
-      expect(result._tag).toBe("Valid"); // Bug: should be Invalid or throw
+      expect(isValid(result)).toBe(true); // Bug: should be Invalid or throw
     });
 
     it("should handle validator with side effects", () => {
@@ -441,15 +442,9 @@ describe("Validate Edge Cases", () => {
         },
         (validator, data) => {
           if (validator(data)) {
-            return { _tag: "Valid" as const, value: data };
+            return Valid(data);
           }
-          return {
-            _tag: "Invalid" as const,
-            error: {
-              head: { path: "$", message: `Invalid: ${typeof data}` },
-              tail: { _tag: "Nil" as const },
-            },
-          };
+          return invalidNel({ path: "$", message: `Invalid: ${typeof data}` });
         }
       );
 
@@ -458,8 +453,8 @@ describe("Validate Edge Cases", () => {
       );
 
       const result = customSchema.safeParse(isNumber, "not a number");
-      expect(result._tag).toBe("Invalid");
-      if (result._tag === "Invalid") {
+      expect(isInvalid(result)).toBe(true);
+      if (isInvalid(result)) {
         expect(result.error.head.message).toContain("Invalid");
       }
     });
@@ -474,15 +469,9 @@ describe("Validate Edge Cases", () => {
         (validator, data) => {
           // Actually validates
           if (validator(data)) {
-            return { _tag: "Valid" as const, value: data };
+            return Valid(data);
           }
-          return {
-            _tag: "Invalid" as const,
-            error: {
-              head: { path: "$", message: "Invalid" },
-              tail: { _tag: "Nil" as const },
-            },
-          };
+          return invalidNel({ path: "$", message: "Invalid" });
         }
       );
 
@@ -492,7 +481,7 @@ describe("Validate Edge Cases", () => {
 
       // safeParse correctly fails
       const result = inconsistentSchema.safeParse(isNumber, "not a number");
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
   });
 
@@ -525,7 +514,7 @@ describe("Validate Edge Cases", () => {
       const longString = "a".repeat(1_000_000);
       expect(isString(longString)).toBe(true);
       const result = nativeSchema.safeParse(isString, longString);
-      expect(result._tag).toBe("Valid");
+      expect(isValid(result)).toBe(true);
     });
 
     it("should handle String objects vs primitives", () => {
@@ -535,7 +524,7 @@ describe("Validate Edge Cases", () => {
       expect(isString(stringObj)).toBe(false); // Should fail
 
       const result = nativeSchema.safeParse(isString, stringObj);
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
   });
 });

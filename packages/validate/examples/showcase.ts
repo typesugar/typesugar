@@ -15,6 +15,7 @@
  */
 
 import { assert } from "@typesugar/testing";
+import { isValid, isInvalid, Valid, invalidNel } from "@typesugar/fp";
 
 import {
   // Core types
@@ -71,14 +72,14 @@ console.log("1. Native validators: type guard functions as schema instances");
 
 // safeParse returns Valid or Invalid with accumulated errors
 const validResult = nativeSchema.safeParse(isNumber, 42);
-assert(validResult._tag === "Valid");
+assert(isValid(validResult));
 assert(validResult.value === 42);
 
 const invalidResult = nativeSchema.safeParse(isNumber, "bad");
-assert(invalidResult._tag === "Invalid");
+assert(isInvalid(invalidResult));
 
 // Errors carry path and message
-if (invalidResult._tag === "Invalid") {
+if (isInvalid(invalidResult)) {
   const error: ValidationError = invalidResult.error.head;
   assert(error.path === "$");
   assert(typeof error.message === "string");
@@ -133,15 +134,9 @@ const customSchema = makeNativeSchema(
   },
   (validator, data) => {
     if (validator(data)) {
-      return { _tag: "Valid" as const, value: data };
+      return Valid(data);
     }
-    return {
-      _tag: "Invalid" as const,
-      error: {
-        head: { path: "$", message: "Custom validation failed" },
-        tail: { _tag: "Nil" as const },
-      },
-    } as any;
+    return invalidNel({ path: "$", message: "Custom validation failed" });
   },
 );
 
@@ -187,7 +182,7 @@ const badUserResult = nativeSchema.safeParse(isUser, {
   age: -1,
   email: "not-an-email",
 });
-assert(badUserResult._tag === "Invalid");
+assert(isInvalid(badUserResult));
 
 // Array of users
 const users = pAll(isUser, [

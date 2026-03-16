@@ -140,6 +140,36 @@ export {
 } from "./data/validated.js";
 
 // ============================================================================
+// RemoteData — Async data state (PEP-014 Wave 4 example)
+// ============================================================================
+
+export type {
+  RemoteData,
+  RemoteDataF,
+  NotAsked,
+  Loading,
+  Failure,
+  Success,
+} from "./data/remote-data.js";
+export {
+  NotAsked as RemoteNotAsked,
+  Loading as RemoteLoading,
+  Failure as RemoteFailure,
+  Success as RemoteSuccess,
+  isNotAsked,
+  isLoading,
+  isFailure,
+  isSuccess,
+  isComplete,
+  isPending,
+} from "./data/remote-data.js";
+export {
+  getEq as getRemoteDataEq,
+  getOrd as getRemoteDataOrd,
+  getShow as getRemoteDataShow,
+} from "./data/remote-data.js";
+
+// ============================================================================
 // State — Stateful computation
 // ============================================================================
 

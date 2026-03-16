@@ -27,6 +27,7 @@ import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
 import "./verify-laws.js"; // Typeclass law verification
 import "./extension.js"; // Standalone extension methods for concrete types
 import "./opaque.js"; // @opaque type macro (PEP-012)
+import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
 
 // --- SFINAE rules ---
 // NOTE: sfinae-rules.ts is NOT imported as a side-effect module.
@@ -358,6 +359,9 @@ export {
 
 // --- Opaque type macro (PEP-012) ---
 export { opaqueAttribute } from "./opaque.js";
+
+// --- ADT macro (PEP-014) ---
+export { adtAttribute } from "./adt.js";
 
 // --- SFINAE Rules ---
 export {
