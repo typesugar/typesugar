@@ -9,11 +9,7 @@
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
-import {
-  matchMacro,
-  matchLiteralMacro,
-  matchGuardMacro,
-} from "../packages/std/src/macros/match.js";
+import { matchMacro } from "../packages/std/src/macros/match.js";
 
 // ============================================================================
 // Test Helpers
@@ -400,41 +396,6 @@ describe("match() macro", () => {
     });
   });
 
-  describe("backwards compatibility", () => {
-    it("matchLiteral should work as alias for match", () => {
-      const { ctx, printExpr } = createTestContext("const x = 1;");
-      const value = ts.factory.createIdentifier("code");
-      const handlers = makeObjectLiteral({
-        "200": makeArrow(ts.factory.createStringLiteral("OK")),
-        _: makeArrow(ts.factory.createStringLiteral("other")),
-      });
-
-      const callExpr = makeCall("matchLiteral", [value, handlers]);
-      const result = matchLiteralMacro.expand(ctx, callExpr, [value, handlers]);
-      const text = printExpr(result);
-
-      expect(text).toContain("code === 200");
-    });
-
-    it("matchGuard should work as alias for match with array form", () => {
-      const { ctx, printExpr } = createTestContext("const x = 1;");
-      const value = ts.factory.createIdentifier("x");
-
-      const pred = makeArrowWithParam("v", ts.factory.createTrue());
-      const handler = makeArrowWithParam("v", ts.factory.createStringLiteral("yes"));
-
-      const arms = ts.factory.createArrayLiteralExpression([
-        ts.factory.createArrayLiteralExpression([pred, handler]),
-      ]);
-
-      const callExpr = makeCall("matchGuard", [value, arms]);
-      const result = matchGuardMacro.expand(ctx, callExpr, [value, arms]);
-      const text = printExpr(result);
-
-      expect(text).toContain('"yes"');
-    });
-  });
-
   describe("error handling", () => {
     it("should report error for too few arguments", () => {
       const { ctx } = createTestContext("const x = 1;");
@@ -607,27 +568,6 @@ describe("match() macro", () => {
       const catchAll = otherwise((x: number) => 0);
       expect(catchAll.predicate(999)).toBe(true);
       expect(catchAll.handler(999)).toBe(0);
-    });
-
-    it("matchLiteral() runtime should be backwards compatible", async () => {
-      const { matchLiteral } = await import("../packages/std/src/macros/match.js");
-      const result = matchLiteral(
-        404 as 200 | 404,
-        {
-          200: ((v: any) => "OK") as any,
-          404: ((v: any) => "Not Found") as any,
-        } as any
-      );
-      expect(result).toBe("Not Found");
-    });
-
-    it("matchGuard() runtime should be backwards compatible", async () => {
-      const { matchGuard } = await import("../packages/std/src/macros/match.js");
-      const result = matchGuard(42, [
-        [(v: number) => v > 100, () => "big"],
-        [() => true, () => "small"],
-      ]);
-      expect(result).toBe("small");
     });
   });
 

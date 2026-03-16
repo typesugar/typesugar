@@ -18,12 +18,18 @@ export class MatchError extends Error {
   readonly value: unknown;
 
   constructor(value: unknown) {
-    const display =
-      typeof value === "string"
-        ? `"${value}"`
-        : typeof value === "object" && value !== null
-          ? JSON.stringify(value)
-          : String(value);
+    let display: string;
+    if (typeof value === "string") {
+      display = `"${value}"`;
+    } else if (typeof value === "object" && value !== null) {
+      try {
+        display = JSON.stringify(value);
+      } catch {
+        display = String(value);
+      }
+    } else {
+      display = String(value);
+    }
     super(`Non-exhaustive match: no pattern matched value ${display}`);
     this.name = "MatchError";
     this.value = value;

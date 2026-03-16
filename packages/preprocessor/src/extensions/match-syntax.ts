@@ -105,6 +105,9 @@ function tryParseMatchBlock(
   const tok = tokens[startIdx];
   if (tok.kind !== ts.SyntaxKind.Identifier || tok.text !== "match") return null;
 
+  // Exclude method calls like str.match() — preceding token must not be `.`
+  if (startIdx > 0 && tokens[startIdx - 1].kind === ts.SyntaxKind.DotToken) return null;
+
   // Next token must be `(`
   const openParenIdx = startIdx + 1;
   if (openParenIdx >= tokens.length) return null;
@@ -141,10 +144,13 @@ function tryParseMatchBlock(
  * Within an arm, `|` without a preceding newline is an OR pattern separator.
  */
 function collectArms(tokens: readonly Token[], firstPipeIdx: number, source: string): MatchArm[] {
-  // Find all line-starting `|` tokens that belong to this match block
+  // Determine the upper bound of the match block using the last-arm termination heuristic
+  const blockEndIdx = findLastArmEnd(tokens, firstPipeIdx, source);
+
+  // Find all line-starting `|` tokens within the match block
   const armStartIndices: number[] = [firstPipeIdx];
 
-  for (let i = firstPipeIdx + 1; i < tokens.length; i++) {
+  for (let i = firstPipeIdx + 1; i <= blockEndIdx; i++) {
     const tok = tokens[i];
     if (tok.kind !== ts.SyntaxKind.BarToken) continue;
 
@@ -352,13 +358,13 @@ function transformPattern(pattern: string): PatternTransform {
   }
 
   // Regex pattern with `as`: `/regex/flags as arrayPattern`
-  const regexAsMatch = trimmed.match(/^(\/(?:[^/\\]|\\.)*\/[gimsuy]*)\s+as\s+([\s\S]+)$/);
+  const regexAsMatch = trimmed.match(/^(\/(?:[^/\\]|\\.)*\/[dgimsuvy]*)\s+as\s+([\s\S]+)$/);
   if (regexAsMatch) {
     return { caseArg: regexAsMatch[1], asArg: regexAsMatch[2].trim() };
   }
 
   // Bare regex pattern (no `as`): `/regex/flags`
-  if (/^\/(?:[^/\\]|\\.)*\/[gimsuy]*$/.test(trimmed)) {
+  if (/^\/(?:[^/\\]|\\.)*\/[dgimsuvy]*$/.test(trimmed)) {
     return { caseArg: trimmed };
   }
 

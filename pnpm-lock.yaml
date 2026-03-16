@@ -521,6 +521,10 @@ importers:
         version: 2.1.9(@types/node@22.19.13)
 
   packages/symbolic:
+    dependencies:
+      '@typesugar/std':
+        specifier: workspace:*
+        version: link:../std
     devDependencies:
       tsup:
         specifier: ^8.0.0
