@@ -20,11 +20,14 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 // ============================================================================
 
 /**
- * NonEmptyList - guaranteed to have at least one element
+ * NonEmptyList — guaranteed to have at least one element.
+ *
+ * This is NOT a sum type (single variant), so no `_tag` is needed.
+ * PEP-014 Wave 4: Removed unnecessary `_tag` field.
+ *
  * @hkt
  */
 export interface NonEmptyList<A> {
-  readonly _tag: "NonEmptyList";
   readonly head: A;
   readonly tail: List<A>;
 }
@@ -46,7 +49,7 @@ export interface NonEmptyListF extends TypeFunction {
  * Create a NonEmptyList
  */
 export function NonEmptyList<A>(head: A, tail: List<A>): NonEmptyList<A> {
-  return { _tag: "NonEmptyList", head, tail };
+  return { head, tail };
 }
 
 /**

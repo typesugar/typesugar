@@ -568,32 +568,42 @@ export const IO = {
 // ============================================================================
 
 /**
- * Trampoline types for stack-safe interpretation
+ * Trampoline types for stack-safe interpretation.
+ *
+ * Uses field-based discrimination (PEP-014 Wave 4):
+ * - Done has `value: A` field
+ * - More has `thunk: () => Trampoline<A>` field
+ *
+ * No `_tag` needed since `value` vs `thunk` distinguishes variants.
  */
 type Trampoline<A> = Done<A> | More<A>;
 
 interface Done<A> {
-  readonly _tag: "Done";
   readonly value: A;
+  readonly thunk?: undefined;
 }
 
 interface More<A> {
-  readonly _tag: "More";
   readonly thunk: () => Trampoline<A>;
+  readonly value?: undefined;
 }
 
-const done = <A>(a: A): Done<A> => ({ _tag: "Done", value: a });
-const more = <A>(thunk: () => Trampoline<A>): More<A> => ({
-  _tag: "More",
-  thunk,
-});
+const done = <A>(a: A): Done<A> => ({ value: a });
+const more = <A>(thunk: () => Trampoline<A>): More<A> => ({ thunk });
+
+/**
+ * Check if trampoline is Done (has value)
+ */
+function isDone<A>(t: Trampoline<A>): t is Done<A> {
+  return "value" in t;
+}
 
 /**
  * Run a trampoline to completion
  */
 function runTrampoline<A>(t: Trampoline<A>): A {
   let current = t;
-  while (current._tag === "More") {
+  while (!isDone(current)) {
     current = current.thunk();
   }
   return current.value;
