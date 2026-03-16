@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, shallowRef, computed, nextTick } from "vue";
 import type * as Monaco from "monaco-editor";
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 
 interface TransformResult {
   original: string;
@@ -24,13 +25,14 @@ interface ConsoleMessage {
   timestamp: number;
 }
 
-const props = withDefaults(
-  defineProps<{
-    initialCode?: string;
-    initialFileType?: ".ts" | ".sts";
-  }>(),
-  {
-    initialCode: `// Welcome to the typesugar Playground!
+interface ExamplePreset {
+  name: string;
+  description: string;
+  fileType: ".ts" | ".sts";
+  code: string;
+}
+
+const DEFAULT_CODE = `// Welcome to the typesugar Playground!
 // Try editing the code below and press Run (or Cmd+Enter)
 
 import { staticAssert } from "typesugar";
@@ -46,7 +48,222 @@ console.log(greet("World"));
 const numbers = [1, 2, 3, 4, 5];
 const doubled = numbers.map(n => n * 2);
 console.log("Doubled:", doubled);
+`;
+
+const STORAGE_KEYS = {
+  code: "typesugar-playground-code",
+  fileType: "typesugar-playground-fileType",
+  tsVersion: "typesugar-playground-tsVersion",
+  showConsole: "typesugar-playground-showConsole",
+};
+
+const EXAMPLE_PRESETS: ExamplePreset[] = [
+  {
+    name: "Welcome",
+    description: "Introduction to the playground",
+    fileType: ".ts",
+    code: DEFAULT_CODE,
+  },
+  {
+    name: "@typeclass Eq",
+    description: "Define a typeclass for equality",
+    fileType: ".ts",
+    code: `import { typeclass, impl } from "typesugar";
+
+/**
+ * @typeclass
+ * A typeclass for types that can be compared for equality
+ */
+interface Eq<T> {
+  equals(a: T, b: T): boolean;
+}
+
+// Instance for number
+/** @impl */
+const EqNumber: Eq<number> = {
+  equals: (a, b) => a === b,
+};
+
+// Instance for string
+/** @impl */
+const EqString: Eq<string> = {
+  equals: (a, b) => a === b,
+};
+
+// Generic array equality (requires Eq for element type)
+/** @impl */
+function EqArray<T>(eq: Eq<T>): Eq<T[]> {
+  return {
+    equals: (a, b) => 
+      a.length === b.length && 
+      a.every((val, i) => eq.equals(val, b[i])),
+  };
+}
+
+// Test it out
+console.log("1 === 1:", EqNumber.equals(1, 1));
+console.log("'hello' === 'world':", EqString.equals("hello", "world"));
+console.log("[1,2,3] === [1,2,3]:", EqArray(EqNumber).equals([1,2,3], [1,2,3]));
 `,
+  },
+  {
+    name: "@derive",
+    description: "Auto-generate trait implementations",
+    fileType: ".ts",
+    code: `import { derive, Eq, Clone, Debug } from "typesugar";
+
+/**
+ * @derive Eq, Clone, Debug
+ * A simple 2D point class with auto-generated implementations
+ */
+class Point {
+  constructor(
+    public x: number,
+    public y: number
+  ) {}
+}
+
+const p1 = new Point(10, 20);
+const p2 = new Point(10, 20);
+const p3 = new Point(5, 15);
+
+// Derived Eq - structural equality
+console.log("p1 equals p2:", p1.equals(p2)); // true
+console.log("p1 equals p3:", p1.equals(p3)); // false
+
+// Derived Clone - deep copy
+const p1Clone = p1.clone();
+console.log("Cloned:", p1Clone);
+
+// Derived Debug - pretty print
+console.log("Debug:", p1.debug());
+`,
+  },
+  {
+    name: "Pipeline Operator",
+    description: "Chain transformations with |>",
+    fileType: ".sts",
+    code: `// Pipeline operator |> for readable data transformations
+// (Sugar TypeScript syntax - .sts file)
+
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+// Without pipeline - hard to read
+const result1 = numbers
+  .filter(n => n % 2 === 0)
+  .map(n => n * 2)
+  .reduce((a, b) => a + b, 0);
+
+// With pipeline - clear data flow
+const result2 = numbers
+  |> (nums => nums.filter(n => n % 2 === 0))
+  |> (nums => nums.map(n => n * 2))
+  |> (nums => nums.reduce((a, b) => a + b, 0));
+
+console.log("Result:", result2); // 60 (2+4+6+8+10 doubled)
+
+// Works great with custom functions
+const double = (x: number) => x * 2;
+const addOne = (x: number) => x + 1;
+const toString = (x: number) => \`Value: \${x}\`;
+
+const transformed = 5
+  |> double
+  |> addOne
+  |> toString;
+
+console.log(transformed); // "Value: 11"
+`,
+  },
+  {
+    name: "@extension",
+    description: "Add methods to existing types",
+    fileType: ".ts",
+    code: `import { extension } from "typesugar";
+
+/**
+ * @extension Array
+ * Add useful methods to arrays
+ */
+interface ArrayExtensions<T> {
+  first(): T | undefined;
+  last(): T | undefined;
+  isEmpty(): boolean;
+  sum(this: number[]): number;
+  groupBy<K extends string | number>(fn: (item: T) => K): Record<K, T[]>;
+}
+
+// Now use the extensions
+const numbers = [1, 2, 3, 4, 5];
+
+console.log("First:", numbers.first()); // 1
+console.log("Last:", numbers.last());   // 5
+console.log("Empty?:", numbers.isEmpty()); // false
+console.log("Sum:", numbers.sum()); // 15
+
+const people = [
+  { name: "Alice", age: 30 },
+  { name: "Bob", age: 25 },
+  { name: "Charlie", age: 30 },
+];
+
+const byAge = people.groupBy(p => p.age);
+console.log("Grouped by age:", byAge);
+`,
+  },
+  {
+    name: "HKT Syntax",
+    description: "Higher-Kinded Types with F<_>",
+    fileType: ".sts",
+    code: `// Higher-Kinded Types (HKT) with F<_> syntax
+// (Sugar TypeScript syntax - .sts file)
+
+// Define a Functor typeclass using HKT
+interface Functor<F<_>> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
+
+// Array is a Functor
+const ArrayFunctor: Functor<Array> = {
+  map: (fa, f) => fa.map(f),
+};
+
+// Maybe/Option type
+type Maybe<A> = { tag: "Some"; value: A } | { tag: "None" };
+
+const some = <A>(value: A): Maybe<A> => ({ tag: "Some", value });
+const none: Maybe<never> = { tag: "None" };
+
+// Maybe is also a Functor
+const MaybeFunctor: Functor<Maybe> = {
+  map: (fa, f) => fa.tag === "Some" 
+    ? some(f(fa.value)) 
+    : none,
+};
+
+// Generic function that works with any Functor
+function doubleAll<F<_>>(functor: Functor<F>, fa: F<number>): F<number> {
+  return functor.map(fa, n => n * 2);
+}
+
+// Works with Array
+const doubled = doubleAll(ArrayFunctor, [1, 2, 3]);
+console.log("Doubled array:", doubled); // [2, 4, 6]
+
+// Works with Maybe
+const maybeDouble = doubleAll(MaybeFunctor, some(21));
+console.log("Doubled maybe:", maybeDouble); // { tag: "Some", value: 42 }
+`,
+  },
+];
+
+const props = withDefaults(
+  defineProps<{
+    initialCode?: string;
+    initialFileType?: ".ts" | ".sts";
+  }>(),
+  {
+    initialCode: DEFAULT_CODE,
     initialFileType: ".ts",
   }
 );
@@ -73,6 +290,11 @@ const transformTime = ref<number>(0);
 const activeTab = ref<"js" | "errors">("js");
 const consoleMessages = ref<ConsoleMessage[]>([]);
 const showConsole = ref(true);
+
+// Sharing state
+const shareTooltip = ref<string | null>(null);
+const showPresetsDropdown = ref(false);
+const selectedPreset = ref<string>("Welcome");
 
 const fileName = computed(() => `input${fileType.value}`);
 
@@ -455,34 +677,83 @@ async function runCode() {
   }, 6000);
 }
 
-function copyShareUrl() {
+// --- Sharing Functions ---
+
+function buildShareUrl(): string {
   const code = inputEditor.value?.getValue() ?? "";
+  const compressed = compressToEncodedURIComponent(code);
   const params = new URLSearchParams({
-    code: btoa(encodeURIComponent(code)),
+    code: compressed,
     mode: fileType.value,
     ts: tsVersion.value,
   });
-  const url = `${window.location.origin}${window.location.pathname}#${params.toString()}`;
-  navigator.clipboard.writeText(url);
-  
-  // Brief visual feedback could be added here
+  return `${window.location.origin}${window.location.pathname}#${params.toString()}`;
 }
 
-function loadFromUrl() {
-  if (typeof window === "undefined") return;
+function copyShareUrl() {
+  const url = buildShareUrl();
+  navigator.clipboard.writeText(url).then(() => {
+    showTooltip("Link copied!");
+    // Update URL without reload
+    history.replaceState(null, "", url);
+  }).catch(() => {
+    showTooltip("Failed to copy");
+  });
+}
+
+function copyCode() {
+  const code = inputEditor.value?.getValue() ?? "";
+  navigator.clipboard.writeText(code).then(() => {
+    showTooltip("Code copied!");
+  }).catch(() => {
+    showTooltip("Failed to copy");
+  });
+}
+
+function copyOutputCode() {
+  const code = outputEditor.value?.getValue() ?? "";
+  navigator.clipboard.writeText(code).then(() => {
+    showTooltip("Output copied!");
+  }).catch(() => {
+    showTooltip("Failed to copy");
+  });
+}
+
+function showTooltip(message: string) {
+  shareTooltip.value = message;
+  setTimeout(() => {
+    shareTooltip.value = null;
+  }, 2000);
+}
+
+function loadFromUrl(): boolean {
+  if (typeof window === "undefined") return false;
   
   const hash = window.location.hash.slice(1);
-  if (!hash) return;
+  if (!hash) return false;
 
   try {
     const params = new URLSearchParams(hash);
-    const encodedCode = params.get("code");
+    const compressedCode = params.get("code");
     const mode = params.get("mode") as ".ts" | ".sts" | null;
     const ts = params.get("ts");
 
-    if (encodedCode) {
-      const code = decodeURIComponent(atob(encodedCode));
-      inputEditor.value?.setValue(code);
+    if (compressedCode) {
+      // Try lz-string decompression first
+      let code = decompressFromEncodedURIComponent(compressedCode);
+      
+      // Fallback to old base64 format for backwards compatibility
+      if (!code) {
+        try {
+          code = decodeURIComponent(atob(compressedCode));
+        } catch {
+          code = null;
+        }
+      }
+      
+      if (code) {
+        inputEditor.value?.setValue(code);
+      }
     }
     if (mode === ".ts" || mode === ".sts") {
       fileType.value = mode;
@@ -490,9 +761,83 @@ function loadFromUrl() {
     if (ts) {
       tsVersion.value = ts;
     }
+    return true;
   } catch (e) {
     console.error("Failed to load from URL:", e);
+    return false;
   }
+}
+
+// --- LocalStorage Persistence ---
+
+function saveToStorage() {
+  if (typeof localStorage === "undefined") return;
+  
+  try {
+    const code = inputEditor.value?.getValue() ?? "";
+    localStorage.setItem(STORAGE_KEYS.code, code);
+    localStorage.setItem(STORAGE_KEYS.fileType, fileType.value);
+    localStorage.setItem(STORAGE_KEYS.tsVersion, tsVersion.value);
+    localStorage.setItem(STORAGE_KEYS.showConsole, String(showConsole.value));
+  } catch (e) {
+    console.warn("Failed to save to localStorage:", e);
+  }
+}
+
+function loadFromStorage(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  
+  try {
+    const savedCode = localStorage.getItem(STORAGE_KEYS.code);
+    const savedFileType = localStorage.getItem(STORAGE_KEYS.fileType) as ".ts" | ".sts" | null;
+    const savedTsVersion = localStorage.getItem(STORAGE_KEYS.tsVersion);
+    const savedShowConsole = localStorage.getItem(STORAGE_KEYS.showConsole);
+
+    if (savedCode && inputEditor.value) {
+      inputEditor.value.setValue(savedCode);
+    }
+    if (savedFileType === ".ts" || savedFileType === ".sts") {
+      fileType.value = savedFileType;
+    }
+    if (savedTsVersion) {
+      tsVersion.value = savedTsVersion;
+    }
+    if (savedShowConsole !== null) {
+      showConsole.value = savedShowConsole === "true";
+    }
+    
+    return !!savedCode;
+  } catch (e) {
+    console.warn("Failed to load from localStorage:", e);
+    return false;
+  }
+}
+
+// --- Example Presets ---
+
+function loadPreset(preset: ExamplePreset) {
+  inputEditor.value?.setValue(preset.code);
+  fileType.value = preset.fileType;
+  selectedPreset.value = preset.name;
+  showPresetsDropdown.value = false;
+  
+  // Update language if needed
+  if (inputEditor.value && monaco.value) {
+    const model = inputEditor.value.getModel();
+    if (model) {
+      monaco.value.editor.setModelLanguage(model, preset.fileType === ".sts" ? "sts" : "typescript");
+    }
+  }
+  
+  doTransform();
+}
+
+function togglePresetsDropdown() {
+  showPresetsDropdown.value = !showPresetsDropdown.value;
+}
+
+function closePresetsDropdown() {
+  showPresetsDropdown.value = false;
 }
 
 function clearConsole() {
@@ -538,6 +883,7 @@ async function initMonaco() {
 
       inputEditor.value.onDidChangeModelContent(() => {
         scheduleTransform();
+        scheduleSave();
       });
 
       // Keyboard shortcuts
@@ -569,8 +915,25 @@ async function initMonaco() {
     }
 
     isLoading.value = false;
+    
+    // Priority: URL hash > localStorage > default
+    const loadedFromUrl = loadFromUrl();
+    if (!loadedFromUrl) {
+      const loadedFromStorage = loadFromStorage();
+      if (!loadedFromStorage) {
+        // Keep the default initialCode from props
+      }
+    }
+    
+    // Update language based on loaded fileType
+    if (inputEditor.value && monaco.value) {
+      const model = inputEditor.value.getModel();
+      if (model) {
+        monacoInstance.editor.setModelLanguage(model, fileType.value === ".sts" ? "sts" : "typescript");
+      }
+    }
+    
     doTransform();
-    loadFromUrl();
 
     const observer = new MutationObserver(() => {
       const isDark = document.documentElement.classList.contains("dark");
@@ -578,10 +941,29 @@ async function initMonaco() {
       monacoInstance.editor.setTheme(newTheme);
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    
+    // Close presets dropdown when clicking outside
+    document.addEventListener("click", handleDocumentClick);
   } catch (e) {
     console.error("Failed to initialize Monaco:", e);
     transformError.value = `Failed to load editor: ${e}`;
     isLoading.value = false;
+  }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  saveTimer = setTimeout(saveToStorage, 1000);
+}
+
+function handleDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.closest(".presets-dropdown-container")) {
+    showPresetsDropdown.value = false;
   }
 }
 
@@ -603,6 +985,15 @@ watch(fileType, (newType) => {
       monaco.value.editor.setModelLanguage(model, newType === ".sts" ? "sts" : "typescript");
     }
   }
+  saveToStorage();
+});
+
+watch(tsVersion, () => {
+  saveToStorage();
+});
+
+watch(showConsole, () => {
+  saveToStorage();
 });
 
 onMounted(() => {
@@ -613,6 +1004,10 @@ onUnmounted(() => {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  document.removeEventListener("click", handleDocumentClick);
   inputEditor.value?.dispose();
   outputEditor.value?.dispose();
 });
@@ -620,9 +1015,44 @@ onUnmounted(() => {
 
 <template>
   <div class="playground-container">
+    <!-- Tooltip for copy feedback -->
+    <Transition name="tooltip">
+      <div v-if="shareTooltip" class="share-tooltip">
+        {{ shareTooltip }}
+      </div>
+    </Transition>
+
     <!-- Toolbar -->
     <div class="toolbar">
       <div class="toolbar-left">
+        <!-- Example Presets Dropdown -->
+        <div class="presets-dropdown-container">
+          <button 
+            class="presets-btn"
+            @click="togglePresetsDropdown"
+            title="Load example preset"
+          >
+            <span class="presets-icon">📚</span>
+            Examples
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <Transition name="dropdown">
+            <div v-if="showPresetsDropdown" class="presets-dropdown">
+              <button 
+                v-for="preset in EXAMPLE_PRESETS" 
+                :key="preset.name"
+                class="preset-item"
+                :class="{ active: selectedPreset === preset.name }"
+                @click="loadPreset(preset)"
+              >
+                <span class="preset-name">{{ preset.name }}</span>
+                <span class="preset-type">{{ preset.fileType }}</span>
+                <span class="preset-desc">{{ preset.description }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
+
         <div class="file-type-toggle">
           <button
             :class="{ active: fileType === '.ts' }"
@@ -664,13 +1094,22 @@ onUnmounted(() => {
           <span v-else>▶</span>
           Run
         </button>
-        <button 
-          class="share-btn" 
-          @click="copyShareUrl"
-          title="Copy share URL (Cmd+S)"
-        >
-          Share
-        </button>
+        <div class="share-buttons">
+          <button 
+            class="share-btn" 
+            @click="copyShareUrl"
+            title="Copy share URL (Cmd+S)"
+          >
+            🔗 Share
+          </button>
+          <button 
+            class="copy-btn" 
+            @click="copyCode"
+            title="Copy input code"
+          >
+            📋 Copy
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1227,6 +1666,164 @@ onUnmounted(() => {
   color: var(--vp-c-text-2);
 }
 
+/* Share tooltip */
+.share-tooltip {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--vp-c-brand-1);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.tooltip-enter-active,
+.tooltip-leave-active {
+  transition: all 0.2s ease;
+}
+
+.tooltip-enter-from,
+.tooltip-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
+}
+
+/* Presets dropdown */
+.presets-dropdown-container {
+  position: relative;
+}
+
+.presets-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.presets-btn:hover {
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-text-1);
+}
+
+.presets-icon {
+  font-size: 14px;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.presets-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 280px;
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.preset-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.preset-item:last-child {
+  border-bottom: none;
+}
+
+.preset-item:hover {
+  background: var(--vp-c-bg-soft);
+}
+
+.preset-item.active {
+  background: var(--vp-c-brand-soft);
+}
+
+.preset-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--vp-c-text-1);
+}
+
+.preset-type {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.preset-desc {
+  font-size: 12px;
+  color: var(--vp-c-text-3);
+}
+
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.15s ease;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* Share buttons group */
+.share-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-2);
+  transition: all 0.2s;
+}
+
+.copy-btn:hover {
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-text-1);
+}
+
 @media (max-width: 768px) {
   .editors-container {
     grid-template-columns: 1fr;
@@ -1241,6 +1838,14 @@ onUnmounted(() => {
     order: 3;
     width: 100%;
     justify-content: flex-start;
+  }
+  
+  .presets-dropdown {
+    min-width: 240px;
+  }
+  
+  .share-buttons {
+    flex-wrap: wrap;
   }
 }
 </style>

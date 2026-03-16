@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** In Progress (Wave 3 complete)
+**Status:** In Progress (Wave 4 complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -402,18 +402,28 @@ For running transformed code:
 
 **Tasks:**
 
-- [ ] Implement URL hash encoding with lz-string compression
-- [ ] Add "Share" button that copies URL to clipboard
-- [ ] Add "Copy Link" and "Copy Code" buttons
-- [ ] Load state from URL hash on page load
-- [ ] Add example presets dropdown (common typesugar patterns)
-- [ ] LocalStorage: remember last code, settings, file type
+- [x] Implement URL hash encoding with lz-string compression
+- [x] Add "Share" button that copies URL to clipboard
+- [x] Add "Copy Link" and "Copy Code" buttons
+- [x] Load state from URL hash on page load
+- [x] Add example presets dropdown (common typesugar patterns)
+- [x] LocalStorage: remember last code, settings, file type
 
 **Gate:**
 
-- [ ] Share URL works: paste URL → same code appears
-- [ ] Example presets load correctly
-- [ ] Settings persist across page reloads
+- [x] Share URL works: paste URL → same code appears
+- [x] Example presets load correctly
+- [x] Settings persist across page reloads
+
+**Notes (Wave 4 implementation):**
+
+- URL encoding uses lz-string `compressToEncodedURIComponent` for efficient compression
+- Backwards compatible: supports both new lz-string format and old base64 format
+- Share button shows tooltip feedback ("Link copied!") and updates browser URL
+- Copy button copies input code to clipboard
+- Example presets include: Welcome, @typeclass Eq, @derive, Pipeline Operator, @extension, HKT Syntax
+- LocalStorage saves code, file type, TS version, and console visibility
+- Auto-save debounced to 1 second after editing stops
 
 ### Wave 5: Embedded Playgrounds
 
