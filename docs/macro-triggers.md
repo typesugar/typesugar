@@ -58,7 +58,7 @@ defineExpressionMacro({
 });
 ```
 
-**Transformer Location:** `tryExpandExpressionMacro()` in `macro-transformer.ts:1305`
+**Transformer Location:** `tryExpandExpressionMacro()` in `packages/transformer-core/src/transformer.ts`
 
 ---
 
@@ -101,7 +101,7 @@ defineAttributeMacro({
 });
 ```
 
-**Transformer Location:** `tryExpandAttributeMacros()` in `macro-transformer.ts:1866`
+**Transformer Location:** `tryExpandAttributeMacros()` in `packages/transformer-core/src/transformer.ts`
 
 ---
 
@@ -137,7 +137,7 @@ defineDeriveMacro({
 });
 ```
 
-**Transformer Location:** `expandDeriveDecorator()` in `macro-transformer.ts:2058`
+**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts`
 
 ---
 
@@ -171,7 +171,7 @@ defineTaggedTemplateMacro({
 });
 ```
 
-**Transformer Location:** `tryExpandTaggedTemplate()` in `macro-transformer.ts:2448`
+**Transformer Location:** `tryExpandTaggedTemplate()` in `packages/transformer-core/src/rewriting.ts`
 
 ---
 
@@ -205,7 +205,7 @@ defineTypeMacro({
 });
 ```
 
-**Transformer Location:** `tryExpandTypeMacro()` in `macro-transformer.ts:2548`
+**Transformer Location:** `tryExpandTypeMacro()` in `packages/transformer-core/src/rewriting.ts`
 
 ---
 
@@ -246,7 +246,7 @@ defineLabeledBlockMacro({
 });
 ```
 
-**Transformer Location:** `visitStatementContainer()` in `macro-transformer.ts:949`
+**Transformer Location:** `visitStatementContainer()` in `packages/transformer-core/src/transformer.ts`
 
 ---
 
@@ -273,7 +273,7 @@ The `F<_>` syntax indicates "F is a type constructor that takes one type argumen
 1. Strips the `<_>` from the type parameter
 2. Rewrites all `F<A>` applications to `Kind<F, A>` (the HKT encoding)
 
-**Transformer Location:** `tryTransformHKTDeclaration()` in `macro-transformer.ts:2622`
+**Transformer Location:** `tryTransformHKTDeclaration()` in `packages/transformer-core/src/rewriting.ts`
 
 ---
 
@@ -299,7 +299,7 @@ This enables Scala 3-style implicit extension methods. When the transformer sees
 - The type must have a typeclass instance (auto-derived, or explicitly via `@instance` or `@deriving`)
 - The method must be declared in the typeclass
 
-**Transformer Location:** `tryRewriteExtensionMethod()` in `macro-transformer.ts:2668`
+**Transformer Location:** `tryRewriteExtensionMethod()` in `packages/transformer-core/src/rewriting.ts`
 
 ---
 
@@ -343,7 +343,7 @@ const c = { x: a.x + b.x, y: a.y + b.y };
 - `Ord`: `<` → `compare` (and others)
 - `Semigroup`: `+` → `combine`
 
-**Transformer Location:** `tryRewriteTypeclassOperator()` in `macro-transformer.ts:2796`
+**Transformer Location:** `tryRewriteTypeclassOperator()` in `packages/transformer-core/src/rewriting.ts`
 
 ---
 
@@ -377,7 +377,7 @@ When the transformer sees a call where an argument resolves to a registered inst
 
 **Opt-out:** Add `// @no-specialize` comment before the call to skip inlining.
 
-**Transformer Location:** `tryAutoSpecialize()` in `macro-transformer.ts:1437`
+**Transformer Location:** `tryAutoSpecialize()` in `packages/transformer-core/src/specialization.ts`
 
 ---
 

@@ -47,10 +47,15 @@ Extract a browser-compatible transformation core that both environments use:
 
 ```
 @typesugar/transformer-core (NEW)   <- Pure transformation logic
-├── transformer.ts                   <- MacroTransformer class
-├── visitor.ts                       <- AST visitor utilities
-├── expansion-tracker.ts             <- Source map generation
-└── types.ts                         <- Shared types
+├── transformer.ts                   <- MacroTransformer class (thin delegating methods)
+├── transformer-utils.ts             <- Pure utilities (safeGetNodeText, error helpers, etc.)
+├── import-resolution.ts             <- Import tracking, macro resolution, extension checks
+├── specialization.ts               <- Auto-specialization pipeline
+├── macro-helpers.ts                <- JSDoc macros, decorator parsing, derive expansion
+├── rewriting.ts                    <- Extension methods, operators, HKT, tagged templates, type macros
+├── transform.ts                    <- transformCode() entry point
+├── types.ts                         <- Shared types
+└── ...                             <- Source maps, position mapping, etc.
 
       ↑                    ↑
       │                    │
