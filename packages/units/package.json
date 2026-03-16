@@ -28,7 +28,8 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "keywords": [
     "typescript",
@@ -39,6 +40,9 @@
   ],
   "dependencies": {
     "@typesugar/core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"
