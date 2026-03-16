@@ -1,6 +1,6 @@
 # PEP-015: Browser-Compatible Transformer Core
 
-**Status:** In Progress (Wave 2 Complete)
+**Status:** In Progress (Wave 3 Verified)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -108,15 +108,15 @@ Extract a browser-compatible transformation core that both environments use:
 
 **Tasks:**
 
-- [ ] Add `transformCode(code, options)` function to core
-- [ ] Options: `{ fileName, program?, compilerHost?, verbose? }`
-- [ ] Default program creation uses in-memory virtual files
-- [ ] Return `{ code, sourceMap, diagnostics, changed }`
+- [x] Add `transformCode(code, options)` function to core
+- [x] Options: `{ fileName, program?, compilerHost?, verbose? }`
+- [x] Default program creation uses in-memory virtual files
+- [x] Return `{ code, sourceMap, diagnostics, changed }`
 
 **Gate:**
 
-- [ ] Unit tests pass with in-memory programs
-- [ ] No file system access in core transform path
+- [x] Unit tests pass with in-memory programs
+- [x] No file system access in core transform path
 
 ### Wave 4: Migrate Playground to Use Core
 

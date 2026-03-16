@@ -52,3 +52,6 @@ export {
 
 // MacroTransformer class - the core transformation engine
 export { MacroTransformer } from "./transformer.js";
+
+// Browser-compatible transform function
+export { transformCode, type TransformCodeOptions, type TransformCodeResult } from "./transform.js";
