@@ -185,7 +185,8 @@ export function safeParseAll<F>(
         const nel: any = result.error;
         errors.push(nel.head);
         let current: any = nel.tail;
-        while (current._tag === "Cons") {
+        // PEP-014 Wave 2: List uses null-based Nil
+        while (current !== null) {
           errors.push(current.head);
           current = current.tail;
         }
@@ -252,7 +253,8 @@ export function nativeSafeParseAll(
         const nel: any = result.error;
         errors.push(nel.head);
         let current: any = nel.tail;
-        while (current._tag === "Cons") {
+        // PEP-014 Wave 2: List uses null-based Nil
+        while (current !== null) {
           errors.push(current.head);
           current = current.tail;
         }

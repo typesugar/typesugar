@@ -447,7 +447,8 @@ describe("Validate Edge Cases", () => {
             _tag: "Invalid" as const,
             error: {
               head: { path: "$", message: `Invalid: ${typeof data}` },
-              tail: { _tag: "Nil" as const },
+              // PEP-014 Wave 2: Nil is null at runtime
+              tail: null,
             },
           };
         }
@@ -480,7 +481,8 @@ describe("Validate Edge Cases", () => {
             _tag: "Invalid" as const,
             error: {
               head: { path: "$", message: "Invalid" },
-              tail: { _tag: "Nil" as const },
+              // PEP-014 Wave 2: Nil is null at runtime
+              tail: null,
             },
           };
         }

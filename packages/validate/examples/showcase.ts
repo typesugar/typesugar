@@ -139,7 +139,8 @@ const customSchema = makeNativeSchema(
       _tag: "Invalid" as const,
       error: {
         head: { path: "$", message: "Custom validation failed" },
-        tail: { _tag: "Nil" as const },
+        // PEP-014 Wave 2: Nil is null at runtime
+        tail: null,
       },
     } as any;
   },

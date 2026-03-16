@@ -75,9 +75,9 @@ export function fromArray<A>(arr: readonly A[]): Option<NonEmptyList<A>> {
  * Create a NonEmptyList from a List (fails if empty)
  */
 export function fromList<A>(list: List<A>): Option<NonEmptyList<A>> {
-  const l: any = list;
-  if (l._tag === "Nil") return None;
-  return Some(NonEmptyList(l.head, l.tail));
+  // PEP-014 Wave 2: List uses null-based Nil
+  if (list === null) return None;
+  return Some(NonEmptyList(list.head, list.tail));
 }
 
 /**
@@ -309,9 +309,9 @@ export function reduceRight<A>(nel: NonEmptyList<A>, f: (a: A, b: A) => A): A {
 }
 
 function unsafeFromList<A>(list: List<A>): NonEmptyList<A> {
-  const l: any = list;
-  if (l._tag === "Nil") throw new Error("Cannot create NonEmptyList from empty list");
-  return NonEmptyList(l.head, l.tail);
+  // PEP-014 Wave 2: List uses null-based Nil
+  if (list === null) throw new Error("Cannot create NonEmptyList from empty list");
+  return NonEmptyList(list.head, list.tail);
 }
 
 // ============================================================================

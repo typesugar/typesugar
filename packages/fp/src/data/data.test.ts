@@ -27,6 +27,8 @@ import {
   reverse,
   append,
   length,
+  isCons,
+  isNil,
 } from "./list.js";
 
 // ============================================================================
@@ -160,13 +162,16 @@ describe("Either", () => {
 
 describe("List", () => {
   describe("constructors", () => {
-    it("Nil should represent empty list", () => {
-      expect(Nil._tag).toBe("Nil");
+    it("Nil should represent empty list (null at runtime)", () => {
+      // PEP-014 Wave 2: Nil is null at runtime for zero-cost empty
+      expect(Nil).toBe(null);
     });
 
-    it("Cons should construct a list", () => {
+    it("Cons should construct a list with head/tail (no _tag)", () => {
       const list = Cons(1, Cons(2, Cons(3, Nil)));
-      expect(list._tag).toBe("Cons");
+      // PEP-014 Wave 2: Cons has head/tail fields, no _tag
+      expect(list.head).toBe(1);
+      expect(list.tail).not.toBe(null);
     });
 
     it("fromArray should convert array to list", () => {
@@ -220,7 +225,8 @@ describe("List", () => {
 
     it("map on empty list should return empty", () => {
       const mapped = listMap(Nil as List<number>, (x) => x * 2);
-      expect(mapped).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(mapped).toBe(null);
     });
   });
 
@@ -233,7 +239,8 @@ describe("List", () => {
 
     it("flatMap on empty list should return empty", () => {
       const result = listFlatMap(Nil as List<number>, (x) => fromArray([x]));
-      expect(result).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(result).toBe(null);
     });
   });
 
@@ -246,7 +253,8 @@ describe("List", () => {
 
     it("filter on empty list should return empty", () => {
       const filtered = listFilter(Nil as List<number>, (x) => x > 0);
-      expect(filtered).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(filtered).toBe(null);
     });
   });
 
@@ -284,7 +292,8 @@ describe("List", () => {
     });
 
     it("reverse of empty list should be empty", () => {
-      expect(reverse(Nil)).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(reverse(Nil)).toBe(null);
     });
 
     it("append should concatenate lists", () => {
@@ -298,6 +307,28 @@ describe("List", () => {
       const list = fromArray([1, 2, 3]);
       expect(toArray(append(Nil, list))).toEqual([1, 2, 3]);
       expect(toArray(append(list, Nil))).toEqual([1, 2, 3]);
+    });
+  });
+
+  describe("type guards", () => {
+    it("isCons should identify non-empty lists", () => {
+      const list = Cons(1, Nil);
+      expect(isCons(list)).toBe(true);
+      expect(isCons(Nil)).toBe(false);
+    });
+
+    it("isNil should identify empty lists", () => {
+      expect(isNil(Nil)).toBe(true);
+      expect(isNil(Cons(1, Nil))).toBe(false);
+    });
+
+    it("null-check should narrow to Cons", () => {
+      const list: List<number> = Cons(1, Cons(2, Nil));
+      if (list !== null) {
+        // TypeScript narrows to Cons
+        expect(list.head).toBe(1);
+        expect(list.tail).not.toBe(null);
+      }
     });
   });
 
