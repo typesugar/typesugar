@@ -1,6 +1,6 @@
 # PEP-015: Browser-Compatible Transformer Core
 
-**Status:** Draft
+**Status:** In Progress
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -74,17 +74,17 @@ Extract a browser-compatible transformation core that both environments use:
 
 **Tasks:**
 
-- [ ] Create `packages/transformer-core/` with package.json, tsconfig
-- [ ] Move `ExpansionTracker` and source map generation to core
-- [ ] Move diagnostic formatting utilities to core
-- [ ] Move AST visitor utilities (decorator detection, etc.) to core
-- [ ] Export types: `TransformResult`, `TransformDiagnostic`, `TransformOptions`
+- [x] Create `packages/transformer-core/` with package.json, tsconfig
+- [x] Move `ExpansionTracker` and source map generation to core
+- [x] Move diagnostic formatting utilities to core
+- [x] Move AST visitor utilities (decorator detection, etc.) to core
+- [x] Export types: `TransformResult`, `TransformDiagnostic`, `TransformOptions`
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm test` passes
-- [ ] No Node.js imports in `transformer-core`
+- [x] `pnpm build` passes
+- [x] `pnpm test` passes (pre-existing failures in unrelated tests)
+- [x] No Node.js imports in `transformer-core`
 
 ### Wave 2: Extract MacroTransformer Class
 

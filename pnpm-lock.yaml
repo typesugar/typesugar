@@ -624,6 +624,22 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
+  packages/transformer-core:
+    dependencies:
+      '@ampproject/remapping':
+        specifier: ^2.3.0
+        version: 2.3.0
+      '@typesugar/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+    devDependencies:
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
+
   packages/ts-plugin:
     dependencies:
       '@typesugar/transformer':
