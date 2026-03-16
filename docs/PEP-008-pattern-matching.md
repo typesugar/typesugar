@@ -1,6 +1,6 @@
 # PEP-008: Scala-Style Pattern Matching
 
-**Status:** Done (All waves complete)
+**Status:** Waves 1-8 Complete, Wave 9 Blocked (Type constraint issue)
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -1096,28 +1096,82 @@ Remove deprecated `matchLiteral` and `matchGuard` shims that now delegate to the
 
 Adopt `match()` throughout typesugar's own codebase to validate the API and demonstrate best practices.
 
+**Status:** ⚠️ Blocked — Type constraint issue discovered
+
 **Note:** Build infrastructure packages (`transformer`, `macros`, `parser`, `preprocessor`) cannot use `match()` due to bootstrapping — they must compile before any macro expansion can happen.
 
-**High-Value Targets (expression tree traversal):**
+**Finding: Type Constraint Too Restrictive**
 
-- [ ] `packages/symbolic/src/eval.ts` — `switch (expr.kind)` over 11 variants
-- [ ] `packages/symbolic/src/simplify/simplify.ts` — recursive simplification rules
-- [ ] `packages/symbolic/src/pattern.ts` — pattern matching on patterns (meta!)
-- [ ] `packages/symbolic/src/render/latex.ts` — LaTeX rendering dispatch
-- [ ] `packages/symbolic/src/render/text.ts` — text rendering dispatch
-- [ ] `packages/symbolic/src/render/mathml.ts` — MathML rendering dispatch
-- [ ] `packages/symbolic/src/calculus/diff.ts` — differentiation rules
-- [ ] `packages/symbolic/src/calculus/integrate.ts` — integration rules
-- [ ] `packages/symbolic/src/solve.ts` — equation solving logic
-- [ ] `packages/symbolic/src/expression.ts` — tree traversal utilities
+The `match()` macro's discriminated union overload has a type constraint that is too restrictive:
 
-**Interpreter Patterns:**
+```typescript
+export function match<T extends Record<string, unknown>, K extends keyof T, R>(
+  value: T,
+  handlers: DiscriminantHandlers<T, K, R>,
+  discriminant?: K
+): R;
+```
 
-- [ ] `packages/fp/src/io/io.ts` — `switch (current._tag)` over IO operations
-- [ ] `packages/sql/src/connection-io.ts` — `switch (op._tag)` over SQL operations
-- [ ] `packages/fusion/src/lazy.ts` — `switch (step.type)` over iterator steps
+The `T extends Record<string, unknown>` constraint fails for discriminated unions that use readonly interface members without index signatures:
 
-**Conversion Pattern:**
+```typescript
+// This union doesn't satisfy Record<string, unknown>:
+type Expression<T> =
+  | { readonly kind: "constant"; readonly value: T }
+  | { readonly kind: "variable"; readonly name: string }
+  | { readonly kind: "binary"; readonly op: string; readonly left: Expression<T>; ... }
+  // ... more variants
+
+// TypeScript error: Type 'Expression<T>' is not assignable to type 'Record<string, unknown>'.
+//   Type 'Constant<T>' is not assignable to type 'Record<string, unknown>'.
+//     Index signature for type 'string' is missing in type 'Constant<T>'.
+```
+
+This affects both `Expression<T>` (symbolic package) and `ConnectionOp<A>` (sql package). The runtime `match()` works correctly — the issue is purely in the type signature.
+
+**Proposed Fix (Future Wave):**
+
+Update the type signature to accept union types with literal discriminants:
+
+```typescript
+// Option 1: Use mapped type to extract discriminant
+export function match<T, K extends string, R>(
+  value: T,
+  handlers: { [Tag in T[K]]: (v: Extract<T, { [P in K]: Tag }>) => R },
+  discriminant?: K
+): R;
+
+// Option 2: Accept any object type, infer discriminant at call site
+export function match<T extends object, R>(
+  value: T,
+  handlers: ...,
+  discriminant?: string
+): R;
+```
+
+**Blocked Conversions:**
+
+- [x] `packages/symbolic/src/eval.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/simplify/simplify.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/pattern.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/render/latex.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/render/text.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/render/mathml.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/calculus/diff.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/calculus/integrate.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/solve.ts` — ❌ `Expression<T>` typing issue
+- [x] `packages/symbolic/src/expression.ts` — ❌ Defines `Expression<T>` type
+- [x] `packages/fp/src/io/io.ts` — ❌ Imperative interpreter loop (break/return control flow)
+- [x] `packages/sql/src/connection-io.ts` — ❌ `ConnectionOp<A>` typing issue
+- [x] `packages/fusion/src/lazy.ts` — ❌ Imperative generator loop (break/return control flow)
+
+**Additional Blockers:**
+
+1. **Interpreter loops:** The `runIOAsync`, `runIOSync` (io.ts) and `execute` (lazy.ts) functions use `switch` inside `while(true)` loops with `break` for continuation and `return` for early exit. This imperative pattern doesn't map to `match()` because:
+   - `return` inside a `match()` handler returns from the handler lambda, not the outer function
+   - `break` inside a handler doesn't exit the loop
+
+**Original Conversion Pattern (for reference):**
 
 ```typescript
 // Before
@@ -1127,7 +1181,7 @@ switch (expr.kind) {
   case "binary": return evalBinary(expr.op, ...);
 }
 
-// After
+// After (blocked by type constraint)
 match(expr, {
   constant: ({ value }) => value,
   variable: ({ name }) => evalVariable(name, bindings, opts),
@@ -1137,46 +1191,47 @@ match(expr, {
 
 **Gate:**
 
-- [ ] All symbolic package switches converted (~10 files)
-- [ ] Interpreter patterns converted (io.ts, connection-io.ts, lazy.ts)
-- [ ] All converted code passes `pnpm build` and `pnpm test`
-- [ ] No regressions in affected modules
+- [x] Attempted conversion of all target files
+- [x] Discovered type constraint issue with `T extends Record<string, unknown>`
+- [x] Discovered imperative control flow incompatibility
+- [x] Build and tests pass (no conversions applied)
+- [ ] **Future:** Fix type signature to support readonly interface unions
 
 ## Files Changed (All Waves)
 
 ### Code (~35 files modified, ~4 new)
 
-| File                                          | Wave   | Change                                       |
-| --------------------------------------------- | ------ | -------------------------------------------- |
-| `packages/std/src/typeclasses/destructure.ts` | 1, 4   | **New** — Destructure typeclass definition   |
-| `packages/std/src/macros/match-v2.ts`         | 1–5    | **New** — Fluent match macro (core engine)   |
-| `packages/std/src/macros/match.ts`            | 7, 8   | Add deprecation notices; remove legacy shims |
-| `packages/std/src/macros/index.ts`            | 8      | Remove legacy exports                        |
-| `packages/std/src/index.ts`                   | 1, 8   | Export new match; remove legacy exports      |
-| `packages/macros/src/typeclass.ts`            | 4      | Add Destructure derivation rules             |
-| `packages/macros/src/generic.ts`              | 4      | Destructure via Product/Sum                  |
-| `packages/preprocessor/src/scanner.ts`        | 6      | Add `match \| pattern =>` syntax             |
-| `packages/transformer/src/index.ts`           | 1      | Register new macro                           |
-| `packages/symbolic/src/eval.ts`               | 9      | Convert switch to match                      |
-| `packages/symbolic/src/simplify/simplify.ts`  | 9      | Convert switch to match                      |
-| `packages/symbolic/src/pattern.ts`            | 9      | Convert switch to match                      |
-| `packages/symbolic/src/render/*.ts`           | 9      | Convert switch to match                      |
-| `packages/symbolic/src/calculus/*.ts`         | 9      | Convert switch to match                      |
-| `packages/symbolic/src/solve.ts`              | 9      | Convert switch to match                      |
-| `packages/symbolic/src/expression.ts`         | 9      | Convert switch to match                      |
-| `packages/fp/src/io/io.ts`                    | 9      | Convert switch to match                      |
-| `packages/sql/src/connection-io.ts`           | 9      | Convert switch to match                      |
-| `packages/fusion/src/lazy.ts`                 | 9      | Convert switch to match                      |
-| `packages/fp/README.md`                       | 8      | Remove legacy references                     |
+| File                                          | Wave | Change                                       |
+| --------------------------------------------- | ---- | -------------------------------------------- |
+| `packages/std/src/typeclasses/destructure.ts` | 1, 4 | **New** — Destructure typeclass definition   |
+| `packages/std/src/macros/match-v2.ts`         | 1–5  | **New** — Fluent match macro (core engine)   |
+| `packages/std/src/macros/match.ts`            | 7, 8 | Add deprecation notices; remove legacy shims |
+| `packages/std/src/macros/index.ts`            | 8    | Remove legacy exports                        |
+| `packages/std/src/index.ts`                   | 1, 8 | Export new match; remove legacy exports      |
+| `packages/macros/src/typeclass.ts`            | 4    | Add Destructure derivation rules             |
+| `packages/macros/src/generic.ts`              | 4    | Destructure via Product/Sum                  |
+| `packages/preprocessor/src/scanner.ts`        | 6    | Add `match \| pattern =>` syntax             |
+| `packages/transformer/src/index.ts`           | 1    | Register new macro                           |
+| `packages/symbolic/src/eval.ts`               | 9    | ❌ Blocked by type constraint                |
+| `packages/symbolic/src/simplify/simplify.ts`  | 9    | ❌ Blocked by type constraint                |
+| `packages/symbolic/src/pattern.ts`            | 9    | ❌ Blocked by type constraint                |
+| `packages/symbolic/src/render/*.ts`           | 9    | ❌ Blocked by type constraint                |
+| `packages/symbolic/src/calculus/*.ts`         | 9    | ❌ Blocked by type constraint                |
+| `packages/symbolic/src/solve.ts`              | 9    | ❌ Blocked by type constraint                |
+| `packages/symbolic/src/expression.ts`         | 9    | ❌ Blocked by type constraint                |
+| `packages/fp/src/io/io.ts`                    | 9    | ❌ Blocked by imperative control flow        |
+| `packages/sql/src/connection-io.ts`           | 9    | ❌ Blocked by type constraint                |
+| `packages/fusion/src/lazy.ts`                 | 9    | ❌ Blocked by imperative control flow        |
+| `packages/fp/README.md`                       | 8    | Remove legacy references                     |
 
 ### Tests (~4 new files, ~1 modified)
 
-| File                                  | Wave | Coverage                                     |
-| ------------------------------------- | ---- | -------------------------------------------- |
-| `tests/match-v2.test.ts`              | 1–5  | **New** — All fluent match patterns          |
-| `tests/match-v2-destructure.test.ts`  | 4    | **New** — Destructure typeclass + extractors |
-| `tests/match-v2-preprocessor.test.ts` | 6    | **New** — Preprocessor syntax                |
-| `tests/match-v2-exhaustive.test.ts`   | 5    | **New** — Always-exhaustive verification     |
+| File                                  | Wave | Coverage                                        |
+| ------------------------------------- | ---- | ----------------------------------------------- |
+| `tests/match-v2.test.ts`              | 1–5  | **New** — All fluent match patterns             |
+| `tests/match-v2-destructure.test.ts`  | 4    | **New** — Destructure typeclass + extractors    |
+| `tests/match-v2-preprocessor.test.ts` | 6    | **New** — Preprocessor syntax                   |
+| `tests/match-v2-exhaustive.test.ts`   | 5    | **New** — Always-exhaustive verification        |
 | `tests/match.test.ts`                 | 8    | Remove legacy `matchLiteral`/`matchGuard` tests |
 
 ### Documentation (~8 files)
