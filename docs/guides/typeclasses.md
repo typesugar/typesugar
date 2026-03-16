@@ -2,6 +2,10 @@
 
 typesugar provides Scala 3-style typeclasses with zero-cost specialization.
 
+::: tip Try in Playground
+**[Open in Playground →](https://typesugar.org/playground#code=eJxljkEOgjAQRfc9xeyABOLGjRsP4NrFGMUJNLQlnQ6JMdy9tAWJrl7%2Fy0z%2BdKgVHC4kKSvI2yC8oUZiaYZLFdheOvBYQy%2BKkS19g0BsrXIMOwhYi0vCWBj6Ux9BcfR7JtCi6cgzKs/O2rgZ8D9LYDaMGDIxh94%2BCQAhfZpPmdpOTPoPeQgP5ILY3J2ZRf2GZhwNvZ%2B9N17hDn8rWPP0lwlnFKj)** to see typeclasses in action.
+:::
+
 ## What Are Typeclasses?
 
 Typeclasses enable ad-hoc polymorphism — adding behavior to types without modifying them. Unlike inheritance, typeclasses:

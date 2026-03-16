@@ -2,6 +2,10 @@
 
 typesugar supports Scala 3-style extension methods — call methods on types that don't natively have them, with zero runtime cost. This is Uniform Function Call Syntax (UFCS) for TypeScript.
 
+::: tip Try in Playground
+**[Open in Playground →](https://typesugar.org/playground#code=eJxLSS1OUcjMK0ktLlFwzCsuycnMS9dRSM7PS0nNK1HIzC3IL0pVyE0syczPAwCfKw0V)** to see extension methods in action.
+:::
+
 ## How It Works
 
 Any imported function whose first parameter matches the receiver type can be called as a method. Just import and call:

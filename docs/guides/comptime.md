@@ -2,6 +2,10 @@
 
 The `comptime()` macro evaluates expressions at build time and inlines the result.
 
+::: tip Try in Playground
+**[Open in Playground →](https://typesugar.org/playground#code=eJxLSS1OUcjMK0ktLlFwzCsuycnMS9dRSE8tyszPs1LIyy9KUUjOz0ktykvMTQUA4IkN0g%3D%3D)** to see comptime in action.
+:::
+
 ## Basic Usage
 
 ```typescript

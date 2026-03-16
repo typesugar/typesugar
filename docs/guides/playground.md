@@ -2,6 +2,23 @@
 
 typesugar includes an interactive playground that lets you try code directly in your browser without installing anything.
 
+**[Open the Playground →](/playground)**
+
+## Getting Started Examples
+
+New to typesugar? Try these examples to see what it can do:
+
+| Example               | What It Shows                                     |
+| --------------------- | ------------------------------------------------- |
+| **Welcome**           | Basic macros and transformation                   |
+| **@typeclass Eq**     | Define typeclasses for ad-hoc polymorphism        |
+| **@derive**           | Auto-generate implementations from type structure |
+| **Pipeline Operator** | Functional composition with `\|>`                 |
+| **@extension**        | UFCS extension methods                            |
+| **HKT Syntax**        | Higher-kinded types with `F<_>`                   |
+
+Each example is available from the "Examples" dropdown in the playground.
+
 ## Full Playground
 
 The [full playground](/playground) provides a complete development environment with:

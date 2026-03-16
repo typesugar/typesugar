@@ -6,6 +6,8 @@
 
 typesugar brings compile-time metaprogramming to TypeScript, drawing from the best ideas in Rust, Scala 3, and Zig — and making them feel native to the TypeScript ecosystem.
 
+**[Try it in the Playground →](https://typesugar.org/playground)** — No installation required.
+
 ```typescript
 // Define your types — no decorators needed
 interface User {
@@ -362,6 +364,7 @@ interface User { id: string; name: string; }
 
 See the [docs/](docs/) directory:
 
+- **[Interactive Playground](https://typesugar.org/playground)** — Try typesugar in your browser
 - [Getting Started](docs/getting-started.md)
 - [Macro Types](docs/macro-types.md)
 - [Writing Macros](docs/writing-macros.md)

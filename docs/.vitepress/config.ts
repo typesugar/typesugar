@@ -229,6 +229,7 @@ export default defineConfig({
                 { text: "Opt-Out Directives", link: "/guides/opt-out" },
                 { text: "Testing", link: "/guides/testing" },
                 { text: "Library Manifest", link: "/guides/library-manifest" },
+                { text: "Interactive Playground", link: "/guides/playground" },
               ],
             },
           ],

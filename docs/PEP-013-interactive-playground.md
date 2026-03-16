@@ -1,6 +1,6 @@
 # PEP-013: Interactive Playground
 
-**Status:** In Progress (Wave 5 complete)
+**Status:** In Progress (Wave 7 complete)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -492,19 +492,29 @@ For running transformed code:
 
 **Tasks:**
 
-- [ ] Update `README.md` with playground link
-- [ ] Add playground link to docs navigation
-- [ ] Create "Getting Started" examples for playground
-- [ ] Add playground screenshot to README
-- [ ] Write `docs/guides/playground.md` usage guide
-- [ ] Add "Try in Playground" links to existing guide examples
+- [x] Update `README.md` with playground link
+- [x] Add playground link to docs navigation
+- [x] Create "Getting Started" examples for playground
+- [ ] Add playground screenshot to README (skipped - not practical in terminal context)
+- [x] Write `docs/guides/playground.md` usage guide (existed from Wave 5, enhanced)
+- [x] Add "Try in Playground" links to existing guide examples
 - [ ] Deploy docs to typesugar.org (separate task, but dependency)
 
 **Gate:**
 
-- [ ] Playground is discoverable from homepage and docs
-- [ ] Documentation explains playground features
-- [ ] Key examples link to playground
+- [x] Playground is discoverable from homepage and docs
+- [x] Documentation explains playground features
+- [x] Key examples link to playground
+
+**Notes (Wave 7 implementation):**
+
+- Added playground link to README.md introduction and Documentation section
+- Added playground to VitePress sidebar under Developer Experience
+- Enhanced `docs/guides/playground.md` with Getting Started examples table
+- Added "Try in Playground" tip boxes to key guides: typeclasses.md, derive.md, comptime.md, extension-methods.md
+- Added playground mention to Getting Started page with tip box
+- Screenshot skipped as it's not practical in terminal context (would need manual capture)
+- Docs deployment deferred as noted in requirements
 
 ### Wave 8 (Future): StackBlitz Integration
 
