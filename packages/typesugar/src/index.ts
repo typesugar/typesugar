@@ -86,6 +86,8 @@ export {
   summon,
   extend,
   implicit,
+  // Extension method decorator
+  extension,
   // Extension registration
   registerExtensions,
   registerExtension,

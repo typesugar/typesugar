@@ -47,6 +47,21 @@ import { double, greet } from "./my-extensions";
 "Alice".greet(); // → greet("Alice") → "Hello, Alice!"
 ```
 
+### Namespace Imports
+
+Namespace imports also work — extensions activate for any function accessible in scope:
+
+```typescript
+import * as std from "@typesugar/std";
+
+(42).clamp(0, 100); // → std.clamp(42, 0, 100)
+"hello".capitalize(); // → std.capitalize("hello")
+```
+
+The transformer detects that `std.clamp` exists and has a compatible first parameter type.
+
+**Trade-off:** Named imports enable better tree-shaking and make dependencies explicit. Namespace imports are convenient but may include unused code in the bundle.
+
 ### "use extension" Directive (Recommended for Libraries)
 
 For libraries and modules where you want to be explicit that all exports are intended as extensions:
@@ -110,12 +125,12 @@ import { clamp, abs, ceil, floor, sqrt, isEven, isPrime } from "@typesugar/std";
 ### String Extensions
 
 ```typescript
-import { capitalize, titleCase, strip, truncate } from "@typesugar/std";
+import { capitalize, titleCase, truncate, collapseWhitespace } from "@typesugar/std";
 
 "hello".capitalize(); // "Hello"
 "hello world".titleCase(); // "Hello World"
-"  hi  ".strip(); // "hi"
-"hello".truncate(3); // "hel..."
+"  extra   spaces  ".collapseWhitespace(); // "extra spaces"
+"hello world".truncate(8); // "hello..."
 ```
 
 ### Array Extensions
@@ -127,7 +142,7 @@ import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
 [1, 2, 3].tail(); // [2, 3]
 [1, 2, 3, 4, 5].chunk(2); // [[1, 2], [3, 4], [5]]
 [1, 1, 2, 2, 3].unique(); // [1, 2, 3]
-[1, 2, 3].groupBy((x) => x % 2); // Map { 1: [1, 3], 0: [2] }
+[1, 2, 3].groupBy((x) => x % 2); // { 1: [1, 3], 0: [2] }
 ```
 
 ### Range Extensions (Scala/Kotlin-style)
@@ -269,23 +284,25 @@ import { first, mapTo } from "./generic-ext";
 
 ## When to Use `extend()`
 
-The `extend()` wrapper exists but is rarely needed. Use it for:
-
-- **Disambiguation**: Multiple typeclasses define the same method name
-- **Generic contexts**: Type parameter isn't concrete at the call site
-- **Explicit intent**: Documentation or teaching
+The `extend()` wrapper exists but is rarely needed. It wraps a value so that all typeclass methods become callable:
 
 ```typescript
-import { extend } from "@typesugar/typeclass";
-import { Functor, Applicative } from "@typesugar/fp";
+import { extend } from "typesugar";
 
-// Rare: disambiguate when multiple typeclasses have .map()
-extend(value, Functor).map(f);
+// Explicit typeclass method access
+extend(42).show(); // "42"
+extend(point).equals(other); // true/false
 
-// Common: just call methods directly
-value.show();
-value.clone();
+// Common: just call methods directly (same effect, cleaner syntax)
+(42).show();
+point.equals(other);
 ```
+
+Use `extend()` when:
+
+- **Generic contexts**: Type parameter isn't concrete at the call site
+- **Explicit intent**: Documentation or teaching
+- **IDE exploration**: See all available typeclass methods via autocomplete
 
 ## Legacy: registerExtensions() (Deprecated)
 
@@ -294,8 +311,8 @@ The older `registerExtensions()` and `registerExtension()` macros are still supp
 ```typescript
 import { registerExtensions, registerExtension } from "typesugar";
 
-registerExtensions<number>(MathExt);
-registerExtension<string>(myStringFunction);
+registerExtensions("number", MathExt);
+registerExtension("string", myStringFunction);
 ```
 
 Prefer the `"use extension"` directive for new code.
