@@ -83,7 +83,8 @@ packages/
 │   ## Build Infrastructure
 ├── core/               # @typesugar/core — macro registration, types, context
 ├── macros/             # @typesugar/macros — built-in macro implementations
-├── transformer/        # @typesugar/transformer — ts-patch transformer plugin
+├── transformer/        # @typesugar/transformer — ts-patch transformer plugin (Node.js)
+├── transformer-core/   # @typesugar/transformer-core — browser-compatible transform core
 ├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
 ├── oxc-engine/         # @typesugar/oxc-engine — native Rust macro engine (experimental)
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
@@ -136,18 +137,20 @@ packages/
 
 ## Package Boundaries
 
-| Package                  | Contents                                                                                                                              | Does NOT contain                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`                                                       | Typeclass definitions                     |
-| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
-| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
-| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
-| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                               | Typeclass instances                       |
-| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                            | Compile-time code gen                     |
-| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                      | Matrix operations                         |
-| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines                                               | Visual rendering                          |
-| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                | Typeclass definitions                     |
-| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                              | Transport/network layer                   |
+| Package                       | Contents                                                                                                                              | Does NOT contain                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `@typesugar/transformer-core` | Browser-compatible transform core: `transformCode()`, `MacroTransformer`, source maps, position mapping                               | Node.js APIs (fs, path), caching, CLI     |
+| `@typesugar/transformer`      | Node.js transformer plugin: ts-patch integration, macro loading, file caching, CLI                                                    | Core transformation logic (uses core)     |
+| `@typesugar/typeclass`        | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`                                                       | Typeclass definitions                     |
+| `@typesugar/std`              | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
+| `@typesugar/fp`               | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
+| `@typesugar/collections`      | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
+| `@typesugar/hlist`            | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                               | Typeclass instances                       |
+| `@typesugar/parser`           | PEG grammar DSL, parser combinators, tagged template macro                                                                            | Compile-time code gen                     |
+| `@typesugar/fusion`           | Single-pass lazy iterator pipelines, element-wise vec operations                                                                      | Matrix operations                         |
+| `@typesugar/graph`            | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines                                               | Visual rendering                          |
+| `@typesugar/erased`           | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                | Typeclass definitions                     |
+| `@typesugar/codec`            | Versioned schema builder, JSON/binary codecs, migration chain generation                                                              | Transport/network layer                   |
 
 **Key clarifications:**
 

@@ -1,6 +1,6 @@
 # PEP-015: Browser-Compatible Transformer Core
 
-**Status:** In Progress (Wave 4 Complete)
+**Status:** Done
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -153,16 +153,16 @@ Extract a browser-compatible transformation core that both environments use:
 
 **Tasks:**
 
-- [ ] Update AGENTS.md with new package structure
-- [ ] Add README to `transformer-core` package
-- [ ] Remove deprecated `browser-transform.ts`
-- [ ] Update playground package.json dependencies
+- [x] Update AGENTS.md with new package structure
+- [x] Add README to `transformer-core` package
+- [x] Remove deprecated `browser-transform.ts`
+- [x] Update playground package.json dependencies
 
 **Gate:**
 
-- [ ] `pnpm docs:build` passes
-- [ ] No unused exports warnings
-- [ ] Package dependency graph is clean
+- [x] `pnpm docs:build` passes
+- [x] No unused exports warnings
+- [x] Package dependency graph is clean
 
 ## Files Changed
 
