@@ -769,6 +769,18 @@ class MacroTransformer {
             currentNode = result;
           }
           wasTransformed = true;
+
+          if (this.expansionTracker) {
+            const expandedText = this.printNodeSafe(currentNode);
+            if (expandedText) {
+              this.expansionTracker.recordExpansion(
+                macroName,
+                node,
+                this.ctx.sourceFile,
+                expandedText
+              );
+            }
+          }
         } catch (error) {
           this.ctx.reportError(decorator, `Attribute macro expansion failed: ${error}`);
           extraStatements.push(

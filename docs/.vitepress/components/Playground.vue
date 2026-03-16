@@ -255,43 +255,36 @@ console.log(\`SELECT \${columns} FROM users\`);
     code: `import { tailrec } from "typesugar";
 
 // 👉 Click "JS Output" tab to see the generated code!
-// @tailrec transforms recursive functions into loops
+// @tailrec transforms recursive functions into while loops
 // This prevents stack overflow for deep recursion!
 
-class Math {
-  // Factorial with tail recursion
-  // Without @tailrec: factorial(10000) would overflow the stack
-  // With @tailrec: it uses a while loop internally
-  @tailrec
-  static factorial(n: number, acc: number = 1): number {
-    if (n <= 1) return acc;
-    return Math.factorial(n - 1, n * acc);  // Tail call - last operation
-  }
+@tailrec
+function factorial(n: number, acc: number = 1): number {
+  if (n <= 1) return acc;
+  return factorial(n - 1, n * acc);
+}
 
-  // Sum of list with tail recursion
-  @tailrec
-  static sumList(nums: number[], acc: number = 0): number {
-    if (nums.length === 0) return acc;
-    const [head, ...tail] = nums;
-    return Math.sumList(tail, acc + head);  // Tail call
-  }
+@tailrec
+function sumList(nums: number[], acc: number = 0): number {
+  if (nums.length === 0) return acc;
+  const [head, ...tail] = nums;
+  return sumList(tail, acc + head);
+}
 
-  // Fibonacci with tail recursion (accumulator pattern)
-  @tailrec
-  static fibonacci(n: number, a: number = 0, b: number = 1): number {
-    if (n === 0) return a;
-    if (n === 1) return b;
-    return Math.fibonacci(n - 1, b, a + b);  // Tail call
-  }
+@tailrec
+function fibonacci(n: number, a: number = 0, b: number = 1): number {
+  if (n === 0) return a;
+  if (n === 1) return b;
+  return fibonacci(n - 1, b, a + b);
 }
 
 // Check the JS Output - recursive calls become while loops!
-console.log("5! =", Math.factorial(5));           // 120
-console.log("Sum [1,2,3,4,5] =", Math.sumList([1, 2, 3, 4, 5]));  // 15
-console.log("Fib(10) =", Math.fibonacci(10));     // 55
+console.log("5! =", factorial(5));           // 120
+console.log("Sum [1,2,3,4,5] =", sumList([1, 2, 3, 4, 5]));  // 15
+console.log("Fib(10) =", fibonacci(10));     // 55
 
 // These would stack overflow without @tailrec:
-// console.log("100! =", Math.factorial(100));
+// console.log("100000! =", factorial(100000));
 `,
   },
   {
