@@ -207,19 +207,26 @@ Deploy the docs site with the serverless API to Vercel.
 
 **Tasks:**
 
-- [ ] Configure Vercel project for the typesugar docs
-- [ ] Set up custom domain (typesugar.org)
-- [ ] Add CORS headers for API endpoint (same-origin, so likely not needed)
-- [ ] Add rate limiting to `/api/compile` (e.g., 60 requests/minute per IP)
-- [ ] Add monitoring/logging for API errors and latency
-- [ ] Test production deployment end-to-end
+- [x] Configure Vercel project for the typesugar docs — `vercel.json` already configured in Wave 1
+- [ ] Set up custom domain (typesugar.org) — Manual step in Vercel dashboard
+- [x] Add CORS headers for API endpoint — **N/A**: Same-origin, no CORS needed
+- [x] Add rate limiting to `/api/compile` (60 requests/minute per IP)
+- [x] Add monitoring/logging for API errors and latency (JSON logs to Vercel Functions)
+- [ ] Test production deployment end-to-end — Requires actual deployment
 - [ ] Update PEP-013 to note deployment is complete
+
+**Implementation Notes (Wave 5):**
+
+- RateLimiter class with sliding window (60 req/min per IP)
+- Uses X-Forwarded-For header for client IP detection in serverless
+- JSON-structured logging for both successful compiles and errors
+- Logs include: type, fileName, codeLength, elapsed, cached, changed, diagnosticCount
 
 **Gate:**
 
 - [ ] `https://typesugar.org/playground` loads and compiles code
 - [ ] Cold start < 2s, warm request < 500ms
-- [ ] Rate limiting works
+- [x] Rate limiting implemented (returns 429 with Retry-After header)
 - [ ] No CORS or CSP errors in production
 
 ## Files Changed

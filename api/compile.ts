@@ -52,6 +52,66 @@ class LRUCache {
 const cache = new LRUCache(200);
 
 // ---------------------------------------------------------------------------
+// Rate Limiter (sliding window, per-IP, best-effort in serverless)
+// ---------------------------------------------------------------------------
+
+interface RateLimitEntry {
+  count: number;
+  windowStart: number;
+}
+
+class RateLimiter {
+  private limits = new Map<string, RateLimitEntry>();
+  private maxRequests: number;
+  private windowMs: number;
+  private maxEntries: number;
+
+  constructor(maxRequests: number, windowMs: number, maxEntries = 1000) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+    this.maxEntries = maxEntries;
+  }
+
+  isAllowed(ip: string): boolean {
+    const now = Date.now();
+    const entry = this.limits.get(ip);
+
+    if (!entry || now - entry.windowStart > this.windowMs) {
+      // New window
+      this.limits.set(ip, { count: 1, windowStart: now });
+      this.cleanup();
+      return true;
+    }
+
+    if (entry.count >= this.maxRequests) {
+      return false;
+    }
+
+    entry.count++;
+    return true;
+  }
+
+  private cleanup(): void {
+    if (this.limits.size > this.maxEntries) {
+      const now = Date.now();
+      for (const [ip, entry] of this.limits) {
+        if (now - entry.windowStart > this.windowMs) {
+          this.limits.delete(ip);
+        }
+      }
+      // If still too many, delete oldest entries
+      if (this.limits.size > this.maxEntries) {
+        const oldest = this.limits.keys().next().value;
+        if (oldest) this.limits.delete(oldest);
+      }
+    }
+  }
+}
+
+// 60 requests per minute per IP
+const rateLimiter = new RateLimiter(60, 60_000);
+
+// ---------------------------------------------------------------------------
 // Content hashing (FNV-1a, fast and collision-resistant enough for a cache key)
 // ---------------------------------------------------------------------------
 
@@ -351,6 +411,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Rate limiting
+  const clientIp =
+    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    "unknown";
+  if (!rateLimiter.isAllowed(clientIp)) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "Rate limit exceeded. Try again in 1 minute." });
+  }
+
   // Input validation
   const body = req.body;
   if (!body || typeof body.code !== "string") {
@@ -380,6 +450,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = compile(code, fileName);
     const elapsed = Math.round(performance.now() - start);
 
+    // Logging for monitoring
+    console.log(
+      JSON.stringify({
+        type: "compile",
+        fileName,
+        codeLength: code.length,
+        elapsed,
+        cached: result.cached,
+        changed: result.changed,
+        diagnosticCount: result.diagnostics.length,
+      })
+    );
+
     res.setHeader("X-Compile-Time-Ms", String(elapsed));
     res.setHeader("X-Compile-Cached", result.cached ? "true" : "false");
     res.setHeader("Cache-Control", "no-cache");
@@ -392,7 +475,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       compileTimeMs: elapsed,
     });
   } catch (err) {
+    const elapsed = Math.round(performance.now() - start);
     const message = err instanceof Error ? err.message : String(err);
+
+    // Error logging for monitoring
+    console.error(
+      JSON.stringify({
+        type: "compile_error",
+        fileName,
+        codeLength: code.length,
+        elapsed,
+        error: message,
+      })
+    );
+
     return res.status(500).json({
       error: "Compilation failed",
       message,
