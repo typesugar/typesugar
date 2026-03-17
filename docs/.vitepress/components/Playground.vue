@@ -1207,6 +1207,8 @@ function setInCompileCache(key: string, value: ServerCompileResult): void {
   }
 }
 
+const COMPILE_TIMEOUT_MS = 10000; // 10 second timeout
+
 async function compileCodeOnServer(
   code: string,
   fileName: string
@@ -1218,16 +1220,33 @@ async function compileCodeOnServer(
     return { ...cached, cached: true };
   }
 
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);
+
   try {
     const response = await fetch("/api/compile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, fileName }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      console.warn(`[Playground] Server compile failed: ${response.status}`);
+      if (response.status === 429) {
+        console.warn("[Playground] Server rate limited, using fallback");
+      } else {
+        console.warn(`[Playground] Server compile failed: ${response.status}`);
+      }
       return null;
+    }
+
+    // Log server cache status for debugging
+    const serverCached = response.headers.get("X-Compile-Cached") === "true";
+    if (serverCached) {
+      console.log("[Playground] Server returned cached result");
     }
 
     const result = (await response.json()) as ServerCompileResult;
@@ -1237,7 +1256,12 @@ async function compileCodeOnServer(
 
     return result;
   } catch (err) {
-    console.warn("[Playground] Server compile error:", err);
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      console.warn("[Playground] Server compile timed out, using fallback");
+    } else {
+      console.warn("[Playground] Server compile error:", err);
+    }
     return null;
   }
 }
