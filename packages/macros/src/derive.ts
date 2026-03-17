@@ -18,6 +18,18 @@ import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from
 import { instanceRegistry } from "./typeclass.js";
 
 // ============================================================================
+// Deprecation Helper
+// ============================================================================
+
+function emitDeriveDeprecation(ctx: MacroContext, target: ts.Node, deriveName: string): void {
+  ctx.reportWarning(
+    target,
+    `@derive(${deriveName}) is deprecated. Use @deriving(${deriveName}) instead. ` +
+      `@deriving produces typeclass instances with operator overloading and summon support.`
+  );
+}
+
+// ============================================================================
 // Eq - Generate equality comparison function
 // ============================================================================
 
@@ -30,6 +42,7 @@ export const EqDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Eq");
     const { name, kind } = typeInfo;
     const fnName = `${uncapitalize(name)}Eq`;
 
@@ -141,6 +154,7 @@ export const OrdDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Ord");
     const { name, kind } = typeInfo;
     const fnName = `${uncapitalize(name)}Compare`;
 
@@ -167,11 +181,23 @@ function expandOrdForProductType(
     })
     .join("\n");
 
+  const instanceName = `ord${typeName}`;
+
+  instanceRegistry.push({
+    typeclassName: "Ord",
+    forType: typeName,
+    instanceName: instanceName,
+    derived: true,
+  });
+
   const code = `
 export function ${fnName}(a: ${typeName}, b: ${typeName}): -1 | 0 | 1 {
 ${comparisons}
   return 0;
 }
+const ${instanceName} = {
+  compare: ${fnName},
+};
 `;
 
   return ctx.parseStatements(code);
@@ -184,7 +210,6 @@ function expandOrdForSumType(
   discriminant: string,
   variants: DeriveVariantInfo[]
 ): ts.Statement[] {
-  // First compare by variant order, then by fields within each variant
   const variantOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
 
   const cases = variants
@@ -201,6 +226,15 @@ function expandOrdForSumType(
     })
     .join("\n");
 
+  const instanceName = `ord${typeName}`;
+
+  instanceRegistry.push({
+    typeclassName: "Ord",
+    forType: typeName,
+    instanceName: instanceName,
+    derived: true,
+  });
+
   const code = `
 export function ${fnName}(a: ${typeName}, b: ${typeName}): -1 | 0 | 1 {
   const variantOrder: Record<string, number> = { ${variantOrder} };
@@ -214,6 +248,9 @@ ${cases}
     default: return 0;
   }
 }
+const ${instanceName} = {
+  compare: ${fnName},
+};
 `;
 
   return ctx.parseStatements(code);
@@ -232,6 +269,7 @@ export const CloneDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Clone");
     const { name, kind } = typeInfo;
     const fnName = `clone${name}`;
 
@@ -307,6 +345,7 @@ export const DebugDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Debug");
     const { name, kind } = typeInfo;
     const fnName = `debug${name}`;
 
@@ -382,6 +421,7 @@ export const HashDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Hash");
     const { name, kind } = typeInfo;
     const fnName = `hash${name}`;
 
@@ -416,12 +456,24 @@ function expandHashForProductType(
     })
     .join("\n");
 
+  const instanceName = `hash${typeName}`;
+
+  instanceRegistry.push({
+    typeclassName: "Hash",
+    forType: typeName,
+    instanceName: instanceName,
+    derived: true,
+  });
+
   const code = `
 export function ${fnName}(value: ${typeName}): number {
   let hash = 5381;
 ${hashCode}
   return hash >>> 0;
 }
+const ${instanceName} = {
+  hash: ${fnName},
+};
 `;
 
   return ctx.parseStatements(code);
@@ -458,6 +510,15 @@ ${hashCode}
     })
     .join("\n");
 
+  const instanceName = `hash${typeName}`;
+
+  instanceRegistry.push({
+    typeclassName: "Hash",
+    forType: typeName,
+    instanceName: instanceName,
+    derived: true,
+  });
+
   const code = `
 export function ${fnName}(value: ${typeName}): number {
   let hash = 5381;
@@ -466,6 +527,9 @@ ${cases}
     default: return hash >>> 0;
   }
 }
+const ${instanceName} = {
+  hash: ${fnName},
+};
 `;
 
   return ctx.parseStatements(code);
@@ -484,6 +548,7 @@ export const DefaultDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Default");
     const { name, kind } = typeInfo;
     const fnName = `default${name}`;
 
@@ -566,6 +631,7 @@ export const JsonDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "Json");
     const { name, kind } = typeInfo;
 
     if (kind === "sum" && typeInfo.variants && typeInfo.discriminant) {
@@ -686,10 +752,10 @@ export const BuilderDerive = defineDeriveMacro({
     target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, target, "Builder");
     const { name, kind } = typeInfo;
     const builderName = `${name}Builder`;
 
-    // Builder doesn't make sense for sum types - generate a warning
     if (kind === "sum") {
       ctx.reportWarning(
         target,
@@ -754,6 +820,7 @@ export const TypeGuardDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    emitDeriveDeprecation(ctx, _target, "TypeGuard");
     const { name, kind } = typeInfo;
     const fnName = `is${name}`;
 
