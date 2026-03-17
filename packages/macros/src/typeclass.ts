@@ -1414,6 +1414,81 @@ function getSpecializationMethodsForDerivation(
       };
     }
 
+    case "Clone": {
+      const copies = fields.map((f) => `${f.name}: a.${f.name}`).join(", ");
+      return {
+        clone: {
+          source: `(a) => ({ ${copies} })`,
+          params: ["a"],
+        },
+      };
+    }
+
+    case "Debug": {
+      const fieldStrs = fields.map((f) => `${f.name}: \${JSON.stringify(a.${f.name})}`).join(", ");
+      return {
+        debug: {
+          source: `(a) => \`${typeName} { ${fieldStrs} }\``,
+          params: ["a"],
+        },
+      };
+    }
+
+    case "Default": {
+      const defaults = fields
+        .map((f) => {
+          const baseType = getBaseType(f);
+          const val =
+            baseType === "number"
+              ? "0"
+              : baseType === "string"
+                ? '""'
+                : baseType === "boolean"
+                  ? "false"
+                  : "{}";
+          return `${f.name}: ${f.optional ? "undefined" : val}`;
+        })
+        .join(", ");
+      return {
+        default: {
+          source: `() => ({ ${defaults} })`,
+          params: [],
+        },
+      };
+    }
+
+    case "Json": {
+      const toJsonFields = fields.map((f) => `${f.name}: a.${f.name}`).join(", ");
+      return {
+        toJson: {
+          source: `(a) => ({ ${toJsonFields} })`,
+          params: ["a"],
+        },
+        fromJson: {
+          source: `(json) => json`,
+          params: ["json"],
+        },
+      };
+    }
+
+    case "TypeGuard": {
+      const checks = fields.map((f) => {
+        const baseType = getBaseType(f);
+        const check = `typeof (value as any).${f.name} === "${baseType}"`;
+        return f.optional ? `((value as any).${f.name} === undefined || ${check})` : check;
+      });
+      const body =
+        checks.length > 0
+          ? `typeof value === "object" && value !== null && ${checks.join(" && ")}`
+          : `typeof value === "object" && value !== null`;
+      return {
+        is: {
+          source: `(value) => ${body}`,
+          params: ["value"],
+        },
+      };
+    }
+
     default:
       return undefined;
   }
@@ -4159,6 +4234,257 @@ ${fieldCombines}
     _variants: Array<{ tag: string; typeName: string }>
   ): string {
     return `// Monoid cannot be auto-derived for sum types`;
+  },
+};
+
+// ============================================================================
+// Clone derivation
+// ============================================================================
+
+builtinDerivations["Clone"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("clone", typeName);
+    const copies = fields.map((f) => `    ${f.name}: a.${f.name}`).join(",\n");
+
+    return `
+const ${varName}: Clone<${typeName}> = {
+  clone: (a: ${typeName}): ${typeName} => ({
+${copies}
+  }),
+};
+/*#__PURE__*/ Clone.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("clone", typeName);
+    const cases = variants
+      .map((v) => {
+        return `      case "${v.tag}": return { ...a } as ${typeName};`;
+      })
+      .join("\n");
+
+    return `
+const ${varName}: Clone<${typeName}> = {
+  clone: (a: ${typeName}): ${typeName} => {
+    switch ((a as any).${discriminant}) {
+${cases}
+      default: return { ...a } as ${typeName};
+    }
+  },
+};
+/*#__PURE__*/ Clone.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
+// Debug derivation
+// ============================================================================
+
+builtinDerivations["Debug"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("debug", typeName);
+    const pairs = fields.map((f) => `${f.name}: \${JSON.stringify(a.${f.name})}`).join(", ");
+
+    return `
+const ${varName}: Debug<${typeName}> = {
+  debug: (a: ${typeName}): string => \`${typeName} { ${pairs} }\`,
+};
+/*#__PURE__*/ Debug.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("debug", typeName);
+    const cases = variants
+      .map((v) => {
+        return `      case "${v.tag}": return \`${v.typeName}(\${JSON.stringify(a)})\`;`;
+      })
+      .join("\n");
+
+    return `
+const ${varName}: Debug<${typeName}> = {
+  debug: (a: ${typeName}): string => {
+    switch ((a as any).${discriminant}) {
+${cases}
+      default: return String(a);
+    }
+  },
+};
+/*#__PURE__*/ Debug.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
+// Default derivation
+// ============================================================================
+
+function getDefaultValueForType(field: DeriveFieldInfo): string {
+  if (field.optional) return "undefined";
+  const baseType = getBaseType(field);
+  switch (baseType) {
+    case "number":
+      return "0";
+    case "string":
+      return '""';
+    case "boolean":
+      return "false";
+    default:
+      return "{}";
+  }
+}
+
+builtinDerivations["Default"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("default", typeName);
+    const defaults = fields.map((f) => `    ${f.name}: ${getDefaultValueForType(f)}`).join(",\n");
+
+    return `
+const ${varName}: Default<${typeName}> = {
+  default: (): ${typeName} => ({
+${defaults}
+  }),
+};
+/*#__PURE__*/ Default.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    _discriminant: string,
+    _variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    return `// Default cannot be auto-derived for sum types`;
+  },
+};
+
+// ============================================================================
+// Json derivation
+// ============================================================================
+
+builtinDerivations["Json"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("json", typeName);
+    const fieldCopies = fields.map((f) => `      ${f.name}: a.${f.name}`).join(",\n");
+    const validations = fields
+      .map((f) => {
+        const baseType = getBaseType(f);
+        const lines: string[] = [];
+        if (!f.optional) {
+          lines.push(
+            `    if (obj.${f.name} === undefined) throw new Error("Missing required field: ${f.name}");`
+          );
+        }
+        lines.push(
+          `    if (obj.${f.name} !== undefined && typeof obj.${f.name} !== "${baseType}") throw new Error("Field ${f.name} must be ${baseType}");`
+        );
+        return lines.join("\n");
+      })
+      .join("\n");
+
+    return `
+const ${varName}: Json<${typeName}> = {
+  toJson: (a: ${typeName}): unknown => ({
+${fieldCopies}
+  }),
+  fromJson: (json: unknown): ${typeName} => {
+    if (typeof json !== "object" || json === null) throw new Error("Expected object for ${typeName}");
+    const obj = json as Record<string, unknown>;
+${validations}
+    return obj as unknown as ${typeName};
+  },
+};
+/*#__PURE__*/ Json.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("json", typeName);
+    const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
+
+    return `
+const ${varName}: Json<${typeName}> = {
+  toJson: (a: ${typeName}): unknown => ({ ...a }),
+  fromJson: (json: unknown): ${typeName} => {
+    if (typeof json !== "object" || json === null) throw new Error("Expected object for ${typeName}");
+    const obj = json as Record<string, unknown>;
+    if (typeof obj.${discriminant} !== "string") throw new Error("Missing discriminant: ${discriminant}");
+    const validTags = [${validTags}];
+    if (!validTags.includes(obj.${discriminant} as string)) throw new Error(\`Invalid ${discriminant}: \${obj.${discriminant}}\`);
+    return obj as unknown as ${typeName};
+  },
+};
+/*#__PURE__*/ Json.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
+// TypeGuard derivation
+// ============================================================================
+
+builtinDerivations["TypeGuard"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("typeGuard", typeName);
+
+    if (fields.length === 0) {
+      return `
+const ${varName}: TypeGuard<${typeName}> = {
+  is: (value: unknown): boolean => typeof value === "object" && value !== null,
+};
+/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+    }
+
+    const checks = fields.map((f) => {
+      const baseType = getBaseType(f);
+      const check = `typeof (value as any).${f.name} === "${baseType}"`;
+      if (f.optional) {
+        return `((value as any).${f.name} === undefined || ${check})`;
+      }
+      return check;
+    });
+
+    return `
+const ${varName}: TypeGuard<${typeName}> = {
+  is: (value: unknown): boolean => typeof value === "object" && value !== null && ${checks.join(" && ")},
+};
+/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("typeGuard", typeName);
+    const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
+
+    return `
+const ${varName}: TypeGuard<${typeName}> = {
+  is: (value: unknown): boolean => {
+    if (typeof value !== "object" || value === null) return false;
+    if (typeof (value as any).${discriminant} !== "string") return false;
+    return [${validTags}].includes((value as any).${discriminant});
+  },
+};
+/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
   },
 };
 

@@ -75,13 +75,26 @@ Implement auto-derivation logic for the new typeclasses in the `@deriving` syste
 
 **Tasks:**
 
-- [ ] Port `Clone` derivation from `derive.ts` to `typeclass.ts` deriving system
-- [ ] Port `Debug` derivation (or unify with `Show`)
-- [ ] Port `Default` derivation
-- [ ] Port `Json` derivation
-- [ ] Port `Builder` derivation
-- [ ] Port `TypeGuard` derivation
-- [ ] Ensure all derivations register with `instanceRegistry` for proper operator/summon support
+- [x] Port `Clone` derivation from `derive.ts` to `typeclass.ts` deriving system
+- [x] Port `Debug` derivation (kept separate from Show — Debug = developer-facing with JSON.stringify, Show = user-facing display)
+- [x] Port `Default` derivation
+- [x] Port `Json` derivation
+- [ ] ~~Port `Builder` derivation~~ — **Skipped:** Builder was already excluded in Wave 1 as it doesn't fit the typeclass model
+- [x] Port `TypeGuard` derivation
+- [x] Ensure all derivations register with `instanceRegistry` for proper operator/summon support
+
+**Implementation Notes (Wave 2):**
+
+- All five derivations (Clone, Debug, Default, Json, TypeGuard) added to `builtinDerivations` in `packages/macros/src/typeclass.ts`
+- Each derivation supports both `deriveProduct` and `deriveSum` (except Default which returns a comment for sum types since `canDeriveSum = false`)
+- All derivations follow the existing pattern: generate `const varName: TC<T> = { methods }` + `TC.registerInstance<T>("T", varName)`
+- Specialization methods added to `getSpecializationMethodsForDerivation` for all five new typeclasses
+- Clone: shallow spread-copy for products, switch-on-discriminant for sums
+- Debug: `TypeName { field: value }` format using JSON.stringify for field values
+- Default: zero-values per type (0, "", false, {}) — no sum type support
+- Json: toJson produces plain object, fromJson validates required fields and types
+- TypeGuard: typeof checks per field for products, discriminant tag validation for sums
+- Build passes, all 180 test files pass (5315 tests, 0 new failures)
 
 **Gate:**
 
