@@ -309,10 +309,10 @@ function registerTypesugarTypes(monacoInstance: typeof Monaco) {
 declare module "typesugar" {
   // Static assertions
   export function staticAssert(condition: boolean, message?: string): void;
-  
+
   // Compile-time evaluation
   export function comptime<T>(fn: () => T): T;
-  
+
   // Derive decorators
   export function derive(...traits: symbol[]): ClassDecorator;
   export const Eq: unique symbol;
@@ -324,7 +324,7 @@ declare module "typesugar" {
   export const Json: unique symbol;
   export const Builder: unique symbol;
   export const TypeGuard: unique symbol;
-  
+
   // Typeclass decorators
   export function typeclass(target: any): any;
   export function instance(name: string): ClassDecorator;
@@ -335,7 +335,7 @@ declare module "typesugar" {
   export function summon<T>(): T;
   export function extend<T, U>(base: T, extension: U): T & U;
   export function implicit<T>(): T;
-  
+
   // Operators
   export function operators(target: any): any;
   export function ops<T>(expr: T): T;
@@ -347,32 +347,32 @@ declare module "typesugar" {
   export function flow<A, B>(f: (a: A) => B): (a: A) => B;
   export function flow<A, B, C>(f: (a: A) => B, g: (b: B) => C): (a: A) => C;
   export function flow<A, B, C, D>(f: (a: A) => B, g: (b: B) => C, h: (c: C) => D): (a: A) => D;
-  
+
   // Reflection
   export function reflect(target: any): any;
   export function typeInfo<T>(): object;
   export function fieldNames<T>(): string[];
   export function validator<T>(): (value: unknown) => value is T;
-  
+
   // Conditional compilation
   export function cfg(condition: string): PropertyDecorator;
-  
+
   // File includes
   export function includeStr(path: string): string;
   export function includeJson<T = unknown>(path: string): T;
-  
+
   // Specialization
   export function specialize<T>(fn: T): T;
   export function mono<T>(fn: T): T;
   export function inlineCall<T>(fn: T): T;
-  
+
   // Tail recursion
   export function tailrec(target: any, propertyKey: string, descriptor: PropertyDescriptor): PropertyDescriptor;
-  
+
   // Higher-Kinded Types
   export function hkt(target: any): any;
   export type _  = { readonly _: unique symbol };
-  
+
   // Extension methods
   export function extension(target: any): any;
   export function registerExtensions(target: any): any;
@@ -389,7 +389,7 @@ declare module "@typesugar/core" {
     readonly factory: any;
     readonly checker: any;
   }
-  
+
   export interface ExpressionMacro {
     name: string;
     kind: "expression";
@@ -397,7 +397,7 @@ declare module "@typesugar/core" {
     description?: string;
     expand(ctx: MacroContext, node: any, args: any[]): any;
   }
-  
+
   export interface AttributeMacro {
     name: string;
     kind: "attribute";
@@ -405,7 +405,7 @@ declare module "@typesugar/core" {
     description?: string;
     expand(ctx: MacroContext, node: any): any;
   }
-  
+
   export interface DeriveMacro {
     name: string;
     kind: "derive";
@@ -413,14 +413,14 @@ declare module "@typesugar/core" {
     description?: string;
     expand(ctx: MacroContext, node: any): any[];
   }
-  
+
   export const globalRegistry: {
     register(macro: ExpressionMacro | AttributeMacro | DeriveMacro): void;
     getExpression(name: string): ExpressionMacro | undefined;
     getAttribute(name: string): AttributeMacro | undefined;
     getDerive(name: string): DeriveMacro | undefined;
   };
-  
+
   export function createMacroContext(program: any, sourceFile: any, context: any): MacroContext;
 }
 `, "file:///node_modules/@typesugar/core/index.d.ts");
@@ -429,7 +429,7 @@ declare module "@typesugar/core" {
   monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
 declare module "@typesugar/macros" {
   export * from "typesugar";
-  
+
   // Quasiquoting
   export function quote(strings: TemplateStringsArray, ...values: any[]): any;
   export function quoteStatements(strings: TemplateStringsArray, ...values: any[]): any[];
@@ -437,11 +437,11 @@ declare module "@typesugar/macros" {
   export function ident(name: string): any;
   export function raw(node: any): any;
   export function spread(nodes: any[]): any;
-  
+
   // Pattern macros
   export function defineSyntaxMacro(pattern: string, replacement: string): void;
   export function defineRewrite(from: string, to: string): void;
-  
+
   // Custom derive
   export function defineCustomDerive(name: string, impl: (info: any) => string): void;
   export function defineFieldDerive(name: string, impl: (field: any) => string): void;
@@ -454,23 +454,23 @@ declare module "@typesugar/testing" {
   // Power assertions
   export function assert(condition: boolean, message?: string): void;
   export function powerAssert(condition: boolean, message?: string): void;
-  
+
   // Static assertions
   export function staticAssert(condition: boolean, message?: string): void;
   export function comptimeAssert(condition: boolean, message?: string): void;
-  
+
   // Type assertions
   export function typeAssert<T>(): void;
   export function assertType<T>(value: T): void;
   export type Equal<A, B> = A extends B ? (B extends A ? true : false) : false;
   export type Extends<A, B> = A extends B ? true : false;
-  
+
   // Snapshot testing
   export function assertSnapshot<T>(value: T): void;
-  
+
   // Property-based testing
   export function forAll<T>(gen: any, prop: (value: T) => boolean | void): void;
-  
+
   // Arbitrary generation
   export const Arbitrary: unique symbol;
 }
@@ -487,7 +487,7 @@ declare module "@typesugar/fp" {
   export const none: None;
   export function isSome<A>(opt: Option<A>): opt is Some<A>;
   export function isNone<A>(opt: Option<A>): opt is None;
-  
+
   // Either type
   export type Either<E, A> = Left<E> | Right<A>;
   export interface Left<E> { readonly _tag: "Left"; readonly left: E; }
@@ -496,7 +496,7 @@ declare module "@typesugar/fp" {
   export function right<A, E = never>(a: A): Either<E, A>;
   export function isLeft<E, A>(e: Either<E, A>): e is Left<E>;
   export function isRight<E, A>(e: Either<E, A>): e is Right<A>;
-  
+
   // Function utilities
   export function identity<A>(a: A): A;
   export function constant<A>(a: A): () => A;
@@ -514,16 +514,16 @@ declare module "@typesugar/effect" {
     readonly _E: () => E;
     readonly _A: () => A;
   }
-  
+
   export function succeed<A>(value: A): Effect<unknown, never, A>;
   export function fail<E>(error: E): Effect<unknown, E, never>;
   export function sync<A>(fn: () => A): Effect<unknown, never, A>;
   export function async<A>(fn: (cb: (a: A) => void) => void): Effect<unknown, never, A>;
-  
+
   export function map<R, E, A, B>(self: Effect<R, E, A>, f: (a: A) => B): Effect<R, E, B>;
   export function flatMap<R, E, A, R2, E2, B>(self: Effect<R, E, A>, f: (a: A) => Effect<R2, E2, B>): Effect<R | R2, E | E2, B>;
   export function catchAll<R, E, A, R2, E2, B>(self: Effect<R, E, A>, f: (e: E) => Effect<R2, E2, B>): Effect<R | R2, E2, A | B>;
-  
+
   export function runSync<E, A>(effect: Effect<unknown, E, A>): A;
   export function runPromise<E, A>(effect: Effect<unknown, E, A>): Promise<A>;
 }
@@ -546,7 +546,7 @@ declare module "@typesugar/std" {
   export function sortBy<A>(arr: A[], fn: (a: A) => number | string): A[];
   export function unique<A>(arr: A[]): A[];
   export function partition<A>(arr: A[], pred: (a: A) => boolean): [A[], A[]];
-  
+
   // Object utilities
   export function keys<T extends object>(obj: T): (keyof T)[];
   export function values<T extends object>(obj: T): T[keyof T][];
@@ -555,7 +555,7 @@ declare module "@typesugar/std" {
   export function pick<T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K>;
   export function omit<T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K>;
   export function merge<T extends object, U extends object>(a: T, b: U): T & U;
-  
+
   // String utilities
   export function capitalize(s: string): string;
   export function uncapitalize(s: string): string;
@@ -577,7 +577,7 @@ declare module "@typesugar/collections" {
     static of<A>(...items: A[]): List<A>;
     static from<A>(iterable: Iterable<A>): List<A>;
     static empty<A>(): List<A>;
-    
+
     head(): A | undefined;
     tail(): List<A>;
     cons(value: A): List<A>;
@@ -589,12 +589,12 @@ declare module "@typesugar/collections" {
     toArray(): A[];
     [Symbol.iterator](): Iterator<A>;
   }
-  
+
   export class Vector<A> {
     static of<A>(...items: A[]): Vector<A>;
     static from<A>(iterable: Iterable<A>): Vector<A>;
     static empty<A>(): Vector<A>;
-    
+
     get(index: number): A | undefined;
     set(index: number, value: A): Vector<A>;
     push(value: A): Vector<A>;
@@ -605,12 +605,12 @@ declare module "@typesugar/collections" {
     readonly length: number;
     [Symbol.iterator](): Iterator<A>;
   }
-  
+
   export class HashMap<K, V> {
     static of<K, V>(...entries: [K, V][]): HashMap<K, V>;
     static from<K, V>(entries: Iterable<[K, V]>): HashMap<K, V>;
     static empty<K, V>(): HashMap<K, V>;
-    
+
     get(key: K): V | undefined;
     set(key: K, value: V): HashMap<K, V>;
     delete(key: K): HashMap<K, V>;
@@ -621,12 +621,12 @@ declare module "@typesugar/collections" {
     map<V2>(f: (v: V, k: K) => V2): HashMap<K, V2>;
     readonly size: number;
   }
-  
+
   export class HashSet<A> {
     static of<A>(...items: A[]): HashSet<A>;
     static from<A>(iterable: Iterable<A>): HashSet<A>;
     static empty<A>(): HashSet<A>;
-    
+
     add(value: A): HashSet<A>;
     delete(value: A): HashSet<A>;
     has(value: A): boolean;
@@ -654,11 +654,11 @@ declare module "@typesugar/validate" {
     transform<U>(fn: (value: T) => U): Schema<U>;
     refine(pred: (value: T) => boolean, message?: string): Schema<T>;
   }
-  
+
   export class ValidationError extends Error {
     readonly issues: { path: string[]; message: string }[];
   }
-  
+
   export function string(): Schema<string>;
   export function number(): Schema<number>;
   export function boolean(): Schema<boolean>;
@@ -679,7 +679,7 @@ declare module "@typesugar/contracts" {
   export function ensures(condition: boolean, message?: string): void;
   export function invariant(condition: boolean, message?: string): void;
   export function unreachable(message?: string): never;
-  
+
   export function pre(condition: () => boolean, message?: string): MethodDecorator;
   export function post(condition: (result: any) => boolean, message?: string): MethodDecorator;
   export function classInvariant(condition: () => boolean, message?: string): ClassDecorator;
@@ -700,7 +700,7 @@ declare module "@typesugar/math" {
   export function factorial(n: number): number;
   export function isPrime(n: number): boolean;
   export function fibonacci(n: number): number;
-  
+
   export class Vec2 {
     constructor(x: number, y: number);
     readonly x: number;
@@ -715,7 +715,7 @@ declare module "@typesugar/math" {
     static zero: Vec2;
     static one: Vec2;
   }
-  
+
   export class Vec3 {
     constructor(x: number, y: number, z: number);
     readonly x: number;
@@ -742,17 +742,17 @@ declare module "@typesugar/strings" {
   export function fmt(strings: TemplateStringsArray, ...values: any[]): string;
   export function dedent(strings: TemplateStringsArray, ...values: any[]): string;
   export function indent(s: string, spaces: number): string;
-  
+
   // Formatting
   export function pluralize(word: string, count: number): string;
   export function truncate(s: string, maxLength: number, suffix?: string): string;
   export function wordWrap(s: string, width: number): string;
-  
+
   // Escaping
   export function escapeHtml(s: string): string;
   export function unescapeHtml(s: string): string;
   export function escapeRegex(s: string): string;
-  
+
   // Comparison
   export function levenshtein(a: string, b: string): number;
   export function fuzzyMatch(pattern: string, text: string): boolean;
@@ -774,11 +774,11 @@ declare module "@typesugar/parser" {
     sepBy(sep: Parser<any>): Parser<A[]>;
     between(left: Parser<any>, right: Parser<any>): Parser<A>;
   }
-  
-  export type ParseResult<A> = 
+
+  export type ParseResult<A> =
     | { success: true; value: A; rest: string }
     | { success: false; error: string; position: number };
-  
+
   export function str(s: string): Parser<string>;
   export function regex(r: RegExp): Parser<string>;
   export function digit(): Parser<string>;
@@ -799,7 +799,7 @@ declare module "@typesugar/codec" {
     encode(value: A): string;
     decode(data: string): A;
   }
-  
+
   export const json: <A>() => Codec<A>;
   export const base64: Codec<Uint8Array>;
   export const hex: Codec<Uint8Array>;
@@ -812,7 +812,7 @@ declare module "@typesugar/codec" {
 declare module "@typesugar/type-system" {
   // HKT marker
   export type _ = { readonly _: unique symbol };
-  
+
   // Type-level utilities
   export type Head<T extends any[]> = T extends [infer H, ...any[]] ? H : never;
   export type Tail<T extends any[]> = T extends [any, ...infer R] ? R : never;
@@ -821,13 +821,13 @@ declare module "@typesugar/type-system" {
   export type Length<T extends any[]> = T["length"];
   export type Reverse<T extends any[]> = T extends [infer H, ...infer R] ? [...Reverse<R>, H] : [];
   export type Concat<A extends any[], B extends any[]> = [...A, ...B];
-  
+
   // Conditional types
   export type If<C extends boolean, T, F> = C extends true ? T : F;
   export type Not<T extends boolean> = T extends true ? false : true;
   export type And<A extends boolean, B extends boolean> = A extends true ? B : false;
   export type Or<A extends boolean, B extends boolean> = A extends true ? true : B;
-  
+
   // Object utilities
   export type DeepPartial<T> = T extends object ? { [K in keyof T]?: DeepPartial<T[K]> } : T;
   export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
@@ -1199,7 +1199,7 @@ async function loadPlayground() {
     loadingMessage.value = "Loading runtime libraries...";
     const runtimeMod = await import("../../../packages/playground/dist/runtime.global.js?raw");
     runtimeCode.value = runtimeMod.default;
-    
+
     loadingProgress.value = 80;
     loadingMessage.value = "Ready";
   } catch (e) {
@@ -1277,7 +1277,7 @@ async function runCode() {
   showConsole.value = true;
 
   const tsCode = lastResult.value.code;
-  
+
   // Use TypeScript to transpile to JavaScript
   let jsCode: string;
   try {
@@ -1336,7 +1336,7 @@ async function runCode() {
     if (event.source !== sandboxIframe.value?.contentWindow) {
       return;
     }
-    
+
     if (event.data.type === "console") {
       consoleMessages.value.push({
         type: event.data.method,
@@ -1429,7 +1429,7 @@ function showTooltip(message: string) {
 
 function loadFromUrl(): boolean {
   if (typeof window === "undefined") return false;
-  
+
   const hash = window.location.hash.slice(1);
   if (!hash) return false;
 
@@ -1442,7 +1442,7 @@ function loadFromUrl(): boolean {
     if (compressedCode) {
       // Try lz-string decompression first
       let code = decompressFromEncodedURIComponent(compressedCode);
-      
+
       // Fallback to old base64 format for backwards compatibility
       if (!code) {
         try {
@@ -1451,7 +1451,7 @@ function loadFromUrl(): boolean {
           code = null;
         }
       }
-      
+
       if (code) {
         inputEditor.value?.setValue(code);
       }
@@ -1473,7 +1473,7 @@ function loadFromUrl(): boolean {
 
 function saveToStorage() {
   if (typeof localStorage === "undefined") return;
-  
+
   try {
     const code = inputEditor.value?.getValue() ?? "";
     localStorage.setItem(STORAGE_KEYS.code, code);
@@ -1487,7 +1487,7 @@ function saveToStorage() {
 
 function loadFromStorage(): boolean {
   if (typeof localStorage === "undefined") return false;
-  
+
   try {
     const savedCode = localStorage.getItem(STORAGE_KEYS.code);
     const savedFileType = localStorage.getItem(STORAGE_KEYS.fileType) as ".ts" | ".sts" | null;
@@ -1506,7 +1506,7 @@ function loadFromStorage(): boolean {
     if (savedShowConsole !== null) {
       showConsole.value = savedShowConsole === "true";
     }
-    
+
     return !!savedCode;
   } catch (e) {
     console.warn("Failed to load from localStorage:", e);
@@ -1521,7 +1521,7 @@ function loadPreset(preset: ExamplePreset) {
   fileType.value = preset.fileType;
   selectedPreset.value = preset.name;
   showPresetsDropdown.value = false;
-  
+
   // Update language if needed
   if (inputEditor.value && monaco.value) {
     const model = inputEditor.value.getModel();
@@ -1529,7 +1529,7 @@ function loadPreset(preset: ExamplePreset) {
       monaco.value.editor.setModelLanguage(model, preset.fileType === ".sts" ? "sts" : "typescript");
     }
   }
-  
+
   doTransform();
 }
 
@@ -1560,7 +1560,7 @@ async function initMonaco() {
     loadingProgress.value = 5;
     loadingMessage.value = "Loading editor...";
     const loader = await import("@monaco-editor/loader");
-    
+
     loadingProgress.value = 10;
     loadingMessage.value = "Initializing Monaco...";
     const monacoInstance = await loader.default.init();
@@ -1570,7 +1570,7 @@ async function initMonaco() {
     loadingMessage.value = "Configuring syntax...";
     registerStsLanguage(monacoInstance);
     registerTypesugarTypes(monacoInstance);
-    
+
     // Load TypeScript lib files in background (non-blocking)
     // Editor works immediately, intellisense improves as libs load
     loadTypeScriptLibs(monacoInstance).catch((err) => {
@@ -1635,7 +1635,7 @@ async function initMonaco() {
 
     loadingProgress.value = 90;
     loadingMessage.value = "Loading saved state...";
-    
+
     // Priority: URL hash > localStorage > default
     const loadedFromUrl = loadFromUrl();
     if (!loadedFromUrl) {
@@ -1644,7 +1644,7 @@ async function initMonaco() {
         // Keep the default initialCode from props
       }
     }
-    
+
     // Update language based on loaded fileType
     if (inputEditor.value && monaco.value) {
       const model = inputEditor.value.getModel();
@@ -1652,11 +1652,11 @@ async function initMonaco() {
         monacoInstance.editor.setModelLanguage(model, fileType.value === ".sts" ? "sts" : "typescript");
       }
     }
-    
+
     loadingProgress.value = 100;
     loadingMessage.value = "Ready";
     isLoading.value = false;
-    
+
     doTransform();
 
     const observer = new MutationObserver(() => {
@@ -1665,7 +1665,7 @@ async function initMonaco() {
       monacoInstance.editor.setTheme(newTheme);
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    
+
     // Close presets dropdown when clicking outside
     document.addEventListener("click", handleDocumentClick);
   } catch (e) {
@@ -1738,319 +1738,297 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ErrorBoundary fallback-message="The playground encountered an error. Please try refreshing the page.">
-  <div class="playground-container" role="application" aria-label="typesugar Interactive Playground">
-    <!-- Skip link for keyboard navigation -->
-    <a href="#input-editor" class="skip-link">Skip to editor</a>
-    
-    <!-- Tooltip for copy feedback -->
-    <Transition name="tooltip">
-      <div v-if="shareTooltip" class="share-tooltip" role="status" aria-live="polite">
-        {{ shareTooltip }}
-      </div>
-    </Transition>
-
-    <!-- Toolbar -->
-    <div class="toolbar" role="toolbar" aria-label="Playground controls">
-      <div class="toolbar-left">
-        <!-- Example Presets Dropdown -->
-        <div class="presets-dropdown-container">
-          <button 
-            class="presets-btn"
-            @click="togglePresetsDropdown"
-            :aria-expanded="showPresetsDropdown"
-            aria-haspopup="listbox"
-            aria-label="Load example preset"
-          >
-            <span class="presets-icon" aria-hidden="true">📚</span>
-            Examples
-            <span class="dropdown-arrow" aria-hidden="true">▼</span>
-          </button>
-          <Transition name="dropdown">
-            <div 
-              v-if="showPresetsDropdown" 
-              class="presets-dropdown"
-              role="listbox"
-              aria-label="Example presets"
-            >
-              <template v-for="group in EXAMPLE_GROUPS" :key="group.label">
-                <div class="preset-group-header">{{ group.label }}</div>
-                <button 
-                  v-for="preset in group.presets" 
-                  :key="preset.name"
-                  class="preset-item"
-                  :class="{ active: selectedPreset === preset.name }"
-                  :aria-selected="selectedPreset === preset.name"
-                  role="option"
-                  @click="loadPreset(preset)"
-                >
-                  <span class="preset-name">{{ preset.name }}</span>
-                  <span class="preset-type">{{ preset.fileType }}</span>
-                  <span class="preset-desc">{{ preset.description }}</span>
-                </button>
-              </template>
-            </div>
-          </Transition>
-        </div>
-
-        <div class="file-type-toggle" role="radiogroup" aria-label="File type">
-          <button
-            :class="{ active: fileType === '.ts' }"
-            :aria-pressed="fileType === '.ts'"
-            role="radio"
-            :aria-checked="fileType === '.ts'"
-            @click="setFileType('.ts')"
-            aria-label="TypeScript mode - JSDoc macros only"
-          >
-            .ts
-          </button>
-          <button
-            :class="{ active: fileType === '.sts' }"
-            :aria-pressed="fileType === '.sts'"
-            role="radio"
-            :aria-checked="fileType === '.sts'"
-            @click="setFileType('.sts')"
-            aria-label="Sugar TypeScript mode - custom syntax"
-          >
-            .sts
-          </button>
-        </div>
-        
-        <select 
-          v-model="tsVersion" 
-          class="ts-version-select" 
-          aria-label="TypeScript version"
-        >
-          <option value="5.8">TypeScript 5.8</option>
-          <option value="5.7">TypeScript 5.7</option>
-          <option value="5.6">TypeScript 5.6</option>
-        </select>
-      </div>
-
-      <div class="toolbar-center">
-        <div 
-          class="status" 
-          :class="statusClass"
-          role="status"
-          aria-live="polite"
-          :aria-busy="isTransforming"
-        >
-          <span v-if="isTransforming" class="status-spinner" aria-hidden="true"></span>
-          {{ statusText }}
-        </div>
-      </div>
-
-      <div class="toolbar-right">
-        <button 
-          class="run-btn" 
-          @click="runCode" 
-          :disabled="isRunning || !lastResult"
-          :aria-disabled="isRunning || !lastResult"
-          aria-label="Run code, keyboard shortcut Command Enter"
-        >
-          <span v-if="isRunning" class="spinner" aria-hidden="true"></span>
-          <span v-else aria-hidden="true">▶</span>
-          Run
-        </button>
-        <div class="share-buttons">
-          <button 
-            class="share-btn" 
-            @click="copyShareUrl"
-            aria-label="Copy share URL, keyboard shortcut Command S"
-          >
-            <span aria-hidden="true">🔗</span> Share
-          </button>
-          <button 
-            class="copy-btn" 
-            @click="copyCode"
-            aria-label="Copy input code to clipboard"
-          >
-            <span aria-hidden="true">📋</span> Copy
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Main content area -->
-    <main class="main-content">
-      <!-- Editors -->
-      <div class="editors-container">
-        <div class="editor-panel input-panel">
-          <div class="panel-header">
-            <span class="panel-title" id="input-editor-label">Input</span>
-            <span class="panel-filename">{{ fileName }}</span>
-          </div>
-          <div 
-            id="input-editor"
-            ref="inputContainer" 
-            class="editor-container"
-            role="textbox"
-            aria-multiline="true"
-            aria-labelledby="input-editor-label"
-            @keydown.stop
-            @keypress.stop
-            tabindex="0"
-          />
-        </div>
-
-        <div class="editor-panel output-panel">
-          <div class="panel-header">
-            <div class="output-tabs" role="tablist" aria-label="Output view tabs">
-              <button 
-                :class="{ active: activeTab === 'js' }" 
-                @click="activeTab = 'js'"
-                role="tab"
-                :aria-selected="activeTab === 'js'"
-                aria-controls="output-js-panel"
-                id="output-js-tab"
-              >
-                JS Output
-              </button>
-              <button 
-                :class="{ active: activeTab === 'errors' }" 
-                @click="activeTab = 'errors'"
-                role="tab"
-                :aria-selected="activeTab === 'errors'"
-                aria-controls="output-errors-panel"
-                id="output-errors-tab"
-              >
-                Errors
-                <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{ errorCount }}</span>
-              </button>
-            </div>
-            <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
-          </div>
-          
-          <div 
-            v-show="activeTab === 'js'" 
-            ref="outputContainer" 
-            class="editor-container"
-            id="output-js-panel"
-            role="tabpanel"
-            aria-labelledby="output-js-tab"
-            @keydown.stop
-            @keypress.stop
-          />
-          
-          <div 
-            v-show="activeTab === 'errors'" 
-            class="errors-container"
-            id="output-errors-panel"
-            role="tabpanel"
-            aria-labelledby="output-errors-tab"
-          >
-            <div v-if="errorCount === 0" class="no-errors" role="status">
-              No errors
-            </div>
-            <div v-else class="error-list" role="list" aria-label="Transformation errors">
-              <button 
-                v-for="(diag, i) in lastResult?.diagnostics" 
-                :key="i" 
-                class="error-item"
-                :class="diag.severity"
-                role="listitem"
-                @click="goToErrorLine(diag.line)"
-                :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
-              >
-                <div class="error-location">
-                  <span class="error-severity">{{ diag.severity }}</span>
-                  <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
-                </div>
-                <div class="error-message">{{ diag.message }}</div>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Console -->
-      <section 
-        v-show="showConsole" 
-        class="console-panel"
-        aria-label="Console output"
-      >
-        <div class="console-header">
-          <span class="console-title" id="console-title">Console</span>
-          <div class="console-actions">
-            <button 
-              @click="clearConsole" 
-              aria-label="Clear console output"
-            >
-              Clear
-            </button>
-            <button 
-              @click="showConsole = false" 
-              aria-label="Hide console panel"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </div>
-        </div>
-        <div 
-          class="console-output"
-          role="log"
-          aria-live="polite"
-          aria-labelledby="console-title"
-        >
-          <div v-if="consoleMessages.length === 0" class="console-placeholder">
-            Press Run (Cmd+Enter) to execute the code
-          </div>
-          <div 
-            v-for="(msg, i) in consoleMessages" 
-            :key="i" 
-            class="console-message"
-            :class="msg.type"
-            :role="msg.type === 'error' ? 'alert' : undefined"
-          >
-            <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
-            <span class="console-text">{{ msg.args.join(" ") }}</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Toggle console button when hidden -->
-      <button 
-        v-if="!showConsole" 
-        class="show-console-btn"
-        @click="showConsole = true"
-        aria-label="Show console panel"
-      >
-        Show Console
-      </button>
-    </main>
-
-    <!-- Hidden sandbox iframe -->
-    <iframe 
-      ref="sandboxIframe" 
-      class="sandbox-iframe"
-      sandbox="allow-scripts"
-      title="Code execution sandbox"
-      aria-hidden="true"
-    />
-
-    <!-- Loading overlay -->
-    <div 
-      v-if="isLoading" 
-      class="loading-overlay"
-      role="progressbar"
-      :aria-valuenow="loadingProgress"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-label="Loading playground"
+  <ErrorBoundary
+    fallback-message="The playground encountered an error. Please try refreshing the page."
+  >
+    <div
+      class="playground-container"
+      role="application"
+      aria-label="typesugar Interactive Playground"
     >
-      <div class="loading-content">
-        <div class="loading-spinner" aria-hidden="true"></div>
-        <div class="loading-text">{{ loadingMessage }}</div>
-        <div class="loading-progress-bar">
-          <div 
-            class="loading-progress-fill" 
-            :style="{ width: `${loadingProgress}%` }"
-          ></div>
+      <!-- Skip link for keyboard navigation -->
+      <a href="#input-editor" class="skip-link">Skip to editor</a>
+
+      <!-- Tooltip for copy feedback -->
+      <Transition name="tooltip">
+        <div v-if="shareTooltip" class="share-tooltip" role="status" aria-live="polite">
+          {{ shareTooltip }}
         </div>
-        <div class="loading-progress-text">{{ loadingProgress }}%</div>
+      </Transition>
+
+      <!-- Toolbar -->
+      <div class="toolbar" role="toolbar" aria-label="Playground controls">
+        <div class="toolbar-left">
+          <!-- Example Presets Dropdown -->
+          <div class="presets-dropdown-container">
+            <button
+              class="presets-btn"
+              @click="togglePresetsDropdown"
+              :aria-expanded="showPresetsDropdown"
+              aria-haspopup="listbox"
+              aria-label="Load example preset"
+            >
+              <span class="presets-icon" aria-hidden="true">📚</span>
+              Examples
+              <span class="dropdown-arrow" aria-hidden="true">▼</span>
+            </button>
+            <Transition name="dropdown">
+              <div
+                v-if="showPresetsDropdown"
+                class="presets-dropdown"
+                role="listbox"
+                aria-label="Example presets"
+              >
+                <template v-for="group in EXAMPLE_GROUPS" :key="group.label">
+                  <div class="preset-group-header">{{ group.label }}</div>
+                  <button
+                    v-for="preset in group.presets"
+                    :key="preset.name"
+                    class="preset-item"
+                    :class="{ active: selectedPreset === preset.name }"
+                    :aria-selected="selectedPreset === preset.name"
+                    role="option"
+                    @click="loadPreset(preset)"
+                  >
+                    <span class="preset-name">{{ preset.name }}</span>
+                    <span class="preset-type">{{ preset.fileType }}</span>
+                    <span class="preset-desc">{{ preset.description }}</span>
+                  </button>
+                </template>
+              </div>
+            </Transition>
+          </div>
+
+          <div class="file-type-toggle" role="radiogroup" aria-label="File type">
+            <button
+              :class="{ active: fileType === '.ts' }"
+              :aria-pressed="fileType === '.ts'"
+              role="radio"
+              :aria-checked="fileType === '.ts'"
+              @click="setFileType('.ts')"
+              aria-label="TypeScript mode - JSDoc macros only"
+            >
+              .ts
+            </button>
+            <button
+              :class="{ active: fileType === '.sts' }"
+              :aria-pressed="fileType === '.sts'"
+              role="radio"
+              :aria-checked="fileType === '.sts'"
+              @click="setFileType('.sts')"
+              aria-label="Sugar TypeScript mode - custom syntax"
+            >
+              .sts
+            </button>
+          </div>
+
+          <select v-model="tsVersion" class="ts-version-select" aria-label="TypeScript version">
+            <option value="5.8">TypeScript 5.8</option>
+            <option value="5.7">TypeScript 5.7</option>
+            <option value="5.6">TypeScript 5.6</option>
+          </select>
+        </div>
+
+        <div class="toolbar-center">
+          <div
+            class="status"
+            :class="statusClass"
+            role="status"
+            aria-live="polite"
+            :aria-busy="isTransforming"
+          >
+            <span v-if="isTransforming" class="status-spinner" aria-hidden="true"></span>
+            {{ statusText }}
+          </div>
+        </div>
+
+        <div class="toolbar-right">
+          <button
+            class="run-btn"
+            @click="runCode"
+            :disabled="isRunning || !lastResult"
+            :aria-disabled="isRunning || !lastResult"
+            aria-label="Run code, keyboard shortcut Command Enter"
+          >
+            <span v-if="isRunning" class="spinner" aria-hidden="true"></span>
+            <span v-else aria-hidden="true">▶</span>
+            Run
+          </button>
+          <div class="share-buttons">
+            <button
+              class="share-btn"
+              @click="copyShareUrl"
+              aria-label="Copy share URL, keyboard shortcut Command S"
+            >
+              <span aria-hidden="true">🔗</span> Share
+            </button>
+            <button class="copy-btn" @click="copyCode" aria-label="Copy input code to clipboard">
+              <span aria-hidden="true">📋</span> Copy
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main content area -->
+      <main class="main-content">
+        <!-- Editors -->
+        <div class="editors-container">
+          <div class="editor-panel input-panel">
+            <div class="panel-header">
+              <span class="panel-title" id="input-editor-label">Input</span>
+              <span class="panel-filename">{{ fileName }}</span>
+            </div>
+            <div
+              id="input-editor"
+              ref="inputContainer"
+              class="editor-container"
+              role="textbox"
+              aria-multiline="true"
+              aria-labelledby="input-editor-label"
+              @keydown.stop
+              @keypress.stop
+              tabindex="0"
+            />
+          </div>
+
+          <div class="editor-panel output-panel">
+            <div class="panel-header">
+              <div class="output-tabs" role="tablist" aria-label="Output view tabs">
+                <button
+                  :class="{ active: activeTab === 'js' }"
+                  @click="activeTab = 'js'"
+                  role="tab"
+                  :aria-selected="activeTab === 'js'"
+                  aria-controls="output-js-panel"
+                  id="output-js-tab"
+                >
+                  JS Output
+                </button>
+                <button
+                  :class="{ active: activeTab === 'errors' }"
+                  @click="activeTab = 'errors'"
+                  role="tab"
+                  :aria-selected="activeTab === 'errors'"
+                  aria-controls="output-errors-panel"
+                  id="output-errors-tab"
+                >
+                  Errors
+                  <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{
+                    errorCount
+                  }}</span>
+                </button>
+              </div>
+              <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
+            </div>
+
+            <div
+              v-show="activeTab === 'js'"
+              ref="outputContainer"
+              class="editor-container"
+              id="output-js-panel"
+              role="tabpanel"
+              aria-labelledby="output-js-tab"
+              @keydown.stop
+              @keypress.stop
+            />
+
+            <div
+              v-show="activeTab === 'errors'"
+              class="errors-container"
+              id="output-errors-panel"
+              role="tabpanel"
+              aria-labelledby="output-errors-tab"
+            >
+              <div v-if="errorCount === 0" class="no-errors" role="status">No errors</div>
+              <div v-else class="error-list" role="list" aria-label="Transformation errors">
+                <button
+                  v-for="(diag, i) in lastResult?.diagnostics"
+                  :key="i"
+                  class="error-item"
+                  :class="diag.severity"
+                  role="listitem"
+                  @click="goToErrorLine(diag.line)"
+                  :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
+                >
+                  <div class="error-location">
+                    <span class="error-severity">{{ diag.severity }}</span>
+                    <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
+                  </div>
+                  <div class="error-message">{{ diag.message }}</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Console -->
+        <section v-show="showConsole" class="console-panel" aria-label="Console output">
+          <div class="console-header">
+            <span class="console-title" id="console-title">Console</span>
+            <div class="console-actions">
+              <button @click="clearConsole" aria-label="Clear console output">Clear</button>
+              <button @click="showConsole = false" aria-label="Hide console panel">
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+          </div>
+          <div class="console-output" role="log" aria-live="polite" aria-labelledby="console-title">
+            <div v-if="consoleMessages.length === 0" class="console-placeholder">
+              Press Run (Cmd+Enter) to execute the code
+            </div>
+            <div
+              v-for="(msg, i) in consoleMessages"
+              :key="i"
+              class="console-message"
+              :class="msg.type"
+              :role="msg.type === 'error' ? 'alert' : undefined"
+            >
+              <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
+              <span class="console-text">{{ msg.args.join(" ") }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Toggle console button when hidden -->
+        <button
+          v-if="!showConsole"
+          class="show-console-btn"
+          @click="showConsole = true"
+          aria-label="Show console panel"
+        >
+          Show Console
+        </button>
+      </main>
+
+      <!-- Hidden sandbox iframe -->
+      <iframe
+        ref="sandboxIframe"
+        class="sandbox-iframe"
+        sandbox="allow-scripts"
+        title="Code execution sandbox"
+        aria-hidden="true"
+      />
+
+      <!-- Loading overlay -->
+      <div
+        v-if="isLoading"
+        class="loading-overlay"
+        role="progressbar"
+        :aria-valuenow="loadingProgress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-label="Loading playground"
+      >
+        <div class="loading-content">
+          <div class="loading-spinner" aria-hidden="true"></div>
+          <div class="loading-text">{{ loadingMessage }}</div>
+          <div class="loading-progress-bar">
+            <div class="loading-progress-fill" :style="{ width: `${loadingProgress}%` }"></div>
+          </div>
+          <div class="loading-progress-text">{{ loadingProgress }}%</div>
+        </div>
       </div>
     </div>
-  </div>
   </ErrorBoundary>
 </template>
 
@@ -2166,10 +2144,18 @@ onUnmounted(() => {
   gap: 6px;
 }
 
-.status.loading { color: var(--vp-c-text-2); }
-.status.transforming { color: var(--vp-c-brand-1); }
-.status.success { color: var(--vp-c-green-1); }
-.status.error { color: var(--vp-c-red-1); }
+.status.loading {
+  color: var(--vp-c-text-2);
+}
+.status.transforming {
+  color: var(--vp-c-brand-1);
+}
+.status.success {
+  color: var(--vp-c-green-1);
+}
+.status.error {
+  color: var(--vp-c-red-1);
+}
 
 .status-spinner {
   display: inline-block;
@@ -2223,14 +2209,16 @@ onUnmounted(() => {
   display: inline-block;
   width: 12px;
   height: 12px;
-  border: 2px solid rgba(255,255,255,0.3);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-top-color: white;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .main-content {
@@ -2477,10 +2465,18 @@ button.error-item.warning {
   font-size: 11px;
 }
 
-.console-message.log .console-type { color: var(--vp-c-text-3); }
-.console-message.info .console-type { color: var(--vp-c-blue-1); }
-.console-message.warn .console-type { color: var(--vp-c-yellow-1); }
-.console-message.error .console-type { color: var(--vp-c-red-1); }
+.console-message.log .console-type {
+  color: var(--vp-c-text-3);
+}
+.console-message.info .console-type {
+  color: var(--vp-c-blue-1);
+}
+.console-message.warn .console-type {
+  color: var(--vp-c-yellow-1);
+}
+.console-message.error .console-type {
+  color: var(--vp-c-red-1);
+}
 
 .console-text {
   color: var(--vp-c-text-1);
@@ -2754,65 +2750,65 @@ button.error-item.warning {
     height: auto;
     min-height: 100vh;
   }
-  
+
   .editors-container {
     grid-template-columns: 1fr;
     min-height: 400px;
   }
-  
+
   .editor-panel {
     min-height: 250px;
   }
-  
+
   .input-panel {
     border-right: none;
     border-bottom: 1px solid var(--vp-c-divider);
   }
-  
+
   .toolbar {
     flex-wrap: wrap;
     gap: 8px;
     padding: 8px 12px;
   }
-  
+
   .toolbar-left {
     flex-wrap: wrap;
     gap: 8px;
   }
-  
+
   .toolbar-center {
     order: 3;
     width: 100%;
     justify-content: flex-start;
   }
-  
+
   .toolbar-right {
     width: 100%;
     justify-content: space-between;
   }
-  
+
   .presets-dropdown {
     min-width: 240px;
     max-width: calc(100vw - 48px);
   }
-  
+
   .share-buttons {
     flex-wrap: wrap;
   }
-  
+
   .file-type-toggle button {
     padding: 6px 12px;
     font-size: 12px;
   }
-  
+
   .run-btn {
     flex: 1;
   }
-  
+
   .console-panel {
     height: 150px;
   }
-  
+
   .show-console-btn {
     bottom: 8px;
     right: 8px;
@@ -2825,27 +2821,27 @@ button.error-item.warning {
   .toolbar {
     padding: 8px;
   }
-  
+
   .presets-btn {
     padding: 6px 8px;
     font-size: 12px;
   }
-  
+
   .presets-icon {
     display: none;
   }
-  
+
   .ts-version-select {
     padding: 4px 8px;
     font-size: 12px;
   }
-  
+
   .share-btn,
   .copy-btn {
     padding: 6px 10px;
     font-size: 12px;
   }
-  
+
   .status {
     font-size: 11px;
     padding: 2px 8px;
@@ -2864,11 +2860,11 @@ select:focus-visible {
   .error-badge {
     border: 1px solid white;
   }
-  
+
   .file-type-toggle button.active {
     border-width: 2px;
   }
-  
+
   .status {
     font-weight: 600;
   }
@@ -2881,11 +2877,11 @@ select:focus-visible {
   .status-spinner {
     animation: none;
   }
-  
+
   .loading-progress-fill {
     transition: none;
   }
-  
+
   .tooltip-enter-active,
   .tooltip-leave-active,
   .dropdown-enter-active,

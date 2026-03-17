@@ -1495,11 +1495,28 @@ function getSpecializationMethodsForDerivation(
 }
 
 function getBaseType(field: DeriveFieldInfo): string {
-  const typeStr = field.typeString.toLowerCase();
-  if (typeStr === "number" || typeStr.includes("number")) return "number";
-  if (typeStr === "string" || typeStr.includes("string")) return "string";
-  if (typeStr === "boolean" || typeStr.includes("boolean")) return "boolean";
-  if (typeStr.startsWith("array") || typeStr.includes("[]")) return "array";
+  const typeStr = field.typeString.trim();
+  const lower = typeStr.toLowerCase();
+
+  // Exact primitive matches (case-insensitive)
+  if (lower === "number" || lower === "bigint") return "number";
+  if (lower === "string") return "string";
+  if (lower === "boolean") return "boolean";
+
+  // Array patterns: Array<T>, T[], ReadonlyArray<T>
+  if (lower.startsWith("array<") || lower.startsWith("readonlyarray<") || typeStr.endsWith("[]")) {
+    return "array";
+  }
+
+  // Union types containing primitives (e.g., "string | null", "number | undefined")
+  // Only match if it's a simple union with a primitive, not a complex generic
+  if (typeStr.includes("|") && !typeStr.includes("<")) {
+    const parts = typeStr.split("|").map((p) => p.trim().toLowerCase());
+    if (parts.some((p) => p === "number" || p === "bigint")) return "number";
+    if (parts.some((p) => p === "string")) return "string";
+    if (parts.some((p) => p === "boolean")) return "boolean";
+  }
+
   return "object";
 }
 
@@ -3513,6 +3530,25 @@ function expandDeriving(
         }
       }
     } else {
+      // Special case: Builder doesn't fit the typeclass model
+      // It's a factory pattern, not a type-parameterized interface
+      if (tcName === "Builder") {
+        ctx
+          .diagnostic(TS9101)
+          .at(arg)
+          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
+          .note(
+            `Builder is not supported as a typeclass derivation. ` +
+              `Unlike Eq<T> or Clone<T>, Builder doesn't have a type parameter for the target type.`
+          )
+          .help(
+            `Use a builder library like '@sinclair/typebox' or write a manual builder:\n` +
+              `  static builder() { return new ${typeName}Builder(); }`
+          )
+          .emit();
+        continue;
+      }
+
       // Priority 3: {Name}TC convention
       const tcDerive = globalRegistry.getDerive(`${tcName}TC`);
       if (tcDerive) {
@@ -4490,8 +4526,33 @@ function getDefaultValueForType(field: DeriveFieldInfo): string {
       return '""';
     case "boolean":
       return "false";
-    default:
-      return "{}";
+    case "array":
+      return "[]";
+    default: {
+      // Try to detect known types that need special handling
+      const typeStr = field.typeString.trim();
+      const lower = typeStr.toLowerCase();
+      if (lower === "date") {
+        return "new Date(0)";
+      }
+      if (lower.startsWith("map<") || lower === "map") {
+        return "new Map()";
+      }
+      if (lower.startsWith("set<") || lower === "set") {
+        return "new Set()";
+      }
+      if (lower === "null") {
+        return "null";
+      }
+      // For unknown object types, summon their Default instance if available
+      // This enables transitive derivation - if the nested type also has @derive(Default),
+      // its default instance will be used
+      if (/^[A-Z]/.test(typeStr) && !typeStr.includes("<") && !typeStr.includes("|")) {
+        return `summon<Default<${typeStr}>>().default()`;
+      }
+      // Fallback: empty object cast (will fail typecheck if wrong)
+      return `({} as ${typeStr})`;
+    }
   }
 }
 
