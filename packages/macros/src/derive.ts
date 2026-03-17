@@ -15,6 +15,7 @@
 import * as ts from "typescript";
 import { defineDeriveMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
+import { instanceRegistry } from "./typeclass.js";
 
 // ============================================================================
 // Eq - Generate equality comparison function
@@ -51,10 +52,29 @@ function expandEqForProductType(
 
   const body = comparisons.length > 0 ? comparisons.join(" && ") : "true";
 
+  // Instance variable name for the Eq typeclass object
+  const instanceName = `eq${typeName}`;
+
+  // Register at compile time for operator overloading (=== rewriting)
+  // The transformer looks up this instance and rewrites p1 === p2 to eqPoint.eq(p1, p2)
+  instanceRegistry.push({
+    typeclassName: "Eq",
+    forType: typeName,
+    instanceName: instanceName,
+    derived: true,
+  });
+
+  // Generate:
+  // 1. The standalone function for direct use (backward compatible)
+  // 2. The Eq instance object for operator overloading
   const code = `
 export function ${fnName}(a: ${typeName}, b: ${typeName}): boolean {
   return ${body};
 }
+const ${instanceName} = {
+  equals: ${fnName},
+  notEquals: (a: ${typeName}, b: ${typeName}): boolean => !${fnName}(a, b),
+};
 `;
 
   return ctx.parseStatements(code);
@@ -77,6 +97,20 @@ function expandEqForSumType(
     })
     .join("\n");
 
+  // Instance variable name for the Eq typeclass object
+  const instanceName = `eq${typeName}`;
+
+  // Register at compile time for operator overloading (=== rewriting)
+  instanceRegistry.push({
+    typeclassName: "Eq",
+    forType: typeName,
+    instanceName: instanceName,
+    derived: true,
+  });
+
+  // Generate:
+  // 1. The standalone function for direct use (backward compatible)
+  // 2. The Eq instance object for operator overloading
   const code = `
 export function ${fnName}(a: ${typeName}, b: ${typeName}): boolean {
   if (a.${discriminant} !== b.${discriminant}) return false;
@@ -85,6 +119,10 @@ ${cases}
     default: return false;
   }
 }
+const ${instanceName} = {
+  equals: ${fnName},
+  notEquals: (a: ${typeName}, b: ${typeName}): boolean => !${fnName}(a, b),
+};
 `;
 
   return ctx.parseStatements(code);

@@ -20,7 +20,7 @@ import * as typesugar from "typesugar";
 // Direct imports of specific exports
 import {
   // Namespace exports (current API uses *Namespace suffix)
-  comptimeNamespace,
+  // Note: comptimeNamespace doesn't exist - comptime is a single function, not a package
   reflectNamespace,
   deriveNamespace,
   // Note: operatorsNamespace doesn't exist - operators are in @typesugar/macros
@@ -67,7 +67,7 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // ==========================================================================
   describe("Re-export completeness", () => {
     it("exports all namespace modules", () => {
-      expect(typesugar.comptimeNamespace).toBeDefined();
+      // Note: comptimeNamespace doesn't exist - comptime is a single function, not a package
       expect(typesugar.reflectNamespace).toBeDefined();
       expect(typesugar.deriveNamespace).toBeDefined();
       // Note: operatorsNamespace doesn't exist - operators are exported directly from @typesugar/macros
@@ -117,10 +117,9 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // Attack 2: Namespace vs Direct Export Conflicts
   // ==========================================================================
   describe("Namespace vs direct export conflicts", () => {
-    it("comptime namespace and comptime are distinct exports", () => {
-      // comptimeNamespace is the module object
-      expect(typeof comptimeNamespace).toBe("object");
-      // comptime is the callable function
+    it("comptime is exported as a function (no separate namespace)", () => {
+      // comptime is just a callable function, not a namespace module
+      // (unlike reflect/derive/typeclass/specialize which have separate packages)
       expect(typeof comptime).toBe("function");
     });
 
