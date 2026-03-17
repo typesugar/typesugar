@@ -596,6 +596,12 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
+    // Skip synthetic nodes (created by macro expansion) to avoid re-expansion loops.
+    // Synthetic nodes have negative or unset positions.
+    if (node.pos < 0 || node.end < 0) {
+      return undefined;
+    }
+
     if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
       return undefined;
     }

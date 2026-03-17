@@ -35,6 +35,41 @@ import {
 import { safeGetNodeText, type VisitFn } from "./transformer-utils.js";
 
 // ---------------------------------------------------------------------------
+// Void return type detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a function has a void return type.
+ * Used to suppress "no return statement" warnings for void functions,
+ * since that's expected behavior.
+ */
+function isVoidReturnType(
+  typeChecker: ts.TypeChecker,
+  fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration
+): boolean {
+  // Check explicit return type annotation
+  if (fn.type) {
+    if (fn.type.kind === ts.SyntaxKind.VoidKeyword) {
+      return true;
+    }
+  }
+
+  // Infer from type checker
+  try {
+    const signature = typeChecker.getSignatureFromDeclaration(fn);
+    if (signature) {
+      const returnType = typeChecker.getReturnTypeOfSignature(signature);
+      const typeStr = typeChecker.typeToString(returnType);
+      return typeStr === "void";
+    }
+  } catch {
+    // Fall through
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Instance name extraction
 // ---------------------------------------------------------------------------
 
@@ -448,7 +483,12 @@ export function tryAutoSpecialize(
   if (body && ts.isBlock(body)) {
     const classification = classifyInlineFailureDetailed(body);
     if (classification.reason && !classification.canFlatten) {
-      if (!suppressWarnings) {
+      // Don't warn for void functions - "no return statement" is expected for them
+      const isVoidFunction = isVoidReturnType(ctx.typeChecker, fnBody);
+      if (
+        !suppressWarnings &&
+        !(classification.reason === "no return statement" && isVoidFunction)
+      ) {
         const help = getInlineFailureHelp(classification.reason);
         ctx.reportWarning(
           node,

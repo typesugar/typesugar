@@ -191,6 +191,49 @@ const TS_KEYWORD_TYPES = new Set([
 ]);
 
 /**
+ * Extract the concrete type argument from a parameter type based on a type parameter.
+ *
+ * For example:
+ *   - declType: `T[]`, typeParam: `T`, resolvedType: `number[]` → `number`
+ *   - declType: `Map<K, V>`, typeParam: `K`, resolvedType: `Map<string, number>` → `string`
+ *   - declType: `T`, typeParam: `T`, resolvedType: `number` → `number`
+ */
+function extractTypeArgFromParam(
+  declType: ts.TypeNode,
+  typeParam: string,
+  resolvedType: string
+): string | undefined {
+  // Simple type reference (e.g., T)
+  if (ts.isTypeReferenceNode(declType)) {
+    const name = ts.isIdentifier(declType.typeName) ? declType.typeName.text : undefined;
+    if (name === typeParam) {
+      return resolvedType;
+    }
+  }
+
+  // Array type (e.g., T[])
+  if (ts.isArrayTypeNode(declType)) {
+    const elemType = declType.elementType;
+    if (ts.isTypeReferenceNode(elemType)) {
+      const name = ts.isIdentifier(elemType.typeName) ? elemType.typeName.text : undefined;
+      if (name === typeParam) {
+        // Extract element type from resolved array type
+        if (resolvedType.endsWith("[]")) {
+          return resolvedType.slice(0, -2);
+        }
+        // Handle Array<T> format
+        const match = resolvedType.match(/^Array<(.+)>$/);
+        if (match) {
+          return match[1];
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Create a TypeNode from a type name string, handling complex forms that
  * `factory.createTypeReferenceNode(name)` would mangle (e.g. `string[]`,
  * `Map<string, number>`).
@@ -301,10 +344,10 @@ export function transformImplicitsCall(
   const factory = ctx.factory;
   const newArgs: ts.Expression[] = [...callExpr.arguments];
 
-  // Infer type parameter mappings from the resolved signature (reuses resolvedSig)
+  // Infer type parameter mappings using TypeChecker's inference
   const typeParamMap = new Map<string, string>();
   try {
-    // Explicit type arguments take priority
+    // 1. Explicit type arguments take priority
     if (callExpr.typeArguments && decl.typeParameters) {
       for (let i = 0; i < callExpr.typeArguments.length; i++) {
         if (i < decl.typeParameters.length) {
@@ -313,28 +356,69 @@ export function transformImplicitsCall(
       }
     }
 
-    // Also infer from resolved parameter types
-    const resolvedParams = resolvedSig.getParameters();
-    for (let i = providedArgs; i < decl.parameters.length; i++) {
-      const param = decl.parameters[i];
-      if (!isImplicitDefault(param.initializer)) continue;
-      if (!param.type || !ts.isTypeReferenceNode(param.type)) continue;
+    // 2. Use TypeChecker's resolved signature to get inferred type arguments
+    // This handles complex cases like T[] -> number[], Map<K,V> -> Map<string,number>, etc.
+    if (decl.typeParameters && resolvedSig) {
+      const typeParamNames = new Set(decl.typeParameters.map((tp) => tp.name.text));
+      const resolvedParams = resolvedSig.getParameters();
 
-      if (i < resolvedParams.length) {
-        const resolvedParamSymbol = resolvedParams[i];
-        const resolvedType = ctx.typeChecker.getTypeOfSymbolAtLocation(
-          resolvedParamSymbol,
-          callExpr
-        );
-        const resolvedTypeStr = ctx.typeChecker.typeToString(resolvedType);
-        const match = resolvedTypeStr.match(/^\w+<(.+)>$/);
-        if (match) {
-          const typeArgs = param.type.typeArguments;
-          if (typeArgs && typeArgs.length > 0) {
-            const typeArgText = typeArgs[0].getText();
-            if (!typeParamMap.has(typeArgText)) {
-              typeParamMap.set(typeArgText, match[1]);
+      for (let j = 0; j < Math.min(providedArgs, resolvedParams.length); j++) {
+        const paramSymbol = resolvedParams[j];
+        const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(paramSymbol, callExpr);
+        const paramTypeStr = ctx.typeChecker.typeToString(paramType);
+
+        const declParam = decl.parameters[j];
+        if (declParam?.type) {
+          // Try to extract type arguments for each type parameter from this parameter
+          for (const tpName of typeParamNames) {
+            if (!typeParamMap.has(tpName)) {
+              const concreteType = extractTypeArgFromParam(declParam.type, tpName, paramTypeStr);
+              if (concreteType && concreteType !== tpName) {
+                typeParamMap.set(tpName, concreteType);
+              }
             }
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: infer from provided arguments directly (handles simple cases)
+    if (decl.typeParameters) {
+      const typeParamNames = new Set(decl.typeParameters.map((tp) => tp.name.text));
+
+      for (let i = 0; i < providedArgs && i < decl.parameters.length; i++) {
+        const param = decl.parameters[i];
+        const arg = callExpr.arguments[i];
+
+        // Simple type parameter reference (e.g., `value: A`)
+        if (param.type && ts.isTypeReferenceNode(param.type)) {
+          const paramTypeName = ts.isIdentifier(param.type.typeName)
+            ? param.type.typeName.text
+            : undefined;
+
+          if (
+            paramTypeName &&
+            typeParamNames.has(paramTypeName) &&
+            !typeParamMap.has(paramTypeName)
+          ) {
+            const argType = ctx.typeChecker.getTypeAtLocation(arg);
+            const widenedType = ctx.typeChecker.getBaseTypeOfLiteralType(argType);
+            let argTypeStr = ctx.typeChecker.typeToString(widenedType);
+
+            // Handle {} or never types
+            if (argTypeStr === "{}" || argTypeStr === "never") {
+              const apparentType = ctx.typeChecker.getApparentType(argType);
+              const apparentStr = ctx.typeChecker.typeToString(apparentType);
+              if (apparentStr !== "{}" && apparentStr !== "never") {
+                argTypeStr = apparentStr;
+              } else if (ts.isArrayLiteralExpression(arg) && arg.elements.length > 0) {
+                const elemType = ctx.typeChecker.getTypeAtLocation(arg.elements[0]);
+                const elemBase = ctx.typeChecker.getBaseTypeOfLiteralType(elemType);
+                argTypeStr = ctx.typeChecker.typeToString(elemBase) + "[]";
+              }
+            }
+
+            typeParamMap.set(paramTypeName, argTypeStr);
           }
         }
       }
@@ -385,15 +469,11 @@ export function transformImplicitsCall(
       continue;
     }
 
-    // 2. Fall back to global instance registry
+    // 2. Fall back to global instance registry - inline the instance directly (zero-cost)
     const resolved = resolveImplicit(typeclassName, concreteType);
     if (resolved) {
-      const summonExpr = factory.createCallExpression(
-        factory.createPropertyAccessExpression(factory.createIdentifier(typeclassName), "summon"),
-        [createTypeRefSafe(factory, concreteType)],
-        [factory.createStringLiteral(concreteType)]
-      );
-      newArgs.push(summonExpr);
+      // Use the instance variable directly instead of Show.summon(...)
+      newArgs.push(factory.createIdentifier(resolved.instanceName));
     } else {
       const attempts: ResolutionAttempt[] = [
         {

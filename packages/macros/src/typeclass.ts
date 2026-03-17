@@ -102,6 +102,40 @@ import { getSuggestionsForSymbol, getSuggestionsForTypeclass } from "@typesugar/
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 
 // ============================================================================
+// Safe Node Text Extraction
+// ============================================================================
+
+/**
+ * Get text from a TypeScript node, handling synthetic nodes (nodes created
+ * programmatically without source positions) that would throw with `.getText()`.
+ *
+ * TS < 5.8 throws "Node must have a real position for this operation" on
+ * synthetic nodes. This helper falls back to the printer in that case.
+ */
+const printer = ts.createPrinter({ removeComments: true });
+const dummySourceFile = ts.createSourceFile("", "", ts.ScriptTarget.Latest);
+
+function getNodeText(node: ts.Node): string {
+  // Check if this is a synthetic node (negative or missing positions)
+  if (node.pos < 0 || node.end < 0) {
+    return printer.printNode(ts.EmitHint.Unspecified, node, dummySourceFile);
+  }
+
+  // Try to get the source file for real nodes
+  try {
+    const sourceFile = node.getSourceFile();
+    if (sourceFile) {
+      return node.getText(sourceFile);
+    }
+  } catch {
+    // getSourceFile() can throw for synthetic nodes
+  }
+
+  // Fallback to printer
+  return printer.printNode(ts.EmitHint.Unspecified, node, dummySourceFile);
+}
+
+// ============================================================================
 // Primitive Registration Hook
 // ============================================================================
 
@@ -548,10 +582,19 @@ function executeTransitiveDerivation(
     }
 
     // Generate instance
-    const code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
+    let code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
+
+    // Strip runtime registration only for local, non-exported typeclasses (zero-cost).
+    // If the typeclass is not in our registry, it's imported from another module,
+    // which means it's exported (otherwise we couldn't import it).
+    const tcInfo = typeclassRegistry.get(typeclassName);
+    if (tcInfo && !tcInfo.isExported) {
+      code = stripRuntimeRegistration(code);
+    }
+
     statements.push(...ctx.parseStatements(code));
 
-    // Register
+    // Register in compile-time registry (always needed for summon/implicit resolution)
     const varName = instanceVarName(uncapitalize(typeclassName), typeInfo.typeName);
     instanceRegistry.push({
       typeclassName,
@@ -592,6 +635,12 @@ interface TypeclassInfo {
    * Built automatically from methods annotated with `& Op<"+">` return types.
    */
   syntax?: Map<string, string>;
+  /**
+   * Whether the typeclass interface is exported.
+   * If true, runtime registry is emitted for external consumers.
+   * If false, only compile-time resolution is used (zero-cost).
+   */
+  isExported?: boolean;
 }
 
 interface TypeclassMethod {
@@ -1294,6 +1343,17 @@ function instanceVarName(tcName: string, typeName: string): string {
 }
 
 /**
+ * Strip runtime registration calls from generated derivation code.
+ * Used when the typeclass is not exported (internal = zero-cost, no runtime registry).
+ *
+ * Matches patterns like:
+ *   /\*#__PURE__*\/ Show.registerInstance<Point>("Point", showPoint);
+ */
+function stripRuntimeRegistration(code: string): string {
+  return code.replace(/\/\*#__PURE__\*\/\s*\w+\.registerInstance<[^>]+>\([^)]+\);\s*\n?/g, "");
+}
+
+/**
  * Get method implementations for specialization based on derived typeclass.
  * Returns source strings suitable for registration with the specialization system.
  */
@@ -1664,6 +1724,9 @@ export const typeclassAttribute = defineAttributeMacro({
       }
     }
 
+    const isExported =
+      target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+
     // Register the typeclass
     const tcInfo: TypeclassInfo = {
       name: tcName,
@@ -1673,22 +1736,23 @@ export const typeclassAttribute = defineAttributeMacro({
       canDeriveSum: true,
       fullSignatureText,
       syntax: syntax.size > 0 ? syntax : undefined,
+      isExported,
     };
     typeclassRegistry.set(tcName, tcInfo);
 
-    const isExported =
-      target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+    const statements: ts.Statement[] = [];
 
-    // Generate the companion namespace with utility functions
-    const companionCode = generateCompanionNamespace(ctx, tcInfo, isExported);
+    // Only generate runtime registry infrastructure for exported typeclasses.
+    // Internal typeclasses use compile-time resolution only (zero-cost).
+    if (isExported) {
+      const companionCode = generateCompanionNamespace(ctx, tcInfo, isExported);
+      statements.push(...ctx.parseStatements(companionCode));
 
-    // Generate extension method helpers
-    const extensionCode = generateExtensionHelpers(tcInfo);
-
-    const statements = [
-      ...ctx.parseStatements(companionCode),
-      ...ctx.parseStatements(extensionCode),
-    ];
+      // Generate extension method helpers (only needed when runtime registry exists,
+      // as they dispatch through the namespace's summon() method)
+      const extensionCode = generateExtensionHelpers(tcInfo);
+      statements.push(...ctx.parseStatements(extensionCode));
+    }
 
     // Strip Op<> from the emitted interface
     const cleanTarget = stripOpFromInterface(ctx, target);
@@ -2004,12 +2068,18 @@ export const implAttribute = defineAttributeMacro({
       }
     }
 
-    // Generate registration call using quoteStatements
-    const registrationStatements = quoteStatements(
-      ctx
-    )`/*#__PURE__*/ ${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
+    // Only emit runtime registration for exported typeclasses.
+    // Internal typeclasses use compile-time resolution only (zero-cost).
+    const tcInfo = typeclassRegistry.get(tcName);
+    if (tcInfo?.isExported) {
+      const registrationStatements = quoteStatements(
+        ctx
+      )`/*#__PURE__*/ ${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
+      return [updatedTarget, ...registrationStatements];
+    }
 
-    return [updatedTarget, ...registrationStatements];
+    // No runtime registration needed - compile-time registry is sufficient
+    return updatedTarget;
   },
 });
 
@@ -2911,7 +2981,14 @@ function createTypeclassDeriveMacro(tcName: string) {
         code = derivation.deriveProduct(typeName, fields);
       }
 
-      const stmts = ctx.parseStatements(code);
+      // Strip runtime registration only for local, non-exported typeclasses (zero-cost).
+      // If the typeclass is not in our registry, it's imported from another module.
+      const tcInfo = typeclassRegistry.get(tcName);
+      if (tcInfo && !tcInfo.isExported) {
+        code = stripRuntimeRegistration(code!);
+      }
+
+      const stmts = ctx.parseStatements(code!);
 
       // Only register instance if not a generic factory function
       // (generic factories are called at use site, not registered globally)
@@ -3502,7 +3579,14 @@ function expandDeriving(
         code = derivation.deriveProduct(typeName, fields);
       }
 
-      allStatements.push(...ctx.parseStatements(code));
+      // Strip runtime registration only for local, non-exported typeclasses (zero-cost).
+      // If the typeclass is not in our registry, it's imported from another module.
+      const tcInfo = typeclassRegistry.get(tcName);
+      if (tcInfo && !tcInfo.isExported) {
+        code = stripRuntimeRegistration(code!);
+      }
+
+      allStatements.push(...ctx.parseStatements(code!));
 
       // Only register instance if not a generic factory function
       // (generic factories are called at use site, not registered globally)
@@ -3661,7 +3745,7 @@ export const summonMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const tcName = typeArg.typeName.getText();
+    const tcName = getNodeText(typeArg.typeName);
     const innerTypeArgs = typeArg.typeArguments;
 
     if (!innerTypeArgs || innerTypeArgs.length === 0) {
@@ -3681,9 +3765,9 @@ export const summonMacro = defineExpressionMacro({
       // Use full type text including type arguments for partial application
       // e.g., Either<string> → "Either<string>", not just "Either"
       if (innerType.typeArguments && innerType.typeArguments.length > 0) {
-        typeName = innerType.getText();
+        typeName = getNodeText(innerType);
       } else {
-        typeName = innerType.typeName.getText();
+        typeName = getNodeText(innerType.typeName);
       }
     } else if (innerType.kind === ts.SyntaxKind.NumberKeyword) {
       typeName = "number";
@@ -3692,7 +3776,7 @@ export const summonMacro = defineExpressionMacro({
     } else if (innerType.kind === ts.SyntaxKind.BooleanKeyword) {
       typeName = "boolean";
     } else {
-      typeName = innerType.getText();
+      typeName = getNodeText(innerType);
     }
 
     // Build resolution trace for detailed error messages

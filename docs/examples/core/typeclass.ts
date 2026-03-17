@@ -1,7 +1,7 @@
 //! @typeclass
-//! Typeclasses and instances
+//! Typeclasses, instances, and generic functions
 
-import { summon } from "typesugar";
+import { summon, implicit } from "typesugar";
 
 // @typeclass uses JSDoc syntax — /** @typeclass */ on interface, /** @impl TC<T> */ on instances
 // Check JS Output tab to see the generated registry, summon(), and namespace!
@@ -26,11 +26,18 @@ const showArray: Show<number[]> = {
   show: (arr) => `[${arr.join(", ")}]`,
 };
 
-// Use summon() to get the instance at compile time!
+// summon() gets a specific instance at compile time
 const showN = summon<Show<number>>();
-const showS = summon<Show<string>>();
-const showA = summon<Show<number[]>>();
+console.log("summon<Show<number>>().show(42):", showN.show(42));
 
-console.log("showN.show(42):", showN.show(42));           // "42"
-console.log("showS.show('hi'):", showS.show("hi"));       // "\"hi\""
-console.log("showA.show([1,2,3]):", showA.show([1, 2, 3])); // "[1, 2, 3]"
+// implicit() enables generic functions — the instance is resolved at each call site!
+function print<A>(value: A, _show: Show<A> = implicit()): void {
+  console.log(_show.show(value));
+}
+
+// Each call resolves to the correct instance automatically:
+print(42);           // uses showNumber
+print("hello");      // uses showString  
+print([1, 2, 3]);    // uses showArray
+
+// Works with any type that has a Show instance — fully type-safe!

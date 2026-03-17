@@ -255,7 +255,7 @@ type Triple<A, B, C> = [A, B, C];
 // ============================================================================
 
 describe("@impl Tier 1 implicit resolution", () => {
-  it("@impl Functor<Option> works without explicit @hkt or OptionF", () => {
+  it("@impl Functor<Option> works without explicit @hkt or OptionF (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface Functor<F> {
@@ -274,11 +274,36 @@ const optionFunctor = {
     const result = transformCode(code, { fileName: "impl-option.ts" });
 
     expect(result.changed).toBe(true);
+    // Non-exported typeclass: zero-cost, no registerInstance
+    expect(result.code).not.toContain("registerInstance");
+    expect(result.code).toContain("optionFunctor");
+  });
+
+  it("@impl Functor<Option> with exported typeclass generates runtime registry", () => {
+    const code = `
+/** @typeclass */
+export interface Functor<F> {
+  map: <A, B>(fa: any, f: (a: A) => B) => any;
+}
+
+type Option<A> = A | null;
+
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
+    fa !== null ? f(fa) : null,
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-option-exported.ts" });
+
+    expect(result.changed).toBe(true);
+    // Exported typeclass: generates registerInstance
     expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("optionFunctor");
   });
 
-  it("@impl Functor<Array> works for built-in types", () => {
+  it("@impl Functor<Array> works for built-in types (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface Functor<F> {
@@ -294,11 +319,12 @@ const arrayFunctor = {
     const result = transformCode(code, { fileName: "impl-array.ts" });
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("registerInstance");
+    // Non-exported: zero-cost
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("arrayFunctor");
   });
 
-  it("@impl Functor<Either<string>> works with partial application", () => {
+  it("@impl Functor<Either<string>> works with partial application (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface Functor<F> {
@@ -317,13 +343,12 @@ const eitherStringFunctor = {
     const result = transformCode(code, { fileName: "impl-either-string.ts" });
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("registerInstance");
+    // Non-exported: zero-cost
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("eitherStringFunctor");
-    // The type in the registry should be the full "Either<string>"
-    expect(result.code).toContain("Either<string>");
   });
 
-  it("parseTypeclassInstantiation handles nested brackets correctly", () => {
+  it("parseTypeclassInstantiation handles nested brackets correctly (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface Monad<F> {
@@ -352,11 +377,12 @@ const eitherStringMonad = {
     const result = transformCode(code, { fileName: "impl-monad-either.ts" });
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("registerInstance");
+    // Non-exported: zero-cost
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("eitherStringMonad");
   });
 
-  it("still works with explicit OptionF (backward compatibility)", () => {
+  it("still works with explicit OptionF (backward compatibility, non-exported)", () => {
     const code = `
 import type { _ } from "@typesugar/type-system";
 
@@ -377,7 +403,8 @@ const optionFunctor = {
     const result = transformCode(code, { fileName: "impl-optionf-compat.ts" });
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("registerInstance");
+    // Non-exported: zero-cost
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("optionFunctor");
   });
 });

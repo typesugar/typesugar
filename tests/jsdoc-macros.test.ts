@@ -28,7 +28,7 @@ beforeEach(() => {
 // ============================================================================
 
 describe("@typeclass JSDoc tag", () => {
-  it("generates companion namespace from @typeclass JSDoc tag", () => {
+  it("non-exported typeclass is zero-cost (no runtime registry)", () => {
     const code = `
 /** @typeclass */
 interface MyEq<A> {
@@ -40,7 +40,27 @@ interface MyEq<A> {
 
     expect(result.changed).toBe(true);
 
-    // Should generate companion namespace with registerInstance and summon
+    // Non-exported typeclasses are zero-cost: no companion namespace, no runtime registry,
+    // no extension helpers (since they rely on the runtime registry)
+    expect(result.code).not.toContain("namespace MyEq");
+    expect(result.code).not.toContain("registerInstance");
+    expect(result.code).not.toContain("summon");
+    expect(result.code).not.toContain("myEqEquals");
+  });
+
+  it("exported typeclass generates runtime registry for cross-module support", () => {
+    const code = `
+/** @typeclass */
+export interface MyEq<A> {
+  equals(a: A, b: A): boolean;
+}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "jsdoc-typeclass-exported.ts" });
+
+    expect(result.changed).toBe(true);
+
+    // Exported typeclasses generate full runtime support
     expect(result.code).toContain("namespace MyEq");
     expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("summon");
@@ -51,7 +71,7 @@ interface MyEq<A> {
     expect(result.code).toContain("myEqEquals");
   });
 
-  it("handles typeclass with multiple methods", () => {
+  it("handles typeclass with multiple methods (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface MyNumeric<A> {
@@ -63,14 +83,34 @@ interface MyNumeric<A> {
     const result = transformCode(code, { fileName: "jsdoc-numeric.ts" });
 
     expect(result.changed).toBe(true);
+    // Non-exported: no namespace, no extension helpers
+    expect(result.code).not.toContain("namespace MyNumeric");
+    expect(result.code).not.toContain("myNumericAdd");
+    expect(result.code).not.toContain("myNumericMul");
+  });
+
+  it("handles exported typeclass with multiple methods", () => {
+    const code = `
+/** @typeclass */
+export interface MyNumeric<A> {
+  add(a: A, b: A): A;
+  mul(a: A, b: A): A;
+}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "jsdoc-numeric-exported.ts" });
+
+    expect(result.changed).toBe(true);
+    // Exported: has namespace
     expect(result.code).toContain("namespace MyNumeric");
+    expect(result.code).toContain("registerInstance");
 
     // Should generate extension methods for each typeclass method
     expect(result.code).toContain("myNumericAdd");
     expect(result.code).toContain("myNumericMul");
   });
 
-  it("handles typeclass with no methods (marker interface)", () => {
+  it("handles typeclass with no methods (non-exported marker interface)", () => {
     const code = `
 /** @typeclass */
 interface Marker<A> {}
@@ -78,7 +118,20 @@ interface Marker<A> {}
 
     const result = transformCode(code, { fileName: "jsdoc-marker.ts" });
 
-    // Should still generate companion namespace even for marker interfaces
+    // Non-exported marker interface: zero-cost, no namespace
+    expect(result.changed).toBe(true);
+    expect(result.code).not.toContain("namespace Marker");
+  });
+
+  it("handles exported marker interface with @typeclass", () => {
+    const code = `
+/** @typeclass */
+export interface Marker<A> {}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "jsdoc-marker-exported.ts" });
+
+    // Exported marker interface: generates namespace
     expect(result.changed).toBe(true);
     expect(result.code).toContain("namespace Marker");
   });
@@ -95,6 +148,7 @@ export interface MyShow<A> {
 
     expect(result.changed).toBe(true);
     expect(result.code).toContain("namespace MyShow");
+    expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("myShowShow");
   });
 });
@@ -104,10 +158,10 @@ export interface MyShow<A> {
 // ============================================================================
 
 describe("@op JSDoc tag", () => {
-  it("extracts operator from @op tag in typeclass methods", () => {
+  it("extracts operator from @op tag in exported typeclass methods", () => {
     const code = `
 /** @typeclass */
-interface MyNumeric<A> {
+export interface MyNumeric<A> {
   /** @op + */
   add(a: A, b: A): A;
   /** @op * */
@@ -119,14 +173,30 @@ interface MyNumeric<A> {
 
     expect(result.changed).toBe(true);
 
-    // The typeclass should generate - operators are registered internally
-    // We can verify by checking that companion code is generated
+    // Exported typeclass generates companion namespace
     expect(result.code).toContain("namespace MyNumeric");
     expect(result.code).toContain("myNumericAdd");
     expect(result.code).toContain("myNumericMul");
   });
 
-  it("method without @op generates normally", () => {
+  it("non-exported typeclass with @op is zero-cost", () => {
+    const code = `
+/** @typeclass */
+interface MyNumeric<A> {
+  /** @op + */
+  add(a: A, b: A): A;
+}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "jsdoc-op-internal.ts" });
+
+    expect(result.changed).toBe(true);
+    // Non-exported: no namespace, no extension helpers
+    expect(result.code).not.toContain("namespace MyNumeric");
+    expect(result.code).not.toContain("myNumericAdd");
+  });
+
+  it("method without @op (non-exported) is zero-cost", () => {
     const code = `
 /** @typeclass */
 interface MyShow<A> {
@@ -137,7 +207,8 @@ interface MyShow<A> {
     const result = transformCode(code, { fileName: "jsdoc-show.ts" });
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("myShowShow");
+    // Non-exported: no extension helpers
+    expect(result.code).not.toContain("myShowShow");
   });
 });
 
@@ -146,7 +217,7 @@ interface MyShow<A> {
 // ============================================================================
 
 describe("@impl JSDoc tag", () => {
-  it("registers instance from @impl JSDoc tag", () => {
+  it("non-exported typeclass: @impl is zero-cost (no registerInstance)", () => {
     const code = `
 /** @typeclass */
 interface MyEq<A> { equals(a: A, b: A): boolean; }
@@ -159,12 +230,30 @@ const numEq: MyEq<number> = { equals: (a, b) => a === b };
 
     expect(result.changed).toBe(true);
 
-    // Should generate instance registration
+    // Non-exported typeclass: no runtime registration (zero-cost)
+    expect(result.code).not.toContain("registerInstance");
+    expect(result.code).toContain("numEq");
+  });
+
+  it("exported typeclass: @impl generates registerInstance", () => {
+    const code = `
+/** @typeclass */
+export interface MyEq<A> { equals(a: A, b: A): boolean; }
+
+/** @impl MyEq<number> */
+const numEq: MyEq<number> = { equals: (a, b) => a === b };
+    `.trim();
+
+    const result = transformCode(code, { fileName: "jsdoc-impl-exported.ts" });
+
+    expect(result.changed).toBe(true);
+
+    // Exported typeclass: generates runtime registration
     expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("numEq");
   });
 
-  it("handles @impl with generic types", () => {
+  it("handles @impl with generic types (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface MyEq<A> { equals(a: A, b: A): boolean; }
@@ -178,15 +267,35 @@ const arrayNumEq: MyEq<Array<number>> = {
     const result = transformCode(code, { fileName: "jsdoc-impl-generic.ts" });
 
     expect(result.changed).toBe(true);
+    // Non-exported: no registerInstance (zero-cost)
+    expect(result.code).not.toContain("registerInstance");
+    expect(result.code).toContain("arrayNumEq");
+  });
+
+  it("handles @impl with generic types (exported)", () => {
+    const code = `
+/** @typeclass */
+export interface MyEq<A> { equals(a: A, b: A): boolean; }
+
+/** @impl MyEq<Array<number>> */
+const arrayNumEq: MyEq<Array<number>> = {
+  equals: (a, b) => a.length === b.length
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "jsdoc-impl-generic-exported.ts" });
+
+    expect(result.changed).toBe(true);
+    // Exported: has registerInstance
     expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("arrayNumEq");
   });
 
-  it("@impl produces same output structure as @instance alias", () => {
-    // Test @impl form
+  it("@impl and @instance alias both produce consistent output", () => {
+    // Test @impl form (exported to ensure registration)
     const implCode = `
 /** @typeclass */
-interface ImplTC<A> { method(a: A): A; }
+export interface ImplTC<A> { method(a: A): A; }
 
 /** @impl ImplTC<string> */
 const implTcString: ImplTC<string> = { method: (a) => a };
@@ -195,7 +304,7 @@ const implTcString: ImplTC<string> = { method: (a) => a };
     // Test @instance form (deprecated alias)
     const instanceCode = `
 /** @typeclass */
-interface InstTC<A> { method(a: A): A; }
+export interface InstTC<A> { method(a: A): A; }
 
 /** @instance InstTC<string> */
 const instTcString: InstTC<string> = { method: (a) => a };
@@ -209,7 +318,7 @@ const instTcString: InstTC<string> = { method: (a) => a };
     expect(implResult.changed).toBe(true);
     expect(instanceResult.changed).toBe(true);
 
-    // Both should contain instance registration
+    // Both should contain instance registration (exported typeclasses)
     expect(implResult.code).toContain("registerInstance");
     expect(instanceResult.code).toContain("registerInstance");
   });
@@ -280,13 +389,13 @@ export interface Config { name: string; enabled: boolean; }
 // ============================================================================
 
 describe("JSDoc vs decorator equivalence", () => {
-  it("@typeclass JSDoc produces same structure as decorator", () => {
+  it("@typeclass JSDoc produces same structure as decorator (exported)", () => {
     // NOTE: The decorator form uses preprocessor which rewrites to expression macro.
     // JSDoc form uses attribute macro directly.
     // Both should produce companion namespace but via different paths.
     const jsdocCode = `
 /** @typeclass */
-interface JsDocEq<A> {
+export interface JsDocEq<A> {
   equals(a: A, b: A): boolean;
 }
     `.trim();
@@ -295,7 +404,7 @@ interface JsDocEq<A> {
       fileName: "jsdoc-eq.ts",
     });
 
-    // JSDoc form should produce companion namespace directly
+    // JSDoc form should produce companion namespace directly (exported)
     expect(jsdocResult.changed).toBe(true);
     expect(jsdocResult.code).toContain("namespace JsDocEq");
     expect(jsdocResult.code).toContain("jsDocEqEquals");
@@ -379,14 +488,14 @@ interface NotATypeclass<A> {
     // Note: changed may be true due to formatting, but the key is no macro expansion
   });
 
-  it("handles @typeclass with other JSDoc tags", () => {
+  it("handles @typeclass with other JSDoc tags (exported)", () => {
     const code = `
 /**
  * A typeclass for showing values.
  * @typeclass
  * @example const showNum: MyShow<number> = { show: n => n.toString() };
  */
-interface MyShow<A> {
+export interface MyShow<A> {
   show(a: A): string;
 }
     `.trim();
@@ -394,6 +503,7 @@ interface MyShow<A> {
     const result = transformCode(code, { fileName: "jsdoc-mixed.ts" });
 
     expect(result.changed).toBe(true);
+    // Exported: generates namespace
     expect(result.code).toContain("namespace MyShow");
   });
 
@@ -412,10 +522,10 @@ interface Empty { value: number; }
     expect(result.code).not.toContain("registerInstance");
   });
 
-  it("handles @impl without proper type annotation", () => {
+  it("handles @impl without proper type annotation (exported)", () => {
     const code = `
 /** @typeclass */
-interface TC<A> { method(a: A): A; }
+export interface TC<A> { method(a: A): A; }
 
 /** @impl TC<string> */
 const tcImpl = { method: (a: string) => a };
@@ -425,6 +535,7 @@ const tcImpl = { method: (a: string) => a };
 
     // Should still work with JSDoc-specified types
     expect(result.changed).toBe(true);
+    // Exported typeclass generates registerInstance
     expect(result.code).toContain("registerInstance");
   });
 });

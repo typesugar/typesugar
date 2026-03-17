@@ -83,7 +83,9 @@ describe("= implicit() basic resolution", () => {
 
     const r = transformCode(code, { fileName: "implicits-basic.ts", verbose: true });
 
-    expect(r.code).toContain("Ord.summon");
+    // Zero-cost: instance is inlined directly, not via Ord.summon()
+    expect(r.code).toContain("ordNumber");
+    expect(r.code).not.toContain("Ord.summon");
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
@@ -138,7 +140,9 @@ describe("= implicit() nested propagation", () => {
 
     const r = transformCode(code, { fileName: "implicits-nested.ts" });
 
-    expect(r.code).toContain("Show.summon");
+    // Zero-cost: instance is inlined directly, not via Show.summon()
+    expect(r.code).toContain("showNumber");
+    expect(r.code).not.toContain("Show.summon");
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 });
@@ -172,8 +176,11 @@ describe("= implicit() scope shadowing", () => {
 
     const r = transformCode(code, { fileName: "implicits-shadow.ts" });
 
-    expect(r.code).toContain("Ord.summon");
-    expect(r.code).toContain("Show.summon");
+    // Zero-cost: instances are inlined directly, not via summon()
+    expect(r.code).toContain("ordNumber");
+    expect(r.code).toContain("showNumber");
+    expect(r.code).not.toContain("Ord.summon");
+    expect(r.code).not.toContain("Show.summon");
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 });
