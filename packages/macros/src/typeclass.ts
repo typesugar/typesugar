@@ -995,6 +995,90 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     canDeriveSum: false,
     syntax: new Map([["/", "div"]]),
   },
+
+  // PEP-017 Wave 1: New typeclasses for derive unification
+
+  {
+    name: "Clone",
+    typeParam: "A",
+    methods: [
+      {
+        name: "clone",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "A",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
+  {
+    name: "Debug",
+    typeParam: "A",
+    methods: [
+      {
+        name: "debug",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "string",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
+  {
+    name: "Default",
+    typeParam: "A",
+    methods: [
+      {
+        name: "default",
+        params: [],
+        returnType: "A",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: false,
+    syntax: new Map(),
+  },
+  {
+    name: "Json",
+    typeParam: "A",
+    methods: [
+      {
+        name: "toJson",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "unknown",
+        isSelfMethod: false,
+      },
+      {
+        name: "fromJson",
+        params: [{ name: "json", typeString: "unknown" }],
+        returnType: "A",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
+  {
+    name: "TypeGuard",
+    typeParam: "A",
+    methods: [
+      {
+        name: "is",
+        params: [{ name: "value", typeString: "unknown" }],
+        returnType: "boolean",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
 ];
 
 // Register standard typeclasses on module load (transform time, not runtime)

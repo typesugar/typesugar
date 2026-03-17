@@ -1,6 +1,6 @@
 # PEP-017: Unify @derive and @deriving into "Everything is a Typeclass"
 
-**Status:** Draft
+**Status:** In Progress
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -48,13 +48,21 @@ Add typeclass definitions for derives that don't have them yet.
 
 **Tasks:**
 
-- [ ] Define `Clone` typeclass with `clone(a: A): A` method
-- [ ] Define `Debug` typeclass with `debug(a: A): string` method (or alias to `Show`?)
-- [ ] Define `Default` typeclass with `default(): A` method
-- [ ] Define `Json` typeclass with `toJson(a: A): unknown` and `fromJson(json: unknown): A` methods
-- [ ] Define `Builder` typeclass with appropriate builder interface
-- [ ] Define `TypeGuard` typeclass with `is(value: unknown): value is A` method
-- [ ] Add operator mappings where sensible (e.g., `structuredClone()` calls `Clone.clone`)
+- [x] Define `Clone` typeclass with `clone(a: A): A` method
+- [x] Define `Debug` typeclass with `debug(a: A): string` method — kept separate from `Show` (Show = user-facing display, Debug = developer-facing debug output, like Rust's Display vs Debug)
+- [x] Define `Default` typeclass with `default(): A` method (zero-arg factory, no `A` parameter)
+- [x] Define `Json` typeclass with `toJson(a: A): unknown` and `fromJson(json: unknown): A` methods
+- [ ] ~~Define `Builder` typeclass~~ — **Skipped:** Builder doesn't fit the typeclass model cleanly. A builder accumulates partial state before producing a value, which is fundamentally stateful and doesn't map to a pure `A -> B` method signature. Revisit as a standalone pattern or macro in future work.
+- [x] Define `TypeGuard` typeclass with `is(value: unknown): boolean` method (TS type predicates can't be expressed as typeclass method return types, so uses `boolean`)
+- [ ] Add operator mappings where sensible (e.g., `structuredClone()` calls `Clone.clone`) — deferred to later waves
+
+**Implementation Notes (Wave 1):**
+
+- All new typeclasses added to `STANDARD_TYPECLASS_DEFS` in `packages/macros/src/typeclass.ts`
+- Registered in `typeclassRegistry` via `registerStandardTypeclasses()`
+- `Default.canDeriveSum = false` — a sum type has no single obvious default variant
+- No operator syntax mappings added yet (empty `syntax` Maps)
+- Build passes, all 180 test files pass (5315 tests, 0 new failures)
 
 **Gate:**
 
