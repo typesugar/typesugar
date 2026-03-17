@@ -11,6 +11,6 @@ if (typeof globalThis !== "undefined" && !globalThis.process) {
   (globalThis as Record<string, unknown>).process = processShim;
 }
 
-if (typeof window !== "undefined" && !(window as Record<string, unknown>).process) {
-  (window as Record<string, unknown>).process = processShim;
+if (typeof window !== "undefined" && !(window as unknown as Record<string, unknown>).process) {
+  (window as unknown as Record<string, unknown>).process = processShim;
 }
