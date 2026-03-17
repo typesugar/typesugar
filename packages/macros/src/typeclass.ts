@@ -5,7 +5,7 @@
  *
  * 1. @typeclass - Defines a typeclass from an interface
  * 2. @instance - Registers a typeclass instance for a type
- * 3. @deriving - Auto-derives typeclass instances for product/sum types
+ * 3. @derive - Auto-derives typeclass instances for product/sum types
  * 4. summon<TC<A>>() - Compile-time implicit resolution
  * 5. Extension methods - Typeclass methods available directly on types
  *
@@ -35,7 +35,7 @@
  * };
  *
  * // Auto-derive for product types
- * @deriving(Show, Eq)
+ * @derive(Show, Eq)
  * interface Point {
  *   x: number;
  *   y: number;
@@ -995,6 +995,90 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
     canDeriveSum: false,
     syntax: new Map([["/", "div"]]),
   },
+
+  // PEP-017 Wave 1: New typeclasses for derive unification
+
+  {
+    name: "Clone",
+    typeParam: "A",
+    methods: [
+      {
+        name: "clone",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "A",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
+  {
+    name: "Debug",
+    typeParam: "A",
+    methods: [
+      {
+        name: "debug",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "string",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
+  {
+    name: "Default",
+    typeParam: "A",
+    methods: [
+      {
+        name: "default",
+        params: [],
+        returnType: "A",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: false,
+    syntax: new Map(),
+  },
+  {
+    name: "Json",
+    typeParam: "A",
+    methods: [
+      {
+        name: "toJson",
+        params: [{ name: "a", typeString: "A" }],
+        returnType: "unknown",
+        isSelfMethod: false,
+      },
+      {
+        name: "fromJson",
+        params: [{ name: "json", typeString: "unknown" }],
+        returnType: "A",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
+  {
+    name: "TypeGuard",
+    typeParam: "A",
+    methods: [
+      {
+        name: "is",
+        params: [{ name: "value", typeString: "unknown" }],
+        returnType: "boolean",
+        isSelfMethod: false,
+      },
+    ],
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    syntax: new Map(),
+  },
 ];
 
 // Register standard typeclasses on module load (transform time, not runtime)
@@ -1330,17 +1414,109 @@ function getSpecializationMethodsForDerivation(
       };
     }
 
+    case "Clone": {
+      const copies = fields.map((f) => `${f.name}: a.${f.name}`).join(", ");
+      return {
+        clone: {
+          source: `(a) => ({ ${copies} })`,
+          params: ["a"],
+        },
+      };
+    }
+
+    case "Debug": {
+      const fieldStrs = fields.map((f) => `${f.name}: \${JSON.stringify(a.${f.name})}`).join(", ");
+      return {
+        debug: {
+          source: `(a) => \`${typeName} { ${fieldStrs} }\``,
+          params: ["a"],
+        },
+      };
+    }
+
+    case "Default": {
+      const defaults = fields
+        .map((f) => {
+          const baseType = getBaseType(f);
+          const val =
+            baseType === "number"
+              ? "0"
+              : baseType === "string"
+                ? '""'
+                : baseType === "boolean"
+                  ? "false"
+                  : "{}";
+          return `${f.name}: ${f.optional ? "undefined" : val}`;
+        })
+        .join(", ");
+      return {
+        default: {
+          source: `() => ({ ${defaults} })`,
+          params: [],
+        },
+      };
+    }
+
+    case "Json": {
+      const toJsonFields = fields.map((f) => `${f.name}: a.${f.name}`).join(", ");
+      return {
+        toJson: {
+          source: `(a) => ({ ${toJsonFields} })`,
+          params: ["a"],
+        },
+        fromJson: {
+          source: `(json) => json`,
+          params: ["json"],
+        },
+      };
+    }
+
+    case "TypeGuard": {
+      const checks = fields.map((f) => {
+        const baseType = getBaseType(f);
+        const check = `typeof (value as any).${f.name} === "${baseType}"`;
+        return f.optional ? `((value as any).${f.name} === undefined || ${check})` : check;
+      });
+      const body =
+        checks.length > 0
+          ? `typeof value === "object" && value !== null && ${checks.join(" && ")}`
+          : `typeof value === "object" && value !== null`;
+      return {
+        is: {
+          source: `(value) => ${body}`,
+          params: ["value"],
+        },
+      };
+    }
+
     default:
       return undefined;
   }
 }
 
 function getBaseType(field: DeriveFieldInfo): string {
-  const typeStr = field.typeString.toLowerCase();
-  if (typeStr === "number" || typeStr.includes("number")) return "number";
-  if (typeStr === "string" || typeStr.includes("string")) return "string";
-  if (typeStr === "boolean" || typeStr.includes("boolean")) return "boolean";
-  if (typeStr.startsWith("array") || typeStr.includes("[]")) return "array";
+  const typeStr = field.typeString.trim();
+  const lower = typeStr.toLowerCase();
+
+  // Exact primitive matches (case-insensitive)
+  if (lower === "number" || lower === "bigint") return "number";
+  if (lower === "string") return "string";
+  if (lower === "boolean") return "boolean";
+
+  // Array patterns: Array<T>, T[], ReadonlyArray<T>
+  if (lower.startsWith("array<") || lower.startsWith("readonlyarray<") || typeStr.endsWith("[]")) {
+    return "array";
+  }
+
+  // Union types containing primitives (e.g., "string | null", "number | undefined")
+  // Only match if it's a simple union with a primitive, not a complex generic
+  if (typeStr.includes("|") && !typeStr.includes("<")) {
+    const parts = typeStr.split("|").map((p) => p.trim().toLowerCase());
+    if (parts.some((p) => p === "number" || p === "bigint")) return "number";
+    if (parts.some((p) => p === "string")) return "string";
+    if (parts.some((p) => p === "boolean")) return "boolean";
+  }
+
   return "object";
 }
 
@@ -2862,245 +3038,150 @@ const functorTCDerive = createTypeclassDeriveMacro("Functor");
 // interface Point { x: number; y: number; }
 // ============================================================================
 
-export const derivingAttribute = defineAttributeMacro({
-  name: "deriving",
-  module: "@typesugar/typeclass",
-  cacheable: false,
-  description: "Auto-derive typeclass instances for a type (Scala 3-like derives clause)",
-  validTargets: ["interface", "class", "type"],
+function isPrimitiveTypeFlags(type: ts.Type): boolean {
+  const f = type.flags;
+  return !!(
+    f & ts.TypeFlags.Number ||
+    f & ts.TypeFlags.String ||
+    f & ts.TypeFlags.Boolean ||
+    f & ts.TypeFlags.BigInt ||
+    f & ts.TypeFlags.Null ||
+    f & ts.TypeFlags.Undefined ||
+    f & ts.TypeFlags.Void ||
+    f & ts.TypeFlags.Never ||
+    f & ts.TypeFlags.NumberLiteral ||
+    f & ts.TypeFlags.StringLiteral ||
+    f & ts.TypeFlags.BooleanLiteral ||
+    f & ts.TypeFlags.BigIntLiteral
+  );
+}
 
-  expand(
-    ctx: MacroContext,
-    _decorator: ts.Decorator,
-    target: ts.Declaration,
-    args: readonly ts.Expression[]
-  ): ts.Node | ts.Node[] {
-    if (
-      !ts.isInterfaceDeclaration(target) &&
-      !ts.isClassDeclaration(target) &&
-      !ts.isTypeAliasDeclaration(target)
-    ) {
-      ctx
-        .diagnostic(TS9102)
-        .at(target)
-        .withArgs({ typeclass: "@deriving" })
-        .help("Apply @deriving to an interface, class, or type alias declaration")
-        .emit();
+const BUILTIN_DERIVE_DEPS: Record<string, string[]> = {
+  Ord: ["Eq"],
+  Monoid: ["Semigroup"],
+};
+
+function sortArgsByDependency(args: readonly ts.Expression[]): ts.Expression[] {
+  const identArgs = args.filter(ts.isIdentifier);
+  if (identArgs.length < 2) return [...args];
+
+  const nameToIndex = new Map<string, number>();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (ts.isIdentifier(a)) nameToIndex.set(a.text, i);
+  }
+
+  let hasDeps = false;
+  const n = args.length;
+  const inDegree = new Array<number>(n).fill(0);
+  const adj: number[][] = [];
+  for (let i = 0; i < n; i++) adj.push([]);
+
+  for (let i = 0; i < n; i++) {
+    const a = args[i];
+    if (!ts.isIdentifier(a)) continue;
+    const name = a.text;
+    const deps: string[] = [];
+
+    const deriveMacro = globalRegistry.getDerive(name);
+    if (deriveMacro?.expandAfter) deps.push(...deriveMacro.expandAfter);
+
+    const tcMacro = globalRegistry.getDerive(`${name}TC`);
+    if (tcMacro?.expandAfter) deps.push(...tcMacro.expandAfter);
+
+    const builtinDeps = BUILTIN_DERIVE_DEPS[name];
+    if (builtinDeps) deps.push(...builtinDeps);
+
+    for (const dep of deps) {
+      const depIdx = nameToIndex.get(dep);
+      if (depIdx !== undefined) {
+        adj[depIdx].push(i);
+        inDegree[i]++;
+        hasDeps = true;
+      }
+    }
+  }
+
+  if (!hasDeps) return [...args];
+
+  const queue: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (inDegree[i] === 0) queue.push(i);
+  }
+
+  const sorted: ts.Expression[] = [];
+  while (queue.length > 0) {
+    queue.sort((a, b) => a - b);
+    const idx = queue.shift()!;
+    sorted.push(args[idx]);
+    for (const next of adj[idx]) {
+      inDegree[next]--;
+      if (inDegree[next] === 0) queue.push(next);
+    }
+  }
+
+  return sorted.length < n ? [...args] : sorted;
+}
+
+function expandDeriving(
+  ctx: MacroContext,
+  _decorator: ts.Decorator,
+  target: ts.Declaration,
+  args: readonly ts.Expression[]
+): ts.Node | ts.Node[] {
+  if (
+    !ts.isInterfaceDeclaration(target) &&
+    !ts.isClassDeclaration(target) &&
+    !ts.isTypeAliasDeclaration(target)
+  ) {
+    ctx
+      .diagnostic(TS9102)
+      .at(target)
+      .withArgs({ typeclass: "@derive" })
+      .help("Apply @derive to an interface, class, or type alias declaration")
+      .emit();
+    return target;
+  }
+
+  const typeName = target.name?.text ?? "Anonymous";
+
+  let type: ts.Type | undefined;
+  try {
+    type = ctx.typeChecker.getTypeAtLocation(target);
+  } catch {
+    // TypeChecker not ready — fall through to AST-based extraction
+  }
+
+  // -----------------------------------------------------------------------
+  // DEGRADED MODE: TypeChecker unavailable (IDE background)
+  //
+  // When the TypeChecker can't resolve types, we can only do AST-based
+  // error detection. We must NOT generate derivation code because it would
+  // reference identifiers (eqNumber, ordNumber, etc.) that don't exist
+  // in the IDE's type scope, producing cascading spurious TS errors.
+  //
+  // Real derivation code generation happens during tspc build when the
+  // TypeChecker is fully operational.
+  // -----------------------------------------------------------------------
+  if (!type) {
+    const astFields = extractFieldsFromAST(target);
+
+    // TS9103: Union type without discriminant
+    if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type)) {
+      const astSum = tryExtractSumTypeFromAST(target);
+      if (!astSum) {
+        ctx
+          .diagnostic(TS9103)
+          .at(target)
+          .help('Add a discriminant field like `kind: "a"` to each variant')
+          .emit();
+      }
+      // Valid discriminated union or unresolvable — skip code generation
       return target;
     }
 
-    const typeName = target.name?.text ?? "Anonymous";
-
-    let type: ts.Type | undefined;
-    try {
-      type = ctx.typeChecker.getTypeAtLocation(target);
-    } catch {
-      // TypeChecker not ready — fall through to AST-based extraction
-    }
-
-    // -----------------------------------------------------------------------
-    // DEGRADED MODE: TypeChecker unavailable (IDE background)
-    //
-    // When the TypeChecker can't resolve types, we can only do AST-based
-    // error detection. We must NOT generate derivation code because it would
-    // reference identifiers (eqNumber, ordNumber, etc.) that don't exist
-    // in the IDE's type scope, producing cascading spurious TS errors.
-    //
-    // Real derivation code generation happens during tspc build when the
-    // TypeChecker is fully operational.
-    // -----------------------------------------------------------------------
-    if (!type) {
-      const astFields = extractFieldsFromAST(target);
-
-      // TS9103: Union type without discriminant
-      if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type)) {
-        const astSum = tryExtractSumTypeFromAST(target);
-        if (!astSum) {
-          ctx
-            .diagnostic(TS9103)
-            .at(target)
-            .help('Add a discriminant field like `kind: "a"` to each variant')
-            .emit();
-        }
-        // Valid discriminated union or unresolvable — skip code generation
-        return target;
-      }
-
-      // TS9104: Empty type (no fields)
-      if (astFields.length === 0) {
-        for (const arg of args) {
-          if (ts.isIdentifier(arg)) {
-            ctx
-              .diagnostic(TS9104)
-              .at(target)
-              .withArgs({ typeclass: arg.text, type: typeName })
-              .help("Add fields to the type, or provide a manual @instance")
-              .emit();
-          }
-        }
-        return target;
-      }
-
-      // TS9101: Fields contain non-derivable types (functions, unknown, etc.)
-      for (const field of astFields) {
-        const t = field.typeString;
-        if (t.includes("=>") || t === "unknown" || t === "never" || t === "any") {
-          for (const arg of args) {
-            if (ts.isIdentifier(arg)) {
-              ctx
-                .diagnostic(TS9101)
-                .at(target)
-                .withArgs({ typeclass: arg.text, type: typeName, field: field.name, fieldType: t })
-                .help(
-                  `Field \`${field.name}\` has type \`${t}\` which likely can't derive ${arg.text}`
-                )
-                .emit();
-            }
-          }
-          return target;
-        }
-      }
-
-      // Type looks valid but we can't generate code without TypeChecker.
-      // Return unchanged — derivation will happen during tspc build.
-      return target;
-    }
-
-    const typeParameters = target.typeParameters ? Array.from(target.typeParameters) : [];
-
-    // Extract fields via TypeChecker (available in this branch)
-    let fields: DeriveFieldInfo[] = [];
-    let properties: ts.Symbol[];
-    try {
-      properties = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
-    } catch {
-      properties = [];
-    }
-
-    for (const prop of properties) {
-      if (!prop) continue;
-      const declarations = prop.getDeclarations();
-      if (!declarations || declarations.length === 0) continue;
-      const decl = declarations[0];
-
-      let propType: ts.Type;
-      let propTypeString: string;
-      try {
-        propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-        propTypeString = ctx.typeChecker.typeToString(propType);
-      } catch {
-        continue;
-      }
-
-      const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-      const readonly =
-        ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
-          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
-          : false;
-
-      fields.push({
-        name: prop.name,
-        typeString: propTypeString,
-        type: propType,
-        optional,
-        readonly,
-      });
-    }
-
-    // AST fallback when TypeChecker returned empty properties
-    if (fields.length === 0) {
-      fields = extractFieldsFromAST(target);
-    }
-
-    // Detect if this is a sum type and populate metadata
-    let sumInfo:
-      | {
-          discriminant: string;
-          variants: Array<{ tag: string; typeName: string }>;
-        }
-      | undefined;
-    if (ts.isTypeAliasDeclaration(target)) {
-      sumInfo = tryExtractSumType(ctx, target);
-    }
-
-    // Extract variant fields for sum types
-    const variants: DeriveVariantInfo[] = [];
-    if (sumInfo && ts.isTypeAliasDeclaration(target)) {
-      for (const variant of sumInfo.variants) {
-        const variantFields: DeriveFieldInfo[] = [];
-        if (ts.isUnionTypeNode(target.type)) {
-          for (const member of target.type.types) {
-            let matched = false;
-            if (ts.isTypeReferenceNode(member) && member.typeName.getText() === variant.typeName) {
-              matched = true;
-            } else if (ts.isTypeLiteralNode(member)) {
-              // For inline type literals, match by checking the discriminant value
-              try {
-                const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
-                const discProp = ctx.typeChecker
-                  .getPropertiesOfType(memberType)
-                  .find((p: ts.Symbol) => p.name === sumInfo!.discriminant);
-                if (discProp) {
-                  const decl = discProp.getDeclarations()?.[0];
-                  if (decl) {
-                    const discType = ctx.typeChecker.getTypeOfSymbolAtLocation(discProp, decl);
-                    if (discType.isStringLiteral() && discType.value === variant.tag) {
-                      matched = true;
-                    }
-                  }
-                }
-              } catch {
-                // TypeChecker not ready
-              }
-            }
-
-            if (matched) {
-              try {
-                const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
-                const props = ctx.typeChecker.getPropertiesOfType(variantType);
-                for (const prop of props) {
-                  if (!prop || prop.name === sumInfo.discriminant) continue;
-                  const decl = prop.getDeclarations()?.[0];
-                  if (!decl) continue;
-                  const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-                  variantFields.push({
-                    name: prop.name,
-                    typeString: ctx.typeChecker.typeToString(propType),
-                    type: propType,
-                    optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
-                    readonly: false,
-                  });
-                }
-              } catch {
-                // TypeChecker not ready for variant resolution
-              }
-              break;
-            }
-          }
-        }
-        variants.push({
-          tag: variant.tag,
-          typeName: variant.typeName,
-          fields: variantFields,
-        });
-      }
-    }
-
-    // Check for union types without discriminant - emit TS9103
-    if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type) && !sumInfo) {
-      ctx
-        .diagnostic(TS9103)
-        .at(target)
-        .help('Add a discriminant field like `kind: "a"` to each variant')
-        .emit();
-      return target;
-    }
-
-    // TS9104: Empty type (no fields) — not a union, has no derivable content
-    if (
-      fields.length === 0 &&
-      !(ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type))
-    ) {
+    // TS9104: Empty type (no fields)
+    if (astFields.length === 0) {
       for (const arg of args) {
         if (ts.isIdentifier(arg)) {
           ctx
@@ -3114,161 +3195,426 @@ export const derivingAttribute = defineAttributeMacro({
       return target;
     }
 
-    // Construct complete DeriveTypeInfo with sum type metadata
-    const typeInfo: DeriveTypeInfo = {
-      name: typeName,
-      fields,
-      typeParameters,
-      type: type as ts.Type,
-      kind: sumInfo ? "sum" : "product",
-      ...(sumInfo && {
-        discriminant: sumInfo.discriminant,
-        variants,
-      }),
-    };
+    // TS9101: Fields contain non-derivable types (functions, unknown, etc.)
+    for (const field of astFields) {
+      const t = field.typeString;
+      if (t.includes("=>") || t === "unknown" || t === "never" || t === "any") {
+        for (const arg of args) {
+          if (ts.isIdentifier(arg)) {
+            ctx
+              .diagnostic(TS9101)
+              .at(target)
+              .withArgs({ typeclass: arg.text, type: typeName, field: field.name, fieldType: t })
+              .help(
+                `Field \`${field.name}\` has type \`${t}\` which likely can't derive ${arg.text}`
+              )
+              .emit();
+          }
+        }
+        return target;
+      }
+    }
 
-    const allStatements: ts.Statement[] = [];
+    // Type looks valid but we can't generate code without TypeChecker.
+    // Return unchanged — derivation will happen during tspc build.
+    return target;
+  }
 
-    // Parse transitive options from args (e.g., { transitive: false })
-    const transitiveOptions = parseTransitiveOptions(args);
+  const typeParameters = target.typeParameters ? Array.from(target.typeParameters) : [];
 
+  // Extract fields via TypeChecker (available in this branch)
+  let fields: DeriveFieldInfo[] = [];
+  let properties: ts.Symbol[];
+  try {
+    properties = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
+  } catch {
+    properties = [];
+  }
+
+  let isRecursive = false;
+  for (const prop of properties) {
+    if (!prop) continue;
+    const declarations = prop.getDeclarations();
+    if (!declarations || declarations.length === 0) continue;
+    const decl = declarations[0];
+
+    let propType: ts.Type;
+    let propTypeString: string;
+    try {
+      propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+      propTypeString = ctx.typeChecker.typeToString(propType);
+    } catch {
+      continue;
+    }
+
+    if (propTypeString === typeName || propTypeString.includes(`${typeName}<`)) {
+      isRecursive = true;
+    }
+
+    const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+    const readonly =
+      ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
+        ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
+        : false;
+
+    fields.push({
+      name: prop.name,
+      typeString: propTypeString,
+      type: propType,
+      optional,
+      readonly,
+    });
+  }
+
+  // AST fallback when TypeChecker returned empty properties
+  if (fields.length === 0) {
+    fields = extractFieldsFromAST(target);
+  }
+
+  // Detect if this is a sum type and populate metadata
+  let sumInfo:
+    | {
+        discriminant: string;
+        variants: Array<{ tag: string; typeName: string }>;
+      }
+    | undefined;
+  if (ts.isTypeAliasDeclaration(target)) {
+    sumInfo = tryExtractSumType(ctx, target);
+  }
+
+  // Extract variant fields for sum types
+  const variants: DeriveVariantInfo[] = [];
+  if (sumInfo && ts.isTypeAliasDeclaration(target)) {
+    for (const variant of sumInfo.variants) {
+      const variantFields: DeriveFieldInfo[] = [];
+      if (ts.isUnionTypeNode(target.type)) {
+        for (const member of target.type.types) {
+          let matched = false;
+          if (ts.isTypeReferenceNode(member) && member.typeName.getText() === variant.typeName) {
+            matched = true;
+          } else if (ts.isTypeLiteralNode(member)) {
+            // For inline type literals, match by checking the discriminant value
+            try {
+              const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
+              const discProp = ctx.typeChecker
+                .getPropertiesOfType(memberType)
+                .find((p: ts.Symbol) => p.name === sumInfo!.discriminant);
+              if (discProp) {
+                const decl = discProp.getDeclarations()?.[0];
+                if (decl) {
+                  const discType = ctx.typeChecker.getTypeOfSymbolAtLocation(discProp, decl);
+                  if (discType.isStringLiteral() && discType.value === variant.tag) {
+                    matched = true;
+                  }
+                }
+              }
+            } catch {
+              // TypeChecker not ready
+            }
+          }
+
+          if (matched) {
+            try {
+              const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
+              const props = ctx.typeChecker.getPropertiesOfType(variantType);
+              for (const prop of props) {
+                if (!prop || prop.name === sumInfo.discriminant) continue;
+                const decl = prop.getDeclarations()?.[0];
+                if (!decl) continue;
+                const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
+                variantFields.push({
+                  name: prop.name,
+                  typeString: ctx.typeChecker.typeToString(propType),
+                  type: propType,
+                  optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
+                  readonly: false,
+                });
+              }
+            } catch {
+              // TypeChecker not ready for variant resolution
+            }
+            break;
+          }
+        }
+      }
+      variants.push({
+        tag: variant.tag,
+        typeName: variant.typeName,
+        fields: variantFields,
+      });
+    }
+  }
+
+  // Check for union types without discriminant - emit TS9103
+  if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type) && !sumInfo) {
+    ctx
+      .diagnostic(TS9103)
+      .at(target)
+      .help('Add a discriminant field like `kind: "a"` to each variant')
+      .emit();
+    return target;
+  }
+
+  // Primitive type alias detection (e.g., `type UserId = string`)
+  const isPrimitive = ts.isTypeAliasDeclaration(target) && !sumInfo && isPrimitiveTypeFlags(type);
+
+  // TS9104: Empty type (no fields) — not a union, has no derivable content
+  if (
+    fields.length === 0 &&
+    !isPrimitive &&
+    !(ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type))
+  ) {
     for (const arg of args) {
-      // Skip object literals (they're options, not typeclass names)
-      if (ts.isObjectLiteralExpression(arg)) {
-        continue;
+      if (ts.isIdentifier(arg)) {
+        ctx
+          .diagnostic(TS9104)
+          .at(target)
+          .withArgs({ typeclass: arg.text, type: typeName })
+          .help("Add fields to the type, or provide a manual @instance")
+          .emit();
+      }
+    }
+    return target;
+  }
+
+  // Construct complete DeriveTypeInfo with sum type metadata
+  const typeInfo: DeriveTypeInfo = {
+    name: typeName,
+    fields,
+    typeParameters,
+    type: type as ts.Type,
+    kind: sumInfo ? "sum" : isPrimitive ? "primitive" : "product",
+    isRecursive: isRecursive || undefined,
+    ...(sumInfo && {
+      discriminant: sumInfo.discriminant,
+      variants,
+    }),
+  };
+
+  const allStatements: ts.Statement[] = [];
+
+  // Parse transitive options from args (e.g., { transitive: false })
+  const transitiveOptions = parseTransitiveOptions(args);
+
+  // Sort args by dependency order (e.g., Ord after Eq)
+  const sortedArgs = sortArgsByDependency(args);
+
+  for (const arg of sortedArgs) {
+    // Skip object literals (they're options, not typeclass names)
+    if (ts.isObjectLiteralExpression(arg)) {
+      continue;
+    }
+
+    if (!ts.isIdentifier(arg)) {
+      ctx
+        .diagnostic(TS9060)
+        .at(arg)
+        .withArgs({ name: arg.getText() })
+        .help("derive arguments must be identifiers, not expressions")
+        .emit();
+      continue;
+    }
+
+    const tcName = arg.text;
+
+    // Priority 1: Custom derive macro registered by name (allows overriding builtins)
+    const customDerive = globalRegistry.getDerive(tcName);
+    if (customDerive) {
+      try {
+        const stmts = customDerive.expand(ctx, target, typeInfo);
+        allStatements.push(...stmts);
+      } catch (err: unknown) {
+        ctx
+          .diagnostic(TS9101)
+          .at(arg)
+          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
+          .note(
+            `Derive macro expansion failed for '${tcName}': ${err instanceof Error ? err.message : String(err)}`
+          )
+          .emit();
+      }
+      continue;
+    }
+
+    // Priority 2: Builtin derivation strategy
+    const derivation = builtinDerivations[tcName];
+
+    if (derivation) {
+      // === TRANSITIVE DERIVATION ===
+      // Skip for sum types — variant decomposition is handled by deriveSum/deriveGenericSum.
+      // Transitive derivation on sum types would inspect the union's common properties
+      // (e.g., the discriminant field's literal union type), not the actual variant fields.
+      if (typeInfo.kind !== "sum") {
+        const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
+
+        for (const err of plan.errors) {
+          ctx
+            .diagnostic(TS9101)
+            .at(target)
+            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
+            .note(err)
+            .help(`Ensure all nested types have ${tcName} instances`)
+            .emit();
+        }
+        for (const cycle of plan.cycles) {
+          ctx
+            .diagnostic(TS9101)
+            .at(target)
+            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
+            .note(`Circular reference: ${cycle.join(" → ")}`)
+            .help(`Add explicit @derive(${tcName}) to one of the types in the cycle to break it`)
+            .emit();
+        }
+
+        const nestedTypes = plan.types.filter((t) => t.typeName !== typeName);
+        if (nestedTypes.length > 0) {
+          const nestedStatements = executeTransitiveDerivation(ctx, tcName, {
+            ...plan,
+            types: nestedTypes,
+          });
+          allStatements.push(...nestedStatements);
+        }
       }
 
-      if (!ts.isIdentifier(arg)) {
+      // === DERIVE ROOT TYPE ===
+      let code: string | undefined;
+      const varName = instanceVarName(uncapitalize(tcName), typeName);
+      const { typeParameters } = typeInfo;
+
+      // Use typeInfo.kind to determine derivation method
+      if (typeInfo.kind === "sum" && typeInfo.discriminant && variants.length > 0) {
+        // Prefer deriveGenericSum — it generates inline field comparisons per variant,
+        // which works for both named type references AND inline type literals.
+        if (derivation.deriveGenericSum) {
+          code = derivation.deriveGenericSum(
+            typeName,
+            typeInfo.discriminant,
+            variants,
+            typeParameters
+          );
+        }
+
+        // Fall back to non-generic derivation (requires named variant types with instances)
+        if (!code) {
+          code = derivation.deriveSum(typeName, typeInfo.discriminant, variants);
+        }
+      } else {
+        code = derivation.deriveProduct(typeName, fields);
+      }
+
+      allStatements.push(...ctx.parseStatements(code));
+
+      // Only register instance if not a generic factory function
+      // (generic factories are called at use site, not registered globally)
+      if (typeParameters.length === 0) {
+        instanceRegistry.push({
+          typeclassName: tcName,
+          forType: typeName,
+          instanceName: varName,
+          derived: true,
+        });
+
+        // Notify coverage system
+        notifyPrimitiveRegistered(typeName, tcName);
+
+        // Bridge to specialization registry: register derived instance methods
+        // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
+        const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
+        if (specMethods && Object.keys(specMethods).length > 0) {
+          // Convert plain object to Map<string, DictMethod> for registerInstanceMethodsFromAST
+          const methodsMap = new Map<string, { source?: string; params: string[] }>();
+          for (const [name, impl] of Object.entries(specMethods)) {
+            methodsMap.set(name, { source: impl.source, params: impl.params });
+          }
+          registerInstanceMethodsFromAST(varName, typeName, methodsMap);
+        }
+      }
+    } else {
+      // Special case: Builder doesn't fit the typeclass model
+      // It's a factory pattern, not a type-parameterized interface
+      if (tcName === "Builder") {
         ctx
-          .diagnostic(TS9060)
+          .diagnostic(TS9101)
           .at(arg)
-          .withArgs({ name: arg.getText() })
-          .help("@deriving arguments must be typeclass names like Eq, Ord, Show")
+          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
+          .note(
+            `Builder is not supported as a typeclass derivation. ` +
+              `Unlike Eq<T> or Clone<T>, Builder doesn't have a type parameter for the target type.`
+          )
+          .help(
+            `Use a builder library like '@sinclair/typebox' or write a manual builder:\n` +
+              `  static builder() { return new ${typeName}Builder(); }`
+          )
           .emit();
         continue;
       }
 
-      const tcName = arg.text;
-      const derivation = builtinDerivations[tcName];
-
-      if (derivation) {
-        // === TRANSITIVE DERIVATION ===
-        // Skip for sum types — variant decomposition is handled by deriveSum/deriveGenericSum.
-        // Transitive derivation on sum types would inspect the union's common properties
-        // (e.g., the discriminant field's literal union type), not the actual variant fields.
-        if (typeInfo.kind !== "sum") {
-          const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
-
-          for (const err of plan.errors) {
-            ctx
-              .diagnostic(TS9101)
-              .at(target)
-              .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
-              .note(err)
-              .help(`Ensure all nested types have ${tcName} instances`)
-              .emit();
-          }
-          for (const cycle of plan.cycles) {
-            ctx
-              .diagnostic(TS9101)
-              .at(target)
-              .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
-              .note(`Circular reference: ${cycle.join(" → ")}`)
-              .help(`Add explicit @derive(${tcName}) to one of the types in the cycle to break it`)
-              .emit();
-          }
-
-          const nestedTypes = plan.types.filter((t) => t.typeName !== typeName);
-          if (nestedTypes.length > 0) {
-            const nestedStatements = executeTransitiveDerivation(ctx, tcName, {
-              ...plan,
-              types: nestedTypes,
-            });
-            allStatements.push(...nestedStatements);
-          }
-        }
-
-        // === DERIVE ROOT TYPE ===
-        let code: string | undefined;
-        const varName = instanceVarName(uncapitalize(tcName), typeName);
-        const { typeParameters } = typeInfo;
-
-        // Use typeInfo.kind to determine derivation method
-        if (typeInfo.kind === "sum" && typeInfo.discriminant && variants.length > 0) {
-          // Prefer deriveGenericSum — it generates inline field comparisons per variant,
-          // which works for both named type references AND inline type literals.
-          if (derivation.deriveGenericSum) {
-            code = derivation.deriveGenericSum(
-              typeName,
-              typeInfo.discriminant,
-              variants,
-              typeParameters
-            );
-          }
-
-          // Fall back to non-generic derivation (requires named variant types with instances)
-          if (!code) {
-            code = derivation.deriveSum(typeName, typeInfo.discriminant, variants);
-          }
-        } else {
-          code = derivation.deriveProduct(typeName, fields);
-        }
-
-        allStatements.push(...ctx.parseStatements(code));
-
-        // Only register instance if not a generic factory function
-        // (generic factories are called at use site, not registered globally)
-        if (typeParameters.length === 0) {
-          instanceRegistry.push({
-            typeclassName: tcName,
-            forType: typeName,
-            instanceName: varName,
-            derived: true,
-          });
-
-          // Notify coverage system
-          notifyPrimitiveRegistered(typeName, tcName);
-
-          // Bridge to specialization registry: register derived instance methods
-          // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
-          const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
-          if (specMethods && Object.keys(specMethods).length > 0) {
-            // Convert plain object to Map<string, DictMethod> for registerInstanceMethodsFromAST
-            const methodsMap = new Map<string, { source?: string; params: string[] }>();
-            for (const [name, impl] of Object.entries(specMethods)) {
-              methodsMap.set(name, { source: impl.source, params: impl.params });
-            }
-            registerInstanceMethodsFromAST(varName, typeName, methodsMap);
-          }
-        }
-      } else {
-        // Try the derive macro registry
-        const deriveMacro = globalRegistry.getDerive(`${tcName}TC`);
-        if (deriveMacro) {
-          const stmts = deriveMacro.expand(ctx, target, typeInfo);
+      // Priority 3: {Name}TC convention
+      const tcDerive = globalRegistry.getDerive(`${tcName}TC`);
+      if (tcDerive) {
+        try {
+          const stmts = tcDerive.expand(ctx, target, typeInfo);
           allStatements.push(...stmts);
-        } else {
-          const tcSuggestions = getSuggestionsForSymbol(tcName);
-          const builder = ctx
+        } catch (err: unknown) {
+          ctx
             .diagnostic(TS9101)
             .at(arg)
             .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
-            .note(`No derivation strategy found for typeclass '${tcName}'`);
-
-          if (tcSuggestions.length > 0) {
-            builder.help(`Import ${tcName}: ${tcSuggestions[0].importStatement}`);
-          } else {
-            builder.help(
-              `Define a custom derivation or provide a manual @impl ${tcName}<${typeName}>`
-            );
-          }
-
-          builder.emit();
+            .note(
+              `Derive macro expansion failed for '${tcName}': ${err instanceof Error ? err.message : String(err)}`
+            )
+            .emit();
         }
+      } else {
+        const tcSuggestions = getSuggestionsForSymbol(tcName);
+        const builder = ctx
+          .diagnostic(TS9101)
+          .at(arg)
+          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
+          .note(
+            `Unknown derive '${tcName}': no auto-derivation, no ${tcName}TC derive macro found`
+          );
+
+        if (tcSuggestions.length > 0) {
+          builder.help(`Import ${tcName}: ${tcSuggestions[0].importStatement}`);
+        } else {
+          builder.help(
+            `Define a custom derivation or provide a manual @impl ${tcName}<${typeName}>`
+          );
+        }
+
+        builder.emit();
       }
     }
+  }
 
-    return [target, ...allStatements];
+  return [target, ...allStatements];
+}
+
+export const deriveAttribute = defineAttributeMacro({
+  name: "derive",
+  module: "@typesugar/typeclass",
+  cacheable: false,
+  description: "Auto-derive typeclass instances for a type (unified decorator)",
+  validTargets: ["interface", "class", "type"],
+  expand: expandDeriving,
+});
+
+export const derivingAttribute = defineAttributeMacro({
+  name: "deriving",
+  module: "@typesugar/typeclass",
+  cacheable: false,
+  description: "@deprecated Use @derive instead",
+  validTargets: ["interface", "class", "type"],
+
+  expand(
+    ctx: MacroContext,
+    decorator: ts.Decorator,
+    target: ts.Declaration,
+    args: readonly ts.Expression[]
+  ): ts.Node | ts.Node[] {
+    ctx.reportWarning(target, "@deriving is renamed to @derive. Please update your code.");
+    return expandDeriving(ctx, decorator, target, args);
   },
 });
 
@@ -4079,6 +4425,282 @@ ${fieldCombines}
 };
 
 // ============================================================================
+// Clone derivation
+// ============================================================================
+
+builtinDerivations["Clone"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("clone", typeName);
+    const copies = fields.map((f) => `    ${f.name}: a.${f.name}`).join(",\n");
+
+    return `
+const ${varName}: Clone<${typeName}> = {
+  clone: (a: ${typeName}): ${typeName} => ({
+${copies}
+  }),
+};
+/*#__PURE__*/ Clone.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("clone", typeName);
+    const cases = variants
+      .map((v) => {
+        return `      case "${v.tag}": return { ...a } as ${typeName};`;
+      })
+      .join("\n");
+
+    return `
+const ${varName}: Clone<${typeName}> = {
+  clone: (a: ${typeName}): ${typeName} => {
+    switch ((a as any).${discriminant}) {
+${cases}
+      default: return { ...a } as ${typeName};
+    }
+  },
+};
+/*#__PURE__*/ Clone.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
+// Debug derivation
+// ============================================================================
+
+builtinDerivations["Debug"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("debug", typeName);
+    const pairs = fields.map((f) => `${f.name}: \${JSON.stringify(a.${f.name})}`).join(", ");
+
+    return `
+const ${varName}: Debug<${typeName}> = {
+  debug: (a: ${typeName}): string => \`${typeName} { ${pairs} }\`,
+};
+/*#__PURE__*/ Debug.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("debug", typeName);
+    const cases = variants
+      .map((v) => {
+        return `      case "${v.tag}": return \`${v.typeName}(\${JSON.stringify(a)})\`;`;
+      })
+      .join("\n");
+
+    return `
+const ${varName}: Debug<${typeName}> = {
+  debug: (a: ${typeName}): string => {
+    switch ((a as any).${discriminant}) {
+${cases}
+      default: return String(a);
+    }
+  },
+};
+/*#__PURE__*/ Debug.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
+// Default derivation
+// ============================================================================
+
+function getDefaultValueForType(field: DeriveFieldInfo): string {
+  if (field.optional) return "undefined";
+  const baseType = getBaseType(field);
+  switch (baseType) {
+    case "number":
+      return "0";
+    case "string":
+      return '""';
+    case "boolean":
+      return "false";
+    case "array":
+      return "[]";
+    default: {
+      // Try to detect known types that need special handling
+      const typeStr = field.typeString.trim();
+      const lower = typeStr.toLowerCase();
+      if (lower === "date") {
+        return "new Date(0)";
+      }
+      if (lower.startsWith("map<") || lower === "map") {
+        return "new Map()";
+      }
+      if (lower.startsWith("set<") || lower === "set") {
+        return "new Set()";
+      }
+      if (lower === "null") {
+        return "null";
+      }
+      // For unknown object types, summon their Default instance if available
+      // This enables transitive derivation - if the nested type also has @derive(Default),
+      // its default instance will be used
+      if (/^[A-Z]/.test(typeStr) && !typeStr.includes("<") && !typeStr.includes("|")) {
+        return `summon<Default<${typeStr}>>().default()`;
+      }
+      // Fallback: empty object cast (will fail typecheck if wrong)
+      return `({} as ${typeStr})`;
+    }
+  }
+}
+
+builtinDerivations["Default"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("default", typeName);
+    const defaults = fields.map((f) => `    ${f.name}: ${getDefaultValueForType(f)}`).join(",\n");
+
+    return `
+const ${varName}: Default<${typeName}> = {
+  default: (): ${typeName} => ({
+${defaults}
+  }),
+};
+/*#__PURE__*/ Default.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    _discriminant: string,
+    _variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    return `// Default cannot be auto-derived for sum types`;
+  },
+};
+
+// ============================================================================
+// Json derivation
+// ============================================================================
+
+builtinDerivations["Json"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("json", typeName);
+    const fieldCopies = fields.map((f) => `      ${f.name}: a.${f.name}`).join(",\n");
+    const validations = fields
+      .map((f) => {
+        const baseType = getBaseType(f);
+        const lines: string[] = [];
+        if (!f.optional) {
+          lines.push(
+            `    if (obj.${f.name} === undefined) throw new Error("Missing required field: ${f.name}");`
+          );
+        }
+        lines.push(
+          `    if (obj.${f.name} !== undefined && typeof obj.${f.name} !== "${baseType}") throw new Error("Field ${f.name} must be ${baseType}");`
+        );
+        return lines.join("\n");
+      })
+      .join("\n");
+
+    return `
+const ${varName}: Json<${typeName}> = {
+  toJson: (a: ${typeName}): unknown => ({
+${fieldCopies}
+  }),
+  fromJson: (json: unknown): ${typeName} => {
+    if (typeof json !== "object" || json === null) throw new Error("Expected object for ${typeName}");
+    const obj = json as Record<string, unknown>;
+${validations}
+    return obj as unknown as ${typeName};
+  },
+};
+/*#__PURE__*/ Json.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("json", typeName);
+    const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
+
+    return `
+const ${varName}: Json<${typeName}> = {
+  toJson: (a: ${typeName}): unknown => ({ ...a }),
+  fromJson: (json: unknown): ${typeName} => {
+    if (typeof json !== "object" || json === null) throw new Error("Expected object for ${typeName}");
+    const obj = json as Record<string, unknown>;
+    if (typeof obj.${discriminant} !== "string") throw new Error("Missing discriminant: ${discriminant}");
+    const validTags = [${validTags}];
+    if (!validTags.includes(obj.${discriminant} as string)) throw new Error(\`Invalid ${discriminant}: \${obj.${discriminant}}\`);
+    return obj as unknown as ${typeName};
+  },
+};
+/*#__PURE__*/ Json.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
+// TypeGuard derivation
+// ============================================================================
+
+builtinDerivations["TypeGuard"] = {
+  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
+    const varName = instanceVarName("typeGuard", typeName);
+
+    if (fields.length === 0) {
+      return `
+const ${varName}: TypeGuard<${typeName}> = {
+  is: (value: unknown): boolean => typeof value === "object" && value !== null,
+};
+/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+    }
+
+    const checks = fields.map((f) => {
+      const baseType = getBaseType(f);
+      const check = `typeof (value as any).${f.name} === "${baseType}"`;
+      if (f.optional) {
+        return `((value as any).${f.name} === undefined || ${check})`;
+      }
+      return check;
+    });
+
+    return `
+const ${varName}: TypeGuard<${typeName}> = {
+  is: (value: unknown): boolean => typeof value === "object" && value !== null && ${checks.join(" && ")},
+};
+/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+
+  deriveSum(
+    typeName: string,
+    discriminant: string,
+    variants: Array<{ tag: string; typeName: string }>
+  ): string {
+    const varName = instanceVarName("typeGuard", typeName);
+    const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
+
+    return `
+const ${varName}: TypeGuard<${typeName}> = {
+  is: (value: unknown): boolean => {
+    if (typeof value !== "object" || value === null) return false;
+    if (typeof (value as any).${discriminant} !== "string") return false;
+    return [${validTags}].includes((value as any).${discriminant});
+  },
+};
+/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
+`;
+  },
+};
+
+// ============================================================================
 // Comprehension Typeclass Support (FlatMap, ParCombine)
 // ============================================================================
 // These functions allow the comprehension macros (let:/yield:, par:/yield:)
@@ -4323,38 +4945,47 @@ registerTypeclassDef({
 // Register all macros with the global registry
 // ============================================================================
 
-globalRegistry.register(typeclassAttribute);
-globalRegistry.register(typeclassMacro);
-// Register impl as the primary name
-globalRegistry.register(implAttribute);
-globalRegistry.register(implMacro);
-// Register instance as deprecated alias with the same expand function
-globalRegistry.register(
-  defineAttributeMacro({
-    name: "instance",
-    module: "@typesugar/typeclass",
-    cacheable: implAttribute.cacheable,
-    description: "@deprecated Use @impl instead",
-    validTargets: implAttribute.validTargets,
-    expand: implAttribute.expand,
-  })
-);
-globalRegistry.register(
-  defineExpressionMacro({
-    name: "instance",
-    module: "@typesugar/typeclass",
-    description: "@deprecated Use impl() instead",
-    expand: implMacro.expand,
-  })
-);
-globalRegistry.register(derivingAttribute);
-globalRegistry.register(summonMacro);
-globalRegistry.register(extendMacro);
-globalRegistry.register(showTCDerive);
-globalRegistry.register(eqTCDerive);
-globalRegistry.register(ordTCDerive);
-globalRegistry.register(hashTCDerive);
-globalRegistry.register(functorTCDerive);
+/**
+ * Re-register all built-in typeclass macros with the global registry.
+ * Useful in tests that call `globalRegistry.clear()` — module-level
+ * registrations only happen once at import time, so this function
+ * lets you restore them.
+ */
+export function registerTypeclassMacros(): void {
+  globalRegistry.register(typeclassAttribute);
+  globalRegistry.register(typeclassMacro);
+  globalRegistry.register(implAttribute);
+  globalRegistry.register(implMacro);
+  globalRegistry.register(
+    defineAttributeMacro({
+      name: "instance",
+      module: "@typesugar/typeclass",
+      cacheable: implAttribute.cacheable,
+      description: "@deprecated Use @impl instead",
+      validTargets: implAttribute.validTargets,
+      expand: implAttribute.expand,
+    })
+  );
+  globalRegistry.register(
+    defineExpressionMacro({
+      name: "instance",
+      module: "@typesugar/typeclass",
+      description: "@deprecated Use impl() instead",
+      expand: implMacro.expand,
+    })
+  );
+  globalRegistry.register(deriveAttribute);
+  globalRegistry.register(derivingAttribute);
+  globalRegistry.register(summonMacro);
+  globalRegistry.register(extendMacro);
+  globalRegistry.register(showTCDerive);
+  globalRegistry.register(eqTCDerive);
+  globalRegistry.register(ordTCDerive);
+  globalRegistry.register(hashTCDerive);
+  globalRegistry.register(functorTCDerive);
+}
+
+registerTypeclassMacros();
 
 // ============================================================================
 // Exports

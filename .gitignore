@@ -51,3 +51,5 @@ docs/.vitepress/dist/
 # VSCode extension packaging
 *.vsix
 .typesugar-cache/
+.vitepress/cache
+.vercel

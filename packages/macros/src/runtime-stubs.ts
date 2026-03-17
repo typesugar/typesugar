@@ -118,22 +118,9 @@ export function impl(...args: unknown[]): any {
 export const instance: typeof impl = impl;
 
 /**
- * Decorator to auto-derive typeclass instances for a type.
- * Follows Scala 3 derivation rules:
- * - Product types: derive field-by-field if all fields have instances
- * - Sum types: derive variant-by-variant if all variants have instances
+ * @deprecated Renamed to `derive`. Use `@derive(Show, Eq, Ord)` instead.
  *
  * @param typeclasses - Typeclass names to derive
- *
- * @example
- * ```typescript
- * @deriving(Show, Eq, Ord)
- * interface Point {
- *   x: number;
- *   y: number;
- * }
- * // Generates: showPoint, eqPoint, ordPoint instances
- * ```
  */
 export function deriving(..._typeclasses: unknown[]): ClassDecorator & PropertyDecorator {
   // Placeholder - processed by transformer
@@ -325,14 +312,23 @@ export function comptime(..._args: unknown[]): unknown {
 // ============================================================================
 
 /**
- * Decorator to derive implementations at compile time.
+ * Unified decorator to auto-derive typeclass instances for a type.
+ * Follows Scala 3 derivation rules:
+ * - Product types: derive field-by-field if all fields have instances
+ * - Sum types: derive variant-by-variant if all variants have instances
+ *
+ * All derived instances integrate with `summon()` and operator overloading.
+ *
+ * @param typeclasses - Typeclass names to derive
  *
  * @example
  * ```typescript
- * @derive(Eq, Debug, Clone)
- * class User {
- *   constructor(public id: number, public name: string) {}
+ * @derive(Show, Eq, Ord, Clone, Debug, Json)
+ * interface Point {
+ *   x: number;
+ *   y: number;
  * }
+ * // Generates: showPoint, eqPoint, ordPoint, clonePoint, debugPoint, jsonPoint instances
  * ```
  */
 export function derive(

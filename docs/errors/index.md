@@ -12,17 +12,17 @@ npx typesugar --explain TS9001
 
 ## Error Code Ranges
 
-| Range         | Category             | Description                                                                 |
-| ------------- | -------------------- | --------------------------------------------------------------------------- |
-| TS9001-TS9099 | Typeclass Resolution | Errors related to `summon()`, `@instance`, `@deriving`, implicit resolution |
-| TS9101-TS9199 | Derive Failures      | Errors when auto-deriving typeclass instances                               |
-| TS9201-TS9299 | Macro Syntax         | Syntax errors in macro usage                                                |
-| TS9301-TS9399 | HKT                  | Higher-kinded type errors                                                   |
-| TS9401-TS9499 | Extension Methods    | Errors with standalone extension methods                                    |
-| TS9501-TS9599 | Comptime             | Compile-time evaluation errors                                              |
-| TS9701-TS9799 | Import Resolution    | Import and module resolution errors                                         |
-| TS9801-TS9899 | Operators            | Operator overloading errors                                                 |
-| TS9901-TS9999 | Internal             | Internal compiler errors                                                    |
+| Range         | Category             | Description                                                               |
+| ------------- | -------------------- | ------------------------------------------------------------------------- |
+| TS9001-TS9099 | Typeclass Resolution | Errors related to `summon()`, `@instance`, `@derive`, implicit resolution |
+| TS9101-TS9199 | Derive Failures      | Errors when auto-deriving typeclass instances                             |
+| TS9201-TS9299 | Macro Syntax         | Syntax errors in macro usage                                              |
+| TS9301-TS9399 | HKT                  | Higher-kinded type errors                                                 |
+| TS9401-TS9499 | Extension Methods    | Errors with standalone extension methods                                  |
+| TS9501-TS9599 | Comptime             | Compile-time evaluation errors                                            |
+| TS9701-TS9799 | Import Resolution    | Import and module resolution errors                                       |
+| TS9801-TS9899 | Operators            | Operator overloading errors                                               |
+| TS9901-TS9999 | Internal             | Internal compiler errors                                                  |
 
 ## Typeclass Resolution Errors (TS9001-TS9099)
 

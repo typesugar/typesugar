@@ -1,0 +1,56 @@
+{
+  "name": "@typesugar/transformer-core",
+  "version": "0.1.0",
+  "description": "🧊 Browser-compatible transformer core for typesugar macro expansion",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/typesugar/typesugar.git",
+    "directory": "packages/transformer-core"
+  },
+  "homepage": "https://github.com/typesugar/typesugar/tree/main/packages/transformer-core#readme",
+  "bugs": {
+    "url": "https://github.com/typesugar/typesugar/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "typescript",
+    "macros",
+    "transformer",
+    "browser"
+  ],
+  "dependencies": {
+    "@ampproject/remapping": "^2.3.0",
+    "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false
+}

@@ -333,7 +333,9 @@ describe("Red Team: Type Safety", () => {
     it("@derive(Eqq) with typo — getDerive returns undefined", () => {
       const result = globalRegistry.getDerive("Eqq");
       expect(result).toBeUndefined();
-      expect(globalRegistry.getDerive("Eq")).toBeDefined();
+      // Old defineDeriveMacro-based "Eq" is removed (PEP-017 Wave 4).
+      // TC derive macros use the "EqTC" convention instead.
+      expect(globalRegistry.getDerive("EqTC")).toBeDefined();
     });
 
     // Finding TS-20: summon() without transformer gives generic error

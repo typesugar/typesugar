@@ -16,10 +16,10 @@ describe("@typesugar/derive exports", () => {
     });
   });
 
-  describe("built-in derive macros", () => {
-    it("should export all built-in derive macros", async () => {
+  describe("built-in derive macros (deprecated, now undefined)", () => {
+    it("should export all old derive macro names as undefined (PEP-017 Wave 4)", async () => {
       const exports = await import("../src/index.js");
-      const expectedMacros = [
+      const deprecatedMacros = [
         "EqDerive",
         "OrdDerive",
         "CloneDerive",
@@ -31,8 +31,9 @@ describe("@typesugar/derive exports", () => {
         "TypeGuardDerive",
       ];
 
-      for (const macro of expectedMacros) {
-        expect(exports[macro], `${macro} should be exported`).toBeDefined();
+      for (const macro of deprecatedMacros) {
+        expect(macro in exports, `${macro} should still be an exported name`).toBe(true);
+        expect(exports[macro], `${macro} should be undefined (deprecated)`).toBeUndefined();
       }
     });
   });

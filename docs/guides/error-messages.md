@@ -276,7 +276,7 @@ error[TS9001]: No instance found for `Eq<Point>`
    |
    = note: resolution trace for Eq<Point>:
    = note:   1. explicit-instance: Eq<Point> — not found
-   = note:      no @instance or @deriving registered
+   = note:      no @instance or @derive registered
    = note:   2. auto-derive via Generic: Eq<Point> — FAILED
    = note:      see child attempts
    = note:        derivation-strategy: Eq — ok

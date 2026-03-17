@@ -91,7 +91,7 @@ const eitherStringFunctor = { ... };
 ### Auto-Derive Instances
 
 ```typescript
-/** @deriving Eq, Ord, Show */
+/** @derive Eq, Ord, Show */
 interface User {
   id: number;
   name: string;
@@ -152,7 +152,7 @@ const numberShow: Show<number> = {
   show: (n) => n.toString(),
 };
 
-@deriving(Show, Eq)
+@derive(Show, Eq)
 interface User {
   id: number;
   name: string;
@@ -165,14 +165,14 @@ interface User {
 
 - `/** @typeclass */` — Define a typeclass interface
 - `/** @impl TC<Type> */` — Provide a typeclass instance
-- `/** @deriving TC1, TC2, ... */` — Auto-derive typeclass instances
+- `/** @derive TC1, TC2, ... */` — Auto-derive typeclass instances
 - `/** @op <symbol> */` — Map a method to an operator (+, -, \*, /, ===, etc.)
 
 ### Attribute Macros (Decorator Syntax)
 
 - `@typeclass` — Define a typeclass interface (requires preprocessor)
 - `@impl(TC, Type)` — Provide a typeclass instance
-- `@deriving(TC1, TC2, ...)` — Auto-derive typeclass instances
+- `@derive(TC1, TC2, ...)` — Auto-derive typeclass instances
 
 ### Expression Macros
 
@@ -200,7 +200,7 @@ The following patterns still work but are deprecated:
 
 ## Auto-Derivation
 
-The following typeclasses support auto-derivation with `@deriving`:
+The following typeclasses support auto-derivation with `@derive`:
 
 | Typeclass | Generated Implementation      |
 | --------- | ----------------------------- |

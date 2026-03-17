@@ -67,7 +67,7 @@ typesugar({
 | `"oxc"` (default) | ~5x faster | Production builds        |
 | `"typescript"`    | Slower     | Debugging, compatibility |
 
-Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`) automatically fall back to the TypeScript backend.
+Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`) automatically fall back to the TypeScript backend.
 
 ### Typechecking
 

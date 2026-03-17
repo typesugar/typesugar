@@ -2,6 +2,10 @@
 
 typesugar provides Scala 3-style typeclasses with zero-cost specialization.
 
+::: tip Try in Playground
+**[Open in Playground →](https://typesugar.org/playground#code=eJxljkEOgjAQRfc9xeyABOLGjRsP4NrFGMUJNLQlnQ6JMdy9tAWJrl7%2Fy0z%2BdKgVHC4kKSvI2yC8oUZiaYZLFdheOvBYQy%2BKkS19g0BsrXIMOwhYi0vCWBj6Ux9BcfR7JtCi6cgzKs/O2rgZ8D9LYDaMGDIxh94%2BCQAhfZpPmdpOTPoPeQgP5ILY3J2ZRf2GZhwNvZ%2B9N17hDn8rWPP0lwlnFKj)** to see typeclasses in action.
+:::
+
 ## What Are Typeclasses?
 
 Typeclasses enable ad-hoc polymorphism — adding behavior to types without modifying them. Unlike inheritance, typeclasses:
@@ -20,6 +24,19 @@ interface Show<A> {
   show(a: A): string;
 }
 ```
+
+<details>
+<summary><strong>Try it</strong></summary>
+
+<PlaygroundEmbed
+  code="// Typeclasses define shared behavior
+// Open in full playground to see typeclass syntax"
+  mode=".ts"
+  height="100px"
+  title="Typeclass basics"
+/>
+
+</details>
 
 This generates:
 
@@ -105,14 +122,14 @@ const p = { x: 1, y: 2 };
 p.show(); // "Point(x = 1, y = 2)" — auto-derived from field structure
 ```
 
-### Explicit @deriving (Documentation)
+### Explicit @derive (Documentation)
 
-`@deriving` documents which typeclasses a type supports. The compiler would auto-derive them anyway, but the annotation makes intent visible to human readers:
+`@derive` documents which typeclasses a type supports. The compiler would auto-derive them anyway, but the annotation makes intent visible to human readers:
 
 ```typescript
-import { deriving } from "@typesugar/typeclass";
+import { derive } from "@typesugar/derive";
 
-@deriving(Show, Eq, Ord)
+@derive(Show, Eq, Ord)
 class Point {
   constructor(
     public x: number,
@@ -510,7 +527,7 @@ Instances are resolved at compile time:
 
 1. Exact match for the type
 2. Generic instance with inferred parameters
-3. Derived instance from `@deriving`
+3. Derived instance from `@derive`
 
 If no instance is found, you get a compile error.
 

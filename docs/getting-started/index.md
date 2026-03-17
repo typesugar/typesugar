@@ -2,6 +2,12 @@
 
 Welcome to typesugar! This guide will help you get set up based on how you plan to use it.
 
+::: tip Try Without Installing
+Want to explore typesugar before setting up? **[Try the Interactive Playground →](/playground)**
+
+Write code, see transformed output, and run examples — all in your browser.
+:::
+
 ## Quick Start
 
 ### New Project

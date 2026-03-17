@@ -1,0 +1,81 @@
+{
+  "name": "@typesugar/playground",
+  "version": "0.1.0",
+  "description": "🧊 Browser-compatible typesugar bundle for the interactive playground",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/typesugar/typesugar.git",
+    "directory": "packages/playground"
+  },
+  "homepage": "https://github.com/typesugar/typesugar/tree/main/packages/playground#readme",
+  "bugs": {
+    "url": "https://github.com/typesugar/typesugar/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "browser": "./dist/browser.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/browser.js",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "typescript",
+    "macros",
+    "playground",
+    "browser",
+    "interactive"
+  ],
+  "dependencies": {
+    "@typesugar/codec": "workspace:*",
+    "@typesugar/collections": "workspace:*",
+    "@typesugar/contracts": "workspace:*",
+    "@typesugar/core": "workspace:*",
+    "@typesugar/effect": "workspace:*",
+    "@typesugar/fp": "workspace:*",
+    "@typesugar/graph": "workspace:*",
+    "@typesugar/macros": "workspace:*",
+    "@typesugar/mapper": "workspace:*",
+    "@typesugar/math": "workspace:*",
+    "@typesugar/parser": "workspace:*",
+    "@typesugar/preprocessor": "workspace:*",
+    "@typesugar/std": "workspace:*",
+    "@typesugar/symbolic": "workspace:*",
+    "@typesugar/testing": "workspace:*",
+    "@typesugar/transformer-core": "workspace:*",
+    "@typesugar/type-system": "workspace:*",
+    "@typesugar/typeclass": "workspace:*",
+    "@typesugar/units": "workspace:*",
+    "@typesugar/validate": "workspace:*",
+    "magic-string": "^0.30.21"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "tsup": "^8.5.1",
+    "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": [
+    "./src/browser-shims/process-global.ts",
+    "./src/browser-shims/process-global.js"
+  ]
+}

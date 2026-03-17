@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm build && pnpm docs:build",
+  "outputDirectory": "docs/.vitepress/dist",
+  "installCommand": "pnpm install",
+  "cleanUrls": true,
+  "functions": {
+    "api/compile.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  }
+}

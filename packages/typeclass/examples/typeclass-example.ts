@@ -4,14 +4,14 @@
  * Demonstrates Scala 3-style typeclasses:
  * - @typeclass to define interfaces with extension methods
  * - @instance to provide implementations
- * - @deriving to auto-generate instances
+ * - @derive to auto-generate instances
  * - summon<T>() to get instances at compile time
  */
 
 import {
   typeclass,
   instance,
-  deriving,
+  derive,
   summon,
   extend,
 } from "@typesugar/typeclass";
@@ -81,7 +81,7 @@ console.log("extend(42).show():", result);
 
 console.log("\n--- Auto-Deriving ---");
 
-@deriving(Show, Eq)
+@derive(Show, Eq)
 interface User {
   id: number;
   name: string;

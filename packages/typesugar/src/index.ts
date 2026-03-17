@@ -154,7 +154,7 @@ export { deriveNs as deriveNamespace };
 // exported above from @typesugar/macros. These additional exports are for the macro definitions.
 export { operatorsAttribute, opsMacro, pipeMacro, composeMacro } from "@typesugar/macros";
 
-// Scala 3-style typeclasses (@typeclass, @instance, @deriving, summon, extend)
+// Scala 3-style typeclasses (@typeclass, @impl, @derive, summon, extend)
 import * as typeclassNs from "@typesugar/typeclass";
 export { typeclassNs as typeclassNamespace };
 

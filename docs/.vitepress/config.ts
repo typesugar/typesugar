@@ -22,6 +22,7 @@ export default defineConfig({
     logo: { src: "/logo.png", alt: "typesugar" },
 
     nav: [
+      { text: "Playground", link: "/playground" },
       { text: "Guide", link: "/getting-started/" },
       { text: "Reference", link: "/reference/" },
       { text: "Writing Macros", link: "/writing-macros/" },
@@ -228,6 +229,7 @@ export default defineConfig({
                 { text: "Opt-Out Directives", link: "/guides/opt-out" },
                 { text: "Testing", link: "/guides/testing" },
                 { text: "Library Manifest", link: "/guides/library-manifest" },
+                { text: "Interactive Playground", link: "/guides/playground" },
               ],
             },
           ],
@@ -314,6 +316,7 @@ export default defineConfig({
   },
 
   ignoreDeadLinks: true,
+  cleanUrls: true,
 
   markdown: {
     theme: {

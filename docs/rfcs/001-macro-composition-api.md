@@ -169,6 +169,6 @@ export const instanceMacro = defineAttributeMacro({
 Searched `ctx.expandMacro|globalRegistry.get`:
 
 1. `typeclass.ts:2286` - Invokes `{tcName}TC` derive macros dynamically
-2. `macro-transformer.ts` - Registry lookups for macro resolution (not composition)
+2. `packages/transformer-core` - Registry lookups for macro resolution (not composition)
 
 Only one true composition case exists, supporting the Pipeline-Only approach.

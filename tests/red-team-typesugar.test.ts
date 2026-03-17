@@ -20,15 +20,17 @@ import * as typesugar from "typesugar";
 // Direct imports of specific exports
 import {
   // Namespace exports (current API uses *Namespace suffix)
-  // Note: comptimeNamespace was removed with @typesugar/comptime package
+  // Note: comptimeNamespace doesn't exist - comptime is a single function, not a package
   reflectNamespace,
   deriveNamespace,
+  // Note: operatorsNamespace doesn't exist - operators are in @typesugar/macros
   typeclassNamespace,
   specializeNamespace,
   // Direct callable exports
   ops,
   pipe,
   compose,
+  comptime,
   // Derive symbols
   Eq,
   Ord,
@@ -65,9 +67,10 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // ==========================================================================
   describe("Re-export completeness", () => {
     it("exports all namespace modules", () => {
-      // comptimeNamespace was removed with the @typesugar/comptime package
+      // Note: comptimeNamespace doesn't exist - comptime is a single function, not a package
       expect(typesugar.reflectNamespace).toBeDefined();
       expect(typesugar.deriveNamespace).toBeDefined();
+      // Note: operatorsNamespace doesn't exist - operators are exported directly from @typesugar/macros
       expect(typesugar.typeclassNamespace).toBeDefined();
       expect(typesugar.specializeNamespace).toBeDefined();
     });
@@ -114,12 +117,10 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // Attack 2: Namespace vs Direct Export Conflicts
   // ==========================================================================
   describe("Namespace vs direct export conflicts", () => {
-    it("comptime runtime stub exists via namespace import", () => {
-      // comptime runtime stub may be tree-shaken from named imports,
-      // but should be present on the namespace
-      expect(
-        typeof typesugar.comptime === "function" || typeof typesugar.comptime === "undefined"
-      ).toBe(true);
+    it("comptime is exported as a function (no separate namespace)", () => {
+      // comptime is just a callable function, not a namespace module
+      // (unlike reflect/derive/typeclass/specialize which have separate packages)
+      expect(typeof comptime).toBe("function");
     });
 
     it("namespace exports preserve their sub-module structure", () => {
@@ -141,17 +142,16 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typeof compose).toBe("function");
     });
 
-    it("deriveNamespace contains both symbols and macro definitions", () => {
+    it("deriveNamespace contains symbols and deprecated empty deriveMacros", () => {
       // deriveNamespace is the full @typesugar/derive namespace
-      // It contains Eq (symbol) and deriveMacros (macro definitions)
-      expect(typeof deriveNamespace.Eq).toBe("symbol"); // Symbol for decorator use
-      expect(typeof Eq).toBe("symbol"); // Same symbol exported directly
-      expect(deriveNamespace.Eq).toBe(Eq); // They should be identical
+      // It contains Eq (symbol) for use with the unified @derive attribute macro
+      expect(typeof deriveNamespace.Eq).toBe("symbol");
+      expect(typeof Eq).toBe("symbol");
+      expect(deriveNamespace.Eq).toBe(Eq);
 
-      // The actual macro definitions are under deriveNamespace.deriveMacros
+      // deriveMacros is now an empty deprecated object (PEP-017 Wave 4)
       expect(typeof deriveNamespace.deriveMacros).toBe("object");
-      expect(typeof deriveNamespace.deriveMacros.Eq).toBe("object"); // Macro definition
-      expect(deriveNamespace.deriveMacros.Eq.name).toBe("Eq");
+      expect(Object.keys(deriveNamespace.deriveMacros).length).toBe(0);
     });
   });
 

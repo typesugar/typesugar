@@ -59,9 +59,9 @@ Attribute macros use decorators to transform declarations.
 import { derive } from "@typesugar/derive";
 import { reflect } from "@typesugar/reflect";
 import { operators } from "@typesugar/macros";
-import { typeclass, instance, deriving } from "@typesugar/typeclass";
+import { typeclass, instance, derive } from "@typesugar/typeclass";
 
-// @derive — auto-generate implementations
+// @derive — auto-generate typeclass instances
 @derive(Eq, Clone, Debug, Json)
 class User {
   id: number;
@@ -91,8 +91,8 @@ interface Show<A> {
 @instance(Show, Number)
 const numberShow: Show<number> = { show: String };
 
-// @deriving — auto-derive typeclass instances
-@deriving(Show, Eq)
+// @derive — auto-derive typeclass instances
+@derive(Show, Eq)
 interface Point { x: number; y: number; }
 ```
 

@@ -88,7 +88,7 @@ Transform `+`, `-`, `*`, `/` into method calls on your custom types.
 
 ### Typeclasses (`@typesugar/typeclass`)
 
-Scala 3-style typeclass system with `@typeclass`, `@instance`, `@deriving`, and `summon()`.
+Scala 3-style typeclass system with `@typeclass`, `@instance`, `@derive`, and `summon()`.
 
 ### Zero-Cost Abstractions (`@typesugar/specialize`)
 

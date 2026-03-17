@@ -324,7 +324,7 @@ describe("Built-in macros have module field", () => {
     }
   });
 
-  it("should NOT have module set on derive macros (they are arg-based, not import-based)", async () => {
+  it("old defineDeriveMacro exports are undefined (removed in PEP-017 Wave 4)", async () => {
     const {
       EqDerive,
       OrdDerive,
@@ -346,7 +346,7 @@ describe("Built-in macros have module field", () => {
       JsonDerive,
       BuilderDerive,
     ]) {
-      expect(macro.module, `${macro.name} should NOT have module set`).toBeUndefined();
+      expect(macro).toBeUndefined();
     }
   });
 });

@@ -41,9 +41,9 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 1. **Zero-Cost or Don't Ship It** — Every abstraction must compile away to what you'd write by hand. No runtime dictionary lookups, no wrapper types, no closure allocation. If it can be done at compile time, it must be.
 
-2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@deriving` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@deriving(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
+2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@derive` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@derive(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
 
-3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @deriving Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
+3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @derive Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
 
 4. **Extensions are Import-Scoped (Scala 3 Model)** — Extension methods only activate when you import the function. `import { clamp } from "@typesugar/std"` makes `n.clamp(0, 100)` work. No import, no extension. This prevents surprising method injection and makes dependencies explicit. Extension files must have `"use extension"` at the top. The package's `index.ts` must barrel-export all extensions.
 
@@ -93,7 +93,8 @@ packages/
 │   ## Build Infrastructure
 ├── core/               # @typesugar/core — macro registration, types, context
 ├── macros/             # @typesugar/macros — built-in macro implementations
-├── transformer/        # @typesugar/transformer — ts-patch transformer plugin
+├── transformer/        # @typesugar/transformer — ts-patch transformer plugin (Node.js)
+├── transformer-core/   # @typesugar/transformer-core — browser-compatible transform core
 ├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
 ├── oxc-engine/         # @typesugar/oxc-engine — native Rust macro engine (experimental)
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
@@ -104,6 +105,7 @@ packages/
 ├── eslint-plugin/      # @typesugar/eslint-plugin — ESLint processor and rules
 ├── prettier-plugin/    # @typesugar/prettier-plugin — Prettier formatting
 ├── testing/            # @typesugar/testing — powerAssert, comptimeAssert, ArbitraryDerive
+├── playground/         # @typesugar/playground — browser playground (runtime bundle + transform)
 │
 │   ## Standard Library
 ├── std/                # @typesugar/std — standard library extensions, match(), FlatMap
@@ -146,18 +148,20 @@ packages/
 
 ## Package Boundaries
 
-| Package                  | Contents                                                                                                                              | Does NOT contain                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `@typesugar/typeclass`   | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`                                                       | Typeclass definitions                     |
-| `@typesugar/std`         | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
-| `@typesugar/fp`          | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
-| `@typesugar/collections` | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
-| `@typesugar/hlist`       | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                               | Typeclass instances                       |
-| `@typesugar/parser`      | PEG grammar DSL, parser combinators, tagged template macro                                                                            | Compile-time code gen                     |
-| `@typesugar/fusion`      | Single-pass lazy iterator pipelines, element-wise vec operations                                                                      | Matrix operations                         |
-| `@typesugar/graph`       | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines                                               | Visual rendering                          |
-| `@typesugar/erased`      | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                | Typeclass definitions                     |
-| `@typesugar/codec`       | Versioned schema builder, JSON/binary codecs, migration chain generation                                                              | Transport/network layer                   |
+| Package                       | Contents                                                                                                                              | Does NOT contain                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `@typesugar/transformer-core` | Browser-compatible transform core: `transformCode()`, `MacroTransformer`, source maps, position mapping                               | Node.js APIs (fs, path), caching, CLI     |
+| `@typesugar/transformer`      | Node.js transformer plugin: ts-patch integration, macro loading, file caching, CLI                                                    | Core transformation logic (uses core)     |
+| `@typesugar/typeclass`        | Machinery: `@typeclass`, `@impl`, `@derive`, `summon`, `extend`, `specialize`                                                         | Typeclass definitions                     |
+| `@typesugar/std`              | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
+| `@typesugar/fp`               | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
+| `@typesugar/collections`      | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
+| `@typesugar/hlist`            | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                               | Typeclass instances                       |
+| `@typesugar/parser`           | PEG grammar DSL, parser combinators, tagged template macro                                                                            | Compile-time code gen                     |
+| `@typesugar/fusion`           | Single-pass lazy iterator pipelines, element-wise vec operations                                                                      | Matrix operations                         |
+| `@typesugar/graph`            | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines                                               | Visual rendering                          |
+| `@typesugar/erased`           | Typeclass-based type erasure, vtable dispatch, capability widen/narrow                                                                | Typeclass definitions                     |
+| `@typesugar/codec`            | Versioned schema builder, JSON/binary codecs, migration chain generation                                                              | Transport/network layer                   |
 
 **Key clarifications:**
 
@@ -166,14 +170,15 @@ packages/
 - Extensions on built-in types (`number`, `string`, `Array`) go in `std`
 - `@typesugar/fusion`'s `lazy()` is always single-pass — it MUST NOT create intermediate arrays
 
-### `@derive` vs `@deriving` vs Auto-derivation
+### `@derive` vs Auto-derivation
 
 | Mechanism                 | What it does                                              | When to use                                    |
 | ------------------------- | --------------------------------------------------------- | ---------------------------------------------- |
 | Auto-derivation (default) | Automatically synthesizes instances for product/sum types | **Always** — this is the default behavior      |
-| `@deriving(TC)`           | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
-| `@derive(TC)`             | Generates standalone functions                            | Rarely — doesn't integrate with `summon`       |
+| `@derive(TC)`             | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
 | `@impl` (or `@instance`)  | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
+
+`@deriving` is a deprecated alias for `@derive`; use `@derive` in new code.
 
 ---
 
@@ -195,6 +200,38 @@ packages/
 4. All imports must be at the top of the file — no mid-file imports
 5. Re-export everything from `index.ts` — including derived operations
 6. Don't export dead code — if a type has no instances, don't export it
+
+## Playground & Examples
+
+The interactive playground at `/playground` runs the typesugar transformer in-browser via `@typesugar/playground`. Runtime `@typesugar/*` packages are bundled as an IIFE (`packages/playground/dist/runtime.global.js`) and injected into the sandbox iframe, so `import { Some } from "@typesugar/fp"` works at runtime.
+
+### Playground examples
+
+Examples live in `docs/examples/<module>/<name>.ts` and are auto-discovered at build time by `docs/.vitepress/components/playground-examples.ts` using Vite's `import.meta.glob`.
+
+**File format:**
+
+```typescript
+//! Example Title
+//! Short description
+
+import { ... } from "@typesugar/fp";
+
+console.log(...);
+```
+
+- First `//!` → name in dropdown. Second `//!` → description tooltip.
+- Directory name → group label (mapped via `GROUP_META` in `playground-examples.ts`).
+- Use `.ts` for JSDoc macros, `.sts` for preprocessor syntax.
+- Keep examples runnable — use `console.log()` to produce visible output.
+
+### Adding a runtime package to the playground
+
+If you add a new `@typesugar/*` package with runtime exports:
+
+1. Add an import + `register()` call in `packages/playground/src/runtime-entry.ts`
+2. Add type declarations in the `setupTypeDeclarations()` function in `Playground.vue`
+3. Add at least one example in `docs/examples/<module>/`
 
 ---
 

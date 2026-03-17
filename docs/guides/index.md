@@ -80,14 +80,15 @@ Supercharge your existing tools:
 
 When something goes wrong, you should know exactly what happened and how to get the level of type safety you want:
 
-| Guide                                     | Description                                       |
-| ----------------------------------------- | ------------------------------------------------- |
-| [Type Safety](./type-safety.md)           | The three-layer model: build, IDE, CI             |
-| [Overview](./developer-experience.md)     | How error messages, suggestions, and tooling work |
-| [Error Messages](./error-messages.md)     | Rust-style errors with labeled spans              |
-| [Opt-Out Directives](./opt-out.md)        | Disable transformations for debugging             |
-| [Testing](./testing.md)                   | Power assertions, property testing                |
-| [Library Manifest](./library-manifest.md) | Publishing typesugar-powered libraries            |
+| Guide                                     | Description                                              |
+| ----------------------------------------- | -------------------------------------------------------- |
+| [Type Safety](./type-safety.md)           | The three-layer model: build, IDE, CI                    |
+| [Overview](./developer-experience.md)     | How error messages, suggestions, and tooling work        |
+| [Error Messages](./error-messages.md)     | Rust-style errors with labeled spans                     |
+| [Opt-Out Directives](./opt-out.md)        | Disable transformations for debugging                    |
+| [Testing](./testing.md)                   | Power assertions, property testing                       |
+| [Library Manifest](./library-manifest.md) | Publishing typesugar-powered libraries                   |
+| [Interactive Playground](./playground.md) | Try code in-browser with runtime libraries, 20+ examples |
 
 ---
 
@@ -103,7 +104,7 @@ import { clamp, abs, match, registerFlatMap } from "@typesugar/std";
 import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";
 
 // Typeclasses
-import { typeclass, instance, deriving, summon } from "@typesugar/typeclass";
+import { typeclass, instance, derive, summon } from "@typesugar/typeclass";
 
 // Operators (legacy pattern, prefer Op<> typeclass)
 import { operators, ops, pipe } from "typesugar";

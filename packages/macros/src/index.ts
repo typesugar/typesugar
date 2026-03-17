@@ -41,15 +41,6 @@ import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
 // Re-export for programmatic use
 export { comptimeMacro, jsToComptimeValue, type ComptimePermissions } from "./comptime.js";
 export {
-  EqDerive,
-  OrdDerive,
-  CloneDerive,
-  DebugDerive,
-  HashDerive,
-  DefaultDerive,
-  JsonDerive,
-  BuilderDerive,
-  TypeGuardDerive,
   // Derive name symbols for use in @derive() decorators
   Eq,
   Ord,
@@ -60,9 +51,19 @@ export {
   Json,
   Builder,
   TypeGuard,
-  // Additional exports for testing
-  deriveMacros,
+  // Utility for derived function naming
   createDerivedFunctionName,
+  // Deprecated: old defineDeriveMacro instances (now undefined)
+  EqDerive,
+  OrdDerive,
+  CloneDerive,
+  DebugDerive,
+  HashDerive,
+  DefaultDerive,
+  JsonDerive,
+  BuilderDerive,
+  TypeGuardDerive,
+  deriveMacros,
 } from "./derive.js";
 export {
   operatorsAttribute,
@@ -91,6 +92,8 @@ export {
   // Primary names (preferred)
   implAttribute,
   implMacro,
+  // Unified derive attribute macro (@derive → typeclass derivation)
+  deriveAttribute,
   // Deprecated aliases for backwards compatibility
   instanceAttribute,
   instanceMacro,
@@ -103,6 +106,7 @@ export {
   findInstance,
   getTypeclass,
   clearRegistries,
+  registerTypeclassMacros,
   registerStandardTypeclasses,
   getTypeclasses,
   getInstances,

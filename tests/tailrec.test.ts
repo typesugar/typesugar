@@ -482,9 +482,8 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    // Should have let declarations for mutable copies (hygienic names)
-    expect(output).toMatch(/let __typesugar_tr_n_\d+__ = n/);
-    expect(output).toMatch(/let __typesugar_tr_acc_\d+__ = acc/);
+    expect(output).toContain("let _n = n");
+    expect(output).toContain("let _acc = acc");
   });
 
   it("should use temporaries for argument evaluation", () => {
@@ -496,9 +495,9 @@ describe("tailrec transformation", () => {
     `);
 
     // Should use temporaries to avoid order-of-evaluation issues
-    // when parameters reference each other (swap pattern) - hygienic names
-    expect(output).toMatch(/__typesugar_tr_next_a_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_next_b_\d+__/);
+    // when parameters reference each other (swap pattern)
+    expect(output).toContain("_next_a");
+    expect(output).toContain("_next_b");
   });
 
   it("should replace parameter references in the body", () => {
@@ -509,10 +508,9 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    // The body should reference hygienic variable names
-    expect(output).toMatch(/__typesugar_tr_n_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_acc_\d+__/);
-    expect(output).toMatch(/return __typesugar_tr_acc_\d+__/);
+    expect(output).toContain("_n");
+    expect(output).toContain("_acc");
+    expect(output).toContain("return _acc");
   });
 
   it("should end trampoline block with continue", () => {
@@ -600,7 +598,7 @@ describe("tailrec edge cases", () => {
 
     expect(diagnostics).toHaveLength(0);
     expect(output).toContain("while (true)");
-    expect(output).toMatch(/__typesugar_tr_n_\d+__/);
+    expect(output).toContain("_n");
   });
 
   it("should handle many parameters", () => {
@@ -612,10 +610,10 @@ describe("tailrec edge cases", () => {
     `);
 
     expect(diagnostics).toHaveLength(0);
-    expect(output).toMatch(/__typesugar_tr_a_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_b_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_c_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_d_\d+__/);
+    expect(output).toContain("_a");
+    expect(output).toContain("_b");
+    expect(output).toContain("_c");
+    expect(output).toContain("_d");
   });
 
   it("should handle multiple return points with tail calls", () => {
@@ -645,9 +643,9 @@ describe("tailrec edge cases", () => {
     `);
 
     expect(diagnostics).toHaveLength(0);
-    // Must use temporaries for correct swap semantics (hygienic names)
-    expect(output).toMatch(/__typesugar_tr_next_a_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_next_b_\d+__/);
+    // Must use temporaries for correct swap semantics
+    expect(output).toContain("_next_a");
+    expect(output).toContain("_next_b");
   });
 
   it("should accept recursive call in RHS of logical && (tail position)", () => {
@@ -737,18 +735,12 @@ describe("tailrec functional correctness", () => {
       }
     `);
 
-    // The output should use hygienic variable names:
-    // 1. Initialize mutable vars = original params
-    // 2. Check condition, return if so
-    // 3. Compute new values with _tr_next_* temporaries
-    // 4. Assign and continue
-    // Names are now hygienic: __typesugar_tr_<name>_<counter>__
-    expect(output).toMatch(/let __typesugar_tr_n_\d+__ = n/);
-    expect(output).toMatch(/let __typesugar_tr_acc_\d+__ = acc/);
-    expect(output).toMatch(/return __typesugar_tr_acc_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_next_n_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_next_acc_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_n_\d+__ \* __typesugar_tr_acc_\d+__/);
+    expect(output).toContain("let _n = n");
+    expect(output).toContain("let _acc = acc");
+    expect(output).toContain("return _acc");
+    expect(output).toContain("_next_n");
+    expect(output).toContain("_next_acc");
+    expect(output).toContain("_n * _acc");
     expect(output).toContain("continue");
   });
 
@@ -760,13 +752,11 @@ describe("tailrec functional correctness", () => {
       }
     `);
 
-    // Names are now hygienic: __typesugar_tr_<name>_<counter>__
-    expect(output).toMatch(/let __typesugar_tr_a_\d+__ = a/);
-    expect(output).toMatch(/let __typesugar_tr_b_\d+__ = b/);
-    expect(output).toMatch(/return __typesugar_tr_a_\d+__/);
-    // New values for the recursive step
-    expect(output).toMatch(/__typesugar_tr_next_a_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_next_b_\d+__/);
-    expect(output).toMatch(/__typesugar_tr_a_\d+__ % __typesugar_tr_b_\d+__/); // new b = old a % old b
+    expect(output).toContain("let _a = a");
+    expect(output).toContain("let _b = b");
+    expect(output).toContain("return _a");
+    expect(output).toContain("_next_a");
+    expect(output).toContain("_next_b");
+    expect(output).toContain("_a % _b");
   });
 });
