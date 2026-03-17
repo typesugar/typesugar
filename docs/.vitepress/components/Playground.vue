@@ -57,7 +57,10 @@ const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null
 const monaco = shallowRef<typeof Monaco | null>(null);
 const playground = shallowRef<{
   transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-  preprocessCode: (code: string, options: { fileName: string }) => { code: string; changed: boolean };
+  preprocessCode: (
+    code: string,
+    options: { fileName: string }
+  ) => { code: string; changed: boolean };
 } | null>(null);
 const sandboxIframe = ref<HTMLIFrameElement | null>(null);
 const runtimeCode = ref<string>("");
@@ -110,7 +113,6 @@ const statusClass = computed(() => {
   return "success";
 });
 
-
 function registerStsLanguage(monacoInstance: typeof Monaco) {
   if (monacoInstance.languages.getLanguages().some((lang) => lang.id === "sts")) {
     return;
@@ -123,25 +125,133 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
     tokenPostfix: ".sts",
 
     keywords: [
-      "abstract", "any", "as", "asserts", "async", "await", "boolean", "break",
-      "case", "catch", "class", "const", "constructor", "continue", "debugger",
-      "declare", "default", "delete", "do", "else", "enum", "export", "extends",
-      "false", "finally", "for", "from", "function", "get", "if", "implements",
-      "import", "in", "infer", "instanceof", "interface", "is", "keyof", "let",
-      "module", "namespace", "never", "new", "null", "number", "object", "of",
-      "package", "private", "protected", "public", "readonly", "require", "return",
-      "satisfies", "set", "static", "string", "super", "switch", "symbol", "this",
-      "throw", "true", "try", "type", "typeof", "undefined", "unique", "unknown",
-      "var", "void", "while", "with", "yield",
+      "abstract",
+      "any",
+      "as",
+      "asserts",
+      "async",
+      "await",
+      "boolean",
+      "break",
+      "case",
+      "catch",
+      "class",
+      "const",
+      "constructor",
+      "continue",
+      "debugger",
+      "declare",
+      "default",
+      "delete",
+      "do",
+      "else",
+      "enum",
+      "export",
+      "extends",
+      "false",
+      "finally",
+      "for",
+      "from",
+      "function",
+      "get",
+      "if",
+      "implements",
+      "import",
+      "in",
+      "infer",
+      "instanceof",
+      "interface",
+      "is",
+      "keyof",
+      "let",
+      "module",
+      "namespace",
+      "never",
+      "new",
+      "null",
+      "number",
+      "object",
+      "of",
+      "package",
+      "private",
+      "protected",
+      "public",
+      "readonly",
+      "require",
+      "return",
+      "satisfies",
+      "set",
+      "static",
+      "string",
+      "super",
+      "switch",
+      "symbol",
+      "this",
+      "throw",
+      "true",
+      "try",
+      "type",
+      "typeof",
+      "undefined",
+      "unique",
+      "unknown",
+      "var",
+      "void",
+      "while",
+      "with",
+      "yield",
     ],
 
     typeKeywords: ["F", "HKT", "Kind", "Type", "Functor", "Monad", "Apply", "Applicative"],
 
     operators: [
-      "<=", ">=", "==", "!=", "===", "!==", "=>", "+", "-", "**", "*", "/", "%",
-      "++", "--", "<<", "</", ">>", ">>>", "&", "|", "^", "!", "~", "&&", "||",
-      "??", "?", ":", "=", "+=", "-=", "*=", "**=", "/=", "%=", "<<=", ">>=",
-      ">>>=", "&=", "|=", "^=", "@", "|>", "<|", "::", "~>",
+      "<=",
+      ">=",
+      "==",
+      "!=",
+      "===",
+      "!==",
+      "=>",
+      "+",
+      "-",
+      "**",
+      "*",
+      "/",
+      "%",
+      "++",
+      "--",
+      "<<",
+      "</",
+      ">>",
+      ">>>",
+      "&",
+      "|",
+      "^",
+      "!",
+      "~",
+      "&&",
+      "||",
+      "??",
+      "?",
+      ":",
+      "=",
+      "+=",
+      "-=",
+      "*=",
+      "**=",
+      "/=",
+      "%=",
+      "<<=",
+      ">>=",
+      ">>>=",
+      "&=",
+      "|=",
+      "^=",
+      "@",
+      "|>",
+      "<|",
+      "::",
+      "~>",
     ],
 
     symbols: /[=><!~?:&|+\-*\/\^%@]+/,
@@ -172,16 +282,22 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/<\|/, "operator.pipeline"],
         [/::/, "operator.cons"],
         [/~>/, "operator.kind"],
-        [/[a-z_$][\w$]*/, {
-          cases: {
-            "@typeKeywords": "type.identifier",
-            "@keywords": "keyword",
-            "@default": "identifier",
+        [
+          /[a-z_$][\w$]*/,
+          {
+            cases: {
+              "@typeKeywords": "type.identifier",
+              "@keywords": "keyword",
+              "@default": "identifier",
+            },
           },
-        }],
+        ],
         [/[A-Z][\w\$]*/, "type.identifier"],
         { include: "@whitespace" },
-        [/\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/, { token: "regexp", bracket: "@open", next: "@regexp" }],
+        [
+          /\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/,
+          { token: "regexp", bracket: "@open", next: "@regexp" },
+        ],
         [/[()\[\]]/, "@brackets"],
         [/[<>](?!@symbols)/, "@brackets"],
         [/!(?=([^=]|$))/, "delimiter"],
@@ -207,19 +323,36 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\/\/.*$/, "comment"],
       ],
 
-      comment: [[/[^\/*]+/, "comment"], [/\*\//, "comment", "@pop"], [/[\/*]/, "comment"]],
-      jsdoc: [[/[^\/*]+/, "comment.doc"], [/\*\//, "comment.doc", "@pop"], [/[\/*]/, "comment.doc"]],
+      comment: [
+        [/[^\/*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/[\/*]/, "comment"],
+      ],
+      jsdoc: [
+        [/[^\/*]+/, "comment.doc"],
+        [/\*\//, "comment.doc", "@pop"],
+        [/[\/*]/, "comment.doc"],
+      ],
 
       regexp: [
-        [/(\{)(\d+(?:,\d*)?)(\})/, ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"]],
-        [/(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/, ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }]],
+        [
+          /(\{)(\d+(?:,\d*)?)(\})/,
+          ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"],
+        ],
+        [
+          /(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/,
+          ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }],
+        ],
         [/(\()(\?:|\?=|\?!)/, ["regexp.escape.control", "regexp.escape.control"]],
         [/[()]/, "regexp.escape.control"],
         [/@regexpctl/, "regexp.escape.control"],
         [/[^\\\/]/, "regexp"],
         [/@regexpesc/, "regexp.escape"],
         [/\\\./, "regexp.invalid"],
-        [/(\/)([dgimsuy]*)/, [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"]],
+        [
+          /(\/)([dgimsuy]*)/,
+          [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"],
+        ],
       ],
 
       regexrange: [
@@ -230,8 +363,18 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\]/, { token: "regexp.escape.control", next: "@pop", bracket: "@close" }],
       ],
 
-      string_double: [[/[^\\"]+/, "string"], [/@escapes/, "string.escape"], [/\\./, "string.escape.invalid"], [/"/, "string", "@pop"]],
-      string_single: [[/[^\\']+/, "string"], [/@escapes/, "string.escape"], [/\\./, "string.escape.invalid"], [/'/, "string", "@pop"]],
+      string_double: [
+        [/[^\\"]+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/"/, "string", "@pop"],
+      ],
+      string_single: [
+        [/[^\\']+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/'/, "string", "@pop"],
+      ],
       string_backtick: [
         [/\$\{/, { token: "delimiter.bracket", next: "@bracketCounting" }],
         [/[^\\`$]+/, "string"],
@@ -239,7 +382,11 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\\./, "string.escape.invalid"],
         [/`/, "string", "@pop"],
       ],
-      bracketCounting: [[/\{/, "delimiter.bracket", "@bracketCounting"], [/\}/, "delimiter.bracket", "@pop"], { include: "common" }],
+      bracketCounting: [
+        [/\{/, "delimiter.bracket", "@bracketCounting"],
+        [/\}/, "delimiter.bracket", "@pop"],
+        { include: "common" },
+      ],
     },
   });
 
@@ -305,7 +452,8 @@ function registerTypesugarTypes(monacoInstance: typeof Monaco) {
   });
 
   // Main typesugar module
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "typesugar" {
   // Static assertions
   export function staticAssert(condition: boolean, message?: string): void;
@@ -378,10 +526,13 @@ declare module "typesugar" {
   export function registerExtensions(target: any): any;
   export function registerExtension(name: string): MethodDecorator;
 }
-`, "file:///node_modules/typesugar/index.d.ts");
+`,
+    "file:///node_modules/typesugar/index.d.ts"
+  );
 
   // @typesugar/core
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/core" {
   export interface MacroContext {
     readonly program: any;
@@ -423,10 +574,13 @@ declare module "@typesugar/core" {
 
   export function createMacroContext(program: any, sourceFile: any, context: any): MacroContext;
 }
-`, "file:///node_modules/@typesugar/core/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/core/index.d.ts"
+  );
 
   // @typesugar/macros
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/macros" {
   export * from "typesugar";
 
@@ -446,10 +600,13 @@ declare module "@typesugar/macros" {
   export function defineCustomDerive(name: string, impl: (info: any) => string): void;
   export function defineFieldDerive(name: string, impl: (field: any) => string): void;
 }
-`, "file:///node_modules/@typesugar/macros/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/macros/index.d.ts"
+  );
 
   // @typesugar/testing
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/testing" {
   // Power assertions
   export function assert(condition: boolean, message?: string): void;
@@ -474,10 +631,13 @@ declare module "@typesugar/testing" {
   // Arbitrary generation
   export const Arbitrary: unique symbol;
 }
-`, "file:///node_modules/@typesugar/testing/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/testing/index.d.ts"
+  );
 
   // @typesugar/fp - Functional programming utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/fp" {
   // Option type
   export type Option<A> = Some<A> | None;
@@ -504,10 +664,13 @@ declare module "@typesugar/fp" {
   export function curry<A, B, C>(f: (a: A, b: B) => C): (a: A) => (b: B) => C;
   export function uncurry<A, B, C>(f: (a: A) => (b: B) => C): (a: A, b: B) => C;
 }
-`, "file:///node_modules/@typesugar/fp/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/fp/index.d.ts"
+  );
 
   // @typesugar/effect - Effect system
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/effect" {
   export interface Effect<R, E, A> {
     readonly _R: (_: R) => void;
@@ -527,10 +690,13 @@ declare module "@typesugar/effect" {
   export function runSync<E, A>(effect: Effect<unknown, E, A>): A;
   export function runPromise<E, A>(effect: Effect<unknown, E, A>): Promise<A>;
 }
-`, "file:///node_modules/@typesugar/effect/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/effect/index.d.ts"
+  );
 
   // @typesugar/std - Standard library
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/std" {
   // Array utilities
   export function head<A>(arr: A[]): A | undefined;
@@ -568,10 +734,13 @@ declare module "@typesugar/std" {
   export function padLeft(s: string, len: number, char?: string): string;
   export function padRight(s: string, len: number, char?: string): string;
 }
-`, "file:///node_modules/@typesugar/std/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/std/index.d.ts"
+  );
 
   // @typesugar/collections - Immutable collections
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/collections" {
   export class List<A> {
     static of<A>(...items: A[]): List<A>;
@@ -640,10 +809,13 @@ declare module "@typesugar/collections" {
     [Symbol.iterator](): Iterator<A>;
   }
 }
-`, "file:///node_modules/@typesugar/collections/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/collections/index.d.ts"
+  );
 
   // @typesugar/validate - Runtime validation
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/validate" {
   export interface Schema<T> {
     parse(value: unknown): T;
@@ -670,10 +842,13 @@ declare module "@typesugar/validate" {
   export function record<K extends string, V>(keySchema: Schema<K>, valueSchema: Schema<V>): Schema<Record<K, V>>;
   export function tuple<T extends Schema<any>[]>(...schemas: T): Schema<{ [K in keyof T]: T[K] extends Schema<infer U> ? U : never }>;
 }
-`, "file:///node_modules/@typesugar/validate/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/validate/index.d.ts"
+  );
 
   // @typesugar/contracts - Design by contract
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/contracts" {
   export function requires(condition: boolean, message?: string): void;
   export function ensures(condition: boolean, message?: string): void;
@@ -684,10 +859,13 @@ declare module "@typesugar/contracts" {
   export function post(condition: (result: any) => boolean, message?: string): MethodDecorator;
   export function classInvariant(condition: () => boolean, message?: string): ClassDecorator;
 }
-`, "file:///node_modules/@typesugar/contracts/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/contracts/index.d.ts"
+  );
 
   // @typesugar/math - Math utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/math" {
   export function clamp(value: number, min: number, max: number): number;
   export function lerp(a: number, b: number, t: number): number;
@@ -733,10 +911,13 @@ declare module "@typesugar/math" {
     static one: Vec3;
   }
 }
-`, "file:///node_modules/@typesugar/math/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/math/index.d.ts"
+  );
 
   // @typesugar/strings - String utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/strings" {
   // String interpolation
   export function fmt(strings: TemplateStringsArray, ...values: any[]): string;
@@ -758,10 +939,13 @@ declare module "@typesugar/strings" {
   export function fuzzyMatch(pattern: string, text: string): boolean;
   export function similarity(a: string, b: string): number;
 }
-`, "file:///node_modules/@typesugar/strings/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/strings/index.d.ts"
+  );
 
   // @typesugar/parser - Parser combinators
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/parser" {
   export interface Parser<A> {
     parse(input: string): ParseResult<A>;
@@ -790,10 +974,13 @@ declare module "@typesugar/parser" {
   export function choice<T extends Parser<any>[]>(...parsers: T): Parser<T[number] extends Parser<infer U> ? U : never>;
   export function lazy<A>(fn: () => Parser<A>): Parser<A>;
 }
-`, "file:///node_modules/@typesugar/parser/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/parser/index.d.ts"
+  );
 
   // @typesugar/codec - Encoding/decoding
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/codec" {
   export interface Codec<A> {
     encode(value: A): string;
@@ -805,10 +992,13 @@ declare module "@typesugar/codec" {
   export const hex: Codec<Uint8Array>;
   export const url: Codec<Record<string, string>>;
 }
-`, "file:///node_modules/@typesugar/codec/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/codec/index.d.ts"
+  );
 
   // @typesugar/type-system - Type-level utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/type-system" {
   // HKT marker
   export type _ = { readonly _: unique symbol };
@@ -834,7 +1024,9 @@ declare module "@typesugar/type-system" {
   export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
   export type DeepMutable<T> = T extends object ? { -readonly [K in keyof T]: DeepMutable<T[K]> } : T;
 }
-`, "file:///node_modules/@typesugar/type-system/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/type-system/index.d.ts"
+  );
 }
 
 // TypeScript lib files to load from CDN for full intellisense
@@ -963,7 +1155,9 @@ async function loadTypeScriptLibs(monacoInstance: typeof Monaco): Promise<void> 
     console.log(`[Playground] Loaded and cached ${Object.keys(allLibs).length} TS lib files`);
   } catch {
     // sessionStorage full or unavailable
-    console.log(`[Playground] Loaded ${Object.keys(allLibs).length} TS lib files (cache write failed)`);
+    console.log(
+      `[Playground] Loaded ${Object.keys(allLibs).length} TS lib files (cache write failed)`
+    );
   }
 }
 
@@ -1105,14 +1299,15 @@ async function doTransform() {
       transformTime.value = serverResult.compileTimeMs ?? Math.round(performance.now() - start);
 
       // Add line/column info to diagnostics
-      const diagnostics = serverResult.diagnostics?.map((d) => {
-        const model = inputEditor.value?.getModel();
-        if (model && typeof d.start === "number") {
-          const pos = model.getPositionAt(d.start);
-          return { ...d, line: pos.lineNumber, column: pos.column };
-        }
-        return d;
-      }) ?? [];
+      const diagnostics =
+        serverResult.diagnostics?.map((d) => {
+          const model = inputEditor.value?.getModel();
+          if (model && typeof d.start === "number") {
+            const pos = model.getPositionAt(d.start);
+            return { ...d, line: pos.lineNumber, column: pos.column };
+          }
+          return d;
+        }) ?? [];
 
       lastResult.value = {
         original: code,
@@ -1393,31 +1588,40 @@ function buildShareUrl(): string {
 
 function copyShareUrl() {
   const url = buildShareUrl();
-  navigator.clipboard.writeText(url).then(() => {
-    showTooltip("Link copied!");
-    // Update URL without reload
-    history.replaceState(null, "", url);
-  }).catch(() => {
-    showTooltip("Failed to copy");
-  });
+  navigator.clipboard
+    .writeText(url)
+    .then(() => {
+      showTooltip("Link copied!");
+      // Update URL without reload
+      history.replaceState(null, "", url);
+    })
+    .catch(() => {
+      showTooltip("Failed to copy");
+    });
 }
 
 function copyCode() {
   const code = inputEditor.value?.getValue() ?? "";
-  navigator.clipboard.writeText(code).then(() => {
-    showTooltip("Code copied!");
-  }).catch(() => {
-    showTooltip("Failed to copy");
-  });
+  navigator.clipboard
+    .writeText(code)
+    .then(() => {
+      showTooltip("Code copied!");
+    })
+    .catch(() => {
+      showTooltip("Failed to copy");
+    });
 }
 
 function copyOutputCode() {
   const code = outputEditor.value?.getValue() ?? "";
-  navigator.clipboard.writeText(code).then(() => {
-    showTooltip("Output copied!");
-  }).catch(() => {
-    showTooltip("Failed to copy");
-  });
+  navigator.clipboard
+    .writeText(code)
+    .then(() => {
+      showTooltip("Output copied!");
+    })
+    .catch(() => {
+      showTooltip("Failed to copy");
+    });
 }
 
 function showTooltip(message: string) {
@@ -1526,7 +1730,10 @@ function loadPreset(preset: ExamplePreset) {
   if (inputEditor.value && monaco.value) {
     const model = inputEditor.value.getModel();
     if (model) {
-      monaco.value.editor.setModelLanguage(model, preset.fileType === ".sts" ? "sts" : "typescript");
+      monaco.value.editor.setModelLanguage(
+        model,
+        preset.fileType === ".sts" ? "sts" : "typescript"
+      );
     }
   }
 
@@ -1649,7 +1856,10 @@ async function initMonaco() {
     if (inputEditor.value && monaco.value) {
       const model = inputEditor.value.getModel();
       if (model) {
-        monacoInstance.editor.setModelLanguage(model, fileType.value === ".sts" ? "sts" : "typescript");
+        monacoInstance.editor.setModelLanguage(
+          model,
+          fileType.value === ".sts" ? "sts" : "typescript"
+        );
       }
     }
 
