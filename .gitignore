@@ -52,3 +52,4 @@ docs/.vitepress/dist/
 *.vsix
 .typesugar-cache/
 .vitepress/cache
+.vercel
