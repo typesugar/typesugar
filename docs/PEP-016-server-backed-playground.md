@@ -121,11 +121,19 @@ Load TypeScript lib files and @typesugar type definitions into Monaco for rich e
 
 **Tasks:**
 
-- [ ] Fetch TS lib files from jsDelivr CDN on editor mount (lazy, ~2MB total): `lib.es5.d.ts`, `lib.es2015.d.ts` through `lib.es2022.d.ts`, `lib.dom.d.ts`, `lib.dom.iterable.d.ts`
-- [ ] Register libs via `monaco.languages.typescript.typescriptDefaults.addExtraLib(content, uri)`
-- [ ] Bundle @typesugar type definitions at docs build time (extract from `packages/*/dist/*.d.ts`)
-- [ ] Register @typesugar types as `file:///node_modules/typesugar/index.d.ts` etc. so `import { Eq } from "typesugar"` resolves
-- [ ] Configure Monaco TypeScript compiler options to match transformer defaults (`target: ESNext`, `module: ESNext`, `strict: false`)
+- [x] Fetch TS lib files from jsDelivr CDN on editor mount (lazy, ~2MB total): `lib.es5.d.ts`, `lib.es2015.d.ts` through `lib.es2022.d.ts`, `lib.dom.d.ts`, `lib.dom.iterable.d.ts`
+- [x] Register libs via `monaco.languages.typescript.typescriptDefaults.addExtraLib(content, uri)`
+- [x] Bundle @typesugar type definitions at docs build time (extract from `packages/*/dist/*.d.ts`)
+- [x] Register @typesugar types as `file:///node_modules/typesugar/index.d.ts` etc. so `import { Eq } from "typesugar"` resolves
+- [x] Configure Monaco TypeScript compiler options to match transformer defaults (`target: ESNext`, `module: ESNext`, `strict: false`)
+
+**Implementation Notes (Wave 2):**
+
+- Added `loadTypeScriptLibs()` function that fetches 54 lib files from jsDelivr CDN (pinned to TS 5.8.3)
+- Lib files are fetched in parallel batches of 10 to avoid overwhelming the network
+- Results are cached in sessionStorage to avoid re-fetching on page navigation
+- Loading is non-blocking - editor is usable immediately while libs load in background
+- @typesugar type definitions were already inline in `registerTypesugarTypes()` (no build-time bundling needed)
 
 **Gate:**
 

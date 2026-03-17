@@ -56,7 +56,10 @@ const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null
 const monaco = shallowRef<typeof Monaco | null>(null);
 const playground = shallowRef<{
   transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-  preprocessCode: (code: string, options: { fileName: string }) => { code: string; changed: boolean };
+  preprocessCode: (
+    code: string,
+    options: { fileName: string }
+  ) => { code: string; changed: boolean };
 } | null>(null);
 const sandboxIframe = ref<HTMLIFrameElement | null>(null);
 const runtimeCode = ref<string>("");
@@ -103,7 +106,6 @@ const statusClass = computed(() => {
   return "success";
 });
 
-
 function registerStsLanguage(monacoInstance: typeof Monaco) {
   if (monacoInstance.languages.getLanguages().some((lang) => lang.id === "sts")) {
     return;
@@ -116,25 +118,133 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
     tokenPostfix: ".sts",
 
     keywords: [
-      "abstract", "any", "as", "asserts", "async", "await", "boolean", "break",
-      "case", "catch", "class", "const", "constructor", "continue", "debugger",
-      "declare", "default", "delete", "do", "else", "enum", "export", "extends",
-      "false", "finally", "for", "from", "function", "get", "if", "implements",
-      "import", "in", "infer", "instanceof", "interface", "is", "keyof", "let",
-      "module", "namespace", "never", "new", "null", "number", "object", "of",
-      "package", "private", "protected", "public", "readonly", "require", "return",
-      "satisfies", "set", "static", "string", "super", "switch", "symbol", "this",
-      "throw", "true", "try", "type", "typeof", "undefined", "unique", "unknown",
-      "var", "void", "while", "with", "yield",
+      "abstract",
+      "any",
+      "as",
+      "asserts",
+      "async",
+      "await",
+      "boolean",
+      "break",
+      "case",
+      "catch",
+      "class",
+      "const",
+      "constructor",
+      "continue",
+      "debugger",
+      "declare",
+      "default",
+      "delete",
+      "do",
+      "else",
+      "enum",
+      "export",
+      "extends",
+      "false",
+      "finally",
+      "for",
+      "from",
+      "function",
+      "get",
+      "if",
+      "implements",
+      "import",
+      "in",
+      "infer",
+      "instanceof",
+      "interface",
+      "is",
+      "keyof",
+      "let",
+      "module",
+      "namespace",
+      "never",
+      "new",
+      "null",
+      "number",
+      "object",
+      "of",
+      "package",
+      "private",
+      "protected",
+      "public",
+      "readonly",
+      "require",
+      "return",
+      "satisfies",
+      "set",
+      "static",
+      "string",
+      "super",
+      "switch",
+      "symbol",
+      "this",
+      "throw",
+      "true",
+      "try",
+      "type",
+      "typeof",
+      "undefined",
+      "unique",
+      "unknown",
+      "var",
+      "void",
+      "while",
+      "with",
+      "yield",
     ],
 
     typeKeywords: ["F", "HKT", "Kind", "Type", "Functor", "Monad", "Apply", "Applicative"],
 
     operators: [
-      "<=", ">=", "==", "!=", "===", "!==", "=>", "+", "-", "**", "*", "/", "%",
-      "++", "--", "<<", "</", ">>", ">>>", "&", "|", "^", "!", "~", "&&", "||",
-      "??", "?", ":", "=", "+=", "-=", "*=", "**=", "/=", "%=", "<<=", ">>=",
-      ">>>=", "&=", "|=", "^=", "@", "|>", "<|", "::", "~>",
+      "<=",
+      ">=",
+      "==",
+      "!=",
+      "===",
+      "!==",
+      "=>",
+      "+",
+      "-",
+      "**",
+      "*",
+      "/",
+      "%",
+      "++",
+      "--",
+      "<<",
+      "</",
+      ">>",
+      ">>>",
+      "&",
+      "|",
+      "^",
+      "!",
+      "~",
+      "&&",
+      "||",
+      "??",
+      "?",
+      ":",
+      "=",
+      "+=",
+      "-=",
+      "*=",
+      "**=",
+      "/=",
+      "%=",
+      "<<=",
+      ">>=",
+      ">>>=",
+      "&=",
+      "|=",
+      "^=",
+      "@",
+      "|>",
+      "<|",
+      "::",
+      "~>",
     ],
 
     symbols: /[=><!~?:&|+\-*\/\^%@]+/,
@@ -165,16 +275,22 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/<\|/, "operator.pipeline"],
         [/::/, "operator.cons"],
         [/~>/, "operator.kind"],
-        [/[a-z_$][\w$]*/, {
-          cases: {
-            "@typeKeywords": "type.identifier",
-            "@keywords": "keyword",
-            "@default": "identifier",
+        [
+          /[a-z_$][\w$]*/,
+          {
+            cases: {
+              "@typeKeywords": "type.identifier",
+              "@keywords": "keyword",
+              "@default": "identifier",
+            },
           },
-        }],
+        ],
         [/[A-Z][\w\$]*/, "type.identifier"],
         { include: "@whitespace" },
-        [/\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/, { token: "regexp", bracket: "@open", next: "@regexp" }],
+        [
+          /\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/,
+          { token: "regexp", bracket: "@open", next: "@regexp" },
+        ],
         [/[()\[\]]/, "@brackets"],
         [/[<>](?!@symbols)/, "@brackets"],
         [/!(?=([^=]|$))/, "delimiter"],
@@ -200,19 +316,36 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\/\/.*$/, "comment"],
       ],
 
-      comment: [[/[^\/*]+/, "comment"], [/\*\//, "comment", "@pop"], [/[\/*]/, "comment"]],
-      jsdoc: [[/[^\/*]+/, "comment.doc"], [/\*\//, "comment.doc", "@pop"], [/[\/*]/, "comment.doc"]],
+      comment: [
+        [/[^\/*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/[\/*]/, "comment"],
+      ],
+      jsdoc: [
+        [/[^\/*]+/, "comment.doc"],
+        [/\*\//, "comment.doc", "@pop"],
+        [/[\/*]/, "comment.doc"],
+      ],
 
       regexp: [
-        [/(\{)(\d+(?:,\d*)?)(\})/, ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"]],
-        [/(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/, ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }]],
+        [
+          /(\{)(\d+(?:,\d*)?)(\})/,
+          ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"],
+        ],
+        [
+          /(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/,
+          ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }],
+        ],
         [/(\()(\?:|\?=|\?!)/, ["regexp.escape.control", "regexp.escape.control"]],
         [/[()]/, "regexp.escape.control"],
         [/@regexpctl/, "regexp.escape.control"],
         [/[^\\\/]/, "regexp"],
         [/@regexpesc/, "regexp.escape"],
         [/\\\./, "regexp.invalid"],
-        [/(\/)([dgimsuy]*)/, [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"]],
+        [
+          /(\/)([dgimsuy]*)/,
+          [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"],
+        ],
       ],
 
       regexrange: [
@@ -223,8 +356,18 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\]/, { token: "regexp.escape.control", next: "@pop", bracket: "@close" }],
       ],
 
-      string_double: [[/[^\\"]+/, "string"], [/@escapes/, "string.escape"], [/\\./, "string.escape.invalid"], [/"/, "string", "@pop"]],
-      string_single: [[/[^\\']+/, "string"], [/@escapes/, "string.escape"], [/\\./, "string.escape.invalid"], [/'/, "string", "@pop"]],
+      string_double: [
+        [/[^\\"]+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/"/, "string", "@pop"],
+      ],
+      string_single: [
+        [/[^\\']+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/'/, "string", "@pop"],
+      ],
       string_backtick: [
         [/\$\{/, { token: "delimiter.bracket", next: "@bracketCounting" }],
         [/[^\\`$]+/, "string"],
@@ -232,7 +375,11 @@ function registerStsLanguage(monacoInstance: typeof Monaco) {
         [/\\./, "string.escape.invalid"],
         [/`/, "string", "@pop"],
       ],
-      bracketCounting: [[/\{/, "delimiter.bracket", "@bracketCounting"], [/\}/, "delimiter.bracket", "@pop"], { include: "common" }],
+      bracketCounting: [
+        [/\{/, "delimiter.bracket", "@bracketCounting"],
+        [/\}/, "delimiter.bracket", "@pop"],
+        { include: "common" },
+      ],
     },
   });
 
@@ -298,7 +445,8 @@ function registerTypesugarTypes(monacoInstance: typeof Monaco) {
   });
 
   // Main typesugar module
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "typesugar" {
   // Static assertions
   export function staticAssert(condition: boolean, message?: string): void;
@@ -369,10 +517,13 @@ declare module "typesugar" {
   export function registerExtensions(target: any): any;
   export function registerExtension(name: string): MethodDecorator;
 }
-`, "file:///node_modules/typesugar/index.d.ts");
+`,
+    "file:///node_modules/typesugar/index.d.ts"
+  );
 
   // @typesugar/core
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/core" {
   export interface MacroContext {
     readonly program: any;
@@ -414,10 +565,13 @@ declare module "@typesugar/core" {
   
   export function createMacroContext(program: any, sourceFile: any, context: any): MacroContext;
 }
-`, "file:///node_modules/@typesugar/core/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/core/index.d.ts"
+  );
 
   // @typesugar/macros
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/macros" {
   export * from "typesugar";
   
@@ -437,10 +591,13 @@ declare module "@typesugar/macros" {
   export function defineCustomDerive(name: string, impl: (info: any) => string): void;
   export function defineFieldDerive(name: string, impl: (field: any) => string): void;
 }
-`, "file:///node_modules/@typesugar/macros/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/macros/index.d.ts"
+  );
 
   // @typesugar/testing
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/testing" {
   // Power assertions
   export function assert(condition: boolean, message?: string): void;
@@ -465,10 +622,13 @@ declare module "@typesugar/testing" {
   // Arbitrary generation
   export const Arbitrary: unique symbol;
 }
-`, "file:///node_modules/@typesugar/testing/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/testing/index.d.ts"
+  );
 
   // @typesugar/fp - Functional programming utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/fp" {
   // Option type
   export type Option<A> = Some<A> | None;
@@ -495,10 +655,13 @@ declare module "@typesugar/fp" {
   export function curry<A, B, C>(f: (a: A, b: B) => C): (a: A) => (b: B) => C;
   export function uncurry<A, B, C>(f: (a: A) => (b: B) => C): (a: A, b: B) => C;
 }
-`, "file:///node_modules/@typesugar/fp/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/fp/index.d.ts"
+  );
 
   // @typesugar/effect - Effect system
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/effect" {
   export interface Effect<R, E, A> {
     readonly _R: (_: R) => void;
@@ -518,10 +681,13 @@ declare module "@typesugar/effect" {
   export function runSync<E, A>(effect: Effect<unknown, E, A>): A;
   export function runPromise<E, A>(effect: Effect<unknown, E, A>): Promise<A>;
 }
-`, "file:///node_modules/@typesugar/effect/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/effect/index.d.ts"
+  );
 
   // @typesugar/std - Standard library
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/std" {
   // Array utilities
   export function head<A>(arr: A[]): A | undefined;
@@ -559,10 +725,13 @@ declare module "@typesugar/std" {
   export function padLeft(s: string, len: number, char?: string): string;
   export function padRight(s: string, len: number, char?: string): string;
 }
-`, "file:///node_modules/@typesugar/std/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/std/index.d.ts"
+  );
 
   // @typesugar/collections - Immutable collections
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/collections" {
   export class List<A> {
     static of<A>(...items: A[]): List<A>;
@@ -631,10 +800,13 @@ declare module "@typesugar/collections" {
     [Symbol.iterator](): Iterator<A>;
   }
 }
-`, "file:///node_modules/@typesugar/collections/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/collections/index.d.ts"
+  );
 
   // @typesugar/validate - Runtime validation
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/validate" {
   export interface Schema<T> {
     parse(value: unknown): T;
@@ -661,10 +833,13 @@ declare module "@typesugar/validate" {
   export function record<K extends string, V>(keySchema: Schema<K>, valueSchema: Schema<V>): Schema<Record<K, V>>;
   export function tuple<T extends Schema<any>[]>(...schemas: T): Schema<{ [K in keyof T]: T[K] extends Schema<infer U> ? U : never }>;
 }
-`, "file:///node_modules/@typesugar/validate/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/validate/index.d.ts"
+  );
 
   // @typesugar/contracts - Design by contract
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/contracts" {
   export function requires(condition: boolean, message?: string): void;
   export function ensures(condition: boolean, message?: string): void;
@@ -675,10 +850,13 @@ declare module "@typesugar/contracts" {
   export function post(condition: (result: any) => boolean, message?: string): MethodDecorator;
   export function classInvariant(condition: () => boolean, message?: string): ClassDecorator;
 }
-`, "file:///node_modules/@typesugar/contracts/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/contracts/index.d.ts"
+  );
 
   // @typesugar/math - Math utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/math" {
   export function clamp(value: number, min: number, max: number): number;
   export function lerp(a: number, b: number, t: number): number;
@@ -724,10 +902,13 @@ declare module "@typesugar/math" {
     static one: Vec3;
   }
 }
-`, "file:///node_modules/@typesugar/math/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/math/index.d.ts"
+  );
 
   // @typesugar/strings - String utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/strings" {
   // String interpolation
   export function fmt(strings: TemplateStringsArray, ...values: any[]): string;
@@ -749,10 +930,13 @@ declare module "@typesugar/strings" {
   export function fuzzyMatch(pattern: string, text: string): boolean;
   export function similarity(a: string, b: string): number;
 }
-`, "file:///node_modules/@typesugar/strings/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/strings/index.d.ts"
+  );
 
   // @typesugar/parser - Parser combinators
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/parser" {
   export interface Parser<A> {
     parse(input: string): ParseResult<A>;
@@ -781,10 +965,13 @@ declare module "@typesugar/parser" {
   export function choice<T extends Parser<any>[]>(...parsers: T): Parser<T[number] extends Parser<infer U> ? U : never>;
   export function lazy<A>(fn: () => Parser<A>): Parser<A>;
 }
-`, "file:///node_modules/@typesugar/parser/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/parser/index.d.ts"
+  );
 
   // @typesugar/codec - Encoding/decoding
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/codec" {
   export interface Codec<A> {
     encode(value: A): string;
@@ -796,10 +983,13 @@ declare module "@typesugar/codec" {
   export const hex: Codec<Uint8Array>;
   export const url: Codec<Record<string, string>>;
 }
-`, "file:///node_modules/@typesugar/codec/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/codec/index.d.ts"
+  );
 
   // @typesugar/type-system - Type-level utilities
-  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(`
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
 declare module "@typesugar/type-system" {
   // HKT marker
   export type _ = { readonly _: unique symbol };
@@ -825,7 +1015,141 @@ declare module "@typesugar/type-system" {
   export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
   export type DeepMutable<T> = T extends object ? { -readonly [K in keyof T]: DeepMutable<T[K]> } : T;
 }
-`, "file:///node_modules/@typesugar/type-system/index.d.ts");
+`,
+    "file:///node_modules/@typesugar/type-system/index.d.ts"
+  );
+}
+
+// TypeScript lib files to load from CDN for full intellisense
+const TS_VERSION = "5.8.3";
+const TS_LIB_FILES = [
+  "lib.es5.d.ts",
+  "lib.es2015.d.ts",
+  "lib.es2015.core.d.ts",
+  "lib.es2015.collection.d.ts",
+  "lib.es2015.generator.d.ts",
+  "lib.es2015.iterable.d.ts",
+  "lib.es2015.promise.d.ts",
+  "lib.es2015.proxy.d.ts",
+  "lib.es2015.reflect.d.ts",
+  "lib.es2015.symbol.d.ts",
+  "lib.es2015.symbol.wellknown.d.ts",
+  "lib.es2016.d.ts",
+  "lib.es2016.array.include.d.ts",
+  "lib.es2017.d.ts",
+  "lib.es2017.object.d.ts",
+  "lib.es2017.sharedmemory.d.ts",
+  "lib.es2017.string.d.ts",
+  "lib.es2017.intl.d.ts",
+  "lib.es2017.typedarrays.d.ts",
+  "lib.es2018.d.ts",
+  "lib.es2018.asyncgenerator.d.ts",
+  "lib.es2018.asynciterable.d.ts",
+  "lib.es2018.intl.d.ts",
+  "lib.es2018.promise.d.ts",
+  "lib.es2018.regexp.d.ts",
+  "lib.es2019.d.ts",
+  "lib.es2019.array.d.ts",
+  "lib.es2019.object.d.ts",
+  "lib.es2019.string.d.ts",
+  "lib.es2019.symbol.d.ts",
+  "lib.es2019.intl.d.ts",
+  "lib.es2020.d.ts",
+  "lib.es2020.bigint.d.ts",
+  "lib.es2020.intl.d.ts",
+  "lib.es2020.promise.d.ts",
+  "lib.es2020.sharedmemory.d.ts",
+  "lib.es2020.string.d.ts",
+  "lib.es2020.symbol.wellknown.d.ts",
+  "lib.es2021.d.ts",
+  "lib.es2021.promise.d.ts",
+  "lib.es2021.string.d.ts",
+  "lib.es2021.weakref.d.ts",
+  "lib.es2021.intl.d.ts",
+  "lib.es2022.d.ts",
+  "lib.es2022.array.d.ts",
+  "lib.es2022.error.d.ts",
+  "lib.es2022.intl.d.ts",
+  "lib.es2022.object.d.ts",
+  "lib.es2022.regexp.d.ts",
+  "lib.es2022.string.d.ts",
+  "lib.dom.d.ts",
+  "lib.dom.iterable.d.ts",
+];
+
+const LIB_CACHE_KEY = `typesugar-ts-libs-${TS_VERSION}`;
+
+async function loadTypeScriptLibs(monacoInstance: typeof Monaco): Promise<void> {
+  if (typeof window === "undefined" || typeof sessionStorage === "undefined") return;
+
+  // Check sessionStorage cache first
+  let cachedLibs: Record<string, string> = {};
+  try {
+    const cached = sessionStorage.getItem(LIB_CACHE_KEY);
+    if (cached) {
+      cachedLibs = JSON.parse(cached);
+      // If we have all libs cached, register them immediately
+      if (Object.keys(cachedLibs).length === TS_LIB_FILES.length) {
+        for (const [fileName, content] of Object.entries(cachedLibs)) {
+          monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+            content,
+            `file:///node_modules/typescript/lib/${fileName}`
+          );
+        }
+        console.log(`[Playground] Loaded ${TS_LIB_FILES.length} TS lib files from cache`);
+        return;
+      }
+    }
+  } catch {
+    // Cache read failed, continue to fetch
+  }
+
+  // Fetch libs from CDN (in parallel batches to avoid overwhelming the network)
+  const BATCH_SIZE = 10;
+  const allLibs: Record<string, string> = {};
+
+  for (let i = 0; i < TS_LIB_FILES.length; i += BATCH_SIZE) {
+    const batch = TS_LIB_FILES.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (fileName) => {
+        // Check if already in partial cache
+        if (cachedLibs[fileName]) {
+          return { fileName, content: cachedLibs[fileName] };
+        }
+        const url = `https://cdn.jsdelivr.net/npm/typescript@${TS_VERSION}/lib/${fileName}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${fileName}: ${response.status}`);
+        }
+        const content = await response.text();
+        return { fileName, content };
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        const { fileName, content } = result.value;
+        allLibs[fileName] = content;
+        monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+          content,
+          `file:///node_modules/typescript/lib/${fileName}`
+        );
+      } else {
+        console.warn(`[Playground] Failed to load lib file:`, result.reason);
+      }
+    }
+  }
+
+  // Cache in sessionStorage
+  try {
+    sessionStorage.setItem(LIB_CACHE_KEY, JSON.stringify(allLibs));
+    console.log(`[Playground] Loaded and cached ${Object.keys(allLibs).length} TS lib files`);
+  } catch {
+    // sessionStorage full or unavailable
+    console.log(
+      `[Playground] Loaded ${Object.keys(allLibs).length} TS lib files (cache write failed)`
+    );
+  }
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -894,7 +1218,7 @@ async function loadPlayground() {
     loadingMessage.value = "Loading runtime libraries...";
     const runtimeMod = await import("../../../packages/playground/dist/runtime.global.js?raw");
     runtimeCode.value = runtimeMod.default;
-    
+
     loadingProgress.value = 80;
     loadingMessage.value = "Ready";
   } catch (e) {
@@ -972,7 +1296,7 @@ async function runCode() {
   showConsole.value = true;
 
   const tsCode = lastResult.value.code;
-  
+
   // Use TypeScript to transpile to JavaScript
   let jsCode: string;
   try {
@@ -1031,7 +1355,7 @@ async function runCode() {
     if (event.source !== sandboxIframe.value?.contentWindow) {
       return;
     }
-    
+
     if (event.data.type === "console") {
       consoleMessages.value.push({
         type: event.data.method,
@@ -1088,31 +1412,40 @@ function buildShareUrl(): string {
 
 function copyShareUrl() {
   const url = buildShareUrl();
-  navigator.clipboard.writeText(url).then(() => {
-    showTooltip("Link copied!");
-    // Update URL without reload
-    history.replaceState(null, "", url);
-  }).catch(() => {
-    showTooltip("Failed to copy");
-  });
+  navigator.clipboard
+    .writeText(url)
+    .then(() => {
+      showTooltip("Link copied!");
+      // Update URL without reload
+      history.replaceState(null, "", url);
+    })
+    .catch(() => {
+      showTooltip("Failed to copy");
+    });
 }
 
 function copyCode() {
   const code = inputEditor.value?.getValue() ?? "";
-  navigator.clipboard.writeText(code).then(() => {
-    showTooltip("Code copied!");
-  }).catch(() => {
-    showTooltip("Failed to copy");
-  });
+  navigator.clipboard
+    .writeText(code)
+    .then(() => {
+      showTooltip("Code copied!");
+    })
+    .catch(() => {
+      showTooltip("Failed to copy");
+    });
 }
 
 function copyOutputCode() {
   const code = outputEditor.value?.getValue() ?? "";
-  navigator.clipboard.writeText(code).then(() => {
-    showTooltip("Output copied!");
-  }).catch(() => {
-    showTooltip("Failed to copy");
-  });
+  navigator.clipboard
+    .writeText(code)
+    .then(() => {
+      showTooltip("Output copied!");
+    })
+    .catch(() => {
+      showTooltip("Failed to copy");
+    });
 }
 
 function showTooltip(message: string) {
@@ -1124,7 +1457,7 @@ function showTooltip(message: string) {
 
 function loadFromUrl(): boolean {
   if (typeof window === "undefined") return false;
-  
+
   const hash = window.location.hash.slice(1);
   if (!hash) return false;
 
@@ -1137,7 +1470,7 @@ function loadFromUrl(): boolean {
     if (compressedCode) {
       // Try lz-string decompression first
       let code = decompressFromEncodedURIComponent(compressedCode);
-      
+
       // Fallback to old base64 format for backwards compatibility
       if (!code) {
         try {
@@ -1146,7 +1479,7 @@ function loadFromUrl(): boolean {
           code = null;
         }
       }
-      
+
       if (code) {
         inputEditor.value?.setValue(code);
       }
@@ -1168,7 +1501,7 @@ function loadFromUrl(): boolean {
 
 function saveToStorage() {
   if (typeof localStorage === "undefined") return;
-  
+
   try {
     const code = inputEditor.value?.getValue() ?? "";
     localStorage.setItem(STORAGE_KEYS.code, code);
@@ -1182,7 +1515,7 @@ function saveToStorage() {
 
 function loadFromStorage(): boolean {
   if (typeof localStorage === "undefined") return false;
-  
+
   try {
     const savedCode = localStorage.getItem(STORAGE_KEYS.code);
     const savedFileType = localStorage.getItem(STORAGE_KEYS.fileType) as ".ts" | ".sts" | null;
@@ -1201,7 +1534,7 @@ function loadFromStorage(): boolean {
     if (savedShowConsole !== null) {
       showConsole.value = savedShowConsole === "true";
     }
-    
+
     return !!savedCode;
   } catch (e) {
     console.warn("Failed to load from localStorage:", e);
@@ -1216,15 +1549,18 @@ function loadPreset(preset: ExamplePreset) {
   fileType.value = preset.fileType;
   selectedPreset.value = preset.name;
   showPresetsDropdown.value = false;
-  
+
   // Update language if needed
   if (inputEditor.value && monaco.value) {
     const model = inputEditor.value.getModel();
     if (model) {
-      monaco.value.editor.setModelLanguage(model, preset.fileType === ".sts" ? "sts" : "typescript");
+      monaco.value.editor.setModelLanguage(
+        model,
+        preset.fileType === ".sts" ? "sts" : "typescript"
+      );
     }
   }
-  
+
   doTransform();
 }
 
@@ -1255,7 +1591,7 @@ async function initMonaco() {
     loadingProgress.value = 5;
     loadingMessage.value = "Loading editor...";
     const loader = await import("@monaco-editor/loader");
-    
+
     loadingProgress.value = 10;
     loadingMessage.value = "Initializing Monaco...";
     const monacoInstance = await loader.default.init();
@@ -1265,6 +1601,13 @@ async function initMonaco() {
     loadingMessage.value = "Configuring syntax...";
     registerStsLanguage(monacoInstance);
     registerTypesugarTypes(monacoInstance);
+
+    // Load TypeScript lib files in background (non-blocking)
+    // Editor works immediately, intellisense improves as libs load
+    loadTypeScriptLibs(monacoInstance).catch((err) => {
+      console.warn("[Playground] Failed to load TS lib files:", err);
+    });
+
     await loadPlayground();
 
     const isDark = document.documentElement.classList.contains("dark");
@@ -1320,7 +1663,7 @@ async function initMonaco() {
 
     loadingProgress.value = 90;
     loadingMessage.value = "Loading saved state...";
-    
+
     // Priority: URL hash > localStorage > default
     const loadedFromUrl = loadFromUrl();
     if (!loadedFromUrl) {
@@ -1329,19 +1672,22 @@ async function initMonaco() {
         // Keep the default initialCode from props
       }
     }
-    
+
     // Update language based on loaded fileType
     if (inputEditor.value && monaco.value) {
       const model = inputEditor.value.getModel();
       if (model) {
-        monacoInstance.editor.setModelLanguage(model, fileType.value === ".sts" ? "sts" : "typescript");
+        monacoInstance.editor.setModelLanguage(
+          model,
+          fileType.value === ".sts" ? "sts" : "typescript"
+        );
       }
     }
-    
+
     loadingProgress.value = 100;
     loadingMessage.value = "Ready";
     isLoading.value = false;
-    
+
     doTransform();
 
     const observer = new MutationObserver(() => {
@@ -1350,7 +1696,7 @@ async function initMonaco() {
       monacoInstance.editor.setTheme(newTheme);
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    
+
     // Close presets dropdown when clicking outside
     document.addEventListener("click", handleDocumentClick);
   } catch (e) {
@@ -1423,319 +1769,297 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ErrorBoundary fallback-message="The playground encountered an error. Please try refreshing the page.">
-  <div class="playground-container" role="application" aria-label="typesugar Interactive Playground">
-    <!-- Skip link for keyboard navigation -->
-    <a href="#input-editor" class="skip-link">Skip to editor</a>
-    
-    <!-- Tooltip for copy feedback -->
-    <Transition name="tooltip">
-      <div v-if="shareTooltip" class="share-tooltip" role="status" aria-live="polite">
-        {{ shareTooltip }}
-      </div>
-    </Transition>
-
-    <!-- Toolbar -->
-    <div class="toolbar" role="toolbar" aria-label="Playground controls">
-      <div class="toolbar-left">
-        <!-- Example Presets Dropdown -->
-        <div class="presets-dropdown-container">
-          <button 
-            class="presets-btn"
-            @click="togglePresetsDropdown"
-            :aria-expanded="showPresetsDropdown"
-            aria-haspopup="listbox"
-            aria-label="Load example preset"
-          >
-            <span class="presets-icon" aria-hidden="true">📚</span>
-            Examples
-            <span class="dropdown-arrow" aria-hidden="true">▼</span>
-          </button>
-          <Transition name="dropdown">
-            <div 
-              v-if="showPresetsDropdown" 
-              class="presets-dropdown"
-              role="listbox"
-              aria-label="Example presets"
-            >
-              <template v-for="group in EXAMPLE_GROUPS" :key="group.label">
-                <div class="preset-group-header">{{ group.label }}</div>
-                <button 
-                  v-for="preset in group.presets" 
-                  :key="preset.name"
-                  class="preset-item"
-                  :class="{ active: selectedPreset === preset.name }"
-                  :aria-selected="selectedPreset === preset.name"
-                  role="option"
-                  @click="loadPreset(preset)"
-                >
-                  <span class="preset-name">{{ preset.name }}</span>
-                  <span class="preset-type">{{ preset.fileType }}</span>
-                  <span class="preset-desc">{{ preset.description }}</span>
-                </button>
-              </template>
-            </div>
-          </Transition>
-        </div>
-
-        <div class="file-type-toggle" role="radiogroup" aria-label="File type">
-          <button
-            :class="{ active: fileType === '.ts' }"
-            :aria-pressed="fileType === '.ts'"
-            role="radio"
-            :aria-checked="fileType === '.ts'"
-            @click="setFileType('.ts')"
-            aria-label="TypeScript mode - JSDoc macros only"
-          >
-            .ts
-          </button>
-          <button
-            :class="{ active: fileType === '.sts' }"
-            :aria-pressed="fileType === '.sts'"
-            role="radio"
-            :aria-checked="fileType === '.sts'"
-            @click="setFileType('.sts')"
-            aria-label="Sugar TypeScript mode - custom syntax"
-          >
-            .sts
-          </button>
-        </div>
-        
-        <select 
-          v-model="tsVersion" 
-          class="ts-version-select" 
-          aria-label="TypeScript version"
-        >
-          <option value="5.8">TypeScript 5.8</option>
-          <option value="5.7">TypeScript 5.7</option>
-          <option value="5.6">TypeScript 5.6</option>
-        </select>
-      </div>
-
-      <div class="toolbar-center">
-        <div 
-          class="status" 
-          :class="statusClass"
-          role="status"
-          aria-live="polite"
-          :aria-busy="isTransforming"
-        >
-          <span v-if="isTransforming" class="status-spinner" aria-hidden="true"></span>
-          {{ statusText }}
-        </div>
-      </div>
-
-      <div class="toolbar-right">
-        <button 
-          class="run-btn" 
-          @click="runCode" 
-          :disabled="isRunning || !lastResult"
-          :aria-disabled="isRunning || !lastResult"
-          aria-label="Run code, keyboard shortcut Command Enter"
-        >
-          <span v-if="isRunning" class="spinner" aria-hidden="true"></span>
-          <span v-else aria-hidden="true">▶</span>
-          Run
-        </button>
-        <div class="share-buttons">
-          <button 
-            class="share-btn" 
-            @click="copyShareUrl"
-            aria-label="Copy share URL, keyboard shortcut Command S"
-          >
-            <span aria-hidden="true">🔗</span> Share
-          </button>
-          <button 
-            class="copy-btn" 
-            @click="copyCode"
-            aria-label="Copy input code to clipboard"
-          >
-            <span aria-hidden="true">📋</span> Copy
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Main content area -->
-    <main class="main-content">
-      <!-- Editors -->
-      <div class="editors-container">
-        <div class="editor-panel input-panel">
-          <div class="panel-header">
-            <span class="panel-title" id="input-editor-label">Input</span>
-            <span class="panel-filename">{{ fileName }}</span>
-          </div>
-          <div 
-            id="input-editor"
-            ref="inputContainer" 
-            class="editor-container"
-            role="textbox"
-            aria-multiline="true"
-            aria-labelledby="input-editor-label"
-            @keydown.stop
-            @keypress.stop
-            tabindex="0"
-          />
-        </div>
-
-        <div class="editor-panel output-panel">
-          <div class="panel-header">
-            <div class="output-tabs" role="tablist" aria-label="Output view tabs">
-              <button 
-                :class="{ active: activeTab === 'js' }" 
-                @click="activeTab = 'js'"
-                role="tab"
-                :aria-selected="activeTab === 'js'"
-                aria-controls="output-js-panel"
-                id="output-js-tab"
-              >
-                JS Output
-              </button>
-              <button 
-                :class="{ active: activeTab === 'errors' }" 
-                @click="activeTab = 'errors'"
-                role="tab"
-                :aria-selected="activeTab === 'errors'"
-                aria-controls="output-errors-panel"
-                id="output-errors-tab"
-              >
-                Errors
-                <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{ errorCount }}</span>
-              </button>
-            </div>
-            <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
-          </div>
-          
-          <div 
-            v-show="activeTab === 'js'" 
-            ref="outputContainer" 
-            class="editor-container"
-            id="output-js-panel"
-            role="tabpanel"
-            aria-labelledby="output-js-tab"
-            @keydown.stop
-            @keypress.stop
-          />
-          
-          <div 
-            v-show="activeTab === 'errors'" 
-            class="errors-container"
-            id="output-errors-panel"
-            role="tabpanel"
-            aria-labelledby="output-errors-tab"
-          >
-            <div v-if="errorCount === 0" class="no-errors" role="status">
-              No errors
-            </div>
-            <div v-else class="error-list" role="list" aria-label="Transformation errors">
-              <button 
-                v-for="(diag, i) in lastResult?.diagnostics" 
-                :key="i" 
-                class="error-item"
-                :class="diag.severity"
-                role="listitem"
-                @click="goToErrorLine(diag.line)"
-                :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
-              >
-                <div class="error-location">
-                  <span class="error-severity">{{ diag.severity }}</span>
-                  <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
-                </div>
-                <div class="error-message">{{ diag.message }}</div>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Console -->
-      <section 
-        v-show="showConsole" 
-        class="console-panel"
-        aria-label="Console output"
-      >
-        <div class="console-header">
-          <span class="console-title" id="console-title">Console</span>
-          <div class="console-actions">
-            <button 
-              @click="clearConsole" 
-              aria-label="Clear console output"
-            >
-              Clear
-            </button>
-            <button 
-              @click="showConsole = false" 
-              aria-label="Hide console panel"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </div>
-        </div>
-        <div 
-          class="console-output"
-          role="log"
-          aria-live="polite"
-          aria-labelledby="console-title"
-        >
-          <div v-if="consoleMessages.length === 0" class="console-placeholder">
-            Press Run (Cmd+Enter) to execute the code
-          </div>
-          <div 
-            v-for="(msg, i) in consoleMessages" 
-            :key="i" 
-            class="console-message"
-            :class="msg.type"
-            :role="msg.type === 'error' ? 'alert' : undefined"
-          >
-            <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
-            <span class="console-text">{{ msg.args.join(" ") }}</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Toggle console button when hidden -->
-      <button 
-        v-if="!showConsole" 
-        class="show-console-btn"
-        @click="showConsole = true"
-        aria-label="Show console panel"
-      >
-        Show Console
-      </button>
-    </main>
-
-    <!-- Hidden sandbox iframe -->
-    <iframe 
-      ref="sandboxIframe" 
-      class="sandbox-iframe"
-      sandbox="allow-scripts"
-      title="Code execution sandbox"
-      aria-hidden="true"
-    />
-
-    <!-- Loading overlay -->
-    <div 
-      v-if="isLoading" 
-      class="loading-overlay"
-      role="progressbar"
-      :aria-valuenow="loadingProgress"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-label="Loading playground"
+  <ErrorBoundary
+    fallback-message="The playground encountered an error. Please try refreshing the page."
+  >
+    <div
+      class="playground-container"
+      role="application"
+      aria-label="typesugar Interactive Playground"
     >
-      <div class="loading-content">
-        <div class="loading-spinner" aria-hidden="true"></div>
-        <div class="loading-text">{{ loadingMessage }}</div>
-        <div class="loading-progress-bar">
-          <div 
-            class="loading-progress-fill" 
-            :style="{ width: `${loadingProgress}%` }"
-          ></div>
+      <!-- Skip link for keyboard navigation -->
+      <a href="#input-editor" class="skip-link">Skip to editor</a>
+
+      <!-- Tooltip for copy feedback -->
+      <Transition name="tooltip">
+        <div v-if="shareTooltip" class="share-tooltip" role="status" aria-live="polite">
+          {{ shareTooltip }}
         </div>
-        <div class="loading-progress-text">{{ loadingProgress }}%</div>
+      </Transition>
+
+      <!-- Toolbar -->
+      <div class="toolbar" role="toolbar" aria-label="Playground controls">
+        <div class="toolbar-left">
+          <!-- Example Presets Dropdown -->
+          <div class="presets-dropdown-container">
+            <button
+              class="presets-btn"
+              @click="togglePresetsDropdown"
+              :aria-expanded="showPresetsDropdown"
+              aria-haspopup="listbox"
+              aria-label="Load example preset"
+            >
+              <span class="presets-icon" aria-hidden="true">📚</span>
+              Examples
+              <span class="dropdown-arrow" aria-hidden="true">▼</span>
+            </button>
+            <Transition name="dropdown">
+              <div
+                v-if="showPresetsDropdown"
+                class="presets-dropdown"
+                role="listbox"
+                aria-label="Example presets"
+              >
+                <template v-for="group in EXAMPLE_GROUPS" :key="group.label">
+                  <div class="preset-group-header">{{ group.label }}</div>
+                  <button
+                    v-for="preset in group.presets"
+                    :key="preset.name"
+                    class="preset-item"
+                    :class="{ active: selectedPreset === preset.name }"
+                    :aria-selected="selectedPreset === preset.name"
+                    role="option"
+                    @click="loadPreset(preset)"
+                  >
+                    <span class="preset-name">{{ preset.name }}</span>
+                    <span class="preset-type">{{ preset.fileType }}</span>
+                    <span class="preset-desc">{{ preset.description }}</span>
+                  </button>
+                </template>
+              </div>
+            </Transition>
+          </div>
+
+          <div class="file-type-toggle" role="radiogroup" aria-label="File type">
+            <button
+              :class="{ active: fileType === '.ts' }"
+              :aria-pressed="fileType === '.ts'"
+              role="radio"
+              :aria-checked="fileType === '.ts'"
+              @click="setFileType('.ts')"
+              aria-label="TypeScript mode - JSDoc macros only"
+            >
+              .ts
+            </button>
+            <button
+              :class="{ active: fileType === '.sts' }"
+              :aria-pressed="fileType === '.sts'"
+              role="radio"
+              :aria-checked="fileType === '.sts'"
+              @click="setFileType('.sts')"
+              aria-label="Sugar TypeScript mode - custom syntax"
+            >
+              .sts
+            </button>
+          </div>
+
+          <select v-model="tsVersion" class="ts-version-select" aria-label="TypeScript version">
+            <option value="5.8">TypeScript 5.8</option>
+            <option value="5.7">TypeScript 5.7</option>
+            <option value="5.6">TypeScript 5.6</option>
+          </select>
+        </div>
+
+        <div class="toolbar-center">
+          <div
+            class="status"
+            :class="statusClass"
+            role="status"
+            aria-live="polite"
+            :aria-busy="isTransforming"
+          >
+            <span v-if="isTransforming" class="status-spinner" aria-hidden="true"></span>
+            {{ statusText }}
+          </div>
+        </div>
+
+        <div class="toolbar-right">
+          <button
+            class="run-btn"
+            @click="runCode"
+            :disabled="isRunning || !lastResult"
+            :aria-disabled="isRunning || !lastResult"
+            aria-label="Run code, keyboard shortcut Command Enter"
+          >
+            <span v-if="isRunning" class="spinner" aria-hidden="true"></span>
+            <span v-else aria-hidden="true">▶</span>
+            Run
+          </button>
+          <div class="share-buttons">
+            <button
+              class="share-btn"
+              @click="copyShareUrl"
+              aria-label="Copy share URL, keyboard shortcut Command S"
+            >
+              <span aria-hidden="true">🔗</span> Share
+            </button>
+            <button class="copy-btn" @click="copyCode" aria-label="Copy input code to clipboard">
+              <span aria-hidden="true">📋</span> Copy
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main content area -->
+      <main class="main-content">
+        <!-- Editors -->
+        <div class="editors-container">
+          <div class="editor-panel input-panel">
+            <div class="panel-header">
+              <span class="panel-title" id="input-editor-label">Input</span>
+              <span class="panel-filename">{{ fileName }}</span>
+            </div>
+            <div
+              id="input-editor"
+              ref="inputContainer"
+              class="editor-container"
+              role="textbox"
+              aria-multiline="true"
+              aria-labelledby="input-editor-label"
+              @keydown.stop
+              @keypress.stop
+              tabindex="0"
+            />
+          </div>
+
+          <div class="editor-panel output-panel">
+            <div class="panel-header">
+              <div class="output-tabs" role="tablist" aria-label="Output view tabs">
+                <button
+                  :class="{ active: activeTab === 'js' }"
+                  @click="activeTab = 'js'"
+                  role="tab"
+                  :aria-selected="activeTab === 'js'"
+                  aria-controls="output-js-panel"
+                  id="output-js-tab"
+                >
+                  JS Output
+                </button>
+                <button
+                  :class="{ active: activeTab === 'errors' }"
+                  @click="activeTab = 'errors'"
+                  role="tab"
+                  :aria-selected="activeTab === 'errors'"
+                  aria-controls="output-errors-panel"
+                  id="output-errors-tab"
+                >
+                  Errors
+                  <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{
+                    errorCount
+                  }}</span>
+                </button>
+              </div>
+              <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
+            </div>
+
+            <div
+              v-show="activeTab === 'js'"
+              ref="outputContainer"
+              class="editor-container"
+              id="output-js-panel"
+              role="tabpanel"
+              aria-labelledby="output-js-tab"
+              @keydown.stop
+              @keypress.stop
+            />
+
+            <div
+              v-show="activeTab === 'errors'"
+              class="errors-container"
+              id="output-errors-panel"
+              role="tabpanel"
+              aria-labelledby="output-errors-tab"
+            >
+              <div v-if="errorCount === 0" class="no-errors" role="status">No errors</div>
+              <div v-else class="error-list" role="list" aria-label="Transformation errors">
+                <button
+                  v-for="(diag, i) in lastResult?.diagnostics"
+                  :key="i"
+                  class="error-item"
+                  :class="diag.severity"
+                  role="listitem"
+                  @click="goToErrorLine(diag.line)"
+                  :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
+                >
+                  <div class="error-location">
+                    <span class="error-severity">{{ diag.severity }}</span>
+                    <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
+                  </div>
+                  <div class="error-message">{{ diag.message }}</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Console -->
+        <section v-show="showConsole" class="console-panel" aria-label="Console output">
+          <div class="console-header">
+            <span class="console-title" id="console-title">Console</span>
+            <div class="console-actions">
+              <button @click="clearConsole" aria-label="Clear console output">Clear</button>
+              <button @click="showConsole = false" aria-label="Hide console panel">
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+          </div>
+          <div class="console-output" role="log" aria-live="polite" aria-labelledby="console-title">
+            <div v-if="consoleMessages.length === 0" class="console-placeholder">
+              Press Run (Cmd+Enter) to execute the code
+            </div>
+            <div
+              v-for="(msg, i) in consoleMessages"
+              :key="i"
+              class="console-message"
+              :class="msg.type"
+              :role="msg.type === 'error' ? 'alert' : undefined"
+            >
+              <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
+              <span class="console-text">{{ msg.args.join(" ") }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Toggle console button when hidden -->
+        <button
+          v-if="!showConsole"
+          class="show-console-btn"
+          @click="showConsole = true"
+          aria-label="Show console panel"
+        >
+          Show Console
+        </button>
+      </main>
+
+      <!-- Hidden sandbox iframe -->
+      <iframe
+        ref="sandboxIframe"
+        class="sandbox-iframe"
+        sandbox="allow-scripts"
+        title="Code execution sandbox"
+        aria-hidden="true"
+      />
+
+      <!-- Loading overlay -->
+      <div
+        v-if="isLoading"
+        class="loading-overlay"
+        role="progressbar"
+        :aria-valuenow="loadingProgress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-label="Loading playground"
+      >
+        <div class="loading-content">
+          <div class="loading-spinner" aria-hidden="true"></div>
+          <div class="loading-text">{{ loadingMessage }}</div>
+          <div class="loading-progress-bar">
+            <div class="loading-progress-fill" :style="{ width: `${loadingProgress}%` }"></div>
+          </div>
+          <div class="loading-progress-text">{{ loadingProgress }}%</div>
+        </div>
       </div>
     </div>
-  </div>
   </ErrorBoundary>
 </template>
 
@@ -1851,10 +2175,18 @@ onUnmounted(() => {
   gap: 6px;
 }
 
-.status.loading { color: var(--vp-c-text-2); }
-.status.transforming { color: var(--vp-c-brand-1); }
-.status.success { color: var(--vp-c-green-1); }
-.status.error { color: var(--vp-c-red-1); }
+.status.loading {
+  color: var(--vp-c-text-2);
+}
+.status.transforming {
+  color: var(--vp-c-brand-1);
+}
+.status.success {
+  color: var(--vp-c-green-1);
+}
+.status.error {
+  color: var(--vp-c-red-1);
+}
 
 .status-spinner {
   display: inline-block;
@@ -1908,14 +2240,16 @@ onUnmounted(() => {
   display: inline-block;
   width: 12px;
   height: 12px;
-  border: 2px solid rgba(255,255,255,0.3);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-top-color: white;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .main-content {
@@ -2162,10 +2496,18 @@ button.error-item.warning {
   font-size: 11px;
 }
 
-.console-message.log .console-type { color: var(--vp-c-text-3); }
-.console-message.info .console-type { color: var(--vp-c-blue-1); }
-.console-message.warn .console-type { color: var(--vp-c-yellow-1); }
-.console-message.error .console-type { color: var(--vp-c-red-1); }
+.console-message.log .console-type {
+  color: var(--vp-c-text-3);
+}
+.console-message.info .console-type {
+  color: var(--vp-c-blue-1);
+}
+.console-message.warn .console-type {
+  color: var(--vp-c-yellow-1);
+}
+.console-message.error .console-type {
+  color: var(--vp-c-red-1);
+}
 
 .console-text {
   color: var(--vp-c-text-1);
@@ -2439,65 +2781,65 @@ button.error-item.warning {
     height: auto;
     min-height: 100vh;
   }
-  
+
   .editors-container {
     grid-template-columns: 1fr;
     min-height: 400px;
   }
-  
+
   .editor-panel {
     min-height: 250px;
   }
-  
+
   .input-panel {
     border-right: none;
     border-bottom: 1px solid var(--vp-c-divider);
   }
-  
+
   .toolbar {
     flex-wrap: wrap;
     gap: 8px;
     padding: 8px 12px;
   }
-  
+
   .toolbar-left {
     flex-wrap: wrap;
     gap: 8px;
   }
-  
+
   .toolbar-center {
     order: 3;
     width: 100%;
     justify-content: flex-start;
   }
-  
+
   .toolbar-right {
     width: 100%;
     justify-content: space-between;
   }
-  
+
   .presets-dropdown {
     min-width: 240px;
     max-width: calc(100vw - 48px);
   }
-  
+
   .share-buttons {
     flex-wrap: wrap;
   }
-  
+
   .file-type-toggle button {
     padding: 6px 12px;
     font-size: 12px;
   }
-  
+
   .run-btn {
     flex: 1;
   }
-  
+
   .console-panel {
     height: 150px;
   }
-  
+
   .show-console-btn {
     bottom: 8px;
     right: 8px;
@@ -2510,27 +2852,27 @@ button.error-item.warning {
   .toolbar {
     padding: 8px;
   }
-  
+
   .presets-btn {
     padding: 6px 8px;
     font-size: 12px;
   }
-  
+
   .presets-icon {
     display: none;
   }
-  
+
   .ts-version-select {
     padding: 4px 8px;
     font-size: 12px;
   }
-  
+
   .share-btn,
   .copy-btn {
     padding: 6px 10px;
     font-size: 12px;
   }
-  
+
   .status {
     font-size: 11px;
     padding: 2px 8px;
@@ -2549,11 +2891,11 @@ select:focus-visible {
   .error-badge {
     border: 1px solid white;
   }
-  
+
   .file-type-toggle button.active {
     border-width: 2px;
   }
-  
+
   .status {
     font-weight: 600;
   }
@@ -2566,11 +2908,11 @@ select:focus-visible {
   .status-spinner {
     animation: none;
   }
-  
+
   .loading-progress-fill {
     transition: none;
   }
-  
+
   .tooltip-enter-active,
   .tooltip-leave-active,
   .dropdown-enter-active,
