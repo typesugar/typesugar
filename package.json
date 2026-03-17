@@ -54,6 +54,7 @@
     "@typesugar/strings": "workspace:*",
     "@typesugar/testing": "workspace:*",
     "@typesugar/transformer": "workspace:*",
+    "@typesugar/transformer-core": "workspace:*",
     "@typesugar/ts-plugin": "workspace:*",
     "@typesugar/type-system": "workspace:*",
     "@vercel/node": "^5.6.15",

@@ -63,6 +63,9 @@ importers:
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:packages/transformer
+      '@typesugar/transformer-core':
+        specifier: workspace:*
+        version: link:packages/transformer-core
       '@typesugar/ts-plugin':
         specifier: workspace:*
         version: link:packages/ts-plugin
