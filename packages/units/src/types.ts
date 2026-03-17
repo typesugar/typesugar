@@ -374,6 +374,31 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
   }
 
   /**
+   * Convert to a different unit of the same dimensions.
+   *
+   * Since all values are stored internally in SI base units, conversion works by
+   * dividing by the target unit's SI factor: `display_value = si_value / factor`.
+   *
+   * Note: For temperature, celsius and kelvin store values as-is (factor = 1),
+   * so `.to()` works correctly for temperature *differences* but NOT for absolute
+   * temperature conversion (which requires an offset).
+   *
+   * @param targetConstructor - A unit constructor function (e.g., kilometers, miles)
+   * @returns A new Unit with the value expressed in the target unit
+   *
+   * @example
+   * ```typescript
+   * meters(1000).to(kilometers) // → Unit(1, "km")
+   * hours(2).to(minutes)        // → Unit(120, "min")
+   * ```
+   */
+  to(targetConstructor: (v: number) => Unit<D>): Unit<D> {
+    const reference = targetConstructor(1);
+    const convertedValue = this.value / reference.value;
+    return new Unit(convertedValue, reference.symbol);
+  }
+
+  /**
    * Format as string
    */
   toString(): string {

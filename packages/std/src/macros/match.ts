@@ -78,18 +78,22 @@
 
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
+import { expandFluentMatch } from "./match-v2.js";
 
 // ============================================================================
 // Type-Level API
 // ============================================================================
 
-/** Extracts discriminant literal values from a union type */
-type DiscriminantOf<T, K extends keyof T> =
-  T extends Record<K, infer V> ? (V extends string | number | boolean ? V : never) : never;
+/** Extracts discriminant literal values from a union type, distributing over T */
+type DiscriminantOf<T, K extends keyof T> = T extends unknown
+  ? T[K] extends string | number | boolean
+    ? T[K]
+    : never
+  : never;
 
 /** Handler map for discriminated union matching — each handler receives the narrowed variant */
 type DiscriminantHandlers<T, K extends keyof T, R> = {
-  [V in DiscriminantOf<T, K>]: (value: Extract<T, Record<K, V>>) => R;
+  [V in DiscriminantOf<T, K> & (string | number)]: (value: Extract<T, { [P in K]: V }>) => R;
 } & { _?: (value: T) => R };
 
 /** Handler map for literal value matching */
@@ -103,7 +107,11 @@ export interface GuardArm<T, R> {
   readonly handler: (value: T) => R;
 }
 
-/** Create a guard arm — matches when predicate returns true */
+/**
+ * Create a guard arm — matches when predicate returns true.
+ *
+ * @deprecated Use the fluent API instead: `match(value).case(x).if(pred).then(handler)`
+ */
 export function when<T, R>(
   predicate: (value: T) => boolean,
   handler: (value: T) => R
@@ -111,7 +119,11 @@ export function when<T, R>(
   return { predicate, handler };
 }
 
-/** Create a catch-all guard arm — always matches */
+/**
+ * Create a catch-all guard arm — always matches.
+ *
+ * @deprecated Use the fluent API instead: `match(value).case(...).then(...).else(defaultValue)`
+ */
 export function otherwise<T, R>(handler: (value: T) => R): GuardArm<T, R> {
   return { predicate: () => true, handler };
 }
@@ -131,6 +143,9 @@ type PrimitiveTypeName =
 
 /**
  * Create a type guard predicate for use in match() guard arms.
+ *
+ * @deprecated Use the fluent API with constructor patterns instead:
+ * `match(value).case(String(s)).then(s.length).case(Number(n)).then(n.toFixed(2)).else("unknown")`
  *
  * For primitives: generates `typeof x === "..."` checks.
  * For classes: pass the constructor directly for `instanceof` checks.
@@ -167,6 +182,9 @@ export function isType(
 
 /**
  * Pattern helpers for array/tuple matching in guard arms.
+ *
+ * @deprecated Use the fluent API with first-class array patterns instead:
+ * `match(list).case([]).then("empty").case([x]).then(\`one: \${x}\`).else("default")`
  *
  * These are recognized by the match macro and compiled to optimal checks.
  * At runtime they work as regular predicates.
@@ -259,11 +277,18 @@ export const P = {
  * 2. `match(value, { variant: handler, ... }, "discriminant")` — explicit discriminant
  * 3. `match(value, [when(...), otherwise(...)])` — guard predicates
  */
-export function match<T extends Record<string, unknown>, K extends keyof T, R>(
+// Overload 1: Types with `kind` property — most common case
+export function match<T extends { kind: string }, R>(
+  value: T,
+  handlers: DiscriminantHandlers<T, "kind", R>
+): R;
+// Overload 2: Explicit discriminant key
+export function match<T extends object, K extends keyof T & string, R>(
   value: T,
   handlers: DiscriminantHandlers<T, K, R>,
-  discriminant?: K
+  discriminant: K
 ): R;
+// Overload 3: Literal matching
 export function match<T extends string | number, R>(value: T, handlers: LiteralHandlers<T, R>): R;
 export function match<T, R>(value: T, arms: GuardArm<T, R>[]): R;
 export function match(value: any, handlersOrArms: any, discriminant?: any): any {
@@ -348,29 +373,6 @@ function inferDiscriminant(
 
   // Default fallback
   return "kind";
-}
-
-/** @deprecated Use `match()` with literal keys instead */
-export function matchLiteral<T extends string | number, R>(
-  value: T,
-  handlers: LiteralHandlers<T, R>
-): R {
-  const handler = (handlers as Record<string | number, ((v: T) => R) | undefined>)[value];
-  if (handler) return handler(value);
-  const wildcard = (handlers as Record<string, ((v: T) => R) | undefined>)["_"];
-  if (wildcard) return wildcard(value);
-  throw new Error(`Non-exhaustive match: no handler for '${value}'`);
-}
-
-/** @deprecated Use `match()` with when()/otherwise() arms instead */
-export function matchGuard<T, R>(
-  value: T,
-  arms: Array<[(value: T) => boolean, (value: T) => R]>
-): R {
-  for (const [pred, handler] of arms) {
-    if (pred(value)) return handler(value);
-  }
-  throw new Error("Non-exhaustive match: no guard matched");
 }
 
 // ============================================================================
@@ -1388,6 +1390,13 @@ function expandMatch(
   callExpr: ts.CallExpression,
   args: readonly ts.Expression[]
 ): ts.Expression {
+  // Fluent chain mode: match(x).case(...).then(...).else(...)
+  // Detected when the transformer passes the outermost chain CallExpression,
+  // whose callee is a PropertyAccessExpression (not the "match" Identifier).
+  if (ts.isPropertyAccessExpression(callExpr.expression)) {
+    return expandFluentMatch(ctx, callExpr, args);
+  }
+
   if (args.length < 2) {
     ctx.reportError(callExpr, "match() requires at least 2 arguments: value and handlers/arms");
     return callExpr;
@@ -1433,23 +1442,8 @@ export const matchMacro = defineExpressionMacro({
   name: "match",
   module: "@typesugar/std",
   description: "Zero-cost exhaustive pattern matching with compile-time optimization",
-  expand: expandMatch,
-});
-
-export const matchLiteralMacro = defineExpressionMacro({
-  name: "matchLiteral",
-  module: "@typesugar/std",
-  description: "Zero-cost literal matching (deprecated — use match())",
-  expand: expandMatch,
-});
-
-export const matchGuardMacro = defineExpressionMacro({
-  name: "matchGuard",
-  module: "@typesugar/std",
-  description: "Zero-cost guard matching (deprecated — use match())",
+  chainable: true,
   expand: expandMatch,
 });
 
 globalRegistry.register(matchMacro);
-globalRegistry.register(matchLiteralMacro);
-globalRegistry.register(matchGuardMacro);

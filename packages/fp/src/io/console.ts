@@ -172,11 +172,11 @@ export const Console = {
    */
   readValidated<A>(promptMsg: string, parse: (s: string) => Either<string, A>): IO<A> {
     const attempt: IO<A> = IO.flatMap(Console.prompt(promptMsg), (input) => {
-      const result = parse(input);
-      if (result._tag === "Left") {
-        return IO.flatMap(Console.putErrLn(`Invalid input: ${result.left}`), () => attempt);
+      const r: any = parse(input);
+      if (r._tag === "Left") {
+        return IO.flatMap(Console.putErrLn(`Invalid input: ${r.left}`), () => attempt);
       }
-      return IO.pure(result.right);
+      return IO.pure(r.right);
     });
     return attempt;
   },

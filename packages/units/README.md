@@ -88,23 +88,31 @@ const f = feet(1);
 console.log(f.value); // 0.3048 (stored as meters)
 ```
 
-### Arithmetic Conversion
+### Unit Conversion
 
-Convert between units of the same dimension through arithmetic:
+Convert between units of the same dimension with `.to()`:
 
 ```typescript
-import { meters, kilometers } from "@typesugar/units";
+import { kilometers, meters, feet, miles } from "@typesugar/units";
 
-// Convert kilometers to a number in meters
-const km = kilometers(5);
-const metersValue = km.value; // 5000
+const marathon = kilometers(42.195);
 
-// Create a new unit with specific representation
-const inMeters = meters(km.value); // Unit<Length> with value 5000, symbol "m"
+marathon.to(meters); // Unit(42195, "m")
+marathon.to(miles); // Unit(26.219..., "mi")
+marathon.to(feet); // Unit(138435..., "ft")
+```
 
-// Velocity conversion
-const speed = kilometersPerHour(100);
-const mps = metersPerSecond(speed.value); // Convert via the raw value
+`.to()` takes a unit constructor function (like `meters`, `feet`, `miles`) — not a string. The conversion is type-safe: you can only convert to units with the same dimensions.
+
+```typescript
+import { hours, minutes, seconds } from "@typesugar/units";
+
+const workday = hours(8);
+
+workday.to(minutes); // Unit(480, "min")
+workday.to(seconds); // Unit(28800, "s")
+
+// workday.to(meters);  // ✗ Compile error: can't convert time to length
 ```
 
 ## Available Units
@@ -169,6 +177,9 @@ class Unit<D extends Dimensions> {
   // Cross-dimension operations (dimensions combine)
   mul<D2>(other: Unit<D2>): Unit<MulDimensions<D, D2>>;
   div<D2>(other: Unit<D2>): Unit<DivDimensions<D, D2>>;
+
+  // Conversion (same dimensions, different units)
+  to(targetConstructor: (v: number) => Unit<D>): Unit<D>;
 
   // Scalar operations
   scale(factor: number): Unit<D>;

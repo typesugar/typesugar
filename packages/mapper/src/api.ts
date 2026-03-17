@@ -1,3 +1,42 @@
+import type { PathOf } from "./path-types.js";
+
+export type { PathOf } from "./path-types.js";
+
+/**
+ * Config for array-valued fields. Maps each array field name to the
+ * TransformConfig for its element type.
+ *
+ * @example
+ * ```ts
+ * interface Source { items: { id: number }[] }
+ * interface Target { items: { itemId: number }[] }
+ * const config: TransformConfig<Source, Target> = {
+ *   collections: { items: { rename: { itemId: "id" } } }
+ * };
+ * ```
+ */
+export type CollectionConfig<From, To> = {
+  [K in keyof To]?: K extends keyof From
+    ? To[K] extends (infer E)[]
+      ? From[K] extends (infer S)[]
+        ? TransformConfig<S, E>
+        : never
+      : never
+    : never;
+};
+
+/**
+ * Recursive transform config for nested objects.
+ * Used when a target field is an object that needs its own mapping rules.
+ */
+export type NestedTransformConfig<From, To> = {
+  [K in keyof To]?: To[K] extends object
+    ? To[K] extends unknown[]
+      ? never // Use collections for arrays
+      : TransformConfig<unknown, To[K]>
+    : never;
+};
+
 export interface TransformConfig<From, To> {
   /**
    * Rename fields from the source to the target.
@@ -27,6 +66,56 @@ export interface TransformConfig<From, To> {
     source?: (keyof From)[];
     target?: (keyof To)[];
   };
+
+  /**
+   * Nested transformation configs for object-valued target fields.
+   * Key: target field name (must be an object type in To, not an array).
+   * Value: config for transforming the source's corresponding nested value.
+   *
+   * @example
+   * ```ts
+   * interface Source { address: { city: string; zip: string } }
+   * interface Target { address: { location: string } }
+   * const config: TransformConfig<Source, Target> = {
+   *   nested: {
+   *     address: { rename: { location: "city" } }
+   *   }
+   * };
+   * ```
+   */
+  nested?: NestedTransformConfig<From, To>;
+
+  /**
+   * Dot-notation renames for nested fields.
+   * Key: target path (e.g. "address.location").
+   * Value: source path (e.g. "address.city").
+   * Accepts PathOf keys for type safety; string for deeper paths (macro validates).
+   *
+   * @example
+   * ```ts
+   * interface Source { address: { city: string; zip: string } }
+   * interface Target { address: { location: string } }
+   * const config: TransformConfig<Source, Target> = {
+   *   renamePaths: { "address.location": "address.city" }
+   * };
+   * ```
+   */
+  renamePaths?: Partial<Record<PathOf<To> | string, PathOf<From> | string>>;
+
+  /**
+   * Config for array-valued fields. Maps each array field name to the
+   * TransformConfig for transforming its elements.
+   *
+   * @example
+   * ```ts
+   * interface Source { items: { id: number; name: string }[] }
+   * interface Target { items: { itemId: number; name: string }[] }
+   * const config: TransformConfig<Source, Target> = {
+   *   collections: { items: { rename: { itemId: "id" } } }
+   * };
+   * ```
+   */
+  collections?: CollectionConfig<From, To>;
 }
 
 /**
@@ -42,6 +131,27 @@ export interface TransformConfig<From, To> {
 export function transformInto<From, To>(source: From, config?: TransformConfig<From, To>): To {
   throw new Error(
     "transformInto() was called at runtime. " +
+      "This indicates the typesugar transformer is not configured correctly. " +
+      "Please ensure your build tool is configured to use the typesugar transformer."
+  );
+}
+
+/**
+ * Transforms an array of type `From` into an array of type `To` at compile time.
+ *
+ * Maps each element using the same rules as transformInto. This function is evaluated
+ * by the typesugar transformer and replaced with a map expression.
+ *
+ * @param items The source array to transform.
+ * @param config Optional configuration for renaming, computing, and providing constants.
+ * @returns The transformed array.
+ */
+export function transformArrayInto<From, To>(
+  items: From[],
+  config?: TransformConfig<From, To>
+): To[] {
+  throw new Error(
+    "transformArrayInto() was called at runtime. " +
       "This indicates the typesugar transformer is not configured correctly. " +
       "Please ensure your build tool is configured to use the typesugar transformer."
   );

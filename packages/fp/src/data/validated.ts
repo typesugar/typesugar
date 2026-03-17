@@ -6,6 +6,15 @@
  * This allows multiple errors to be accumulated rather than short-circuiting on the first error.
  *
  * ValidatedNel<E, A> = Validated<NonEmptyList<E>, A> is the most common usage.
+ *
+ * This implementation uses field-based discrimination for native TypeScript narrowing:
+ * - Valid has `value: A` and `error?: undefined`
+ * - Invalid has `error: E` and `value?: undefined`
+ *
+ * Narrowing options:
+ * - `isValid(v)` / `isInvalid(v)` — recommended, works for all cases
+ * - `v.value !== undefined` — works when A is not undefined/void
+ * - `'value' in v` — checks property presence (use with type guards for best results)
  */
 
 import type { Op } from "@typesugar/core";
@@ -25,10 +34,53 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 // ============================================================================
 
 /**
- * Validated data type - either Valid (success) or Invalid (errors)
+ * Valid variant — represents success.
+ * Has `value: A` field, and `error?: undefined` for safe union access.
+ */
+export interface Valid<A, E = never> {
+  readonly value: A;
+  readonly error?: undefined;
+}
+
+/**
+ * Invalid variant — represents accumulated errors.
+ * Has `error: E` field, and `value?: undefined` for safe union access.
+ */
+export interface Invalid<E, A = never> {
+  readonly error: E;
+  readonly value?: undefined;
+}
+
+/**
+ * Validated data type — a discriminated union of Valid (success) and Invalid (errors).
+ *
+ * Uses field-based discrimination for native TypeScript narrowing:
+ * - `isValid(v)` / `isInvalid(v)` — recommended type guards
+ * - `v.value !== undefined` narrows to Valid (when A is not void/undefined)
+ * - `v.error !== undefined` narrows to Invalid (when E is not void/undefined)
+ *
+ * @example
+ * ```typescript
+ * const v: Validated<string, number> = Valid(42);
+ *
+ * // Recommended: use type guards
+ * if (isValid(v)) {
+ *   v.value; // number (narrowed to Valid)
+ * }
+ *
+ * // Also works when A is not undefined
+ * if (v.value !== undefined) {
+ *   v.value; // number (narrowed to Valid)
+ * }
+ *
+ * // Safe union access (before narrowing)
+ * v.value; // number | undefined
+ * v.error; // string | undefined
+ * ```
+ *
  * @hkt
  */
-export type Validated<E, A> = Valid<A> | Invalid<E>;
+export type Validated<E, A> = Valid<A, E> | Invalid<E, A>;
 
 /**
  * Type-level function for `Validated<E, A>` with E fixed.
@@ -37,22 +89,6 @@ export type Validated<E, A> = Valid<A> | Invalid<E>;
 export interface ValidatedF<E> extends TypeFunction {
   readonly __kind__: unknown;
   readonly _: Validated<E, this["__kind__"]>;
-}
-
-/**
- * Valid variant - represents success
- */
-export interface Valid<A> {
-  readonly _tag: "Valid";
-  readonly value: A;
-}
-
-/**
- * Invalid variant - represents accumulated errors
- */
-export interface Invalid<E> {
-  readonly _tag: "Invalid";
-  readonly error: E;
 }
 
 /**
@@ -68,14 +104,14 @@ export type ValidatedNel<E, A> = Validated<NonEmptyList<E>, A>;
  * Create a Valid value
  */
 export function Valid<E = never, A = unknown>(value: A): Validated<E, A> {
-  return { _tag: "Valid", value };
+  return { value };
 }
 
 /**
  * Create an Invalid value
  */
 export function Invalid<E, A = never>(error: E): Validated<E, A> {
-  return { _tag: "Invalid", error };
+  return { error };
 }
 
 /**
@@ -132,22 +168,21 @@ export function fromPredicateNel<E, A>(
  * Create a Validated from an Either
  */
 export function fromEither<E, A>(either: Either<E, A>): Validated<E, A> {
-  return isEitherRight(either) ? Valid(either.right) : Invalid(either.left);
+  return isEitherRight(either) ? Valid(either.right) : Invalid(either.left!);
 }
 
 /**
  * Create a ValidatedNel from an Either
  */
 export function fromEitherNel<E, A>(either: Either<E, A>): ValidatedNel<E, A> {
-  return isEitherRight(either) ? Valid(either.right) : invalidNel(either.left);
+  return isEitherRight(either) ? Valid(either.right) : invalidNel(either.left!);
 }
 
 /**
  * Create a Validated from an Option
  */
 export function fromOption<E, A>(opt: Option<A>, onNone: () => E): Validated<E, A> {
-  // With null-based Option, opt IS the value when it's not null
-  return isSome(opt) ? Valid(opt) : Invalid(onNone());
+  return isSome(opt) ? Valid(opt as any) : Invalid(onNone());
 }
 
 /**
@@ -173,17 +208,19 @@ export function pure<E = never, A = unknown>(a: A): Validated<E, A> {
 // ============================================================================
 
 /**
- * Check if Validated is Valid
+ * Check if Validated is Valid.
+ * Uses property presence check to handle Valid(undefined) correctly.
  */
-export function isValid<E, A>(v: Validated<E, A>): v is Valid<A> {
-  return v._tag === "Valid";
+export function isValid<E, A>(v: Validated<E, A>): v is Valid<A, E> {
+  return "value" in v;
 }
 
 /**
- * Check if Validated is Invalid
+ * Check if Validated is Invalid.
+ * Uses property presence check to handle edge cases correctly.
  */
-export function isInvalid<E, A>(v: Validated<E, A>): v is Invalid<E> {
-  return v._tag === "Invalid";
+export function isInvalid<E, A>(v: Validated<E, A>): v is Invalid<E, A> {
+  return !("value" in v);
 }
 
 // ============================================================================

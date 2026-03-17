@@ -377,3 +377,29 @@ export function evaluateConditionExpr(expr: string, config: Record<string, unkno
   const value = getNestedValue(config, expr);
   return !!value;
 }
+
+// =============================================================================
+// Remove Expression — sentinel for statement-level macro erasure
+// =============================================================================
+
+const REMOVE_BRAND = "__typesugar_remove__";
+
+/**
+ * Create a `void 0` expression branded as a removal sentinel.
+ *
+ * Expression macros that act as statements (staticAssert, compileError, etc.)
+ * return this instead of `undefined`. The transformer recognises the brand and
+ * strips the enclosing ExpressionStatement entirely, producing zero output.
+ */
+export function createRemoveExpression(factory: ts.NodeFactory): ts.VoidExpression {
+  const node = factory.createVoidExpression(factory.createNumericLiteral(0));
+  (node as any)[REMOVE_BRAND] = true;
+  return node;
+}
+
+/**
+ * Check whether a node is a removal sentinel created by `createRemoveExpression`.
+ */
+export function isRemoveExpression(node: ts.Node): boolean {
+  return (node as any)[REMOVE_BRAND] === true;
+}

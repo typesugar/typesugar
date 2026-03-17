@@ -110,12 +110,14 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/erased
 
 **Usefulness**: 4/5 - Solves real niche problem (heterogeneous collections with shared capabilities, like Rust's `dyn Trait`). The `erased()` macro auto-resolves vtables from typeclasses at compile time.
-**Completeness**: 2/5 - Core functionality solid: 7 built-in capabilities, construction helpers, collection operations, widen/narrow. Missing package-level tests (only red-team).
+**Completeness**: 3/5 - Core functionality solid: 7 built-in capabilities, construction helpers, collection operations, widen/narrow. 57 tests (32 existing + 25 new) covering all exports.
 **Documentation**: 4/5 - Good README explaining widen/narrow patterns. Showcase covers all features (350+ lines).
 **Coherence**: 4/5 - Clean zero-cost design.
-**Summary**: Type erasure library with vtable auto-resolution. Undertested.
+**Summary**: Type erasure library with vtable auto-resolution. Now has comprehensive test coverage.
 
-**Update (2026-03-15):** Single minor commit — import-scoped resolution tweak. **Gap**: No package-level tests (only red-team).
+**Update (2026-03-15):** Single minor commit — import-scoped resolution tweak.
+
+**Update (2026-03-16):** 25 new tests added in `packages/erased/tests/erased-extended.test.ts`. Total: 57 tests covering all exports. Completeness 2/5 → 3/5.
 
 ---
 
@@ -227,6 +229,8 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 **Update (2026-03-15):** No changes — **needs attention** (sparse documentation, single test file).
 
+**Update (2026-03-16):** 10 API surface tests added in `packages/mapper/tests/api.test.ts`.
+
 ---
 
 ## @typesugar/math
@@ -296,40 +300,44 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/reflect
 
 **Usefulness**: 4/5 - Valuable for form generation, API validation, serialization, ORM mapping. Unique compile-time reflection in TS ecosystem.
-**Completeness**: 3/5 - Exports `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`. Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection. Missing vitest config (no `test` script in package.json).
+**Completeness**: 3/5 - Exports `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`. Core features work but validator<T>() only handles primitives—complex types silently skipped. Missing union/intersection. Vitest config and package-level tests exist (36 tests, 2 files).
 **Documentation**: 4/5 - Good README with TypeInfo structure examples. Good showcase.
 **Coherence**: 4/5 - Follows macro-based design, zero-cost.
 **Summary**: Solid compile-time reflection but needs better complex type handling.
 
-**Update (2026-03-15):** No significant changes — stable. **Gap**: Missing vitest config for package-level tests.
+**Update (2026-03-16):** Vitest config and tests verified. 36 tests (28 in reflect.test.ts + 8 in reflect-behavioral.test.ts) covering exports, TypeInfo structures, runtime stub behavior, and edge cases. Module-evaluation-log updated: "Missing vitest config" was incorrect — config and tests exist.
 
 ---
 
 ## @typesugar/specialize
 
 **Usefulness**: 4/5 - Valuable for FP codebases. `= implicit()` is preferred path but explicit specialization useful for debugging.
-**Completeness**: 3/5 - Exports `specialize()`, `specialize$()` (via `specializeKind`), `mono()`, `inlineCall()`, cache utilities. Functionality tested in transformer tests. Missing vitest config (no `test` script in package.json).
+**Completeness**: 3/5 - Exports `specialize()`, `specialize$()` (via `specializeKind`), `mono()`, `inlineCall()`, cache utilities. 88 tests (34 existing + 54 new behavioral tests). Package is a re-export facade so completeness capped.
 **Documentation**: 4/5 - Good README showing before/after patterns.
 **Coherence**: 5/5 - Uses correct patterns. PEP-004 related cleanup.
-**Summary**: Zero-cost specialization infrastructure. Explicit usage for advanced scenarios.
+**Summary**: Zero-cost specialization infrastructure with comprehensive behavioral test coverage.
 
 **Update (2026-02-28):** Previous assessment corrected — `specialize$` IS exported with correct signature.
 
-**Update (2026-03-15):** 5 commits — PEP-004 related cleanup, instance method registration changes. **Gap**: Missing vitest config for package-level tests.
+**Update (2026-03-15):** 5 commits — PEP-004 related cleanup, instance method registration changes.
+
+**Update (2026-03-16):** 54 behavioral tests added in `packages/specialize/tests/specialize-behavioral.test.ts`. Total: 88 tests. Vitest config already existed (previous "missing vitest config" note was incorrect).
 
 ---
 
 ## @typesugar/sql
 
 **Usefulness**: 5/5 - Comprehensive Doobie-inspired SQL library. TypedFragment<P,R> with compile-time type tracking, ConnectionIO free monad, full typeclass hierarchy.
-**Completeness**: 3/5 - Comprehensive implementation with sql$ macro, @deriving(Read/Write/Codec), query builder DSL. README is 1000+ lines but **no package tests** (only red-team).
+**Completeness**: 4/5 - Comprehensive implementation with sql$ macro, @deriving(Read/Write/Codec), query builder DSL. README is 1000+ lines. 179 tests (130 existing + 49 new) covering all exports.
 **Documentation**: 5/5 - Very thorough Doobie-inspired API documentation: TypedFragment, ConnectionIO, Get/Put/Meta/Read/Write/Codec hierarchy, ORM integration via Queryable.
 **Coherence**: 4/5 - Good conceptual alignment. Macro integration complete. Auto-derivation working for Read/Write/Codec.
-**Summary**: Well-documented, comprehensive SQL library following Doobie patterns. Needs package-level tests.
+**Summary**: Well-documented, comprehensive SQL library following Doobie patterns with thorough test coverage.
 
 **Update (2026-02-28):** README rewritten to document all implemented features. Docs score improved from 2/5 to 4/5.
 
-**Update (2026-03-15):** 8 commits — namespace merge fixes, HKT standardization, `staticAssert` rename, formatting. **Gap**: No package-level tests.
+**Update (2026-03-15):** 8 commits — namespace merge fixes, HKT standardization, `staticAssert` rename, formatting.
+
+**Update (2026-03-16):** 49 new tests added in `packages/sql/tests/sql-extended.test.ts`. Total: 179 tests covering all exports. Completeness 3/5 → 4/5.
 
 ---
 
@@ -461,14 +469,16 @@ Evaluation of all typesugar modules across 4 dimensions:
 ## @typesugar/units
 
 **Usefulness**: 3/5 - Real use case for scientific/engineering domains, but niche for general TypeScript.
-**Completeness**: 2/5 - Core dimension tracking works. Exports unit constructors + `units` tagged template. README documents .to() method that doesn't exist. No package tests.
-**Documentation**: 3/5 - Well-structured README explains type-level dimension tracking well. Documents non-existent features.
+**Completeness**: 3/5 - Core dimension tracking works. `.to()` conversion method implemented. 115 comprehensive tests covering unit arithmetic, conversions, and edge cases.
+**Documentation**: 3/5 - Well-structured README explains type-level dimension tracking well.
 **Coherence**: 4/5 - Has Op<> annotations on methods. Auto-derive works for classes with methods.
-**Summary**: Functional dimension-tracking following boost::units. Needs .to() implementation.
+**Summary**: Functional dimension-tracking following boost::units with working conversions and solid test coverage.
 
 **Update (2026-02-28):** Auto-derive bug fixed in `extractMetaFromTypeChecker` — methods are now filtered out, so classes like `Unit<D>` auto-derive Eq/Ord/Show from their data properties (value, symbol). Coherence improved from 2/5 to 3/5.
 
-**Update (2026-03-15):** 2 minor commits — `staticAssert` rename, PEP-002 reference. **Gap**: .to() method documented but not implemented.
+**Update (2026-03-15):** 2 minor commits — `staticAssert` rename, PEP-002 reference.
+
+**Update (2026-03-16):** `.to()` conversion method implemented (was documented but missing). vitest devDependency and `test` script added to package.json. 115 comprehensive tests added at `packages/units/tests/units.test.ts`. Completeness 2/5 → 3/5.
 
 ---
 
@@ -532,9 +542,9 @@ Evaluation of all typesugar modules across 4 dimensions:
 | Documentation | 10        | transformer, testing, std, contracts, type-system, graph, math, effect, sql, prettier-plugin          |
 | Coherence     | 21        | Most packages now follow design philosophy correctly                                                  |
 
-**Packages with all dimensions ≥4:** transformer (5/5/5/5), testing (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), fp (5/4/5/5), graph (5/4/5/5), math (5/4/5/5), std (5/4/5/5), contracts (5/4/5/5), type-system (5/4/5/5), prettier-plugin (5/4/5/5)
+**Packages with all dimensions ≥4:** transformer (5/5/5/5), testing (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), fp (5/4/5/5), graph (5/4/5/5), math (5/4/5/5), std (5/4/5/5), contracts (5/4/5/5), type-system (5/4/5/5), prettier-plugin (5/4/5/5), sql (5/4/5/4)
 
-**Packages needing attention (any dimension ≤2):** mapper (3/2/3/4), comptime (4/2/4/5), erased (4/2/4/4), units (3/2/3/4) |
+**Packages needing attention (any dimension ≤2):** mapper (3/2/3/4)
 
 ## Key Patterns Identified
 
@@ -563,20 +573,24 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 - **@typesugar/vscode** — _(5/4/4/5)_ .sts language support, peek widget, surgical diff.
 - **@typesugar/derive** — _(4/4/4/5)_ Sum type support, stable.
-- **@typesugar/sql** — _(5/3/5/4)_ Comprehensive Doobie-style SQL, undertested.
+- **@typesugar/sql** — _(5/4/5/4)_ Comprehensive Doobie-style SQL, 179 tests.
 - **@typesugar/symbolic** — _(4/3/4/4)_ Stable, good Op<> usage.
 
 ### Packages Needing Work (Updated 2026-03-15)
 
 **Current issues:**
 
-- **@typesugar/mapper** — Sparse documentation (44 lines), single test file. Needs showcase.
+- **@typesugar/mapper** — Sparse documentation (44 lines), few tests. Needs showcase.
 - ~~**@typesugar/comptime**~~ — _(Removed 2026-03-15)_ Re-export wrapper removed.
-- **@typesugar/erased** — Undertested: only red-team tests, no package-level tests.
-- **@typesugar/sql** — Comprehensive but no package-level tests (only red-team).
-- **@typesugar/units** — .to() method documented but not implemented.
-- **@typesugar/specialize** — Missing vitest config for package-level tests.
-- **@typesugar/reflect** — Missing vitest config for package-level tests.
+
+**Resolved (2026-03-16):**
+
+- ~~**@typesugar/reflect**~~ — Vitest config and 36 tests verified; 8 behavioral tests added.
+
+- ~~**@typesugar/erased**~~ — _(Resolved 2026-03-16)_ 25 package-level tests added, 57 total.
+- ~~**@typesugar/sql**~~ — _(Resolved 2026-03-16)_ 49 package-level tests added, 179 total.
+- ~~**@typesugar/units**~~ — _(Resolved 2026-03-16)_ `.to()` method implemented, 115 tests added.
+- ~~**@typesugar/specialize**~~ — _(Resolved 2026-03-16)_ 54 behavioral tests added; vitest config already existed.
 
 **Previously resolved:**
 
@@ -611,16 +625,17 @@ Evaluation of all typesugar modules across 4 dimensions:
    - **@typesugar/eslint-plugin**: Tests confirmed — 3 test files with 945 lines of coverage
    - **@typesugar/strings**: Tests added — 28 tests covering exports, runtime stubs, macro definitions
    - **@typesugar/macros**: 81 global test files cover macros extensively; red team tests added
-   - **Packages needing tests (2026-03-15):**
-     - **@typesugar/sql** — No package-level tests (only red-team)
-     - **@typesugar/erased** — No package-level tests (only red-team)
-     - **@typesugar/specialize** — Missing vitest config
-     - **@typesugar/reflect** — Missing vitest config
-     - **@typesugar/units** — No package tests
+   - **Packages needing tests (2026-03-16):** None
+   - **Resolved (2026-03-16):**
+     - ~~**@typesugar/reflect**~~ — Vitest config and 36 tests verified
+     - ~~**@typesugar/sql**~~ — 49 tests added (179 total)
+     - ~~**@typesugar/erased**~~ — 25 tests added (57 total)
+     - ~~**@typesugar/specialize**~~ — 54 behavioral tests added (88 total)
+     - ~~**@typesugar/units**~~ — 115 tests added
 
 4. **Documentation/Implementation Drift** — Updated assessment (2026-02-28):
    - ~~**validate**~~: README was correct (compile-time macros + Schema typeclass), not builder DSL
-   - **units**: .to() method documented but not implemented
+   - ~~**units**~~: .to() method implemented (2026-03-16)
    - ~~**sql**~~: README rewritten to document all features (was under-documented, now comprehensive)
    - ~~**specialize**~~: `specialize$` IS exported with correct signature
 
@@ -635,9 +650,10 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Active recommendations:**
 
 1. **Expand @typesugar/mapper** — Needs showcase.ts, more examples, extended README
-2. **Add package-level tests** to sql, erased, specialize, reflect
-3. **Implement @typesugar/units .to() method** — Documented but not implemented
+2. ~~**Add package-level tests to reflect**~~ — _(Done 2026-03-17)_ 36 tests verified
+3. ~~**Implement @typesugar/units .to() method**~~ — _(Done 2026-03-16)_ Implemented with 115 tests
 4. ~~**Consider deprecating @typesugar/comptime**~~ — _(Done 2026-03-15)_ Package removed
+5. ~~**Add package-level tests to sql, erased, specialize**~~ — _(Done 2026-03-16)_ All three now have comprehensive tests
 
 **Previously resolved:**
 
@@ -655,3 +671,5 @@ Evaluation of all typesugar modules across 4 dimensions:
 _Generated: 2026-02-22_
 _Updated: 2026-03-01 — Major pruning: removed @typesugar/named-args, @typesugar/contracts-z3, @typesugar/geometry, @typesugar/kysely, @typesugar/drizzle, @typesugar/operators. Improved @typesugar/graph (compile-time FSM, Monoid Dijkstra) and @typesugar/strings (removed json macro)._
 _Updated: 2026-03-15 — Full reassessment. Key improvements: transformer (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), graph (5/4/5/5), fp (5/4/5/5), type-system (5/4/5/5). New concerns: react (stagnant), mapper (sparse docs), comptime (just re-exports)._
+_Updated: 2026-03-16 — Test coverage wave: units (.to() implemented + 115 tests, 2→3), sql (49 tests added, 3→4), erased (25 tests added, 2→3), specialize (54 behavioral tests), mapper (10 API tests)._
+_Updated: 2026-03-17 — @typesugar/reflect tests verified: 36 tests (28 + 8 behavioral) pass; vitest config and package-level tests confirmed._

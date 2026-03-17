@@ -225,9 +225,10 @@ describe("IO", () => {
     it("attempt should convert error to Left", async () => {
       const io = IO.attempt(IO.raiseError<number>(new Error("oops")));
       const result = await runIO(io);
-      expect(result._tag).toBe("Left");
-      if (result._tag === "Left") {
-        expect(result.left.message).toBe("oops");
+      // Field-based discrimination: Left has .left, no .right
+      expect("right" in result).toBe(false);
+      if (!("right" in result)) {
+        expect(result.left!.message).toBe("oops");
       }
     });
 

@@ -13,6 +13,7 @@
       "types": "./protocol.ts"
     }
   },
+  "sideEffects": false,
   "files": [
     "index.js",
     "index.d.ts",

@@ -101,7 +101,7 @@ typeAssert<Equal<typeof items, string[]>>();
 // ============================================================================
 
 // staticAssert() evaluates at compile time. If the condition is false,
-// the BUILD fails immediately. No runtime cost — expands to `void 0`.
+// the BUILD fails immediately. No runtime cost — erased completely from output.
 
 staticAssert(1 + 1 === 2, "basic math must work");
 staticAssert(10 > 5, "comparison sanity check");

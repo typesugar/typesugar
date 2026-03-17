@@ -14,7 +14,7 @@
  */
 
 import { Option, Some, None } from "../data/option";
-import { Either, Left, Right } from "../data/either";
+import { Either, Left, Right, isLeft } from "../data/either";
 import { IO } from "../io/io";
 
 // ============================================================================
@@ -126,16 +126,16 @@ export function Do<F>(M: {
  */
 export const OptionDo = {
   // With null-based Option, Some(a) = a
-  pure: <A>(a: A): Option<A> => a,
+  pure: <A>(a: A): Option<A> => a as any,
   flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> => {
     // With null-based Option, fa IS the value when it's not null
-    if (fa === null) return null;
-    return f(fa);
+    if (fa === null) return null as any;
+    return f(fa as any) as any;
   },
   map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => {
     // With null-based Option, fa IS the value when it's not null
-    if (fa === null) return null;
-    return f(fa);
+    if (fa === null) return null as any;
+    return f(fa as any) as any;
   },
 };
 
@@ -164,11 +164,11 @@ export function EitherDo<E>() {
   return {
     pure: <A>(a: A): Either<E, A> => Right(a),
     flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> => {
-      if (fa._tag === "Left") return fa as unknown as Either<E, B>;
+      if (isLeft(fa)) return fa as Either<E, B>;
       return f(fa.right);
     },
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> => {
-      if (fa._tag === "Left") return fa as unknown as Either<E, B>;
+      if (isLeft(fa)) return fa as Either<E, B>;
       return Right(f(fa.right));
     },
   };
@@ -329,10 +329,10 @@ export interface ComputationBuilder<F> {
  */
 export const optionCE: ComputationBuilder<Option<unknown>> = {
   // None = null
-  zero: () => null,
+  zero: () => null as any,
   // Some(a) = a
-  return_: <A>(a: A) => a,
-  bind: <A, B>(fa: Option<A>, f: (a: A) => Option<B>) => (fa === null ? null : f(fa)),
+  return_: <A>(a: A) => a as any,
+  bind: <A, B>(fa: Option<A>, f: (a: A) => Option<B>) => (fa === null ? null : f(fa as any)) as any,
   combine: (fa, fb) => (fa === null ? fb : fa),
   delay: <A>(f: () => Option<A>) => f(),
   run: <A>(f: Option<A>) => f,

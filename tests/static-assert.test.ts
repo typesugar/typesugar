@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import * as ts from "typescript";
-import { MacroContextImpl, createMacroContext } from "@typesugar/core";
+import { MacroContextImpl, createMacroContext, isRemoveExpression } from "@typesugar/core";
 import { staticAssertMacro, compileErrorMacro, compileWarningMacro } from "@typesugar/macros";
 
 describe("static assertion and diagnostic macros", () => {
@@ -70,9 +70,8 @@ describe("static assertion and diagnostic macros", () => {
 
       const result = staticAssertMacro.expand(ctx, callExpr, [ts.factory.createTrue()]);
 
-      // Should produce `undefined` (assertion removed)
-      expect(ts.isIdentifier(result)).toBe(true);
-      expect((result as ts.Identifier).text).toBe("undefined");
+      // Should produce a removal sentinel (void 0 with brand)
+      expect(isRemoveExpression(result)).toBe(true);
 
       // No errors
       expect(ctx.getDiagnostics()).toHaveLength(0);

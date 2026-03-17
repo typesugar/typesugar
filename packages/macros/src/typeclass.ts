@@ -2432,7 +2432,7 @@ const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
 
       const varName = instanceVarName("show", typeName);
       return `
-const ${varName}: Show<${typeName}> = {
+const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
   show: (a: ${typeName}): string => \`${typeName}(${fieldShows})\`,
 };
 /*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
@@ -2453,7 +2453,7 @@ const ${varName}: Show<${typeName}> = {
         .join("\n");
 
       return `
-const ${varName}: Show<${typeName}> = {
+const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
   show: (a: ${typeName}): string => {
     switch ((a as any).${discriminant}) {
 ${cases}
@@ -2518,7 +2518,7 @@ ${cases}
 
       const varName = instanceVarName("show", typeName);
       return `
-const ${varName}: Show<${typeName}> = {
+const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
   show: (a: ${typeName}): string => {
     switch ((a as any).${discriminant}) {
 ${cases}
@@ -2541,7 +2541,7 @@ ${cases}
 
       const varName = instanceVarName("eq", typeName);
       return `
-const ${varName}: Eq<${typeName}> = {
+const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
   eq: (a: ${typeName}, b: ${typeName}): boolean => ${body},
   neq: (a: ${typeName}, b: ${typeName}): boolean => !(${body}),
 };
@@ -2563,7 +2563,7 @@ const ${varName}: Eq<${typeName}> = {
         .join("\n");
 
       return `
-const ${varName}: Eq<${typeName}> = {
+const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
   eq: (a: ${typeName}, b: ${typeName}): boolean => {
     if ((a as any).${discriminant} !== (b as any).${discriminant}) return false;
     switch ((a as any).${discriminant}) {
@@ -2624,7 +2624,7 @@ ${cases}
 
       const varName = instanceVarName("eq", typeName);
       return `
-const ${varName}: Eq<${typeName}> = {
+const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
   eq: (x: ${typeName}, y: ${typeName}): boolean => {
     if ((x as any).${discriminant} !== (y as any).${discriminant}) return false;
     switch ((x as any).${discriminant}) {
@@ -2650,7 +2650,7 @@ ${cases}
         .join("\n");
 
       return `
-const ${varName}: Ord<${typeName}> = {
+const ${varName}: Ord<${typeName}> = /*#__PURE__*/ {
   compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
 ${fieldComparisons}
     return 0;
@@ -2675,7 +2675,7 @@ ${fieldComparisons}
         .join("\n");
 
       return `
-const ${varName}: Ord<${typeName}> = {
+const ${varName}: Ord<${typeName}> = /*#__PURE__*/ {
   compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
     const tagOrder: Record<string, number> = { ${tagOrder} };
     const aTag = (a as any).${discriminant};
@@ -2747,7 +2747,7 @@ ${cases}
 
       const varName = instanceVarName("ord", typeName);
       return `
-const ${varName}: Ord<${typeName}> = {
+const ${varName}: Ord<${typeName}> = /*#__PURE__*/ {
   compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
     const tagOrder: Record<string, number> = { ${tagOrder} };
     const aTag = (a as any).${discriminant};
@@ -2775,7 +2775,7 @@ ${cases}
         .join("\n");
 
       return `
-const ${varName}: Hash<${typeName}> = {
+const ${varName}: Hash<${typeName}> = /*#__PURE__*/ {
   hash: (a: ${typeName}): number => {
     let hash = 5381;
 ${fieldHashes}
@@ -2800,7 +2800,7 @@ ${fieldHashes}
         .join("\n");
 
       return `
-const ${varName}: Hash<${typeName}> = {
+const ${varName}: Hash<${typeName}> = /*#__PURE__*/ {
   hash: (a: ${typeName}): number => {
     switch ((a as any).${discriminant}) {
 ${cases}
@@ -2820,7 +2820,7 @@ ${cases}
       // to know which field is the "contained" type parameter
       const varName = instanceVarName("functor", typeName);
       return `
-const ${varName}: Functor<${typeName}> = {
+const ${varName}: Functor<${typeName}> = /*#__PURE__*/ {
   map: <A, B>(fa: ${typeName}, f: (a: A) => B): ${typeName} => {
     return { ...fa } as any;
   },
@@ -2843,7 +2843,7 @@ const ${varName}: Functor<${typeName}> = {
         .join("\n");
 
       return `
-const ${varName}: Functor<${typeName}> = {
+const ${varName}: Functor<${typeName}> = /*#__PURE__*/ {
   map: <A, B>(fa: ${typeName}, f: (a: A) => B): ${typeName} => {
     switch ((fa as any).${discriminant}) {
 ${cases}
@@ -4259,58 +4259,58 @@ typeclass("Functor");
 // ============================================================================
 
 // Eq instances for primitives
-const eqNumber: Eq<number> = {
+const eqNumber: Eq<number> = /*#__PURE__*/ {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
 /*#__PURE__*/ Eq.registerInstance<number>("number", eqNumber);
 
-const eqString: Eq<string> = {
+const eqString: Eq<string> = /*#__PURE__*/ {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
 /*#__PURE__*/ Eq.registerInstance<string>("string", eqString);
 
-const eqBoolean: Eq<boolean> = {
+const eqBoolean: Eq<boolean> = /*#__PURE__*/ {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
 /*#__PURE__*/ Eq.registerInstance<boolean>("boolean", eqBoolean);
 
 // Show instances for primitives
-const showNumber: Show<number> = {
+const showNumber: Show<number> = /*#__PURE__*/ {
   show: (a) => String(a),
 };
 /*#__PURE__*/ Show.registerInstance<number>("number", showNumber);
 
-const showString: Show<string> = {
+const showString: Show<string> = /*#__PURE__*/ {
   show: (a) => JSON.stringify(a),
 };
 /*#__PURE__*/ Show.registerInstance<string>("string", showString);
 
-const showBoolean: Show<boolean> = {
+const showBoolean: Show<boolean> = /*#__PURE__*/ {
   show: (a) => String(a),
 };
 /*#__PURE__*/ Show.registerInstance<boolean>("boolean", showBoolean);
 
 // Ord instances for primitives
-const ordNumber: Ord<number> = {
+const ordNumber: Ord<number> = /*#__PURE__*/ {
   compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
 };
 /*#__PURE__*/ Ord.registerInstance<number>("number", ordNumber);
 
-const ordString: Ord<string> = {
+const ordString: Ord<string> = /*#__PURE__*/ {
   compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
 };
 /*#__PURE__*/ Ord.registerInstance<string>("string", ordString);
 
 // Hash instances for primitives
-const hashNumber: Hash<number> = {
+const hashNumber: Hash<number> = /*#__PURE__*/ {
   hash: (a) => a | 0,
 };
 /*#__PURE__*/ Hash.registerInstance<number>("number", hashNumber);
 
-const hashString: Hash<string> = {
+const hashString: Hash<string> = /*#__PURE__*/ {
   hash: (a) => {
     let h = 5381;
     for (let i = 0; i < a.length; i++) {
@@ -4321,30 +4321,30 @@ const hashString: Hash<string> = {
 };
 /*#__PURE__*/ Hash.registerInstance<string>("string", hashString);
 
-const hashBoolean: Hash<boolean> = {
+const hashBoolean: Hash<boolean> = /*#__PURE__*/ {
   hash: (a) => a ? 1 : 0,
 };
 /*#__PURE__*/ Hash.registerInstance<boolean>("boolean", hashBoolean);
 
 // Semigroup instances for primitives
-const semigroupNumber: Semigroup<number> = {
+const semigroupNumber: Semigroup<number> = /*#__PURE__*/ {
   combine: (a, b) => a + b,
 };
 /*#__PURE__*/ Semigroup.registerInstance<number>("number", semigroupNumber);
 
-const semigroupString: Semigroup<string> = {
+const semigroupString: Semigroup<string> = /*#__PURE__*/ {
   combine: (a, b) => a + b,
 };
 /*#__PURE__*/ Semigroup.registerInstance<string>("string", semigroupString);
 
 // Monoid instances for primitives
-const monoidNumber: Monoid<number> = {
+const monoidNumber: Monoid<number> = /*#__PURE__*/ {
   empty: () => 0,
   combine: (a, b) => a + b,
 };
 /*#__PURE__*/ Monoid.registerInstance<number>("number", monoidNumber);
 
-const monoidString: Monoid<string> = {
+const monoidString: Monoid<string> = /*#__PURE__*/ {
   empty: () => "",
   combine: (a, b) => a + b,
 };
@@ -4367,7 +4367,7 @@ builtinDerivations["Semigroup"] = {
       .join(",\n");
 
     return `
-const ${varName}: Semigroup<${typeName}> = {
+const ${varName}: Semigroup<${typeName}> = /*#__PURE__*/ {
   combine: (a: ${typeName}, b: ${typeName}): ${typeName} => ({
 ${fieldCombines}
   }),
@@ -4403,7 +4403,7 @@ builtinDerivations["Monoid"] = {
       .join(",\n");
 
     return `
-const ${varName}: Monoid<${typeName}> = {
+const ${varName}: Monoid<${typeName}> = /*#__PURE__*/ {
   empty: (): ${typeName} => ({
 ${fieldEmpties}
   }),

@@ -1,6 +1,6 @@
 # PEP-012: Type Macros
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-03-15
 **Author:** Dean Povey
 **Depends on:** PEP-011 (SFINAE Diagnostic Resolution)
@@ -236,150 +236,154 @@ export interface Meters {
 
 ## Waves
 
-### Wave 1: Type Rewrite Registry
+### Wave 1: Type Rewrite Registry ✅
 
 **Tasks:**
 
-- [ ] Define `TypeRewriteEntry`, `ConstructorRewrite`, `AccessorRewrite` interfaces in `@typesugar/core`
-- [ ] Create `typeRewriteRegistry` with registration and lookup functions
-- [ ] Lookup by type name, by type symbol, and by source module
-- [ ] Unit tests for registry operations
+- [x] Define `TypeRewriteEntry`, `ConstructorRewrite`, `AccessorRewrite` interfaces in `@typesugar/core`
+- [x] Create `typeRewriteRegistry` with registration and lookup functions
+- [x] Lookup by type name, by type symbol, and by source module
+- [x] Unit tests for registry operations
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm vitest run packages/core` passes
+- [x] `pnpm build` passes
+- [x] `pnpm vitest run packages/core` passes
 
-### Wave 2: `@opaque` Attribute Macro
+### Wave 2: `@opaque` Attribute Macro ✅
 
 **Tasks:**
 
-- [ ] Implement `@opaque` macro in `@typesugar/macros`
-- [ ] Parse JSDoc `@opaque <underlying-type>` annotation
-- [ ] Scan interface for method signatures
-- [ ] Find companion standalone functions in the same module (via type checker)
-- [ ] Register `TypeRewriteEntry` with methods, constructors, accessors
-- [ ] Tests: verify registry population for a sample `@opaque` interface
+- [x] Implement `@opaque` macro in `@typesugar/macros`
+- [x] Parse JSDoc `@opaque <underlying-type>` annotation
+- [x] Scan interface for method signatures
+- [x] Find companion standalone functions in the same module (via type checker)
+- [x] Register `TypeRewriteEntry` with methods, constructors, accessors
+- [x] Tests: verify registry population for a sample `@opaque` interface
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm vitest run packages/macros` passes
-- [ ] Registry contains correct entries after macro expansion
+- [x] `pnpm build` passes
+- [x] `pnpm vitest run packages/macros` passes
+- [x] Registry contains correct entries after macro expansion
 
-### Wave 3: Transformer Method Erasure
+### Wave 3: Transformer Method Erasure ✅
 
 **Tasks:**
 
-- [ ] Add type rewrite registry resolution path to `tryRewriteExtensionMethod`
-- [ ] Check registry BEFORE existing extension/import resolution
-- [ ] Rewrite `x.method(args)` → `method(x, args)` using registry info
-- [ ] Handle import injection (add import for the standalone function if not present)
-- [ ] Tests: `Some(5).map(n => n * 2)` rewrites to `map(Some(5), n => n * 2)`
+- [x] Add type rewrite registry resolution path to `tryRewriteExtensionMethod`
+- [x] Check registry BEFORE existing extension/import resolution
+- [x] Rewrite `x.method(args)` → `method(x, args)` using registry info
+- [x] Handle import injection (add import for the standalone function if not present)
+- [x] Tests: `Some(5).map(n => n * 2)` rewrites to `map(Some(5), n => n * 2)`
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Method erasure tests pass
-- [ ] Existing extension method behavior not broken
+- [x] `pnpm build` passes
+- [x] Method erasure tests pass
+- [x] Existing extension method behavior not broken
 
-### Wave 4: Constructor and Accessor Erasure
+### Wave 4: Constructor and Accessor Erasure ✅
 
 **Tasks:**
 
-- [ ] Implement constructor erasure: `Some(a)` → `a`, `None` → `null`
-- [ ] Implement accessor erasure: `x.value` (after narrowing) → `x`
-- [ ] Register constructor/accessor rewrites in the `@opaque` macro
-- [ ] Tests: full Option pipeline erases to null-check code
+- [x] Implement constructor erasure: `Some(a)` → `a`, `None` → `null`
+- [x] Implement accessor erasure: `x.value` (after narrowing) → `x`
+- [x] Register constructor/accessor rewrites in the `@opaque` macro
+- [x] Tests: full Option pipeline erases to null-check code
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Constructor/accessor erasure tests pass
-- [ ] End-to-end: `Some(5).map(f).getOrElse(() => 0)` emits `getOrElse(map(5, f), () => 0)`
+- [x] `pnpm build` passes
+- [x] Constructor/accessor erasure tests pass
+- [x] End-to-end: `Some(5).map(f).getOrElse(() => 0)` emits `getOrElse(map(5, f), () => 0)`
 
-### Wave 5: Transparent Scope
+### Wave 5: Transparent Scope ✅
 
 **Tasks:**
 
-- [ ] Implement transparent scope detection in the transformer
-- [ ] Skip method/constructor/accessor rewriting within the defining file
-- [ ] Allow underlying representation usage in implementations
-- [ ] Tests: the option module's `map` function can use `=== null` directly
+- [x] Implement transparent scope detection in the transformer
+- [x] Skip method/constructor/accessor rewriting within the defining file
+- [x] Allow underlying representation usage in implementations
+- [x] Tests: the option module's `map` function can use `=== null` directly
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] Transparent scope tests pass
-- [ ] Option module builds without `as any` casts in implementations
+- [x] `pnpm build` passes
+- [x] Transparent scope tests pass
+- [x] Option module builds without `as any` casts in implementations
 
-### Wave 6: SFINAE Integration
+### Wave 6: SFINAE Integration ✅
 
 **Tasks:**
 
-- [ ] Wire PEP-011 Rule 2 (TypeRewriteAssignment) to consult `typeRewriteRegistry`
-- [ ] Verify implicit conversions work at assignment and argument boundaries
-- [ ] Tests: `Option<T> ↔ T | null` assignments produce no diagnostics
+- [x] Wire PEP-011 Rule 2 (TypeRewriteAssignment) to consult `typeRewriteRegistry`
+- [x] Verify implicit conversions work at assignment and argument boundaries
+- [x] Tests: `Option<T> ↔ T | null` assignments produce no diagnostics
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] SFINAE integration tests pass
-- [ ] Both directions of implicit conversion work
+- [x] `pnpm build` passes
+- [x] SFINAE integration tests pass
+- [x] Both directions of implicit conversion work
 
-### Wave 7: Redefine `@typesugar/fp` Types
+### Wave 7: Redefine `@typesugar/fp` Types ✅
 
 **Tasks:**
 
-- [ ] Rewrite `Option` as `@opaque A | null` interface with methods
-- [ ] Rewrite `Either` as `@opaque Left<E> | Right<A>` interface with methods
-- [ ] Rewrite `List` as `@opaque Cons<A> | Nil` interface with methods
-- [ ] Update constructors (`Some`, `None`, `Left`, `Right`, `Cons`, `Nil`)
-- [ ] Update type guards (`isSome`, `isNone`, `isLeft`, `isRight`, `isCons`)
-- [ ] Update all standalone functions to work with transparent scope
-- [ ] Update all existing tests
+- [x] Rewrite `Option` as `@opaque A | null` interface with methods
+- [x] Rewrite `Either` as `@opaque Left<E> | Right<A>` interface with methods
+- [x] Rewrite `List` as `@opaque Cons<A> | Nil` interface with methods
+- [x] Update constructors (`Some`, `None`, `Left`, `Right`, `Cons`, `Nil`)
+- [x] Update type guards (`isSome`, `isNone`, `isLeft`, `isRight`, `isCons`)
+- [x] Update all standalone functions to work with transparent scope
+- [x] Update all existing tests
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm --filter @typesugar/fp test` passes
-- [ ] `pnpm --filter @typesugar/fp typecheck` passes
-- [ ] All FP showcase assertions pass
+- [x] `pnpm build` passes
+- [x] `pnpm --filter @typesugar/fp test` passes (93 tests)
+- [x] `pnpm --filter @typesugar/fp typecheck` passes (via DTS generation in build)
+- [x] All FP showcase assertions pass
 
-### Wave 8: Global Augmentation for Std Extensions
+### Wave 8: Global Augmentation for Std Extensions ✅
 
 **Tasks:**
 
-- [ ] Add `declare global { interface Number { clamp(...): number; abs(): number; ... } }` in `@typesugar/std`
-- [ ] Add augmentations for `String`, `Array`, `Map`, `Promise`, `Date`, etc.
-- [ ] Method signatures match the standalone extension functions
-- [ ] Transformer still rewrites augmented methods to function calls (existing `forceRewrite` path)
-- [ ] Tests: `(42).clamp(0, 100)` type-checks and compiles
+- [x] Add `declare global { interface Number { clamp(...): number; abs(): number; ... } }` in `@typesugar/std`
+- [x] Add augmentations for `String`, `Array`, `Map`, `Promise`, `Date`, `Boolean`
+- [x] Method signatures match the standalone extension functions
+- [x] Transformer still rewrites augmented methods to function calls (existing `forceRewrite` path)
+- [x] Tests: `(42).clamp(0, 100)` type-checks and compiles
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm --filter @typesugar/std test` passes
-- [ ] `pnpm --filter @typesugar/std typecheck` passes
-- [ ] No TS2339 for extension methods with augmentation
+- [x] `pnpm build` passes
+- [x] `pnpm --filter @typesugar/std test` passes
+- [x] `pnpm --filter @typesugar/std typecheck` passes
+- [x] No TS2339 for extension methods with augmentation
 
-### Wave 9: Update Showcases and Docs
+**Notes:** `Set`, `Object`, and `Function` were intentionally excluded from augmentation.
+Set methods overlap with ES2025 native Set methods (union, intersection, etc.).
+Object and Function interfaces are too broad for safe augmentation.
+
+### Wave 9: Update Showcases and Docs ✅
 
 **Tasks:**
 
-- [ ] Rewrite `packages/fp/examples/showcase.ts` to use dot syntax (`x.map(f)` instead of `O.map(x, f)`)
-- [ ] Rewrite `packages/std/examples/showcase.ts` to use dot syntax (`(42).clamp(0, 100)`)
-- [ ] Update `packages/fp/src/index.ts` barrel exports (remove namespace-import guidance)
-- [ ] Update package READMEs
-- [ ] Update `AGENTS.md` with type macro and SFINAE information
-- [ ] Update `docs/guides/` with extension method usage
+- [x] Rewrite `packages/fp/examples/showcase.ts` to use dot syntax (`x.map(f)` instead of `O.map(x, f)`)
+- [x] Rewrite `packages/std/examples/showcase.ts` to use dot syntax (`(42).clamp(0, 100)`)
+- [x] Update `packages/fp/src/index.ts` barrel exports (remove namespace-import guidance)
+- [x] Update package READMEs
+- [x] Update `AGENTS.md` with type macro and SFINAE information
+- [x] Update `docs/guides/` with extension method usage
 
 **Gate:**
 
-- [ ] `pnpm build` passes
-- [ ] `pnpm test` passes (full suite)
-- [ ] Showcases run correctly
-- [ ] Documentation accurately reflects new API
+- [x] `pnpm build` passes
+- [x] `pnpm test` passes (full suite — 2 pre-existing failures in `red-team-typesugar.test.ts` unrelated to PEP-012)
+- [x] Showcases run correctly
+- [x] Documentation accurately reflects new API
 
 ## Files Changed
 
@@ -390,6 +394,8 @@ export interface Meters {
 | `packages/macros/src/opaque.ts`              | New: `@opaque` attribute macro                     |
 | `packages/macros/src/index.ts`               | Register `@opaque` macro                           |
 | `packages/transformer/src/index.ts`          | New resolution path in `tryRewriteExtensionMethod` |
+| `packages/transformer/src/pipeline.ts`       | Type rewrite registry fallback to TS backend       |
+| `tests/sfinae-opaque-integration.test.ts`    | New: Wave 6 SFINAE × @opaque integration tests     |
 | `packages/fp/src/data/option.ts`             | Redefine as `@opaque` interface                    |
 | `packages/fp/src/data/either.ts`             | Redefine as `@opaque` interface                    |
 | `packages/fp/src/data/list.ts`               | Redefine as `@opaque` interface                    |

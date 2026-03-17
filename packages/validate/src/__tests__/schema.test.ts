@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { invalidNel, Valid, isValid, isInvalid } from "@typesugar/fp";
+import type { ValidationError } from "../types.js";
 import {
   NativeSchema,
   nativeSchema,
@@ -23,16 +25,16 @@ describe("Schema typeclass", () => {
 
     it("safeParse returns Valid when valid", () => {
       const result = nativeSchema.safeParse(isNumber, 42);
-      expect(result._tag).toBe("Valid");
-      if (result._tag === "Valid") {
+      expect(isValid(result)).toBe(true);
+      if (isValid(result)) {
         expect(result.value).toBe(42);
       }
     });
 
     it("safeParse returns Invalid when invalid", () => {
       const result = nativeSchema.safeParse(isNumber, "not a number");
-      expect(result._tag).toBe("Invalid");
-      if (result._tag === "Invalid") {
+      expect(isInvalid(result)).toBe(true);
+      if (isInvalid(result)) {
         expect(result.error.head.message).toBe("Validation failed");
       }
     });
@@ -69,8 +71,8 @@ describe("Schema typeclass", () => {
     it("nativeSafeParseAll collects all valid values", () => {
       const parse = nativeSafeParseAll(nativeSchema);
       const result = parse(isPositive, [1, 2, 3]);
-      expect(result._tag).toBe("Valid");
-      if (result._tag === "Valid") {
+      expect(isValid(result)).toBe(true);
+      if (isValid(result)) {
         expect(result.value).toEqual([1, 2, 3]);
       }
     });
@@ -78,7 +80,7 @@ describe("Schema typeclass", () => {
     it("nativeSafeParseAll returns Invalid when any value fails", () => {
       const parse = nativeSafeParseAll(nativeSchema);
       const result = parse(isPositive, [1, -2, 3]);
-      expect(result._tag).toBe("Invalid");
+      expect(isInvalid(result)).toBe(true);
     });
   });
 
@@ -91,16 +93,9 @@ describe("Schema typeclass", () => {
         },
         (validator, data) => {
           if (validator(data)) {
-            return { _tag: "Valid" as const, value: data };
+            return Valid(data);
           }
-          return {
-            _tag: "Invalid" as const,
-            error: {
-              _tag: "NonEmptyList" as const,
-              head: { path: "$", message: "Custom error" },
-              tail: { _tag: "Nil" as const },
-            },
-          };
+          return invalidNel<ValidationError>({ path: "$", message: "Custom error" });
         }
       );
 
@@ -110,8 +105,8 @@ describe("Schema typeclass", () => {
       expect(() => customSchema.parse(isString, 123)).toThrow("Custom validation failed");
 
       const result = customSchema.safeParse(isString, 123);
-      expect(result._tag).toBe("Invalid");
-      if (result._tag === "Invalid") {
+      expect(isInvalid(result)).toBe(true);
+      if (isInvalid(result)) {
         expect(result.error.head.message).toBe("Custom error");
       }
     });

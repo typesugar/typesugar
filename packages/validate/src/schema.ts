@@ -27,7 +27,7 @@
 
 import type { Kind, TypeFunction } from "@typesugar/type-system";
 import type { ValidatedNel } from "@typesugar/fp";
-import { Valid, invalidNel } from "@typesugar/fp";
+import { Valid, invalidNel, isValid } from "@typesugar/fp";
 import type { ValidationError } from "./types.js";
 
 // ============================================================================
@@ -135,7 +135,7 @@ export function parseOrElse<F>(
 ): <A>(schema: Kind<F, A>, data: unknown, fallback: A) => A {
   return (schema, data, fallback) => {
     const result = S.safeParse(schema, data);
-    return result._tag === "Valid" ? result.value : fallback;
+    return isValid(result) ? result.value : fallback;
   };
 }
 
@@ -179,15 +179,14 @@ export function safeParseAll<F>(
     const values: A[] = [];
 
     for (const result of results) {
-      if (result._tag === "Valid") {
+      if (isValid(result)) {
         values.push(result.value);
       } else {
-        // Access the NonEmptyList error
-        const nel = result.error;
+        const nel: any = result.error;
         errors.push(nel.head);
-        // Traverse the tail (which is a List)
-        let current = nel.tail;
-        while (current._tag === "Cons") {
+        let current: any = nel.tail;
+        // PEP-014 Wave 2: List uses null-based Nil
+        while (current !== null) {
           errors.push(current.head);
           current = current.tail;
         }
@@ -214,7 +213,7 @@ export function nativeParseOrElse(
 ): <A>(validator: Validator<A>, data: unknown, fallback: A) => A {
   return (validator, data, fallback) => {
     const result = S.safeParse(validator, data);
-    return result._tag === "Valid" ? result.value : fallback;
+    return isValid(result) ? result.value : fallback;
   };
 }
 
@@ -248,13 +247,14 @@ export function nativeSafeParseAll(
     const values: A[] = [];
 
     for (const result of results) {
-      if (result._tag === "Valid") {
+      if (isValid(result)) {
         values.push(result.value);
       } else {
-        const nel = result.error;
+        const nel: any = result.error;
         errors.push(nel.head);
-        let current = nel.tail;
-        while (current._tag === "Cons") {
+        let current: any = nel.tail;
+        // PEP-014 Wave 2: List uses null-based Nil
+        while (current !== null) {
           errors.push(current.head);
           current = current.tail;
         }

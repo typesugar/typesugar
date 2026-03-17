@@ -18,8 +18,8 @@
  * Inspired by Scala's Cats Effect IO
  */
 
-import { Either, Left, Right } from "../data/either";
-import { Option, Some, None } from "../data/option";
+import { Either, Left, Right, isLeft, isRight } from "../data/either";
+import { Option, Some, None, isSome } from "../data/option";
 
 // ============================================================================
 // IO ADT Definition
@@ -439,16 +439,14 @@ export const IO = {
    */
   bracket<R, A>(acquire: IO<R>, use: (r: R) => IO<A>, release: (r: R) => IO<void>): IO<A> {
     return IO.flatMap(acquire, (r) =>
-      IO.flatMap(
-        IO.attempt(use(r)),
-        (result): IO<A> =>
-          IO.flatMap(release(r), () => {
-            if (result._tag === "Left") {
-              return IO.raiseError(result.left);
-            }
-            return IO.pure(result.right);
-          })
-      )
+      IO.flatMap(IO.attempt(use(r)), (result): IO<A> => {
+        return IO.flatMap(release(r), () => {
+          if (isLeft(result)) {
+            return IO.raiseError(result.left!);
+          }
+          return IO.pure(result.right);
+        });
+      })
     );
   },
 
@@ -456,14 +454,14 @@ export const IO = {
    * Guarantee - always run finalizer
    */
   guarantee<A>(fa: IO<A>, finalizer: IO<void>): IO<A> {
-    return IO.flatMap(IO.attempt(fa), (result) =>
-      IO.flatMap(finalizer, () => {
-        if (result._tag === "Left") {
-          return IO.raiseError(result.left);
+    return IO.flatMap(IO.attempt(fa), (result) => {
+      return IO.flatMap(finalizer, () => {
+        if (isLeft(result)) {
+          return IO.raiseError(result.left!);
         }
         return IO.pure(result.right);
-      })
-    );
+      });
+    });
   },
 
   /**
@@ -471,8 +469,8 @@ export const IO = {
    */
   onError<A>(fa: IO<A>, handler: (e: Error) => IO<void>): IO<A> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      if (result._tag === "Left") {
-        return IO.flatMap(handler(result.left), () => IO.raiseError(result.left));
+      if (isLeft(result)) {
+        return IO.flatMap(handler(result.left!), () => IO.raiseError(result.left!));
       }
       return IO.pure(result.right);
     });
@@ -483,8 +481,8 @@ export const IO = {
    */
   redeem<A, B>(fa: IO<A>, recover: (e: Error) => B, map: (a: A) => B): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      if (result._tag === "Left") {
-        return IO.pure(recover(result.left));
+      if (isLeft(result)) {
+        return IO.pure(recover(result.left!));
       }
       return IO.pure(map(result.right));
     });
@@ -495,8 +493,8 @@ export const IO = {
    */
   redeemWith<A, B>(fa: IO<A>, recover: (e: Error) => IO<B>, map: (a: A) => IO<B>): IO<B> {
     return IO.flatMap(IO.attempt(fa), (result) => {
-      if (result._tag === "Left") {
-        return recover(result.left);
+      if (isLeft(result)) {
+        return recover(result.left!);
       }
       return map(result.right);
     });
@@ -510,19 +508,20 @@ export const IO = {
       let cache: Option<Either<Error, A>> = None;
 
       return IO.suspend(() => {
-        // With null-based Option, cache IS the value when it's not null
-        if (cache !== null) {
-          const cached = cache;
-          if (cached._tag === "Left") {
-            return IO.raiseError(cached.left);
+        // With zero-cost Option, cache is the Either value when Some, null when None
+        if (isSome(cache)) {
+          // isSome narrows cache to non-null; cast through unknown for opaque Option
+          const c = cache as unknown as Either<Error, A>;
+          if (isLeft(c)) {
+            return IO.raiseError(c.left!);
           }
-          return IO.pure(cached.right);
+          return IO.pure(c.right);
         }
 
         return IO.flatMap(IO.attempt(fa), (result) => {
           cache = Some(result);
-          if (result._tag === "Left") {
-            return IO.raiseError(result.left);
+          if (isLeft(result)) {
+            return IO.raiseError(result.left!);
           }
           return IO.pure(result.right);
         });
@@ -536,7 +535,7 @@ export const IO = {
   timeout<A>(fa: IO<A>, ms: number): IO<Option<A>> {
     return IO.map(
       IO.race(fa, IO.sleep(ms)),
-      (result): Option<A> => (result._tag === "Left" ? Some(result.left) : None)
+      (result): Option<A> => (isLeft(result) ? Some(result.left as A) : None)
     );
   },
 
@@ -569,32 +568,42 @@ export const IO = {
 // ============================================================================
 
 /**
- * Trampoline types for stack-safe interpretation
+ * Trampoline types for stack-safe interpretation.
+ *
+ * Uses field-based discrimination (PEP-014 Wave 4):
+ * - Done has `value: A` field
+ * - More has `thunk: () => Trampoline<A>` field
+ *
+ * No `_tag` needed since `value` vs `thunk` distinguishes variants.
  */
 type Trampoline<A> = Done<A> | More<A>;
 
 interface Done<A> {
-  readonly _tag: "Done";
   readonly value: A;
+  readonly thunk?: undefined;
 }
 
 interface More<A> {
-  readonly _tag: "More";
   readonly thunk: () => Trampoline<A>;
+  readonly value?: undefined;
 }
 
-const done = <A>(a: A): Done<A> => ({ _tag: "Done", value: a });
-const more = <A>(thunk: () => Trampoline<A>): More<A> => ({
-  _tag: "More",
-  thunk,
-});
+const done = <A>(a: A): Done<A> => ({ value: a });
+const more = <A>(thunk: () => Trampoline<A>): More<A> => ({ thunk });
+
+/**
+ * Check if trampoline is Done (has value)
+ */
+function isDone<A>(t: Trampoline<A>): t is Done<A> {
+  return "value" in t;
+}
 
 /**
  * Run a trampoline to completion
  */
 function runTrampoline<A>(t: Trampoline<A>): A {
   let current = t;
-  while (current._tag === "More") {
+  while (!isDone(current)) {
     current = current.thunk();
   }
   return current.value;
@@ -606,7 +615,7 @@ function runTrampoline<A>(t: Trampoline<A>): A {
 export function runIO<A>(io: IO<A>): Promise<A> {
   return new Promise((resolve, reject) => {
     runIOAsync(io, (result) => {
-      if (result._tag === "Left") {
+      if (isLeft(result)) {
         reject(result.left);
       } else {
         resolve(result.right);
@@ -662,8 +671,8 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
 
           case "Async": {
             const cancel = current.register((result) => {
-              if (result._tag === "Left") {
-                cb(Left(result.left));
+              if (isLeft(result)) {
+                cb(Left(result.left!));
               } else if (stack.length === 0) {
                 cb(Right(result.right as A));
               } else {
@@ -701,8 +710,8 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
 
             // Run the inner IO
             runIOAsync(he.fa, (result) => {
-              if (result._tag === "Left") {
-                current = he.handler(result.left);
+              if (isLeft(result)) {
+                current = he.handler(result.left!);
               } else {
                 current = IO.pure(result.right);
               }

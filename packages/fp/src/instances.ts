@@ -254,7 +254,8 @@ type EitherSemigroupK<E> = {
  * Uses concrete expanded types to avoid TypeScript's HKT recursion.
  */
 export const optionFunctor: OptionFunctor = {
-  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa !== null ? f(fa) : null),
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
+    (fa as any) !== null ? (f(fa as any) as any) : (null as any),
 };
 
 registerInstanceWithMeta({
@@ -272,10 +273,13 @@ registerInstanceWithMeta({
  */
 export const optionMonad: OptionMonad = {
   map: optionFunctor.map,
-  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> => (fa !== null ? f(fa) : null),
-  pure: <A>(a: A): Option<A> => a,
+  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
+    (fa as any) !== null ? f(fa as any) : (null as any),
+  pure: <A>(a: A): Option<A> => a as any,
   ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>): Option<B> =>
-    fab !== null && fa !== null ? fab(fa) : null,
+    (fab as any) !== null && (fa as any) !== null
+      ? ((fab as any)(fa as any) as any)
+      : (null as any),
 };
 
 registerInstanceWithMeta({
@@ -289,8 +293,10 @@ registerInstanceWithMeta({
  * Foldable instance for Option
  */
 export const optionFoldable: OptionFoldable = {
-  foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B): B => (fa !== null ? f(b, fa) : b),
-  foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B): B => (fa !== null ? f(fa, b) : b),
+  foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B): B =>
+    (fa as any) !== null ? f(b, fa as any) : b,
+  foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B): B =>
+    (fa as any) !== null ? f(fa as any, b) : b,
 };
 
 registerInstanceWithMeta({
@@ -309,10 +315,10 @@ export const optionTraverse: OptionTraverse = {
   traverse:
     <G>(G: Applicative<G>) =>
     <A, B>(fa: Option<A>, f: (a: A) => Kind<G, B>): Kind<G, Option<B>> => {
-      if (fa !== null) {
-        return G.map(f(fa), (b: B) => b as Option<B>);
+      if ((fa as any) !== null) {
+        return G.map(f(fa as any), (b: B) => b as any);
       }
-      return G.pure(null as Option<B>);
+      return G.pure(null as any);
     },
 };
 
@@ -327,7 +333,7 @@ registerInstanceWithMeta({
  * SemigroupK instance for Option (first Some wins)
  */
 export const optionSemigroupK: OptionSemigroupK = {
-  combineK: <A>(x: Option<A>, y: Option<A>): Option<A> => (x !== null ? x : y),
+  combineK: <A>(x: Option<A>, y: Option<A>): Option<A> => ((x as any) !== null ? x : y),
 };
 
 registerInstanceWithMeta({
@@ -342,7 +348,7 @@ registerInstanceWithMeta({
  */
 export const optionMonoidK: OptionMonoidK = {
   ...optionSemigroupK,
-  emptyK: <A>(): Option<A> => null,
+  emptyK: <A>(): Option<A> => null as any,
 };
 
 registerInstanceWithMeta({
@@ -535,7 +541,7 @@ registerInstanceWithMeta({
 export function eitherFunctor<E>(): EitherFunctor<E> {
   return {
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> =>
-      isRight(fa) ? Right(f(fa.right)) : fa,
+      isRight(fa) ? Right(f(fa.right)) : (fa as Left<E, B>),
   };
 }
 
@@ -547,11 +553,11 @@ export function eitherMonad<E>(): EitherMonad<E> {
   return {
     map: functor.map,
     flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> =>
-      isRight(fa) ? f(fa.right) : fa,
+      isRight(fa) ? f(fa.right) : (fa as Left<E, B>),
     pure: <A>(a: A): Either<E, A> => Right(a),
     ap: <A, B>(fab: Either<E, (a: A) => B>, fa: Either<E, A>): Either<E, B> => {
-      if (isLeft(fab)) return fab;
-      if (isLeft(fa)) return fa;
+      if (isLeft(fab)) return fab as Left<E, B>;
+      if (isLeft(fa)) return fa as Left<E, B>;
       return Right(fab.right(fa.right));
     },
   };
@@ -566,7 +572,7 @@ export function eitherMonadError<E>(): EitherMonadError<E> {
     ...monad,
     raiseError: <A>(e: E): Either<E, A> => Left(e),
     handleErrorWith: <A>(fa: Either<E, A>, f: (e: E) => Either<E, A>): Either<E, A> =>
-      isLeft(fa) ? f(fa.left) : fa,
+      isLeft(fa) ? f(fa.left!) : fa,
   };
 }
 
@@ -597,7 +603,7 @@ export function eitherTraverse<E>(): EitherTraverse<E> {
         if (isRight(fa)) {
           return G.map(f(fa.right), (b: B) => Right(b));
         }
-        return G.pure(fa as Either<E, B>);
+        return G.pure(fa as Left<E, B>);
       },
   };
 }
@@ -653,8 +659,10 @@ import { map as validatedMap, andThen as validatedFlatMap } from "./data/validat
  */
 export const flatMapOption = {
   _tag: "Option" as const,
-  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa !== null ? f(fa) : null),
-  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> => (fa !== null ? f(fa) : null),
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
+    (fa as any) !== null ? (f(fa as any) as any) : (null as any),
+  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
+    (fa as any) !== null ? f(fa as any) : (null as any),
 };
 
 registerInstanceWithMeta({
@@ -671,9 +679,9 @@ export function flatMapEither<E>() {
   return {
     _tag: "Either" as const,
     map: <A, B>(fa: Either<E, A>, f: (a: A) => B): Either<E, B> =>
-      isRight(fa) ? Right(f(fa.right)) : fa,
+      isRight(fa) ? Right(f(fa.right)) : (fa as Left<E, B>),
     flatMap: <A, B>(fa: Either<E, A>, f: (a: A) => Either<E, B>): Either<E, B> =>
-      isRight(fa) ? f(fa.right) : fa,
+      isRight(fa) ? f(fa.right) : (fa as Left<E, B>),
   };
 }
 

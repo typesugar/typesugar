@@ -11,6 +11,7 @@
  * ```
  */
 
+import { match } from "@typesugar/std";
 import type { Expression } from "./expression.js";
 import type { Bindings, FunctionName } from "./types.js";
 
@@ -52,48 +53,30 @@ function evalNode<T>(
   bindings: Bindings,
   opts: Required<EvaluateOptions>
 ): number {
-  switch (expr.kind) {
-    case "constant":
-      return expr.value;
-
-    case "variable":
-      return evalVariable(expr.name, bindings, opts);
-
-    case "binary":
-      return evalBinary(
-        expr.op,
-        evalNode(expr.left, bindings, opts),
-        evalNode(expr.right, bindings, opts)
-      );
-
-    case "unary":
-      return evalUnary(expr.op, evalNode(expr.arg, bindings, opts));
-
-    case "function":
-      return evalFunction(expr.fn, evalNode(expr.arg, bindings, opts));
-
-    case "derivative":
+  return match(expr, {
+    constant: ({ value }) => value,
+    variable: ({ name }) => evalVariable(name, bindings, opts),
+    binary: ({ op, left, right }) =>
+      evalBinary(op, evalNode(left, bindings, opts), evalNode(right, bindings, opts)),
+    unary: ({ op, arg }) => evalUnary(op, evalNode(arg, bindings, opts)),
+    function: ({ fn, arg }) => evalFunction(fn, evalNode(arg, bindings, opts)),
+    derivative: () => {
       throw new Error(
         "Cannot evaluate unevaluated derivative. Use diff() to compute the derivative first."
       );
-
-    case "integral":
+    },
+    integral: () => {
       throw new Error(
         "Cannot evaluate unevaluated integral. Use integrate() to compute the integral first."
       );
-
-    case "limit":
-      return evalLimit(expr, bindings, opts);
-
-    case "equation":
+    },
+    limit: (e) => evalLimit(e, bindings, opts),
+    equation: () => {
       throw new Error("Cannot evaluate an equation to a number. Use solve() instead.");
-
-    case "sum":
-      return evalSum(expr, bindings, opts);
-
-    case "product":
-      return evalProduct(expr, bindings, opts);
-  }
+    },
+    sum: (e) => evalSum(e, bindings, opts),
+    product: (e) => evalProduct(e, bindings, opts),
+  });
 }
 
 function evalVariable(name: string, bindings: Bindings, opts: Required<EvaluateOptions>): number {
@@ -284,110 +267,90 @@ export function partialEvaluate<T>(expr: Expression<T>, bindings: Bindings): Exp
 }
 
 function partialEvalNode<T>(expr: Expression<T>, bindings: Bindings): Expression<T> {
-  switch (expr.kind) {
-    case "constant":
-      return expr;
-
-    case "variable":
-      if (expr.name in bindings) {
-        return { kind: "constant", value: bindings[expr.name] } as Expression<T>;
+  return match(expr, {
+    constant: () => expr,
+    variable: ({ name }) => {
+      if (name in bindings) {
+        return { kind: "constant", value: bindings[name] } as Expression<T>;
       }
       return expr;
-
-    case "binary": {
-      const left = partialEvalNode(expr.left, bindings);
-      const right = partialEvalNode(expr.right, bindings);
-
-      // If both sides are constants, evaluate
+    },
+    binary: (e) => {
+      const left = partialEvalNode(e.left, bindings);
+      const right = partialEvalNode(e.right, bindings);
       if (left.kind === "constant" && right.kind === "constant") {
-        const result = evalBinary(expr.op, left.value, right.value);
+        const result = evalBinary(e.op, left.value, right.value);
         return { kind: "constant", value: result } as Expression<T>;
       }
-
-      return { ...expr, left, right } as Expression<T>;
-    }
-
-    case "unary": {
-      const arg = partialEvalNode(expr.arg, bindings);
-
+      return { ...e, left, right } as Expression<T>;
+    },
+    unary: (e) => {
+      const arg = partialEvalNode(e.arg, bindings);
       if (arg.kind === "constant") {
-        const result = evalUnary(expr.op, arg.value);
+        const result = evalUnary(e.op, arg.value);
         return { kind: "constant", value: result } as Expression<T>;
       }
-
-      return { ...expr, arg } as Expression<T>;
-    }
-
-    case "function": {
-      const arg = partialEvalNode(expr.arg, bindings);
-
+      return { ...e, arg } as Expression<T>;
+    },
+    function: (e) => {
+      const arg = partialEvalNode(e.arg, bindings);
       if (arg.kind === "constant") {
-        const result = evalFunction(expr.fn, arg.value);
+        const result = evalFunction(e.fn, arg.value);
         return { kind: "constant", value: result } as Expression<T>;
       }
-
-      return { ...expr, arg } as Expression<T>;
-    }
-
-    case "derivative":
-    case "integral":
-    case "limit":
-      return { ...expr, expr: partialEvalNode(expr.expr, bindings) } as Expression<T>;
-
-    case "equation":
-      return {
-        ...expr,
-        left: partialEvalNode(expr.left, bindings),
-        right: partialEvalNode(expr.right, bindings),
-      } as Expression<T>;
-
-    case "sum":
-    case "product":
-      return {
-        ...expr,
-        expr: partialEvalNode(expr.expr, bindings),
-        from: partialEvalNode(expr.from, bindings),
-        to: partialEvalNode(expr.to, bindings),
-      } as Expression<T>;
-  }
+      return { ...e, arg } as Expression<T>;
+    },
+    derivative: (e) => ({ ...e, expr: partialEvalNode(e.expr, bindings) }) as Expression<T>,
+    integral: (e) => ({ ...e, expr: partialEvalNode(e.expr, bindings) }) as Expression<T>,
+    limit: (e) => ({ ...e, expr: partialEvalNode(e.expr, bindings) }) as Expression<T>,
+    equation: (e) =>
+      ({
+        ...e,
+        left: partialEvalNode(e.left, bindings),
+        right: partialEvalNode(e.right, bindings),
+      }) as Expression<T>,
+    sum: (e) =>
+      ({
+        ...e,
+        expr: partialEvalNode(e.expr, bindings),
+        from: partialEvalNode(e.from, bindings),
+        to: partialEvalNode(e.to, bindings),
+      }) as Expression<T>,
+    product: (e) =>
+      ({
+        ...e,
+        expr: partialEvalNode(e.expr, bindings),
+        from: partialEvalNode(e.from, bindings),
+        to: partialEvalNode(e.to, bindings),
+      }) as Expression<T>,
+  });
 }
 
 /**
  * Check if an expression can be fully evaluated (all variables are bound).
  */
 export function canEvaluate<T>(expr: Expression<T>, bindings: Bindings): boolean {
-  switch (expr.kind) {
-    case "constant":
-      return true;
-
-    case "variable":
-      return expr.name in bindings;
-
-    case "binary":
-      return canEvaluate(expr.left, bindings) && canEvaluate(expr.right, bindings);
-
-    case "unary":
-    case "function":
-      return canEvaluate(expr.arg, bindings);
-
-    case "derivative":
-    case "integral":
-      return false; // Need to compute first
-
-    case "limit":
-      return canEvaluate(expr.expr, bindings);
-
-    case "equation":
-      return canEvaluate(expr.left, bindings) && canEvaluate(expr.right, bindings);
-
-    case "sum":
-    case "product":
-      // We can evaluate if bounds are constant and the inner expression
-      // can be evaluated when the iteration variable is bound
-      if (!canEvaluate(expr.from, bindings) || !canEvaluate(expr.to, bindings)) {
+  return match(expr, {
+    constant: () => true,
+    variable: ({ name }) => name in bindings,
+    binary: ({ left, right }) => canEvaluate(left, bindings) && canEvaluate(right, bindings),
+    unary: ({ arg }) => canEvaluate(arg, bindings),
+    function: ({ arg }) => canEvaluate(arg, bindings),
+    derivative: () => false,
+    integral: () => false,
+    limit: ({ expr: e }) => canEvaluate(e, bindings),
+    equation: ({ left, right }) => canEvaluate(left, bindings) && canEvaluate(right, bindings),
+    sum: (e) => {
+      if (!canEvaluate(e.from, bindings) || !canEvaluate(e.to, bindings)) {
         return false;
       }
-      // The inner expression will have the iteration variable bound
-      return canEvaluate(expr.expr, { ...bindings, [expr.variable]: 0 });
-  }
+      return canEvaluate(e.expr, { ...bindings, [e.variable]: 0 });
+    },
+    product: (e) => {
+      if (!canEvaluate(e.from, bindings) || !canEvaluate(e.to, bindings)) {
+        return false;
+      }
+      return canEvaluate(e.expr, { ...bindings, [e.variable]: 0 });
+    },
+  });
 }

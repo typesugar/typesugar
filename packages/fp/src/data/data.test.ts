@@ -27,6 +27,8 @@ import {
   reverse,
   append,
   length,
+  isCons,
+  isNil,
 } from "./list.js";
 
 // ============================================================================
@@ -82,26 +84,34 @@ describe("Either", () => {
   describe("constructors", () => {
     it("Right should wrap a success value", () => {
       const either = Right(42);
-      expect(either._tag).toBe("Right");
-      expect((either as { right: number }).right).toBe(42);
+      // Field-based discrimination: Right has .right field
+      expect(either.right).toBe(42);
+      expect(either.left).toBeUndefined();
     });
 
     it("Left should wrap an error value", () => {
       const either = Left("error");
-      expect(either._tag).toBe("Left");
-      expect((either as { left: string }).left).toBe("error");
+      // Field-based discrimination: Left has .left field
+      expect(either.left).toBe("error");
+      expect(either.right).toBeUndefined();
     });
 
     it("fromNullable should convert null to Left", () => {
       const either = eitherFromNullable(null, () => "was null");
       expect(isLeft(either)).toBe(true);
-      expect((either as { left: string }).left).toBe("was null");
+      // Native narrowing works after isLeft check
+      if (isLeft(either)) {
+        expect(either.left).toBe("was null");
+      }
     });
 
     it("fromNullable should convert value to Right", () => {
       const either = eitherFromNullable(42, () => "was null");
       expect(isRight(either)).toBe(true);
-      expect((either as { right: number }).right).toBe(42);
+      // Native narrowing works after isRight check
+      if (isRight(either)) {
+        expect(either.right).toBe(42);
+      }
     });
   });
 
@@ -116,6 +126,34 @@ describe("Either", () => {
       expect(isLeft(Right(42))).toBe(false);
     });
   });
+
+  describe("field-based narrowing", () => {
+    it("should narrow via e.right !== undefined", () => {
+      const e: Either<string, number> = Right(42);
+      if (e.right !== undefined) {
+        // TypeScript narrows to Right
+        expect(e.right).toBe(42);
+      }
+    });
+
+    it("should narrow via e.left !== undefined", () => {
+      const e: Either<string, number> = Left("oops");
+      if (e.left !== undefined) {
+        // TypeScript narrows to Left
+        expect(e.left).toBe("oops");
+      }
+    });
+
+    it("should allow safe access on union (returns undefined)", () => {
+      const r: Either<string, number> = Right(42);
+      const l: Either<string, number> = Left("oops");
+      // Before narrowing, both fields are accessible but one is undefined
+      expect(r.right).toBe(42);
+      expect(r.left).toBeUndefined();
+      expect(l.left).toBe("oops");
+      expect(l.right).toBeUndefined();
+    });
+  });
 });
 
 // ============================================================================
@@ -124,13 +162,16 @@ describe("Either", () => {
 
 describe("List", () => {
   describe("constructors", () => {
-    it("Nil should represent empty list", () => {
-      expect(Nil._tag).toBe("Nil");
+    it("Nil should represent empty list (null at runtime)", () => {
+      // PEP-014 Wave 2: Nil is null at runtime for zero-cost empty
+      expect(Nil).toBe(null);
     });
 
-    it("Cons should construct a list", () => {
+    it("Cons should construct a list with head/tail (no _tag)", () => {
       const list = Cons(1, Cons(2, Cons(3, Nil)));
-      expect(list._tag).toBe("Cons");
+      // PEP-014 Wave 2: Cons has head/tail fields, no _tag
+      expect(list.head).toBe(1);
+      expect(list.tail).not.toBe(null);
     });
 
     it("fromArray should convert array to list", () => {
@@ -162,7 +203,7 @@ describe("List", () => {
       const t = tail(list);
       expect(isSome(t)).toBe(true);
       // Zero-cost: t IS the list when it's Some
-      expect(toArray(t as List<number>)).toEqual([2, 3]);
+      expect(toArray(t as unknown as List<number>)).toEqual([2, 3]);
     });
 
     it("tail of empty list should be None", () => {
@@ -184,7 +225,8 @@ describe("List", () => {
 
     it("map on empty list should return empty", () => {
       const mapped = listMap(Nil as List<number>, (x) => x * 2);
-      expect(mapped).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(mapped).toBe(null);
     });
   });
 
@@ -197,7 +239,8 @@ describe("List", () => {
 
     it("flatMap on empty list should return empty", () => {
       const result = listFlatMap(Nil as List<number>, (x) => fromArray([x]));
-      expect(result).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(result).toBe(null);
     });
   });
 
@@ -210,7 +253,8 @@ describe("List", () => {
 
     it("filter on empty list should return empty", () => {
       const filtered = listFilter(Nil as List<number>, (x) => x > 0);
-      expect(filtered).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(filtered).toBe(null);
     });
   });
 
@@ -248,7 +292,8 @@ describe("List", () => {
     });
 
     it("reverse of empty list should be empty", () => {
-      expect(reverse(Nil)).toBe(Nil);
+      // PEP-014 Wave 2: Empty list is null at runtime
+      expect(reverse(Nil)).toBe(null);
     });
 
     it("append should concatenate lists", () => {
@@ -262,6 +307,28 @@ describe("List", () => {
       const list = fromArray([1, 2, 3]);
       expect(toArray(append(Nil, list))).toEqual([1, 2, 3]);
       expect(toArray(append(list, Nil))).toEqual([1, 2, 3]);
+    });
+  });
+
+  describe("type guards", () => {
+    it("isCons should identify non-empty lists", () => {
+      const list = Cons(1, Nil);
+      expect(isCons(list)).toBe(true);
+      expect(isCons(Nil)).toBe(false);
+    });
+
+    it("isNil should identify empty lists", () => {
+      expect(isNil(Nil)).toBe(true);
+      expect(isNil(Cons(1, Nil))).toBe(false);
+    });
+
+    it("null-check should narrow to Cons", () => {
+      const list: List<number> = Cons(1, Cons(2, Nil));
+      if (list !== null) {
+        // TypeScript narrows to Cons
+        expect(list.head).toBe(1);
+        expect(list.tail).not.toBe(null);
+      }
     });
   });
 

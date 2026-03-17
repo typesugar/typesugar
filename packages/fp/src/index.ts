@@ -1,26 +1,25 @@
 /**
  * @typesugar/fp — Functional Programming for TypeScript
  *
- * Zero-cost FP with implicit extension methods.
+ * Zero-cost FP with dot-syntax extension methods via @opaque type macros.
  *
  * @example
  * ```typescript
- * // Import constructors and utilities from main package
  * import { Some, None, Right, Left, pipe } from '@typesugar/fp';
+ * import type { Option, Either } from '@typesugar/fp';
  *
- * // Import operation namespaces for extension syntax
- * import * as O from '@typesugar/fp/data/option';
- * import * as E from '@typesugar/fp/data/either';
+ * // Dot syntax works directly — no namespace imports needed.
+ * // The type rewrite registry resolves methods automatically:
+ * //   Some(5).map(f)  →  map(Some(5), f)
  *
- * // Extension methods work via namespace imports
- * // x.map(f) → O.map(x, f) when O is in scope
+ * const output = Some(5)
+ *   .map(n => n * 2)
+ *   .filter(n => n > 5)
+ *   .getOrElse(() => 0);
  *
- * const output = pipe(
- *   Some(5),
- *   x => O.map(x, n => n * 2),
- *   x => O.filter(x, n => n > 5),
- *   x => O.getOrElse(x, () => 0)
- * );
+ * const validated = Right<string, number>(42)
+ *   .map(n => n * 2)
+ *   .flatMap(n => n > 50 ? Right(n) : Left("too small"));
  * ```
  */
 
@@ -139,6 +138,36 @@ export {
   getShow as getValidatedShow,
   getSemigroup as getValidatedSemigroup,
 } from "./data/validated.js";
+
+// ============================================================================
+// RemoteData — Async data state (PEP-014 Wave 4 example)
+// ============================================================================
+
+export type {
+  RemoteData,
+  RemoteDataF,
+  NotAsked,
+  Loading,
+  Failure,
+  Success,
+} from "./data/remote-data.js";
+export {
+  NotAsked as RemoteNotAsked,
+  Loading as RemoteLoading,
+  Failure as RemoteFailure,
+  Success as RemoteSuccess,
+  isNotAsked,
+  isLoading,
+  isFailure,
+  isSuccess,
+  isComplete,
+  isPending,
+} from "./data/remote-data.js";
+export {
+  getEq as getRemoteDataEq,
+  getOrd as getRemoteDataOrd,
+  getShow as getRemoteDataShow,
+} from "./data/remote-data.js";
 
 // ============================================================================
 // State — Stateful computation

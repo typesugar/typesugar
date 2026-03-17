@@ -430,6 +430,36 @@ function formatResultIndicator(result: ResolutionAttempt["result"]): string {
 }
 
 /**
+ * Recursively find the first failing field-check in an attempt tree.
+ */
+function findFailingFieldCheck(attempt: ResolutionAttempt): string | undefined {
+  if (attempt.step === "field-check" && attempt.result === "rejected") {
+    const match = attempt.target.match(/field `(\w+)`: (\w+)/);
+    if (match) return match[2]; // fieldType
+  }
+  if (attempt.children) {
+    for (const child of attempt.children) {
+      const fieldType = findFailingFieldCheck(child);
+      if (fieldType) return fieldType;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Recursively find generic-meta not-found in an attempt tree.
+ */
+function findGenericMetaNotFound(attempt: ResolutionAttempt): boolean {
+  if (attempt.step === "generic-meta" && attempt.result === "not-found") return true;
+  if (attempt.children) {
+    for (const child of attempt.children) {
+      if (findGenericMetaNotFound(child)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Generate a help message based on the resolution trace.
  * Identifies the most specific actionable fix.
  */
@@ -440,21 +470,20 @@ export function generateHelpFromTrace(
 ): string {
   // Find the most specific failure
   for (const attempt of trace.attempts) {
-    if (attempt.step === "auto-derive" && attempt.children) {
-      // Look for a failing field check
+    const isAutoDerive =
+      attempt.step === "auto-derive" || attempt.step === "auto-derive via Generic";
+
+    if (isAutoDerive && attempt.children) {
+      // Recursively look for a failing field check (may be under generic-meta)
       for (const child of attempt.children) {
-        if (child.result === "rejected" && child.step === "field-check") {
-          // Extract the field type from the target (e.g., "field `color`: Color")
-          const match = child.target.match(/field `(\w+)`: (\w+)/);
-          if (match) {
-            const [, fieldName, fieldType] = match;
-            return `Add @derive(${typeclassName}) to ${fieldType}, or provide @instance ${typeclassName}<${fieldType}>`;
-          }
+        const fieldType = findFailingFieldCheck(child);
+        if (fieldType) {
+          return `Add @derive(${typeclassName}) to ${fieldType}, or provide @instance ${typeclassName}<${fieldType}>`;
         }
       }
 
-      // Generic meta not found
-      if (attempt.result === "not-found") {
+      // Generic meta not found (recursively)
+      if (findGenericMetaNotFound(attempt)) {
         return `Ensure ${typeName} is defined in the current file or imported`;
       }
     }

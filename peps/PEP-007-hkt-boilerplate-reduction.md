@@ -386,14 +386,14 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 
 **Gate:**
 
-- [ ] `interface Functor<F> { map<A, B>(fa: F<A>, f: (a: A) => B): F<B>; }` works in IDE
-- [ ] Same works with unplugin (bundlers)
-- [ ] Same works with `tsc` + ts-patch (no TS2315 errors)
-- [ ] Same works in oxc engine
-- [ ] Concrete generics (`Array<A>`, `Promise<A>`) are NOT rewritten
-- [ ] Nested `F<F<A>>` rewrites correctly
-- [ ] Existing `Kind<F, A>` usage still works (no regression)
-- [ ] Source maps correctly map rewritten positions to original
+- [x] `interface Functor<F> { map<A, B>(fa: F<A>, f: (a: A) => B): F<B>; }` works in IDE
+- [x] Same works with unplugin (bundlers)
+- [x] Same works with `tsc` + ts-patch (no TS2315 errors)
+- [x] Same works in oxc engine
+- [x] Concrete generics (`Array<A>`, `Promise<A>`) are NOT rewritten
+- [x] Nested `F<F<A>>` rewrites correctly
+- [x] Existing `Kind<F, A>` usage still works (no regression)
+- [x] Source maps correctly map rewritten positions to original
 
 ### Wave 5: Documentation and Migration (~10 files)
 

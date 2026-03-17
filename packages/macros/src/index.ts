@@ -26,6 +26,13 @@ import "./tailrec.js";
 import "./hkt.js"; // Higher-Kinded Type F<_> syntax support
 import "./verify-laws.js"; // Typeclass law verification
 import "./extension.js"; // Standalone extension methods for concrete types
+import "./opaque.js"; // @opaque type macro (PEP-012)
+import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
+
+// --- SFINAE rules ---
+// NOTE: sfinae-rules.ts is NOT imported as a side-effect module.
+// Rules are registered explicitly during transformer/language-service init.
+// See createExtensionMethodCallRule() export below.
 
 // --- Testing macros ---
 // NOTE: @typesugar/testing/macros is NOT imported here to avoid duplicate
@@ -353,6 +360,19 @@ export {
   standaloneExtensionRegistry,
   type StandaloneExtensionInfo,
 } from "./extension.js";
+
+// --- Opaque type macro (PEP-012) ---
+export { opaqueAttribute } from "./opaque.js";
+
+// --- ADT macro (PEP-014) ---
+export { adtAttribute } from "./adt.js";
+
+// --- SFINAE Rules ---
+export {
+  createExtensionMethodCallRule,
+  createNewtypeAssignmentRule,
+  createTypeRewriteAssignmentRule,
+} from "./sfinae-rules.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
 // HKT enables typeclasses parameterized by type constructors (F<_>).

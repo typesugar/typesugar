@@ -12,6 +12,7 @@
  * ```
  */
 
+import { match } from "@typesugar/std";
 import type {
   BinaryOpSymbol,
   UnaryOpSymbol,
@@ -306,53 +307,64 @@ function traverseVariables<T>(
   }
 
   function collect(e: Expression<unknown>): void {
-    switch (e.kind) {
-      case "constant":
-        break;
-      case "variable":
-        if (!isBound(e.name)) {
-          vars.add(e.name);
+    match(e, {
+      constant: () => {},
+      variable: ({ name }) => {
+        if (!isBound(name)) {
+          vars.add(name);
         }
-        break;
-      case "binary":
-        collect(e.left);
-        collect(e.right);
-        break;
-      case "unary":
-      case "function":
-        collect(e.arg);
-        break;
-      case "derivative":
-      case "integral":
+      },
+      binary: ({ left, right }) => {
+        collect(left);
+        collect(right);
+      },
+      unary: ({ arg }) => collect(arg),
+      function: ({ arg }) => collect(arg),
+      derivative: ({ variable, expr }) => {
         if (includeBound) {
-          vars.add(e.variable);
+          vars.add(variable);
         }
-        collect(e.expr);
-        break;
-      case "limit":
+        collect(expr);
+      },
+      integral: ({ variable, expr }) => {
         if (includeBound) {
-          vars.add(e.variable);
+          vars.add(variable);
         }
-        enterScope(e.variable);
-        collect(e.expr);
-        exitScope(e.variable);
-        break;
-      case "equation":
-        collect(e.left);
-        collect(e.right);
-        break;
-      case "sum":
-      case "product":
+        collect(expr);
+      },
+      limit: ({ variable, expr }) => {
         if (includeBound) {
-          vars.add(e.variable);
+          vars.add(variable);
         }
-        collect(e.from);
-        collect(e.to);
-        enterScope(e.variable);
-        collect(e.expr);
-        exitScope(e.variable);
-        break;
-    }
+        enterScope(variable);
+        collect(expr);
+        exitScope(variable);
+      },
+      equation: ({ left, right }) => {
+        collect(left);
+        collect(right);
+      },
+      sum: ({ variable, expr, from, to }) => {
+        if (includeBound) {
+          vars.add(variable);
+        }
+        collect(from);
+        collect(to);
+        enterScope(variable);
+        collect(expr);
+        exitScope(variable);
+      },
+      product: ({ variable, expr, from, to }) => {
+        if (includeBound) {
+          vars.add(variable);
+        }
+        collect(from);
+        collect(to);
+        enterScope(variable);
+        collect(expr);
+        exitScope(variable);
+      },
+    });
   }
 
   collect(expr);
@@ -386,42 +398,41 @@ export function hasVariable<T>(expr: Expression<T>, varName: string): boolean {
   const bound = new Map<string, number>();
 
   function search(e: Expression<unknown>): boolean {
-    switch (e.kind) {
-      case "constant":
-        return false;
-      case "variable":
-        if (e.name === varName && (!bound.has(e.name) || bound.get(e.name) === 0)) {
-          return true;
-        }
-        return false;
-      case "binary":
-        return search(e.left) || search(e.right);
-      case "unary":
-      case "function":
-        return search(e.arg);
-      case "derivative":
-      case "integral":
-        return search(e.expr);
-      case "limit":
-        return search(e.expr);
-      case "equation":
-        return search(e.left) || search(e.right);
-      case "sum":
-      case "product": {
-        // from/to are evaluated in the outer scope (before variable is bound)
-        if (search(e.from) || search(e.to)) return true;
-        // Variable is bound in the body
-        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
-        const found = search(e.expr);
-        const count = bound.get(e.variable)! - 1;
+    return match(e, {
+      constant: () => false,
+      variable: ({ name }) => name === varName && (!bound.has(name) || bound.get(name) === 0),
+      binary: ({ left, right }) => search(left) || search(right),
+      unary: ({ arg }) => search(arg),
+      function: ({ arg }) => search(arg),
+      derivative: ({ expr }) => search(expr),
+      integral: ({ expr }) => search(expr),
+      limit: ({ expr }) => search(expr),
+      equation: ({ left, right }) => search(left) || search(right),
+      sum: ({ variable, expr, from, to }) => {
+        if (search(from) || search(to)) return true;
+        bound.set(variable, (bound.get(variable) ?? 0) + 1);
+        const found = search(expr);
+        const count = bound.get(variable)! - 1;
         if (count === 0) {
-          bound.delete(e.variable);
+          bound.delete(variable);
         } else {
-          bound.set(e.variable, count);
+          bound.set(variable, count);
         }
         return found;
-      }
-    }
+      },
+      product: ({ variable, expr, from, to }) => {
+        if (search(from) || search(to)) return true;
+        bound.set(variable, (bound.get(variable) ?? 0) + 1);
+        const found = search(expr);
+        const count = bound.get(variable)! - 1;
+        if (count === 0) {
+          bound.delete(variable);
+        } else {
+          bound.set(variable, count);
+        }
+        return found;
+      },
+    });
   }
 
   return search(expr);
@@ -435,39 +446,41 @@ export function isPureConstant<T>(expr: Expression<T>): boolean {
   const bound = new Map<string, number>();
 
   function hasAnyVariable(e: Expression<unknown>): boolean {
-    switch (e.kind) {
-      case "constant":
-        return false;
-      case "variable":
-        return !bound.has(e.name) || bound.get(e.name) === 0;
-      case "binary":
-        return hasAnyVariable(e.left) || hasAnyVariable(e.right);
-      case "unary":
-      case "function":
-        return hasAnyVariable(e.arg);
-      case "derivative":
-      case "integral":
-        return hasAnyVariable(e.expr);
-      case "limit":
-        return hasAnyVariable(e.expr);
-      case "equation":
-        return hasAnyVariable(e.left) || hasAnyVariable(e.right);
-      case "sum":
-      case "product": {
-        // from/to are evaluated in the outer scope (before variable is bound)
-        if (hasAnyVariable(e.from) || hasAnyVariable(e.to)) return true;
-        // Variable is bound in the body
-        bound.set(e.variable, (bound.get(e.variable) ?? 0) + 1);
-        const found = hasAnyVariable(e.expr);
-        const count = bound.get(e.variable)! - 1;
+    return match(e, {
+      constant: () => false,
+      variable: ({ name }) => !bound.has(name) || bound.get(name) === 0,
+      binary: ({ left, right }) => hasAnyVariable(left) || hasAnyVariable(right),
+      unary: ({ arg }) => hasAnyVariable(arg),
+      function: ({ arg }) => hasAnyVariable(arg),
+      derivative: ({ expr }) => hasAnyVariable(expr),
+      integral: ({ expr }) => hasAnyVariable(expr),
+      limit: ({ expr }) => hasAnyVariable(expr),
+      equation: ({ left, right }) => hasAnyVariable(left) || hasAnyVariable(right),
+      sum: ({ variable, expr, from, to }) => {
+        if (hasAnyVariable(from) || hasAnyVariable(to)) return true;
+        bound.set(variable, (bound.get(variable) ?? 0) + 1);
+        const found = hasAnyVariable(expr);
+        const count = bound.get(variable)! - 1;
         if (count === 0) {
-          bound.delete(e.variable);
+          bound.delete(variable);
         } else {
-          bound.set(e.variable, count);
+          bound.set(variable, count);
         }
         return found;
-      }
-    }
+      },
+      product: ({ variable, expr, from, to }) => {
+        if (hasAnyVariable(from) || hasAnyVariable(to)) return true;
+        bound.set(variable, (bound.get(variable) ?? 0) + 1);
+        const found = hasAnyVariable(expr);
+        const count = bound.get(variable)! - 1;
+        if (count === 0) {
+          bound.delete(variable);
+        } else {
+          bound.set(variable, count);
+        }
+        return found;
+      },
+    });
   }
 
   return !hasAnyVariable(expr);
@@ -477,50 +490,36 @@ export function isPureConstant<T>(expr: Expression<T>): boolean {
  * Count the depth of the expression tree.
  */
 export function depth<T>(expr: Expression<T>): number {
-  switch (expr.kind) {
-    case "constant":
-    case "variable":
-      return 1;
-    case "binary":
-      return 1 + Math.max(depth(expr.left), depth(expr.right));
-    case "unary":
-    case "function":
-      return 1 + depth(expr.arg);
-    case "derivative":
-    case "integral":
-      return 1 + depth(expr.expr);
-    case "limit":
-      return 1 + depth(expr.expr);
-    case "equation":
-      return 1 + Math.max(depth(expr.left), depth(expr.right));
-    case "sum":
-    case "product":
-      return 1 + Math.max(depth(expr.expr), depth(expr.from), depth(expr.to));
-  }
+  return match(expr, {
+    constant: () => 1,
+    variable: () => 1,
+    binary: ({ left, right }) => 1 + Math.max(depth(left), depth(right)),
+    unary: ({ arg }) => 1 + depth(arg),
+    function: ({ arg }) => 1 + depth(arg),
+    derivative: ({ expr }) => 1 + depth(expr),
+    integral: ({ expr }) => 1 + depth(expr),
+    limit: ({ expr }) => 1 + depth(expr),
+    equation: ({ left, right }) => 1 + Math.max(depth(left), depth(right)),
+    sum: ({ expr, from, to }) => 1 + Math.max(depth(expr), depth(from), depth(to)),
+    product: ({ expr, from, to }) => 1 + Math.max(depth(expr), depth(from), depth(to)),
+  });
 }
 
 /**
  * Count the number of nodes in the expression tree.
  */
 export function nodeCount<T>(expr: Expression<T>): number {
-  switch (expr.kind) {
-    case "constant":
-    case "variable":
-      return 1;
-    case "binary":
-      return 1 + nodeCount(expr.left) + nodeCount(expr.right);
-    case "unary":
-    case "function":
-      return 1 + nodeCount(expr.arg);
-    case "derivative":
-    case "integral":
-      return 1 + nodeCount(expr.expr);
-    case "limit":
-      return 1 + nodeCount(expr.expr);
-    case "equation":
-      return 1 + nodeCount(expr.left) + nodeCount(expr.right);
-    case "sum":
-    case "product":
-      return 1 + nodeCount(expr.expr) + nodeCount(expr.from) + nodeCount(expr.to);
-  }
+  return match(expr, {
+    constant: () => 1,
+    variable: () => 1,
+    binary: ({ left, right }) => 1 + nodeCount(left) + nodeCount(right),
+    unary: ({ arg }) => 1 + nodeCount(arg),
+    function: ({ arg }) => 1 + nodeCount(arg),
+    derivative: ({ expr }) => 1 + nodeCount(expr),
+    integral: ({ expr }) => 1 + nodeCount(expr),
+    limit: ({ expr }) => 1 + nodeCount(expr),
+    equation: ({ left, right }) => 1 + nodeCount(left) + nodeCount(right),
+    sum: ({ expr, from, to }) => 1 + nodeCount(expr) + nodeCount(from) + nodeCount(to),
+    product: ({ expr, from, to }) => 1 + nodeCount(expr) + nodeCount(from) + nodeCount(to),
+  });
 }

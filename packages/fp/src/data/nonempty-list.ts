@@ -20,11 +20,14 @@ import type { Semigroup } from "../typeclasses/semigroup.js";
 // ============================================================================
 
 /**
- * NonEmptyList - guaranteed to have at least one element
+ * NonEmptyList — guaranteed to have at least one element.
+ *
+ * This is NOT a sum type (single variant), so no `_tag` is needed.
+ * PEP-014 Wave 4: Removed unnecessary `_tag` field.
+ *
  * @hkt
  */
 export interface NonEmptyList<A> {
-  readonly _tag: "NonEmptyList";
   readonly head: A;
   readonly tail: List<A>;
 }
@@ -46,7 +49,7 @@ export interface NonEmptyListF extends TypeFunction {
  * Create a NonEmptyList
  */
 export function NonEmptyList<A>(head: A, tail: List<A>): NonEmptyList<A> {
-  return { _tag: "NonEmptyList", head, tail };
+  return { head, tail };
 }
 
 /**
@@ -75,7 +78,8 @@ export function fromArray<A>(arr: readonly A[]): Option<NonEmptyList<A>> {
  * Create a NonEmptyList from a List (fails if empty)
  */
 export function fromList<A>(list: List<A>): Option<NonEmptyList<A>> {
-  if (L.isNil(list)) return None;
+  // PEP-014 Wave 2: List uses null-based Nil
+  if (list === null) return None;
   return Some(NonEmptyList(list.head, list.tail));
 }
 
@@ -120,8 +124,7 @@ export function tail<A>(nel: NonEmptyList<A>): List<A> {
  */
 export function last<A>(nel: NonEmptyList<A>): A {
   const listLast = L.last(nel.tail);
-  // With null-based Option, listLast IS the value when it's not null
-  return isSome(listLast) ? listLast : nel.head;
+  return isSome(listLast) ? (listLast as any) : nel.head;
 }
 
 /**
@@ -309,7 +312,8 @@ export function reduceRight<A>(nel: NonEmptyList<A>, f: (a: A, b: A) => A): A {
 }
 
 function unsafeFromList<A>(list: List<A>): NonEmptyList<A> {
-  if (L.isNil(list)) throw new Error("Cannot create NonEmptyList from empty list");
+  // PEP-014 Wave 2: List uses null-based Nil
+  if (list === null) throw new Error("Cannot create NonEmptyList from empty list");
   return NonEmptyList(list.head, list.tail);
 }
 
@@ -406,8 +410,7 @@ export function traverse<A, B>(
   const tailResult = L.traverse(nel.tail, f);
   if (!isSome(tailResult)) return None;
 
-  // With null-based Option, the results ARE the values when they're not null
-  return Some(NonEmptyList(headResult, tailResult));
+  return Some(NonEmptyList(headResult as any, tailResult as any));
 }
 
 /**

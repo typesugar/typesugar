@@ -22,7 +22,7 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, createRemoveExpression } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
 import { TS9217, TS9219 } from "@typesugar/core";
@@ -47,7 +47,7 @@ export const staticAssertMacro = defineExpressionMacro({
         callExpr,
         "staticAssert expects 1-2 arguments: staticAssert(condition, message?)"
       );
-      return ctx.factory.createIdentifier("undefined");
+      return createRemoveExpression(ctx.factory);
     }
 
     const conditionArg = args[0];
@@ -80,7 +80,7 @@ export const staticAssertMacro = defineExpressionMacro({
       } else {
         ctx.diagnostic(TS9219).at(callExpr).note(`Original message: ${message}`).emit();
       }
-      return ctx.factory.createIdentifier("undefined");
+      return createRemoveExpression(ctx.factory);
     }
 
     // Convert to boolean
@@ -97,7 +97,7 @@ export const staticAssertMacro = defineExpressionMacro({
     }
 
     // Assertion passes (or error reported) — remove the call entirely
-    return ctx.factory.createIdentifier("undefined");
+    return createRemoveExpression(ctx.factory);
   },
 });
 
@@ -118,13 +118,13 @@ export const compileErrorMacro = defineExpressionMacro({
   ): ts.Expression {
     if (args.length !== 1) {
       ctx.reportError(callExpr, "compileError expects exactly one argument: compileError(message)");
-      return ctx.factory.createIdentifier("undefined");
+      return createRemoveExpression(ctx.factory);
     }
 
     const message = extractStringArg(ctx, args[0], "compileError");
     ctx.reportError(callExpr, message);
 
-    return ctx.factory.createIdentifier("undefined");
+    return createRemoveExpression(ctx.factory);
   },
 });
 
@@ -148,14 +148,13 @@ export const compileWarningMacro = defineExpressionMacro({
         callExpr,
         "compileWarning expects exactly one argument: compileWarning(message)"
       );
-      return ctx.factory.createIdentifier("undefined");
+      return createRemoveExpression(ctx.factory);
     }
 
     const message = extractStringArg(ctx, args[0], "compileWarning");
     ctx.reportWarning(callExpr, message);
 
-    // Remove the call — warnings don't produce runtime code
-    return ctx.factory.createIdentifier("undefined");
+    return createRemoveExpression(ctx.factory);
   },
 });
 
