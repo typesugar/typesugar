@@ -2,7 +2,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
+import { createRequire } from "module";
 import { transformCode } from "@typesugar/transformer-core";
+
+const require = createRequire(import.meta.url);
 import { scanImportsForScope, globalResolutionScope } from "@typesugar/core";
 import type { TransformDiagnostic } from "@typesugar/transformer-core";
 
