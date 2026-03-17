@@ -137,10 +137,10 @@ Load TypeScript lib files and @typesugar type definitions into Monaco for rich e
 
 **Gate:**
 
-- [ ] `Array.` triggers autocomplete with real array methods
-- [ ] `console.log` resolves (no `any` type)
-- [ ] `import { Eq } from "typesugar"` — Eq has type information, autocomplete shows `equals`, `notEquals`
-- [ ] Inline errors appear for actual type errors (not false positives from missing libs)
+- [x] `Array.` triggers autocomplete with real array methods
+- [x] `console.log` resolves (no `any` type)
+- [x] `import { Eq } from "typesugar"` — Eq has type information, autocomplete shows `equals`, `notEquals`
+- [x] Inline errors appear for actual type errors (not false positives from missing libs)
 
 ### Wave 3: Wire Playground to Server Compilation
 
@@ -148,13 +148,21 @@ Replace the browser `transform()` call with server-side compilation.
 
 **Tasks:**
 
-- [ ] Add `compileCode(code, fileName)` async function in `Playground.vue` that POSTs to `/api/compile`
-- [ ] Add 300ms debounce on typing (compile after pause, not every keystroke)
-- [ ] Add loading indicator during compilation (subtle spinner on output panel)
-- [ ] Add client-side content-hash cache (avoid re-fetching identical results)
-- [ ] Keep browser-only `transform()` as fallback for offline/error scenarios
-- [ ] Show server diagnostics (warnings, errors) in the existing Errors tab
-- [ ] Update sandbox execution to use server-compiled JS output
+- [x] Add `compileCode(code, fileName)` async function in `Playground.vue` that POSTs to `/api/compile`
+- [x] Add 300ms debounce on typing (compile after pause, not every keystroke)
+- [x] Add loading indicator during compilation (subtle spinner on output panel)
+- [x] Add client-side content-hash cache (avoid re-fetching identical results)
+- [x] Keep browser-only `transform()` as fallback for offline/error scenarios
+- [x] Show server diagnostics (warnings, errors) in the existing Errors tab
+- [x] Update sandbox execution to use server-compiled JS output
+
+**Implementation Notes (Wave 3):**
+
+- Added `compileCodeOnServer()` function with FNV-1a hash-based LRU cache (50 entries)
+- `doTransform()` now async: tries server compilation first, falls back to browser transform if unavailable
+- Keep-warm GET request sent on page load via `warmUpServer()`
+- Status bar shows "(offline)" suffix when using browser fallback
+- Existing 300ms debounce via `scheduleTransform()` works seamlessly with async transform
 
 **Gate:**
 

@@ -75,6 +75,11 @@ const transformError = ref<string | null>(null);
 const lastResult = ref<TransformResult | null>(null);
 const transformTime = ref<number>(0);
 
+// Server compilation state
+const useServerCompilation = ref(true);
+const isServerAvailable = ref(true);
+const serverCompilationFailed = ref(false);
+
 const activeTab = ref<"js" | "errors">("js");
 const consoleMessages = ref<ConsoleMessage[]>([]);
 const showConsole = ref(true);
@@ -92,11 +97,12 @@ const statusText = computed(() => {
   if (isLoading.value) return "Loading...";
   if (isTransforming.value) return "Transforming...";
   if (transformError.value) return `Error`;
-  if (!lastResult.value) return "Ready";
+  const fallbackSuffix = serverCompilationFailed.value ? " (offline)" : "";
+  if (!lastResult.value) return "Ready" + fallbackSuffix;
   const changed = lastResult.value.changed ? "transformed" : "unchanged";
   const preprocessed = lastResult.value.preprocessed ? " + preprocessed" : "";
   const time = transformTime.value > 0 ? ` (${transformTime.value}ms)` : "";
-  return `✓ ${changed}${preprocessed}${time}`;
+  return `✓ ${changed}${preprocessed}${time}${fallbackSuffix}`;
 });
 
 const statusClass = computed(() => {
@@ -1152,17 +1158,160 @@ async function loadTypeScriptLibs(monacoInstance: typeof Monaco): Promise<void> 
   }
 }
 
+// ---------------------------------------------------------------------------
+// Server Compilation
+// ---------------------------------------------------------------------------
+
+interface ServerCompileResult {
+  code: string;
+  diagnostics: TransformResult["diagnostics"];
+  changed: boolean;
+  cached?: boolean;
+  compileTimeMs?: number;
+}
+
+// Client-side cache for compiled results (LRU, 50 entries)
+const compileCache = new Map<string, ServerCompileResult>();
+const COMPILE_CACHE_MAX_SIZE = 50;
+
+function fnv1aHash(str: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 16777619) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function getCacheKey(code: string, fileName: string): string {
+  return fnv1aHash(code + "\0" + fileName);
+}
+
+function getFromCompileCache(key: string): ServerCompileResult | undefined {
+  const entry = compileCache.get(key);
+  if (!entry) return undefined;
+  // Move to end (most recently used)
+  compileCache.delete(key);
+  compileCache.set(key, entry);
+  return entry;
+}
+
+function setInCompileCache(key: string, value: ServerCompileResult): void {
+  if (compileCache.has(key)) {
+    compileCache.delete(key);
+  }
+  compileCache.set(key, value);
+  if (compileCache.size > COMPILE_CACHE_MAX_SIZE) {
+    const oldest = compileCache.keys().next().value;
+    if (oldest) compileCache.delete(oldest);
+  }
+}
+
+async function compileCodeOnServer(
+  code: string,
+  fileName: string
+): Promise<ServerCompileResult | null> {
+  // Check client-side cache first
+  const cacheKey = getCacheKey(code, fileName);
+  const cached = getFromCompileCache(cacheKey);
+  if (cached) {
+    return { ...cached, cached: true };
+  }
+
+  try {
+    const response = await fetch("/api/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, fileName }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[Playground] Server compile failed: ${response.status}`);
+      return null;
+    }
+
+    const result = (await response.json()) as ServerCompileResult;
+
+    // Cache the result
+    setInCompileCache(cacheKey, result);
+
+    return result;
+  } catch (err) {
+    console.warn("[Playground] Server compile error:", err);
+    return null;
+  }
+}
+
+async function warmUpServer(): Promise<void> {
+  try {
+    const response = await fetch("/api/compile", { method: "GET" });
+    if (response.ok) {
+      console.log("[Playground] Server warmed up");
+    }
+  } catch {
+    console.log("[Playground] Server warm-up failed (may be offline)");
+  }
+}
+
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-function doTransform() {
-  if (!playground.value || !inputEditor.value) return;
+async function doTransform() {
+  if (!inputEditor.value) return;
 
   const code = inputEditor.value.getValue();
   transformError.value = null;
   isTransforming.value = true;
+  serverCompilationFailed.value = false;
+
+  const start = performance.now();
+
+  // Try server compilation first if enabled and available
+  if (useServerCompilation.value && isServerAvailable.value) {
+    const serverResult = await compileCodeOnServer(code, fileName.value);
+    if (serverResult) {
+      transformTime.value = serverResult.compileTimeMs ?? Math.round(performance.now() - start);
+
+      // Add line/column info to diagnostics
+      const diagnostics =
+        serverResult.diagnostics?.map((d) => {
+          const model = inputEditor.value?.getModel();
+          if (model && typeof d.start === "number") {
+            const pos = model.getPositionAt(d.start);
+            return { ...d, line: pos.lineNumber, column: pos.column };
+          }
+          return d;
+        }) ?? [];
+
+      lastResult.value = {
+        original: code,
+        code: serverResult.code,
+        changed: serverResult.changed,
+        diagnostics,
+      };
+      outputEditor.value?.setValue(serverResult.code);
+
+      if (diagnostics.length > 0) {
+        transformError.value = diagnostics.map((d) => d.message).join("; ");
+      }
+
+      isTransforming.value = false;
+      return;
+    }
+
+    // Server compilation failed, mark as unavailable and fall back
+    isServerAvailable.value = false;
+    serverCompilationFailed.value = true;
+    console.log("[Playground] Server unavailable, using browser fallback");
+  }
+
+  // Fallback to browser-based transformation
+  if (!playground.value) {
+    transformError.value = "Playground not loaded";
+    isTransforming.value = false;
+    return;
+  }
 
   try {
-    const start = performance.now();
     const result = playground.value.transform(code, {
       fileName: fileName.value,
       verbose: false,
@@ -1607,6 +1756,9 @@ async function initMonaco() {
     loadTypeScriptLibs(monacoInstance).catch((err) => {
       console.warn("[Playground] Failed to load TS lib files:", err);
     });
+
+    // Warm up the server compilation endpoint (non-blocking)
+    warmUpServer();
 
     await loadPlayground();
 
