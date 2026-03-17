@@ -316,6 +316,7 @@ export default defineConfig({
   },
 
   ignoreDeadLinks: true,
+  cleanUrls: true,
 
   markdown: {
     theme: {
