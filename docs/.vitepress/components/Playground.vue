@@ -1125,6 +1125,14 @@ window.onerror = (msg, url, line, col, err) => {
 window.onunhandledrejection = (e) => {
   parent.postMessage({ type: 'console', method: 'error', args: [\`Unhandled rejection: \${e.reason}\`] }, '*');
 };
+
+// Browser shims for Node.js globals used by bundled dependencies
+if (typeof process === 'undefined') {
+  window.process = { env: {}, argv: [], platform: 'browser', version: '', stdout: {}, stderr: {} };
+}
+if (typeof global === 'undefined') {
+  window.global = window;
+}
 <\/script>
 ${runtimeCode.value ? `<script>${runtimeCode.value}<\/script>` : ""}
 <script>
