@@ -1,6 +1,6 @@
 # PEP-017: Unify @derive and @deriving into "Everything is a Typeclass"
 
-**Status:** In Progress
+**Status:** In Progress (Wave 4 complete, Wave 5 pending)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -127,20 +127,33 @@ Update existing `Eq`, `Ord`, `Hash` in `@derive` to delegate to `@deriving`.
 - [x] All existing `@derive` tests pass (backward compatible — old code still works, just emits warnings)
 - [x] Deprecation warnings appear in compiler output (via `ctx.reportWarning()` on every `@derive` expansion)
 
-### Wave 4: Remove @derive and Rename @deriving
+### Wave 4: Remove @derive and Rename @deriving ✅
 
 **Tasks:**
 
-- [ ] Delete `packages/macros/src/derive.ts` (or gut it to just export deprecation wrapper)
-- [ ] Rename `@deriving` decorator to `@derive` in `typeclass.ts`
-- [ ] Update all exports in `packages/macros/src/index.ts`
-- [ ] Update `packages/typesugar/src/index.ts` re-exports
+- [x] Gut `packages/macros/src/derive.ts` — removed all `defineDeriveMacro` implementations, old macros exported as `undefined` with `@deprecated`
+- [x] Rename `@deriving` decorator to `@derive` in `typeclass.ts` — extracted `expandDeriving` function, created `deriveAttribute` (name: `"derive"`) and `derivingAttribute` (deprecated alias with warning)
+- [x] Remove special-cased `@derive` handling from `transformer.ts` — now goes through generic attribute macro pipeline
+- [x] Add `registerTypeclassMacros()` helper for test re-registration after `globalRegistry.clear()`
+- [x] Unify derive resolution: custom registry (bare name) → builtin derivations → `{Name}TC` convention
+- [x] Add dependency sorting (`expandAfter` and `BUILTIN_DERIVE_DEPS`), primitive type detection, recursive type detection, try/catch for custom derive failures
+- [x] Update all exports in `packages/macros/src/index.ts`
+- [x] Update `packages/typesugar/src/index.ts` re-exports
+- [x] Update runtime stubs (`derive` is primary, `deriving` deprecated)
+- [x] Update all test files (derive.test.ts, generic.test.ts, import-scope.test.ts, jsdoc-macros.test.ts, red-team-type-safety.test.ts, red-team-typesugar.test.ts, derive/tests/exports.test.ts, derive-advanced.test.ts)
+
+**Implementation notes:**
+
+- The transformer's attribute macro resolution now falls back to `globalRegistry.getAttribute(macroName)` when symbol-based resolution returns undefined, allowing `@derive` to work without explicit imports
+- `expandDeriving` degraded mode (no TypeChecker) correctly strips decorators without generating code, avoiding cascading errors in IDE mode
+- Custom derive macros registered via `globalRegistry.register({ kind: "derive", name: "X" })` take priority over builtins, enabling user overrides
+- All 180 test files pass (5304 tests, 0 new failures)
 
 **Gate:**
 
-- [ ] `@derive(Eq, Clone, Debug)` works as the unified decorator
-- [ ] Old `@deriving` name still works with deprecation warning
-- [ ] Build passes with no references to old derive system
+- [x] `@derive(Eq, Clone, Debug)` works as the unified decorator
+- [x] Old `@deriving` name still works with deprecation warning
+- [x] Build passes with no references to old derive system
 
 ### Wave 5: Documentation
 
@@ -161,15 +174,25 @@ Update existing `Eq`, `Ord`, `Hash` in `@derive` to delegate to `@deriving`.
 
 ## Files Changed
 
-| File                               | Wave | Change                                                            |
-| ---------------------------------- | ---- | ----------------------------------------------------------------- |
-| `packages/macros/src/typeclass.ts` | 1-4  | Add new typeclass definitions, derivation logic, rename decorator |
-| `packages/macros/src/derive.ts`    | 3-4  | Deprecate, then remove                                            |
-| `packages/macros/src/index.ts`     | 4    | Update exports                                                    |
-| `packages/typesugar/src/index.ts`  | 4    | Update re-exports                                                 |
-| `docs/guides/derive.md`            | 5    | Rewrite as unified guide                                          |
-| `docs/examples/core/derive.ts`     | 5    | Update examples                                                   |
-| `AGENTS.md`                        | 5    | Update macro reference                                            |
+| File                                                 | Wave | Change                                                                                                                                                                                                                |
+| ---------------------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/macros/src/typeclass.ts`                   | 1-4  | Add new typeclass definitions, derivation logic, rename decorator, add `expandDeriving`, `deriveAttribute`, `derivingAttribute` (deprecated), `registerTypeclassMacros()`, arg sorting, primitive/recursive detection |
+| `packages/macros/src/derive.ts`                      | 3-4  | Deprecate, then remove all `defineDeriveMacro` implementations (old exports are `undefined`)                                                                                                                          |
+| `packages/macros/src/runtime-stubs.ts`               | 4    | Update `derive` JSDoc (primary), mark `deriving` as `@deprecated`                                                                                                                                                     |
+| `packages/macros/src/index.ts`                       | 4    | Update exports: `deriveAttribute`, `registerTypeclassMacros`, deprecated old macros                                                                                                                                   |
+| `packages/typesugar/src/index.ts`                    | 4    | Update re-exports and typeclass system comment                                                                                                                                                                        |
+| `packages/transformer-core/src/transformer.ts`       | 4    | Remove special `@derive` handling, add registry fallback for attribute macro resolution                                                                                                                               |
+| `tests/derive.test.ts`                               | 4    | Rewrite for unified derive system                                                                                                                                                                                     |
+| `tests/generic.test.ts`                              | 4    | Update for new derive system                                                                                                                                                                                          |
+| `tests/import-scope.test.ts`                         | 4    | Update: old macros now `undefined`                                                                                                                                                                                    |
+| `tests/jsdoc-macros.test.ts`                         | 4    | Update expectations for degraded mode                                                                                                                                                                                 |
+| `tests/red-team-type-safety.test.ts`                 | 4    | Update to `EqTC` convention                                                                                                                                                                                           |
+| `tests/red-team-typesugar.test.ts`                   | 4    | Update `deriveMacros` expectations                                                                                                                                                                                    |
+| `packages/derive/tests/exports.test.ts`              | 4    | Update: old macros exported as `undefined`                                                                                                                                                                            |
+| `packages/transformer/tests/derive-advanced.test.ts` | 4    | Add `registerTypeclassMacros()` in `beforeEach`                                                                                                                                                                       |
+| `docs/guides/derive.md`                              | 5    | Rewrite as unified guide                                                                                                                                                                                              |
+| `docs/examples/core/derive.ts`                       | 5    | Update examples                                                                                                                                                                                                       |
+| `AGENTS.md`                                          | 5    | Update macro reference                                                                                                                                                                                                |
 
 ## Consequences
 

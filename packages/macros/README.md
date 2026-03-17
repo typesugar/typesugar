@@ -16,7 +16,7 @@ npm install @typesugar/macros
 
 This package provides implementations for:
 
-- **Typeclass system**: `@typeclass`, `@instance`, `@deriving`, `summon()`, `extend()`
+- **Typeclass system**: `@typeclass`, `@instance`, `@derive`, `summon()`, `extend()`
 - **Derivation**: `@derive()`, built-in derives (Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard)
 - **Specialization**: `specialize()`, `inlineMethod()`
 - **Compile-time evaluation**: `comptime()`

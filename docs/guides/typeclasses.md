@@ -122,14 +122,14 @@ const p = { x: 1, y: 2 };
 p.show(); // "Point(x = 1, y = 2)" — auto-derived from field structure
 ```
 
-### Explicit @deriving (Documentation)
+### Explicit @derive (Documentation)
 
-`@deriving` documents which typeclasses a type supports. The compiler would auto-derive them anyway, but the annotation makes intent visible to human readers:
+`@derive` documents which typeclasses a type supports. The compiler would auto-derive them anyway, but the annotation makes intent visible to human readers:
 
 ```typescript
-import { deriving } from "@typesugar/typeclass";
+import { derive } from "@typesugar/derive";
 
-@deriving(Show, Eq, Ord)
+@derive(Show, Eq, Ord)
 class Point {
   constructor(
     public x: number,
@@ -527,7 +527,7 @@ Instances are resolved at compile time:
 
 1. Exact match for the type
 2. Generic instance with inferred parameters
-3. Derived instance from `@deriving`
+3. Derived instance from `@derive`
 
 If no instance is found, you get a compile error.
 

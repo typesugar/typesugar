@@ -433,49 +433,24 @@ describe("deriveGenericSum for parameterized sum types", () => {
 });
 
 // ============================================================================
-// Derive Macros Support Kind Field
+// Derive System (PEP-017 Wave 4: unified @derive attribute macro)
 // ============================================================================
 
-describe("derive macros support kind field in DeriveTypeInfo", () => {
-  it("Eq derive macro exists", () => {
-    assert(deriveMacros.Eq !== undefined);
-    assert(deriveMacros.Eq.kind === "derive");
-    assert(typeof deriveMacros.Eq.expand === "function");
+describe("derive system uses unified @derive attribute macro", () => {
+  it("old deriveMacros object is empty (deprecated)", () => {
+    assert(Object.keys(deriveMacros).length === 0);
   });
 
-  it("Ord derive macro exists", () => {
-    assert(deriveMacros.Ord !== undefined);
-    assert(typeof deriveMacros.Ord.expand === "function");
+  it("builtinDerivations has all typeclass derivation strategies", () => {
+    for (const name of ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "TypeGuard"]) {
+      assert(builtinDerivations[name] !== undefined);
+    }
   });
 
-  it("Clone derive macro exists", () => {
-    assert(deriveMacros.Clone !== undefined);
-    assert(typeof deriveMacros.Clone.expand === "function");
-  });
-
-  it("Debug derive macro exists", () => {
-    assert(deriveMacros.Debug !== undefined);
-    assert(typeof deriveMacros.Debug.expand === "function");
-  });
-
-  it("Hash derive macro exists", () => {
-    assert(deriveMacros.Hash !== undefined);
-    assert(typeof deriveMacros.Hash.expand === "function");
-  });
-
-  it("Default derive macro exists", () => {
-    assert(deriveMacros.Default !== undefined);
-    assert(typeof deriveMacros.Default.expand === "function");
-  });
-
-  it("Json derive macro exists", () => {
-    assert(deriveMacros.Json !== undefined);
-    assert(typeof deriveMacros.Json.expand === "function");
-  });
-
-  it("TypeGuard derive macro exists", () => {
-    assert(deriveMacros.TypeGuard !== undefined);
-    assert(typeof deriveMacros.TypeGuard.expand === "function");
+  it("@derive attribute macro is registered", () => {
+    const macro = globalRegistry.getAttribute("derive");
+    assert(macro !== undefined);
+    assert(macro!.name === "derive");
   });
 });
 

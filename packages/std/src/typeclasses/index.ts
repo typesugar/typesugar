@@ -9,7 +9,7 @@
  * - Swift (Codable, Hashable, Identifiable, CustomStringConvertible)
  *
  * All typeclasses follow the @typeclass pattern and support:
- * - Auto-derivation via @deriving
+ * - Auto-derivation via @derive
  * - Extension methods via the typeclass system
  * - Zero-cost specialization via inlining
  * - Operator overloading via Op<> annotations

@@ -65,8 +65,6 @@ import {
   tryExpandJSDocMacros as tryExpandJSDocMacrosFn,
   parseDecorator,
   sortDecoratorsByDependency,
-  expandDeriveDecorator as expandDeriveDecoratorFn,
-  extractTypeInfo,
 } from "./macro-helpers.js";
 
 import {
@@ -736,18 +734,10 @@ class MacroTransformer {
         continue;
       }
 
-      if (macroName === "derive") {
-        const derives = expandDeriveDecoratorFn(this.ctx, this.verbose, decorator, node, args);
-        if (derives) {
-          extraStatements.push(...derives);
-          wasTransformed = true;
-          continue;
-        }
-      }
-
       const macro = (
         identNode
-          ? this.resolveMacroFromSymbol(identNode, macroName, "attribute")
+          ? (this.resolveMacroFromSymbol(identNode, macroName, "attribute") ??
+            globalRegistry.getAttribute(macroName))
           : globalRegistry.getAttribute(macroName)
       ) as AttributeMacro | undefined;
       if (macro) {

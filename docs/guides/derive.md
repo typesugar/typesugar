@@ -1,6 +1,6 @@
 # Derive Macros
 
-The `@derive()` decorator auto-generates common implementations from your type's structure.
+The `@derive()` decorator auto-generates common implementations from your type's structure. (The old `@deriving` name is deprecated — use `@derive`.)
 
 ::: tip Try in Playground
 **[Open in Playground →](https://typesugar.org/playground#code=eJxljk0OgjAQhe9ziskmQMQNGyO4cOEBXLsYEZlAYtuS6WBi4t1tW0TFLJrMy_d%2B0mjQLDlcSFJWkNdBuEONxNJMliqwtbThsYZeFCNb%2BgaB2FqVMmxDaSwuCWNh6I8RBPnRb5lAi6Yjz6g8W2vjZsT%2FLIHZMKLLxBx6%2ByIAhPRpPmVqMzHpP%2BQhPJALYnN3ZhbVG5pxNPR%2B9t54hTv4VrDm6S8TzugD7JFF6g%3D%3D)** to see derive macros in action.

@@ -218,9 +218,7 @@ const userEq: Eq<User> = {
 
 ### Derive Macros
 
-- `EqDerive`, `OrdDerive`, `CloneDerive`, `DebugDerive`
-- `HashDerive`, `DefaultDerive`, `JsonDerive`, `BuilderDerive`
-- `TypeGuardDerive`
+Use `@derive(Eq, Ord, Clone, ...)` in your code. The built-in derives are registered via the typeclass system. For custom derives, see [Writing Macros](/writing-macros/derive-macros).
 
 ## License
 

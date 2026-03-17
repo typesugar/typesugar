@@ -6,19 +6,19 @@ This document describes all the ways macros can be triggered in the typesugar tr
 
 The transformer recognizes several distinct trigger patterns:
 
-| Pattern             | AST Node Type              | Example                   | Registration                  |
-| ------------------- | -------------------------- | ------------------------- | ----------------------------- |
-| Expression Macro    | `CallExpression`           | `comptime(() => ...)`     | `defineExpressionMacro()`     |
-| Attribute Macro     | `Decorator`                | `@typeclass`              | `defineAttributeMacro()`      |
-| Derive Macro        | `Decorator`                | `@derive(Eq, Clone)`      | `defineDeriveMacro()`         |
-| Tagged Template     | `TaggedTemplateExpression` | `` sql`SELECT ...` ``     | `defineTaggedTemplateMacro()` |
-| Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`           |
-| Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`   |
-| HKT Syntax          | `TypeParameter`            | `F<_>`                    | Auto-detected                 |
-| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`          |
-| Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `& Op<"+">`               |
-| Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker         |
-| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`          |
+| Pattern             | AST Node Type              | Example                   | Registration                                  |
+| ------------------- | -------------------------- | ------------------------- | --------------------------------------------- |
+| Expression Macro    | `CallExpression`           | `comptime(() => ...)`     | `defineExpressionMacro()`                     |
+| Attribute Macro     | `Decorator`                | `@typeclass`              | `defineAttributeMacro()`                      |
+| Derive Macro        | `Decorator`                | `@derive(Eq, Clone)`      | `deriveAttribute` / `registerTypeclassMacros` |
+| Tagged Template     | `TaggedTemplateExpression` | `` sql`SELECT ...` ``     | `defineTaggedTemplateMacro()`                 |
+| Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`                           |
+| Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                   |
+| HKT Syntax          | `TypeParameter`            | `F<_>`                    | Auto-detected                                 |
+| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                          |
+| Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `& Op<"+">`                               |
+| Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                         |
+| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`                          |
 
 ---
 
@@ -126,6 +126,8 @@ interface User {
 
 **Registration:**
 
+Built-in derives (Eq, Ord, Show, Clone, etc.) are registered via `registerTypeclassMacros()` in `packages/macros/src/typeclass.ts`. Custom derives use `defineDeriveMacro()` from `@typesugar/core`:
+
 ```typescript
 defineDeriveMacro({
   name: "TypeGuard",
@@ -137,7 +139,7 @@ defineDeriveMacro({
 });
 ```
 
-**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts`
+**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts` (invoked by `deriveAttribute` / `derivingAttribute`)
 
 ---
 
@@ -296,7 +298,7 @@ This enables Scala 3-style implicit extension methods. When the transformer sees
 
 **Requirements:**
 
-- The type must have a typeclass instance (auto-derived, or explicitly via `@instance` or `@deriving`)
+- The type must have a typeclass instance (auto-derived, or explicitly via `@instance` or `@derive`)
 - The method must be declared in the typeclass
 
 **Transformer Location:** `tryRewriteExtensionMethod()` in `packages/transformer-core/src/rewriting.ts`

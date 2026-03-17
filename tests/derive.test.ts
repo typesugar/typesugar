@@ -8,64 +8,12 @@
 
 import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
-import { deriveMacros, createDerivedFunctionName } from "@typesugar/macros";
+import { createDerivedFunctionName, deriveAttribute } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
-import { builtinDerivations, typeclassRegistry, derivingAttribute } from "@typesugar/macros";
-
-describe("derive macro definitions", () => {
-  it("should have Eq derive macro", () => {
-    assert(deriveMacros.Eq !== undefined);
-    assert(deriveMacros.Eq.name === "Eq");
-    assert(deriveMacros.Eq.kind === "derive");
-  });
-
-  it("should have Ord derive macro", () => {
-    assert(deriveMacros.Ord !== undefined);
-    assert(deriveMacros.Ord.name === "Ord");
-  });
-
-  it("should have Clone derive macro", () => {
-    assert(deriveMacros.Clone !== undefined);
-    assert(deriveMacros.Clone.name === "Clone");
-  });
-
-  it("should have Debug derive macro", () => {
-    assert(deriveMacros.Debug !== undefined);
-    assert(deriveMacros.Debug.name === "Debug");
-  });
-
-  it("should have Hash derive macro", () => {
-    assert(deriveMacros.Hash !== undefined);
-    assert(deriveMacros.Hash.name === "Hash");
-  });
-
-  it("should have Default derive macro", () => {
-    assert(deriveMacros.Default !== undefined);
-    assert(deriveMacros.Default.name === "Default");
-  });
-
-  it("should have Json derive macro", () => {
-    assert(deriveMacros.Json !== undefined);
-    assert(deriveMacros.Json.name === "Json");
-  });
-
-  it("should have Builder derive macro", () => {
-    assert(deriveMacros.Builder !== undefined);
-    assert(deriveMacros.Builder.name === "Builder");
-  });
-});
-
-describe("TypeGuard derive macro", () => {
-  it("should have TypeGuard derive macro", () => {
-    assert(deriveMacros.TypeGuard !== undefined);
-    assert(deriveMacros.TypeGuard.name === "TypeGuard");
-    assert(deriveMacros.TypeGuard.kind === "derive");
-  });
-});
+import { builtinDerivations, derivingAttribute } from "@typesugar/macros";
 
 describe("createDerivedFunctionName", () => {
   it("should create function names with correct conventions", () => {
-    // Using assert() for equality checks - on failure, will show sub-expression values
     assert(createDerivedFunctionName("eq", "User") === "userEq");
     assert(createDerivedFunctionName("compare", "User") === "userCompare");
     assert(createDerivedFunctionName("clone", "User") === "cloneUser");
@@ -80,27 +28,34 @@ describe("createDerivedFunctionName", () => {
 });
 
 // ============================================================================
-// Unified @derive / @deriving system tests
+// Unified @derive system tests (PEP-017 Wave 4)
 // ============================================================================
 
 describe("unified derive system", () => {
-  describe("code-gen derive macros are registered in global registry", () => {
-    it("should find Eq derive macro by name", () => {
-      const macro = globalRegistry.getDerive("Eq");
+  describe("@derive attribute macro is registered", () => {
+    it("should have derive attribute macro registered", () => {
+      const macro = globalRegistry.getAttribute("derive");
       assert(macro !== undefined);
-      assert(macro!.name === "Eq");
-      assert(macro!.kind === "derive");
+      assert(macro!.name === "derive");
     });
 
-    it("should find TypeGuard derive macro by name", () => {
-      const macro = globalRegistry.getDerive("TypeGuard");
+    it("deriveAttribute export matches the registered macro", () => {
+      assert(deriveAttribute !== undefined);
+      assert(deriveAttribute.name === "derive");
+      assert(deriveAttribute.kind === "attribute");
+    });
+  });
+
+  describe("@deriving attribute is registered as deprecated alias", () => {
+    it("should have deriving attribute macro registered", () => {
+      const macro = globalRegistry.getAttribute("deriving");
       assert(macro !== undefined);
-      assert(macro!.name === "TypeGuard");
+      assert(macro!.name === "deriving");
     });
 
-    it("should find Builder derive macro by name", () => {
-      const macro = globalRegistry.getDerive("Builder");
-      assert(macro !== undefined);
+    it("derivingAttribute export matches the registered macro", () => {
+      assert(derivingAttribute !== undefined);
+      assert(derivingAttribute.name === "deriving");
     });
   });
 
@@ -121,6 +76,26 @@ describe("unified derive system", () => {
 
     it("should have Hash derivation strategy", () => {
       assert(builtinDerivations["Hash"] !== undefined);
+    });
+
+    it("should have Clone derivation strategy", () => {
+      assert(builtinDerivations["Clone"] !== undefined);
+    });
+
+    it("should have Debug derivation strategy", () => {
+      assert(builtinDerivations["Debug"] !== undefined);
+    });
+
+    it("should have Default derivation strategy", () => {
+      assert(builtinDerivations["Default"] !== undefined);
+    });
+
+    it("should have Json derivation strategy", () => {
+      assert(builtinDerivations["Json"] !== undefined);
+    });
+
+    it("should have TypeGuard derivation strategy", () => {
+      assert(builtinDerivations["TypeGuard"] !== undefined);
     });
 
     it("should have Semigroup derivation strategy", () => {
@@ -164,61 +139,21 @@ describe("unified derive system", () => {
     });
   });
 
-  describe("@deriving attribute is registered as backward-compatible alias", () => {
-    it("should have deriving attribute macro registered", () => {
-      const macro = globalRegistry.getAttribute("deriving");
-      assert(macro !== undefined);
-      assert(macro!.name === "deriving");
-    });
-  });
-
-  describe("unified resolution order", () => {
-    it("code-gen derive macros take priority over typeclass derivations", () => {
-      // Both "Eq" exists as a code-gen derive AND a typeclass derivation.
-      // The code-gen derive should be found first in the registry.
-      const codeGenDerive = globalRegistry.getDerive("Eq");
-      const typeclassDerivation = builtinDerivations["Eq"];
-
-      // Both exist
-      assert(codeGenDerive !== undefined);
-      assert(typeclassDerivation !== undefined);
-
-      // The code-gen derive is a DeriveMacro with expand()
-      assert(codeGenDerive!.kind === "derive");
-      assert(typeof codeGenDerive!.expand === "function");
+  describe("old defineDeriveMacro-based macros are removed", () => {
+    it("should not find old Eq code-gen derive macro in registry", () => {
+      const macro = globalRegistry.getDerive("Eq");
+      assert(macro === undefined);
     });
 
-    it("typeclass derivation is available for types without code-gen derive", () => {
-      // "Show" has a typeclass derivation but no code-gen derive macro
-      const codeGenDerive = globalRegistry.getDerive("Show");
-      const typeclassDerivation = builtinDerivations["Show"];
-
-      // No code-gen derive for "Show" (it's only in the typeclass system)
-      // Note: ShowTC exists as a derive macro, but "Show" itself does not
-      assert(codeGenDerive === undefined);
-      assert(typeclassDerivation !== undefined);
+    it("should not find old Builder code-gen derive macro in registry", () => {
+      const macro = globalRegistry.getDerive("Builder");
+      assert(macro === undefined);
     });
 
-    it("TC derive macros are the fallback for typeclass derivation", () => {
-      // "Functor" has no code-gen derive and no builtinDerivation entry
-      // would be found by name, but FunctorTC exists
-      const tcDerive = globalRegistry.getDerive("FunctorTC");
-      assert(tcDerive !== undefined);
+    it("should not find old TypeGuard code-gen derive macro in registry", () => {
+      const macro = globalRegistry.getDerive("TypeGuard");
+      assert(macro === undefined);
     });
-  });
-});
-
-// ============================================================================
-// expandAfter dependency ordering tests
-// ============================================================================
-
-describe("macro dependency ordering (expandAfter)", () => {
-  it("MacroDefinitionBase supports expandAfter field", () => {
-    // Verify the type system accepts expandAfter
-    const macro = globalRegistry.getDerive("Eq");
-    assert(macro !== undefined);
-    // expandAfter is optional, so it should be undefined for existing macros
-    assert(macro!.expandAfter === undefined);
   });
 });
 
@@ -227,12 +162,6 @@ describe("macro dependency ordering (expandAfter)", () => {
 // ============================================================================
 
 describe("type-level assertions", () => {
-  it("deriveMacros object has expected structure", () => {
-    // These assertions are checked at compile time
-    typeAssert<Equal<typeof deriveMacros.Eq.kind, "derive">>();
-    typeAssert<Equal<typeof deriveMacros.Eq.name, string>>();
-  });
-
   it("createDerivedFunctionName returns string", () => {
     typeAssert<Equal<ReturnType<typeof createDerivedFunctionName>, string>>();
   });

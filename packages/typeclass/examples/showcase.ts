@@ -2,7 +2,7 @@
  * @typesugar/typeclass Showcase
  *
  * Self-documenting examples of the Scala 3-style typeclass system:
- * @typeclass, @instance, @deriving, summon(), extend(), and
+ * @typeclass, @instance, @derive, summon(), extend(), and
  * extension method resolution.
  *
  * NOTE: This showcase uses decorators on interfaces and compile-time
@@ -24,7 +24,7 @@ import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesug
 import {
   typeclass,
   instance,
-  deriving,
+  derive,
   summon,
   extend,
   implicit,
@@ -172,10 +172,10 @@ assert(extStr.show() === '"world"');
 // 5. AUTO-DERIVATION — @deriving decorator
 // ============================================================================
 
-// @deriving generates instances automatically from the type's structure.
+// @derive generates instances automatically from the type's structure.
 // For product types, it generates field-by-field comparisons.
 
-@deriving(Show, Eq)
+@derive(Show, Eq)
 interface Point {
   x: number;
   y: number;
@@ -192,7 +192,7 @@ assert(extend(p1).show() !== "");
 assert(extend(p1).equals(p2) === true);
 assert(extend(p1).equals(p3) === false);
 
-@deriving(Show, Eq, Ord)
+@derive(Show, Eq, Ord)
 interface Version {
   major: number;
   minor: number;

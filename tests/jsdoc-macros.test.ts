@@ -337,8 +337,10 @@ interface JsDocPoint { x: number; y: number; }
   });
 
   it("decorator @derive calls derive attribute macro", () => {
-    // @derive is a standard decorator and doesn't need preprocessor.
-    // It directly invokes the derive attribute macro.
+    // @derive is a standard decorator that invokes the derive attribute macro.
+    // In test context without a full TypeChecker, the macro enters "degraded mode"
+    // — it strips the decorator and validates AST but does NOT generate derivation
+    // code (that requires type resolution). Real code gen happens during tspc build.
     const decoratorCode = `
 @derive(Eq)
 interface DecPoint { x: number; y: number; }
@@ -348,10 +350,12 @@ interface DecPoint { x: number; y: number; }
       fileName: "decorator-point.ts",
     });
 
-    // Should generate derived Eq via attribute macro
+    // The @derive decorator is recognized and stripped
     expect(decoratorResult.changed).toBe(true);
-    // Should contain either 'eq' from generated code or 'Eq' from derive call
-    expect(decoratorResult.code.toLowerCase()).toContain("eq");
+    // Decorator should be removed from output
+    expect(decoratorResult.code).not.toContain("@derive");
+    // Original interface preserved
+    expect(decoratorResult.code.toLowerCase()).toContain("decpoint");
   });
 });
 

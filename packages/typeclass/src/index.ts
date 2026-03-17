@@ -5,13 +5,13 @@
  * It provides:
  * - @typeclass decorator for defining typeclass interfaces
  * - @instance decorator for providing instances
- * - @deriving decorator for auto-derivation
+ * - @derive decorator for auto-derivation
  * - summon<T>() for compile-time instance resolution
  * - extend<T>() for extension method syntax
  *
  * @example
  * ```typescript
- * import { typeclass, instance, deriving, summon, extend } from "@typesugar/typeclass";
+ * import { typeclass, instance, derive, summon, extend } from "@typesugar/typeclass";
  *
  * @typeclass
  * interface Show<A> {
@@ -23,7 +23,7 @@
  *   show: (n) => String(n)
  * };
  *
- * @deriving(Show, Eq)
+ * @derive(Show, Eq)
  * interface Point { x: number; y: number }
  *
  * const showPoint = summon<Show<Point>>();
@@ -36,7 +36,7 @@
 // Re-export everything from @typesugar/macros that relates to typeclasses
 
 // Runtime stubs (user-facing functions)
-export { typeclass, instance, deriving, summon, extend, implicit } from "@typesugar/macros";
+export { typeclass, instance, derive, deriving, summon, extend, implicit } from "@typesugar/macros";
 
 // Macro definitions (for programmatic use)
 export {

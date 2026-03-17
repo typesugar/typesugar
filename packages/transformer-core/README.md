@@ -97,7 +97,7 @@ The core transformation visitor class. Handles all macro types:
 
 - Expression macros (`staticAssert()`, `comptime()`, `pipe()`)
 - Attribute macros (`@tailrec`, `@derive`)
-- JSDoc macros (`@typeclass`, `@impl`, `@deriving`)
+- JSDoc macros (`@typeclass`, `@impl`, `@derive`)
 - Derive macros (trait generation)
 - Tagged template macros
 

@@ -41,9 +41,9 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 1. **Zero-Cost or Don't Ship It** — Every abstraction must compile away to what you'd write by hand. No runtime dictionary lookups, no wrapper types, no closure allocation. If it can be done at compile time, it must be.
 
-2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@deriving` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@deriving(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
+2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@derive` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `eqPoint.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@derive(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
 
-3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @deriving Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
+3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @derive Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
 
 4. **Extensions are Import-Scoped (Scala 3 Model)** — Extension methods only activate when you import the function. `import { clamp } from "@typesugar/std"` makes `n.clamp(0, 100)` work. No import, no extension. This prevents surprising method injection and makes dependencies explicit. Extension files must have `"use extension"` at the top. The package's `index.ts` must barrel-export all extensions.
 
@@ -142,7 +142,7 @@ packages/
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
 | `@typesugar/transformer-core` | Browser-compatible transform core: `transformCode()`, `MacroTransformer`, source maps, position mapping                               | Node.js APIs (fs, path), caching, CLI     |
 | `@typesugar/transformer`      | Node.js transformer plugin: ts-patch integration, macro loading, file caching, CLI                                                    | Core transformation logic (uses core)     |
-| `@typesugar/typeclass`        | Machinery: `@typeclass`, `@impl`, `@deriving`, `summon`, `extend`, `specialize`                                                       | Typeclass definitions                     |
+| `@typesugar/typeclass`        | Machinery: `@typeclass`, `@impl`, `@derive`, `summon`, `extend`, `specialize`                                                         | Typeclass definitions                     |
 | `@typesugar/std`              | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
 | `@typesugar/fp`               | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
 | `@typesugar/collections`      | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
@@ -160,14 +160,15 @@ packages/
 - Extensions on built-in types (`number`, `string`, `Array`) go in `std`
 - `@typesugar/fusion`'s `lazy()` is always single-pass — it MUST NOT create intermediate arrays
 
-### `@derive` vs `@deriving` vs Auto-derivation
+### `@derive` vs Auto-derivation
 
 | Mechanism                 | What it does                                              | When to use                                    |
 | ------------------------- | --------------------------------------------------------- | ---------------------------------------------- |
 | Auto-derivation (default) | Automatically synthesizes instances for product/sum types | **Always** — this is the default behavior      |
-| `@deriving(TC)`           | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
-| `@derive(TC)`             | Generates standalone functions                            | Rarely — doesn't integrate with `summon`       |
+| `@derive(TC)`             | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
 | `@impl` (or `@instance`)  | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
+
+`@deriving` is a deprecated alias for `@derive`; use `@derive` in new code.
 
 ---
 
