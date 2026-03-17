@@ -139,7 +139,7 @@ defineDeriveMacro({
 });
 ```
 
-**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts` (invoked by `deriveAttribute` / `derivingAttribute`)
+**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts` (invoked by `deriveAttribute`; `derivingAttribute` is a deprecated alias)
 
 ---
 

@@ -498,7 +498,7 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 | -------------------- | ---------- | ------------------------------------ |
 | `@typeclass`         | Attribute  | Declares a typeclass interface       |
 | `@instance`          | Attribute  | Registers a typeclass instance       |
-| `@deriving`          | Attribute  | Auto-derives instances for a type    |
+| `@derive`            | Attribute  | Auto-derives typeclass instances     |
 | `summon<TC<T>>()`    | Expression | Resolves a typeclass instance        |
 | `value.method(args)` | Expression | Extension method syntax (implicit)   |
 | `specialize(fn)`     | Expression | Inlines typeclass dictionary methods |
@@ -906,7 +906,7 @@ The `strict` option runs `tsc` on macro-expanded output at build end:
 | `"oxc"` (default) | No                    | Auto-fallback to TypeScript |
 | `"typescript"`    | Yes                   | Fully supported             |
 
-The oxc backend handles syntax-only transformations natively. Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`) automatically fall back to the TypeScript backend.
+The oxc backend handles syntax-only transformations natively. Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`) automatically fall back to the TypeScript backend.
 
 ### Macro Diagnostics
 

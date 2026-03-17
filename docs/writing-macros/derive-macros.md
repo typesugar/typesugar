@@ -1,6 +1,6 @@
 # Derive Macros
 
-Derive macros generate code from type structure, triggered by `@derive(MyDerive)`. The `@derive` decorator is the unified entry point (the old `@deriving` name is deprecated).
+Derive macros generate code from type structure, triggered by `@derive(MyDerive)`. The `@derive` decorator generates typeclass instances that work with `summon()` and operator overloading.
 
 ## When to Use
 

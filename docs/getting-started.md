@@ -187,7 +187,7 @@ typesugar supports two transformation backends:
 | `"oxc"` (default) | ~5x faster | Auto-fallback  | Most projects            |
 | `"typescript"`    | Slower     | Full           | Debugging, compatibility |
 
-The **oxc backend** is written in Rust and handles parsing and code generation natively. When it encounters type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`), it automatically falls back to the TypeScript backend for that file.
+The **oxc backend** is written in Rust and handles parsing and code generation natively. When it encounters type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`), it automatically falls back to the TypeScript backend for that file.
 
 ### Typechecking
 

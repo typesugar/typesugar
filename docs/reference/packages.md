@@ -266,7 +266,7 @@ npm install @typesugar/typeclass
 ```typescript
 typeclass();  // decorator
 instance();   // decorator
-deriving();   // decorator
+derive();     // decorator (generates typeclass instances)
 summon<T>();
 summonAll<...>();
 extend();

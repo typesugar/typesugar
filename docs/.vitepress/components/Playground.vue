@@ -329,6 +329,8 @@ declare module "typesugar" {
   export function typeclass(target: any): any;
   export function instance(name: string): ClassDecorator;
   export function impl(name: string): ClassDecorator;
+  export function derive(...traits: symbol[]): ClassDecorator;
+  /** @deprecated Use `derive` instead */
   export function deriving(...traits: symbol[]): ClassDecorator;
   export function summon<T>(): T;
   export function extend<T, U>(base: T, extension: U): T & U;

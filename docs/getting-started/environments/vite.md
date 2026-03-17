@@ -69,7 +69,7 @@ typesugar({
 | `"oxc"` (default) | ~5x faster | Production builds, most projects          |
 | `"typescript"`    | Slower     | Debugging, when you need to force TS path |
 
-The oxc backend automatically falls back to TypeScript for files containing type-aware macros (`@typeclass`, `@impl`, `@op`, `@deriving`).
+The oxc backend automatically falls back to TypeScript for files containing type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`).
 
 ### Typechecking
 

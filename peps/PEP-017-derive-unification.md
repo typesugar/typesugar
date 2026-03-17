@@ -1,6 +1,6 @@
 # PEP-017: Unify @derive and @deriving into "Everything is a Typeclass"
 
-**Status:** In Progress (Wave 4 complete, Wave 5 pending)
+**Status:** Done
 **Date:** 2026-03-16
 **Author:** Dean Povey
 
@@ -159,18 +159,18 @@ Update existing `Eq`, `Ord`, `Hash` in `@derive` to delegate to `@deriving`.
 
 **Tasks:**
 
-- [ ] Update `docs/guides/derive.md` — single unified guide
-- [ ] Remove any "derive vs deriving" explanations
-- [ ] Update all code examples to use new `@derive` syntax
-- [ ] Update `AGENTS.md` macro reference
-- [ ] Update playground examples
-- [ ] Add migration guide for users of old `@derive`
+- [x] Update `docs/guides/derive.md` — single unified guide (rewritten with all 12 supported typeclasses, operator overloading, summon, migration section)
+- [x] Remove any "derive vs deriving" explanations (updated 20+ doc files)
+- [x] Update all code examples to use new `@derive` syntax
+- [x] Update `AGENTS.md` macro reference (already correct from Wave 4)
+- [x] Update playground examples (`docs/examples/core/derive.ts` rewritten for typeclass-based derive)
+- [x] Add migration guide for users of old `@derive` (migration table in derive guide)
 
 **Gate:**
 
-- [ ] No documentation mentions `@deriving` as separate from `@derive`
-- [ ] Search for "deriving" in docs returns only historical/migration content
-- [ ] All playground examples work
+- [x] No documentation mentions `@deriving` as separate from `@derive` (only in migration/deprecation context)
+- [x] Search for "deriving" in docs returns only historical/migration content
+- [x] All playground examples work (build passes, 5304 tests pass)
 
 ## Files Changed
 

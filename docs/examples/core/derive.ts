@@ -1,38 +1,35 @@
 //! @derive
-//! Auto-generate implementations + operator overloading
+//! Auto-generate typeclass instances + operator overloading
 
-import { derive, Eq, Clone, Debug } from "typesugar";
+import { derive, Eq, Clone, Debug, summon } from "typesugar";
 
-// @derive() auto-generates implementations at compile time.
-// With Eq in scope, === is rewritten to use structural equality!
-// Click "JS Output" tab to see the generated code and operator rewrites.
+// @derive() generates typeclass instances at compile time.
+// With Eq derived, === is rewritten to use structural equality!
+// Click "JS Output" to see the generated instances and operator rewrites.
 
-// Example with an interface - generates standalone functions
 @derive(Eq, Clone, Debug)
-interface Point {
-  x: number;
-  y: number;
+class Point {
+  constructor(
+    public x: number,
+    public y: number
+  ) {}
 }
 
-// Create some points
-const p1: Point = { x: 1, y: 2 };
-const p2: Point = { x: 1, y: 2 };
-const p3: Point = { x: 3, y: 4 };
+const p1 = new Point(1, 2);
+const p2 = new Point(1, 2);
+const p3 = new Point(3, 4);
 
-// With @derive(Eq), you can use === for structural equality!
-// typesugar rewrites p1 === p2 to pointEq(p1, p2) at compile time
-console.log("p1 === p2:", p1 === p2);  // true - same values!
-console.log("p1 === p3:", p1 === p3);  // false
+// Operator overloading: === compiles to field-by-field comparison
+console.log("p1 === p2:", p1 === p2); // true
+console.log("p1 === p3:", p1 === p3); // false
 
-// clonePoint(value): Point - deep copy
-const p1Copy = clonePoint(p1);
-console.log("clonePoint(p1):", p1Copy);
-console.log("Clone === original:", p1Copy === p1);  // true
+// summon() retrieves the derived instance
+const cloneTC = summon<Clone<Point>>();
+const p1Copy = cloneTC.clone(p1);
+console.log("clone(p1):", p1Copy);
+console.log("clone === original:", p1Copy === p1); // true (same values)
 
-// debugPoint(value): string - readable representation
-console.log("debugPoint(p1):", debugPoint(p1));
+// Debug instance — developer-facing string representation
+const debugTC = summon<Debug<Point>>();
+console.log("debug(p1):", debugTC.debug(p1));
 // Output: "Point { x: 1, y: 2 }"
-
-// Check the JS Output tab to see:
-// 1. Generated functions (pointEq, clonePoint, debugPoint)
-// 2. Operator rewrites (=== becomes pointEq calls)

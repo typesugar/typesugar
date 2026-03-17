@@ -281,12 +281,12 @@ Racket's macro system has the richest security model:
 Scala 3 has three levels of metaprogramming, each more powerful (and more auditable) than the last:
 
 1. **`inline` methods:** Guaranteed inlining, no AST manipulation. Like typesugar's `specialize()`
-2. **`inline` + `scala.compiletime`:** Type-level computation only. Like typesugar's `@deriving`
+2. **`inline` + `scala.compiletime`:** Type-level computation only. Like typesugar's `@derive`
 3. **`macro` methods:** Full AST manipulation, but must call pre-compiled code (no self-referential macros)
 
 The **level rule** ensures compile-time and runtime code can't accidentally mix. The `-Xcheck-macros` flag adds runtime verification during development.
 
-**Applicable to typesugar:** typesugar already has a natural progressive disclosure: `specialize` < `@deriving` < `defineExpressionMacro` < `comptime`. Formalizing these as security tiers would help developers reason about trust.
+**Applicable to typesugar:** typesugar already has a natural progressive disclosure: `specialize` < `@derive` < `defineExpressionMacro` < `comptime`. Formalizing these as security tiers would help developers reason about trust.
 
 ### OCaml PPX: Driver-Mediated, Context-Free Preferred
 
@@ -305,7 +305,7 @@ Formalize the existing progressive disclosure as security tiers:
 | Tier                     | Macros                                        | Capabilities                                  | Trust Level            |
 | ------------------------ | --------------------------------------------- | --------------------------------------------- | ---------------------- |
 | **Tier 0: Pure**         | `specialize`, `@operators`, `@tailrec`        | AST→AST only. No type checker, no file IO     | Any package            |
-| **Tier 1: Type-Aware**   | `@deriving`, `summon`, `@typeclass`           | Type checker queries. No file IO, no code gen | Any package            |
+| **Tier 1: Type-Aware**   | `@derive`, `summon`, `@typeclass`             | Type checker queries. No file IO, no code gen | Any package            |
 | **Tier 2: Code Gen**     | `@reflect`, `quote()`, `defineSyntaxMacro`    | AST construction, hygiene system              | Audited packages       |
 | **Tier 3: IO**           | `comptime({fs})`, `includeStr`, `includeJson` | File system, environment                      | First-party only       |
 | **Tier 4: Unrestricted** | Custom macros with `needsFileSystem: true`    | Everything                                    | Explicitly allowlisted |

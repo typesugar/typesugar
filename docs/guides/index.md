@@ -103,7 +103,7 @@ import { clamp, abs, match, registerFlatMap } from "@typesugar/std";
 import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";
 
 // Typeclasses
-import { typeclass, instance, deriving, summon } from "@typesugar/typeclass";
+import { typeclass, instance, derive, summon } from "@typesugar/typeclass";
 
 // Operators (legacy pattern, prefer Op<> typeclass)
 import { operators, ops, pipe } from "typesugar";
