@@ -1,0 +1,32 @@
+//! Cons Operator ::
+//! Right-associative list construction via the preprocessor
+
+// :: is custom syntax (not valid TypeScript)
+// The preprocessor rewrites it before the compiler sees it
+
+// 👀 Check JS Output — :: becomes array spread cons
+const nums = 1 :: 2 :: 3 :: [];
+console.log("nums:", nums); // [1, 2, 3]
+
+const hello = "h" :: "e" :: "l" :: "l" :: "o" :: [];
+console.log("hello:", hello.join("")); // "hello"
+
+// Right-associative: 1 :: (2 :: (3 :: []))
+// Each :: prepends an element to the list on its right
+const head = 0;
+const tail = [1, 2, 3];
+const prepended = head :: tail;
+console.log("prepended:", prepended); // [0, 1, 2, 3]
+
+// Build up a stack of operations
+const stack = "push" :: "pop" :: "peek" :: [];
+console.log("stack ops:", stack);
+
+// Combine with pipeline |> for functional data flow
+const result = 1 :: 2 :: 3 :: []
+  |> (xs => xs.map(n => n * 10))
+  |> (xs => xs.reduce((a, b) => a + b, 0));
+
+console.log("sum of 10,20,30:", result); // 60
+
+// Try: change [] to ["end"] and see the prepend behavior

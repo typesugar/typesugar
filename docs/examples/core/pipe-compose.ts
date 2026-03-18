@@ -4,7 +4,7 @@
 import { pipe, compose, flow } from "typesugar";
 
 // pipe(), compose(), and flow() transform at compile time
-// Check the JS Output - no function calls, just inlined code!
+// 👀 Check JS Output to see the zero-cost compilation — nested calls, no wrapper overhead!
 
 const double = (x: number) => x * 2;
 const addTen = (x: number) => x + 10;
@@ -39,3 +39,5 @@ const result2 = pipe(
   (names) => names.join(", ")
 );
 console.log("Adults:", result2); // "Alice, Charlie"
+
+// Try: add a fourth step to the data pipeline that uppercases the names

@@ -42,6 +42,7 @@ export default defineConfig([
     noExternal: [
       "@typesugar/core",
       "@typesugar/macros",
+      "@typesugar/std",
       "@typesugar/preprocessor",
       "@typesugar/transformer-core",
       "magic-string",

@@ -34,6 +34,8 @@ import {
   preserveSourceMap,
   ExpansionTracker,
   MacroExpansionCache,
+  isRemoveExpression,
+  getRemoveComment,
 } from "@typesugar/core";
 
 import {
@@ -74,6 +76,9 @@ import {
   tryRewriteExtensionMethod as tryRewriteExtensionMethodFn,
   tryTransformHKTDeclaration as tryTransformHKTDeclarationFn,
   tryRewriteTypeclassOperator as tryRewriteTypeclassOperatorFn,
+  tryRewriteOpaqueMethodCall as tryRewriteOpaqueMethodCallFn,
+  tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
+  tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
 } from "./rewriting.js";
 
 class MacroTransformer {
@@ -348,6 +353,15 @@ class MacroTransformer {
                 }
               }
             }
+
+            if (this.expansionTracker) {
+              this.expansionTracker.recordExpansion(
+                `${labelName}:`,
+                stmt,
+                this.ctx.sourceFile,
+                "(labeled block)"
+              );
+            }
           } catch (error) {
             this.ctx.reportError(stmt, `Labeled block macro expansion failed: ${error}`);
             newStatements.push(
@@ -366,10 +380,37 @@ class MacroTransformer {
       const visited = this.visit(stmt);
       if (visited) {
         if (Array.isArray(visited)) {
-          newStatements.push(...(visited as ts.Node[]).filter(ts.isStatement));
+          for (const n of visited as ts.Node[]) {
+            if (!ts.isStatement(n)) continue;
+            if (ts.isExpressionStatement(n) && isRemoveExpression(n.expression)) {
+              const comment = getRemoveComment(n.expression);
+              if (comment) {
+                const empty = this.ctx.factory.createEmptyStatement();
+                ts.addSyntheticLeadingComment(
+                  empty,
+                  ts.SyntaxKind.SingleLineCommentTrivia,
+                  comment
+                );
+                newStatements.push(empty);
+              }
+              modified = true;
+            } else {
+              newStatements.push(n);
+            }
+          }
           modified = true;
         } else if (ts.isStatement(visited)) {
-          newStatements.push(visited);
+          if (ts.isExpressionStatement(visited) && isRemoveExpression(visited.expression)) {
+            const comment = getRemoveComment(visited.expression);
+            if (comment) {
+              const empty = this.ctx.factory.createEmptyStatement();
+              ts.addSyntheticLeadingComment(empty, ts.SyntaxKind.SingleLineCommentTrivia, comment);
+              newStatements.push(empty);
+            }
+            modified = true;
+          } else {
+            newStatements.push(visited);
+          }
         }
       }
     }
@@ -466,10 +507,38 @@ class MacroTransformer {
       }
     }
 
+    // Chain macro detection: fluent APIs like match(x).case(42).then("yes")
+    // Must run before expression macros to intercept the outermost chain call
+    // before visitEachChild would expand the root call in isolation.
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const chainResult = this.tryExpandChainMacro(node);
+      if (chainResult !== undefined) {
+        return chainResult;
+      }
+    }
+
     if (ts.isCallExpression(node)) {
       const result = this.tryExpandExpressionMacro(node);
       if (result !== undefined) {
         return result;
+      }
+
+      const ctorResult = tryEraseOpaqueConstructorCallFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (ctorResult !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-ctor",
+            node,
+            this.ctx.sourceFile,
+            "(constructor erasure)"
+          );
+        }
+        return ctorResult;
       }
 
       const implicitsResult = this.tryTransformImplicitsCall(node);
@@ -516,6 +585,15 @@ class MacroTransformer {
         node
       );
       if (result !== undefined) {
+        if (this.expansionTracker && result !== (node as unknown as ts.Expression)) {
+          const tagName = ts.isIdentifier(node.tag) ? node.tag.text : "tagged-template";
+          this.expansionTracker.recordExpansion(
+            tagName,
+            node,
+            this.ctx.sourceFile,
+            "(tagged template)"
+          );
+        }
         return result;
       }
     }
@@ -543,7 +621,34 @@ class MacroTransformer {
         node
       );
       if (result !== undefined) {
+        if (this.expansionTracker) {
+          const methodName = node.expression.name.text;
+          this.expansionTracker.recordExpansion(
+            methodName,
+            node,
+            this.ctx.sourceFile,
+            "(extension method)"
+          );
+        }
         return result;
+      }
+
+      const opaqueResult = tryRewriteOpaqueMethodCallFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (opaqueResult !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-method",
+            node,
+            this.ctx.sourceFile,
+            "(type rewrite)"
+          );
+        }
+        return opaqueResult;
       }
     }
 
@@ -556,6 +661,21 @@ class MacroTransformer {
       );
       if (result !== undefined) {
         return result;
+      }
+    }
+
+    if (ts.isIdentifier(node)) {
+      const opaqueRef = tryEraseOpaqueConstantRefFn(this.ctx, this.verbose, node);
+      if (opaqueRef !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-const",
+            node,
+            this.ctx.sourceFile,
+            "(constant erasure)"
+          );
+        }
+        return opaqueRef;
       }
     }
 
@@ -686,6 +806,79 @@ class MacroTransformer {
       return createMacroErrorExpr(
         this.ctx.factory,
         `typesugar: expansion of '${macroName}' failed: ${error}`
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chain macro expansion (fluent API support, e.g. match(x).case().then().else())
+  // ---------------------------------------------------------------------------
+
+  private findChainRoot(node: ts.CallExpression): ts.CallExpression | undefined {
+    let current: ts.Expression = node;
+    while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+      current = current.expression.expression;
+    }
+    return ts.isCallExpression(current) ? current : undefined;
+  }
+
+  private isOutermostChainCall(node: ts.CallExpression): boolean {
+    const parent = node.parent;
+    if (!parent) return true;
+    if (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.parent &&
+      ts.isCallExpression(parent.parent)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private tryExpandChainMacro(node: ts.CallExpression): ts.Expression | undefined {
+    const rootCall = this.findChainRoot(node);
+    if (!rootCall) return undefined;
+
+    if (!ts.isIdentifier(rootCall.expression)) return undefined;
+    const macroName = rootCall.expression.text;
+
+    const macro = this.resolveMacroFromSymbol(rootCall.expression, macroName, "expression") as
+      | ExpressionMacro
+      | undefined;
+    if (!macro?.chainable) return undefined;
+
+    if (!this.isOutermostChainCall(node)) return undefined;
+
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    if (this.verbose) {
+      console.log(`[typesugar] Expanding chain macro: ${macroName}`);
+    }
+
+    try {
+      const result = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, node, Array.from(rootCall.arguments))
+      );
+
+      if (this.expansionTracker) {
+        const expandedText = this.printNodeSafe(result);
+        if (expandedText) {
+          this.expansionTracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);
+        }
+      }
+
+      if (result === (node as ts.Expression)) {
+        return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      }
+      const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    } catch (error) {
+      this.ctx.reportError(node, `Chain macro expansion failed: ${error}`);
+      return createMacroErrorExpr(
+        this.ctx.factory,
+        `typesugar: chain expansion of '${macroName}' failed: ${error}`
       );
     }
   }

@@ -1,28 +1,33 @@
-//! @extension
-//! Extension methods for existing types
+//! Extension Methods
+//! Import-scoped method activation (Scala 3 model)
 
-import { extension } from "typesugar";
+// Extensions activate when you import the function — no import, no method.
+// The transformer rewrites n.clamp(0, 100) → clamp(n, 0, 100).
+// No prototype mutation. Zero runtime cost.
+import { clamp, isEven, isPrime, toHex, toRoman } from "@typesugar/std";
+import { capitalize, kebabCase, reverse, isPalindrome } from "@typesugar/std";
 
-// @extension adds methods to existing types at compile time
-// Click "JS Output" to see how the extension is compiled!
+// Number extensions — dot-syntax on primitives
+const score = (95).clamp(0, 100);
+const primes = [2, 3, 4, 5, 6, 7].filter(n => n.isPrime());
+const hexColor = (255).toHex();
 
-@extension
-function first<A>(arr: readonly A[]): A | undefined {
-  return arr[0];
-}
+console.log("score:", score);
+console.log("primes:", primes);
+console.log("hex 255:", hexColor);
+console.log("42 even?", (42).isEven());
+console.log("7 roman:", (7).toRoman());
 
-@extension
-function last<A>(arr: readonly A[]): A | undefined {
-  return arr[arr.length - 1];
-}
+// String extensions — same pattern
+const title = "hello world".capitalize();
+const slug = "My Blog Post Title".kebabCase();
+const reversed = "typesugar".reverse();
 
-@extension
-function isEmpty<A>(arr: readonly A[]): boolean {
-  return arr.length === 0;
-}
+console.log("title:", title);
+console.log("slug:", slug);
+console.log("reversed:", reversed);
+console.log("racecar palindrome?", "racecar".isPalindrome());
 
-const arr = [1, 2, 3];
-console.log("first:", arr.first());
-console.log("last:", arr.last());
-console.log("isEmpty:", arr.isEmpty());
-console.log("[] isEmpty:", [].isEmpty());
+// 👀 Check JS Output — every .method() becomes a function call.
+//    Number.prototype and String.prototype are untouched!
+// Try: remove an import and watch the method call disappear

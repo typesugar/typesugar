@@ -1,32 +1,36 @@
 //! Dimensional Analysis
-//! Type-safe physical quantities that prevent unit errors
+//! units macro + type-safe physical quantities
 
-import { meters, kilometers, seconds, minutes, hours } from "@typesugar/units";
-import { metersPerSecond, kilograms, newtons } from "@typesugar/units";
+import { units, meters, seconds, kilograms, newtons } from "@typesugar/units";
+import { staticAssert } from "typesugar";
 
-// Create quantities with units
-const distance = kilometers(42.195);
-const time = hours(2).add(minutes(1)).add(seconds(39));
+// units`...` is a compile-time macro that parses unit literals
+// 👀 Check JS Output: units`100 meters` → meters(100)
+const marathon = units`42195 meters`;
+const time = units`7299 seconds`;
 
-console.log("Marathon distance:", distance.toString());
-console.log("World record time:", time.toString());
+staticAssert(42195 > 0);
 
-// Unit-safe arithmetic
-const speed = distance.div(time);
-console.log("Average speed:", speed.toString());
+console.log("Marathon:", marathon.toString());
+console.log("Time:", time.toString());
 
-// Convert between units
-const distInMeters = meters(distance.value * 1000);
-console.log("In meters:", distInMeters.toString());
+// Type-safe arithmetic: .div() produces Velocity type
+const speed = marathon.div(time);
+console.log("Speed:", speed.toString());
 
-// Force = mass × acceleration
+// Force = mass × acceleration (F = ma)
 const mass = kilograms(75);
-const acceleration = metersPerSecond(9.81);
-const force = newtons(mass.value * acceleration.value);
-console.log("\nForce (75kg × 9.81m/s²):", force.toString());
+const gravity = units`9.81 m/s^2`;
+const weight = newtons(mass.value * gravity.value);
+console.log("\nWeight:", weight.toString());
 
-// The Mars Climate Orbiter lesson:
-// Mixing units without type safety caused a $327M crash
-const thrustLbf = 4.45; // pound-force (imperial)
-const thrustN = newtons(thrustLbf * 4.44822); // correct conversion
-console.log("\nThrust:", thrustN.toString(), "(properly converted)");
+// Unit-safe addition: can only add same dimensions
+const leg1 = units`10000 meters`;
+const leg2 = units`5000 meters`;
+const total = leg1.add(leg2);
+console.log("Total distance:", total.toString());
+
+// Compile error if you try: meters(10).add(seconds(5))
+// The type system prevents dimension mismatches at compile time
+
+// Try: change "meters" to "km" and watch the macro output change

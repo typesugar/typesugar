@@ -1,33 +1,41 @@
 //! Pipeline Operator
-//! Chain transformations with |>
+//! Compose named transforms with |> for readable data flow
 
-// Pipeline operator |> for readable data transformations
-// (Sugar TypeScript syntax - .sts file)
+// 👀 Check JS Output — |> compiles to nested function calls
 
-const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-// Without pipeline - hard to read
-const result1 = numbers
-  .filter(n => n % 2 === 0)
-  .map(n => n * 2)
-  .reduce((a, b) => a + b, 0);
-
-// With pipeline - clear data flow
-const result2 = numbers
-  |> (nums => nums.filter(n => n % 2 === 0))
-  |> (nums => nums.map(n => n * 2))
-  |> (nums => nums.reduce((a, b) => a + b, 0));
-
-console.log("Result:", result2); // 60 (2+4+6+8+10 doubled)
-
-// Works great with custom functions
+// Named transforms — real functions, not inline lambdas
 const double = (x: number) => x * 2;
 const addOne = (x: number) => x + 1;
-const toString = (x: number) => `Value: ${x}`;
+const toString = (x: number) => `Result: ${x}`;
 
-const transformed = 5
-  |> double
-  |> addOne
-  |> toString;
+const result = 5 |> double |> addOne |> toString;
+console.log(result); // "Result: 11"
 
-console.log(transformed); // "Value: 11"
+// Data processing pipeline — each step is a named, testable function
+const removeNulls = (xs: (number | null)[]) => xs.filter(x => x !== null) as number[];
+const onlyPositive = (xs: number[]) => xs.filter(n => n > 0);
+const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+const data: (number | null)[] = [3, null, -1, 7, null, 2, -4, 5];
+
+const total = data |> removeNulls |> onlyPositive |> sum;
+console.log("total:", total); // 17 (3+7+2+5)
+
+// Pipeline reads top-to-bottom, like Unix pipes
+const formatted = data
+  |> removeNulls
+  |> onlyPositive
+  |> (xs => xs.sort((a, b) => a - b))
+  |> (xs => xs.join(", "))
+  |> (s => `[${s}]`);
+
+console.log("sorted positives:", formatted); // "[2, 3, 5, 7]"
+
+// Combine with :: for building then processing
+const pipeline = 10 :: 20 :: 30 :: []
+  |> (xs => xs.map(n => n + 1))
+  |> sum;
+
+console.log("cons + pipe:", pipeline); // 63 (11+21+31)
+
+// Try: add a `|> (x => x * 2)` step after double

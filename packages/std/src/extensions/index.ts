@@ -54,6 +54,8 @@ export {
   pascalCase,
   snakeCase,
   isBlank,
+  reverse,
+  isPalindrome,
   toInt as parseIntSafe,
 } from "./string";
 

@@ -121,8 +121,9 @@ export {
 // Validated — Error accumulation
 // ============================================================================
 
-export type { Validated, ValidatedF, ValidatedNel } from "./data/validated.js";
+export type { ValidatedF, ValidatedNel } from "./data/validated.js";
 export {
+  Validated,
   Valid,
   Invalid,
   valid,

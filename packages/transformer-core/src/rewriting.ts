@@ -33,6 +33,9 @@ import {
   globalResolutionScope,
   isInOptedOutScope,
   preserveSourceMap,
+  findTypeRewrite,
+  getAllTypeRewrites,
+  type TypeRewriteEntry,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -642,4 +645,219 @@ export function tryRewriteTypeclassOperator(
   );
   const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
   return preserveSourceMap(rewritten, node);
+}
+
+// ---------------------------------------------------------------------------
+// @opaque type rewrite — method, constructor, and accessor erasure (PEP-012)
+// ---------------------------------------------------------------------------
+
+function buildConstantExpression(factory: ts.NodeFactory, value: string): ts.Expression {
+  switch (value) {
+    case "null":
+      return factory.createNull();
+    case "undefined":
+      return factory.createIdentifier("undefined");
+    case "true":
+      return factory.createTrue();
+    case "false":
+      return factory.createFalse();
+    default: {
+      const num = Number(value);
+      if (!isNaN(num)) {
+        return factory.createNumericLiteral(num);
+      }
+      if (value.startsWith('"') || value.startsWith("'")) {
+        return factory.createStringLiteral(value.slice(1, -1));
+      }
+      return factory.createIdentifier(value);
+    }
+  }
+}
+
+function isWithinSourceModule(filePath: string, sourceModule: string): boolean {
+  const normFile = filePath.replace(/\\/g, "/");
+  const normModule = sourceModule.replace(/\\/g, "/");
+  if (normModule.startsWith("/") || /^[A-Za-z]:\//.test(normModule)) {
+    return normFile === normModule;
+  }
+  const modulePath = normModule.replace(/^@/, "");
+  const fileNoExt = normFile.replace(/\.[^/.]+$/, "");
+  return fileNoExt.endsWith(modulePath) || fileNoExt.endsWith(modulePath + "/index");
+}
+
+/**
+ * Rewrite a method call on an @opaque type: `x.map(fn)` → `map(x, fn)`.
+ * Falls back from the extension registry to the type rewrite registry.
+ */
+export function tryRewriteOpaqueMethodCall(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.CallExpression
+): ts.Expression | undefined {
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+
+  const propAccess = node.expression;
+  const methodName = propAccess.name.text;
+  const receiver = propAccess.expression;
+
+  let receiverType: ts.Type;
+  try {
+    receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  } catch {
+    return undefined;
+  }
+  if (!ctx.isTypeReliable(receiverType)) return undefined;
+
+  const typeName = ctx.typeChecker.typeToString(receiverType);
+  const entry = findTypeRewrite(typeName);
+  if (!entry) return undefined;
+
+  if (entry.transparent && entry.sourceModule) {
+    if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
+      return undefined;
+    }
+  }
+
+  const methods = entry.methods;
+  if (!methods) return undefined;
+
+  const standaloneFnName = methods.get(methodName);
+  if (!standaloneFnName) return undefined;
+
+  if (verbose) {
+    console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${standaloneFnName}(...)`);
+  }
+
+  const ext: StandaloneExtensionInfo = {
+    methodName: standaloneFnName,
+    forType: entry.typeName,
+  };
+
+  const rewritten = buildStandaloneExtensionCall(
+    ctx.factory,
+    ext,
+    receiver,
+    Array.from(node.arguments)
+  );
+
+  try {
+    const visited = ts.visitNode(rewritten, visit) as ts.Expression;
+    return preserveSourceMap(visited, node);
+  } catch (error) {
+    ctx.reportError(node, `Type rewrite method erasure failed: ${error}`);
+    return undefined;
+  }
+}
+
+/**
+ * Erase an @opaque constructor call: `Some(x)` → `x`, `Left(e)` → literal.
+ */
+export function tryEraseOpaqueConstructorCall(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.CallExpression
+): ts.Expression | undefined {
+  if (!ts.isIdentifier(node.expression)) return undefined;
+
+  const ctorName = node.expression.text;
+
+  for (const entry of getAllTypeRewrites()) {
+    if (!entry.constructors) continue;
+
+    const ctor = entry.constructors.get(ctorName);
+    if (!ctor) continue;
+
+    if (entry.transparent && entry.sourceModule) {
+      if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    if (ctor.kind === "identity") {
+      if (node.arguments.length !== 1) {
+        ctx.reportWarning(
+          node,
+          `Identity constructor '${ctorName}' expects exactly 1 argument, got ${node.arguments.length}`
+        );
+        return undefined;
+      }
+
+      if (verbose) {
+        console.log(`[typesugar] Constructor erasure: ${ctorName}(arg) → arg`);
+      }
+
+      const arg = node.arguments[0];
+      const visited = ts.visitNode(arg, visit) as ts.Expression;
+      return preserveSourceMap(visited, node);
+    }
+
+    if (ctor.kind === "constant") {
+      if (verbose) {
+        console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
+      }
+      return preserveSourceMap(
+        buildConstantExpression(ctx.factory, ctor.value ?? "undefined"),
+        node
+      );
+    }
+
+    if (ctor.kind === "custom" && ctor.value) {
+      if (verbose) {
+        console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
+      }
+      return preserveSourceMap(ctx.factory.createIdentifier(ctor.value), node);
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Erase a bare constant constructor reference: `None` → `null`.
+ */
+export function tryEraseOpaqueConstantRef(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  node: ts.Identifier
+): ts.Expression | undefined {
+  const name = node.text;
+
+  if (
+    node.parent &&
+    ((ts.isVariableDeclaration(node.parent) && node.parent.name === node) ||
+      (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) ||
+      (ts.isParameter(node.parent) && node.parent.name === node) ||
+      (ts.isPropertyDeclaration(node.parent) && node.parent.name === node) ||
+      ts.isImportSpecifier(node.parent) ||
+      ts.isExportSpecifier(node.parent))
+  ) {
+    return undefined;
+  }
+
+  if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
+    return undefined;
+  }
+
+  for (const entry of getAllTypeRewrites()) {
+    if (!entry.constructors) continue;
+
+    const ctor = entry.constructors.get(name);
+    if (!ctor || ctor.kind !== "constant") continue;
+
+    if (entry.transparent && entry.sourceModule) {
+      if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    if (verbose) {
+      console.log(`[typesugar] Constant constructor ref erasure: ${name} → ${ctor.value}`);
+    }
+
+    return preserveSourceMap(buildConstantExpression(ctx.factory, ctor.value ?? "undefined"), node);
+  }
+
+  return undefined;
 }

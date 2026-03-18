@@ -4,7 +4,7 @@
 import { reflect, typeInfo, fieldNames } from "typesugar";
 
 // reflect(), typeInfo(), and fieldNames() extract type info at COMPILE TIME
-// Check the JS Output - you'll see literal values, not runtime introspection!
+// 👀 Check JS Output to see the zero-cost compilation — literal values, not runtime introspection!
 
 interface User {
   id: number;
@@ -38,3 +38,5 @@ console.log("Product fields:", productMeta);
 // Practical use: auto-generate column names for a query
 const columns = fieldNames<User>().join(", ");
 console.log(`SELECT ${columns} FROM users`);
+
+// Try: add a "role" field to User and watch the SELECT query update

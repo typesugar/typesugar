@@ -1,37 +1,46 @@
 //! State Machines
-//! Define, verify, and run typed state machines
+//! Compile-time verified state machine with type-safe transitions
 
-import { defineStateMachine, verify, createInstance } from "@typesugar/graph";
+import { stateMachine, verify, deadEndStates } from "@typesugar/graph";
 
-// Define an order fulfillment workflow
-const orderFlow = defineStateMachine([
-  { from: "created",  event: "submit",  to: "pending" },
-  { from: "pending",  event: "approve", to: "approved" },
-  { from: "pending",  event: "reject",  to: "rejected" },
-  { from: "pending",  event: "cancel",  to: "cancelled" },
-  { from: "approved", event: "ship",    to: "shipped" },
-  { from: "shipped",  event: "deliver", to: "delivered" },
-], { initial: "created", terminal: ["delivered", "cancelled"] });
+// stateMachine`...` is a compile-time macro that:
+// 1. Parses the DSL at build time
+// 2. Verifies structure (dead ends, unreachable states)
+// 3. Generates an inlined object literal
+// 👀 Check JS Output: the tagged template becomes a verified object
 
-// Structural verification catches design issues
+const orderFlow = stateMachine`
+  @initial Created
+  @terminal Delivered, Cancelled
+
+  Created   --submit-->  Pending
+  Pending   --approve--> Approved
+  Pending   --reject-->  Rejected
+  Pending   --cancel-->  Cancelled
+  Approved  --ship-->    Shipped
+  Shipped   --deliver--> Delivered
+`;
+
+// Structural verification — caught at compile time by the macro
 const checks = verify(orderFlow);
 console.log("Valid?", checks.valid);
-if (checks.deadEndStates.length > 0) {
-  console.log("Dead-end states:", checks.deadEndStates);
-}
+console.log("Dead ends:", checks.deadEndStates);
+console.log("States:", orderFlow.states);
 
-// Run an instance through the happy path
-const order = createInstance(orderFlow);
+// Run the happy path with type-safe transitions
+const order = orderFlow.create();
 console.log("\nState:", order.current);
 
-const step1 = order.transition("submit");
-console.log("→ submit:", step1.current);
+const s1 = order.transition("submit");
+console.log("→ submit:", s1.current);
 
-const step2 = step1.transition("approve");
-console.log("→ approve:", step2.current);
+const s2 = s1.transition("approve");
+console.log("→ approve:", s2.current);
 
-const step3 = step2.transition("ship");
-console.log("→ ship:", step3.current);
+const s3 = s2.transition("ship");
+console.log("→ ship:", s3.current);
 
-const step4 = step3.transition("deliver");
-console.log("→ deliver:", step4.current, "(terminal)");
+const s4 = s3.transition("deliver");
+console.log("→ deliver:", s4.current, "(terminal)");
+
+// Try: remove @terminal Cancelled and watch the dead-end warning

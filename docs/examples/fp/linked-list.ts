@@ -1,47 +1,46 @@
 //! Persistent Linked List
-//! Immutable cons-list with structural sharing
+//! Immutable cons-list with pattern matching on variants
 
-import { Cons, Nil, isCons, isNil, listOf, listFromArray } from "@typesugar/fp";
+import { Cons, Nil, listOf, isCons } from "@typesugar/fp";
+import { match } from "@typesugar/std";
+import type { List } from "@typesugar/fp";
 
-// Build lists with constructors
-const xs = Cons(1, Cons(2, Cons(3, Nil)));
-const ys = listOf(10, 20, 30);
+// Nil is null at runtime — zero-cost empty list
+const nums = Cons(1, Cons(2, Cons(3, Nil)));
+const pets = listOf("cat", "dog", "fish");
 
-// Walk the list
-function toArray<A>(list: any): A[] {
-  const result: A[] = [];
-  let current = list;
-  while (isCons(current)) {
-    result.push(current.head);
-    current = current.tail;
-  }
-  return result;
+// 👀 Check JS Output — match() compiles to ternary chains
+function sum(list: List<number>): number {
+  return match(list)
+    .case(null).then(0)
+    .case({ head: h, tail: t }).then(h + sum(t))
+    .else(0);
+}
+console.log("sum:", sum(nums)); // 6
+
+function describe<A>(list: List<A>): string {
+  return match(list)
+    .case(null).then("empty")
+    .case({ head: h, tail: null }).then(`[${h}]`)
+    .case({ head: h }).then(`[${h}, ...]`)
+    .else("?");
+}
+console.log(describe(Nil));            // "empty"
+console.log(describe(Cons(42, Nil)));  // "[42]"
+console.log(describe(nums));           // "[1, ...]"
+
+// Structural sharing — prepend is O(1), original untouched
+const withZero = Cons(0, nums);
+
+function toArray<A>(list: List<A>): A[] {
+  const out: A[] = [];
+  let cur: List<A> = list;
+  while (isCons(cur)) { out.push(cur.head); cur = cur.tail; }
+  return out;
 }
 
-console.log("Cons(1, 2, 3):", toArray(xs));
-console.log("listOf(10, 20, 30):", toArray(ys));
+console.log("prepended:", toArray(withZero)); // [0, 1, 2, 3]
+console.log("original:", toArray(nums));      // [1, 2, 3]
+console.log("pets:", toArray(pets));           // ["cat", "dog", "fish"]
 
-// Structural sharing — prepending is O(1)
-const prepended = Cons(0, xs);
-console.log("Cons(0, xs):", toArray(prepended));
-console.log("Original xs:", toArray(xs)); // unchanged
-
-// Fold left to sum
-function foldLeft<A, B>(list: any, init: B, f: (acc: B, a: A) => B): B {
-  let acc = init;
-  let current = list;
-  while (isCons(current)) {
-    acc = f(acc, current.head);
-    current = current.tail;
-  }
-  return acc;
-}
-
-const sum = foldLeft<number, number>(xs, 0, (acc, n) => acc + n);
-const product = foldLeft<number, number>(xs, 1, (acc, n) => acc * n);
-console.log("\nsum([1,2,3]):", sum);
-console.log("product([1,2,3]):", product);
-
-// From array round-trip
-const fromArr = listFromArray([4, 5, 6]);
-console.log("listFromArray([4,5,6]):", toArray(fromArr));
+// Try: add Cons(4, Cons(5, Nil)) and verify sum computes 15

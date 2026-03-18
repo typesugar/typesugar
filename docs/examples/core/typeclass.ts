@@ -4,7 +4,7 @@
 import { summon, implicit } from "typesugar";
 
 // @typeclass uses JSDoc syntax — /** @typeclass */ on interface, /** @impl TC<T> */ on instances
-// Check JS Output tab to see the generated registry, summon(), and namespace!
+// 👀 Check JS Output to see the zero-cost compilation — generated registry and summon() resolution!
 
 /** @typeclass */
 interface Show<A> {
@@ -41,3 +41,5 @@ print("hello");      // uses showString
 print([1, 2, 3]);    // uses showArray
 
 // Works with any type that has a Show instance — fully type-safe!
+
+// Try: add a Show<boolean> instance and call print(true)

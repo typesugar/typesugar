@@ -1,29 +1,33 @@
 //! Schema & Codecs
-//! Type-safe serialization with versioned schemas
+//! @codec extracts type info at compile time for versioned serialization
 
+import "@typesugar/codec";
 import { SchemaBuilder } from "@typesugar/codec";
+import { comptime, staticAssert } from "typesugar";
 
-// Define a versioned schema with the fluent builder
-const userSchemaV1 = new SchemaBuilder("User", 1)
-  .field("name", "string")
-  .field("email", "string")
-  .build();
+// @codec reads the interface at compile time and generates defineSchema()
+// 👀 Check JS Output: the interface stays, plus a generated schema constant
+/** @codec */
+interface UserV1 {
+  name: string;
+  email: string;
+}
 
-console.log("Schema v1:", userSchemaV1.name, "version", userSchemaV1.version);
-console.log("Fields:", userSchemaV1.fields.map((f: any) => f.name).join(", "));
+const SCHEMA_VERSION = comptime(() => 2);
+staticAssert(2 > 1);
 
-// Evolve the schema — add fields with defaults
-const userSchemaV2 = new SchemaBuilder("User", 2)
+// Evolve the schema — add fields with migration defaults
+const userV2 = new SchemaBuilder("User", SCHEMA_VERSION)
   .field("name", "string")
   .field("email", "string")
   .field("age", "number", { default: 0, since: 2 })
   .field("role", "string", { default: "user", since: 2 })
   .build();
 
-console.log("\nSchema v2:", userSchemaV2.name, "version", userSchemaV2.version);
-console.log("Fields:", userSchemaV2.fields.map((f: any) => f.name).join(", "));
+console.log("Schema:", userV2.name, "v" + userV2.version);
+console.log("Fields:", userV2.fields.map((f: any) => f.name).join(", "));
 
-// Create a JSON codec from the schema
+// JSON codec: encode → decode roundtrip
 const codec = new SchemaBuilder("Config", 1, "json")
   .field("host", "string")
   .field("port", "number")
@@ -36,3 +40,5 @@ console.log("\nEncoded:", encoded);
 
 const decoded = codec.decode(encoded);
 console.log("Decoded:", JSON.stringify(decoded));
+
+// Try: add a new field to UserV1 and watch @codec regenerate the schema

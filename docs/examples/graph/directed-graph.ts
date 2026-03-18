@@ -1,38 +1,41 @@
 //! Directed Graphs
-//! Build graphs, find paths, detect cycles, topological sort
+//! Tagged template DSL with shortest-path algorithms
 
-import { createDigraph, topoSort, hasCycles, shortestPath, reachable, bfs } from "@typesugar/graph";
+import { digraph, shortestPath, topoSort, hasCycles, dijkstra } from "@typesugar/graph";
+import { comptime, staticAssert } from "typesugar";
 
-// Monorepo dependency graph
-const deps = createDigraph(
-  ["app", "ui", "api", "core", "utils", "types"],
-  [
-    ["app",  "ui",    "uses"],
-    ["app",  "api",   "uses"],
-    ["ui",   "core",  "uses"],
-    ["api",  "core",  "uses"],
-    ["core", "utils", "uses"],
-    ["core", "types", "uses"],
-    ["utils", "types", "uses"],
-  ]
-);
+// digraph`...` parses the adjacency DSL into a typed Graph at runtime
+// 👀 Check JS Output: comptime() becomes an inlined literal
+const buildTime = comptime(() => new Date().toISOString().slice(0, 10));
 
-// Topological sort → safe build order
+const deps = digraph`
+  app -> ui, api
+  ui -> core
+  api -> core
+  core -> utils, types
+  utils -> types
+`;
+
+staticAssert("typesugar".length > 0);
+
+// Topological sort — safe build order for a monorepo
 const buildOrder = topoSort(deps);
 console.log("Build order:", buildOrder);
-
-// Cycle detection
 console.log("Has cycles?", hasCycles(deps));
 
-// What does 'app' depend on (transitively)?
-const allDeps = reachable(deps, "app");
-console.log("\n'app' depends on:", allDeps);
-
-// Shortest path from app to types
+// Shortest path (unweighted BFS)
 const path = shortestPath(deps, "app", "types");
-console.log("Shortest path app→types:", path);
+console.log("app → types:", path);
 
-// BFS traversal from core
-const visited: string[] = [];
-bfs(deps, "core", (node) => { visited.push(node); });
-console.log("\nBFS from 'core':", visited);
+// Dijkstra with weighted edges
+const network = digraph`
+  A -> B, C
+  B -> D
+  C -> D
+  D -> E
+`;
+const result = dijkstra(network, "A");
+console.log("\nDijkstra from A:", result);
+console.log("Built:", buildTime);
+
+// Try: add a cycle (types -> app) and watch hasCycles() change

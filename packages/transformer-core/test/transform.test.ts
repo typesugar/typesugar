@@ -142,7 +142,7 @@ describe("transformCode", () => {
   });
 
   describe("macro expansion", () => {
-    it("should expand staticAssert(true) to undefined", () => {
+    it("should expand staticAssert(true) to comment", () => {
       const code = `
         import { staticAssert } from "@typesugar/macros";
         staticAssert(true);
@@ -151,7 +151,12 @@ describe("transformCode", () => {
       const result = transformCode(code, { verbose: false });
 
       expect(result.changed).toBe(true);
-      expect(result.code).not.toContain("staticAssert(");
+      expect(result.code).toContain("// staticAssert");
+      expect(result.code).toContain("✓");
+      const nonCommentLines = result.code
+        .split("\n")
+        .filter((l) => !l.trim().startsWith("//") && l.trim() !== ";");
+      expect(nonCommentLines.join("")).not.toContain("staticAssert(true)");
     });
 
     it("should expand comptime expressions", () => {
@@ -177,7 +182,10 @@ describe("transformCode", () => {
       const result = transformCode(code, { verbose: false });
 
       expect(result.changed).toBe(true);
-      expect(result.code).not.toContain("staticAssert(");
+      const nonCommentLines = result.code
+        .split("\n")
+        .filter((l) => !l.trim().startsWith("//") && l.trim() !== ";");
+      expect(nonCommentLines.join("")).not.toContain("staticAssert(true)");
       expect(result.code).toContain("6");
     });
   });

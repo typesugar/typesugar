@@ -733,6 +733,34 @@ declare module "@typesugar/std" {
   export function trim(s: string): string;
   export function padLeft(s: string, len: number, char?: string): string;
   export function padRight(s: string, len: number, char?: string): string;
+  export function reverse(s: string): string;
+  export function isPalindrome(s: string): boolean;
+  export function isBlank(s: string): boolean;
+  export function truncate(s: string, maxLen: number): string;
+
+  // Number extension utilities
+  export function clamp(value: number, min: number, max: number): number;
+  export function isEven(value: number): boolean;
+  export function isOdd(value: number): boolean;
+  export function isPrime(value: number): boolean;
+  export function toHex(value: number): string;
+  export function toRoman(value: number): string;
+  export function abs(value: number): number;
+  export function sign(value: number): number;
+
+  // Range utilities
+  export function range(start: number, end: number): any;
+  export function rangeInclusive(start: number, end: number): any;
+  export function rangeToArray(r: any): number[];
+  export function rangeMap<T>(r: any, fn: (n: number) => T): T[];
+  export function rangeFilter(r: any, fn: (n: number) => boolean): number[];
+  export function rangeReduce<T>(r: any, init: T, fn: (acc: T, n: number) => T): T;
+  export function rangeForEach(r: any, fn: (n: number) => void): void;
+  export function rangeContains(r: any, n: number): boolean;
+  export function rangeSize(r: any): number;
+
+  // Pattern matching
+  export function match<T>(value: T): any;
 }
 `,
     "file:///node_modules/@typesugar/std/index.d.ts"
@@ -994,6 +1022,39 @@ declare module "@typesugar/codec" {
 }
 `,
     "file:///node_modules/@typesugar/codec/index.d.ts"
+  );
+
+  // @typesugar/graph - Graph algorithms and state machines
+  monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+    `
+declare module "@typesugar/graph" {
+  export interface StateMachineDefinition {
+    states: string[];
+    transitions: Array<{ from: string; event: string; to: string }>;
+    initial: string;
+    terminal?: string[];
+  }
+
+  export interface StateMachineInstance<S extends string = string> {
+    current: S;
+    transition(event: string): StateMachineInstance<S>;
+  }
+
+  export interface VerificationResult {
+    valid: boolean;
+    deadEndStates: string[];
+    unreachableStates: string[];
+    nondeterministic: Array<{ state: string; event: string; targets: string[] }>;
+  }
+
+  export function stateMachine(strings: TemplateStringsArray, ...exprs: any[]): StateMachineDefinition & { create(): StateMachineInstance };
+  export function verify(sm: StateMachineDefinition): VerificationResult;
+  export function deadEndStates(sm: StateMachineDefinition): string[];
+  export function defineStateMachine(transitions: Array<{ from: string; event: string; to: string }>, options?: { initial?: string; terminal?: string[] }): StateMachineDefinition;
+  export function createInstance<S extends string>(sm: StateMachineDefinition): StateMachineInstance<S>;
+}
+`,
+    "file:///node_modules/@typesugar/graph/index.d.ts"
   );
 
   // @typesugar/type-system - Type-level utilities

@@ -1,19 +1,37 @@
-//! Welcome
-//! Introduction to the playground
+//! Welcome to typesugar
+//! See how macros transform your code — check JS Output!
 
-// Welcome to the typesugar Playground!
-// Try editing the code below and press Run (or Cmd+Enter)
+import { comptime, staticAssert, derive, Eq, pipe } from "typesugar";
 
-import { staticAssert } from "typesugar";
+// 1. comptime() evaluates at BUILD TIME — the result is inlined as a literal
+const buildId = comptime(() => Math.random().toString(36).slice(2, 8));
 
-// Static assertion at compile time
-staticAssert(1 + 1 === 2);
+// 2. staticAssert() proves invariants at compile time, then vanishes
+staticAssert(1 + 1 === 2, "math works");
+staticAssert("typesugar".length === 9);
 
-// Regular TypeScript
-const greet = (name: string) => `Hello, ${name}!`;
-console.log(greet("World"));
+// 3. @derive generates Eq — the === operator becomes field-by-field comparison
+@derive(Eq)
+class Point {
+  constructor(public x: number, public y: number) {}
+}
 
-// Try adding more code!
-const numbers = [1, 2, 3, 4, 5];
-const doubled = numbers.map(n => n * 2);
-console.log("Doubled:", doubled);
+const p1 = new Point(3, 4);
+const p2 = new Point(3, 4);
+const p3 = new Point(1, 2);
+
+// 👀 In JS Output: === becomes p1.x === p2.x && p1.y === p2.y
+console.log("p1 === p2?", p1 === p2);  // true (structural!)
+console.log("p1 === p3?", p1 === p3);  // false
+
+// 4. pipe() inlines to nested function calls — no intermediate array
+const double = (n: number) => n * 2;
+const addTen = (n: number) => n + 10;
+const asStr = (n: number) => `result: ${n}`;
+
+// 👀 In JS Output: pipe(5, f, g, h) → h(g(f(5)))
+const result = pipe(5, double, addTen, asStr);
+console.log(result);  // "result: 20"
+console.log("build:", buildId);
+
+// Try: change the Point fields and watch the === comparison adapt

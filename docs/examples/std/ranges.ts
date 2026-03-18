@@ -2,6 +2,10 @@
 //! Scala/Kotlin-style ranges with functional operations
 
 import { range, rangeInclusive, rangeToArray, rangeMap, rangeFilter, rangeReduce, rangeForEach, rangeContains, rangeSize } from "@typesugar/std";
+import { staticAssert } from "typesugar";
+
+// Gauss's formula verified at compile time
+staticAssert(100 * 101 / 2 === 5050, "Gauss sum 1..100");
 
 // Exclusive range: 1 to 10 (not including 10)
 const r1 = range(1, 10);
@@ -25,8 +29,11 @@ const sum = rangeReduce(rangeInclusive(1, 100), 0, (acc, n) => acc + n);
 console.log("sum(1..100):", sum);
 
 // FizzBuzz with ranges
+// 👀 Check JS Output to see the zero-cost compilation — range operations inline
 console.log("\nFizzBuzz 1..20:");
 rangeForEach(rangeInclusive(1, 20), n => {
   const s = (n % 3 === 0 ? "Fizz" : "") + (n % 5 === 0 ? "Buzz" : "");
   console.log(`  ${n}: ${s || n}`);
 });
+
+// Try: change rangeInclusive(1, 100) sum to rangeInclusive(1, 1000) and check the result

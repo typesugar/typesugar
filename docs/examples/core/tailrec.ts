@@ -3,8 +3,8 @@
 
 import { tailrec } from "typesugar";
 
-// Click "JS Output" tab to see the generated code!
-// @tailrec transforms recursive functions into while loops
+// 👀 Check JS Output to see the zero-cost compilation — recursion becomes a while loop!
+// @tailrec transforms recursive functions into efficient iteration.
 // This prevents stack overflow for deep recursion!
 
 @tailrec
@@ -24,5 +24,7 @@ console.log("20! =", factorial(20n));
 console.log("Fib(10) =", fibonacci(10n));      // 55n
 console.log("Fib(100) =", fibonacci(100n));    // 354224848179261915075n
 
-// Try these — impossible without @tailrec:
+// Without @tailrec these would stack overflow:
 console.log("Fib(10000) digit count:", fibonacci(10000n).toString().length);
+
+// Try: write a @tailrec gcd(a, b) and test with gcd(48n, 18n)

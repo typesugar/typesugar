@@ -1,52 +1,46 @@
 //! Design by Contract
-//! Preconditions, postconditions, and invariants
+//! @contract transforms requires:/ensures: blocks into runtime checks
 
-import { requires, ensures, ContractError, PreconditionError } from "@typesugar/contracts";
+import "@typesugar/contracts";
+import { requires, PreconditionError } from "@typesugar/contracts";
+import { comptime } from "typesugar";
 
-// requires() throws PreconditionError if condition is false
-function withdraw(balance: number, amount: number): number {
-  requires(amount > 0, "Amount must be positive");
-  requires(amount <= balance, `Insufficient funds: need ${amount}, have ${balance}`);
-  const newBalance = balance - amount;
-  ensures(newBalance >= 0, "Balance must not go negative");
-  return newBalance;
+const MAX_BALANCE = comptime(() => 1_000_000);
+
+// @contract parses requires:/ensures: labeled blocks and generates checks
+// 👀 Check JS Output: label blocks become if-throw statements
+/** @contract */
+function transfer(from: number, to: number, amount: number): [number, number] {
+  requires: { amount > 0; amount <= from; }
+  ensures: { from - amount >= 0; }
+  return [from - amount, to + amount];
 }
 
 // Happy path
-console.log("Withdraw 30 from 100:", withdraw(100, 30));
-console.log("Withdraw 50 from 70:", withdraw(70, 50));
+const [fromBal, toBal] = transfer(1000, 500, 200);
+console.log("Transfer:", fromBal, "→", toBal);
 
-// Contract violations
-const tests = [
-  { balance: 100, amount: -5, desc: "negative amount" },
-  { balance: 50, amount: 75, desc: "insufficient funds" },
-];
-
-for (const { balance, amount, desc } of tests) {
-  try {
-    withdraw(balance, amount);
-  } catch (e) {
-    if (e instanceof PreconditionError) {
-      console.log(`\n✗ Precondition failed (${desc}):`);
-      console.log(`  ${e.message}`);
-    }
-  }
+// Contract violations throw PreconditionError
+try {
+  transfer(100, 500, -50);
+} catch (e: any) {
+  console.log("\nNegative amount:", e.message);
 }
 
-// Real-world: validated configuration
-function createServer(port: number, maxConns: number) {
+try {
+  transfer(100, 500, 200);
+} catch (e: any) {
+  console.log("Insufficient:", e.message);
+}
+
+// Inline contracts for quick validation
+function createPort(port: number) {
   requires(port >= 1 && port <= 65535, `Invalid port: ${port}`);
-  requires(maxConns > 0, "Max connections must be positive");
-  requires(maxConns <= 10000, `Too many connections: ${maxConns}`);
-
-  console.log(`\n✓ Server config: port=${port}, maxConns=${maxConns}`);
-  return { port, maxConns };
+  return port;
 }
 
-createServer(8080, 100);
+console.log("\nPort:", createPort(8080));
+console.log("Max:", MAX_BALANCE);
 
-try { createServer(0, 100); }
-catch (e: any) { console.log(`✗ ${e.message}`); }
-
-try { createServer(8080, -1); }
-catch (e: any) { console.log(`✗ ${e.message}`); }
+// In production: contracts.mode = "none" strips ALL checks
+// Try: swap the requires: conditions and see which fires first

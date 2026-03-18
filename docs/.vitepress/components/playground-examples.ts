@@ -14,26 +14,65 @@ export interface ExampleGroup {
  * Group display names and sort order.
  * Add a new entry here when creating a new example directory.
  * Groups without entries here still appear — keyed by directory name.
+ * Order: most compelling/visual categories first.
  */
 const GROUP_META: Record<string, { label: string; order: number }> = {
   "getting-started": { label: "Getting Started", order: 0 },
   core: { label: "Core Macros", order: 10 },
   fp: { label: "@typesugar/fp", order: 20 },
-  effect: { label: "@typesugar/effect", order: 25 },
-  std: { label: "@typesugar/std", order: 30 },
-  collections: { label: "@typesugar/collections", order: 40 },
-  graph: { label: "@typesugar/graph", order: 45 },
+  std: { label: "@typesugar/std", order: 25 },
+  preprocessor: { label: "Preprocessor (.sts)", order: 28 },
+  collections: { label: "@typesugar/collections", order: 35 },
+  graph: { label: "@typesugar/graph", order: 40 },
+  contracts: { label: "@typesugar/contracts", order: 45 },
   units: { label: "@typesugar/units", order: 50 },
   math: { label: "@typesugar/math", order: 55 },
-  validate: { label: "@typesugar/validate", order: 60 },
-  contracts: { label: "@typesugar/contracts", order: 65 },
-  codec: { label: "@typesugar/codec", order: 70 },
-  parser: { label: "@typesugar/parser", order: 75 },
-  sql: { label: "@typesugar/sql", order: 80 },
-  symbolic: { label: "@typesugar/symbolic", order: 82 },
-  mapper: { label: "@typesugar/mapper", order: 84 },
-  testing: { label: "@typesugar/testing", order: 86 },
-  preprocessor: { label: "Preprocessor (.sts)", order: 90 },
+  symbolic: { label: "@typesugar/symbolic", order: 60 },
+  codec: { label: "@typesugar/codec", order: 65 },
+  parser: { label: "@typesugar/parser", order: 70 },
+  validate: { label: "@typesugar/validate", order: 75 },
+  testing: { label: "@typesugar/testing", order: 80 },
+  effect: { label: "@typesugar/effect", order: 85 },
+  sql: { label: "@typesugar/sql", order: 90 },
+  mapper: { label: "@typesugar/mapper", order: 92 },
+};
+
+/**
+ * Within-group sort priority. Lower number = shown first.
+ * Examples not listed here sort alphabetically after prioritized ones.
+ */
+const EXAMPLE_ORDER: Record<string, Record<string, number>> = {
+  "getting-started": {
+    "Welcome to typesugar": 0,
+    "Full Stack — Everything Together": 10,
+  },
+  core: {
+    "@derive": 0,
+    "Operator Overloading": 5,
+    comptime: 10,
+    "@typeclass": 15,
+    specialize: 20,
+    "cfg() — Dead Code Elimination": 25,
+    "pipe & compose": 30,
+    "Extension Methods": 35,
+    "@tailrec": 40,
+    "reflect & typeInfo": 45,
+    "staticAssert + comptime": 50,
+  },
+  fp: {
+    "Option — Zero-Cost": 0,
+    "Error Accumulation": 10,
+    "Persistent Linked List": 20,
+  },
+  std: {
+    "Pattern Matching": 0,
+    "Do-Notation": 10,
+    "Ranges & Iteration": 20,
+  },
+  preprocessor: {
+    "Pipeline Operator": 0,
+    "Cons Operator ::": 10,
+  },
 };
 
 const rawFiles = import.meta.glob("../../examples/**/*.{ts,sts}", {
@@ -95,9 +134,15 @@ export const EXAMPLE_GROUPS: ExampleGroup[] = (() => {
     presets.push(parsed.preset);
   }
 
-  // Sort presets alphabetically within each group
-  for (const presets of groupMap.values()) {
-    presets.sort((a, b) => a.name.localeCompare(b.name));
+  // Sort presets by impact within each group (fallback: alphabetical)
+  for (const [group, presets] of groupMap.entries()) {
+    const order = EXAMPLE_ORDER[group];
+    presets.sort((a, b) => {
+      const oa = order?.[a.name] ?? 1000;
+      const ob = order?.[b.name] ?? 1000;
+      if (oa !== ob) return oa - ob;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   return Array.from(groupMap.entries())

@@ -5,7 +5,7 @@ import { derive, Eq, Clone, Debug, summon } from "typesugar";
 
 // @derive() generates typeclass instances at compile time.
 // With Eq derived, === is rewritten to use structural equality!
-// Click "JS Output" to see the generated instances and operator rewrites.
+// 👀 Check JS Output to see the zero-cost compilation — generated instances and operator rewrites!
 
 @derive(Eq, Clone, Debug)
 class Point {
@@ -33,3 +33,5 @@ console.log("clone === original:", p1Copy === p1); // true (same values)
 const debugTC = summon<Debug<Point>>();
 console.log("debug(p1):", debugTC.debug(p1));
 // Output: "Point { x: 1, y: 2 }"
+
+// Try: add a z field to Point and watch the derived === comparison expand

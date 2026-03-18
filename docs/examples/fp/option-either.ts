@@ -1,43 +1,39 @@
-//! Option & Either
-//! Null-safe and error-safe types with zero runtime overhead
+//! Option — Zero-Cost
+//! Some(x) is x, None is null. Dot-syntax compiles to null checks.
 
-import { Some, None, isSome, isNone, Left, Right, isLeft, isRight, pipe } from "@typesugar/fp";
+import { Some, None } from "@typesugar/fp";
+import type { Option } from "@typesugar/fp";
 
-// Option<A> is just A | null — zero-cost at runtime
-const found = Some(42);
-const missing = None;
+// Some(42) IS 42 at runtime. None IS null. No wrapper objects.
+const user: Option<string> = Some("Alice");
+const missing: Option<string> = None;
 
-console.log("Some(42):", found);
-console.log("None:", missing);
-console.log("isSome(found):", isSome(found));
-console.log("isNone(missing):", isNone(missing));
+// 👀 Check JS Output — .map().filter().getOrElse() becomes null checks
+const greeting = Some("Alice")
+  .map(name => `Hello, ${name}!`)
+  .filter(s => s.length < 50)
+  .getOrElse(() => "Hello, stranger!");
 
-// Pattern match on Option
-function describe(opt: ReturnType<typeof Some> | null) {
-  if (isSome(opt)) {
-    console.log(`Got value: ${opt}`);
-  } else {
-    console.log("Nothing here");
-  }
-}
-describe(found);
-describe(missing);
+console.log(greeting); // "Hello, Alice!"
 
-// Either<E, A> — typed error handling
-function safeDivide(a: number, b: number) {
-  return b === 0 ? Left("Division by zero") : Right(a / b);
+// Safe config lookup — chain handles missing keys gracefully
+function findPort(env: Record<string, string>): Option<number> {
+  return Some(env["PORT"])
+    .map(s => parseInt(s, 10))
+    .filter(n => !isNaN(n) && n > 0);
 }
 
-const ok = safeDivide(10, 3);
-const err = safeDivide(10, 0);
+const port = findPort({ PORT: "3000" }).getOrElse(() => 8080);
+const fallback = findPort({}).getOrElse(() => 8080);
+console.log("port:", port);         // 3000
+console.log("fallback:", fallback); // 8080
 
-console.log("\nsafeDivide(10, 3):", isRight(ok) ? `Right(${ok.right})` : `Left(${ok.left})`);
-console.log("safeDivide(10, 0):", isLeft(err) ? `Left(${err.left})` : `Right(${err.right})`);
+// Option chains — flatMap composes without null checks
+// 👀 Compiles to: null-safe ternary chains
+const sum = Some(10).flatMap(x => Some(20).map(y => x + y));
+console.log("sum:", sum); // 30
 
-// Compose with pipe
-const result = pipe(
-  safeDivide(100, 4),
-  (e: any) => isRight(e) ? Right(e.right * 2) : e,
-  (e: any) => isRight(e) ? `Result: ${e.right}` : `Error: ${e.left}`
-);
-console.log("\npipe(safeDivide(100, 4), double, format):", result);
+const nothing = None.flatMap(() => Some(99));
+console.log("nothing:", nothing); // null
+
+// Try: change Some("Alice") to None and watch the output change

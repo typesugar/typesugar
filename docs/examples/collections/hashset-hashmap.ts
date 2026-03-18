@@ -1,30 +1,38 @@
 //! HashSet & HashMap
-//! Hash-based collections with custom equality
+//! Derived Eq for custom keys + hash-based collections
 
+import { derive, Eq, staticAssert } from "typesugar";
 import { HashSet, HashMap } from "@typesugar/collections";
-import { eqString, hashString, eqNumber, hashNumber, makeEq, makeHash } from "@typesugar/std";
+import { eqNumber, hashNumber, makeEq, makeHash } from "@typesugar/std";
 
-// HashSet with string keys
-const tags = new HashSet(eqString, hashString);
-tags.add("typescript").add("macros").add("fp").add("typescript"); // deduped
-console.log("Tags:", tags.toArray());
-console.log("Size:", tags.size);
-console.log("Has 'fp':", tags.has("fp"));
+// @derive(Eq) generates structural equality for custom types
+// 👀 Check JS Output: @derive creates field-by-field comparison
+@derive(Eq)
+class Coord {
+  constructor(public x: number, public y: number) {}
+}
 
-// HashMap<string, number>
-const scores = new HashMap(eqString, hashString);
-scores.set("Alice", 95).set("Bob", 87).set("Charlie", 92);
-console.log("\nScores:", [...scores.entries()]);
-console.log("Alice:", scores.get("Alice"));
-console.log("Unknown:", scores.getOrElse("Zara", 0));
+staticAssert(2 + 2 === 4);
 
-// Custom equality: points equal if same (x, y)
-const ptEq = makeEq((a: { x: number; y: number }, b: { x: number; y: number }) =>
-  a.x === b.x && a.y === b.y
-);
-const ptHash = makeHash((p: { x: number; y: number }) => p.x * 31 + p.y);
+const a = new Coord(3, 4);
+const b = new Coord(3, 4);
+const c = new Coord(1, 2);
+console.log("a === b?", a === b);  // true  (structural equality!)
+console.log("a === c?", a === c);  // false
 
-const visited = new HashSet(ptEq, ptHash);
-visited.add({ x: 0, y: 0 }).add({ x: 1, y: 2 }).add({ x: 0, y: 0 }); // deduped!
-console.log("\nVisited points:", visited.toArray());
-console.log("Size (deduped):", visited.size);
+// HashSet with custom equality — deduplicates by structure
+const ptEq = makeEq((p: Coord, q: Coord) => p.x === q.x && p.y === q.y);
+const ptHash = makeHash((p: Coord) => p.x * 31 + p.y);
+
+const visited = new HashSet<Coord>(ptEq, ptHash);
+visited.add(new Coord(0, 0)).add(new Coord(1, 2)).add(new Coord(0, 0));
+console.log("\nVisited:", visited.size, "points (deduped from 3)");
+console.log("Has (1,2)?", visited.has(new Coord(1, 2)));
+
+// HashMap — typed key-value store
+const scores = new HashMap<number, string>(eqNumber, hashNumber);
+scores.set(1, "Alice").set(2, "Bob").set(3, "Charlie");
+console.log("\nPlayer 2:", scores.get(2));
+console.log("Unknown:", scores.getOrElse(99, "N/A"));
+
+// Try: change a Coord field and watch === adapt in JS Output

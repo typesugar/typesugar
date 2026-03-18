@@ -69,6 +69,11 @@ export const staticAssertMacro = defineExpressionMacro({
       }
     }
 
+    // Build a readable comment for the output
+    const comment = messageArg
+      ? ` staticAssert: "${message}" ✓`
+      : ` staticAssert(${printConditionBrief(conditionArg)}) ✓`;
+
     // Evaluate the condition at compile time
     const result = ctx.evaluate(conditionArg);
 
@@ -79,8 +84,12 @@ export const staticAssertMacro = defineExpressionMacro({
         // Assertion passes — remove the call
       } else {
         ctx.diagnostic(TS9219).at(callExpr).note(`Original message: ${message}`).emit();
+        return createRemoveExpression(
+          ctx.factory,
+          ` staticAssert: "${message}" (unverified — not a compile-time constant)`
+        );
       }
-      return createRemoveExpression(ctx.factory);
+      return createRemoveExpression(ctx.factory, comment);
     }
 
     // Convert to boolean
@@ -96,8 +105,8 @@ export const staticAssertMacro = defineExpressionMacro({
         .emit();
     }
 
-    // Assertion passes (or error reported) — remove the call entirely
-    return createRemoveExpression(ctx.factory);
+    // Assertion passes (or error reported) — replace with a comment
+    return createRemoveExpression(ctx.factory, comment);
   },
 });
 
@@ -161,6 +170,21 @@ export const compileWarningMacro = defineExpressionMacro({
 // =============================================================================
 // Helpers
 // =============================================================================
+
+const printer = ts.createPrinter({ removeComments: true });
+
+/**
+ * Best-effort short text for a condition expression (for replacement comments).
+ * Truncated to avoid enormous comments from complex expressions.
+ */
+function printConditionBrief(node: ts.Expression): string {
+  try {
+    const text = printer.printNode(ts.EmitHint.Expression, node, node.getSourceFile());
+    return text.length <= 60 ? text : text.slice(0, 57) + "...";
+  } catch {
+    return "...";
+  }
+}
 
 /**
  * Extract a string from a macro argument, supporting string literals

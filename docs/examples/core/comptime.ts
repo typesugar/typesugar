@@ -22,7 +22,9 @@ const greeting = comptime(() => {
 // Compile-time date (frozen at build time)
 const buildDate = comptime(() => new Date().toISOString().split("T")[0]);
 
-// Check the JS Output - you'll see literal values, not function calls!
+// 👀 Check JS Output to see the zero-cost compilation — literal values, not function calls!
 console.log("5! =", factorial5);        // Inlined as: 120
 console.log("Greeting:", greeting);     // Inlined as: "Hello from compile time!"
 console.log("Built on:", buildDate);    // Inlined as: "2024-XX-XX"
+
+// Try: add a comptime(() => fibonacci(10)) and watch the result get inlined

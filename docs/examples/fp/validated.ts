@@ -1,44 +1,60 @@
 //! Error Accumulation
-//! Collect ALL validation errors instead of failing on the first
+//! Validated.mapN collects ALL errors instead of short-circuiting
 
-import { Valid, Invalid, validNel, invalidNel, isValid, isInvalid } from "@typesugar/fp";
+import { Validated, validNel, invalidNel } from "@typesugar/fp";
+import type { ValidatedNel } from "@typesugar/fp";
+import { match } from "@typesugar/std";
 
-// Validated accumulates errors instead of short-circuiting
-type VError = string;
-
-function validateName(name: string) {
+// Each validator returns ValidatedNel — errors wrap in NonEmptyList
+function validateName(name: string): ValidatedNel<string, string> {
   return name.length >= 2
-    ? validNel<VError, string>(name)
-    : invalidNel<VError, string>("Name must be at least 2 characters");
+    ? validNel(name)
+    : invalidNel("Name too short (min 2 chars)");
 }
 
-function validateAge(age: number) {
+function validateAge(age: number): ValidatedNel<string, number> {
   return age >= 0 && age <= 150
-    ? validNel<VError, number>(age)
-    : invalidNel<VError, number>(`Age ${age} is out of range (0-150)`);
+    ? validNel(age)
+    : invalidNel(`Age ${age} out of range`);
 }
 
-function validateEmail(email: string) {
+function validateEmail(email: string): ValidatedNel<string, string> {
   return email.includes("@")
-    ? validNel<VError, string>(email)
-    : invalidNel<VError, string>("Email must contain @");
+    ? validNel(email)
+    : invalidNel("Email must contain @");
 }
 
-// Good data — all valid
-const r1 = validateName("Alice");
-const r2 = validateAge(30);
-const r3 = validateEmail("alice@example.com");
-console.log("Good data:");
-console.log("  name:", isValid(r1) ? `✓ ${r1.value}` : `✗ ${r1.error}`);
-console.log("  age:", isValid(r2) ? `✓ ${r2.value}` : `✗ ${r2.error}`);
-console.log("  email:", isValid(r3) ? `✓ ${r3.value}` : `✗ ${r3.error}`);
+interface User { name: string; age: number; email: string }
 
-// Bad data — ALL errors collected
-const b1 = validateName("A");
-const b2 = validateAge(200);
-const b3 = validateEmail("not-an-email");
-console.log("\nBad data (all errors at once):");
-const errors = [b1, b2, b3]
-  .filter(isInvalid)
-  .flatMap(v => v.error);
-console.log("  Errors:", errors);
+// mapN combines via applicative — ALL branches run, ALL errors accumulate
+const result = Validated.mapN(
+  validateName("A"),
+  validateAge(200),
+  validateEmail("nope"),
+  (name, age, email): User => ({ name, age, email })
+);
+
+// 👀 Check JS Output — match() compiles to structural checks
+const message = match(result)
+  .case({ value: v }).then(`Welcome, ${v.name}!`)
+  .case({ error: e }).then(`Errors: ${e.head}`)
+  .else("unknown");
+console.log(message);
+// → "Errors: Name too short (min 2 chars)"
+
+// Success case — all validators pass
+const good = Validated.mapN(
+  validateName("Alice"),
+  validateAge(30),
+  validateEmail("alice@example.com"),
+  (name, age, email): User => ({ name, age, email })
+);
+
+const welcome = match(good)
+  .case({ value: v }).then(`Welcome, ${v.name} (${v.age})!`)
+  .case({ error: e }).then(`Failed: ${e.head}`)
+  .else("unknown");
+console.log(welcome);
+// → "Welcome, Alice (30)!"
+
+// Try: make only one field invalid — the others still validate
