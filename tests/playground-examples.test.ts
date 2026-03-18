@@ -224,6 +224,16 @@ describe("preprocessor operators rewrite", () => {
   });
 });
 
+describe("stateMachine tagged template expands to object literal", () => {
+  it("graph/state-machine.ts — tagged template is gone", () => {
+    const result = transform(findExample("graph/state-machine"));
+    const codeOnly = stripComments(result.code);
+    expect(codeOnly).not.toContain("stateMachine`");
+    expect(codeOnly).toContain("states");
+    expect(codeOnly).toContain("transition");
+  });
+});
+
 describe("@derive generates typeclass instances", () => {
   it("core/derive.ts", () => {
     const ex = examples.find((e) => e.relPath.includes("core/derive"));
