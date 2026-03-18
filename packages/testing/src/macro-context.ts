@@ -177,6 +177,10 @@ export function createMacroTestContext(source: string): TestMacroContext {
       return ts.factory.createIdentifier(`${prefix}_${uniqueIdCounter++}`);
     },
 
+    tryShortName(preferred: string): ts.Identifier {
+      return ts.factory.createIdentifier(preferred);
+    },
+
     // Tree-shaking annotation
     markPure<T extends ts.Node>(node: T): T {
       ts.addSyntheticLeadingComment(node, ts.SyntaxKind.MultiLineCommentTrivia, "#__PURE__", false);

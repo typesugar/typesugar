@@ -1,6 +1,6 @@
 # PEP-019: Output Quality — Valid TypeScript, Cleaner Codegen
 
-**Status:** In Progress (Waves 1–2 complete)
+**Status:** In Progress (Waves 1–3 complete)
 **Date:** 2026-03-18
 **Author:** Claude (with Dean Povey)
 
@@ -129,19 +129,19 @@ switch (_s.kind) {
 
 **Tasks:**
 
-- [ ] Fix null check: change `!== null` (`ExclamationEqualsEqualsToken`) to `!= null` (`ExclamationEqualsToken`) in object pattern guard generation — catches both `null` and `undefined`
-- [ ] When the scrutinee type is known (via `analyzeScrutineeType`), detect the common case: all arms match on the same discriminant property (`kind`, `type`, `tag`, `_tag`)
-- [ ] For pure discriminant matches: emit a `switch` on the discriminant instead of repeated `if` chains
-- [ ] For mixed matches (some arms have additional property patterns beyond the discriminant): hoist the shared `typeof`/null/`in` guard as an outer `if`, nest the per-arm discriminant checks inside
-- [ ] Ensure the existing `emitSwitchMatch` path is triggered more aggressively when applicable (it currently only fires for `isAllPureLiteralArms`)
+- [x] Fix null check: change `!== null` (`ExclamationEqualsEqualsToken`) to `!= null` (`ExclamationEqualsToken`) in object pattern guard generation — catches both `null` and `undefined`
+- [x] When the scrutinee type is known (via `analyzeScrutineeType`), detect the common case: all arms match on the same discriminant property (`kind`, `type`, `tag`, `_tag`)
+- [x] For pure discriminant matches: emit a `switch` on the discriminant instead of repeated `if` chains
+- [x] For mixed matches (some arms have additional property patterns beyond the discriminant): hoist the shared `typeof`/null/`in` guard as an outer `if`, nest the per-arm discriminant checks inside
+- [x] Ensure the existing `emitSwitchMatch` path is triggered more aggressively when applicable (it currently only fires for `isAllPureLiteralArms`)
 
 **Gate:**
 
-- [ ] Discriminated union match emits `switch (_s.kind)` not repeated `if` chains
-- [ ] Null checks use `!= null` (loose equality)
-- [ ] Mixed discriminant + property extraction still works correctly
-- [ ] All match tests pass: `pnpm vitest run match`
-- [ ] Red-team: `match(x)` where `x` could be `null | undefined | { kind: ... }` — the guard must not crash
+- [x] Discriminated union match emits `switch (_s.kind)` not repeated `if` chains
+- [x] Null checks use `!= null` (loose equality)
+- [x] Mixed discriminant + property extraction still works correctly
+- [x] All match tests pass: `pnpm vitest run match`
+- [x] Red-team: `match(x)` where `x` could be `null | undefined | { kind: ... }` — the guard must not crash
 
 ### Wave 4: Auto-Inline Derived Typeclass Instances
 

@@ -719,7 +719,8 @@ describe("fluent match() macro (PEP-008 Wave 2)", () => {
 
       expect(text).toContain("typeof");
       expect(text).toContain('"object"');
-      expect(text).toContain("!== null");
+      expect(text).toContain("!= null");
+      expect(text).not.toContain("!== null");
       expect(text).toContain('"name" in');
       expect(text).toContain('"age" in');
       expect(text).toContain("const name =");
@@ -1162,7 +1163,7 @@ describe("fluent match() macro (PEP-008 Wave 3)", () => {
       expect(text).toContain('"function"');
     });
 
-    it("should generate typeof === 'object' && !== null for Object(o)", () => {
+    it("should generate typeof === 'object' && != null for Object(o)", () => {
       const { ctx, printExpr } = createTestContext();
       const { outermost, rootArgs } = buildChain(
         ident("x"),
@@ -1176,7 +1177,8 @@ describe("fluent match() macro (PEP-008 Wave 3)", () => {
 
       expect(text).toContain("typeof");
       expect(text).toContain('"object"');
-      expect(text).toContain("!== null");
+      expect(text).toContain("!= null");
+      expect(text).not.toContain("!== null");
       expect(text).toContain("const o =");
     });
 
@@ -1935,5 +1937,362 @@ describe("PEP-019 Wave 2: shorter match variable names", () => {
     // Should NOT reuse _s — falls back to mangled name
     expect(text2).not.toMatch(/const _s\b/);
     expect(text2).toContain("__typesugar_");
+  });
+});
+
+// ============================================================================
+// PEP-019 Wave 3: Discriminant Switch Optimization & Null Check Fix
+// ============================================================================
+
+describe("PEP-019 Wave 3: discriminant switch optimization", () => {
+  describe("pure discriminant matches → switch", () => {
+    it("GATE: discriminated union emits switch(_s.kind) not repeated if chains", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("order"),
+        { method: "case", args: [obj(prop("kind", str("paid")))] },
+        { method: "then", args: [str("Paid")] },
+        { method: "case", args: [obj(prop("kind", str("pending")))] },
+        { method: "then", args: [str("Awaiting")] },
+        { method: "case", args: [obj(prop("kind", str("failed")))] },
+        { method: "then", args: [str("Failed")] },
+        { method: "else", args: [str("unknown")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain(".kind");
+      expect(text).toContain('case "paid"');
+      expect(text).toContain('case "pending"');
+      expect(text).toContain('case "failed"');
+      expect(text).toContain('"Paid"');
+      expect(text).toContain('"Awaiting"');
+      expect(text).toContain('"Failed"');
+      // Should have at most ONE typeof/null guard (not repeated per arm)
+      const typeofCount = (text.match(/typeof/g) || []).length;
+      expect(typeofCount).toBeLessThanOrEqual(1);
+      const ifCount = (text.match(/\bif\b/g) || []).length;
+      expect(ifCount).toBeLessThanOrEqual(1);
+    });
+
+    it("should emit switch with _tag discriminant", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("result"),
+        { method: "case", args: [obj(prop("_tag", str("Some")))] },
+        { method: "then", args: [str("has value")] },
+        { method: "case", args: [obj(prop("_tag", str("None")))] },
+        { method: "then", args: [str("empty")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain("._tag");
+      expect(text).toContain('case "Some"');
+      expect(text).toContain('case "None"');
+    });
+
+    it("should emit switch with type discriminant", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("event"),
+        { method: "case", args: [obj(prop("type", str("click")))] },
+        { method: "then", args: [str("clicked")] },
+        { method: "case", args: [obj(prop("type", str("hover")))] },
+        { method: "then", args: [str("hovered")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain(".type");
+      expect(text).toContain('case "click"');
+      expect(text).toContain('case "hover"');
+    });
+  });
+
+  describe("mixed discriminant + property extraction", () => {
+    it("GATE: mixed discriminant+property extraction still works", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("order"),
+        {
+          method: "case",
+          args: [obj(prop("kind", str("paid")), prop("amount", ident("a")))],
+        },
+        {
+          method: "then",
+          args: [
+            f.createTemplateExpression(f.createTemplateHead("Paid "), [
+              f.createTemplateSpan(ident("a"), f.createTemplateTail("")),
+            ]),
+          ],
+        },
+        { method: "case", args: [obj(prop("kind", str("pending")))] },
+        { method: "then", args: [str("Awaiting payment")] },
+        {
+          method: "case",
+          args: [obj(prop("kind", str("failed")), prop("reason", ident("r")))],
+        },
+        {
+          method: "then",
+          args: [
+            f.createTemplateExpression(f.createTemplateHead("Failed: "), [
+              f.createTemplateSpan(ident("r"), f.createTemplateTail("")),
+            ]),
+          ],
+        },
+        { method: "else", args: [str("unknown")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain(".kind");
+      expect(text).toContain('case "paid"');
+      expect(text).toContain('case "pending"');
+      expect(text).toContain('case "failed"');
+      expect(text).toContain("const a =");
+      expect(text).toContain(".amount");
+      expect(text).toContain("const r =");
+      expect(text).toContain(".reason");
+    });
+
+    it("should handle discriminant with nested object property extraction", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("msg"),
+        {
+          method: "case",
+          args: [obj(prop("type", str("text")), prop("body", ident("b")))],
+        },
+        { method: "then", args: [ident("b")] },
+        {
+          method: "case",
+          args: [obj(prop("type", str("image")), prop("url", ident("u")))],
+        },
+        { method: "then", args: [ident("u")] },
+        { method: "else", args: [str("?")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain(".type");
+      expect(text).toContain("const b =");
+      expect(text).toContain("const u =");
+    });
+  });
+
+  describe("discriminant with catch-all arm", () => {
+    it("should handle trailing wildcard as fallback", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("shape"),
+        { method: "case", args: [obj(prop("kind", str("circle")))] },
+        { method: "then", args: [str("round")] },
+        { method: "case", args: [obj(prop("kind", str("square")))] },
+        { method: "then", args: [str("boxy")] },
+        { method: "case", args: [ident("_")] },
+        { method: "then", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain(".kind");
+      expect(text).toContain('"other"');
+    });
+
+    it("should handle trailing variable binding as catch-all", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("shape"),
+        { method: "case", args: [obj(prop("kind", str("circle")))] },
+        { method: "then", args: [str("round")] },
+        { method: "case", args: [obj(prop("kind", str("square")))] },
+        { method: "then", args: [str("boxy")] },
+        { method: "case", args: [ident("x")] },
+        { method: "then", args: [ident("x")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain("const x =");
+      expect(text).toContain("return x");
+    });
+  });
+
+  describe("discriminant with guards", () => {
+    it("should handle guard inside discriminant case", () => {
+      const { ctx, printExpr } = createTestContext();
+      const guard = f.createBinaryExpression(ident("a"), ts.SyntaxKind.GreaterThanToken, num(100));
+      const { outermost, rootArgs } = buildChain(
+        ident("order"),
+        {
+          method: "case",
+          args: [obj(prop("kind", str("paid")), prop("amount", ident("a")))],
+        },
+        { method: "if", args: [guard] },
+        { method: "then", args: [str("big payment")] },
+        { method: "case", args: [obj(prop("kind", str("pending")))] },
+        { method: "then", args: [str("waiting")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      expect(text).toContain(".kind");
+      expect(text).toContain("a > 100");
+      expect(text).toContain("break");
+    });
+  });
+
+  describe("null check fix", () => {
+    it("GATE: object pattern null check uses != null (loose equality)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(shortProp("name"))] },
+        { method: "then", args: [ident("name")] },
+        { method: "else", args: [str("none")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("!= null");
+      expect(text).not.toContain("!== null");
+    });
+
+    it("GATE: discriminant switch with null guard uses != null", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(prop("kind", str("a")))] },
+        { method: "then", args: [num(1)] },
+        { method: "case", args: [obj(prop("kind", str("b")))] },
+        { method: "then", args: [num(2)] },
+        { method: "else", args: [num(0)] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).toContain("switch");
+      // null guard should use loose equality
+      if (text.includes("!= null")) {
+        expect(text).not.toContain("!== null");
+      }
+    });
+  });
+
+  describe("red-team: null/undefined safety", () => {
+    it("GATE: match(x) where x could be null — guard prevents crash", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(prop("kind", str("paid")))] },
+        { method: "then", args: [str("paid")] },
+        { method: "case", args: [obj(prop("kind", str("pending")))] },
+        { method: "then", args: [str("pending")] },
+        { method: "else", args: [str("fallback")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      // Must have object/null guard since type is unknown
+      expect(text).toContain("typeof");
+      expect(text).toContain('"object"');
+      expect(text).toContain("!= null");
+      expect(text).toContain('"fallback"');
+    });
+  });
+
+  describe("non-discriminant patterns fallback to IIFE", () => {
+    it("should not trigger switch for single-arm object patterns", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(prop("kind", str("circle")))] },
+        { method: "then", args: [str("round")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      // Single arm — should not use switch
+      expect(text).not.toContain("switch");
+    });
+
+    it("should not trigger switch for mixed pattern kinds (object + literal)", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(prop("kind", str("circle")))] },
+        { method: "then", args: [str("round")] },
+        { method: "case", args: [num(42)] },
+        { method: "then", args: [str("the answer")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      // Mixed object + literal — cannot use discriminant switch
+      expect(text).not.toContain("switch");
+    });
+
+    it("should not trigger switch for object patterns with different discriminant keys", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(prop("kind", str("circle")))] },
+        { method: "then", args: [str("shape")] },
+        { method: "case", args: [obj(prop("type", str("text")))] },
+        { method: "then", args: [str("content")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      // Different discriminant keys — cannot use switch
+      expect(text).not.toContain("switch");
+    });
+
+    it("should not trigger switch when OR alternatives are present", () => {
+      const { ctx, printExpr } = createTestContext();
+      const { outermost, rootArgs } = buildChain(
+        ident("x"),
+        { method: "case", args: [obj(prop("kind", str("a")))] },
+        { method: "or", args: [obj(prop("kind", str("b")))] },
+        { method: "then", args: [str("ab")] },
+        { method: "case", args: [obj(prop("kind", str("c")))] },
+        { method: "then", args: [str("c")] },
+        { method: "else", args: [str("other")] }
+      );
+
+      const result = expandFluentMatch(ctx, outermost, rootArgs);
+      const text = printExpr(result);
+
+      expect(text).not.toContain("switch");
+    });
   });
 });

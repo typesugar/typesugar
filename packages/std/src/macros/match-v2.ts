@@ -904,6 +904,282 @@ function generateSwitchIIFE(
 }
 
 // ============================================================================
+// PEP-019 Wave 3: Discriminant Pattern Detection & Switch Optimization
+// ============================================================================
+
+interface DiscriminantArmInfo {
+  discriminantValue: ts.Expression;
+  additionalProps: ObjectPropertyPattern[];
+  arm: CaseArm;
+  objectPattern: PatternInfo & { kind: "object" };
+}
+
+interface DiscriminantMatch {
+  discriminantKey: string;
+  arms: DiscriminantArmInfo[];
+  catchAllArm?: CaseArm;
+  hasMixedProps: boolean;
+}
+
+/**
+ * Detect whether all arms share a common discriminant property in object patterns.
+ *
+ * Returns the analysis if:
+ * - All non-catch-all arms are object patterns
+ * - Each has exactly one literal property (the discriminant)
+ * - The literal property key is the same across all arms
+ * - No arm uses OR alternatives
+ * - A trailing wildcard/variable arm is allowed as catch-all
+ */
+function analyzeDiscriminantPattern(arms: CaseArm[]): DiscriminantMatch | undefined {
+  if (arms.length < 2) return undefined;
+
+  const discArms: DiscriminantArmInfo[] = [];
+  let catchAllArm: CaseArm | undefined;
+  let discriminantKey: string | undefined;
+
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
+
+    if (arm.alternatives.length > 0) return undefined;
+
+    const pattern = analyzePattern(arm.pattern);
+
+    if (pattern.kind === "wildcard" || pattern.kind === "variable") {
+      if (i === arms.length - 1) {
+        catchAllArm = arm;
+        continue;
+      }
+      return undefined;
+    }
+
+    if (pattern.kind !== "object") return undefined;
+
+    let discProp: ObjectPropertyPattern | undefined;
+    const additionalProps: ObjectPropertyPattern[] = [];
+
+    for (const p of pattern.properties) {
+      if (p.isRest) {
+        additionalProps.push(p);
+        continue;
+      }
+      if (p.pattern.kind === "literal") {
+        if (discProp) return undefined;
+        discProp = p;
+      } else {
+        additionalProps.push(p);
+      }
+    }
+
+    if (!discProp) return undefined;
+
+    if (discriminantKey === undefined) {
+      discriminantKey = discProp.key;
+    } else if (discProp.key !== discriminantKey) {
+      return undefined;
+    }
+
+    discArms.push({
+      discriminantValue: (discProp.pattern as PatternInfo & { kind: "literal" }).node,
+      additionalProps,
+      arm,
+      objectPattern: pattern as PatternInfo & { kind: "object" },
+    });
+  }
+
+  if (!discriminantKey || discArms.length < 2) return undefined;
+
+  return {
+    discriminantKey,
+    arms: discArms,
+    catchAllArm,
+    hasMixedProps: discArms.some((a) => a.additionalProps.length > 0),
+  };
+}
+
+/**
+ * Build the body statements for a single case clause in a discriminant switch.
+ * Handles additional property bindings, AS patterns, and guards.
+ */
+function buildDiscriminantCaseBody(
+  ctx: MacroContext,
+  f: ts.NodeFactory,
+  discArm: DiscriminantArmInfo,
+  scrutineeRef: () => ts.Identifier
+): ts.Statement[] {
+  const stmts: ts.Statement[] = [];
+
+  for (const prop of discArm.additionalProps) {
+    if (prop.isRest) continue;
+    const propAccess = f.createPropertyAccessExpression(scrutineeRef(), prop.key);
+    if (prop.pattern.kind === "variable") {
+      stmts.push(
+        f.createVariableStatement(
+          undefined,
+          f.createVariableDeclarationList(
+            [
+              f.createVariableDeclaration(
+                f.createIdentifier(prop.pattern.name),
+                undefined,
+                undefined,
+                propAccess
+              ),
+            ],
+            ts.NodeFlags.Const
+          )
+        )
+      );
+    } else if (prop.pattern.kind !== "literal" && prop.pattern.kind !== "wildcard") {
+      stmts.push(...collectBindings(f, prop.pattern, propAccess));
+    }
+  }
+
+  if (discArm.arm.asPattern) {
+    stmts.push(...generateAsBindings(f, discArm.arm.asPattern, scrutineeRef()));
+  }
+
+  if (discArm.arm.guard) {
+    stmts.push(f.createIfStatement(discArm.arm.guard, f.createReturnStatement(discArm.arm.result)));
+    stmts.push(f.createBreakStatement());
+  } else {
+    stmts.push(f.createReturnStatement(discArm.arm.result));
+  }
+
+  return stmts;
+}
+
+/**
+ * Generate a switch-based IIFE for discriminant pattern matching.
+ *
+ * When the scrutinee type might be null/undefined, wraps the switch in
+ * a `typeof === "object" && != null` guard. When the type is known to be
+ * a discriminated union (all members are objects), emits a bare switch
+ * with the fallback as the default clause.
+ */
+function generateDiscriminantSwitchIIFE(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  dm: DiscriminantMatch,
+  elseResult: ts.Expression | undefined
+): ts.Expression {
+  const f = ctx.factory;
+  const scrutineeName = scrutineeShortName(ctx, scrutinee);
+  const scrutineeRef = () => f.createIdentifier(scrutineeName.text);
+
+  let needsNullGuard = true;
+  try {
+    const type = ctx.getTypeOf(scrutinee);
+    if (!(type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))) {
+      const analysis = analyzeScrutineeType(ctx.typeChecker, type);
+      if (analysis.kind === "discriminated-union") {
+        needsNullGuard = false;
+      }
+    }
+  } catch {
+    // keep guard for safety
+  }
+
+  const caseClauses: ts.CaseOrDefaultClause[] = [];
+  for (const discArm of dm.arms) {
+    caseClauses.push(
+      f.createCaseClause(
+        discArm.discriminantValue,
+        buildDiscriminantCaseBody(ctx, f, discArm, scrutineeRef)
+      )
+    );
+  }
+
+  const fallbackStmts: ts.Statement[] = [];
+  if (dm.catchAllArm) {
+    const pat = analyzePattern(dm.catchAllArm.pattern);
+    if (pat.kind === "variable") {
+      fallbackStmts.push(
+        f.createVariableStatement(
+          undefined,
+          f.createVariableDeclarationList(
+            [
+              f.createVariableDeclaration(
+                f.createIdentifier(pat.name),
+                undefined,
+                undefined,
+                scrutineeRef()
+              ),
+            ],
+            ts.NodeFlags.Const
+          )
+        )
+      );
+    }
+    if (dm.catchAllArm.asPattern) {
+      fallbackStmts.push(...generateAsBindings(f, dm.catchAllArm.asPattern, scrutineeRef()));
+    }
+    if (dm.catchAllArm.guard) {
+      fallbackStmts.push(
+        f.createIfStatement(dm.catchAllArm.guard, f.createReturnStatement(dm.catchAllArm.result))
+      );
+      fallbackStmts.push(f.createBreakStatement());
+    } else {
+      fallbackStmts.push(f.createReturnStatement(dm.catchAllArm.result));
+    }
+  } else if (elseResult !== undefined) {
+    fallbackStmts.push(f.createReturnStatement(elseResult));
+  } else {
+    fallbackStmts.push(
+      f.createThrowStatement(
+        f.createNewExpression(f.createIdentifier("MatchError"), undefined, [scrutineeRef()])
+      )
+    );
+  }
+
+  const stmts: ts.Statement[] = [
+    f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList(
+        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        ts.NodeFlags.Const
+      )
+    ),
+  ];
+
+  if (needsNullGuard) {
+    const switchStmt = f.createSwitchStatement(
+      f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
+      f.createCaseBlock(caseClauses)
+    );
+    const guard = f.createBinaryExpression(
+      f.createBinaryExpression(
+        f.createTypeOfExpression(scrutineeRef()),
+        ts.SyntaxKind.EqualsEqualsEqualsToken,
+        f.createStringLiteral("object")
+      ),
+      ts.SyntaxKind.AmpersandAmpersandToken,
+      f.createBinaryExpression(scrutineeRef(), ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
+    );
+    stmts.push(f.createIfStatement(guard, f.createBlock([switchStmt], true)));
+    stmts.push(...fallbackStmts);
+  } else {
+    caseClauses.push(f.createDefaultClause(fallbackStmts));
+    const switchStmt = f.createSwitchStatement(
+      f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
+      f.createCaseBlock(caseClauses)
+    );
+    stmts.push(switchStmt);
+  }
+
+  const arrowBody = f.createBlock(stmts, true);
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    [],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    arrowBody
+  );
+  const paren = f.createParenthesizedExpression(arrow);
+  return f.createCallExpression(paren, undefined, []);
+}
+
+// ============================================================================
 // Wave 5: Dead Arm Elimination (Output Optimization)
 // ============================================================================
 
@@ -1058,6 +1334,12 @@ export function expandFluentMatch(
   // Wave 5: Switch optimization for 7+ pure literal arms
   if (arms.length >= SWITCH_THRESHOLD && isAllPureLiteralArms(arms)) {
     return generateSwitchIIFE(ctx, scrutinee, arms, elseResult);
+  }
+
+  // PEP-019 Wave 3: Discriminant switch for object patterns sharing a discriminant key
+  const discMatch = analyzeDiscriminantPattern(arms);
+  if (discMatch) {
+    return generateDiscriminantSwitchIIFE(ctx, scrutinee, discMatch, elseResult);
   }
 
   return generateIIFE(ctx, scrutinee, arms, elseResult);
@@ -1391,11 +1673,7 @@ function buildCondition(
         )
       );
       parts.push(
-        f.createBinaryExpression(
-          accessor,
-          ts.SyntaxKind.ExclamationEqualsEqualsToken,
-          f.createNull()
-        )
+        f.createBinaryExpression(accessor, ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
       );
 
       for (const prop of nonRestProps) {
@@ -1449,11 +1727,7 @@ function buildCondition(
             f.createStringLiteral("object")
           ),
           ts.SyntaxKind.AmpersandAmpersandToken,
-          f.createBinaryExpression(
-            accessor,
-            ts.SyntaxKind.ExclamationEqualsEqualsToken,
-            f.createNull()
-          )
+          f.createBinaryExpression(accessor, ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
         );
       }
 
