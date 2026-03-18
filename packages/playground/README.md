@@ -8,7 +8,7 @@ Browser-compatible bundle for the typesugar interactive playground.
 - **Preprocessor support**: Transform `.sts` files with custom syntax (HKT, pipeline, cons)
 - **Macro transformation**: Expand typesugar macros at compile time
 - **In-memory caching**: LRU cache for fast repeated transformations
-- **TypeScript backend**: Uses TypeScript's transformer API (no oxc dependency)
+- **TypeScript transformer**: Uses TypeScript's transformer API
 
 ## Installation
 
@@ -72,8 +72,7 @@ Get cache statistics as a string.
 The browser playground has some limitations compared to the full transformer:
 
 1. **No file system access**: `includeStr()`, `includeJson()`, and `includeBytes()` macros are not available
-2. **TypeScript backend only**: The oxc backend is not available in the browser
-3. **Limited type checking**: Type-aware macros may have reduced functionality without a full project context
+2. **Limited type checking**: Type-aware macros may have reduced functionality without a full project context
 
 ## Bundle Size
 

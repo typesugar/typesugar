@@ -10,6 +10,7 @@ dist/
 # Rust build output
 target/
 *.node
+Cargo.lock
 
 # IDE
 .idea/
