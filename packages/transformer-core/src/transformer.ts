@@ -79,6 +79,8 @@ import {
   tryRewriteOpaqueMethodCall as tryRewriteOpaqueMethodCallFn,
   tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
+  tryStripOpaqueTypeAnnotation as tryStripOpaqueTypeAnnotationFn,
+  tryStripOpaqueParamAnnotation as tryStripOpaqueParamAnnotationFn,
 } from "./rewriting.js";
 
 class MacroTransformer {
@@ -490,6 +492,32 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
 
   private tryTransform(node: ts.Node): ts.Node | ts.Node[] | undefined {
+    // PEP-019: Strip opaque type annotations before visiting children,
+    // so `const x: Option<T> = Some(v)` becomes `const x = v`.
+    if (ts.isVariableDeclaration(node)) {
+      const stripped = tryStripOpaqueTypeAnnotationFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (stripped !== undefined) {
+        return stripped;
+      }
+    }
+
+    if (ts.isParameter(node)) {
+      const stripped = tryStripOpaqueParamAnnotationFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (stripped !== undefined) {
+        return stripped;
+      }
+    }
+
     // fn.specialize(dict) must be checked before expression macros
     if (
       ts.isCallExpression(node) &&

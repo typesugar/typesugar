@@ -861,3 +861,140 @@ export function tryEraseOpaqueConstantRef(
 
   return undefined;
 }
+
+// ---------------------------------------------------------------------------
+// @opaque type annotation erasure (PEP-019 Wave 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract an opaque type rewrite entry from a TypeNode (e.g., `Option<Money>`).
+ * Returns the entry if the type name is registered in the type rewrite registry.
+ */
+function getOpaqueEntryFromTypeNode(typeNode: ts.TypeNode): TypeRewriteEntry | undefined {
+  if (!ts.isTypeReferenceNode(typeNode)) return undefined;
+
+  const typeName = ts.isIdentifier(typeNode.typeName)
+    ? typeNode.typeName.text
+    : ts.isQualifiedName(typeNode.typeName)
+      ? typeNode.typeName.right.text
+      : undefined;
+
+  if (!typeName) return undefined;
+  return findTypeRewrite(typeName);
+}
+
+/**
+ * Check if an initializer expression would be erased by opaque constructor
+ * erasure for the given type rewrite entry.
+ */
+function wouldBeOpaqueErased(init: ts.Expression, entry: TypeRewriteEntry): boolean {
+  if (!entry.constructors) return false;
+
+  if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) {
+    return entry.constructors.has(init.expression.text);
+  }
+
+  if (ts.isIdentifier(init)) {
+    const ctor = entry.constructors.get(init.text);
+    return ctor !== undefined && ctor.kind === "constant";
+  }
+
+  return false;
+}
+
+/**
+ * When a variable declaration has a type annotation referencing an @opaque type
+ * and its initializer would be erased by opaque constructor/constant erasure,
+ * strip the type annotation to prevent invalid TypeScript output.
+ *
+ * `const x: Option<Money> = Some(m)` → `const x = m`
+ * `const x: Option<Money> = None` → `const x = null`
+ */
+export function tryStripOpaqueTypeAnnotation(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.VariableDeclaration
+): ts.VariableDeclaration | undefined {
+  if (!node.type || !node.initializer) return undefined;
+
+  const opaqueEntry = getOpaqueEntryFromTypeNode(node.type);
+  if (!opaqueEntry) return undefined;
+
+  if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
+    if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
+      return undefined;
+    }
+  }
+
+  if (!wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
+
+  if (verbose) {
+    console.log(
+      `[typesugar] Type annotation erasure: stripping ${opaqueEntry.typeName} from variable declaration`
+    );
+  }
+
+  const visitedName = ts.visitNode(node.name, visit) as ts.BindingName;
+  const visitedInit = ts.visitNode(node.initializer, visit) as ts.Expression;
+
+  return preserveSourceMap(
+    ctx.factory.updateVariableDeclaration(
+      node,
+      visitedName,
+      node.exclamationToken,
+      undefined,
+      visitedInit
+    ),
+    node
+  );
+}
+
+/**
+ * When a function parameter has a type annotation referencing an @opaque type
+ * and a default value that would be erased by opaque constructor/constant erasure,
+ * strip the type annotation to prevent invalid TypeScript output.
+ *
+ * `function f(x: Option<Money> = Some(m))` → `function f(x = m)`
+ */
+export function tryStripOpaqueParamAnnotation(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.ParameterDeclaration
+): ts.ParameterDeclaration | undefined {
+  if (!node.type || !node.initializer) return undefined;
+
+  const opaqueEntry = getOpaqueEntryFromTypeNode(node.type);
+  if (!opaqueEntry) return undefined;
+
+  if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
+    if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
+      return undefined;
+    }
+  }
+
+  if (!wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
+
+  if (verbose) {
+    console.log(
+      `[typesugar] Type annotation erasure: stripping ${opaqueEntry.typeName} from parameter`
+    );
+  }
+
+  const visitedName = ts.visitNode(node.name, visit) as ts.BindingName;
+  const visitedInit = ts.visitNode(node.initializer, visit) as ts.Expression;
+
+  return preserveSourceMap(
+    ctx.factory.updateParameterDeclaration(
+      node,
+      node.modifiers,
+      node.dotDotDotToken,
+      visitedName,
+      node.questionToken,
+      undefined,
+      visitedInit
+    ),
+    node
+  );
+}

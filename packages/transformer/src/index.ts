@@ -57,6 +57,7 @@ import {
   globalRegistry,
   standaloneExtensionRegistry,
   findStandaloneExtension,
+  getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
   type StandaloneExtensionInfo,
   ExpressionMacro,
@@ -3052,6 +3053,22 @@ class MacroTransformer {
    * Try to transform a node if it's a macro invocation
    */
   private tryTransform(node: ts.Node): ts.Node | ts.Node[] | undefined {
+    // PEP-019: Strip opaque type annotations before visiting children,
+    // so `const x: Option<T> = Some(v)` becomes `const x = v`.
+    if (ts.isVariableDeclaration(node)) {
+      const stripped = this.tryStripOpaqueVarDeclAnnotation(node);
+      if (stripped !== undefined) {
+        return stripped;
+      }
+    }
+
+    if (ts.isParameter(node)) {
+      const stripped = this.tryStripOpaqueParamAnnotation(node);
+      if (stripped !== undefined) {
+        return stripped;
+      }
+    }
+
     // fn.specialize(dict) must be checked before expression macros because
     // the expression macro dispatcher would otherwise match "specialize" as
     // a registered macro name from `sortWith.specialize(...)`.
@@ -4437,10 +4454,15 @@ class MacroTransformer {
     const receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
 
     if (!this.ctx.isTypeReliable(receiverType)) {
-      this.ctx.reportWarning(
-        node,
-        `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
+      const couldBeExtension = getAllStandaloneExtensions().some(
+        (e) => e.methodName === methodName
       );
+      if (couldBeExtension) {
+        this.ctx.reportWarning(
+          node,
+          `typesugar skipped extension method '${methodName}' rewrite because the receiver type could not be resolved. Fix upstream type errors first.`
+        );
+      }
       return undefined;
     }
 
@@ -4826,6 +4848,136 @@ class MacroTransformer {
    */
   private *iterTypeRewriteEntries(): Iterable<TypeRewriteEntry> {
     yield* getAllTypeRewrites();
+  }
+
+  // ---------------------------------------------------------------------------
+  // PEP-019 Wave 1: @opaque type annotation erasure
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extract an opaque type rewrite entry from a TypeNode (e.g., `Option<Money>`).
+   */
+  private getOpaqueEntryFromTypeNode(typeNode: ts.TypeNode): TypeRewriteEntry | undefined {
+    if (!ts.isTypeReferenceNode(typeNode)) return undefined;
+
+    const typeName = ts.isIdentifier(typeNode.typeName)
+      ? typeNode.typeName.text
+      : ts.isQualifiedName(typeNode.typeName)
+        ? typeNode.typeName.right.text
+        : undefined;
+
+    if (!typeName) return undefined;
+    return findTypeRewrite(typeName);
+  }
+
+  /**
+   * Check if an initializer expression would be erased by opaque constructor
+   * erasure for the given type rewrite entry.
+   */
+  private wouldBeOpaqueErased(init: ts.Expression, entry: TypeRewriteEntry): boolean {
+    if (!entry.constructors) return false;
+
+    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) {
+      return entry.constructors.has(init.expression.text);
+    }
+
+    if (ts.isIdentifier(init)) {
+      const ctor = entry.constructors.get(init.text);
+      return ctor !== undefined && ctor.kind === "constant";
+    }
+
+    return false;
+  }
+
+  /**
+   * Strip opaque type annotation from a variable declaration when its
+   * initializer would be erased by opaque constructor/constant erasure.
+   *
+   * `const x: Option<Money> = Some(m)` → `const x = m`
+   * `const x: Option<Money> = None` → `const x = null`
+   */
+  private tryStripOpaqueVarDeclAnnotation(
+    node: ts.VariableDeclaration
+  ): ts.VariableDeclaration | undefined {
+    if (!node.type || !node.initializer) return undefined;
+
+    const opaqueEntry = this.getOpaqueEntryFromTypeNode(node.type);
+    if (!opaqueEntry) return undefined;
+
+    if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
+      if (this.isWithinSourceModule(this.ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    if (!this.wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Type annotation erasure: stripping ${opaqueEntry.typeName} from variable declaration`
+      );
+    }
+
+    const visit = this.visit.bind(this);
+    const visitedName = ts.visitNode(node.name, visit) as ts.BindingName;
+    const visitedInit = ts.visitNode(node.initializer, visit) as ts.Expression;
+
+    return preserveSourceMap(
+      this.ctx.factory.updateVariableDeclaration(
+        node,
+        visitedName,
+        node.exclamationToken,
+        undefined,
+        visitedInit
+      ),
+      node
+    );
+  }
+
+  /**
+   * Strip opaque type annotation from a function parameter when its default
+   * value would be erased by opaque constructor/constant erasure.
+   *
+   * `function f(x: Option<Money> = Some(m))` → `function f(x = m)`
+   */
+  private tryStripOpaqueParamAnnotation(
+    node: ts.ParameterDeclaration
+  ): ts.ParameterDeclaration | undefined {
+    if (!node.type || !node.initializer) return undefined;
+
+    const opaqueEntry = this.getOpaqueEntryFromTypeNode(node.type);
+    if (!opaqueEntry) return undefined;
+
+    if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
+      if (this.isWithinSourceModule(this.ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
+        return undefined;
+      }
+    }
+
+    if (!this.wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Type annotation erasure: stripping ${opaqueEntry.typeName} from parameter`
+      );
+    }
+
+    const visit = this.visit.bind(this);
+    const visitedName = ts.visitNode(node.name, visit) as ts.BindingName;
+    const visitedInit = ts.visitNode(node.initializer, visit) as ts.Expression;
+
+    return preserveSourceMap(
+      this.ctx.factory.updateParameterDeclaration(
+        node,
+        node.modifiers,
+        node.dotDotDotToken,
+        visitedName,
+        node.questionToken,
+        undefined,
+        visitedInit
+      ),
+      node
+    );
   }
 
   /**
