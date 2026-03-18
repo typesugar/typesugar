@@ -55,13 +55,6 @@ const outputContainer = ref<HTMLElement | null>(null);
 const inputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 const monaco = shallowRef<typeof Monaco | null>(null);
-const playground = shallowRef<{
-  transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-  preprocessCode: (
-    code: string,
-    options: { fileName: string }
-  ) => { code: string; changed: boolean };
-} | null>(null);
 const sandboxIframe = ref<HTMLIFrameElement | null>(null);
 const runtimeCode = ref<string>("");
 
@@ -76,10 +69,6 @@ const transformError = ref<string | null>(null);
 const lastResult = ref<TransformResult | null>(null);
 const transformTime = ref<number>(0);
 
-// Server compilation state
-const useServerCompilation = ref(true);
-const isServerAvailable = ref(true);
-const serverCompilationFailed = ref(false);
 
 const activeTab = ref<"js" | "errors">("js");
 const consoleMessages = ref<ConsoleMessage[]>([]);
@@ -98,12 +87,11 @@ const statusText = computed(() => {
   if (isLoading.value) return "Loading...";
   if (isTransforming.value) return "Transforming...";
   if (transformError.value) return `Error`;
-  const fallbackSuffix = serverCompilationFailed.value ? " (offline)" : "";
-  if (!lastResult.value) return "Ready" + fallbackSuffix;
+  if (!lastResult.value) return "Ready";
   const changed = lastResult.value.changed ? "transformed" : "unchanged";
   const preprocessed = lastResult.value.preprocessed ? " + preprocessed" : "";
   const time = transformTime.value > 0 ? ` (${transformTime.value}ms)` : "";
-  return `✓ ${changed}${preprocessed}${time}${fallbackSuffix}`;
+  return `✓ ${changed}${preprocessed}${time}`;
 });
 
 const statusClass = computed(() => {
@@ -1349,17 +1337,14 @@ async function doTransform() {
   const code = inputEditor.value.getValue();
   transformError.value = null;
   isTransforming.value = true;
-  serverCompilationFailed.value = false;
 
   const start = performance.now();
 
-  // Try server compilation first if enabled and available
-  if (useServerCompilation.value && isServerAvailable.value) {
+  try {
     const serverResult = await compileCodeOnServer(code, fileName.value);
     if (serverResult) {
       transformTime.value = serverResult.compileTimeMs ?? Math.round(performance.now() - start);
 
-      // Add line/column info to diagnostics
       const diagnostics =
         serverResult.diagnostics?.map((d) => {
           const model = inputEditor.value?.getModel();
@@ -1381,52 +1366,12 @@ async function doTransform() {
       if (diagnostics.length > 0) {
         transformError.value = diagnostics.map((d) => d.message).join("; ");
       }
-
-      isTransforming.value = false;
-      return;
-    }
-
-    // Server compilation failed, mark as unavailable and fall back
-    isServerAvailable.value = false;
-    serverCompilationFailed.value = true;
-    console.log("[Playground] Server unavailable, using browser fallback");
-  }
-
-  // Fallback to browser-based transformation
-  if (!playground.value) {
-    transformError.value = "Playground not loaded";
-    isTransforming.value = false;
-    return;
-  }
-
-  try {
-    const result = playground.value.transform(code, {
-      fileName: fileName.value,
-      verbose: false,
-    });
-    transformTime.value = Math.round(performance.now() - start);
-
-    // Add line/column info to diagnostics
-    if (result.diagnostics) {
-      result.diagnostics = result.diagnostics.map((d) => {
-        const model = inputEditor.value?.getModel();
-        if (model && typeof d.start === "number") {
-          const pos = model.getPositionAt(d.start);
-          return { ...d, line: pos.lineNumber, column: pos.column };
-        }
-        return d;
-      });
-    }
-
-    lastResult.value = result;
-    outputEditor.value?.setValue(result.code);
-
-    if (result.diagnostics.length > 0) {
-      transformError.value = result.diagnostics.map((d) => d.message).join("; ");
+    } else {
+      transformError.value = "Server compilation unavailable. Please check your connection and try again.";
     }
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    transformError.value = err.message;
+    transformError.value = `Server compilation failed: ${err.message}`;
   } finally {
     isTransforming.value = false;
   }
@@ -1446,12 +1391,7 @@ async function loadPlayground() {
     const ts = await import("typescript");
     (window as Record<string, unknown>).ts = ts;
 
-    loadingProgress.value = 50;
-    loadingMessage.value = "Loading transformer...";
-    const playgroundModule = await import("@typesugar/playground");
-    playground.value = playgroundModule;
-
-    loadingProgress.value = 70;
+    loadingProgress.value = 60;
     loadingMessage.value = "Loading runtime libraries...";
     const runtimeMod = await import("../../../packages/playground/dist/runtime.global.js?raw");
     runtimeCode.value = runtimeMod.default;

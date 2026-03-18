@@ -123,35 +123,43 @@ The browser fallback was added as a safety net, but the playground is a web app 
   - Zero stubs, zero manual registrations confirmed via grep
   - Extension/opaque method rewrites require project-level type resolution (`TransformationPipeline`), not single-file `transformCode()` — consistent with Wave 1 server findings
 
-### Wave 3: Remove Browser Transformer Bundle
+### Wave 3: Remove Browser Transformer Bundle ✓
 
 **Goal:** Delete the browser fallback code path entirely.
 
 **Tasks:**
 
-- [ ] Delete browser transformer registration code from `packages/playground/src/browser.ts`:
+- [x] Delete browser transformer registration code from `packages/playground/src/browser.ts`:
   - Remove all opaque rewrite registrations
   - Remove all extension method registrations
   - Remove inline `stateMachine` macro and DSL parser
   - Keep ONLY: re-exports from `index.js`, `ts` re-export, `VERSION`, `isReady()`
-- [ ] Update `Playground.vue`:
+- [x] Update `Playground.vue`:
   - Remove `playground.value` (browser transformer instance) — no longer needed
   - Remove `loadPlayground()` function's transformer loading
   - Remove browser fallback path in `doTransform()` (lines ~1395-1430)
   - Keep: Monaco editor setup, `addExtraLib()` declarations, server compilation, runtime IIFE
   - Keep `loadPlayground()` for runtime IIFE loading (sandbox needs it)
   - If server is unavailable, show a clear error message instead of silently degrading
-- [ ] Update `packages/playground/tsup.config.ts` — check if browser bundle entry point can be simplified
-- [ ] Delete `api/test-transformer.ts` (created during investigation, no longer needed)
+- [x] Update `packages/playground/tsup.config.ts` — check if browser bundle entry point can be simplified
+  - Removed `@typesugar/core`, `@typesugar/macros`, `@typesugar/std` from browser bundle `noExternal` list
+- [x] Delete `api/test-transformer.ts` (created during investigation, no longer needed)
 
 **Gate:**
 
-- [ ] `browser.ts` is under 20 lines (just re-exports + version)
-- [ ] `Playground.vue` has no reference to `transformer-core`
-- [ ] `doTransform()` has exactly one code path: server compilation
-- [ ] `pnpm --filter @typesugar/playground build` succeeds
-- [ ] `pnpm test` passes (ALL tests)
-- [ ] **Deep code review:** Verify `Playground.vue` has no dead code from removed browser fallback (variables, functions, imports), verify `browser.ts` has no macro-specific imports, verify the error UX for server-unavailable is reasonable
+- [x] `browser.ts` is under 20 lines (just re-exports + version)
+  - Actual: 17 lines — re-exports from index.js, ts re-export, VERSION, isReady()
+- [x] `Playground.vue` has no reference to `transformer-core`
+  - Verified: grep for `transformer-core` returns zero matches
+- [x] `doTransform()` has exactly one code path: server compilation
+  - Server → success or error message "Server compilation unavailable. Please check your connection and try again."
+- [x] `pnpm --filter @typesugar/playground build` succeeds
+- [x] `pnpm test` passes (ALL tests)
+  - 6189 passed, 94 skipped, 0 failures (207 test files, 2 skipped)
+- [x] **Deep code review:** Verify `Playground.vue` has no dead code from removed browser fallback (variables, functions, imports), verify `browser.ts` has no macro-specific imports, verify the error UX for server-unavailable is reasonable
+  - `playground` shallowRef removed, `serverCompilationFailed` ref removed, `isServerAvailable` ref removed, `useServerCompilation` ref removed
+  - `browser.ts` imports only from `./index.js` and `typescript` — zero macro-specific imports
+  - Error UX: clear user-facing message when server returns null; exception case shows the error message
 
 ### Wave 4: Final Cleanup and Verification
 
