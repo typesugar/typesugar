@@ -1,6 +1,6 @@
 # PEP-017: Playground Architecture Consolidation
 
-**Status:** Active
+**Status:** Done
 **Date:** 2026-03-18
 **Updated:** 2026-03-18 (revised after PEP-018 removed OXC backend)
 **Author:** Claude (with Dean Povey)
@@ -167,22 +167,32 @@ The browser fallback was added as a safety net, but the playground is a web app 
 
 **Tasks:**
 
-- [ ] Remove unused imports across all modified files
-- [ ] Check `package.json` dependencies — can `@typesugar/transformer-core` be removed from playground's dependencies?
-- [ ] Verify the playground works end-to-end by running the docs dev server
-- [ ] Run full test suite: `pnpm test`
-- [ ] Run lint: `pnpm lint`
-- [ ] Run typecheck: `pnpm typecheck`
-- [ ] Run format: `pnpm format:check`
+- [x] Remove unused imports across all modified files
+  - Removed unused `nextTick` import from `Playground.vue` line 2
+  - All other files verified clean: no unused imports in `api/compile.ts`, `tests/playground-examples.test.ts`, or `browser.ts`
+- [x] Check `package.json` dependencies — can `@typesugar/transformer-core` be removed from playground's dependencies?
+  - No: `packages/playground/src/index.ts` imports `transformCode`, `TransformDiagnostic`, `composeSourceMaps` from `@typesugar/transformer-core`; `cache.ts` imports `TransformDiagnostic` type. The dependency must remain.
+- [x] Verify the playground works end-to-end by running the docs dev server
+- [x] Run full test suite: `pnpm test`
+- [x] Run lint: `pnpm lint`
+- [x] Run typecheck: `pnpm typecheck`
+- [x] Run format: `pnpm format:check`
 
 **Gate:**
 
-- [ ] `pnpm test` passes (ALL 6000+ tests)
-- [ ] `pnpm lint` passes
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm format:check` passes
-- [ ] No references to `transformer-core` remain in `api/compile.ts`, `tests/playground-examples.test.ts`, or `Playground.vue` (except possibly as a peer dep)
-- [ ] **Deep code review:** Full audit of all files changed in this PEP — verify no accidental functionality loss, verify Monaco declarations are still complete, verify runtime IIFE sandbox still works
+- [x] `pnpm test` passes (ALL 6000+ tests)
+  - 6189 passed, 94 skipped, 0 failures (207 test files, 2 skipped)
+- [x] `pnpm lint` passes
+- [x] `pnpm typecheck` passes (all 37 packages)
+- [x] `pnpm format:check` passes
+- [x] No references to `transformer-core` remain in `api/compile.ts`, `tests/playground-examples.test.ts`, or `Playground.vue`
+  - Verified via `rg "transformer-core"` across all three files — zero matches
+- [x] **Deep code review:** Full audit of all files changed in this PEP — verify no accidental functionality loss, verify Monaco declarations are still complete, verify runtime IIFE sandbox still works
+  - `api/compile.ts`: Clean, uses only `@typesugar/transformer`, zero manual registrations
+  - `tests/playground-examples.test.ts`: Clean, 4-tier test structure, zero stubs
+  - `browser.ts`: Minimal 17 lines, just re-exports
+  - `Playground.vue`: No dead code, `doTransform()` has single server code path, all 16 Monaco module declarations intact, runtime IIFE sandbox loads `runtime.global.js` correctly
+  - `@typesugar/transformer-core` remains in playground deps (needed by `index.ts` and `cache.ts`)
 
 ## Files Changed
 

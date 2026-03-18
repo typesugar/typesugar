@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, shallowRef, computed, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, watch, shallowRef, computed } from "vue";
 import type * as Monaco from "monaco-editor";
 import LZString from "lz-string";
 const { compressToEncodedURIComponent, decompressFromEncodedURIComponent } = LZString;
@@ -68,7 +68,6 @@ const loadingMessage = ref("Initializing...");
 const transformError = ref<string | null>(null);
 const lastResult = ref<TransformResult | null>(null);
 const transformTime = ref<number>(0);
-
 
 const activeTab = ref<"js" | "errors">("js");
 const consoleMessages = ref<ConsoleMessage[]>([]);
@@ -1367,7 +1366,8 @@ async function doTransform() {
         transformError.value = diagnostics.map((d) => d.message).join("; ");
       }
     } else {
-      transformError.value = "Server compilation unavailable. Please check your connection and try again.";
+      transformError.value =
+        "Server compilation unavailable. Please check your connection and try again.";
     }
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
