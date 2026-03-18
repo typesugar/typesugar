@@ -1,6 +1,6 @@
 # PEP-019: Output Quality — Valid TypeScript, Cleaner Codegen
 
-**Status:** In Progress (Wave 1 complete)
+**Status:** In Progress (Waves 1–2 complete)
 **Date:** 2026-03-18
 **Author:** Claude (with Dean Povey)
 
@@ -68,16 +68,16 @@ Option A (strip annotation) is simpler and always correct. Option B is more info
 
 **Tasks:**
 
-- [ ] In `match-v2.ts`, when the scrutinee is a simple identifier (e.g., `s`), try `_s` first. Only fall back to `generateUniqueName` if `_s` would shadow an existing binding in the enclosing scope.
-- [ ] For non-identifier scrutinees (expressions, property accesses), use `_m` or `_v` as a short prefix, falling back to `generateUniqueName` on collision.
-- [ ] Add a helper: `ctx.tryShortName(preferred: string): ts.Identifier` — returns the preferred name if it doesn't conflict, otherwise falls back to `generateUniqueName`.
-- [ ] Update regex and extractor temp names similarly (`_r` instead of `__typesugar_r_0__`, `_ext` instead of `__typesugar_ext_0__`).
+- [x] In `match-v2.ts`, when the scrutinee is a simple identifier (e.g., `s`), try `_s` first. Only fall back to `generateUniqueName` if `_s` would shadow an existing binding in the enclosing scope.
+- [x] For non-identifier scrutinees (expressions, property accesses), use `_m` or `_v` as a short prefix, falling back to `generateUniqueName` on collision.
+- [x] Add a helper: `ctx.tryShortName(preferred: string): ts.Identifier` — returns the preferred name if it doesn't conflict, otherwise falls back to `generateUniqueName`.
+- [x] Update regex and extractor temp names similarly (`_r` instead of `__typesugar_r_0__`, `_ext` instead of `__typesugar_ext_0__`).
 
 **Gate:**
 
-- [ ] `match(s)` with simple identifier scrutinee emits `const _s = s;` not `const __typesugar_m_0__ = s;`
-- [ ] Name collision case still works: if `_s` is already in scope, falls back to mangled name
-- [ ] All match tests pass: `pnpm vitest run match`
+- [x] `match(s)` with simple identifier scrutinee emits `const _s = s;` not `const __typesugar_m_0__ = s;`
+- [x] Name collision case still works: if `_s` is already in scope, falls back to mangled name
+- [x] All match tests pass: `pnpm vitest run match`
 
 ### Wave 3: Match Guard Optimization — Hoist Common Checks
 

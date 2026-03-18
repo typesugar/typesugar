@@ -189,6 +189,16 @@ export interface MacroContext {
   /** Generate a unique identifier to avoid name collisions */
   generateUniqueName(prefix: string): ts.Identifier;
 
+  /**
+   * Try to use a short preferred name; fall back to `generateUniqueName` on collision.
+   *
+   * Checks if `preferred` conflicts with any binding visible in the current
+   * source file (imports, top-level declarations, parameter names). If no
+   * conflict, returns an identifier with the preferred name. Otherwise
+   * delegates to `generateUniqueName(preferred)`.
+   */
+  tryShortName(preferred: string): ts.Identifier;
+
   // -------------------------------------------------------------------------
   // Reference Hygiene
   // -------------------------------------------------------------------------

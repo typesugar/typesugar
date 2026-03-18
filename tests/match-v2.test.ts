@@ -1794,3 +1794,146 @@ describe("Code review fixes", () => {
     expect(errors.some((e) => e.message.includes(".or() must follow .case()"))).toBe(true);
   });
 });
+
+// ============================================================================
+// PEP-019 Wave 2: Shorter Match Variable Names
+// ============================================================================
+
+describe("PEP-019 Wave 2: shorter match variable names", () => {
+  it("GATE: match(s) with identifier scrutinee emits const _s = s, not __typesugar_m_*", () => {
+    const { ctx, printExpr } = createTestContext();
+    const { outermost, rootArgs } = buildChain(
+      ident("s"),
+      { method: "case", args: [num(1)] },
+      { method: "then", args: [str("one")] },
+      { method: "case", args: [num(2)] },
+      { method: "then", args: [str("two")] },
+      { method: "else", args: [str("other")] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const text = printExpr(result);
+
+    expect(text).toContain("const _s = s");
+    expect(text).not.toContain("__typesugar_");
+  });
+
+  it("GATE: match(getVal()) with non-identifier scrutinee uses _m", () => {
+    const { ctx, printExpr } = createTestContext();
+    const callExpr = f.createCallExpression(ident("getVal"), undefined, []);
+    const { outermost, rootArgs } = buildChain(
+      callExpr,
+      { method: "case", args: [num(1)] },
+      { method: "then", args: [str("one")] },
+      { method: "case", args: [num(2)] },
+      { method: "then", args: [str("two")] },
+      { method: "else", args: [str("other")] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const text = printExpr(result);
+
+    expect(text).toContain("const _m = getVal()");
+    expect(text).not.toContain("__typesugar_");
+  });
+
+  it("GATE: regex temp uses _r instead of __typesugar_r_*", () => {
+    const { ctx, printExpr } = createTestContext();
+    const { outermost, rootArgs } = buildChain(
+      ident("s"),
+      { method: "case", args: [regex("/^\\d+$/")] },
+      { method: "then", args: [str("numeric")] },
+      { method: "else", args: [str("text")] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const text = printExpr(result);
+
+    expect(text).toContain("_r");
+    expect(text).not.toContain("__typesugar_r_");
+  });
+
+  it("GATE: collision fallback — when _s is already a file-level binding, uses mangled name", () => {
+    const sourceFile = ts.createSourceFile(
+      "test.ts",
+      "const _s = 'already taken';",
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+
+    const transformContext: ts.TransformationContext = {
+      factory: ts.factory,
+      getCompilerOptions: () => _options,
+      startLexicalEnvironment: () => {},
+      suspendLexicalEnvironment: () => {},
+      resumeLexicalEnvironment: () => {},
+      endLexicalEnvironment: () => undefined,
+      hoistFunctionDeclaration: () => {},
+      hoistVariableDeclaration: () => {},
+      requestEmitHelper: () => {},
+      readEmitHelpers: () => undefined,
+      enableSubstitution: () => {},
+      enableEmitNotification: () => {},
+      isSubstitutionEnabled: () => false,
+      isEmitNotificationEnabled: () => false,
+      onSubstituteNode: (_hint, node) => node,
+      onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
+      addDiagnostic: () => {},
+    };
+
+    const ctx = createMacroContext(getSharedProgram(), sourceFile, transformContext);
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const printExpr = (node: ts.Expression) =>
+      printer.printNode(ts.EmitHint.Expression, node, sourceFile);
+
+    const { outermost, rootArgs } = buildChain(
+      ident("s"),
+      { method: "case", args: [num(1)] },
+      { method: "then", args: [str("one")] },
+      { method: "case", args: [num(2)] },
+      { method: "then", args: [str("two")] },
+      { method: "else", args: [str("other")] }
+    );
+
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    const text = printExpr(result);
+
+    // _s is taken, so the mangled name should be used
+    expect(text).not.toMatch(/const _s\b/);
+    expect(text).toContain("__typesugar_");
+  });
+
+  it("multiple matches in same file use unique short names", () => {
+    const { ctx, printExpr } = createTestContext();
+
+    // First match on s (multi-arm to force IIFE path)
+    const chain1 = buildChain(
+      ident("s"),
+      { method: "case", args: [num(1)] },
+      { method: "then", args: [str("one")] },
+      { method: "case", args: [num(2)] },
+      { method: "then", args: [str("two")] },
+      { method: "else", args: [str("other")] }
+    );
+    const result1 = expandFluentMatch(ctx, chain1.outermost, chain1.rootArgs);
+    const text1 = printExpr(result1);
+    expect(text1).toContain("const _s = s");
+
+    // Second match on s — _s is now taken by the first match
+    const chain2 = buildChain(
+      ident("s"),
+      { method: "case", args: [num(3)] },
+      { method: "then", args: [str("three")] },
+      { method: "case", args: [num(4)] },
+      { method: "then", args: [str("four")] },
+      { method: "else", args: [str("other")] }
+    );
+    const result2 = expandFluentMatch(ctx, chain2.outermost, chain2.rootArgs);
+    const text2 = printExpr(result2);
+
+    // Should NOT reuse _s — falls back to mangled name
+    expect(text2).not.toMatch(/const _s\b/);
+    expect(text2).toContain("__typesugar_");
+  });
+});

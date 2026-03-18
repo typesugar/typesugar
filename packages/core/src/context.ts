@@ -16,6 +16,7 @@ export class MacroContextImpl implements MacroContext {
   private diagnostics: MacroDiagnostic[] = [];
   private uniqueNameCounter = 0;
   private scope: Map<string, ComptimeValue> = new Map();
+  private _emittedShortNames: Set<string> = new Set();
 
   /**
    * Shared printer instance for node-to-string conversion.
@@ -929,6 +930,51 @@ export class MacroContextImpl implements MacroContext {
     }
     const name = `__typesugar_${prefix}_${this.uniqueNameCounter++}__`;
     return this.factory.createIdentifier(name);
+  }
+
+  tryShortName(preferred: string): ts.Identifier {
+    if (!this.nameConflictsWithScope(preferred)) {
+      this._emittedShortNames.add(preferred);
+      return this.factory.createIdentifier(preferred);
+    }
+    return this.generateUniqueName(preferred);
+  }
+
+  private nameConflictsWithScope(name: string): boolean {
+    if (this._emittedShortNames.has(name)) return true;
+
+    for (const stmt of this.sourceFile.statements) {
+      if (ts.isVariableStatement(stmt)) {
+        for (const decl of stmt.declarationList.declarations) {
+          if (ts.isIdentifier(decl.name) && decl.name.text === name) return true;
+        }
+      } else if (ts.isFunctionDeclaration(stmt) && stmt.name?.text === name) {
+        return true;
+      } else if (ts.isClassDeclaration(stmt) && stmt.name?.text === name) {
+        return true;
+      } else if (ts.isImportDeclaration(stmt) && stmt.importClause) {
+        const clause = stmt.importClause;
+        if (clause.name?.text === name) return true;
+        if (clause.namedBindings) {
+          if (ts.isNamespaceImport(clause.namedBindings)) {
+            if (clause.namedBindings.name.text === name) return true;
+          } else if (ts.isNamedImports(clause.namedBindings)) {
+            for (const spec of clause.namedBindings.elements) {
+              const localName = spec.name.text;
+              if (localName === name) return true;
+            }
+          }
+        }
+      } else if (ts.isEnumDeclaration(stmt) && stmt.name.text === name) {
+        return true;
+      } else if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === name) {
+        return true;
+      } else if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === name) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // -------------------------------------------------------------------------

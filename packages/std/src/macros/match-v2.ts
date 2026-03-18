@@ -838,6 +838,11 @@ export function isAllPureLiteralArms(arms: CaseArm[]): boolean {
   );
 }
 
+function scrutineeShortName(ctx: MacroContext, scrutinee: ts.Expression): ts.Identifier {
+  const preferred = ts.isIdentifier(scrutinee) ? `_${scrutinee.text}` : "_m";
+  return ctx.tryShortName(preferred);
+}
+
 function generateSwitchIIFE(
   ctx: MacroContext,
   scrutinee: ts.Expression,
@@ -845,7 +850,7 @@ function generateSwitchIIFE(
   elseResult: ts.Expression | undefined
 ): ts.Expression {
   const f = ctx.factory;
-  const scrutineeName = ctx.generateUniqueName("m");
+  const scrutineeName = scrutineeShortName(ctx, scrutinee);
 
   const clauses: ts.CaseOrDefaultClause[] = [];
 
@@ -1668,7 +1673,7 @@ function generateRegexArmStatements(
   arm: CaseArm,
   scrutineeRef: ts.Expression
 ): ts.Statement[] {
-  const regexResultId = ctx.generateUniqueName("r");
+  const regexResultId = ctx.tryShortName("_r");
 
   // const __r = __m.match(/regex/);
   const matchCall = f.createCallExpression(
@@ -1740,7 +1745,7 @@ function generateCustomExtractorArm(
   asBindings: ts.Statement[]
 ): ts.Statement[] {
   const extName = pattern.extractorName;
-  const tempName = ctx.generateUniqueName("ext");
+  const tempName = ctx.tryShortName("_ext");
 
   // const __ext = ExtractorName.extract(__m)
   const extractCall = f.createCallExpression(
@@ -1959,7 +1964,7 @@ function generateIIFE(
   elseResult: ts.Expression | undefined
 ): ts.Expression {
   const f = ctx.factory;
-  const scrutineeName = ctx.generateUniqueName("m");
+  const scrutineeName = scrutineeShortName(ctx, scrutinee);
 
   const statements: ts.Statement[] = [];
 
