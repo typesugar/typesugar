@@ -185,6 +185,7 @@ export {
   evaluateConditionExpr,
   createRemoveExpression,
   isRemoveExpression,
+  getRemoveComment,
   type JsValueContext,
 } from "./ast-utils.js";
 

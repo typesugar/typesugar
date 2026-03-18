@@ -385,6 +385,177 @@ export class MacroContextImpl implements MacroContext {
       return { kind: "object", properties };
     }
 
+    // Identifiers — resolve const declarations and scope bindings
+    if (ts.isIdentifier(node)) {
+      // Check local scope first (arrow function params, local variables)
+      const scopeVal = this.scope.get(node.text);
+      if (scopeVal) return scopeVal;
+
+      // Resolve via type checker — follow const declarations to their initializers
+      try {
+        const symbol = this.typeChecker.getSymbolAtLocation(node);
+        if (symbol) {
+          const declarations = symbol.getDeclarations();
+          if (declarations && declarations.length > 0) {
+            const decl = declarations[0];
+            if (ts.isVariableDeclaration(decl) && decl.initializer) {
+              const parent = decl.parent;
+              if (ts.isVariableDeclarationList(parent) && parent.flags & ts.NodeFlags.Const) {
+                return this.evaluateNode(decl.initializer);
+              }
+            }
+            // Enum members
+            if (ts.isEnumMember(decl) && decl.initializer) {
+              return this.evaluateNode(decl.initializer);
+            }
+          }
+        }
+      } catch {
+        // Type checker may not be available in all contexts
+      }
+      return { kind: "error", message: `Cannot resolve identifier '${node.text}' at compile time` };
+    }
+
+    // Property access — handle .length, .includes(), etc. on known values
+    if (ts.isPropertyAccessExpression(node)) {
+      const prop = node.name.text;
+
+      // Well-known globals must be checked BEFORE evaluating the expression,
+      // since globals like `Math` aren't const declarations and would fail resolution.
+      if (ts.isIdentifier(node.expression) && node.expression.text === "Math") {
+        const mathProps: Record<string, number> = {
+          PI: Math.PI,
+          E: Math.E,
+          LN2: Math.LN2,
+          LN10: Math.LN10,
+          LOG2E: Math.LOG2E,
+          LOG10E: Math.LOG10E,
+          SQRT2: Math.SQRT2,
+          SQRT1_2: Math.SQRT1_2,
+        };
+        if (prop in mathProps) return { kind: "number", value: mathProps[prop] };
+        const mathFns: Record<string, (...args: number[]) => number> = {
+          abs: Math.abs,
+          ceil: Math.ceil,
+          floor: Math.floor,
+          round: Math.round,
+          sqrt: Math.sqrt,
+          pow: Math.pow,
+          min: Math.min,
+          max: Math.max,
+          sign: Math.sign,
+          trunc: Math.trunc,
+          log: Math.log,
+          log2: Math.log2,
+          log10: Math.log10,
+        };
+        if (prop in mathFns) {
+          const fn = mathFns[prop];
+          return {
+            kind: "function",
+            fn: (...args: ComptimeValue[]) => {
+              const nums = args.map((a) => (a.kind === "number" ? a.value : NaN));
+              return { kind: "number" as const, value: fn(...nums) };
+            },
+          };
+        }
+      }
+
+      const obj = this.evaluateNode(node.expression);
+      if (obj.kind === "error") return obj;
+
+      if (obj.kind === "string") {
+        if (prop === "length") return { kind: "number", value: obj.value.length };
+        if (prop === "trim")
+          return {
+            kind: "function",
+            fn: () => ({ kind: "string" as const, value: obj.value.trim() }),
+          };
+        if (prop === "toUpperCase")
+          return {
+            kind: "function",
+            fn: () => ({ kind: "string" as const, value: obj.value.toUpperCase() }),
+          };
+        if (prop === "toLowerCase")
+          return {
+            kind: "function",
+            fn: () => ({ kind: "string" as const, value: obj.value.toLowerCase() }),
+          };
+        if (prop === "startsWith")
+          return {
+            kind: "function",
+            fn: (arg: ComptimeValue) => ({
+              kind: "boolean" as const,
+              value: arg.kind === "string" && obj.value.startsWith(arg.value),
+            }),
+          };
+        if (prop === "endsWith")
+          return {
+            kind: "function",
+            fn: (arg: ComptimeValue) => ({
+              kind: "boolean" as const,
+              value: arg.kind === "string" && obj.value.endsWith(arg.value),
+            }),
+          };
+        if (prop === "includes")
+          return {
+            kind: "function",
+            fn: (arg: ComptimeValue) => ({
+              kind: "boolean" as const,
+              value: arg.kind === "string" && obj.value.includes(arg.value),
+            }),
+          };
+      }
+
+      if (obj.kind === "array") {
+        if (prop === "length") return { kind: "number", value: obj.elements.length };
+        if (prop === "includes")
+          return {
+            kind: "function",
+            fn: (arg: ComptimeValue) => ({
+              kind: "boolean" as const,
+              value: obj.elements.some(
+                (e) =>
+                  e.kind === arg.kind && "value" in e && "value" in arg && e.value === arg.value
+              ),
+            }),
+          };
+      }
+
+      if (obj.kind === "object") {
+        const val = obj.properties.get(prop);
+        if (val) return val;
+      }
+
+      return {
+        kind: "error",
+        message: `Cannot access property '${prop}' on ${obj.kind} at compile time`,
+      };
+    }
+
+    // Element access — handle array[0], obj["key"]
+    if (ts.isElementAccessExpression(node)) {
+      const obj = this.evaluateNode(node.expression);
+      if (obj.kind === "error") return obj;
+      const idx = this.evaluateNode(node.argumentExpression);
+      if (idx.kind === "error") return idx;
+
+      if (obj.kind === "array" && idx.kind === "number") {
+        const i = Math.floor(idx.value);
+        if (i >= 0 && i < obj.elements.length) return obj.elements[i];
+        return { kind: "undefined" };
+      }
+
+      if (obj.kind === "object" && idx.kind === "string") {
+        return obj.properties.get(idx.value) ?? { kind: "undefined" };
+      }
+
+      return {
+        kind: "error",
+        message: `Cannot index ${obj.kind} with ${idx.kind} at compile time`,
+      };
+    }
+
     // Parenthesized expressions
     if (ts.isParenthesizedExpression(node)) {
       return this.evaluateNode(node.expression);
@@ -476,8 +647,38 @@ export class MacroContextImpl implements MacroContext {
       };
     }
 
+    // typeof expressions — map comptime value kind to JS typeof string
+    if (ts.isTypeOfExpression(node)) {
+      const operand = this.evaluateNode(node.expression);
+      if (operand.kind === "error") return operand;
+      const typeMap: Record<string, string> = {
+        number: "number",
+        string: "string",
+        boolean: "boolean",
+        bigint: "bigint",
+        function: "function",
+        null: "object",
+        undefined: "undefined",
+        array: "object",
+        object: "object",
+      };
+      const result = typeMap[operand.kind];
+      if (result) return { kind: "string", value: result };
+      return { kind: "error", message: `Cannot determine typeof for ${operand.kind}` };
+    }
+
     // Call expressions - evaluate function calls at compile time
     if (ts.isCallExpression(node)) {
+      // Recognise comptime(() => expr) — evaluate the inner function immediately
+      if (
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "comptime" &&
+        node.arguments.length === 1 &&
+        ts.isArrowFunction(node.arguments[0])
+      ) {
+        return this.evaluateNode(node.arguments[0].body);
+      }
+
       const fn = this.evaluateNode(node.expression);
       if (fn.kind === "function") {
         const args = node.arguments.map((a) => this.evaluateNode(a));

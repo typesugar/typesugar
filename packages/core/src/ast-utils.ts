@@ -383,17 +383,27 @@ export function evaluateConditionExpr(expr: string, config: Record<string, unkno
 // =============================================================================
 
 const REMOVE_BRAND = "__typesugar_remove__";
+const REMOVE_COMMENT = "__typesugar_remove_comment__";
 
 /**
  * Create a `void 0` expression branded as a removal sentinel.
  *
  * Expression macros that act as statements (staticAssert, compileError, etc.)
  * return this instead of `undefined`. The transformer recognises the brand and
- * strips the enclosing ExpressionStatement entirely, producing zero output.
+ * replaces the enclosing ExpressionStatement with a comment (if provided)
+ * or strips it entirely.
+ *
+ * @param comment — optional replacement comment (e.g. `staticAssert("msg") ✓`)
  */
-export function createRemoveExpression(factory: ts.NodeFactory): ts.VoidExpression {
+export function createRemoveExpression(
+  factory: ts.NodeFactory,
+  comment?: string
+): ts.VoidExpression {
   const node = factory.createVoidExpression(factory.createNumericLiteral(0));
   (node as any)[REMOVE_BRAND] = true;
+  if (comment) {
+    (node as any)[REMOVE_COMMENT] = comment;
+  }
   return node;
 }
 
@@ -402,4 +412,11 @@ export function createRemoveExpression(factory: ts.NodeFactory): ts.VoidExpressi
  */
 export function isRemoveExpression(node: ts.Node): boolean {
   return (node as any)[REMOVE_BRAND] === true;
+}
+
+/**
+ * Get the replacement comment from a removal sentinel, if any.
+ */
+export function getRemoveComment(node: ts.Node): string | undefined {
+  return (node as any)[REMOVE_COMMENT];
 }
