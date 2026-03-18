@@ -216,91 +216,6 @@ After expansion, the transformer removes import specifiers that resolved to macr
 
 Parameters marked with `= implicit()` are resolved at compile time. The transformer detects `implicit()` default parameter markers and replaces them with the resolved typeclass instances. Resolved instances propagate to nested calls via an `implicitScopeStack`.
 
-### Transform Backends
-
-The transformer supports two backends selectable via the `backend` option:
-
-| Backend      | Parser     | Codegen    | Best For                                       |
-| ------------ | ---------- | ---------- | ---------------------------------------------- |
-| `typescript` | TypeScript | TypeScript | Type-aware macros, full compatibility          |
-| `oxc`        | oxc (Rust) | oxc (Rust) | Syntax-only macros, performance-critical paths |
-
-**TypeScript Backend (default)**
-
-Uses `ts.transform()` with a custom visitor. Full access to type information via `ts.TypeChecker`. Supports all macro kinds including type-aware macros like `@typeclass`, `@extension`, and `@derive`.
-
-**Oxc Backend (experimental)**
-
-Uses the native Rust-based oxc engine (`@typesugar/oxc-engine`) for parsing and code generation. Significantly faster for syntax-only operations (3-5x for passthrough, depends on file size and macro complexity).
-
-The oxc backend uses a hybrid approach:
-
-1. Parse source with oxc (fast native parser)
-2. Traverse AST looking for macro call sites
-3. For syntax-only macros (`@cfg`, `staticAssert`, `__binop__`), expand in Rust
-4. For type-aware macros, delegate to JS callbacks or signal fallback
-5. Generate output with oxc codegen
-
-When type-aware macros are detected (via JSDoc annotations like `/** @typeclass */`), the pipeline automatically falls back to the TypeScript backend for that file. This allows `backend: 'oxc'` to work transparently for all files.
-
-```
-                    ┌─────────────────────┐
-                    │  TransformPipeline  │
-                    └─────────┬───────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │ backend option                 │
-              └───────────────┬───────────────┘
-                              │
-            ┌─────────────────┴─────────────────┐
-            │                                   │
-     'typescript'                            'oxc'
-            │                                   │
-            ▼                                   ▼
-   ┌─────────────────┐               ┌─────────────────┐
-   │ ts.transform()  │               │ oxc-engine      │
-   │ Full type info  │               │ Native Rust     │
-   └─────────────────┘               └────────┬────────┘
-                                              │
-                                    ┌─────────┴─────────┐
-                                    │ Type-aware macro? │
-                                    └─────────┬─────────┘
-                                              │
-                                    yes ──────┴────── no
-                                     │                 │
-                                     ▼                 ▼
-                              ┌─────────────┐  ┌─────────────┐
-                              │ Fallback to │  │ Pure oxc    │
-                              │ TypeScript  │  │ fast path   │
-                              └─────────────┘  └─────────────┘
-```
-
-**CLI Usage**
-
-```bash
-# Expand a file with oxc backend
-typesugar expand src/file.ts --backend oxc
-
-# Run a file with oxc backend
-typesugar run src/file.ts --backend oxc
-
-# Note: build/watch/check use TypeScript backend only (for now)
-```
-
-**Unplugin Configuration**
-
-```typescript
-import typesugar from "unplugin-typesugar/vite";
-
-export default {
-  plugins: [
-    typesugar({
-      backend: "oxc", // Use oxc backend (experimental)
-    }),
-  ],
-};
-```
-
 ---
 
 ## 3. Core Infrastructure (`@typesugar/core`)
@@ -898,15 +813,6 @@ The `strict` option runs `tsc` on macro-expanded output at build end:
 | `strict: true`            | Build + typecheck expanded output |
 
 `strict: true` catches type errors that macros might introduce (e.g., wrong return types in generated code). It's recommended for CI but adds overhead in development.
-
-### Backend and Typechecking
-
-| Backend           | TypeChecker Available | Type-Aware Macros           |
-| ----------------- | --------------------- | --------------------------- |
-| `"oxc"` (default) | No                    | Auto-fallback to TypeScript |
-| `"typescript"`    | Yes                   | Fully supported             |
-
-The oxc backend handles syntax-only transformations natively. Files with type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`) automatically fall back to the TypeScript backend.
 
 ### Macro Diagnostics
 

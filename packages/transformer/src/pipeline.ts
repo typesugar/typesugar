@@ -7,7 +7,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { globalExpansionTracker, type ExpansionRecord, getAllTypeRewrites } from "@typesugar/core";
+import { globalExpansionTracker, type ExpansionRecord } from "@typesugar/core";
 import { type RawSourceMap } from "@typesugar/preprocessor";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps } from "./source-map-utils.js";
@@ -23,7 +23,6 @@ import macroTransformerFactory, {
   getExpansionCacheStats,
 } from "./index.js";
 import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
-import { transformWithOxcBackend, type OxcBackendResult } from "./oxc-backend.js";
 
 /**
  * Diagnostic from macro expansion
@@ -68,31 +67,11 @@ export interface TransformResult {
 }
 
 /**
- * Transformation backend to use
- *
- * - 'oxc' (default): Uses the oxc-native macro engine (faster parsing/codegen).
- *   Automatically falls back to TypeScript for files with type-aware macros.
- * - 'typescript': Uses TypeScript's transformer API (handles all macro types)
- */
-export type TransformBackend = "typescript" | "oxc";
-
-/**
  * Options for the transformation pipeline
  */
 export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
-  /**
-   * Transformation backend to use (default: 'oxc')
-   *
-   * - 'oxc': oxc-native macro engine (faster parsing/codegen, auto-falls back to TS
-   *   when type-aware macros are detected)
-   * - 'typescript': Traditional TypeScript transformer API (handles all macro types)
-   *
-   * The oxc backend is the default for performance. Files with type-aware macros
-   * (@typeclass, @impl, @op, @deriving) automatically fall back to TypeScript.
-   */
-  backend?: TransformBackend;
   /** Syntax extensions to enable (defaults to all) */
   extensions?: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   /** Macro transformer config */
@@ -724,9 +703,7 @@ export class TransformationPipeline {
 
     // Skip build infrastructure packages (they don't use typesugar macros)
     if (
-      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|oxc-engine)[\\/]src[\\/]/.test(
-        fileName
-      )
+      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin)[\\/]src[\\/]/.test(fileName)
     ) {
       return false;
     }
@@ -797,108 +774,6 @@ export class TransformationPipeline {
     );
   }
 
-  /**
-   * Decorator macro names that require the TypeScript transformer.
-   * These use decorator syntax (@name) rather than JSDoc syntax.
-   */
-  private static readonly DECORATOR_MACROS = new Set([
-    "derive",
-    "deriving",
-    "typeclass",
-    "impl",
-    "instance",
-    "extension",
-    "specialize",
-    "reflect",
-    "generic",
-    "implicits",
-    "operator",
-    "operators",
-  ]);
-
-  /**
-   * Quick check for type-aware features that require the TypeScript transformer.
-   *
-   * The oxc backend handles:
-   * - Pure passthrough (no macros)
-   * - @cfg macro
-   * - staticAssert() macro
-   * - __binop__ expansion (for |>, <|, ::)
-   *
-   * Everything else needs the TypeScript transformer. This function returns true
-   * if ANY pattern is detected that oxc might not handle correctly.
-   */
-  private needsTypescriptTransformer(source: string): boolean {
-    // 1. Decorator macros: @derive(Eq), @typeclass, etc.
-    const decoratorPattern =
-      /@(\w+)(?:\s*\(|\s*(?:class|interface|type|function|const|let|var|\n))/g;
-    let match;
-    while ((match = decoratorPattern.exec(source)) !== null) {
-      if (TransformationPipeline.DECORATOR_MACROS.has(match[1])) {
-        return true;
-      }
-    }
-
-    // 2. HKT syntax: F<_>, Functor<F<_>>, etc.
-    if (/<_>/.test(source)) {
-      return true;
-    }
-
-    // 2b. @hkt JSDoc macro (Tier 3 _ marker on type aliases)
-    if (/@hkt\b/.test(source)) {
-      return true;
-    }
-
-    // 3. Implicit resolution: = implicit()
-    if (/=\s*implicit\s*\(/.test(source)) {
-      return true;
-    }
-
-    // 4. Extension methods: .specialize(
-    if (/\.specialize\s*\(/.test(source)) {
-      return true;
-    }
-
-    // 5. Typeclass-based operator patterns that need type info
-    if (/(?:Eq|Ord|Numeric|Semigroup|Monoid|Functor|Monad)</.test(source)) {
-      return true;
-    }
-
-    // 6. comptime blocks (need type evaluation)
-    if (/comptime\s*[<({\[]/.test(source)) {
-      return true;
-    }
-
-    // 7. summon() calls (need type resolution)
-    if (/summon\s*[<(]/.test(source)) {
-      return true;
-    }
-
-    // 8. typeInfo() calls (need type introspection)
-    if (/typeInfo\s*[<(]/.test(source)) {
-      return true;
-    }
-
-    // 9. Labeled block comprehensions (let:, seq:, par:, all:)
-    if (/\b(let|seq|par|all):\s*\{/.test(source)) {
-      return true;
-    }
-
-    // 10. Type rewrite registry (PEP-012): if any @opaque types are registered,
-    // method calls on those types need the TS transformer for type-aware erasure.
-    // Check if the source references any registered type names.
-    const typeRewrites = getAllTypeRewrites();
-    if (typeRewrites.length > 0) {
-      for (const entry of typeRewrites) {
-        if (source.includes(entry.typeName)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
   private runMacroTransformer(
     sourceFile: ts.SourceFile,
     originalCode: string
@@ -909,46 +784,7 @@ export class TransformationPipeline {
     printMs?: number;
     expansions?: ExpansionRecord[];
   } {
-    // Use TypeScript backend only if explicitly requested
-    // (PEP-004 enabled source-based detection of type-aware features)
-    if (this.options.backend === "typescript") {
-      return this.runTypescriptTransformer(sourceFile, originalCode);
-    }
-
-    // Default: oxc backend (faster for syntax-only macros, auto-falls back to TS)
-    // Quick check: if type-aware features are present, fall back to TS immediately
-    if (this.needsTypescriptTransformer(originalCode)) {
-      if (this.verbose) {
-        console.log(
-          `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware features detected)`
-        );
-      }
-      return this.runTypescriptTransformer(sourceFile, originalCode);
-    }
-
-    const oxcResult = this.runOxcTransformer(sourceFile, originalCode);
-
-    // If oxc backend signals fallback (e.g., JSDoc type-aware macros detected),
-    // retry with the TypeScript transformer
-    if (oxcResult.needsFallback) {
-      if (this.verbose) {
-        console.log(
-          `[typesugar] Fallback to TS transformer for ${sourceFile.fileName} (type-aware macros detected)`
-        );
-      }
-      return this.runTypescriptTransformer(sourceFile, originalCode);
-    }
-
-    // Return without the needsFallback/changed fields (not part of the interface)
-    // Note: We intentionally keep oxc diagnostics even if they contain errors,
-    // because syntax-only macros like staticAssert intentionally produce errors
-    return {
-      code: oxcResult.code,
-      map: oxcResult.map,
-      diagnostics: oxcResult.diagnostics,
-      printMs: oxcResult.printMs,
-      expansions: oxcResult.expansions,
-    };
+    return this.runTypescriptTransformer(sourceFile, originalCode);
   }
 
   /**
@@ -1129,91 +965,6 @@ export class TransformationPipeline {
           },
         ],
         printMs: 0,
-      };
-    }
-  }
-
-  /**
-   * Run the oxc-native macro transformer.
-   *
-   * Uses the oxc engine for parsing, AST traversal, and code generation,
-   * while delegating type-aware macro expansion to TypeScript callbacks.
-   *
-   * Returns `needsFallback: true` if type-aware macros are detected that
-   * require the TypeScript transformer.
-   */
-  private runOxcTransformer(
-    sourceFile: ts.SourceFile,
-    originalCode: string
-  ): {
-    code: string;
-    map: RawSourceMap | null;
-    diagnostics: TransformDiagnostic[];
-    printMs?: number;
-    expansions?: ExpansionRecord[];
-    needsFallback: boolean;
-    changed: boolean;
-  } {
-    try {
-      profiler.start("oxc.transform");
-      const result = transformWithOxcBackend(
-        originalCode,
-        sourceFile.fileName,
-        this.program!,
-        sourceFile,
-        { sourceMap: true }
-      );
-      profiler.end("oxc.transform");
-
-      // Convert oxc diagnostics to TransformDiagnostic format
-      // Filter out fallback info messages when fallback is happening
-      const diagnostics: TransformDiagnostic[] = result.diagnostics
-        .filter((d) => !(result.needsFallback && d.severity === "info"))
-        .map((d) => ({
-          file: sourceFile.fileName,
-          start: 0,
-          length: 0,
-          message: d.message,
-          severity: d.severity === "error" ? ("error" as const) : ("warning" as const),
-        }));
-
-      // Parse source map from JSON string if present
-      let map: RawSourceMap | null = null;
-      if (result.map) {
-        try {
-          map = JSON.parse(result.map) as RawSourceMap;
-        } catch {
-          // Ignore invalid source map
-        }
-      }
-
-      return {
-        code: result.code,
-        map,
-        diagnostics,
-        printMs: 0, // oxc handles print internally
-        needsFallback: result.needsFallback,
-        changed: result.changed,
-      };
-    } catch (error) {
-      if (this.verbose) {
-        console.error(`[typesugar] Oxc transform error for ${sourceFile.fileName}:`, error);
-      }
-      return {
-        code: originalCode,
-        map: null,
-        diagnostics: [
-          {
-            file: sourceFile.fileName,
-            start: 0,
-            length: 0,
-            message: `Oxc transform failed: ${error}`,
-            severity: "error",
-          },
-        ],
-        printMs: 0,
-        needsFallback: false,
-        changed: false,
       };
     }
   }

@@ -47,7 +47,8 @@ describe("playground transform", () => {
         fileName: "test.sts",
       });
       expect(result.preprocessed).toBe(true);
-      expect(result.code).toContain("__binop__");
+      // Preprocessor converts |> to __binop__, then the macro expands it to function call
+      expect(result.code).toContain("String(1)");
     });
 
     it("should cache results", () => {

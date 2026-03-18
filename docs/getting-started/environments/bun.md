@@ -30,8 +30,6 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      // Use fast oxc backend (default)
-      backend: "oxc",
       // Typecheck expanded output (since Vite doesn't typecheck)
       strict: true,
     }),

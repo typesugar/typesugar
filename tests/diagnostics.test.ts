@@ -22,10 +22,7 @@ import type { Eq, Ord } from "@typesugar/std";
 
 function transform(code: string, fileName = "test-diag.ts") {
   const fullCode = `${IMPORTS}\n${code.trim()}`;
-  return transformCode(fullCode, {
-    fileName,
-    backend: "typescript",
-  });
+  return transformCode(fullCode, { fileName });
 }
 
 function errors(result: { diagnostics?: TransformDiagnostic[] }): TransformDiagnostic[] {
@@ -144,7 +141,7 @@ describe("Derive Diagnostics", () => {
 describe("Macro Syntax Diagnostics", () => {
   it("TS9205: includeStr with non-literal argument", () => {
     const result = transform(`
-      const path = "./template.txt";
+      declare const path: string;
       const content = includeStr(path);
     `);
     expectDiag(result, 9205, { messageContains: "compile-time constant" });

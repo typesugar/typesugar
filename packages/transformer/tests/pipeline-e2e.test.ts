@@ -14,6 +14,9 @@ import { describe, it, expect } from "vitest";
 import { TransformationPipeline, transformCode } from "../src/pipeline.js";
 import * as ts from "typescript";
 
+// Load macro definitions (registers macros in the global registry)
+import "@typesugar/macros";
+
 function createPipelineFromFiles(
   files: Map<string, string>,
   opts?: { extensions?: ("hkt" | "pipeline" | "cons")[] }
@@ -101,7 +104,7 @@ describe("Pipeline E2E: pipe operator", () => {
     const result = transformCode(input, { fileName: "pipe.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    // With oxc backend (default), pipe operator is expanded to function calls
+    // Pipe operator is expanded via __binop__ macro to function calls
     // 1 |> f |> g becomes g(f(1))
     expect(result.code).toContain("((x: number) => x * 2)(((x: number) => x + 1)(1))");
     // The |> token should only appear as a string argument to __binop__, not as an operator
@@ -121,7 +124,7 @@ const result = 10 |> add1 |> double |> toString;
     const result = transformCode(input, { fileName: "chained-pipe.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    // With oxc backend, chained pipes are expanded to nested function calls
+    // Chained pipes are expanded to nested function calls
     expect(result.code).toContain("toString(double(add1(10)))");
     expect(result.changed).toBe(true);
   });
@@ -150,9 +153,9 @@ describe("Pipeline E2E: cons operator", () => {
     const result = transformCode(input, { fileName: "cons.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    // With oxc backend (default), :: is expanded to spread arrays: [h, ...t]
+    // Cons operator (::) is expanded to spread arrays: [h, ...t]
     expect(result.code).toContain("[1, ...[2, ...[]]]");
-    // :: should only appear as a string literal argument (or not at all with oxc)
+    // :: should only appear as a string literal argument after expansion
     const codeWithoutStrings = result.code.replace(/"[^"]*"/g, "").replace(/'[^']*'/g, "");
     expect(codeWithoutStrings).not.toContain("::");
   });
@@ -164,7 +167,7 @@ describe("Pipeline E2E: cons operator", () => {
     const result = transformCode(input, { fileName: "nested-cons.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    // With oxc backend (default), :: is expanded to spread arrays: [h, ...t]
+    // Cons operator (::) is expanded to spread arrays: [h, ...t]
     expect(result.code).toContain("[1, ...[2, ...[3, ...[]]]]");
     expect(result.changed).toBe(true);
   });
@@ -490,7 +493,7 @@ const consed = 1 :: [];
     const result = transformCode(input, { fileName: "all-ops.sts" });
 
     expect(result.diagnostics).toHaveLength(0);
-    // With oxc backend, operators are fully expanded
+    // Operators are fully expanded via __binop__ macro
     expect(result.code).toContain("((x: number) => x + 1)(1)");
     expect(result.code).toContain("[1, ...[]]");
     expect(result.changed).toBe(true);

@@ -19,8 +19,6 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      // Fast oxc backend (default) — auto-fallback for type-aware macros
-      backend: "oxc",
       // Typecheck expanded output (Vitest doesn't typecheck by default)
       strict: true,
     }),
@@ -31,7 +29,7 @@ export default defineConfig({
 });
 ```
 
-### Backend and Typechecking
+### Typechecking
 
 Vitest uses Vite under the hood, which does NOT typecheck. The `strict: true` option typechecks the expanded macro output at build time.
 

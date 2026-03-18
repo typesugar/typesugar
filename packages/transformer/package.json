@@ -84,7 +84,6 @@
     "@ampproject/remapping": "^2.3.0",
     "@typesugar/core": "workspace:*",
     "@typesugar/transformer-core": "workspace:*",
-    "@typesugar/oxc-engine": "workspace:*",
     "@typesugar/preprocessor": "workspace:*",
     "esbuild": "^0.20.0",
     "magic-string": "^0.30.21",

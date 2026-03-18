@@ -73,9 +73,9 @@ The transformer plugin accepts options:
 }
 ```
 
-### Backend and Typechecking
+### Typechecking
 
-**tsc with ts-patch always uses the TypeScript backend** and provides full typechecking. This is the only build path where:
+**tsc with ts-patch provides full typechecking.** This is the only build path where:
 
 - Macro transformation AND typechecking happen in the same pass
 - Type errors are reported during build (not as a separate step)
@@ -114,26 +114,9 @@ npx typesugar check
 # See expanded output
 npx typesugar expand src/main.ts
 
-# See expanded output using oxc backend (faster)
-npx typesugar expand src/main.ts --backend oxc
-
 # Run a file directly (with macro expansion)
-npx typesugar run src/main.ts --backend oxc
+npx typesugar run src/main.ts
 ```
-
-### CLI Backend Option
-
-The `--backend` flag selects the transformation engine:
-
-| Command  | `--backend oxc` | `--backend typescript` |
-| -------- | --------------- | ---------------------- |
-| `expand` | ✅ Supported    | ✅ Default             |
-| `run`    | ✅ Supported    | ✅ Default             |
-| `build`  | ❌ Not yet      | ✅ Always used         |
-| `watch`  | ❌ Not yet      | ✅ Always used         |
-| `check`  | ❌ Not yet      | ✅ Always used         |
-
-The oxc backend is ~5x faster for parsing/codegen but doesn't support all macro types inline (falls back automatically).
 
 ## Verification
 

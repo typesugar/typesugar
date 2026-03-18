@@ -96,6 +96,7 @@ import {
   type AccessorRewrite,
   // Statement removal sentinel
   isRemoveExpression,
+  getRemoveComment,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -746,12 +747,27 @@ function extractMapFromArray(arr: ts.ArrayLiteralExpression): Map<string, string
 
 /**
  * True when a statement is an ExpressionStatement whose expression is a
- * removal sentinel (created by `createRemoveExpression`). The transformer
- * drops these statements entirely so that macros like `staticAssert` produce
- * zero runtime output.
+ * removal sentinel (created by `createRemoveExpression`).
  */
 function isRemovedStatement(node: ts.Node): boolean {
   return ts.isExpressionStatement(node) && isRemoveExpression(node.expression);
+}
+
+/**
+ * If a removed statement carries a comment, create an empty statement with
+ * that comment so the output shows what was erased.  Returns undefined if
+ * there is no comment (the statement should be dropped entirely).
+ */
+function createCommentReplacement(
+  factory: ts.NodeFactory,
+  node: ts.Node
+): ts.EmptyStatement | undefined {
+  if (!ts.isExpressionStatement(node)) return undefined;
+  const comment = getRemoveComment(node.expression);
+  if (!comment) return undefined;
+  const empty = factory.createEmptyStatement();
+  ts.addSyntheticLeadingComment(empty, ts.SyntaxKind.SingleLineCommentTrivia, comment);
+  return empty;
 }
 
 function isPrimitiveType(type: ts.Type): boolean {
@@ -1993,13 +2009,21 @@ class MacroTransformer {
       const visited = this.visit(stmt);
       if (visited) {
         if (Array.isArray(visited)) {
-          const filtered = (visited as ts.Node[]).filter(
-            (n) => ts.isStatement(n) && !isRemovedStatement(n)
-          );
-          newStatements.push(...(filtered as ts.Statement[]));
+          for (const n of visited as ts.Node[]) {
+            if (!ts.isStatement(n)) continue;
+            if (isRemovedStatement(n)) {
+              const replacement = createCommentReplacement(this.ctx.factory, n);
+              if (replacement) newStatements.push(replacement);
+              modified = true;
+            } else {
+              newStatements.push(n);
+            }
+          }
           modified = true;
         } else if (ts.isStatement(visited)) {
           if (isRemovedStatement(visited)) {
+            const replacement = createCommentReplacement(this.ctx.factory, visited);
+            if (replacement) newStatements.push(replacement);
             modified = true;
           } else {
             newStatements.push(visited);
@@ -5364,7 +5388,6 @@ export {
   type TransformResult,
   type TransformDiagnostic,
   type PipelineOptions,
-  type TransformBackend,
 } from "./pipeline.js";
 
 export {
@@ -5405,10 +5428,3 @@ export {
 } from "./cache.js";
 
 export { generateManifest, createDefaultManifest, type MacroManifest } from "./manifest.js";
-
-export {
-  needsTypescriptTransformer,
-  needsTs,
-  type NeedsTransformerResult,
-  type DetectedPattern,
-} from "./needs-ts-transformer.js";

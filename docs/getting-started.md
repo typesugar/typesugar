@@ -157,11 +157,6 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      // Transformation backend (default: "oxc")
-      // - "oxc": Fast native Rust engine (auto-falls back to TS for type-aware macros)
-      // - "typescript": Full TypeScript transformer API
-      backend: "oxc",
-
       // Typecheck expanded output at build end (catches macro bugs)
       strict: false,
 
@@ -177,17 +172,6 @@ export default defineConfig({
   ],
 });
 ```
-
-### Backend Selection
-
-typesugar supports two transformation backends:
-
-| Backend           | Speed      | Type Awareness | When to Use              |
-| ----------------- | ---------- | -------------- | ------------------------ |
-| `"oxc"` (default) | ~5x faster | Auto-fallback  | Most projects            |
-| `"typescript"`    | Slower     | Full           | Debugging, compatibility |
-
-The **oxc backend** is written in Rust and handles parsing and code generation natively. When it encounters type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`), it automatically falls back to the TypeScript backend for that file.
 
 ### Typechecking
 

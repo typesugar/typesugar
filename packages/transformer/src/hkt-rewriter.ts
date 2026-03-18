@@ -6,7 +6,7 @@
  * never sees the invalid `F<A>` (which would cause TS2315).
  *
  * Uses ts.createSourceFile() only — no Program, no TypeChecker.
- * Works in all environments: IDE, bundlers, tsc + ts-patch, oxc engine.
+ * Works in all environments: IDE, bundlers, tsc + ts-patch.
  */
 
 import * as ts from "typescript";

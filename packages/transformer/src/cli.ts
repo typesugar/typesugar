@@ -31,7 +31,6 @@ import {
   createPipeline,
   transformCode,
   formatExpansions,
-  type TransformBackend,
 } from "./pipeline.js";
 import {
   filterDiagnostics,
@@ -72,8 +71,6 @@ interface CliOptions {
   cache?: boolean | string;
   /** Enable strict mode — typecheck expanded output */
   strict?: boolean | "incremental";
-  /** Transform backend: 'oxc' (default) or 'typescript' */
-  backend?: "typescript" | "oxc";
   /** Show SFINAE-suppressed diagnostics for debugging */
   showSfinae?: boolean;
 }
@@ -150,7 +147,6 @@ function parseArgs(args: string[]): CliOptions {
   let ast = false;
   let cache: boolean | string | undefined;
   let strict: boolean | "incremental" = false;
-  let backend: "typescript" | "oxc" | undefined;
   let showSfinae = false;
 
   for (let i = 1; i < args.length; i++) {
@@ -178,14 +174,6 @@ function parseArgs(args: string[]): CliOptions {
       strict = "incremental";
     } else if (arg === "--strict") {
       strict = true;
-    } else if (arg === "--backend") {
-      const next = args[++i];
-      if (next === "typescript" || next === "oxc") {
-        backend = next;
-      } else {
-        console.error(`Invalid backend: ${next}. Must be 'typescript' or 'oxc'`);
-        process.exit(1);
-      }
     } else if (arg === "--show-sfinae") {
       showSfinae = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -196,7 +184,7 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
-  return { command, project, verbose, file, diff, ast, cache, strict, backend, showSfinae };
+  return { command, project, verbose, file, diff, ast, cache, strict, showSfinae };
 }
 
 function printHelp(): void {
@@ -224,7 +212,6 @@ OPTIONS:
   --no-cache             Disable disk cache
   --strict               Typecheck expanded output (catches macro bugs) [build/check]
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
-  --backend <ts|oxc>     Transform backend: 'oxc' (default) or 'typescript'
   --show-sfinae          Show SFINAE-suppressed diagnostics (audit mode)
   -h, --help             Show this help message
 
@@ -689,7 +676,7 @@ function expand(options: CliOptions): void {
 
   const originalContent = ts.sys.readFile(filePath) ?? "";
 
-  // --ast option requires TypeScript AST, always use TS backend
+  // --ast option requires TypeScript AST output
   if (options.ast) {
     const config = readTsConfig(options.project);
     const compilerOptions: ts.CompilerOptions = {
@@ -735,10 +722,8 @@ function expand(options: CliOptions): void {
     return;
   }
 
-  // Use pipeline (supports backend selection) for normal expand and diff
   const result = transformCode(originalContent, {
     fileName: filePath,
-    backend: options.backend,
     verbose: options.verbose,
   });
 
@@ -842,7 +827,6 @@ async function run(options: CliOptions): Promise<void> {
     const pipeline = new TransformationPipeline(config.options, [filePath], {
       verbose: options.verbose,
       diskCache: options.cache,
-      backend: options.backend,
       readFile: (f) => (f === filePath ? fileContent : ts.sys.readFile(f)),
       fileExists: (f) => (f === filePath ? true : ts.sys.fileExists(f)),
     });
@@ -853,11 +837,9 @@ async function run(options: CliOptions): Promise<void> {
     // Save caches for next run
     pipeline.cleanup();
   } else {
-    // Use transformCode for backend selection support
     const fileContent = fs.readFileSync(filePath, "utf-8");
     const result = transformCode(fileContent, {
       fileName: filePath,
-      backend: options.backend,
       verbose: options.verbose,
     });
     transformedCode = result.code;
@@ -1103,14 +1085,6 @@ async function main(): Promise<void> {
   }
 
   const options = parseArgs(args);
-
-  // Warn about --backend limitation for build/watch (not yet implemented)
-  if (options.backend === "oxc" && ["build", "watch", "check"].includes(options.command)) {
-    console.warn(
-      "⚠️  --backend oxc is only supported for 'expand' and 'run' commands.\n" +
-        "   Build/watch/check use the TypeScript backend. This limitation will be removed in a future release."
-    );
-  }
 
   switch (options.command) {
     case "build":

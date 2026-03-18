@@ -109,15 +109,13 @@ module.exports = {
 }
 ```
 
-## Backend and Typechecking
+## Typechecking
 
-Jest with ts-jest **always uses the TypeScript backend** and provides full typechecking:
+Jest with ts-jest provides full typechecking:
 
 - Type errors are reported during test runs
 - All macro types are fully supported
 - No `strict` option needed — typechecking is built-in
-
-**Note:** The oxc backend is not available for Jest/ts-jest. Jest's astTransformers API requires TypeScript AST transformers. For faster test runs, consider [Vitest](./vitest.md) which supports the oxc backend.
 
 ## Writing Tests
 

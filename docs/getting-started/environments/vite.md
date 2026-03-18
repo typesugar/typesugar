@@ -39,12 +39,6 @@ export default defineConfig({
 
 ```typescript
 typesugar({
-  // Transformation backend (default: "oxc")
-  // - "oxc": Fast native Rust engine (~5x faster parsing/codegen)
-  // - "typescript": Full TypeScript transformer API
-  // Files with type-aware macros auto-fallback to TypeScript
-  backend: "oxc",
-
   // Typecheck expanded output at build end (catches macro bugs)
   strict: false,
 
@@ -61,15 +55,6 @@ typesugar({
   tsconfig: "./tsconfig.json",
 });
 ```
-
-### Backend Selection
-
-| Backend           | Speed      | Best For                                  |
-| ----------------- | ---------- | ----------------------------------------- |
-| `"oxc"` (default) | ~5x faster | Production builds, most projects          |
-| `"typescript"`    | Slower     | Debugging, when you need to force TS path |
-
-The oxc backend automatically falls back to TypeScript for files containing type-aware macros (`@typeclass`, `@impl`, `@op`, `@derive`).
 
 ### Typechecking
 

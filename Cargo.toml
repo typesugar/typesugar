@@ -5,7 +5,8 @@
 
 [workspace]
 resolver = "2"
-members = ["packages/oxc-engine"]
+# No Rust packages currently (oxc-engine removed in PEP-018)
+members = []
 
 [workspace.package]
 edition = "2021"

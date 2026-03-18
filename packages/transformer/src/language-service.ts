@@ -146,7 +146,7 @@ function init(modules: { typescript: typeof ts }) {
     // 2. Build infrastructure packages (don't use typesugar macros)
     // Processing these wastes TS server resources and causes multi-minute hangs.
     const infraPattern =
-      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|oxc-engine|eslint-plugin|prettier-plugin)[\\/]/;
+      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|eslint-plugin|prettier-plugin)[\\/]/;
     if (projectName.includes("/dev/null/inferredProject") || infraPattern.test(projectName)) {
       log(`Skipping typesugar plugin for non-user project: ${projectName}`);
       return info.languageService;

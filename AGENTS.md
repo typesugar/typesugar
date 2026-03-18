@@ -96,7 +96,6 @@ packages/
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin (Node.js)
 ├── transformer-core/   # @typesugar/transformer-core — browser-compatible transform core
 ├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
-├── oxc-engine/         # @typesugar/oxc-engine — native Rust macro engine (experimental)
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
 ├── ts-plugin/          # @typesugar/ts-plugin — TypeScript language service plugin
 │

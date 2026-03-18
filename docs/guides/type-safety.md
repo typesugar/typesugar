@@ -180,19 +180,6 @@ steps:
 }
 ```
 
-## Backend Selection and Type Safety
-
-typesugar supports two transformation backends:
-
-| Backend           | Speed      | TypeChecker | Type-Aware Macros   |
-| ----------------- | ---------- | ----------- | ------------------- |
-| `"oxc"` (default) | ~5x faster | No          | Auto-fallback to TS |
-| `"typescript"`    | Slower     | Full        | Fully supported     |
-
-The oxc backend is a Rust-based parser/codegen that handles syntax-only transformations natively. When it encounters a type-aware macro (`@typeclass`, `@impl`, `@op`, `@derive`), it automatically falls back to the TypeScript backend for that file.
-
-This means `backend: "oxc"` is safe — you get speed for files that don't need type information, and full type-aware macros for files that do. No configuration needed.
-
 ## Summary
 
 | What           | Where                             | Typechecks?                | Speed                   |
