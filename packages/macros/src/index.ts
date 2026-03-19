@@ -145,6 +145,7 @@ export {
   registerInstanceMethodsFromAST,
   extractMethodsFromObjectLiteral,
   getInstanceMethods,
+  getInstanceOrIntrinsicMethods,
   isRegisteredInstance,
   getRegisteredInstanceNames,
   classifyInlineFailure,

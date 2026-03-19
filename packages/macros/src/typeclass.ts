@@ -603,6 +603,20 @@ function executeTransitiveDerivation(
       derived: true,
     });
 
+    // Bridge to specialization registry for zero-cost inlining at call sites
+    const specMethods = getSpecializationMethodsForDerivation(
+      typeclassName,
+      typeInfo.typeName,
+      typeInfo.fields
+    );
+    if (specMethods && Object.keys(specMethods).length > 0) {
+      const methodsMap = new Map<string, { source?: string; params: string[] }>();
+      for (const [name, impl] of Object.entries(specMethods)) {
+        methodsMap.set(name, { source: impl.source, params: impl.params });
+      }
+      registerInstanceMethodsFromAST(varName, typeInfo.typeName, methodsMap);
+    }
+
     // Notify coverage system
     notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
   }
@@ -1739,6 +1753,8 @@ export const typeclassAttribute = defineAttributeMacro({
       isExported,
     };
     typeclassRegistry.set(tcName, tcInfo);
+
+    globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
 
     const statements: ts.Statement[] = [];
 
@@ -4264,8 +4280,8 @@ export const typeclassMacro = defineExpressionMacro({
       syntax: syntax.size > 0 ? syntax : undefined,
     };
     typeclassRegistry.set(tcName, tcInfo);
+    globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
 
-    // The call compiles away to nothing - registration is the side effect
     return ctx.factory.createVoidZero();
   },
 });

@@ -14,6 +14,7 @@ import {
   getSyntaxForOperator,
   findInstance,
   getInstanceMethods,
+  getInstanceOrIntrinsicMethods,
   isRegisteredInstance,
   createSpecializedFunction,
   isKindAnnotation,
@@ -1096,6 +1097,8 @@ class MacroTransformer {
    */
   private specCache = new SpecializationCache();
 
+  private inlinedInstanceNames = new Set<string>();
+
   /**
    * Pending imports for type-rewrite method erasure (PEP-012 Wave 3).
    * Tracks `{ name, module }` pairs that need import declarations injected.
@@ -2111,6 +2114,14 @@ class MacroTransformer {
     // Restore previous scope's specialization cache
     this.specCache = prevSpecCache;
 
+    if (ts.isSourceFile(node)) {
+      cleanedStatements = eliminateDeadDerivedInstances(
+        cleanedStatements,
+        this.inlinedInstanceNames,
+        this.verbose
+      );
+    }
+
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
       return factory.updateSourceFile(node, cleanedStatements);
@@ -2775,6 +2786,68 @@ class MacroTransformer {
   }
 
   /**
+   * Inline a direct method call on a known derived typeclass instance.
+   *
+   * Handles: eqPoint.eq(p1, p2) → p1.x === p2.x && p1.y === p2.y
+   */
+  private tryInlineDerivedInstanceCall(node: ts.CallExpression): ts.Expression | undefined {
+    if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+    if (!ts.isIdentifier(node.expression.expression)) return undefined;
+
+    const instanceName = node.expression.expression.text;
+    const methodName = node.expression.name.text;
+
+    let methodMap = getInstanceOrIntrinsicMethods(instanceName);
+
+    if (!methodMap) {
+      methodMap = this.tryExtractInstanceFromSource(node.expression.expression);
+    }
+
+    if (!methodMap) return undefined;
+
+    const method = methodMap.methods.get(methodName);
+    if (!method) return undefined;
+
+    const inlined = inlineMethod(this.ctx, method, Array.from(node.arguments));
+    if (!inlined) return undefined;
+
+    const result = this.recursivelyInlineInstanceCalls(inlined, 0);
+    return preserveSourceMap(result, node);
+  }
+
+  private recursivelyInlineInstanceCalls(node: ts.Expression, depth: number): ts.Expression {
+    if (depth >= 10) return node;
+
+    const self = this;
+    function visit(n: ts.Node): ts.Node {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        ts.isIdentifier(n.expression.expression)
+      ) {
+        const instName = n.expression.expression.text;
+        const methName = n.expression.name.text;
+
+        const methods = getInstanceOrIntrinsicMethods(instName);
+        if (methods) {
+          const method = methods.methods.get(methName);
+          if (method) {
+            const inlined = inlineMethod(self.ctx, method, Array.from(n.arguments));
+            if (inlined) {
+              const deeper = self.recursivelyInlineInstanceCalls(inlined, depth + 1);
+              return ts.visitEachChild(deeper, visit, self.ctx.transformContext);
+            }
+          }
+        }
+      }
+
+      return ts.visitEachChild(n, visit, self.ctx.transformContext);
+    }
+
+    return ts.visitNode(node, visit) as ts.Expression;
+  }
+
+  /**
    * Try to specialize a function call based on the expected return type.
    *
    * When a function returning Result<E, T> is called in a context expecting
@@ -3107,6 +3180,17 @@ class MacroTransformer {
       const autoSpecResult = this.tryAutoSpecialize(node);
       if (autoSpecResult !== undefined) {
         return autoSpecResult;
+      }
+
+      const derivedInlineResult = this.tryInlineDerivedInstanceCall(node);
+      if (derivedInlineResult !== undefined) {
+        if (
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression)
+        ) {
+          this.inlinedInstanceNames.add(node.expression.expression.text);
+        }
+        return derivedInlineResult;
       }
 
       const returnTypeResult = this.tryReturnTypeDrivenSpecialize(node);
@@ -5569,6 +5653,91 @@ export {
   type DecodedSegment,
   type SourcePosition,
 } from "./source-map-utils.js";
+
+// ============================================================================
+// Derived Instance DCE
+// ============================================================================
+
+function eliminateDeadDerivedInstances(
+  statements: ts.Statement[],
+  inlinedInstanceNames: ReadonlySet<string>,
+  verbose: boolean
+): ts.Statement[] {
+  if (inlinedInstanceNames.size === 0) return statements;
+
+  const instanceDecls = new Map<string, { declIndex: number; regIndex?: number }>();
+
+  for (let i = 0; i < statements.length; i++) {
+    const stmt = statements[i];
+
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (
+          ts.isIdentifier(decl.name) &&
+          decl.initializer &&
+          ts.isObjectLiteralExpression(decl.initializer) &&
+          inlinedInstanceNames.has(decl.name.text)
+        ) {
+          instanceDecls.set(decl.name.text, { declIndex: i });
+        }
+      }
+    }
+
+    if (
+      ts.isExpressionStatement(stmt) &&
+      ts.isCallExpression(stmt.expression) &&
+      ts.isPropertyAccessExpression(stmt.expression.expression) &&
+      stmt.expression.expression.name.text === "registerInstance" &&
+      stmt.expression.arguments.length >= 2
+    ) {
+      const lastArg = stmt.expression.arguments[stmt.expression.arguments.length - 1];
+      if (ts.isIdentifier(lastArg) && instanceDecls.has(lastArg.text)) {
+        instanceDecls.get(lastArg.text)!.regIndex = i;
+      }
+    }
+  }
+
+  if (instanceDecls.size === 0) return statements;
+
+  const toRemove = new Set<number>();
+
+  for (const [name, { declIndex, regIndex }] of instanceDecls) {
+    let hasExternalRef = false;
+
+    for (let i = 0; i < statements.length; i++) {
+      if (i === declIndex || i === regIndex) continue;
+      if (containsIdentifierRef(statements[i], name)) {
+        hasExternalRef = true;
+        break;
+      }
+    }
+
+    if (!hasExternalRef) {
+      toRemove.add(declIndex);
+      if (regIndex !== undefined) toRemove.add(regIndex);
+      if (verbose) {
+        console.log(`[typesugar] DCE: removed fully-inlined instance '${name}'`);
+      }
+    }
+  }
+
+  if (toRemove.size === 0) return statements;
+
+  return statements.filter((_, i) => !toRemove.has(i));
+}
+
+function containsIdentifierRef(node: ts.Node, name: string): boolean {
+  if (ts.isIdentifier(node) && node.text === name) return true;
+
+  let found = false;
+  ts.forEachChild(node, (child) => {
+    if (!found && containsIdentifierRef(child, name)) {
+      found = true;
+    }
+  });
+
+  return found;
+}
 
 export {
   TransformCache,

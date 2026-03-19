@@ -60,6 +60,8 @@ import {
 import {
   tryAutoSpecialize as tryAutoSpecializeFn,
   tryReturnTypeDrivenSpecialize as tryReturnTypeDrivenSpecializeFn,
+  tryInlineDerivedInstanceCall as tryInlineDerivedInstanceCallFn,
+  eliminateDeadDerivedInstances as eliminateDeadDerivedInstancesFn,
 } from "./specialization.js";
 
 import {
@@ -101,6 +103,8 @@ class MacroTransformer {
   private implicitScopeStack: ImplicitScope[] = [];
 
   private specCache = new SpecializationCache();
+
+  private inlinedInstanceNames = new Set<string>();
 
   constructor(
     private ctx: MacroContextImpl,
@@ -477,6 +481,14 @@ class MacroTransformer {
 
     this.specCache = prevSpecCache;
 
+    if (ts.isSourceFile(node)) {
+      cleanedStatements = eliminateDeadDerivedInstancesFn(
+        cleanedStatements,
+        this.inlinedInstanceNames,
+        this.verbose
+      );
+    }
+
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
       return factory.updateSourceFile(node, cleanedStatements);
@@ -577,6 +589,17 @@ class MacroTransformer {
       const autoSpecResult = tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, node);
       if (autoSpecResult !== undefined) {
         return autoSpecResult;
+      }
+
+      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, node, undefined);
+      if (derivedInlineResult !== undefined) {
+        if (
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression)
+        ) {
+          this.inlinedInstanceNames.add(node.expression.expression.text);
+        }
+        return derivedInlineResult;
       }
 
       const returnTypeResult = tryReturnTypeDrivenSpecializeFn(

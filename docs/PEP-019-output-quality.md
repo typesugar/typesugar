@@ -1,6 +1,6 @@
 # PEP-019: Output Quality — Valid TypeScript, Cleaner Codegen
 
-**Status:** In Progress (Waves 1–3 complete)
+**Status:** In Progress (Waves 1–4 complete)
 **Date:** 2026-03-18
 **Author:** Claude (with Dean Povey)
 
@@ -163,19 +163,19 @@ Two sub-problems: (a) `eqNumber.eq(a.x, b.x)` should itself inline to `a.x === b
 
 **Tasks:**
 
-- [ ] When `@derive` generates a typeclass instance, automatically mark it with `@inline` metadata (or equivalent internal flag) so the specialization system knows to inline at call sites
-- [ ] In `tryAutoSpecialize`, detect calls to auto-derived instance methods (e.g., `eqPoint.equals(...)`) and apply `inlineMethod` to substitute the body
-- [ ] Handle recursive inlining: `eqNumber.eq(a.x, b.x)` → `a.x === b.x` (primitive Eq instances should be pre-inlined or marked as intrinsics)
-- [ ] If the inlined result is a simple expression (no side effects, no temp variables needed), emit it directly without an IIFE wrapper
-- [ ] Dead code elimination: if `eqPoint` is only used at inline sites, remove the dictionary declaration entirely
+- [x] When `@derive` generates a typeclass instance, automatically mark it with `@inline` metadata (or equivalent internal flag) so the specialization system knows to inline at call sites
+- [x] In `tryAutoSpecialize`, detect calls to auto-derived instance methods (e.g., `eqPoint.equals(...)`) and apply `inlineMethod` to substitute the body
+- [x] Handle recursive inlining: `eqNumber.eq(a.x, b.x)` → `a.x === b.x` (primitive Eq instances should be pre-inlined or marked as intrinsics)
+- [x] If the inlined result is a simple expression (no side effects, no temp variables needed), emit it directly without an IIFE wrapper
+- [x] Dead code elimination: if `eqPoint` is only used at inline sites, remove the dictionary declaration entirely
 
 **Gate:**
 
-- [ ] `eqPoint.equals(p1, p2)` inlines to `p1.x === p2.x && p1.y === p2.y`
-- [ ] Recursive instances inline fully (no `eqNumber.eq` in output)
-- [ ] Dictionary declaration is removed when all uses are inlined
-- [ ] Non-inlineable uses (passing the dictionary as a value, e.g., `map(xs, eqPoint)`) keep the declaration
-- [ ] All typeclass and derive tests pass: `pnpm vitest run typeclass derive`
+- [x] `eqPoint.equals(p1, p2)` inlines to `p1.x === p2.x && p1.y === p2.y`
+- [x] Recursive instances inline fully (no `eqNumber.eq` in output)
+- [x] Dictionary declaration is removed when all uses are inlined
+- [x] Non-inlineable uses (passing the dictionary as a value, e.g., `map(xs, eqPoint)`) keep the declaration
+- [x] All typeclass and derive tests pass: `pnpm vitest run typeclass derive`
 
 ### Wave 5: Strict Output Mode
 
@@ -196,19 +196,23 @@ Two sub-problems: (a) `eqNumber.eq(a.x, b.x)` should itself inline to `a.x === b
 
 ## Files Changed
 
-| File                                                           | Change                                                      |
-| -------------------------------------------------------------- | ----------------------------------------------------------- |
-| `packages/transformer-core/src/rewriting.ts`                   | Opaque type annotation erasure (Wave 1) ✅                  |
-| `packages/transformer-core/src/transformer.ts`                 | Hook annotation erasure into visitor (Wave 1) ✅            |
-| `packages/transformer/src/index.ts`                            | Opaque type annotation erasure (Wave 1) ✅                  |
-| `packages/transformer/tests/opaque-annotation-erasure.test.ts` | Tests for Wave 1 ✅                                         |
-| `packages/std/src/macros/match-v2.ts`                          | Variable naming, guard optimization, null check (Waves 2-3) |
-| `packages/core/src/context.ts`                                 | `tryShortName` helper (Wave 2)                              |
-| `packages/macros/src/auto-derive.ts`                           | `@inline` flag on derived instances (Wave 4)                |
-| `packages/macros/src/specialize.ts`                            | Auto-inline derived instance calls (Wave 4)                 |
-| `packages/transformer/src/index.ts`                            | Strict output mode option (Wave 5)                          |
-| `packages/transformer-core/src/pipeline.ts`                    | Strict output mode option (Wave 5)                          |
-| `api/compile.ts`                                               | Enable strict output mode (Wave 5)                          |
+| File                                                           | Change                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `packages/transformer-core/src/rewriting.ts`                   | Opaque type annotation erasure (Wave 1) ✅                                |
+| `packages/transformer-core/src/transformer.ts`                 | Hook annotation erasure into visitor (Wave 1) ✅                          |
+| `packages/transformer/src/index.ts`                            | Opaque type annotation erasure (Wave 1) ✅                                |
+| `packages/transformer/tests/opaque-annotation-erasure.test.ts` | Tests for Wave 1 ✅                                                       |
+| `packages/std/src/macros/match-v2.ts`                          | Variable naming, guard optimization, null check (Waves 2-3)               |
+| `packages/core/src/context.ts`                                 | `tryShortName` helper (Wave 2)                                            |
+| `packages/macros/src/specialize.ts`                            | Primitive intrinsic registry, `getInstanceOrIntrinsicMethods` (Wave 4) ✅ |
+| `packages/macros/src/typeclass.ts`                             | Register derived instances for specialization (Wave 4) ✅                 |
+| `packages/transformer-core/src/specialization.ts`              | `tryInlineDerivedInstanceCall`, recursive inlining, DCE (Wave 4) ✅       |
+| `packages/transformer-core/src/transformer.ts`                 | Hook inlining + DCE into visitor (Wave 4) ✅                              |
+| `packages/transformer/src/index.ts`                            | Mirror inlining + DCE in Node.js transformer (Wave 4) ✅                  |
+| `packages/transformer/tests/derive-inline.test.ts`             | 14 tests covering all Wave 4 gate criteria ✅                             |
+| `packages/transformer/src/index.ts`                            | Strict output mode option (Wave 5)                                        |
+| `packages/transformer-core/src/pipeline.ts`                    | Strict output mode option (Wave 5)                                        |
+| `api/compile.ts`                                               | Enable strict output mode (Wave 5)                                        |
 
 ## Consequences
 

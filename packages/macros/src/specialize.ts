@@ -608,6 +608,34 @@ export function getRegisteredInstanceNames(): string[] {
   return Array.from(instanceMethodRegistry.keys());
 }
 
+// ---------------------------------------------------------------------------
+// Primitive intrinsic registry — separate from instanceMethodRegistry so
+// tryAutoSpecialize doesn't pick up primitives as specializable instances.
+// Only tryInlineDerivedInstanceCall consults this registry.
+// ---------------------------------------------------------------------------
+
+const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
+
+function registerPrimitiveIntrinsic(
+  dictName: string,
+  brand: string,
+  methods: Record<string, { source: string; params: string[] }>
+): void {
+  const methodMap = new Map<string, DictMethod>();
+  for (const [name, { source, params }] of Object.entries(methods)) {
+    methodMap.set(name, { source, params });
+  }
+  primitiveIntrinsicRegistry.set(dictName, { brand, methods: methodMap });
+}
+
+/**
+ * Look up instance methods from either the main registry or primitive intrinsics.
+ * Used by tryInlineDerivedInstanceCall which should inline both derived and primitive calls.
+ */
+export function getInstanceOrIntrinsicMethods(dictName: string): DictMethodMap | undefined {
+  return instanceMethodRegistry.get(dictName) ?? primitiveIntrinsicRegistry.get(dictName);
+}
+
 // ============================================================================
 // Core Specialization Logic (shared by macro and extension method)
 // ============================================================================
@@ -1123,6 +1151,73 @@ registerInstanceMethods("effectEitherMonad", "Either", {
     source: "(fa, f) => Either.flatMap(fa, f)",
     params: ["fa", "f"],
   },
+});
+
+// ============================================================================
+// Primitive Typeclass Intrinsics — inline to native operators
+// ============================================================================
+
+// Eq primitives: eqNumber.eq(a, b) → a === b
+registerPrimitiveIntrinsic("eqNumber", "number", {
+  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
+  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+});
+registerPrimitiveIntrinsic("eqString", "string", {
+  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
+  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+});
+registerPrimitiveIntrinsic("eqBoolean", "boolean", {
+  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
+  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+});
+registerPrimitiveIntrinsic("eqBigint", "bigint", {
+  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
+  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+});
+
+// Ord primitives: ordNumber.compare(a, b) → a < b ? -1 : a > b ? 1 : 0
+registerPrimitiveIntrinsic("ordNumber", "number", {
+  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
+});
+registerPrimitiveIntrinsic("ordString", "string", {
+  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
+});
+registerPrimitiveIntrinsic("ordBoolean", "boolean", {
+  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
+});
+registerPrimitiveIntrinsic("ordBigint", "bigint", {
+  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
+});
+
+// Show primitives: showNumber.show(a) → String(a)
+registerPrimitiveIntrinsic("showNumber", "number", {
+  show: { source: "(a) => String(a)", params: ["a"] },
+});
+registerPrimitiveIntrinsic("showString", "string", {
+  show: { source: "(a) => JSON.stringify(a)", params: ["a"] },
+});
+registerPrimitiveIntrinsic("showBoolean", "boolean", {
+  show: { source: "(a) => String(a)", params: ["a"] },
+});
+registerPrimitiveIntrinsic("showBigint", "bigint", {
+  show: { source: "(a) => String(a)", params: ["a"] },
+});
+
+// Hash primitives: hashNumber.hash(a) → (a | 0)
+registerPrimitiveIntrinsic("hashNumber", "number", {
+  hash: { source: "(a) => (a | 0)", params: ["a"] },
+});
+registerPrimitiveIntrinsic("hashString", "string", {
+  hash: {
+    source: "(a) => Array.from(a).reduce((h, c) => ((h << 5) + h) ^ c.charCodeAt(0), 0)",
+    params: ["a"],
+  },
+});
+registerPrimitiveIntrinsic("hashBoolean", "boolean", {
+  hash: { source: "(a) => (a ? 1 : 0)", params: ["a"] },
+});
+registerPrimitiveIntrinsic("hashBigint", "bigint", {
+  hash: { source: "(a) => Number(a & 0xFFFFFFFFn)", params: ["a"] },
 });
 
 // End internal registration phase - after this, registerInstanceMethods()

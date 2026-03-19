@@ -11,6 +11,7 @@ import * as ts from "typescript";
 import {
   isRegisteredInstance,
   getInstanceMethods,
+  getInstanceOrIntrinsicMethods,
   SpecializationCache,
   createHoistedSpecialization,
   classifyInlineFailureDetailed,
@@ -827,4 +828,361 @@ export function tryReturnTypeDrivenSpecialize(
     node.typeArguments,
     Array.from(node.arguments)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Derived instance call inlining (Wave 4 — PEP-019)
+// ---------------------------------------------------------------------------
+
+const MAX_RECURSIVE_INLINE_DEPTH = 10;
+
+/**
+ * Try to inline a direct method call on a known typeclass instance.
+ *
+ * Handles patterns like:
+ *   eqPoint.eq(p1, p2)  → p1.x === p2.x && p1.y === p2.y
+ *   showUser.show(u)     → `User(name = ${u.name}, age = ${u.age})`
+ *
+ * After initial inlining, recursively resolves nested instance calls
+ * (e.g., eqNumber.eq(a.x, b.x) → a.x === b.x).
+ */
+export function tryInlineDerivedInstanceCall(
+  ctx: MacroContextImpl,
+  node: ts.CallExpression,
+  dceTracker: DerivedInstanceDCETracker | undefined
+): ts.Expression | undefined {
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  if (!ts.isIdentifier(node.expression.expression)) return undefined;
+
+  const instanceName = node.expression.expression.text;
+  const methodName = node.expression.name.text;
+
+  let methodMap = getInstanceOrIntrinsicMethods(instanceName);
+
+  if (!methodMap) {
+    methodMap = tryExtractInstanceFromSource(ctx, node.expression.expression);
+  }
+
+  if (!methodMap) return undefined;
+
+  const method = methodMap.methods.get(methodName);
+  if (!method) return undefined;
+
+  const inlined = inlineMethod(ctx, method, Array.from(node.arguments));
+  if (!inlined) return undefined;
+
+  if (dceTracker) {
+    dceTracker.recordInlinedUse(instanceName);
+  }
+
+  const result = recursivelyInlineInstanceCalls(ctx, inlined, 0);
+
+  return preserveSourceMap(result, node);
+}
+
+/**
+ * Recursively inline nested instance method calls within an expression.
+ *
+ * After the top-level inline (e.g., eqPoint.eq → body with eqNumber.eq calls),
+ * this walks the result and inlines any remaining known instance calls.
+ */
+function recursivelyInlineInstanceCalls(
+  ctx: MacroContextImpl,
+  node: ts.Expression,
+  depth: number
+): ts.Expression {
+  if (depth >= MAX_RECURSIVE_INLINE_DEPTH) return node;
+
+  function visit(n: ts.Node): ts.Node {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression)
+    ) {
+      const instName = n.expression.expression.text;
+      const methName = n.expression.name.text;
+
+      const methodMap = getInstanceOrIntrinsicMethods(instName);
+      if (methodMap) {
+        const method = methodMap.methods.get(methName);
+        if (method) {
+          const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
+          if (inlined) {
+            const deeper = recursivelyInlineInstanceCalls(ctx, inlined, depth + 1);
+            return ts.visitEachChild(deeper, visit, ctx.transformContext);
+          }
+        }
+      }
+    }
+
+    return ts.visitEachChild(n, visit, ctx.transformContext);
+  }
+
+  return ts.visitNode(node, visit) as ts.Expression;
+}
+
+// ---------------------------------------------------------------------------
+// Derived Instance Dead Code Elimination (DCE) Tracker
+// ---------------------------------------------------------------------------
+
+/**
+ * Tracks usage of derived instance variables across a file.
+ *
+ * When all uses of a derived instance are inlined at their call sites,
+ * the instance declaration itself becomes dead code and can be removed
+ * along with its runtime registration call.
+ */
+export class DerivedInstanceDCETracker {
+  /** Instance names that had method calls inlined */
+  private inlinedUses = new Map<string, number>();
+
+  /** Instance names referenced in non-inlineable positions (passed as values) */
+  private valueRefs = new Set<string>();
+
+  /** Instance variable declarations (for removal) */
+  private declarations = new Map<string, ts.VariableStatement>();
+
+  /** Runtime registration calls (for removal) */
+  private registrationCalls = new Map<string, ts.ExpressionStatement>();
+
+  recordInlinedUse(instanceName: string): void {
+    this.inlinedUses.set(instanceName, (this.inlinedUses.get(instanceName) ?? 0) + 1);
+  }
+
+  recordValueRef(instanceName: string): void {
+    this.valueRefs.add(instanceName);
+  }
+
+  trackDeclaration(instanceName: string, stmt: ts.VariableStatement): void {
+    this.declarations.set(instanceName, stmt);
+  }
+
+  trackRegistrationCall(instanceName: string, stmt: ts.ExpressionStatement): void {
+    this.registrationCalls.set(instanceName, stmt);
+  }
+
+  /**
+   * Check if an instance can be eliminated (all uses were inlined).
+   */
+  canEliminate(instanceName: string): boolean {
+    return this.inlinedUses.has(instanceName) && !this.valueRefs.has(instanceName);
+  }
+
+  /**
+   * Get the set of statements to remove from the file.
+   */
+  getStatementsToRemove(): Set<ts.Statement> {
+    const toRemove = new Set<ts.Statement>();
+
+    for (const [name] of this.inlinedUses) {
+      if (this.canEliminate(name)) {
+        const decl = this.declarations.get(name);
+        if (decl) toRemove.add(decl);
+        const regCall = this.registrationCalls.get(name);
+        if (regCall) toRemove.add(regCall);
+      }
+    }
+
+    return toRemove;
+  }
+
+  /**
+   * Get names of instances that were fully inlined and can be eliminated.
+   */
+  getEliminatedNames(): string[] {
+    const names: string[] = [];
+    for (const [name] of this.inlinedUses) {
+      if (this.canEliminate(name)) {
+        names.push(name);
+      }
+    }
+    return names;
+  }
+}
+
+/**
+ * Scan a statement to detect derived instance declarations and registration calls.
+ *
+ * Derived instances follow the pattern:
+ *   const eqPoint: Eq<Point> = /*#__PURE__*\/ { eq: ..., neq: ... };
+ *   /*#__PURE__*\/ Eq.registerInstance<Point>("Point", eqPoint);
+ */
+export function scanForDerivedInstanceDeclarations(
+  stmt: ts.Statement,
+  dceTracker: DerivedInstanceDCETracker
+): void {
+  if (ts.isVariableStatement(stmt)) {
+    for (const decl of stmt.declarationList.declarations) {
+      if (
+        ts.isIdentifier(decl.name) &&
+        decl.initializer &&
+        ts.isObjectLiteralExpression(decl.initializer)
+      ) {
+        const name = decl.name.text;
+        if (isRegisteredInstance(name)) {
+          dceTracker.trackDeclaration(name, stmt);
+        }
+      }
+    }
+  }
+
+  if (
+    ts.isExpressionStatement(stmt) &&
+    ts.isCallExpression(stmt.expression) &&
+    ts.isPropertyAccessExpression(stmt.expression.expression)
+  ) {
+    const propAccess = stmt.expression.expression;
+    if (propAccess.name.text === "registerInstance" && stmt.expression.arguments.length >= 2) {
+      const lastArg = stmt.expression.arguments[stmt.expression.arguments.length - 1];
+      if (ts.isIdentifier(lastArg)) {
+        dceTracker.trackRegistrationCall(lastArg.text, stmt);
+      }
+    }
+  }
+}
+
+/**
+ * Check if an identifier reference to a known instance is a non-inlineable use.
+ *
+ * Non-inlineable uses include:
+ * - Passing the instance as a function argument: map(xs, eqPoint)
+ * - Assigning to a variable: const eq = eqPoint
+ * - Property access that isn't a method call: eqPoint.eq (without calling it)
+ */
+export function checkForValueRef(node: ts.Identifier, dceTracker: DerivedInstanceDCETracker): void {
+  const name = node.text;
+  if (!isRegisteredInstance(name)) return;
+
+  const parent = node.parent;
+  if (!parent) return;
+
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+    const grandparent = parent.parent;
+    if (grandparent && ts.isCallExpression(grandparent) && grandparent.expression === parent) {
+      return;
+    }
+    dceTracker.recordValueRef(name);
+    return;
+  }
+
+  if (ts.isCallExpression(parent)) {
+    if (ts.isPropertyAccessExpression(parent.expression) && parent.expression.expression === node) {
+      return;
+    }
+  }
+
+  if (
+    ts.isExpressionStatement(parent) &&
+    ts.isCallExpression(parent.expression) &&
+    ts.isPropertyAccessExpression(parent.expression.expression) &&
+    parent.expression.expression.name.text === "registerInstance"
+  ) {
+    return;
+  }
+
+  const isRegCallArg =
+    ts.isCallExpression(parent) &&
+    ts.isPropertyAccessExpression(parent.expression) &&
+    parent.expression.name.text === "registerInstance";
+  if (isRegCallArg) {
+    return;
+  }
+
+  dceTracker.recordValueRef(name);
+}
+
+// ---------------------------------------------------------------------------
+// Post-pass DCE for derived instances
+// ---------------------------------------------------------------------------
+
+/**
+ * Eliminate derived instance declarations that have no remaining references
+ * after all call-site inlining is complete.
+ *
+ * Scans the transformed statements for:
+ * 1. Derived instance declarations: `const eqPoint = { ... }`
+ * 2. Registration calls: `Eq.registerInstance("Point", eqPoint)`
+ *
+ * If an instance variable has no references outside its own declaration
+ * and registration call, both statements are removed.
+ */
+export function eliminateDeadDerivedInstances(
+  statements: ts.Statement[],
+  inlinedInstanceNames: ReadonlySet<string>,
+  verbose: boolean
+): ts.Statement[] {
+  if (inlinedInstanceNames.size === 0) return statements;
+
+  const instanceDecls = new Map<string, { declIndex: number; regIndex?: number }>();
+
+  for (let i = 0; i < statements.length; i++) {
+    const stmt = statements[i];
+
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (
+          ts.isIdentifier(decl.name) &&
+          decl.initializer &&
+          ts.isObjectLiteralExpression(decl.initializer) &&
+          inlinedInstanceNames.has(decl.name.text)
+        ) {
+          instanceDecls.set(decl.name.text, { declIndex: i });
+        }
+      }
+    }
+
+    if (
+      ts.isExpressionStatement(stmt) &&
+      ts.isCallExpression(stmt.expression) &&
+      ts.isPropertyAccessExpression(stmt.expression.expression) &&
+      stmt.expression.expression.name.text === "registerInstance" &&
+      stmt.expression.arguments.length >= 2
+    ) {
+      const lastArg = stmt.expression.arguments[stmt.expression.arguments.length - 1];
+      if (ts.isIdentifier(lastArg) && instanceDecls.has(lastArg.text)) {
+        instanceDecls.get(lastArg.text)!.regIndex = i;
+      }
+    }
+  }
+
+  if (instanceDecls.size === 0) return statements;
+
+  const toRemove = new Set<number>();
+
+  for (const [name, { declIndex, regIndex }] of instanceDecls) {
+    let hasExternalRef = false;
+
+    for (let i = 0; i < statements.length; i++) {
+      if (i === declIndex || i === regIndex) continue;
+      if (containsIdentifierRef(statements[i], name)) {
+        hasExternalRef = true;
+        break;
+      }
+    }
+
+    if (!hasExternalRef) {
+      toRemove.add(declIndex);
+      if (regIndex !== undefined) toRemove.add(regIndex);
+      if (verbose) {
+        console.log(`[typesugar] DCE: removed fully-inlined instance '${name}'`);
+      }
+    }
+  }
+
+  if (toRemove.size === 0) return statements;
+
+  return statements.filter((_, i) => !toRemove.has(i));
+}
+
+function containsIdentifierRef(node: ts.Node, name: string): boolean {
+  if (ts.isIdentifier(node) && node.text === name) return true;
+
+  let found = false;
+  ts.forEachChild(node, (child) => {
+    if (!found && containsIdentifierRef(child, name)) {
+      found = true;
+    }
+  });
+
+  return found;
 }
