@@ -1,6 +1,6 @@
 # PEP-019: Output Quality — Valid TypeScript, Cleaner Codegen
 
-**Status:** In Progress (Waves 1–4 complete)
+**Status:** Done (Waves 1–5 complete)
 **Date:** 2026-03-18
 **Author:** Claude (with Dean Povey)
 
@@ -183,16 +183,16 @@ Two sub-problems: (a) `eqNumber.eq(a.x, b.x)` should itself inline to `a.x === b
 
 **Tasks:**
 
-- [ ] Add a `strictOutput: boolean` option to `transformCode` and `TransformationPipeline`
-- [ ] When `strictOutput` is enabled, run `tsc --noEmit` on the output and report any errors as transformer diagnostics
-- [ ] Catalog common output invalidity patterns (type annotation mismatches, missing imports for injected function calls, etc.) and fix them at the source
-- [ ] Enable `strictOutput` in the playground's `api/compile.ts` (at least as a warning, not a hard error initially)
+- [x] Add a `strictOutput: boolean` option to `transformCode` and `TransformationPipeline`
+- [x] When `strictOutput` is enabled, run `tsc --noEmit` on the output and report any errors as transformer diagnostics
+- [x] Catalog common output invalidity patterns (type annotation mismatches, missing imports for injected function calls, etc.) and fix them at the source
+- [x] Enable `strictOutput` in the playground's `api/compile.ts` (at least as a warning, not a hard error initially)
 
 **Gate:**
 
-- [ ] Playground output for all 33 examples produces zero TypeScript errors with `strictOutput: true`
-- [ ] Performance: strict mode adds <200ms overhead per compilation (output typecheck is fast for single files)
-- [ ] `pnpm test` passes
+- [x] Playground output for all 33 examples produces zero TypeScript errors with `strictOutput: true`
+- [x] Performance: strict mode adds <200ms overhead per compilation (output typecheck is fast for single files)
+- [x] `pnpm test` passes
 
 ## Files Changed
 
@@ -210,9 +210,17 @@ Two sub-problems: (a) `eqNumber.eq(a.x, b.x)` should itself inline to `a.x === b
 | `packages/transformer-core/src/transformer.ts`                 | Hook inlining + DCE into visitor (Wave 4) ✅                              |
 | `packages/transformer/src/index.ts`                            | Mirror inlining + DCE in Node.js transformer (Wave 4) ✅                  |
 | `packages/transformer/tests/derive-inline.test.ts`             | 14 tests covering all Wave 4 gate criteria ✅                             |
-| `packages/transformer/src/index.ts`                            | Strict output mode option (Wave 5)                                        |
-| `packages/transformer-core/src/pipeline.ts`                    | Strict output mode option (Wave 5)                                        |
-| `api/compile.ts`                                               | Enable strict output mode (Wave 5)                                        |
+| `packages/transformer/src/index.ts`                            | Strict output mode + opaque return type stripping (Wave 5) ✅             |
+| `packages/transformer/src/pipeline.ts`                         | Single-program strict output typecheck (Wave 5) ✅                        |
+| `packages/transformer-core/src/transform.ts`                   | Browser-compatible strict output typecheck (Wave 5) ✅                    |
+| `packages/transformer-core/src/types.ts`                       | `strictOutput` option on TransformOptions (Wave 5) ✅                     |
+| `packages/transformer-core/src/rewriting.ts`                   | Unconditional opaque return type stripping (Wave 5) ✅                    |
+| `packages/transformer-core/src/transformer.ts`                 | Hook opaque return type stripping into visitor (Wave 5) ✅                |
+| `packages/transformer-core/src/specialization.ts`              | Strip leaked type params from specialized functions (Wave 5) ✅           |
+| `packages/macros/src/specialize.ts`                            | Strip leaked type params from specialized functions (Wave 5) ✅           |
+| `api/compile.ts`                                               | Enable strict output mode (Wave 5) ✅                                     |
+| `api/playground-declarations.ts`                               | Fix ambient declarations for Eq, registerInstance, Option (Wave 5) ✅     |
+| `packages/transformer/tests/strict-output.test.ts`             | 35 tests covering all Wave 5 gate criteria ✅                             |
 
 ## Consequences
 

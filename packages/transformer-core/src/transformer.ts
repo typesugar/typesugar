@@ -83,6 +83,7 @@ import {
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
   tryStripOpaqueTypeAnnotation as tryStripOpaqueTypeAnnotationFn,
   tryStripOpaqueParamAnnotation as tryStripOpaqueParamAnnotationFn,
+  shouldStripOpaqueReturnType as shouldStripOpaqueReturnTypeFn,
 } from "./rewriting.js";
 
 class MacroTransformer {
@@ -527,6 +528,64 @@ class MacroTransformer {
       );
       if (stripped !== undefined) {
         return stripped;
+      }
+    }
+
+    // PEP-019 Wave 5: Strip opaque return type annotations from functions
+    if (ts.isFunctionDeclaration(node) && node.type) {
+      if (shouldStripOpaqueReturnTypeFn(this.ctx, node.type, undefined)) {
+        const visited = ts.visitEachChild(
+          node,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        ) as ts.FunctionDeclaration;
+        return this.ctx.factory.updateFunctionDeclaration(
+          visited,
+          visited.modifiers,
+          visited.asteriskToken,
+          visited.name,
+          visited.typeParameters,
+          visited.parameters,
+          undefined,
+          visited.body
+        );
+      }
+    }
+    if (ts.isFunctionExpression(node) && node.type) {
+      if (shouldStripOpaqueReturnTypeFn(this.ctx, node.type, undefined)) {
+        const visited = ts.visitEachChild(
+          node,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        ) as ts.FunctionExpression;
+        return this.ctx.factory.updateFunctionExpression(
+          visited,
+          visited.modifiers,
+          visited.asteriskToken,
+          visited.name,
+          visited.typeParameters,
+          visited.parameters,
+          undefined,
+          visited.body
+        );
+      }
+    }
+    if (ts.isArrowFunction(node) && node.type) {
+      if (shouldStripOpaqueReturnTypeFn(this.ctx, node.type, undefined)) {
+        const visited = ts.visitEachChild(
+          node,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        ) as ts.ArrowFunction;
+        return this.ctx.factory.updateArrowFunction(
+          visited,
+          visited.modifiers,
+          visited.typeParameters,
+          visited.parameters,
+          undefined,
+          visited.equalsGreaterThanToken,
+          visited.body
+        );
       }
     }
 

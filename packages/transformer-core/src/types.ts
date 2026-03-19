@@ -59,4 +59,6 @@ export interface TransformOptions {
   fileName?: string;
   /** Enable expansion tracking for source maps and diagnostics */
   trackExpansions?: boolean;
+  /** Typecheck output and report TS errors as warnings */
+  strictOutput?: boolean;
 }

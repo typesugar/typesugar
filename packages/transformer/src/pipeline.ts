@@ -105,6 +105,15 @@ export interface PipelineOptions {
    * which strips blank lines and may reformat code.
    */
   preserveBlankLines?: boolean;
+  /**
+   * Typecheck the transformer's output and report any TypeScript errors
+   * as diagnostics with severity "warning".
+   *
+   * Use this to verify that macro expansion produces valid TypeScript.
+   * Intended for playground / CI validation — not recommended in hot
+   * build paths since it adds a typecheck pass per file.
+   */
+  strictOutput?: boolean;
 }
 
 /**
@@ -1167,17 +1176,140 @@ export function createPipeline(
  */
 export function transformCode(
   code: string,
-  options?: { fileName?: string } & PipelineOptions
+  options?: { fileName?: string; extraRootFiles?: string[] } & PipelineOptions
 ): TransformResult {
   const fileName = path.resolve(options?.fileName ?? "input.ts");
-  const pipeline = new TransformationPipeline({ target: ts.ScriptTarget.Latest }, [fileName], {
+  const callerReadFile = options?.readFile ?? ts.sys.readFile;
+  const callerFileExists = options?.fileExists ?? ts.sys.fileExists;
+  const rootFiles = [fileName, ...(options?.extraRootFiles ?? [])];
+  const pipeline = new TransformationPipeline({ target: ts.ScriptTarget.Latest }, rootFiles, {
     ...options,
     readFile: (f) =>
-      f === fileName || f === (options?.fileName ?? "input.ts") ? code : ts.sys.readFile(f),
+      f === fileName || f === (options?.fileName ?? "input.ts") ? code : callerReadFile(f),
     fileExists: (f) =>
-      f === fileName || f === (options?.fileName ?? "input.ts") || ts.sys.fileExists(f),
+      f === fileName || f === (options?.fileName ?? "input.ts") || callerFileExists(f),
   });
-  return pipeline.transform(fileName);
+  const result = pipeline.transform(fileName);
+
+  if (options?.strictOutput && result.changed) {
+    const outputDiags = typecheckOutput(
+      result.code,
+      code,
+      fileName,
+      options.extraRootFiles,
+      callerReadFile,
+      callerFileExists
+    );
+    if (outputDiags.length > 0) {
+      result.diagnostics = [...result.diagnostics, ...outputDiags];
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Compiler options for the strict output typecheck.
+ * Intentionally permissive — we only want to catch transformer bugs,
+ * not be a strict linter. `types: []` prevents loading `@types/*` from
+ * disk which is the main source of slowness.
+ */
+const STRICT_OUTPUT_COMPILER_OPTIONS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.Latest,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  esModuleInterop: true,
+  strict: false,
+  strictNullChecks: false,
+  noImplicitAny: false,
+  noEmit: true,
+  skipLibCheck: true,
+  skipDefaultLibCheck: true,
+  types: [],
+  typeRoots: [],
+};
+
+/**
+ * Typecheck a transformed output string to verify it's valid TypeScript.
+ *
+ * Uses a single ts.Program with both input and output as separate virtual
+ * files to avoid the cost of creating two programs. Compares diagnostics
+ * to only report errors that are NEW (introduced by transformation).
+ */
+function typecheckOutput(
+  outputCode: string,
+  inputCode: string,
+  fileName: string,
+  extraRootFiles?: string[],
+  callerReadFile?: (f: string) => string | undefined,
+  callerFileExists?: (f: string) => boolean
+): TransformDiagnostic[] {
+  const readFile = callerReadFile ?? ts.sys.readFile;
+  const fileExists = callerFileExists ?? ts.sys.fileExists;
+
+  const outputFileName = fileName;
+  const inputFileName = fileName.replace(/\.(ts|tsx|sts|stsx)$/, ".__input__.$1");
+  const virtualFiles = new Map<string, string>([
+    [outputFileName, outputCode],
+    [inputFileName, inputCode],
+  ]);
+  const knownFiles = new Set<string>([outputFileName, inputFileName, ...(extraRootFiles ?? [])]);
+
+  const host = ts.createCompilerHost(STRICT_OUTPUT_COMPILER_OPTIONS);
+  const origReadFile = host.readFile.bind(host);
+  const origFileExists = host.fileExists.bind(host);
+
+  host.readFile = (f) => {
+    const virtual = virtualFiles.get(f);
+    if (virtual !== undefined) return virtual;
+    if (knownFiles.has(f)) {
+      const custom = readFile(f);
+      if (custom !== undefined) return custom;
+    }
+    if (f.includes("lib.") && f.endsWith(".d.ts")) return origReadFile(f);
+    return readFile(f);
+  };
+  host.fileExists = (f) => {
+    if (knownFiles.has(f)) return true;
+    if (f.includes("lib.") && f.endsWith(".d.ts")) return origFileExists(f);
+    return fileExists(f);
+  };
+
+  const rootFiles = [outputFileName, inputFileName, ...(extraRootFiles ?? [])];
+  const program = ts.createProgram(rootFiles, STRICT_OUTPUT_COMPILER_OPTIONS, host);
+
+  function getDiags(target: string): {
+    msgs: Set<string>;
+    diags: { msg: string; start: number; length: number; code: number }[];
+  } {
+    const sf = program.getSourceFile(target);
+    if (!sf) return { msgs: new Set(), diags: [] };
+    const raw = [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)];
+    const msgs = new Set<string>();
+    const diags: { msg: string; start: number; length: number; code: number }[] = [];
+    for (const d of raw) {
+      const msg = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+      msgs.add(msg);
+      diags.push({ msg, start: d.start ?? 0, length: d.length ?? 0, code: d.code });
+    }
+    return { msgs, diags };
+  }
+
+  const { diags: outputDiags } = getDiags(outputFileName);
+  if (outputDiags.length === 0) return [];
+
+  const { msgs: inputMsgs } = getDiags(inputFileName);
+
+  return outputDiags
+    .filter((d) => !inputMsgs.has(d.msg))
+    .map((d) => ({
+      file: fileName,
+      start: d.start,
+      length: d.length,
+      message: `[strictOutput] ${d.msg}`,
+      severity: "warning" as const,
+      code: d.code,
+    }));
 }
 
 /**

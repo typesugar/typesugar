@@ -64,6 +64,14 @@ export interface TransformCodeOptions {
    * Enable expansion tracking for detailed source maps.
    */
   trackExpansions?: boolean;
+
+  /**
+   * Typecheck the transformer's output and report any TypeScript errors
+   * as diagnostics with severity "warning".
+   *
+   * Use this to verify that macro expansion produces valid TypeScript.
+   */
+  strictOutput?: boolean;
 }
 
 /**
@@ -271,7 +279,7 @@ export function transformCode(
       : undefined;
     globalExpansionTracker.clear();
 
-    return {
+    const coreResult: TransformCodeResult = {
       original: code,
       code: transformedCode,
       sourceMap,
@@ -280,6 +288,15 @@ export function transformCode(
       diagnostics,
       expansions,
     };
+
+    if (options.strictOutput && changed) {
+      const outputDiags = typecheckOutputCode(transformedCode, fileName, compilerOptions);
+      if (outputDiags.length > 0) {
+        coreResult.diagnostics = [...coreResult.diagnostics, ...outputDiags];
+      }
+    }
+
+    return coreResult;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     globalExpansionTracker.clear();
@@ -427,4 +444,41 @@ function createUnchangedResult(
     changed: false,
     diagnostics,
   };
+}
+
+/**
+ * Typecheck a transformed output string to verify it's valid TypeScript.
+ * Browser-compatible: uses an in-memory host with no filesystem access.
+ */
+function typecheckOutputCode(
+  outputCode: string,
+  fileName: string,
+  baseCompilerOptions: ts.CompilerOptions
+): TransformDiagnostic[] {
+  const checkOptions: ts.CompilerOptions = {
+    ...baseCompilerOptions,
+    noEmit: true,
+    skipLibCheck: true,
+  };
+
+  const host = createInMemoryCompilerHost(outputCode, fileName, checkOptions);
+  const program = ts.createProgram([fileName], checkOptions, host);
+  const sourceFile = program.getSourceFile(fileName);
+  if (!sourceFile) return [];
+
+  const syntactic = program.getSyntacticDiagnostics(sourceFile);
+  const semantic = program.getSemanticDiagnostics(sourceFile);
+  const allDiags = [...syntactic, ...semantic];
+
+  return allDiags.map((d) => {
+    const msgText = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+    return {
+      file: d.file?.fileName ?? fileName,
+      start: d.start ?? 0,
+      length: d.length ?? 0,
+      message: `[strictOutput] ${msgText}`,
+      severity: "warning" as const,
+      code: d.code,
+    };
+  });
 }

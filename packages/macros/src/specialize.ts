@@ -1606,11 +1606,33 @@ function specializeFunction(
     }
   }
 
-  // Transform type annotations: replace Kind<F, A> with concrete types
+  // Collect the function's type parameter names — these become unresolvable
+  // once the type parameter list is stripped from the specialized arrow function.
+  const fnTypeParamNames = new Set<string>();
+  const typeParams =
+    ts.isArrowFunction(fn) || ts.isFunctionExpression(fn) || ts.isFunctionDeclaration(fn)
+      ? fn.typeParameters
+      : undefined;
+  if (typeParams) {
+    for (const tp of typeParams) {
+      fnTypeParamNames.add(tp.name.text);
+    }
+  }
+
+  // Transform type annotations: replace Kind<F, A> with concrete types,
+  // and strip annotations that reference now-unresolvable type parameters.
   const cleanParams = remainingParams.map((p) => {
-    const narrowedType = p.type
+    let narrowedType = p.type
       ? narrowKindType(ctx, p.type, typeParamName, dictMethods.brand)
       : undefined;
+
+    if (
+      narrowedType &&
+      fnTypeParamNames.size > 0 &&
+      typeNodeReferencesAny(narrowedType, fnTypeParamNames)
+    ) {
+      narrowedType = undefined;
+    }
 
     return ctx.factory.createParameterDeclaration(
       undefined,
@@ -1632,6 +1654,14 @@ function specializeFunction(
     narrowedReturnType = narrowKindType(ctx, fn.type, typeParamName, dictMethods.brand);
   }
 
+  if (
+    narrowedReturnType &&
+    fnTypeParamNames.size > 0 &&
+    typeNodeReferencesAny(narrowedReturnType, fnTypeParamNames)
+  ) {
+    narrowedReturnType = undefined;
+  }
+
   return markPure(
     ctx.factory.createArrowFunction(
       undefined,
@@ -1642,6 +1672,28 @@ function specializeFunction(
       specializedBody as ts.ConciseBody
     )
   );
+}
+
+/**
+ * Check if a type node contains references to any of the given type parameter names.
+ * Used to detect when a type annotation would reference stripped type parameters.
+ */
+function typeNodeReferencesAny(typeNode: ts.TypeNode, names: Set<string>): boolean {
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      names.has(node.typeName.text)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(typeNode);
+  return found;
 }
 
 /**

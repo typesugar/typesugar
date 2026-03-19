@@ -366,8 +366,34 @@ export function inlineAutoSpecializeForHoisting(
   const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
   if (!body) return undefined;
 
-  const remainingParams = params.filter((_, i) => !dictParamIndices.has(i));
   const specializedBody = rewriteDictCallsForAutoSpec(ctx, body, dictParamMap);
+
+  // Collect type parameter names that become unresolvable once stripped
+  const fnTypeParamNames = new Set<string>();
+  const typeParams =
+    ts.isArrowFunction(fn) || ts.isFunctionExpression(fn) || ts.isFunctionDeclaration(fn)
+      ? fn.typeParameters
+      : undefined;
+  if (typeParams) {
+    for (const tp of typeParams) fnTypeParamNames.add(tp.name.text);
+  }
+
+  // Strip type annotations that reference unresolvable type parameters
+  const remainingParams = params
+    .filter((_, i) => !dictParamIndices.has(i))
+    .map((p) => {
+      if (p.type && fnTypeParamNames.size > 0 && typeNodeRefsAny(p.type, fnTypeParamNames)) {
+        return ctx.factory.createParameterDeclaration(
+          undefined,
+          p.dotDotDotToken,
+          p.name,
+          p.questionToken,
+          undefined,
+          p.initializer
+        );
+      }
+      return p;
+    });
 
   if (remainingParams.length === 0) {
     if (ts.isExpression(specializedBody)) {
@@ -400,6 +426,24 @@ export function inlineAutoSpecializeForHoisting(
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     specializedBody as ts.ConciseBody
   );
+}
+
+function typeNodeRefsAny(typeNode: ts.TypeNode, names: Set<string>): boolean {
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      names.has(node.typeName.text)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(typeNode);
+  return found;
 }
 
 // ---------------------------------------------------------------------------

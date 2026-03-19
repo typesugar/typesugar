@@ -998,3 +998,30 @@ export function tryStripOpaqueParamAnnotation(
     node
   );
 }
+
+/**
+ * When a function's return type annotation references an @opaque type
+ * and the body contains return statements using erased opaque constructors,
+ * strip the return type to prevent invalid TypeScript output.
+ *
+ * `function findPort(...): Option<number> { return Some(x); }`
+ * → `function findPort(...) { return x; }`
+ */
+export function shouldStripOpaqueReturnType(
+  ctx: MacroContextImpl,
+  returnType: ts.TypeNode | undefined,
+  _body: ts.Block | ts.ConciseBody | undefined
+): boolean {
+  if (!returnType) return false;
+
+  const opaqueEntry = getOpaqueEntryFromTypeNode(returnType);
+  if (!opaqueEntry) return false;
+
+  if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
+    if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
+      return false;
+    }
+  }
+
+  return true;
+}

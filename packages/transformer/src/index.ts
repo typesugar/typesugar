@@ -3142,6 +3142,63 @@ class MacroTransformer {
       }
     }
 
+    if (ts.isFunctionDeclaration(node) && node.type) {
+      if (this.shouldStripOpaqueReturnType(node.type)) {
+        const visited = ts.visitEachChild(
+          node,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        ) as ts.FunctionDeclaration;
+        return this.ctx.factory.updateFunctionDeclaration(
+          visited,
+          visited.modifiers,
+          visited.asteriskToken,
+          visited.name,
+          visited.typeParameters,
+          visited.parameters,
+          undefined,
+          visited.body
+        );
+      }
+    }
+    if (ts.isFunctionExpression(node) && node.type) {
+      if (this.shouldStripOpaqueReturnType(node.type)) {
+        const visited = ts.visitEachChild(
+          node,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        ) as ts.FunctionExpression;
+        return this.ctx.factory.updateFunctionExpression(
+          visited,
+          visited.modifiers,
+          visited.asteriskToken,
+          visited.name,
+          visited.typeParameters,
+          visited.parameters,
+          undefined,
+          visited.body
+        );
+      }
+    }
+    if (ts.isArrowFunction(node) && node.type) {
+      if (this.shouldStripOpaqueReturnType(node.type)) {
+        const visited = ts.visitEachChild(
+          node,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        ) as ts.ArrowFunction;
+        return this.ctx.factory.updateArrowFunction(
+          visited,
+          visited.modifiers,
+          visited.typeParameters,
+          visited.parameters,
+          undefined,
+          visited.equalsGreaterThanToken,
+          visited.body
+        );
+      }
+    }
+
     // fn.specialize(dict) must be checked before expression macros because
     // the expression macro dispatcher would otherwise match "specialize" as
     // a registered macro name from `sortWith.specialize(...)`.
@@ -5062,6 +5119,19 @@ class MacroTransformer {
       ),
       node
     );
+  }
+
+  private shouldStripOpaqueReturnType(returnType: ts.TypeNode): boolean {
+    const opaqueEntry = this.getOpaqueEntryFromTypeNode(returnType);
+    if (!opaqueEntry) return false;
+
+    if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
+      if (this.isWithinSourceModule(this.ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

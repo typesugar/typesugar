@@ -1,5 +1,69 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import * as ts from "typescript";
+import * as path from "path";
 import { transformCode, type TransformDiagnostic } from "@typesugar/transformer";
+import { AMBIENT_DECLARATIONS } from "./playground-declarations.js";
+import { registerTypeRewrite } from "@typesugar/core";
+
+// Force-load macro packages that register via side effects.
+// The bundler can't trace the dynamic require() in macro-loader.ts,
+// so we import them statically to ensure they're included.
+import "@typesugar/std";
+import "@typesugar/fp";
+
+// ---------------------------------------------------------------------------
+// Virtual ambient declarations file
+// ---------------------------------------------------------------------------
+
+const AMBIENT_FILE = path.resolve("__playground_ambient__.d.ts");
+
+// ---------------------------------------------------------------------------
+// Pre-populate the type rewrite registry for @opaque types.
+//
+// The @opaque macro normally fires when compiling @typesugar/fp's source,
+// but in single-file playground compilation those sources are never compiled.
+// We register the entries manually so the transformer can erase constructors
+// and rewrite dot-syntax method calls to standalone functions.
+// ---------------------------------------------------------------------------
+
+function methodMap(names: string[]): ReadonlyMap<string, string> {
+  return new Map(names.map((n) => [n, n]));
+}
+
+registerTypeRewrite({
+  typeName: "Option",
+  underlyingTypeText: "A | null",
+  sourceModule: "@typesugar/fp/data/option",
+  methods: methodMap([
+    "map",
+    "flatMap",
+    "fold",
+    "match",
+    "getOrElse",
+    "getOrElseStrict",
+    "getOrThrow",
+    "orElse",
+    "filter",
+    "filterNot",
+    "exists",
+    "forall",
+    "contains",
+    "tap",
+    "toArray",
+    "toNullable",
+    "toUndefined",
+    "zip",
+  ]),
+  constructors: new Map([
+    ["Some", { kind: "identity" }],
+    ["None", { kind: "constant", value: "null" }],
+    ["of", { kind: "identity" }],
+    ["some", { kind: "identity" }],
+    ["none", { kind: "constant", value: "null" }],
+    ["fromNullable", { kind: "identity" }],
+  ]),
+  transparent: true,
+});
 
 // ---------------------------------------------------------------------------
 // LRU Cache (survives across warm Vercel invocations)
@@ -134,7 +198,16 @@ function compile(code: string, fileName: string): CompileResult {
     return { ...cached, cached: true };
   }
 
-  const result = transformCode(code, { fileName });
+  const result = transformCode(code, {
+    fileName,
+    extraRootFiles: [AMBIENT_FILE],
+    strictOutput: true,
+    readFile: (f: string) => {
+      if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
+      return ts.sys.readFile(f);
+    },
+    fileExists: (f: string) => f === AMBIENT_FILE || ts.sys.fileExists(f),
+  });
 
   const entry: CacheEntry = {
     code: result.code,
