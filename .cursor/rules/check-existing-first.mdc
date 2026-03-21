@@ -29,7 +29,7 @@ These exist but agents keep trying to rebuild them:
 | Feature                           | Location                             | What it does                    |
 | --------------------------------- | ------------------------------------ | ------------------------------- |
 | `match`                           | `packages/fp/src/zero-cost/match.ts` | Exhaustive pattern matching     |
-| `@operator`                       | `src/macros/operators.ts`            | Operator overloading on methods |
+| `@op` JSDoc on typeclass methods  | `packages/macros/src/typeclass.ts`   | Operator overloading via typeclass |
 | `specialize()` / `inlineMethod()` | `src/macros/specialize.ts`           | Zero-cost inlining              |
 | `registerExtensions()`            | `src/macros/extension.ts`            | Standalone extension methods    |
 | Auto-derivation                   | `@deriving` + `summon()`             | Automatic instance synthesis    |

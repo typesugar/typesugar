@@ -39,7 +39,7 @@ Not all overhead is a violation. Distinguish:
 | Closure in `flatMap` callback         | Dictionary lookup at call site               |
 | Generator yield points                | Wrapper object allocation                    |
 | Promise microtask scheduling          | Runtime type checking                        |
-| Small adapter function for native API | `ops()` wrapper when extension methods exist |
+| Small adapter function for native API | Extension methods / typeclass @op dispatch |
 
 **Test**: Look at the compile output. Would a human write this code for this specific type? If not, find a way to inline or eliminate the overhead.
 
@@ -55,14 +55,11 @@ const show = summon<Show<T>>(); // runtime lookup
 const result = specialize((S: Show<T>) => S.show(value));
 ```
 
-### 2. `ops()` wrapper when extension methods exist
+### 2. Operator dispatch when typeclass instance exists
 
 ```typescript
-// WRONG — explicit wrapper
-const result = ops(a + b); // overhead: function call
-
-// CORRECT — extension methods rewrite directly
-a + b; // rewrites to → Semigroup.concat(a, b) via transformer
+// CORRECT — operators rewrite directly when @op typeclass instance exists
+a + b; // rewrites to → instance.add(a, b) via transformer (zero-cost)
 ```
 
 ### 3. Explicit `@derive` when auto-derivation works

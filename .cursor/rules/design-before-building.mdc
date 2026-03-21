@@ -27,7 +27,7 @@ Present them briefly instead of picking one:
 I see two ways to implement this:
 
 1. **Extend @typeclass**: Add a `syntax` field to TypeclassInfo...
-2. **Use Op<> return types**: Annotate method returns with Op<"+">...
+2. **Use @op JSDoc on typeclass methods**: Add `/** @op + */` to method signatures for operator dispatch
 
 Which approach do you prefer?
 ```
