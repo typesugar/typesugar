@@ -259,17 +259,224 @@ function registerBuiltinDynamicPredicates(): void {
   });
 }
 
+// ============================================================================
+// Feature: @validate integration
+// ============================================================================
+
+/**
+ * Registry mapping refinement brands to validation rule functions.
+ * Each entry maps a brand name to a predicate function that validates
+ * a runtime value against the refinement constraint.
+ */
+const validationRules = new Map<string, (value: unknown) => boolean>();
+
+/**
+ * Register a refined type's predicate as a validation rule.
+ *
+ * Converts the predicate expression (using $ placeholder) into an
+ * executable validation function. This bridges the refinement type
+ * system with the @validate macro so that Refined<T, Brand> types
+ * are automatically validated at runtime.
+ *
+ * @param brand - The refinement brand (e.g., "Port", "Positive")
+ * @param predicateExpr - The predicate expression with $ as the value placeholder
+ *
+ * @example
+ * ```typescript
+ * registerValidationRule("EvenNumber", "$ % 2 === 0");
+ * const check = getValidationRule("EvenNumber");
+ * check(4);  // true
+ * check(3);  // false
+ * ```
+ */
+export function registerValidationRule(brand: string, predicateExpr: string): void {
+  try {
+    // Convert the $ placeholder predicate into a callable function
+    // The predicate uses $ as the value placeholder, e.g., "$ > 0"
+    const fnBody = predicateExpr.replace(/\$/g, "_val_");
+    // eslint-disable-next-line no-new-func
+    const fn = new Function("_val_", `return (${fnBody});`) as (value: unknown) => boolean;
+    validationRules.set(brand, fn);
+  } catch {
+    // If the predicate expression is not valid JS (e.g., type-level only),
+    // store a no-op validator that always returns true
+    validationRules.set(brand, () => true);
+  }
+}
+
+/**
+ * Get the validation rule function for a refinement brand.
+ *
+ * @param brand - The refinement brand to look up
+ * @returns The validation function, or undefined if no rule is registered
+ */
+export function getValidationRule(brand: string): ((value: unknown) => boolean) | undefined {
+  return validationRules.get(brand);
+}
+
+/**
+ * Check whether a validation rule is registered for a brand.
+ */
+export function hasValidationRule(brand: string): boolean {
+  return validationRules.has(brand);
+}
+
+/**
+ * Validate a value against a refinement brand's predicate.
+ *
+ * @param value - The runtime value to validate
+ * @param brand - The refinement brand to validate against
+ * @returns An object with `valid` boolean and optional `error` message
+ */
+export function validateRefined(value: unknown, brand: string): { valid: boolean; error?: string } {
+  const rule = validationRules.get(brand);
+  if (!rule) {
+    return {
+      valid: false,
+      error: `No validation rule registered for brand "${brand}"`,
+    };
+  }
+  try {
+    const valid = rule(value);
+    return valid
+      ? { valid: true }
+      : { valid: false, error: `Value ${String(value)} does not satisfy ${brand}` };
+  } catch {
+    return {
+      valid: false,
+      error: `Validation for ${brand} threw on value ${String(value)}`,
+    };
+  }
+}
+
+/**
+ * Bridge function that connects all registered refinement predicates
+ * to the validation system. Call this once to enable automatic validation
+ * of Refined types when using `validate<T>()`.
+ *
+ * This is called automatically on module import for built-in predicates,
+ * but can be called again after registering custom predicates.
+ *
+ * @returns The number of validation rules registered
+ */
+export function registerValidationBridge(): number {
+  let count = 0;
+  for (const pred of registeredPredicates) {
+    registerValidationRule(pred.brand, pred.predicate);
+    count++;
+  }
+  return count;
+}
+
+// ============================================================================
+// Feature: Cross-function refinement propagation
+// ============================================================================
+
+/**
+ * Registry mapping function names to their return refinement brands.
+ * When a function's @ensures contract guarantees a refinement, callers
+ * can use this to know the return value satisfies the brand without
+ * re-checking.
+ */
+const functionRefinements = new Map<string, string>();
+
+/**
+ * Register a function's return type refinement.
+ *
+ * When a function's `@ensures` contract guarantees a refinement
+ * (e.g., "result > 0" matching the Positive predicate), register
+ * it so callers can propagate the refinement without re-checking.
+ *
+ * @param fnName - The fully qualified function name
+ * @param returnBrand - The refinement brand of the return type
+ *
+ * @example
+ * ```typescript
+ * // Register that abs() always returns a Positive
+ * propagateRefinement("abs", "Positive");
+ *
+ * // Now callers know the result is Positive
+ * const brand = getRefinementFromCall("abs");
+ * // brand === "Positive"
+ * ```
+ */
+export function propagateRefinement(fnName: string, returnBrand: string): void {
+  functionRefinements.set(fnName, returnBrand);
+}
+
+/**
+ * Retrieve the refinement brand for a function call site.
+ *
+ * If `propagateRefinement` was previously called for this function,
+ * returns the brand — enabling the caller to treat the result as
+ * Refined<T, Brand> without a redundant runtime check.
+ *
+ * @param fnName - The function name to look up
+ * @returns The refinement brand, or undefined if none registered
+ */
+export function getRefinementFromCall(fnName: string): string | undefined {
+  return functionRefinements.get(fnName);
+}
+
+/**
+ * Check whether a function has a registered return refinement.
+ */
+export function hasRefinementFromCall(fnName: string): boolean {
+  return functionRefinements.has(fnName);
+}
+
+/**
+ * Get all registered function refinement propagations.
+ * Returns a readonly array of [fnName, brand] pairs.
+ */
+export function getAllPropagatedRefinements(): readonly [string, string][] {
+  return Array.from(functionRefinements.entries());
+}
+
+/**
+ * Clear a specific function's refinement propagation.
+ * Useful when a function's contract changes.
+ */
+export function clearRefinementPropagation(fnName: string): boolean {
+  return functionRefinements.delete(fnName);
+}
+
+/**
+ * Check whether a function's return refinement is a subtype of a target brand.
+ * Combines cross-function propagation with subtyping rules.
+ *
+ * For example, if `abs` returns Positive and we need NonNegative,
+ * this returns true because Positive <: NonNegative.
+ *
+ * @param fnName - The function name
+ * @param targetBrand - The required brand at the call site
+ * @returns true if the function's return refinement satisfies targetBrand
+ */
+export function callSatisfiesRefinement(fnName: string, targetBrand: string): boolean {
+  const returnBrand = functionRefinements.get(fnName);
+  if (!returnBrand) return false;
+  if (returnBrand === targetBrand) return true;
+  return canWiden(returnBrand, targetBrand);
+}
+
+// ============================================================================
+// Auto-registration on import
+// ============================================================================
+
 // Execute registration immediately
 registerBuiltinPredicates();
 registerBuiltinSubtypingRules();
 registerBuiltinDecidability();
 registerBuiltinDynamicPredicates();
 
+// Bridge built-in predicates to the validation system
+registerValidationBridge();
+
 // Log registration in development
 if (process.env.NODE_ENV === "development") {
   const subtypingRules = getAllSubtypingDeclarations();
   const decidabilityInfo = getAllDecidabilityInfo();
   console.log(
-    `[@typesugar/contracts-refined] Registered ${REFINEMENT_PREDICATES.length} predicates, ${subtypingRules.length} subtyping rules, ${decidabilityInfo.length} decidability annotations`
+    `[@typesugar/contracts-refined] Registered ${REFINEMENT_PREDICATES.length} predicates, ${subtypingRules.length} subtyping rules, ${decidabilityInfo.length} decidability annotations, ${validationRules.size} validation rules`
   );
 }

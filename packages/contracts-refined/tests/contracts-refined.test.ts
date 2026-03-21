@@ -34,6 +34,19 @@ import {
   generateVecPredicate,
   VecConstructors,
   isVec,
+  // @validate integration
+  registerValidationRule,
+  getValidationRule,
+  hasValidationRule,
+  validateRefined,
+  registerValidationBridge,
+  // Cross-function refinement propagation
+  propagateRefinement,
+  getRefinementFromCall,
+  hasRefinementFromCall,
+  getAllPropagatedRefinements,
+  clearRefinementPropagation,
+  callSatisfiesRefinement,
 } from "../src/index.js";
 
 // ============================================================================
@@ -469,5 +482,244 @@ describe("edge cases", () => {
   it("predicate string with empty $ usage is still stored", () => {
     registerRefinementPredicate("TestNoPlaceholder", "true");
     expect(getRefinementPredicate("TestNoPlaceholder")).toBe("true");
+  });
+});
+
+// ============================================================================
+// 8. @validate Integration
+// ============================================================================
+
+describe("@validate integration", () => {
+  describe("registerValidationBridge", () => {
+    it("returns a positive count of registered rules", () => {
+      const count = registerValidationBridge();
+      expect(count).toBeGreaterThan(0);
+    });
+
+    it("registers validation rules for all built-in predicates", () => {
+      registerValidationBridge();
+      expect(hasValidationRule("Positive")).toBe(true);
+      expect(hasValidationRule("NonNegative")).toBe(true);
+      expect(hasValidationRule("Byte")).toBe(true);
+      expect(hasValidationRule("Port")).toBe(true);
+      expect(hasValidationRule("NonEmpty")).toBe(true);
+      expect(hasValidationRule("NonEmptyArray")).toBe(true);
+    });
+  });
+
+  describe("registerValidationRule", () => {
+    it("registers a custom validation rule", () => {
+      registerValidationRule("TestValEven", "$ % 2 === 0");
+      expect(hasValidationRule("TestValEven")).toBe(true);
+    });
+
+    it("creates an executable predicate function", () => {
+      registerValidationRule("TestValGt10", "$ > 10");
+      const rule = getValidationRule("TestValGt10");
+      expect(rule).toBeDefined();
+      expect(rule!(15)).toBe(true);
+      expect(rule!(5)).toBe(false);
+    });
+
+    it("handles invalid JS syntax gracefully (no-op validator)", () => {
+      registerValidationRule("TestValBadSyntax", "$ >>> &&& !!!");
+      expect(hasValidationRule("TestValBadSyntax")).toBe(true);
+      const rule = getValidationRule("TestValBadSyntax");
+      // Falls back to always-true
+      expect(rule!(42)).toBe(true);
+    });
+  });
+
+  describe("getValidationRule", () => {
+    it("returns undefined for unregistered brands", () => {
+      expect(getValidationRule("CompletelyUnknownValidation")).toBeUndefined();
+    });
+
+    it("returns a function for registered brands", () => {
+      expect(typeof getValidationRule("Positive")).toBe("function");
+    });
+  });
+
+  describe("hasValidationRule", () => {
+    it("returns false for unregistered brands", () => {
+      expect(hasValidationRule("NeverRegisteredBrand")).toBe(false);
+    });
+
+    it("returns true for built-in brands after bridge registration", () => {
+      expect(hasValidationRule("Positive")).toBe(true);
+    });
+  });
+
+  describe("validateRefined", () => {
+    it("validates Positive correctly", () => {
+      expect(validateRefined(5, "Positive")).toEqual({ valid: true });
+      expect(validateRefined(-1, "Positive").valid).toBe(false);
+      expect(validateRefined(0, "Positive").valid).toBe(false);
+    });
+
+    it("validates NonNegative correctly", () => {
+      expect(validateRefined(0, "NonNegative")).toEqual({ valid: true });
+      expect(validateRefined(5, "NonNegative")).toEqual({ valid: true });
+      expect(validateRefined(-1, "NonNegative").valid).toBe(false);
+    });
+
+    it("validates Byte correctly (0-255, integer)", () => {
+      expect(validateRefined(0, "Byte")).toEqual({ valid: true });
+      expect(validateRefined(255, "Byte")).toEqual({ valid: true });
+      expect(validateRefined(128, "Byte")).toEqual({ valid: true });
+      expect(validateRefined(-1, "Byte").valid).toBe(false);
+      expect(validateRefined(256, "Byte").valid).toBe(false);
+    });
+
+    it("validates Port correctly (1-65535, integer)", () => {
+      expect(validateRefined(80, "Port")).toEqual({ valid: true });
+      expect(validateRefined(65535, "Port")).toEqual({ valid: true });
+      expect(validateRefined(0, "Port").valid).toBe(false);
+      expect(validateRefined(65536, "Port").valid).toBe(false);
+    });
+
+    it("validates Int correctly", () => {
+      expect(validateRefined(42, "Int")).toEqual({ valid: true });
+      expect(validateRefined(-10, "Int")).toEqual({ valid: true });
+      expect(validateRefined(3.14, "Int").valid).toBe(false);
+    });
+
+    it("validates NonEmpty string correctly", () => {
+      expect(validateRefined("hello", "NonEmpty")).toEqual({ valid: true });
+      expect(validateRefined("", "NonEmpty").valid).toBe(false);
+    });
+
+    it("returns error for unknown brand", () => {
+      const result = validateRefined(42, "CompletelyUnknownBrand");
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("No validation rule");
+    });
+
+    it("includes brand name in error message on failure", () => {
+      const result = validateRefined(-5, "Positive");
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("Positive");
+    });
+  });
+
+  describe("custom predicates integrate with validation bridge", () => {
+    it("custom predicate becomes a validation rule after bridge call", () => {
+      registerRefinementPredicate("TestValBridgeCustom", "$ > 100 && $ < 200");
+      registerValidationBridge();
+      expect(hasValidationRule("TestValBridgeCustom")).toBe(true);
+      const result = validateRefined(150, "TestValBridgeCustom");
+      expect(result.valid).toBe(true);
+      const result2 = validateRefined(50, "TestValBridgeCustom");
+      expect(result2.valid).toBe(false);
+    });
+  });
+});
+
+// ============================================================================
+// 9. Cross-Function Refinement Propagation
+// ============================================================================
+
+describe("cross-function refinement propagation", () => {
+  describe("propagateRefinement / getRefinementFromCall", () => {
+    it("registers and retrieves a function's return refinement", () => {
+      propagateRefinement("abs", "Positive");
+      expect(getRefinementFromCall("abs")).toBe("Positive");
+    });
+
+    it("returns undefined for unregistered functions", () => {
+      expect(getRefinementFromCall("unknownFunction")).toBeUndefined();
+    });
+
+    it("overwrites previous registration", () => {
+      propagateRefinement("myFn", "Positive");
+      propagateRefinement("myFn", "NonNegative");
+      expect(getRefinementFromCall("myFn")).toBe("NonNegative");
+    });
+
+    it("supports multiple different functions", () => {
+      propagateRefinement("fnA", "Positive");
+      propagateRefinement("fnB", "Byte");
+      propagateRefinement("fnC", "NonEmpty");
+      expect(getRefinementFromCall("fnA")).toBe("Positive");
+      expect(getRefinementFromCall("fnB")).toBe("Byte");
+      expect(getRefinementFromCall("fnC")).toBe("NonEmpty");
+    });
+  });
+
+  describe("hasRefinementFromCall", () => {
+    it("returns true for registered functions", () => {
+      propagateRefinement("hasTest", "Positive");
+      expect(hasRefinementFromCall("hasTest")).toBe(true);
+    });
+
+    it("returns false for unregistered functions", () => {
+      expect(hasRefinementFromCall("neverRegistered")).toBe(false);
+    });
+  });
+
+  describe("getAllPropagatedRefinements", () => {
+    it("returns an array of [fnName, brand] pairs", () => {
+      propagateRefinement("getAllTest", "Int");
+      const all = getAllPropagatedRefinements();
+      expect(Array.isArray(all)).toBe(true);
+      const entry = all.find(([name]) => name === "getAllTest");
+      expect(entry).toBeDefined();
+      expect(entry![1]).toBe("Int");
+    });
+  });
+
+  describe("clearRefinementPropagation", () => {
+    it("removes a function's refinement", () => {
+      propagateRefinement("clearTest", "Positive");
+      expect(hasRefinementFromCall("clearTest")).toBe(true);
+      const removed = clearRefinementPropagation("clearTest");
+      expect(removed).toBe(true);
+      expect(hasRefinementFromCall("clearTest")).toBe(false);
+    });
+
+    it("returns false when clearing a non-existent entry", () => {
+      expect(clearRefinementPropagation("neverExisted")).toBe(false);
+    });
+  });
+
+  describe("callSatisfiesRefinement", () => {
+    it("returns true when function's return brand matches target exactly", () => {
+      propagateRefinement("exactMatch", "Positive");
+      expect(callSatisfiesRefinement("exactMatch", "Positive")).toBe(true);
+    });
+
+    it("returns true when function's return brand widens to target", () => {
+      propagateRefinement("absWidens", "Positive");
+      // Positive <: NonNegative (registered in built-in subtyping rules)
+      expect(callSatisfiesRefinement("absWidens", "NonNegative")).toBe(true);
+    });
+
+    it("returns false when function's return brand cannot widen to target", () => {
+      propagateRefinement("nonNegFn", "NonNegative");
+      // NonNegative cannot widen to Positive
+      expect(callSatisfiesRefinement("nonNegFn", "Positive")).toBe(false);
+    });
+
+    it("returns false for unregistered functions", () => {
+      expect(callSatisfiesRefinement("noSuchFn", "Positive")).toBe(false);
+    });
+
+    it("handles Byte -> Int widening through propagation", () => {
+      propagateRefinement("byteProducer", "Byte");
+      expect(callSatisfiesRefinement("byteProducer", "Int")).toBe(true);
+      expect(callSatisfiesRefinement("byteProducer", "NonNegative")).toBe(true);
+    });
+
+    it("handles Port -> Positive widening through propagation", () => {
+      propagateRefinement("portProducer", "Port");
+      expect(callSatisfiesRefinement("portProducer", "Positive")).toBe(true);
+      expect(callSatisfiesRefinement("portProducer", "NonNegative")).toBe(true);
+    });
+
+    it("rejects unrelated brand targets", () => {
+      propagateRefinement("numericFn", "Positive");
+      expect(callSatisfiesRefinement("numericFn", "NonEmpty")).toBe(false);
+      expect(callSatisfiesRefinement("numericFn", "Trimmed")).toBe(false);
+    });
   });
 });
