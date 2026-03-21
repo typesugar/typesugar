@@ -31,7 +31,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@typesugar/core": "workspace:*"
+    "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
