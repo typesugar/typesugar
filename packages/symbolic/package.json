@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "🧊 Type-safe symbolic mathematics with AST, rendering, evaluation, calculus, and simplification",
   "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/typesugar/typesugar.git",
+    "directory": "packages/symbolic"
+  },
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
