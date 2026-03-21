@@ -34,9 +34,7 @@ import {
 // Import runtime placeholders for fallback behavior testing
 import {
   assert,
-  powerAssert,
   staticAssert,
-  comptimeAssert,
   assertSnapshot,
   forAll,
   type Equal,
@@ -324,34 +322,11 @@ describe("assert runtime fallback", () => {
   });
 });
 
-describe("powerAssert runtime fallback (backward compat)", () => {
-  it("should pass when condition is true", () => {
-    expect(() => powerAssert(true)).not.toThrow();
-    expect(() => powerAssert(1 === 1)).not.toThrow();
-  });
-
-  it("should throw when condition is false", () => {
-    expect(() => powerAssert(false)).toThrow(/assertion failed/i);
-  });
-
-  it("should include custom message", () => {
-    expect(() => powerAssert(false, "custom message")).toThrow("custom message");
-  });
-});
-
 describe("staticAssert runtime fallback", () => {
   it("should be a no-op at runtime (placeholder)", () => {
     // staticAssert is a placeholder — it does nothing at runtime
     expect(() => staticAssert(true)).not.toThrow();
     expect(() => staticAssert(false)).not.toThrow();
-  });
-});
-
-describe("comptimeAssert runtime fallback (backward compat)", () => {
-  it("should be a no-op at runtime (placeholder)", () => {
-    // comptimeAssert is a placeholder — it does nothing at runtime
-    expect(() => comptimeAssert(true)).not.toThrow();
-    expect(() => comptimeAssert(false)).not.toThrow();
   });
 });
 

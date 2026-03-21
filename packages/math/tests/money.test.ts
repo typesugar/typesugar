@@ -28,8 +28,8 @@ import {
   moneyIsNegative,
   moneyNumeric,
   type Money,
-} from "../types/money.js";
-import { USD, EUR, JPY, GBP, KWD, BTC } from "../types/currencies.js";
+} from "../src/types/money.js";
+import { USD, EUR, JPY, GBP, KWD, BTC } from "../src/types/currencies.js";
 
 describe("Money", () => {
   describe("construction", () => {

@@ -51,7 +51,7 @@ export default defineConfig({
       "**/dist/**",
       "templates/**",
       "sandbox/**",
-      "packages/std/src/__tests__/extensions.test.ts", // Temporarily excluded - needs transformer fix
+      "packages/std/tests/extensions.test.ts", // Temporarily excluded - needs transformer fix
       "packages/vscode/test/integration/**", // VSCode integration tests use @vscode/test-electron
     ],
 

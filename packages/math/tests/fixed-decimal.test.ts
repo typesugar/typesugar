@@ -24,7 +24,7 @@ import {
   fixedIsPositive,
   fixedIsNegative,
   type FixedDecimal,
-} from "../types/fixed-decimal.js";
+} from "../src/types/fixed-decimal.js";
 
 describe("FixedDecimal", () => {
   describe("construction", () => {

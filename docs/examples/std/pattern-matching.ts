@@ -9,30 +9,23 @@ type Shape =
   | { kind: "rect"; width: number; height: number }
   | { kind: "triangle"; base: number; height: number };
 
+function describe(shape: Shape): string {
+  return match(shape)
+    .case({ kind: "circle" }).then("a circle")
+    .case({ kind: "rect" }).then("a rectangle")
+    .case({ kind: "triangle" }).then("a triangle")
+    .else("unknown");
+}
+
 function area(shape: Shape): number {
-  return match(shape)
-    .case({ kind: "circle", radius: r }).then(Math.PI * r ** 2)
-    .case({ kind: "rect", width: w, height: rh }).then(w * rh)
-    .case({ kind: "triangle", base: b, height: th }).then(0.5 * b * th)
-    .else(0);
-}
-
-// Guard patterns — .if() adds runtime conditions
-function classify(shape: Shape): string {
-  return match(shape)
-    .case({ kind: "circle", radius: r }).if(() => r > 10).then("big circle")
-    .case({ kind: "circle" }).then("small circle")
-    .case({ kind: "rect", width: rw, height: rh }).if(() => rw === rh).then("square")
-    .else("other shape");
-}
-
-// Array patterns with destructuring
-function head(arr: number[]): string {
-  return match(arr)
-    .case([]).then("empty")
-    .case([x]).then(`one: ${x}`)
-    .case([x, y]).then(`two: ${x}, ${y}`)
-    .else("many");
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "rect":
+      return shape.width * shape.height;
+    case "triangle":
+      return 0.5 * shape.base * shape.height;
+  }
 }
 
 const shapes: Shape[] = [
@@ -42,10 +35,8 @@ const shapes: Shape[] = [
 ];
 
 for (const s of shapes) {
-  console.log(`${s.kind}: area=${area(s).toFixed(1)}, ${classify(s)}`);
+  console.log(`${describe(s)}: area=${area(s).toFixed(1)}`);
 }
-
-console.log(head([]), head([42]), head([1, 2]), head([1, 2, 3]));
 
 // 👀 Check JS Output — match() compiles to ternary chains or switch IIFEs
 // Try: add a new shape variant and see the exhaustiveness error

@@ -131,16 +131,12 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typeof compose).toBe("function");
     });
 
-    it("deriveNamespace contains symbols and deprecated empty deriveMacros", () => {
+    it("deriveNamespace contains symbols", () => {
       // deriveNamespace is the full @typesugar/derive namespace
       // It contains Eq (symbol) for use with the unified @derive attribute macro
       expect(typeof deriveNamespace.Eq).toBe("symbol");
       expect(typeof Eq).toBe("symbol");
       expect(deriveNamespace.Eq).toBe(Eq);
-
-      // deriveMacros is now an empty deprecated object (PEP-017 Wave 4)
-      expect(typeof deriveNamespace.deriveMacros).toBe("object");
-      expect(Object.keys(deriveNamespace.deriveMacros).length).toBe(0);
     });
   });
 

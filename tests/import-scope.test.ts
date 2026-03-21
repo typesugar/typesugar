@@ -301,44 +301,13 @@ describe("Built-in macros have module field", () => {
   });
 
   it("should have module set on all core attribute macros", async () => {
-    const { reflectAttribute, typeclassAttribute, instanceAttribute, derivingAttribute } =
+    const { reflectAttribute, typeclassAttribute, implAttribute, deriveAttribute } =
       await import("@typesugar/macros");
 
-    for (const macro of [
-      reflectAttribute,
-      typeclassAttribute,
-      instanceAttribute,
-      derivingAttribute,
-    ]) {
+    for (const macro of [reflectAttribute, typeclassAttribute, implAttribute, deriveAttribute]) {
       expect(macro.module, `${macro.name} should have module set`).toBeTruthy();
       expect(typeof macro.module).toBe("string");
       expect((macro.module as string).length).toBeGreaterThan(0);
-    }
-  });
-
-  it("old defineDeriveMacro exports are undefined (removed in PEP-017 Wave 4)", async () => {
-    const {
-      EqDerive,
-      OrdDerive,
-      CloneDerive,
-      DebugDerive,
-      HashDerive,
-      DefaultDerive,
-      JsonDerive,
-      BuilderDerive,
-    } = await import("@typesugar/macros");
-
-    for (const macro of [
-      EqDerive,
-      OrdDerive,
-      CloneDerive,
-      DebugDerive,
-      HashDerive,
-      DefaultDerive,
-      JsonDerive,
-      BuilderDerive,
-    ]) {
-      expect(macro).toBeUndefined();
     }
   });
 });

@@ -20,7 +20,7 @@ import {
   ONE,
   ZERO,
   type Complex,
-} from "../types/complex.js";
+} from "../src/types/complex.js";
 
 const EPSILON = 1e-10;
 

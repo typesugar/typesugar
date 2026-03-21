@@ -18,7 +18,7 @@ import {
   fractionalRational,
   ordRational,
   type Rational,
-} from "../types/rational.js";
+} from "../src/types/rational.js";
 
 describe("Rational", () => {
   describe("construction", () => {

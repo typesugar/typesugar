@@ -13,8 +13,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import {
   typeclassRegistry,
-  syntaxRegistry,
-  registerTypeclassSyntax,
+  updateTypeclassSyntax,
   getSyntaxForOperator,
   clearSyntaxRegistry,
   type TypeclassInfo,
@@ -114,7 +113,7 @@ describe("syntax registry", () => {
 
   it("should register and retrieve operator mappings", () => {
     const syntax = new Map<string, string>([["+" as string, "concat"]]);
-    registerTypeclassSyntax("Semigroup", syntax);
+    updateTypeclassSyntax("Semigroup", syntax);
 
     const entries = getSyntaxForOperator("+");
     expect(entries).toBeDefined();
@@ -123,8 +122,8 @@ describe("syntax registry", () => {
   });
 
   it("should support multiple typeclasses for the same operator", () => {
-    registerTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
-    registerTypeclassSyntax("Num", new Map<string, string>([["+" as string, "add"]]));
+    updateTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
+    updateTypeclassSyntax("Num", new Map<string, string>([["+" as string, "add"]]));
 
     const entries = getSyntaxForOperator("+");
     expect(entries).toHaveLength(2);
@@ -133,7 +132,7 @@ describe("syntax registry", () => {
   });
 
   it("should support multiple operators for one typeclass", () => {
-    registerTypeclassSyntax(
+    updateTypeclassSyntax(
       "Eq",
       new Map<string, string>([
         ["===" as string, "eq"],
@@ -148,7 +147,7 @@ describe("syntax registry", () => {
   });
 
   it("should clear all entries", () => {
-    registerTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
+    updateTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
     clearSyntaxRegistry();
     expect(getSyntaxForOperator("+")).toBeUndefined();
   });

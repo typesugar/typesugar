@@ -22,7 +22,7 @@ import {
   saturatingAdd,
   randomInt,
   remap,
-} from "../extensions/number";
+} from "../src/extensions/number";
 
 // String extensions
 import {
@@ -43,7 +43,7 @@ import {
   substringAfter,
   count as countStr,
   escapeHtml,
-} from "../extensions/string";
+} from "../src/extensions/string";
 
 // Array extensions
 import {
@@ -66,7 +66,7 @@ import {
   rotate,
   tails,
   mkString,
-} from "../extensions/array";
+} from "../src/extensions/array";
 
 // Object extensions
 import {
@@ -82,7 +82,7 @@ import {
   getPath,
   setPath,
   toPairs,
-} from "../extensions/object";
+} from "../src/extensions/object";
 
 // Boolean extensions
 import {
@@ -94,7 +94,7 @@ import {
   implies,
   guard,
   toYesNo,
-} from "../extensions/boolean";
+} from "../src/extensions/boolean";
 
 // Date extensions
 import {
@@ -111,7 +111,7 @@ import {
   daysInMonth,
   quarter,
   eachDay,
-} from "../extensions/date";
+} from "../src/extensions/date";
 
 // Map/Set extensions
 import {
@@ -131,7 +131,7 @@ import {
   isDisjoint,
   setPartition,
   powerSet,
-} from "../extensions/map";
+} from "../src/extensions/map";
 
 // Tuple extensions
 import {
@@ -146,7 +146,7 @@ import {
   triple,
   zipToPairs,
   unzipPairs,
-} from "../data/tuple";
+} from "../src/data/tuple";
 
 // Range extensions
 import {
@@ -159,7 +159,7 @@ import {
   rangeReduce,
   rangeReversed,
   rangeBy,
-} from "../data/range";
+} from "../src/data/range";
 
 // Typeclasses
 import {
@@ -171,7 +171,7 @@ import {
   defaultString,
   sizedArray,
   sizedString,
-} from "../typeclasses";
+} from "../src/typeclasses";
 
 // ============================================================================
 // Number Extensions
@@ -847,7 +847,7 @@ describe("Typeclasses", () => {
 // is itself the primary assertion).
 
 import "../extensions/global-augmentations";
-import type { Range } from "../data/range";
+import type { Range } from "../src/data/range";
 
 describe("Global Augmentation type-checks", () => {
   it("Number interface augmentation compiles", () => {

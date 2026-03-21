@@ -24,7 +24,7 @@ import {
   ONE,
   TEN,
   type BigDecimal,
-} from "../types/bigdecimal.js";
+} from "../src/types/bigdecimal.js";
 
 describe("BigDecimal", () => {
   describe("construction", () => {
