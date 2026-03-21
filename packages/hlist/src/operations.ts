@@ -498,7 +498,7 @@ export function eqHList<T extends readonly unknown[]>(): HListEq<T> {
     return false;
   }
 
-  return {
+  const instance: HListEq<T> = {
     equals(a: HList<T>, b: HList<T>): boolean {
       const arrA = a as unknown as unknown[];
       const arrB = b as unknown as unknown[];
@@ -509,9 +509,10 @@ export function eqHList<T extends readonly unknown[]>(): HListEq<T> {
       return true;
     },
     notEquals(a: HList<T>, b: HList<T>): boolean {
-      return !eqHList<T>().equals(a, b);
+      return !instance.equals(a, b);
     },
   };
+  return instance;
 }
 
 /**

@@ -289,19 +289,35 @@ const validationRules = new Map<string, (value: unknown) => boolean>();
  * check(3);  // false
  * ```
  */
-export function registerValidationRule(brand: string, predicateExpr: string): void {
+/**
+ * Internal: compile a predicate expression into a validation function.
+ * SECURITY: predicateExpr is evaluated via new Function(). This must only
+ * be called with trusted, compile-time-generated predicates from
+ * REFINEMENT_PREDICATES — never with user-supplied input.
+ */
+function compileValidationRule(brand: string, predicateExpr: string): void {
   try {
-    // Convert the $ placeholder predicate into a callable function
-    // The predicate uses $ as the value placeholder, e.g., "$ > 0"
     const fnBody = predicateExpr.replace(/\$/g, "_val_");
     // eslint-disable-next-line no-new-func
     const fn = new Function("_val_", `return (${fnBody});`) as (value: unknown) => boolean;
     validationRules.set(brand, fn);
   } catch {
     // If the predicate expression is not valid JS (e.g., type-level only),
-    // store a no-op validator that always returns true
-    validationRules.set(brand, () => true);
+    // throw rather than silently accepting all values
+    throw new Error(
+      `registerValidationRule: predicate for '${brand}' is not valid JS: ${predicateExpr}`
+    );
   }
+}
+
+/**
+ * Register a validation rule for a refinement brand.
+ *
+ * SECURITY: predicateExpr is evaluated via new Function(). Only pass trusted,
+ * compile-time-generated predicates. Never pass user-supplied input.
+ */
+export function registerValidationRule(brand: string, predicateExpr: string): void {
+  compileValidationRule(brand, predicateExpr);
 }
 
 /**
@@ -340,7 +356,10 @@ export function validateRefined(value: unknown, brand: string): { valid: boolean
     const valid = rule(value);
     return valid
       ? { valid: true }
-      : { valid: false, error: `Value ${String(value)} does not satisfy ${brand}` };
+      : {
+          valid: false,
+          error: `Value ${typeof value === "object" ? JSON.stringify(value) : String(value)} does not satisfy ${brand}`,
+        };
   } catch {
     return {
       valid: false,
@@ -362,8 +381,13 @@ export function validateRefined(value: unknown, brand: string): { valid: boolean
 export function registerValidationBridge(): number {
   let count = 0;
   for (const pred of registeredPredicates) {
-    registerValidationRule(pred.brand, pred.predicate);
-    count++;
+    try {
+      compileValidationRule(pred.brand, pred.predicate);
+      count++;
+    } catch {
+      // Some predicates (e.g., Url with try/catch) may not compile via new Function.
+      // Skip them silently — they'll be validated at runtime only.
+    }
   }
   return count;
 }

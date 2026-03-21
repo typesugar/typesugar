@@ -521,12 +521,11 @@ describe("@validate integration", () => {
       expect(rule!(5)).toBe(false);
     });
 
-    it("handles invalid JS syntax gracefully (no-op validator)", () => {
-      registerValidationRule("TestValBadSyntax", "$ >>> &&& !!!");
-      expect(hasValidationRule("TestValBadSyntax")).toBe(true);
-      const rule = getValidationRule("TestValBadSyntax");
-      // Falls back to always-true
-      expect(rule!(42)).toBe(true);
+    it("throws on invalid JS syntax instead of silently accepting", () => {
+      expect(() => registerValidationRule("TestValBadSyntax", "$ >>> &&& !!!")).toThrow(
+        /not valid JS/
+      );
+      expect(hasValidationRule("TestValBadSyntax")).toBe(false);
     });
   });
 

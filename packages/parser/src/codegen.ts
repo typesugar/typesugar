@@ -29,8 +29,8 @@ import type { GrammarRule } from "./types.js";
  * @returns A string of JavaScript code that evaluates to a Grammar-like object
  */
 export function generateParserCode(rules: Map<string, GrammarRule>, startRule?: string): string {
+  varCounter = 0; // Reset per invocation for deterministic output
   const start = startRule ?? rules.keys().next().value!;
-  const ruleNames = [...rules.keys()];
 
   const lines: string[] = [];
   lines.push(`(function() {`);
@@ -154,7 +154,7 @@ function emitLiteral(value: string, indent: string): string {
     return `${indent}return __ok("", pos);`;
   }
   return [
-    `${indent}if (input.substr(pos, ${value.length}) === ${escaped}) {`,
+    `${indent}if (input.slice(pos, pos + ${value.length}) === ${escaped}) {`,
     `${indent}  return __ok(${escaped}, pos + ${value.length});`,
     `${indent}}`,
     `${indent}return __fail(pos, ${JSON.stringify(escaped)});`,
@@ -190,7 +190,6 @@ function emitSequence(rules: GrammarRule[], indent: string): string {
 
   for (const rule of rules) {
     const rVar = freshVar("r");
-    const innerFn = freshVar("seq");
 
     // Wrap each sub-rule in an inline function to get its result
     lines.push(`${indent}var ${rVar} = (function(input, pos) {`);
