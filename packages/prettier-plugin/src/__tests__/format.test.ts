@@ -4,24 +4,22 @@ import { postFormat } from "../post-format.js";
 import { format } from "../format.js";
 
 describe("preFormat", () => {
-  it("converts pipeline operators to __binop__", () => {
+  it("converts pipeline operators to __pipe__", () => {
     const source = `const x = a |> f |> g;`;
     const result = preFormat(source);
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("__binop__");
-    expect(result.code).toContain('"|>"');
-    // The raw |> operator should not appear (only inside string literals)
-    expect(result.code.replace(/"\|>"/g, "")).not.toContain("|>");
+    expect(result.code).toContain("__pipe__");
+    // The raw |> operator should not appear
+    expect(result.code).not.toContain("|>");
   });
 
-  it("converts cons operators to __binop__", () => {
+  it("converts cons operators to __cons__", () => {
     const source = `const list = 1 :: 2 :: [];`;
     const result = preFormat(source);
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("__binop__");
-    expect(result.code).toContain('"::"');
+    expect(result.code).toContain("__cons__");
   });
 
   it("converts HKT declarations with markers", () => {
@@ -52,21 +50,30 @@ describe("preFormat", () => {
 });
 
 describe("postFormat", () => {
-  it("reverses __binop__ to pipeline operators", () => {
+  it("reverses __pipe__ to pipeline operators", () => {
+    const formatted = `const x = __pipe__(__pipe__(a, f), g);`;
+    const metadata = { changed: true, hktParams: [] };
+    const result = postFormat(formatted, metadata);
+
+    expect(result).toContain("|>");
+    expect(result).not.toContain("__pipe__");
+  });
+
+  it("reverses __cons__ to cons operators", () => {
+    const formatted = `const list = __cons__(1, __cons__(2, []));`;
+    const metadata = { changed: true, hktParams: [] };
+    const result = postFormat(formatted, metadata);
+
+    expect(result).toContain("::");
+    expect(result).not.toContain("__cons__");
+  });
+
+  it("reverses legacy __binop__ to pipeline operators", () => {
     const formatted = `const x = __binop__(__binop__(a, "|>", f), "|>", g);`;
     const metadata = { changed: true, hktParams: [] };
     const result = postFormat(formatted, metadata);
 
     expect(result).toContain("|>");
-    expect(result).not.toContain("__binop__");
-  });
-
-  it("reverses __binop__ to cons operators", () => {
-    const formatted = `const list = __binop__(1, "::", __binop__(2, "::", []));`;
-    const metadata = { changed: true, hktParams: [] };
-    const result = postFormat(formatted, metadata);
-
-    expect(result).toContain("::");
     expect(result).not.toContain("__binop__");
   });
 
@@ -107,7 +114,7 @@ describe("format (round-trip)", () => {
     const result = await format(source, { filepath: "test.ts" });
 
     expect(result).toContain("|>");
-    expect(result).not.toContain("__binop__");
+    expect(result).not.toContain("__pipe__");
   });
 
   it("formats and preserves cons operators", async () => {
@@ -115,7 +122,7 @@ describe("format (round-trip)", () => {
     const result = await format(source, { filepath: "test.ts" });
 
     expect(result).toContain("::");
-    expect(result).not.toContain("__binop__");
+    expect(result).not.toContain("__cons__");
   });
 
   it("formats and preserves HKT syntax", async () => {

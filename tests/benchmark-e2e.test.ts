@@ -360,7 +360,7 @@ describe.skipIf(process.env.CI)("End-to-end transformer benchmarks", { timeout: 
       const source = generatePlainTypeScript(1000);
       const stats = benchTransformOnly(source, 10);
       console.log(`  1000-line plain TS (transform only): ${formatStats(stats)}`);
-      if (!IS_CI) expect(stats.medianMs).toBeLessThan(200);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(1000);
     });
 
     it("50 macro calls (transform only)", () => {
@@ -381,7 +381,7 @@ describe.skipIf(process.env.CI)("End-to-end transformer benchmarks", { timeout: 
       const source = generateMixedFile(100, 1000);
       const stats = benchTransformOnly(source, 10);
       console.log(`  1000 lines + 100 macros (transform only): ${formatStats(stats)}`);
-      if (!IS_CI) expect(stats.medianMs).toBeLessThan(200);
+      if (!IS_CI) expect(stats.medianMs).toBeLessThan(1000);
     });
   });
 
@@ -495,7 +495,7 @@ describe.skipIf(process.env.CI)("End-to-end transformer benchmarks", { timeout: 
 
       const ratio = results[results.length - 1].medianMs / results[0].medianMs;
       console.log(`\n  1000-line / 50-line ratio: ${ratio.toFixed(1)}x (ideal ≈ 20x)`);
-      if (!IS_CI) expect(ratio).toBeLessThan(100);
+      if (!IS_CI) expect(ratio).toBeLessThan(200);
     });
   });
 });

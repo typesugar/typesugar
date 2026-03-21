@@ -12,7 +12,7 @@ describe("playground transform", () => {
         fileName: "test.sts",
       });
       expect(result.changed).toBe(true);
-      expect(result.code).toContain("__binop__");
+      expect(result.code).toContain("__pipe__");
     });
 
     it("should preprocess HKT syntax", () => {

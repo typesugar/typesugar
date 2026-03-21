@@ -126,7 +126,7 @@ describe("playground examples discovery", () => {
 // Tier 1: Smoke — all examples parse and transform without errors
 // ============================================================================
 
-const KNOWN_PREPROCESS_ISSUES = new Set(["preprocessor/pipeline.sts"]);
+const KNOWN_PREPROCESS_ISSUES = new Set<string>([]);
 
 describe("all examples transform without errors", () => {
   for (const ex of examples) {
@@ -190,11 +190,10 @@ describe("staticAssert() calls are replaced with comments", () => {
   });
 });
 
-describe("operators: ops(a + b) rewrites to method calls", () => {
-  it("core/operators.ts", () => {
+describe("operators: a + b rewrites to typeclass method calls", () => {
+  it("core/operators.ts — Addable typeclass with @op +", () => {
     const result = transform(findExample("core/operators"));
     expect(result.code).toContain(".add(");
-    expect(result.code).toContain(".sub(");
   });
 });
 

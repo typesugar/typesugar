@@ -71,10 +71,9 @@ describe("Prettier Plugin Edge Cases", () => {
       const result = preFormat(source);
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain("__binop__");
-      // Both operators should be represented
-      expect(result.code).toContain('"|>"');
-      expect(result.code).toContain('"::"');
+      // Both operators should be represented as named function calls
+      expect(result.code).toContain("__pipe__");
+      expect(result.code).toContain("__cons__");
     });
 
     it("handles deeply nested pipeline (10+ levels)", async () => {
@@ -84,7 +83,7 @@ describe("Prettier Plugin Edge Cases", () => {
       // Should round-trip successfully
       const pipeCount = (result.match(/\|>/g) || []).length;
       expect(pipeCount).toBe(9);
-      expect(result).not.toContain("__binop__");
+      expect(result).not.toContain("__pipe__");
     });
 
     it("handles operator at end of line in multi-line expression", async () => {
@@ -94,7 +93,7 @@ describe("Prettier Plugin Edge Cases", () => {
       const result = await format(source, { filepath: "test.ts" });
 
       expect(result).toContain("|>");
-      expect(result).not.toContain("__binop__");
+      expect(result).not.toContain("__pipe__");
     });
 
     it("handles :: with empty array on right side", async () => {

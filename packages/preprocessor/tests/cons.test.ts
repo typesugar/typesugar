@@ -7,19 +7,19 @@ describe("Cons operator extension", () => {
       const source = `head :: tail`;
       const { code, changed } = preprocess(source, { extensions: ["cons"] });
       expect(changed).toBe(true);
-      expect(code).toBe(`__binop__(head, "::", tail)`);
+      expect(code).toBe(`__cons__(head, tail)`);
     });
 
     it("should transform cons with array literal", () => {
       const source = `1 :: [2, 3]`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(1, "::", [2, 3])`);
+      expect(code).toBe(`__cons__(1, [2, 3])`);
     });
 
     it("should transform cons with empty array", () => {
       const source = `1 :: []`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(1, "::", [])`);
+      expect(code).toBe(`__cons__(1, [])`);
     });
   });
 
@@ -27,13 +27,13 @@ describe("Cons operator extension", () => {
     it("should be right-associative", () => {
       const source = `1 :: 2 :: []`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(1, "::", __binop__(2, "::", []))`);
+      expect(code).toBe(`__cons__(1, __cons__(2, []))`);
     });
 
     it("should handle triple cons", () => {
       const source = `1 :: 2 :: 3 :: []`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(1, "::", __binop__(2, "::", __binop__(3, "::", [])))`);
+      expect(code).toBe(`__cons__(1, __cons__(2, __cons__(3, [])))`);
     });
   });
 
@@ -41,13 +41,13 @@ describe("Cons operator extension", () => {
     it("should bind looser than arithmetic", () => {
       const source = `a + b :: list`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(a + b, "::", list)`);
+      expect(code).toBe(`__cons__(a + b, list)`);
     });
 
     it("should bind tighter than assignment", () => {
       const source = `const x = 1 :: list`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toContain(`__binop__(1, "::", list)`);
+      expect(code).toContain(`__cons__(1, list)`);
     });
 
     it("should bind tighter than pipeline", () => {
@@ -55,7 +55,7 @@ describe("Cons operator extension", () => {
       const { code } = preprocess(source, {
         extensions: ["cons", "pipeline"],
       });
-      expect(code).toBe(`__binop__(__binop__(a, "::", b), "|>", f)`);
+      expect(code).toBe(`__pipe__(__cons__(a, b), f)`);
     });
   });
 
@@ -63,19 +63,19 @@ describe("Cons operator extension", () => {
     it("should handle function calls as head", () => {
       const source = `getValue() :: list`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(getValue(), "::", list)`);
+      expect(code).toBe(`__cons__(getValue(), list)`);
     });
 
     it("should handle property access", () => {
       const source = `obj.value :: obj.list`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__(obj.value, "::", obj.list)`);
+      expect(code).toBe(`__cons__(obj.value, obj.list)`);
     });
 
     it("should handle computed values", () => {
       const source = `(a + b) :: rest`;
       const { code } = preprocess(source, { extensions: ["cons"] });
-      expect(code).toBe(`__binop__((a + b), "::", rest)`);
+      expect(code).toBe(`__cons__((a + b), rest)`);
     });
   });
 

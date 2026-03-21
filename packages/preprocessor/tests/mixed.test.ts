@@ -15,7 +15,7 @@ const result = value |> transform;`;
       expect(code).toContain("Functor<F>");
       expect(code).toContain("Kind<F, A>");
       expect(code).toContain("Kind<F, B>");
-      expect(code).toContain('__binop__(value, "|>", transform)');
+      expect(code).toContain("__pipe__(value, transform)");
     });
 
     it("should handle HKT and cons in same file", () => {
@@ -29,7 +29,7 @@ const list = 1 :: 2 :: [];`;
       expect(changed).toBe(true);
       expect(code).toContain("IterableOnce<F>");
       expect(code).toContain("Kind<F, A>");
-      expect(code).toContain('__binop__(1, "::", __binop__(2, "::", []))');
+      expect(code).toContain("__cons__(1, __cons__(2, []))");
     });
   });
 
@@ -39,7 +39,7 @@ const list = 1 :: 2 :: [];`;
       const { code } = preprocess(source, {
         extensions: ["pipeline", "cons"],
       });
-      expect(code).toBe(`__binop__(__binop__(1, "::", [2, 3]), "|>", sum)`);
+      expect(code).toBe(`__pipe__(__cons__(1, [2, 3]), sum)`);
     });
 
     it("should handle pipeline then cons", () => {
@@ -47,8 +47,8 @@ const list = 1 :: 2 :: [];`;
       const { code } = preprocess(source, {
         extensions: ["pipeline", "cons"],
       });
-      expect(code).toContain('__binop__(head, "|>"');
-      expect(code).toContain('__binop__(x, "::", tail)');
+      expect(code).toContain("__pipe__(head,");
+      expect(code).toContain("__cons__(x, tail)");
     });
 
     it("should handle mixed chains", () => {
@@ -56,9 +56,7 @@ const list = 1 :: 2 :: [];`;
       const { code } = preprocess(source, {
         extensions: ["pipeline", "cons"],
       });
-      expect(code).toBe(
-        `__binop__(__binop__(__binop__(a, "::", b), "|>", f), "|>", __binop__(g, "::", c))`
-      );
+      expect(code).toBe(`__pipe__(__pipe__(__cons__(a, b), f), __cons__(g, c))`);
     });
   });
 
@@ -71,7 +69,7 @@ const x = a |> b :: c;`;
       expect(changed).toBe(true);
       expect(code).toContain("F<X>");
       expect(code).toContain("Kind<X, A>");
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
   });
 
@@ -95,7 +93,7 @@ const x = a |> b;`;
       });
       expect(changed).toBe(true);
       expect(code).toContain("F<X<_>>");
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
   });
 
@@ -166,7 +164,7 @@ const process = (data: number[]) =>
         extensions: ["pipeline"],
       });
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
 
     it("should handle list construction", () => {
@@ -175,8 +173,8 @@ const list = 1 :: 2 :: 3 :: 4 :: [];
 const withHead = head :: tail;`;
       const { code, changed } = preprocess(source, { extensions: ["cons"] });
       expect(changed).toBe(true);
-      expect(code).toContain('__binop__(1, "::"');
-      expect(code).toContain('__binop__(head, "::", tail)');
+      expect(code).toContain("__cons__(1,");
+      expect(code).toContain("__cons__(head, tail)");
     });
   });
 });

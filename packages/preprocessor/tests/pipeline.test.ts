@@ -9,19 +9,19 @@ describe("Pipeline operator extension", () => {
         extensions: ["pipeline"],
       });
       expect(changed).toBe(true);
-      expect(code).toBe(`__binop__(x, "|>", f)`);
+      expect(code).toBe(`__pipe__(x, f)`);
     });
 
     it("should transform chained pipeline", () => {
       const source = `x |> f |> g`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(__binop__(x, "|>", f), "|>", g)`);
+      expect(code).toBe(`__pipe__(__pipe__(x, f), g)`);
     });
 
     it("should transform triple chained pipeline", () => {
       const source = `x |> f |> g |> h`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(__binop__(__binop__(x, "|>", f), "|>", g), "|>", h)`);
+      expect(code).toBe(`__pipe__(__pipe__(__pipe__(x, f), g), h)`);
     });
   });
 
@@ -29,19 +29,19 @@ describe("Pipeline operator extension", () => {
     it("should bind looser than arithmetic", () => {
       const source = `a + b |> f`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(a + b, "|>", f)`);
+      expect(code).toBe(`__pipe__(a + b, f)`);
     });
 
     it("should bind tighter than assignment", () => {
       const source = `const x = a |> f`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toContain(`__binop__(a, "|>", f)`);
+      expect(code).toContain(`__pipe__(a, f)`);
     });
 
     it("should respect parentheses", () => {
       const source = `(a |> f) + b`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toContain(`__binop__(a, "|>", f)`);
+      expect(code).toContain(`__pipe__(a, f)`);
     });
   });
 
@@ -49,7 +49,7 @@ describe("Pipeline operator extension", () => {
     it("should be left-associative", () => {
       const source = `a |> b |> c`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(__binop__(a, "|>", b), "|>", c)`);
+      expect(code).toBe(`__pipe__(__pipe__(a, b), c)`);
     });
   });
 
@@ -57,25 +57,25 @@ describe("Pipeline operator extension", () => {
     it("should handle function calls as operands", () => {
       const source = `getData() |> transform`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(getData(), "|>", transform)`);
+      expect(code).toBe(`__pipe__(getData(), transform)`);
     });
 
     it("should handle method calls as operands", () => {
       const source = `obj.getData() |> transform`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(obj.getData(), "|>", transform)`);
+      expect(code).toBe(`__pipe__(obj.getData(), transform)`);
     });
 
     it("should handle arrow functions", () => {
       const source = `x |> (y => y * 2)`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(x, "|>", (y => y * 2))`);
+      expect(code).toBe(`__pipe__(x, (y => y * 2))`);
     });
 
     it("should handle array literals", () => {
       const source = `[1, 2, 3] |> sum`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__([1, 2, 3], "|>", sum)`);
+      expect(code).toBe(`__pipe__([1, 2, 3], sum)`);
     });
   });
 
@@ -92,7 +92,7 @@ describe("Pipeline operator extension", () => {
     it("should handle pipeline at start of statement", () => {
       const source = `value |> console.log`;
       const { code } = preprocess(source, { extensions: ["pipeline"] });
-      expect(code).toBe(`__binop__(value, "|>", console.log)`);
+      expect(code).toBe(`__pipe__(value, console.log)`);
     });
   });
 
@@ -122,7 +122,7 @@ describe("Pipeline operator extension", () => {
         extensions: ["pipeline"],
       });
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
 
     it("should not transform operators inside generic type parameters", () => {
@@ -143,7 +143,7 @@ describe("Pipeline operator extension", () => {
         fileName: "test.tsx",
       });
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
 
     it("should not break on JSX syntax in TSX files", () => {
@@ -154,7 +154,7 @@ const el = <div>{x}</div>;`;
         fileName: "test.tsx",
       });
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
       expect(code).toContain("<div>");
     });
   });

@@ -62,7 +62,7 @@ describe("Extension-based routing (PEP-001 Wave 1)", () => {
       });
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain("__binop__");
+      expect(result.code).toContain("__pipe__");
       expect(result.code).toContain("<div>");
     });
   });
@@ -509,7 +509,7 @@ describe("Module resolution - TypeScript sees .sts files (PEP-001 Wave 2)", () =
       // The preprocessed file info should be available (at intermediate __binop__ stage)
       const preprocessed = pipeline.getPreprocessedFile("/test/app.sts");
       expect(preprocessed).toBeDefined();
-      expect(preprocessed!.code).toContain("__binop__");
+      expect(preprocessed!.code).toContain("__pipe__");
       expect(preprocessed!.original).toBe(stsCode);
 
       // The pipeline should have the file in its file list
@@ -708,7 +708,7 @@ describe("Ecosystem integration (PEP-001 Wave 4)", () => {
       const result = preFormat(stsCode, { fileName: "test.sts" });
 
       expect(result.changed).toBe(true);
-      expect(result.code).toContain("__binop__");
+      expect(result.code).toContain("__pipe__");
     });
   });
 

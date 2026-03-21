@@ -45,7 +45,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed } = preprocess(source);
 
       // Inside ${...} should be transformed
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
       expect(changed).toBe(true);
     });
 
@@ -54,7 +54,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed } = preprocess(source);
 
       // Should still transform inside ${}
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
   });
 
@@ -83,7 +83,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed } = preprocess(source);
 
       // Second line should transform
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
       expect(changed).toBe(true);
     });
   });
@@ -98,7 +98,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed } = preprocess(source);
 
       // Should transform |> but not >
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
       expect(code).toContain("> 0");
     });
 
@@ -109,7 +109,7 @@ describe("Preprocessor Edge Cases", () => {
       // First | should not transform
       expect(code).toContain("x | y");
       // Second |> should transform
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
 
     it("Logical OR vs pipeline (|| vs |>)", () => {
@@ -117,7 +117,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code } = preprocess(source);
 
       expect(code).toContain("x || y");
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
 
     it("Nullish coalescing vs pipeline (?? and |>)", () => {
@@ -125,7 +125,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code } = preprocess(source);
 
       expect(code).toContain("x ?? y");
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
     });
 
     it("Empty pipeline operands", () => {
@@ -143,7 +143,7 @@ describe("Preprocessor Edge Cases", () => {
 
       expect(changed).toBe(true);
       // Should nest left-to-right
-      expect(code).toMatch(/__binop__.*__binop__.*__binop__/);
+      expect(code).toMatch(/__pipe__.*__pipe__.*__pipe__/);
     });
 
     it("Pipeline with arrow function", () => {
@@ -151,7 +151,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed } = preprocess(source);
 
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
       expect(code).toContain("y => y + 1");
     });
 
@@ -243,7 +243,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed } = preprocess(source);
 
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__cons__");
     });
   });
 
@@ -341,7 +341,7 @@ describe("Preprocessor Edge Cases", () => {
       const { code, changed, sourceMap } = preprocess(source);
 
       expect(changed).toBe(true);
-      expect(code).toContain("__binop__");
+      expect(code).toContain("__pipe__");
       // Source map may be undefined due to the operator rewriting path
       // This is a known limitation documented in Finding #9
     });
