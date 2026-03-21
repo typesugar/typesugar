@@ -167,7 +167,7 @@ describe("@op typeclass registration", () => {
     const entry = instances.get("Functor<LazyPipeline>");
     expect(entry).toBeDefined();
     expect(entry!.instanceName).toBe("lazyPipelineFunctor");
-    expect(entry!.moduleSpecifier).toBe("@typesugar/fusion");
+    expect(entry!.sourceModule).toBe("@typesugar/fusion");
   });
 
   it("Filterable<LazyPipeline> is registered in the instance registry", () => {
@@ -175,7 +175,7 @@ describe("@op typeclass registration", () => {
     const entry = instances.get("Filterable<LazyPipeline>");
     expect(entry).toBeDefined();
     expect(entry!.instanceName).toBe("lazyPipelineFilterable");
-    expect(entry!.moduleSpecifier).toBe("@typesugar/fusion");
+    expect(entry!.sourceModule).toBe("@typesugar/fusion");
   });
 
   it("Foldable<LazyPipeline> is registered in the instance registry", () => {
@@ -183,7 +183,7 @@ describe("@op typeclass registration", () => {
     const entry = instances.get("Foldable<LazyPipeline>");
     expect(entry).toBeDefined();
     expect(entry!.instanceName).toBe("lazyPipelineFoldable");
-    expect(entry!.moduleSpecifier).toBe("@typesugar/fusion");
+    expect(entry!.sourceModule).toBe("@typesugar/fusion");
   });
 
   it("all three LazyPipeline instances are not marked as derived", () => {

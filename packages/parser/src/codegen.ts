@@ -38,9 +38,11 @@ export function generateParserCode(rules: Map<string, GrammarRule>, startRule?: 
   lines.push(``);
 
   // Emit helper functions
-  lines.push(`  function __ok(value, pos) { return { ok: true, value: value, pos: pos }; }`);
   lines.push(
-    `  function __fail(pos, expected) { return { ok: false, pos: pos, expected: expected }; }`
+    `  function __ok(value, pos) { return { ok: true, value: value, pos: pos, expected: "" }; }`
+  );
+  lines.push(
+    `  function __fail(pos, expected) { return { ok: false, value: undefined, pos: pos, expected: expected }; }`
   );
   lines.push(``);
 

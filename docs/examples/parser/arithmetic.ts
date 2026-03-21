@@ -19,7 +19,7 @@ const builtAt = comptime(() => new Date().toISOString().slice(0, 10));
 const expressions = ["2 + 3", "2 + 3 * 4", "(2 + 3) * 4", "100 / 5 - 3"];
 for (const input of expressions) {
   try {
-    const result = calc.parse(input.trim());
+    const result = calc.parse(input.trim(), 0);
     console.log(`${input} → parsed`);
   } catch (e: any) {
     console.log(`${input} → ${e.message}`);

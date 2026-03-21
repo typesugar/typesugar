@@ -48,7 +48,7 @@ registerInstanceWithMeta({
   forType: "LazyPipeline",
   instanceName: "lazyPipelineFunctor",
   derived: false,
-  moduleSpecifier: "@typesugar/fusion",
+  sourceModule: "@typesugar/fusion",
 });
 
 // ============================================================================
@@ -74,7 +74,7 @@ registerInstanceWithMeta({
   forType: "LazyPipeline",
   instanceName: "lazyPipelineFilterable",
   derived: false,
-  moduleSpecifier: "@typesugar/fusion",
+  sourceModule: "@typesugar/fusion",
 });
 
 // ============================================================================
@@ -108,7 +108,7 @@ registerInstanceWithMeta({
   forType: "LazyPipeline",
   instanceName: "lazyPipelineFoldable",
   derived: false,
-  moduleSpecifier: "@typesugar/fusion",
+  sourceModule: "@typesugar/fusion",
 });
 
 // ============================================================================
