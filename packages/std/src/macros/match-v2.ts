@@ -1142,21 +1142,37 @@ function generateDiscriminantSwitchIIFE(
   ];
 
   if (needsNullGuard) {
+    // Use early-return guard instead of wrapping the switch in an if block.
+    // Wrapping in if { switch } breaks TypeScript's discriminated union narrowing
+    // because TS can't narrow through the typeof guard into the switch cases.
+    const notObjectGuard = f.createBinaryExpression(
+      f.createBinaryExpression(
+        f.createTypeOfExpression(scrutineeRef()),
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+        f.createStringLiteral("object")
+      ),
+      ts.SyntaxKind.BarBarToken,
+      f.createBinaryExpression(scrutineeRef(), ts.SyntaxKind.EqualsEqualsToken, f.createNull())
+    );
+    // Early return: if not an object or null, go to fallback
+    const fallbackExpr =
+      elseResult ??
+      f.createCallExpression(
+        f.createPropertyAccessExpression(
+          f.createNewExpression(f.createIdentifier("MatchError"), undefined, [scrutineeRef()]),
+          "throw"
+        ),
+        undefined,
+        []
+      );
+    stmts.push(f.createIfStatement(notObjectGuard, f.createBlock(fallbackStmts, true)));
+    // Now the switch is at top level — TS can narrow discriminated unions
+    caseClauses.push(f.createDefaultClause(fallbackStmts));
     const switchStmt = f.createSwitchStatement(
       f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
       f.createCaseBlock(caseClauses)
     );
-    const guard = f.createBinaryExpression(
-      f.createBinaryExpression(
-        f.createTypeOfExpression(scrutineeRef()),
-        ts.SyntaxKind.EqualsEqualsEqualsToken,
-        f.createStringLiteral("object")
-      ),
-      ts.SyntaxKind.AmpersandAmpersandToken,
-      f.createBinaryExpression(scrutineeRef(), ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
-    );
-    stmts.push(f.createIfStatement(guard, f.createBlock([switchStmt], true)));
-    stmts.push(...fallbackStmts);
+    stmts.push(switchStmt);
   } else {
     caseClauses.push(f.createDefaultClause(fallbackStmts));
     const switchStmt = f.createSwitchStatement(
@@ -1584,7 +1600,8 @@ function collectBindings(
 function buildCondition(
   f: ts.NodeFactory,
   pattern: PatternInfo,
-  accessor: ts.Expression
+  accessor: ts.Expression,
+  skipObjectGuard = false
 ): ts.Expression | undefined {
   switch (pattern.kind) {
     case "literal":
@@ -1664,17 +1681,19 @@ function buildCondition(
       const parts: ts.Expression[] = [];
       const nonRestProps = pattern.properties.filter((p) => !p.isRest);
 
-      // typeof accessor === "object" && accessor !== null
-      parts.push(
-        f.createBinaryExpression(
-          f.createTypeOfExpression(accessor),
-          ts.SyntaxKind.EqualsEqualsEqualsToken,
-          f.createStringLiteral("object")
-        )
-      );
-      parts.push(
-        f.createBinaryExpression(accessor, ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
-      );
+      if (!skipObjectGuard) {
+        // typeof accessor === "object" && accessor !== null
+        parts.push(
+          f.createBinaryExpression(
+            f.createTypeOfExpression(accessor),
+            ts.SyntaxKind.EqualsEqualsEqualsToken,
+            f.createStringLiteral("object")
+          )
+        );
+        parts.push(
+          f.createBinaryExpression(accessor, ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
+        );
+      }
 
       for (const prop of nonRestProps) {
         parts.push(
@@ -1880,7 +1899,8 @@ function generateOrArmStatements(
   ctx: MacroContext,
   f: ts.NodeFactory,
   arm: CaseArm,
-  scrutineeRef: ts.Expression
+  scrutineeRef: ts.Expression,
+  skipObjectGuard = false
 ): ts.Statement[] {
   const allPatterns = [arm.pattern, ...arm.alternatives];
   const conditions: ts.Expression[] = [];
@@ -1892,7 +1912,7 @@ function generateOrArmStatements(
       hasUnconditional = true;
       break;
     }
-    const cond = buildCondition(f, analyzed, scrutineeRef);
+    const cond = buildCondition(f, analyzed, scrutineeRef, skipObjectGuard);
     if (cond) {
       conditions.push(cond);
     }
@@ -2100,7 +2120,8 @@ function generateArmStatements(
   scrutineeRef: ts.Expression,
   guard: ts.Expression | undefined,
   result: ts.Expression,
-  asPattern?: ts.Expression
+  asPattern?: ts.Expression,
+  skipObjectGuard = false
 ): ts.Statement[] {
   const asBindings = asPattern ? generateAsBindings(f, asPattern, scrutineeRef) : [];
 
@@ -2169,7 +2190,7 @@ function generateArmStatements(
     case "array":
     case "object":
     case "type-constructor": {
-      const condition = buildCondition(f, pattern, scrutineeRef);
+      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard);
       const bindings = collectBindings(f, pattern, scrutineeRef);
 
       const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
@@ -2195,7 +2216,7 @@ function generateArmStatements(
       }
 
       // Sum-variant and product extractors: inlined structural checks (zero-cost)
-      const condition = buildCondition(f, pattern, scrutineeRef);
+      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard);
       const bindings = collectBindings(f, pattern, scrutineeRef);
 
       const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
@@ -2231,6 +2252,40 @@ function generateArmStatements(
 // IIFE Generation
 // ============================================================================
 
+/**
+ * Check if a type is guaranteed to be a non-null object (no null, undefined, or primitives).
+ * When true, per-arm `typeof === "object" && != null` guards can be skipped.
+ */
+function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
+  try {
+    const type = ctx.getTypeOf(scrutinee);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+
+    const checkSingleType = (t: ts.Type): boolean => {
+      if (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return false;
+      if (
+        t.flags &
+        (ts.TypeFlags.String |
+          ts.TypeFlags.Number |
+          ts.TypeFlags.BigInt |
+          ts.TypeFlags.Boolean |
+          ts.TypeFlags.StringLiteral |
+          ts.TypeFlags.NumberLiteral |
+          ts.TypeFlags.BigIntLiteral |
+          ts.TypeFlags.BooleanLiteral)
+      )
+        return false;
+      if (t.flags & ts.TypeFlags.Object) return true;
+      if (t.isUnion()) return t.types.every(checkSingleType);
+      if (t.isIntersection()) return t.types.some(checkSingleType);
+      return false;
+    };
+    return checkSingleType(type);
+  } catch {
+    return false;
+  }
+}
+
 function generateIIFE(
   ctx: MacroContext,
   scrutinee: ts.Expression,
@@ -2241,6 +2296,9 @@ function generateIIFE(
   const scrutineeName = scrutineeShortName(ctx, scrutinee);
 
   const statements: ts.Statement[] = [];
+
+  // Skip per-arm typeof/null guards when scrutinee is guaranteed to be a non-null object
+  const skipObjectGuard = isGuaranteedObject(ctx, scrutinee);
 
   // const __m = scrutinee;
   statements.push(
@@ -2278,7 +2336,7 @@ function generateIIFE(
 
     // OR patterns: build || chain of conditions
     if (arm.alternatives.length > 0) {
-      statements.push(...generateOrArmStatements(ctx, f, arm, scrutineeRef));
+      statements.push(...generateOrArmStatements(ctx, f, arm, scrutineeRef, skipObjectGuard));
       continue;
     }
 
@@ -2298,7 +2356,8 @@ function generateIIFE(
       scrutineeRef,
       arm.guard,
       arm.result,
-      arm.asPattern
+      arm.asPattern,
+      skipObjectGuard
     );
     statements.push(...armStatements);
   }

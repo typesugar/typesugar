@@ -5,10 +5,12 @@ import { specialize } from "typesugar";
 
 // A generic fold that works with any Monoid dictionary.
 // The dictionary parameter (M) is runtime overhead we want to eliminate.
-function fold<A>(M: { empty: () => A; combine: (a: A, b: A) => A }, items: A[]): A {
-  let acc = M.empty();
-  for (const item of items) acc = M.combine(acc, item);
-  return acc;
+function fold(M: { empty: () => number; combine: (a: number, b: number) => number }, items: number[]): number {
+  return items.reduce((acc, item) => M.combine(acc, item), M.empty());
+}
+
+function foldStr(M: { empty: () => string; combine: (a: string, b: string) => string }, items: string[]): string {
+  return items.reduce((acc, item) => M.combine(acc, item), M.empty());
 }
 
 // Concrete Monoid instances
@@ -21,7 +23,7 @@ const stringConcat = { empty: () => "", combine: (a: string, b: string) => a + b
 // specialize() inlines the dictionary at compile time.
 // The result has NO dictionary parameter — direct operations only.
 const sumAll = specialize(fold, numberAdd);
-const joinAll = specialize(fold, stringConcat);
+const joinAll = specialize(foldStr, stringConcat);
 
 // 👀 Check JS Output — sumAll has 0 and + inlined, no dictionary passing!
 console.log("sum:", sumAll([1, 2, 3, 4, 5]));       // 15

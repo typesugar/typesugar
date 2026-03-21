@@ -2,6 +2,7 @@
 //! See how macros transform your code — check JS Output!
 
 import { comptime, staticAssert, derive, Eq, pipe } from "typesugar";
+import { match } from "@typesugar/std";
 
 // 1. comptime() evaluates at BUILD TIME — the result is inlined as a literal
 const buildId = comptime(() => Math.random().toString(36).slice(2, 8));
@@ -24,7 +25,16 @@ const p3 = new Point(1, 2);
 console.log("p1 === p2?", p1 === p2);  // true (structural!)
 console.log("p1 === p3?", p1 === p3);  // false
 
-// 4. pipe() inlines to nested function calls — no intermediate array
+// 4. match() compiles to optimized ternary chains
+type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+const shape: Shape = { kind: "circle", r: 5 };
+const a = match(shape)
+  .case({ kind: "circle", r }).then(Math.PI * r ** 2)
+  .case({ kind: "rect", w, h }).then(w * h)
+  .else(0);
+console.log("area:", a.toFixed(1));
+
+// 5. pipe() inlines to nested function calls — no intermediate array
 const double = (n: number) => n * 2;
 const addTen = (n: number) => n + 10;
 const asStr = (n: number) => `result: ${n}`;

@@ -3,13 +3,80 @@ import * as ts from "typescript";
 import * as path from "path";
 import { transformCode, type TransformDiagnostic } from "@typesugar/transformer";
 import { AMBIENT_DECLARATIONS } from "./playground-declarations.js";
-import { registerTypeRewrite } from "@typesugar/core";
+import { registerTypeRewrite, globalRegistry, type MethodInlinePattern } from "@typesugar/core";
 
-// Force-load macro packages that register via side effects.
-// The bundler can't trace the dynamic require() in macro-loader.ts,
-// so we import them statically to ensure they're included.
+// Force-load ALL macro packages that register via side effects.
+// Every @typesugar/* package that calls globalRegistry.register() MUST be listed
+// here. If you add a new package with macros, add it here too — otherwise the
+// playground will silently fall through to runtime fallbacks.
+//
+// IMPORTANT: Each of these packages must externalize @typesugar/core (and
+// @typesugar/macros if they import it) in their tsup.config.ts so they share
+// the same globalRegistry and instanceRegistry.
 import "@typesugar/std";
 import "@typesugar/fp";
+import "@typesugar/graph";
+import "@typesugar/parser";
+import "@typesugar/strings";
+import "@typesugar/symbolic";
+import "@typesugar/testing/macros";
+import "@typesugar/erased";
+import "@typesugar/effect";
+import "@typesugar/type-system";
+import "@typesugar/contracts";
+import "@typesugar/codec";
+import "@typesugar/mapper";
+import "@typesugar/fusion";
+import "@typesugar/hlist";
+import "@typesugar/units";
+import "@typesugar/sql";
+
+// ---------------------------------------------------------------------------
+// Macro registration validation
+// ---------------------------------------------------------------------------
+// Fail loudly at startup if expected macros aren't registered, rather than
+// silently falling through to runtime fallbacks at execution time.
+
+const EXPECTED_MACROS: ReadonlyArray<{ name: string; from: string }> = [
+  // @typesugar/testing
+  { name: "assert", from: "@typesugar/testing" },
+  { name: "typeAssert", from: "@typesugar/testing" },
+  { name: "assertType", from: "@typesugar/testing" },
+  { name: "forAll", from: "@typesugar/testing" },
+  { name: "assertSnapshot", from: "@typesugar/testing" },
+  // @typesugar/std
+  { name: "match", from: "@typesugar/std" },
+  { name: "letYield", from: "@typesugar/std" },
+  { name: "parYield", from: "@typesugar/std" },
+  // @typesugar/macros (loaded by transformer)
+  { name: "comptime", from: "typesugar" },
+  { name: "staticAssert", from: "typesugar" },
+  { name: "typeclass", from: "typesugar" },
+  { name: "typeInfo", from: "typesugar" },
+  // Package-specific macros
+  { name: "erased", from: "@typesugar/erased" },
+  { name: "grammar", from: "@typesugar/parser" },
+  { name: "transformInto", from: "@typesugar/mapper" },
+  { name: "lazy", from: "@typesugar/fusion" },
+  { name: "units", from: "@typesugar/units" },
+  { name: "sql", from: "@typesugar/sql" },
+];
+
+{
+  const registered = new Set(globalRegistry.getAll().map((m) => m.name));
+  const missing = EXPECTED_MACROS.filter((m) => !registered.has(m.name));
+  if (missing.length > 0) {
+    const list = missing.map((m) => `  - ${m.name} (from ${m.from})`).join("\n");
+    console.error(
+      `[typesugar] MACRO REGISTRATION ERROR: ${missing.length} expected macros are NOT registered.\n` +
+        `This means the transformer will silently skip these macros and runtime fallbacks will run instead.\n\n` +
+        `Missing macros:\n${list}\n\n` +
+        `Fix: ensure the owning package is imported in api/compile.ts and externalizes @typesugar/core in tsup.config.ts`
+    );
+  } else {
+    console.log(`[typesugar] All ${EXPECTED_MACROS.length} expected macros registered OK`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Virtual ambient declarations file
@@ -29,6 +96,20 @@ const AMBIENT_FILE = path.resolve("__playground_ambient__.d.ts");
 function methodMap(names: string[]): ReadonlyMap<string, string> {
   return new Map(names.map((n) => [n, n]));
 }
+
+const OPTION_INLINES: ReadonlyMap<string, MethodInlinePattern> = new Map<
+  string,
+  MethodInlinePattern
+>([
+  ["map", { kind: "null-check-apply" }],
+  ["flatMap", { kind: "null-check-apply" }],
+  ["filter", { kind: "null-check-predicate" }],
+  ["filterNot", { kind: "null-check-predicate" }],
+  ["getOrElse", { kind: "null-coalesce-call" }],
+  ["orElse", { kind: "null-coalesce-call" }],
+  ["getOrElseStrict", { kind: "null-coalesce-value" }],
+  ["fold", { kind: "fold" }],
+]);
 
 registerTypeRewrite({
   typeName: "Option",
@@ -54,6 +135,7 @@ registerTypeRewrite({
     "toUndefined",
     "zip",
   ]),
+  methodInlines: OPTION_INLINES,
   constructors: new Map([
     ["Some", { kind: "identity" }],
     ["None", { kind: "constant", value: "null" }],

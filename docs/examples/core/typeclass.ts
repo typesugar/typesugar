@@ -21,25 +21,29 @@ const showString: Show<string> = {
   show: (s) => `"${s}"`,
 };
 
-/** @impl Show<number[]> */
-const showArray: Show<number[]> = {
-  show: (arr) => `[${arr.join(", ")}]`,
+/** @impl Show<boolean> */
+const showBool: Show<boolean> = {
+  show: (b) => b ? "true" : "false",
 };
 
 // summon() gets a specific instance at compile time
 const showN = summon<Show<number>>();
 console.log("summon<Show<number>>().show(42):", showN.show(42));
 
-// implicit() enables generic functions — the instance is resolved at each call site!
-function print<A>(value: A, _show: Show<A> = implicit()): void {
-  console.log(_show.show(value));
+// implicit() enables generic functions — instance resolved at each call site
+function showValue(value: number, S: Show<number> = implicit()): string {
+  return S.show(value);
+}
+
+function showStr(value: string, S: Show<string> = implicit()): string {
+  return S.show(value);
 }
 
 // Each call resolves to the correct instance automatically:
-print(42);           // uses showNumber
-print("hello");      // uses showString  
-print([1, 2, 3]);    // uses showArray
+console.log("show(42):", showValue(42));
+console.log('show("hi"):', showStr("hello"));
+console.log("show(true):", showBool.show(true));
 
 // Works with any type that has a Show instance — fully type-safe!
 
-// Try: add a Show<boolean> instance and call print(true)
+// Try: add a Show<Date> instance

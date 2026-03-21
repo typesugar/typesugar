@@ -25,6 +25,15 @@ function describe(shape: Shape): string {
     .else("unknown");
 }
 
+// Guard patterns — .if() adds runtime conditions
+function classify(shape: Shape): string {
+  return match(shape)
+    .case({ kind: "circle", radius: r }).if(() => r > 10).then("big circle")
+    .case({ kind: "circle" }).then("small circle")
+    .case({ kind: "rect", width: w, height: h }).if(() => w === h).then("square")
+    .else("other shape");
+}
+
 // Array patterns with destructuring
 function head(arr: number[]): string {
   return match(arr)
@@ -41,7 +50,7 @@ const shapes: Shape[] = [
 ];
 
 for (const s of shapes) {
-  console.log(`${s.kind}: area=${area(s).toFixed(1)}, ${describe(s)}`);
+  console.log(`${s.kind}: area=${area(s).toFixed(1)}, ${describe(s)}, ${classify(s)}`);
 }
 
 console.log(head([]), head([42]), head([1, 2]), head([1, 2, 3]));

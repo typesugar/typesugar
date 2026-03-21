@@ -2217,9 +2217,10 @@ describe("PEP-019 Wave 3: discriminant switch optimization", () => {
       const text = printExpr(result);
 
       // Must have object/null guard since type is unknown
+      // The guard uses an early-return pattern: if (typeof x !== "object" || x == null)
       expect(text).toContain("typeof");
       expect(text).toContain('"object"');
-      expect(text).toContain("!= null");
+      expect(text).toMatch(/[!=]= null/); // either != null or == null (guard polarity)
       expect(text).toContain('"fallback"');
     });
   });
