@@ -5,7 +5,7 @@
  * - comptime() for compile-time evaluation
  * - @derive() for auto-generated implementations
  * - Tagged template macros (sql, regex, html)
- * - Operator overloading with @operators and ops()
+ * - Operator overloading with @op on typeclass methods
  * - Reflection with typeInfo() and fieldNames()
  */
 
@@ -13,15 +13,10 @@
 // Callable macros are exported directly, namespaces also available
 import {
   comptimeEval as comptime,
-  ops,
   pipe,
   // Namespaces are also available:
-  // comptime, derive, operators, reflect, typeclass, specialize
+  // comptime, derive, typeclass, specialize
 } from "typesugar";
-
-// Alternatively, you can import directly from specific packages:
-// import { comptime } from "@typesugar/macros";
-// import { ops, pipe, compose } from "@typesugar/macros";
 
 // ============================================================================
 // 1. Compile-Time Evaluation
@@ -76,7 +71,18 @@ const p3: Point = { x: 3, y: 4 };
 // 3. Operator Overloading
 // ============================================================================
 
-@operators({ "+": "add", "-": "sub", "*": "scale" })
+// Define a typeclass with @op annotations. The transformer rewrites
+// a + b to addableVector2D.add(a, b) — no ops() wrapper needed.
+/** @typeclass */
+interface Addable<A> {
+  /** @op + */
+  add(a: A, b: A): A;
+  /** @op - */
+  sub(a: A, b: A): A;
+  /** @op * */
+  scale(a: A, factor: number): A;
+}
+
 class Vector2D {
   constructor(
     public x: number,
@@ -100,12 +106,18 @@ class Vector2D {
   }
 }
 
+/** @impl Addable<Vector2D> */
+const addableVector2D: Addable<Vector2D> = {
+  add: (a, b) => new Vector2D(a.x + b.x, a.y + b.y),
+  sub: (a, b) => new Vector2D(a.x - b.x, a.y - b.y),
+  scale: (a, f) => new Vector2D(a.x * f, a.y * f),
+};
+
 const a = new Vector2D(1, 2);
 const b = new Vector2D(3, 4);
 
-// ops() transforms operators into method calls at compile time:
-// ops(a + b) becomes a.add(b)
-const sum = ops(a + b);
+// Operators work globally — a + b becomes addableVector2D.add(a, b)
+const sum = a + b;
 console.log("Vector sum:", sum.toString()); // Vector2D(4, 6)
 
 // ============================================================================

@@ -10,7 +10,17 @@ import MagicString from "magic-string";
 import type { FormatMetadata, HKTParamInfo } from "./pre-format.js";
 
 /**
- * Information about a __binop__ call that needs reversal
+ * Mapping from function names to the custom operator they represent.
+ * The preprocessor produces __pipe__(a, b) for |> and __cons__(a, b) for ::.
+ * Legacy __binop__(a, "|>", b) form is also supported for backwards compatibility.
+ */
+const OPERATOR_FUNCTION_MAP: Record<string, string> = {
+  __pipe__: "|>",
+  __cons__: "::",
+};
+
+/**
+ * Information about an operator call that needs reversal
  */
 interface BinopCallInfo {
   /** The CallExpression node */
@@ -48,28 +58,55 @@ interface HKTUsageInfo {
 }
 
 /**
+ * Options for postFormat
+ */
+export interface PostFormatOptions {
+  /** File name (used for JSX detection) */
+  fileName?: string;
+}
+
+/**
+ * Determine ScriptKind from filename
+ */
+function getScriptKind(fileName?: string): ts.ScriptKind {
+  if (fileName) {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith(".tsx") || lower.endsWith(".jsx") || lower.endsWith(".stsx")) {
+      return ts.ScriptKind.TSX;
+    }
+  }
+  return ts.ScriptKind.TS;
+}
+
+/**
  * Reverse the preprocessor transformations in Prettier-formatted code.
  *
- * @param formatted - Prettier-formatted code (contains __binop__, /*@ts:hkt*\/, Kind<F, A>)
+ * @param formatted - Prettier-formatted code (contains __pipe__, __cons__, /*@ts:hkt*\/, Kind<F, A>)
  * @param metadata - Metadata from preFormat about HKT parameters
+ * @param options - Optional settings (fileName for JSX detection)
  * @returns Code with custom syntax restored
  */
-export function postFormat(formatted: string, metadata: FormatMetadata): string {
+export function postFormat(
+  formatted: string,
+  metadata: FormatMetadata,
+  options?: PostFormatOptions
+): string {
   // If nothing was changed during pre-format, return as-is
   if (!metadata.changed) {
     return formatted;
   }
 
+  const scriptKind = getScriptKind(options?.fileName);
   let current = formatted;
 
-  // 1. Reverse __binop__ calls (all at once, in reverse position order)
+  // 1. Reverse operator calls (all at once, in reverse position order)
   // This preserves positions as we work from end to start
   const sourceFile = ts.createSourceFile(
-    "formatted.ts",
+    options?.fileName ?? "formatted.ts",
     current,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS
+    scriptKind
   );
 
   const binopCalls = collectBinopCalls(sourceFile, current);
@@ -93,11 +130,11 @@ export function postFormat(formatted: string, metadata: FormatMetadata): string 
   // Must happen BEFORE we remove markers, since F<_> is not valid TS
   if (hktParamNames.size > 0) {
     const sourceFile2 = ts.createSourceFile(
-      "formatted.ts",
+      options?.fileName ?? "formatted.ts",
       current,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS
+      scriptKind
     );
     const s2 = new MagicString(current);
     reverseHKTUsagesSimple(s2, current, sourceFile2, hktParamNames);
@@ -114,7 +151,10 @@ export function postFormat(formatted: string, metadata: FormatMetadata): string 
 }
 
 /**
- * Try to parse a node as a __binop__ call, recursively handling nested calls.
+ * Try to parse a node as an operator call, recursively handling nested calls.
+ * Recognizes both:
+ * - New form: __pipe__(left, right), __cons__(left, right)
+ * - Legacy form: __binop__(left, "|>", right), __binop__(left, "::", right)
  */
 function tryParseBinopCall(
   node: ts.Node,
@@ -122,30 +162,38 @@ function tryParseBinopCall(
   source: string
 ): BinopCallInfo | null {
   if (!ts.isCallExpression(node)) return null;
+  if (!ts.isIdentifier(node.expression)) return null;
 
-  if (
-    !ts.isIdentifier(node.expression) ||
-    node.expression.text !== "__binop__" ||
-    node.arguments.length !== 3
-  ) {
-    return null;
-  }
-
-  const [leftArg, opArg, rightArg] = node.arguments;
-
+  const funcName = node.expression.text;
   let operator: string | null = null;
-  if (ts.isStringLiteral(opArg)) {
-    operator = opArg.text;
-  }
+  let leftArg: ts.Expression;
+  let rightArg: ts.Expression;
 
-  if (!operator || (operator !== "|>" && operator !== "::")) {
+  // New form: __pipe__(left, right) or __cons__(left, right)
+  if (funcName in OPERATOR_FUNCTION_MAP && node.arguments.length === 2) {
+    operator = OPERATOR_FUNCTION_MAP[funcName];
+    leftArg = node.arguments[0];
+    rightArg = node.arguments[1];
+  }
+  // Legacy form: __binop__(left, "|>", right)
+  else if (funcName === "__binop__" && node.arguments.length === 3) {
+    const opArg = node.arguments[1];
+    if (ts.isStringLiteral(opArg)) {
+      operator = opArg.text;
+    }
+    if (!operator || (operator !== "|>" && operator !== "::")) {
+      return null;
+    }
+    leftArg = node.arguments[0];
+    rightArg = node.arguments[2];
+  } else {
     return null;
   }
 
   const start = node.getStart(sourceFile);
   const end = node.getEnd();
 
-  // Recursively check if operands are __binop__ calls
+  // Recursively check if operands are operator calls
   const leftNested = tryParseBinopCall(leftArg, sourceFile, source);
   const rightNested = tryParseBinopCall(rightArg, sourceFile, source);
 

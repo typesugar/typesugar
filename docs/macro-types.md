@@ -58,7 +58,6 @@ Attribute macros use decorators to transform declarations.
 ```typescript
 import { derive } from "@typesugar/derive";
 import { reflect } from "@typesugar/reflect";
-import { operators } from "@typesugar/macros";
 import { typeclass, instance, derive } from "@typesugar/typeclass";
 
 // @derive — auto-generate typeclass instances
@@ -75,13 +74,7 @@ interface Config {
   port: number;
 }
 
-// @operators — define operator overloading
-@operators({ "+": "add", "-": "sub", "*": "mul" })
-class Vector {
-  add(other: Vector): Vector { ... }
-}
-
-// @typeclass — define a typeclass
+// @typeclass — define a typeclass (use @op JSDoc on methods for operator dispatch)
 @typeclass
 interface Show<A> {
   show(a: A): string;

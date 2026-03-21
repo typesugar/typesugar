@@ -57,6 +57,25 @@ export interface AccessorRewrite {
   readonly value?: string;
 }
 
+/**
+ * Describes how a method call on an @opaque type can be inlined to a
+ * null-check expression instead of a standalone function call.
+ *
+ * - `"null-check-apply"`: `opt != null ? fn(opt) : null` (map, flatMap)
+ * - `"null-check-predicate"`: `opt != null && pred(opt) ? opt : null` (filter)
+ * - `"null-coalesce-call"`: `opt != null ? opt : defaultFn()` (getOrElse)
+ * - `"null-coalesce-value"`: `opt != null ? opt : defaultVal` (getOrElseStrict)
+ * - `"fold"`: `opt != null ? onSome(opt) : onNone()` (fold, match)
+ */
+export interface MethodInlinePattern {
+  readonly kind:
+    | "null-check-apply"
+    | "null-check-predicate"
+    | "null-coalesce-call"
+    | "null-coalesce-value"
+    | "fold";
+}
+
 // ---------------------------------------------------------------------------
 // TypeRewriteEntry
 // ---------------------------------------------------------------------------
@@ -122,6 +141,13 @@ export interface TypeRewriteEntry {
    * When `true`, the transformer skips rewriting inside {@link sourceModule}.
    */
   readonly transparent?: boolean;
+
+  /**
+   * Method name → inline pattern for zero-cost method erasure.
+   * When present, the transformer inlines the method body as a null-check
+   * expression instead of emitting a standalone function call.
+   */
+  readonly methodInlines?: ReadonlyMap<string, MethodInlinePattern>;
 }
 
 // ---------------------------------------------------------------------------

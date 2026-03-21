@@ -324,9 +324,6 @@ const a: Vec2 = { x: 1, y: 2 };
 const b: Vec2 = { x: 3, y: 4 };
 const c = a + b;  // Compiles to: { x: a.x + b.x, y: a.y + b.y }
 
-// Custom operators for domain-specific types
-@operators({ "*": "scale" })
-class Matrix { /* ... */ }
 ```
 
 ### Effect-TS Integration

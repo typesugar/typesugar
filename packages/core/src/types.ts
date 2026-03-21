@@ -6,69 +6,6 @@ import * as ts from "typescript";
 import type { MacroExpansionCache } from "./cache.js";
 
 // ============================================================================
-// Operator Symbol Types (for Op<> typeclass method annotations)
-// ============================================================================
-
-/**
- * List of operators that can be mapped via typeclass method Op<> annotations.
- * These are binary operators that the transformer can rewrite.
- */
-export const OPERATOR_SYMBOLS = [
-  "+",
-  "-",
-  "*",
-  "/",
-  "%",
-  "**",
-  "<",
-  "<=",
-  ">",
-  ">=",
-  "==",
-  "===",
-  "!=",
-  "!==",
-  "&",
-  "|",
-  "^",
-  "<<",
-  ">>",
-] as const;
-
-/** Union type of all supported operator strings. */
-export type OperatorSymbol = (typeof OPERATOR_SYMBOLS)[number];
-
-/**
- * Branded intersection type used as a compile-time marker on typeclass method
- * return types to declare operator mappings.
- *
- * @deprecated Use JSDoc `@op` tags instead. They don't require the preprocessor
- * and provide better tooling support:
- *
- * ```typescript
- * /** @typeclass *\/
- * interface Numeric<A> {
- *   /** @op + *\/
- *   add(a: A, b: A): A;
- *   /** @op - *\/
- *   sub(a: A, b: A): A;
- *   /** @op * *\/
- *   mul(a: A, b: A): A;
- * }
- * ```
- *
- * Legacy syntax (still supported for backwards compatibility):
- * ```typescript
- * interface Numeric<A> {
- *   add(a: A, b: A): A & Op<"+">;
- * }
- * ```
- *
- * The transformer strips `Op<>` from emitted code — it has zero runtime cost.
- */
-export type Op<_S extends OperatorSymbol> = {};
-
-// ============================================================================
 // Macro Kinds
 // ============================================================================
 

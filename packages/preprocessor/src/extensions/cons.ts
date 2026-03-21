@@ -2,12 +2,12 @@
  * Cons operator extension: ::
  *
  * Transforms: head :: tail
- * To: __binop__(head, "::", tail)
+ * To: __cons__(head, tail)
  *
  * Chained: 1 :: 2 :: []
- * To: __binop__(1, "::", __binop__(2, "::", []))  (right-associative)
+ * To: __cons__(1, __cons__(2, []))  (right-associative)
  *
- * The __binop__ function is resolved by the macro transformer based on the
+ * The __cons__ macro is resolved by the transformer based on the
  * operand types:
  * - If the type has @operator('::') → rewrite to method call
  * - Default fallback: [head, ...tail] (array cons semantics)
@@ -25,7 +25,7 @@ export const consExtension: CustomOperatorExtension = {
   associativity: "right",
 
   transform(left: string, right: string): string {
-    return `__binop__(${left}, "::", ${right})`;
+    return `__cons__(${left}, ${right})`;
   },
 };
 

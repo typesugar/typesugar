@@ -264,3 +264,6 @@ export function __typesugar_createStateMachineInstance<
 export function register(): void {
   globalRegistry.register(stateMachineMacro);
 }
+
+// Auto-register on import
+register();

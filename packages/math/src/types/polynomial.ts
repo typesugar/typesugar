@@ -23,7 +23,6 @@
  */
 
 import type { Numeric, Fractional } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 
 // ============================================================================
 // Type Definition
@@ -441,9 +440,9 @@ const numericNumberLocal: Numeric<number> = {
  */
 export function numericPolynomial<F>(N: Numeric<F>): Numeric<Polynomial<F>> {
   return {
-    add: (a, b) => addPoly(a, b, N) as Polynomial<F> & Op<"+">,
-    sub: (a, b) => subPoly(a, b, N) as Polynomial<F> & Op<"-">,
-    mul: (a, b) => mulPoly(a, b, N) as Polynomial<F> & Op<"*">,
+    add: (a, b) => addPoly(a, b, N),
+    sub: (a, b) => subPoly(a, b, N),
+    mul: (a, b) => mulPoly(a, b, N),
     div: (_a, _b) => {
       throw new RangeError("Polynomial division requires Euclidean division (use divPoly)");
     },
@@ -451,7 +450,7 @@ export function numericPolynomial<F>(N: Numeric<F>): Numeric<Polynomial<F>> {
       const n = N.toNumber(b.coeffs.length > 0 ? b.coeffs[0] : N.zero());
       let result: Polynomial<F> = onePoly(N);
       for (let i = 0; i < Math.round(Math.abs(n)); i++) result = mulPoly(result, a, N);
-      return result as Polynomial<F> & Op<"**">;
+      return result;
     },
     negate: (a) => negatePoly(a, N),
     abs: (a) => a, // no meaningful abs for polynomials

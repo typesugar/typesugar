@@ -75,7 +75,7 @@ export class MacroSemanticTokensProvider implements vscode.DocumentSemanticToken
     const labelNames = this.manifest.labeledBlockLabels;
 
     const visit = (node: ts.Node): void => {
-      // --- Expression macros: comptime(...), ops(...), Do(...) ---
+      // --- Expression macros: comptime(...), pipe(...), Do(...) ---
       if (
         ts.isCallExpression(node) &&
         ts.isIdentifier(node.expression) &&
@@ -101,7 +101,7 @@ export class MacroSemanticTokensProvider implements vscode.DocumentSemanticToken
         this.pushToken(builder, sourceFile, node.tag, "macroTemplate", TokenModIndex.macro);
       }
 
-      // --- Decorator macros: @derive(...), @operators(...) ---
+      // --- Decorator macros: @derive(...), @typeclass(...) ---
       if (ts.isDecorator(node)) {
         const name = this.getDecoratorName(node);
         if (name && decoratorNames.has(name.text)) {

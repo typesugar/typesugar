@@ -21,7 +21,7 @@ This package provides implementations for:
 - **Specialization**: `specialize()`, `inlineMethod()`
 - **Compile-time evaluation**: `comptime()`
 - **Reflection**: `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`
-- **Operators**: `@operators`, `ops()`, `pipe()`, `compose()`
+- **Operators**: `@op` JSDoc on typeclass methods, `pipe()`, `compose()`
 - **HKT support**: `@hkt`, HKT parameter transformation
 - **Conditional compilation**: `cfg()`, `@cfgAttr`
 - **Static assertions**: `staticAssert()`, `compileError()`, `compileWarning()`

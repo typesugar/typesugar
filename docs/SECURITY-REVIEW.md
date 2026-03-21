@@ -304,7 +304,7 @@ Formalize the existing progressive disclosure as security tiers:
 
 | Tier                     | Macros                                        | Capabilities                                  | Trust Level            |
 | ------------------------ | --------------------------------------------- | --------------------------------------------- | ---------------------- |
-| **Tier 0: Pure**         | `specialize`, `@operators`, `@tailrec`        | AST→AST only. No type checker, no file IO     | Any package            |
+| **Tier 0: Pure**         | `specialize`, `@tailrec`                      | AST→AST only. No type checker, no file IO     | Any package            |
 | **Tier 1: Type-Aware**   | `@derive`, `summon`, `@typeclass`             | Type checker queries. No file IO, no code gen | Any package            |
 | **Tier 2: Code Gen**     | `@reflect`, `quote()`, `defineSyntaxMacro`    | AST construction, hygiene system              | Audited packages       |
 | **Tier 3: IO**           | `comptime({fs})`, `includeStr`, `includeJson` | File system, environment                      | First-party only       |

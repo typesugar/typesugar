@@ -271,7 +271,6 @@ describe("Built-in macros have module field", () => {
     // Import the macros to trigger registration
     const {
       comptimeMacro,
-      opsMacro,
       pipeMacro,
       composeMacro,
       typeInfoMacro,
@@ -285,7 +284,6 @@ describe("Built-in macros have module field", () => {
 
     for (const macro of [
       comptimeMacro,
-      opsMacro,
       pipeMacro,
       composeMacro,
       typeInfoMacro,
@@ -303,16 +301,10 @@ describe("Built-in macros have module field", () => {
   });
 
   it("should have module set on all core attribute macros", async () => {
-    const {
-      operatorsAttribute,
-      reflectAttribute,
-      typeclassAttribute,
-      instanceAttribute,
-      derivingAttribute,
-    } = await import("@typesugar/macros");
+    const { reflectAttribute, typeclassAttribute, instanceAttribute, derivingAttribute } =
+      await import("@typesugar/macros");
 
     for (const macro of [
-      operatorsAttribute,
       reflectAttribute,
       typeclassAttribute,
       instanceAttribute,

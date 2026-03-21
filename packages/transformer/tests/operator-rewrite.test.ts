@@ -52,8 +52,12 @@ const c = a + b;
     `.trim();
 
     const result = transformCode(code, { fileName: "op-source-add.ts" });
-    expect(result.code).toContain("numericPoint.add");
+    // After operator rewrite + auto-inlining, the expression is fully expanded
     expect(result.code).not.toContain("a + b");
+    // Should contain either inlined body or the instance call
+    expect(result.code.includes("numericPoint.add") || result.code.includes("a.x + b.x")).toBe(
+      true
+    );
   });
 
   it("rewrites a === b using @op annotation for Eq", () => {
@@ -78,8 +82,11 @@ const c = a === b;
     `.trim();
 
     const result = transformCode(code, { fileName: "op-source-eq.ts" });
-    expect(result.code).toContain("eqPoint.equals");
     expect(result.code).not.toContain("a === b");
+    // Should contain either inlined body or the instance call
+    expect(result.code.includes("eqPoint.equals") || result.code.includes("a.x === b.x")).toBe(
+      true
+    );
   });
 
   it("rewrites comparison operators using @op annotation for Ord", () => {
@@ -108,8 +115,9 @@ const c = a < b;
     `.trim();
 
     const result = transformCode(code, { fileName: "op-source-ord.ts" });
-    expect(result.code).toContain("ordPoint.lt");
     expect(result.code).not.toContain("a < b");
+    // Should contain either inlined body or the instance call
+    expect(result.code.includes("ordPoint.lt") || result.code.includes("a.x < b.x")).toBe(true);
   });
 
   it("leaves plain number + number alone (primitives are skipped)", () => {

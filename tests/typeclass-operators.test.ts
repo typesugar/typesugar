@@ -1,12 +1,12 @@
 /**
- * Tests for typeclass-based operator overloading via Op<> annotations.
+ * Tests for typeclass-based operator overloading via @op JSDoc annotations.
  *
  * Tests:
- * 1. Op<> extraction from return types
+ * 1. getOperatorString — SyntaxKind to string mapping
  * 2. Syntax registry population
  * 3. Operator → method resolution
- * 4. Ambiguity detection
- * 5. OPERATOR_SYMBOLS and OperatorSymbol definitions
+ * 4. TypeclassMethod.operatorSymbol field
+ * 5. TypeclassInfo.syntax field
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -17,51 +17,11 @@ import {
   registerTypeclassSyntax,
   getSyntaxForOperator,
   clearSyntaxRegistry,
-  extractOpFromReturnType,
   type TypeclassInfo,
   type TypeclassMethod,
   type SyntaxEntry,
 } from "@typesugar/macros";
 import { getOperatorString } from "@typesugar/macros";
-import { OPERATOR_SYMBOLS, type OperatorSymbol } from "@typesugar/core";
-
-// ============================================================================
-// OPERATOR_SYMBOLS and OperatorSymbol
-// ============================================================================
-
-describe("OPERATOR_SYMBOLS", () => {
-  it("should contain all standard arithmetic operators", () => {
-    expect(OPERATOR_SYMBOLS).toContain("+");
-    expect(OPERATOR_SYMBOLS).toContain("-");
-    expect(OPERATOR_SYMBOLS).toContain("*");
-    expect(OPERATOR_SYMBOLS).toContain("/");
-    expect(OPERATOR_SYMBOLS).toContain("%");
-    expect(OPERATOR_SYMBOLS).toContain("**");
-  });
-
-  it("should contain all comparison operators", () => {
-    expect(OPERATOR_SYMBOLS).toContain("<");
-    expect(OPERATOR_SYMBOLS).toContain("<=");
-    expect(OPERATOR_SYMBOLS).toContain(">");
-    expect(OPERATOR_SYMBOLS).toContain(">=");
-    expect(OPERATOR_SYMBOLS).toContain("==");
-    expect(OPERATOR_SYMBOLS).toContain("===");
-    expect(OPERATOR_SYMBOLS).toContain("!=");
-    expect(OPERATOR_SYMBOLS).toContain("!==");
-  });
-
-  it("should contain bitwise operators", () => {
-    expect(OPERATOR_SYMBOLS).toContain("&");
-    expect(OPERATOR_SYMBOLS).toContain("|");
-    expect(OPERATOR_SYMBOLS).toContain("^");
-    expect(OPERATOR_SYMBOLS).toContain("<<");
-    expect(OPERATOR_SYMBOLS).toContain(">>");
-  });
-
-  it("should have exactly 19 operators", () => {
-    expect(OPERATOR_SYMBOLS).toHaveLength(19);
-  });
-});
 
 // ============================================================================
 // getOperatorString — SyntaxKind to string
@@ -85,7 +45,29 @@ describe("getOperatorString", () => {
     expect(getOperatorString(ts.SyntaxKind.PlusEqualsToken)).toBeUndefined();
   });
 
-  it("should cover every OPERATOR_SYMBOL", () => {
+  it("should cover all overloadable operator symbols", () => {
+    const expectedOperators = [
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      "**",
+      "<",
+      "<=",
+      ">",
+      ">=",
+      "==",
+      "===",
+      "!=",
+      "!==",
+      "&",
+      "|",
+      "^",
+      "<<",
+      ">>",
+    ];
+
     const syntaxKinds: ts.SyntaxKind[] = [
       ts.SyntaxKind.PlusToken,
       ts.SyntaxKind.MinusToken,
@@ -110,8 +92,8 @@ describe("getOperatorString", () => {
 
     const mapped = syntaxKinds.map(getOperatorString).filter((s): s is string => s !== undefined);
 
-    expect(mapped).toHaveLength(OPERATOR_SYMBOLS.length);
-    for (const sym of OPERATOR_SYMBOLS) {
+    expect(mapped).toHaveLength(expectedOperators.length);
+    for (const sym of expectedOperators) {
       expect(mapped).toContain(sym);
     }
   });
@@ -249,71 +231,6 @@ describe("TypeclassInfo.syntax", () => {
   });
 });
 
-// ============================================================================
-// extractOpFromReturnType — AST-level Op<> extraction
-// ============================================================================
-
-describe("extractOpFromReturnType", () => {
-  function parseReturnType(code: string): ts.TypeNode | undefined {
-    const src = ts.createSourceFile("test.ts", `type T = ${code};`, ts.ScriptTarget.Latest, true);
-    const stmt = src.statements[0];
-    if (ts.isTypeAliasDeclaration(stmt)) {
-      return stmt.type;
-    }
-    return undefined;
-  }
-
-  it("should return undefined operatorSymbol for plain types", () => {
-    const typeNode = parseReturnType("string");
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBeUndefined();
-    expect(result.cleanReturnType).toBe("string");
-  });
-
-  it("should return undefined operatorSymbol for undefined input", () => {
-    const result = extractOpFromReturnType(undefined);
-    expect(result.operatorSymbol).toBeUndefined();
-    expect(result.cleanReturnType).toBe("void");
-  });
-
-  it('should extract operator from A & Op<"+">', () => {
-    const typeNode = parseReturnType('A & Op<"+">');
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBe("+");
-    expect(result.cleanReturnType).toBe("A");
-  });
-
-  it('should extract operator from boolean & Op<"===">', () => {
-    const typeNode = parseReturnType('boolean & Op<"===">');
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBe("===");
-    expect(result.cleanReturnType).toBe("boolean");
-  });
-
-  it("should reject invalid operator symbols", () => {
-    const typeNode = parseReturnType('A & Op<"invalid">');
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBeUndefined();
-  });
-
-  it("should handle intersection types without Op<>", () => {
-    const typeNode = parseReturnType("A & B");
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBeUndefined();
-    expect(result.cleanReturnType).toBe("A & B");
-  });
-
-  it("should handle intersection with Op<> and other types", () => {
-    const typeNode = parseReturnType('A & Serializable & Op<"*">');
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBe("*");
-    expect(result.cleanReturnType).toBe("A & Serializable");
-  });
-
-  it("should extract ** operator", () => {
-    const typeNode = parseReturnType('number & Op<"**">');
-    const result = extractOpFromReturnType(typeNode);
-    expect(result.operatorSymbol).toBe("**");
-    expect(result.cleanReturnType).toBe("number");
-  });
-});
+// extractOpFromReturnType — Op<> was removed; operator dispatch now uses @op JSDoc only.
+// Tests for Op<> parsing have been removed.
+// The syntax registry and @op JSDoc extraction are tested elsewhere.

@@ -9,7 +9,7 @@
  * TypeScript is stubbed out (see esbuild-ts-stub-plugin) so macro expand()
  * functions don't work, but runtime APIs (constructors, guards, etc.) do.
  *
- * Packages with heavy macro-only deps (math, testing, effect) are excluded.
+ * Packages with heavy macro-only deps (effect) are excluded.
  */
 
 const modules: Record<string, Record<string, unknown>> = {};
@@ -34,7 +34,11 @@ import * as typeclass from "@typesugar/typeclass";
 register("@typesugar/typeclass", () => typeclass);
 
 import * as fp from "@typesugar/fp";
+import * as fpOption from "../../fp/src/data/option.js";
+import * as fpEither from "../../fp/src/data/either.js";
 register("@typesugar/fp", () => fp);
+register("@typesugar/fp/data/option", () => fpOption as unknown as Record<string, unknown>);
+register("@typesugar/fp/data/either", () => fpEither as unknown as Record<string, unknown>);
 
 import * as std from "@typesugar/std";
 register("@typesugar/std", () => std);
@@ -63,7 +67,13 @@ register("@typesugar/parser", () => parser);
 import * as symbolic from "@typesugar/symbolic";
 register("@typesugar/symbolic", () => symbolic);
 
+import * as testing from "@typesugar/testing";
+register("@typesugar/testing", () => testing);
+
 import * as mapper from "@typesugar/mapper";
 register("@typesugar/mapper", () => mapper);
+
+import * as math from "@typesugar/math";
+register("@typesugar/math", () => math);
 
 (globalThis as Record<string, unknown>).__typesugar_modules = modules;

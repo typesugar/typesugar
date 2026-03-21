@@ -1,34 +1,44 @@
-//! Power Assert & Static Assert
-//! Sub-expression capture on failure + compile-time proofs
+//! Power Assert
+//! Sub-expression capture turns "expected true, got false" into real diagnostics
 
-import { comptime, staticAssert, pipe } from "typesugar";
+import { assert } from "@typesugar/testing";
+import { staticAssert, comptime } from "typesugar";
 
-// @typesugar/testing's assert() captures every sub-expression on failure.
-// staticAssert() proves invariants at BUILD time then vanishes from output.
+// assert() captures every sub-expression on failure.
+// 👀 Check JS Output — the transformer instruments the assertion!
 
+const users = ["alice", "bob", "charlie"];
+const admins = ["alice"];
+
+assert(users.length > 0, "need users");
+assert(admins.length <= users.length);
+
+// Runtime assertions that actually execute:
+const inventory = { apples: 5, oranges: 3, bananas: 0 };
+assert(inventory.apples + inventory.oranges > 0);
+assert(inventory.apples !== inventory.oranges);
+
+console.log("users:", users.length, "admins:", admins.length);
+console.log("inventory:", inventory);
+
+// staticAssert() proves things at compile time — completely erased from output
 const API_VERSION = "v3";
-const MAX_RETRIES = 5;
-const SUPPORTED = comptime(() => ["json", "xml", "csv"]);
+const FORMATS = comptime(() => ["json", "xml", "csv"]);
 
-// 👀 Check JS Output — all staticAssert lines are GONE!
 staticAssert(API_VERSION.startsWith("v"), "version must start with 'v'");
-staticAssert(MAX_RETRIES >= 1 && MAX_RETRIES <= 10, "retries must be 1-10");
-staticAssert(SUPPORTED.length > 0, "need at least one format");
-staticAssert(SUPPORTED.includes("json"), "json support required");
+staticAssert(FORMATS.includes("json"), "json support required");
 
-// pipe() inlines to nested calls
-const formatList = pipe(SUPPORTED, a => a.map(s => s.toUpperCase()), a => a.join(", "));
+console.log("api:", API_VERSION, "formats:", FORMATS.join(", "));
+console.log("all assertions passed!");
 
-console.log("api:", API_VERSION, "retries:", MAX_RETRIES);
-console.log("formats:", formatList);  // "JSON, XML, CSV"
+// Uncomment to see power-assert diagnostics:
+// assert(users.length === admins.length);
+//   Power Assert Output:
+//   assert(users.length === admins.length)
+//          |     |      |   |       |
+//          |     3      |   |       1
+//          |            |   ["alice"]
+//          |          false
+//          ["alice","bob","charlie"]
 
-// Power assert failure output (when transformer is active):
-//   assert(users.length === filtered.length)
-//     users.length === filtered.length → false
-//     users.length → 5
-//     filtered.length → 3
-// Every sub-expression captured — no more "expected true, got false"!
-
-console.log("all compile-time assertions passed!");
-
-// Try: change MAX_RETRIES to 0 and see the compile error
+// Try: change admins to have more entries than users and watch it fail

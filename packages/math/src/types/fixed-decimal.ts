@@ -22,7 +22,6 @@
 
 import type { Numeric, Integral, Ord } from "@typesugar/std";
 import { makeOrd } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 import { roundBigInt, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
 
 /**
@@ -507,14 +506,14 @@ export function fixedNumeric<N extends number>(
   mode: RoundingMode = DEFAULT_ROUNDING_MODE
 ): Numeric<FixedDecimal<N>> {
   return {
-    add: (a, b) => fixedAdd(a, b) as FixedDecimal<N> & Op<"+">,
-    sub: (a, b) => fixedSub(a, b) as FixedDecimal<N> & Op<"-">,
-    mul: (a, b) => fixedMul(a, b, scale, mode) as FixedDecimal<N> & Op<"*">,
-    div: (a, b) => fixedDiv(a, b, scale, mode) as FixedDecimal<N> & Op<"/">,
+    add: (a, b) => fixedAdd(a, b),
+    sub: (a, b) => fixedSub(a, b),
+    mul: (a, b) => fixedMul(a, b, scale, mode),
+    div: (a, b) => fixedDiv(a, b, scale, mode),
     pow: (a, b) => {
       const n = Number(b / 10n ** BigInt(scale));
       const intN = Math.round(n);
-      if (intN === 0) return fixedOne(scale) as FixedDecimal<N> & Op<"**">;
+      if (intN === 0) return fixedOne(scale);
       let result = fixedOne(scale) as FixedDecimal<N>;
       for (let i = 0; i < Math.abs(intN); i++) {
         result = fixedMul(
@@ -524,7 +523,7 @@ export function fixedNumeric<N extends number>(
           mode
         );
       }
-      return result as FixedDecimal<N> & Op<"**">;
+      return result;
     },
     negate: fixedNegate,
     abs: fixedAbs,
@@ -544,8 +543,8 @@ export function fixedIntegral<N extends number>(
   mode: RoundingMode = DEFAULT_ROUNDING_MODE
 ): Integral<FixedDecimal<N>> {
   return {
-    div: (a, b) => fixedDiv(a, b, scale, mode) as FixedDecimal<N> & Op<"/">,
-    mod: (a, b) => fixedMod(a, b) as FixedDecimal<N> & Op<"%">,
+    div: (a, b) => fixedDiv(a, b, scale, mode),
+    mod: (a, b) => fixedMod(a, b),
     quot: fixedQuot,
     rem: fixedMod,
     divMod: (a, b) => [fixedQuot(a, b), fixedMod(a, b)],
@@ -564,7 +563,6 @@ export function fixedEq<N extends number>(): Eq<FixedDecimal<N>> {
 
 /**
  * Create an Ord typeclass instance for FixedDecimal<N>.
- * Uses makeOrd to generate all Op<>-annotated comparison methods.
  */
 export function fixedOrd<N extends number>(): Ord<FixedDecimal<N>> {
   return makeOrd(fixedCompare);

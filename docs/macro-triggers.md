@@ -16,7 +16,7 @@ The transformer recognizes several distinct trigger patterns:
 | Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                   |
 | HKT Syntax          | `TypeParameter`            | `F<_>`                    | Auto-detected                                 |
 | Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                          |
-| Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `& Op<"+">`                               |
+| Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `@op` JSDoc on typeclass methods          |
 | Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                         |
 | Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`                          |
 
@@ -74,10 +74,7 @@ interface Show<A> {
   show(a: A): string;
 }
 
-@operators({ "+": "add", "*": "mul" })
-class Vector {
-  add(other: Vector): Vector { ... }
-}
+// Operator overloading via @op JSDoc on typeclass methods
 
 @instance("Show<Point>")
 const showPoint = {

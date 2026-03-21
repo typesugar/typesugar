@@ -29,13 +29,13 @@ The framework for ad-hoc polymorphism:
 
 New language features — the "typesugar" in typesugar:
 
-| Guide                                                   | Description                                      |
-| ------------------------------------------------------- | ------------------------------------------------ |
-| [Operators](./operators.md)                             | Custom operators with `@operators()` and `ops()` |
-| [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units            |
-| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates                 |
-| [Compile-Time Eval](./comptime.md)                      | Run code at build time with `comptime()`         |
-| [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`        |
+| Guide                                                   | Description                                               |
+| ------------------------------------------------------- | --------------------------------------------------------- |
+| [Operators](./operators.md)                             | Operator overloading via `@op` JSDoc on typeclass methods |
+| [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units                     |
+| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates                          |
+| [Compile-Time Eval](./comptime.md)                      | Run code at build time with `comptime()`                  |
+| [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`                 |
 
 ## Type Safety & Contracts
 
@@ -106,8 +106,8 @@ import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";
 // Typeclasses
 import { typeclass, instance, derive, summon } from "@typesugar/typeclass";
 
-// Operators (legacy pattern, prefer Op<> typeclass)
-import { operators, ops, pipe } from "typesugar";
+// Operators (pipe, compose)
+import { pipe, compose } from "typesugar";
 
 // Compile-time
 import { comptime, includeStr, staticAssert } from "@typesugar/macros";
@@ -132,8 +132,6 @@ import { assert, staticAssert, typeAssert, forAll } from "@typesugar/testing";
 | `comptime()`    | `@typesugar/macros`    | Expression      |
 | `@derive()`     | `@typesugar/derive`    | Attribute       |
 | `@typeclass`    | `@typesugar/typeclass` | Attribute       |
-| `@operators()`  | `typesugar` (legacy)   | Attribute       |
-| `ops()`         | `typesugar` (legacy)   | Expression      |
 | `summon<T>()`   | `@typesugar/typeclass` | Expression      |
 | `match()`       | `@typesugar/std`       | Expression      |
 | `sql`           | `@typesugar/sql`       | Tagged Template |

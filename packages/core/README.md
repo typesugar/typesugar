@@ -56,7 +56,7 @@ typesugar supports six kinds of macros:
 | Kind                | Interface                | Trigger           | Example                        |
 | ------------------- | ------------------------ | ----------------- | ------------------------------ |
 | **Expression**      | `ExpressionMacro`        | Function call     | `comptime(() => 1 + 1)`        |
-| **Attribute**       | `AttributeMacro`         | Decorator         | `@operators class Vec { }`     |
+| **Attribute**       | `AttributeMacro`         | Decorator         | `@typeclass`, `@derive`        |
 | **Derive**          | `DeriveMacro`            | `@derive(Name)`   | `@derive(Eq, Clone)`           |
 | **Tagged Template** | `TaggedTemplateMacroDef` | Tagged template   | `` sql`SELECT * FROM users` `` |
 | **Type**            | `TypeMacro`              | Type reference    | `type X = Add<1, 2>`           |

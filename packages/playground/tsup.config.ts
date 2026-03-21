@@ -9,6 +9,7 @@ const runtimePackages = [
   "@typesugar/fp",
   "@typesugar/graph",
   "@typesugar/mapper",
+  "@typesugar/math",
   "@typesugar/parser",
   "@typesugar/std",
   "@typesugar/symbolic",

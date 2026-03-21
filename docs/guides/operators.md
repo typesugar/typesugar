@@ -2,12 +2,12 @@
 
 typesugar provides operator overloading through two mechanisms:
 
-1. **Op\<\> typeclass return types (recommended)** — Operators automatically dispatch to typeclass methods
-2. **`@operators()` and `ops()` (legacy)** — Explicit wrapper for class-specific operators
+1. **`@op` JSDoc on typeclass methods (standard operators)** — `+`, `-`, `*`, `/`, `===`, etc. dispatch to typeclass methods
+2. **Preprocessor (`|>`, `::`, `<|`)** — Custom operators rewritten to `__binop__()` calls, resolved via typeclass `@op` or hardcoded defaults
 
-## Recommended: Op\<\> Typeclass Approach
+## Standard Operators via @op JSDoc
 
-The preferred way to enable operators is through typeclass instances with `Op<>` return types:
+The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures:
 
 ```typescript
 import { Numeric, numericRational, rational } from "@typesugar/std";
@@ -21,13 +21,19 @@ const product = a * b; // Compiles to: numericRational.mul(a, b)
 const comparison = a < b; // Compiles to: ordRational.compare(a, b) < 0
 ```
 
-Typeclasses define methods with `Op<>` return type annotations, which the transformer uses to dispatch operators:
+Typeclasses define methods with `@op` JSDoc tags, which the transformer uses to dispatch operators:
 
 ```typescript
+/** @typeclass */
 interface Numeric<A> {
-  add(a: A, b: A): A & Op<"+">; // a + b dispatches to add()
-  mul(a: A, b: A): A & Op<"*">; // a * b dispatches to mul()
-  // ...
+  /** @op + */
+  add(a: A, b: A): A;
+
+  /** @op * */
+  mul(a: A, b: A): A;
+
+  /** @op - */
+  sub(a: A, b: A): A;
 }
 ```
 
@@ -35,104 +41,56 @@ This approach is **zero-cost** — the operator is transformed directly to the m
 
 ---
 
-## Legacy: @operators() and ops()
-
-For class-specific operators without typeclasses, you can still use the legacy pattern:
-
-### Basic Usage
-
-```typescript
-import { operators, ops } from "typesugar";
-
-@operators({ "+": "add", "*": "scale", "==": "equals" })
-class Vec2 {
-  constructor(
-    public x: number,
-    public y: number
-  ) {}
-
-  add(other: Vec2): Vec2 {
-    return new Vec2(this.x + other.x, this.y + other.y);
-  }
-
-  scale(n: number): Vec2 {
-    return new Vec2(this.x * n, this.y * n);
-  }
-
-  equals(other: Vec2): boolean {
-    return this.x === other.x && this.y === other.y;
-  }
-}
-
-const a = new Vec2(1, 2);
-const b = new Vec2(3, 4);
-
-// Use ops() to enable operators
-const sum = ops(a + b); // → a.add(b)
-const scaled = ops(a * 2); // → a.scale(2)
-const equal = ops(a == b); // → a.equals(b)
-const complex = ops(a + b * 2); // → a.add(b.scale(2))
-```
-
 ## Supported Operators
 
 ### Arithmetic
 
-| Operator | Typical Method          | Example       |
-| -------- | ----------------------- | ------------- |
-| `+`      | `add`, `plus`           | `ops(a + b)`  |
-| `-`      | `sub`, `minus`          | `ops(a - b)`  |
-| `*`      | `mul`, `times`, `scale` | `ops(a * b)`  |
-| `/`      | `div`                   | `ops(a / b)`  |
-| `%`      | `mod`, `rem`            | `ops(a % b)`  |
-| `**`     | `pow`                   | `ops(a ** b)` |
+| Operator | Typical Method          | Example  |
+| -------- | ----------------------- | -------- |
+| `+`      | `add`, `plus`           | `a + b`  |
+| `-`      | `sub`, `minus`          | `a - b`  |
+| `*`      | `mul`, `times`, `scale` | `a * b`  |
+| `/`      | `div`                   | `a / b`  |
+| `%`      | `mod`, `rem`            | `a % b`  |
+| `**`     | `pow`                   | `a ** b` |
 
 ### Comparison
 
-| Operator | Typical Method              | Example       |
-| -------- | --------------------------- | ------------- |
-| `==`     | `equals`, `eq`              | `ops(a == b)` |
-| `!=`     | `notEquals`, `neq`          | `ops(a != b)` |
-| `<`      | `lessThan`, `lt`            | `ops(a < b)`  |
-| `<=`     | `lessThanOrEqual`, `lte`    | `ops(a <= b)` |
-| `>`      | `greaterThan`, `gt`         | `ops(a > b)`  |
-| `>=`     | `greaterThanOrEqual`, `gte` | `ops(a >= b)` |
+| Operator | Typical Method              | Example   |
+| -------- | --------------------------- | --------- |
+| `===`    | `equals`, `eq`              | `a === b` |
+| `!==`    | `notEquals`, `neq`          | `a !== b` |
+| `<`      | `lessThan`, `lt`            | `a < b`   |
+| `<=`     | `lessThanOrEqual`, `lte`    | `a <= b`  |
+| `>`      | `greaterThan`, `gt`         | `a > b`   |
+| `>=`     | `greaterThanOrEqual`, `gte` | `a >= b`  |
 
 ### Bitwise
 
-| Operator | Typical Method | Example       |
-| -------- | -------------- | ------------- |
-| `&`      | `and`          | `ops(a & b)`  |
-| `\|`     | `or`           | `ops(a \| b)` |
-| `^`      | `xor`          | `ops(a ^ b)`  |
-| `~`      | `not`          | `ops(~a)`     |
-| `<<`     | `shl`          | `ops(a << b)` |
-| `>>`     | `shr`          | `ops(a >> b)` |
+| Operator | Typical Method | Example  |
+| -------- | -------------- | -------- | --- | --- |
+| `&`      | `and`          | `a & b`  |
+| `        | `              | `or`     | `a  | b`  |
+| `^`      | `xor`          | `a ^ b`  |
+| `~`      | `not`          | `~a`     |
+| `<<`     | `shl`          | `a << b` |
+| `>>`     | `shr`          | `a >> b` |
 
 ## Operator Precedence
 
-ops() respects JavaScript operator precedence:
+Operators respect JavaScript operator precedence:
 
 ```typescript
-ops(a + b * c); // → a.add(b.mul(c))
-ops((a + b) * c); // → a.add(b).mul(c)
+a + b * c; // → add(a, mul(b, c))
+(a + b) * c; // → mul(add(a, b), c)
 ```
 
-## Mixed Types
+## Custom Operators (Preprocessor)
 
-Methods can accept different types:
+The preprocessor handles custom syntax (`|>`, `::`, `<|`) in `.sts` files. These are rewritten to `__binop__()` calls, which the transformer resolves via:
 
-```typescript
-@operators({ "*": "scale" })
-class Vec2 {
-  scale(n: number): Vec2 { ... }
-  // Also supports Vec2 * Vec2
-  scale(other: Vec2): Vec2 { ... }
-}
-
-ops(vec * 2)       // Vec2.scale(number)
-ops(vec * other)   // Vec2.scale(Vec2)
-```
+1. Typeclass `@op` annotations (e.g., `/** @op |> */` on a method)
+2. Hardcoded defaults (e.g., `|>` → `right(left)`)
 
 ## Pipe Operator
 
@@ -148,17 +106,6 @@ const result = pipe(
   (x) => x.toString()
 );
 // result: "11"
-```
-
-### With Custom Types
-
-```typescript
-const processed = pipe(
-  new Vec2(1, 1),
-  (v) => v.add(new Vec2(2, 2)),
-  (v) => v.scale(3),
-  (v) => v.toString()
-);
 ```
 
 ## Compose
@@ -178,97 +125,60 @@ h(5); // 12 (5 + 1 = 6, 6 * 2 = 12)
 ## Unary Operators
 
 ```typescript
-@operators({ "-": "negate", "!": "not" })
-class Complex {
-  negate(): Complex { ... }
-  not(): Complex { ... }
+/** @typeclass */
+interface Negate<A> {
+  /** @op - */
+  negate(a: A): A;
 }
-
-ops(-c)  // → c.negate()
-ops(!c)  // → c.not()
 ```
+
+When an instance exists, `-c` compiles to `negateInstance.negate(c)`.
 
 ## Comparison with @derive
 
-`@operators` and `@derive(Eq, Ord)` serve different purposes:
+`@op` and `@derive(Eq, Ord)` serve different purposes:
 
 ```typescript
 // @derive generates the implementation
 @derive(Eq, Ord)
 class Point { ... }
 
-// @operators maps syntax to existing methods
-@operators({ "==": "equals", "<": "lessThan" })
-class Point { ... }
-```
-
-You can use both:
-
-```typescript
-@derive(Eq, Ord)
-@operators({ "==": "equals", "<": "lessThan" })
-class Point {
-  constructor(
-    public x: number,
-    public y: number
-  ) {}
-}
-
-const p1 = new Point(1, 2);
-const p2 = new Point(3, 4);
-ops(p1 < p2); // true
+// @op maps syntax to existing methods on typeclass definitions
+@op is on the typeclass interface, not the class
 ```
 
 ## Type Safety
 
-ops() is fully type-checked:
+Operator dispatch is fully type-checked:
 
 ```typescript
-@operators({ "+": "add" })
-class Vec2 {
-  add(other: Vec2): Vec2 { ... }
-}
-
-ops(vec + 5);  // Type error: number not assignable to Vec2
+// If Vec2 has Numeric instance, vec + 5 fails if add expects (Vec2, Vec2)
+const sum = vec + other; // OK
+const bad = vec + 5; // Type error if add expects Vec2
 ```
 
 ## Performance
 
-ops() compiles away completely:
+Operators compile away completely:
 
 ```typescript
 // Source
-const result = ops(a + b * c);
+const result = a + b * c;
 
 // Compiled
-const result = a.add(b.mul(c));
+const result = numericInstance.add(a, numericInstance.mul(b, c));
 ```
 
 No runtime overhead.
 
 ## Limitations
 
-### What ops() Doesn't Support
+### What @op Doesn't Support
 
 - Assignment operators (`+=`, `-=`, etc.)
 - Increment/decrement (`++`, `--`)
 - Logical operators (`&&`, `||`)
 - Ternary operator (`? :`)
-
-### ops() Scope
-
-ops() only transforms the expression inside:
-
-```typescript
-// Only the ops() part is transformed
-const x = ops(a + b) + c; // → a.add(b) + c
-```
-
-To transform everything, nest or restructure:
-
-```typescript
-const x = ops(a + b + c); // → a.add(b).add(c)
-```
 
 ## Best Practices
 
@@ -277,10 +187,9 @@ const x = ops(a + b + c); // → a.add(b).add(c)
 - Use descriptive method names (`add`, `multiply`)
 - Keep operator semantics intuitive
 - Document what operators your type supports
-- Use ops() for math-heavy code
+- Use `@op` on typeclass methods for typeclass-based operator dispatch
 
 ### Don't
 
 - Overload operators with surprising behavior
-- Use ops() everywhere (only where it improves readability)
-- Forget that ops() is a macro (it must wrap the expression)
+- Use operators everywhere (only where they improve readability)

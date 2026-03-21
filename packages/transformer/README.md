@@ -91,7 +91,7 @@ The transformer processes TypeScript source files during compilation:
 | Type            | Trigger           | Example                        |
 | --------------- | ----------------- | ------------------------------ |
 | Expression      | Function call     | `comptime(() => 1 + 1)`        |
-| Attribute       | Decorator         | `@operators class Vec { }`     |
+| Attribute       | Decorator         | `@typeclass`, `@derive`        |
 | Derive          | `@derive()`       | `@derive(Eq, Clone)`           |
 | Tagged Template | Template literal  | `` sql`SELECT * FROM users` `` |
 | Type            | Type reference    | `type X = Add<1, 2>`           |

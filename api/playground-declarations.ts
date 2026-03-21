@@ -26,25 +26,26 @@ declare module "typesugar" {
   export function pipe(value: unknown, ...fns: Array<(x: unknown) => unknown>): unknown;
 
   export function compose<A, B, C>(bc: (b: B) => C, ab: (a: A) => B): (a: A) => C;
+  export function compose<A, B, C, D>(cd: (c: C) => D, bc: (b: B) => C, ab: (a: A) => B): (a: A) => D;
+  export function compose<A, B, C, D, E>(de: (d: D) => E, cd: (c: C) => D, bc: (b: B) => C, ab: (a: A) => B): (a: A) => E;
   export function flow<A, B, C>(ab: (a: A) => B, bc: (b: B) => C): (a: A) => C;
   export function flow<A, B, C, D>(ab: (a: A) => B, bc: (b: B) => C, cd: (c: C) => D): (a: A) => D;
   export function flow(...fns: Array<(x: unknown) => unknown>): (x: unknown) => unknown;
-
-  export function operators(config: Record<string, string>): ClassDecorator;
-  export function ops<T>(expr: T): T;
 
   export function derive(...traits: unknown[]): ClassDecorator;
   export function summon<TC>(...args: unknown[]): unknown;
   export function implicit<TC>(...args: unknown[]): unknown;
 
   export function specialize<F extends (...args: any[]) => any>(fn: F): F;
+  export function specialize<F extends (...args: any[]) => any>(fn: F, dictionary: unknown): F;
 
   export function reflect<T>(): unknown;
   export function typeInfo<T>(): { name: string; kind: string; fields?: Array<{ name: string; type: string }> };
   export function fieldNames<T>(): string[];
 
-  export function cfg(condition: boolean): void;
+  export function cfg<T>(condition: string, thenValue: T, elseValue?: T): T;
   export function tailrec<A, B>(fn: (recurse: (a: A) => B, a: A) => B): (a: A) => B;
+  export function tailrec(target: Function, context?: ClassMethodDecoratorContext): Function;
 
   export interface Eq<A> { eq(a: A, b: A): boolean; neq(a: A, b: A): boolean; equals?(a: A, b: A): boolean; notEquals?(a: A, b: A): boolean; }
   export namespace Eq { function registerInstance<T>(name: string, instance: unknown): void; }
@@ -157,10 +158,18 @@ declare module "@typesugar/fp" {
   export function isCons<A>(list: List<A>): boolean;
   export function isNil<A>(list: List<A>): boolean;
 
-  export type ValidatedNel<E, A> = { readonly _tag: "Valid"; readonly value: A } | { readonly _tag: "Invalid"; readonly error: readonly E[] };
+  export type NonEmptyList<A> = { readonly head: A; readonly tail: readonly A[] };
+  export function nonEmptyListOf<A>(head: A, ...rest: A[]): NonEmptyList<A>;
+
+  export type ValidatedNel<E, A> = { readonly _tag: "Valid"; readonly value: A } | { readonly _tag: "Invalid"; readonly error: NonEmptyList<E> };
   export function Validated<E, A>(value: A): ValidatedNel<E, A>;
   export function validNel<E, A>(value: A): ValidatedNel<E, A>;
   export function invalidNel<E, A>(error: E): ValidatedNel<E, A>;
+  export namespace Validated {
+    function mapN<E, A, B, R>(va: ValidatedNel<E, A>, vb: ValidatedNel<E, B>, f: (a: A, b: B) => R): ValidatedNel<E, R>;
+    function mapN<E, A, B, C, R>(va: ValidatedNel<E, A>, vb: ValidatedNel<E, B>, vc: ValidatedNel<E, C>, f: (a: A, b: B, c: C) => R): ValidatedNel<E, R>;
+    function mapN<E, A, B, C, D, R>(va: ValidatedNel<E, A>, vb: ValidatedNel<E, B>, vc: ValidatedNel<E, C>, vd: ValidatedNel<E, D>, f: (a: A, b: B, c: C, d: D) => R): ValidatedNel<E, R>;
+  }
 
   export function pipe<A>(a: A): A;
   export function pipe<A, B>(a: A, ab: (a: A) => B): B;
@@ -216,10 +225,25 @@ declare module "@typesugar/std" {
 
   export interface Eq<A> { eqv(a: A, b: A): boolean; eq(a: A, b: A): boolean; neq(a: A, b: A): boolean; equals?(a: A, b: A): boolean; }
   export interface Hash<A> { hash(a: A): number; }
+  /** @op + */ /** @op - */ /** @op * */ /** @op / */ /** @op ** */
+  export interface Numeric<A> {
+    add(a: A, b: A): A;
+    sub(a: A, b: A): A;
+    mul(a: A, b: A): A;
+    div(a: A, b: A): A;
+    pow(a: A, b: A): A;
+    negate(a: A): A;
+    abs(a: A): A;
+    signum(a: A): A;
+    fromNumber(n: number): A;
+    toNumber(a: A): number;
+    zero(): A;
+    one(): A;
+  }
   export const eqNumber: Eq<number>;
   export const eqString: Eq<string>;
   export const eqBoolean: Eq<boolean>;
-  export function hashNumber(a: number): number;
+  export const hashNumber: Hash<number>;
   export function makeEq<A>(fn: (a: A, b: A) => boolean): Eq<A>;
   export function makeHash<A>(fn: (a: A) => number): Hash<A>;
 }
@@ -254,6 +278,7 @@ declare module "@typesugar/collections" {
     constructor(eq: { eqv(a: K, b: K): boolean }, hash: { hash(a: K): number });
     get size(): number;
     get(k: K): V | undefined;
+    getOrElse(k: K, defaultValue: V): V;
     has(k: K): boolean;
     set(k: K, v: V): this;
     delete(k: K): boolean;
@@ -383,11 +408,16 @@ declare module "@typesugar/effect" {
 // @typesugar/math
 // ---------------------------------------------------------------------------
 declare module "@typesugar/math" {
+  import type { Numeric } from "@typesugar/std";
   export interface Rational { readonly num: bigint; readonly den: bigint; }
   export function rational(num: bigint, den: bigint): Rational;
   export function rat(num: number, den: number): Rational;
   export interface Complex { readonly re: number; readonly im: number; }
   export function complex(re: number, im: number): Complex;
+  export const numericComplex: Numeric<Complex>;
+  export function complexToString(z: Complex): string;
+  export function complexMagnitude(z: Complex): number;
+  export function complexEquals(a: Complex, b: Complex, epsilon?: number): boolean;
   export interface Matrix<R extends number, C extends number> { readonly rows: R; readonly cols: C; }
   export function matrix<R extends number, C extends number>(rows: R, cols: C, data: number[]): Matrix<R, C>;
   export interface Interval { readonly lo: number; readonly hi: number; }
@@ -398,6 +428,7 @@ declare module "@typesugar/math" {
 // @typesugar/symbolic
 // ---------------------------------------------------------------------------
 declare module "@typesugar/symbolic" {
+  import type { Numeric } from "@typesugar/std";
   export interface Expression<T = number> { readonly kind: string; }
   export function var_(name: string): Expression<number>;
   export function const_(value: number): Expression<number>;
@@ -412,6 +443,7 @@ declare module "@typesugar/symbolic" {
   export function evaluate(expr: Expression<number>, vars: Record<string, number>): number;
   export function toText(expr: Expression<number>): string;
   export function toLatex(expr: Expression<number>): string;
+  export const numericExpr: Numeric<Expression<number>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,4 +498,10 @@ declare module "@typesugar/type-system" {
 declare module "@typesugar/mapper" {
   export function createMapper<S, T>(mapping: Record<string, string | ((s: S) => any)>): (source: S) => T;
 }
+
+// ---------------------------------------------------------------------------
+// Runtime helpers emitted by compile-time macros
+// ---------------------------------------------------------------------------
+declare function __typesugar_createStateMachineInstance(def: any): any;
+declare const __typesugar_parser: { grammar(text: string): any };
 `;

@@ -85,9 +85,6 @@ extractTypeInfo;
 extensionAttribute; // @extension decorator
 // "use extension" directive (file-level)
 
-// Operators
-methodOperatorMappings;
-
 // And many more internal implementations...
 ```
 

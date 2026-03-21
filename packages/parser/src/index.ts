@@ -6,7 +6,7 @@
  * Provides:
  * - PEG grammar definitions via tagged templates or programmatic combinators
  * - Runtime parser generation (Phase 1)
- * - Compile-time inlined parser generation (Phase 2, future)
+ * - Compile-time inlined parser generation (Phase 2)
  *
  * @module
  */
@@ -46,6 +46,9 @@ export {
 
 // Grammar DSL
 export { parseGrammarDef, buildParser } from "./grammar.js";
+
+// Compile-time codegen (Phase 2)
+export { generateParserCode, resetVarCounter } from "./codegen.js";
 
 // Tagged template macro + runtime fallback
 export { grammarMacro, grammar, register } from "./grammar-macro.js";

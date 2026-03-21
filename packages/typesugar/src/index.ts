@@ -9,7 +9,7 @@
  *
  * ```ts
  * // Use built-in macros
- * import { derive, ops, pipe, compose } from "typesugar";
+ * import { derive, pipe, compose } from "typesugar";
  *
  * // Derive pattern implementations at compile time
  * @derive(Eq, Debug, Clone)
@@ -17,13 +17,13 @@
  *   constructor(public id: number, public name: string) {}
  * }
  *
- * // Operator overloading
- * @operators
- * class Vec2 {
- *   constructor(public x: number, public y: number) {}
- *   add(other: Vec2) { return new Vec2(this.x + other.x, this.y + other.y); }
+ * // Operator overloading via @op JSDoc on typeclasses
+ * /** @typeclass *\/
+ * interface Addable<A> {
+ *   /** @op + *\/
+ *   add(a: A, b: A): A;
  * }
- * const result = ops(v1 + v2); // Compiles to: v1.add(v2)
+ * // a + b compiles to: addableA.add(a, b)
  *
  * // Function composition
  * const process = pipe(
@@ -96,16 +96,10 @@ export {
   // Derive
   derive,
   // Operators
-  operators,
-  ops,
   pipe,
   compose,
   flow,
-  // Operator registration and lookup
-  registerOperators,
-  getOperatorMethod,
   getOperatorString,
-  clearOperatorMappings,
   // Specialize
   specialize,
   // Reflect
@@ -148,11 +142,8 @@ export { reflectNs as reflectNamespace };
 import * as deriveNs from "@typesugar/derive";
 export { deriveNs as deriveNamespace };
 
-// Operator overloading (@operators, ops, pipe, compose)
-// Note: The legacy @operators/ops() pattern is deprecated in favor of Op<> typeclass returns
-// Main exports (operators, ops, pipe, compose, flow, registerOperators, etc.) are already
-// exported above from @typesugar/macros. These additional exports are for the macro definitions.
-export { operatorsAttribute, opsMacro, pipeMacro, composeMacro } from "@typesugar/macros";
+// Functional composition
+export { pipeMacro, composeMacro } from "@typesugar/macros";
 
 // Scala 3-style typeclasses (@typeclass, @impl, @derive, summon, extend)
 import * as typeclassNs from "@typesugar/typeclass";

@@ -7,7 +7,6 @@
  * - **Bridge modules**: Integration with @typesugar/units
  *
  * All types implement the standard typeclasses from @typesugar/std (Numeric, Fractional, etc.)
- * with Op<> operator support.
  *
  * @example
  * ```typescript

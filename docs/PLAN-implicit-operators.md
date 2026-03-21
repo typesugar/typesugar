@@ -1,12 +1,10 @@
-# Plan: Typeclass-Based Operator Overloading — `Op<>` Design
+# Plan: Typeclass-Based Operator Overloading — `@op` JSDoc Design
 
 ## Status: IMPLEMENTED (Superseded by PEP-004)
 
 The core infrastructure is implemented. This document describes the design and implementation.
 
-> **Note:** The `Op<>` return type syntax is now deprecated in favor of `@op` JSDoc annotations
-> on typeclass methods. See [PEP-004](./PEP-004-source-based-typeclass-features.md) for the
-> migration path. The `registerTypeclassSyntax()` function is no longer exported publicly.
+> **Note:** The only operator mechanism is `@op` JSDoc tags on typeclass method signatures. `Op<>`, `ops()`, `@operators`, and `@operator` have been removed.
 
 ## The Cats/Scala Model
 
@@ -79,7 +77,7 @@ At compile time we know everything:
 
 1. Which operator is used
 2. The type of the operands
-3. Which typeclass provides the syntax via `Op<>`
+3. Which typeclass provides the syntax via `@op` JSDoc
 4. Which instance exists for that type
 5. The body of the instance method
 
@@ -135,11 +133,11 @@ interface TypeclassMethod {
   params: Array<{ name: string; typeString: string }>;
   returnType: string;
   isSelfMethod: boolean;
-  operatorSymbol?: string; // From Op<> annotation
+  operatorSymbol?: string; // From @op JSDoc annotation
 }
 ```
 
-### Op<> Parsing (`src/macros/typeclass.ts`)
+### @op Parsing (`src/macros/typeclass.ts`)
 
 `extractOpFromReturnType(typeNode)` walks intersection types looking for
 `Op<S>` members. Returns `{ operatorSymbol, cleanReturnType }`.
@@ -151,7 +149,7 @@ the interface. Populates `TypeclassMethod.operatorSymbol` and builds the
 ### Interface Stripping (`src/macros/typeclass.ts`)
 
 `stripOpFromInterface(ctx, iface)` produces a clean interface for emitted
-code with `Op<>` removed from all return types.
+code with `@op` JSDoc on method signatures.
 
 ### Syntax Registry (`src/macros/typeclass.ts`)
 
@@ -175,7 +173,7 @@ function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined;
 6. Fallback: emit `instanceVar.method(left, right)`
 7. Ambiguity: if multiple typeclasses match → compile error
 
-## Standard Typeclasses with Op<>
+## Standard Typeclasses with @op
 
 ```typescript
 @typeclass
@@ -212,11 +210,9 @@ both Semigroup.concat and Num.add apply.
 Use explicit method calls to disambiguate.
 ```
 
-## Migration from `@operators`
+## Migration from `@operators` (Completed)
 
-The existing `@operators` decorator continues to work for class-level
-operator overloading within `ops()` expressions. The new typeclass-based
-system works globally without `ops()` wrapping.
+The `@operators` decorator and `ops()` wrapper have been removed. Operator overloading now uses only `@op` JSDoc tags on typeclass method signatures. Operators work globally when a typeclass instance exists — no wrapper needed.
 
 ## Zero-Cost Levels
 
@@ -227,7 +223,7 @@ system works globally without `ops()` wrapping.
 
 ## Files Changed
 
-- `src/core/types.ts` — `OPERATOR_SYMBOLS`, `OperatorSymbol`, `Op<>`
+- `src/core/types.ts` — `OPERATOR_SYMBOLS`, `OperatorSymbol` (for @op validation)
 - `src/index.ts` — Re-exports
 - `src/macros/typeclass.ts` — `extractOpFromReturnType()`, `stripOpFromInterface()`, syntax registry, `TypeclassMethod.operatorSymbol`
 - `src/macros/operators.ts` — `getOperatorString()` exported

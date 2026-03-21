@@ -13,7 +13,6 @@
  */
 
 import type { Numeric, Fractional, Floating } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
@@ -128,15 +127,14 @@ export function toString(z: Complex): string {
  * Numeric instance for Complex numbers.
  */
 export const numericComplex: Numeric<Complex> = {
-  add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }) as Complex & Op<"+">,
+  add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }),
 
-  sub: (a, b) => ({ re: a.re - b.re, im: a.im - b.im }) as Complex & Op<"-">,
+  sub: (a, b) => ({ re: a.re - b.re, im: a.im - b.im }),
 
-  mul: (a, b) =>
-    ({
-      re: a.re * b.re - a.im * b.im,
-      im: a.re * b.im + a.im * b.re,
-    }) as Complex & Op<"*">,
+  mul: (a, b) => ({
+    re: a.re * b.re - a.im * b.im,
+    im: a.re * b.im + a.im * b.re,
+  }),
 
   div: (a, b) => {
     const denom = b.re * b.re + b.im * b.im;
@@ -144,17 +142,17 @@ export const numericComplex: Numeric<Complex> = {
     return {
       re: (a.re * b.re + a.im * b.im) / denom,
       im: (a.im * b.re - a.re * b.im) / denom,
-    } as Complex & Op<"/">;
+    };
   },
 
   pow: (a, b) => {
-    if (a.re === 0 && a.im === 0) return { re: 0, im: 0 } as Complex & Op<"**">;
+    if (a.re === 0 && a.im === 0) return { re: 0, im: 0 };
     const r = Math.sqrt(a.re * a.re + a.im * a.im);
     const theta = Math.atan2(a.im, a.re);
     const logR = Math.log(r);
     const newR = Math.exp(b.re * logR - b.im * theta);
     const newTheta = b.im * logR + b.re * theta;
-    return { re: newR * Math.cos(newTheta), im: newR * Math.sin(newTheta) } as Complex & Op<"**">;
+    return { re: newR * Math.cos(newTheta), im: newR * Math.sin(newTheta) };
   },
 
   negate: (a) => ({ re: -a.re, im: -a.im }),
@@ -200,7 +198,7 @@ export const fractionalComplex: Fractional<Complex> = {
     return {
       re: (a.re * b.re + a.im * b.im) / denom,
       im: (a.im * b.re - a.re * b.im) / denom,
-    } as Complex & Op<"/">;
+    };
   },
 
   recip: (a) => {

@@ -32,7 +32,7 @@ export default {
 ### 2. Use macros in your code
 
 ```typescript
-import { comptime, derive, ops, pipe } from "typesugar";
+import { comptime, derive, pipe } from "typesugar";
 
 // Compile-time evaluation
 const factorial5 = comptime(() => {
@@ -50,16 +50,8 @@ interface User {
 }
 // Generates: userEq(), debugUser(), cloneUser()
 
-// Operator overloading
-@operators({ "+": "add", "*": "scale" })
-class Vec2 {
-  constructor(public x: number, public y: number) {}
-  add(other: Vec2) { return new Vec2(this.x + other.x, this.y + other.y); }
-  scale(n: number) { return new Vec2(this.x * n, this.y * n); }
-}
-
-const result = ops((v1 + v2) * 3);
-// Compiles to: v1.add(v2).scale(3)
+// Operator overloading — via typeclass @op JSDoc (e.g., Numeric, Semigroup)
+// When an instance exists: a + b compiles to instance.add(a, b)
 
 // Function composition
 const process = pipe(data, parse, validate, transform);
@@ -80,11 +72,9 @@ Auto-generate implementations: Eq, Ord, Clone, Debug, Hash, Default, Json, Build
 
 Compile-time type introspection: `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`.
 
-### Operator Overloading (`@typesugar/macros`)
+### Operator Overloading
 
-Transform `+`, `-`, `*`, `/` into method calls on your custom types.
-
-**Note:** The preferred approach is using `Op<>` return type annotations on typeclass methods. The legacy `@operators`/`ops()` pattern is still supported but deprecated.
+Operators (`+`, `-`, `*`, `/`, etc.) dispatch to typeclass methods via `@op` JSDoc tags on typeclass method signatures. When an instance exists, `a + b` compiles directly to the method call — no wrapper needed.
 
 ### Typeclasses (`@typesugar/typeclass`)
 

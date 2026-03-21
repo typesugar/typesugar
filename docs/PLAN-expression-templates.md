@@ -189,7 +189,7 @@ This is the most impactful phase — iterator chains are everywhere in TypeScrip
 - `+`, `-`, `*`, `/` on `vec` values build an expression tree (at compile time)
 - The `fused()` macro walks the tree and emits a single element-wise loop
 
-This reuses the `@operators` / `Op<>` infrastructure.
+This reuses the `@op` JSDoc typeclass infrastructure.
 
 ### Phase 3: Matrix Fusion
 
@@ -240,7 +240,7 @@ Test strategy: compare generated code against hand-written baselines. Include be
 ## Dependencies
 
 - `@typesugar/core` — expression macros
-- `@typesugar/macros` — `@operators` / `Op<>` for `vec` arithmetic, `specialize()` for inlining lambdas
+- `@typesugar/macros` — `@op` JSDoc on typeclass methods for `vec` arithmetic, `specialize()` for inlining lambdas
 
 ## Open Questions
 

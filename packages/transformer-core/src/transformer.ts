@@ -770,6 +770,18 @@ class MacroTransformer {
         node
       );
       if (result !== undefined) {
+        if (ts.isCallExpression(result)) {
+          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, undefined);
+          if (inlined !== undefined) {
+            if (
+              ts.isPropertyAccessExpression(result.expression) &&
+              ts.isIdentifier(result.expression.expression)
+            ) {
+              this.inlinedInstanceNames.add(result.expression.expression.text);
+            }
+            return inlined;
+          }
+        }
         return result;
       }
     }

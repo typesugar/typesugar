@@ -74,7 +74,7 @@ interface InstanceReg {
 // Typeclass Definitions
 // ============================================================================
 
-// Typeclass definitions with Op<> syntax are now registered via @typeclass
+// Typeclass definitions are now registered via @typeclass
 // decorators on the interface definitions in @typesugar/std/typeclasses.
 // See: Eq, Ord, Semigroup, Monoid, Group, Numeric, Integral, Fractional
 
@@ -161,7 +161,7 @@ performRegistration();
  * Macro definition for registerStdInstances().
  *
  * When this macro is called, it:
- * 1. Ensures typeclass definitions are registered with their Op<> syntax
+ * 1. Ensures typeclass definitions are registered
  * 2. Ensures all primitive instances are registered
  * 3. Returns a void expression (registration happens at module load)
  *

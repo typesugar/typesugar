@@ -2,14 +2,10 @@
 //! units macro + type-safe physical quantities
 
 import { units, meters, seconds, kilograms, newtons } from "@typesugar/units";
-import { staticAssert } from "typesugar";
-
 // units`...` is a compile-time macro that parses unit literals
 // 👀 Check JS Output: units`100 meters` → meters(100)
 const marathon = units`42195 meters`;
 const time = units`7299 seconds`;
-
-staticAssert(42195 > 0);
 
 console.log("Marathon:", marathon.toString());
 console.log("Time:", time.toString());
@@ -21,7 +17,7 @@ console.log("Speed:", speed.toString());
 // Force = mass × acceleration (F = ma)
 const mass = kilograms(75);
 const gravity = units`9.81 m/s^2`;
-const weight = newtons(mass.value * gravity.value);
+const weight = mass.mul(gravity);
 console.log("\nWeight:", weight.toString());
 
 // Unit-safe addition: can only add same dimensions

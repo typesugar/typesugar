@@ -3,7 +3,8 @@
  *
  * Registers a `grammar` tagged template macro with @typesugar/core.
  * Phase 1: emits a runtime call to `parseGrammarDef` + `buildParser`.
- * Phase 2 (future): generates inline recursive-descent parser code at compile time.
+ * Phase 2: generates inline recursive-descent parser code at compile time
+ *          (zero-cost — no runtime grammar interpretation).
  */
 
 import * as ts from "typescript";
@@ -15,6 +16,7 @@ import {
 } from "@typesugar/core";
 import type { Grammar } from "./types.js";
 import { parseGrammarDef, buildParser } from "./grammar.js";
+import { generateParserCode, resetVarCounter } from "./codegen.js";
 
 /**
  * The `grammar` tagged template macro definition.
@@ -33,65 +35,61 @@ import { parseGrammarDef, buildParser } from "./grammar.js";
  * `;
  * ```
  *
- * In Phase 1, this falls back to runtime grammar parsing.
- * In Phase 2, the macro will generate inlined recursive-descent parser code.
+ * Phase 2: generates inlined recursive-descent parser code at compile time.
+ * Falls back to runtime grammar parsing when template has interpolations.
  */
 export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "grammar",
   module: "@typesugar/parser",
   description: "Define a PEG grammar and generate a parser",
   expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
-    // Phase 1: emit runtime fallback
-    // Generates: __parsesugar_grammar_runtime("<grammar source>")
-    // which is resolved to the runtime `grammar` function
-
     const { factory } = ctx;
     const template = node.template;
 
     // Extract the raw grammar text from the template
     let grammarText: string;
+    let hasInterpolations = false;
     if (ts.isNoSubstitutionTemplateLiteral(template)) {
       grammarText = template.text;
     } else {
-      // For templates with interpolations, concatenate the parts.
-      // Full interpolation support is a Phase 2 feature.
+      // For templates with interpolations, fall back to runtime.
+      hasInterpolations = true;
       grammarText = template.head.text;
       for (const span of template.templateSpans) {
         grammarText += "???" + span.literal.text;
       }
       ctx.reportWarning(
         node,
-        "grammar template interpolation is not yet supported; " +
-          "interpolated values are replaced with '???'"
+        "grammar template interpolation is not yet supported; " + "falling back to runtime parser"
       );
     }
 
-    // Validate the grammar at compile time for early error reporting
+    // Validate/parse the grammar at compile time
+    let rules: Map<string, import("./types.js").GrammarRule>;
     try {
-      parseGrammarDef(grammarText);
+      rules = parseGrammarDef(grammarText);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       ctx.reportError(node, `Invalid grammar: ${msg}`);
       return node;
     }
 
-    // Emit runtime code:
-    // (function() {
-    //   const __rules = parseGrammarDef("<source>");
-    //   return buildParser(__rules);
-    // })()
-    //
-    // Phase 1 keeps it simple. The import of parseGrammarDef/buildParser
-    // is assumed to be available at runtime via @typesugar/parser.
+    // If there are interpolations, fall back to runtime
+    if (hasInterpolations) {
+      return factory.createCallExpression(
+        factory.createPropertyAccessExpression(
+          factory.createIdentifier("__typesugar_parser"),
+          factory.createIdentifier("grammar")
+        ),
+        undefined,
+        [factory.createNoSubstitutionTemplateLiteral(grammarText, grammarText)]
+      );
+    }
 
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("__typesugar_parser"),
-        factory.createIdentifier("grammar")
-      ),
-      undefined,
-      [factory.createNoSubstitutionTemplateLiteral(grammarText, grammarText)]
-    );
+    // Phase 2: generate inline recursive-descent parser code
+    resetVarCounter();
+    const code = generateParserCode(rules);
+    return ctx.parseExpression(code);
   },
   validate(ctx: MacroContext, node: ts.TaggedTemplateExpression): boolean {
     const template = node.template;

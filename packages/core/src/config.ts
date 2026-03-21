@@ -485,6 +485,8 @@ function isInPrelude(typeclassName: string): boolean {
     "Default",
     "Semigroup",
     "Monoid",
+    "Numeric",
+    "Integral",
     "FlatMap",
     "ParCombine",
   ];

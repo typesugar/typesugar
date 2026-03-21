@@ -15,7 +15,6 @@
  * - `'right' in e` — checks property presence (use with type guards for best results)
  */
 
-import type { Op } from "@typesugar/core";
 import type { TypeFunction } from "@typesugar/type-system";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
@@ -562,7 +561,7 @@ export function partition<A, E, B>(
  */
 export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
   return {
-    eqv: ((x, y) => {
+    eqv: (x, y) => {
       if (isRight(x) && isRight(y)) {
         return EA.eqv(x.right, y.right);
       }
@@ -570,7 +569,7 @@ export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
         return EE.eqv(x.left!, y.left!);
       }
       return false;
-    }) as (x: Either<E, A>, y: Either<E, A>) => boolean & Op<"===">,
+    },
   };
 }
 
@@ -605,22 +604,10 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Either<E, A>> {
   return {
     eqv: getEq(OE, OA).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (
-      x: Either<E, A>,
-      y: Either<E, A>
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
-      x: Either<E, A>,
-      y: Either<E, A>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (
-      x: Either<E, A>,
-      y: Either<E, A>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
-      x: Either<E, A>,
-      y: Either<E, A>
-    ) => boolean & Op<">=">,
+    lessThan: (x, y) => compare(x, y) === -1,
+    lessThanOrEqual: (x, y) => compare(x, y) !== 1,
+    greaterThan: (x, y) => compare(x, y) === 1,
+    greaterThanOrEqual: (x, y) => compare(x, y) !== -1,
   };
 }
 

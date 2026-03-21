@@ -246,7 +246,7 @@ This is consumed only by `src/transforms/macro-transformer.ts` and built-in macr
 
 ```
 src/core/
-├── types.ts        # Extended types (includes Op<>, OPERATOR_SYMBOLS)
+├── types.ts        # Extended types (OPERATOR_SYMBOLS for @op validation)
 ├── registry.ts     # Mirror of packages/core registry + standalone extensions
 ├── context.ts      # MacroContextImpl (parallel implementation)
 ├── hygiene.ts      # Lexical hygiene for generated identifiers
@@ -433,11 +433,12 @@ When the transformer encounters `value.method(args)`, it resolves the method thr
 
 ### Operator Resolution Order (for `__binop__`)
 
-When the transformer encounters `__binop__(left, op, right)`:
+When the transformer encounters `__binop__(left, op, right)` (from preprocessor-rewritten custom operators like `|>` and `::`):
 
-1. `methodOperatorMappings` — Class-level `@operator` decorators
-2. `typeclassRegistry.syntax` — Typeclass `@op` annotations
-3. Hardcoded semantic defaults (e.g., `|>` defaults to `right(left)`, `::` to `[left, ...right]`)
+1. `typeclassRegistry.syntax` — Typeclass `@op` JSDoc annotations on methods
+2. Hardcoded semantic defaults (e.g., `|>` defaults to `right(left)`, `::` to `[left, ...right]`)
+
+Standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) are handled by the typeclass system via `@op` JSDoc tags on typeclass method signatures — no wrapper function needed. When a typeclass instance exists, `a + b` rewrites directly to the corresponding method call.
 
 ### HKT Conventions
 

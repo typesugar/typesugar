@@ -105,7 +105,6 @@ export function tripleMap<A, B, C, D, E, F>(
 // Typeclass Instances
 // ============================================================================
 
-import type { Op } from "@typesugar/core";
 import type { Eq, Ord, Ordering } from "../typeclasses/index.js";
 import { EQ_ORD, LT, GT } from "../typeclasses/index.js";
 
@@ -115,14 +114,8 @@ import { EQ_ORD, LT, GT } from "../typeclasses/index.js";
  */
 export function eqPair<A, B>(eqA: Eq<A>, eqB: Eq<B>): Eq<Pair<A, B>> {
   return {
-    equals: ((a, b) => eqA.equals(a[0], b[0]) && eqB.equals(a[1], b[1])) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<"===">,
-    notEquals: ((a, b) => eqA.notEquals(a[0], b[0]) || eqB.notEquals(a[1], b[1])) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<"!==">,
+    equals: (a, b) => eqA.equals(a[0], b[0]) && eqB.equals(a[1], b[1]),
+    notEquals: (a, b) => eqA.notEquals(a[0], b[0]) || eqB.notEquals(a[1], b[1]),
   };
 }
 
@@ -138,31 +131,13 @@ export function ordPair<A, B>(ordA: Ord<A>, ordB: Ord<B>): Ord<Pair<A, B>> {
   };
 
   return {
-    equals: ((a, b) => compare(a, b) === EQ_ORD) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<"===">,
-    notEquals: ((a, b) => compare(a, b) !== EQ_ORD) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<"!==">,
+    equals: (a, b) => compare(a, b) === EQ_ORD,
+    notEquals: (a, b) => compare(a, b) !== EQ_ORD,
     compare,
-    lessThan: ((a, b) => compare(a, b) === LT) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((a, b) => compare(a, b) !== GT) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((a, b) => compare(a, b) === GT) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((a, b) => compare(a, b) !== LT) as (
-      a: Pair<A, B>,
-      b: Pair<A, B>
-    ) => boolean & Op<">=">,
+    lessThan: (a, b) => compare(a, b) === LT,
+    lessThanOrEqual: (a, b) => compare(a, b) !== GT,
+    greaterThan: (a, b) => compare(a, b) === GT,
+    greaterThanOrEqual: (a, b) => compare(a, b) !== LT,
   };
 }
 
@@ -172,16 +147,9 @@ export function ordPair<A, B>(ordA: Ord<A>, ordB: Ord<B>): Ord<Pair<A, B>> {
  */
 export function eqTriple<A, B, C>(eqA: Eq<A>, eqB: Eq<B>, eqC: Eq<C>): Eq<Triple<A, B, C>> {
   return {
-    equals: ((a, b) =>
-      eqA.equals(a[0], b[0]) && eqB.equals(a[1], b[1]) && eqC.equals(a[2], b[2])) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<"===">,
-    notEquals: ((a, b) =>
-      eqA.notEquals(a[0], b[0]) || eqB.notEquals(a[1], b[1]) || eqC.notEquals(a[2], b[2])) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<"!==">,
+    equals: (a, b) => eqA.equals(a[0], b[0]) && eqB.equals(a[1], b[1]) && eqC.equals(a[2], b[2]),
+    notEquals: (a, b) =>
+      eqA.notEquals(a[0], b[0]) || eqB.notEquals(a[1], b[1]) || eqC.notEquals(a[2], b[2]),
   };
 }
 
@@ -199,31 +167,13 @@ export function ordTriple<A, B, C>(ordA: Ord<A>, ordB: Ord<B>, ordC: Ord<C>): Or
   };
 
   return {
-    equals: ((a, b) => compare(a, b) === EQ_ORD) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<"===">,
-    notEquals: ((a, b) => compare(a, b) !== EQ_ORD) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<"!==">,
+    equals: (a, b) => compare(a, b) === EQ_ORD,
+    notEquals: (a, b) => compare(a, b) !== EQ_ORD,
     compare,
-    lessThan: ((a, b) => compare(a, b) === LT) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((a, b) => compare(a, b) !== GT) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((a, b) => compare(a, b) === GT) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((a, b) => compare(a, b) !== LT) as (
-      a: Triple<A, B, C>,
-      b: Triple<A, B, C>
-    ) => boolean & Op<">=">,
+    lessThan: (a, b) => compare(a, b) === LT,
+    lessThanOrEqual: (a, b) => compare(a, b) !== GT,
+    greaterThan: (a, b) => compare(a, b) === GT,
+    greaterThanOrEqual: (a, b) => compare(a, b) !== LT,
   };
 }
 

@@ -496,7 +496,7 @@ import {
 
 ## Operator Support
 
-Typeclass instances use `Op<>` return type annotations for operator integration:
+Typeclass instances use `@op` JSDoc tags on method signatures for operator integration:
 
 ```typescript
 // When used with typesugar macro transform:

@@ -16,8 +16,8 @@ The preprocessor handles **non-JS operators** (`|>`, `::`, `<|`) via text rewrit
 Standard JS operators (`+`, `-`, `*`, `/`, `===`, etc.) are handled by `/** @op */` JSDoc tags in the transformer, NOT the preprocessor.
 
 **Validation rules:**
-- `@operator(symbol)` decorator must reject symbols in `OPERATOR_SYMBOLS` (from `packages/core/src/types.ts`) — use `@op` JSDoc for those
-- The `__binop__` macro should check both `methodOperatorMappings` and `syntaxRegistry` and emit an ambiguity error if both match
+- Standard JS operators (`+`, `-`, `*`, etc.) use `@op` JSDoc tags on typeclass methods — not the preprocessor
+- The `__binop__` macro resolves custom operators via `typeclassRegistry.syntax` (from `@op` JSDoc)
 
 ## Scanner File Type
 
@@ -58,5 +58,5 @@ One canonical implementation at `packages/transformer/src/language-service.ts`. 
 
 When unplugin preprocesses a file, it creates a fresh `ts.SourceFile` disconnected from the `ts.Program`. The type checker cannot resolve types for this file:
 
-- `@operator` dispatch on custom types falls back to default semantics (e.g., `|>` becomes `f(a)`)
+- `__binop__` dispatch on custom types falls back to default semantics (e.g., `|>` becomes `f(a)`)
 - Type-aware `__binop__` resolution requires **ts-patch**, not unplugin

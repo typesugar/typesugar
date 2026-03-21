@@ -71,10 +71,8 @@ export {
   instanceVarName,
 } from "@typesugar/macros";
 
-// Operator syntax support (internal utilities)
-// DEPRECATED: syntaxRegistry and registerTypeclassSyntax are no longer exported.
-// Use @op annotations on typeclass methods instead. See PEP-004.
-export { getSyntaxForOperator, extractOpFromReturnType } from "@typesugar/macros";
+// Operator syntax support
+export { getSyntaxForOperator } from "@typesugar/macros";
 
 export type { BuiltinTypeclassDerivation, SyntaxEntry } from "@typesugar/macros";
 

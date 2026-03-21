@@ -1,30 +1,34 @@
 //! reflect & typeInfo
-//! Compile-time reflection
+//! Compile-time reflection — types become runtime values
 
 import { reflect, typeInfo, fieldNames } from "typesugar";
 
-// reflect(), typeInfo(), and fieldNames() extract type info at COMPILE TIME
-// 👀 Check JS Output to see the zero-cost compilation — literal values, not runtime introspection!
+// Three distinct macros, each with a different level of detail:
+// - fieldNames<T>() → string[]         (just the names)
+// - typeInfo<T>()   → { fields, kind } (names + types + structure)
+// - reflect<T>()    → full metadata    (everything, for frameworks)
 
 interface User {
   id: number;
   name: string;
   email: string;
-  age?: number;
+  role: "admin" | "user";
 }
 
-// fieldNames<T>() extracts field names as string literals
-// Compiles to: ["id", "name", "email", "age"]
-const userFields = fieldNames<User>();
-console.log("User fields:", userFields);
+// 1. fieldNames — auto-generate SQL column lists
+// 👀 Compiles to: ["id", "name", "email", "role"]
+const cols = fieldNames<User>();
+console.log(`SELECT ${cols.join(", ")} FROM users;`);
 
-// typeInfo<T>() extracts detailed type information
-// Compiles to a literal object with type metadata
-const info = typeInfo<User>();
-console.log("Type info:", JSON.stringify(info, null, 2));
+// 2. typeInfo — schema display with type details
+// 👀 Compiles to: { name: "User", kind: "interface", fields: [...] }
+const schema = typeInfo<User>();
+console.log("\nSchema:", schema.name);
+for (const f of schema.fields ?? []) {
+  console.log(`  ${f.name}: ${f.type}`);
+}
 
-// reflect<T>() creates runtime values from types
-// Useful for validation, serialization, ORMs, etc.
+// 3. reflect — full metadata for form/ORM generation
 class Product {
   id!: number;
   name!: string;
@@ -32,11 +36,13 @@ class Product {
   inStock!: boolean;
 }
 
-const productMeta = reflect<Product>();
-console.log("Product fields:", productMeta);
+const meta = reflect<Product>();
+console.log("\nProduct metadata:", meta);
 
-// Practical use: auto-generate column names for a query
-const columns = fieldNames<User>().join(", ");
-console.log(`SELECT ${columns} FROM users`);
+// Practical: auto-generate form labels from field names
+const labels = fieldNames<Product>().map(f =>
+  f.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase())
+);
+console.log("Form labels:", labels);
 
 // Try: add a "role" field to User and watch the SELECT query update

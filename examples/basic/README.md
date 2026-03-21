@@ -44,7 +44,7 @@ node dist/main.js
 
 - `comptime(() => ...)` calls are replaced with their computed values
 - `@derive(Eq, Clone, Debug)` generates helper functions alongside the type
-- `ops(a + b)` is rewritten to `a.add(b)` based on `@operators` config
+- `a + b` is rewritten to `instance.add(a, b)` when a typeclass with `@op` exists
 - `pipe(x, f, g)` is rewritten to `g(f(x))`
 
 Enable `--verbose` to see each macro expansion as it happens.

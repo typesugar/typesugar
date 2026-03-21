@@ -121,7 +121,7 @@ interface Point { x: number; y: number; }
     const result = transformCode(code, { fileName: "derive-eq-reg.ts" });
 
     expect(result.code).toContain("eqPoint");
-    expect(result.code).toContain("eq:");
+    expect(result.code).toContain("equals:");
     expect(result.changed).toBe(true);
 
     const entry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Point");

@@ -66,12 +66,10 @@ import {
   globalRegistry,
 } from "@typesugar/core";
 import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
-import { OPERATOR_SYMBOLS } from "@typesugar/core";
 import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
   buildStandaloneExtensionCall,
 } from "./extension.js";
-import type { OperatorSymbol } from "@typesugar/core";
 import {
   registerInstanceMethodsFromAST,
   extractMethodsFromObjectLiteral,
@@ -584,11 +582,14 @@ function executeTransitiveDerivation(
     // Generate instance
     let code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
 
-    // Strip runtime registration only for local, non-exported typeclasses (zero-cost).
-    // If the typeclass is not in our registry, it's imported from another module,
-    // which means it's exported (otherwise we couldn't import it).
+    // Strip runtime registration calls unless the typeclass is locally defined
+    // AND exported. Imported typeclasses don't have .registerInstance() in scope.
+    const currentFile = ctx.sourceFile.fileName;
+    const isLocallyDefined = globalResolutionScope
+      .getScope(currentFile)
+      .definedTypeclasses.has(typeclassName);
     const tcInfo = typeclassRegistry.get(typeclassName);
-    if (tcInfo && !tcInfo.isExported) {
+    if (!isLocallyDefined || !tcInfo?.isExported) {
       code = stripRuntimeRegistration(code);
     }
 
@@ -646,7 +647,7 @@ interface TypeclassInfo {
   fullSignatureText?: string;
   /**
    * Operator syntax mappings: operator string -> method name.
-   * Built automatically from methods annotated with `& Op<"+">` return types.
+   * Built automatically from methods annotated with `@op` JSDoc tags.
    */
   syntax?: Map<string, string>;
   /**
@@ -665,7 +666,7 @@ interface TypeclassMethod {
   returnType: string;
   /** Whether the first parameter is the "self" type (for extension methods) */
   isSelfMethod: boolean;
-  /** Operator symbol declared via `& Op<"+">` on the return type, if any. */
+  /** Operator symbol declared via `@op` JSDoc tag, if any. */
   operatorSymbol?: string;
 }
 
@@ -678,6 +679,12 @@ interface InstanceInfo {
   instanceName: string;
   /** Whether this was auto-derived */
   derived: boolean;
+  /**
+   * Module specifier where the instance variable is exported.
+   * Used by the transformer to inject imports when operator rewriting
+   * references an instance from another module.
+   */
+  sourceModule?: string;
   /**
    * Optional metadata for macro-specific use.
    * Used by comprehension macros (let:/yield:, par:/yield:) to store:
@@ -1149,8 +1156,6 @@ for (const def of STANDARD_TYPECLASS_DEFS) {
   typeclassRegistry.set(def.name, def);
 }
 
-const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as readonly string[]);
-
 /**
  * Extract an operator symbol from a JSDoc `@op` tag on a method signature.
  *
@@ -1165,131 +1170,18 @@ const operatorSymbolSet: ReadonlySet<string> = new Set(OPERATOR_SYMBOLS as reado
  * }
  * ```
  */
-function extractOpFromJSDoc(member: ts.Node): string | undefined {
+export function extractOpFromJSDoc(member: ts.Node): string | undefined {
   const tags = ts.getJSDocTags(member);
   for (const tag of tags) {
     if (tag.tagName.text === "op") {
-      // Get the comment text (the operator symbol)
       const comment =
         typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
 
       const trimmed = comment?.trim();
-      if (trimmed && operatorSymbolSet.has(trimmed)) {
-        return trimmed;
-      }
+      if (trimmed) return trimmed;
     }
   }
   return undefined;
-}
-
-/**
- * Extract an operator symbol from a return type node of the form `T & Op<"+">`.
- *
- * @deprecated Use `@op` JSDoc tags instead of `Op<>` return type annotations.
- *
- * Walks intersection types looking for `Op<S>` where S is a string literal
- * that is a valid OperatorSymbol. Returns the operator string and the cleaned
- * return type with `Op<>` stripped out.
- */
-function extractOpFromReturnType(typeNode: ts.TypeNode | undefined): {
-  operatorSymbol: string | undefined;
-  cleanReturnType: string;
-} {
-  if (!typeNode) {
-    return { operatorSymbol: undefined, cleanReturnType: "void" };
-  }
-
-  if (!ts.isIntersectionTypeNode(typeNode)) {
-    return { operatorSymbol: undefined, cleanReturnType: typeNode.getText() };
-  }
-
-  let operatorSymbol: string | undefined;
-  const nonOpTypes: ts.TypeNode[] = [];
-
-  for (const member of typeNode.types) {
-    if (
-      ts.isTypeReferenceNode(member) &&
-      ts.isIdentifier(member.typeName) &&
-      member.typeName.text === "Op" &&
-      member.typeArguments &&
-      member.typeArguments.length === 1
-    ) {
-      const arg = member.typeArguments[0];
-      if (ts.isLiteralTypeNode(arg) && ts.isStringLiteral(arg.literal)) {
-        const sym = arg.literal.text;
-        if (operatorSymbolSet.has(sym)) {
-          operatorSymbol = sym;
-          continue; // skip — don't include Op<> in clean return type
-        }
-      }
-    }
-    nonOpTypes.push(member);
-  }
-
-  // Rebuild the return type text without Op<>
-  let cleanReturnType: string;
-  if (nonOpTypes.length === 0) {
-    cleanReturnType = "void";
-  } else if (nonOpTypes.length === 1) {
-    cleanReturnType = nonOpTypes[0].getText();
-  } else {
-    cleanReturnType = nonOpTypes.map((t) => t.getText()).join(" & ");
-  }
-
-  return { operatorSymbol, cleanReturnType };
-}
-
-/**
- * Strip `Op<>` from all method return types in an interface declaration.
- * Returns a new interface with clean signatures for the emitted code.
- */
-function stripOpFromInterface(
-  ctx: MacroContext,
-  iface: ts.InterfaceDeclaration
-): ts.InterfaceDeclaration {
-  const factory = ctx.factory;
-  let needsUpdate = false;
-
-  const newMembers = iface.members.map((member) => {
-    if (!ts.isMethodSignature(member) || !member.type) return member;
-    if (!ts.isIntersectionTypeNode(member.type)) return member;
-
-    const hasOp = member.type.types.some(
-      (t) => ts.isTypeReferenceNode(t) && ts.isIdentifier(t.typeName) && t.typeName.text === "Op"
-    );
-    if (!hasOp) return member;
-
-    needsUpdate = true;
-    const { cleanReturnType } = extractOpFromReturnType(member.type);
-    const newReturnType = ctx.parseExpression(`null! as ${cleanReturnType}`);
-    let newTypeNode: ts.TypeNode;
-    if (ts.isAsExpression(newReturnType)) {
-      newTypeNode = newReturnType.type;
-    } else {
-      newTypeNode = factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword);
-    }
-
-    return factory.updateMethodSignature(
-      member,
-      member.modifiers,
-      member.name,
-      member.questionToken,
-      member.typeParameters,
-      member.parameters,
-      newTypeNode
-    );
-  });
-
-  if (!needsUpdate) return iface;
-
-  return factory.updateInterfaceDeclaration(
-    iface,
-    iface.modifiers,
-    iface.name,
-    iface.typeParameters,
-    iface.heritageClauses,
-    newMembers
-  );
 }
 
 /**
@@ -1371,7 +1263,7 @@ function stripRuntimeRegistration(code: string): string {
  * Get method implementations for specialization based on derived typeclass.
  * Returns source strings suitable for registration with the specialization system.
  */
-function getSpecializationMethodsForDerivation(
+export function getSpecializationMethodsForDerivation(
   tcName: string,
   typeName: string,
   fields: DeriveFieldInfo[]
@@ -1391,11 +1283,11 @@ function getSpecializationMethodsForDerivation(
     case "Eq": {
       const checks = fields.map((f) => `a.${f.name} === b.${f.name}`).join(" && ");
       return {
-        eq: {
+        equals: {
           source: `(a, b) => ${checks || "true"}`,
           params: ["a", "b"],
         },
-        neq: {
+        notEquals: {
           source: `(a, b) => !(${checks || "true"})`,
           params: ["a", "b"],
         },
@@ -1701,17 +1593,13 @@ export const typeclassAttribute = defineAttributeMacro({
           params.push({ name: paramName, typeString: paramType });
         }
 
-        // Check JSDoc @op tag first (preferred), fall back to Op<> return type (deprecated)
-        const jsdocOp = extractOpFromJSDoc(member);
-        const { operatorSymbol: returnTypeOp, cleanReturnType } = extractOpFromReturnType(
-          member.type
-        );
-        const operatorSymbol = jsdocOp ?? returnTypeOp;
+        const operatorSymbol = extractOpFromJSDoc(member);
+        const returnType = member.type ? member.type.getText() : "void";
 
         methods.push({
           name: methodName,
           params,
-          returnType: cleanReturnType,
+          returnType,
           isSelfMethod,
           operatorSymbol,
         });
@@ -1770,10 +1658,7 @@ export const typeclassAttribute = defineAttributeMacro({
       statements.push(...ctx.parseStatements(extensionCode));
     }
 
-    // Strip Op<> from the emitted interface
-    const cleanTarget = stripOpFromInterface(ctx, target);
-
-    return [cleanTarget, ...statements];
+    return [target, ...statements];
   },
 });
 
@@ -2621,15 +2506,15 @@ ${cases}
     deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
       const fieldEqs = fields.map((f) => {
         const inst = instanceVarName("eq", getBaseType(f));
-        return `${inst}.eq(a.${f.name}, b.${f.name})`;
+        return `${inst}.equals(a.${f.name}, b.${f.name})`;
       });
       const body = fieldEqs.length > 0 ? fieldEqs.join(" && ") : "true";
 
       const varName = instanceVarName("eq", typeName);
       return `
 const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
-  eq: (a: ${typeName}, b: ${typeName}): boolean => ${body},
-  neq: (a: ${typeName}, b: ${typeName}): boolean => !(${body}),
+  equals: (a: ${typeName}, b: ${typeName}): boolean => ${body},
+  notEquals: (a: ${typeName}, b: ${typeName}): boolean => !(${body}),
 };
 /*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
@@ -2644,20 +2529,20 @@ const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
       const cases = variants
         .map((v) => {
           const inst = instanceVarName("eq", v.typeName);
-          return `    case "${v.tag}": return (b as any).${discriminant} === "${v.tag}" && ${inst}.eq(a as any, b as any);`;
+          return `    case "${v.tag}": return (b as any).${discriminant} === "${v.tag}" && ${inst}.equals(a as any, b as any);`;
         })
         .join("\n");
 
       return `
 const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
-  eq: (a: ${typeName}, b: ${typeName}): boolean => {
+  equals: (a: ${typeName}, b: ${typeName}): boolean => {
     if ((a as any).${discriminant} !== (b as any).${discriminant}) return false;
     switch ((a as any).${discriminant}) {
 ${cases}
       default: return false;
     }
   },
-  neq: (a: ${typeName}, b: ${typeName}): boolean => !${varName}.eq(a, b),
+  notEquals: (a: ${typeName}, b: ${typeName}): boolean => !${varName}.equals(a, b),
 };
 /*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
@@ -2673,7 +2558,7 @@ ${cases}
       const paramMap: Map<string, string> = isGeneric
         ? buildGenericFactorySignature("Eq", typeName, typeParams).paramMap
         : new Map();
-      const eqMethod = isGeneric ? "eqv" : "eq";
+      const eqMethod = isGeneric ? "eqv" : "equals";
 
       const cases = variants
         .map((v) => {
@@ -2711,14 +2596,14 @@ ${cases}
       const varName = instanceVarName("eq", typeName);
       return `
 const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
-  eq: (x: ${typeName}, y: ${typeName}): boolean => {
+  equals: (x: ${typeName}, y: ${typeName}): boolean => {
     if ((x as any).${discriminant} !== (y as any).${discriminant}) return false;
     switch ((x as any).${discriminant}) {
 ${cases}
       default: return false;
     }
   },
-  neq: (x: ${typeName}, y: ${typeName}): boolean => !${varName}.eq(x, y),
+  notEquals: (x: ${typeName}, y: ${typeName}): boolean => !${varName}.equals(x, y),
 };
 /*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
@@ -2997,10 +2882,14 @@ function createTypeclassDeriveMacro(tcName: string) {
         code = derivation.deriveProduct(typeName, fields);
       }
 
-      // Strip runtime registration only for local, non-exported typeclasses (zero-cost).
-      // If the typeclass is not in our registry, it's imported from another module.
+      // Strip runtime registration calls unless the typeclass is locally defined
+      // AND exported. Imported typeclasses don't have .registerInstance() in scope.
+      const currentFile = ctx.sourceFile.fileName;
+      const isLocallyDefined = globalResolutionScope
+        .getScope(currentFile)
+        .definedTypeclasses.has(tcName);
       const tcInfo = typeclassRegistry.get(tcName);
-      if (tcInfo && !tcInfo.isExported) {
+      if (!isLocallyDefined || !tcInfo?.isExported) {
         code = stripRuntimeRegistration(code!);
       }
 
@@ -3009,12 +2898,23 @@ function createTypeclassDeriveMacro(tcName: string) {
       // Only register instance if not a generic factory function
       // (generic factories are called at use site, not registered globally)
       if (typeParameters.length === 0) {
+        const varName = instanceVarName(uncapitalize(tcName), typeName);
         instanceRegistry.push({
           typeclassName: tcName,
           forType: typeName,
-          instanceName: instanceVarName(uncapitalize(tcName), typeName),
+          instanceName: varName,
           derived: true,
         });
+
+        // Bridge to specialization registry for zero-cost inlining at call sites
+        const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
+        if (specMethods && Object.keys(specMethods).length > 0) {
+          const methodsMap = new Map<string, { source?: string; params: string[] }>();
+          for (const [name, impl] of Object.entries(specMethods)) {
+            methodsMap.set(name, { source: impl.source, params: impl.params });
+          }
+          registerInstanceMethodsFromAST(varName, typeName, methodsMap);
+        }
       }
 
       return stmts;
@@ -3595,10 +3495,14 @@ function expandDeriving(
         code = derivation.deriveProduct(typeName, fields);
       }
 
-      // Strip runtime registration only for local, non-exported typeclasses (zero-cost).
-      // If the typeclass is not in our registry, it's imported from another module.
+      // Strip runtime registration calls unless the typeclass is locally defined
+      // AND exported. Imported typeclasses don't have .registerInstance() in scope.
+      const currentFile = ctx.sourceFile.fileName;
+      const isLocallyDefined = globalResolutionScope
+        .getScope(currentFile)
+        .definedTypeclasses.has(tcName);
       const tcInfo = typeclassRegistry.get(tcName);
-      if (tcInfo && !tcInfo.isExported) {
+      if (!isLocallyDefined || !tcInfo?.isExported) {
         code = stripRuntimeRegistration(code!);
       }
 
@@ -4139,7 +4043,7 @@ export const instanceMacro = implMacro;
 // typeclass("Name") - Expression Macro for Preprocessor-Rewritten Form
 // ============================================================================
 // Handles the preprocessor-rewritten form:
-//   interface Eq<A> { equals(a: A, b: A): boolean & Op<"===">; }
+//   interface Eq<A> { /** @op === */ equals(a: A, b: A): boolean; }
 //   typeclass("Eq");
 //
 // This registers the typeclass metadata and generates companion code.
@@ -4232,17 +4136,13 @@ export const typeclassMacro = defineExpressionMacro({
           params.push({ name: paramName, typeString: paramType });
         }
 
-        // Check JSDoc @op tag first (preferred), fall back to Op<> return type (deprecated)
-        const jsdocOp = extractOpFromJSDoc(member);
-        const { operatorSymbol: returnTypeOp, cleanReturnType } = extractOpFromReturnType(
-          member.type
-        );
-        const operatorSymbol = jsdocOp ?? returnTypeOp;
+        const operatorSymbol = extractOpFromJSDoc(member);
+        const returnType = member.type ? member.type.getText() : "void";
 
         methods.push({
           name: methodName,
           params,
-          returnType: cleanReturnType,
+          returnType,
           isSelfMethod,
           operatorSymbol,
         });
@@ -4306,15 +4206,18 @@ export function generateStandardTypeclasses(): string {
 /** Equality typeclass - Scala 3: trait Eq[A] */
 
 interface Eq<A> {
-  eq(a: A, b: A): boolean & Op<"===">;
-  neq(a: A, b: A): boolean & Op<"!==">;
+  /** @op === */
+  eq(a: A, b: A): boolean;
+  /** @op !== */
+  neq(a: A, b: A): boolean;
 }
 typeclass("Eq");
 
 /** Ordering typeclass - Scala 3: trait Ord[A] extends Eq[A] */
 
 interface Ord<A> {
-  compare(a: A, b: A): (-1 | 0 | 1) & Op<"<">;
+  /** @op < */
+  compare(a: A, b: A): -1 | 0 | 1;
 }
 typeclass("Ord");
 
@@ -4335,7 +4238,8 @@ typeclass("Hash");
 /** Semigroup typeclass - Scala 3: trait Semigroup[A] */
 
 interface Semigroup<A> {
-  combine(a: A, b: A): A & Op<"+">;
+  /** @op + */
+  combine(a: A, b: A): A;
 }
 typeclass("Semigroup");
 
@@ -4343,7 +4247,8 @@ typeclass("Semigroup");
 
 interface Monoid<A> {
   empty(): A;
-  combine(a: A, b: A): A & Op<"+">;
+  /** @op + */
+  combine(a: A, b: A): A;
 }
 typeclass("Monoid");
 
@@ -5110,8 +5015,6 @@ export {
   createTypeclassDeriveMacro,
   getSyntaxForOperator,
   clearSyntaxRegistry, // deprecated, no-op
-  extractOpFromReturnType,
-  extractOpFromJSDoc,
   // Comprehension typeclass support (exported via export function declarations above)
   parCombineBuilderRegistry,
 };

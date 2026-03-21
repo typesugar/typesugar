@@ -15,31 +15,13 @@
 // Local type definitions to avoid loading heavy dependencies
 // (@typesugar/std and @typesugar/type-system bundle macro code that imports 'typescript')
 
-// Op<> marker type for operator overloading (from @typesugar/core)
-declare const __op__: unique symbol;
-type Op<S extends string> = { readonly [__op__]: S };
-
-// Numeric typeclass interface (from @typesugar/std)
-interface Numeric<A> {
-  add(a: A, b: A): A & Op<"+">;
-  sub(a: A, b: A): A & Op<"-">;
-  mul(a: A, b: A): A & Op<"*">;
-  div(a: A, b: A): A & Op<"/">;
-  pow(a: A, b: A): A & Op<"**">;
-  negate(a: A): A;
-  abs(a: A): A;
-  signum(a: A): A;
-  fromNumber(n: number): A;
-  toNumber(a: A): number;
-  zero(): A;
-  one(): A;
-}
-
 // Refined type (from @typesugar/type-system)
 declare const __refined__: unique symbol;
 type Refined<Base, Brand extends string> = Base & {
   readonly [__refined__]: Brand;
 };
+import type { Numeric } from "@typesugar/std";
+import { registerInstanceWithMeta } from "@typesugar/macros";
 import type {
   Expression,
   Constant,
@@ -468,11 +450,11 @@ export function recip<A>(arg: Expression<A>): BinaryOp<number, A, Div<number, A>
  * typesugar transformer. For direct tsc compilation, use this const directly.
  */
 export const numericExpr: Numeric<Expression<number>> = {
-  add: (a, b) => add(a, b) as Expression<number> & Op<"+">,
-  sub: (a, b) => sub(a, b) as Expression<number> & Op<"-">,
-  mul: (a, b) => mul(a, b) as Expression<number> & Op<"*">,
-  div: (a, b) => div(a, b) as Expression<number> & Op<"/">,
-  pow: (a, b) => pow(a, b) as Expression<number> & Op<"**">,
+  add: (a, b) => add(a, b),
+  sub: (a, b) => sub(a, b),
+  mul: (a, b) => mul(a, b),
+  div: (a, b) => div(a, b),
+  pow: (a, b) => pow(a, b),
   negate: (a) => neg(a),
   abs: (a) => abs(a),
   signum: (a) => signum(a) as Expression<number>,
@@ -484,3 +466,11 @@ export const numericExpr: Numeric<Expression<number>> = {
   zero: () => const_(0) as Expression<number>,
   one: () => const_(1) as Expression<number>,
 };
+
+registerInstanceWithMeta({
+  typeclassName: "Numeric",
+  forType: "Expression",
+  instanceName: "numericExpr",
+  sourceModule: "@typesugar/symbolic",
+  derived: false,
+});

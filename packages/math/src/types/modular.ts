@@ -17,7 +17,6 @@
  */
 
 import type { Numeric, Integral, Fractional } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 
 // ============================================================================
 // Type Definition
@@ -236,16 +235,16 @@ export function totient(n: number): number {
  */
 export function numericMod<N extends number>(modulus: N): Numeric<Mod<N>> {
   return {
-    add: (a, b) => modAdd(a, b) as Mod<N> & Op<"+">,
-    sub: (a, b) => modSub(a, b) as Mod<N> & Op<"-">,
-    mul: (a, b) => modMul(a, b) as Mod<N> & Op<"*">,
+    add: (a, b) => modAdd(a, b),
+    sub: (a, b) => modSub(a, b),
+    mul: (a, b) => modMul(a, b),
     div: (a, b) => {
       const result = modDiv(a, b);
       if (result === null)
         throw new RangeError(`Division not defined: ${b.value} has no inverse mod ${modulus}`);
-      return result as Mod<N> & Op<"/">;
+      return result;
     },
-    pow: (a, b) => modPow(a, b.value) as Mod<N> & Op<"**">,
+    pow: (a, b) => modPow(a, b.value),
     negate: modNegate,
     abs: (a) => a,
     signum: (a) => (a.value === 0 ? zero(modulus) : one(modulus)),
@@ -267,9 +266,9 @@ export function integralMod<N extends number>(modulus: N): Integral<Mod<N>> {
       if (result === null) {
         throw new RangeError(`Division not defined: ${b.value} has no inverse mod ${modulus}`);
       }
-      return result as Mod<N> & Op<"/">;
+      return result;
     },
-    mod: (a, b) => zero(modulus) as Mod<N> & Op<"%">, // a/b * b = a in a field
+    mod: (a, b) => zero(modulus), // a/b * b = a in a field
     divMod: (a, b) => {
       const q = modDiv(a, b);
       if (q === null) {
@@ -306,7 +305,7 @@ export function fractionalMod<N extends number>(modulus: N): Fractional<Mod<N>> 
       if (result === null) {
         throw new RangeError(`Division by zero: ${b.value} = 0 mod ${modulus}`);
       }
-      return result as Mod<N> & Op<"/">;
+      return result;
     },
     recip: (a) => {
       const result = modInverse(a);

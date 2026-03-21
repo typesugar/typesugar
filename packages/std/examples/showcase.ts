@@ -241,10 +241,10 @@ assert(groupNumber.invert(5) === -5);
 assert(groupNumber.combine(groupNumber.invert(5), 5) === groupNumber.empty());
 
 // ============================================================================
-// 4. EQUALITY & ORDERING — Eq, Ord with Op<> annotations for operator dispatch
+// 4. EQUALITY & ORDERING — Eq, Ord with @op annotations for operator dispatch
 // ============================================================================
 
-// Eq: equality comparison (supports Op<"==="> and Op<"!==">)
+// Eq: equality comparison (supports @op === and @op !==)
 // The transformer rewrites `a === b` to `eqType.equals(a, b)` for custom types
 assert(eqNumber.equals(42, 42) === true);
 assert(eqNumber.notEquals(1, 2) === true);
@@ -260,7 +260,7 @@ interface Point { x: number; y: number }
 const eqPointByX = eqBy((p: Point) => p.x, eqNumber);
 assert(eqPointByX.equals({ x: 1, y: 2 }, { x: 1, y: 99 }) === true);
 
-// Ord: total ordering (supports Op<"<">, Op<"<=">, Op<">">, Op<">=">)
+// Ord: total ordering (supports @op <, <=, >, >=)
 // The transformer rewrites `a < b` to `ordType.lessThan(a, b)` for custom types
 assert(ordNumber.compare(1, 2) === LT);
 assert(ordNumber.compare(2, 2) === EQ_ORD);
@@ -287,7 +287,7 @@ assert(revOrd.lessThan(3, 1) === true); // 3 < 1 in reverse order
 const ordPointByX = ordBy((p: Point) => p.x, ordNumber);
 assert(ordPointByX.lessThan({ x: 1, y: 99 }, { x: 2, y: 0 }) === true);
 
-// Semigroup: associative combine operation (supports Op<"+">)
+// Semigroup: associative combine operation (supports @op +)
 // The transformer rewrites `a + b` to `semigroupType.combine(a, b)` for custom types
 assert(semigroupNumber.combine(3, 4) === 7);
 assert(semigroupString.combine("hello", " world") === "hello world");
@@ -307,21 +307,21 @@ assert(monoidArr.empty().length === 0);
 assert(monoidArr.combine(monoidArr.empty(), [1, 2, 3]).length === 3);
 
 // ============================================================================
-// 5. NUMERIC OPERATIONS WITH Op<> — Typeclass-based arithmetic
+// 5. NUMERIC OPERATIONS — Typeclass-based arithmetic via @op
 // ============================================================================
 
-// The Numeric typeclass supports operator dispatch via Op<> annotations:
-// - `a + b` → `numericType.add(a, b)` via Op<"+">
-// - `a - b` → `numericType.sub(a, b)` via Op<"-">
-// - `a * b` → `numericType.mul(a, b)` via Op<"*">
+// The Numeric typeclass supports operator dispatch via @op JSDoc tags:
+// - `a + b` → `numericType.add(a, b)` via @op +
+// - `a - b` → `numericType.sub(a, b)` via @op -
+// - `a * b` → `numericType.mul(a, b)` via @op *
 // This enables custom numeric types to work with standard operators.
 
 // Integral typeclass for integer division:
-// - `a / b` → `integralType.div(a, b)` via Op<"/"> (floor division)
-// - `a % b` → `integralType.mod(a, b)` via Op<"%">
+// - `a / b` → `integralType.div(a, b)` via @op / (floor division)
+// - `a % b` → `integralType.mod(a, b)` via @op %
 
 // Fractional typeclass for real division:
-// - `a / b` → `fractionalType.div(a, b)` via Op<"/"> (true division)
+// - `a / b` → `fractionalType.div(a, b)` via @op / (true division)
 
 // Example: Using Numeric for generic arithmetic
 function genericSum<A>(xs: A[], N: Numeric<A>): A {
@@ -484,7 +484,7 @@ assert(doubled[0] === 2 && doubled[1] === 4 && doubled[2] === 6);
 // 10.4 Typeclass Instances for Data Types
 // --------------------------------------------------------------------------
 
-// Pair has Eq and Ord instances that work with Op<> operator dispatch.
+// Pair has Eq and Ord instances that work with @op operator dispatch.
 // These are generic: you provide Eq/Ord instances for the element types.
 
 const eqPairNumStr = eqPair(eqNumber, eqString);
@@ -730,39 +730,39 @@ typeAssert<Equal<NumParsed, { ok: true; value: number; rest: string } | { ok: fa
 typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, string]>>();
 
 // ============================================================================
-// 14. TRANSFORMER FEATURES — Op<> Operator Dispatch Setup
+// 14. TRANSFORMER FEATURES — @op Operator Dispatch Setup
 // ============================================================================
 
-// The @typesugar/std typeclasses are annotated with Op<> for operator dispatch.
+// The @typesugar/std typeclasses use @op JSDoc tags for operator dispatch.
 // When the transformer is active:
 //   - `a === b` on custom types → `eqInstance.equals(a, b)`
 //   - `a < b`   on custom types → `ordInstance.lessThan(a, b)`
 //   - `a + b`   on custom types → `semigroupInstance.combine(a, b)` or `numericInstance.add(a, b)`
 //
 // The `registerStdInstances()` macro (or importing @typesugar/std/macros) registers:
-// 1. Typeclass definitions with their Op<> syntax mappings (Eq→"===", Ord→"<", etc.)
+// 1. Typeclass definitions with their @op syntax mappings (Eq→"===", Ord→"<", etc.)
 // 2. Primitive instances (eqNumber, ordNumber, semigroupNumber, etc.)
 //
 // This enables the transformer's `tryRewriteTypeclassOperator()` to resolve instances.
 
-// Example: How Op<> annotations work in interface definitions
+// Example: How @op annotations work in interface definitions
 //
 // interface Eq<A> {
-//   equals(a: A, b: A): boolean & Op<"===">;   // → "===" maps to equals()
-//   notEquals(a: A, b: A): boolean & Op<"!==">; // → "!==" maps to notEquals()
+//   /** @op === */ equals(a: A, b: A): boolean;
+//   /** @op !== */ notEquals(a: A, b: A): boolean;
 // }
 //
 // interface Ord<A> extends Eq<A> {
-//   lessThan(a: A, b: A): boolean & Op<"<">;
-//   lessThanOrEqual(a: A, b: A): boolean & Op<"<=">;
-//   greaterThan(a: A, b: A): boolean & Op<">">;
-//   greaterThanOrEqual(a: A, b: A): boolean & Op<">=">;
+//   /** @op < */ lessThan(a: A, b: A): boolean;
+//   /** @op <= */ lessThanOrEqual(a: A, b: A): boolean;
+//   /** @op > */ greaterThan(a: A, b: A): boolean;
+//   /** @op >= */ greaterThanOrEqual(a: A, b: A): boolean;
 // }
 //
 // interface Numeric<A> {
-//   add(a: A, b: A): A & Op<"+">;
-//   sub(a: A, b: A): A & Op<"-">;
-//   mul(a: A, b: A): A & Op<"*">;
+//   /** @op + */ add(a: A, b: A): A;
+//   /** @op - */ sub(a: A, b: A): A;
+//   /** @op * */ mul(a: A, b: A): A;
 // }
 
 // When transformer sees `point1 === point2` where Point has an Eq instance:
@@ -1000,8 +1000,8 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 
 // Summary of transformer features demonstrated in this showcase:
 //
-// 1. **Op<> Annotations** (Section 4, 5, 14)
-//    - Typeclasses define which operators map to which methods
+// 1. **@op Annotations** (Section 4, 5, 14)
+//    - Typeclasses define which operators map to which methods via @op JSDoc
 //    - `Eq<A>.equals → ===`, `Ord<A>.lessThan → <`, `Numeric<A>.add → +`
 //
 // 2. **Instance Registration** (Section 14)

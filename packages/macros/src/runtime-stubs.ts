@@ -39,13 +39,8 @@
  * /** @typeclass *\/
  * interface Eq<A> {
  *   /** @op === *\/
+ *   /** @op === *\/
  *   eq(a: A, b: A): boolean;
- * }
- *
- * // Decorator (requires preprocessor):
- * @typeclass
- * interface Eq<A> {
- *   equals(a: A, b: A): boolean & Op<"===">;
  * }
  * ```
  *
@@ -336,42 +331,6 @@ export function derive(
 ): ClassDecorator & PropertyDecorator & MethodDecorator {
   // Placeholder - processed by transformer
   return () => {};
-}
-
-// ============================================================================
-// Operator Stubs
-// ============================================================================
-
-/**
- * Decorator to enable operator overloading on a class.
- *
- * @example
- * ```typescript
- * @operators({ "+": "add", "*": "mul" })
- * class Vec2 {
- *   add(other: Vec2): Vec2 { ... }
- *   mul(other: Vec2): Vec2 { ... }
- * }
- * ```
- */
-export function operators(
-  _config?: Record<string, string>
-): ClassDecorator & PropertyDecorator & MethodDecorator {
-  // Placeholder - processed by transformer
-  return () => {};
-}
-
-/**
- * Transform operator expressions using registered mappings.
- *
- * @example
- * ```typescript
- * const result = ops(a + b * c);
- * // Compiles to: a.add(b.mul(c))
- * ```
- */
-export function ops<T>(expr: T): T {
-  return expr;
 }
 
 /**

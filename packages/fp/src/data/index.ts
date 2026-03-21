@@ -27,7 +27,8 @@ export { Either, Left, Right, isLeft, isRight } from "./either.js";
 // List — Persistent linked list
 // ============================================================================
 
-export { List, Cons, Nil, isCons, isNil } from "./list.js";
+export type { List } from "./list.js";
+export { Cons, Nil, isCons, isNil } from "./list.js";
 
 // ============================================================================
 // NonEmptyList — List with at least one element

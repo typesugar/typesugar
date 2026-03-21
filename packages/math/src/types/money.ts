@@ -25,7 +25,6 @@
 
 import type { Numeric, Ord } from "@typesugar/std";
 import { makeOrd } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 import type { CurrencyDef } from "./currencies.js";
 
 /**
@@ -498,16 +497,14 @@ export function moneyConvert<From extends CurrencyDef, To extends CurrencyDef>(
  */
 export function moneyNumeric<C extends CurrencyDef>(currency: C): Numeric<Money<C>> {
   return {
-    add: (a, b) => moneyAdd(a, b) as Money<C> & Op<"+">,
-    sub: (a, b) => moneySub(a, b) as Money<C> & Op<"-">,
+    add: (a, b) => moneyAdd(a, b),
+    sub: (a, b) => moneySub(a, b),
     mul: (a, b) => {
-      return (((a as bigint) * (b as bigint)) / currencyScaleFactor(currency)) as Money<C> &
-        Op<"*">;
+      return (((a as bigint) * (b as bigint)) / currencyScaleFactor(currency)) as Money<C>;
     },
     div: (a, b) => {
       if ((b as bigint) === 0n) throw new RangeError("Money division by zero");
-      return (((a as bigint) * currencyScaleFactor(currency)) / (b as bigint)) as Money<C> &
-        Op<"/">;
+      return (((a as bigint) * currencyScaleFactor(currency)) / (b as bigint)) as Money<C>;
     },
     pow: (_a, _b) => {
       throw new RangeError("Exponentiation is not meaningful for monetary values");
@@ -533,7 +530,6 @@ export function moneyEq<C extends CurrencyDef>(): Eq<Money<C>> {
 
 /**
  * Create an Ord typeclass instance for Money<C>.
- * Uses makeOrd to generate all Op<>-annotated comparison methods.
  */
 export function moneyOrd<C extends CurrencyDef>(): Ord<Money<C>> {
   return makeOrd(moneyCompare);

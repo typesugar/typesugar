@@ -48,12 +48,7 @@ export type {
   DeriveFieldInfo,
   DeriveVariantInfo,
   StandaloneExtensionInfo,
-  OperatorSymbol,
-  Op,
 } from "./types.js";
-
-// Re-export operator symbols constant
-export { OPERATOR_SYMBOLS } from "./types.js";
 
 // Standalone extension utilities
 export {
@@ -175,6 +170,7 @@ export {
 export {
   stripDecorator,
   stripPositions,
+  stripCommentsDeep,
   jsValueToExpression,
   getPrinter,
   getDummySourceFile,
@@ -249,4 +245,5 @@ export {
   type TypeRewriteEntry,
   type ConstructorRewrite,
   type AccessorRewrite,
+  type MethodInlinePattern,
 } from "./type-rewrite-registry.js";

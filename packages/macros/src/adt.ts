@@ -576,8 +576,48 @@ function generateTypeGuards(
             ts.SyntaxKind.InKeyword,
             factory.createIdentifier(paramName)
           );
+        } else if (!needsTag.has(variant.name)) {
+          // No unique fields but structurally distinguishable — check absence of
+          // other variants' distinguishing fields
+          const otherFields = variants
+            .filter((v) => v.name !== variant.name && !v.isNull)
+            .flatMap((v) => {
+              const uf = findUniqueField(v, variants);
+              return uf ? [uf] : [...v.requiredFields].slice(0, 1);
+            })
+            .filter(Boolean);
+
+          if (otherFields.length > 0) {
+            const checks = otherFields.map((f) =>
+              factory.createPrefixUnaryExpression(
+                ts.SyntaxKind.ExclamationToken,
+                factory.createParenthesizedExpression(
+                  factory.createBinaryExpression(
+                    factory.createStringLiteral(f),
+                    ts.SyntaxKind.InKeyword,
+                    factory.createIdentifier(paramName)
+                  )
+                )
+              )
+            );
+            checkExpr = checks[0];
+            for (let i = 1; i < checks.length; i++) {
+              checkExpr = factory.createBinaryExpression(
+                checkExpr,
+                ts.SyntaxKind.AmpersandAmpersandToken,
+                checks[i]
+              );
+            }
+          } else {
+            // Truly empty ADT with no distinguishing fields — fall back to _tag
+            checkExpr = factory.createBinaryExpression(
+              factory.createPropertyAccessExpression(factory.createIdentifier(paramName), "_tag"),
+              ts.SyntaxKind.EqualsEqualsEqualsToken,
+              factory.createStringLiteral(variant.name)
+            );
+          }
         } else {
-          // No fields - use _tag
+          // Needs _tag
           checkExpr = factory.createBinaryExpression(
             factory.createPropertyAccessExpression(factory.createIdentifier(paramName), "_tag"),
             ts.SyntaxKind.EqualsEqualsEqualsToken,

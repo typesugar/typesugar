@@ -13,7 +13,6 @@
  */
 
 import type { Numeric, Ord } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
@@ -295,7 +294,7 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
     return normalize({
       unscaled: aa.unscaled + bb.unscaled,
       scale: aa.scale,
-    }) as BigDecimal & Op<"+">;
+    });
   },
 
   sub: (a, b) => {
@@ -303,14 +302,14 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
     return normalize({
       unscaled: aa.unscaled - bb.unscaled,
       scale: aa.scale,
-    }) as BigDecimal & Op<"-">;
+    });
   },
 
   mul: (a, b) =>
     normalize({
       unscaled: a.unscaled * b.unscaled,
       scale: a.scale + b.scale,
-    }) as BigDecimal & Op<"*">,
+    }),
 
   div: (a, b) => {
     if (b.unscaled === 0n) throw new RangeError("BigDecimal division by zero");
@@ -319,13 +318,13 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
     return normalize({
       unscaled: scaled / b.unscaled,
       scale: a.scale - b.scale + extraScale,
-    }) as BigDecimal & Op<"/">;
+    });
   },
 
   pow: (a, b) => {
     const n = Number(b.unscaled / 10n ** BigInt(b.scale));
     const intN = Math.round(n);
-    if (intN === 0) return { unscaled: 1n, scale: 0 } as BigDecimal & Op<"**">;
+    if (intN === 0) return { unscaled: 1n, scale: 0 };
     let result: BigDecimal = { unscaled: 1n, scale: 0 };
     const base = intN > 0 ? a : numericBigDecimal.div({ unscaled: 1n, scale: 0 } as BigDecimal, a);
     for (let i = 0; i < Math.abs(intN); i++) {
@@ -334,7 +333,7 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
         scale: result.scale + base.scale,
       });
     }
-    return result as BigDecimal & Op<"**">;
+    return result;
   },
 
   negate: (a) => ({ unscaled: -a.unscaled, scale: a.scale }),

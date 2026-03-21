@@ -2,7 +2,7 @@
 //! Tagged template DSL with shortest-path algorithms
 
 import { digraph, shortestPath, topoSort, hasCycles, dijkstra } from "@typesugar/graph";
-import { comptime, staticAssert } from "typesugar";
+import { comptime } from "typesugar";
 
 // digraph`...` parses the adjacency DSL into a typed Graph at runtime
 // 👀 Check JS Output: comptime() becomes an inlined literal
@@ -15,8 +15,6 @@ const deps = digraph`
   core -> utils, types
   utils -> types
 `;
-
-staticAssert("typesugar".length > 0);
 
 // Topological sort — safe build order for a monorepo
 const buildOrder = topoSort(deps);

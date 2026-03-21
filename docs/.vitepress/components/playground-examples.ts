@@ -32,9 +32,6 @@ const GROUP_META: Record<string, { label: string; order: number }> = {
   parser: { label: "@typesugar/parser", order: 70 },
   validate: { label: "@typesugar/validate", order: 75 },
   testing: { label: "@typesugar/testing", order: 80 },
-  effect: { label: "@typesugar/effect", order: 85 },
-  sql: { label: "@typesugar/sql", order: 90 },
-  mapper: { label: "@typesugar/mapper", order: 92 },
 };
 
 /**

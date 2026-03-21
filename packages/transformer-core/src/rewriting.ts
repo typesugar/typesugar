@@ -36,6 +36,7 @@ import {
   findTypeRewrite,
   getAllTypeRewrites,
   type TypeRewriteEntry,
+  type MethodInlinePattern,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -536,7 +537,6 @@ export function tryRewriteTypeclassOperator(
     const leftType = ctx.typeChecker.getTypeAtLocation(node.left);
     typeName = ctx.typeChecker.typeToString(leftType);
   }
-  typeName = typeName.replace(/\s*&\s*Op<[^>]+>/, "");
   const baseTypeName = typeName.replace(/<.*>$/, "");
   const typeArg = typeName.match(/<(.+)>$/)?.[1] ?? "";
 
@@ -686,8 +686,12 @@ function isWithinSourceModule(filePath: string, sourceModule: string): boolean {
 }
 
 /**
- * Rewrite a method call on an @opaque type: `x.map(fn)` → `map(x, fn)`.
- * Falls back from the extension registry to the type rewrite registry.
+ * Rewrite a method call on an @opaque type.
+ *
+ * When a `methodInlines` pattern is registered for the method, the call is
+ * inlined to a null-check expression (e.g., `x.map(fn)` → `x != null ? fn(x) : null`).
+ * When the receiver is a literal `null`, the expression is constant-folded.
+ * Falls back to standalone function call rewriting when no inline pattern exists.
  */
 export function tryRewriteOpaqueMethodCall(
   ctx: MacroContextImpl,
@@ -725,6 +729,22 @@ export function tryRewriteOpaqueMethodCall(
   const standaloneFnName = methods.get(methodName);
   if (!standaloneFnName) return undefined;
 
+  const inlinePattern = entry.methodInlines?.get(methodName);
+  if (inlinePattern) {
+    const visitedReceiver = ts.visitNode(receiver, visit) as ts.Expression;
+    const visitedArgs = node.arguments.map((a) => ts.visitNode(a, visit) as ts.Expression);
+    const result = buildOpaqueInlineExpression(
+      ctx.factory,
+      inlinePattern,
+      visitedReceiver,
+      visitedArgs,
+      verbose,
+      typeName,
+      methodName
+    );
+    if (result) return preserveSourceMap(result, node);
+  }
+
   if (verbose) {
     console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${standaloneFnName}(...)`);
   }
@@ -747,6 +767,237 @@ export function tryRewriteOpaqueMethodCall(
   } catch (error) {
     ctx.reportError(node, `Type rewrite method erasure failed: ${error}`);
     return undefined;
+  }
+}
+
+function isNullLiteral(node: ts.Expression): boolean {
+  return node.kind === ts.SyntaxKind.NullKeyword;
+}
+
+function isSimpleExpression(node: ts.Expression): boolean {
+  return (
+    ts.isIdentifier(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isStringLiteral(node) ||
+    isNullLiteral(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword ||
+    node.kind === ts.SyntaxKind.UndefinedKeyword
+  );
+}
+
+/**
+ * Build an inlined expression for an @opaque method call.
+ * When the receiver is a literal `null`, constant-folds the result.
+ * When the receiver is complex (not a simple identifier/literal), wraps in
+ * an IIFE to avoid evaluating the receiver multiple times.
+ */
+function buildOpaqueInlineExpression(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  receiver: ts.Expression,
+  args: ts.Expression[],
+  verbose: boolean,
+  typeName: string,
+  methodName: string
+): ts.Expression | undefined {
+  if (isNullLiteral(receiver)) {
+    if (verbose) {
+      console.log(`[typesugar] Opaque inline (constant-folded null): ${typeName}.${methodName}()`);
+    }
+    return constantFoldNull(factory, pattern, args);
+  }
+
+  if (isKnownNonNullLiteral(receiver)) {
+    if (verbose) {
+      console.log(
+        `[typesugar] Opaque inline (constant-folded non-null): ${typeName}.${methodName}()`
+      );
+    }
+    return constantFoldNonNull(factory, pattern, receiver, args);
+  }
+
+  if (verbose) {
+    console.log(`[typesugar] Opaque inline (inlined): ${typeName}.${methodName}()`);
+  }
+
+  if (isSimpleExpression(receiver)) {
+    return buildInlineTernary(factory, pattern, receiver, args);
+  }
+
+  // Complex receiver: wrap in IIFE to evaluate once
+  // ((_opt) => _opt != null ? fn(_opt) : null)(receiver)
+  const param = factory.createParameterDeclaration(
+    undefined,
+    undefined,
+    factory.createIdentifier("_opt"),
+    undefined,
+    undefined,
+    undefined
+  );
+  const optRef = factory.createIdentifier("_opt");
+  const body = buildInlineTernary(factory, pattern, optRef, args);
+  if (!body) return undefined;
+
+  const arrow = factory.createArrowFunction(
+    undefined,
+    undefined,
+    [param],
+    undefined,
+    factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    body
+  );
+  return factory.createCallExpression(factory.createParenthesizedExpression(arrow), undefined, [
+    receiver,
+  ]);
+}
+
+function isKnownNonNullLiteral(node: ts.Expression): boolean {
+  return (
+    ts.isNumericLiteral(node) ||
+    ts.isStringLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
+ * When the receiver is a known non-null literal (string, number, boolean),
+ * the null check can be eliminated entirely.
+ */
+function constantFoldNonNull(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  receiver: ts.Expression,
+  args: ts.Expression[]
+): ts.Expression | undefined {
+  switch (pattern.kind) {
+    case "null-check-apply": {
+      const fn = args[0];
+      return fn ? factory.createCallExpression(fn, undefined, [receiver]) : undefined;
+    }
+    case "null-check-predicate": {
+      const pred = args[0];
+      if (!pred) return undefined;
+      return factory.createConditionalExpression(
+        factory.createCallExpression(pred, undefined, [receiver]),
+        undefined,
+        receiver,
+        undefined,
+        factory.createNull()
+      );
+    }
+    case "null-coalesce-call":
+    case "null-coalesce-value":
+      return receiver;
+    case "fold": {
+      const onSome = args[1];
+      return onSome ? factory.createCallExpression(onSome, undefined, [receiver]) : undefined;
+    }
+  }
+}
+
+function constantFoldNull(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  args: ts.Expression[]
+): ts.Expression | undefined {
+  switch (pattern.kind) {
+    case "null-check-apply":
+    case "null-check-predicate":
+      return factory.createNull();
+    case "null-coalesce-call": {
+      const defaultFn = args[0];
+      return defaultFn ? factory.createCallExpression(defaultFn, undefined, []) : undefined;
+    }
+    case "null-coalesce-value":
+      return args[0];
+    case "fold": {
+      const onNone = args[0];
+      return onNone ? factory.createCallExpression(onNone, undefined, []) : undefined;
+    }
+  }
+}
+
+function buildInlineTernary(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  receiver: ts.Expression,
+  args: ts.Expression[]
+): ts.Expression | undefined {
+  const nullExpr = factory.createNull();
+  const notNull = factory.createBinaryExpression(
+    receiver,
+    ts.SyntaxKind.ExclamationEqualsToken,
+    nullExpr
+  );
+
+  switch (pattern.kind) {
+    case "null-check-apply": {
+      const fn = args[0];
+      if (!fn) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        factory.createCallExpression(fn, undefined, [receiver]),
+        undefined,
+        nullExpr
+      );
+    }
+
+    case "null-check-predicate": {
+      const pred = args[0];
+      if (!pred) return undefined;
+      return factory.createConditionalExpression(
+        factory.createBinaryExpression(
+          notNull,
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          factory.createCallExpression(pred, undefined, [receiver])
+        ),
+        undefined,
+        receiver,
+        undefined,
+        nullExpr
+      );
+    }
+
+    case "null-coalesce-call": {
+      const defaultFn = args[0];
+      if (!defaultFn) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        receiver,
+        undefined,
+        factory.createCallExpression(defaultFn, undefined, [])
+      );
+    }
+
+    case "null-coalesce-value": {
+      const defaultVal = args[0];
+      if (!defaultVal) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        receiver,
+        undefined,
+        defaultVal
+      );
+    }
+
+    case "fold": {
+      const onNone = args[0];
+      const onSome = args[1];
+      if (!onNone || !onSome) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        factory.createCallExpression(onSome, undefined, [receiver]),
+        undefined,
+        factory.createCallExpression(onNone, undefined, [])
+      );
+    }
   }
 }
 

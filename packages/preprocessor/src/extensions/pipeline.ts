@@ -2,11 +2,11 @@
  * Pipeline operator extension: |>
  *
  * Transforms: expr |> f |> g
- * To: __binop__(__binop__(expr, "|>", f), "|>", g)
+ * To: __pipe__(__pipe__(expr, f), g)
  *
- * The __binop__ function is resolved by the macro transformer based on the
+ * The __pipe__ macro is resolved by the transformer based on the
  * left operand's type:
- * - If the type has @operator('|>') → rewrite to method call (e.g., expr.pipe(f))
+ * - If the type has @operator('|>') → rewrite to method call
  * - Default fallback: f(expr) (standard pipeline semantics)
  *
  * Precedence: 1 (lowest custom operator)
@@ -22,7 +22,7 @@ export const pipelineExtension: CustomOperatorExtension = {
   associativity: "left",
 
   transform(left: string, right: string): string {
-    return `__binop__(${left}, "|>", ${right})`;
+    return `__pipe__(${left}, ${right})`;
   },
 };
 

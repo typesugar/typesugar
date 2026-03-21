@@ -36,7 +36,6 @@ import {
   DiagnosticCategory,
   DIAGNOSTIC_CATALOG,
   createGenericRegistry,
-  OPERATOR_SYMBOLS,
 
   // ======================================================================
   // Namespace re-exports — access each macro subsystem
@@ -53,14 +52,12 @@ import {
   // ======================================================================
   comptime,
   reflect,
-  operators,
   typeclass,
   specialize,
 
   // ======================================================================
   // Direct callable re-exports — commonly used macros
   // ======================================================================
-  ops,
   pipe,
   compose,
 
@@ -80,7 +77,6 @@ import {
   type MacroContext,
   type MacroKind,
   type TypesugarConfig,
-  type Op,
 } from "../src/index.js";
 
 // ============================================================================
@@ -95,7 +91,7 @@ assert(typeof invariant === "function", "invariant from @typesugar/core");
 assert(typeof unreachable === "function", "unreachable from @typesugar/core");
 assert(typeof debugOnly === "function", "debugOnly from @typesugar/core");
 assert(DIAGNOSTIC_CATALOG.size > 0, "Diagnostics catalog from @typesugar/core");
-assert(OPERATOR_SYMBOLS.length > 0, "Operator symbols from @typesugar/core");
+assert(typeof pipe === "function", "pipe from @typesugar/macros");
 
 // Types are also available
 typeAssert<Extends<"expression", MacroKind>>();
@@ -116,7 +112,6 @@ assert(specializeNamespace !== undefined, "specialize namespace");
 // These are placeholders that the transformer replaces at compile time
 assert(typeof comptime === "function", "comptime runtime stub");
 assert(typeof reflect === "function", "reflect runtime stub");
-assert(typeof operators === "function", "operators runtime stub");
 assert(typeof typeclass === "function", "typeclass runtime stub");
 assert(typeof specialize === "function", "specialize runtime stub");
 
@@ -134,9 +129,6 @@ assert(globalRegistry.getAll().length > 0, "Macros are registered");
 // ============================================================================
 // 4. DIRECT CALLABLE MACROS - No Namespace Needed
 // ============================================================================
-
-// ops() — wraps an expression for operator overloading
-assert(typeof ops === "function");
 
 // pipe() — left-to-right function composition
 assert(typeof pipe === "function");

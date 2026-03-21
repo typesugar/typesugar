@@ -1,7 +1,7 @@
 //! HashSet & HashMap
 //! Derived Eq for custom keys + hash-based collections
 
-import { derive, Eq, staticAssert } from "typesugar";
+import { derive, Eq } from "typesugar";
 import { HashSet, HashMap } from "@typesugar/collections";
 import { eqNumber, hashNumber, makeEq, makeHash } from "@typesugar/std";
 
@@ -11,8 +11,6 @@ import { eqNumber, hashNumber, makeEq, makeHash } from "@typesugar/std";
 class Coord {
   constructor(public x: number, public y: number) {}
 }
-
-staticAssert(2 + 2 === 4);
 
 const a = new Coord(3, 4);
 const b = new Coord(3, 4);

@@ -24,7 +24,7 @@ The right fix isn't disabling spell checking — it's teaching cSpell the vocabu
 **Tasks:**
 
 - [ ] Audit all exported symbols across `packages/*/src/index.ts` to collect typesugar-specific terms
-- [ ] Audit macro names (`@typeclass`, `@deriving`, `@hkt`, `@operators`, `@operator`, `@impl`, `@extension`, `comptime`, `summon`, `staticAssert`, `includeStr`, `includeJson`, etc.)
+- [ ] Audit macro names (`@typeclass`, `@deriving`, `@hkt`, `@op`, `@impl`, `@extension`, `comptime`, `summon`, `staticAssert`, `includeStr`, `includeJson`, etc.)
 - [ ] Audit typeclass names (`Eq`, `Ord`, `Semigroup`, `Monoid`, `Functor`, `Monad`, `FlatMap`, `Show`, `Hash`, `Foldable`, `Traversable`, etc.)
 - [ ] Audit type system terms (`newtype`, `refined`, `opaque`, `phantom`, `hkt`, `stsx`, `typesugar`, etc.)
 - [ ] Audit architecture terms (`unplugin`, `tspc`, `oxc`, `comptime`, `specialize`, etc.)

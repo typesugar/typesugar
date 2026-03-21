@@ -937,6 +937,12 @@ export class TransformationPipeline {
         transformed = printer.printFile(transformedSourceFile);
       }
 
+      // TypeScript's printer can attach stray comments from the original source
+      // to macro-generated nodes when real-position and synthetic nodes are mixed.
+      // Clean up comments that leaked into arrow function signatures (between the
+      // closing paren/return-type and the => token).
+      transformed = stripLeakedArrowComments(transformed);
+
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");
 
@@ -1143,6 +1149,82 @@ export class TransformationPipeline {
       ],
     };
   }
+}
+
+/**
+ * Remove comments that TypeScript's printer incorrectly placed inside
+ * macro-generated expressions.
+ *
+ * When `printFile` processes a mix of real-position and synthetic AST nodes,
+ * it can attach stray comments from the original source to generated code.
+ * This manifests as comments appearing mid-expression:
+ *   - `p1.x === //! stray comment\n p2.x`  (inline comment before operand)
+ *   - `a.y\n// stray comment\n+ b.y`       (comment lines before operator)
+ *   - `): Point\n// stray comment\n=> ({`   (comment lines before arrow)
+ */
+function stripLeakedArrowComments(code: string): string {
+  const lines = code.split("\n");
+  const result: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const trimmed = lines[i].trimEnd();
+
+    // Pattern A: code + binary-operator + //comment, next line has the operand
+    // e.g. `p1.x === //! stray comment` followed by ` p2.x && ...`
+    const inlineMatch = trimmed.match(/^(.+\S)\s+(\/\/.*)$/);
+    if (inlineMatch) {
+      const before = inlineMatch[1].trimEnd();
+      if (/[+\-*/%<>=!&|^~]$|===$|!==$|&&$|\|\|$/.test(before)) {
+        if (i + 1 < lines.length) {
+          const next = lines[i + 1].trimStart();
+          if (/^[a-zA-Z_$\d(\[{'"` ]/.test(next)) {
+            result.push(before + " " + next);
+            i += 2;
+            continue;
+          }
+        }
+        result.push(before);
+        i++;
+        continue;
+      }
+    }
+
+    // Pattern B: expression line, then comment line(s), then operator/arrow line
+    // e.g. `a.y` / `// comment` / `+ b.y`  or  `): Point` / `// comment` / `=> {`
+    const nextReal = findNextNonCommentLine(lines, i + 1);
+    if (nextReal !== null && nextReal.idx > i + 1) {
+      const nextContent = nextReal.line.trimStart();
+      if (/^[+\-*/%<>=!&|^?]|^=>|^&&|\|\|/.test(nextContent)) {
+        result.push(trimmed + " " + nextContent);
+        i = nextReal.idx + 1;
+        continue;
+      }
+    }
+
+    result.push(lines[i]);
+    i++;
+  }
+  return result.join("\n");
+}
+
+function findNextNonCommentLine(
+  lines: string[],
+  start: number
+): { idx: number; line: string } | null {
+  for (let i = start; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (
+      t === "" ||
+      t.startsWith("//") ||
+      t.startsWith("/*") ||
+      t.startsWith("*") ||
+      t.endsWith("*/")
+    ) {
+      continue;
+    }
+    return { idx: i, line: lines[i] };
+  }
+  return null;
 }
 
 /**

@@ -8,7 +8,6 @@
  * Cons is `{ head, tail }` with no `_tag` field.
  */
 
-import type { Op } from "@typesugar/core";
 import type { TypeFunction } from "@typesugar/type-system";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
@@ -42,7 +41,6 @@ export type Nil = null;
  * Discrimination is via null-check: `list !== null` narrows to Cons.
  * Or use type guards: `isCons(list)` / `isNil(list)`.
  *
- * @adt { Nil: null }
  * @hkt
  */
 export type List<A> = Cons<A> | Nil;
@@ -646,7 +644,7 @@ export function getEq<A>(E: Eq<A>): Eq<List<A>> {
 
 /**
  * Ord instance for List (lexicographic).
- * Includes Op<>-annotated comparison methods for operator rewriting.
+ * Includes comparison methods for operator rewriting via @op JSDoc tags.
  */
 export function getOrd<A>(O: Ord<A>): Ord<List<A>> {
   const compare = (x: List<A>, y: List<A>): Ordering => {
@@ -664,16 +662,10 @@ export function getOrd<A>(O: Ord<A>): Ord<List<A>> {
   return {
     eqv: getEq(O).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (x: List<A>, y: List<A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
-      x: List<A>,
-      y: List<A>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (x: List<A>, y: List<A>) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
-      x: List<A>,
-      y: List<A>
-    ) => boolean & Op<">=">,
+    lessThan: (x, y) => compare(x, y) === -1,
+    lessThanOrEqual: (x, y) => compare(x, y) !== 1,
+    greaterThan: (x, y) => compare(x, y) === 1,
+    greaterThanOrEqual: (x, y) => compare(x, y) !== -1,
   };
 }
 

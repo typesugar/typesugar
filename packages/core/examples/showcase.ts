@@ -72,10 +72,6 @@ import {
   ExpansionTracker,
   globalExpansionTracker,
 
-  // Operator symbols
-  OPERATOR_SYMBOLS,
-  type OperatorSymbol,
-  type Op,
 } from "../src/index.js";
 
 // ============================================================================
@@ -327,21 +323,9 @@ assert(isPreludeOperator("===") !== undefined);
 // 7. OPERATOR SYMBOLS - Standard JS Operators for Typeclass Dispatch
 // ============================================================================
 
-// OPERATOR_SYMBOLS lists all operators handled by the typeclass system
-assert(OPERATOR_SYMBOLS.length > 0);
-assert(OPERATOR_SYMBOLS.includes("+"));
-assert(OPERATOR_SYMBOLS.includes("==="));
-assert(OPERATOR_SYMBOLS.includes("<"));
-
-typeAssert<Extends<"+", OperatorSymbol>>();
-typeAssert<Extends<"===", OperatorSymbol>>();
-
-// Op<S> is the branded return type that triggers operator rewriting
-// When a typeclass method returns Op<"+">, the transformer rewrites a + b
+// Operator dispatch uses @op JSDoc on typeclass methods.
+// When a typeclass method has /** @op + */, the transformer rewrites a + b
 // to typeclassInstance.methodName(a, b)
-type AddResult = Op<"+">;
-type EqResult = Op<"===">;
-typeAssert<Not<Equal<AddResult, EqResult>>>();
 
 // ============================================================================
 // 8. IMPORT SUGGESTIONS - "Did You Mean?" for Missing Symbols

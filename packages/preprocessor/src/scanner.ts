@@ -115,6 +115,9 @@ export function tokenize(source: string, options: ScannerOptions = {}): Token[] 
 
   const rawTokens: Token[] = [];
   let lastNonTriviaKind: ts.SyntaxKind | null = null;
+  // Track template literal nesting depth so we know when a CloseBraceToken
+  // ends a template expression and requires rescanning for TemplateMiddle/Tail.
+  let templateDepth = 0;
 
   while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) {
     let kind = scanner.getToken();
@@ -126,6 +129,22 @@ export function tokenize(source: string, options: ScannerOptions = {}): Token[] 
       if (lastNonTriviaKind === null || REGEX_PRECEDING_TOKENS.has(lastNonTriviaKind)) {
         kind = scanner.reScanSlashToken();
       }
+    }
+
+    // Handle template literal rescanning: after a CloseBraceToken that ends
+    // a template expression (e.g. `hello ${name}`), the scanner needs to be
+    // told to rescan for TemplateMiddle or TemplateTail. Without this, the
+    // `}` is treated as a plain close brace and the subsequent backtick starts
+    // a new (incorrect) template literal that swallows real code.
+    if (kind === ts.SyntaxKind.CloseBraceToken && templateDepth > 0) {
+      kind = scanner.reScanTemplateToken(/* isTaggedTemplate */ false);
+    }
+
+    // Track template depth: TemplateHead opens, TemplateTail closes
+    if (kind === ts.SyntaxKind.TemplateHead) {
+      templateDepth++;
+    } else if (kind === ts.SyntaxKind.TemplateTail) {
+      templateDepth = Math.max(0, templateDepth - 1);
     }
 
     const start = scanner.getTokenStart();

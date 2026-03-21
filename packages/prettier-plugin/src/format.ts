@@ -62,7 +62,7 @@ export async function format(source: string, options?: FormatOptions): Promise<s
   });
 
   // Step 3: Post-format (valid TS → custom syntax)
-  const result = postFormat(formatted, preResult.metadata);
+  const result = postFormat(formatted, preResult.metadata, { fileName: filepath });
 
   return result;
 }

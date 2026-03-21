@@ -27,7 +27,6 @@ import {
   typeclassNamespace,
   specializeNamespace,
   // Direct callable exports
-  ops,
   pipe,
   compose,
   comptime,
@@ -58,7 +57,6 @@ import {
   debugOnly,
   config,
   defineConfig,
-  OPERATOR_SYMBOLS,
 } from "typesugar";
 
 describe("Typesugar Umbrella Edge Cases", () => {
@@ -104,13 +102,6 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(config).toBeDefined();
       expect(typeof defineConfig).toBe("function");
     });
-
-    it("exports OPERATOR_SYMBOLS constant", () => {
-      expect(Array.isArray(OPERATOR_SYMBOLS)).toBe(true);
-      expect(OPERATOR_SYMBOLS).toContain("+");
-      expect(OPERATOR_SYMBOLS).toContain("-");
-      expect(OPERATOR_SYMBOLS).toContain("*");
-    });
   });
 
   // ==========================================================================
@@ -129,15 +120,13 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(deriveNamespace.Ord).toBeDefined();
       expect(deriveNamespace.Clone).toBeDefined();
 
-      // operators are exported directly from @typesugar/macros, not as a namespace
-      expect(typeof ops).toBe("function");
+      // pipe and compose are exported directly from @typesugar/macros
       expect(typeof pipe).toBe("function");
       expect(typeof compose).toBe("function");
     });
 
-    it("direct ops/pipe/compose exports are functions", () => {
+    it("direct pipe/compose exports are functions", () => {
       // These are exported directly from @typesugar/macros
-      expect(typeof ops).toBe("function");
       expect(typeof pipe).toBe("function");
       expect(typeof compose).toBe("function");
     });
@@ -232,12 +221,6 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // Attack 5: Runtime Placeholder Function Behavior
   // ==========================================================================
   describe("Runtime placeholder function behavior", () => {
-    it("ops() passes through expression unchanged at runtime", () => {
-      const value = { x: 1, y: 2 };
-      const result = ops(value);
-      expect(result).toBe(value);
-    });
-
     it("pipe() executes functions left-to-right at runtime", () => {
       const add1 = (x: number) => x + 1;
       const double = (x: number) => x * 2;
@@ -300,10 +283,6 @@ describe("Typesugar Umbrella Edge Cases", () => {
       type _Test = import("typesugar").DeriveTypeInfo;
     });
 
-    it("exports Op type for operator overloading", () => {
-      type _Test = import("typesugar").Op<"+">;
-    });
-
     it("exports TypesugarConfig type", () => {
       type _Test = import("typesugar").TypesugarConfig;
     });
@@ -351,7 +330,6 @@ describe("Typesugar Umbrella Edge Cases", () => {
 
       // After registerAllMacros, it should contain known macros
       registerAllMacros();
-      expect(globalRegistry.getExpression("ops")).toBeDefined();
       expect(globalRegistry.getExpression("pipe")).toBeDefined();
       expect(globalRegistry.getExpression("compose")).toBeDefined();
     });

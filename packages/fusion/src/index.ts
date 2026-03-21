@@ -5,11 +5,13 @@
  * Chains like `.filter().map().reduce()` execute in one pass
  * with no intermediate array allocations.
  *
- * **Current Status (Phase 1):** Runtime fusion via LazyPipeline class.
+ * **Phase 1:** Runtime fusion via LazyPipeline class.
  * Single-pass iteration is achieved, but the pipeline object exists at runtime.
  *
- * **Future (Phase 2):** Compile-time fusion will eliminate the pipeline class
- * entirely, compiling to hand-optimized for-loops.
+ * **Phase 2 (implemented):** Compile-time fusion via the `fused()` macro eliminates
+ * the pipeline class entirely, compiling to hand-optimized for-loops.
+ * Typeclass instances (Functor, Filterable, Foldable) are registered with the
+ * global typeclass registry for @op integration.
  *
  * @example
  * ```typescript
@@ -55,7 +57,19 @@ export {
   toArray,
 } from "./vec.js";
 
-export { lazyMacro, fusedMacro, register } from "./macros.js";
+export { lazyMacro, fusedMacro, register, resetFusionCounter } from "./macros.js";
+
+export {
+  lazyPipelineFunctor,
+  lazyPipelineFilterable,
+  lazyPipelineFoldable,
+  liftLazy,
+  filterMap,
+  foldLazy,
+  type FunctorLazyPipeline,
+  type FilterableLazyPipeline,
+  type FoldableLazyPipeline,
+} from "./typeclasses.js";
 
 import { register } from "./macros.js";
 register();

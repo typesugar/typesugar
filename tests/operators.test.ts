@@ -2,16 +2,10 @@
  * Tests for operator overloading macros
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { clearOperatorMappings } from "@typesugar/macros";
 
 describe("operator macro infrastructure", () => {
-  beforeEach(() => {
-    // Clear any existing operator mappings between tests
-    clearOperatorMappings();
-  });
-
   describe("operator symbol to method mapping", () => {
     it("should have correct default operator symbols", () => {
       // These are the standard operator symbols we support

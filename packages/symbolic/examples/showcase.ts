@@ -3,13 +3,13 @@
  *
  * Self-documenting examples of type-safe symbolic mathematics.
  *
- * Expressions support standard JavaScript operators via Op<> typeclass:
+ * Expressions support standard JavaScript operators via Numeric typeclass @op:
  *
- *   x + y    →  add(x, y)      Op<"+">
- *   x - y    →  sub(x, y)      Op<"-">
- *   x * y    →  mul(x, y)      Op<"*">
- *   x / y    →  div(x, y)      Op<"/">
- *   x ** y   →  pow(x, y)      Op<"**">
+ *   x + y    →  add(x, y)      @op +
+ *   x - y    →  sub(x, y)      @op -
+ *   x * y    →  mul(x, y)      @op *
+ *   x / y    →  div(x, y)      @op /
+ *   x ** y   →  pow(x, y)      @op **
  *
  * Builders also accept raw numbers with auto-wrapping:
  *   add(x, 3)  →  x + const_(3)

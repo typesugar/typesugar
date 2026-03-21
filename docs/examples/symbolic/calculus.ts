@@ -1,21 +1,16 @@
 //! Symbolic Calculus
-//! Differentiate, integrate, and simplify with compile-time evaluation
+//! Differentiate, integrate, and simplify with operator overloading
 
-import { var_, const_, add, mul, pow, sin, cos } from "@typesugar/symbolic";
+import { var_, const_, pow, sin } from "@typesugar/symbolic";
 import { diff, integrate, simplify, evaluate, toText, toLatex } from "@typesugar/symbolic";
-import { comptime, staticAssert } from "typesugar";
 
 const t = var_("t");
 const x = var_("x");
 
-// Kinematics: s(t) = ½t² + 3t → v(t) → a(t)
-const position = add(mul(const_(0.5), pow(t, const_(2))), mul(const_(3), t));
+// 👀 Check JS Output — + and * on expressions rewrite to numericExpr.add/mul!
+const position = const_(0.5) * pow(t, const_(2)) + const_(3) * t;
 const velocity = simplify(diff(position, "t"));
 const acceleration = simplify(diff(velocity, "t"));
-
-// 👀 Check JS Output: comptime() becomes an inlined number
-const posAt4 = comptime(() => 0.5 * 16 + 12);
-staticAssert(0.5 * 16 + 12 === 20);
 
 console.log("s(t) =", toText(simplify(position)));
 console.log("v(t) =", toText(velocity));
@@ -33,7 +28,7 @@ const dtrig = simplify(diff(trig, "x"));
 console.log("\nd/dx sin(x) =", toText(dtrig));
 
 // LaTeX rendering
-const poly = add(pow(x, const_(3)), mul(const_(-2), pow(x, const_(2))));
+const poly = pow(x, const_(3)) + const_(-2) * pow(x, const_(2));
 console.log("\nLaTeX:", toLatex(simplify(poly)));
 console.log("d/dx:", toLatex(simplify(diff(poly, "x"))));
 

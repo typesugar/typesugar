@@ -10,6 +10,8 @@ export default defineConfig({
     typesugar({
       verbose: false,
       exclude: [
+        // Don't transform core package - it defines macros, doesn't use them
+        "packages/core",
         // Don't transform transformer package tests - they test the transformer itself
         "packages/transformer",
         // Don't transform unplugin tests

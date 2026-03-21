@@ -5,7 +5,6 @@
  * Useful for operations that require a non-empty collection.
  */
 
-import type { Op } from "@typesugar/core";
 import type { TypeFunction } from "@typesugar/type-system";
 import type { List } from "./list.js";
 import * as L from "./list.js";
@@ -436,7 +435,7 @@ export function getEq<A>(E: Eq<A>): Eq<NonEmptyList<A>> {
 
 /**
  * Ord instance for NonEmptyList (lexicographic).
- * Includes Op<>-annotated comparison methods for operator rewriting.
+ * Includes comparison methods for operator rewriting via @op JSDoc tags.
  */
 export function getOrd<A>(O: Ord<A>): Ord<NonEmptyList<A>> {
   const listOrd = L.getOrd(O);
@@ -448,22 +447,10 @@ export function getOrd<A>(O: Ord<A>): Ord<NonEmptyList<A>> {
   return {
     eqv: getEq(O).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (
-      x: NonEmptyList<A>,
-      y: NonEmptyList<A>
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
-      x: NonEmptyList<A>,
-      y: NonEmptyList<A>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (
-      x: NonEmptyList<A>,
-      y: NonEmptyList<A>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
-      x: NonEmptyList<A>,
-      y: NonEmptyList<A>
-    ) => boolean & Op<">=">,
+    lessThan: (x, y) => compare(x, y) === -1,
+    lessThanOrEqual: (x, y) => compare(x, y) !== 1,
+    greaterThan: (x, y) => compare(x, y) === 1,
+    greaterThanOrEqual: (x, y) => compare(x, y) !== -1,
   };
 }
 

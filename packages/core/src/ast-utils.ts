@@ -118,6 +118,26 @@ export function stripPositions<T extends ts.Node>(node: T): T {
   ) as T;
 }
 
+/**
+ * Recursively strip all comment and position information from an AST subtree.
+ *
+ * Goes further than stripPositions: also clears comment ranges and synthetic
+ * comment arrays to prevent TypeScript's printer from emitting stray comments
+ * when real-position nodes are mixed with synthetic ones (e.g. after inlining
+ * a macro-generated template with call-site argument nodes).
+ */
+export function stripCommentsDeep<T extends ts.Node>(node: T): T {
+  ts.setTextRange(node, { pos: -1, end: -1 });
+  ts.setCommentRange(node, { pos: -1, end: -1 });
+  ts.setSyntheticLeadingComments(node, undefined);
+  ts.setSyntheticTrailingComments(node, undefined);
+  return ts.visitEachChild(
+    node,
+    (child) => stripCommentsDeep(child),
+    undefined as unknown as ts.TransformationContext
+  ) as T;
+}
+
 // =============================================================================
 // jsValueToExpression — Convert runtime JS values to AST expressions
 // =============================================================================

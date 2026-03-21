@@ -17,7 +17,6 @@
  * - `'value' in v` — checks property presence (use with type guards for best results)
  */
 
-import type { Op } from "@typesugar/core";
 import type { TypeFunction } from "@typesugar/type-system";
 import type { NonEmptyList } from "./nonempty-list.js";
 import * as NEL from "./nonempty-list.js";
@@ -570,7 +569,7 @@ export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Validated<E, A>> {
 
 /**
  * Ord instance for Validated (Invalid < Valid).
- * Includes Op<>-annotated comparison methods for operator rewriting.
+ * Includes comparison methods for operator rewriting via @op JSDoc tags.
  */
 export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Validated<E, A>> {
   const compare = (x: Validated<E, A>, y: Validated<E, A>): Ordering => {
@@ -582,22 +581,10 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Validated<E, A>> {
   return {
     eqv: getEq(OE, OA).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (
-      x: Validated<E, A>,
-      y: Validated<E, A>
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
-      x: Validated<E, A>,
-      y: Validated<E, A>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (
-      x: Validated<E, A>,
-      y: Validated<E, A>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
-      x: Validated<E, A>,
-      y: Validated<E, A>
-    ) => boolean & Op<">=">,
+    lessThan: (x, y) => compare(x, y) === -1,
+    lessThanOrEqual: (x, y) => compare(x, y) !== 1,
+    greaterThan: (x, y) => compare(x, y) === 1,
+    greaterThanOrEqual: (x, y) => compare(x, y) !== -1,
   };
 }
 

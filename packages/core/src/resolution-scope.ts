@@ -36,6 +36,8 @@ export interface FileResolutionScope {
   importedTypeclasses: Map<string, ScopedTypeclass>;
   /** Extension methods explicitly imported in this file */
   importedExtensions: Map<string, ScopedTypeclass>;
+  /** Typeclasses defined in this file (via @typeclass) — always in scope */
+  definedTypeclasses: Set<string>;
   /** Whether this file has a "use no typesugar" directive */
   optedOut: boolean;
   /** Specific features opted out of */
@@ -60,6 +62,7 @@ export class ResolutionScopeTracker {
         mode: config.getResolutionModeForFile(fileName),
         importedTypeclasses: new Map(),
         importedExtensions: new Map(),
+        definedTypeclasses: new Set(),
         optedOut: false,
         optedOutFeatures: new Set(),
         hasUseExtension: false,
@@ -86,7 +89,23 @@ export class ResolutionScopeTracker {
   }
 
   /**
+   * Register a typeclass as defined in the current file.
+   *
+   * Typeclasses defined in a file are always in scope for that file,
+   * regardless of resolution mode. You don't need to import what you define.
+   */
+  registerDefinedTypeclass(fileName: string, typeclassName: string): void {
+    const scope = this.getScope(fileName);
+    scope.definedTypeclasses.add(typeclassName);
+  }
+
+  /**
    * Check if a typeclass is in scope for a file.
+   *
+   * A typeclass is in scope if any of:
+   * - It is defined in the same file (always — you don't import what you define)
+   * - The file uses "automatic" resolution mode (everything is in scope)
+   * - The file uses "import-scoped" mode and the typeclass is imported or in prelude
    */
   isTypeclassInScope(fileName: string, typeclassName: string): boolean {
     const scope = this.getScope(fileName);
@@ -94,6 +113,11 @@ export class ResolutionScopeTracker {
     // Check for opt-out
     if (scope.optedOut) {
       return false;
+    }
+
+    // Defined in this file — always in scope regardless of mode
+    if (scope.definedTypeclasses.has(typeclassName)) {
+      return true;
     }
 
     // Mode-specific resolution
@@ -180,19 +204,23 @@ export class ResolutionScopeTracker {
       return [];
     }
 
+    const defined = Array.from(scope.definedTypeclasses);
+
     switch (scope.mode) {
       case "automatic":
-        // Return prelude typeclasses
-        return config.get<string[]>("resolution.prelude") ?? [];
+        // Prelude + locally defined
+        const autoPrelude = config.get<string[]>("resolution.prelude") ?? [];
+        return [...new Set([...autoPrelude, ...defined])];
 
       case "import-scoped":
-        // Return imported + prelude
+        // Imported + prelude + locally defined
         const imported = Array.from(scope.importedTypeclasses.keys());
         const prelude = config.get<string[]>("resolution.prelude") ?? [];
-        return [...new Set([...imported, ...prelude])];
+        return [...new Set([...imported, ...prelude, ...defined])];
 
       case "explicit":
-        return [];
+        // Only locally defined
+        return defined;
 
       default:
         return [];

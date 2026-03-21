@@ -21,7 +21,6 @@
  * For this manual implementation, we include `_tag` on ambiguous variants only.
  */
 
-import type { Op } from "@typesugar/core";
 import type { TypeFunction } from "@typesugar/type-system";
 import type { Option } from "./option.js";
 import { Some, None, isSome } from "./option.js";
@@ -488,22 +487,10 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<RemoteData<E, A>> {
   return {
     eqv: getEq(OE, OA).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (
-      x: RemoteData<E, A>,
-      y: RemoteData<E, A>
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
-      x: RemoteData<E, A>,
-      y: RemoteData<E, A>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (
-      x: RemoteData<E, A>,
-      y: RemoteData<E, A>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
-      x: RemoteData<E, A>,
-      y: RemoteData<E, A>
-    ) => boolean & Op<">=">,
+    lessThan: (x, y) => compare(x, y) === -1,
+    lessThanOrEqual: (x, y) => compare(x, y) !== 1,
+    greaterThan: (x, y) => compare(x, y) === 1,
+    greaterThanOrEqual: (x, y) => compare(x, y) !== -1,
   };
 }
 

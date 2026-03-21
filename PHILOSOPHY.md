@@ -189,6 +189,47 @@ match(shape, {
 
 The macro figures out how to discriminate.
 
+### `@adt` -- Zero-cost algebraic data types
+
+TypeScript's discriminated unions require manual boilerplate: tag fields, constructor functions, type guards. The `@adt` macro eliminates all of it.
+
+```typescript
+interface Paid {
+  amount: Money;
+}
+interface Pending {}
+interface Failed {
+  reason: string;
+}
+
+/** @adt */
+type Status = Paid | Pending | Failed;
+```
+
+The macro:
+
+1. **Analyzes distinguishability** -- builds a matrix of which variant pairs can be told apart by field presence alone
+2. **Injects `_tag` only where needed** -- if variants are structurally distinguishable (unique fields), no tag is added
+3. **Generates constructors** -- `Paid(amount)`, `Pending()`, `Failed(reason)`
+4. **Generates type guards** -- `isPaid()` uses `"amount" in value`, `isPending()` uses `!("amount" in value) && !("reason" in value)`
+
+The key insight: most ADTs in practice **are** structurally distinguishable. `@adt` avoids the Haskell/Rust pattern of always adding tags. When tags are genuinely needed (two variants with identical fields), they're injected automatically via intersection types -- the programmer never writes `_tag` by hand.
+
+This composes with `match`:
+
+```typescript
+function describe(s: Status): string {
+  return match(s)
+    .case({ amount: a })
+    .then(`Paid ${a}`)
+    .case({ reason: r })
+    .then(`Failed: ${r}`)
+    .else("Awaiting payment");
+}
+```
+
+No runtime wrapper. No tag boilerplate. Just types and field presence.
+
 ### Auto-derivation as the default
 
 In Haskell and Scala 3, deriving typeclass instances requires explicit annotation (`deriving` clauses, `derives` keywords). typesugar goes further: **auto-derivation is the default, not opt-in**.
@@ -348,6 +389,191 @@ This is dangerous -- it modifies globals, breaks encapsulation, and causes confl
 - **Type-safe** -- The type checker verifies the first parameter matches
 
 This is Scala 3's `extension` syntax, adapted to TypeScript's module system.
+
+---
+
+## Scoping: What's Visible and Why
+
+typesugar's power features — typeclasses, extensions, operator overloading, type rewrites — all share a fundamental question: **when does a feature activate?** The answer is scoping, and getting it right is critical to making the system predictable.
+
+Different features use different scoping models, but they all follow one unifying principle: **you never need to import what you define**.
+
+### The unifying principle
+
+Every feature in typesugar falls into one of two scoping categories:
+
+| Category               | Scope model                                   | Features                                             |
+| ---------------------- | --------------------------------------------- | ---------------------------------------------------- |
+| **Import-gated**       | Activated by imports, suppressed without them | Typeclasses, operators, do-notation                  |
+| **Registration-gated** | Active once the macro executes                | Extensions (`@extension`), type rewrites (`@opaque`) |
+
+Import-gated features are the most sensitive — they change the meaning of operators and method calls. Registration-gated features are less dangerous because they require explicit annotation (`@extension`, `@opaque`) to opt in.
+
+Both categories share the rule: **defining something in the current file makes it available in the current file**. No exceptions.
+
+### Typeclasses: import-scoped with local override
+
+Typeclasses (`@typeclass`), their instances (`@impl`), operator syntax (`@op`), and do-notation (`let:`, `par:`) all flow through `findInstance()`, which checks `isTypeclassInScope()`. This is the most restrictive scope gate.
+
+The three resolution modes control what's in scope:
+
+| Mode            | What's in scope                      | Use case                                     |
+| --------------- | ------------------------------------ | -------------------------------------------- |
+| `automatic`     | Everything registered                | Quick scripts, single-file demos, playground |
+| `import-scoped` | Imported + prelude + locally defined | Production code (default)                    |
+| `explicit`      | Only locally defined                 | Maximum control, no magic                    |
+
+In production (`import-scoped`), you must import a typeclass for it to activate:
+
+```typescript
+import { Eq } from "@typesugar/std";
+
+p1 === p2; // Eq is in scope → auto-derives and rewrites
+```
+
+Without the import, `===` is plain JavaScript identity comparison. This is the Scala 3 model: **imports are activation**. No surprise behavior from features you didn't ask for.
+
+But if you define a typeclass in the current file, it's in scope regardless of mode:
+
+```typescript
+/** @typeclass */
+interface Addable<A> {
+  /** @op + */
+  add(a: A, b: A): A;
+}
+
+/** @impl Addable<Money> */
+const addableMoney = { add: (a, b) => new Money(a.cents + b.cents, a.currency) };
+
+price + tax; // Works — Addable is defined here, no import needed
+```
+
+This cascades to everything that depends on `findInstance()`:
+
+- **Operator overloading** (`@op`) — if the typeclass is locally defined, its operator syntax works
+- **Instance lookup** (`@impl`) — instances for locally-defined typeclasses are found
+- **Auto-derivation** (`@derive`) — locally-defined typeclasses can auto-derive
+- **Do-notation** (`let:`, `par:`) — if `FlatMap` is locally defined, comprehensions work
+
+The rationale: requiring you to import from yourself would be absurd. This also makes single-file compilation (playground, scripts, tests) work naturally.
+
+### Extensions: two mechanisms, two scoping models
+
+Extension methods have two distinct resolution paths, and understanding the difference matters:
+
+**1. Import-resolved extensions** — The primary path for user code.
+
+When you write `n.clamp(0, 100)`, the transformer scans the current file's import declarations. If it finds an imported function named `clamp` whose first parameter accepts `n`'s type, it rewrites to `clamp(n, 0, 100)`.
+
+```typescript
+import { clamp } from "@typesugar/std";
+
+n.clamp(0, 100); // Found via import scan → clamp(n, 0, 100)
+```
+
+No import, no extension. This is pure import-scoped resolution — the safest model.
+
+**2. Registry-based extensions** — For `@extension`-decorated functions and `@typesugar/std` built-ins.
+
+The `@extension` decorator registers a function in a global compile-time registry. Once registered, the extension is available to all files in the compilation without requiring an import:
+
+```typescript
+// extensions.ts
+@extension
+export function head<A>(arr: readonly A[]): A | undefined { return arr[0]; }
+
+// any-file.ts — no import needed because @extension registers globally
+[1, 2, 3].head(); // Found via registry → head([1, 2, 3])
+```
+
+This is intentional for framework-provided extensions (like `@typesugar/std`'s number/string/array methods) that should feel built-in. For user extensions, the import-resolved path is preferred.
+
+**3. `"use extension"` directive** — Marks all exports of a file as extension-eligible for consumers who import from it. This is a library authoring pattern:
+
+```typescript
+// string-utils.ts
+"use extension";
+
+export function capitalize(s: string): string {
+  return s[0].toUpperCase() + s.slice(1);
+}
+
+// consumer.ts
+import { capitalize } from "./string-utils";
+"hello".capitalize(); // Works — capitalize is extension-enabled via its source file's directive
+```
+
+Within the defining file, you call the function directly. The extension syntax is for consumers.
+
+### Type rewrites: global after registration
+
+`@opaque` types register in the `typeRewriteRegistry`, which has no scope gate. Once the `@opaque` macro executes (when the defining file is compiled), the rewrite rules are available to all subsequent files:
+
+```typescript
+// option.ts — @opaque registers the rewrite
+/** @opaque A | null */
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>; /* ... */
+}
+
+// any-file.ts — rewrite is active
+x.map(f); // Rewrites to map(x, f) if x: Option<A>
+```
+
+There's one special scope: **transparent scope**. Inside the file that defines the `@opaque` type, method rewrites are suppressed — you work with the underlying representation directly. This is Scala 3's opaque type companion semantics. Outside the defining file, the type is opaque and methods are rewritten.
+
+### Expression macros: resolved by name
+
+`comptime()`, `staticAssert()`, `pipe()`, `match()` and other expression macros are resolved by matching a call expression's name against the macro registry. They activate when the function is imported (the transformer checks that the symbol resolves to a known macro module).
+
+These have no scoping subtlety — if you import `match` from `@typesugar/std`, it works. If you don't import it, the call is left as-is.
+
+### Prelude: the built-in exceptions
+
+Some typeclasses are so fundamental they're always in scope in `import-scoped` mode, even without explicit imports:
+
+- `Eq` — structural equality (`===`)
+- `Ord` — comparison (`<`, `>`, `<=`, `>=`)
+- `Show` — string representation (`.show()`)
+- `Clone` — structural cloning (`.clone()`)
+
+The prelude is configurable via `typesugar.config.ts`, but the defaults match what most TypeScript developers expect: comparison and equality just work.
+
+### Resolution order
+
+When you write `x.foo()` or `a + b`, the compiler resolves in a fixed order:
+
+1. **Native property/operator** — If TypeScript already handles it, do nothing
+2. **Type rewrite methods** — If `x` is an `@opaque` type with a rewrite for `foo`, apply it
+3. **Extension functions** — If an imported or registered function matches the receiver type
+4. **Typeclass instances** — If an in-scope typeclass provides the method/operator
+5. **Auto-derivation** — If the type's structure supports synthesizing the instance
+
+Each step is more specific than the next. Native properties always win. Type rewrites are explicit (you defined the `@opaque` type). Extensions require import or `@extension`. Typeclasses require scope resolution. Auto-derivation is the most "magical" — it only triggers when everything else fails and the type's structure permits it.
+
+### Why scoping matters
+
+Without scoping, every `+` in your codebase would trigger a typeclass lookup. Every method call would search the extension registry. This would be:
+
+- **Slow** — The transformer would do unnecessary work on every expression
+- **Surprising** — A library you imported could change the meaning of `+` in your code
+- **Fragile** — Instance conflicts between packages would be silent and confusing
+
+Scoping makes the system predictable: you opt in to features by importing them, you get what you define for free, and there's a clear upgrade path from `explicit` → `import-scoped` → `automatic` as you gain confidence.
+
+### Summary: scoping cheat sheet
+
+| Feature                       | Scope model                     | Same-file?                  | Cross-file?                |
+| ----------------------------- | ------------------------------- | --------------------------- | -------------------------- |
+| `@typeclass` + `@op`          | Import-gated                    | ✅ Always                   | Must import                |
+| `@impl` instances             | Import-gated (of the typeclass) | ✅ Always                   | Typeclass must be in scope |
+| `@derive`                     | Import-gated                    | ✅ Always                   | Typeclass must be in scope |
+| `let:` / `par:` (do-notation) | Import-gated (FlatMap)          | ✅ Always                   | FlatMap must be in scope   |
+| `@extension` functions        | Registration-gated              | ✅ Always                   | Global after registration  |
+| Import-resolved extensions    | Import-gated                    | N/A (import-only)           | Must import the function   |
+| `"use extension"` exports     | Import-gated                    | Defining file uses directly | Consumers import           |
+| `@opaque` type rewrites       | Registration-gated              | ✅ (transparent scope)      | Global after registration  |
+| Expression macros             | Name-based                      | ✅                          | Must import the function   |
 
 ---
 

@@ -52,8 +52,8 @@ export interface PreFormatOptions {
  * Transform custom syntax into valid TypeScript that Prettier can format.
  *
  * Transformations:
- * - `a |> b` becomes `__binop__(a, "|>", b)`
- * - `a :: b` becomes `__binop__(a, "::", b)`
+ * - `a |> b` becomes `__pipe__(a, b)`
+ * - `a :: b` becomes `__cons__(a, b)`
  * - `F\<_\>` (HKT decl) becomes `F` followed by the marker comment
  * - `F\<A\>` (HKT usage) becomes `Kind\<F, A\>`
  *

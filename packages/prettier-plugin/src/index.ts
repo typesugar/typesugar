@@ -44,4 +44,4 @@ export {
 } from "./pre-format.js";
 
 // Post-format (valid TS → custom syntax)
-export { postFormat } from "./post-format.js";
+export { postFormat, type PostFormatOptions } from "./post-format.js";

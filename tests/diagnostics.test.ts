@@ -326,7 +326,7 @@ describe("Inline union derivation generates correct code", () => {
     expectNoDiags(result);
     // Should generate the instance variable with proper implementation
     expect(result.code).toContain("const eqChoice");
-    expect(result.code).toContain("eq: (x: Choice, y: Choice)");
+    expect(result.code).toContain("equals: (x: Choice, y: Choice)");
     // Note: registerInstance is emitted for exported typeclasses.
     // When deriving from imported typeclasses (like Eq from @typesugar/std),
     // the runtime registration behavior depends on the source module's export status.

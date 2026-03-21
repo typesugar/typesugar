@@ -65,16 +65,7 @@ export {
   TypeGuardDerive,
   deriveMacros,
 } from "./derive.js";
-export {
-  operatorsAttribute,
-  opsMacro,
-  pipeMacro,
-  composeMacro,
-  registerOperators,
-  getOperatorMethod,
-  getOperatorString,
-  clearOperatorMappings,
-} from "./operators.js";
+export { pipeMacro, composeMacro, getOperatorString } from "./operators.js";
 export {
   reflectAttribute,
   typeInfoMacro,
@@ -117,7 +108,6 @@ export {
   getSyntaxForOperator,
   clearSyntaxRegistry, // deprecated, no-op
   updateTypeclassSyntax,
-  extractOpFromReturnType,
   extractOpFromJSDoc,
   registerTypeclassDef,
   registerInstanceWithMeta,
@@ -128,6 +118,7 @@ export {
   hasFlatMapInstance,
   hasParCombineInstance,
   parCombineBuilderRegistry,
+  getSpecializationMethodsForDerivation,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
@@ -427,8 +418,6 @@ export {
   // Derive stub
   derive,
   // Operator stubs
-  operators,
-  ops,
   pipe,
   compose,
   flow,

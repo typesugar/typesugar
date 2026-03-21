@@ -1,7 +1,7 @@
 //! State Machines
 //! Compile-time verified state machine with type-safe transitions
 
-import { stateMachine, verify, deadEndStates } from "@typesugar/graph";
+import { stateMachine, verify } from "@typesugar/graph";
 
 // stateMachine`...` is a compile-time macro that:
 // 1. Parses the DSL at build time
@@ -11,7 +11,7 @@ import { stateMachine, verify, deadEndStates } from "@typesugar/graph";
 
 const orderFlow = stateMachine`
   @initial Created
-  @terminal Delivered, Cancelled
+  @terminal Delivered, Cancelled, Rejected
 
   Created   --submit-->  Pending
   Pending   --approve--> Approved

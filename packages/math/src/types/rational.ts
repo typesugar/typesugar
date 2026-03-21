@@ -13,7 +13,6 @@
  */
 
 import type { Numeric, Fractional, Ord } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
@@ -201,24 +200,24 @@ export function toString(r: Rational): string {
  * Supports add, sub, mul with exact arithmetic.
  */
 export const numericRational: Numeric<Rational> = {
-  add: (a, b) => normalize(a.num * b.den + b.num * a.den, a.den * b.den) as Rational & Op<"+">,
+  add: (a, b) => normalize(a.num * b.den + b.num * a.den, a.den * b.den),
 
-  sub: (a, b) => normalize(a.num * b.den - b.num * a.den, a.den * b.den) as Rational & Op<"-">,
+  sub: (a, b) => normalize(a.num * b.den - b.num * a.den, a.den * b.den),
 
-  mul: (a, b) => normalize(a.num * b.num, a.den * b.den) as Rational & Op<"*">,
+  mul: (a, b) => normalize(a.num * b.num, a.den * b.den),
 
   div: (a, b) => {
     if (b.num === 0n) throw new RangeError("Rational division by zero");
-    return normalize(a.num * b.den, a.den * b.num) as Rational & Op<"/">;
+    return normalize(a.num * b.den, a.den * b.num);
   },
 
   pow: (a, b) => {
     const n = b.num / b.den;
     if (n >= 0n) {
-      return normalize(a.num ** n, a.den ** n) as Rational & Op<"**">;
+      return normalize(a.num ** n, a.den ** n);
     }
     const posN = -n;
-    return normalize(a.den ** posN, a.num ** posN) as Rational & Op<"**">;
+    return normalize(a.den ** posN, a.num ** posN);
   },
 
   negate: (a) => ({ num: -a.num, den: a.den }),
@@ -253,7 +252,7 @@ export const fractionalRational: Fractional<Rational> = {
     if (b.num === 0n) {
       throw new RangeError("Rational division by zero");
     }
-    return normalize(a.num * b.den, a.den * b.num) as Rational & Op<"/">;
+    return normalize(a.num * b.den, a.den * b.num);
   },
 
   recip: (a) => {

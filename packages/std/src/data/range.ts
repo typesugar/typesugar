@@ -125,7 +125,6 @@ export function rangeIsEmpty(r: Range): boolean {
 // Typeclass Instances
 // ============================================================================
 
-import type { Op } from "@typesugar/core";
 import type { Eq, Ord, Ordering } from "../typeclasses/index.js";
 import { EQ_ORD, LT, GT } from "../typeclasses/index.js";
 
@@ -134,16 +133,10 @@ import { EQ_ORD, LT, GT } from "../typeclasses/index.js";
  * Two ranges are equal if they have the same start, end, step, and inclusive flag.
  */
 export const eqRange: Eq<Range> = {
-  equals: ((a, b) =>
-    a.start === b.start && a.end === b.end && a.step === b.step && a.inclusive === b.inclusive) as (
-    a: Range,
-    b: Range
-  ) => boolean & Op<"===">,
-  notEquals: ((a, b) =>
-    a.start !== b.start || a.end !== b.end || a.step !== b.step || a.inclusive !== b.inclusive) as (
-    a: Range,
-    b: Range
-  ) => boolean & Op<"!==">,
+  equals: (a, b) =>
+    a.start === b.start && a.end === b.end && a.step === b.step && a.inclusive === b.inclusive,
+  notEquals: (a, b) =>
+    a.start !== b.start || a.end !== b.end || a.step !== b.step || a.inclusive !== b.inclusive,
 };
 
 /**
@@ -167,13 +160,10 @@ export const ordRange: Ord<Range> = (() => {
     equals: eqRange.equals,
     notEquals: eqRange.notEquals,
     compare,
-    lessThan: ((a, b) => compare(a, b) === LT) as (a: Range, b: Range) => boolean & Op<"<">,
-    lessThanOrEqual: ((a, b) => compare(a, b) !== GT) as (a: Range, b: Range) => boolean & Op<"<=">,
-    greaterThan: ((a, b) => compare(a, b) === GT) as (a: Range, b: Range) => boolean & Op<">">,
-    greaterThanOrEqual: ((a, b) => compare(a, b) !== LT) as (
-      a: Range,
-      b: Range
-    ) => boolean & Op<">=">,
+    lessThan: (a, b) => compare(a, b) === LT,
+    lessThanOrEqual: (a, b) => compare(a, b) !== GT,
+    greaterThan: (a, b) => compare(a, b) === GT,
+    greaterThanOrEqual: (a, b) => compare(a, b) !== LT,
   };
 })();
 

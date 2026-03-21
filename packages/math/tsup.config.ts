@@ -6,5 +6,11 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ["typescript", "@typesugar/core", "@typesugar/std", "@typesugar/units"],
+  external: [
+    "typescript",
+    "@typesugar/core",
+    "@typesugar/macros",
+    "@typesugar/std",
+    "@typesugar/units",
+  ],
 });

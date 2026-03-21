@@ -68,8 +68,8 @@ methods at their call sites, eliminating the last source of overhead.
 
 typesugar uses syntax that doesn't break TypeScript's tokenizer:
 
-- **Decorator-style macros**: `@derive(Eq, Ord)`, `@operators({...})` (classes only — TS decorators cannot be applied to interfaces or type aliases)
-- **Function call macros**: `comptime(expr)`, `ops(a + b)`, `pipe(x, f, g)`
+- **Decorator-style macros**: `@derive(Eq, Ord)` (classes only — TS decorators cannot be applied to interfaces or type aliases). Operator overloading uses `@op` JSDoc on typeclass methods.
+- **Function call macros**: `comptime(expr)`, `pipe(x, f, g)`
 - **Tagged template literals**: `` sql`SELECT * FROM users` ``, `` units`5 m/s` ``
 - **Special type annotations**: `type T = Infer<typeof expr>`
 
@@ -133,7 +133,7 @@ class Point {
 Transform entire declarations:
 
 ```typescript
-@operators({ "+": "add", "-": "sub", "*": "mul", "/": "div" })
+// Operator overloading via @op JSDoc on typeclass methods (e.g., Numeric, Semigroup)
 class Complex {
   constructor(
     public real: number,
@@ -146,8 +146,8 @@ class Complex {
   // ...
 }
 
-// Usage (transformed at compile time)
-const c = ops(a + b); // Becomes: a.add(b)
+// Usage (transformed at compile time when Numeric instance exists)
+const c = a + b; // Becomes: numericComplex.add(a, b)
 ```
 
 ### 3. Compile-Time Evaluation
@@ -327,7 +327,7 @@ const html = html`<div>${unsafeInput}</div>`;
 ### 4. Operator Overloading
 
 ```typescript
-@operators({ "+": "add", "-": "sub", "*": "mul", "/": "div" })
+// Operator overloading via @op JSDoc on typeclass methods (e.g., Numeric, Semigroup)
 class Complex {
   constructor(
     public real: number,
@@ -338,7 +338,7 @@ class Complex {
   }
 }
 
-const c = ops(a + b); // Becomes: a.add(b)
+const c = a + b; // Becomes: numericInstance.add(a, b) when instance exists
 ```
 
 ## Integration

@@ -15,7 +15,6 @@
  */
 
 import type { Numeric } from "@typesugar/std";
-import type { Op } from "@typesugar/core";
 
 // ============================================================================
 // Type Definitions
@@ -538,17 +537,17 @@ function inverseGaussJordan<N extends number>(m: Matrix<N, N>, n: number): Matri
  */
 export function numericMatrix<N extends number>(n: N): Numeric<Matrix<N, N>> {
   return {
-    add: (a, b) => add(a, b) as Matrix<N, N> & Op<"+">,
-    sub: (a, b) => sub(a, b) as Matrix<N, N> & Op<"-">,
-    mul: (a, b) => matMul(a, b) as Matrix<N, N> & Op<"*">,
-    div: (a, b) => matMul(a, inverse(b)) as Matrix<N, N> & Op<"/">,
+    add: (a, b) => add(a, b),
+    sub: (a, b) => sub(a, b),
+    mul: (a, b) => matMul(a, b),
+    div: (a, b) => matMul(a, inverse(b)),
     pow: (a, b) => {
       const exp = Math.round(trace(b));
-      if (exp === 0) return identity(n) as Matrix<N, N> & Op<"**">;
+      if (exp === 0) return identity(n);
       let result: Matrix<N, N> = identity(n);
       const base = exp > 0 ? a : inverse(a);
       for (let i = 0; i < Math.abs(exp); i++) result = matMul(result, base);
-      return result as Matrix<N, N> & Op<"**">;
+      return result;
     },
     negate: (a) => negate(a),
     abs: (a) => a,

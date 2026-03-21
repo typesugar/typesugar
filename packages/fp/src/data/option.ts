@@ -16,7 +16,6 @@
  * ```
  */
 
-import type { Op } from "@typesugar/core";
 import type { TypeFunction } from "@typesugar/type-system";
 import type { Eq, Ord, Ordering } from "../typeclasses/eq.js";
 import type { Show } from "../typeclasses/show.js";
@@ -469,11 +468,11 @@ export function isEmpty<A>(opt: Option<A>): boolean {
  */
 export function getEq<A>(E: Eq<A>): Eq<Option<A>> {
   return {
-    eqv: ((x: any, y: any) => {
+    eqv: (x: any, y: any) => {
       if (x === null && y === null) return true;
       if (x !== null && y !== null) return E.eqv(x, y);
       return false;
-    }) as (x: Option<A>, y: Option<A>) => boolean & Op<"===">,
+    },
   };
 }
 
@@ -504,19 +503,10 @@ export function getOrd<A>(O: Ord<A>): Ord<Option<A>> {
   return {
     eqv: getEq(O).eqv,
     compare,
-    lessThan: ((x, y) => compare(x, y) === -1) as (x: Option<A>, y: Option<A>) => boolean & Op<"<">,
-    lessThanOrEqual: ((x, y) => compare(x, y) !== 1) as (
-      x: Option<A>,
-      y: Option<A>
-    ) => boolean & Op<"<=">,
-    greaterThan: ((x, y) => compare(x, y) === 1) as (
-      x: Option<A>,
-      y: Option<A>
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((x, y) => compare(x, y) !== -1) as (
-      x: Option<A>,
-      y: Option<A>
-    ) => boolean & Op<">=">,
+    lessThan: (x, y) => compare(x, y) === -1,
+    lessThanOrEqual: (x, y) => compare(x, y) !== 1,
+    greaterThan: (x, y) => compare(x, y) === 1,
+    greaterThanOrEqual: (x, y) => compare(x, y) !== -1,
   };
 }
 

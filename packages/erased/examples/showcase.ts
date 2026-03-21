@@ -345,3 +345,83 @@ assert(eventLog[3] === "Scroll(100)");
 // dedup removes consecutive identical events
 const dedupedEvents = dedup(events);
 assert(dedupedEvents.length === 4, "Consecutive duplicate click removed");
+
+// ============================================================================
+// 11. AUTO-DERIVATION — @derive with erased() for Automatic Vtable Generation
+// ============================================================================
+
+// When using the typesugar transformer, the `erased()` macro can automatically
+// resolve typeclass instances for the concrete type and build the vtable.
+//
+// Given a type with @derive annotations:
+//
+//   /** @derive Show, Eq, Clone */
+//   interface Color { r: number; g: number; b: number }
+//
+// The transformer rewrites:
+//
+//   const erasedColor = erased<[ShowCapability, EqCapability, CloneCapability]>(myColor);
+//
+// Into the equivalent of:
+//
+//   const erasedColor = eraseWith(myColor, {
+//     show:   (v) => Show_Color.show(v),
+//     equals: (a, b) => Eq_Color.equals(a, b),
+//     clone:  (v) => Clone_Color.clone(v),
+//   });
+//
+// This means you get full vtable dispatch with zero manual wiring.
+
+// Manual demonstration of what the transformer would produce for a Color type:
+interface Color { r: number; g: number; b: number }
+
+function showColor(c: Color): string {
+  return `rgb(${c.r}, ${c.g}, ${c.b})`;
+}
+function eqColor(a: Color, b: Color): boolean {
+  return a.r === b.r && a.g === b.g && a.b === b.b;
+}
+function cloneColor(c: Color): Color {
+  return { r: c.r, g: c.g, b: c.b };
+}
+
+// This is what `erased<[Show, Eq, Clone]>(myColor)` expands to after transformation:
+const erasedColor = eraseWith({ r: 255, g: 128, b: 0 } as Color, {
+  show: (v: unknown) => showColor(v as Color),
+  equals: (a: unknown, b: unknown) => eqColor(a as Color, b as Color),
+  clone: (v: unknown) => cloneColor(v as Color),
+});
+
+assert(show(erasedColor) === "rgb(255, 128, 0)");
+assert(equals(erasedColor, eraseWith({ r: 255, g: 128, b: 0 } as Color, {
+  show: (v: unknown) => showColor(v as Color),
+  equals: (a: unknown, b: unknown) => eqColor(a as Color, b as Color),
+  clone: (v: unknown) => cloneColor(v as Color),
+})));
+
+const clonedColor = clone(erasedColor);
+assert(show(clonedColor) === "rgb(255, 128, 0)");
+
+// The cloned value is independent — modifying it doesn't affect the original
+const inner: Color = unwrapErased(clonedColor);
+inner.r = 0;
+assert(show(erasedColor) === "rgb(255, 128, 0)", "Original unchanged after clone mutation");
+
+// Multiple @derive types in a heterogeneous collection — the key value proposition
+interface Size { w: number; h: number }
+
+const erasedSize = eraseWith({ w: 1920, h: 1080 } as Size, {
+  show: (v: unknown) => {
+    const s = v as Size;
+    return `${s.w}x${s.h}`;
+  },
+  equals: (a: unknown, b: unknown) => {
+    const sa = a as Size, sb = b as Size;
+    return sa.w === sb.w && sa.h === sb.h;
+  },
+});
+
+// Different @derive types coexist in one collection
+const mixed: WithShow[] = [erasedColor, erasedSize];
+assert(show(mixed[0]) === "rgb(255, 128, 0)");
+assert(show(mixed[1]) === "1920x1080");

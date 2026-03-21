@@ -47,7 +47,7 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
-import { MacroContextImpl, markPure } from "@typesugar/core";
+import { MacroContextImpl, markPure, stripPositions } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import { parseTypeConstructor } from "./hkt.js";
 
@@ -1157,22 +1157,22 @@ registerInstanceMethods("effectEitherMonad", "Either", {
 // Primitive Typeclass Intrinsics — inline to native operators
 // ============================================================================
 
-// Eq primitives: eqNumber.eq(a, b) → a === b
+// Eq primitives: eqNumber.equals(a, b) → a === b
 registerPrimitiveIntrinsic("eqNumber", "number", {
-  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
-  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
+  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
 });
 registerPrimitiveIntrinsic("eqString", "string", {
-  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
-  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
+  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
 });
 registerPrimitiveIntrinsic("eqBoolean", "boolean", {
-  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
-  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
+  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
 });
 registerPrimitiveIntrinsic("eqBigint", "bigint", {
-  eq: { source: "(a, b) => a === b", params: ["a", "b"] },
-  neq: { source: "(a, b) => a !== b", params: ["a", "b"] },
+  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
+  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
 });
 
 // Ord primitives: ordNumber.compare(a, b) → a < b ? -1 : a > b ? 1 : 0
@@ -2353,16 +2353,26 @@ function inlineFromNode(
 
 /**
  * Substitute parameter references with concrete argument expressions.
+ *
+ * Replacements are stripped of source positions to prevent TypeScript's
+ * printer from attaching comments from the original source file into the
+ * inlined output (the replacement nodes come from the call site and carry
+ * real positions; mixing them with synthetic template nodes causes the
+ * printer to emit stray comments at those positions).
  */
 function substituteParams(
   ctx: MacroContext,
   node: ts.Node,
   substitutions: Map<string, ts.Expression>
 ): ts.Expression {
+  const stripped = new Map<string, ts.Expression>();
+  for (const [key, value] of substitutions) {
+    stripped.set(key, stripPositions(value));
+  }
+
   function visit(n: ts.Node): ts.Node {
-    // Replace identifier references to parameters
     if (ts.isIdentifier(n)) {
-      const replacement = substitutions.get(n.text);
+      const replacement = stripped.get(n.text);
       if (replacement) {
         return replacement;
       }

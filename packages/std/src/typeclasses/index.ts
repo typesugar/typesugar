@@ -12,10 +12,9 @@
  * - Auto-derivation via @derive
  * - Extension methods via the typeclass system
  * - Zero-cost specialization via inlining
- * - Operator overloading via Op<> annotations
+ * - Operator overloading via @op JSDoc tags
  */
 
-import type { Op } from "@typesugar/core";
 import { typeclass } from "@typesugar/macros/runtime";
 import { registerInstanceWithMeta } from "@typesugar/macros";
 
@@ -32,15 +31,15 @@ import { registerInstanceWithMeta } from "@typesugar/macros";
  * - Symmetry: `equals(x, y) === equals(y, x)`
  * - Transitivity: `equals(x, y) && equals(y, z) => equals(x, z)`
  *
- * Operators dispatch via Op<> annotations:
+ * Operators dispatch via @op JSDoc tags:
  * - `a === b` → `Eq.equals(a, b)`
  * - `a !== b` → `Eq.notEquals(a, b)`
  *
  * @typeclass
  */
 export interface Eq<A> {
-  equals(a: A, b: A): boolean & Op<"===">;
-  notEquals(a: A, b: A): boolean & Op<"!==">;
+  equals(a: A, b: A): boolean;
+  notEquals(a: A, b: A): boolean;
 }
 typeclass("Eq");
 
@@ -104,8 +103,8 @@ registerInstanceWithMeta({
  */
 export function makeEq<A>(eq: (a: A, b: A) => boolean): Eq<A> {
   return {
-    equals: eq as (a: A, b: A) => boolean & Op<"===">,
-    notEquals: ((a: A, b: A) => !eq(a, b)) as (a: A, b: A) => boolean & Op<"!==">,
+    equals: eq,
+    notEquals: (a, b) => !eq(a, b),
   };
 }
 
@@ -114,8 +113,8 @@ export function makeEq<A>(eq: (a: A, b: A) => boolean): Eq<A> {
  */
 export function eqBy<A, B>(f: (a: A) => B, E: Eq<B> = eqStrict()): Eq<A> {
   return {
-    equals: ((a, b) => E.equals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"===">,
-    notEquals: ((a, b) => E.notEquals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"!==">,
+    equals: (a, b) => E.equals(f(a), f(b)),
+    notEquals: (a, b) => E.notEquals(f(a), f(b)),
   };
 }
 
@@ -124,8 +123,8 @@ export function eqBy<A, B>(f: (a: A) => B, E: Eq<B> = eqStrict()): Eq<A> {
  */
 export function eqStrict<A>(): Eq<A> {
   return {
-    equals: ((a, b) => a === b) as (a: A, b: A) => boolean & Op<"===">,
-    notEquals: ((a, b) => a !== b) as (a: A, b: A) => boolean & Op<"!==">,
+    equals: (a, b) => a === b,
+    notEquals: (a, b) => a !== b,
   };
 }
 
@@ -134,14 +133,14 @@ export function eqStrict<A>(): Eq<A> {
  */
 export function eqArray<A>(E: Eq<A>): Eq<A[]> {
   return {
-    equals: ((xs, ys) => {
+    equals: (xs, ys) => {
       if (xs.length !== ys.length) return false;
       return xs.every((x, i) => E.equals(x, ys[i]));
-    }) as (a: A[], b: A[]) => boolean & Op<"===">,
-    notEquals: ((xs, ys) => {
+    },
+    notEquals: (xs, ys) => {
       if (xs.length !== ys.length) return true;
       return xs.some((x, i) => E.notEquals(x, ys[i]));
-    }) as (a: A[], b: A[]) => boolean & Op<"!==">,
+    },
   };
 }
 
@@ -269,7 +268,7 @@ export const GT: Ordering = 1;
  * - Transitivity: `compare(x, y) <= 0 && compare(y, z) <= 0 => compare(x, z) <= 0`
  * - Totality: `compare(x, y) <= 0 || compare(y, x) <= 0`
  *
- * Operators dispatch via Op<> annotations:
+ * Operators dispatch via @op JSDoc tags:
  * - `a < b`  → `Ord.lessThan(a, b)`
  * - `a <= b` → `Ord.lessThanOrEqual(a, b)`
  * - `a > b`  → `Ord.greaterThan(a, b)`
@@ -279,10 +278,10 @@ export const GT: Ordering = 1;
  */
 export interface Ord<A> extends Eq<A> {
   compare(a: A, b: A): Ordering;
-  lessThan(a: A, b: A): boolean & Op<"<">;
-  lessThanOrEqual(a: A, b: A): boolean & Op<"<=">;
-  greaterThan(a: A, b: A): boolean & Op<">">;
-  greaterThanOrEqual(a: A, b: A): boolean & Op<">=">;
+  lessThan(a: A, b: A): boolean;
+  lessThanOrEqual(a: A, b: A): boolean;
+  greaterThan(a: A, b: A): boolean;
+  greaterThanOrEqual(a: A, b: A): boolean;
 }
 typeclass("Ord");
 
@@ -375,13 +374,13 @@ registerInstanceWithMeta({
  */
 export function makeOrd<A>(compare: (a: A, b: A) => Ordering): Ord<A> {
   return {
-    equals: ((a, b) => compare(a, b) === EQ_ORD) as (a: A, b: A) => boolean & Op<"===">,
-    notEquals: ((a, b) => compare(a, b) !== EQ_ORD) as (a: A, b: A) => boolean & Op<"!==">,
+    equals: (a, b) => compare(a, b) === EQ_ORD,
+    notEquals: (a, b) => compare(a, b) !== EQ_ORD,
     compare,
-    lessThan: ((a, b) => compare(a, b) === LT) as (a: A, b: A) => boolean & Op<"<">,
-    lessThanOrEqual: ((a, b) => compare(a, b) !== GT) as (a: A, b: A) => boolean & Op<"<=">,
-    greaterThan: ((a, b) => compare(a, b) === GT) as (a: A, b: A) => boolean & Op<">">,
-    greaterThanOrEqual: ((a, b) => compare(a, b) !== LT) as (a: A, b: A) => boolean & Op<">=">,
+    lessThan: (a, b) => compare(a, b) === LT,
+    lessThanOrEqual: (a, b) => compare(a, b) !== GT,
+    greaterThan: (a, b) => compare(a, b) === GT,
+    greaterThanOrEqual: (a, b) => compare(a, b) !== LT,
   };
 }
 
@@ -390,19 +389,13 @@ export function makeOrd<A>(compare: (a: A, b: A) => Ordering): Ord<A> {
  */
 export function ordBy<A, B>(f: (a: A) => B, O: Ord<B>): Ord<A> {
   return {
-    equals: ((a, b) => O.equals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"===">,
-    notEquals: ((a, b) => O.notEquals(f(a), f(b))) as (a: A, b: A) => boolean & Op<"!==">,
+    equals: (a, b) => O.equals(f(a), f(b)),
+    notEquals: (a, b) => O.notEquals(f(a), f(b)),
     compare: (a, b) => O.compare(f(a), f(b)),
-    lessThan: ((a, b) => O.lessThan(f(a), f(b))) as (a: A, b: A) => boolean & Op<"<">,
-    lessThanOrEqual: ((a, b) => O.lessThanOrEqual(f(a), f(b))) as (
-      a: A,
-      b: A
-    ) => boolean & Op<"<=">,
-    greaterThan: ((a, b) => O.greaterThan(f(a), f(b))) as (a: A, b: A) => boolean & Op<">">,
-    greaterThanOrEqual: ((a, b) => O.greaterThanOrEqual(f(a), f(b))) as (
-      a: A,
-      b: A
-    ) => boolean & Op<">=">,
+    lessThan: (a, b) => O.lessThan(f(a), f(b)),
+    lessThanOrEqual: (a, b) => O.lessThanOrEqual(f(a), f(b)),
+    greaterThan: (a, b) => O.greaterThan(f(a), f(b)),
+    greaterThanOrEqual: (a, b) => O.greaterThanOrEqual(f(a), f(b)),
   };
 }
 
@@ -437,22 +430,10 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
       }
       return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ_ORD;
     },
-    lessThan: ((xs, ys) => ordArray(O).compare(xs, ys) === LT) as (
-      a: A[],
-      b: A[]
-    ) => boolean & Op<"<">,
-    lessThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== GT) as (
-      a: A[],
-      b: A[]
-    ) => boolean & Op<"<=">,
-    greaterThan: ((xs, ys) => ordArray(O).compare(xs, ys) === GT) as (
-      a: A[],
-      b: A[]
-    ) => boolean & Op<">">,
-    greaterThanOrEqual: ((xs, ys) => ordArray(O).compare(xs, ys) !== LT) as (
-      a: A[],
-      b: A[]
-    ) => boolean & Op<">=">,
+    lessThan: (xs, ys) => ordArray(O).compare(xs, ys) === LT,
+    lessThanOrEqual: (xs, ys) => ordArray(O).compare(xs, ys) !== GT,
+    greaterThan: (xs, ys) => ordArray(O).compare(xs, ys) === GT,
+    greaterThanOrEqual: (xs, ys) => ordArray(O).compare(xs, ys) !== LT,
   };
 }
 
@@ -467,13 +448,13 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
  * Law:
  * - Associativity: `combine(combine(a, b), c) === combine(a, combine(b, c))`
  *
- * Operators dispatch via Op<> annotations:
+ * Operators dispatch via @op JSDoc tags:
  * - `a + b` → `Semigroup.combine(a, b)` (for additive semigroups)
  *
  * @typeclass
  */
 export interface Semigroup<A> {
-  combine(a: A, b: A): A & Op<"+">;
+  combine(a: A, b: A): A;
 }
 typeclass("Semigroup");
 
@@ -512,7 +493,7 @@ registerInstanceWithMeta({
  */
 export function semigroupArray<A>(): Semigroup<A[]> {
   return {
-    combine: ((a, b) => [...a, ...b]) as (a: A[], b: A[]) => A[] & Op<"+">,
+    combine: (a, b) => [...a, ...b],
   };
 }
 
@@ -573,7 +554,7 @@ registerInstanceWithMeta({
  */
 export function monoidArray<A>(): Monoid<A[]> {
   return {
-    combine: ((a, b) => [...a, ...b]) as (a: A[], b: A[]) => A[] & Op<"+">,
+    combine: (a, b) => [...a, ...b],
     empty: () => [],
   };
 }
@@ -716,7 +697,7 @@ registerInstanceWithMeta({
  * This is the Ring abstraction: add, sub, mul with identity elements.
  * Use `registerStdInstances()` macro to enable summon<Numeric<T>>() resolution.
  *
- * Operators dispatch via Op<> annotations:
+ * Operators dispatch via @op JSDoc tags:
  * - `a + b` → `Numeric.add(a, b)`
  * - `a - b` → `Numeric.sub(a, b)`
  * - `a * b` → `Numeric.mul(a, b)`
@@ -724,11 +705,11 @@ registerInstanceWithMeta({
  * @typeclass
  */
 export interface Numeric<A> {
-  add(a: A, b: A): A & Op<"+">;
-  sub(a: A, b: A): A & Op<"-">;
-  mul(a: A, b: A): A & Op<"*">;
-  div(a: A, b: A): A & Op<"/">;
-  pow(a: A, b: A): A & Op<"**">;
+  add(a: A, b: A): A;
+  sub(a: A, b: A): A;
+  mul(a: A, b: A): A;
+  div(a: A, b: A): A;
+  pow(a: A, b: A): A;
   negate(a: A): A;
   abs(a: A): A;
   signum(a: A): A;
@@ -791,15 +772,15 @@ registerInstanceWithMeta({
  *
  * This is the Euclidean Ring abstraction.
  *
- * Operators dispatch via Op<> annotations (for integer types):
+ * Operators dispatch via @op JSDoc tags (for integer types):
  * - `a / b` → `Integral.div(a, b)` (floor division)
  * - `a % b` → `Integral.mod(a, b)` (modulo)
  *
  * @typeclass
  */
 export interface Integral<A> {
-  div(a: A, b: A): A & Op<"/">;
-  mod(a: A, b: A): A & Op<"%">;
+  div(a: A, b: A): A;
+  mod(a: A, b: A): A;
   divMod(a: A, b: A): [A, A];
   quot(a: A, b: A): A;
   rem(a: A, b: A): A;
@@ -856,13 +837,13 @@ registerInstanceWithMeta({
  *
  * This is the Field abstraction (for fractional/floating types).
  *
- * Operators dispatch via Op<> annotations (for fractional types):
+ * Operators dispatch via @op JSDoc tags (for fractional types):
  * - `a / b` → `Fractional.div(a, b)` (true division)
  *
  * @typeclass
  */
 export interface Fractional<A> {
-  div(a: A, b: A): A & Op<"/">;
+  div(a: A, b: A): A;
   recip(a: A): A;
   fromRational(num: number, den: number): A;
 }
@@ -1256,7 +1237,7 @@ export interface Group<A> {
   /** The identity element */
   empty(): A;
   /** Associative binary operation */
-  combine(a: A, b: A): A & Op<"+">;
+  combine(a: A, b: A): A;
   /** Inverse operation: combine(invert(a), a) === empty() */
   invert(a: A): A;
 }
@@ -1287,3 +1268,260 @@ registerInstanceWithMeta({
   instanceName: "groupBigInt",
   derived: false,
 });
+
+// ============================================================================
+// Clone — Rust Clone, Haskell: not built-in (pure values), Scala: not built-in
+// Types that can produce a deep copy of themselves.
+// ============================================================================
+
+/**
+ * Clone typeclass - deep copy of a value.
+ *
+ * Law:
+ * - Identity: `Eq.equals(clone(a), a) === true` (when Eq is available)
+ * - Independence: mutating `clone(a)` does not affect `a`
+ *
+ * @typeclass
+ */
+export interface Clone<A> {
+  clone(a: A): A;
+}
+typeclass("Clone");
+
+export const cloneNumber: Clone<number> = {
+  clone: (a) => a,
+};
+registerInstanceWithMeta({
+  typeclassName: "Clone",
+  forType: "number",
+  instanceName: "cloneNumber",
+  derived: false,
+});
+
+export const cloneString: Clone<string> = {
+  clone: (a) => a,
+};
+registerInstanceWithMeta({
+  typeclassName: "Clone",
+  forType: "string",
+  instanceName: "cloneString",
+  derived: false,
+});
+
+export const cloneBoolean: Clone<boolean> = {
+  clone: (a) => a,
+};
+registerInstanceWithMeta({
+  typeclassName: "Clone",
+  forType: "boolean",
+  instanceName: "cloneBoolean",
+  derived: false,
+});
+
+export const cloneBigInt: Clone<bigint> = {
+  clone: (a) => a,
+};
+registerInstanceWithMeta({
+  typeclassName: "Clone",
+  forType: "bigint",
+  instanceName: "cloneBigInt",
+  derived: false,
+});
+
+export const cloneDate: Clone<Date> = {
+  clone: (a) => new Date(a.getTime()),
+};
+registerInstanceWithMeta({
+  typeclassName: "Clone",
+  forType: "Date",
+  instanceName: "cloneDate",
+  derived: false,
+});
+
+/**
+ * Create a Clone instance from a custom clone function.
+ */
+export function makeClone<A>(cloneFn: (a: A) => A): Clone<A> {
+  return { clone: cloneFn };
+}
+
+/**
+ * Clone for arrays (element-wise deep clone).
+ */
+export function cloneArray<A>(C: Clone<A>): Clone<A[]> {
+  return { clone: (arr) => arr.map((x) => C.clone(x)) };
+}
+
+// ============================================================================
+// Debug — Rust Debug, Haskell Show (developer-facing), Swift debugDescription
+// Developer-facing string representation for debugging/logging.
+// ============================================================================
+
+/**
+ * Debug typeclass - developer-facing string representation.
+ *
+ * Unlike Printable (human-readable), Debug produces unambiguous output
+ * suitable for logging and debugging. Strings are quoted, types are
+ * annotated, etc.
+ *
+ * @typeclass
+ */
+export interface Debug<A> {
+  debug(a: A): string;
+}
+typeclass("Debug");
+
+export const debugNumber: Debug<number> = {
+  debug: (a) => String(a),
+};
+registerInstanceWithMeta({
+  typeclassName: "Debug",
+  forType: "number",
+  instanceName: "debugNumber",
+  derived: false,
+});
+
+export const debugString: Debug<string> = {
+  debug: (a) => JSON.stringify(a),
+};
+registerInstanceWithMeta({
+  typeclassName: "Debug",
+  forType: "string",
+  instanceName: "debugString",
+  derived: false,
+});
+
+export const debugBoolean: Debug<boolean> = {
+  debug: (a) => String(a),
+};
+registerInstanceWithMeta({
+  typeclassName: "Debug",
+  forType: "boolean",
+  instanceName: "debugBoolean",
+  derived: false,
+});
+
+export const debugBigInt: Debug<bigint> = {
+  debug: (a) => `${a}n`,
+};
+registerInstanceWithMeta({
+  typeclassName: "Debug",
+  forType: "bigint",
+  instanceName: "debugBigInt",
+  derived: false,
+});
+
+export const debugDate: Debug<Date> = {
+  debug: (a) => `Date(${JSON.stringify(a.toISOString())})`,
+};
+registerInstanceWithMeta({
+  typeclassName: "Debug",
+  forType: "Date",
+  instanceName: "debugDate",
+  derived: false,
+});
+
+/**
+ * Create a Debug instance from a custom debug function.
+ */
+export function makeDebug<A>(debugFn: (a: A) => string): Debug<A> {
+  return { debug: debugFn };
+}
+
+/**
+ * Debug for arrays.
+ */
+export function debugArray<A>(D: Debug<A>): Debug<A[]> {
+  return { debug: (arr) => `[${arr.map((x) => D.debug(x)).join(", ")}]` };
+}
+
+// ============================================================================
+// Json — Scala circe Codec, Rust serde, Haskell aeson ToJSON/FromJSON
+// Types that can be serialized to/from JSON.
+// ============================================================================
+
+/**
+ * Json typeclass - bidirectional JSON serialization.
+ *
+ * Laws:
+ * - Round-trip: `fromJson(toJson(a))` deeply equals `a`
+ *
+ * @typeclass
+ */
+export interface Json<A> {
+  toJson(a: A): unknown;
+  fromJson(json: unknown): A;
+}
+typeclass("Json");
+
+export const jsonNumber: Json<number> = {
+  toJson: (a) => a,
+  fromJson: (json) => json as number,
+};
+registerInstanceWithMeta({
+  typeclassName: "Json",
+  forType: "number",
+  instanceName: "jsonNumber",
+  derived: false,
+});
+
+export const jsonString: Json<string> = {
+  toJson: (a) => a,
+  fromJson: (json) => json as string,
+};
+registerInstanceWithMeta({
+  typeclassName: "Json",
+  forType: "string",
+  instanceName: "jsonString",
+  derived: false,
+});
+
+export const jsonBoolean: Json<boolean> = {
+  toJson: (a) => a,
+  fromJson: (json) => json as boolean,
+};
+registerInstanceWithMeta({
+  typeclassName: "Json",
+  forType: "boolean",
+  instanceName: "jsonBoolean",
+  derived: false,
+});
+
+export const jsonBigInt: Json<bigint> = {
+  toJson: (a) => String(a),
+  fromJson: (json) => BigInt(json as string),
+};
+registerInstanceWithMeta({
+  typeclassName: "Json",
+  forType: "bigint",
+  instanceName: "jsonBigInt",
+  derived: false,
+});
+
+export const jsonDate: Json<Date> = {
+  toJson: (a) => a.toISOString(),
+  fromJson: (json) => new Date(json as string),
+};
+registerInstanceWithMeta({
+  typeclassName: "Json",
+  forType: "Date",
+  instanceName: "jsonDate",
+  derived: false,
+});
+
+/**
+ * Create a Json instance from custom serialization functions.
+ */
+export function makeJson<A>(toJson: (a: A) => unknown, fromJson: (json: unknown) => A): Json<A> {
+  return { toJson, fromJson };
+}
+
+/**
+ * Json for arrays (element-wise serialization).
+ */
+export function jsonArray<A>(J: Json<A>): Json<A[]> {
+  return {
+    toJson: (arr) => arr.map((x) => J.toJson(x)),
+    fromJson: (json) => (json as unknown[]).map((x) => J.fromJson(x)),
+  };
+}

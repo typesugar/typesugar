@@ -3,7 +3,7 @@
 
 import "@typesugar/codec";
 import { SchemaBuilder } from "@typesugar/codec";
-import { comptime, staticAssert } from "typesugar";
+import { comptime } from "typesugar";
 
 // @codec reads the interface at compile time and generates defineSchema()
 // 👀 Check JS Output: the interface stays, plus a generated schema constant
@@ -14,7 +14,6 @@ interface UserV1 {
 }
 
 const SCHEMA_VERSION = comptime(() => 2);
-staticAssert(2 > 1);
 
 // Evolve the schema — add fields with migration defaults
 const userV2 = new SchemaBuilder("User", SCHEMA_VERSION)

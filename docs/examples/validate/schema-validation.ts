@@ -1,10 +1,11 @@
 //! Schema Validation
-//! Compile-time type guards from types — zero runtime schema definitions
+//! is<T>() and assert<T>() generate type guards from types at compile time
 
-import { comptime, staticAssert, pipe } from "typesugar";
+import { is, assert } from "@typesugar/validate";
+import { comptime, staticAssert } from "typesugar";
 
-// @typesugar/validate's is<T>() macro generates type guards at compile time.
-// No manual schema definitions — the transformer reads the type and emits checks.
+// @typesugar/validate reads your TypeScript types at compile time
+// and generates runtime validators — no manual schema definitions!
 
 interface User {
   id: number;
@@ -13,26 +14,29 @@ interface User {
   active: boolean;
 }
 
-// comptime() embeds validated test data at build time
+// 👀 Check JS Output — is<User>() becomes a function that checks
+// typeof id === "number" && typeof name === "string" && ...
+const isUser = is<User>();
+
 const testData = comptime(() => [
   { id: 1, name: "Alice", email: "alice@co.com", active: true },
   { id: 2, name: "Bob", email: "bob@co.com", active: false },
+  { id: 3, name: "Bad", extra: true },  // invalid — missing fields
 ]);
+staticAssert(testData.length === 3);
 
-staticAssert(testData.length === 2, "need exactly 2 test users");
-staticAssert(testData[0].name === "Alice", "first user is Alice");
-
-// Manual validator matching what is<User>() would generate
-function isUser(v: unknown): v is User {
-  if (typeof v !== "object" || v === null) return false;
-  const o = v as Record<string, unknown>;
-  return typeof o.id === "number" && typeof o.name === "string"
-    && typeof o.email === "string" && typeof o.active === "boolean";
+// Validate each record against the generated type guard
+for (const item of testData) {
+  console.log(`${JSON.stringify(item)}: valid=${isUser(item)}`);
 }
 
-// 👀 Check JS Output — comptime() inlines the array, staticAssert vanishes
-const valid = testData.filter(isUser);
-const summary = pipe(valid, u => u.filter(u => u.active), a => a.map(u => u.name).join(", "));
-console.log("valid:", valid.length, "active:", summary);  // valid: 2 active: Alice
+// assert<T>() throws on invalid data — great for API boundaries
+const assertUser = assert<User>();
+try {
+  const user = assertUser(testData[0]);
+  console.log("\nAsserted user:", user.name, user.email);
+} catch (e) {
+  console.log("Assertion failed:", (e as Error).message);
+}
 
-// Try: add an "age" field to User and watch the validator need updating
+// Try: add an "age" field to User and watch the validator update automatically

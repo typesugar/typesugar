@@ -12,5 +12,5 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ["typescript", "@typesugar/type-system"],
+  external: ["typescript", "@typesugar/core", "@typesugar/macros", "@typesugar/type-system"],
 });

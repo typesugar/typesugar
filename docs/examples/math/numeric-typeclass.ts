@@ -1,45 +1,36 @@
-//! Complex & Rational Math
-//! Numeric typeclasses with operator overloading on custom types
+//! Math Types
+//! Complex, Rational, Matrix — with Numeric typeclass operator overloading
 
-import { operators, ops, comptime, staticAssert } from "typesugar";
+import { complex, numericComplex, complexEquals, complexToString, complexMagnitude, rat, rational, matrix, interval } from "@typesugar/math";
 
-// @typesugar/math provides Numeric instances for Complex, Rational, etc.
-// Here we show ops() rewriting +, *, == to method calls — zero cost.
+// @typesugar/math provides Numeric instances with @op annotations.
+// 👀 Check JS Output — a + b and a * b rewrite to numericComplex.add/mul!
 
-@operators({ "+": "add", "*": "mul", "==": "equals" })
-class Complex {
-  constructor(public re: number, public im: number) {}
-  add(other: Complex): Complex {
-    return new Complex(this.re + other.re, this.im + other.im);
-  }
-  mul(other: Complex): Complex {
-    return new Complex(
-      this.re * other.re - this.im * other.im,
-      this.re * other.im + this.im * other.re,
-    );
-  }
-  magnitude(): number { return Math.sqrt(this.re ** 2 + this.im ** 2); }
-  equals(other: Complex): boolean {
-    return this.re === other.re && this.im === other.im;
-  }
-  toString(): string {
-    return this.im >= 0 ? `${this.re}+${this.im}i` : `${this.re}${this.im}i`;
-  }
-}
+// --- Complex numbers ---
+const a = complex(3, 4);
+const b = complex(1, -2);
+const sum = a + b;
+const product = a * b;
 
-const a = new Complex(3, 4);
-const b = new Complex(1, -2);
+console.log(`${complexToString(a)} + ${complexToString(b)} = ${complexToString(sum)}`);
+console.log(`${complexToString(a)} * ${complexToString(b)} = ${complexToString(product)}`);
+console.log(`|${complexToString(a)}| = ${complexMagnitude(a)}`);  // 5
 
-// 👀 Check JS Output — ops() rewrites + and * to .add() and .mul()
-const sum = ops(a + b);
-const product = ops(a * b);
+// --- Rational numbers (exact fractions) ---
+const half = rat(1, 2);
+const third = rat(1, 3);
+console.log("\n--- Rational ---");
+console.log("1/2 =", half);
+console.log("1/3 =", third);
 
-console.log(`${a} + ${b} = ${sum}`);
-console.log(`${a} * ${b} = ${product}`);
-console.log(`|${a}| = ${a.magnitude()}`);  // 5
-console.log(`a == a?`, ops(a == a));        // true
+// --- Matrix (typed dimensions) ---
+const m = matrix(2, 2, [1, 2, 3, 4]);
+console.log("\n--- Matrix ---");
+console.log("2x2 matrix:", m);
 
-const PI = comptime(() => Math.PI);
-staticAssert(typeof PI === "number");
+// --- Interval arithmetic ---
+const range = interval(0.9, 1.1);
+console.log("\n--- Interval ---");
+console.log("range:", range);
 
-// Try: add a "conjugate" method and compute a * conjugate(a) = |a|²
+// Try: compute a * conjugate(a) where conjugate(3+4i) = (3-4i) → should give |a|² = 25

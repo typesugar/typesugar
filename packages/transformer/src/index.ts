@@ -21,6 +21,7 @@ import {
   transformHKTDeclaration,
   builtinDerivations,
   instanceRegistry,
+  typeclassRegistry,
   instanceVarName,
   tryExtractSumType,
   hasImplicitParams,
@@ -41,11 +42,11 @@ import {
   registerInstanceWithMeta,
   registerTypeclassDef,
   updateTypeclassSyntax,
-  extractOpFromReturnType,
   extractOpFromJSDoc,
   // Source-based specialization
   extractMethodsFromObjectLiteral,
   registerInstanceMethodsFromAST,
+  getSpecializationMethodsForDerivation,
   type ImplicitScope,
   type DictMethodMap,
   type DictMethod,
@@ -96,14 +97,239 @@ import {
   type TypeRewriteEntry,
   type ConstructorRewrite,
   type AccessorRewrite,
+  type MethodInlinePattern,
   // Statement removal sentinel
   isRemoveExpression,
   getRemoveComment,
+  // Comment stripping for inlined expressions
+  stripCommentsDeep,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
 // Printer for safe text extraction from nodes (works on synthetic nodes too)
 const nodePrinter = ts.createPrinter();
+// Printer that strips all comments — used to reparse macro-generated expressions
+// without inheriting stray comments from the original source file
+const commentFreePrinter = ts.createPrinter({ removeComments: true });
+
+function isNullLiteral(node: ts.Expression): boolean {
+  return node.kind === ts.SyntaxKind.NullKeyword;
+}
+
+function isSimpleExpression(node: ts.Expression): boolean {
+  return (
+    ts.isIdentifier(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isStringLiteral(node) ||
+    isNullLiteral(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword ||
+    node.kind === ts.SyntaxKind.UndefinedKeyword
+  );
+}
+
+function buildOpaqueInlineExpressionStatic(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  receiver: ts.Expression,
+  args: readonly ts.Expression[],
+  verbose: boolean,
+  typeName: string,
+  methodName: string
+): ts.Expression | undefined {
+  if (isNullLiteral(receiver)) {
+    if (verbose) {
+      console.log(`[typesugar] Opaque inline (constant-folded null): ${typeName}.${methodName}()`);
+    }
+    return constantFoldNullStatic(factory, pattern, args);
+  }
+
+  if (isKnownNonNullLiteral(receiver)) {
+    if (verbose) {
+      console.log(
+        `[typesugar] Opaque inline (constant-folded non-null): ${typeName}.${methodName}()`
+      );
+    }
+    return constantFoldNonNullStatic(factory, pattern, receiver, args);
+  }
+
+  if (verbose) {
+    console.log(`[typesugar] Opaque inline (inlined): ${typeName}.${methodName}()`);
+  }
+
+  if (isSimpleExpression(receiver)) {
+    return buildInlineTernaryStatic(factory, pattern, receiver, args);
+  }
+
+  const param = factory.createParameterDeclaration(
+    undefined,
+    undefined,
+    factory.createIdentifier("_opt"),
+    undefined,
+    undefined,
+    undefined
+  );
+  const optRef = factory.createIdentifier("_opt");
+  const body = buildInlineTernaryStatic(factory, pattern, optRef, args);
+  if (!body) return undefined;
+
+  const arrow = factory.createArrowFunction(
+    undefined,
+    undefined,
+    [param],
+    undefined,
+    factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    body
+  );
+  return factory.createCallExpression(factory.createParenthesizedExpression(arrow), undefined, [
+    receiver,
+  ]);
+}
+
+function isKnownNonNullLiteral(node: ts.Expression): boolean {
+  return (
+    ts.isNumericLiteral(node) ||
+    ts.isStringLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+function constantFoldNonNullStatic(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  receiver: ts.Expression,
+  args: readonly ts.Expression[]
+): ts.Expression | undefined {
+  switch (pattern.kind) {
+    case "null-check-apply": {
+      const fn = args[0];
+      return fn ? factory.createCallExpression(fn, undefined, [receiver]) : undefined;
+    }
+    case "null-check-predicate": {
+      const pred = args[0];
+      if (!pred) return undefined;
+      return factory.createConditionalExpression(
+        factory.createCallExpression(pred, undefined, [receiver]),
+        undefined,
+        receiver,
+        undefined,
+        factory.createNull()
+      );
+    }
+    case "null-coalesce-call":
+    case "null-coalesce-value":
+      return receiver;
+    case "fold": {
+      const onSome = args[1];
+      return onSome ? factory.createCallExpression(onSome, undefined, [receiver]) : undefined;
+    }
+  }
+}
+
+function constantFoldNullStatic(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  args: readonly ts.Expression[]
+): ts.Expression | undefined {
+  switch (pattern.kind) {
+    case "null-check-apply":
+    case "null-check-predicate":
+      return factory.createNull();
+    case "null-coalesce-call": {
+      const defaultFn = args[0];
+      return defaultFn ? factory.createCallExpression(defaultFn, undefined, []) : undefined;
+    }
+    case "null-coalesce-value":
+      return args[0];
+    case "fold": {
+      const onNone = args[0];
+      return onNone ? factory.createCallExpression(onNone, undefined, []) : undefined;
+    }
+  }
+}
+
+function buildInlineTernaryStatic(
+  factory: ts.NodeFactory,
+  pattern: MethodInlinePattern,
+  receiver: ts.Expression,
+  args: readonly ts.Expression[]
+): ts.Expression | undefined {
+  const nullExpr = factory.createNull();
+  const notNull = factory.createBinaryExpression(
+    receiver,
+    ts.SyntaxKind.ExclamationEqualsToken,
+    nullExpr
+  );
+
+  switch (pattern.kind) {
+    case "null-check-apply": {
+      const fn = args[0];
+      if (!fn) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        factory.createCallExpression(fn, undefined, [receiver]),
+        undefined,
+        nullExpr
+      );
+    }
+
+    case "null-check-predicate": {
+      const pred = args[0];
+      if (!pred) return undefined;
+      return factory.createConditionalExpression(
+        factory.createBinaryExpression(
+          notNull,
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          factory.createCallExpression(pred, undefined, [receiver])
+        ),
+        undefined,
+        receiver,
+        undefined,
+        nullExpr
+      );
+    }
+
+    case "null-coalesce-call": {
+      const defaultFn = args[0];
+      if (!defaultFn) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        receiver,
+        undefined,
+        factory.createCallExpression(defaultFn, undefined, [])
+      );
+    }
+
+    case "null-coalesce-value": {
+      const defaultVal = args[0];
+      if (!defaultVal) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        receiver,
+        undefined,
+        defaultVal
+      );
+    }
+
+    case "fold": {
+      const onNone = args[0];
+      const onSome = args[1];
+      if (!onNone || !onSome) return undefined;
+      return factory.createConditionalExpression(
+        notNull,
+        undefined,
+        factory.createCallExpression(onSome, undefined, [receiver]),
+        undefined,
+        factory.createCallExpression(onNone, undefined, [])
+      );
+    }
+  }
+}
 
 /**
  * Safely get the text content of a node.
@@ -417,38 +643,9 @@ function resolveRelativeImport(modulePath: string, baseDir: string): string | un
 /**
  * Extract an ops map from an object literal like { ops: { "===": "equals", ... } }
  */
-function extractOpsFromOptions(optionsArg: ts.Expression): Map<string, string> | undefined {
-  if (!ts.isObjectLiteralExpression(optionsArg)) return undefined;
-
-  for (const prop of optionsArg.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-    const name = ts.isIdentifier(prop.name) ? prop.name.text : undefined;
-    if (name !== "ops") continue;
-
-    const opsObj = prop.initializer;
-    if (!ts.isObjectLiteralExpression(opsObj)) continue;
-
-    const result = new Map<string, string>();
-    for (const opProp of opsObj.properties) {
-      if (!ts.isPropertyAssignment(opProp)) continue;
-      const key = ts.isStringLiteral(opProp.name)
-        ? opProp.name.text
-        : ts.isIdentifier(opProp.name)
-          ? opProp.name.text
-          : undefined;
-      const value = ts.isStringLiteral(opProp.initializer) ? opProp.initializer.text : undefined;
-      if (key && value) {
-        result.set(key, value);
-      }
-    }
-    return result.size > 0 ? result : undefined;
-  }
-  return undefined;
-}
 
 /**
- * Extract operator syntax from an interface definition by scanning for Op<> in return types.
- * This is the zero-cost path: syntax is extracted at transform time, not runtime.
+ * Extract operator syntax from an interface definition by scanning for @op JSDoc tags.
  */
 function extractOpsFromInterface(
   sourceFile: ts.SourceFile,
@@ -467,24 +664,16 @@ function extractOpsFromInterface(
 
   const result = new Map<string, string>();
 
-  // Scan method signatures for @op JSDoc tags (preferred) or Op<> return type annotations (deprecated)
+  // Scan method signatures for @op JSDoc tags
   for (const member of targetInterface.members) {
     if (!ts.isMethodSignature(member)) continue;
     if (!member.name || !ts.isIdentifier(member.name)) continue;
 
     const methodName = member.name.text;
 
-    // Check @op JSDoc tag first (preferred source-based approach)
     const jsdocOp = extractOpFromJSDoc(member);
     if (jsdocOp) {
       result.set(jsdocOp, methodName);
-      continue;
-    }
-
-    // Fall back to Op<> return type annotation (deprecated)
-    const { operatorSymbol } = extractOpFromReturnType(member.type);
-    if (operatorSymbol) {
-      result.set(operatorSymbol, methodName);
     }
   }
 
@@ -606,35 +795,19 @@ function ensureImportedRegistrations(
             }
           }
 
-          // Handle typeclass("Name", { ops: {...} })
+          // Handle typeclass("Name") — extract @op from interface definition
           if (fnName === "typeclass" && node.arguments.length >= 1) {
             const nameArg = node.arguments[0];
             if (ts.isStringLiteral(nameArg)) {
               const tcName = nameArg.text;
-
-              // Extract ops from second argument if present
-              if (node.arguments.length >= 2) {
-                const opsMap = extractOpsFromOptions(node.arguments[1]);
-                if (opsMap && opsMap.size > 0) {
-                  if (verbose) {
-                    console.log(
-                      `[typesugar] Pre-registered syntax for ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
-                    );
-                  }
-                  updateTypeclassSyntax(tcName, opsMap);
+              const opsMap = extractOpsFromInterface(importedSf, tcName);
+              if (opsMap && opsMap.size > 0) {
+                if (verbose) {
+                  console.log(
+                    `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
+                  );
                 }
-              } else {
-                // No explicit ops argument — extract @op from interface definition
-                // This is the zero-cost path: syntax is extracted at transform time
-                const opsMap = extractOpsFromInterface(importedSf, tcName);
-                if (opsMap && opsMap.size > 0) {
-                  if (verbose) {
-                    console.log(
-                      `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
-                    );
-                  }
-                  updateTypeclassSyntax(tcName, opsMap);
-                }
+                updateTypeclassSyntax(tcName, opsMap);
               }
             }
           }
@@ -675,10 +848,17 @@ function ensureImportedRegistrations(
  */
 function extractInstanceInfoFromLiteral(
   obj: ts.ObjectLiteralExpression
-): { typeclassName: string; forType: string; instanceName: string; derived: boolean } | null {
+): {
+  typeclassName: string;
+  forType: string;
+  instanceName: string;
+  derived: boolean;
+  sourceModule?: string;
+} | null {
   let typeclassName: string | undefined;
   let forType: string | undefined;
   let instanceName: string | undefined;
+  let sourceModule: string | undefined;
   let derived = false;
 
   for (const prop of obj.properties) {
@@ -699,13 +879,15 @@ function extractInstanceInfoFromLiteral(
       forType = value.text;
     } else if (name === "instanceName" && ts.isStringLiteral(value)) {
       instanceName = value.text;
+    } else if (name === "sourceModule" && ts.isStringLiteral(value)) {
+      sourceModule = value.text;
     } else if (name === "derived") {
       derived = value.kind === ts.SyntaxKind.TrueKeyword;
     }
   }
 
   if (typeclassName && forType && instanceName) {
-    return { typeclassName, forType, instanceName, derived };
+    return { typeclassName, forType, instanceName, derived, sourceModule };
   }
   return null;
 }
@@ -2812,7 +2994,7 @@ class MacroTransformer {
     if (!inlined) return undefined;
 
     const result = this.recursivelyInlineInstanceCalls(inlined, 0);
-    return preserveSourceMap(result, node);
+    return preserveSourceMap(stripCommentsDeep(result), node);
   }
 
   private recursivelyInlineInstanceCalls(node: ts.Expression, depth: number): ts.Expression {
@@ -2845,6 +3027,17 @@ class MacroTransformer {
     }
 
     return ts.visitNode(node, visit) as ts.Expression;
+  }
+
+  /**
+   * Print an expression to text and re-parse it to sever all associations
+   * with the original source file. This prevents TypeScript's printer from
+   * emitting stray comments from the original source into macro-generated code.
+   */
+  private reparseExpression(expr: ts.Expression, original: ts.Node): ts.Expression {
+    const text = commentFreePrinter.printNode(ts.EmitHint.Expression, expr, this.ctx.sourceFile);
+    const reparsed = this.ctx.parseExpression(text);
+    return preserveSourceMap(reparsed, original);
   }
 
   /**
@@ -3329,7 +3522,19 @@ class MacroTransformer {
     if (ts.isBinaryExpression(node)) {
       const result = this.tryRewriteTypeclassOperator(node);
       if (result !== undefined) {
-        return result;
+        if (ts.isCallExpression(result)) {
+          const inlined = this.tryInlineDerivedInstanceCall(result);
+          if (inlined !== undefined) {
+            if (
+              ts.isPropertyAccessExpression(result.expression) &&
+              ts.isIdentifier(result.expression.expression)
+            ) {
+              this.inlinedInstanceNames.add(result.expression.expression.text);
+            }
+            return this.reparseExpression(inlined, node);
+          }
+        }
+        return this.reparseExpression(result, node);
       }
     }
 
@@ -3377,11 +3582,10 @@ class MacroTransformer {
     ["impl", "impl"],
     ["instance", "instance"],
     ["deriving", "deriving"],
-    ["operators", "operators"],
-    ["operator", "operator"],
     ["extension", "extension"],
     ["reflect", "reflect"],
     ["hkt", "hkt"],
+    ["adt", "adt"],
   ]);
 
   /**
@@ -4176,16 +4380,44 @@ class MacroTransformer {
             code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
           }
 
+          // Strip runtime registration calls unless the typeclass is locally defined
+          // AND exported. Imported typeclasses don't have .registerInstance() in scope.
+          const currentFile = this.ctx.sourceFile.fileName;
+          const isLocallyDefined = globalResolutionScope
+            .getScope(currentFile)
+            .definedTypeclasses.has(deriveName);
+          const tcInfo = typeclassRegistry.get(deriveName);
+          if (!isLocallyDefined || !tcInfo?.isExported) {
+            code = code.replace(
+              /\/\*#__PURE__\*\/\s*\w+\.registerInstance<[^>]+>\([^)]+\);\s*\n?/g,
+              ""
+            );
+          }
+
           const parsedStmts = this.ctx.parseStatements(code);
           statements.push(...parsedStmts);
 
           const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
+          const varName = instanceVarName(uncap, typeName);
           instanceRegistry.push({
             typeclassName: deriveName,
             forType: typeName,
-            instanceName: instanceVarName(uncap, typeName),
+            instanceName: varName,
             derived: true,
           });
+
+          const specMethods = getSpecializationMethodsForDerivation(
+            deriveName,
+            typeName,
+            typeInfo.fields
+          );
+          if (specMethods && Object.keys(specMethods).length > 0) {
+            const methodsMap = new Map<string, { source?: string; params: string[] }>();
+            for (const [name, impl] of Object.entries(specMethods)) {
+              methodsMap.set(name, { source: impl.source, params: impl.params });
+            }
+            registerInstanceMethodsFromAST(varName, typeName, methodsMap);
+          }
         } catch (error) {
           this.ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
         }
@@ -4743,6 +4975,25 @@ class MacroTransformer {
     const standaloneFnName = methods.get(methodName);
     if (!standaloneFnName) return undefined;
 
+    // Try inline pattern first (zero-cost: null-check instead of function call)
+    const inlinePattern = entry.methodInlines?.get(methodName);
+    if (inlinePattern) {
+      const visitedReceiver = ts.visitNode(receiver, this.visit.bind(this)) as ts.Expression;
+      const visitedArgs = node.arguments.map(
+        (a) => ts.visitNode(a, this.visit.bind(this)) as ts.Expression
+      );
+      const result = buildOpaqueInlineExpressionStatic(
+        this.ctx.factory,
+        inlinePattern,
+        visitedReceiver,
+        visitedArgs,
+        this.verbose,
+        typeName,
+        methodName
+      );
+      if (result) return preserveSourceMap(result, node);
+    }
+
     // Schedule import injection if we have a sourceModule
     if (entry.sourceModule) {
       this.scheduleTypeRewriteImport(standaloneFnName, entry.sourceModule);
@@ -5288,9 +5539,9 @@ class MacroTransformer {
   /**
    * Rewrite a binary expression using typeclass operator overloading.
    *
-   * When a typeclass method is annotated with `& Op<"+">`, any usage of `+`
-   * on types that have an instance of that typeclass gets rewritten to a
-   * direct method call (or inlined for zero-cost).
+   * When a typeclass method has `@op +`, any usage of `+` on types with an
+   * instance of that typeclass gets rewritten to a direct method call
+   * (or inlined for zero-cost).
    */
   /**
    * Infer the result type of an identifier by looking at its initializer.
@@ -5442,8 +5693,6 @@ class MacroTransformer {
       const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
       typeName = this.ctx.typeChecker.typeToString(leftType);
     }
-    // Strip intersection types with Op<> - these are return type annotations that shouldn't affect instance lookup
-    typeName = typeName.replace(/\s*&\s*Op<[^>]+>/, "");
     const baseTypeName = typeName.replace(/<.*>$/, "");
     const typeArg = typeName.match(/<(.+)>$/)?.[1] ?? "";
 
@@ -5465,7 +5714,7 @@ class MacroTransformer {
 
     let matchedEntry: { typeclass: string; method: string } | undefined;
     let matchedInstance:
-      | { typeclassName: string; forType: string; instanceName: string }
+      | { typeclassName: string; forType: string; instanceName: string; sourceModule?: string }
       | undefined;
 
     const sfn = this.ctx.sourceFile.fileName;
@@ -5559,12 +5808,26 @@ class MacroTransformer {
       }
     }
 
+    // If the instance comes from another module, schedule an import injection
+    if (matchedInstance.sourceModule && !this.isAlreadyImported(matchedInstance.instanceName)) {
+      const key = `${matchedInstance.instanceName}::${matchedInstance.sourceModule}`;
+      if (!this.pendingTypeRewriteImports.has(key)) {
+        this.pendingTypeRewriteImports.set(key, {
+          name: matchedInstance.instanceName,
+          module: matchedInstance.sourceModule,
+        });
+      }
+    }
+
     // Emit instanceVar.method(left, right)
     const methodAccess = factory.createPropertyAccessExpression(
       factory.createIdentifier(matchedInstance.instanceName),
       matchedEntry.method
     );
-    const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
+    const rewritten = factory.createCallExpression(methodAccess, undefined, [
+      stripCommentsDeep(left),
+      stripCommentsDeep(right),
+    ]);
     return preserveSourceMap(rewritten, node);
   }
 

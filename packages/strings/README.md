@@ -4,7 +4,7 @@
 
 ## Overview
 
-`@typesugar/strings` provides tagged template macros for string processing with compile-time validation: regex validation, HTML XSS escaping, printf-style formatting, and raw strings.
+`@typesugar/strings` provides tagged template macros for string processing with compile-time validation: regex validation, HTML XSS escaping, string formatting, and raw strings.
 
 ## Installation
 
@@ -42,7 +42,9 @@ const safe = html`<div>${userInput}</div>`;
 // Result: "<div>&lt;script&gt;alert('xss')&lt;/script&gt;</div>"
 ```
 
-### fmt — Printf-Style Formatting
+### fmt — String Formatting
+
+Currently converts interpolations to strings. Printf-style format specifiers (%d, %s, %f) are planned for Phase 2.
 
 ```typescript
 import { fmt } from "@typesugar/strings";
@@ -73,7 +75,7 @@ const regex = raw`\d+\.\d+`;
 
 - `regex` — Compile-time validated regular expressions
 - `html` — HTML with automatic XSS escaping
-- `fmt` — Printf-style string formatting
+- `fmt` — String formatting (printf-style specifiers planned for Phase 2)
 - `raw` — Raw strings without escape processing
 
 ### Functions
@@ -89,12 +91,12 @@ function __typesugar_escapeHtml(str: unknown): string;
 
 ## Compile-Time Benefits
 
-| Macro   | Compile-Time Feature                        |
-| ------- | ------------------------------------------- |
-| `regex` | Syntax validation, catches invalid patterns |
-| `html`  | Auto-injection of escape calls              |
-| `fmt`   | Could be extended for type checking         |
-| `raw`   | Escape sequence preservation                |
+| Macro   | Compile-Time Feature                          |
+| ------- | --------------------------------------------- |
+| `regex` | Syntax validation, catches invalid patterns   |
+| `html`  | Auto-injection of escape calls                |
+| `fmt`   | String coercion; format specifiers in Phase 2 |
+| `raw`   | Escape sequence preservation                  |
 
 ## License
 

@@ -85,6 +85,29 @@ export const DEFAULT_PRELUDE: PreludeEntry[] = [
     module: "@typesugar/std",
     methods: ["empty"],
   },
+  {
+    name: "Numeric",
+    module: "@typesugar/std",
+    methods: [
+      "add",
+      "sub",
+      "mul",
+      "div",
+      "pow",
+      "negate",
+      "abs",
+      "signum",
+      "fromNumber",
+      "toNumber",
+    ],
+    operators: ["+", "-", "*", "/", "**"],
+  },
+  {
+    name: "Integral",
+    module: "@typesugar/std",
+    methods: ["div", "mod", "divMod"],
+    operators: ["/", "%"],
+  },
 ];
 
 /**
