@@ -23,6 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@typesugar/macros": "workspace:*",
     "@typesugar/std": "workspace:*"
   },
   "devDependencies": {

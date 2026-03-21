@@ -66,6 +66,7 @@
   ],
   "dependencies": {
     "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*",
     "@typesugar/typeclass": "workspace:*",
     "@typesugar/type-system": "workspace:*"
   },
