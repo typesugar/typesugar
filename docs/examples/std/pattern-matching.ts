@@ -17,14 +17,6 @@ function area(shape: Shape): number {
     .else(0);
 }
 
-// OR patterns — share a handler across multiple cases
-function describe(shape: Shape): string {
-  return match(shape)
-    .case({ kind: "circle" }).or({ kind: "rect" }).then("flat shape")
-    .case({ kind: "triangle" }).then("angled shape")
-    .else("unknown");
-}
-
 // Guard patterns — .if() adds runtime conditions
 function classify(shape: Shape): string {
   return match(shape)
@@ -50,7 +42,7 @@ const shapes: Shape[] = [
 ];
 
 for (const s of shapes) {
-  console.log(`${s.kind}: area=${area(s).toFixed(1)}, ${describe(s)}, ${classify(s)}`);
+  console.log(`${s.kind}: area=${area(s).toFixed(1)}, ${classify(s)}`);
 }
 
 console.log(head([]), head([42]), head([1, 2]), head([1, 2, 3]));
