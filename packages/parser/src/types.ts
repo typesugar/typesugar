@@ -26,6 +26,7 @@ export type GrammarRule =
   | { type: "repetition"; rule: GrammarRule; min: number; max: number | null }
   | { type: "optional"; rule: GrammarRule }
   | { type: "negation"; rule: GrammarRule; then: GrammarRule }
+  | { type: "lookahead"; rule: GrammarRule }
   | { type: "reference"; name: string }
   | { type: "any" }
   | { type: "action"; rule: GrammarRule; transform: string };

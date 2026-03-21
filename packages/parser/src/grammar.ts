@@ -161,8 +161,9 @@ const suffixed: Parser<GrammarRule> = mkParser((input, pos) => {
 });
 
 /**
- * Prefixed: '!'? suffixed
+ * Prefixed: ('!' | '&')? suffixed
  * `!e` is a pure negative lookahead — succeeds (consuming nothing) only if `e` fails.
+ * `&e` is a positive lookahead — succeeds (consuming nothing) only if `e` succeeds.
  */
 const prefixed: Parser<GrammarRule> = mkParser((input, pos) => {
   const bang = char("!").parse(input, pos);
@@ -175,6 +176,14 @@ const prefixed: Parser<GrammarRule> = mkParser((input, pos) => {
       { type: "negation", rule: neg.value, then: { type: "literal", value: "" } } as GrammarRule,
       neg.pos
     );
+  }
+  const amp = char("&").parse(input, pos);
+  if (amp.ok) {
+    const afterWs = ws.parse(input, amp.pos);
+    const laPos = afterWs.ok ? afterWs.pos : amp.pos;
+    const la = suffixed.parse(input, laPos);
+    if (!la.ok) return la;
+    return ok({ type: "lookahead", rule: la.value } as GrammarRule, la.pos);
   }
   return suffixed.parse(input, pos);
 });
@@ -208,7 +217,7 @@ const sequence: Parser<GrammarRule> = mkParser((input, pos) => {
   return ok({ type: "sequence", rules: items } as GrammarRule, cur);
 });
 
-/** Alternation: sequence ('|' sequence)* */
+/** Alternation: sequence (('|' | '/') sequence)* */
 const alternation: Parser<GrammarRule> = mkParser((input, pos) => {
   const first = sequence.parse(input, pos);
   if (!first.ok) return first;
@@ -217,10 +226,12 @@ const alternation: Parser<GrammarRule> = mkParser((input, pos) => {
   for (;;) {
     const wsr = wsOrComment.parse(input, cur);
     const nextPos = wsr.ok ? wsr.pos : cur;
+    // Accept both '|' and '/' as ordered choice operators (PEG convention)
     const pipe = char("|").parse(input, nextPos);
-    if (!pipe.ok) break;
-    const wsr2 = wsOrComment.parse(input, pipe.pos);
-    const seqPos = wsr2.ok ? wsr2.pos : pipe.pos;
+    const slash = pipe.ok ? pipe : char("/").parse(input, nextPos);
+    if (!slash.ok) break;
+    const wsr2 = wsOrComment.parse(input, slash.pos);
+    const seqPos = wsr2.ok ? wsr2.pos : slash.pos;
     const next = sequence.parse(input, seqPos);
     if (!next.ok) return next;
     alts.push(next.value);
@@ -344,6 +355,9 @@ function validateReferences(
     case "negation":
       validateReferences(rule.rule, allRules, context);
       validateReferences(rule.then, allRules, context);
+      break;
+    case "lookahead":
+      validateReferences(rule.rule, allRules, context);
       break;
     case "action":
       validateReferences(rule.rule, allRules, context);
@@ -607,6 +621,15 @@ function buildRule(
         const r = neg.parse(input, pos);
         if (r.ok) return fail(pos, "negation to fail");
         return then.parse(input, pos);
+      });
+    }
+
+    case "lookahead": {
+      const la = buildRule(rule.rule, allRules, parsers);
+      return mkParser((input, pos) => {
+        const r = la.parse(input, pos);
+        if (r.ok) return ok("", pos); // succeed but consume nothing
+        return fail(pos, "positive lookahead");
       });
     }
 

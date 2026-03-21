@@ -164,6 +164,44 @@ describe("grouping", () => {
   });
 });
 
+describe("positive lookahead", () => {
+  it("succeeds when inner matches (consumes nothing)", () => {
+    const src = `rule = &"a" .`;
+    const r = parse(src, "a");
+    expect(r.ok).toBe(true);
+  });
+
+  it("fails when inner does not match", () => {
+    const src = `rule = &"a" .`;
+    expect(parse(src, "b").ok).toBe(false);
+  });
+
+  it("does not consume input", () => {
+    const src = `rule = &"ab" "ab"`;
+    const r = parse(src, "ab");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value).toEqual(["", "ab"]);
+    }
+  });
+});
+
+describe("'/' ordered choice", () => {
+  it("supports '/' as alternation operator", () => {
+    const src = `rule = "yes" / "no"`;
+    expect(parse(src, "yes").ok).toBe(true);
+    expect(parse(src, "no").ok).toBe(true);
+    expect(parse(src, "maybe").ok).toBe(false);
+  });
+
+  it("handles '/' with sequences", () => {
+    const src = `rule = "a" "b" / "c" "d"`;
+    expect(parse(src, "ab").ok).toBe(true);
+    expect(parse(src, "cd").ok).toBe(true);
+    expect(parse(src, "ac").ok).toBe(false);
+  });
+});
+
 describe("negation", () => {
   it("negation succeeds when inner fails", () => {
     const src = `rule = !"a" .`;
