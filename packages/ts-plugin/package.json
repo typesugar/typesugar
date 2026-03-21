@@ -31,7 +31,7 @@
     "typescript": ">=5.0.0"
   },
   "devDependencies": {
-    "vitest": "^2.0.0"
+    "vitest": "^3.0.0"
   },
   "keywords": [
     "typescript",

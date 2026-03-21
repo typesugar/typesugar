@@ -344,7 +344,7 @@
     "@vscode/vsce": "^3.7.1",
     "tsup": "^8.5.1",
     "typescript": "^5.8.3",
-    "vitest": "^2.1.9"
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "@typesugar/core": "workspace:*",

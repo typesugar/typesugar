@@ -52,7 +52,7 @@
     "eslint": "^9.0.0",
     "tsup": "^8.5.1",
     "typescript": "^5.8.3",
-    "vitest": "^2.0.0"
+    "vitest": "^3.0.0"
   },
   "sideEffects": false
 }
