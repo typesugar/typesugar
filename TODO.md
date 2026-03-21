@@ -8,7 +8,7 @@
 
 2. ~~**Algebraic Data Types (`@adt`)**~~ ✅ **Done** (PEP-014)
    - **What:** A concise syntax for defining ADTs that auto-generates constructors, type guards, and matchers.
-   - **Status:** Implemented. See `docs/PEP-014-adt-macro.md` and `packages/macros/src/adt.ts`. Generates constructors, type guards, match arms, and auto-derives `Eq`, `Show`, `Clone`.
+   - **Status:** Implemented. See `peps/PEP-014-adt-macro.md` and `packages/macros/src/adt.ts`. Generates constructors, type guards, match arms, and auto-derives `Eq`, `Show`, `Clone`.
 
 3. ~~**Structural Pattern Matching (`match!`)**~~ ✅ **Done**
    - Unified `match()` macro in `@typesugar/std` with:

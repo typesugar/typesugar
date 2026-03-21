@@ -604,7 +604,7 @@ const result = 1 |> ((x) => x + 1);
 describe("Preprocessing via Language Service Plugin", () => {
   // NOTE: These tests are skipped because PEP-001 Wave 1 changed preprocessing to only
   // work on .sts files. TypeScript's language service doesn't recognize .sts files
-  // until Wave 2. See docs/PEP-001-sts-file-extension.md for details.
+  // until Wave 2. See peps/PEP-001-sts-file-extension.md for details.
 
   it.skip("transforms pipe operator in diagnostics (.sts files) - requires Wave 2", () => {
     // This test requires Wave 2 to add .sts support to the language service.

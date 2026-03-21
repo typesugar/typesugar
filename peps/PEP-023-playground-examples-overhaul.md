@@ -1,4 +1,4 @@
-# PEP-016: Playground Examples Overhaul
+# PEP-023: Playground Examples Overhaul
 
 **Status:** Done
 **Date:** 2026-03-18

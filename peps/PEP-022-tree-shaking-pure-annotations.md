@@ -1,4 +1,4 @@
-# PEP-015: Automatic Tree-Shaking via `/*#__PURE__*/` Annotations
+# PEP-022: Automatic Tree-Shaking via `/*#__PURE__*/` Annotations
 
 **Status:** Draft
 **Date:** 2026-03-17

@@ -1,4 +1,4 @@
-# PEP-017: Playground Architecture Consolidation
+# PEP-024: Playground Architecture Consolidation
 
 **Status:** Done
 **Date:** 2026-03-18

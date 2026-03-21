@@ -502,7 +502,7 @@ These packages CAN use `@adt` and have good candidates:
 | `packages/fp/src/data/nonempty-list.ts`      | Wave 4: Remove unnecessary `_tag`        |
 | `packages/fp/src/data/remote-data.ts`        | Wave 4: New file, demonstrates auto-tag  |
 | Test files                                   | Remove `as unknown as` casts             |
-| `docs/PEP-014-adt-macro.md`                  | This document                            |
+| `peps/PEP-014-adt-macro.md`                  | This document                            |
 
 ## Memory Considerations
 

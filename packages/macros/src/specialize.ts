@@ -480,7 +480,7 @@ export function registerInstanceMethods(
     console.warn(
       `[typesugar] DEPRECATION: registerInstanceMethods("${dictName}") is deprecated.\n` +
         `  Use @impl annotation on instance definitions instead (auto-specialization is automatic).\n` +
-        `  See PEP-004 for migration guidance: docs/PEP-004-source-based-typeclass-features.md`
+        `  See PEP-004 for migration guidance: peps/PEP-004-source-based-typeclass-features.md`
     );
   }
   const methodMap = new Map<string, DictMethod>();

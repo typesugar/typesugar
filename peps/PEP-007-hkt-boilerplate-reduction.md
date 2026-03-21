@@ -424,7 +424,7 @@ The key insight: this rewrite goes in `VirtualCompilerHost` alongside the `.sts`
 | `.cursor/rules/hkt-conventions.mdc`         | New tier-based conventions                         |
 | `AGENTS.md`                                 | Update HKT section                                 |
 | `sandbox/error-showcase.ts`                 | Complete `@hkt` examples                           |
-| `docs/PEP-007-hkt-boilerplate-reduction.md` | Mark as complete                                   |
+| `peps/PEP-007-hkt-boilerplate-reduction.md` | Mark as complete                                   |
 
 **Gate:**
 
