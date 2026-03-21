@@ -23,16 +23,10 @@
  * @packageDocumentation
  */
 
-import type { Numeric, Ord } from "@typesugar/std";
+import type { Numeric, Ord, Eq } from "@typesugar/std";
 import { makeOrd } from "@typesugar/std";
 import type { CurrencyDef } from "./currencies.js";
 
-/**
- * Eq typeclass - equality comparison.
- */
-interface Eq<A> {
-  equals(a: A, b: A): boolean;
-}
 import { currencyScaleFactor } from "./currencies.js";
 import { roundBigInt, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
 
@@ -525,6 +519,7 @@ export function moneyNumeric<C extends CurrencyDef>(currency: C): Numeric<Money<
 export function moneyEq<C extends CurrencyDef>(): Eq<Money<C>> {
   return {
     equals: moneyEquals,
+    notEquals: (a, b) => !moneyEquals(a, b),
   };
 }
 

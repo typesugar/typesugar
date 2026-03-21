@@ -140,18 +140,18 @@ Schema definitions are compile-time only -- the `@codec` macro extracts type str
 
 ## Comparison
 
-| Feature                 | @typesugar/codec     | protobuf               | serde                      |
-| ----------------------- | -------------------- | ---------------------- | -------------------------- |
-| Language                | TypeScript           | Multi-language         | Rust                       |
-| Schema evolution        | Automatic migrations | Manual field numbering | Manual `#[serde(default)]` |
-| Binary format           | Fixed-layout         | Varint + tag           | Format-dependent           |
-| JSON support            | Built-in             | Via jsonpb             | Via serde_json             |
-| Compile-time validation | Phase 2 (planned)    | protoc                 | Compile-time               |
-| Zero external deps      | Yes                  | protobuf runtime       | N/A                        |
+| Feature                 | @typesugar/codec      | protobuf               | serde                      |
+| ----------------------- | --------------------- | ---------------------- | -------------------------- |
+| Language                | TypeScript            | Multi-language         | Rust                       |
+| Schema evolution        | Automatic migrations  | Manual field numbering | Manual `#[serde(default)]` |
+| Binary format           | Fixed-layout          | Varint + tag           | Format-dependent           |
+| JSON support            | Built-in              | Via jsonpb             | Via serde_json             |
+| Compile-time validation | Phase 2 (implemented) | protoc                 | Compile-time               |
+| Zero external deps      | Yes                   | protobuf runtime       | N/A                        |
 
 ## Macro Support (Phase 2)
 
-The `@codec` decorator is registered but currently a pass-through. Future versions will read type structure at compile time and generate optimized codecs automatically:
+The `@codec` decorator supports field-level decorators (`@since`, `@removed`, `@defaultValue`) for schema evolution. See `field-decorators.test.ts` for full coverage:
 
 ```typescript
 @codec({ version: 3 })

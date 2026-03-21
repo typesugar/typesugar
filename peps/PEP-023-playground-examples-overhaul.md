@@ -136,7 +136,7 @@ These flagship features appear in **zero** playground examples:
 
 **Tasks:**
 
-- [x] **Add effect example** (`effect/service-layer.ts`) — `@service` decorator, `@layer`, dependency injection with Effect TS. Show compile-time layer resolution. _Note: Effect TS not bundled in playground; example uses @derive(Eq) + comptime + staticAssert on service architecture domain._
+- [ ] **Add effect example** (`effect/service-layer.ts`) — `@service` decorator, `@layer`, dependency injection with Effect TS. Show compile-time layer resolution. _Note: Effect TS not bundled in playground; example uses @derive(Eq) + comptime + staticAssert on service architecture domain._
 - [x] **Add math example** (`math/numeric-typeclass.ts`) — `Numeric` typeclass with operator overloading on custom number types (e.g., Complex, Fraction). _Uses @op on typeclass methods with comptime + staticAssert._
 - [x] **Add validate example** (`validate/schema-validation.ts`) — Schema validation macros generating runtime validators from types. _Uses comptime + staticAssert + pipe on validation domain; manual validator mirrors what is<T>() generates._
 - [x] **Add testing example** (`testing/power-assert.ts`) — `powerAssert` showing failure output with expression tree, `comptimeAssert`. _Uses staticAssert + comptime + pipe; documents power assert failure format in comments._

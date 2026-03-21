@@ -20,16 +20,9 @@
  * @packageDocumentation
  */
 
-import type { Numeric, Integral, Ord } from "@typesugar/std";
+import type { Numeric, Integral, Ord, Eq } from "@typesugar/std";
 import { makeOrd } from "@typesugar/std";
 import { roundBigInt, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
-
-/**
- * Eq typeclass - equality comparison.
- */
-export interface Eq<A> {
-  equals(a: A, b: A): boolean;
-}
 
 /**
  * A fixed-point decimal with N decimal places.
@@ -558,6 +551,7 @@ export function fixedIntegral<N extends number>(
 export function fixedEq<N extends number>(): Eq<FixedDecimal<N>> {
   return {
     equals: fixedEquals,
+    notEquals: (a, b) => !fixedEquals(a, b),
   };
 }
 

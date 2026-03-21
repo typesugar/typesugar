@@ -35,31 +35,33 @@
  *
  * @example
  * ```ts
- * import { extend } from '@typesugar/core';
- * import { match, when, otherwise } from '@typesugar/std';
+ * import { clamp, toHex, isPrime } from '@typesugar/std';
+ * import { capitalize, toSnakeCase } from '@typesugar/std';
+ * import { chunk, unique } from '@typesugar/std';
+ * import { match } from '@typesugar/std';
  *
- * // Extension methods on numbers
- * extend(42).clamp(0, 100);
- * extend(255).toHex();
- * extend(7).isPrime();
+ * // Extension methods on numbers (import-scoped)
+ * (42).clamp(0, 100);
+ * (255).toHex();
+ * (7).isPrime();
  *
  * // Extension methods on strings
- * extend("hello world").capitalize();
- * extend("camelCase").toSnakeCase();
+ * "hello world".capitalize();
+ * "camelCase".toSnakeCase();
  *
  * // Extension methods on arrays
- * extend([1, 2, 3, 4, 5]).chunk(2);
- * extend([3, 1, 4, 1, 5]).unique();
+ * [1, 2, 3, 4, 5].chunk(2);
+ * [3, 1, 4, 1, 5].unique();
  *
- * // Ranges
- * import { range, rangeToArray } from '@typesugar/std';
- * rangeToArray(range(1, 10)); // [1, 2, ..., 9]
+ * // Ranges (extension method API)
+ * (1).to(10);      // Range [1, 10]
+ * (1).until(10);   // Range [1, 10)
  *
- * // Pattern matching
- * const area = match(shape, {
- *   circle: ({ radius }) => Math.PI * radius ** 2,
- *   square: ({ side }) => side ** 2,
- * });
+ * // Pattern matching (fluent API)
+ * const area = match(shape)
+ *   .case({ kind: 'circle' }).then(({ radius }) => Math.PI * radius ** 2)
+ *   .case({ kind: 'square' }).then(({ side }) => side ** 2)
+ *   .else(() => 0);
  * ```
  */
 

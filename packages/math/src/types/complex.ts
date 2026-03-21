@@ -367,6 +367,20 @@ export const floatingComplex: Floating<Complex> = {
   tanh: (z) => fractionalComplex.div(floatingComplex.sinh(z), floatingComplex.cosh(z)),
 };
 
+registerInstanceWithMeta({
+  typeclassName: "Fractional",
+  forType: "Complex",
+  instanceName: "fractionalComplex",
+  derived: false,
+});
+
+registerInstanceWithMeta({
+  typeclassName: "Floating",
+  forType: "Complex",
+  instanceName: "floatingComplex",
+  derived: false,
+});
+
 /**
  * Imaginary unit constant: i = 0 + 1i
  */
