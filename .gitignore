@@ -36,11 +36,24 @@ coverage/
 .vitest-results/
 
 # Build/test output captures (tee targets)
-build-output.txt
-std-build*.txt
+*-output*.txt
+test-pipeline-gate.txt
+test-vscode.txt
 test-comp.txt
 test-full.txt
-test-output.txt
+build-output.txt
+std-build*.txt
+inspect-output.txt
+
+# Auto-generated tracking markers
+.pep-gate
+
+# Orphaned screenshots (not referenced)
+file-based-examples.png
+grouped-examples-dropdown.png
+monaco-editor-test.png
+playground-test.png
+playground-review-log.md
 
 # tsup temp artifacts
 **/tsup.config.bundled*.mjs
