@@ -26,13 +26,12 @@ console.log("p1 === p2?", p1 === p2);  // true (structural!)
 console.log("p1 === p3?", p1 === p3);  // false
 
 // 4. match() compiles to optimized ternary chains
-type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
-const shape: Shape = { kind: "circle", r: 5 };
-const a = match(shape)
-  .case({ kind: "circle", r }).then(Math.PI * r ** 2)
-  .case({ kind: "rect", w, h }).then(w * h)
-  .else(0);
-console.log("area:", a.toFixed(1));
+const grade = match(85)
+  .case(x).if(() => x >= 90).then("A")
+  .case(x).if(() => x >= 80).then("B")
+  .case(x).if(() => x >= 70).then("C")
+  .else("F");
+console.log("grade:", grade);
 
 // 5. pipe() inlines to nested function calls — no intermediate array
 const double = (n: number) => n * 2;

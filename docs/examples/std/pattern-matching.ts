@@ -12,8 +12,8 @@ type Shape =
 function area(shape: Shape): number {
   return match(shape)
     .case({ kind: "circle", radius: r }).then(Math.PI * r ** 2)
-    .case({ kind: "rect", width: w, height: h }).then(w * h)
-    .case({ kind: "triangle", base: b, height: h }).then(0.5 * b * h)
+    .case({ kind: "rect", width: w, height: rh }).then(w * rh)
+    .case({ kind: "triangle", base: b, height: th }).then(0.5 * b * th)
     .else(0);
 }
 
@@ -30,7 +30,7 @@ function classify(shape: Shape): string {
   return match(shape)
     .case({ kind: "circle", radius: r }).if(() => r > 10).then("big circle")
     .case({ kind: "circle" }).then("small circle")
-    .case({ kind: "rect", width: w, height: h }).if(() => w === h).then("square")
+    .case({ kind: "rect", width: rw, height: rh }).if(() => rw === rh).then("square")
     .else("other shape");
 }
 
