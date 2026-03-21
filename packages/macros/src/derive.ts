@@ -87,31 +87,3 @@ export function createDerivedFunctionName(operation: string, typeName: string): 
 
 // ============================================================================
 // Deprecated: Old derive macros collection
-// ============================================================================
-// The old defineDeriveMacro-based macros have been removed.
-// This empty object is kept for backwards compatibility with code
-// that references deriveMacros.
-
-/** @deprecated Old derive macros removed in PEP-017 Wave 4. Use @derive() attribute macro. */
-export const deriveMacros = {};
-
-// Deprecated exports — these were the old defineDeriveMacro instances.
-// Kept as undefined exports to avoid hard breakage for external consumers.
-/** @deprecated Use @derive(Eq) instead */
-export const EqDerive = undefined;
-/** @deprecated Use @derive(Ord) instead */
-export const OrdDerive = undefined;
-/** @deprecated Use @derive(Clone) instead */
-export const CloneDerive = undefined;
-/** @deprecated Use @derive(Debug) instead */
-export const DebugDerive = undefined;
-/** @deprecated Use @derive(Hash) instead */
-export const HashDerive = undefined;
-/** @deprecated Use @derive(Default) instead */
-export const DefaultDerive = undefined;
-/** @deprecated Use @derive(Json) instead */
-export const JsonDerive = undefined;
-/** @deprecated Use @derive(Builder) instead */
-export const BuilderDerive = undefined;
-/** @deprecated Use @derive(TypeGuard) instead */
-export const TypeGuardDerive = undefined;

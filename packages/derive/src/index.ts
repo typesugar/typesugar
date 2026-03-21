@@ -27,24 +27,11 @@
 // Runtime stub
 export { derive } from "@typesugar/macros";
 
-// Built-in derive macros
-export {
-  EqDerive,
-  OrdDerive,
-  CloneDerive,
-  DebugDerive,
-  HashDerive,
-  DefaultDerive,
-  JsonDerive,
-  BuilderDerive,
-  TypeGuardDerive,
-} from "@typesugar/macros";
-
 // Derive name symbols for use in @derive() decorators
 export { Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard } from "@typesugar/macros";
 
 // For testing and advanced use
-export { deriveMacros, createDerivedFunctionName } from "@typesugar/macros";
+export { createDerivedFunctionName } from "@typesugar/macros";
 
 // Custom derive API
 export {

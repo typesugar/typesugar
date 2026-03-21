@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
 import { createDerivedFunctionName, deriveAttribute } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
-import { builtinDerivations, derivingAttribute } from "@typesugar/macros";
+import { builtinDerivations } from "@typesugar/macros";
 
 describe("createDerivedFunctionName", () => {
   it("should create function names with correct conventions", () => {
@@ -51,11 +51,6 @@ describe("unified derive system", () => {
       const macro = globalRegistry.getAttribute("deriving");
       assert(macro !== undefined);
       assert(macro!.name === "deriving");
-    });
-
-    it("derivingAttribute export matches the registered macro", () => {
-      assert(derivingAttribute !== undefined);
-      assert(derivingAttribute.name === "deriving");
     });
   });
 

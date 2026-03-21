@@ -84,7 +84,6 @@ export {
   type IsNever,
   type IsAny,
   type IsUnknown,
-  type Equals, // deprecated alias
 } from "@typesugar/type-system";
 
 // ============================================================================
@@ -203,11 +202,6 @@ export function assert(condition: boolean, message?: string): void {
   }
 }
 
-/**
- * @deprecated Use `assert()` instead. This alias exists for backward compatibility.
- */
-export const powerAssert = assert;
-
 // ============================================================================
 // Compile-Time Assertions
 // ============================================================================
@@ -230,11 +224,6 @@ export const powerAssert = assert;
 export function staticAssert(_condition: boolean, _message?: string): void {
   // Placeholder — transformer evaluates at compile time
 }
-
-/**
- * @deprecated Use `staticAssert()` instead. This alias exists for backward compatibility.
- */
-export const comptimeAssert = staticAssert;
 
 // ============================================================================
 // Parameterized Tests

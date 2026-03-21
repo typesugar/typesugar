@@ -13,7 +13,6 @@ import { DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/c
 import { genericDerive, getGenericMeta, registerGenericMeta, GenericMeta } from "@typesugar/macros";
 import { builtinDerivations, tryExtractSumType } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
-import { deriveMacros } from "@typesugar/macros";
 
 // Ensure all macros are registered
 import "@typesugar/macros";
@@ -437,10 +436,6 @@ describe("deriveGenericSum for parameterized sum types", () => {
 // ============================================================================
 
 describe("derive system uses unified @derive attribute macro", () => {
-  it("old deriveMacros object is empty (deprecated)", () => {
-    assert(Object.keys(deriveMacros).length === 0);
-  });
-
   it("builtinDerivations has all typeclass derivation strategies", () => {
     for (const name of ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "TypeGuard"]) {
       assert(builtinDerivations[name] !== undefined);

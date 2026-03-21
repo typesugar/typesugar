@@ -3943,11 +3943,6 @@ function findEnclosingVariableDeclaration(node: ts.Node): ts.VariableDeclaration
 }
 
 /**
- * @deprecated Use `implAttribute` instead. The `@impl` syntax is preferred over `@instance`.
- */
-export const instanceAttribute = implAttribute;
-
-/**
  * Expression macro for registering typeclass instances.
  *
  * This is the internal target for preprocessor-rewritten @impl/@instance decorators.
@@ -4033,11 +4028,6 @@ export const implMacro = defineExpressionMacro({
     return objectLiteralArg;
   },
 });
-
-/**
- * @deprecated Use `implMacro` instead. The `impl()` syntax is preferred over `instance()`.
- */
-export const instanceMacro = implMacro;
 
 // ============================================================================
 // typeclass("Name") - Expression Macro for Preprocessor-Rewritten Form

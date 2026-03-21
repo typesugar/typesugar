@@ -178,24 +178,3 @@ export type Id<A> = A;
 // ============================================================================
 // Legacy Compatibility (deprecated)
 // ============================================================================
-
-/**
- * @deprecated Use `OptionF` instead.
- */
-export interface OptionHKT {
-  readonly _brand: "OptionHKT";
-}
-
-/**
- * @deprecated Use `EitherF<E>` instead.
- */
-export interface EitherHKT {
-  readonly _brand: "EitherHKT";
-}
-
-/**
- * @deprecated Use `ListF` instead.
- */
-export interface ListHKT {
-  readonly _brand: "ListHKT";
-}

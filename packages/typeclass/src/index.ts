@@ -41,9 +41,9 @@ export { typeclass, instance, derive, deriving, summon, extend, implicit } from 
 // Macro definitions (for programmatic use)
 export {
   typeclassAttribute,
-  instanceAttribute,
-  instanceMacro,
-  derivingAttribute,
+  implAttribute,
+  implMacro,
+  deriveAttribute,
   summonMacro,
   extendMacro,
 } from "@typesugar/macros";

@@ -16,28 +16,6 @@ describe("@typesugar/derive exports", () => {
     });
   });
 
-  describe("built-in derive macros (deprecated, now undefined)", () => {
-    it("should export all old derive macro names as undefined (PEP-017 Wave 4)", async () => {
-      const exports = await import("../src/index.js");
-      const deprecatedMacros = [
-        "EqDerive",
-        "OrdDerive",
-        "CloneDerive",
-        "DebugDerive",
-        "HashDerive",
-        "DefaultDerive",
-        "JsonDerive",
-        "BuilderDerive",
-        "TypeGuardDerive",
-      ];
-
-      for (const macro of deprecatedMacros) {
-        expect(macro in exports, `${macro} should still be an exported name`).toBe(true);
-        expect(exports[macro], `${macro} should be undefined (deprecated)`).toBeUndefined();
-      }
-    });
-  });
-
   describe("derive name symbols", () => {
     it("should export all derive name symbols", async () => {
       const exports = await import("../src/index.js");
@@ -121,9 +99,8 @@ describe("@typesugar/derive exports", () => {
   });
 
   describe("testing utilities", () => {
-    it("should export deriveMacros and createDerivedFunctionName", async () => {
-      const { deriveMacros, createDerivedFunctionName } = await import("../src/index.js");
-      expect(deriveMacros).toBeDefined();
+    it("should export createDerivedFunctionName", async () => {
+      const { createDerivedFunctionName } = await import("../src/index.js");
       expect(typeof createDerivedFunctionName).toBe("function");
     });
   });
