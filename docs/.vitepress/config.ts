@@ -4,6 +4,23 @@ export default defineConfig({
   title: "typesugar",
   description: "Syntactic sugar for TypeScript with zero calories",
 
+  vite: {
+    ssr: {
+      // These packages use Node-only APIs (fs, path) transitively via
+      // typescript or macro infrastructure.  Exclude them from SSR so
+      // vitepress doesn't try to bundle them for the server side.
+      noExternal: [],
+      external: [
+        "typescript",
+        "@typesugar/core",
+        "@typesugar/macros",
+        "@typesugar/transformer",
+        "@typesugar/transformer-core",
+        "@typesugar/preprocessor",
+      ],
+    },
+  },
+
   head: [
     ["link", { rel: "icon", type: "image/png", href: "/logo.png" }],
     ["meta", { name: "theme-color", content: "#8b5cf6" }],
