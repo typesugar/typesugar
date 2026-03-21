@@ -11,13 +11,13 @@ The preprocessor handles custom syntax (`F<_>` HKT, `|>` pipeline, `::` cons) th
 
 ## Custom Operators
 
-The preprocessor handles **non-JS operators** via text rewriting to named macro calls: `|>` → `__pipe__()`, `::` → `__cons__()`, `<|` → `__apply__()`.
+The preprocessor handles **non-JS operators** via text rewriting to named macro calls: `|>` → `__pipe__()`, `::` → `__cons__()`.
 
 Standard JS operators (`+`, `-`, `*`, `/`, `===`, etc.) are handled by `/** @op */` JSDoc tags in the transformer, NOT the preprocessor.
 
 **Validation rules:**
 - Standard JS operators (`+`, `-`, `*`, etc.) use `@op` JSDoc tags on typeclass methods — not the preprocessor
-- The `__pipe__`, `__cons__`, `__apply__` macros resolve custom operators via `typeclassRegistry.syntax` (from `@op` JSDoc)
+- The `__pipe__` and `__cons__` macros resolve custom operators via `typeclassRegistry.syntax` (from `@op` JSDoc)
 
 ## Scanner File Type
 
@@ -58,5 +58,5 @@ One canonical implementation at `packages/transformer/src/language-service.ts`. 
 
 When unplugin preprocesses a file, it creates a fresh `ts.SourceFile` disconnected from the `ts.Program`. The type checker cannot resolve types for this file:
 
-- `__pipe__`/`__cons__`/`__apply__` dispatch on custom types falls back to default semantics (e.g., `|>` becomes `f(a)`)
+- `__pipe__`/`__cons__` dispatch on custom types falls back to default semantics (e.g., `|>` becomes `f(a)`)
 - Type-aware operator resolution requires **ts-patch**, not unplugin

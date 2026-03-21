@@ -353,7 +353,7 @@ This is a soft warning, not an error — the user may know something the analyze
 - [ ] Audit `@typesugar/std` — can any sub-modules be marked `sideEffects: false`? (e.g., `@typesugar/std/match`)
 - [ ] Audit generated code across all macros — verify `/*#__PURE__*/` coverage
 - [ ] Create bundle-size benchmark: import subsets of typesugar packages, measure bundle size with Rollup/esbuild
-- [ ] Compare bundle sizes before and after PEP-015
+- [ ] Compare bundle sizes before and after PEP-022 (tree-shaking annotations)
 - [ ] Document tree-shaking results in `docs/guides/tree-shaking.md`
 - [ ] Consider `sideEffects` array pattern for `@typesugar/std`: `"sideEffects": ["./src/global-augmentation.ts"]`
 
