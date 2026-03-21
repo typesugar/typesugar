@@ -62,7 +62,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 5/5 - Essential foundational infrastructure for macro authors. Indispensable but niche audience (macro authors, not app developers). More critical than ever with diagnostic improvements.
 **Completeness**: 4/5 - Exceptionally thorough. All 6 macro kinds, full MacroContext, comprehensive diagnostics catalog (~50+ error codes), generic registry. 215 exports.
 **Documentation**: 4/5 - Strong README, excellent JSDoc throughout. 482-line showcase. Minor gap: no dedicated feature guide.
-**Coherence**: 5/5 - Exemplary adherence to philosophy. Zero-cost Op<> branded type, Rust-inspired diagnostics, modern patterns throughout.
+**Coherence**: 5/5 - Exemplary adherence to philosophy. Zero-cost @op typeclass dispatch, Rust-inspired diagnostics, modern patterns throughout.
 **Summary**: Foundational infrastructure that powers the entire macro system. Well-architected and thoroughly documented.
 
 **Update (2026-03-15):** PEP-007 Wave 1 added `_` marker type and HKT context improvements. PEP-005 Waves 2-4 added DiagnosticBuilder, type confidence detection (`getTypeConfidence()`). Import-scoped instance resolution now activated by default. Prelude expanded with `FlatMap`, `ParCombine`.
@@ -154,7 +154,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 4/5 - Addresses real performance concern (intermediate array allocations in method chains). Similar to Rust iterators, Java Streams, lodash/lazy.
 **Completeness**: 4/5 - Good lazy pipeline foundation with zip, scan, distinct, partition. Macros now registered with globalRegistry (lazyMacro, fusedMacro). Phase 2 compile-time fusion still pass-through.
 **Documentation**: 4/5 - Excellent README with clear problem/solution framing, API tables. Missing required "Integration" and "Zero-cost guarantee" sections.
-**Coherence**: 3/5 - Macros registered. Runtime LazyPipeline achieves single-pass fusion. Phase 2 compile-time fusion still stub. No Op<> integration.
+**Coherence**: 3/5 - Macros registered. Runtime LazyPipeline achieves single-pass fusion. Phase 2 compile-time fusion still stub. No @op typeclass integration.
 **Summary**: Well-implemented runtime lazy iterator with full operation set. Macros registered; Phase 2 compile-time fusion deferred.
 
 **Update (2026-03-01):** Added zip, scan, distinct, partition operations; registered lazyMacro and fusedMacro with globalRegistry.
@@ -208,7 +208,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 5/5 - Central macro package providing all built-in macros. Essential for the ecosystem — contains all macro implementations.
 **Completeness**: 5/5 - Comprehensive with 27 source files. 81 global test files cover macros extensively. Red team tests added (PEP-005 Wave 6).
 **Documentation**: 3/5 - Internal package — relies on main docs. README is basic.
-**Coherence**: 5/5 - Follows auto-derivation patterns, Op<> return types, zero-cost principles throughout.
+**Coherence**: 5/5 - Follows auto-derivation patterns, @op typeclass dispatch, zero-cost principles throughout.
 **Summary**: Central macro implementation package. All built-in macros live here.
 
 **Update (2026-02-28):** Package is now buildable with proper package.json and build configuration. No longer non-functional.
@@ -238,7 +238,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 5/5 - Most comprehensive numeric library — Rational, Complex, BigDecimal, Matrix, Interval, Mod, Polynomial, Money, FixedDecimal.
 **Completeness**: 4/5 - Comprehensive API for each type with full typeclass instances. 609 LOC exports, 4 dedicated test files + 489 LOC red-team. Core functionality production-ready.
 **Documentation**: 5/5 - Excellent README with clear sections, JSDoc on all exports, well-structured showcase.ts.
-**Coherence**: 5/5 - Uses Op<> return types, branded types for zero-cost safety, dictionary-passing style.
+**Coherence**: 5/5 - Uses @op typeclass dispatch, branded types for zero-cost safety, dictionary-passing style.
 **Summary**: Mature, well-documented math library. Type-safe Money and exact Rational are particularly valuable.
 
 **Update (2026-03-15):** No changes — already comprehensive and stable.
@@ -253,7 +253,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ## ~~@typesugar/operators~~ (REMOVED)
 
-**Status**: Package removed (2026-03-01). pipe/flow/compose now re-exported from umbrella package via `@typesugar/macros`. @operators/ops() pattern deprecated in favor of Op<> typeclass approach.
+**Status**: Package removed (2026-03-01). pipe/flow/compose now re-exported from umbrella package via `@typesugar/macros`. Operator overloading uses `@op` JSDoc on typeclass methods.
 
 ---
 
@@ -346,7 +346,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 5/5 - Extremely practical stdlib with 300+ extension methods (clamp, chunk, groupBy, camelCase), pattern matching macro, do-notation.
 **Completeness**: 4/5 - Core functionality production-ready. Some advanced typeclasses are interfaces only. Tests exist including red-team and comprehension tests.
 **Documentation**: 5/5 - Excellent README with UFCS examples, Range API, do-notation patterns. Excellent showcase.
-**Coherence**: 5/5 - Uses Op<> typeclass pattern correctly. Match macro compiles to zero-cost code (ternary chains, switch, binary search). Proper "use extension" directive.
+**Coherence**: 5/5 - Uses @op typeclass pattern correctly. Match macro compiles to zero-cost code (ternary chains, switch, binary search). Proper "use extension" directive.
 **Summary**: Solid, high-value standard library. ~1400-line match.ts demonstrates zero-cost philosophy well.
 
 **Update (2026-03-15):** Significant activity — new Hash typeclass added, fluent Range extension methods (`.to()`, `.until()`, `.step()`), `seq:`/`all:` aliases for do-notation, and the "use extension" directive redesign for UFCS.
@@ -372,7 +372,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 4/5 - Valuable for CAS, education, physics, LaTeX generation. Niche audience but well-executed.
 **Completeness**: 4/5 - Comprehensive AST, differentiation, basic integration, 3 rendering formats, pattern matching, equation solving.
 **Documentation**: 5/5 - Excellent README with full API coverage, comprehensive showcase with type assertions, thorough JSDoc.
-**Coherence**: 4/5 - Properly uses Op<> typeclass, provides Numeric<Expression<T>> instance, uses Refined<> for division safety. Comprehensive red-team tests (1334 lines).
+**Coherence**: 4/5 - Properly uses @op typeclass, provides Numeric<Expression<T>> instance, uses Refined<> for division safety. Comprehensive red-team tests (1334 lines).
 **Summary**: Well-implemented symbolic math package following typesugar patterns correctly. Production-ready for intended use cases.
 
 ---
@@ -471,7 +471,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 **Usefulness**: 3/5 - Real use case for scientific/engineering domains, but niche for general TypeScript.
 **Completeness**: 3/5 - Core dimension tracking works. `.to()` conversion method implemented. 115 comprehensive tests covering unit arithmetic, conversions, and edge cases.
 **Documentation**: 3/5 - Well-structured README explains type-level dimension tracking well.
-**Coherence**: 4/5 - Has Op<> annotations on methods. Auto-derive works for classes with methods.
+**Coherence**: 4/5 - Has @op annotations on typeclass methods. Auto-derive works for classes with methods.
 **Summary**: Functional dimension-tracking following boost::units with working conversions and solid test coverage.
 
 **Update (2026-02-28):** Auto-derive bug fixed in `extractMetaFromTypeChecker` — methods are now filtered out, so classes like `Unit<D>` auto-derive Eq/Ord/Show from their data properties (value, symbol). Coherence improved from 2/5 to 3/5.
@@ -544,7 +544,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 **Packages with all dimensions ≥4:** transformer (5/5/5/5), testing (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), fp (5/4/5/5), graph (5/4/5/5), math (5/4/5/5), std (5/4/5/5), contracts (5/4/5/5), type-system (5/4/5/5), prettier-plugin (5/4/5/5), sql (5/4/5/4)
 
-**Packages needing attention (any dimension ≤2):** mapper (3/2/3/4)
+**Packages needing attention (any dimension ≤2):** None — mapper documentation expanded, unimplemented APIs now warn at compile time
 
 ## Key Patterns Identified
 
@@ -574,13 +574,13 @@ Evaluation of all typesugar modules across 4 dimensions:
 - **@typesugar/vscode** — _(5/4/4/5)_ .sts language support, peek widget, surgical diff.
 - **@typesugar/derive** — _(4/4/4/5)_ Sum type support, stable.
 - **@typesugar/sql** — _(5/4/5/4)_ Comprehensive Doobie-style SQL, 179 tests.
-- **@typesugar/symbolic** — _(4/3/4/4)_ Stable, good Op<> usage.
+- **@typesugar/symbolic** — _(4/3/4/4)_ Stable, good @op usage.
 
 ### Packages Needing Work (Updated 2026-03-15)
 
-**Current issues:**
+**Current issues:** None
 
-- **@typesugar/mapper** — Sparse documentation (44 lines), few tests. Needs showcase.
+- ~~**@typesugar/mapper**~~ — _(Resolved 2026-03-21)_ Unimplemented API properties marked @experimental with compile-time warnings.
 - ~~**@typesugar/comptime**~~ — _(Removed 2026-03-15)_ Re-export wrapper removed.
 
 **Resolved (2026-03-16):**
@@ -620,12 +620,14 @@ Evaluation of all typesugar modules across 4 dimensions:
    - Already migrated to `typesugar` throughout codebase
    - Remaining `typemacro`/`ttfx` references are intentional for backwards compatibility (transformer/ESLint recognize old imports)
 
-3. **Missing Tests** — Status updated (2026-03-15):
+3. **Missing Tests** — Status updated (2026-03-21):
    - **@typesugar/vscode**: Tests confirmed — 9 test files with 2,014 lines of coverage
    - **@typesugar/eslint-plugin**: Tests confirmed — 3 test files with 945 lines of coverage
    - **@typesugar/strings**: Tests added — 28 tests covering exports, runtime stubs, macro definitions
    - **@typesugar/macros**: 81 global test files cover macros extensively; red team tests added
-   - **Packages needing tests (2026-03-16):** None
+   - **Packages needing tests:** None
+   - **Resolved (2026-03-21):**
+     - ~~**@typesugar/contracts-refined**~~ — 73 package-level tests added covering all exports
    - **Resolved (2026-03-16):**
      - ~~**@typesugar/reflect**~~ — Vitest config and 36 tests verified
      - ~~**@typesugar/sql**~~ — 49 tests added (179 total)
@@ -633,13 +635,20 @@ Evaluation of all typesugar modules across 4 dimensions:
      - ~~**@typesugar/specialize**~~ — 54 behavioral tests added (88 total)
      - ~~**@typesugar/units**~~ — 115 tests added
 
-4. **Documentation/Implementation Drift** — Updated assessment (2026-02-28):
-   - ~~**validate**~~: README was correct (compile-time macros + Schema typeclass), not builder DSL
-   - ~~**units**~~: .to() method implemented (2026-03-16)
+4. **Documentation/Implementation Drift** — Updated (2026-03-21):
+   - ~~**validate**~~: Fixed Invalid() ReferenceError in macro; added Current Limitations section
+   - ~~**reflect**~~: Added Current Limitations section (validator handles primitives only)
+   - ~~**strings**~~: Removed stale json macro references; clarified fmt as Phase 2
+   - ~~**codec**~~: Added Installation, Zero-Cost Guarantee, Integration sections
+   - ~~**fusion**~~: Added Zero-Cost Guarantee, Integration sections
+   - ~~**parser**~~: Clarified Phase 1 vs Phase 2 status throughout README
+   - ~~**erased**~~: Fixed typeclass integration docs (only Show/Eq/Ord/Hash auto-derivable)
+   - ~~**hlist**~~: Added Limitations section (map() type degradation, no typeclasses)
+   - ~~**units**~~: Added temperature conversion limitation; consolidated duplicate unit maps
    - ~~**sql**~~: README rewritten to document all features (was under-documented, now comprehensive)
    - ~~**specialize**~~: `specialize$` IS exported with correct signature
 
-5. **Not Leveraging Typeclass System** — Several packages don't use Op<>, summon(), auto-derivation:
+5. **Not Leveraging Typeclass System** — Several packages don't use @op, summon(), auto-derivation:
    - hlist, erased
    - ~~geometry~~ — Package deleted (2026-03-01)
    - ~~graph~~ — Now uses Monoid/Ord for Dijkstra, compile-time FSM verification (2026-03-01)
@@ -647,9 +656,9 @@ Evaluation of all typesugar modules across 4 dimensions:
 
 ### Recommendations (Updated 2026-03-15)
 
-**Active recommendations:**
+**Active recommendations:** None — all resolved
 
-1. **Expand @typesugar/mapper** — Needs showcase.ts, more examples, extended README
+1. ~~**Expand @typesugar/mapper**~~ — _(Done 2026-03-21)_ Unimplemented APIs marked @experimental with compile-time warnings
 2. ~~**Add package-level tests to reflect**~~ — _(Done 2026-03-17)_ 36 tests verified
 3. ~~**Implement @typesugar/units .to() method**~~ — _(Done 2026-03-16)_ Implemented with 115 tests
 4. ~~**Consider deprecating @typesugar/comptime**~~ — _(Done 2026-03-15)_ Package removed
@@ -660,7 +669,7 @@ Evaluation of all typesugar modules across 4 dimensions:
 1. ~~**Delete or complete @typesugar/macros**~~ — _(Done)_ Package is now functional
 2. ~~**Consolidate typeclass implementations**~~ — _(Done)_ Package now re-exports from macros
 3. ~~**Fix documentation/implementation drift**~~ — _(Done 2026-02-28)_ sql README rewritten, validate/specialize were correct
-4. ~~**Add Op<> typeclass integration**~~ — graph now uses Monoid/Ord (2026-03-01); fusion still Phase 2 stub
+4. ~~**Add @op typeclass integration**~~ — graph now uses Monoid/Ord (2026-03-01); fusion still Phase 2 stub
 5. ~~**Update stale names**~~ — _(Done)_ Already migrated, remaining refs intentional for backwards compat
 6. ~~**Add missing test coverage for strings**~~ — _(Done 2026-02-28)_ 28 tests added
 7. ~~**Fix specialize exports**~~ — _(Not needed)_ `specialize$` IS exported with correct signature
@@ -673,3 +682,4 @@ _Updated: 2026-03-01 — Major pruning: removed @typesugar/named-args, @typesuga
 _Updated: 2026-03-15 — Full reassessment. Key improvements: transformer (5/5/5/5), macros (5/5/3/5), effect (5/4/5/5), graph (5/4/5/5), fp (5/4/5/5), type-system (5/4/5/5). New concerns: react (stagnant), mapper (sparse docs), comptime (just re-exports)._
 _Updated: 2026-03-16 — Test coverage wave: units (.to() implemented + 115 tests, 2→3), sql (49 tests added, 3→4), erased (25 tests added, 2→3), specialize (54 behavioral tests), mapper (10 API tests)._
 _Updated: 2026-03-17 — @typesugar/reflect tests verified: 36 tests (28 + 8 behavioral) pass; vitest config and package-level tests confirmed._
+_Updated: 2026-03-21 — Full audit + fix wave across 11 modules. Critical: validate macro Invalid() bug fixed, strings json references removed. Documentation: 8 READMEs updated (codec, fusion, reflect, erased, hlist, parser, units, validate). Tests: contracts-refined 73 tests added. Code: mapper unimplemented APIs now warn, units duplicate maps consolidated._

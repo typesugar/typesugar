@@ -30,6 +30,17 @@ import {
   kilowatts,
   kelvin,
   celsius,
+  fahrenheit,
+  hertz,
+  kilohertz,
+  megahertz,
+  gigahertz,
+  volts,
+  millivolts,
+  kilovolts,
+  ohms,
+  kilohms,
+  megohms,
   pascals,
   kilopascals,
   atmospheres,
@@ -210,8 +221,70 @@ describe("Unit Constructors", () => {
       expect(kelvin(273.15).value).toBe(273.15);
     });
 
-    it("celsius stores value directly (no offset conversion)", () => {
-      expect(celsius(100).value).toBe(100);
+    it("celsius stores value internally as kelvin", () => {
+      expect(celsius(0).value).toBeCloseTo(273.15, 6);
+      expect(celsius(100).value).toBeCloseTo(373.15, 6);
+    });
+
+    it("fahrenheit stores value internally as kelvin", () => {
+      expect(fahrenheit(32).value).toBeCloseTo(273.15, 6);
+      expect(fahrenheit(212).value).toBeCloseTo(373.15, 6);
+    });
+  });
+
+  describe("Frequency", () => {
+    it("hertz stores value directly (SI base)", () => {
+      expect(hertz(440).value).toBe(440);
+      expect(hertz(440).symbol).toBe("Hz");
+    });
+
+    it("kilohertz stores value * 1e3", () => {
+      expect(kilohertz(1).value).toBe(1000);
+      expect(kilohertz(1).symbol).toBe("kHz");
+    });
+
+    it("megahertz stores value * 1e6", () => {
+      expect(megahertz(1).value).toBe(1e6);
+      expect(megahertz(1).symbol).toBe("MHz");
+    });
+
+    it("gigahertz stores value * 1e9", () => {
+      expect(gigahertz(1).value).toBe(1e9);
+      expect(gigahertz(1).symbol).toBe("GHz");
+    });
+  });
+
+  describe("Voltage", () => {
+    it("volts stores value directly (SI base)", () => {
+      expect(volts(5).value).toBe(5);
+      expect(volts(5).symbol).toBe("V");
+    });
+
+    it("millivolts stores value / 1000", () => {
+      expect(millivolts(500).value).toBe(0.5);
+      expect(millivolts(500).symbol).toBe("mV");
+    });
+
+    it("kilovolts stores value * 1000", () => {
+      expect(kilovolts(1).value).toBe(1000);
+      expect(kilovolts(1).symbol).toBe("kV");
+    });
+  });
+
+  describe("Resistance", () => {
+    it("ohms stores value directly (SI base)", () => {
+      expect(ohms(100).value).toBe(100);
+      expect(ohms(100).symbol).toBe("Ω");
+    });
+
+    it("kilohms stores value * 1000", () => {
+      expect(kilohms(4.7).value).toBe(4700);
+      expect(kilohms(4.7).symbol).toBe("kΩ");
+    });
+
+    it("megohms stores value * 1e6", () => {
+      expect(megohms(1).value).toBe(1e6);
+      expect(megohms(1).symbol).toBe("MΩ");
     });
   });
 });
@@ -526,6 +599,106 @@ describe(".to() conversion", () => {
       const result = kilopascals(101.325).to(atmospheres);
       expect(result.value).toBeCloseTo(1, 6);
       expect(result.symbol).toBe("atm");
+    });
+  });
+
+  describe("Temperature conversions (offset-based)", () => {
+    it("celsius to kelvin", () => {
+      const result = celsius(0).to(kelvin);
+      expect(result.value).toBeCloseTo(273.15, 6);
+      expect(result.symbol).toBe("K");
+    });
+
+    it("kelvin to celsius", () => {
+      const result = kelvin(373.15).to(celsius);
+      expect(result.value).toBeCloseTo(100, 6);
+      expect(result.symbol).toBe("°C");
+    });
+
+    it("celsius to fahrenheit", () => {
+      const result = celsius(100).to(fahrenheit);
+      expect(result.value).toBeCloseTo(212, 4);
+      expect(result.symbol).toBe("°F");
+    });
+
+    it("fahrenheit to celsius", () => {
+      const result = fahrenheit(32).to(celsius);
+      expect(result.value).toBeCloseTo(0, 6);
+      expect(result.symbol).toBe("°C");
+    });
+
+    it("kelvin to fahrenheit", () => {
+      const result = kelvin(273.15).to(fahrenheit);
+      expect(result.value).toBeCloseTo(32, 4);
+      expect(result.symbol).toBe("°F");
+    });
+
+    it("fahrenheit to kelvin", () => {
+      const result = fahrenheit(212).to(kelvin);
+      expect(result.value).toBeCloseTo(373.15, 4);
+      expect(result.symbol).toBe("K");
+    });
+
+    it("body temperature roundtrip", () => {
+      const bodyF = fahrenheit(98.6);
+      const bodyC = bodyF.to(celsius);
+      expect(bodyC.value).toBeCloseTo(37, 4);
+      const backToF = celsius(bodyC.value).to(fahrenheit);
+      expect(backToF.value).toBeCloseTo(98.6, 4);
+    });
+  });
+
+  describe("Frequency conversions", () => {
+    it("hertz to kilohertz", () => {
+      const result = hertz(1000).to(kilohertz);
+      expect(result.value).toBeCloseTo(1, 6);
+      expect(result.symbol).toBe("kHz");
+    });
+
+    it("megahertz to hertz", () => {
+      const result = megahertz(1).to(hertz);
+      expect(result.value).toBeCloseTo(1e6, 0);
+      expect(result.symbol).toBe("Hz");
+    });
+
+    it("gigahertz to megahertz", () => {
+      const result = gigahertz(2.4).to(megahertz);
+      expect(result.value).toBeCloseTo(2400, 6);
+      expect(result.symbol).toBe("MHz");
+    });
+  });
+
+  describe("Voltage conversions", () => {
+    it("volts to millivolts", () => {
+      const result = volts(1).to(millivolts);
+      expect(result.value).toBeCloseTo(1000, 6);
+      expect(result.symbol).toBe("mV");
+    });
+
+    it("kilovolts to volts", () => {
+      const result = kilovolts(1).to(volts);
+      expect(result.value).toBeCloseTo(1000, 6);
+      expect(result.symbol).toBe("V");
+    });
+  });
+
+  describe("Resistance conversions", () => {
+    it("ohms to kilohms", () => {
+      const result = ohms(4700).to(kilohms);
+      expect(result.value).toBeCloseTo(4.7, 6);
+      expect(result.symbol).toBe("kΩ");
+    });
+
+    it("megohms to ohms", () => {
+      const result = megohms(1).to(ohms);
+      expect(result.value).toBeCloseTo(1e6, 0);
+      expect(result.symbol).toBe("Ω");
+    });
+
+    it("kilohms to megohms", () => {
+      const result = kilohms(1000).to(megohms);
+      expect(result.value).toBeCloseTo(1, 6);
+      expect(result.symbol).toBe("MΩ");
     });
   });
 

@@ -16,9 +16,6 @@
  * - Force = Mass * Acceleration = M^1 * L^1 * T^-2
  */
 
-import type { Op } from "@typesugar/core";
-import { registerOperators } from "@typesugar/macros";
-
 // ============================================================================
 // Dimension Exponent Types (using type-level integers)
 // ============================================================================
@@ -319,16 +316,16 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    * Add two quantities with the same dimensions.
    * Enables `unit1 + unit2` syntax via transformer operator rewriting.
    */
-  add(other: Unit<D>): Unit<D> & Op<"+"> {
-    return new Unit(this.value + other.value, this.symbol) as Unit<D> & Op<"+">;
+  add(other: Unit<D>): Unit<D> {
+    return new Unit(this.value + other.value, this.symbol);
   }
 
   /**
    * Subtract two quantities with the same dimensions.
    * Enables `unit1 - unit2` syntax via transformer operator rewriting.
    */
-  sub(other: Unit<D>): Unit<D> & Op<"-"> {
-    return new Unit(this.value - other.value, this.symbol) as Unit<D> & Op<"-">;
+  sub(other: Unit<D>): Unit<D> {
+    return new Unit(this.value - other.value, this.symbol);
   }
 
   /**
@@ -337,8 +334,8 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    */
   mul<D2 extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>(
     other: Unit<D2>
-  ): Unit<MulDimensions<D, D2>> & Op<"*"> {
-    return new Unit(this.value * other.value) as Unit<MulDimensions<D, D2>> & Op<"*">;
+  ): Unit<MulDimensions<D, D2>> {
+    return new Unit(this.value * other.value);
   }
 
   /**
@@ -347,8 +344,8 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    */
   div<D2 extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>>(
     other: Unit<D2>
-  ): Unit<DivDimensions<D, D2>> & Op<"/"> {
-    return new Unit(this.value / other.value) as Unit<DivDimensions<D, D2>> & Op<"/">;
+  ): Unit<DivDimensions<D, D2>> {
+    return new Unit(this.value / other.value);
   }
 
   /**
@@ -369,8 +366,8 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    * Check equality with tolerance.
    * Enables `unit1 === unit2` syntax via transformer operator rewriting.
    */
-  equals(other: Unit<D>, tolerance: number = 1e-10): boolean & Op<"==="> {
-    return (Math.abs(this.value - other.value) < tolerance) as boolean & Op<"===">;
+  equals(other: Unit<D>, tolerance: number = 1e-10): boolean {
+    return Math.abs(this.value - other.value) < tolerance;
   }
 
   /**
@@ -393,9 +390,12 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    * ```
    */
   to(targetConstructor: (v: number) => Unit<D>): Unit<D> {
-    const reference = targetConstructor(1);
-    const convertedValue = this.value / reference.value;
-    return new Unit(convertedValue, reference.symbol);
+    const atZero = targetConstructor(0);
+    const atOne = targetConstructor(1);
+    const factor = atOne.value - atZero.value;
+    const offset = atZero.value;
+    const convertedValue = (this.value - offset) / factor;
+    return new Unit(convertedValue, atOne.symbol);
   }
 
   /**
@@ -453,28 +453,32 @@ export const kilocalories = (v: number): Unit<Energy> => new Unit(v * 4184, "kca
 export const watts = (v: number): Unit<Power> => new Unit(v, "W");
 export const kilowatts = (v: number): Unit<Power> => new Unit(v * 1000, "kW");
 
-// Temperature (note: this is temperature difference, not absolute)
+// Temperature (absolute — stored internally in kelvin)
 export const kelvin = (v: number): Unit<Temperature> => new Unit(v, "K");
-export const celsius = (v: number): Unit<Temperature> => new Unit(v, "°C");
+export const celsius = (v: number): Unit<Temperature> => new Unit(v + 273.15, "°C");
+export const fahrenheit = (v: number): Unit<Temperature> =>
+  new Unit(((v - 32) * 5) / 9 + 273.15, "°F");
+
+// Frequency
+export const hertz = (v: number): Unit<Frequency> => new Unit(v, "Hz");
+export const kilohertz = (v: number): Unit<Frequency> => new Unit(v * 1e3, "kHz");
+export const megahertz = (v: number): Unit<Frequency> => new Unit(v * 1e6, "MHz");
+export const gigahertz = (v: number): Unit<Frequency> => new Unit(v * 1e9, "GHz");
+
+// Voltage
+export const volts = (v: number): Unit<Voltage> => new Unit(v, "V");
+export const millivolts = (v: number): Unit<Voltage> => new Unit(v / 1000, "mV");
+export const kilovolts = (v: number): Unit<Voltage> => new Unit(v * 1000, "kV");
+
+// Resistance
+export const ohms = (v: number): Unit<Resistance> => new Unit(v, "Ω");
+export const kilohms = (v: number): Unit<Resistance> => new Unit(v * 1000, "kΩ");
+export const megohms = (v: number): Unit<Resistance> => new Unit(v * 1e6, "MΩ");
 
 // Pressure
 export const pascals = (v: number): Unit<Pressure> => new Unit(v, "Pa");
 export const kilopascals = (v: number): Unit<Pressure> => new Unit(v * 1000, "kPa");
 export const atmospheres = (v: number): Unit<Pressure> => new Unit(v * 101325, "atm");
-
-// ============================================================================
-// Operator Registration
-// ============================================================================
-// Register Unit's arithmetic methods for operator rewriting.
-// This enables: unit1 + unit2, unit1 * unit2, etc.
-
-registerOperators("Unit", {
-  "+": "add",
-  "-": "sub",
-  "*": "mul",
-  "/": "div",
-  "===": "equals",
-});
 
 // ============================================================================
 // Type Guards and Utilities

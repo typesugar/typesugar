@@ -8,6 +8,14 @@ Serialization formats evolve. Fields get added, removed, renamed. Old data needs
 
 `@typesugar/codec` gives you versioned schemas with automatic migration chain generation, so old data decodes correctly through any number of version bumps.
 
+## Installation
+
+```bash
+npm install @typesugar/codec
+```
+
+Requires `@typesugar/core` as a peer dependency and the TypeSugar transformer for compile-time macro expansion.
+
 ## Quick Start
 
 ```typescript
@@ -121,6 +129,14 @@ const errors = validateSchema(s);          // SchemaValidationError[]
 const history = generateMigrations(s);     // VersionHistory with migration chain
 const v1Fields = fieldsAtVersion(s, 1);    // fields active at v1
 ```
+
+## Zero-Cost Guarantee
+
+Schema definitions are compile-time only -- the `@codec` macro extracts type structure at build time, so schema metadata is erased from production bundles. The JSON codec has minimal runtime overhead: just property access plus a version field on each encoded object. The binary codec uses fixed-layout DataView reads and writes with no dynamic dispatch. There are no external dependencies beyond `@typesugar/core`.
+
+## Integration
+
+`@typesugar/codec` works with `@typesugar/validate` for runtime validation of decoded data -- decode first, then validate against your schema constraints. It is compatible with `@typesugar/derive` for auto-deriving codec instances from type definitions. Codecs produce and consume plain strings or `Uint8Array` buffers, so they work with any transport layer: HTTP, WebSocket, file I/O, or message queues.
 
 ## Comparison
 

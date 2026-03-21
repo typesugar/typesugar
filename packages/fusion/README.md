@@ -149,3 +149,21 @@ const result = lazy(users)
 ```
 
 This will be true zero-cost abstraction: write high-level pipeline code, get hand-optimized loops.
+
+## Zero-Cost Guarantee
+
+Fusion's zero-cost story has two phases, each eliminating a different category of overhead:
+
+- **Phase 1 (current):** The `LazyPipeline` object is allocated at runtime, but no intermediate arrays are created. A chain like `.filter().map().take()` performs single-pass iteration, eliminating the O(n) allocations-per-operation cost of standard array methods. For large datasets this is the dominant cost savings.
+- **Phase 2 (planned):** The `lazy` and `fused` macros will compile method chains directly to single for-loops, eliminating the `LazyPipeline` object entirely. No class instantiation, no method dispatch — just a tight loop.
+
+**Net effect:** Phase 1 achieves _memory-zero-cost_ (no intermediate collections). Phase 2 will achieve _allocation-zero-cost_ (no pipeline object). Together they deliver true zero-cost abstraction where the high-level pipeline syntax compiles to the same code you would write by hand.
+
+## Integration
+
+`@typesugar/fusion` is designed to interoperate with the rest of the typesugar ecosystem:
+
+- **Any Iterable source** — `lazy()` accepts any `Iterable`, including `@typesugar/std` collections like `Range` and `Tuple`, plain arrays, Sets, Maps, and generators.
+- **Vec + numeric math** — `vec()` operations (`add`, `scale`, `dot`, etc.) provide SIMD-style element-wise arithmetic on numeric arrays, complementing the iterator pipeline for batch math workloads.
+- **Compatible with @typesugar/fp** — `@typesugar/fp`'s lazy `List` also uses deferred evaluation. You can feed a lazy `List` into `lazy()` (it implements `Iterable`) for fusion, or use each independently depending on whether you need persistent data structure semantics or pure throughput.
+- **Macro registration** — Fusion's compile-time macros (Phase 2) are registered through `@typesugar/core`'s `globalRegistry`, following the same pattern as all other typesugar macro packages.

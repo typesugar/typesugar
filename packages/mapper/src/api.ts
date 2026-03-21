@@ -72,6 +72,8 @@ export interface TransformConfig<From, To> {
    * Key: target field name (must be an object type in To, not an array).
    * Value: config for transforming the source's corresponding nested value.
    *
+   * @experimental Planned for Phase 2 — currently ignored by the macro.
+   *
    * @example
    * ```ts
    * interface Source { address: { city: string; zip: string } }
@@ -91,6 +93,8 @@ export interface TransformConfig<From, To> {
    * Value: source path (e.g. "address.city").
    * Accepts PathOf keys for type safety; string for deeper paths (macro validates).
    *
+   * @experimental Planned for Phase 2 — currently ignored by the macro.
+   *
    * @example
    * ```ts
    * interface Source { address: { city: string; zip: string } }
@@ -105,6 +109,8 @@ export interface TransformConfig<From, To> {
   /**
    * Config for array-valued fields. Maps each array field name to the
    * TransformConfig for transforming its elements.
+   *
+   * @experimental Planned for Phase 2 — currently ignored by the macro.
    *
    * @example
    * ```ts

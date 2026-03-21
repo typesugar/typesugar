@@ -468,3 +468,92 @@ export function toArray<T extends readonly unknown[]>(list: HList<T>): T {
 export function fromArray<T extends readonly unknown[]>(arr: T): HList<T> {
   return [...arr] as unknown as HList<T>;
 }
+
+// ============================================================================
+// Typeclass Instances
+// ============================================================================
+
+/**
+ * Eq instance for HList — element-wise equality comparison.
+ *
+ * Since HList is heterogeneous, this uses runtime `typeof` checks to
+ * delegate to appropriate primitive equality, falling back to strict `===`
+ * for non-primitive elements.
+ */
+export interface HListEq<T extends readonly unknown[]> {
+  equals(a: HList<T>, b: HList<T>): boolean;
+  notEquals(a: HList<T>, b: HList<T>): boolean;
+}
+
+/**
+ * Create an Eq instance for HList that compares element-wise.
+ * Primitives (number, string, boolean, bigint) use `===`.
+ * Date values compare by `.getTime()`.
+ * All other values use strict `===`.
+ */
+export function eqHList<T extends readonly unknown[]>(): HListEq<T> {
+  function elemEquals(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+    return false;
+  }
+
+  return {
+    equals(a: HList<T>, b: HList<T>): boolean {
+      const arrA = a as unknown as unknown[];
+      const arrB = b as unknown as unknown[];
+      if (arrA.length !== arrB.length) return false;
+      for (let i = 0; i < arrA.length; i++) {
+        if (!elemEquals(arrA[i], arrB[i])) return false;
+      }
+      return true;
+    },
+    notEquals(a: HList<T>, b: HList<T>): boolean {
+      return !eqHList<T>().equals(a, b);
+    },
+  };
+}
+
+/**
+ * Show instance for HList — string representation like `HList(1, "hello", true)`.
+ *
+ * Uses runtime `typeof` checks to format each element:
+ * - strings are quoted
+ * - other primitives use `String()`
+ * - objects use `JSON.stringify()` with a fallback to `String()`
+ */
+export interface HListShow<T extends readonly unknown[]> {
+  show(list: HList<T>): string;
+}
+
+function showElement(elem: unknown): string {
+  if (typeof elem === "string") return JSON.stringify(elem);
+  if (typeof elem === "bigint") return `${elem}n`;
+  if (elem instanceof Date) return `Date(${JSON.stringify(elem.toISOString())})`;
+  if (typeof elem === "object" && elem !== null) {
+    try {
+      return JSON.stringify(elem);
+    } catch {
+      return String(elem);
+    }
+  }
+  return String(elem);
+}
+
+/**
+ * Create a Show instance for HList.
+ *
+ * @example
+ * ```typescript
+ * const s = showHList<[number, string, boolean]>();
+ * s.show(hlist(1, "hello", true)); // 'HList(1, "hello", true)'
+ * ```
+ */
+export function showHList<T extends readonly unknown[]>(): HListShow<T> {
+  return {
+    show(list: HList<T>): string {
+      const arr = list as unknown as unknown[];
+      return `HList(${arr.map(showElement).join(", ")})`;
+    },
+  };
+}

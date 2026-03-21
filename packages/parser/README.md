@@ -2,7 +2,9 @@
 
 Compile-time parser generation from PEG grammars. Think Boost.Spirit, but for TypeScript.
 
-Define grammars with tagged templates or programmatic combinators, get zero-overhead recursive-descent parsers.
+Define grammars with tagged templates or programmatic combinators, get recursive-descent parsers.
+
+> **Current Status:** Phase 1 is production-ready with runtime-interpreted grammars. Phase 2 will add compile-time code generation for zero-cost parsing.
 
 ## Quick Start
 
@@ -137,7 +139,7 @@ This package uses PEG (Parsing Expression Grammar) semantics:
 
 **Phase 1 (current):** The `grammar` tagged template parses the PEG definition at runtime into a grammar IR, then builds a recursive-descent parser from that IR. The combinator API builds parsers directly.
 
-**Phase 2 (future):** The `grammar` macro will generate inlined recursive-descent parser code at compile time via the typesugar transformer, producing zero-overhead parsers with no runtime grammar interpretation.
+**Phase 2 (planned -- not yet implemented):** The `grammar` macro will generate inlined recursive-descent parser code at compile time via the typesugar transformer, producing zero-overhead parsers with no runtime grammar interpretation. Currently, the `grammar` macro validates grammar syntax at compile time but delegates parsing to the runtime interpreter.
 
 ## Error Reporting
 
@@ -151,10 +153,10 @@ The parser tracks the "furthest failure" position across all alternation branche
 
 ## Comparison to PEG.js / Peggy
 
-| Feature            | PEG.js / Peggy         | @typesugar/parser                     |
-| ------------------ | ---------------------- | ------------------------------------- |
-| Grammar definition | Separate `.pegjs` file | Inline tagged template or combinators |
-| Code generation    | Separate build step    | Compile-time macro (Phase 2)          |
-| Type safety        | Manual typing          | Full TypeScript inference             |
-| Runtime overhead   | Pre-generated parser   | Phase 1: interpreted; Phase 2: zero   |
-| Integration        | Standalone tool        | Part of your TypeScript build         |
+| Feature            | PEG.js / Peggy         | @typesugar/parser                                                            |
+| ------------------ | ---------------------- | ---------------------------------------------------------------------------- |
+| Grammar definition | Separate `.pegjs` file | Inline tagged template or combinators                                        |
+| Code generation    | Separate build step    | Phase 2 (planned): compile-time macro                                        |
+| Type safety        | Manual typing          | Full TypeScript inference                                                    |
+| Runtime overhead   | Pre-generated parser   | Phase 1: interpreted; Phase 2 (planned): zero-cost via compile-time inlining |
+| Integration        | Standalone tool        | Part of your TypeScript build                                                |

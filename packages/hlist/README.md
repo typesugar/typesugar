@@ -191,6 +191,13 @@ const list = hlist(1, "hello", true);
 const list = [1, "hello", true];
 ```
 
+## Limitations
+
+- **`map()` returns `HList<unknown[]>`** -- the mapping function's return type cannot be tracked per-element, so heterogeneous output types are lost. Use type assertions if you need specific element types in the result.
+- **`mapWithMacro` is a placeholder** -- future releases plan to support typeclass-based heterogeneous mapping where per-element types are preserved at compile time. The current export is a stub.
+- **LabeledHList metadata is a hidden property** -- label information is stored as a non-enumerable property on the underlying array. Do not manually mutate or spread the array, as this will lose the label metadata. Always use the provided API (`set`, `merge`, `project`) to transform labeled lists.
+- **No typeclass instances for HList** -- Eq, Ord, and Show instances for HList are not yet available. Element-wise comparison and display are planned for a future release.
+
 ## Relationship to Generic
 
 `HList` is independent of `Generic<T>` -- it doesn't depend on it and doesn't

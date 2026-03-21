@@ -17,6 +17,7 @@ import {
   fmtMacro,
   rawMacro,
   register,
+  parseFormatString,
 } from "../src/index.js";
 
 describe("@typesugar/strings", () => {
@@ -216,6 +217,184 @@ describe("@typesugar/strings", () => {
 
       // Runtime helper
       expect(exports.__typesugar_escapeHtml).toBeDefined();
+
+      // Format string parser
+      expect(exports.parseFormatString).toBeDefined();
+      expect(exports.applyFormatSpecifier).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // parseFormatString Tests
+  // ==========================================================================
+
+  describe("parseFormatString", () => {
+    it("should parse plain text as a single literal", () => {
+      const result = parseFormatString("hello world");
+      expect(result).toEqual([{ type: "literal", value: "hello world" }]);
+    });
+
+    it("should parse %d as a format specifier", () => {
+      const result = parseFormatString("value: %d");
+      expect(result).toEqual([
+        { type: "literal", value: "value: " },
+        { type: "format", value: "%d" },
+      ]);
+    });
+
+    it("should parse %i as a format specifier", () => {
+      const result = parseFormatString("%i");
+      expect(result).toEqual([{ type: "format", value: "%i" }]);
+    });
+
+    it("should parse %f as a format specifier", () => {
+      const result = parseFormatString("%f");
+      expect(result).toEqual([{ type: "format", value: "%f" }]);
+    });
+
+    it("should parse %s as a format specifier", () => {
+      const result = parseFormatString("name: %s");
+      expect(result).toEqual([
+        { type: "literal", value: "name: " },
+        { type: "format", value: "%s" },
+      ]);
+    });
+
+    it("should parse %x as hex format specifier", () => {
+      const result = parseFormatString("hex: %x");
+      expect(result).toEqual([
+        { type: "literal", value: "hex: " },
+        { type: "format", value: "%x" },
+      ]);
+    });
+
+    it("should parse %o as octal format specifier", () => {
+      const result = parseFormatString("%o");
+      expect(result).toEqual([{ type: "format", value: "%o" }]);
+    });
+
+    it("should parse %b as binary format specifier", () => {
+      const result = parseFormatString("%b");
+      expect(result).toEqual([{ type: "format", value: "%b" }]);
+    });
+
+    it("should parse %% as a literal percent sign", () => {
+      const result = parseFormatString("100%%");
+      expect(result).toEqual([{ type: "literal", value: "100%" }]);
+    });
+
+    it("should parse %.2f as precision format specifier", () => {
+      const result = parseFormatString("price: %.2f");
+      expect(result).toEqual([
+        { type: "literal", value: "price: " },
+        { type: "format", value: "%.2f" },
+      ]);
+    });
+
+    it("should parse %.0f as zero-precision format specifier", () => {
+      const result = parseFormatString("%.0f");
+      expect(result).toEqual([{ type: "format", value: "%.0f" }]);
+    });
+
+    it("should parse %.10f as high-precision format specifier", () => {
+      const result = parseFormatString("%.10f");
+      expect(result).toEqual([{ type: "format", value: "%.10f" }]);
+    });
+
+    it("should parse multiple specifiers in sequence", () => {
+      const result = parseFormatString("x=%d, y=%d");
+      expect(result).toEqual([
+        { type: "literal", value: "x=" },
+        { type: "format", value: "%d" },
+        { type: "literal", value: ", y=" },
+        { type: "format", value: "%d" },
+      ]);
+    });
+
+    it("should handle %% mixed with other specifiers", () => {
+      const result = parseFormatString("100%% of %d");
+      expect(result).toEqual([
+        { type: "literal", value: "100% of " },
+        { type: "format", value: "%d" },
+      ]);
+    });
+
+    it("should treat unrecognized % sequences as literals", () => {
+      const result = parseFormatString("%z");
+      expect(result).toEqual([{ type: "literal", value: "%z" }]);
+    });
+
+    it("should handle empty string", () => {
+      const result = parseFormatString("");
+      expect(result).toEqual([]);
+    });
+
+    it("should handle trailing percent with no following char", () => {
+      const result = parseFormatString("test%");
+      expect(result).toEqual([{ type: "literal", value: "test%" }]);
+    });
+  });
+
+  // ==========================================================================
+  // fmt Macro Format Specifier Integration Tests
+  // ==========================================================================
+
+  describe("fmt macro format specifier code generation", () => {
+    // These tests verify the macro definition structure for format specifiers.
+    // Full end-to-end transform tests live in the transformer tests.
+
+    it("fmtMacro expand function should be defined", () => {
+      expect(typeof fmtMacro.expand).toBe("function");
+    });
+
+    it("parseFormatString should correctly split mixed format strings", () => {
+      // Simulating: fmt`Item %s${name} costs $%.2f${price} (%d${count} in stock)`
+      // The literal before each interpolation is parsed for trailing specifiers.
+
+      const head = parseFormatString("Item %s");
+      expect(head).toEqual([
+        { type: "literal", value: "Item " },
+        { type: "format", value: "%s" },
+      ]);
+
+      const mid1 = parseFormatString(" costs $%.2f");
+      expect(mid1).toEqual([
+        { type: "literal", value: " costs $" },
+        { type: "format", value: "%.2f" },
+      ]);
+
+      const mid2 = parseFormatString(" (%d");
+      expect(mid2).toEqual([
+        { type: "literal", value: " (" },
+        { type: "format", value: "%d" },
+      ]);
+
+      const tail = parseFormatString(" in stock)");
+      expect(tail).toEqual([{ type: "literal", value: " in stock)" }]);
+    });
+
+    it("should handle hex, octal, and binary specifiers in parse", () => {
+      expect(parseFormatString("0x%x")).toEqual([
+        { type: "literal", value: "0x" },
+        { type: "format", value: "%x" },
+      ]);
+      expect(parseFormatString("0o%o")).toEqual([
+        { type: "literal", value: "0o" },
+        { type: "format", value: "%o" },
+      ]);
+      expect(parseFormatString("0b%b")).toEqual([
+        { type: "literal", value: "0b" },
+        { type: "format", value: "%b" },
+      ]);
+    });
+
+    it("should handle escaped percent signs in format strings", () => {
+      const parts = parseFormatString("Loading: %d%% complete");
+      expect(parts).toEqual([
+        { type: "literal", value: "Loading: " },
+        { type: "format", value: "%d" },
+        { type: "literal", value: "% complete" },
+      ]);
     });
   });
 });

@@ -74,7 +74,12 @@ export {
   forEach,
   toArray,
   fromArray,
+  // Typeclass instances
+  eqHList,
+  showHList,
 } from "./operations.js";
+
+export type { HListEq, HListShow } from "./operations.js";
 
 // Macros
 export { hlistMacro, labeledMacro, mapWithMacro, register } from "./macros.js";

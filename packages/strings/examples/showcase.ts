@@ -2,7 +2,7 @@
  * @typesugar/strings Showcase
  *
  * Self-documenting examples of compile-time validated string macros:
- * tagged template literals for regex, HTML, JSON, formatting, and raw strings.
+ * tagged template literals for regex, HTML, formatting, and raw strings.
  *
  * Type assertions used:
  *   typeAssert<Equal<A, B>>()        - A and B are the same type
@@ -72,49 +72,7 @@ assert(
 assert(!uuidPattern.test("not-a-uuid"), "invalid UUID rejected");
 
 // ============================================================================
-// 3. JSON MACRO - Compile-Time JSON Parsing
-// ============================================================================
-
-// The json`` tagged template parses JSON at compile time and embeds the
-// resulting object literal directly in the output. No JSON.parse at runtime.
-
-// Simulating what the macro produces: a direct object literal
-const config = {
-  name: "my-app",
-  version: "1.0.0",
-  features: ["auth", "logging", "cache"],
-  database: {
-    host: "localhost",
-    port: 5432,
-  },
-};
-
-assert(config.name === "my-app", "json string field");
-assert(config.version === "1.0.0", "json version field");
-assert(config.features.length === 3, "json array field");
-assert(config.features[0] === "auth", "json array element");
-assert(config.database.host === "localhost", "json nested object");
-assert(config.database.port === 5432, "json nested number");
-
-typeAssert<Extends<typeof config, { name: string; version: string }>>();
-
-// JSON with different value types
-const mixed = {
-  str: "hello",
-  num: 42,
-  bool: true,
-  nil: null as null,
-  arr: [1, "two", false],
-};
-
-assert(mixed.str === "hello", "json string");
-assert(mixed.num === 42, "json number");
-assert(mixed.bool === true, "json boolean");
-assert(mixed.nil === null, "json null");
-assert(mixed.arr.length === 3, "json mixed array");
-
-// ============================================================================
-// 4. FMT MACRO - Printf-Style Formatting
+// 3. FMT MACRO - Printf-Style Formatting
 // ============================================================================
 
 // The fmt`` tagged template converts interpolations to String() calls
@@ -138,7 +96,7 @@ assert(
 );
 
 // ============================================================================
-// 5. RAW STRINGS - Escape Preservation
+// 4. RAW STRINGS - Escape Preservation
 // ============================================================================
 
 // The raw`` tagged template preserves escape sequences.
@@ -161,7 +119,7 @@ assert(rawWithInterp.includes("3.2.1"), "interpolation evaluated in raw string")
 assert(rawWithInterp.includes("C:\\builds"), "escapes preserved around interpolation");
 
 // ============================================================================
-// 6. HTML ESCAPING - Comprehensive Edge Cases
+// 5. HTML ESCAPING - Comprehensive Edge Cases
 // ============================================================================
 
 // Empty string
@@ -188,7 +146,7 @@ assert(
 );
 
 // ============================================================================
-// 7. REAL-WORLD EXAMPLE - Template-Based Code Generation
+// 6. REAL-WORLD EXAMPLE - Template-Based Code Generation
 // ============================================================================
 
 // Building safe HTML from user data using the escape helper

@@ -75,6 +75,7 @@ export interface TypeInfo {
   typeParameters?: string[];
   extends?: string[];
   modifiers?: string[];
+  variants?: string[];
 }
 
 export interface FieldInfo {
@@ -328,9 +329,11 @@ function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration):
 
   // Union type
   if (type.isUnion()) {
+    const variants = (type as ts.UnionType).types.map((t) => ctx.typeChecker.typeToString(t));
     return {
       name: node.name.text,
       kind: "union",
+      variants,
       typeParameters: node.typeParameters?.map((tp) => tp.name.text) ?? [],
     };
   }
@@ -602,54 +605,157 @@ export const validatorMacro = defineExpressionMacro({
       const propTypeStr = ctx.typeChecker.typeToString(propType);
       const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
 
-      // Generate type check
-      let checkExpr: ts.Expression;
+      // Helper: create property access on value
+      const fieldAccess = () =>
+        factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name);
 
-      if (propTypeStr === "string") {
-        checkExpr = factory.createBinaryExpression(
-          factory.createTypeOfExpression(
-            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name)
-          ),
+      // Helper: typeof field !== literal
+      const typeofNotEquals = (typeStr: string) =>
+        factory.createBinaryExpression(
+          factory.createTypeOfExpression(fieldAccess()),
           factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral("string")
+          factory.createStringLiteral(typeStr)
         );
-      } else if (propTypeStr === "number") {
+
+      // Determine if the type includes undefined (e.g. "string | undefined")
+      const typeIncludesUndefined = propType.isUnion()
+        ? (propType as ts.UnionType).types.some((t) => (t.flags & ts.TypeFlags.Undefined) !== 0)
+        : false;
+
+      // For union types that include undefined, treat as optional
+      const effectiveOptional = isOptional || typeIncludesUndefined;
+
+      // Generate type check
+      let checkExpr: ts.Expression | undefined;
+      let expectedStr = propTypeStr;
+
+      // Primitives
+      if (propTypeStr === "string" || propTypeStr === "number" || propTypeStr === "boolean") {
+        checkExpr = typeofNotEquals(propTypeStr);
+      }
+      // Array types: T[] or Array<T>
+      else if (propTypeStr.endsWith("[]") || propTypeStr.startsWith("Array<")) {
+        checkExpr = factory.createPrefixUnaryExpression(
+          ts.SyntaxKind.ExclamationToken,
+          factory.createCallExpression(
+            factory.createPropertyAccessExpression(factory.createIdentifier("Array"), "isArray"),
+            undefined,
+            [fieldAccess()]
+          )
+        );
+        expectedStr = "array";
+      }
+      // Union types (including those with undefined)
+      else if (propType.isUnion()) {
+        // Filter out undefined from union variants for the check
+        const nonUndefinedTypes = (propType as ts.UnionType).types.filter(
+          (t) => (t.flags & ts.TypeFlags.Undefined) === 0
+        );
+
+        // Extract primitive variants from the union
+        const primitiveVariants: string[] = [];
+        let hasObjectVariant = false;
+        let hasArrayVariant = false;
+
+        for (const variant of nonUndefinedTypes) {
+          const variantStr = ctx.typeChecker.typeToString(variant);
+          if (variantStr === "string" || variantStr === "number" || variantStr === "boolean") {
+            primitiveVariants.push(variantStr);
+          } else if (variantStr.endsWith("[]") || variantStr.startsWith("Array<")) {
+            hasArrayVariant = true;
+          } else if (variant.flags & ts.TypeFlags.Object || variant.isClassOrInterface()) {
+            hasObjectVariant = true;
+          }
+        }
+
+        // Build a combined check: all variants must fail for an error
+        const variantChecks: ts.Expression[] = [];
+
+        for (const prim of primitiveVariants) {
+          variantChecks.push(typeofNotEquals(prim));
+        }
+
+        if (hasArrayVariant) {
+          variantChecks.push(
+            factory.createPrefixUnaryExpression(
+              ts.SyntaxKind.ExclamationToken,
+              factory.createCallExpression(
+                factory.createPropertyAccessExpression(
+                  factory.createIdentifier("Array"),
+                  "isArray"
+                ),
+                undefined,
+                [fieldAccess()]
+              )
+            )
+          );
+        }
+
+        if (hasObjectVariant) {
+          variantChecks.push(
+            factory.createBinaryExpression(
+              typeofNotEquals("object"),
+              factory.createToken(ts.SyntaxKind.BarBarToken),
+              factory.createBinaryExpression(
+                fieldAccess(),
+                factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+                factory.createNull()
+              )
+            )
+          );
+        }
+
+        if (variantChecks.length > 0) {
+          // Combine with &&: all checks must be true (all variants failed) to report error
+          checkExpr = variantChecks.reduce((acc, check) =>
+            factory.createBinaryExpression(
+              acc,
+              factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+              check
+            )
+          );
+
+          // Build expected string from non-undefined variants
+          expectedStr = nonUndefinedTypes.map((t) => ctx.typeChecker.typeToString(t)).join(" | ");
+        } else {
+          // All variants are non-primitive/non-standard — skip
+          continue;
+        }
+      }
+      // Nested object/interface types
+      else if (propType.flags & ts.TypeFlags.Object || propType.isClassOrInterface()) {
+        // typeof field !== 'object' || field === null
         checkExpr = factory.createBinaryExpression(
-          factory.createTypeOfExpression(
-            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name)
-          ),
-          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral("number")
+          typeofNotEquals("object"),
+          factory.createToken(ts.SyntaxKind.BarBarToken),
+          factory.createBinaryExpression(
+            fieldAccess(),
+            factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            factory.createNull()
+          )
         );
-      } else if (propTypeStr === "boolean") {
-        checkExpr = factory.createBinaryExpression(
-          factory.createTypeOfExpression(
-            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name)
-          ),
-          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral("boolean")
-        );
+        expectedStr = "object";
       } else {
-        // Skip complex types for now
+        // Unsupported complex type — skip
         continue;
       }
 
-      // Add optional check
-      if (isOptional) {
+      // Wrap with optional/undefined guard: skip validation if value is undefined
+      if (effectiveOptional) {
         checkExpr = factory.createBinaryExpression(
           factory.createBinaryExpression(
-            factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name),
+            fieldAccess(),
             factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
             factory.createIdentifier("undefined")
           ),
           factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-          checkExpr
+          checkExpr!
         );
       }
 
       checks.push(
         factory.createIfStatement(
-          checkExpr,
+          checkExpr!,
           factory.createBlock([
             factory.createExpressionStatement(
               factory.createCallExpression(
@@ -657,7 +763,7 @@ export const validatorMacro = defineExpressionMacro({
                 undefined,
                 [
                   factory.createStringLiteral(
-                    `Invalid type for field '${prop.name}': expected ${propTypeStr}`
+                    `Invalid type for field '${prop.name}': expected ${expectedStr}`
                   ),
                 ]
               )

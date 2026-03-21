@@ -104,6 +104,37 @@ function generateValidationChecks(
       return checks;
     }
 
+    // Check for string literal unions (e.g. "admin" | "user")
+    const stringLiteralTypes = nonNullableTypes.filter((t) => t.flags & ts.TypeFlags.StringLiteral);
+    if (stringLiteralTypes.length === nonNullableTypes.length && stringLiteralTypes.length > 0) {
+      const allowedValues = stringLiteralTypes.map((t) =>
+        factory.createStringLiteral((t as ts.StringLiteralType).value)
+      );
+      checks.push(
+        factory.createIfStatement(
+          factory.createPrefixUnaryExpression(
+            ts.SyntaxKind.ExclamationToken,
+            factory.createCallExpression(
+              factory.createPropertyAccessExpression(
+                factory.createArrayLiteralExpression(allowedValues),
+                "includes"
+              ),
+              undefined,
+              [accessorExpr]
+            )
+          ),
+          factory.createBlock([
+            createErrorPush(
+              factory,
+              pathExpr,
+              `expected one of: ${stringLiteralTypes.map((t) => `"${(t as ts.StringLiteralType).value}"`).join(", ")}`
+            ),
+          ])
+        )
+      );
+      return checks;
+    }
+
     if (nonNullableTypes.length === 1) {
       return generateValidationChecks(ctx, callExpr, nonNullableTypes[0], accessorExpr, pathExpr);
     }
@@ -125,7 +156,62 @@ function generateValidationChecks(
       )
     );
 
-    // We could recurse into array elements here, but for MVP we'll stick to shallow checks
+    // Deep array validation: iterate elements and validate each against element type T
+    const typeArgs = (type as ts.TypeReference).typeArguments;
+    const numberIndexType = typeArgs?.[0] ?? ctx.typeChecker.getNumberIndexType(type);
+    if (numberIndexType) {
+      // Generate a unique loop variable to avoid collisions in nested arrays
+      const loopVar = factory.createUniqueName("i");
+      const elemAccessor = factory.createElementAccessExpression(accessorExpr, loopVar);
+      const elemPath = factory.createBinaryExpression(
+        pathExpr,
+        ts.SyntaxKind.PlusToken,
+        factory.createBinaryExpression(
+          factory.createStringLiteral("["),
+          ts.SyntaxKind.PlusToken,
+          factory.createBinaryExpression(
+            loopVar,
+            ts.SyntaxKind.PlusToken,
+            factory.createStringLiteral("]")
+          )
+        )
+      );
+
+      const elemChecks = generateValidationChecks(
+        ctx,
+        callExpr,
+        numberIndexType,
+        elemAccessor,
+        elemPath
+      );
+
+      if (elemChecks.length > 0) {
+        // for (let i = 0; i < accessor.length; i++) { ...elemChecks }
+        checks.push(
+          factory.createForStatement(
+            factory.createVariableDeclarationList(
+              [
+                factory.createVariableDeclaration(
+                  loopVar,
+                  undefined,
+                  undefined,
+                  factory.createNumericLiteral(0)
+                ),
+              ],
+              ts.NodeFlags.Let
+            ),
+            factory.createBinaryExpression(
+              loopVar,
+              ts.SyntaxKind.LessThanToken,
+              factory.createPropertyAccessExpression(accessorExpr, "length")
+            ),
+            factory.createPostfixUnaryExpression(loopVar, ts.SyntaxKind.PlusPlusToken),
+            factory.createBlock(elemChecks, true)
+          )
+        );
+      }
+    }
+
     return checks;
   }
 
@@ -277,7 +363,7 @@ export const validateMacro = defineExpressionMacro({
             )
           ),
           ...checks,
-          // return errors.length === 0 ? Valid(value as T) : Invalid(errors);
+          // return errors.length === 0 ? { _tag: 'Valid', value: value as T } : { _tag: 'Invalid', errors }
           factory.createReturnStatement(
             factory.createConditionalExpression(
               factory.createBinaryExpression(
@@ -289,12 +375,17 @@ export const validateMacro = defineExpressionMacro({
                 factory.createNumericLiteral(0)
               ),
               factory.createToken(ts.SyntaxKind.QuestionToken),
-              factory.createCallExpression(factory.createIdentifier("Valid"), undefined, [
-                factory.createAsExpression(factory.createIdentifier("value"), clonedTypeNode),
+              factory.createObjectLiteralExpression([
+                factory.createPropertyAssignment("_tag", factory.createStringLiteral("Valid")),
+                factory.createPropertyAssignment(
+                  "value",
+                  factory.createAsExpression(factory.createIdentifier("value"), clonedTypeNode)
+                ),
               ]),
               factory.createToken(ts.SyntaxKind.ColonToken),
-              factory.createCallExpression(factory.createIdentifier("Invalid"), undefined, [
-                factory.createIdentifier("errors"),
+              factory.createObjectLiteralExpression([
+                factory.createPropertyAssignment("_tag", factory.createStringLiteral("Invalid")),
+                factory.createShorthandPropertyAssignment("errors"),
               ])
             )
           ),

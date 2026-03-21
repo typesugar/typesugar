@@ -104,6 +104,8 @@ marathon.to(feet); // Unit(138435..., "ft")
 
 `.to()` takes a unit constructor function (like `meters`, `feet`, `miles`) — not a string. The conversion is type-safe: you can only convert to units with the same dimensions.
 
+> **Note**: `.to()` conversions use multiplicative factors only. This works correctly for temperature _differences_ (e.g., "5 degrees warmer") but not for absolute temperature conversion (0°C ≠ 0K). Absolute temperature conversion requires offset-based calculation which is not currently supported.
+
 ```typescript
 import { hours, minutes, seconds } from "@typesugar/units";
 
@@ -211,7 +213,7 @@ function units(strings: TemplateStringsArray): Unit<Dimensions>;
 
 ## Typeclass Integration
 
-The Unit class methods are annotated with `Op<>` return types, enabling the typesugar transformer to rewrite operators:
+The Unit typeclass methods use `@op` JSDoc tags, enabling the typesugar transformer to rewrite operators:
 
 | Operator | Method   | Type Behavior                    |
 | -------- | -------- | -------------------------------- |

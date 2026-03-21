@@ -193,59 +193,248 @@ export const fmtMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     const factory = ctx.factory;
     const template = node.template;
 
-    // No interpolations - return as-is
+    // No interpolations - just process %% escapes in the static string
     if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      return factory.createStringLiteral(template.text);
+      const parts = parseFormatString(template.text);
+      const text = parts
+        .filter((p): p is { type: "literal"; value: string } => p.type === "literal")
+        .map((p) => p.value)
+        .join("");
+      return factory.createStringLiteral(text);
     }
 
     if (!ts.isTemplateExpression(template)) {
       return node;
     }
 
-    // Parse format specifiers from the template head and middles
-    // Format: ${value:format} where format is like %d, %s, %f, etc.
+    // Parse format specifiers from the literal portions of the template.
+    // A format specifier at the END of a literal part applies to the NEXT
+    // interpolated expression.  E.g.  fmt`Value: %d${x} done`
+    //   literal "Value: " has trailing %d -> applied to ${x}
 
     let result: ts.Expression = factory.createStringLiteral("");
 
+    /**
+     * Process a literal string, returning any trailing format specifier
+     * that should be applied to the next interpolation.
+     */
+    const emitLiteralParts = (
+      parts: Array<{ type: "literal"; value: string } | { type: "format"; value: string }>
+    ): string | null => {
+      let trailingFormat: string | null = null;
+
+      for (let j = 0; j < parts.length; j++) {
+        const part = parts[j];
+        if (part.type === "literal" && part.value) {
+          result = concatStrings(factory, result, factory.createStringLiteral(part.value));
+        } else if (part.type === "format") {
+          // If this is the last part, it's a trailing specifier for the next interpolation
+          if (j === parts.length - 1) {
+            trailingFormat = part.value;
+          } else {
+            // Format specifier not followed by interpolation - treat as literal text
+            result = concatStrings(factory, result, factory.createStringLiteral(part.value));
+          }
+        }
+      }
+
+      return trailingFormat;
+    };
+
     // Process head
     const headParts = parseFormatString(template.head.text);
-    for (const part of headParts) {
-      if (part.type === "literal") {
-        result = concatStrings(factory, result, factory.createStringLiteral(part.value));
-      }
-    }
+    let pendingFormat = emitLiteralParts(headParts);
 
     // Process spans
     for (let i = 0; i < template.templateSpans.length; i++) {
       const span = template.templateSpans[i];
 
-      // The format specifier comes from the previous literal's end or a special syntax
-      // For simplicity, we'll just convert the value to string
-      const formattedValue = factory.createCallExpression(
-        factory.createIdentifier("String"),
-        undefined,
-        [span.expression]
-      );
-
+      // Apply format specifier (from preceding literal) to this expression
+      const formattedValue = applyFormatSpecifier(factory, span.expression, pendingFormat);
       result = concatStrings(factory, result, formattedValue);
 
       // Process literal part after the expression
       const literalParts = parseFormatString(span.literal.text);
-      for (const part of literalParts) {
-        if (part.type === "literal") {
-          result = concatStrings(factory, result, factory.createStringLiteral(part.value));
-        }
-      }
+      pendingFormat = emitLiteralParts(literalParts);
+    }
+
+    // If there's an unused trailing format specifier, emit it as literal text
+    if (pendingFormat) {
+      result = concatStrings(factory, result, factory.createStringLiteral(pendingFormat));
     }
 
     return result;
   },
 });
 
-function parseFormatString(str: string): Array<{ type: "literal" | "format"; value: string }> {
-  // Simple parser - just return literals for now
-  // Could be enhanced to parse %d, %s, etc.
-  return [{ type: "literal", value: str }];
+/**
+ * Generate a TS AST expression that formats `expr` according to a printf-style
+ * format specifier.  When `specifier` is null the value is converted via String().
+ */
+export function applyFormatSpecifier(
+  factory: ts.NodeFactory,
+  expr: ts.Expression,
+  specifier: string | null
+): ts.Expression {
+  if (!specifier) {
+    // Default: String(expr)
+    return factory.createCallExpression(factory.createIdentifier("String"), undefined, [expr]);
+  }
+
+  // %.Nf  - toFixed(N)
+  const precisionMatch = specifier.match(/^%\.(\d+)f$/);
+  if (precisionMatch) {
+    const n = precisionMatch[1];
+    // String(Number(expr).toFixed(N))
+    return factory.createCallExpression(
+      factory.createPropertyAccessExpression(
+        factory.createCallExpression(factory.createIdentifier("Number"), undefined, [expr]),
+        "toFixed"
+      ),
+      undefined,
+      [factory.createNumericLiteral(n)]
+    );
+  }
+
+  switch (specifier) {
+    case "%d":
+    case "%i":
+      // String(Math.floor(Number(expr)))
+      return factory.createCallExpression(factory.createIdentifier("String"), undefined, [
+        factory.createCallExpression(
+          factory.createPropertyAccessExpression(factory.createIdentifier("Math"), "floor"),
+          undefined,
+          [factory.createCallExpression(factory.createIdentifier("Number"), undefined, [expr])]
+        ),
+      ]);
+
+    case "%f":
+      // String(Number(expr))
+      return factory.createCallExpression(factory.createIdentifier("String"), undefined, [
+        factory.createCallExpression(factory.createIdentifier("Number"), undefined, [expr]),
+      ]);
+
+    case "%s":
+      // String(expr)
+      return factory.createCallExpression(factory.createIdentifier("String"), undefined, [expr]);
+
+    case "%x":
+      // Number(expr).toString(16)
+      return factory.createCallExpression(
+        factory.createPropertyAccessExpression(
+          factory.createCallExpression(factory.createIdentifier("Number"), undefined, [expr]),
+          "toString"
+        ),
+        undefined,
+        [factory.createNumericLiteral("16")]
+      );
+
+    case "%o":
+      // Number(expr).toString(8)
+      return factory.createCallExpression(
+        factory.createPropertyAccessExpression(
+          factory.createCallExpression(factory.createIdentifier("Number"), undefined, [expr]),
+          "toString"
+        ),
+        undefined,
+        [factory.createNumericLiteral("8")]
+      );
+
+    case "%b":
+      // Number(expr).toString(2)
+      return factory.createCallExpression(
+        factory.createPropertyAccessExpression(
+          factory.createCallExpression(factory.createIdentifier("Number"), undefined, [expr]),
+          "toString"
+        ),
+        undefined,
+        [factory.createNumericLiteral("2")]
+      );
+
+    default:
+      // Unknown specifier - just use String()
+      return factory.createCallExpression(factory.createIdentifier("String"), undefined, [expr]);
+  }
+}
+
+/**
+ * Parse a format string into literal and format specifier parts.
+ *
+ * Recognized specifiers:
+ *   %d / %i  - integer (Math.floor)
+ *   %f       - float (Number)
+ *   %.Nf     - float with N decimal places (toFixed(N))
+ *   %s       - string (String)
+ *   %x       - hex (toString(16))
+ *   %o       - octal (toString(8))
+ *   %b       - binary (toString(2))
+ *   %%       - literal percent sign
+ */
+export function parseFormatString(
+  str: string
+): Array<{ type: "literal"; value: string } | { type: "format"; value: string }> {
+  const parts: Array<{ type: "literal"; value: string } | { type: "format"; value: string }> = [];
+  let current = "";
+  let i = 0;
+
+  while (i < str.length) {
+    if (str[i] === "%" && i + 1 < str.length) {
+      const next = str[i + 1];
+
+      if (next === "%") {
+        // Escaped percent - emit as literal %
+        current += "%";
+        i += 2;
+        continue;
+      }
+
+      if (
+        next === "d" ||
+        next === "i" ||
+        next === "f" ||
+        next === "s" ||
+        next === "x" ||
+        next === "o" ||
+        next === "b"
+      ) {
+        // Push any accumulated literal
+        if (current) {
+          parts.push({ type: "literal", value: current });
+          current = "";
+        }
+        parts.push({ type: "format", value: "%" + next });
+        i += 2;
+        continue;
+      }
+
+      // Check for %.Nf (precision specifier)
+      if (next === ".") {
+        const precisionMatch = str.slice(i).match(/^%\.(\d+)f/);
+        if (precisionMatch) {
+          if (current) {
+            parts.push({ type: "literal", value: current });
+            current = "";
+          }
+          parts.push({ type: "format", value: `%.${precisionMatch[1]}f` });
+          i += precisionMatch[0].length;
+          continue;
+        }
+      }
+
+      // Not a recognized specifier - treat as literal
+      current += str[i];
+      i++;
+    } else {
+      current += str[i];
+      i++;
+    }
+  }
+
+  if (current) {
+    parts.push({ type: "literal", value: current });
+  }
+
+  return parts;
 }
 
 function concatStrings(

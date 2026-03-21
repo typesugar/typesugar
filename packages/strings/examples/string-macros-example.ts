@@ -4,11 +4,10 @@
  * Demonstrates compile-time validated strings:
  * - regex — validated regular expressions
  * - html — XSS-safe HTML templates
- * - json — compile-time JSON parsing
  * - fmt — printf-style formatting
  */
 
-import { regex, html, json, fmt, raw } from "@typesugar/strings";
+import { regex, html, fmt, raw } from "@typesugar/strings";
 
 console.log("=== String Macros Example ===\n");
 
@@ -41,20 +40,6 @@ const safeHtml = html`
 
 console.log("Safe HTML (XSS escaped):");
 console.log(safeHtml);
-
-// --- json: Compile-Time Parsing ---
-
-console.log("\n--- json ---");
-
-const config = json`{
-  "name": "my-app",
-  "version": "1.0.0",
-  "features": ["auth", "logging", "cache"]
-}`;
-
-console.log("Parsed config:", config);
-console.log("Name:", config.name);
-console.log("Features:", config.features);
 
 // --- fmt: Printf-Style Formatting ---
 

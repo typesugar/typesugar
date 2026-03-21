@@ -174,6 +174,14 @@ type ValidationResult<T> = { success: true; value: T } | { success: false; error
 
 - `register()` — Register all reflection macros (called automatically on import)
 
+## Current Limitations
+
+### validator\<T\>()
+
+- `validator<T>()` currently validates **primitive fields only** (`string`, `number`, `boolean`).
+- Fields with array types, nested object types, union types, and intersection types are **silently skipped** during validation — no error is reported for those fields regardless of the input value.
+- For complex validation needs (nested objects, arrays, unions, branded types), use `@typesugar/validate` instead.
+
 ## License
 
 MIT

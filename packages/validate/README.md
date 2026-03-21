@@ -252,6 +252,12 @@ const user = schema.parse(data);
 | `parseAll(S)`                        | Parse array of values                           |
 | `safeParseAll(S)`                    | Parse array with error accumulation             |
 
+## Current Limitations
+
+- **Array validation is shallow**: `validate<T>()` checks `Array.isArray` for array-typed fields but does not validate individual element types.
+- **Literal type unions not yet validated**: Union types like `"a" | "b"` are not checked against their literal members at runtime.
+- **Nested objects checked structurally but not deeply**: Nested object fields are confirmed to be objects, but their inner properties are not recursively validated.
+
 ## License
 
 MIT
