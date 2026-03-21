@@ -27,6 +27,9 @@ importers:
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
+      '@typesugar/codec':
+        specifier: workspace:*
+        version: link:packages/codec
       '@typesugar/contracts':
         specifier: workspace:*
         version: link:packages/contracts
@@ -36,18 +39,33 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:packages/core
+      '@typesugar/effect':
+        specifier: workspace:*
+        version: link:packages/effect
+      '@typesugar/erased':
+        specifier: workspace:*
+        version: link:packages/erased
       '@typesugar/fp':
         specifier: workspace:*
         version: link:packages/fp
+      '@typesugar/fusion':
+        specifier: workspace:*
+        version: link:packages/fusion
       '@typesugar/graph':
         specifier: workspace:*
         version: link:packages/graph
+      '@typesugar/hlist':
+        specifier: workspace:*
+        version: link:packages/hlist
       '@typesugar/macros':
         specifier: workspace:*
         version: link:packages/macros
       '@typesugar/mapper':
         specifier: workspace:*
         version: link:packages/mapper
+      '@typesugar/parser':
+        specifier: workspace:*
+        version: link:packages/parser
       '@typesugar/playground':
         specifier: workspace:^
         version: link:packages/playground
@@ -57,12 +75,18 @@ importers:
       '@typesugar/prettier-plugin':
         specifier: workspace:*
         version: link:packages/prettier-plugin
+      '@typesugar/sql':
+        specifier: workspace:*
+        version: link:packages/sql
       '@typesugar/std':
         specifier: workspace:*
         version: link:packages/std
       '@typesugar/strings':
         specifier: workspace:*
         version: link:packages/strings
+      '@typesugar/symbolic':
+        specifier: workspace:*
+        version: link:packages/symbolic
       '@typesugar/testing':
         specifier: workspace:*
         version: link:packages/testing
@@ -78,6 +102,9 @@ importers:
       '@typesugar/type-system':
         specifier: workspace:*
         version: link:packages/type-system
+      '@typesugar/units':
+        specifier: workspace:*
+        version: link:packages/units
       '@vercel/node':
         specifier: ^5.6.15
         version: 5.6.15(rollup@4.59.0)
@@ -297,6 +324,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       '@typesugar/type-system':
         specifier: workspace:*
         version: link:../type-system
@@ -313,6 +343,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
     devDependencies:
       tsup:
         specifier: ^8.0.0
@@ -584,6 +617,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       '@typesugar/type-system':
         specifier: workspace:*
         version: link:../type-system
@@ -613,6 +649,9 @@ importers:
 
   packages/symbolic:
     dependencies:
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std
