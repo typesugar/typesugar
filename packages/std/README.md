@@ -77,7 +77,7 @@ import { to, until, step, toArray, contains, first } from "@typesugar/std";
 (1).to(10).filter((n) => n % 2 === 0); // [2, 4, 6, 8, 10]
 ```
 
-**Legacy function-based API:**
+**Legacy function-based API (deprecated — use `.to()` / `.until()` above):**
 
 ```typescript
 import { range, rangeToArray, rangeInclusive } from "@typesugar/std";
@@ -364,7 +364,7 @@ const r4 = (1).to(5).reversed(); // Range { 5, 4, 3, 2, 1 }
 (1).to(5).reduce(0, (sum, n) => sum + n); // 15
 ```
 
-**Legacy function-based API:**
+**Legacy function-based API (deprecated — use `.to()` / `.until()` above):**
 
 ```typescript
 import { range, rangeToArray, rangeInclusive, rangeBy } from "@typesugar/std";

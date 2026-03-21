@@ -17,14 +17,17 @@ export interface Range {
   readonly inclusive: boolean;
 }
 
+/** @deprecated Use `(start).until(end)` extension method instead. */
 export function range(start: number, end: number, step: number = 1): Range {
   return { start, end, step, inclusive: false };
 }
 
+/** @deprecated Use `(start).to(end)` extension method instead. */
 export function rangeInclusive(start: number, end: number, step: number = 1): Range {
   return { start, end, step, inclusive: true };
 }
 
+/** @deprecated Use `(start).until(end).step(n)` extension method instead. */
 export function rangeBy(r: Range, step: number): Range {
   return { ...r, step };
 }
@@ -51,6 +54,7 @@ export function* rangeIterator(r: Range): IterableIterator<number> {
   }
 }
 
+/** @deprecated Use `[...(start).until(end)]` or `.toArray()` extension method instead. */
 export function rangeToArray(r: Range): number[] {
   return [...rangeIterator(r)];
 }
