@@ -1,7 +1,7 @@
 //! Either — Typed Errors
 //! Left(e) and Right(a) wrap values in objects for type-safe error handling.
 
-import { Left, Right, isRight } from "@typesugar/fp";
+import { Left, Right } from "@typesugar/fp";
 import type { Either } from "@typesugar/fp";
 
 // Either<E, A> — typed error handling
@@ -11,20 +11,14 @@ function parseAge(input: string): Either<string, number> {
   return isNaN(n) ? Left("not a number") : n < 0 ? Left("negative") : Right(n);
 }
 
-// Use fold to handle both cases
-import { fold, map, getOrElse } from "@typesugar/fp";
-
-const parsed = parseAge("25");
-const validAge = getOrElse(map(parsed, a => a + 1), () => 0);
-console.log("valid:", validAge); // 26
-
-const bad = parseAge("abc");
-const invalidAge = getOrElse(map(bad, a => a + 1), () => 0);
+// .map() and .getOrElse() come from typeclass instances (Functor, etc.)
+const validAge = parseAge("25").map(a => a + 1).getOrElse(() => 0);
+const invalidAge = parseAge("abc").map(a => a + 1).getOrElse(() => 0);
+console.log("valid:", validAge);    // 26
 console.log("invalid:", invalidAge); // 0
 
-// fold — handle both branches explicitly
-const message = fold(
-  parseAge("30"),
+// .fold() — handle both branches explicitly
+const message = parseAge("30").fold(
   err => `Error: ${err}`,
   age => `Age next year: ${age + 1}`
 );
@@ -38,5 +32,5 @@ function getEnv(key: string): Either<string, string> {
   return fromNullable(env[key], () => `missing env var: ${key}`);
 }
 
-console.log(getOrElse(getEnv("HOME"), () => "?")); // "/Users/alice"
-console.log(getOrElse(getEnv("FOO"), () => "?"));  // "?"
+console.log(getEnv("HOME").getOrElse(() => "?")); // "/Users/alice"
+console.log(getEnv("FOO").getOrElse(() => "?"));  // "?"
