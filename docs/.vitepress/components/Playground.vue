@@ -1902,8 +1902,7 @@ function scheduleSave() {
   saveTimer = setTimeout(saveToStorage, 1000);
 }
 
-function handleDocumentClick(_event: MouseEvent) {
-}
+function handleDocumentClick(_event: MouseEvent) {}
 
 function setFileType(type: ".ts" | ".sts") {
   fileType.value = type;
@@ -1979,7 +1978,7 @@ onUnmounted(() => {
             :aria-expanded="!sidebarCollapsed"
             aria-label="Toggle examples sidebar"
           >
-            <span aria-hidden="true">{{ sidebarCollapsed ? '☰' : '✕' }}</span>
+            <span aria-hidden="true">{{ sidebarCollapsed ? "☰" : "✕" }}</span>
           </button>
 
           <div class="file-type-toggle" role="radiogroup" aria-label="File type">
@@ -2063,7 +2062,11 @@ onUnmounted(() => {
                 @click="toggleGroup(group.label)"
                 :aria-expanded="!collapsedGroups.has(group.label)"
               >
-                <span class="collapse-arrow" :class="{ collapsed: collapsedGroups.has(group.label) }">&#9206;</span>
+                <span
+                  class="collapse-arrow"
+                  :class="{ collapsed: collapsedGroups.has(group.label) }"
+                  >&#9206;</span
+                >
                 {{ group.label }}
               </button>
               <div v-show="!collapsedGroups.has(group.label)" class="sidebar-group-items">
@@ -2084,133 +2087,139 @@ onUnmounted(() => {
 
         <!-- Editors column (editors + console) -->
         <div class="editors-column">
-        <div class="editors-container">
-          <div class="editor-panel input-panel">
-            <div class="panel-header">
-              <span class="panel-title" id="input-editor-label">Input</span>
-              <span class="panel-filename">{{ fileName }}</span>
+          <div class="editors-container">
+            <div class="editor-panel input-panel">
+              <div class="panel-header">
+                <span class="panel-title" id="input-editor-label">Input</span>
+                <span class="panel-filename">{{ fileName }}</span>
+              </div>
+              <div
+                id="input-editor"
+                ref="inputContainer"
+                class="editor-container"
+                role="textbox"
+                aria-multiline="true"
+                aria-labelledby="input-editor-label"
+                @keydown.stop
+                @keypress.stop
+                tabindex="0"
+              />
             </div>
-            <div
-              id="input-editor"
-              ref="inputContainer"
-              class="editor-container"
-              role="textbox"
-              aria-multiline="true"
-              aria-labelledby="input-editor-label"
-              @keydown.stop
-              @keypress.stop
-              tabindex="0"
-            />
+
+            <div class="editor-panel output-panel">
+              <div class="panel-header">
+                <div class="output-tabs" role="tablist" aria-label="Output view tabs">
+                  <button
+                    :class="{ active: activeTab === 'js' }"
+                    @click="activeTab = 'js'"
+                    role="tab"
+                    :aria-selected="activeTab === 'js'"
+                    aria-controls="output-js-panel"
+                    id="output-js-tab"
+                  >
+                    JS Output
+                  </button>
+                  <button
+                    :class="{ active: activeTab === 'errors' }"
+                    @click="activeTab = 'errors'"
+                    role="tab"
+                    :aria-selected="activeTab === 'errors'"
+                    aria-controls="output-errors-panel"
+                    id="output-errors-tab"
+                  >
+                    Errors
+                    <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{
+                      errorCount
+                    }}</span>
+                  </button>
+                </div>
+                <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
+              </div>
+
+              <div
+                v-show="activeTab === 'js'"
+                ref="outputContainer"
+                class="editor-container"
+                id="output-js-panel"
+                role="tabpanel"
+                aria-labelledby="output-js-tab"
+                @keydown.stop
+                @keypress.stop
+              />
+
+              <div
+                v-show="activeTab === 'errors'"
+                class="errors-container"
+                id="output-errors-panel"
+                role="tabpanel"
+                aria-labelledby="output-errors-tab"
+              >
+                <div v-if="errorCount === 0" class="no-errors" role="status">No errors</div>
+                <div v-else class="error-list" role="list" aria-label="Transformation errors">
+                  <button
+                    v-for="(diag, i) in lastResult?.diagnostics"
+                    :key="i"
+                    class="error-item"
+                    :class="diag.severity"
+                    role="listitem"
+                    @click="goToErrorLine(diag.line)"
+                    :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
+                  >
+                    <div class="error-location">
+                      <span class="error-severity">{{ diag.severity }}</span>
+                      <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
+                    </div>
+                    <div class="error-message">{{ diag.message }}</div>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="editor-panel output-panel">
-            <div class="panel-header">
-              <div class="output-tabs" role="tablist" aria-label="Output view tabs">
-                <button
-                  :class="{ active: activeTab === 'js' }"
-                  @click="activeTab = 'js'"
-                  role="tab"
-                  :aria-selected="activeTab === 'js'"
-                  aria-controls="output-js-panel"
-                  id="output-js-tab"
-                >
-                  JS Output
-                </button>
-                <button
-                  :class="{ active: activeTab === 'errors' }"
-                  @click="activeTab = 'errors'"
-                  role="tab"
-                  :aria-selected="activeTab === 'errors'"
-                  aria-controls="output-errors-panel"
-                  id="output-errors-tab"
-                >
-                  Errors
-                  <span v-if="errorCount > 0" class="error-badge" aria-label="error count">{{
-                    errorCount
-                  }}</span>
+          <!-- Console -->
+          <section v-show="showConsole" class="console-panel" aria-label="Console output">
+            <div class="console-header">
+              <span class="console-title" id="console-title">Console</span>
+              <div class="console-actions">
+                <button @click="clearConsole" aria-label="Clear console output">Clear</button>
+                <button @click="showConsole = false" aria-label="Hide console panel">
+                  <span aria-hidden="true">×</span>
                 </button>
               </div>
-              <span class="panel-filename">{{ fileName.replace(/\.sts$/, ".js") }}</span>
             </div>
-
             <div
-              v-show="activeTab === 'js'"
-              ref="outputContainer"
-              class="editor-container"
-              id="output-js-panel"
-              role="tabpanel"
-              aria-labelledby="output-js-tab"
-              @keydown.stop
-              @keypress.stop
-            />
-
-            <div
-              v-show="activeTab === 'errors'"
-              class="errors-container"
-              id="output-errors-panel"
-              role="tabpanel"
-              aria-labelledby="output-errors-tab"
+              class="console-output"
+              role="log"
+              aria-live="polite"
+              aria-labelledby="console-title"
             >
-              <div v-if="errorCount === 0" class="no-errors" role="status">No errors</div>
-              <div v-else class="error-list" role="list" aria-label="Transformation errors">
-                <button
-                  v-for="(diag, i) in lastResult?.diagnostics"
-                  :key="i"
-                  class="error-item"
-                  :class="diag.severity"
-                  role="listitem"
-                  @click="goToErrorLine(diag.line)"
-                  :aria-label="`${diag.severity} on line ${diag.line}: ${diag.message}`"
-                >
-                  <div class="error-location">
-                    <span class="error-severity">{{ diag.severity }}</span>
-                    <span v-if="diag.line" class="error-line">Line {{ diag.line }}</span>
-                  </div>
-                  <div class="error-message">{{ diag.message }}</div>
-                </button>
+              <div v-if="consoleMessages.length === 0" class="console-placeholder">
+                Press Run (Cmd+Enter) to execute the code
+              </div>
+              <div
+                v-for="(msg, i) in consoleMessages"
+                :key="i"
+                class="console-message"
+                :class="msg.type"
+                :role="msg.type === 'error' ? 'alert' : undefined"
+              >
+                <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
+                <span class="console-text">{{ msg.args.join(" ") }}</span>
               </div>
             </div>
-          </div>
+          </section>
+
+          <!-- Toggle console button when hidden -->
+          <button
+            v-if="!showConsole"
+            class="show-console-btn"
+            @click="showConsole = true"
+            aria-label="Show console panel"
+          >
+            Show Console
+          </button>
         </div>
-
-        <!-- Console -->
-        <section v-show="showConsole" class="console-panel" aria-label="Console output">
-          <div class="console-header">
-            <span class="console-title" id="console-title">Console</span>
-            <div class="console-actions">
-              <button @click="clearConsole" aria-label="Clear console output">Clear</button>
-              <button @click="showConsole = false" aria-label="Hide console panel">
-                <span aria-hidden="true">×</span>
-              </button>
-            </div>
-          </div>
-          <div class="console-output" role="log" aria-live="polite" aria-labelledby="console-title">
-            <div v-if="consoleMessages.length === 0" class="console-placeholder">
-              Press Run (Cmd+Enter) to execute the code
-            </div>
-            <div
-              v-for="(msg, i) in consoleMessages"
-              :key="i"
-              class="console-message"
-              :class="msg.type"
-              :role="msg.type === 'error' ? 'alert' : undefined"
-            >
-              <span class="console-type" aria-hidden="true">[{{ msg.type }}]</span>
-              <span class="console-text">{{ msg.args.join(" ") }}</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Toggle console button when hidden -->
-        <button
-          v-if="!showConsole"
-          class="show-console-btn"
-          @click="showConsole = true"
-          aria-label="Show console panel"
-        >
-          Show Console
-        </button>
-        </div><!-- /.editors-column -->
+        <!-- /.editors-column -->
       </main>
 
       <!-- Hidden sandbox iframe -->
