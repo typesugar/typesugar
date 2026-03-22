@@ -158,7 +158,9 @@ function generateValidationChecks(
 
     // Deep array validation: iterate elements and validate each against element type T
     const typeArgs = (type as ts.TypeReference).typeArguments;
-    const numberIndexType = typeArgs?.[0] ?? ctx.typeChecker.getNumberIndexType(type);
+    const indexInfos = ctx.typeChecker.getIndexInfosOfType(type);
+    const numberIndex = indexInfos.find((info) => info.keyType.flags & ts.TypeFlags.Number);
+    const numberIndexType = typeArgs?.[0] ?? numberIndex?.type;
     if (numberIndexType) {
       // Generate a unique loop variable to avoid collisions in nested arrays
       const loopVar = factory.createUniqueName("i");

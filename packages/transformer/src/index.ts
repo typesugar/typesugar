@@ -846,9 +846,7 @@ function ensureImportedRegistrations(
 /**
  * Extract InstanceInfo from an object literal expression.
  */
-function extractInstanceInfoFromLiteral(
-  obj: ts.ObjectLiteralExpression
-): {
+function extractInstanceInfoFromLiteral(obj: ts.ObjectLiteralExpression): {
   typeclassName: string;
   forType: string;
   instanceName: string;
