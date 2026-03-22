@@ -1,15 +1,15 @@
 # typesugar
 
-**TypeScript that F\*cks! Compile-time macros. Zero runtime. Full type safety.**
+**Syntactic sugar for TypeScript with zero calories.**
 
-> _What if `===` just knew how to compare your types? What if `.show()` worked on any struct? What if it all compiled to exactly what you'd write by hand?_
+Operators and methods that just work, compiled to exactly what you'd write by hand.
 
 typesugar brings compile-time metaprogramming to TypeScript, drawing from the best ideas in Rust, Scala 3, and Zig — and making them feel native to the TypeScript ecosystem.
 
-**[Try it in the Playground →](https://typesugar.org/playground)** — No installation required.
+**[Get Started](https://typesugar.org/getting-started/)** | **[Try it in the Playground](https://typesugar.org/playground)**
 
 ```typescript
-// Define your types — no decorators needed
+// Define your types
 interface User {
   id: number;
   name: string;
@@ -19,30 +19,29 @@ interface User {
 const alice: User = { id: 1, name: "Alice", email: "alice@example.com" };
 const bob: User = { id: 2, name: "Bob", email: "bob@example.com" };
 
-// Operators just work — auto-derived, auto-specialized to zero-cost
-alice === bob; // false (compiles to: alice.id === bob.id && ...)
-alice < bob; // true  (lexicographic field comparison)
+// Operators just work — auto-derived, auto-specialized
+alice === bob; // Compiles to: alice.id === bob.id && alice.name === bob.name && ...
+alice < bob; // Lexicographic comparison
 
 // Methods just work too
 alice.show(); // "User(id = 1, name = Alice, email = alice@example.com)"
-alice.clone(); // deep copy
+alice.clone(); // Deep copy
 alice.toJson(); // JSON serialization
-
-// All compile to direct code — no runtime dictionary, no overhead
 ```
 
-## Why typesugar?
+**How it works:** The compiler sees `===` on a `User`, resolves the `Eq` typeclass, auto-derives an instance from the type's fields, and inlines the comparison directly — no dictionary lookup, no runtime cost.
 
-| Feature                  | typesugar                              | ts-macros               | Babel macros |
-| ------------------------ | -------------------------------------- | ----------------------- | ------------ |
-| **Implicit typeclasses** | `===`, `.show()` just work             | No                      | No           |
-| **Zero-cost**            | Auto-specialized to direct code        | No                      | No           |
-| **Type-aware**           | Yes — reads the type checker           | No                      | No           |
-| **Compile-time eval**    | Full JS via `vm` sandbox               | `$comptime` (similar)   | No           |
-| **Tagged templates**     | First-class macro category             | Via expression macros   | No           |
-| **Reflection**           | `typeInfo<T>()`, `validator<T>()`      | No                      | No           |
-| **Operator overloading** | `+`, `*`, etc. via typeclass instances | No                      | No           |
-| **Safety**               | Sandboxed, timeout, loud failures      | `$raw` runs unsandboxed | N/A          |
+## Inspired by the Best
+
+typesugar draws from the best ideas across language ecosystems:
+
+| Language     | What it brings                                             | Packages                                                 |
+| ------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
+| Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                    |
+| Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, specialize, codec, erased, validate              |
+| Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                          |
+| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, hlist, graph, parser, units                      |
+| Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math |
 
 ## Packages
 
@@ -193,7 +192,9 @@ See the [migration guide](docs/migration/sts-migration.md) for details on conver
 
 ## Features
 
-### Compile-Time Evaluation
+### Compile-Time Powers
+
+_Run code at build time, not at runtime_
 
 ```typescript
 import { comptime } from "typesugar";
@@ -205,6 +206,8 @@ const fib10 = comptime(() => {
 ```
 
 ### Zero-Cost Typeclasses
+
+_Typeclasses, monads, and proofs — for the nerds_
 
 Typeclasses are auto-derived from type structure and auto-specialized to eliminate overhead:
 
@@ -233,7 +236,9 @@ const fields = fieldNames<User>(); // ["id", "name", "email"]
 const validate = validator<User>(); // Runtime validator from types
 ```
 
-### Extension Methods
+### Standard Library
+
+_TypeScript's missing standard library_
 
 Any function whose first parameter matches the receiver type can be called as a method — Scala 3-style UFCS (Uniform Function Call Syntax):
 
@@ -268,7 +273,9 @@ export function distance(p: Point, other: Point): number {
 // Users can now write: p1.distance(p2)
 ```
 
-### Tagged Templates
+### Syntax Sugar
+
+_Custom language features that compile away_
 
 ```typescript
 import { sql } from "@typesugar/sql";
@@ -308,7 +315,7 @@ const bytes = myPoint.serialize();  // Uses custom instance, zero-cost
 
 ### Operator Overloading
 
-Standard operators resolve to typeclass methods automatically:
+Operators resolve to typeclass methods automatically:
 
 ```typescript
 interface Vec2 { x: number; y: number }
@@ -326,7 +333,11 @@ const c = a + b;  // Compiles to: { x: a.x + b.x, y: a.y + b.y }
 
 ```
 
-### Effect-TS Integration
+### Framework Adapters
+
+_Supercharge your existing tools_
+
+#### Effect-TS
 
 ```typescript
 import { service, layer, resolveLayer, EffectSchema } from "@typesugar/effect";
@@ -378,9 +389,11 @@ See the [docs/](docs/) directory:
 
 ## Developer Experience
 
-### Rust-Style Error Messages
+_When something goes wrong, you should know exactly what happened and how to fix it._
 
-When something goes wrong, typesugar tells you exactly what happened, where, and how to fix it:
+### Rust-Style Errors
+
+Every error shows the code, points at the problem, and suggests a fix:
 
 ```
 error[TS9001]: No instance found for `Eq<Color>`
@@ -403,13 +416,11 @@ error[TS9001]: No instance found for `Eq<Color>`
 For more information, see: https://typesugar.dev/errors/TS9001
 ```
 
-Every error has a code (TS9001-TS9999), an explanation (`npx typesugar --explain TS9001`), and machine-applicable fixes that your IDE can apply automatically.
+Look up any error: `npx typesugar --explain TS9001`
 
-For typeclass resolution failures, you get a complete **resolution trace** showing each step attempted and why it failed — including per-field instance checks for auto-derivation. See the [error messages guide](docs/guides/error-messages.md) for details.
+### Import Suggestions
 
-### "Did You Mean to Import...?"
-
-Forgot an import? typesugar knows what's available and suggests it:
+Missing an import? typesugar tells you where to find it:
 
 ```
 error[TS9061]: Macro `comptime` is not defined
@@ -422,35 +433,19 @@ error[TS9061]: Macro `comptime` is not defined
      + import { comptime } from "typesugar";
 ```
 
-This works for macros, typeclasses, extension methods — anything in the typesugar ecosystem.
-
-### Opt-Out Escape Hatches
-
-Debugging something? Need to bypass typesugar for one file, one function, or one line?
+### Opt-Out When You Need To
 
 ```typescript
-// Whole file — nothing gets transformed
-"use no typesugar";
-
-// Just this function
-function debugMe() {
-  "use no typesugar";
-  const x = comptime(() => 1 + 1); // Left as-is
-}
-
-// Just this line
-const slow = specialize(add); // @ts-no-typesugar
-
-// Just extensions, keep macros working
-("use no typesugar extensions");
+"use no typesugar";             // whole file
+function debug() { "use no typesugar"; }  // one function
+specialize(add); // @ts-no-typesugar      // one line
+("use no typesugar extensions");          // just extensions
 ```
-
-Inspired by React Compiler's `"use no memo"`. See the [opt-out guide](docs/guides/opt-out.md) for all options.
 
 ### Tooling That Just Works
 
-- **ESLint** — the `@typesugar/eslint-plugin` processor knows that typesugar imports are used by the transformer, so `no-unused-imports` won't flag them
-- **Language service** — the TypeScript plugin suppresses false `TS6133` warnings specifically for typesugar imports (not everything — just typesugar)
+- **ESLint** — `@typesugar/eslint-plugin` understands that typesugar imports are consumed by the transformer
+- **Language service** — the TypeScript plugin suppresses false `TS6133` warnings for typesugar imports
 - **Organize imports** — works correctly because the tools understand which imports the transformer consumes
 
 No configuration needed. Install the plugin and everything cooperates.
