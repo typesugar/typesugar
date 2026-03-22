@@ -58,6 +58,7 @@ const EXAMPLE_ORDER: Record<string, Record<string, number>> = {
   },
   fp: {
     "Option — Zero-Cost": 0,
+    "Either — Typed Errors": 5,
     "Error Accumulation": 10,
     "Persistent Linked List": 20,
   },
