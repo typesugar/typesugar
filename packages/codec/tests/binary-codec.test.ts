@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createBinaryCodec, type FieldLayout } from "../binary-codec.js";
-import { defineSchema } from "../schema.js";
+import { createBinaryCodec, type FieldLayout } from "../src/binary-codec.js";
+import { defineSchema } from "../src/schema.js";
 
 describe("fixed layout encode/decode", () => {
   const layout: FieldLayout[] = [

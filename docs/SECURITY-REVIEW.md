@@ -1,3 +1,8 @@
+> **STALE NOTICE:** This security review was conducted on 2026-02-21 and may be outdated.
+> The codebase has evolved since then — file paths, API surfaces, and mitigations
+> referenced below may no longer be accurate. Treat this as a historical snapshot,
+> not a current assessment.
+
 # Security Review: typesugar Macro System
 
 **Date:** 2026-02-21

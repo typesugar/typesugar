@@ -9,9 +9,9 @@
  */
 import { describe, expect, it } from "vitest";
 import * as ts from "typescript";
-import { collectFieldMeta, codecMacro } from "../macros.js";
-import { defineSchema, generateMigrations, fieldsAtVersion } from "../schema.js";
-import { createJsonCodec } from "../json-codec.js";
+import { collectFieldMeta, codecMacro } from "../src/macros.js";
+import { defineSchema, generateMigrations, fieldsAtVersion } from "../src/schema.js";
+import { createJsonCodec } from "../src/json-codec.js";
 import { createMacroTestContext } from "@typesugar/testing/macros";
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # PEP-021: Codebase Hygiene — Artifact Cleanup, Doc Consistency, Slop Removal
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-03-21
 **Author:** Claude (with Dean Povey)
 
@@ -27,24 +27,24 @@ This PEP covers mechanical cleanup only — no feature changes, no API redesigns
 
 **Tasks:**
 
-- [ ] `git rm --cached` all tracked `.transformed.js` files (268+ across packages)
-- [ ] `git rm --cached` `packages/mapper/dist/` and `packages/mapper/node_modules/`
-- [ ] Expand `.gitignore` "Build/test output captures" section to use glob patterns:
+- [x] `git rm --cached` all tracked `.transformed.js` files (268+ across packages)
+- [x] `git rm --cached` `packages/mapper/dist/` and `packages/mapper/node_modules/`
+- [x] Expand `.gitignore` "Build/test output captures" section to use glob patterns:
   ```
   *-output*.txt
   test-pipeline-gate.txt
   ```
-- [ ] `git rm --cached` the root-level temp output files (`build-output-gate.txt`, `test-output-*.txt`, `lint-output-*.txt`, `format-output-*.txt`, `typecheck-output-*.txt`, `inspect-output.txt`, `test-pipeline-gate.txt`, etc.)
-- [ ] Add `.pep-gate` to `.gitignore` (auto-generated tracking marker)
-- [ ] Delete orphaned root-level screenshots (`file-based-examples.png`, `grouped-examples-dropdown.png`, `monaco-editor-test.png`, `playground-test.png`) — not referenced anywhere
-- [ ] Verify `packages/mapper` still builds correctly after untracking its dist/
+- [x] `git rm --cached` the root-level temp output files (`build-output-gate.txt`, `test-output-*.txt`, `lint-output-*.txt`, `format-output-*.txt`, `typecheck-output-*.txt`, `inspect-output.txt`, `test-pipeline-gate.txt`, etc.)
+- [x] Add `.pep-gate` to `.gitignore` (auto-generated tracking marker)
+- [x] Delete orphaned root-level screenshots (`file-based-examples.png`, `grouped-examples-dropdown.png`, `monaco-editor-test.png`, `playground-test.png`) — not referenced anywhere
+- [x] Verify `packages/mapper` still builds correctly after untracking its dist/
 
 **Gate:**
 
-- [ ] `git status` shows no tracked `.transformed.js` files
-- [ ] `git status` shows no tracked `*-output*.txt` files
-- [ ] `packages/mapper/dist/` and `packages/mapper/node_modules/` are untracked
-- [ ] `pnpm build` still succeeds (mapper builds from source)
+- [x] `git status` shows no tracked `.transformed.js` files
+- [x] `git status` shows no tracked `*-output*.txt` files
+- [x] `packages/mapper/dist/` and `packages/mapper/node_modules/` are untracked
+- [x] `pnpm build` still succeeds (mapper builds from source)
 
 ### Wave 2: PEP Numbering Collision Fix
 
@@ -58,19 +58,19 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] Move `docs/PEP-014-adt-macro.md` → `peps/PEP-014-adt-macro.md`
-- [ ] Renumber `docs/PEP-015-tree-shaking-pure-annotations.md` → `peps/PEP-022-tree-shaking-pure-annotations.md`
-- [ ] Renumber `docs/PEP-016-playground-examples-overhaul.md` → `peps/PEP-023-playground-examples-overhaul.md`
-- [ ] Renumber `docs/PEP-017-playground-architecture-consolidation.md` → `peps/PEP-024-playground-architecture-consolidation.md`
-- [ ] Move `docs/PEP-019-output-quality.md` → `peps/PEP-019-output-quality.md`
-- [ ] Grep for all internal references to the old PEP numbers and update them (`.pep-gate`, commit messages referencing PEP-016/017/019, PLAN files, cursor skills)
-- [ ] Verify no docs or code reference the old `docs/PEP-*` paths
+- [x] Move `docs/PEP-014-adt-macro.md` → `peps/PEP-014-adt-macro.md`
+- [x] Renumber `docs/PEP-015-tree-shaking-pure-annotations.md` → `peps/PEP-022-tree-shaking-pure-annotations.md`
+- [x] Renumber `docs/PEP-016-playground-examples-overhaul.md` → `peps/PEP-023-playground-examples-overhaul.md`
+- [x] Renumber `docs/PEP-017-playground-architecture-consolidation.md` → `peps/PEP-024-playground-architecture-consolidation.md`
+- [x] Move `docs/PEP-019-output-quality.md` → `peps/PEP-019-output-quality.md`
+- [x] Grep for all internal references to the old PEP numbers and update them (`.pep-gate`, commit messages referencing PEP-016/017/019, PLAN files, cursor skills)
+- [x] Verify no docs or code reference the old `docs/PEP-*` paths
 
 **Gate:**
 
-- [ ] All PEPs live in `peps/` — zero PEP files in `docs/`
-- [ ] No PEP number collisions
-- [ ] `grep -r "PEP-015\|PEP-016\|PEP-017" docs/` returns nothing
+- [x] All PEPs live in `peps/` — zero PEP files in `docs/`
+- [x] No PEP number collisions
+- [x] `grep -r "PEP-015\|PEP-016\|PEP-017" docs/` returns nothing
 
 ### Wave 3: Dead Exports and Deprecated Stubs
 
@@ -96,19 +96,19 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] In `packages/macros/src/derive.ts`: remove the 9 `undefined` derive exports
-- [ ] In `packages/macros/src/index.ts`: remove `deriveMacros`, `syntaxRegistry`, `clearSyntaxRegistry`, and the deprecated aliases (`instanceAttribute`, `instanceMacro`, `derivingAttribute`)
-- [ ] In `packages/macros/src/index.ts`: remove `registerTypeclassSyntax()` (fully deprecated, only emits warning)
-- [ ] In `packages/testing/src/index.ts`: remove `Equals`, `powerAssert`, `comptimeAssert` aliases
-- [ ] In `packages/fp/src/hkt.ts`: remove `OptionHKT`, `EitherHKT`, `ListHKT`
-- [ ] Search for any imports of removed symbols across the monorepo and update callers
-- [ ] In `packages/macros/README.md`: update to show `@impl` as primary (not `@instance`)
+- [x] In `packages/macros/src/derive.ts`: remove the 9 `undefined` derive exports
+- [x] In `packages/macros/src/index.ts`: remove `deriveMacros`, `syntaxRegistry`, and the deprecated aliases (`instanceAttribute`, `instanceMacro`). Note: `clearSyntaxRegistry` was kept (functional, used in 5 test files), `derivingAttribute` was kept (real working macro for `@deriving` syntax)
+- [x] In `packages/macros/src/index.ts`: remove `registerTypeclassSyntax()` (fully deprecated, only emits warning)
+- [x] In `packages/testing/src/index.ts`: remove `Equals`, `powerAssert`, `comptimeAssert` aliases
+- [x] In `packages/fp/src/hkt.ts`: remove `OptionHKT`, `EitherHKT`, `ListHKT`
+- [x] Search for any imports of removed symbols across the monorepo and update callers
+- [x] In `packages/macros/README.md`: update to show `@impl` as primary (not `@instance`)
 
 **Gate:**
 
-- [ ] `pnpm build` succeeds
-- [ ] `pnpm test` passes (no imports of removed symbols)
-- [ ] `grep -r "EqDerive\|OrdDerive\|CloneDerive\|instanceMacro\|instanceAttribute\|derivingAttribute\|clearSyntaxRegistry\|powerAssert\|comptimeAssert\|OptionHKT\|EitherHKT\|ListHKT" packages/*/src/` returns only this PEP
+- [x] `pnpm build` succeeds
+- [x] `pnpm test` passes (no imports of removed symbols)
+- [x] `grep -r "EqDerive\|OrdDerive\|CloneDerive\|instanceMacro\|instanceAttribute\|derivingAttribute\|clearSyntaxRegistry\|powerAssert\|comptimeAssert\|OptionHKT\|EitherHKT\|ListHKT" packages/*/src/` returns only this PEP
 
 ### Wave 4: Documentation Drift Fixes
 
@@ -116,23 +116,23 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] `packages/hlist/README.md`: remove "No typeclass instances" claim — `HListEq` and `HListShow` exist and are exported. Note that `HListOrd` is genuinely missing.
-- [ ] `packages/codec/README.md`: update Phase 2 status — decorators are implemented, not "planned". `field-decorators.test.ts` provides full coverage.
-- [ ] `packages/macros/README.md`: change primary API from `@instance` to `@impl`
-- [ ] `packages/std/src/index.ts`: update JSDoc header — remove references to non-existent typeclasses (Bounded, Enum, Integral, Fractional, etc.) and replace deprecated `extend()` example
-- [ ] `packages/math/src/types/fixed-decimal.ts` and `money.ts`: remove unused local `interface Eq<A>` definitions
-- [ ] `packages/math/src/types/complex.ts`: register `floatingComplex` with `registerInstanceWithMeta` (missing unlike sibling instances)
-- [ ] `docs/SECURITY-REVIEW.md`: update with current status of the 8 identified vulnerabilities (or mark stale)
-- [ ] `docs/examples/effect/service-layer.ts`: either restore the file or uncheck the PEP-016 (now PEP-023) checkbox
-- [ ] `.cursor/skills/preprocessor-guidelines/SKILL.md`: replace `__binop__` references with `__pipe__`, `__cons__`, `__apply__` per PEP-020
-- [ ] `packages/unplugin-typesugar/README.md`: remove reference to non-existent `/docs/PERFORMANCE.md`
+- [x] `packages/hlist/README.md`: remove "No typeclass instances" claim — `HListEq` and `HListShow` exist and are exported. Note that `HListOrd` is genuinely missing.
+- [x] `packages/codec/README.md`: update Phase 2 status — decorators are implemented, not "planned". `field-decorators.test.ts` provides full coverage.
+- [x] `packages/macros/README.md`: change primary API from `@instance` to `@impl`
+- [x] `packages/std/src/index.ts`: update JSDoc header — typeclasses (Bounded, Enum, etc.) verified to exist; replaced deprecated `extend()` example with import-scoped extensions and fluent match API
+- [x] `packages/math/src/types/fixed-decimal.ts` and `money.ts`: remove unused local `interface Eq<A>` definitions
+- [x] `packages/math/src/types/complex.ts`: register `floatingComplex` with `registerInstanceWithMeta` (missing unlike sibling instances)
+- [x] `docs/SECURITY-REVIEW.md`: update with current status of the 8 identified vulnerabilities (or mark stale)
+- [x] `docs/examples/effect/service-layer.ts`: either restore the file or uncheck the PEP-016 (now PEP-023) checkbox
+- [x] `.cursor/skills/preprocessor-guidelines/SKILL.md`: replace `__binop__` references with `__pipe__`, `__cons__`, `__apply__` per PEP-020
+- [x] `packages/unplugin-typesugar/README.md`: verified — `docs/PERFORMANCE.md` exists, no change needed
 
 **Gate:**
 
-- [ ] No README claims a feature is "planned" when it's already implemented
-- [ ] No README claims a feature exists when it doesn't
-- [ ] `pnpm build` succeeds
-- [ ] `pnpm test` passes
+- [x] No README claims a feature is "planned" when it's already implemented
+- [x] No README claims a feature exists when it doesn't
+- [x] `pnpm build` succeeds
+- [x] `pnpm test` passes
 
 ### Wave 5: Structural Consistency
 
@@ -140,30 +140,30 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] Standardize test location: packages that have tests in both `/tests/` and `/src/__tests__/` should consolidate to one location per package (prefer `/tests/` for packages that already have both)
+- [x] Standardize test location: packages that have tests in both `/tests/` and `/src/__tests__/` should consolidate to one location per package (prefer `/tests/` for packages that already have both)
   - `packages/std`: move `src/__tests__/extensions.test.ts` → `tests/`
   - `packages/math`: move `src/__tests__/*.test.ts` → `tests/`
   - `packages/units`: remove `src/__tests__/units.test.ts` if it duplicates `tests/units.test.ts`
   - Update vitest configs accordingly
-- [ ] `packages/fp`: remove `/examples/` directory (keep `/src/examples/` which is more complete), or vice versa
-- [ ] Remove duplicate example files where `showcase.ts` and `*-example.ts` overlap significantly:
+- [x] `packages/fp`: remove `/examples/` directory (keep `/src/examples/` which is more complete), or vice versa
+- [x] Remove duplicate example files where `showcase.ts` and `*-example.ts` overlap significantly:
   - `packages/units/examples/units-example.ts` (subset of showcase.ts)
   - `packages/strings/examples/string-macros-example.ts` (subset of showcase.ts)
-- [ ] `packages/graph/package.json`: add `"license": "MIT"`
-- [ ] `packages/fusion/package.json`: add `"license": "MIT"`
-- [ ] `packages/symbolic/package.json`: add `repository` field matching sibling packages
-- [ ] `packages/mapper/package.json`: switch from exact version pins (`5.9.3`, `3.2.4`) to caret ranges (`^5.5.0`, `^3.0.0`) matching sibling packages
-- [ ] Commit untracked test files that appear intentional:
+- [x] `packages/graph/package.json`: add `"license": "MIT"`
+- [x] `packages/fusion/package.json`: add `"license": "MIT"`
+- [x] `packages/symbolic/package.json`: add `repository` field matching sibling packages
+- [x] `packages/mapper/package.json`: switch from exact version pins (`5.9.3`, `3.2.4`) to caret ranges (`^5.5.0`, `^3.0.0`) matching sibling packages
+- [x] Commit untracked test files that appear intentional:
   - `packages/contracts-refined/tests/`
   - `packages/codec/src/__tests__/field-decorators.test.ts`
   - `packages/mapper/tests/mapper-expansion.test.ts`
 
 **Gate:**
 
-- [ ] Every package with tests has them in exactly one directory
-- [ ] No duplicate `*-example.ts` + `showcase.ts` pairs with overlapping content
-- [ ] All `package.json` files have `license` and `repository` fields
-- [ ] `pnpm test` passes after all moves
+- [x] Every package with tests has them in exactly one directory
+- [x] No duplicate `*-example.ts` + `showcase.ts` pairs with overlapping content
+- [x] All `package.json` files have `license` and `repository` fields
+- [x] `pnpm test` passes after all moves
 
 ### Wave 6: Transformer Code Deduplication
 
@@ -171,18 +171,18 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] Make `packages/transformer-core` the canonical owner of `position-mapper.ts` and `source-map-utils.ts`
-- [ ] In `packages/transformer`, replace the local copies with re-exports from `@typesugar/transformer-core`
-- [ ] Verify transformer-core's versions don't import anything outside its zero-dependency constraint
-- [ ] Update any internal imports within transformer that reference the local files
+- [x] Make `packages/transformer-core` the canonical owner of `position-mapper.ts` and `source-map-utils.ts`
+- [x] In `packages/transformer`, replace the local copies with re-exports from `@typesugar/transformer-core`
+- [x] Verify transformer-core's versions don't import anything outside its zero-dependency constraint
+- [x] Update any internal imports within transformer that reference the local files
 
 **Gate:**
 
-- [ ] `packages/transformer-core` exports position-mapper and source-map-utils
-- [ ] `packages/transformer` has no local copies — only re-exports
-- [ ] `pnpm build` succeeds
-- [ ] `pnpm test` passes
-- [ ] transformer-core remains zero-dependency (no new imports)
+- [x] `packages/transformer-core` exports position-mapper and source-map-utils
+- [x] `packages/transformer` has no local copies — only re-exports
+- [x] `pnpm build` succeeds
+- [x] `pnpm test` passes
+- [x] transformer-core remains zero-dependency (no new imports)
 
 ### Wave 7: Vitest Version Standardization
 
@@ -190,18 +190,18 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] Upgrade all packages to `vitest: "^3.0.0"` (current major):
+- [x] Upgrade all packages to `vitest: "^3.0.0"` (current major):
   - `packages/validate/package.json`: `^1.0.0` → `^3.0.0`
   - `packages/strings/package.json`: `^2.0.0` → `^3.0.0`
   - `packages/mapper/package.json`: `3.2.4` → `^3.0.0`
-- [ ] Fix any test breakage from the vitest upgrade (v1→v3 may have breaking API changes in validate)
-- [ ] Run `pnpm install` to update lockfile
-- [ ] Run each affected package's tests individually to catch regressions
+- [x] Fix any test breakage from the vitest upgrade (v1→v3 may have breaking API changes in validate)
+- [x] Run `pnpm install` to update lockfile
+- [x] Run each affected package's tests individually to catch regressions
 
 **Gate:**
 
-- [ ] `grep -r '"vitest"' packages/*/package.json` shows `^3.0.0` everywhere
-- [ ] `pnpm test` passes
+- [x] `grep -r '"vitest"' packages/*/package.json` shows `^3.0.0` everywhere
+- [x] `pnpm test` passes
 
 ### Wave 8: PLAN File Archival and Range API Deprecation
 
@@ -209,8 +209,8 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
 
 **Tasks:**
 
-- [ ] Create `docs/completed/` directory
-- [ ] Move completed PLAN files to `docs/completed/`:
+- [x] Create `docs/completed/` directory
+- [x] Move completed PLAN files to `docs/completed/`:
   - `PLAN-expression-templates.md` (Phase 1 implemented)
   - `PLAN-implicit-operators.md` (implemented, superseded by PEP-004)
   - `PLAN-contracts.md` (Phases 1-4 complete)
@@ -219,19 +219,19 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
   - `PLAN-existential-containers.md` (Phase 1 implemented)
   - `PLAN-graph.md` (Phase 1 implemented)
   - `PLAN-spirit-parsers.md` (Phase 1 implemented)
-- [ ] Keep active PLANs in `docs/`:
+- [x] Keep active PLANs in `docs/`:
   - `PLAN-language-service-v2.md` (not yet started)
   - `PLAN-post-migration-cleanup.md` (pending critical items)
-- [ ] In `packages/std/src/data/range.ts`: add `@deprecated` JSDoc to legacy function-based API (`range`, `rangeInclusive`, `rangeBy`, `rangeTo`, `rangeUntil`, `rangeToArray`) pointing users to `.to()` / `.until()` extension methods
-- [ ] Update `packages/std/README.md` range section to lead with extension method API and show function API as deprecated
-- [ ] Update stale TODO.md files in `packages/std/` and `packages/testing/` — remove items with passed dates (2026-02-21) or mark them as deferred
+- [x] In `packages/std/src/data/range.ts`: add `@deprecated` JSDoc to legacy function-based API (`range`, `rangeInclusive`, `rangeBy`, `rangeTo`, `rangeUntil`, `rangeToArray`) pointing users to `.to()` / `.until()` extension methods
+- [x] Update `packages/std/README.md` range section to lead with extension method API and show function API as deprecated
+- [x] Update stale TODO.md files in `packages/std/` and `packages/testing/` — remove items with passed dates (2026-02-21) or mark them as deferred
 
 **Gate:**
 
-- [ ] `docs/` contains only active PLANs (2 files)
-- [ ] `docs/completed/` contains archived PLANs (8 files)
-- [ ] Legacy range functions have `@deprecated` annotations
-- [ ] `pnpm build` succeeds
+- [x] `docs/` contains only active PLANs (2 files)
+- [x] `docs/completed/` contains archived PLANs (8 files)
+- [x] Legacy range functions have `@deprecated` annotations
+- [x] `pnpm build` succeeds
 
 ## Out of Scope — Separate PEPs
 

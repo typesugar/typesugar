@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { defineSchema, fieldsAtVersion, generateMigrations, validateSchema } from "../schema.js";
-import type { FieldMeta } from "../types.js";
+import {
+  defineSchema,
+  fieldsAtVersion,
+  generateMigrations,
+  validateSchema,
+} from "../src/schema.js";
+import type { FieldMeta } from "../src/types.js";
 
 describe("defineSchema", () => {
   it("creates a schema with defaults", () => {

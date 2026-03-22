@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createJsonCodec } from "../json-codec.js";
-import { defineSchema } from "../schema.js";
-import type { Schema } from "../types.js";
+import { createJsonCodec } from "../src/json-codec.js";
+import { defineSchema } from "../src/schema.js";
+import type { Schema } from "../src/types.js";
 
 function simpleSchema(): Schema {
   return defineSchema("Point", {

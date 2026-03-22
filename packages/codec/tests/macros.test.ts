@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { createMacroTestContext } from "@typesugar/testing/macros";
-import { codecMacro, register } from "../macros.js";
+import { codecMacro, register } from "../src/macros.js";
 
 describe("codec macros", () => {
   it("register exports and runs without error", () => {
