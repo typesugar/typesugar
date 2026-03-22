@@ -47,7 +47,7 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
-import { MacroContextImpl, markPure, stripPositions } from "@typesugar/core";
+import { MacroContextImpl, markPure, stripPositions, stripCommentsDeep } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import { parseTypeConstructor } from "./hkt.js";
 
@@ -2365,6 +2365,10 @@ function substituteParams(
   node: ts.Node,
   substitutions: Map<string, ts.Expression>
 ): ts.Expression {
+  // Strip comments from the template body to prevent the printer from emitting
+  // stray comments (e.g. JSDoc from the typeclass definition) into inlined code.
+  const cleanNode = stripCommentsDeep(node);
+
   const stripped = new Map<string, ts.Expression>();
   for (const [key, value] of substitutions) {
     stripped.set(key, stripPositions(value));
@@ -2380,7 +2384,7 @@ function substituteParams(
     return ts.visitEachChild(n, visit, ctx.transformContext);
   }
 
-  const result = ts.visitNode(node, visit);
+  const result = ts.visitNode(cleanNode, visit);
   return result as ts.Expression;
 }
 

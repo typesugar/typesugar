@@ -1213,13 +1213,13 @@ function findNextNonCommentLine(
 ): { idx: number; line: string } | null {
   for (let i = start; i < lines.length; i++) {
     const t = lines[i].trim();
-    if (
-      t === "" ||
-      t.startsWith("//") ||
-      t.startsWith("/*") ||
-      t.startsWith("*") ||
-      t.endsWith("*/")
-    ) {
+    if (t === "" || t.startsWith("//") || t.startsWith("/*") || t.endsWith("*/")) {
+      continue;
+    }
+    // Distinguish JSDoc continuation `* text` from operator `* expr`:
+    // JSDoc continuation lines are indented with leading whitespace before the `*`.
+    // Operator lines like `* b.y)` appear at the same indent level as surrounding code.
+    if (t.startsWith("*") && /^\s+\*/.test(lines[i])) {
       continue;
     }
     return { idx: i, line: lines[i] };

@@ -75,8 +75,11 @@ const showConsole = ref(true);
 
 // Sharing state
 const shareTooltip = ref<string | null>(null);
-const showPresetsDropdown = ref(false);
 const selectedPreset = ref<string>("Welcome");
+
+// Sidebar state — track which groups are collapsed
+const collapsedGroups = ref<Set<string>>(new Set());
+const sidebarCollapsed = ref(false);
 
 const fileName = computed(() => `input${fileType.value}`);
 
@@ -1725,7 +1728,6 @@ function loadPreset(preset: ExamplePreset) {
   inputEditor.value?.setValue(preset.code);
   fileType.value = preset.fileType;
   selectedPreset.value = preset.name;
-  showPresetsDropdown.value = false;
 
   // Update language if needed
   if (inputEditor.value && monaco.value) {
@@ -1741,12 +1743,17 @@ function loadPreset(preset: ExamplePreset) {
   doTransform();
 }
 
-function togglePresetsDropdown() {
-  showPresetsDropdown.value = !showPresetsDropdown.value;
+function toggleGroup(label: string) {
+  const s = collapsedGroups.value;
+  if (s.has(label)) {
+    s.delete(label);
+  } else {
+    s.add(label);
+  }
 }
 
-function closePresetsDropdown() {
-  showPresetsDropdown.value = false;
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
 }
 
 function clearConsole() {
@@ -1895,11 +1902,7 @@ function scheduleSave() {
   saveTimer = setTimeout(saveToStorage, 1000);
 }
 
-function handleDocumentClick(event: MouseEvent) {
-  const target = event.target as HTMLElement;
-  if (!target.closest(".presets-dropdown-container")) {
-    showPresetsDropdown.value = false;
-  }
+function handleDocumentClick(_event: MouseEvent) {
 }
 
 function setFileType(type: ".ts" | ".sts") {
@@ -1970,45 +1973,14 @@ onUnmounted(() => {
       <!-- Toolbar -->
       <div class="toolbar" role="toolbar" aria-label="Playground controls">
         <div class="toolbar-left">
-          <!-- Example Presets Dropdown -->
-          <div class="presets-dropdown-container">
-            <button
-              class="presets-btn"
-              @click="togglePresetsDropdown"
-              :aria-expanded="showPresetsDropdown"
-              aria-haspopup="listbox"
-              aria-label="Load example preset"
-            >
-              <span class="presets-icon" aria-hidden="true">📚</span>
-              Examples
-              <span class="dropdown-arrow" aria-hidden="true">▼</span>
-            </button>
-            <Transition name="dropdown">
-              <div
-                v-if="showPresetsDropdown"
-                class="presets-dropdown"
-                role="listbox"
-                aria-label="Example presets"
-              >
-                <template v-for="group in EXAMPLE_GROUPS" :key="group.label">
-                  <div class="preset-group-header">{{ group.label }}</div>
-                  <button
-                    v-for="preset in group.presets"
-                    :key="preset.name"
-                    class="preset-item"
-                    :class="{ active: selectedPreset === preset.name }"
-                    :aria-selected="selectedPreset === preset.name"
-                    role="option"
-                    @click="loadPreset(preset)"
-                  >
-                    <span class="preset-name">{{ preset.name }}</span>
-                    <span class="preset-type">{{ preset.fileType }}</span>
-                    <span class="preset-desc">{{ preset.description }}</span>
-                  </button>
-                </template>
-              </div>
-            </Transition>
-          </div>
+          <button
+            class="sidebar-toggle-btn"
+            @click="toggleSidebar"
+            :aria-expanded="!sidebarCollapsed"
+            aria-label="Toggle examples sidebar"
+          >
+            <span aria-hidden="true">{{ sidebarCollapsed ? '☰' : '✕' }}</span>
+          </button>
 
           <div class="file-type-toggle" role="radiogroup" aria-label="File type">
             <button
@@ -2081,8 +2053,37 @@ onUnmounted(() => {
       </div>
 
       <!-- Main content area -->
-      <main class="main-content">
-        <!-- Editors -->
+      <main class="main-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+        <!-- Examples sidebar -->
+        <nav v-show="!sidebarCollapsed" class="examples-sidebar" aria-label="Example presets">
+          <div class="sidebar-scroll">
+            <div v-for="group in EXAMPLE_GROUPS" :key="group.label" class="sidebar-group">
+              <button
+                class="sidebar-group-header"
+                @click="toggleGroup(group.label)"
+                :aria-expanded="!collapsedGroups.has(group.label)"
+              >
+                <span class="collapse-arrow" :class="{ collapsed: collapsedGroups.has(group.label) }">&#9206;</span>
+                {{ group.label }}
+              </button>
+              <div v-show="!collapsedGroups.has(group.label)" class="sidebar-group-items">
+                <button
+                  v-for="preset in group.presets"
+                  :key="preset.name"
+                  class="sidebar-item"
+                  :class="{ active: selectedPreset === preset.name }"
+                  @click="loadPreset(preset)"
+                >
+                  <span class="sidebar-item-name">{{ preset.name }}</span>
+                  <span v-if="preset.fileType === '.sts'" class="sidebar-item-badge">.sts</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <!-- Editors column (editors + console) -->
+        <div class="editors-column">
         <div class="editors-container">
           <div class="editor-panel input-panel">
             <div class="panel-header">
@@ -2209,6 +2210,7 @@ onUnmounted(() => {
         >
           Show Console
         </button>
+        </div><!-- /.editors-column -->
       </main>
 
       <!-- Hidden sandbox iframe -->
@@ -2435,17 +2437,158 @@ onUnmounted(() => {
 .main-content {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-height: 0;
   overflow: hidden;
 }
 
-.editors-container {
+/* Examples sidebar */
+.examples-sidebar {
+  width: 220px;
+  min-width: 220px;
+  border-right: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-scroll {
   flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.sidebar-group {
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.sidebar-group:last-child {
+  border-bottom: none;
+}
+
+.sidebar-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vp-c-text-2);
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.sidebar-group-header:hover {
+  color: var(--vp-c-text-1);
+}
+
+.collapse-arrow {
+  font-size: 10px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+.collapse-arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.sidebar-group-items {
+  padding-bottom: 4px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px 5px 24px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  transition: all 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-item:hover {
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-text-1);
+}
+
+.sidebar-item.active {
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  font-weight: 500;
+}
+
+.sidebar-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-item-badge {
+  font-family: var(--vp-font-family-mono);
+  font-size: 10px;
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  padding: 0 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.sidebar-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.sidebar-toggle-btn:hover {
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-text-1);
+}
+
+/* When sidebar is collapsed, editors take full width */
+.main-content.sidebar-collapsed .editors-container {
+  /* no sidebar offset needed */
+}
+
+.editors-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editors-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
   background: var(--vp-c-divider);
+  flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -2813,121 +2956,7 @@ button.error-item.warning {
   transform: translateX(-50%) translateY(-10px);
 }
 
-/* Presets dropdown */
-.presets-dropdown-container {
-  position: relative;
-}
-
-.presets-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--vp-c-divider);
-  background: var(--vp-c-bg);
-  color: var(--vp-c-text-2);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s;
-}
-
-.presets-btn:hover {
-  background: var(--vp-c-bg-mute);
-  color: var(--vp-c-text-1);
-}
-
-.presets-icon {
-  font-size: 14px;
-}
-
-.dropdown-arrow {
-  font-size: 10px;
-  opacity: 0.6;
-}
-
-.presets-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  min-width: 280px;
-  max-height: 420px;
-  overflow-y: auto;
-  background: var(--vp-c-bg);
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-}
-
-.preset-group-header {
-  padding: 8px 16px 4px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--vp-c-text-3);
-  border-top: 1px solid var(--vp-c-divider);
-  user-select: none;
-}
-
-.preset-group-header:first-child {
-  border-top: none;
-}
-
-.preset-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 16px 8px 24px;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.preset-item:hover {
-  background: var(--vp-c-bg-soft);
-}
-
-.preset-item.active {
-  background: var(--vp-c-brand-soft);
-}
-
-.preset-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--vp-c-text-1);
-}
-
-.preset-type {
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  color: var(--vp-c-brand-1);
-  background: var(--vp-c-brand-soft);
-  padding: 1px 6px;
-  border-radius: 3px;
-}
-
-.preset-desc {
-  font-size: 12px;
-  color: var(--vp-c-text-3);
-}
-
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.15s ease;
-}
-
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
+/* Old dropdown styles removed — sidebar replaces them */
 
 /* Share buttons group */
 .share-buttons {
@@ -2998,9 +3027,9 @@ button.error-item.warning {
     justify-content: space-between;
   }
 
-  .presets-dropdown {
-    min-width: 240px;
-    max-width: calc(100vw - 48px);
+  .examples-sidebar {
+    width: 180px;
+    min-width: 180px;
   }
 
   .share-buttons {
@@ -3029,17 +3058,12 @@ button.error-item.warning {
 }
 
 @media (max-width: 480px) {
+  .examples-sidebar {
+    display: none;
+  }
+
   .toolbar {
     padding: 8px;
-  }
-
-  .presets-btn {
-    padding: 6px 8px;
-    font-size: 12px;
-  }
-
-  .presets-icon {
-    display: none;
   }
 
   .ts-version-select {
@@ -3094,9 +3118,7 @@ select:focus-visible {
   }
 
   .tooltip-enter-active,
-  .tooltip-leave-active,
-  .dropdown-enter-active,
-  .dropdown-leave-active {
+  .tooltip-leave-active {
     transition: none;
   }
 }

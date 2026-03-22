@@ -1434,7 +1434,15 @@ class MacroTransformer {
         const fromScope = currentScope ? " (with propagation)" : "";
         console.log(`[typesugar] Filling implicit parameters for call: ${funcName}()${fromScope}`);
       }
-      const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
+      // Use visitEachChild (not visitNode) so the arguments get visited for
+      // nested macro expansion, but the call itself is not re-fed through
+      // tryTransform — which would trigger auto-specialization and inline the
+      // function body instead of preserving the call with the resolved instance.
+      const visited = ts.visitEachChild(
+        result,
+        this.visit.bind(this),
+        this.ctx.transformContext
+      ) as ts.Expression;
       return preserveSourceMap(visited, node);
     }
     return undefined;
