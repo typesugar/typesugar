@@ -165,7 +165,7 @@ const pipeline = new TransformationPipeline(compilerOptions, fileNames, {
 
 Add to `.gitignore`:
 
-```gitignore
+```txt
 # typesugar caches
 .typesugar-cache/
 ```

@@ -44,6 +44,11 @@ console.log("show(42):", showValue(42));
 console.log('show("hi"):', showStr("hello"));
 console.log("show(true):", showBool.show(true));
 
-// Works with any type that has a Show instance — fully type-safe!
+// Auto-derivation: summon synthesizes instances for your own types
+// No @derive or @impl needed — just define the type!
+interface Point { x: number; y: number; }
 
-// Try: add a Show<Date> instance
+const showPoint = summon<Show<Point>>();
+console.log("auto-derived:", showPoint.show({ x: 1, y: 2 }));
+
+// Try: add a z field to Point and watch the derived show expand
