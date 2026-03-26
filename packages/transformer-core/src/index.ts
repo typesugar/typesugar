@@ -31,13 +31,25 @@ export {
   type SourcePosition,
 } from "./source-map-utils.js";
 
-// Position mapping
+// Position mapping — core (no TypeScript dependency, browser-safe)
+export {
+  createPositionMapperCore,
+  SourceMapPositionMapperCore,
+  IdentityPositionMapperCore,
+  type PositionMapperCore,
+  type TextRange,
+  type LineIndex,
+  buildLineIndex,
+  offsetToLineColumn,
+  lineColumnToOffset,
+} from "./position-mapping-core.js";
+
+// Position mapping — full (extends core with ts.Diagnostic mapping)
 export {
   createPositionMapper,
   SourceMapPositionMapper,
   IdentityPositionMapper,
   type PositionMapper,
-  type TextRange,
 } from "./position-mapper.js";
 
 // Re-export from @typesugar/core for convenience
