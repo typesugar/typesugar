@@ -27,15 +27,21 @@ export class PlaygroundLanguageAdapter {
   private monaco: typeof Monaco | null = null;
   private disposables: Monaco.IDisposable[] = [];
   private currentOriginal = "";
-  private _ready = false;
+  private _readyPromise: Promise<void>;
+  private _resolveReady!: () => void;
+  /** Incremented on each updateTransformedCode to discard stale responses */
+  private _version = 0;
 
   constructor(client: TSWorkerClient) {
     this.client = client;
+    this._readyPromise = new Promise((resolve) => {
+      this._resolveReady = resolve;
+    });
   }
 
   /** Call after all ambient declarations are loaded. */
   markReady() {
-    this._ready = true;
+    this._resolveReady();
   }
 
   register(monacoInstance: typeof Monaco, inputModel: Monaco.editor.ITextModel) {
@@ -147,6 +153,7 @@ export class PlaygroundLanguageAdapter {
     transformed: string,
     sourceMap: RawSourceMap | null
   ) {
+    this._version++;
     this.currentOriginal = original;
     this.mapper = createPositionMapperCore(sourceMap, original, transformed);
     await this.client.updateFile(INPUT_FILE, transformed);
@@ -165,15 +172,21 @@ export class PlaygroundLanguageAdapter {
   }
 
   private async _refreshDiags() {
-    if (!this.monaco || !this._inputModel || !this._ready) return;
+    if (!this.monaco || !this._inputModel) return;
+    // Wait until ambient declarations are loaded
+    await this._readyPromise;
+    const version = this._version;
     const diags = await this.client.getDiagnostics(INPUT_FILE);
+    // Discard stale results if a newer transform arrived while we were waiting
+    if (version !== this._version) return;
     const model = this._inputModel;
+    if (!model) return;
 
     const markers = diags
       .map((d) => this._mapDiag(d, model))
       .filter((m): m is Monaco.editor.IMarkerData => m !== null);
 
-    this.monaco.editor.setModelMarkers(model, "typesugar-ls", markers);
+    this.monaco!.editor.setModelMarkers(model, "typesugar-ls", markers);
   }
 
   private _mapDiag(

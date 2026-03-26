@@ -6,5 +6,6 @@
     "lib": ["ES2022", "DOM"],
     "plugins": []
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/worker-entry.ts"]
 }

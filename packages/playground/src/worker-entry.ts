@@ -9,6 +9,10 @@
  */
 
 /* eslint-disable no-var */
+// TypeScript is loaded from CDN at runtime via importScripts.
+// This file is excluded from tsc --noEmit (see tsconfig.json) because
+// `ts` is a runtime global injected by importScripts, not a TS import.
+// Type checking is done by tsup/esbuild during the build step.
 declare function importScripts(...urls: string[]): void;
 declare const ts: typeof import("typescript");
 declare const self: Worker;
