@@ -25,15 +25,15 @@ console.log("Has cycles?", hasCycles(deps));
 const path = shortestPath(deps, "app", "types");
 console.log("app → types:", path);
 
-// Dijkstra with weighted edges
+// Dijkstra with weighted edges (default weight = 1)
 const network = digraph`
   A -> B, C
   B -> D
   C -> D
   D -> E
 `;
-const result = dijkstra(network, "A");
-console.log("\nDijkstra from A:", result);
+const result = dijkstra(network, "A", "E");
+console.log("\nDijkstra A→E:", result);
 console.log("Built:", buildTime);
 
 // Try: add a cycle (types -> app) and watch hasCycles() change

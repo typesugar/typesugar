@@ -434,6 +434,22 @@ export class TransformationPipeline {
   }
 
   /**
+   * Lightweight invalidation for single-file content changes (e.g., playground).
+   * Resets the TypeScript program for incremental recompilation but preserves
+   * the cached transformer factory, which is expensive to recreate.
+   */
+  invalidateContent(fileName: string): void {
+    const normalizedFileName = path.normalize(fileName);
+    this.host.invalidate(normalizedFileName);
+    this.contentHashes.delete(normalizedFileName);
+    this.cache.invalidate(normalizedFileName);
+    // Reset program for incremental rebuild (reuses old ASTs for unchanged files)
+    this.oldProgram = this.program;
+    this.program = null;
+    // Note: cachedTransformerFactory is preserved — it does not depend on file content
+  }
+
+  /**
    * Get cache statistics for debugging
    */
   getCacheStats(): {

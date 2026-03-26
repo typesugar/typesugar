@@ -5,7 +5,9 @@ import LZString from "lz-string";
 const { compressToEncodedURIComponent, decompressFromEncodedURIComponent } = LZString;
 import ErrorBoundary from "./ErrorBoundary.vue";
 import { EXAMPLE_GROUPS, DEFAULT_CODE } from "./playground-examples";
-import type { ExamplePreset, ExampleGroup } from "./playground-examples";
+import type { ExamplePreset } from "./playground-examples";
+import { TSWorkerClient } from "./playground-worker-client";
+import { PlaygroundLanguageAdapter } from "./playground-language-adapter";
 
 interface TransformResult {
   original: string;
@@ -29,7 +31,7 @@ interface ConsoleMessage {
   timestamp: number;
 }
 
-// ExamplePreset, ExampleGroup, DEFAULT_CODE, and EXAMPLE_GROUPS are imported
+// ExamplePreset, DEFAULT_CODE, and EXAMPLE_GROUPS are imported
 // from ./playground-examples.ts which auto-discovers docs/examples/**/*.{ts,sts}
 
 const STORAGE_KEYS = {
@@ -76,6 +78,13 @@ const showConsole = ref(true);
 // Sharing state
 const shareTooltip = ref<string | null>(null);
 const selectedPreset = ref<string>("Welcome");
+
+// Strict mode — opt-in full type checking of transformed output (~200ms slower)
+const strictMode = ref(false);
+
+// Language service adapter — provides completions, hover, and diagnostics
+// via a Web Worker running TypeScript on the transformed code
+const languageAdapter = shallowRef<PlaygroundLanguageAdapter | null>(null);
 
 // Sidebar state — track which groups are collapsed
 const collapsedGroups = ref<Set<string>>(new Set());
@@ -1222,6 +1231,17 @@ interface ServerCompileResult {
   changed: boolean;
   cached?: boolean;
   compileTimeMs?: number;
+  sourceMap?: RawSourceMap;
+}
+
+interface RawSourceMap {
+  version: number;
+  sources: string[];
+  names: string[];
+  mappings: string;
+  file?: string;
+  sourceRoot?: string;
+  sourcesContent?: string[];
 }
 
 // Client-side cache for compiled results (LRU, 50 entries)
@@ -1282,7 +1302,7 @@ async function compileCodeOnServer(
     const response = await fetch("/api/compile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, fileName }),
+      body: JSON.stringify({ code, fileName, strict: strictMode.value }),
       signal: controller.signal,
     });
 
@@ -1340,6 +1360,12 @@ async function doTransform() {
   transformError.value = null;
   isTransforming.value = true;
 
+  // Clear previous markers while transforming
+  const model = inputEditor.value.getModel();
+  if (model && monaco.value) {
+    monaco.value.editor.setModelMarkers(model, "typesugar", []);
+  }
+
   const start = performance.now();
 
   try {
@@ -1367,6 +1393,39 @@ async function doTransform() {
 
       if (diagnostics.length > 0) {
         transformError.value = diagnostics.map((d) => d.message).join("; ");
+      }
+
+      // Feed transformed code + source map to the language service worker
+      // (provides completions, hover, and TS-level diagnostics)
+      if (languageAdapter.value && serverResult.changed) {
+        languageAdapter.value.updateTransformedCode(
+          code,
+          serverResult.code,
+          serverResult.sourceMap ?? null
+        );
+      }
+
+      // Show macro diagnostics as inline squiggly underlines in the editor
+      const model = inputEditor.value?.getModel();
+      if (model && monaco.value) {
+        const markers = diagnostics
+          .filter((d) => typeof d.line === "number" && typeof d.column === "number")
+          .map((d) => {
+            const startPos = { lineNumber: d.line!, column: d.column! };
+            const endPos = model.getPositionAt((d.start ?? 0) + (d.length ?? 1));
+            return {
+              severity:
+                d.severity === "error"
+                  ? monaco.value!.MarkerSeverity.Error
+                  : monaco.value!.MarkerSeverity.Warning,
+              message: d.message,
+              startLineNumber: startPos.lineNumber,
+              startColumn: startPos.column,
+              endLineNumber: endPos.lineNumber,
+              endColumn: endPos.column,
+            };
+          });
+        monaco.value.editor.setModelMarkers(model, "typesugar", markers);
       }
     } else {
       transformError.value =
@@ -1834,7 +1893,7 @@ async function initMonaco() {
     if (outputContainer.value) {
       outputEditor.value = monacoInstance.editor.create(outputContainer.value, {
         value: "",
-        language: "javascript",
+        language: "typescript",
         theme,
         minimap: { enabled: false },
         fontSize: 14,
@@ -1870,6 +1929,54 @@ async function initMonaco() {
         );
       }
     }
+
+    // Initialize the TypeScript language service worker lazily.
+    // Uses setTimeout to ensure Monaco editors are fully initialized.
+    console.log("[Playground] About to schedule worker init, inputEditor:", !!inputEditor.value);
+    setTimeout(() => {
+      console.log("[Playground] setTimeout fired, inputEditor:", !!inputEditor.value);
+      const ed = inputEditor.value;
+      const m = ed?.getModel();
+      if (!ed || !m || !monaco.value) return;
+      try {
+        const client = new TSWorkerClient("/playground-ts-worker.js");
+        const adapter = new PlaygroundLanguageAdapter(client);
+        client.waitReady().then(async () => {
+          adapter.register(monaco.value!, m);
+          const { AMBIENT_DECLARATIONS } = await import("../../../api/playground-declarations.js");
+          await adapter.addLib("__playground_ambient__.d.ts", AMBIENT_DECLARATIONS);
+          await adapter.addLib("globals.d.ts",
+            "declare var console: { log(...args: any[]): void; error(...args: any[]): void; warn(...args: any[]): void; info(...args: any[]): void; };\n" +
+            "declare var Math: { random(): number; floor(x: number): number; ceil(x: number): number; round(x: number): number; abs(x: number): number; min(...v: number[]): number; max(...v: number[]): number; pow(b: number, e: number): number; sqrt(x: number): number; PI: number; E: number; log(x: number): number; imul(a: number, b: number): number; };\n" +
+            "declare var JSON: { parse(t: string, r?: (k: string, v: any) => any): any; stringify(v: any, r?: any, s?: string | number): string; };\n" +
+            "declare var parseInt: (s: string, r?: number) => number;\ndeclare var parseFloat: (s: string) => number;\n" +
+            "declare var isNaN: (n: number) => boolean;\ndeclare var isFinite: (n: number) => boolean;\n" +
+            "declare var setTimeout: (cb: (...a: any[]) => void, ms?: number) => number;\ndeclare var clearTimeout: (id: number) => void;\n" +
+            "declare var Infinity: number;\ndeclare var NaN: number;\ndeclare var undefined: undefined;\n" +
+            "interface Array<T> { length: number; push(...items: T[]): number; pop(): T | undefined; map<U>(f: (v: T, i: number) => U): U[]; filter(f: (v: T) => boolean): T[]; reduce<U>(f: (p: U, c: T) => U, init: U): U; forEach(f: (v: T) => void): void; join(s?: string): string; indexOf(e: T): number; includes(e: T): boolean; slice(s?: number, e?: number): T[]; find(f: (v: T) => boolean): T | undefined; some(f: (v: T) => boolean): boolean; every(f: (v: T) => boolean): boolean; flatMap<U>(f: (v: T) => U | U[]): U[]; splice(s: number, d?: number, ...items: T[]): T[]; sort(f?: (a: T, b: T) => number): this; [n: number]: T; }\n" +
+            "interface String { length: number; charAt(i: number): string; indexOf(s: string): number; includes(s: string): boolean; slice(s?: number, e?: number): string; substring(s: number, e?: number): string; trim(): string; split(s: string | RegExp, l?: number): string[]; replace(s: string | RegExp, r: string): string; startsWith(s: string): boolean; endsWith(s: string): boolean; toUpperCase(): string; toLowerCase(): string; match(r: string | RegExp): RegExpMatchArray | null; padStart(l: number, f?: string): string; }\n" +
+            "interface Number { toFixed(d?: number): string; toString(r?: number): string; }\ninterface Boolean {}\ninterface Function { bind(t: any, ...a: any[]): any; call(t: any, ...a: any[]): any; }\ninterface Object { toString(): string; hasOwnProperty(v: string): boolean; }\n" +
+            "interface RegExp { test(s: string): boolean; exec(s: string): RegExpExecArray | null; }\ninterface RegExpMatchArray extends Array<string> { index?: number; }\ninterface RegExpExecArray extends Array<string> { index: number; }\n" +
+            "interface Error { message: string; name: string; stack?: string; }\ninterface ErrorConstructor { new(m?: string): Error; }\ndeclare var Error: ErrorConstructor;\n" +
+            "interface Date { toISOString(): string; getTime(): number; }\ninterface DateConstructor { new(): Date; new(v: number | string): Date; now(): number; }\ndeclare var Date: DateConstructor;\n" +
+            "interface Map<K, V> { get(k: K): V | undefined; set(k: K, v: V): this; has(k: K): boolean; delete(k: K): boolean; size: number; }\ninterface MapConstructor { new<K, V>(e?: readonly (readonly [K, V])[]): Map<K, V>; }\ndeclare var Map: MapConstructor;\n" +
+            "interface Set<T> { add(v: T): this; has(v: T): boolean; delete(v: T): boolean; size: number; }\ninterface SetConstructor { new<T>(v?: readonly T[]): Set<T>; }\ndeclare var Set: SetConstructor;\n" +
+            "interface Promise<T> { then<R1 = T, R2 = never>(f?: ((v: T) => R1 | PromiseLike<R1>) | null, r?: ((e: any) => R2 | PromiseLike<R2>) | null): Promise<R1 | R2>; catch<R = never>(r?: ((e: any) => R | PromiseLike<R>) | null): Promise<T | R>; }\n" +
+            "interface PromiseLike<T> { then<R1 = T, R2 = never>(f?: ((v: T) => R1 | PromiseLike<R1>) | null, r?: ((e: any) => R2 | PromiseLike<R2>) | null): PromiseLike<R1 | R2>; }\n" +
+            "interface PromiseConstructor { new<T>(e: (resolve: (v: T) => void, reject: (r?: any) => void) => void): Promise<T>; resolve<T>(v: T): Promise<T>; reject<T = never>(r?: any): Promise<T>; all<T>(v: readonly (T | PromiseLike<T>)[]): Promise<T[]>; }\ndeclare var Promise: PromiseConstructor;\n" +
+            "interface Symbol {}\ninterface IterableIterator<T> {}\n" +
+            "type Partial<T> = { [P in keyof T]?: T[P] };\ntype Required<T> = { [P in keyof T]-?: T[P] };\ntype Readonly<T> = { readonly [P in keyof T]: T[P] };\ntype Pick<T, K extends keyof T> = { [P in K]: T[P] };\ntype Record<K extends keyof any, T> = { [P in K]: T };\ntype Exclude<T, U> = T extends U ? never : T;\ntype Extract<T, U> = T extends U ? T : never;\ntype NonNullable<T> = T extends null | undefined ? never : T;\ntype ReturnType<T extends (...a: any) => any> = T extends (...a: any) => infer R ? R : any;\ntype Omit<T, K extends keyof any> = Pick<T, Exclude<keyof T, K>>;\n"
+          );
+          adapter.markReady();
+          languageAdapter.value = adapter;
+          console.log("[Playground] Language service worker ready");
+        }).catch((e: unknown) => {
+          console.error("[Playground] Worker ready failed:", e);
+        });
+      } catch (e) {
+        console.warn("[Playground] Failed to init language service worker:", e);
+      }
+    }, 100);
 
     loadingProgress.value = 100;
     loadingMessage.value = "Ready";
@@ -1945,6 +2052,7 @@ onUnmounted(() => {
     clearTimeout(saveTimer);
   }
   document.removeEventListener("click", handleDocumentClick);
+  languageAdapter.value?.dispose();
   inputEditor.value?.dispose();
   outputEditor.value?.dispose();
 });
@@ -2022,6 +2130,10 @@ onUnmounted(() => {
             <span v-if="isTransforming" class="status-spinner" aria-hidden="true"></span>
             {{ statusText }}
           </div>
+          <label class="strict-toggle" title="Strict mode: type-check transformed output (~200ms slower)">
+            <input type="checkbox" v-model="strictMode" @change="scheduleTransform" />
+            Strict
+          </label>
         </div>
 
         <div class="toolbar-right">
@@ -2117,7 +2229,7 @@ onUnmounted(() => {
                     aria-controls="output-js-panel"
                     id="output-js-tab"
                   >
-                    JS Output
+                    TS Output
                   </button>
                   <button
                     :class="{ active: activeTab === 'errors' }"
@@ -2307,6 +2419,28 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.strict-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--vp-c-text-2);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.strict-toggle:hover {
+  opacity: 1;
+}
+
+.strict-toggle input {
+  cursor: pointer;
 }
 
 .file-type-toggle {

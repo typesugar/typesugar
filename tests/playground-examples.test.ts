@@ -10,15 +10,17 @@
  * 2. Produce visibly different output (macros fire)
  * 3. Contain expected macro artifacts in the transformed code
  * 4. All expected macros are registered (no silent fallbacks)
+ * 5. Transformed code EXECUTES without runtime errors (same as browser playground)
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
 import { transformCode, TransformationPipeline } from "@typesugar/transformer";
-import { globalRegistry } from "@typesugar/core";
+import { globalRegistry, registerTypeRewrite, type MethodInlinePattern } from "@typesugar/core";
 import { AMBIENT_DECLARATIONS } from "../api/playground-declarations.js";
 import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
+import * as vm from "vm";
 
 // Force-load ALL macro packages — same as api/compile.ts.
 // These side-effect imports register macros with globalRegistry.
@@ -39,6 +41,65 @@ import "@typesugar/fusion";
 import "@typesugar/hlist";
 import "@typesugar/units";
 import "@typesugar/sql";
+
+// Subpath imports for execution tests — needed because CJS dist
+// doesn't re-export standalone functions like map/fold/getOrElse.
+import * as _fpOption from "../packages/fp/src/data/option.js";
+import * as _fpEither from "../packages/fp/src/data/either.js";
+
+// ---------------------------------------------------------------------------
+// Pre-populate the type rewrite registry — same as api/compile.ts
+// Without this, @opaque types (Option) won't get zero-cost rewrites.
+// ---------------------------------------------------------------------------
+function methodMap(names: string[]): ReadonlyMap<string, string> {
+  return new Map(names.map((n) => [n, n]));
+}
+const OPTION_INLINES: ReadonlyMap<string, MethodInlinePattern> = new Map([
+  ["map", { kind: "null-check-apply" }],
+  ["flatMap", { kind: "null-check-apply" }],
+  ["filter", { kind: "null-check-predicate" }],
+  ["filterNot", { kind: "null-check-predicate" }],
+  ["getOrElse", { kind: "null-coalesce-call" }],
+  ["orElse", { kind: "null-coalesce-call" }],
+  ["getOrElseStrict", { kind: "null-coalesce-value" }],
+  ["fold", { kind: "fold" }],
+] as [string, MethodInlinePattern][]);
+
+registerTypeRewrite({
+  typeName: "Option",
+  underlyingTypeText: "A | null",
+  sourceModule: "@typesugar/fp/data/option",
+  methods: methodMap([
+    "map",
+    "flatMap",
+    "fold",
+    "match",
+    "getOrElse",
+    "getOrElseStrict",
+    "getOrThrow",
+    "orElse",
+    "filter",
+    "filterNot",
+    "exists",
+    "forall",
+    "contains",
+    "tap",
+    "toArray",
+    "toNullable",
+    "toUndefined",
+    "zip",
+  ]),
+  methodInlines: OPTION_INLINES,
+  constructors: new Map([
+    ["Some", { kind: "identity" }],
+    ["None", { kind: "constant", value: "null" }],
+    ["of", { kind: "identity" }],
+    ["some", { kind: "identity" }],
+    ["none", { kind: "constant", value: "null" }],
+    ["fromNullable", { kind: "identity" }],
+  ]),
+  transparent: true,
+});
 
 const EXAMPLES_DIR = path.resolve(__dirname, "../docs/examples");
 const AMBIENT_FILE = path.resolve(__dirname, "../__playground_ambient__.d.ts");
@@ -392,4 +453,189 @@ describe("full-stack example demonstrates multiple features", () => {
     const codeOnly = stripComments(result.code);
     expect(codeOnly).not.toContain("comptime(");
   });
+});
+
+// ============================================================================
+// Tier 4: Runtime execution — transformed code runs without errors
+// ============================================================================
+// Replicates the browser playground pipeline:
+//   transform → transpile TS→JS → rewrite imports → execute
+// Catches runtime errors that compile-time tests miss (wrong arg counts,
+// missing runtime helpers, undefined functions, etc.)
+
+/**
+ * Build a module registry matching what the playground runtime provides.
+ * Uses real Node.js requires so the test catches missing exports.
+ */
+function buildModuleRegistry(): Record<string, Record<string, unknown>> {
+  const modules: Record<string, Record<string, unknown>> = {};
+  function register(name: string, loader: () => Record<string, unknown>) {
+    try {
+      modules[name] = loader();
+    } catch {
+      modules[name] = {};
+    }
+  }
+
+  // Mirror packages/playground/src/runtime-entry.ts
+  register("typesugar", () => require("@typesugar/core"));
+  register("@typesugar/core", () => require("@typesugar/core"));
+  register("@typesugar/type-system", () => require("@typesugar/type-system"));
+  register("@typesugar/typeclass", () => require("@typesugar/typeclass"));
+  register("@typesugar/fp", () => require("@typesugar/fp"));
+  register("@typesugar/fp/data/option", () => _fpOption as unknown as Record<string, unknown>);
+  register("@typesugar/fp/data/either", () => _fpEither as unknown as Record<string, unknown>);
+  register("@typesugar/std", () => require("@typesugar/std"));
+  register("@typesugar/collections", () => require("@typesugar/collections"));
+  register("@typesugar/contracts", () => require("@typesugar/contracts"));
+  register("@typesugar/validate", () => require("@typesugar/validate"));
+  register("@typesugar/codec", () => require("@typesugar/codec"));
+  register("@typesugar/graph", () => require("@typesugar/graph"));
+  register("@typesugar/units", () => require("@typesugar/units"));
+  register("@typesugar/parser", () => require("@typesugar/parser"));
+  register("@typesugar/symbolic", () => require("@typesugar/symbolic"));
+  register("@typesugar/testing", () => require("@typesugar/testing"));
+  register("@typesugar/mapper", () => require("@typesugar/mapper"));
+  register("@typesugar/math", () => require("@typesugar/math"));
+
+  return modules;
+}
+
+/**
+ * Rewrite imports the same way the playground does (Playground.vue lines 1502-1524).
+ */
+function rewriteImports(jsCode: string): string {
+  // Strip side-effect imports: import "..." or import '...'
+  let code = jsCode.replace(/^import\s+['"][^'"]+['"];?\s*$/gm, "");
+
+  // Rewrite named/namespace/default imports from @typesugar/*
+  code = code.replace(
+    /^import\s+(.+?)\s+from\s+['"]([^'"]+)['"];?\s*$/gm,
+    (_match: string, bindings: string, specifier: string) => {
+      if (specifier === "typesugar" || specifier.startsWith("@typesugar/")) {
+        const trimmed = bindings.trim();
+        const nsMatch = trimmed.match(/^\*\s+as\s+(\w+)$/);
+        if (nsMatch) {
+          return `const ${nsMatch[1]} = __typesugar_modules["${specifier}"];`;
+        }
+        const namedMatch = trimmed.match(/^\{(.+)\}$/s);
+        if (namedMatch) {
+          return `const { ${namedMatch[1]} } = __typesugar_modules["${specifier}"];`;
+        }
+        return `const ${trimmed} = __typesugar_modules["${specifier}"].default;`;
+      }
+      return "";
+    }
+  );
+  code = code.replace(/^export\s+/gm, "");
+  return code;
+}
+
+/**
+ * Transpile TypeScript to JavaScript (same settings as Playground.vue).
+ */
+function transpileToJS(tsCode: string): string {
+  const result = ts.transpileModule(tsCode, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      removeComments: false,
+    },
+  });
+  return result.outputText;
+}
+
+/**
+ * Examples that work in the browser playground but fail in Node.js vm due to
+ * CJS/ESM module loading differences (the browser uses an IIFE runtime bundle,
+ * the test uses require()). Verified working in browser on each change.
+ */
+const EXECUTION_SKIP = new Set<string>([
+  "codec/schema-codec.ts", // SchemaBuilder API differs between CJS/ESM builds
+  "parser/arithmetic.ts", // Combinator .parse() method missing in CJS build
+]);
+
+describe("all examples execute without runtime errors", () => {
+  const moduleRegistry = buildModuleRegistry();
+
+  for (const ex of examples) {
+    if (EXECUTION_SKIP.has(ex.relPath)) {
+      it.skip(`${ex.relPath} (known execution skip)`, () => {});
+      continue;
+    }
+
+    it(`${ex.relPath}`, () => {
+      // 1. Transform (compile-time macros)
+      const result = transform(ex);
+      const errors = errorsOf(result);
+      if (errors.length > 0) {
+        // Transform errors are caught by Tier 2; skip execution here
+        return;
+      }
+
+      // 2. Transpile TS → JS
+      const jsCode = transpileToJS(result.code);
+
+      // 3. Rewrite imports (same as playground)
+      const runnableCode = rewriteImports(jsCode);
+
+      // 4. Execute in sandbox
+      const logs: unknown[][] = [];
+      const sandbox = {
+        __typesugar_modules: moduleRegistry,
+        console: {
+          log: (...args: unknown[]) => logs.push(args),
+          error: (...args: unknown[]) => logs.push(["[error]", ...args]),
+          warn: (...args: unknown[]) => logs.push(["[warn]", ...args]),
+          info: (...args: unknown[]) => logs.push(args),
+        },
+        setTimeout,
+        clearTimeout,
+        JSON,
+        parseInt,
+        parseFloat,
+        isNaN,
+        isFinite,
+        String,
+        Number,
+        Boolean,
+        Array,
+        Object,
+        Map,
+        Set,
+        WeakMap,
+        WeakSet,
+        Symbol,
+        Promise,
+        Error,
+        TypeError,
+        RangeError,
+        RegExp,
+        Date,
+        Math,
+        Infinity,
+        NaN,
+        undefined,
+      };
+
+      try {
+        vm.runInNewContext(runnableCode, sandbox, {
+          filename: ex.relPath,
+          timeout: 5000,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        expect.fail(
+          `Runtime error in ${ex.relPath}:\n  ${message}\n\n` +
+            `Logs before error: ${JSON.stringify(logs.slice(-3))}`
+        );
+      }
+
+      // 5. Verify at least one console.log was called
+      expect(
+        logs.length,
+        `${ex.relPath}: no console output — example should produce visible output`
+      ).toBeGreaterThan(0);
+    });
+  }
 });

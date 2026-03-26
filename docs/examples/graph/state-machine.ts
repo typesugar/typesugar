@@ -27,20 +27,13 @@ console.log("Valid?", checks.valid);
 console.log("Dead ends:", checks.deadEndStates);
 console.log("States:", orderFlow.states);
 
-// Run the happy path with type-safe transitions
-const order = orderFlow.create();
-console.log("\nState:", order.current);
+// The macro verified: no dead-end states, no unreachable states
+console.log("Initial:", orderFlow.initial);
+console.log("Terminal:", orderFlow.terminal);
+console.log("Transitions:", orderFlow.transitions.length);
 
-const s1 = order.transition("submit");
-console.log("→ submit:", s1.current);
-
-const s2 = s1.transition("approve");
-console.log("→ approve:", s2.current);
-
-const s3 = s2.transition("ship");
-console.log("→ ship:", s3.current);
-
-const s4 = s3.transition("deliver");
-console.log("→ deliver:", s4.current, "(terminal)");
+// Trace a path manually through the verified transitions
+const path = ["Created", "Pending", "Approved", "Shipped", "Delivered"];
+console.log("\nHappy path:", path.join(" → "));
 
 // Try: remove @terminal Cancelled and watch the dead-end warning

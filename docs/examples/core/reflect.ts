@@ -1,12 +1,11 @@
 //! reflect & typeInfo
 //! Compile-time reflection — types become runtime values
 
-import { reflect, typeInfo, fieldNames } from "typesugar";
+import { typeInfo, fieldNames } from "typesugar";
 
-// Three distinct macros, each with a different level of detail:
+// Two compile-time reflection macros with different detail levels:
 // - fieldNames<T>() → string[]         (just the names)
 // - typeInfo<T>()   → { fields, kind } (names + types + structure)
-// - reflect<T>()    → full metadata    (everything, for frameworks)
 
 interface User {
   id: number;
@@ -28,7 +27,7 @@ for (const f of schema.fields ?? []) {
   console.log(`  ${f.name}: ${f.type}`);
 }
 
-// 3. reflect — full metadata for form/ORM generation
+// 3. typeInfo on a class — same macro, different shape
 class Product {
   id!: number;
   name!: string;
@@ -36,7 +35,7 @@ class Product {
   inStock!: boolean;
 }
 
-const meta = reflect<Product>();
+const meta = typeInfo<Product>();
 console.log("\nProduct metadata:", meta);
 
 // Practical: auto-generate form labels from field names
@@ -45,4 +44,4 @@ const labels = fieldNames<Product>().map(f =>
 );
 console.log("Form labels:", labels);
 
-// Try: add a "role" field to User and watch the SELECT query update
+// Try: add a "role" field to Product and watch the form labels update

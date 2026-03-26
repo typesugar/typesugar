@@ -1,7 +1,7 @@
 //! Either — Typed Errors
 //! Left(e) and Right(a) wrap values in objects for type-safe error handling.
 
-import { Left, Right } from "@typesugar/fp";
+import { Left, Right, map, fold, getOrElse, isRight } from "@typesugar/fp/data/either";
 import type { Either } from "@typesugar/fp";
 
 // Either<E, A> — typed error handling
@@ -11,26 +11,30 @@ function parseAge(input: string): Either<string, number> {
   return isNaN(n) ? Left("not a number") : n < 0 ? Left("negative") : Right(n);
 }
 
-// .map() and .getOrElse() come from typeclass instances (Functor, etc.)
-const validAge = parseAge("25").map(a => a + 1).getOrElse(() => 0);
-const invalidAge = parseAge("abc").map(a => a + 1).getOrElse(() => 0);
+// Standalone functions: map, getOrElse, fold
+const validAge = getOrElse(map(parseAge("25"), a => a + 1), () => 0);
+const invalidAge = getOrElse(map(parseAge("abc"), a => a + 1), () => 0);
 console.log("valid:", validAge);    // 26
 console.log("invalid:", invalidAge); // 0
 
-// .fold() — handle both branches explicitly
-const message = parseAge("30").fold(
+// fold — handle both branches explicitly
+const message = fold(
+  parseAge("30"),
   err => `Error: ${err}`,
   age => `Age next year: ${age + 1}`
 );
 console.log(message); // "Age next year: 31"
 
-// fromNullable — convert nullable values to Either
-import { fromNullable } from "@typesugar/fp";
-
+// Manual nullable-to-Either conversion using Left/Right
 function getEnv(key: string): Either<string, string> {
   const env: Record<string, string> = { HOME: "/Users/alice" };
-  return fromNullable(env[key], () => `missing env var: ${key}`);
+  const val = env[key];
+  return val !== undefined ? Right(val) : Left(`missing env var: ${key}`);
 }
 
-console.log(getEnv("HOME").getOrElse(() => "?")); // "/Users/alice"
-console.log(getEnv("FOO").getOrElse(() => "?"));  // "?"
+console.log(getOrElse(getEnv("HOME"), () => "?")); // "/Users/alice"
+console.log(getOrElse(getEnv("FOO"), () => "?"));  // "?"
+
+// Type guards: isRight checks which branch we're on
+console.log("Right(42) is right?", isRight(Right(42))); // true
+console.log("Left('x') is right?", isRight(Left("x"))); // false

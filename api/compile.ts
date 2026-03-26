@@ -262,7 +262,111 @@ function hashContent(content: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Compile using the real transformer
+// Incremental strict output typecheck
+//
+// The built-in typecheckOutput() in transformCode creates a fresh
+// ts.createProgram() per call (~200ms). Instead, we call transformCode
+// WITHOUT strictOutput and run our own incremental typecheck here:
+// a persistent compiler host + oldProgram gives ts.createProgram ~46%
+// faster incremental rebuilds by reusing unchanged ASTs (ambient decls,
+// lib.d.ts).
+// ---------------------------------------------------------------------------
+
+const STRICT_OPTS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.Latest,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  esModuleInterop: true,
+  strict: false,
+  strictNullChecks: false,
+  noImplicitAny: false,
+  noEmit: true,
+  skipLibCheck: true,
+  skipDefaultLibCheck: true,
+  types: [],
+  typeRoots: [],
+};
+
+/** Persistent host — reused across calls so lib.d.ts resolution is cached. */
+const strictHost = ts.createCompilerHost(STRICT_OPTS);
+const _origStrictRead = strictHost.readFile.bind(strictHost);
+const _origStrictExists = strictHost.fileExists.bind(strictHost);
+
+/** Mutable virtual file contents for the current typecheck. */
+let _strictFiles = new Map<string, string>();
+let _strictKnown = new Set<string>();
+
+strictHost.readFile = (f) => {
+  const v = _strictFiles.get(f);
+  if (v !== undefined) return v;
+  if (_strictKnown.has(f)) {
+    if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
+    return ts.sys.readFile(f);
+  }
+  if (f.includes("lib.") && f.endsWith(".d.ts")) return _origStrictRead(f);
+  return ts.sys.readFile(f);
+};
+strictHost.fileExists = (f) => {
+  if (_strictKnown.has(f)) return true;
+  if (f.includes("lib.") && f.endsWith(".d.ts")) return _origStrictExists(f);
+  return ts.sys.fileExists(f);
+};
+
+/** Previous program — passed to ts.createProgram for structural reuse. */
+let _strictOldProgram: ts.Program | undefined;
+
+function typecheckOutput(
+  outputCode: string,
+  inputCode: string,
+  fileName: string
+): TransformDiagnostic[] {
+  const inputFileName = fileName.replace(/\.(ts|tsx|sts|stsx)$/, ".__input__.$1");
+
+  _strictFiles = new Map([
+    [fileName, outputCode],
+    [inputFileName, inputCode],
+  ]);
+  _strictKnown = new Set([fileName, inputFileName, AMBIENT_FILE]);
+
+  const rootFiles = [fileName, inputFileName, AMBIENT_FILE];
+  const program = ts.createProgram(rootFiles, STRICT_OPTS, strictHost, _strictOldProgram);
+  _strictOldProgram = program;
+
+  function getDiags(target: string) {
+    const sf = program.getSourceFile(target);
+    if (!sf)
+      return {
+        msgs: new Set<string>(),
+        diags: [] as { msg: string; start: number; length: number }[],
+      };
+    const raw = [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)];
+    const msgs = new Set<string>();
+    const diags: { msg: string; start: number; length: number }[] = [];
+    for (const d of raw) {
+      const msg = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
+      msgs.add(msg);
+      diags.push({ msg, start: d.start ?? 0, length: d.length ?? 0 });
+    }
+    return { msgs, diags };
+  }
+
+  const { diags: outputDiags } = getDiags(fileName);
+  if (outputDiags.length === 0) return [];
+
+  const { msgs: inputMsgs } = getDiags(inputFileName);
+  return outputDiags
+    .filter((d) => !inputMsgs.has(d.msg))
+    .map((d) => ({
+      file: fileName,
+      start: d.start,
+      length: d.length,
+      message: `[strictOutput] ${d.msg}`,
+      severity: "warning" as const,
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// Compile: transform + optional strictOutput typecheck
 // ---------------------------------------------------------------------------
 
 interface CompileResult {
@@ -270,26 +374,37 @@ interface CompileResult {
   diagnostics: TransformDiagnostic[];
   changed: boolean;
   cached: boolean;
+  sourceMap?: unknown; // RawSourceMap — sent to client for position mapping
 }
 
-function compile(code: string, fileName: string): CompileResult {
-  const cacheKey = hashContent(code + "\0" + fileName);
+function compile(code: string, fileName: string, strict: boolean): CompileResult {
+  const cacheKey = hashContent(code + "\0" + fileName + "\0" + (strict ? "strict" : "fast"));
 
   const cached = cache.get(cacheKey);
   if (cached) {
     return { ...cached, cached: true };
   }
 
+  const resolvedFileName = path.resolve(fileName);
   const result = transformCode(code, {
     fileName,
     extraRootFiles: [AMBIENT_FILE],
-    strictOutput: true,
+    strictOutput: false, // never use the built-in check — we handle it ourselves
+    preserveBlankLines: true, // enables expansion tracking → source maps for position mapping
     readFile: (f: string) => {
       if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
       return ts.sys.readFile(f);
     },
     fileExists: (f: string) => f === AMBIENT_FILE || ts.sys.fileExists(f),
   });
+
+  // Only run the expensive strictOutput typecheck when requested
+  if (strict && result.changed) {
+    const strictDiags = typecheckOutput(result.code, code, resolvedFileName);
+    if (strictDiags.length > 0) {
+      result.diagnostics = [...result.diagnostics, ...strictDiags];
+    }
+  }
 
   const entry: CacheEntry = {
     code: result.code,
@@ -298,7 +413,7 @@ function compile(code: string, fileName: string): CompileResult {
   };
   cache.set(cacheKey, entry);
 
-  return { ...entry, cached: false };
+  return { ...entry, cached: false, sourceMap: result.sourceMap ?? undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +450,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const code: string = body.code;
   const fileName: string = typeof body.fileName === "string" ? body.fileName : "input.ts";
+  const strict: boolean = body.strict === true;
 
   if (code.trim() === "") {
     return res.status(200).json({
@@ -348,7 +464,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const start = performance.now();
 
   try {
-    const result = compile(code, fileName);
+    const result = compile(code, fileName, strict);
     const elapsed = Math.round(performance.now() - start);
 
     console.log(
@@ -373,6 +489,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       changed: result.changed,
       cached: result.cached,
       compileTimeMs: elapsed,
+      sourceMap: result.sourceMap,
     });
   } catch (err) {
     const elapsed = Math.round(performance.now() - start);

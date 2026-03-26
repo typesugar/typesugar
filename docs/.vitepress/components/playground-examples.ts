@@ -1,3 +1,5 @@
+import { ref } from "vue";
+
 export interface ExamplePreset {
   name: string;
   description: string;
@@ -117,10 +119,10 @@ function parseExample(path: string, raw: string): { group: string; preset: Examp
   return { group, preset: { name: name || path, description, fileType, code } };
 }
 
-export const EXAMPLE_GROUPS: ExampleGroup[] = (() => {
+function buildGroups(files: Record<string, string>): ExampleGroup[] {
   const groupMap = new Map<string, ExamplePreset[]>();
 
-  for (const [path, raw] of Object.entries(rawFiles)) {
+  for (const [path, raw] of Object.entries(files)) {
     const parsed = parseExample(path, raw);
     if (!parsed) continue;
 
@@ -151,7 +153,18 @@ export const EXAMPLE_GROUPS: ExampleGroup[] = (() => {
     }))
     .sort((a, b) => a.order - b.order)
     .map(({ label, presets }) => ({ label, presets }));
-})();
+}
+
+/** Reactive example groups — updated via HMR when example files change. */
+export const EXAMPLE_GROUPS = ref<ExampleGroup[]>(buildGroups(rawFiles));
 
 /** The default code shown when the playground first loads. */
-export const DEFAULT_CODE = EXAMPLE_GROUPS[0]?.presets[0]?.code ?? "// Welcome to typesugar!\n";
+export const DEFAULT_CODE =
+  EXAMPLE_GROUPS.value[0]?.presets[0]?.code ?? "// Welcome to typesugar!\n";
+
+// HMR: when example files change, Vite invalidates this module's eager
+// glob imports and re-executes it. Accepting here lets the new
+// EXAMPLE_GROUPS ref propagate to the component without a full reload.
+if (import.meta.hot) {
+  import.meta.hot.accept();
+}

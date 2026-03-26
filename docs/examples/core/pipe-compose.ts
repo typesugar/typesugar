@@ -1,29 +1,27 @@
 //! pipe & compose
 //! Zero-cost function composition
 
-import { pipe, compose, flow } from "typesugar";
+import { pipe, compose } from "typesugar";
 
-// pipe(), compose(), and flow() transform at compile time
+// pipe() and compose() transform at compile time
 // 👀 Check JS Output to see the zero-cost compilation — nested calls, no wrapper overhead!
 
 const double = (x: number) => x * 2;
 const addTen = (x: number) => x + 10;
-const toString = (x: number) => `Result: ${x}`;
+const format = (x: number) => `Result: ${x}`;
 
 // pipe: value flows left-to-right through functions
 // Compiles to: toString(addTen(double(5)))
-const result1 = pipe(5, double, addTen, toString);
+const result1 = pipe(5, double, addTen, format);
 console.log("pipe:", result1); // "Result: 20"
 
 // compose: creates a new function (right-to-left)
 // Compiles to: (x) => toString(addTen(double(x)))
-const process = compose(toString, addTen, double);
+const process = compose(format, addTen, double);
 console.log("compose:", process(5)); // "Result: 20"
 
-// flow: like compose but left-to-right (more readable)
-// Compiles to: (x) => toString(addTen(double(x)))
-const processFlow = flow(double, addTen, toString);
-console.log("flow:", processFlow(5)); // "Result: 20"
+// pipe also works inline — no intermediate variable needed
+console.log("inline:", pipe(5, double, addTen, format)); // "Result: 20"
 
 // Real-world example: data pipeline
 const users = [

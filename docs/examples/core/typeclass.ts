@@ -21,34 +21,22 @@ const showString: Show<string> = {
   show: (s) => `"${s}"`,
 };
 
-/** @impl Show<boolean> */
-const showBool: Show<boolean> = {
-  show: (b) => b ? "true" : "false",
-};
-
 // summon() gets a specific instance at compile time
 const showN = summon<Show<number>>();
 console.log("summon<Show<number>>().show(42):", showN.show(42));
 
 // implicit() enables generic functions — instance resolved at each call site
-function showValue(value: number, S: Show<number> = implicit()): string {
-  return S.show(value);
-}
-
-function showStr(value: string, S: Show<string> = implicit()): string {
+function show<A>(value: A, S: Show<A> = implicit()): string {
   return S.show(value);
 }
 
 // Each call resolves to the correct instance automatically:
-console.log("show(42):", showValue(42));
-console.log('show("hi"):', showStr("hello"));
-console.log("show(true):", showBool.show(true));
-
+console.log("show(42):", show(42));
+console.log('show("hi"):', show("hello"));
 // Auto-derivation: summon synthesizes instances for your own types
 // No @derive or @impl needed — just define the type!
 interface Point { x: number; y: number; }
 
-const showPoint = summon<Show<Point>>();
-console.log("auto-derived:", showPoint.show({ x: 1, y: 2 }));
+console.log("show(point):", show({ x: 1, y: 2 } as Point));
 
 // Try: add a z field to Point and watch the derived show expand

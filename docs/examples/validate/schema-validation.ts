@@ -1,11 +1,10 @@
 //! Schema Validation
-//! is<T>() and assert<T>() generate type guards from types at compile time
+//! comptime() + typeInfo() generate validators from types at compile time
 
-import { is, assert } from "@typesugar/validate";
-import { comptime, staticAssert } from "typesugar";
+import { comptime, staticAssert, typeInfo } from "typesugar";
 
-// @typesugar/validate reads your TypeScript types at compile time
-// and generates runtime validators — no manual schema definitions!
+// Use typeInfo() to introspect types at compile time,
+// then build validators from the generated metadata.
 
 interface User {
   id: number;
@@ -14,9 +13,24 @@ interface User {
   active: boolean;
 }
 
-// 👀 Check JS Output — is<User>() becomes a function that checks
-// typeof id === "number" && typeof name === "string" && ...
-const isUser = is<User>();
+// 👀 Check JS Output — typeInfo<User>() becomes a literal object
+const userSchema = typeInfo<User>();
+console.log("Schema:", userSchema.name, "—", userSchema.fields?.length, "fields");
+
+// Build a validator from the compile-time schema
+function makeValidator(schema: { fields?: Array<{ name: string; type: string }> }) {
+  return (obj: unknown): boolean => {
+    if (typeof obj !== "object" || obj === null) return false;
+    for (const f of schema.fields ?? []) {
+      if (f.type === "number" && typeof (obj as any)[f.name] !== "number") return false;
+      if (f.type === "string" && typeof (obj as any)[f.name] !== "string") return false;
+      if (f.type === "boolean" && typeof (obj as any)[f.name] !== "boolean") return false;
+    }
+    return true;
+  };
+}
+
+const isUser = makeValidator(userSchema);
 
 const testData = comptime(() => [
   { id: 1, name: "Alice", email: "alice@co.com", active: true },
@@ -30,13 +44,9 @@ for (const item of testData) {
   console.log(`${JSON.stringify(item)}: valid=${isUser(item)}`);
 }
 
-// assert<T>() throws on invalid data — great for API boundaries
-const assertUser = assert<User>();
-try {
-  const user = assertUser(testData[0]);
-  console.log("\nAsserted user:", user.name, user.email);
-} catch (e) {
-  console.log("Assertion failed:", (e as Error).message);
+// Show the field types from compile-time reflection
+for (const f of userSchema.fields ?? []) {
+  console.log(`  ${f.name}: ${f.type}`);
 }
 
 // Try: add an "age" field to User and watch the validator update automatically
