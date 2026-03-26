@@ -9,11 +9,19 @@
 
 import type * as Monaco from "monaco-editor";
 import { TSWorkerClient, type WorkerDiagnostic } from "./playground-worker-client";
+// Import from the source file directly to avoid @typesugar/core barrel
+// which has side-effect code referencing process.env (not in browser).
 import {
   createPositionMapperCore,
   type PositionMapperCore,
-  type RawSourceMap,
-} from "@typesugar/transformer-core";
+} from "../../../packages/transformer-core/src/position-mapping-core.js";
+
+interface RawSourceMap {
+  version: number;
+  sources: string[];
+  names: string[];
+  mappings: string;
+}
 
 const INPUT_FILE = "input.ts";
 

@@ -59,6 +59,7 @@ interface Array<T> {
   splice(start: number, deleteCount?: number, ...items: T[]): T[];
   sort(compareFn?: (a: T, b: T) => number): this;
   [n: number]: T;
+  [Symbol.iterator](): IterableIterator<T>;
 }
 
 interface String {
@@ -174,8 +175,56 @@ interface PromiseConstructor {
 }
 declare var Promise: PromiseConstructor;
 
-interface Symbol {}
-interface IterableIterator<T> {}
+interface StringConstructor {
+  (value?: any): string;
+  fromCharCode(...codes: number[]): string;
+}
+declare var String: StringConstructor;
+
+interface NumberConstructor {
+  (value?: any): number;
+  isNaN(value: unknown): boolean;
+  isFinite(value: unknown): boolean;
+  parseInt(string: string, radix?: number): number;
+  parseFloat(string: string): number;
+}
+declare var Number: NumberConstructor;
+
+interface BooleanConstructor {
+  (value?: any): boolean;
+}
+declare var Boolean: BooleanConstructor;
+
+interface ArrayConstructor {
+  isArray(arg: any): arg is any[];
+  from<T>(arrayLike: ArrayLike<T>): T[];
+}
+declare var Array: ArrayConstructor;
+
+interface Symbol {
+  readonly description: string | undefined;
+}
+interface SymbolConstructor {
+  readonly iterator: unique symbol;
+  readonly hasInstance: unique symbol;
+  readonly toPrimitive: unique symbol;
+}
+declare var Symbol: SymbolConstructor;
+
+interface IterableIterator<T> {
+  next(): IteratorResult<T>;
+  [Symbol.iterator](): IterableIterator<T>;
+}
+interface IteratorResult<T> {
+  done?: boolean;
+  value: T;
+}
+interface Iterable<T> {
+  [Symbol.iterator](): Iterator<T>;
+}
+interface Iterator<T> {
+  next(): IteratorResult<T>;
+}
 
 type Partial<T> = { [P in keyof T]?: T[P] };
 type Required<T> = { [P in keyof T]-?: T[P] };

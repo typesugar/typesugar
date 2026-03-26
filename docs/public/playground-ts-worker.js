@@ -2149,9 +2149,18 @@ Did you specify these with the most recent transformation maps first?`);
       code: d.code,
     };
   }
+  var SUPPRESSED_CODES = /* @__PURE__ */ new Set([
+    2304,
+    // Cannot find name 'x' — match/do-notation bindings
+    2552,
+    // Cannot find name 'x'. Did you mean 'y'? — same
+    2503,
+    // Cannot find namespace — macro-generated references
+  ]);
   function filterDiagnostics(diags) {
     const result = [];
     for (const d of diags) {
+      if (SUPPRESSED_CODES.has(d.code)) continue;
       if (positionMapper && d.start !== void 0) {
         const origPos = positionMapper.toOriginal(d.start);
         if (origPos === null) continue;

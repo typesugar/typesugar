@@ -122,10 +122,22 @@ function serializeDiagnostic(d: ts.Diagnostic): SerializedDiagnostic {
   };
 }
 
-/** Filter diagnostics using MacroGenerated rule: suppress if position can't map to original */
+// TS error codes that are almost always false positives from macro expansions
+// in the playground context. The VS Code extension uses full SFINAE rules for
+// these; here we use a simpler code-based filter.
+const SUPPRESSED_CODES = new Set([
+  2304, // Cannot find name 'x' — match/do-notation bindings
+  2552, // Cannot find name 'x'. Did you mean 'y'? — same
+  2503, // Cannot find namespace — macro-generated references
+]);
+
+/** Filter diagnostics: suppress generated code + known macro false positives */
 function filterDiagnostics(diags: readonly ts.Diagnostic[]): SerializedDiagnostic[] {
   const result: SerializedDiagnostic[] = [];
   for (const d of diags) {
+    // Suppress known false-positive error codes from macro expansions
+    if (SUPPRESSED_CODES.has(d.code)) continue;
+
     // If we have a position mapper, suppress diagnostics in generated code
     if (positionMapper && d.start !== undefined) {
       const origPos = positionMapper.toOriginal(d.start);
