@@ -112,6 +112,10 @@ export class TSWorkerClient {
     await this.call("addLib", fileName, content);
   }
 
+  async setSourceMap(sourceMap: unknown, original: string, transformed: string): Promise<void> {
+    await this.call("setSourceMap", sourceMap, original, transformed);
+  }
+
   async getDiagnostics(fileName: string): Promise<WorkerDiagnostic[]> {
     return ((await this.call("getDiagnostics", fileName)) as WorkerDiagnostic[]) ?? [];
   }

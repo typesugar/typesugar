@@ -1,227 +1,2261 @@
-/**
- * Web Worker running a TypeScript LanguageService on transformed code.
- * Plain JS — served as a static file from docs/public/.
- *
- * Lib files (console, Math, etc.) and ambient declarations are added
- * from the main thread via "addLib" messages after the worker is ready.
- */
+(function () {
+  "use strict";
 
-// Load TypeScript from CDN
-var TS_CDN = "https://cdn.jsdelivr.net/npm/typescript@5.8/lib";
-importScripts(TS_CDN + "/typescript.js");
-
-// ---------------------------------------------------------------------------
-// Virtual file system
-// ---------------------------------------------------------------------------
-
-var files = new Map();
-var INPUT_FILE = "input.ts";
-
-function setFile(name, content) {
-  var existing = files.get(name);
-  if (existing) {
-    existing.content = content;
-    existing.version++;
-  } else {
-    files.set(name, { content: content, version: 1 });
-  }
-}
-
-setFile(INPUT_FILE, "");
-
-// ---------------------------------------------------------------------------
-// Language Service Host
-// ---------------------------------------------------------------------------
-
-var compilerOptions = {
-  target: ts.ScriptTarget.ES2020,
-  module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  esModuleInterop: true,
-  strict: false,
-  noImplicitAny: false,
-  noEmit: true,
-  allowJs: true,
-  jsx: ts.JsxEmit.React,
-  experimentalDecorators: true,
-  skipLibCheck: true,
-  skipDefaultLibCheck: true,
-  types: [],
-  typeRoots: [],
-};
-
-var lsHost = {
-  getScriptFileNames: function () {
-    return Array.from(files.keys());
-  },
-  getScriptVersion: function (fileName) {
-    var file = files.get(fileName);
-    return file ? String(file.version) : "0";
-  },
-  getScriptSnapshot: function (fileName) {
-    var file = files.get(fileName);
-    if (file) return ts.ScriptSnapshot.fromString(file.content);
-    return undefined;
-  },
-  getCurrentDirectory: function () {
-    return "/";
-  },
-  getCompilationSettings: function () {
-    return compilerOptions;
-  },
-  getDefaultLibFileName: function () {
-    return "";
-  },
-  fileExists: function (fileName) {
-    return files.has(fileName);
-  },
-  readFile: function (fileName) {
-    var f = files.get(fileName);
-    return f ? f.content : undefined;
-  },
-};
-
-var documentRegistry = ts.createDocumentRegistry();
-var lsvc = ts.createLanguageService(lsHost, documentRegistry);
-
-// ---------------------------------------------------------------------------
-// Message handling
-// ---------------------------------------------------------------------------
-
-function serializeDiagnostic(d) {
-  var msg = typeof d.messageText === "string" ? d.messageText : d.messageText.messageText;
-  return {
-    start: d.start || 0,
-    length: d.length || 0,
-    messageText: msg,
-    category: d.category,
-    code: d.code,
-  };
-}
-
-function handleMessage(msg) {
-  var method = msg.method;
-  var params = msg.params;
-
-  switch (method) {
-    case "updateFile":
-      setFile(params[0], params[1]);
-      return { ok: true };
-
-    case "addLib":
-      setFile(params[0], params[1]);
-      return { ok: true };
-
-    case "getDiagnostics": {
-      var syn = lsvc.getSyntacticDiagnostics(params[0]);
-      var sem = lsvc.getSemanticDiagnostics(params[0]);
-      return syn.concat(sem).map(serializeDiagnostic);
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __defNormalProp = (obj, key, value) =>
+    key in obj
+      ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value })
+      : (obj[key] = value);
+  var __commonJS = (cb, mod) =>
+    function __require() {
+      return (
+        mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod),
+        mod.exports
+      );
+    };
+  var __copyProps = (to, from, except, desc) => {
+    if ((from && typeof from === "object") || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, {
+            get: () => from[key],
+            enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable,
+          });
     }
+    return to;
+  };
+  var __toESM = (mod, isNodeMode, target) => (
+    (target = mod != null ? __create(__getProtoOf(mod)) : {}),
+    __copyProps(
+      // If the importer is in node compatibility mode or this is not an ESM
+      // file that has been converted to a CommonJS file using a Babel-
+      // compatible transform (i.e. "__esModule" has not been set), then set
+      // "default" to the CommonJS "module.exports" for node compatibility.
+      __defProp(target, "default", { value: mod, enumerable: true }),
+      mod
+    )
+  );
+  var __publicField = (obj, key, value) =>
+    __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
-    case "getCompletions": {
-      var result = lsvc.getCompletionsAtPosition(params[0], params[1], {
-        includeCompletionsForModuleExports: false,
-        includeCompletionsWithInsertText: true,
-      });
-      if (!result) return null;
-      return {
-        isGlobalCompletion: result.isGlobalCompletion,
-        isMemberCompletion: result.isMemberCompletion,
-        entries: result.entries.map(function (e) {
+  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  var require_resolve_uri_umd = __commonJS({
+    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(
+      exports$1,
+      module
+    ) {
+      (function (global, factory) {
+        typeof exports$1 === "object" && typeof module !== "undefined"
+          ? (module.exports = factory())
+          : typeof define === "function" && define.amd
+            ? define(factory)
+            : ((global = typeof globalThis !== "undefined" ? globalThis : global || self),
+              (global.resolveURI = factory()));
+      })(exports$1, function () {
+        const schemeRegex = /^[\w+.-]+:\/\//;
+        const urlRegex = /^([\w+.-]+:)\/\/([^@/#?]*@)?([^:/#?]*)(:\d+)?(\/[^#?]*)?(\?[^#]*)?(#.*)?/;
+        const fileRegex = /^file:(?:\/\/((?![a-z]:)[^/#?]*)?)?(\/?[^#?]*)(\?[^#]*)?(#.*)?/i;
+        function isAbsoluteUrl(input) {
+          return schemeRegex.test(input);
+        }
+        function isSchemeRelativeUrl(input) {
+          return input.startsWith("//");
+        }
+        function isAbsolutePath(input) {
+          return input.startsWith("/");
+        }
+        function isFileUrl(input) {
+          return input.startsWith("file:");
+        }
+        function isRelative(input) {
+          return /^[.?#]/.test(input);
+        }
+        function parseAbsoluteUrl(input) {
+          const match = urlRegex.exec(input);
+          return makeUrl(
+            match[1],
+            match[2] || "",
+            match[3],
+            match[4] || "",
+            match[5] || "/",
+            match[6] || "",
+            match[7] || ""
+          );
+        }
+        function parseFileUrl(input) {
+          const match = fileRegex.exec(input);
+          const path = match[2];
+          return makeUrl(
+            "file:",
+            "",
+            match[1] || "",
+            "",
+            isAbsolutePath(path) ? path : "/" + path,
+            match[3] || "",
+            match[4] || ""
+          );
+        }
+        function makeUrl(scheme, user, host, port, path, query, hash) {
           return {
+            scheme,
+            user,
+            host,
+            port,
+            path,
+            query,
+            hash,
+            type: 7,
+          };
+        }
+        function parseUrl(input) {
+          if (isSchemeRelativeUrl(input)) {
+            const url2 = parseAbsoluteUrl("http:" + input);
+            url2.scheme = "";
+            url2.type = 6;
+            return url2;
+          }
+          if (isAbsolutePath(input)) {
+            const url2 = parseAbsoluteUrl("http://foo.com" + input);
+            url2.scheme = "";
+            url2.host = "";
+            url2.type = 5;
+            return url2;
+          }
+          if (isFileUrl(input)) return parseFileUrl(input);
+          if (isAbsoluteUrl(input)) return parseAbsoluteUrl(input);
+          const url = parseAbsoluteUrl("http://foo.com/" + input);
+          url.scheme = "";
+          url.host = "";
+          url.type = input ? (input.startsWith("?") ? 3 : input.startsWith("#") ? 2 : 4) : 1;
+          return url;
+        }
+        function stripPathFilename(path) {
+          if (path.endsWith("/..")) return path;
+          const index = path.lastIndexOf("/");
+          return path.slice(0, index + 1);
+        }
+        function mergePaths(url, base) {
+          normalizePath(base, base.type);
+          if (url.path === "/") {
+            url.path = base.path;
+          } else {
+            url.path = stripPathFilename(base.path) + url.path;
+          }
+        }
+        function normalizePath(url, type) {
+          const rel = type <= 4;
+          const pieces = url.path.split("/");
+          let pointer = 1;
+          let positive = 0;
+          let addTrailingSlash = false;
+          for (let i = 1; i < pieces.length; i++) {
+            const piece = pieces[i];
+            if (!piece) {
+              addTrailingSlash = true;
+              continue;
+            }
+            addTrailingSlash = false;
+            if (piece === ".") continue;
+            if (piece === "..") {
+              if (positive) {
+                addTrailingSlash = true;
+                positive--;
+                pointer--;
+              } else if (rel) {
+                pieces[pointer++] = piece;
+              }
+              continue;
+            }
+            pieces[pointer++] = piece;
+            positive++;
+          }
+          let path = "";
+          for (let i = 1; i < pointer; i++) {
+            path += "/" + pieces[i];
+          }
+          if (!path || (addTrailingSlash && !path.endsWith("/.."))) {
+            path += "/";
+          }
+          url.path = path;
+        }
+        function resolve(input, base) {
+          if (!input && !base) return "";
+          const url = parseUrl(input);
+          let inputType = url.type;
+          if (base && inputType !== 7) {
+            const baseUrl = parseUrl(base);
+            const baseType = baseUrl.type;
+            switch (inputType) {
+              case 1:
+                url.hash = baseUrl.hash;
+              // fall through
+              case 2:
+                url.query = baseUrl.query;
+              // fall through
+              case 3:
+              case 4:
+                mergePaths(url, baseUrl);
+              // fall through
+              case 5:
+                url.user = baseUrl.user;
+                url.host = baseUrl.host;
+                url.port = baseUrl.port;
+              // fall through
+              case 6:
+                url.scheme = baseUrl.scheme;
+            }
+            if (baseType > inputType) inputType = baseType;
+          }
+          normalizePath(url, inputType);
+          const queryHash = url.query + url.hash;
+          switch (inputType) {
+            // This is impossible, because of the empty checks at the start of the function.
+            // case UrlType.Empty:
+            case 2:
+            case 3:
+              return queryHash;
+            case 4: {
+              const path = url.path.slice(1);
+              if (!path) return queryHash || ".";
+              if (isRelative(base || input) && !isRelative(path)) {
+                return "./" + path + queryHash;
+              }
+              return path + queryHash;
+            }
+            case 5:
+              return url.path + queryHash;
+            default:
+              return url.scheme + "//" + url.user + url.host + url.port + url.path + queryHash;
+          }
+        }
+        return resolve;
+      });
+    },
+  });
+
+  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.umd.js
+  var require_sourcemap_codec_umd = __commonJS({
+    "../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.umd.js"(
+      exports$1,
+      module
+    ) {
+      (function (global, factory) {
+        if (typeof exports$1 === "object" && typeof module !== "undefined") {
+          factory(module);
+          module.exports = def(module);
+        } else if (typeof define === "function" && define.amd) {
+          define(["module"], function (mod) {
+            factory.apply(this, arguments);
+            mod.exports = def(mod);
+          });
+        } else {
+          const mod = { exports: {} };
+          factory(mod);
+          global = typeof globalThis !== "undefined" ? globalThis : global || self;
+          global.sourcemapCodec = def(mod);
+        }
+        function def(m) {
+          return "default" in m.exports ? m.exports.default : m.exports;
+        }
+      })(exports$1, function (module2) {
+        var __defProp2 = Object.defineProperty;
+        var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+        var __getOwnPropNames2 = Object.getOwnPropertyNames;
+        var __hasOwnProp2 = Object.prototype.hasOwnProperty;
+        var __export = (target, all) => {
+          for (var name in all) __defProp2(target, name, { get: all[name], enumerable: true });
+        };
+        var __copyProps2 = (to, from, except, desc) => {
+          if ((from && typeof from === "object") || typeof from === "function") {
+            for (let key of __getOwnPropNames2(from))
+              if (!__hasOwnProp2.call(to, key) && key !== except)
+                __defProp2(to, key, {
+                  get: () => from[key],
+                  enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable,
+                });
+          }
+          return to;
+        };
+        var __toCommonJS = (mod) =>
+          __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+        var sourcemap_codec_exports = {};
+        __export(sourcemap_codec_exports, {
+          decode: () => decode,
+          decodeGeneratedRanges: () => decodeGeneratedRanges,
+          decodeOriginalScopes: () => decodeOriginalScopes,
+          encode: () => encode,
+          encodeGeneratedRanges: () => encodeGeneratedRanges,
+          encodeOriginalScopes: () => encodeOriginalScopes,
+        });
+        module2.exports = __toCommonJS(sourcemap_codec_exports);
+        var comma = ",".charCodeAt(0);
+        var semicolon = ";".charCodeAt(0);
+        var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        var intToChar = new Uint8Array(64);
+        var charToInt = new Uint8Array(128);
+        for (let i = 0; i < chars.length; i++) {
+          const c = chars.charCodeAt(i);
+          intToChar[i] = c;
+          charToInt[c] = i;
+        }
+        function decodeInteger(reader, relative) {
+          let value = 0;
+          let shift = 0;
+          let integer = 0;
+          do {
+            const c = reader.next();
+            integer = charToInt[c];
+            value |= (integer & 31) << shift;
+            shift += 5;
+          } while (integer & 32);
+          const shouldNegate = value & 1;
+          value >>>= 1;
+          if (shouldNegate) {
+            value = -2147483648 | -value;
+          }
+          return relative + value;
+        }
+        function encodeInteger(builder, num, relative) {
+          let delta = num - relative;
+          delta = delta < 0 ? (-delta << 1) | 1 : delta << 1;
+          do {
+            let clamped = delta & 31;
+            delta >>>= 5;
+            if (delta > 0) clamped |= 32;
+            builder.write(intToChar[clamped]);
+          } while (delta > 0);
+          return num;
+        }
+        function hasMoreVlq(reader, max) {
+          if (reader.pos >= max) return false;
+          return reader.peek() !== comma;
+        }
+        var bufLength = 1024 * 16;
+        var td =
+          typeof TextDecoder !== "undefined"
+            ? /* @__PURE__ */ new TextDecoder()
+            : typeof Buffer !== "undefined"
+              ? {
+                  decode(buf) {
+                    const out = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
+                    return out.toString();
+                  },
+                }
+              : {
+                  decode(buf) {
+                    let out = "";
+                    for (let i = 0; i < buf.length; i++) {
+                      out += String.fromCharCode(buf[i]);
+                    }
+                    return out;
+                  },
+                };
+        var StringWriter = class {
+          constructor() {
+            this.pos = 0;
+            this.out = "";
+            this.buffer = new Uint8Array(bufLength);
+          }
+          write(v) {
+            const { buffer } = this;
+            buffer[this.pos++] = v;
+            if (this.pos === bufLength) {
+              this.out += td.decode(buffer);
+              this.pos = 0;
+            }
+          }
+          flush() {
+            const { buffer, out, pos } = this;
+            return pos > 0 ? out + td.decode(buffer.subarray(0, pos)) : out;
+          }
+        };
+        var StringReader = class {
+          constructor(buffer) {
+            this.pos = 0;
+            this.buffer = buffer;
+          }
+          next() {
+            return this.buffer.charCodeAt(this.pos++);
+          }
+          peek() {
+            return this.buffer.charCodeAt(this.pos);
+          }
+          indexOf(char) {
+            const { buffer, pos } = this;
+            const idx = buffer.indexOf(char, pos);
+            return idx === -1 ? buffer.length : idx;
+          }
+        };
+        var EMPTY = [];
+        function decodeOriginalScopes(input) {
+          const { length } = input;
+          const reader = new StringReader(input);
+          const scopes = [];
+          const stack = [];
+          let line = 0;
+          for (; reader.pos < length; reader.pos++) {
+            line = decodeInteger(reader, line);
+            const column = decodeInteger(reader, 0);
+            if (!hasMoreVlq(reader, length)) {
+              const last = stack.pop();
+              last[2] = line;
+              last[3] = column;
+              continue;
+            }
+            const kind = decodeInteger(reader, 0);
+            const fields = decodeInteger(reader, 0);
+            const hasName = fields & 1;
+            const scope = hasName
+              ? [line, column, 0, 0, kind, decodeInteger(reader, 0)]
+              : [line, column, 0, 0, kind];
+            let vars = EMPTY;
+            if (hasMoreVlq(reader, length)) {
+              vars = [];
+              do {
+                const varsIndex = decodeInteger(reader, 0);
+                vars.push(varsIndex);
+              } while (hasMoreVlq(reader, length));
+            }
+            scope.vars = vars;
+            scopes.push(scope);
+            stack.push(scope);
+          }
+          return scopes;
+        }
+        function encodeOriginalScopes(scopes) {
+          const writer = new StringWriter();
+          for (let i = 0; i < scopes.length; ) {
+            i = _encodeOriginalScopes(scopes, i, writer, [0]);
+          }
+          return writer.flush();
+        }
+        function _encodeOriginalScopes(scopes, index, writer, state) {
+          const scope = scopes[index];
+          const { 0: startLine, 1: startColumn, 2: endLine, 3: endColumn, 4: kind, vars } = scope;
+          if (index > 0) writer.write(comma);
+          state[0] = encodeInteger(writer, startLine, state[0]);
+          encodeInteger(writer, startColumn, 0);
+          encodeInteger(writer, kind, 0);
+          const fields = scope.length === 6 ? 1 : 0;
+          encodeInteger(writer, fields, 0);
+          if (scope.length === 6) encodeInteger(writer, scope[5], 0);
+          for (const v of vars) {
+            encodeInteger(writer, v, 0);
+          }
+          for (index++; index < scopes.length; ) {
+            const next = scopes[index];
+            const { 0: l, 1: c } = next;
+            if (l > endLine || (l === endLine && c >= endColumn)) {
+              break;
+            }
+            index = _encodeOriginalScopes(scopes, index, writer, state);
+          }
+          writer.write(comma);
+          state[0] = encodeInteger(writer, endLine, state[0]);
+          encodeInteger(writer, endColumn, 0);
+          return index;
+        }
+        function decodeGeneratedRanges(input) {
+          const { length } = input;
+          const reader = new StringReader(input);
+          const ranges = [];
+          const stack = [];
+          let genLine = 0;
+          let definitionSourcesIndex = 0;
+          let definitionScopeIndex = 0;
+          let callsiteSourcesIndex = 0;
+          let callsiteLine = 0;
+          let callsiteColumn = 0;
+          let bindingLine = 0;
+          let bindingColumn = 0;
+          do {
+            const semi = reader.indexOf(";");
+            let genColumn = 0;
+            for (; reader.pos < semi; reader.pos++) {
+              genColumn = decodeInteger(reader, genColumn);
+              if (!hasMoreVlq(reader, semi)) {
+                const last = stack.pop();
+                last[2] = genLine;
+                last[3] = genColumn;
+                continue;
+              }
+              const fields = decodeInteger(reader, 0);
+              const hasDefinition = fields & 1;
+              const hasCallsite = fields & 2;
+              const hasScope = fields & 4;
+              let callsite = null;
+              let bindings = EMPTY;
+              let range;
+              if (hasDefinition) {
+                const defSourcesIndex = decodeInteger(reader, definitionSourcesIndex);
+                definitionScopeIndex = decodeInteger(
+                  reader,
+                  definitionSourcesIndex === defSourcesIndex ? definitionScopeIndex : 0
+                );
+                definitionSourcesIndex = defSourcesIndex;
+                range = [genLine, genColumn, 0, 0, defSourcesIndex, definitionScopeIndex];
+              } else {
+                range = [genLine, genColumn, 0, 0];
+              }
+              range.isScope = !!hasScope;
+              if (hasCallsite) {
+                const prevCsi = callsiteSourcesIndex;
+                const prevLine = callsiteLine;
+                callsiteSourcesIndex = decodeInteger(reader, callsiteSourcesIndex);
+                const sameSource = prevCsi === callsiteSourcesIndex;
+                callsiteLine = decodeInteger(reader, sameSource ? callsiteLine : 0);
+                callsiteColumn = decodeInteger(
+                  reader,
+                  sameSource && prevLine === callsiteLine ? callsiteColumn : 0
+                );
+                callsite = [callsiteSourcesIndex, callsiteLine, callsiteColumn];
+              }
+              range.callsite = callsite;
+              if (hasMoreVlq(reader, semi)) {
+                bindings = [];
+                do {
+                  bindingLine = genLine;
+                  bindingColumn = genColumn;
+                  const expressionsCount = decodeInteger(reader, 0);
+                  let expressionRanges;
+                  if (expressionsCount < -1) {
+                    expressionRanges = [[decodeInteger(reader, 0)]];
+                    for (let i = -1; i > expressionsCount; i--) {
+                      const prevBl = bindingLine;
+                      bindingLine = decodeInteger(reader, bindingLine);
+                      bindingColumn = decodeInteger(
+                        reader,
+                        bindingLine === prevBl ? bindingColumn : 0
+                      );
+                      const expression = decodeInteger(reader, 0);
+                      expressionRanges.push([expression, bindingLine, bindingColumn]);
+                    }
+                  } else {
+                    expressionRanges = [[expressionsCount]];
+                  }
+                  bindings.push(expressionRanges);
+                } while (hasMoreVlq(reader, semi));
+              }
+              range.bindings = bindings;
+              ranges.push(range);
+              stack.push(range);
+            }
+            genLine++;
+            reader.pos = semi + 1;
+          } while (reader.pos < length);
+          return ranges;
+        }
+        function encodeGeneratedRanges(ranges) {
+          if (ranges.length === 0) return "";
+          const writer = new StringWriter();
+          for (let i = 0; i < ranges.length; ) {
+            i = _encodeGeneratedRanges(ranges, i, writer, [0, 0, 0, 0, 0, 0, 0]);
+          }
+          return writer.flush();
+        }
+        function _encodeGeneratedRanges(ranges, index, writer, state) {
+          const range = ranges[index];
+          const {
+            0: startLine,
+            1: startColumn,
+            2: endLine,
+            3: endColumn,
+            isScope,
+            callsite,
+            bindings,
+          } = range;
+          if (state[0] < startLine) {
+            catchupLine(writer, state[0], startLine);
+            state[0] = startLine;
+            state[1] = 0;
+          } else if (index > 0) {
+            writer.write(comma);
+          }
+          state[1] = encodeInteger(writer, range[1], state[1]);
+          const fields = (range.length === 6 ? 1 : 0) | (callsite ? 2 : 0) | (isScope ? 4 : 0);
+          encodeInteger(writer, fields, 0);
+          if (range.length === 6) {
+            const { 4: sourcesIndex, 5: scopesIndex } = range;
+            if (sourcesIndex !== state[2]) {
+              state[3] = 0;
+            }
+            state[2] = encodeInteger(writer, sourcesIndex, state[2]);
+            state[3] = encodeInteger(writer, scopesIndex, state[3]);
+          }
+          if (callsite) {
+            const { 0: sourcesIndex, 1: callLine, 2: callColumn } = range.callsite;
+            if (sourcesIndex !== state[4]) {
+              state[5] = 0;
+              state[6] = 0;
+            } else if (callLine !== state[5]) {
+              state[6] = 0;
+            }
+            state[4] = encodeInteger(writer, sourcesIndex, state[4]);
+            state[5] = encodeInteger(writer, callLine, state[5]);
+            state[6] = encodeInteger(writer, callColumn, state[6]);
+          }
+          if (bindings) {
+            for (const binding of bindings) {
+              if (binding.length > 1) encodeInteger(writer, -binding.length, 0);
+              const expression = binding[0][0];
+              encodeInteger(writer, expression, 0);
+              let bindingStartLine = startLine;
+              let bindingStartColumn = startColumn;
+              for (let i = 1; i < binding.length; i++) {
+                const expRange = binding[i];
+                bindingStartLine = encodeInteger(writer, expRange[1], bindingStartLine);
+                bindingStartColumn = encodeInteger(writer, expRange[2], bindingStartColumn);
+                encodeInteger(writer, expRange[0], 0);
+              }
+            }
+          }
+          for (index++; index < ranges.length; ) {
+            const next = ranges[index];
+            const { 0: l, 1: c } = next;
+            if (l > endLine || (l === endLine && c >= endColumn)) {
+              break;
+            }
+            index = _encodeGeneratedRanges(ranges, index, writer, state);
+          }
+          if (state[0] < endLine) {
+            catchupLine(writer, state[0], endLine);
+            state[0] = endLine;
+            state[1] = 0;
+          } else {
+            writer.write(comma);
+          }
+          state[1] = encodeInteger(writer, endColumn, state[1]);
+          return index;
+        }
+        function catchupLine(writer, lastLine, line) {
+          do {
+            writer.write(semicolon);
+          } while (++lastLine < line);
+        }
+        function decode(mappings) {
+          const { length } = mappings;
+          const reader = new StringReader(mappings);
+          const decoded = [];
+          let genColumn = 0;
+          let sourcesIndex = 0;
+          let sourceLine = 0;
+          let sourceColumn = 0;
+          let namesIndex = 0;
+          do {
+            const semi = reader.indexOf(";");
+            const line = [];
+            let sorted = true;
+            let lastCol = 0;
+            genColumn = 0;
+            while (reader.pos < semi) {
+              let seg;
+              genColumn = decodeInteger(reader, genColumn);
+              if (genColumn < lastCol) sorted = false;
+              lastCol = genColumn;
+              if (hasMoreVlq(reader, semi)) {
+                sourcesIndex = decodeInteger(reader, sourcesIndex);
+                sourceLine = decodeInteger(reader, sourceLine);
+                sourceColumn = decodeInteger(reader, sourceColumn);
+                if (hasMoreVlq(reader, semi)) {
+                  namesIndex = decodeInteger(reader, namesIndex);
+                  seg = [genColumn, sourcesIndex, sourceLine, sourceColumn, namesIndex];
+                } else {
+                  seg = [genColumn, sourcesIndex, sourceLine, sourceColumn];
+                }
+              } else {
+                seg = [genColumn];
+              }
+              line.push(seg);
+              reader.pos++;
+            }
+            if (!sorted) sort(line);
+            decoded.push(line);
+            reader.pos = semi + 1;
+          } while (reader.pos <= length);
+          return decoded;
+        }
+        function sort(line) {
+          line.sort(sortComparator);
+        }
+        function sortComparator(a, b) {
+          return a[0] - b[0];
+        }
+        function encode(decoded) {
+          const writer = new StringWriter();
+          let sourcesIndex = 0;
+          let sourceLine = 0;
+          let sourceColumn = 0;
+          let namesIndex = 0;
+          for (let i = 0; i < decoded.length; i++) {
+            const line = decoded[i];
+            if (i > 0) writer.write(semicolon);
+            if (line.length === 0) continue;
+            let genColumn = 0;
+            for (let j = 0; j < line.length; j++) {
+              const segment = line[j];
+              if (j > 0) writer.write(comma);
+              genColumn = encodeInteger(writer, segment[0], genColumn);
+              if (segment.length === 1) continue;
+              sourcesIndex = encodeInteger(writer, segment[1], sourcesIndex);
+              sourceLine = encodeInteger(writer, segment[2], sourceLine);
+              sourceColumn = encodeInteger(writer, segment[3], sourceColumn);
+              if (segment.length === 4) continue;
+              namesIndex = encodeInteger(writer, segment[4], namesIndex);
+            }
+          }
+          return writer.flush();
+        }
+      });
+    },
+  });
+
+  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.umd.js
+  var require_trace_mapping_umd = __commonJS({
+    "../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.umd.js"(
+      exports$1,
+      module
+    ) {
+      (function (global, factory) {
+        if (typeof exports$1 === "object" && typeof module !== "undefined") {
+          factory(module, require_resolve_uri_umd(), require_sourcemap_codec_umd());
+          module.exports = def(module);
+        } else if (typeof define === "function" && define.amd) {
+          define(["module", "@jridgewell/resolve-uri", "@jridgewell/sourcemap-codec"], function (
+            mod
+          ) {
+            factory.apply(this, arguments);
+            mod.exports = def(mod);
+          });
+        } else {
+          const mod = { exports: {} };
+          factory(mod, global.resolveURI, global.sourcemapCodec);
+          global = typeof globalThis !== "undefined" ? globalThis : global || self;
+          global.traceMapping = def(mod);
+        }
+        function def(m) {
+          return "default" in m.exports ? m.exports.default : m.exports;
+        }
+      })(exports$1, function (module2, require_resolveURI, require_sourcemapCodec) {
+        var __create2 = Object.create;
+        var __defProp2 = Object.defineProperty;
+        var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+        var __getOwnPropNames2 = Object.getOwnPropertyNames;
+        var __getProtoOf2 = Object.getPrototypeOf;
+        var __hasOwnProp2 = Object.prototype.hasOwnProperty;
+        var __commonJS2 = (cb, mod) =>
+          function __require() {
+            return (
+              mod || (0, cb[__getOwnPropNames2(cb)[0]])((mod = { exports: {} }).exports, mod),
+              mod.exports
+            );
+          };
+        var __export = (target, all) => {
+          for (var name in all) __defProp2(target, name, { get: all[name], enumerable: true });
+        };
+        var __copyProps2 = (to, from, except, desc) => {
+          if ((from && typeof from === "object") || typeof from === "function") {
+            for (let key of __getOwnPropNames2(from))
+              if (!__hasOwnProp2.call(to, key) && key !== except)
+                __defProp2(to, key, {
+                  get: () => from[key],
+                  enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable,
+                });
+          }
+          return to;
+        };
+        var __toESM2 = (mod, isNodeMode, target) => (
+          (target = mod != null ? __create2(__getProtoOf2(mod)) : {}),
+          __copyProps2(
+            // If the importer is in node compatibility mode or this is not an ESM
+            // file that has been converted to a CommonJS file using a Babel-
+            // compatible transform (i.e. "__esModule" has not been set), then set
+            // "default" to the CommonJS "module.exports" for node compatibility.
+            !mod || !mod.__esModule
+              ? __defProp2(target, "default", { value: mod, enumerable: true })
+              : target,
+            mod
+          )
+        );
+        var __toCommonJS = (mod) =>
+          __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+        var require_sourcemap_codec = __commonJS2({
+          "umd:@jridgewell/sourcemap-codec"(exports2, module22) {
+            module22.exports = require_sourcemapCodec;
+          },
+        });
+        var require_resolve_uri = __commonJS2({
+          "umd:@jridgewell/resolve-uri"(exports2, module22) {
+            module22.exports = require_resolveURI;
+          },
+        });
+        var trace_mapping_exports = {};
+        __export(trace_mapping_exports, {
+          AnyMap: () => FlattenMap,
+          FlattenMap: () => FlattenMap,
+          GREATEST_LOWER_BOUND: () => GREATEST_LOWER_BOUND,
+          LEAST_UPPER_BOUND: () => LEAST_UPPER_BOUND,
+          TraceMap: () => TraceMap,
+          allGeneratedPositionsFor: () => allGeneratedPositionsFor,
+          decodedMap: () => decodedMap,
+          decodedMappings: () => decodedMappings,
+          eachMapping: () => eachMapping,
+          encodedMap: () => encodedMap,
+          encodedMappings: () => encodedMappings,
+          generatedPositionFor: () => generatedPositionFor,
+          isIgnored: () => isIgnored,
+          originalPositionFor: () => originalPositionFor,
+          presortedDecodedMap: () => presortedDecodedMap,
+          sourceContentFor: () => sourceContentFor,
+          traceSegment: () => traceSegment,
+        });
+        module2.exports = __toCommonJS(trace_mapping_exports);
+        var import_sourcemap_codec = __toESM2(require_sourcemap_codec());
+        var import_resolve_uri = __toESM2(require_resolve_uri());
+        function stripFilename(path) {
+          if (!path) return "";
+          const index = path.lastIndexOf("/");
+          return path.slice(0, index + 1);
+        }
+        function resolver(mapUrl, sourceRoot) {
+          const from = stripFilename(mapUrl);
+          const prefix = sourceRoot ? sourceRoot + "/" : "";
+          return (source) => (0, import_resolve_uri.default)(prefix + (source || ""), from);
+        }
+        var COLUMN = 0;
+        var SOURCES_INDEX = 1;
+        var SOURCE_LINE = 2;
+        var SOURCE_COLUMN = 3;
+        var NAMES_INDEX = 4;
+        var REV_GENERATED_LINE = 1;
+        var REV_GENERATED_COLUMN = 2;
+        function maybeSort(mappings, owned) {
+          const unsortedIndex = nextUnsortedSegmentLine(mappings, 0);
+          if (unsortedIndex === mappings.length) return mappings;
+          if (!owned) mappings = mappings.slice();
+          for (
+            let i = unsortedIndex;
+            i < mappings.length;
+            i = nextUnsortedSegmentLine(mappings, i + 1)
+          ) {
+            mappings[i] = sortSegments(mappings[i], owned);
+          }
+          return mappings;
+        }
+        function nextUnsortedSegmentLine(mappings, start) {
+          for (let i = start; i < mappings.length; i++) {
+            if (!isSorted(mappings[i])) return i;
+          }
+          return mappings.length;
+        }
+        function isSorted(line) {
+          for (let j = 1; j < line.length; j++) {
+            if (line[j][COLUMN] < line[j - 1][COLUMN]) {
+              return false;
+            }
+          }
+          return true;
+        }
+        function sortSegments(line, owned) {
+          if (!owned) line = line.slice();
+          return line.sort(sortComparator);
+        }
+        function sortComparator(a, b) {
+          return a[COLUMN] - b[COLUMN];
+        }
+        function buildBySources(decoded, memos) {
+          const sources = memos.map(() => []);
+          for (let i = 0; i < decoded.length; i++) {
+            const line = decoded[i];
+            for (let j = 0; j < line.length; j++) {
+              const seg = line[j];
+              if (seg.length === 1) continue;
+              const sourceIndex2 = seg[SOURCES_INDEX];
+              const sourceLine = seg[SOURCE_LINE];
+              const sourceColumn = seg[SOURCE_COLUMN];
+              const source = sources[sourceIndex2];
+              const segs = source[sourceLine] || (source[sourceLine] = []);
+              segs.push([sourceColumn, i, seg[COLUMN]]);
+            }
+          }
+          for (let i = 0; i < sources.length; i++) {
+            const source = sources[i];
+            for (let j = 0; j < source.length; j++) {
+              const line = source[j];
+              if (line) line.sort(sortComparator);
+            }
+          }
+          return sources;
+        }
+        var found = false;
+        function binarySearch(haystack, needle, low, high) {
+          while (low <= high) {
+            const mid = low + ((high - low) >> 1);
+            const cmp = haystack[mid][COLUMN] - needle;
+            if (cmp === 0) {
+              found = true;
+              return mid;
+            }
+            if (cmp < 0) {
+              low = mid + 1;
+            } else {
+              high = mid - 1;
+            }
+          }
+          found = false;
+          return low - 1;
+        }
+        function upperBound(haystack, needle, index) {
+          for (let i = index + 1; i < haystack.length; index = i++) {
+            if (haystack[i][COLUMN] !== needle) break;
+          }
+          return index;
+        }
+        function lowerBound(haystack, needle, index) {
+          for (let i = index - 1; i >= 0; index = i--) {
+            if (haystack[i][COLUMN] !== needle) break;
+          }
+          return index;
+        }
+        function memoizedState() {
+          return {
+            lastKey: -1,
+            lastNeedle: -1,
+            lastIndex: -1,
+          };
+        }
+        function memoizedBinarySearch(haystack, needle, state, key) {
+          const { lastKey, lastNeedle, lastIndex } = state;
+          let low = 0;
+          let high = haystack.length - 1;
+          if (key === lastKey) {
+            if (needle === lastNeedle) {
+              found = lastIndex !== -1 && haystack[lastIndex][COLUMN] === needle;
+              return lastIndex;
+            }
+            if (needle >= lastNeedle) {
+              low = lastIndex === -1 ? 0 : lastIndex;
+            } else {
+              high = lastIndex;
+            }
+          }
+          state.lastKey = key;
+          state.lastNeedle = needle;
+          return (state.lastIndex = binarySearch(haystack, needle, low, high));
+        }
+        function parse(map) {
+          return typeof map === "string" ? JSON.parse(map) : map;
+        }
+        var FlattenMap = function (map, mapUrl) {
+          const parsed = parse(map);
+          if (!("sections" in parsed)) {
+            return new TraceMap(parsed, mapUrl);
+          }
+          const mappings = [];
+          const sources = [];
+          const sourcesContent = [];
+          const names = [];
+          const ignoreList = [];
+          recurse(
+            parsed,
+            mapUrl,
+            mappings,
+            sources,
+            sourcesContent,
+            names,
+            ignoreList,
+            0,
+            0,
+            Infinity,
+            Infinity
+          );
+          const joined = {
+            version: 3,
+            file: parsed.file,
+            names,
+            sources,
+            sourcesContent,
+            mappings,
+            ignoreList,
+          };
+          return presortedDecodedMap(joined);
+        };
+        function recurse(
+          input,
+          mapUrl,
+          mappings,
+          sources,
+          sourcesContent,
+          names,
+          ignoreList,
+          lineOffset,
+          columnOffset,
+          stopLine,
+          stopColumn
+        ) {
+          const { sections } = input;
+          for (let i = 0; i < sections.length; i++) {
+            const { map, offset } = sections[i];
+            let sl = stopLine;
+            let sc = stopColumn;
+            if (i + 1 < sections.length) {
+              const nextOffset = sections[i + 1].offset;
+              sl = Math.min(stopLine, lineOffset + nextOffset.line);
+              if (sl === stopLine) {
+                sc = Math.min(stopColumn, columnOffset + nextOffset.column);
+              } else if (sl < stopLine) {
+                sc = columnOffset + nextOffset.column;
+              }
+            }
+            addSection(
+              map,
+              mapUrl,
+              mappings,
+              sources,
+              sourcesContent,
+              names,
+              ignoreList,
+              lineOffset + offset.line,
+              columnOffset + offset.column,
+              sl,
+              sc
+            );
+          }
+        }
+        function addSection(
+          input,
+          mapUrl,
+          mappings,
+          sources,
+          sourcesContent,
+          names,
+          ignoreList,
+          lineOffset,
+          columnOffset,
+          stopLine,
+          stopColumn
+        ) {
+          const parsed = parse(input);
+          if ("sections" in parsed) return recurse(...arguments);
+          const map = new TraceMap(parsed, mapUrl);
+          const sourcesOffset = sources.length;
+          const namesOffset = names.length;
+          const decoded = decodedMappings(map);
+          const { resolvedSources, sourcesContent: contents, ignoreList: ignores } = map;
+          append(sources, resolvedSources);
+          append(names, map.names);
+          if (contents) append(sourcesContent, contents);
+          else for (let i = 0; i < resolvedSources.length; i++) sourcesContent.push(null);
+          if (ignores)
+            for (let i = 0; i < ignores.length; i++) ignoreList.push(ignores[i] + sourcesOffset);
+          for (let i = 0; i < decoded.length; i++) {
+            const lineI = lineOffset + i;
+            if (lineI > stopLine) return;
+            const out = getLine(mappings, lineI);
+            const cOffset = i === 0 ? columnOffset : 0;
+            const line = decoded[i];
+            for (let j = 0; j < line.length; j++) {
+              const seg = line[j];
+              const column = cOffset + seg[COLUMN];
+              if (lineI === stopLine && column >= stopColumn) return;
+              if (seg.length === 1) {
+                out.push([column]);
+                continue;
+              }
+              const sourcesIndex = sourcesOffset + seg[SOURCES_INDEX];
+              const sourceLine = seg[SOURCE_LINE];
+              const sourceColumn = seg[SOURCE_COLUMN];
+              out.push(
+                seg.length === 4
+                  ? [column, sourcesIndex, sourceLine, sourceColumn]
+                  : [column, sourcesIndex, sourceLine, sourceColumn, namesOffset + seg[NAMES_INDEX]]
+              );
+            }
+          }
+        }
+        function append(arr, other) {
+          for (let i = 0; i < other.length; i++) arr.push(other[i]);
+        }
+        function getLine(arr, index) {
+          for (let i = arr.length; i <= index; i++) arr[i] = [];
+          return arr[index];
+        }
+        var LINE_GTR_ZERO = "`line` must be greater than 0 (lines start at line 1)";
+        var COL_GTR_EQ_ZERO =
+          "`column` must be greater than or equal to 0 (columns start at column 0)";
+        var LEAST_UPPER_BOUND = -1;
+        var GREATEST_LOWER_BOUND = 1;
+        var TraceMap = class {
+          constructor(map, mapUrl) {
+            const isString = typeof map === "string";
+            if (!isString && map._decodedMemo) return map;
+            const parsed = parse(map);
+            const { version, file, names, sourceRoot, sources, sourcesContent } = parsed;
+            this.version = version;
+            this.file = file;
+            this.names = names || [];
+            this.sourceRoot = sourceRoot;
+            this.sources = sources;
+            this.sourcesContent = sourcesContent;
+            this.ignoreList = parsed.ignoreList || parsed.x_google_ignoreList || void 0;
+            const resolve = resolver(mapUrl, sourceRoot);
+            this.resolvedSources = sources.map(resolve);
+            const { mappings } = parsed;
+            if (typeof mappings === "string") {
+              this._encoded = mappings;
+              this._decoded = void 0;
+            } else if (Array.isArray(mappings)) {
+              this._encoded = void 0;
+              this._decoded = maybeSort(mappings, isString);
+            } else if (parsed.sections) {
+              throw new Error(
+                `TraceMap passed sectioned source map, please use FlattenMap export instead`
+              );
+            } else {
+              throw new Error(`invalid source map: ${JSON.stringify(parsed)}`);
+            }
+            this._decodedMemo = memoizedState();
+            this._bySources = void 0;
+            this._bySourceMemos = void 0;
+          }
+        };
+        function cast(map) {
+          return map;
+        }
+        function encodedMappings(map) {
+          var _a, _b;
+          return (_b = (_a = cast(map))._encoded) != null
+            ? _b
+            : (_a._encoded = (0, import_sourcemap_codec.encode)(cast(map)._decoded));
+        }
+        function decodedMappings(map) {
+          var _a;
+          return (
+            (_a = cast(map))._decoded ||
+            (_a._decoded = (0, import_sourcemap_codec.decode)(cast(map)._encoded))
+          );
+        }
+        function traceSegment(map, line, column) {
+          const decoded = decodedMappings(map);
+          if (line >= decoded.length) return null;
+          const segments = decoded[line];
+          const index = traceSegmentInternal(
+            segments,
+            cast(map)._decodedMemo,
+            line,
+            column,
+            GREATEST_LOWER_BOUND
+          );
+          return index === -1 ? null : segments[index];
+        }
+        function originalPositionFor(map, needle) {
+          let { line, column, bias } = needle;
+          line--;
+          if (line < 0) throw new Error(LINE_GTR_ZERO);
+          if (column < 0) throw new Error(COL_GTR_EQ_ZERO);
+          const decoded = decodedMappings(map);
+          if (line >= decoded.length) return OMapping(null, null, null, null);
+          const segments = decoded[line];
+          const index = traceSegmentInternal(
+            segments,
+            cast(map)._decodedMemo,
+            line,
+            column,
+            bias || GREATEST_LOWER_BOUND
+          );
+          if (index === -1) return OMapping(null, null, null, null);
+          const segment = segments[index];
+          if (segment.length === 1) return OMapping(null, null, null, null);
+          const { names, resolvedSources } = map;
+          return OMapping(
+            resolvedSources[segment[SOURCES_INDEX]],
+            segment[SOURCE_LINE] + 1,
+            segment[SOURCE_COLUMN],
+            segment.length === 5 ? names[segment[NAMES_INDEX]] : null
+          );
+        }
+        function generatedPositionFor(map, needle) {
+          const { source, line, column, bias } = needle;
+          return generatedPosition(map, source, line, column, bias || GREATEST_LOWER_BOUND, false);
+        }
+        function allGeneratedPositionsFor(map, needle) {
+          const { source, line, column, bias } = needle;
+          return generatedPosition(map, source, line, column, bias || LEAST_UPPER_BOUND, true);
+        }
+        function eachMapping(map, cb) {
+          const decoded = decodedMappings(map);
+          const { names, resolvedSources } = map;
+          for (let i = 0; i < decoded.length; i++) {
+            const line = decoded[i];
+            for (let j = 0; j < line.length; j++) {
+              const seg = line[j];
+              const generatedLine = i + 1;
+              const generatedColumn = seg[0];
+              let source = null;
+              let originalLine = null;
+              let originalColumn = null;
+              let name = null;
+              if (seg.length !== 1) {
+                source = resolvedSources[seg[1]];
+                originalLine = seg[2] + 1;
+                originalColumn = seg[3];
+              }
+              if (seg.length === 5) name = names[seg[4]];
+              cb({
+                generatedLine,
+                generatedColumn,
+                source,
+                originalLine,
+                originalColumn,
+                name,
+              });
+            }
+          }
+        }
+        function sourceIndex(map, source) {
+          const { sources, resolvedSources } = map;
+          let index = sources.indexOf(source);
+          if (index === -1) index = resolvedSources.indexOf(source);
+          return index;
+        }
+        function sourceContentFor(map, source) {
+          const { sourcesContent } = map;
+          if (sourcesContent == null) return null;
+          const index = sourceIndex(map, source);
+          return index === -1 ? null : sourcesContent[index];
+        }
+        function isIgnored(map, source) {
+          const { ignoreList } = map;
+          if (ignoreList == null) return false;
+          const index = sourceIndex(map, source);
+          return index === -1 ? false : ignoreList.includes(index);
+        }
+        function presortedDecodedMap(map, mapUrl) {
+          const tracer = new TraceMap(clone(map, []), mapUrl);
+          cast(tracer)._decoded = map.mappings;
+          return tracer;
+        }
+        function decodedMap(map) {
+          return clone(map, decodedMappings(map));
+        }
+        function encodedMap(map) {
+          return clone(map, encodedMappings(map));
+        }
+        function clone(map, mappings) {
+          return {
+            version: map.version,
+            file: map.file,
+            names: map.names,
+            sourceRoot: map.sourceRoot,
+            sources: map.sources,
+            sourcesContent: map.sourcesContent,
+            mappings,
+            ignoreList: map.ignoreList || map.x_google_ignoreList,
+          };
+        }
+        function OMapping(source, line, column, name) {
+          return { source, line, column, name };
+        }
+        function GMapping(line, column) {
+          return { line, column };
+        }
+        function traceSegmentInternal(segments, memo, line, column, bias) {
+          let index = memoizedBinarySearch(segments, column, memo, line);
+          if (found) {
+            index = (bias === LEAST_UPPER_BOUND ? upperBound : lowerBound)(segments, column, index);
+          } else if (bias === LEAST_UPPER_BOUND) index++;
+          if (index === -1 || index === segments.length) return -1;
+          return index;
+        }
+        function sliceGeneratedPositions(segments, memo, line, column, bias) {
+          let min = traceSegmentInternal(segments, memo, line, column, GREATEST_LOWER_BOUND);
+          if (!found && bias === LEAST_UPPER_BOUND) min++;
+          if (min === -1 || min === segments.length) return [];
+          const matchedColumn = found ? column : segments[min][COLUMN];
+          if (!found) min = lowerBound(segments, matchedColumn, min);
+          const max = upperBound(segments, matchedColumn, min);
+          const result = [];
+          for (; min <= max; min++) {
+            const segment = segments[min];
+            result.push(GMapping(segment[REV_GENERATED_LINE] + 1, segment[REV_GENERATED_COLUMN]));
+          }
+          return result;
+        }
+        function generatedPosition(map, source, line, column, bias, all) {
+          var _a, _b;
+          line--;
+          if (line < 0) throw new Error(LINE_GTR_ZERO);
+          if (column < 0) throw new Error(COL_GTR_EQ_ZERO);
+          const { sources, resolvedSources } = map;
+          let sourceIndex2 = sources.indexOf(source);
+          if (sourceIndex2 === -1) sourceIndex2 = resolvedSources.indexOf(source);
+          if (sourceIndex2 === -1) return all ? [] : GMapping(null, null);
+          const bySourceMemos =
+            (_a = cast(map))._bySourceMemos || (_a._bySourceMemos = sources.map(memoizedState));
+          const generated =
+            (_b = cast(map))._bySources ||
+            (_b._bySources = buildBySources(decodedMappings(map), bySourceMemos));
+          const segments = generated[sourceIndex2][line];
+          if (segments == null) return all ? [] : GMapping(null, null);
+          const memo = bySourceMemos[sourceIndex2];
+          if (all) return sliceGeneratedPositions(segments, memo, line, column, bias);
+          const index = traceSegmentInternal(segments, memo, line, column, bias);
+          if (index === -1) return GMapping(null, null);
+          const segment = segments[index];
+          return GMapping(segment[REV_GENERATED_LINE] + 1, segment[REV_GENERATED_COLUMN]);
+        }
+      });
+    },
+  });
+
+  // ../../node_modules/.pnpm/@jridgewell+gen-mapping@0.3.13/node_modules/@jridgewell/gen-mapping/dist/gen-mapping.umd.js
+  var require_gen_mapping_umd = __commonJS({
+    "../../node_modules/.pnpm/@jridgewell+gen-mapping@0.3.13/node_modules/@jridgewell/gen-mapping/dist/gen-mapping.umd.js"(
+      exports$1,
+      module
+    ) {
+      (function (global, factory) {
+        if (typeof exports$1 === "object" && typeof module !== "undefined") {
+          factory(module, require_sourcemap_codec_umd(), require_trace_mapping_umd());
+          module.exports = def(module);
+        } else if (typeof define === "function" && define.amd) {
+          define(["module", "@jridgewell/sourcemap-codec", "@jridgewell/trace-mapping"], function (
+            mod
+          ) {
+            factory.apply(this, arguments);
+            mod.exports = def(mod);
+          });
+        } else {
+          const mod = { exports: {} };
+          factory(mod, global.sourcemapCodec, global.traceMapping);
+          global = typeof globalThis !== "undefined" ? globalThis : global || self;
+          global.genMapping = def(mod);
+        }
+        function def(m) {
+          return "default" in m.exports ? m.exports.default : m.exports;
+        }
+      })(exports$1, function (module2, require_sourcemapCodec, require_traceMapping) {
+        var __create2 = Object.create;
+        var __defProp2 = Object.defineProperty;
+        var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+        var __getOwnPropNames2 = Object.getOwnPropertyNames;
+        var __getProtoOf2 = Object.getPrototypeOf;
+        var __hasOwnProp2 = Object.prototype.hasOwnProperty;
+        var __commonJS2 = (cb, mod) =>
+          function __require() {
+            return (
+              mod || (0, cb[__getOwnPropNames2(cb)[0]])((mod = { exports: {} }).exports, mod),
+              mod.exports
+            );
+          };
+        var __export = (target, all) => {
+          for (var name in all) __defProp2(target, name, { get: all[name], enumerable: true });
+        };
+        var __copyProps2 = (to, from, except, desc) => {
+          if ((from && typeof from === "object") || typeof from === "function") {
+            for (let key of __getOwnPropNames2(from))
+              if (!__hasOwnProp2.call(to, key) && key !== except)
+                __defProp2(to, key, {
+                  get: () => from[key],
+                  enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable,
+                });
+          }
+          return to;
+        };
+        var __toESM2 = (mod, isNodeMode, target) => (
+          (target = mod != null ? __create2(__getProtoOf2(mod)) : {}),
+          __copyProps2(
+            // If the importer is in node compatibility mode or this is not an ESM
+            // file that has been converted to a CommonJS file using a Babel-
+            // compatible transform (i.e. "__esModule" has not been set), then set
+            // "default" to the CommonJS "module.exports" for node compatibility.
+            !mod || !mod.__esModule
+              ? __defProp2(target, "default", { value: mod, enumerable: true })
+              : target,
+            mod
+          )
+        );
+        var __toCommonJS = (mod) =>
+          __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+        var require_sourcemap_codec = __commonJS2({
+          "umd:@jridgewell/sourcemap-codec"(exports2, module22) {
+            module22.exports = require_sourcemapCodec;
+          },
+        });
+        var require_trace_mapping = __commonJS2({
+          "umd:@jridgewell/trace-mapping"(exports2, module22) {
+            module22.exports = require_traceMapping;
+          },
+        });
+        var gen_mapping_exports = {};
+        __export(gen_mapping_exports, {
+          GenMapping: () => GenMapping,
+          addMapping: () => addMapping,
+          addSegment: () => addSegment,
+          allMappings: () => allMappings,
+          fromMap: () => fromMap,
+          maybeAddMapping: () => maybeAddMapping,
+          maybeAddSegment: () => maybeAddSegment,
+          setIgnore: () => setIgnore,
+          setSourceContent: () => setSourceContent,
+          toDecodedMap: () => toDecodedMap,
+          toEncodedMap: () => toEncodedMap,
+        });
+        module2.exports = __toCommonJS(gen_mapping_exports);
+        var SetArray = class {
+          constructor() {
+            this._indexes = { __proto__: null };
+            this.array = [];
+          }
+        };
+        function cast(set) {
+          return set;
+        }
+        function get(setarr, key) {
+          return cast(setarr)._indexes[key];
+        }
+        function put(setarr, key) {
+          const index = get(setarr, key);
+          if (index !== void 0) return index;
+          const { array, _indexes: indexes } = cast(setarr);
+          const length = array.push(key);
+          return (indexes[key] = length - 1);
+        }
+        function remove(setarr, key) {
+          const index = get(setarr, key);
+          if (index === void 0) return;
+          const { array, _indexes: indexes } = cast(setarr);
+          for (let i = index + 1; i < array.length; i++) {
+            const k = array[i];
+            array[i - 1] = k;
+            indexes[k]--;
+          }
+          indexes[key] = void 0;
+          array.pop();
+        }
+        var import_sourcemap_codec = __toESM2(require_sourcemap_codec());
+        var import_trace_mapping = __toESM2(require_trace_mapping());
+        var COLUMN = 0;
+        var SOURCES_INDEX = 1;
+        var SOURCE_LINE = 2;
+        var SOURCE_COLUMN = 3;
+        var NAMES_INDEX = 4;
+        var NO_NAME = -1;
+        var GenMapping = class {
+          constructor({ file, sourceRoot } = {}) {
+            this._names = new SetArray();
+            this._sources = new SetArray();
+            this._sourcesContent = [];
+            this._mappings = [];
+            this.file = file;
+            this.sourceRoot = sourceRoot;
+            this._ignoreList = new SetArray();
+          }
+        };
+        function cast2(map) {
+          return map;
+        }
+        function addSegment(
+          map,
+          genLine,
+          genColumn,
+          source,
+          sourceLine,
+          sourceColumn,
+          name,
+          content
+        ) {
+          return addSegmentInternal(
+            false,
+            map,
+            genLine,
+            genColumn,
+            source,
+            sourceLine,
+            sourceColumn,
+            name,
+            content
+          );
+        }
+        function addMapping(map, mapping) {
+          return addMappingInternal(false, map, mapping);
+        }
+        var maybeAddSegment = (
+          map,
+          genLine,
+          genColumn,
+          source,
+          sourceLine,
+          sourceColumn,
+          name,
+          content
+        ) => {
+          return addSegmentInternal(
+            true,
+            map,
+            genLine,
+            genColumn,
+            source,
+            sourceLine,
+            sourceColumn,
+            name,
+            content
+          );
+        };
+        var maybeAddMapping = (map, mapping) => {
+          return addMappingInternal(true, map, mapping);
+        };
+        function setSourceContent(map, source, content) {
+          const {
+            _sources: sources,
+            _sourcesContent: sourcesContent,
+            // _originalScopes: originalScopes,
+          } = cast2(map);
+          const index = put(sources, source);
+          sourcesContent[index] = content;
+        }
+        function setIgnore(map, source, ignore = true) {
+          const {
+            _sources: sources,
+            _sourcesContent: sourcesContent,
+            _ignoreList: ignoreList,
+            // _originalScopes: originalScopes,
+          } = cast2(map);
+          const index = put(sources, source);
+          if (index === sourcesContent.length) sourcesContent[index] = null;
+          if (ignore) put(ignoreList, index);
+          else remove(ignoreList, index);
+        }
+        function toDecodedMap(map) {
+          const {
+            _mappings: mappings,
+            _sources: sources,
+            _sourcesContent: sourcesContent,
+            _names: names,
+            _ignoreList: ignoreList,
+            // _originalScopes: originalScopes,
+            // _generatedRanges: generatedRanges,
+          } = cast2(map);
+          removeEmptyFinalLines(mappings);
+          return {
+            version: 3,
+            file: map.file || void 0,
+            names: names.array,
+            sourceRoot: map.sourceRoot || void 0,
+            sources: sources.array,
+            sourcesContent,
+            mappings,
+            // originalScopes,
+            // generatedRanges,
+            ignoreList: ignoreList.array,
+          };
+        }
+        function toEncodedMap(map) {
+          const decoded = toDecodedMap(map);
+          return Object.assign({}, decoded, {
+            // originalScopes: decoded.originalScopes.map((os) => encodeOriginalScopes(os)),
+            // generatedRanges: encodeGeneratedRanges(decoded.generatedRanges as GeneratedRange[]),
+            mappings: (0, import_sourcemap_codec.encode)(decoded.mappings),
+          });
+        }
+        function fromMap(input) {
+          const map = new import_trace_mapping.TraceMap(input);
+          const gen = new GenMapping({ file: map.file, sourceRoot: map.sourceRoot });
+          putAll(cast2(gen)._names, map.names);
+          putAll(cast2(gen)._sources, map.sources);
+          cast2(gen)._sourcesContent = map.sourcesContent || map.sources.map(() => null);
+          cast2(gen)._mappings = (0, import_trace_mapping.decodedMappings)(map);
+          if (map.ignoreList) putAll(cast2(gen)._ignoreList, map.ignoreList);
+          return gen;
+        }
+        function allMappings(map) {
+          const out = [];
+          const { _mappings: mappings, _sources: sources, _names: names } = cast2(map);
+          for (let i = 0; i < mappings.length; i++) {
+            const line = mappings[i];
+            for (let j = 0; j < line.length; j++) {
+              const seg = line[j];
+              const generated = { line: i + 1, column: seg[COLUMN] };
+              let source = void 0;
+              let original = void 0;
+              let name = void 0;
+              if (seg.length !== 1) {
+                source = sources.array[seg[SOURCES_INDEX]];
+                original = { line: seg[SOURCE_LINE] + 1, column: seg[SOURCE_COLUMN] };
+                if (seg.length === 5) name = names.array[seg[NAMES_INDEX]];
+              }
+              out.push({ generated, source, original, name });
+            }
+          }
+          return out;
+        }
+        function addSegmentInternal(
+          skipable,
+          map,
+          genLine,
+          genColumn,
+          source,
+          sourceLine,
+          sourceColumn,
+          name,
+          content
+        ) {
+          const {
+            _mappings: mappings,
+            _sources: sources,
+            _sourcesContent: sourcesContent,
+            _names: names,
+            // _originalScopes: originalScopes,
+          } = cast2(map);
+          const line = getIndex(mappings, genLine);
+          const index = getColumnIndex(line, genColumn);
+          if (!source) {
+            if (skipable && skipSourceless(line, index)) return;
+            return insert(line, index, [genColumn]);
+          }
+          const sourcesIndex = put(sources, source);
+          const namesIndex = name ? put(names, name) : NO_NAME;
+          if (sourcesIndex === sourcesContent.length)
+            sourcesContent[sourcesIndex] = content != null ? content : null;
+          if (
+            skipable &&
+            skipSource(line, index, sourcesIndex, sourceLine, sourceColumn, namesIndex)
+          ) {
+            return;
+          }
+          return insert(
+            line,
+            index,
+            name
+              ? [genColumn, sourcesIndex, sourceLine, sourceColumn, namesIndex]
+              : [genColumn, sourcesIndex, sourceLine, sourceColumn]
+          );
+        }
+        function getIndex(arr, index) {
+          for (let i = arr.length; i <= index; i++) {
+            arr[i] = [];
+          }
+          return arr[index];
+        }
+        function getColumnIndex(line, genColumn) {
+          let index = line.length;
+          for (let i = index - 1; i >= 0; index = i--) {
+            const current = line[i];
+            if (genColumn >= current[COLUMN]) break;
+          }
+          return index;
+        }
+        function insert(array, index, value) {
+          for (let i = array.length; i > index; i--) {
+            array[i] = array[i - 1];
+          }
+          array[index] = value;
+        }
+        function removeEmptyFinalLines(mappings) {
+          const { length } = mappings;
+          let len = length;
+          for (let i = len - 1; i >= 0; len = i, i--) {
+            if (mappings[i].length > 0) break;
+          }
+          if (len < length) mappings.length = len;
+        }
+        function putAll(setarr, array) {
+          for (let i = 0; i < array.length; i++) put(setarr, array[i]);
+        }
+        function skipSourceless(line, index) {
+          if (index === 0) return true;
+          const prev = line[index - 1];
+          return prev.length === 1;
+        }
+        function skipSource(line, index, sourcesIndex, sourceLine, sourceColumn, namesIndex) {
+          if (index === 0) return false;
+          const prev = line[index - 1];
+          if (prev.length === 1) return false;
+          return (
+            sourcesIndex === prev[SOURCES_INDEX] &&
+            sourceLine === prev[SOURCE_LINE] &&
+            sourceColumn === prev[SOURCE_COLUMN] &&
+            namesIndex === (prev.length === 5 ? prev[NAMES_INDEX] : NO_NAME)
+          );
+        }
+        function addMappingInternal(skipable, map, mapping) {
+          const { generated, source, original, name, content } = mapping;
+          if (!source) {
+            return addSegmentInternal(
+              skipable,
+              map,
+              generated.line - 1,
+              generated.column,
+              null,
+              null,
+              null,
+              null,
+              null
+            );
+          }
+          return addSegmentInternal(
+            skipable,
+            map,
+            generated.line - 1,
+            generated.column,
+            source,
+            original.line - 1,
+            original.column,
+            name,
+            content
+          );
+        }
+      });
+    },
+  });
+
+  // ../../node_modules/.pnpm/@ampproject+remapping@2.3.0/node_modules/@ampproject/remapping/dist/remapping.umd.js
+  var require_remapping_umd = __commonJS({
+    "../../node_modules/.pnpm/@ampproject+remapping@2.3.0/node_modules/@ampproject/remapping/dist/remapping.umd.js"(
+      exports$1,
+      module
+    ) {
+      (function (global, factory) {
+        typeof exports$1 === "object" && typeof module !== "undefined"
+          ? (module.exports = factory(require_trace_mapping_umd(), require_gen_mapping_umd()))
+          : typeof define === "function" && define.amd
+            ? define(["@jridgewell/trace-mapping", "@jridgewell/gen-mapping"], factory)
+            : ((global = typeof globalThis !== "undefined" ? globalThis : global || self),
+              (global.remapping = factory(global.traceMapping, global.genMapping)));
+      })(exports$1, function (traceMapping, genMapping) {
+        const SOURCELESS_MAPPING = /* @__PURE__ */ SegmentObject("", -1, -1, "", null, false);
+        const EMPTY_SOURCES = [];
+        function SegmentObject(source, line, column, name, content, ignore) {
+          return { source, line, column, name, content, ignore };
+        }
+        function Source(map, sources, source, content, ignore) {
+          return {
+            map,
+            sources,
+            source,
+            content,
+            ignore,
+          };
+        }
+        function MapSource(map, sources) {
+          return Source(map, sources, "", null, false);
+        }
+        function OriginalSource(source, content, ignore) {
+          return Source(null, EMPTY_SOURCES, source, content, ignore);
+        }
+        function traceMappings(tree) {
+          const gen = new genMapping.GenMapping({ file: tree.map.file });
+          const { sources: rootSources, map } = tree;
+          const rootNames = map.names;
+          const rootMappings = traceMapping.decodedMappings(map);
+          for (let i = 0; i < rootMappings.length; i++) {
+            const segments = rootMappings[i];
+            for (let j = 0; j < segments.length; j++) {
+              const segment = segments[j];
+              const genCol = segment[0];
+              let traced = SOURCELESS_MAPPING;
+              if (segment.length !== 1) {
+                const source2 = rootSources[segment[1]];
+                traced = originalPositionFor(
+                  source2,
+                  segment[2],
+                  segment[3],
+                  segment.length === 5 ? rootNames[segment[4]] : ""
+                );
+                if (traced == null) continue;
+              }
+              const { column, line, name, content, source, ignore } = traced;
+              genMapping.maybeAddSegment(gen, i, genCol, source, line, column, name);
+              if (source && content != null) genMapping.setSourceContent(gen, source, content);
+              if (ignore) genMapping.setIgnore(gen, source, true);
+            }
+          }
+          return gen;
+        }
+        function originalPositionFor(source, line, column, name) {
+          if (!source.map) {
+            return SegmentObject(source.source, line, column, name, source.content, source.ignore);
+          }
+          const segment = traceMapping.traceSegment(source.map, line, column);
+          if (segment == null) return null;
+          if (segment.length === 1) return SOURCELESS_MAPPING;
+          return originalPositionFor(
+            source.sources[segment[1]],
+            segment[2],
+            segment[3],
+            segment.length === 5 ? source.map.names[segment[4]] : name
+          );
+        }
+        function asArray(value) {
+          if (Array.isArray(value)) return value;
+          return [value];
+        }
+        function buildSourceMapTree(input, loader) {
+          const maps = asArray(input).map((m) => new traceMapping.TraceMap(m, ""));
+          const map = maps.pop();
+          for (let i = 0; i < maps.length; i++) {
+            if (maps[i].sources.length > 1) {
+              throw new Error(`Transformation map ${i} must have exactly one source file.
+Did you specify these with the most recent transformation maps first?`);
+            }
+          }
+          let tree = build(map, loader, "", 0);
+          for (let i = maps.length - 1; i >= 0; i--) {
+            tree = MapSource(maps[i], [tree]);
+          }
+          return tree;
+        }
+        function build(map, loader, importer, importerDepth) {
+          const { resolvedSources, sourcesContent, ignoreList } = map;
+          const depth = importerDepth + 1;
+          const children = resolvedSources.map((sourceFile, i) => {
+            const ctx = {
+              importer,
+              depth,
+              source: sourceFile || "",
+              content: void 0,
+              ignore: void 0,
+            };
+            const sourceMap = loader(ctx.source, ctx);
+            const { source, content, ignore } = ctx;
+            if (sourceMap)
+              return build(new traceMapping.TraceMap(sourceMap, source), loader, source, depth);
+            const sourceContent =
+              content !== void 0 ? content : sourcesContent ? sourcesContent[i] : null;
+            const ignored =
+              ignore !== void 0 ? ignore : ignoreList ? ignoreList.includes(i) : false;
+            return OriginalSource(source, sourceContent, ignored);
+          });
+          return MapSource(map, children);
+        }
+        class SourceMap {
+          constructor(map, options) {
+            const out = options.decodedMappings
+              ? genMapping.toDecodedMap(map)
+              : genMapping.toEncodedMap(map);
+            this.version = out.version;
+            this.file = out.file;
+            this.mappings = out.mappings;
+            this.names = out.names;
+            this.ignoreList = out.ignoreList;
+            this.sourceRoot = out.sourceRoot;
+            this.sources = out.sources;
+            if (!options.excludeContent) {
+              this.sourcesContent = out.sourcesContent;
+            }
+          }
+          toString() {
+            return JSON.stringify(this);
+          }
+        }
+        function remapping2(input, loader, options) {
+          const opts =
+            typeof options === "object"
+              ? options
+              : { excludeContent: !!options, decodedMappings: false };
+          const tree = buildSourceMapTree(input, loader);
+          return new SourceMap(traceMappings(tree), opts);
+        }
+        return remapping2;
+      });
+    },
+  });
+
+  // ../transformer-core/src/source-map-utils.ts
+  __toESM(require_remapping_umd());
+  var VLQ_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  var VLQ_CHAR_MAP = /* @__PURE__ */ new Map();
+  for (let i = 0; i < VLQ_CHARS.length; i++) {
+    VLQ_CHAR_MAP.set(VLQ_CHARS[i], i);
+  }
+  function decodeVLQ(encoded, startIndex) {
+    let value = 0;
+    let shift = 0;
+    let index = startIndex;
+    while (index < encoded.length) {
+      const char = encoded[index];
+      const charValue = VLQ_CHAR_MAP.get(char);
+      if (charValue === void 0) {
+        throw new Error(`Invalid VLQ character: ${char}`);
+      }
+      const continued = (charValue & 32) !== 0;
+      value += (charValue & 31) << shift;
+      index++;
+      if (!continued) break;
+      shift += 5;
+    }
+    const isNegative = (value & 1) !== 0;
+    value = value >> 1;
+    if (isNegative) value = -value;
+    return { value, nextIndex: index };
+  }
+  function decodeMappings(mappings) {
+    const lines = [];
+    let line = [];
+    let generatedColumn = 0;
+    let sourceIndex = 0;
+    let sourceLine = 0;
+    let sourceColumn = 0;
+    let nameIndex = 0;
+    let index = 0;
+    while (index < mappings.length) {
+      const char = mappings[index];
+      if (char === ";") {
+        lines.push(line);
+        line = [];
+        generatedColumn = 0;
+        index++;
+        continue;
+      }
+      if (char === ",") {
+        index++;
+        continue;
+      }
+      const segment = { generatedColumn: 0 };
+      const col = decodeVLQ(mappings, index);
+      generatedColumn += col.value;
+      segment.generatedColumn = generatedColumn;
+      index = col.nextIndex;
+      if (index < mappings.length && mappings[index] !== "," && mappings[index] !== ";") {
+        const src = decodeVLQ(mappings, index);
+        sourceIndex += src.value;
+        segment.sourceIndex = sourceIndex;
+        index = src.nextIndex;
+        const srcLine = decodeVLQ(mappings, index);
+        sourceLine += srcLine.value;
+        segment.sourceLine = sourceLine;
+        index = srcLine.nextIndex;
+        const srcCol = decodeVLQ(mappings, index);
+        sourceColumn += srcCol.value;
+        segment.sourceColumn = sourceColumn;
+        index = srcCol.nextIndex;
+        if (index < mappings.length && mappings[index] !== "," && mappings[index] !== ";") {
+          const name = decodeVLQ(mappings, index);
+          nameIndex += name.value;
+          segment.nameIndex = nameIndex;
+          index = name.nextIndex;
+        }
+      }
+      line.push(segment);
+    }
+    if (line.length > 0 || lines.length > 0) {
+      lines.push(line);
+    }
+    return lines;
+  }
+  function decodeSourceMap(map) {
+    return {
+      version: 3,
+      file: map.file,
+      sourceRoot: map.sourceRoot,
+      sources: map.sources,
+      sourcesContent: map.sourcesContent,
+      names: map.names,
+      mappings: decodeMappings(map.mappings),
+    };
+  }
+  function findOriginalPosition(decoded, generatedLine, generatedColumn) {
+    if (generatedLine < 0 || generatedLine >= decoded.mappings.length) {
+      return null;
+    }
+    const line = decoded.mappings[generatedLine];
+    if (line.length === 0) {
+      return null;
+    }
+    let left = 0;
+    let right = line.length - 1;
+    let bestMatch = null;
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const segment = line[mid];
+      if (segment.generatedColumn <= generatedColumn) {
+        bestMatch = segment;
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+    if (!bestMatch || bestMatch.sourceLine === void 0 || bestMatch.sourceColumn === void 0) {
+      return null;
+    }
+    const columnOffset = generatedColumn - bestMatch.generatedColumn;
+    return {
+      line: bestMatch.sourceLine,
+      column: bestMatch.sourceColumn + columnOffset,
+    };
+  }
+  function findGeneratedPosition(decoded, sourceLine, sourceColumn, sourceIndex = 0) {
+    for (let genLine = 0; genLine < decoded.mappings.length; genLine++) {
+      const line = decoded.mappings[genLine];
+      for (const segment of line) {
+        if (segment.sourceIndex === sourceIndex && segment.sourceLine === sourceLine) {
+          if (segment.sourceColumn !== void 0 && segment.sourceColumn <= sourceColumn) {
+            const columnOffset = sourceColumn - segment.sourceColumn;
+            return {
+              line: genLine,
+              column: segment.generatedColumn + columnOffset,
+            };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // ../transformer-core/src/position-mapping-core.ts
+  function buildLineIndex(content) {
+    const lineStarts = [0];
+    for (let i = 0; i < content.length; i++) {
+      if (content[i] === "\n") {
+        lineStarts.push(i + 1);
+      }
+    }
+    return { lineStarts };
+  }
+  function offsetToLineColumn(offset, index) {
+    const { lineStarts } = index;
+    let line = 0;
+    for (let i = 1; i < lineStarts.length; i++) {
+      if (lineStarts[i] > offset) break;
+      line = i;
+    }
+    return { line, column: offset - lineStarts[line] };
+  }
+  function lineColumnToOffset(pos, index) {
+    const { lineStarts } = index;
+    if (pos.line < 0 || pos.line >= lineStarts.length) {
+      return -1;
+    }
+    return lineStarts[pos.line] + pos.column;
+  }
+  var SourceMapPositionMapperCore = class {
+    constructor(sourceMap, originalContent, transformedContent) {
+      __publicField(this, "decoded");
+      __publicField(this, "originalIndex");
+      __publicField(this, "transformedIndex");
+      this.decoded = decodeSourceMap(sourceMap);
+      this.originalIndex = buildLineIndex(originalContent);
+      this.transformedIndex = buildLineIndex(transformedContent);
+    }
+    toOriginal(transformedPos) {
+      const transformedLC = offsetToLineColumn(transformedPos, this.transformedIndex);
+      const originalLC = findOriginalPosition(
+        this.decoded,
+        transformedLC.line,
+        transformedLC.column
+      );
+      if (!originalLC) return null;
+      const offset = lineColumnToOffset(originalLC, this.originalIndex);
+      return offset >= 0 ? offset : null;
+    }
+    toTransformed(originalPos) {
+      const originalLC = offsetToLineColumn(originalPos, this.originalIndex);
+      const transformedLC = findGeneratedPosition(this.decoded, originalLC.line, originalLC.column);
+      if (!transformedLC) return null;
+      const offset = lineColumnToOffset(transformedLC, this.transformedIndex);
+      return offset >= 0 ? offset : null;
+    }
+    mapRange(range, direction) {
+      const mapFn =
+        direction === "toTransformed" ? this.toTransformed.bind(this) : this.toOriginal.bind(this);
+      const mappedStart = mapFn(range.start);
+      if (mappedStart === null) return null;
+      const mappedEnd = mapFn(range.start + range.length);
+      if (mappedEnd === null) {
+        return { start: mappedStart, length: range.length };
+      }
+      return { start: mappedStart, length: mappedEnd - mappedStart };
+    }
+  };
+  var IdentityPositionMapperCore = class {
+    toTransformed(originalPos) {
+      return originalPos;
+    }
+    toOriginal(transformedPos) {
+      return transformedPos;
+    }
+    mapRange(range) {
+      return range;
+    }
+  };
+  function createPositionMapperCore(sourceMap, originalContent, transformedContent) {
+    if (!sourceMap || originalContent === transformedContent) {
+      return new IdentityPositionMapperCore();
+    }
+    return new SourceMapPositionMapperCore(sourceMap, originalContent, transformedContent);
+  }
+
+  // src/worker-entry.ts
+  var TS_CDN = "https://cdn.jsdelivr.net/npm/typescript@5.8/lib";
+  importScripts(TS_CDN + "/typescript.js");
+  var files = /* @__PURE__ */ new Map();
+  var INPUT_FILE = "input.ts";
+  function setFile(name, content) {
+    const existing = files.get(name);
+    if (existing) {
+      existing.content = content;
+      existing.version++;
+    } else {
+      files.set(name, { content, version: 1 });
+    }
+  }
+  setFile(INPUT_FILE, "");
+  var positionMapper = null;
+  var compilerOptions = {
+    target: ts.ScriptTarget.ES2020,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    esModuleInterop: true,
+    strict: false,
+    noImplicitAny: false,
+    noEmit: true,
+    allowJs: true,
+    jsx: ts.JsxEmit.React,
+    experimentalDecorators: true,
+    skipLibCheck: true,
+    skipDefaultLibCheck: true,
+    types: [],
+    typeRoots: [],
+  };
+  var lsHost = {
+    getScriptFileNames: () => Array.from(files.keys()),
+    getScriptVersion: (fileName) => {
+      const file = files.get(fileName);
+      return file ? String(file.version) : "0";
+    },
+    getScriptSnapshot: (fileName) => {
+      const file = files.get(fileName);
+      if (file) return ts.ScriptSnapshot.fromString(file.content);
+      return void 0;
+    },
+    getCurrentDirectory: () => "/",
+    getCompilationSettings: () => compilerOptions,
+    getDefaultLibFileName: () => "",
+    fileExists: (fileName) => files.has(fileName),
+    readFile: (fileName) => files.get(fileName)?.content,
+  };
+  var documentRegistry = ts.createDocumentRegistry();
+  var ls = ts.createLanguageService(lsHost, documentRegistry);
+  function serializeDiagnostic(d) {
+    return {
+      start: d.start ?? 0,
+      length: d.length ?? 0,
+      messageText: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText,
+      category: d.category,
+      code: d.code,
+    };
+  }
+  function filterDiagnostics(diags) {
+    const result = [];
+    for (const d of diags) {
+      if (positionMapper && d.start !== void 0) {
+        const origPos = positionMapper.toOriginal(d.start);
+        if (origPos === null) continue;
+      }
+      result.push(serializeDiagnostic(d));
+    }
+    return result;
+  }
+  function handleMessage(msg) {
+    const { method, params } = msg;
+    switch (method) {
+      case "updateFile": {
+        const [fileName, content] = params;
+        setFile(fileName, content);
+        return { ok: true };
+      }
+      case "addLib": {
+        const [fileName, content] = params;
+        setFile(fileName, content);
+        return { ok: true };
+      }
+      case "setSourceMap": {
+        const [sourceMap, original, transformed] = params;
+        positionMapper = createPositionMapperCore(sourceMap, original, transformed);
+        return { ok: true };
+      }
+      case "getDiagnostics": {
+        const [fileName] = params;
+        const syntactic = ls.getSyntacticDiagnostics(fileName);
+        const semantic = ls.getSemanticDiagnostics(fileName);
+        return filterDiagnostics([...syntactic, ...semantic]);
+      }
+      case "getCompletions": {
+        const [fileName, position] = params;
+        const result = ls.getCompletionsAtPosition(fileName, position, {
+          includeCompletionsForModuleExports: false,
+          includeCompletionsWithInsertText: true,
+        });
+        if (!result) return null;
+        return {
+          isGlobalCompletion: result.isGlobalCompletion,
+          isMemberCompletion: result.isMemberCompletion,
+          entries: result.entries.map((e) => ({
             name: e.name,
             kind: e.kind,
             sortText: e.sortText,
             insertText: e.insertText,
             isRecommended: e.isRecommended,
-          };
-        }),
-      };
-    }
-
-    case "getQuickInfo": {
-      var info = lsvc.getQuickInfoAtPosition(params[0], params[1]);
-      if (!info) return null;
-      return {
-        kind: info.kind,
-        textSpan: info.textSpan,
-        displayParts: (info.displayParts || [])
-          .map(function (p) {
-            return p.text;
-          })
-          .join(""),
-        documentation: (info.documentation || [])
-          .map(function (p) {
-            return p.text;
-          })
-          .join(""),
-      };
-    }
-
-    case "getDefinition": {
-      var defs = lsvc.getDefinitionAtPosition(params[0], params[1]);
-      if (!defs) return null;
-      return defs
-        .filter(function (d) {
-          return d.fileName === params[0];
-        })
-        .map(function (d) {
-          return { textSpan: d.textSpan, fileName: d.fileName };
-        });
-    }
-
-    case "getSignatureHelp": {
-      var help = lsvc.getSignatureHelpItems(params[0], params[1], {});
-      if (!help) return null;
-      return {
-        selectedItemIndex: help.selectedItemIndex,
-        argumentIndex: help.argumentIndex,
-        items: help.items.map(function (item) {
-          return {
-            label: (item.prefixDisplayParts || [])
-              .concat(item.suffixDisplayParts || [])
-              .map(function (p) {
-                return p.text;
-              })
+          })),
+        };
+      }
+      case "getQuickInfo": {
+        const [fileName, position] = params;
+        const info = ls.getQuickInfoAtPosition(fileName, position);
+        if (!info) return null;
+        return {
+          kind: info.kind,
+          textSpan: info.textSpan,
+          displayParts: (info.displayParts ?? []).map((p) => p.text).join(""),
+          documentation: (info.documentation ?? []).map((p) => p.text).join(""),
+        };
+      }
+      case "getDefinition": {
+        const [fileName, position] = params;
+        const defs = ls.getDefinitionAtPosition(fileName, position);
+        if (!defs) return null;
+        return defs
+          .filter((d) => d.fileName === fileName)
+          .map((d) => ({ textSpan: d.textSpan, fileName: d.fileName }));
+      }
+      case "getSignatureHelp": {
+        const [fileName, position] = params;
+        const help = ls.getSignatureHelpItems(fileName, position, {});
+        if (!help) return null;
+        return {
+          selectedItemIndex: help.selectedItemIndex,
+          argumentIndex: help.argumentIndex,
+          items: help.items.map((item) => ({
+            label: [...(item.prefixDisplayParts ?? []), ...(item.suffixDisplayParts ?? [])]
+              .map((p) => p.text)
               .join(""),
-            parameters: item.parameters.map(function (p) {
-              return {
-                label: p.displayParts
-                  .map(function (dp) {
-                    return dp.text;
-                  })
-                  .join(""),
-                documentation: (p.documentation || [])
-                  .map(function (dp) {
-                    return dp.text;
-                  })
-                  .join(""),
-              };
-            }),
-            documentation: (item.documentation || [])
-              .map(function (p) {
-                return p.text;
-              })
-              .join(""),
-          };
-        }),
-      };
+            parameters: item.parameters.map((p) => ({
+              label: p.displayParts.map((dp) => dp.text).join(""),
+              documentation: (p.documentation ?? []).map((dp) => dp.text).join(""),
+            })),
+            documentation: (item.documentation ?? []).map((p) => p.text).join(""),
+          })),
+        };
+      }
+      default:
+        throw new Error(`Unknown method: ${method}`);
     }
-
-    default:
-      throw new Error("Unknown method: " + method);
   }
-}
-
-self.onmessage = function (e) {
-  var msg = e.data;
-  try {
-    var result = handleMessage(msg);
-    self.postMessage({ id: msg.id, result: result });
-  } catch (err) {
-    self.postMessage({ id: msg.id, error: err.message || String(err) });
-  }
-};
-
-// Signal ready
-self.postMessage({ id: -1, result: "ready" });
+  self.onmessage = (e) => {
+    const msg = e.data;
+    try {
+      const result = handleMessage(msg);
+      self.postMessage({ id: msg.id, result });
+    } catch (err) {
+      self.postMessage({
+        id: msg.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+  self.postMessage({ id: -1, result: "ready" });
+})();
