@@ -53,6 +53,7 @@ import { MacroContext } from "@typesugar/core";
 import { TS9001, TS9008 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
+import { tryDeriveViaGeneric } from "./auto-derive.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -474,7 +475,18 @@ export function transformImplicitsCall(
     if (resolved) {
       // Use the instance variable directly instead of Show.summon(...)
       newArgs.push(factory.createIdentifier(resolved.instanceName));
-    } else {
+      continue;
+    }
+
+    // 3. Try auto-derivation via Generic (Scala 3-style)
+    const derivationResult = tryDeriveViaGeneric(ctx, typeclassName, concreteType);
+    if (derivationResult.expression) {
+      newArgs.push(derivationResult.expression);
+      continue;
+    }
+
+    // 4. No instance found — compile error with resolution trace
+    {
       const attempts: ResolutionAttempt[] = [
         {
           step: "enclosing-scope",
