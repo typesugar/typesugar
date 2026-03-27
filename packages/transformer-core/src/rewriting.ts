@@ -1172,11 +1172,18 @@ export function tryStripOpaqueTypeAnnotation(
   const opaqueEntry = getOpaqueEntryFromTypeNode(node.type);
   if (!opaqueEntry) return undefined;
 
+  // For same-project opaque types (transparent), skip stripping inside
+  // the defining module where the implementation uses the raw representation.
   if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
     if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
       return undefined;
     }
   }
+
+  // For library-imported opaque types (non-transparent), the published .d.ts
+  // has a type alias (e.g., `type Option<A> = A | null`), so the annotation
+  // is valid after constructor erasure — keep it.
+  if (!opaqueEntry.transparent) return undefined;
 
   if (!wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
 
@@ -1224,6 +1231,9 @@ export function tryStripOpaqueParamAnnotation(
       return undefined;
     }
   }
+
+  // Library-imported opaque types have erased type aliases — annotation is valid
+  if (!opaqueEntry.transparent) return undefined;
 
   if (!wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
 
@@ -1273,6 +1283,9 @@ export function shouldStripOpaqueReturnType(
       return false;
     }
   }
+
+  // Library-imported opaque types have erased type aliases — annotation is valid
+  if (!opaqueEntry.transparent) return false;
 
   return true;
 }

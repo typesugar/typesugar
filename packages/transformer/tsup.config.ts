@@ -15,6 +15,8 @@ export default defineConfig({
     "source-map-utils": "src/source-map-utils.ts",
     cache: "src/cache.ts",
     profiling: "src/profiling.ts",
+    "dts-transform": "src/dts-transform.ts",
+    "dts-opaque-discovery": "src/dts-opaque-discovery.ts",
   },
   format: ["cjs", "esm"],
   dts: true,

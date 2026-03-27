@@ -1,6 +1,6 @@
 # Functional Programming
 
-The `@typesugar/fp` package provides functional programming utilities with zero-cost abstractions. All data types use `@opaque` type macros for dot-syntax methods — `Option<A>` is `A | null` at runtime, but TypeScript sees a rich interface.
+The `@typesugar/fp` package provides functional programming utilities with zero-cost abstractions. `Option<A>` uses `@opaque` type macros for dot-syntax methods — it's `A | null` at runtime, but TypeScript sees a rich interface. Other types like `Either` use structural discriminated unions.
 
 ## Option
 
@@ -64,7 +64,7 @@ Some(5)
 
 ## Either
 
-Represents success (`Right`) or failure (`Left`). Dot syntax via `@opaque`.
+Represents success (`Right`) or failure (`Left`). Uses a structural discriminated union — not `@opaque` (Either allocates real objects, unlike Option's zero-cost `null` encoding).
 
 ```typescript
 import { Right, Left, isRight } from "@typesugar/fp";
@@ -174,6 +174,53 @@ export interface Option<A> {
 - **Runtime**: `A | null` (zero allocations)
 - **Transformer**: Rewrites `x.map(f)` → `map(x, f)`
 - **SFINAE**: `Option<T>` and `T | null` are implicitly convertible
+
+### Publishing @opaque Types in Libraries
+
+When you publish a library that uses `@opaque` types, run `typesugar-dts-transform` on your `dist/` directory as a post-build step. This rewrites opaque interfaces in `.d.ts` files to type aliases:
+
+```typescript
+// Before (tsc output):
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+
+// After (typesugar-dts-transform):
+/** @opaque A | null */
+export type Option<A> = A | null;
+```
+
+The `@opaque` JSDoc annotation is preserved. This enables two consumer experiences:
+
+**Plain TypeScript consumers** see `A | null` and use standard null checks:
+
+```typescript
+import { findUser } from "my-lib";
+const user = findUser("1"); // User | null
+if (user !== null) console.log(user.name);
+```
+
+**TypeSugar consumers** get automatic discovery — the transformer reads the `@opaque` annotation from the imported `.d.ts`, registers the type rewrite, and enables dot syntax:
+
+```typescript
+import { findUser, map } from "my-lib";
+const name: Option<string> = findUser("1").map((u) => u.name);
+// Compiled: const name = map(findUser("1"), u => u.name)
+```
+
+Type annotations are preserved for library-imported opaque types (since the `.d.ts` alias is valid):
+`const x: Option<number> = Some(42)` → `const x: Option<number> = 42`
+
+Add to your library's `package.json`:
+
+```json
+{
+  "scripts": {
+    "postbuild": "typesugar-dts-transform dist/"
+  }
+}
+```
 
 ## Higher-Kinded Types
 

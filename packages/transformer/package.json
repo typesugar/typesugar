@@ -18,7 +18,8 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "typesugar": "./dist/cli.js"
+    "typesugar": "./dist/cli.js",
+    "typesugar-dts-transform": "./dist/dts-transform.js"
   },
   "exports": {
     ".": {
@@ -65,6 +66,11 @@
       "types": "./dist/profiling.d.ts",
       "import": "./dist/profiling.js",
       "require": "./dist/profiling.cjs"
+    },
+    "./dts-transform": {
+      "types": "./dist/dts-transform.d.ts",
+      "import": "./dist/dts-transform.js",
+      "require": "./dist/dts-transform.cjs"
     }
   },
   "scripts": {

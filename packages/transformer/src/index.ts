@@ -8,6 +8,7 @@ import * as ts from "typescript";
 import * as path from "path";
 import { preprocess } from "@typesugar/preprocessor";
 import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
+import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 
 import {
   getOperatorString,
@@ -1098,6 +1099,13 @@ export default function macroTransformerFactory(
       profiler.start("perFile.loadMacroPackagesFromFile");
       loadMacroPackagesFromFile(sourceFile, verbose);
       profiler.end("perFile.loadMacroPackagesFromFile");
+
+      // Discover @opaque types from imported .d.ts files (external libraries).
+      // This auto-registers TypeRewriteEntry entries for opaque types that
+      // the library published with @opaque annotations in their declarations.
+      profiler.start("perFile.discoverOpaqueTypes");
+      discoverOpaqueTypesFromImports(sourceFile, program, verbose);
+      profiler.end("perFile.discoverOpaqueTypes");
 
       // Pre-scan imported workspace files for instance() and typeclass() registrations.
       // This ensures instances are registered before operator rewriting encounters them.
