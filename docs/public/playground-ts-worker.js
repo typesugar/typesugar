@@ -2137,6 +2137,39 @@ Did you specify these with the most recent transformation maps first?`);
     getDefaultLibFileName: () => "",
     fileExists: (fileName) => files.has(fileName),
     readFile: (fileName) => files.get(fileName)?.content,
+    // Resolve @typesugar/*, typesugar, effect, and relative chunk imports
+    // from the virtual file system populated by addLib calls.
+    resolveModuleNames: (moduleNames, containingFile) => {
+      return moduleNames.map((name) => {
+        if (!name.startsWith(".")) {
+          const candidates = [
+            `node_modules/${name}/dist/index.d.ts`,
+            `node_modules/${name}/index.d.ts`,
+          ];
+          for (const c of candidates) {
+            if (files.has(c)) {
+              return { resolvedFileName: c, isExternalLibraryImport: true };
+            }
+          }
+          return void 0;
+        }
+        const dir = containingFile.substring(0, containingFile.lastIndexOf("/"));
+        const parts = `${dir}/${name}`.replace(/\.js$/, "").split("/");
+        const resolved = [];
+        for (const p of parts) {
+          if (p === "..") resolved.pop();
+          else if (p !== ".") resolved.push(p);
+        }
+        const base = resolved.join("/");
+        for (const ext of [".d.ts", "/index.d.ts"]) {
+          const candidate = base + ext;
+          if (files.has(candidate)) {
+            return { resolvedFileName: candidate, isExternalLibraryImport: true };
+          }
+        }
+        return void 0;
+      });
+    },
   };
   var documentRegistry = ts.createDocumentRegistry();
   var ls = ts.createLanguageService(lsHost, documentRegistry);

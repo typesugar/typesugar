@@ -95,6 +95,46 @@ const lsHost: ts.LanguageServiceHost = {
   getDefaultLibFileName: () => "",
   fileExists: (fileName) => files.has(fileName),
   readFile: (fileName) => files.get(fileName)?.content,
+
+  // Resolve @typesugar/*, typesugar, effect, and relative chunk imports
+  // from the virtual file system populated by addLib calls.
+  resolveModuleNames: (moduleNames: string[], containingFile: string) => {
+    return moduleNames.map((name): ts.ResolvedModule | undefined => {
+      // Absolute module: @typesugar/fp, typesugar, effect, typescript
+      if (!name.startsWith(".")) {
+        const candidates = [
+          `node_modules/${name}/dist/index.d.ts`,
+          `node_modules/${name}/index.d.ts`,
+        ];
+        for (const c of candidates) {
+          if (files.has(c)) {
+            return { resolvedFileName: c, isExternalLibraryImport: true };
+          }
+        }
+        return undefined;
+      }
+
+      // Relative import: ./index-DIvUMfdE.js, ../range-C9fWTZRR.js, etc.
+      const dir = containingFile.substring(0, containingFile.lastIndexOf("/"));
+      // Normalize: resolve ".." segments and strip .js extension
+      const parts = `${dir}/${name}`.replace(/\.js$/, "").split("/");
+      const resolved: string[] = [];
+      for (const p of parts) {
+        if (p === "..") resolved.pop();
+        else if (p !== ".") resolved.push(p);
+      }
+      const base = resolved.join("/");
+
+      // Try .d.ts, then /index.d.ts
+      for (const ext of [".d.ts", "/index.d.ts"]) {
+        const candidate = base + ext;
+        if (files.has(candidate)) {
+          return { resolvedFileName: candidate, isExternalLibraryImport: true };
+        }
+      }
+      return undefined;
+    });
+  },
 };
 
 const documentRegistry = ts.createDocumentRegistry();

@@ -8,7 +8,7 @@
  */
 
 import type * as Monaco from "monaco-editor";
-import { TSWorkerClient, type WorkerDiagnostic } from "./playground-worker-client";
+import { TSServerClient, type WorkerDiagnostic } from "./playground-server-client";
 // Import from the source file directly to avoid @typesugar/core barrel
 // which has side-effect code referencing process.env (not in browser).
 import {
@@ -30,7 +30,7 @@ const INPUT_FILE = "input.ts";
 // ---------------------------------------------------------------------------
 
 export class PlaygroundLanguageAdapter {
-  private client: TSWorkerClient;
+  private client: TSServerClient;
   private mapper: PositionMapperCore | null = null;
   private monaco: typeof Monaco | null = null;
   private disposables: Monaco.IDisposable[] = [];
@@ -40,7 +40,7 @@ export class PlaygroundLanguageAdapter {
   /** Incremented on each updateTransformedCode to discard stale responses */
   private _version = 0;
 
-  constructor(client: TSWorkerClient) {
+  constructor(client: TSServerClient) {
     this.client = client;
     this._readyPromise = new Promise((resolve) => {
       this._resolveReady = resolve;

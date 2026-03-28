@@ -389,8 +389,8 @@ function compile(code: string, fileName: string, strict: boolean): CompileResult
   const result = transformCode(code, {
     fileName,
     extraRootFiles: [AMBIENT_FILE],
-    strictOutput: false, // never use the built-in check — we handle it ourselves
-    preserveBlankLines: true, // enables expansion tracking → source maps for position mapping
+    strictOutput: false,
+    preserveBlankLines: true,
     readFile: (f: string) => {
       if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
       return ts.sys.readFile(f);
