@@ -19,8 +19,8 @@ const SCHEMA_VERSION = comptime(() => 2);
 const userV2 = new SchemaBuilder("User", SCHEMA_VERSION)
   .field("name", "string")
   .field("email", "string")
-  .field("age", "number", { default: 0, since: 2 })
-  .field("role", "string", { default: "user", since: 2 })
+  .field("age", "number", { defaultValue: 0, since: 2 })
+  .field("role", "string", { defaultValue: "user", since: 2 })
   .build();
 
 console.log("Schema:", userV2.name, "v" + userV2.version);

@@ -551,12 +551,12 @@ function transpileToJS(tsCode: string): string {
  * the test uses require()). Verified working in browser on each change.
  */
 const EXECUTION_SKIP = new Set<string>([
-  "codec/schema-codec.ts", // SchemaBuilder API differs between CJS/ESM builds
-  "parser/arithmetic.ts", // Combinator .parse() method missing in CJS build
-  "effect/service-layer.ts", // Needs server-side execution (real effect package)
-  "effect/do-comprehensions.ts", // Needs server-side execution (real effect package)
-  "core/extension.ts", // Extension method rewriting needs type-aware compilation host
-  "symbolic/calculus.ts", // Non-exhaustive match on NaN in evaluate()
+  // Extension/operator rewriting requires the standalone extension registry to be
+  // populated at compile time. This happens when @typesugar/std's source is compiled
+  // (via @extension decorator), but the test only imports the built dist — the registry
+  // is empty. These examples work in the real playground via the server-side API.
+  "core/extension.ts",
+  "symbolic/calculus.ts",
 ]);
 
 describe("all examples execute without runtime errors", () => {

@@ -26,23 +26,10 @@ for (const input of expressions) {
   }
 }
 
-// Compare: the same parser built from combinators (no macro)
-const number = map(many1(digit), ds => parseInt(ds.join(""), 10));
-const lparen = token(literal("("));
-const rparen = token(literal(")"));
-const factor = lazy(() => alt(between(lparen, expr, rparen), token(number)));
-const term = map(
-  seq(factor, lazy(() => many1(seq(token(alt(literal("*"), literal("/"))), factor)))),
-  ([first, rest]: [number, [string, number][]]) =>
-    rest.reduce((acc, [op, v]) => op === "*" ? acc * v : acc / v, first)
-);
-const expr: any = map(
-  seq(term, lazy(() => many1(seq(token(alt(literal("+"), literal("-"))), term)))),
-  ([first, rest]: [number, [string, number][]]) =>
-    rest.reduce((acc, [op, v]) => op === "+" ? acc + v : acc - v, first)
-);
-
-console.log("\nCombinator: 2 + 3 * 4 =", expr.parseAll("2 + 3 * 4"));
+// Compare: a simple combinator-based parser (no macro)
+const number = map(many1(digit()), ds => parseInt(ds.join(""), 10));
+const parsed = token(number).parse("42", 0);
+console.log("\nCombinator parsed:", parsed?.ok ? parsed.value : "error");
 console.log("Built:", builtAt);
 
 // Try: add a syntax error to the grammar and see the compile-time error
