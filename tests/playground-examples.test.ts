@@ -506,19 +506,21 @@ function buildModuleRegistry(): Record<string, Record<string, unknown>> {
 /**
  * Rewrite imports the same way the playground does (Playground.vue lines 1502-1524).
  */
+/** Modules that should be resolved from the test registry */
+const REGISTRY_MODULES = new Set(["typesugar", "effect"]);
+function isRegistryModule(specifier: string): boolean {
+  return REGISTRY_MODULES.has(specifier) || specifier.startsWith("@typesugar/");
+}
+
 function rewriteImports(jsCode: string): string {
   // Strip side-effect imports: import "..." or import '...'
   let code = jsCode.replace(/^import\s+['"][^'"]+['"];?\s*$/gm, "");
 
-  // Rewrite named/namespace/default imports from @typesugar/*
+  // Rewrite ESM named/namespace/default imports
   code = code.replace(
     /^import\s+(.+?)\s+from\s+['"]([^'"]+)['"];?\s*$/gm,
     (_match: string, bindings: string, specifier: string) => {
-      if (
-        specifier === "typesugar" ||
-        specifier.startsWith("@typesugar/") ||
-        specifier === "effect"
-      ) {
+      if (isRegistryModule(specifier)) {
         const trimmed = bindings.trim();
         const nsMatch = trimmed.match(/^\*\s+as\s+(\w+)$/);
         if (nsMatch) {
@@ -533,6 +535,19 @@ function rewriteImports(jsCode: string): string {
       return "";
     }
   );
+
+  // Rewrite CJS require() calls (from TypeScript transpilation)
+  // Pattern: const xxx = require("specifier");
+  code = code.replace(
+    /^(const|var|let)\s+(\w+)\s*=\s*require\(["']([^"']+)["']\);?\s*$/gm,
+    (_match: string, decl: string, varName: string, specifier: string) => {
+      if (isRegistryModule(specifier)) {
+        return `${decl} ${varName} = __typesugar_modules["${specifier}"];`;
+      }
+      return "";
+    }
+  );
+
   code = code.replace(/^export\s+/gm, "");
   return code;
 }
@@ -583,11 +598,11 @@ describe("all examples execute without runtime errors", () => {
         return;
       }
 
-      // 2. Rewrite imports BEFORE transpile (transpile converts to require() calls)
-      const rewritten = rewriteImports(result.code);
+      // 2. Transpile TS → JS
+      const jsCode = transpileToJS(result.code);
 
-      // 3. Transpile TS → JS
-      const runnableCode = transpileToJS(rewritten);
+      // 3. Rewrite imports (handles both ESM import and CJS require patterns)
+      const runnableCode = rewriteImports(jsCode);
 
       // 4. Execute in sandbox
       const logs: unknown[][] = [];
