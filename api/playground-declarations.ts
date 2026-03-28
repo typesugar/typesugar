@@ -34,6 +34,29 @@ declare const ordNumber: Ord<number>;
 declare const ordString: Ord<string>;
 
 // ---------------------------------------------------------------------------
+// @typesugar/fp/data/option — subpath import used by @opaque method rewriting
+// The transformer emits imports from this module in transformed code.
+// ---------------------------------------------------------------------------
+declare module "@typesugar/fp/data/option" {
+  export function map<A, B>(self: A | null, f: (a: A) => B): B | null;
+  export function flatMap<A, B>(self: A | null, f: (a: A) => B | null): B | null;
+  export function fold<A, B>(self: A | null, onNone: () => B, onSome: (a: A) => B): B;
+  export function getOrElse<A>(self: A | null, defaultValue: () => A): A;
+  export function getOrElseStrict<A>(self: A | null, defaultValue: A): A;
+  export function getOrThrow<A>(self: A | null, message?: string): A;
+  export function orElse<A>(self: A | null, fallback: () => A | null): A | null;
+  export function filter<A>(self: A | null, predicate: (a: A) => boolean): A | null;
+  export function exists<A>(self: A | null, predicate: (a: A) => boolean): boolean;
+  export function forall<A>(self: A | null, predicate: (a: A) => boolean): boolean;
+  export function contains<A>(self: A | null, value: A): boolean;
+  export function tap<A>(self: A | null, f: (a: A) => void): A | null;
+  export function toArray<A>(self: A | null): A[];
+  export function toNullable<A>(self: A | null): A | null;
+  export function toUndefined<A>(self: A | null): A | undefined;
+  export function zip<A, B>(self: A | null, optB: B | null): [A, B] | null;
+}
+
+// ---------------------------------------------------------------------------
 // Runtime helpers emitted by compile-time macros
 // ---------------------------------------------------------------------------
 declare function __typesugar_createStateMachineInstance(def: any): any;
