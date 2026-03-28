@@ -942,9 +942,12 @@ async function runCode() {
       });
     }
   } catch (err) {
-    const message = err instanceof Error && err.name === "AbortError"
-      ? "Execution timed out"
-      : err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof Error && err.name === "AbortError"
+        ? "Execution timed out"
+        : err instanceof Error
+          ? err.message
+          : String(err);
     consoleMessages.value.push({
       type: "error",
       args: [message],
