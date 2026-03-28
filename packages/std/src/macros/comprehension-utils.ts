@@ -211,7 +211,8 @@ export function extractReturnExpr(
  */
 export function inferTypeConstructor(
   expr: ts.Expression,
-  typeChecker: ts.TypeChecker
+  typeChecker: ts.TypeChecker,
+  sourceFile?: ts.SourceFile
 ): string | undefined {
   const type = typeChecker.getTypeAtLocation(expr);
   const typeString = typeChecker.typeToString(type);
@@ -255,6 +256,44 @@ export function inferTypeConstructor(
   const match = typeString.match(/^(\w+)</);
   if (match) {
     return match[1];
+  }
+
+  // When the type is `any`, the expression might reference a macro-generated
+  // namespace (e.g., Greeter.greet() from @service). Check if the expression
+  // is a call to X.method() where X is an @service-decorated interface in the
+  // same source file. We detect this by scanning the source file for
+  // `@service interface X { ... }` declarations.
+  if (typeString === "any" && ts.isCallExpression(expr)) {
+    const callee = expr.expression;
+    if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+      const serviceName = callee.expression.text;
+      // Check if `serviceName` is an interface whose methods return Effect.
+      // This handles @service-generated namespaces: @service strips the decorator
+      // before let:/yield: runs, so we can't check decorators. Instead, we check
+      // if the interface has methods with Effect.Effect<...> return types.
+      const sf = sourceFile ?? expr.getSourceFile?.();
+      if (sf) {
+        for (const stmt of sf.statements) {
+          if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === serviceName) {
+            const methodName = callee.name.text;
+            for (const member of stmt.members) {
+              if (
+                (ts.isMethodSignature(member) || ts.isPropertySignature(member)) &&
+                ts.isIdentifier(member.name) &&
+                member.name.text === methodName &&
+                member.type
+              ) {
+                // Check if the return type contains "Effect"
+                const typeText = member.type.getText(sf);
+                if (typeText.includes("Effect")) {
+                  return "Effect";
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   return undefined;

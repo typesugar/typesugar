@@ -168,7 +168,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     // Infer the type constructor from the first bind step
     const firstBind = steps.find((s): s is BindStep => s.kind === "bind")!;
-    const typeConstructorName = inferTypeConstructor(firstBind.effect, typeChecker);
+    const typeConstructorName = inferTypeConstructor(firstBind.effect, typeChecker, ctx.sourceFile);
 
     if (!typeConstructorName) {
       ctx.reportError(
