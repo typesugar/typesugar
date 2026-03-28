@@ -514,7 +514,11 @@ function rewriteImports(jsCode: string): string {
   code = code.replace(
     /^import\s+(.+?)\s+from\s+['"]([^'"]+)['"];?\s*$/gm,
     (_match: string, bindings: string, specifier: string) => {
-      if (specifier === "typesugar" || specifier.startsWith("@typesugar/")) {
+      if (
+        specifier === "typesugar" ||
+        specifier.startsWith("@typesugar/") ||
+        specifier === "effect"
+      ) {
         const trimmed = bindings.trim();
         const nsMatch = trimmed.match(/^\*\s+as\s+(\w+)$/);
         if (nsMatch) {
