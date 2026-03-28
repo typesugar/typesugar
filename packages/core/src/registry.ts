@@ -582,6 +582,11 @@ export function registerStandaloneExtensionEntry(info: StandaloneExtensionInfo):
   }
 }
 
+// Expose registration hook on globalThis so macro-emitted code in dist
+// can register extensions without importing @typesugar/core directly.
+// The ?. in the emitted code makes this safe even if core isn't loaded.
+(globalThis as any).__typesugar_registerExtension = registerStandaloneExtensionEntry;
+
 /**
  * Find a standalone extension method for a given method name and type.
  * Returns undefined if no standalone extension is registered.

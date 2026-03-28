@@ -119,13 +119,19 @@ export const extensionAttribute: AttributeMacro = defineAttributeMacro({
         forType = ctx.typeChecker.typeToString(paramType);
       }
 
-      // Register the extension (without qualifier — bare function)
+      // Register at compile time (for same-file usage)
       registerStandaloneExtensionEntry({
         methodName: name,
         forType,
         qualifier: undefined,
       });
 
+      // Emit registration call in output so it persists in dist
+      // (only for exported functions — internal ones don't need runtime registration)
+      if (hasExportModifier(target)) {
+        const regCall = createRegistrationCall(ctx.factory, name, forType, undefined);
+        return [target, regCall];
+      }
       return target;
     }
 
@@ -201,6 +207,33 @@ export const extensionAttribute: AttributeMacro = defineAttributeMacro({
         }
       }
 
+      // Emit runtime registration calls for exported namespaces so the
+      // extension registry persists in the dist output.
+      if (hasExportModifier(target)) {
+        const regCalls: ts.Statement[] = [];
+        for (const stmt of target.body.statements) {
+          if (ts.isFunctionDeclaration(stmt) && stmt.name && hasExportModifier(stmt)) {
+            const fnName = stmt.name.text;
+            const params = stmt.parameters;
+            if (params.length === 0) continue;
+
+            const firstParam = params[0];
+            let forType: string;
+            if (firstParam.type) {
+              forType = getBaseTypeName(ctx, firstParam.type);
+            } else {
+              const paramType = ctx.typeChecker.getTypeAtLocation(firstParam);
+              forType = ctx.typeChecker.typeToString(paramType);
+            }
+
+            regCalls.push(createRegistrationCall(ctx.factory, fnName, forType, namespaceName));
+          }
+        }
+        if (regCalls.length > 0) {
+          return [target, ...regCalls];
+        }
+      }
+
       return target;
     }
 
@@ -239,6 +272,43 @@ function getBaseTypeName(ctx: MacroContext, typeNode: ts.TypeNode): string {
   const str = ctx.typeChecker.typeToString(type);
   // Strip generics from type string
   return str.replace(/<.*>$/, "");
+}
+
+/**
+ * Create a runtime registration call statement that persists in dist.
+ *
+ * Emits: globalThis.__typesugar_registerExtension?.({...})
+ *
+ * The hook is set up by @typesugar/core at load time. Using globalThis avoids
+ * needing an import in the target file (which may not import @typesugar/core).
+ */
+function createRegistrationCall(
+  factory: ts.NodeFactory,
+  methodName: string,
+  forType: string,
+  qualifier: string | undefined
+): ts.Statement {
+  const props: ts.PropertyAssignment[] = [
+    factory.createPropertyAssignment("methodName", factory.createStringLiteral(methodName)),
+    factory.createPropertyAssignment("forType", factory.createStringLiteral(forType)),
+  ];
+  if (qualifier) {
+    props.push(
+      factory.createPropertyAssignment("qualifier", factory.createStringLiteral(qualifier))
+    );
+  }
+
+  // globalThis.__typesugar_registerExtension?.({ methodName, forType, qualifier })
+  const hook = factory.createPropertyAccessExpression(
+    factory.createIdentifier("globalThis"),
+    "__typesugar_registerExtension"
+  );
+
+  return factory.createExpressionStatement(
+    factory.createCallChain(hook, factory.createToken(ts.SyntaxKind.QuestionDotToken), undefined, [
+      factory.createObjectLiteralExpression(props, false),
+    ])
+  );
 }
 
 /**
