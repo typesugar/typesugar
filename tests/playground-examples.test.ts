@@ -583,11 +583,11 @@ describe("all examples execute without runtime errors", () => {
         return;
       }
 
-      // 2. Transpile TS → JS
-      const jsCode = transpileToJS(result.code);
+      // 2. Rewrite imports BEFORE transpile (transpile converts to require() calls)
+      const rewritten = rewriteImports(result.code);
 
-      // 3. Rewrite imports (same as playground)
-      const runnableCode = rewriteImports(jsCode);
+      // 3. Transpile TS → JS
+      const runnableCode = transpileToJS(rewritten);
 
       // 4. Execute in sandbox
       const logs: unknown[][] = [];
