@@ -497,6 +497,8 @@ function buildModuleRegistry(): Record<string, Record<string, unknown>> {
   register("@typesugar/testing", () => require("@typesugar/testing"));
   register("@typesugar/mapper", () => require("@typesugar/mapper"));
   register("@typesugar/math", () => require("@typesugar/math"));
+  register("@typesugar/effect", () => require("@typesugar/effect"));
+  register("effect", () => require("effect"));
 
   return modules;
 }
