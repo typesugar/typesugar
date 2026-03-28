@@ -553,6 +553,8 @@ function transpileToJS(tsCode: string): string {
 const EXECUTION_SKIP = new Set<string>([
   "codec/schema-codec.ts", // SchemaBuilder API differs between CJS/ESM builds
   "parser/arithmetic.ts", // Combinator .parse() method missing in CJS build
+  "effect/service-layer.ts", // Needs server-side execution (real effect package)
+  "effect/do-comprehensions.ts", // Needs server-side execution (real effect package)
 ]);
 
 describe("all examples execute without runtime errors", () => {
