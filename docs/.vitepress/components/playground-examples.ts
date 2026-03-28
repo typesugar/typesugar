@@ -24,6 +24,7 @@ const GROUP_META: Record<string, { label: string; order: number }> = {
   fp: { label: "@typesugar/fp", order: 20 },
   std: { label: "@typesugar/std", order: 25 },
   preprocessor: { label: "Preprocessor (.sts)", order: 28 },
+  effect: { label: "@typesugar/effect", order: 30 },
   collections: { label: "@typesugar/collections", order: 35 },
   graph: { label: "@typesugar/graph", order: 40 },
   contracts: { label: "@typesugar/contracts", order: 45 },
@@ -68,6 +69,10 @@ const EXAMPLE_ORDER: Record<string, Record<string, number>> = {
     "Pattern Matching": 0,
     "Do-Notation": 10,
     "Ranges & Iteration": 20,
+  },
+  effect: {
+    "Service & Layer": 0,
+    "Do-Comprehensions (Effect)": 10,
   },
   preprocessor: {
     "Pipeline Operator": 0,
