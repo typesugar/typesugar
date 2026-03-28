@@ -315,8 +315,51 @@ class MacroTransformer {
     const prevSpecCache = this.specCache;
     this.specCache = new SpecializationCache();
 
+    // Track a pending `const x = let` declaration that should be merged
+    // with the following `let: { ... } yield: { ... }` labeled block macro.
+    // When TS parses `const x =\nlet: { ... }`, ASI splits it into two statements:
+    //   1. `const x = let;`  (variable declaration with `let` identifier as initializer)
+    //   2. `let: { ... }`    (labeled statement)
+    // We detect this pattern and merge them: `const x = <expanded chain expression>;`
+    let pendingVarDecl:
+      | { stmt: ts.VariableStatement; name: ts.BindingName; flags: ts.NodeFlags }
+      | undefined;
+
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i];
+
+      // Check for `const x = let;` pattern: a variable declaration whose
+      // initializer is the identifier `let` or `seq` (the labeled block labels).
+      // If found, hold it and check if the next statement is a labeled block macro.
+      if (ts.isVariableStatement(stmt) && !pendingVarDecl) {
+        const decls = stmt.declarationList.declarations;
+        if (decls.length === 1) {
+          const decl = decls[0];
+          if (
+            decl.initializer &&
+            ts.isIdentifier(decl.initializer) &&
+            (decl.initializer.text === "let" || decl.initializer.text === "seq")
+          ) {
+            // Peek ahead: is the next statement a labeled block macro with matching label?
+            const nextStmt = i + 1 < statements.length ? statements[i + 1] : undefined;
+            if (
+              nextStmt &&
+              ts.isLabeledStatement(nextStmt) &&
+              nextStmt.label.text === decl.initializer.text &&
+              globalRegistry.getLabeledBlock(nextStmt.label.text)
+            ) {
+              // Hold this declaration — will be merged with the macro expansion
+              pendingVarDecl = {
+                stmt,
+                name: decl.name,
+                flags: stmt.declarationList.flags,
+              };
+              modified = true;
+              continue; // skip adding to newStatements
+            }
+          }
+        }
+      }
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
@@ -328,6 +371,7 @@ class MacroTransformer {
             if (visited && ts.isStatement(visited)) {
               newStatements.push(visited);
             }
+            pendingVarDecl = undefined;
             continue;
           }
 
@@ -348,7 +392,29 @@ class MacroTransformer {
             const result = this.ctx.hygiene.withScope(() =>
               macro.expand(this.ctx, stmt, continuation)
             );
-            const expanded = Array.isArray(result) ? result : [result];
+            let expanded = Array.isArray(result) ? result : [result];
+
+            // If there's a pending `const x = let`, merge the expanded expression
+            // into a variable declaration: `const x = <expanded expression>;`
+            if (pendingVarDecl && expanded.length === 1 && ts.isExpressionStatement(expanded[0])) {
+              const expr = expanded[0].expression;
+              const newDecl = this.ctx.factory.createVariableDeclaration(
+                pendingVarDecl.name,
+                undefined,
+                undefined,
+                expr
+              );
+              const newDeclList = this.ctx.factory.createVariableDeclarationList(
+                [newDecl],
+                pendingVarDecl.flags
+              );
+              const newVarStmt = this.ctx.factory.createVariableStatement(
+                pendingVarDecl.stmt.modifiers,
+                newDeclList
+              );
+              expanded = [newVarStmt];
+              pendingVarDecl = undefined;
+            }
 
             for (const s of expanded) {
               const visited = ts.visitNode(s, this.visit.bind(this));
@@ -377,11 +443,22 @@ class MacroTransformer {
                 `typesugar: labeled block '${labelName}:' expansion failed: ${error}`
               )
             );
+            pendingVarDecl = undefined;
           }
 
           modified = true;
           continue;
         }
+      }
+
+      // If we had a pending var decl but the next statement wasn't a macro,
+      // flush it as-is (it was just a regular `const x = let` — unusual but valid)
+      if (pendingVarDecl) {
+        const visited = ts.visitNode(pendingVarDecl.stmt, this.visit.bind(this));
+        if (visited && ts.isStatement(visited)) {
+          newStatements.push(visited);
+        }
+        pendingVarDecl = undefined;
       }
 
       const visited = this.visit(stmt);

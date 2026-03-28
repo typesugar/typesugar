@@ -1280,13 +1280,26 @@ export function transformCode(
   const callerReadFile = options?.readFile ?? ts.sys.readFile;
   const callerFileExists = options?.fileExists ?? ts.sys.fileExists;
   const rootFiles = [fileName, ...(options?.extraRootFiles ?? [])];
-  const pipeline = new TransformationPipeline({ target: ts.ScriptTarget.Latest }, rootFiles, {
-    ...options,
-    readFile: (f) =>
-      f === fileName || f === (options?.fileName ?? "input.ts") ? code : callerReadFile(f),
-    fileExists: (f) =>
-      f === fileName || f === (options?.fileName ?? "input.ts") || callerFileExists(f),
-  });
+  const pipeline = new TransformationPipeline(
+    {
+      target: ts.ScriptTarget.Latest,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      esModuleInterop: true,
+      strict: false,
+      noImplicitAny: false,
+      skipLibCheck: true,
+      skipDefaultLibCheck: true,
+    },
+    rootFiles,
+    {
+      ...options,
+      readFile: (f) =>
+        f === fileName || f === (options?.fileName ?? "input.ts") ? code : callerReadFile(f),
+      fileExists: (f) =>
+        f === fileName || f === (options?.fileName ?? "input.ts") || callerFileExists(f),
+    }
+  );
   const result = pipeline.transform(fileName);
 
   if (options?.strictOutput && result.changed) {

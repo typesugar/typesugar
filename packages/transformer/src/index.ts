@@ -2147,6 +2147,168 @@ class MacroTransformer {
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i];
 
+      // ---------------------------------------------------------------
+      // Expression-level do-notation: const x = let: { ... } yield: { ... }
+      //
+      // When TS parses `const x =\nlet: { a << e1; b << e2; }\nyield: { a + b }`,
+      // it produces these fragments (because `let` is consumed as identifier initializer):
+      //   [i]   VariableStatement: decls=[x=let, {a}]  (destructuring captures 1st bind name)
+      //   [i+1] ExpressionStatement: << e1              (1st bind effect)
+      //   [i+2] ExpressionStatement: b << e2            (subsequent binds/maps)
+      //   ...
+      //   [i+n] LabeledStatement: yield: { a + b }      (continuation)
+      //
+      // We detect this pattern, reconstruct a synthetic let: block + yield: continuation,
+      // pass them to the macro, and wrap the result in `const x = <expr>`.
+      // ---------------------------------------------------------------
+      if (ts.isVariableStatement(stmt)) {
+        const decls = stmt.declarationList.declarations;
+        if (decls.length === 2) {
+          const firstDecl = decls[0];
+          const secondDecl = decls[1];
+          if (
+            firstDecl.initializer &&
+            ts.isIdentifier(firstDecl.initializer) &&
+            (firstDecl.initializer.text === "let" || firstDecl.initializer.text === "seq") &&
+            ts.isObjectBindingPattern(secondDecl.name) &&
+            secondDecl.name.elements.length >= 1
+          ) {
+            const labelName = firstDecl.initializer.text;
+            const macro = globalRegistry.getLabeledBlock(labelName);
+            if (macro) {
+              // Extract first bind name from destructuring pattern { a }
+              const firstBindName = secondDecl.name.elements[0].name;
+              if (!ts.isIdentifier(firstBindName)) {
+                // Not a valid pattern — fall through to normal processing
+              } else {
+                // Consume fragment statements: << e1, b << e2, if(...), etc.
+                // until we hit a yield:/pure:/return: LabeledStatement or end of block
+                const fragmentStmts: ts.Statement[] = [];
+                let j = i + 1;
+
+                // First fragment: ExpressionStatement with << e1 (the first bind's effect)
+                let firstBindEffect: ts.Expression | undefined;
+                if (j < statements.length && ts.isExpressionStatement(statements[j])) {
+                  const expr = (statements[j] as ts.ExpressionStatement).expression;
+                  if (
+                    ts.isBinaryExpression(expr) &&
+                    expr.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
+                  ) {
+                    // The left side is empty/invalid identifier (from the destructuring split)
+                    firstBindEffect = expr.right;
+                    j++;
+                  }
+                }
+
+                if (firstBindEffect) {
+                  // Collect remaining bind/map/guard statements
+                  while (j < statements.length) {
+                    const frag = statements[j];
+                    // Stop at yield:/pure:/return: continuation
+                    if (
+                      ts.isLabeledStatement(frag) &&
+                      macro.continuationLabels?.includes(frag.label.text)
+                    ) {
+                      break;
+                    }
+                    // Accept ExpressionStatements (binds, maps) and IfStatements (guards)
+                    if (ts.isExpressionStatement(frag) || ts.isIfStatement(frag)) {
+                      fragmentStmts.push(frag);
+                      j++;
+                      continue;
+                    }
+                    break; // Unknown statement type — stop consuming
+                  }
+
+                  // Check for yield:/pure:/return: continuation
+                  let continuation: ts.LabeledStatement | undefined;
+                  if (
+                    j < statements.length &&
+                    ts.isLabeledStatement(statements[j]) &&
+                    macro.continuationLabels?.includes(
+                      (statements[j] as ts.LabeledStatement).label.text
+                    )
+                  ) {
+                    continuation = statements[j] as ts.LabeledStatement;
+                    j++;
+                  }
+
+                  // Reconstruct a synthetic `let: { a << e1; b << e2; ... }` labeled statement
+                  const factory = this.ctx.factory;
+
+                  // Build the first bind: `a << e1;`
+                  const firstBindStmt = factory.createExpressionStatement(
+                    factory.createBinaryExpression(
+                      factory.createIdentifier(firstBindName.text),
+                      factory.createToken(ts.SyntaxKind.LessThanLessThanToken),
+                      firstBindEffect
+                    )
+                  );
+
+                  // Combine: first bind + remaining fragments
+                  const blockStatements = [firstBindStmt, ...fragmentStmts];
+                  const syntheticBlock = factory.createBlock(blockStatements);
+                  const syntheticLabel = factory.createLabeledStatement(
+                    factory.createIdentifier(labelName),
+                    syntheticBlock
+                  );
+
+                  if (this.verbose) {
+                    console.log(
+                      `[typesugar] Reconstructed expression-level ${labelName}:/yield: for const ${firstDecl.name.getText(this.ctx.sourceFile)}`
+                    );
+                  }
+
+                  try {
+                    const result = this.ctx.hygiene.withScope(() =>
+                      macro.expand(this.ctx, syntheticLabel, continuation)
+                    );
+                    let expanded = Array.isArray(result) ? result : [result];
+
+                    // Wrap in variable declaration: const x = <expanded expr>
+                    if (expanded.length === 1 && ts.isExpressionStatement(expanded[0])) {
+                      const expr = expanded[0].expression;
+                      const newDecl = factory.createVariableDeclaration(
+                        firstDecl.name,
+                        undefined,
+                        undefined,
+                        expr
+                      );
+                      const newDeclList = factory.createVariableDeclarationList(
+                        [newDecl],
+                        stmt.declarationList.flags
+                      );
+                      expanded = [factory.createVariableStatement(stmt.modifiers, newDeclList)];
+                    }
+
+                    for (const s of expanded) {
+                      const visited = ts.visitNode(s, this.visit.bind(this));
+                      if (visited) {
+                        if (Array.isArray(visited)) {
+                          newStatements.push(...(visited as ts.Node[]).filter(ts.isStatement));
+                        } else {
+                          newStatements.push(visited as ts.Statement);
+                        }
+                      }
+                    }
+
+                    // Advance past all consumed statements
+                    i = j - 1;
+                    modified = true;
+                    continue;
+                  } catch (error) {
+                    this.ctx.reportError(
+                      stmt,
+                      `Expression-level ${labelName}:/yield: expansion failed: ${error}`
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
         const macro = globalRegistry.getLabeledBlock(labelName);
