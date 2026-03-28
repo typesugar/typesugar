@@ -9,6 +9,14 @@
     "api/compile.ts": {
       "memory": 1024,
       "maxDuration": 10
+    },
+    "api/ls.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/run.ts": {
+      "memory": 1024,
+      "maxDuration": 10
     }
   }
 }
