@@ -117,6 +117,80 @@ describe("pattern-based / declarative macros", () => {
 
       expect(printExpr(idResult)).toContain("toString");
     });
+
+    it("should correctly expand captures containing > characters", () => {
+      const macro = defineSyntaxMacro("check_gt", {
+        pattern: "check_gt($cond:expr)",
+        expand: "($cond) ? 1 : 0",
+      });
+
+      // Build: a > b ? c : d  as the argument (a conditional with > comparison)
+      const arg = ts.factory.createConditionalExpression(
+        ts.factory.createBinaryExpression(
+          ts.factory.createIdentifier("a"),
+          ts.SyntaxKind.GreaterThanToken,
+          ts.factory.createIdentifier("b")
+        ),
+        ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+        ts.factory.createIdentifier("c"),
+        ts.factory.createToken(ts.SyntaxKind.ColonToken),
+        ts.factory.createIdentifier("d")
+      );
+
+      const callExpr = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("check_gt"),
+        undefined,
+        [arg]
+      );
+
+      const result = macro.expand(ctx, callExpr, [arg]);
+      const text = printExpr(result);
+      // The expansion should contain the > operator and ternary structure
+      expect(text).toContain(">");
+      expect(text).toContain("a");
+      expect(text).toContain("b");
+    });
+
+    it("should reject stmts captures in expression position", () => {
+      const macro = defineSyntaxMacro("stmts_test", {
+        arms: [
+          {
+            pattern: "stmts_test($s:stmts)",
+            expand: "$s",
+          },
+        ],
+      });
+
+      const callExpr = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("stmts_test"),
+        undefined,
+        [ts.factory.createIdentifier("foo")]
+      );
+
+      // Should fall through to "no arm matched" since stmts rejects in expr position.
+      // The macro returns the original callExpr when no arm matches.
+      const result = macro.expand(ctx, callExpr, [ts.factory.createIdentifier("foo")]);
+      // Result should be the original call expression (no arm matched)
+      expect(result).toBe(callExpr);
+    });
+
+    it("should return captured node directly for single-capture templates", () => {
+      const macro = defineSyntaxMacro("identity_test", {
+        pattern: "identity_test($x:expr)",
+        expand: "$x",
+      });
+
+      const arg = ts.factory.createNumericLiteral(42);
+      const callExpr = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("identity_test"),
+        undefined,
+        [arg]
+      );
+
+      const result = macro.expand(ctx, callExpr, [arg]);
+      // When template is just "$x", the node should be returned directly
+      expect(result).toBe(arg);
+    });
   });
 
   describe("defineRewrite", () => {

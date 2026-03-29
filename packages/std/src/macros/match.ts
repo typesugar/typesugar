@@ -379,6 +379,21 @@ function inferDiscriminant(
 // Exhaustiveness Checking
 // ============================================================================
 
+/**
+ * Well-known discriminant field names used for exhaustiveness checking in `match!`.
+ *
+ * These cover the most common conventions:
+ * - `kind`        — TypeScript handbook pattern
+ * - `_tag`        — Effect / fp-ts convention
+ * - `type`        — Redux actions, general-purpose
+ * - `tag`         — common short alternative
+ * - `__typename`  — GraphQL introspection field
+ * - `ok`          — Result-like types
+ * - `status`      — HTTP / status-based unions
+ *
+ * If your union uses a different discriminant, define match arms
+ * with explicit guards or restructure the type to use one of these fields.
+ */
 const KNOWN_DISCRIMINANTS = ["kind", "_tag", "type", "tag", "__typename", "ok", "status"];
 
 function detectDiscriminant(type: ts.Type, checker: ts.TypeChecker): string | null {

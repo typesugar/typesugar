@@ -1,4 +1,5 @@
 import { defineConfig } from "tsup";
+import typesugar from "unplugin-typesugar/esbuild";
 
 export default defineConfig({
   entry: {
@@ -14,4 +15,5 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: ["typescript", "@typesugar/core", "@typesugar/macros"],
+  esbuildPlugins: [typesugar()],
 });

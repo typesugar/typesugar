@@ -65,9 +65,6 @@
  * ```
  */
 
-// Runtime extension registration (populates registry when importing from dist)
-import "./register-extensions.js";
-
 // Typeclasses
 export * from "./typeclasses";
 

@@ -31,6 +31,7 @@ import {
   globalResolutionScope,
   isInOptedOutScope,
   preserveSourceMap,
+  extractTypeArgumentsContent,
 } from "@typesugar/core";
 
 import { safeGetNodeText, type VisitFn } from "./transformer-utils.js";
@@ -60,11 +61,10 @@ function isVoidReturnType(
     const signature = typeChecker.getSignatureFromDeclaration(fn);
     if (signature) {
       const returnType = typeChecker.getReturnTypeOfSignature(signature);
-      const typeStr = typeChecker.typeToString(returnType);
-      return typeStr === "void";
+      return !!(returnType.flags & ts.TypeFlags.Void);
     }
   } catch {
-    // Fall through
+    // TypeChecker may throw on getSignatureFromDeclaration — fall through to default
   }
 
   return false;
@@ -114,6 +114,9 @@ export function hasImplAnnotation(decl: ts.Declaration): boolean {
   return false;
 }
 
+// Re-export for backwards compatibility
+export { extractTypeArgumentsContent } from "@typesugar/core";
+
 // ---------------------------------------------------------------------------
 // Brand extraction from @impl
 // ---------------------------------------------------------------------------
@@ -126,25 +129,8 @@ export function extractBrandFromImpl(decl: ts.Declaration): string | undefined {
           typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
         if (comment) {
           const text = comment.trim();
-          const openBracket = text.indexOf("<");
-          if (openBracket === -1) continue;
-
-          let depth = 0;
-          let closeBracket = -1;
-          for (let i = openBracket; i < text.length; i++) {
-            if (text[i] === "<") depth++;
-            else if (text[i] === ">") {
-              depth--;
-              if (depth === 0) {
-                closeBracket = i;
-                break;
-              }
-            }
-          }
-
-          if (closeBracket !== -1) {
-            return text.slice(openBracket + 1, closeBracket).trim();
-          }
+          const extracted = extractTypeArgumentsContent(text);
+          if (extracted !== undefined) return extracted;
         }
       }
     }
@@ -210,13 +196,13 @@ export function tryExtractInstanceFromSource(
 
           if (!brand) {
             const typeStr = varDecl.type.getText(ctx.sourceFile);
-            const match = typeStr.match(/<([^>]+)>/);
-            if (match) {
-              brand = match[1].split(",")[0].trim();
+            const extracted = extractTypeArgumentsContent(typeStr);
+            if (extracted) {
+              brand = extracted;
             }
           }
         } catch {
-          // Brand extraction from type annotation failed
+          // getText() may fail on synthetic type annotation nodes — skip brand extraction
         }
       }
 
@@ -231,7 +217,7 @@ export function tryExtractInstanceFromSource(
       }
     }
   } catch {
-    // Fallback to registry-based lookup on error
+    // TypeChecker or AST traversal may throw — fall back to registry-based lookup
   }
 
   return undefined;
@@ -241,6 +227,33 @@ export function tryExtractInstanceFromSource(
 // Function body resolution
 // ---------------------------------------------------------------------------
 
+function resolveBodyFromSymbol(
+  typeChecker: ts.TypeChecker,
+  node: ts.Node
+): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
+  try {
+    const symbol = typeChecker.getSymbolAtLocation(node);
+    if (!symbol) return undefined;
+    const declarations = symbol.getDeclarations();
+    if (!declarations || declarations.length === 0) return undefined;
+
+    for (const decl of declarations) {
+      if (ts.isVariableDeclaration(decl) && decl.initializer) {
+        if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
+          return decl.initializer;
+        }
+      }
+      if (ts.isFunctionDeclaration(decl) && decl.body) {
+        return decl;
+      }
+    }
+  } catch {
+    // TypeChecker may throw on unresolvable symbols
+    return undefined;
+  }
+  return undefined;
+}
+
 export function resolveAutoSpecFunctionBody(
   typeChecker: ts.TypeChecker,
   fnExpr: ts.Expression
@@ -248,51 +261,9 @@ export function resolveAutoSpecFunctionBody(
   if (ts.isArrowFunction(fnExpr) || ts.isFunctionExpression(fnExpr)) {
     return fnExpr;
   }
-
-  if (ts.isIdentifier(fnExpr)) {
-    try {
-      const symbol = typeChecker.getSymbolAtLocation(fnExpr);
-      if (!symbol) return undefined;
-      const declarations = symbol.getDeclarations();
-      if (!declarations || declarations.length === 0) return undefined;
-
-      for (const decl of declarations) {
-        if (ts.isVariableDeclaration(decl) && decl.initializer) {
-          if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
-            return decl.initializer;
-          }
-        }
-        if (ts.isFunctionDeclaration(decl) && decl.body) {
-          return decl;
-        }
-      }
-    } catch {
-      return undefined;
-    }
+  if (ts.isIdentifier(fnExpr) || ts.isPropertyAccessExpression(fnExpr)) {
+    return resolveBodyFromSymbol(typeChecker, fnExpr);
   }
-
-  if (ts.isPropertyAccessExpression(fnExpr)) {
-    try {
-      const symbol = typeChecker.getSymbolAtLocation(fnExpr);
-      if (!symbol) return undefined;
-      const declarations = symbol.getDeclarations();
-      if (!declarations || declarations.length === 0) return undefined;
-
-      for (const decl of declarations) {
-        if (ts.isVariableDeclaration(decl) && decl.initializer) {
-          if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
-            return decl.initializer;
-          }
-        }
-        if (ts.isFunctionDeclaration(decl) && decl.body) {
-          return decl;
-        }
-      }
-    } catch {
-      return undefined;
-    }
-  }
-
   return undefined;
 }
 
@@ -475,7 +446,7 @@ export function tryAutoSpecialize(
       }
       suppressWarnings = lineText.includes("@no-specialize-warn");
     } catch {
-      // Proceed with auto-specialization
+      // getSourceFile()/getStart() may fail on synthetic nodes — proceed with auto-specialization
     }
   }
 
@@ -558,7 +529,7 @@ export function tryAutoSpecialize(
       fnSymbolId = (fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName;
     }
   } catch {
-    // Use fnName as fallback
+    // TypeChecker may throw on unresolvable symbols — use fnName as fallback
   }
   const dictBrands = instanceArgs.map((a) => a.methods.brand);
   const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictBrands);
@@ -644,7 +615,7 @@ export function getContextualTypeForCall(
     const contextual = typeChecker.getContextualType(node);
     if (contextual) return contextual;
   } catch {
-    // Fall through to parent-based detection
+    // TypeChecker may throw on getContextualType — fall through to parent-based detection
   }
 
   const parent = node.parent;
@@ -652,6 +623,7 @@ export function getContextualTypeForCall(
     try {
       return typeChecker.getTypeFromTypeNode(parent.type);
     } catch {
+      // TypeChecker may throw on unresolvable type nodes
       return undefined;
     }
   }
@@ -669,6 +641,7 @@ export function getContextualTypeForCall(
         try {
           return typeChecker.getTypeFromTypeNode(current.type);
         } catch {
+          // TypeChecker may throw on unresolvable return type annotations
           return undefined;
         }
       }
@@ -776,6 +749,7 @@ export function tryReturnTypeDrivenSpecialize(
   try {
     fnType = ctx.typeChecker.getTypeAtLocation(node.expression);
   } catch {
+    // TypeChecker may throw on unresolvable expressions — skip return-type specialization
     return undefined;
   }
   const callSigs = fnType.getCallSignatures();
@@ -835,7 +809,7 @@ export function tryReturnTypeDrivenSpecialize(
       fnSymbolId = (fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName;
     }
   } catch {
-    // Use fnName as fallback
+    // TypeChecker may throw on unresolvable symbols — use fnName as fallback
   }
   const cacheKey = SpecializationCache.computeKey(fnSymbolId, [algebra.name]);
 

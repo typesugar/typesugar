@@ -21,6 +21,23 @@ import {
 // Import tracking
 // ---------------------------------------------------------------------------
 
+/** Get-or-create a Set for the given import declaration and add a value. */
+function trackMacroImport(
+  macroImportSpecifiers: Map<
+    ts.ImportDeclaration,
+    Set<ts.ImportSpecifier | "namespace" | "default">
+  >,
+  importDecl: ts.ImportDeclaration,
+  value: ts.ImportSpecifier | "namespace" | "default"
+): void {
+  let set = macroImportSpecifiers.get(importDecl);
+  if (!set) {
+    set = new Set();
+    macroImportSpecifiers.set(importDecl, set);
+  }
+  set.add(value);
+}
+
 /**
  * Record that a symbol resolved to a macro, so its import specifier can be
  * removed after the visitor pass.
@@ -37,30 +54,17 @@ export function recordMacroImport(
 
   for (const decl of declarations) {
     if (ts.isImportSpecifier(decl)) {
-      const namedBindings = decl.parent;
-      const importClause = namedBindings.parent;
-      const importDecl = importClause.parent;
+      const importDecl = decl.parent.parent.parent;
       if (ts.isImportDeclaration(importDecl)) {
-        let set = macroImportSpecifiers.get(importDecl);
-        if (!set) {
-          set = new Set();
-          macroImportSpecifiers.set(importDecl, set);
-        }
-        set.add(decl);
+        trackMacroImport(macroImportSpecifiers, importDecl, decl);
       }
       return;
     }
 
     if (ts.isNamespaceImport(decl)) {
-      const importClause = decl.parent;
-      const importDecl = importClause.parent;
+      const importDecl = decl.parent.parent;
       if (ts.isImportDeclaration(importDecl)) {
-        let set = macroImportSpecifiers.get(importDecl);
-        if (!set) {
-          set = new Set();
-          macroImportSpecifiers.set(importDecl, set);
-        }
-        set.add("namespace");
+        trackMacroImport(macroImportSpecifiers, importDecl, "namespace");
       }
       return;
     }
@@ -68,12 +72,7 @@ export function recordMacroImport(
     if (ts.isImportClause(decl) && decl.name) {
       const importDecl = decl.parent;
       if (ts.isImportDeclaration(importDecl)) {
-        let set = macroImportSpecifiers.get(importDecl);
-        if (!set) {
-          set = new Set();
-          macroImportSpecifiers.set(importDecl, set);
-        }
-        set.add("default");
+        trackMacroImport(macroImportSpecifiers, importDecl, "default");
       }
       return;
     }
@@ -205,6 +204,8 @@ export function resolveModuleSpecifier(fileName: string): string | undefined {
     return pkgName;
   }
 
+  // Monorepo detection: assumes the standard `packages/<name>/` directory
+  // layout. Used to map a file path back to a `@typesugar/<name>` specifier.
   const packagesMatch = normalized.match(/\/packages\/([a-z0-9-]+)\//);
   if (packagesMatch) {
     const pkgName = packagesMatch[1];
@@ -392,7 +393,7 @@ export function resolveSymbolToMacro(
     try {
       resolved = typeChecker.getAliasedSymbol(resolved);
     } catch {
-      // getAliasedSymbol can throw for unresolvable symbols
+      // TypeChecker.getAliasedSymbol can throw for unresolvable import aliases
     }
   }
 
@@ -460,6 +461,7 @@ export function resolveMacroFromSymbol(
   try {
     symbol = typeChecker.getSymbolAtLocation(node);
   } catch {
+    // TypeChecker may throw on getSymbolAtLocation — fall back to name-based lookup
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
   if (!symbol) {

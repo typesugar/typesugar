@@ -9,6 +9,20 @@ import ts from "typescript";
 import type { MacroContext } from "./types.js";
 
 // =============================================================================
+// hasExportModifier — Check for `export` keyword on a node
+// =============================================================================
+
+/**
+ * Check if a node has an `export` modifier.
+ */
+export function hasExportModifier(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
+  );
+}
+
+// =============================================================================
 // stripDecorator — Remove a specific decorator from a declaration
 // =============================================================================
 

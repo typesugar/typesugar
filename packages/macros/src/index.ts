@@ -335,6 +335,7 @@ export {
   getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
   standaloneExtensionRegistry,
+  createRegistrationCall,
   type StandaloneExtensionInfo,
 } from "./extension.js";
 

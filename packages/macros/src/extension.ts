@@ -28,7 +28,7 @@ import type {
 } from "@typesugar/core";
 import { defineExpressionMacro, defineAttributeMacro } from "@typesugar/core";
 import { globalRegistry } from "@typesugar/core";
-import { TS9206, TS9402, TS9403 } from "@typesugar/core";
+import { TS9206, TS9402, TS9403, hasExportModifier } from "@typesugar/core";
 import {
   standaloneExtensionRegistry,
   registerStandaloneExtensionEntry,
@@ -282,7 +282,7 @@ function getBaseTypeName(ctx: MacroContext, typeNode: ts.TypeNode): string {
  * The hook is set up by @typesugar/core at load time. Using globalThis avoids
  * needing an import in the target file (which may not import @typesugar/core).
  */
-function createRegistrationCall(
+export function createRegistrationCall(
   factory: ts.NodeFactory,
   methodName: string,
   forType: string,
@@ -308,16 +308,6 @@ function createRegistrationCall(
     factory.createCallChain(hook, factory.createToken(ts.SyntaxKind.QuestionDotToken), undefined, [
       factory.createObjectLiteralExpression(props, false),
     ])
-  );
-}
-
-/**
- * Check if a node has an export modifier.
- */
-function hasExportModifier(node: ts.Node): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
   );
 }
 

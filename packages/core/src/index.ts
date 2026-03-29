@@ -168,6 +168,7 @@ export {
 
 // AST Utilities
 export {
+  hasExportModifier,
   stripDecorator,
   stripPositions,
   stripCommentsDeep,
@@ -184,6 +185,14 @@ export {
   getRemoveComment,
   type JsValueContext,
 } from "./ast-utils.js";
+
+// Type String Utilities (pure string, no TS dependency)
+export {
+  extractTypeArgumentsContent,
+  stripTypeArguments,
+  splitTopLevelTypeArgs,
+  parseTypeInstantiation,
+} from "./type-string-utils.js";
 
 // Hygiene System
 export {

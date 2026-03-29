@@ -22,6 +22,7 @@ import {
   type TypeRewriteEntry,
   type ConstructorRewrite,
   type AccessorRewrite,
+  hasExportModifier,
 } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
@@ -226,13 +227,6 @@ function extractOpaqueTagFromNode(node: ts.Node, fullText: string): string | und
 // ---------------------------------------------------------------------------
 // Method / constructor heuristics
 // ---------------------------------------------------------------------------
-
-function hasExportModifier(node: ts.Node): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
-  );
-}
 
 /**
  * Check if a function's first parameter type references the opaque type name.

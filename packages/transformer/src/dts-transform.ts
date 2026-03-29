@@ -30,6 +30,7 @@
 import ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
+import { hasExportModifier } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
 // Core transform
@@ -39,18 +40,52 @@ import * as path from "path";
  * Extract the `@opaque` tag value from a node's JSDoc comments.
  */
 function extractOpaqueTag(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
+  // Try TS JSDoc API first
+  const tags = ts.getJSDocTags(node);
+  for (const tag of tags) {
+    if (tag.tagName.text === "opaque") {
+      const comment =
+        typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+      if (comment) return comment.trim();
+    }
+  }
+
+  // Fallback: manual extraction from comment text
+  // (needed when TS doesn't parse @opaque as a known tag)
   const fullText = sourceFile.getFullText();
   const commentRanges = ts.getLeadingCommentRanges(fullText, node.getFullStart());
   if (!commentRanges) return undefined;
 
   for (const range of commentRanges) {
     const comment = fullText.slice(range.pos, range.end);
-    // Match @opaque followed by the underlying type
-    const match = /@opaque\s+(.+?)(?:\s*\*\/|\s*\n\s*\*\s*@|\s*$)/m.exec(comment);
-    if (match) {
-      return match[1].trim().replace(/\s*\*\s*$/, "");
+    // Extract everything after @opaque until next tag or end of comment
+    const opaqueIdx = comment.indexOf("@opaque");
+    if (opaqueIdx === -1) continue;
+
+    const afterOpaque = comment.slice(opaqueIdx + "@opaque".length);
+    // Find the end: next @tag, or end of comment block
+    const nextTagMatch = afterOpaque.match(/\n\s*\*\s*@/);
+    const endOfComment = afterOpaque.indexOf("*/");
+
+    let endIdx: number;
+    if (
+      nextTagMatch?.index !== undefined &&
+      (endOfComment === -1 || nextTagMatch.index < endOfComment)
+    ) {
+      endIdx = nextTagMatch.index;
+    } else if (endOfComment !== -1) {
+      endIdx = endOfComment;
+    } else {
+      endIdx = afterOpaque.length;
     }
+
+    const value = afterOpaque
+      .slice(0, endIdx)
+      .replace(/\n\s*\*\s*/g, " ") // join continuation lines
+      .trim();
+    if (value) return value;
   }
+
   return undefined;
 }
 
@@ -74,16 +109,6 @@ function getJsDocRange(
     }
   }
   return undefined;
-}
-
-/**
- * Check if a node has an `export` modifier.
- */
-function hasExportModifier(node: ts.Node): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
-  );
 }
 
 /**

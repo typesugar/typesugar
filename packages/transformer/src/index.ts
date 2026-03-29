@@ -52,6 +52,7 @@ import {
   type DictMethodMap,
   type DictMethod,
   type ResultAlgebra,
+  createRegistrationCall,
 } from "@typesugar/macros";
 
 import {
@@ -104,6 +105,10 @@ import {
   getRemoveComment,
   // Comment stripping for inlined expressions
   stripCommentsDeep,
+  // Type string parsing
+  parseTypeInstantiation,
+  extractTypeArgumentsContent,
+  stripTypeArguments,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -577,30 +582,9 @@ function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.Source
 function parseTypeclassInstantiation(
   text: string
 ): { typeclassName: string; forType: string } | null {
-  const openBracket = text.indexOf("<");
-  if (openBracket === -1) return null;
-
-  const typeclassName = text.slice(0, openBracket).trim();
-  if (!typeclassName) return null;
-
-  let depth = 0;
-  let closeBracket = -1;
-  for (let i = openBracket; i < text.length; i++) {
-    if (text[i] === "<") depth++;
-    else if (text[i] === ">") {
-      depth--;
-      if (depth === 0) {
-        closeBracket = i;
-        break;
-      }
-    }
-  }
-  if (closeBracket === -1) return null;
-
-  const forType = text.slice(openBracket + 1, closeBracket).trim();
-  if (!forType) return null;
-
-  return { typeclassName, forType };
+  const parsed = parseTypeInstantiation(text);
+  if (!parsed || !parsed.args) return null;
+  return { typeclassName: parsed.base, forType: parsed.args };
 }
 
 /**
@@ -934,6 +918,72 @@ function extractMapFromArray(arr: ts.ArrayLiteralExpression): Map<string, string
  */
 function isRemovedStatement(node: ts.Node): boolean {
   return ts.isExpressionStatement(node) && isRemoveExpression(node.expression);
+}
+
+/** Check if a node has an `export` modifier (PEP-027). */
+function hasExportModifier(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
+  );
+}
+
+/**
+ * Extract the `forType` string from the first parameter's type annotation (PEP-027).
+ * Returns the normalized type name, or undefined if no type annotation or
+ * the type is a bare generic parameter (e.g. `T`, `A`).
+ */
+function extractForTypeFromParam(param: ts.ParameterDeclaration): string | undefined {
+  let typeNode = param.type;
+  if (!typeNode) return undefined;
+
+  // Unwrap `readonly T[]` → T[]
+  if (ts.isTypeOperatorNode(typeNode) && typeNode.operator === ts.SyntaxKind.ReadonlyKeyword) {
+    typeNode = typeNode.type;
+  }
+
+  // Keyword types: number, string, boolean
+  switch (typeNode.kind) {
+    case ts.SyntaxKind.NumberKeyword:
+      return "number";
+    case ts.SyntaxKind.StringKeyword:
+      return "string";
+    case ts.SyntaxKind.BooleanKeyword:
+      return "boolean";
+    case ts.SyntaxKind.ObjectKeyword:
+      return "object";
+  }
+
+  // Array type: T[] → "Array"
+  if (ts.isArrayTypeNode(typeNode)) {
+    return "Array";
+  }
+
+  // Type reference: Array<T>, Map<K,V>, Set<T>, MyType, etc.
+  if (ts.isTypeReferenceNode(typeNode)) {
+    const typeName = typeNode.typeName;
+    if (ts.isIdentifier(typeName)) {
+      const name = typeName.text;
+      // Skip if this name is a type parameter on the enclosing function
+      if (isTypeParamOfEnclosingFunction(param, name)) return undefined;
+      return name;
+    }
+    if (ts.isQualifiedName(typeName)) {
+      return typeName.right.text;
+    }
+  }
+
+  // Union, intersection, or other complex types — skip
+  return undefined;
+}
+
+/** Check if `name` is declared as a type parameter on the function that owns `param`. */
+function isTypeParamOfEnclosingFunction(param: ts.ParameterDeclaration, name: string): boolean {
+  const fn = param.parent;
+  if (!ts.isFunctionDeclaration(fn) && !ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) {
+    return false;
+  }
+  return fn.typeParameters?.some((tp) => tp.name.text === name) === true;
 }
 
 /**
@@ -1731,6 +1781,57 @@ class MacroTransformer {
    * This is used when we need to explicitly check extension status,
    * e.g., for re-exports or disambiguation.
    */
+
+  // ---------------------------------------------------------------------------
+  // PEP-027: Emit extension registration calls for "use extension" files
+  // ---------------------------------------------------------------------------
+
+  /**
+   * For a "use extension" source file, scan its output statements for exported
+   * functions and emit `globalThis.__typesugar_registerExtension?.({ methodName, forType })`
+   * calls so the compiled dist self-registers its extensions at module load time.
+   */
+  private emitExtensionRegistrations(statements: ts.Statement[]): ts.Statement[] {
+    const factory = this.ctx.factory;
+    const registrations: ts.Statement[] = [];
+
+    for (const stmt of statements) {
+      // Handle: export function foo(self: Type, ...): RetType { ... }
+      if (
+        ts.isFunctionDeclaration(stmt) &&
+        hasExportModifier(stmt) &&
+        stmt.name &&
+        stmt.parameters.length > 0
+      ) {
+        const forType = extractForTypeFromParam(stmt.parameters[0]);
+        if (forType) {
+          registrations.push(createRegistrationCall(factory, stmt.name.text, forType, undefined));
+        }
+      }
+
+      // Handle: export const foo = (self: Type, ...) => { ... }
+      if (ts.isVariableStatement(stmt) && hasExportModifier(stmt)) {
+        for (const decl of stmt.declarationList.declarations) {
+          if (
+            ts.isIdentifier(decl.name) &&
+            decl.initializer &&
+            (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) &&
+            decl.initializer.parameters.length > 0
+          ) {
+            const forType = extractForTypeFromParam(decl.initializer.parameters[0]);
+            if (forType) {
+              registrations.push(
+                createRegistrationCall(factory, decl.name.text, forType, undefined)
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return registrations;
+  }
+
   private isExtensionEnabled(symbol: ts.Symbol): boolean {
     const declarations = symbol.getDeclarations();
     if (!declarations || declarations.length === 0) {
@@ -2480,6 +2581,21 @@ class MacroTransformer {
       );
     }
 
+    // PEP-027: Emit extension registration calls for "use extension" files.
+    // When a file has the "use extension" directive, append registration calls
+    // for each exported function so the dist self-registers its extensions.
+    if (ts.isSourceFile(node) && globalResolutionScope.hasUseExtension(node.fileName)) {
+      const regCalls = this.emitExtensionRegistrations(cleanedStatements);
+      if (regCalls.length > 0) {
+        cleanedStatements = [...cleanedStatements, ...regCalls];
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Emitted ${regCalls.length} extension registration call(s) for ${node.fileName}`
+          );
+        }
+      }
+    }
+
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
       return factory.updateSourceFile(node, cleanedStatements);
@@ -2661,27 +2777,8 @@ class MacroTransformer {
           const comment =
             typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
           if (comment) {
-            // Extract type argument from "Typeclass<Type>" with bracket-aware parsing
-            const text = comment.trim();
-            const openBracket = text.indexOf("<");
-            if (openBracket === -1) continue;
-
-            let depth = 0;
-            let closeBracket = -1;
-            for (let i = openBracket; i < text.length; i++) {
-              if (text[i] === "<") depth++;
-              else if (text[i] === ">") {
-                depth--;
-                if (depth === 0) {
-                  closeBracket = i;
-                  break;
-                }
-              }
-            }
-
-            if (closeBracket !== -1) {
-              return text.slice(openBracket + 1, closeBracket).trim();
-            }
+            const extracted = extractTypeArgumentsContent(comment.trim());
+            if (extracted !== undefined) return extracted;
           }
         }
       }
@@ -2758,9 +2855,9 @@ class MacroTransformer {
             // Fallback: use getText() if type reference extraction didn't work
             if (!brand) {
               const typeStr = varDecl.type.getText(this.ctx.sourceFile);
-              const match = typeStr.match(/<([^>]+)>/);
-              if (match) {
-                brand = match[1].split(",")[0].trim();
+              const extracted = extractTypeArgumentsContent(typeStr);
+              if (extracted) {
+                brand = extracted;
               }
             }
           } catch {
@@ -5082,7 +5179,7 @@ class MacroTransformer {
       standaloneExt = findStandaloneExtension(methodName, typeName);
     }
     if (!standaloneExt) {
-      const baseTypeName = typeName.replace(/<.*>$/, "");
+      const baseTypeName = stripTypeArguments(typeName);
       if (baseTypeName !== typeName) {
         standaloneExt = findStandaloneExtension(methodName, baseTypeName);
       }
@@ -5131,6 +5228,30 @@ class MacroTransformer {
   }
 
   /**
+   * Resolve the type rewrite registry key for a TypeScript type.
+   *
+   * `typeToString` output is presentation-dependent — it can emit qualified names
+   * like `import("./foo").MyType` when the type is imported from another module.
+   * This helper tries multiple strategies to find the registered name:
+   *
+   * 1. Direct `typeToString` result (fast path, covers the common case)
+   * 2. `type.symbol?.name` / `type.aliasSymbol?.name` (works for cross-module types)
+   * 3. Strip `import(...)` prefix from the `typeToString` output
+   */
+  private resolveTypeRewriteName(type: ts.Type): string | undefined {
+    const typeStr = this.ctx.typeChecker.typeToString(type);
+    if (findTypeRewrite(typeStr)) return typeStr;
+
+    const symbolName = type.symbol?.name ?? type.aliasSymbol?.name;
+    if (symbolName && symbolName !== typeStr && findTypeRewrite(symbolName)) return symbolName;
+
+    const importMatch = typeStr.match(/^import\([^)]+\)\.(.+)$/);
+    if (importMatch && findTypeRewrite(importMatch[1])) return importMatch[1];
+
+    return undefined;
+  }
+
+  /**
    * Resolve a method call via the type rewrite registry (PEP-012).
    *
    * If the receiver's type is registered as an @opaque type and the method
@@ -5145,9 +5266,9 @@ class MacroTransformer {
     methodName: string,
     receiverType: ts.Type
   ): ts.Expression | undefined {
-    const typeName = this.ctx.typeChecker.typeToString(receiverType);
-    const entry = findTypeRewrite(typeName);
-    if (!entry) return undefined;
+    const typeName = this.resolveTypeRewriteName(receiverType);
+    if (!typeName) return undefined;
+    const entry = findTypeRewrite(typeName)!;
 
     // Check transparent scope: skip rewriting inside the defining module
     if (entry.transparent && entry.sourceModule) {
@@ -5360,9 +5481,9 @@ class MacroTransformer {
 
     if (!this.ctx.isTypeReliable(receiverType)) return undefined;
 
-    const typeName = this.ctx.typeChecker.typeToString(receiverType);
-    const entry = findTypeRewrite(typeName);
-    if (!entry) return undefined;
+    const typeName = this.resolveTypeRewriteName(receiverType);
+    if (!typeName) return undefined;
+    const entry = findTypeRewrite(typeName)!;
     if (!entry.accessors) return undefined;
 
     const accessor = entry.accessors.get(propName);
@@ -5791,8 +5912,8 @@ class MacroTransformer {
       );
     }
 
-    const baseTypeName = leftTypeName.replace(/<.*>$/, "");
-    const typeArg = leftTypeName.match(/<(.+)>$/)?.[1] ?? "";
+    const baseTypeName = stripTypeArguments(leftTypeName);
+    const typeArg = extractTypeArgumentsContent(leftTypeName) ?? "";
 
     const currentFileName = this.ctx.sourceFile.fileName;
     // Check if there's an instance for this type and operator
@@ -5807,8 +5928,8 @@ class MacroTransformer {
           (i) => i.typeclassName === entry.typeclass
         );
         for (const candidate of candidateInstances) {
-          const candidateBase = candidate.forType.replace(/<.*>$/, "");
-          const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+          const candidateBase = stripTypeArguments(candidate.forType);
+          const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
 
           for (const sf of this.ctx.program.getSourceFiles()) {
             if (sf.isDeclarationFile) continue;
@@ -5818,7 +5939,7 @@ class MacroTransformer {
                 if (aliasType.isUnion?.()) {
                   for (const unionMember of aliasType.types) {
                     const memberName = this.ctx.typeChecker.typeToString(unionMember);
-                    const memberBase = memberName.replace(/<.*>$/, "");
+                    const memberBase = stripTypeArguments(memberName);
                     if (
                       memberBase === baseTypeName &&
                       (candidateArg === typeArg ||
@@ -5881,8 +6002,8 @@ class MacroTransformer {
       const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
       typeName = this.ctx.typeChecker.typeToString(leftType);
     }
-    const baseTypeName = typeName.replace(/<.*>$/, "");
-    const typeArg = typeName.match(/<(.+)>$/)?.[1] ?? "";
+    const baseTypeName = stripTypeArguments(typeName);
+    const typeArg = extractTypeArgumentsContent(typeName) ?? "";
 
     // Skip primitive types - native JS operators work correctly and we don't want to
     // generate unnecessary method calls or require imports
@@ -5920,8 +6041,8 @@ class MacroTransformer {
           (i) => i.typeclassName === entry.typeclass
         );
         for (const candidate of candidateInstances) {
-          const candidateBase = candidate.forType.replace(/<.*>$/, "");
-          const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+          const candidateBase = stripTypeArguments(candidate.forType);
+          const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
 
           // Look up the candidate type alias in source files
           for (const sf of this.ctx.program.getSourceFiles()) {
@@ -5935,7 +6056,7 @@ class MacroTransformer {
                 if (aliasType.isUnion?.()) {
                   for (const unionMember of aliasType.types) {
                     const memberName = this.ctx.typeChecker.typeToString(unionMember);
-                    const memberBase = memberName.replace(/<.*>$/, "");
+                    const memberBase = stripTypeArguments(memberName);
                     if (
                       memberBase === baseTypeName &&
                       (candidateArg === typeArg ||

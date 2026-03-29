@@ -24,7 +24,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, hasExportModifier } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 
 // =============================================================================
@@ -268,19 +268,6 @@ function matchesDecoratorPattern(node: ts.Node, pattern: string): boolean {
     }
   }
 
-  return false;
-}
-
-/**
- * Check if a node has an export modifier.
- */
-function hasExportModifier(node: ts.Node): boolean {
-  if (ts.canHaveModifiers(node)) {
-    const modifiers = ts.getModifiers(node);
-    if (modifiers) {
-      return modifiers.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-    }
-  }
   return false;
 }
 

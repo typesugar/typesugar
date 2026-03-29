@@ -272,3 +272,56 @@ const result: Result<string, number> = getValue();
     expect(result.code).toContain("getValue()");
   });
 });
+
+// ============================================================================
+// PEP-030 Wave 1: Nested generics & void detection fixes
+// ============================================================================
+
+describe("Nested generic brand extraction (PEP-030)", () => {
+  it("handles nested generic brands in @impl", () => {
+    const code = `
+/** @impl <Map<string, number>> */
+const mapInstance = {
+  get: (m: any, k: string) => m[k],
+};
+const lookup = (I: { get(m: any, k: string): number }, m: Map<string, number>, k: string) => I.get(m, k);
+const result = lookup(mapInstance, new Map(), "key");
+    `.trim();
+    const result = transformCode(code, { fileName: "nested-brand.ts" });
+    // Should auto-specialize (brand extraction worked)
+    expect(result.code).toMatch(/__.*lookup/);
+  });
+
+  it("handles deeply nested generic brands in @impl", () => {
+    const code = `
+/** @impl <Either<Option<A>, B>> */
+const eitherInstance = {
+  map: (fa: any, f: (a: any) => any) => f(fa),
+};
+const transform = (I: { map(fa: any, f: any): any }, x: any) => I.map(x, (a: any) => a);
+const result = transform(eitherInstance, 42);
+    `.trim();
+    const result = transformCode(code, { fileName: "deep-nested-brand.ts" });
+    // Should auto-specialize with the full nested brand
+    expect(result.code).toMatch(/__.*transform/);
+  });
+});
+
+describe("Void return type detection (PEP-030)", () => {
+  it("detects void return type without false positives", () => {
+    const code = `
+/** @impl Logger<Console> */
+const consoleLogger = {
+  log: (msg: string): void => console.log(msg),
+};
+const emit = (L: { log(msg: string): void }, msg: string): void => L.log(msg);
+const result = emit(consoleLogger, "hello");
+    `.trim();
+    const result = transformCode(code, { fileName: "void-return.ts" });
+    // Should not emit "no return statement" errors for void functions
+    const noReturnErrors = result.diagnostics.filter(
+      (d) => d.severity === "error" && d.message.includes("return")
+    );
+    expect(noReturnErrors).toHaveLength(0);
+  });
+});

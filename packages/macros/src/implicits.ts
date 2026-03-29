@@ -51,7 +51,12 @@ import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { TS9001, TS9008 } from "@typesugar/core";
-import { getSuggestionsForTypeclass } from "@typesugar/core";
+import {
+  getSuggestionsForTypeclass,
+  extractTypeArgumentsContent,
+  stripTypeArguments,
+  splitTopLevelTypeArgs,
+} from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
 import {
@@ -245,11 +250,10 @@ function createTypeRefSafe(factory: ts.NodeFactory, typeName: string): ts.TypeNo
     return factory.createTypeReferenceNode("Array", [createTypeRefSafe(factory, elementType)]);
   }
 
-  const ltIdx = typeName.indexOf("<");
-  if (ltIdx !== -1) {
-    const baseName = typeName.slice(0, ltIdx);
-    const innerRaw = typeName.slice(ltIdx + 1, typeName.lastIndexOf(">"));
-    const innerArgs = splitTopLevelTypeArgs(innerRaw);
+  const argsContent = extractTypeArgumentsContent(typeName);
+  if (argsContent !== undefined) {
+    const baseName = stripTypeArguments(typeName);
+    const innerArgs = splitTopLevelTypeArgs(argsContent);
     return factory.createTypeReferenceNode(
       baseName,
       innerArgs.map((a) => createTypeRefSafe(factory, a.trim()))
@@ -261,23 +265,6 @@ function createTypeRefSafe(factory: ts.NodeFactory, typeName: string): ts.TypeNo
   }
 
   return factory.createTypeReferenceNode(typeName, undefined);
-}
-
-/** Split `"string, Map<K, V>"` → `["string", "Map<K, V>"]` respecting nesting. */
-function splitTopLevelTypeArgs(s: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === "<") depth++;
-    else if (s[i] === ">") depth--;
-    else if (s[i] === "," && depth === 0) {
-      parts.push(s.slice(start, i));
-      start = i + 1;
-    }
-  }
-  parts.push(s.slice(start));
-  return parts;
 }
 
 function keywordFor(name: string): ts.KeywordTypeSyntaxKind {

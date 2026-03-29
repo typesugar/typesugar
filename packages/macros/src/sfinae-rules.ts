@@ -18,7 +18,13 @@
 
 import ts from "typescript";
 import type { SfinaeRule } from "@typesugar/core";
-import { findStandaloneExtension, findTypeRewrite, isSfinaeAuditEnabled } from "@typesugar/core";
+import {
+  findStandaloneExtension,
+  findTypeRewrite,
+  isSfinaeAuditEnabled,
+  extractTypeArgumentsContent,
+  splitTopLevelTypeArgs,
+} from "@typesugar/core";
 
 /**
  * Create the ExtensionMethodCall SFINAE rule.
@@ -799,10 +805,10 @@ function matchesUnderlyingWithTypeArgs(
   opaqueInstantiation: string
 ): boolean {
   // Extract type arguments from the opaque instantiation: "Option<number>" → "number"
-  const match = /<(.+)>$/.exec(opaqueInstantiation);
-  if (!match) return false;
+  const argsContent = extractTypeArgumentsContent(opaqueInstantiation);
+  if (!argsContent) return false;
 
-  const typeArgs = splitTypeArgs(match[1]);
+  const typeArgs = splitTopLevelTypeArgs(argsContent);
   if (typeArgs.length === 0) return false;
 
   // Simple single-parameter substitution: replace "T" with the actual type arg
@@ -814,29 +820,6 @@ function matchesUnderlyingWithTypeArgs(
   }
 
   return isUnderlyingMatch(candidateText, substituted);
-}
-
-/**
- * Split comma-separated type arguments, respecting nested angle brackets.
- */
-function splitTypeArgs(args: string): string[] {
-  const result: string[] = [];
-  let depth = 0;
-  let current = "";
-
-  for (const ch of args) {
-    if (ch === "<") depth++;
-    else if (ch === ">") depth--;
-    else if (ch === "," && depth === 0) {
-      result.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-
-  if (current.trim()) result.push(current.trim());
-  return result;
 }
 
 /**

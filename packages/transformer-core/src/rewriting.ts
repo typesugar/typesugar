@@ -37,6 +37,8 @@ import {
   getAllTypeRewrites,
   type TypeRewriteEntry,
   type MethodInlinePattern,
+  extractTypeArgumentsContent,
+  stripTypeArguments,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -306,7 +308,7 @@ export function tryRewriteExtensionMethod(
 
   let standaloneExt = findStandaloneExtension(methodName, typeName);
   if (!standaloneExt) {
-    const baseTypeName = typeName.replace(/<.*>$/, "");
+    const baseTypeName = stripTypeArguments(typeName);
     if (baseTypeName !== typeName) {
       standaloneExt = findStandaloneExtension(methodName, baseTypeName);
     }
@@ -446,8 +448,8 @@ export function inferBinaryExprResultType(
     leftTypeName = ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
   }
 
-  const baseTypeName = leftTypeName.replace(/<.*>$/, "");
-  const typeArg = leftTypeName.match(/<(.+)>$/)?.[1] ?? "";
+  const baseTypeName = stripTypeArguments(leftTypeName);
+  const typeArg = extractTypeArgumentsContent(leftTypeName) ?? "";
 
   const currentFileName = ctx.sourceFile.fileName;
   for (const entry of entries) {
@@ -460,8 +462,8 @@ export function inferBinaryExprResultType(
         (i) => i.typeclassName === entry.typeclass
       );
       for (const candidate of candidateInstances) {
-        const candidateBase = candidate.forType.replace(/<.*>$/, "");
-        const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+        const candidateBase = stripTypeArguments(candidate.forType);
+        const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
 
         for (const sf of ctx.program.getSourceFiles()) {
           if (sf.isDeclarationFile) continue;
@@ -471,7 +473,7 @@ export function inferBinaryExprResultType(
               if (aliasType.isUnion?.()) {
                 for (const unionMember of aliasType.types) {
                   const memberName = ctx.typeChecker.typeToString(unionMember);
-                  const memberBase = memberName.replace(/<.*>$/, "");
+                  const memberBase = stripTypeArguments(memberName);
                   if (
                     memberBase === baseTypeName &&
                     (candidateArg === typeArg ||
@@ -537,8 +539,8 @@ export function tryRewriteTypeclassOperator(
     const leftType = ctx.typeChecker.getTypeAtLocation(node.left);
     typeName = ctx.typeChecker.typeToString(leftType);
   }
-  const baseTypeName = typeName.replace(/<.*>$/, "");
-  const typeArg = typeName.match(/<(.+)>$/)?.[1] ?? "";
+  const baseTypeName = stripTypeArguments(typeName);
+  const typeArg = extractTypeArgumentsContent(typeName) ?? "";
 
   const PRIMITIVE_TYPES = new Set([
     "number",
@@ -568,8 +570,8 @@ export function tryRewriteTypeclassOperator(
         (i) => i.typeclassName === entry.typeclass
       );
       for (const candidate of candidateInstances) {
-        const candidateBase = candidate.forType.replace(/<.*>$/, "");
-        const candidateArg = candidate.forType.match(/<(.+)>$/)?.[1] ?? "";
+        const candidateBase = stripTypeArguments(candidate.forType);
+        const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
 
         for (const sf of ctx.program.getSourceFiles()) {
           if (sf.isDeclarationFile) continue;
@@ -580,7 +582,7 @@ export function tryRewriteTypeclassOperator(
               if (aliasType.isUnion?.()) {
                 for (const unionMember of aliasType.types) {
                   const memberName = ctx.typeChecker.typeToString(unionMember);
-                  const memberBase = memberName.replace(/<.*>$/, "");
+                  const memberBase = stripTypeArguments(memberName);
                   if (
                     memberBase === baseTypeName &&
                     (candidateArg === typeArg ||
@@ -651,6 +653,33 @@ export function tryRewriteTypeclassOperator(
 // @opaque type rewrite — method, constructor, and accessor erasure (PEP-012)
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the type rewrite registry key for a TypeScript type.
+ *
+ * `typeToString` output is presentation-dependent — it can emit qualified names
+ * like `import("./foo").MyType` depending on the compilation context. This
+ * helper tries multiple strategies to find the registered name:
+ *
+ * 1. Direct `typeToString` result (fast path, covers the common case)
+ * 2. `type.symbol?.name` / `type.aliasSymbol?.name` (works for cross-module types)
+ * 3. Strip `import(...)` prefix from the `typeToString` output
+ */
+function resolveTypeRewriteName(typeChecker: ts.TypeChecker, type: ts.Type): string | undefined {
+  // Fast path: direct string match (preserves existing behavior)
+  const typeStr = typeChecker.typeToString(type);
+  if (findTypeRewrite(typeStr)) return typeStr;
+
+  // Try the symbol name — avoids presentation-dependent formatting
+  const symbolName = type.symbol?.name ?? type.aliasSymbol?.name;
+  if (symbolName && symbolName !== typeStr && findTypeRewrite(symbolName)) return symbolName;
+
+  // Strip import("...").TypeName prefix that typeToString sometimes emits
+  const importMatch = typeStr.match(/^import\([^)]+\)\.(.+)$/);
+  if (importMatch && findTypeRewrite(importMatch[1])) return importMatch[1];
+
+  return undefined;
+}
+
 function buildConstantExpression(factory: ts.NodeFactory, value: string): ts.Expression {
   switch (value) {
     case "null":
@@ -674,10 +703,15 @@ function buildConstantExpression(factory: ts.NodeFactory, value: string): ts.Exp
   }
 }
 
+/** Check if a path is absolute (Unix `/...` or Windows `C:/...` / `C:\...`). Browser-safe. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[/\\]/.test(p);
+}
+
 function isWithinSourceModule(filePath: string, sourceModule: string): boolean {
   const normFile = filePath.replace(/\\/g, "/");
   const normModule = sourceModule.replace(/\\/g, "/");
-  if (normModule.startsWith("/") || /^[A-Za-z]:\//.test(normModule)) {
+  if (isAbsolutePath(normModule)) {
     return normFile === normModule;
   }
   const modulePath = normModule.replace(/^@/, "");
@@ -709,13 +743,14 @@ export function tryRewriteOpaqueMethodCall(
   try {
     receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
   } catch {
+    // TypeChecker may throw on unresolvable receiver expressions — skip type rewrite
     return undefined;
   }
   if (!ctx.isTypeReliable(receiverType)) return undefined;
 
-  const typeName = ctx.typeChecker.typeToString(receiverType);
-  const entry = findTypeRewrite(typeName);
-  if (!entry) return undefined;
+  const typeName = resolveTypeRewriteName(ctx.typeChecker, receiverType);
+  if (!typeName) return undefined;
+  const entry = findTypeRewrite(typeName)!;
 
   if (entry.transparent && entry.sourceModule) {
     if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {

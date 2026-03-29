@@ -176,11 +176,14 @@ function extractCaptures(
         // Any expression is valid
         break;
       case "type":
-        // Type captures are tricky in expression position — accept any node
+        // Type captures in expression position: accept any node for flexibility.
+        // The capture text will be used as-is in the template. Proper type-position
+        // validation would require a fundamentally different matching approach.
         break;
       case "stmts":
-        // Statements can't appear in expression position directly
-        break;
+        // Statements cannot appear in expression position.
+        // Reject the match — the macro should use a different mechanism.
+        return null;
     }
 
     result.set(capture.name, arg);
@@ -190,40 +193,68 @@ function extractCaptures(
 }
 
 /**
+ * Print a captured AST node to its source text representation.
+ */
+function nodeToText(node: ts.Node, ctx: MacroContext): string {
+  const printer = getPrinter();
+
+  // For nodes from a real source file, getText() works.
+  // For synthetic nodes (pos === -1), we must use the printer.
+  if (node.pos >= 0 && node.end >= 0) {
+    try {
+      const text = node.getText(ctx.sourceFile);
+      if (text) return text;
+    } catch {
+      // Fall through to printer
+    }
+  }
+
+  // Use printer with a dummy source file for synthetic nodes
+  const sf = getDummySourceFile();
+  if (ts.isExpression(node)) {
+    return printer.printNode(ts.EmitHint.Expression, node, sf);
+  }
+  return printer.printNode(ts.EmitHint.Unspecified, node, sf);
+}
+
+/**
  * Expand a template by substituting captures.
  *
  * Replaces `$name` references in the template with the printed source text
- * of the captured nodes.
+ * of the captured nodes, then re-parses the result.
+ *
+ * Known limitations of the string round-trip approach:
+ * - Source positions from the original nodes are lost in the expansion.
+ * - Expressions containing unbalanced delimiters or template-like syntax
+ *   (e.g., `$foo` in a string literal) may produce incorrect expansions.
+ * - For robust AST manipulation, use `defineExpressionMacro` directly.
+ *
+ * As an optimisation, if the template is exactly `$name` (a single capture
+ * substitution with no surrounding text), the captured node is returned
+ * directly, avoiding the print→reparse cycle entirely.
  */
 function expandTemplate(
   template: string,
   captures: Map<string, ts.Node>,
   ctx: MacroContext
-): string {
-  const printer = getPrinter();
+): ts.Expression | string {
+  // Optimisation: if the template is a single capture reference with no
+  // surrounding text, return the captured node directly (skip string round-trip).
+  const singleCaptureMatch = template.match(/^\$(\w+)(?::(\w+))?$/);
+  if (singleCaptureMatch) {
+    const node = captures.get(singleCaptureMatch[1]);
+    if (node && ts.isExpression(node)) {
+      return node;
+    }
+  }
 
-  return template.replace(CAPTURE_RE, (match, name) => {
+  const expanded = template.replace(CAPTURE_RE, (match, name) => {
     const node = captures.get(name);
     if (!node) return match; // Leave unmatched captures as-is
-
-    // For nodes from a real source file, getText() works.
-    // For synthetic nodes (pos === -1), we must use the printer.
-    if (node.pos >= 0 && node.end >= 0) {
-      try {
-        const text = node.getText(ctx.sourceFile);
-        if (text) return text;
-      } catch {
-        // Fall through to printer
-      }
-    }
-
-    // Use printer with a dummy source file for synthetic nodes
-    const sf = getDummySourceFile();
-    if (ts.isExpression(node)) {
-      return printer.printNode(ts.EmitHint.Expression, node, sf);
-    }
-    return printer.printNode(ts.EmitHint.Unspecified, node, sf);
+    return nodeToText(node, ctx);
   });
+
+  return expanded;
 }
 
 // =============================================================================
@@ -289,6 +320,12 @@ export function defineSyntaxMacro(
 
         // Expand the template
         const expanded = expandTemplate(arm.expandTemplate, captures, ctx);
+
+        // If expandTemplate returned an AST node directly (optimisation for
+        // single-capture templates), use it without re-parsing.
+        if (typeof expanded !== "string") {
+          return expanded;
+        }
 
         try {
           return ctx.parseExpression(expanded);

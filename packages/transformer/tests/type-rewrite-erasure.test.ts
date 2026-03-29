@@ -6,7 +6,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { transformCode } from "../src/pipeline.js";
+import * as ts from "typescript";
+import { transformCode, TransformationPipeline } from "../src/pipeline.js";
 import { registerTypeRewrite, clearTypeRewrites, type TypeRewriteEntry } from "@typesugar/core";
 
 beforeEach(() => {
@@ -461,5 +462,132 @@ const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
     expect(result.code).not.toMatch(/\.map\(/);
     expect(result.code).not.toMatch(/\.filter\(/);
     expect(result.code).not.toMatch(/\.getOrElse\(/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEP-030 Wave 1: Type identity normalization for cross-module imports
+// ---------------------------------------------------------------------------
+
+describe("PEP-030 Wave 1: type identity normalization", () => {
+  it("rewrites method call when type is imported from another module", () => {
+    registerOptionType();
+
+    // Simulate a multi-file project where Option is defined in another module.
+    // When TypeScript resolves a type from another file, typeToString may emit
+    // import("./option-def").Option<number> instead of just Option<number>.
+    const optionDefFile = "/test/option-def.ts";
+    const mainFile = "/test/main.ts";
+
+    const files = new Map<string, string>();
+    files.set(
+      optionDefFile,
+      [
+        "export interface Option<A> {",
+        "  map<B>(f: (a: A) => B): Option<B>;",
+        "  flatMap<B>(f: (a: A) => Option<B>): Option<B>;",
+        "}",
+        "export declare function Some<A>(a: A): Option<A>;",
+        "export declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;",
+      ].join("\n")
+    );
+    files.set(
+      mainFile,
+      [
+        'import { Option, Some, map } from "./option-def";',
+        "const result = Some(5).map(n => n * 2);",
+      ].join("\n")
+    );
+
+    const pipeline = new TransformationPipeline(
+      {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: false,
+        skipLibCheck: true,
+        skipDefaultLibCheck: true,
+      },
+      Array.from(files.keys()),
+      {
+        readFile: (f) => files.get(f) ?? ts.sys.readFile(f),
+        fileExists: (f) => files.has(f) || ts.sys.fileExists(f),
+      }
+    );
+
+    const result = pipeline.transform(mainFile);
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+
+    // The method call should be rewritten even though the type comes from
+    // another module (where typeToString might emit import("./option-def").Option)
+    expect(result.code).toContain("map(");
+    expect(result.code).not.toMatch(/\.map\(/);
+  });
+
+  it("rewrites accessor when type is imported from another module", () => {
+    registerOptionType();
+
+    const optionDefFile = "/test/option-def2.ts";
+    const mainFile = "/test/main2.ts";
+
+    const files = new Map<string, string>();
+    files.set(
+      optionDefFile,
+      [
+        "export interface Option<A> {",
+        "  readonly value: A;",
+        "  map<B>(f: (a: A) => B): Option<B>;",
+        "}",
+        "export declare const opt: Option<number>;",
+      ].join("\n")
+    );
+    files.set(
+      mainFile,
+      ['import { Option, opt } from "./option-def2";', "const result = opt.value;"].join("\n")
+    );
+
+    const pipeline = new TransformationPipeline(
+      {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: false,
+        skipLibCheck: true,
+        skipDefaultLibCheck: true,
+      },
+      Array.from(files.keys()),
+      {
+        readFile: (f) => files.get(f) ?? ts.sys.readFile(f),
+        fileExists: (f) => files.has(f) || ts.sys.fileExists(f),
+      }
+    );
+
+    const result = pipeline.transform(mainFile);
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+
+    // The accessor should be erased to the receiver even when the type
+    // is imported from another module
+    expect(result.code).toContain("const result = opt");
+    expect(result.code).not.toContain(".value");
+  });
+
+  it("handles symbol name fallback for registered types", () => {
+    registerOptionType();
+
+    // Test that even without import() prefix, the symbol name fallback works
+    // by using a type alias that might confuse typeToString
+    const code = `
+interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
+declare const opt: Option<number>;
+const result = opt.map(n => n + 1);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "type-identity-symbol.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.code).toContain("map(opt");
+    expect(result.code).not.toMatch(/\.map\(/);
   });
 });

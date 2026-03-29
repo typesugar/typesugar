@@ -23,7 +23,7 @@
 
 import ts from "typescript";
 import type { MacroContext, AttributeMacro } from "@typesugar/core";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import { defineAttributeMacro, globalRegistry, hasExportModifier } from "@typesugar/core";
 import {
   registerTypeRewrite,
   type TypeRewriteEntry,
@@ -114,13 +114,6 @@ function isConstantForType(
   const type = checker.getTypeAtLocation(decl);
   const typeStr = checker.typeToString(type);
   return typeStr.includes(typeName);
-}
-
-function hasExportModifier(node: ts.Node): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
-  );
 }
 
 /**

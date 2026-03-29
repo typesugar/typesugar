@@ -65,7 +65,13 @@ import {
   defineDeriveMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { MacroContext, DeriveTypeInfo, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
+import {
+  MacroContext,
+  DeriveTypeInfo,
+  DeriveFieldInfo,
+  DeriveVariantInfo,
+  parseTypeInstantiation,
+} from "@typesugar/core";
 import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
   buildStandaloneExtensionCall,
@@ -388,6 +394,20 @@ function tryExtractSumTypeFromAST(target: ts.TypeAliasDeclaration):
     return undefined;
   }
 
+  /**
+   * Well-known discriminant field names used to auto-detect tagged unions.
+   *
+   * These cover the most common conventions:
+   * - `kind`        — TypeScript handbook pattern
+   * - `_tag`        — Effect / fp-ts convention
+   * - `type`        — Redux actions, general-purpose
+   * - `tag`         — common short alternative
+   * - `__typename`  — GraphQL introspection field
+   *
+   * If your union uses a different discriminant, you can specify it
+   * explicitly via `@derive` options (e.g., `@derive Eq({ discriminant: "status" })`)
+   * or define typeclass instances manually instead of using `@derive`.
+   */
   const KNOWN_DISCRIMINANTS = ["kind", "_tag", "type", "tag", "__typename"];
   const variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }> = [];
   let discriminant: string | undefined;
@@ -2944,6 +2964,7 @@ export function tryExtractSumType(
     return undefined;
   }
 
+  /** Well-known discriminant field names — see JSDoc at the other call site above. */
   const KNOWN_DISCRIMINANTS = ["kind", "_tag", "type", "tag", "__typename"];
   const variants: Array<{ tag: string; typeName: string }> = [];
   let discriminant: string | undefined;
@@ -3898,42 +3919,9 @@ export const extendMacro = defineExpressionMacro({
 function parseTypeclassInstantiation(
   text: string
 ): { typeclassName: string; forType: string } | null {
-  // Match typeclass name followed by <...>
-  const openBracket = text.indexOf("<");
-  if (openBracket === -1) {
-    return null;
-  }
-
-  const typeclassName = text.slice(0, openBracket).trim();
-  if (!typeclassName) {
-    return null;
-  }
-
-  // Find matching closing bracket, handling nested generics
-  let depth = 0;
-  let closeBracket = -1;
-  for (let i = openBracket; i < text.length; i++) {
-    if (text[i] === "<") {
-      depth++;
-    } else if (text[i] === ">") {
-      depth--;
-      if (depth === 0) {
-        closeBracket = i;
-        break;
-      }
-    }
-  }
-
-  if (closeBracket === -1) {
-    return null;
-  }
-
-  const forType = text.slice(openBracket + 1, closeBracket).trim();
-  if (!forType) {
-    return null;
-  }
-
-  return { typeclassName, forType };
+  const parsed = parseTypeInstantiation(text);
+  if (!parsed || !parsed.args) return null;
+  return { typeclassName: parsed.base, forType: parsed.args };
 }
 
 /**

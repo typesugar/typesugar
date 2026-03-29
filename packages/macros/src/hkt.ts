@@ -52,7 +52,13 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import {
+  defineAttributeMacro,
+  globalRegistry,
+  extractTypeArgumentsContent,
+  stripTypeArguments,
+  splitTopLevelTypeArgs,
+} from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 
 // Import HKT registries from typeclass.ts (single source of truth)
@@ -90,53 +96,12 @@ export interface TypeConstructorResolution {
  * "Map<string>"     → { base: "Map", fixedArgs: ["string"] }
  */
 export function parseTypeConstructor(typeStr: string): { base: string; fixedArgs: string[] } {
-  const openBracket = typeStr.indexOf("<");
-  if (openBracket === -1) {
-    return { base: typeStr.trim(), fixedArgs: [] };
-  }
-
-  const base = typeStr.slice(0, openBracket).trim();
-
-  // Find matching closing bracket with depth tracking
-  let depth = 0;
-  let closeBracket = -1;
-  for (let i = openBracket; i < typeStr.length; i++) {
-    if (typeStr[i] === "<") depth++;
-    else if (typeStr[i] === ">") {
-      depth--;
-      if (depth === 0) {
-        closeBracket = i;
-        break;
-      }
-    }
-  }
-
-  if (closeBracket === -1) {
+  const base = stripTypeArguments(typeStr).trim();
+  const argsContent = extractTypeArgumentsContent(typeStr);
+  if (argsContent === undefined) {
     return { base, fixedArgs: [] };
   }
-
-  // Split args respecting nested brackets
-  const argsStr = typeStr.slice(openBracket + 1, closeBracket);
-  const fixedArgs: string[] = [];
-  let currentArg = "";
-  let argDepth = 0;
-
-  for (const ch of argsStr) {
-    if (ch === "<") argDepth++;
-    else if (ch === ">") argDepth--;
-
-    if (ch === "," && argDepth === 0) {
-      fixedArgs.push(currentArg.trim());
-      currentArg = "";
-    } else {
-      currentArg += ch;
-    }
-  }
-  if (currentArg.trim()) {
-    fixedArgs.push(currentArg.trim());
-  }
-
-  return { base, fixedArgs };
+  return { base, fixedArgs: splitTopLevelTypeArgs(argsContent) };
 }
 
 /**

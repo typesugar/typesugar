@@ -164,6 +164,38 @@ export interface Bar { x: number; }
     expect(result.content).toBe(input);
   });
 
+  it("handles multi-line @opaque type", () => {
+    const input = `
+/**
+ * @opaque { readonly tag: "Some"; readonly value: A }
+ *   | { readonly tag: "None" }
+ */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+`;
+    const result = transformDtsContent("test.d.ts", input);
+    expect(result.transformedCount).toBe(1);
+    // The underlying type should be the full multi-line type joined
+    expect(result.content).toContain("export type Option<A> =");
+    expect(result.content).not.toContain("interface Option");
+  });
+
+  it("handles @opaque followed by other tags", () => {
+    const input = `
+/**
+ * @opaque A | null
+ * @since 1.0.0
+ */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+`;
+    const result = transformDtsContent("test.d.ts", input);
+    expect(result.transformedCount).toBe(1);
+    expect(result.content).toContain("export type Option<A> = A | null;");
+  });
+
   it("handles constrained type parameters", () => {
     const input = `
 /** @opaque A | null */
