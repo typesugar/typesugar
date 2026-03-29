@@ -721,9 +721,17 @@ interface InstanceMeta {
   [key: string]: unknown;
 }
 
-/** Global compile-time registry of typeclasses and instances */
-const typeclassRegistry = new Map<string, TypeclassInfo>();
-const instanceRegistry: InstanceInfo[] = [];
+/** Global compile-time registry of typeclasses and instances.
+ * Uses globalThis backing to share across ESM/CJS module instances.
+ * Without this, `import` (ESM transformer) and `require` (CJS test/runtime)
+ * create separate registries and instances registered via CJS are invisible
+ * to the ESM transformer's operator overloading pass. */
+const _g = globalThis as any;
+if (!_g.__typesugar_typeclassRegistry)
+  _g.__typesugar_typeclassRegistry = new Map<string, TypeclassInfo>();
+if (!_g.__typesugar_instanceRegistry) _g.__typesugar_instanceRegistry = [];
+const typeclassRegistry: Map<string, TypeclassInfo> = _g.__typesugar_typeclassRegistry;
+const instanceRegistry: InstanceInfo[] = _g.__typesugar_instanceRegistry;
 
 // ============================================================================
 // Operator Syntax Lookup — operator → typeclass method mappings

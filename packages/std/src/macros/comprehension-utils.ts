@@ -259,23 +259,23 @@ export function inferTypeConstructor(
   }
 
   // When the type is `any`, the expression might reference a macro-generated
-  // namespace (e.g., Greeter.greet() from @service). Check if the expression
-  // is a call to X.method() where X is an @service-decorated interface in the
-  // same source file. We detect this by scanning the source file for
-  // `@service interface X { ... }` declarations.
+  // When the type is `any`, the expression might call a method on a macro-generated
+  // namespace (e.g., Greeter.greet() from @service). The @service macro generates the
+  // namespace in the same transform pass, so the type checker doesn't know about it yet.
+  //
+  // Fallback: scan the source file for an interface named X that has a method matching
+  // the call. Extract the return type's type constructor from the type annotation.
+  // This is generic — works for any type constructor (Effect, IO, Task, etc.), not
+  // just Effect.
   if (typeString === "any" && ts.isCallExpression(expr)) {
     const callee = expr.expression;
     if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
-      const serviceName = callee.expression.text;
-      // Check if `serviceName` is an interface whose methods return Effect.
-      // This handles @service-generated namespaces: @service strips the decorator
-      // before let:/yield: runs, so we can't check decorators. Instead, we check
-      // if the interface has methods with Effect.Effect<...> return types.
+      const interfaceName = callee.expression.text;
+      const methodName = callee.name.text;
       const sf = sourceFile ?? expr.getSourceFile?.();
       if (sf) {
         for (const stmt of sf.statements) {
-          if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === serviceName) {
-            const methodName = callee.name.text;
+          if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === interfaceName) {
             for (const member of stmt.members) {
               if (
                 (ts.isMethodSignature(member) || ts.isPropertySignature(member)) &&
@@ -283,10 +283,19 @@ export function inferTypeConstructor(
                 member.name.text === methodName &&
                 member.type
               ) {
-                // Check if the return type contains "Effect"
-                const typeText = member.type.getText(sf);
-                if (typeText.includes("Effect")) {
-                  return "Effect";
+                // Extract the type constructor from the return type annotation.
+                // For `Effect.Effect<A>`, the type reference is a qualified name.
+                // For `IO<A>`, it's a simple identifier.
+                const returnType = member.type;
+                if (ts.isTypeReferenceNode(returnType)) {
+                  if (ts.isQualifiedName(returnType.typeName)) {
+                    // Effect.Effect<A> → "Effect"
+                    return returnType.typeName.left.getText(sf);
+                  }
+                  if (ts.isIdentifier(returnType.typeName)) {
+                    // IO<A> → "IO"
+                    return returnType.typeName.text;
+                  }
                 }
               }
             }

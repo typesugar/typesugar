@@ -49,13 +49,9 @@ yield: { `${host}:${port}` }
 //     Effect.map(Effect.succeed(3000), port => `${host}:${port}`)
 //   );
 
-console.log("Do-comprehension examples compiled successfully");
-
 // Run the last one to show it works
-Effect.runPromise(config).then(
-  (result) => console.log("Config:", result),
-  (err) => console.error("Failed:", err),
-);
+const result = await Effect.runPromise(config);
+console.log("Config:", result);
 
 // 👀 Check JS Output:
 //   - let:/yield: → Effect.flatMap/map chains (sequential)

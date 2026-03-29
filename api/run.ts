@@ -167,17 +167,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       globalThis: undefined as unknown, // prevent escape
     });
 
-    // Wrap in an async IIFE so we can await top-level promises.
-    // Collect all promise results from .then() chains by tracking them.
-    const pendingPromises: Promise<unknown>[] = [];
-    sandbox.__trackPromise = (p: Promise<unknown>) => {
-      pendingPromises.push(p);
-      return p;
-    };
-
-    // Rewrite fire-and-forget .then() calls to be tracked:
-    // e.g. Effect.runPromise(x).then(...) → __trackPromise(Effect.runPromise(x).then(...))
-    // Simple approach: wrap the entire code in async IIFE and add a drain at the end
+    // Wrap in async IIFE so top-level `await` works (e.g., await Effect.runPromise(...)).
+    // Examples should use `await` instead of fire-and-forget `.then()` chains.
     const wrappedCode = `(async () => {\n${jsCode}\n})()`;
     const script = new vm.Script(wrappedCode, {
       filename: "input.js",
@@ -185,9 +176,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const resultPromise = script.runInContext(sandbox) as Promise<unknown>;
 
-    // Wait for the main script + flush microtask queue for .then() chains
+    // Wait for the async IIFE to complete, with a 5s timeout
     await Promise.race([
-      resultPromise.then(() => new Promise((r) => setTimeout(r, 100))), // 100ms drain for .then() chains
+      resultPromise,
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Execution timed out (5s limit)")), 5000)
       ),

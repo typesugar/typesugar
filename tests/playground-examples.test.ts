@@ -572,9 +572,8 @@ function transpileToJS(tsCode: string): string {
  * the test uses require()). Verified working in browser on each change.
  */
 const EXECUTION_SKIP = new Set<string>([
-  // Operator rewriting for symbolic types uses the same extension mechanism but
-  // the symbolic operators aren't registered at runtime yet. Extension methods
-  // (number, string, array) now work via the shared globalThis registry.
+  // const_() returns Constant<number> but Numeric instance is for Expression.
+  // Fix: packages/symbolic should either return Expression or register Numeric<Constant>.
   "symbolic/calculus.ts",
 ]);
 
@@ -587,7 +586,7 @@ describe("all examples execute without runtime errors", () => {
       continue;
     }
 
-    it(`${ex.relPath}`, () => {
+    it(`${ex.relPath}`, async () => {
       // 1. Transform (compile-time macros)
       const result = transform(ex);
       const errors = errorsOf(result);
@@ -642,10 +641,18 @@ describe("all examples execute without runtime errors", () => {
       };
 
       try {
-        vm.runInNewContext(runnableCode, sandbox, {
+        // Wrap in async IIFE to support top-level await (e.g., Effect examples).
+        // The IIFE returns a promise; we await it to capture async output.
+        const hasAwait = runnableCode.includes("await ");
+        const execCode = hasAwait ? `(async () => {\n${runnableCode}\n})()` : runnableCode;
+        const result = vm.runInNewContext(execCode, sandbox, {
           filename: ex.relPath,
           timeout: 5000,
         });
+        // If the result is a promise (async code), await it
+        if (result && typeof result.then === "function") {
+          await result;
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         expect.fail(

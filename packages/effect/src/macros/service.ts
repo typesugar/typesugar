@@ -69,10 +69,6 @@ export interface ServiceMethodInfo {
  */
 export const serviceRegistry = new Map<string, ServiceInfo>();
 
-// Expose on globalThis so @typesugar/std's inferTypeConstructor can check
-// if an identifier is a registered service (for let:/yield: type inference).
-(globalThis as any).__typesugar_serviceRegistry = serviceRegistry;
-
 /**
  * Register a service in the global registry.
  */

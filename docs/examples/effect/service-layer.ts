@@ -41,9 +41,5 @@ yield: { `${msg} & ${msg2}` }
 
 // Provide layers and run
 const runnable = pipe(program, Effect.provide(Layer.mergeAll(LoggerLive, GreeterLive)));
-console.log("Service & Layer example compiled successfully");
-
-Effect.runPromise(runnable).then(
-  (result) => console.log("Result:", result),
-  (err) => console.error("Failed:", err),
-);
+const result = await Effect.runPromise(runnable);
+console.log("Result:", result);

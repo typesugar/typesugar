@@ -5067,11 +5067,13 @@ class MacroTransformer {
     const typeName = this.ctx.typeChecker.typeToString(receiverType);
 
     // Normalize literal types to their base type for extension lookup:
-    // "95" → "number", '"hello"' → "string", "true" → "boolean"
+    // Normalize literal types to their base type using TypeFlags (not string matching).
+    // NumberLiteral (95), StringLiteral ("hello"), BooleanLiteral (true/false)
+    // map to "number", "string", "boolean" for extension registry lookup.
     let normalizedType = typeName;
-    if (/^\d+(\.\d+)?$/.test(typeName)) normalizedType = "number";
-    else if (/^".*"$/.test(typeName) || /^'.*'$/.test(typeName)) normalizedType = "string";
-    else if (typeName === "true" || typeName === "false") normalizedType = "boolean";
+    if (receiverType.flags & ts.TypeFlags.NumberLiteral) normalizedType = "number";
+    else if (receiverType.flags & ts.TypeFlags.StringLiteral) normalizedType = "string";
+    else if (receiverType.flags & ts.TypeFlags.BooleanLiteral) normalizedType = "boolean";
 
     // Check standalone extensions — first the pre-registered registry (from registerExtensions),
     // then scan imports in the current file (Scala 3-style: extensions are scoped to what's imported).

@@ -82,32 +82,7 @@ export default defineConfig([
       };
     },
   },
-  // Playground language service Web Worker
-  // Built as IIFE, loaded via importScripts in a classic worker.
-  // TypeScript is external (loaded from CDN), transformer-core is bundled inline.
-  {
-    entry: { "playground-ts-worker": "src/worker-entry.ts" },
-    format: ["iife"],
-    dts: false,
-    sourcemap: false,
-    clean: false,
-    outDir: "dist",
-    platform: "browser",
-    target: "es2020",
-    minify: false,
-    bundle: true,
-    noExternal: [/.*/],
-    external: ["typescript"],
-    treeshake: true,
-    esbuildOptions(options) {
-      options.alias = {
-        fs: "./src/browser-shims/fs.ts",
-        path: "./src/browser-shims/path.ts",
-        crypto: "./src/browser-shims/crypto.ts",
-        process: "./src/browser-shims/process.ts",
-        vm: "./src/browser-shims/vm.ts",
-        os: "./src/browser-shims/os.ts",
-      };
-    },
-  },
+  // NOTE: The playground Web Worker build was removed — the playground now uses
+  // server-side language service (/api/ls) and execution (/api/run) instead.
+  // The worker source (src/worker-entry.ts) is kept for reference/future offline mode.
 ]);
