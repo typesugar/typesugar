@@ -572,11 +572,9 @@ function transpileToJS(tsCode: string): string {
  * the test uses require()). Verified working in browser on each change.
  */
 const EXECUTION_SKIP = new Set<string>([
-  // Extension/operator rewriting requires the standalone extension registry to be
-  // populated at compile time. This happens when @typesugar/std's source is compiled
-  // (via @extension decorator), but the test only imports the built dist — the registry
-  // is empty. These examples work in the real playground via the server-side API.
-  "core/extension.ts",
+  // Operator rewriting for symbolic types uses the same extension mechanism but
+  // the symbolic operators aren't registered at runtime yet. Extension methods
+  // (number, string, array) now work via the shared globalThis registry.
   "symbolic/calculus.ts",
 ]);
 

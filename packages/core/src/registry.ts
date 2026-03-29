@@ -564,7 +564,16 @@ import * as ts from "typescript";
  * Global registry for standalone extension methods.
  * These are direct enrichments on concrete types, not typeclass-derived.
  */
-export const standaloneExtensionRegistry: StandaloneExtensionInfo[] = [];
+// Use a shared globalThis registry so ESM and CJS module instances share
+// the same extension list. Without this, `import` (ESM) and `require` (CJS)
+// create separate arrays and extensions registered via CJS are invisible to
+// the ESM transformer.
+const _g = globalThis as any;
+if (!_g.__typesugar_standaloneExtensions) {
+  _g.__typesugar_standaloneExtensions = [];
+}
+export const standaloneExtensionRegistry: StandaloneExtensionInfo[] =
+  _g.__typesugar_standaloneExtensions;
 
 /**
  * Register a standalone extension entry.
@@ -584,8 +593,7 @@ export function registerStandaloneExtensionEntry(info: StandaloneExtensionInfo):
 
 // Expose registration hook on globalThis so macro-emitted code in dist
 // can register extensions without importing @typesugar/core directly.
-// The ?. in the emitted code makes this safe even if core isn't loaded.
-(globalThis as any).__typesugar_registerExtension = registerStandaloneExtensionEntry;
+_g.__typesugar_registerExtension = registerStandaloneExtensionEntry;
 
 /**
  * Find a standalone extension method for a given method name and type.
