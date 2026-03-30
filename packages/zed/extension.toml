@@ -12,4 +12,4 @@ version = "0.7.0"
 
 [language_servers.typesugar-lsp]
 name = "typesugar"
-languages = ["Sugared TypeScript", "Sugared TypeScript React"]
+languages = ["TypeScript", "TSX", "Sugared TypeScript", "Sugared TypeScript React"]
