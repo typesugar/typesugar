@@ -90,6 +90,7 @@ const documents = new TextDocuments(TextDocument);
 let workspaceRoot = "";
 let languageService: ts.LanguageService | null = null;
 let pipeline: TransformationPipeline | null = null;
+let currentCompilerOptions: ts.CompilerOptions = {};
 const manifest = new ManifestState();
 
 // Transform cache
@@ -237,6 +238,43 @@ function preprocessStsFile(fileName: string, content: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Pipeline lifecycle
+// ---------------------------------------------------------------------------
+
+function createPipeline(compilerOptions: ts.CompilerOptions): void {
+  currentCompilerOptions = compilerOptions;
+  pipeline = new TransformationPipeline(compilerOptions, projectFileNames, {
+    verbose: false,
+    preserveBlankLines: true,
+    readFile: (f: string) => getOriginalContent(f),
+    fileExists: (f: string) => {
+      if (ts.sys.fileExists(f)) return true;
+      if (/\.stsx?$/.test(f)) return fs.existsSync(f);
+      return false;
+    },
+  });
+  // Clear transform caches when pipeline is recreated
+  transformCache.clear();
+  rawMacroDiagnosticCache.clear();
+  suggestionCache.clear();
+}
+
+/** Track which files have been added to the pipeline's file list */
+const pipelineFileSet = new Set<string>();
+
+function ensureFileInPipeline(normalizedFileName: string): void {
+  if (pipelineFileSet.has(normalizedFileName)) return;
+  pipelineFileSet.add(normalizedFileName);
+
+  if (!projectFileNames.includes(normalizedFileName)) {
+    projectFileNames.push(normalizedFileName);
+    // Recreate the pipeline so the TS program includes this file
+    createPipeline(currentCompilerOptions);
+    log(`Recreated pipeline to include ${path.basename(normalizedFileName)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Transform layer (fix #3: getTransformResult uses getFileVersion which is
 // independent of the host's getScriptVersion, avoiding recursion)
 // ---------------------------------------------------------------------------
@@ -245,6 +283,10 @@ function getTransformResult(fileName: string): TransformResult | null {
   const normalizedFileName = path.normalize(fileName);
 
   if (!pipeline) return null;
+
+  // Ensure the file is in the pipeline's program before transforming
+  ensureFileInPipeline(normalizedFileName);
+
   if (!pipeline.shouldTransform(normalizedFileName)) return null;
 
   const currentVersion = getFileVersion(normalizedFileName);
@@ -262,23 +304,7 @@ function getTransformResult(fileName: string): TransformResult | null {
   suggestionCache.delete(normalizedFileName);
 
   try {
-    let result = pipeline.transform(normalizedFileName);
-
-    // If the pipeline returned unchanged AND has a crash diagnostic,
-    // fall back to single-file transformCode which creates its own
-    // program with the file as a root file. This handles the case
-    // where a file is opened that's not in the original project file
-    // list (e.g., example files, files outside tsconfig include).
-    if (!result.changed && result.diagnostics.some((d) => d.message.includes("Transform failed"))) {
-      log(`Pipeline crashed on ${normalizedFileName}, falling back to single-file transform`);
-      const content = getOriginalContent(normalizedFileName);
-      if (content) {
-        result = transformCode(content, {
-          fileName: normalizedFileName,
-          preserveBlankLines: true,
-        });
-      }
-    }
+    const result = pipeline.transform(normalizedFileName);
 
     if (result.diagnostics.length > 0) {
       rawMacroDiagnosticCache.set(normalizedFileName, result.diagnostics);
@@ -822,16 +848,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   }
 
   // Create transformation pipeline
-  pipeline = new TransformationPipeline(compilerOptions, projectFileNames, {
-    verbose: false,
-    preserveBlankLines: true, // enables expansion tracking
-    readFile: (fileName: string) => getOriginalContent(fileName),
-    fileExists: (fileName: string) => {
-      if (ts.sys.fileExists(fileName)) return true;
-      if (/\.stsx?$/.test(fileName)) return fs.existsSync(fileName);
-      return false;
-    },
-  });
+  createPipeline(compilerOptions);
 
   // Create language service
   const host = createLanguageServiceHost(compilerOptions);
