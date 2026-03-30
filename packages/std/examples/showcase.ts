@@ -131,10 +131,6 @@ import {
 
   // Macros
   match,
-  when,
-  otherwise,
-  isType,
-  P,
 
   // FlatMap & do-notation
   type FlatMap,
@@ -520,55 +516,50 @@ assert(ordRange.lessThan(r1, r3) === true); // (0,10) < (0,20) by end
 // - `range1 < range2` would use ordRange.lessThan
 
 // ============================================================================
-// 11. PATTERN MATCHING — match(), when(), otherwise(), isType(), P
+// 11. PATTERN MATCHING — Fluent match() API
 // ============================================================================
 
-// Discriminated union matching (Scala-style)
+// Discriminated union matching with destructuring
 type Shape =
   | { kind: "circle"; radius: number }
   | { kind: "square"; side: number }
   | { kind: "triangle"; base: number; height: number };
 
 const circle: Shape = { kind: "circle", radius: 5 };
-const area = match(circle, {
-  circle: ({ radius }) => Math.PI * radius ** 2,
-  square: ({ side }) => side ** 2,
-  triangle: ({ base, height }) => 0.5 * base * height,
-});
+const area = match(circle)
+  .case({ kind: "circle", radius }).then(Math.PI * radius ** 2)
+  .case({ kind: "square", side }).then(side ** 2)
+  .case({ kind: "triangle", base, height }).then(0.5 * base * height);
 assert(Math.abs(area - Math.PI * 25) < 1e-10);
 
 // Literal dispatch
-const httpMsg = match(200 as 200 | 404 | 500, {
-  200: () => "OK",
-  404: () => "Not Found",
-  500: () => "Server Error",
-});
+const httpMsg = match(200 as 200 | 404 | 500)
+  .case(200).then("OK")
+  .case(404).then("Not Found")
+  .case(500).then("Server Error");
 assert(httpMsg === "OK");
 
-// Guard-based matching with when/otherwise
-const category = match(25, [
-  when((n: number) => n < 13, () => "child"),
-  when((n: number) => n < 18, () => "teen"),
-  when((n: number) => n < 65, () => "adult"),
-  otherwise(() => "senior"),
-]);
+// Guard-based matching with .if()
+const category = match(25)
+  .case(n).if(n < 13).then("child")
+  .case(n).if(n < 18).then("teen")
+  .case(n).if(n < 65).then("adult")
+  .else("senior");
 assert(category === "adult");
 
-// Type-based matching with isType()
-const describe = match("hello" as string | number | boolean, [
-  when(isType("string"), (s) => `string(${s})`),
-  when(isType("number"), (n) => `number(${n})`),
-  otherwise(() => "other"),
-]);
+// Type-based matching with constructor patterns
+const describe = match("hello" as string | number | boolean)
+  .case(String(s)).then(`string(${s})`)
+  .case(Number(n)).then(`number(${n})`)
+  .else("other");
 assert(describe === "string(hello)");
 
-// Array pattern helpers
-const listResult = match([1, 2, 3] as number[], [
-  when(P.empty, () => "empty"),
-  when(P.length(1), ([x]: number[]) => `single: ${x}`),
-  when(P.minLength(2), ([a, b]: number[]) => `starts with ${a}, ${b}`),
-  otherwise(() => "fallback"),
-]);
+// Array pattern matching
+const listResult = match([1, 2, 3] as number[])
+  .case([]).then("empty")
+  .case([x]).then(`single: ${x}`)
+  .case([a, b, ...rest]).then(`starts with ${a}, ${b}`)
+  .else("fallback");
 assert(listResult === "starts with 1, 2");
 
 // ============================================================================

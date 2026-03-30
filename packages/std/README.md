@@ -296,23 +296,7 @@ error[TS9401]: Non-exhaustive match — missing cases: "blue"
 
 Use `.else(value)` as a catch-all. When no pattern matches at runtime, the generated code throws `MatchError`.
 
-### Legacy API (Deprecated)
-
-The old object-handler form continues to work for backwards compatibility:
-
-```typescript
-import { match, when, otherwise, P } from "@typesugar/std";
-
-// Still works — but prefer the fluent API above
-const area = match(shape, {
-  circle: ({ radius }) => Math.PI * radius ** 2,
-  square: ({ side }) => side ** 2,
-});
-```
-
-`when()`, `otherwise()`, and `P.*` helpers have `@deprecated` notices suggesting the fluent alternative.
-
-See the [Pattern Matching Guide](../../docs/guides/pattern-matching.md) for the full pattern catalogue, migration guide, and optimization details.
+See the [Pattern Matching Guide](../../docs/guides/pattern-matching.md) for the full pattern catalogue and optimization details.
 
 ## Data Types
 

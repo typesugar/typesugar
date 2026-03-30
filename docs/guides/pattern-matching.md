@@ -617,22 +617,17 @@ const result = match(list).case([]).then("empty").case([x]).then(`one: ${x}`).el
 
 | Old API               | New Fluent API                 | Notes                                  |
 | --------------------- | ------------------------------ | -------------------------------------- |
-| `match(v, { ... })`   | `match(v).case(...).then(...)` | Object form still works                |
-| `when(pred, handler)` | `.case(n).if(pred).then(...)`  | `when()` still works, but deprecated   |
-| `otherwise(handler)`  | `.else(value)`                 | `otherwise()` still works, deprecated  |
-| `P.empty`             | `.case([])`                    | `P.*` still works, deprecated          |
+| `match(v, { ... })`   | `match(v).case(...).then(...)` | Object form removed                    |
+| `when(pred, handler)` | `.case(n).if(pred).then(...)`  | `when()` removed                       |
+| `otherwise(handler)`  | `.else(value)`                 | `otherwise()` removed                  |
+| `P.empty`             | `.case([])`                    | `P.*` removed                          |
 | `P.length(n)`         | `.case([a, b, ...])`           | Array patterns are first-class         |
 | `isType("string")`    | `.case(String(s))`             | Constructor syntax replaces `isType()` |
 
-### Backwards Compatibility
+### Migration
 
-The old API is fully backwards compatible:
-
-- `match(value, { ... })` — object handler form works unchanged
-- `match(value, [when(...), otherwise(...)])` — guard form works unchanged
-- `when()`, `otherwise()`, `P.*`, `isType()` — all still exported and functional
-
-The old helpers have `@deprecated` notices suggesting the fluent alternative.
+The old API (`when()`, `otherwise()`, `P.*`, `isType()`, and the object handler form)
+has been removed. Use the fluent API shown above for all pattern matching.
 
 ---
 

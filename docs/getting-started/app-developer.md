@@ -217,7 +217,7 @@ npx typesugar doctor
 | `@typesugar/sql`       | `sql` tagged template                                                                         |
 | `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`                                           |
 | `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                         |
-| `@typesugar/std`       | `match()`, `when()`, `otherwise()`, `isType()`, `P`, extension methods                        |
+| `@typesugar/std`       | `match()` (fluent pattern matching), extension methods                                        |
 | `@typesugar/fp`        | `Option`, `Result`, `IO`                                                                      |
 | `@typesugar/strings`   | `regex`, `html`, `raw` tagged templates                                                       |
 | `@typesugar/units`     | `units` tagged template for dimensional analysis                                              |

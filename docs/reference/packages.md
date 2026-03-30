@@ -231,12 +231,6 @@ npm install @typesugar/std
 match(); // Fluent: match(v).case(...).then(...).else(...)
 MatchError; // Runtime error when no pattern matches (extends Error, has .value)
 
-// Pattern matching — legacy helpers (deprecated, use fluent API)
-when(); // Guard arm: when(pred, handler)
-otherwise(); // Catch-all arm: otherwise(handler)
-P; // Array helpers: P.empty, P.length(n), P.oneOf(...), etc.
-isType(); // Type guard: isType("string"), isType(Date)
-
 // FlatMap for do-notation
 FlatMap;
 registerFlatMap();
