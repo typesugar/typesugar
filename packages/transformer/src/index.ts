@@ -3802,6 +3802,7 @@ class MacroTransformer {
     if (ts.isBinaryExpression(node)) {
       const result = this.tryRewriteTypeclassOperator(node);
       if (result !== undefined) {
+        let finalExpr: ts.Expression;
         if (ts.isCallExpression(result)) {
           const inlined = this.tryInlineDerivedInstanceCall(result);
           if (inlined !== undefined) {
@@ -3811,10 +3812,26 @@ class MacroTransformer {
             ) {
               this.inlinedInstanceNames.add(result.expression.expression.text);
             }
-            return this.reparseExpression(inlined, node);
+            finalExpr = this.reparseExpression(inlined, node);
+          } else {
+            finalExpr = this.reparseExpression(result, node);
+          }
+        } else {
+          finalExpr = this.reparseExpression(result, node);
+        }
+        // Record for preserveBlankLines surgical replacement
+        if (this.expansionTracker) {
+          const expandedText = this.printNodeSafe(finalExpr);
+          if (expandedText) {
+            this.expansionTracker.recordExpansion(
+              "operator",
+              node,
+              this.ctx.sourceFile,
+              expandedText
+            );
           }
         }
-        return this.reparseExpression(result, node);
+        return finalExpr;
       }
     }
 
