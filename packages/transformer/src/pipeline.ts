@@ -23,6 +23,7 @@ import macroTransformerFactory, {
   getExpansionCacheStats,
 } from "./index.js";
 import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
+import MagicString from "magic-string";
 
 /**
  * Diagnostic from macro expansion
@@ -114,6 +115,143 @@ export interface PipelineOptions {
    * build paths since it adds a typecheck pass per file.
    */
   strictOutput?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Diff-based source map fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a source map by diffing original and transformed code line-by-line.
+ * Used as a fallback when no expansion-based source map is available (e.g.,
+ * AST-level changes like import removal, operator overloading rewrites).
+ *
+ * Uses greedy LCS with bounded lookahead to match lines, then builds
+ * a MagicString-based source map from the matches.
+ */
+function generateDiffSourceMap(
+  original: string,
+  transformed: string,
+  fileName: string
+): RawSourceMap | null {
+  if (original === transformed) return null;
+
+  const origLines = original.split("\n");
+  const transLines = transformed.split("\n");
+
+  // Build a map from line content → array of original line indices (for fast lookup)
+  const origLineIndex = new Map<string, number[]>();
+  for (let i = 0; i < origLines.length; i++) {
+    const line = origLines[i];
+    const arr = origLineIndex.get(line);
+    if (arr) arr.push(i);
+    else origLineIndex.set(line, [i]);
+  }
+
+  // Greedy LCS: for each transformed line, find the best matching original line
+  // Constraint: matches must be monotonically increasing in original line index
+  const LOOKAHEAD = 50;
+  const matches: Array<[number, number]> = []; // [origLine, transLine] pairs
+  let lastOrigLine = -1;
+
+  for (let ti = 0; ti < transLines.length; ti++) {
+    const candidates = origLineIndex.get(transLines[ti]);
+    if (!candidates) continue;
+
+    // Find the first candidate after lastOrigLine, within lookahead
+    let best = -1;
+    for (const oi of candidates) {
+      if (oi > lastOrigLine && oi <= lastOrigLine + LOOKAHEAD) {
+        best = oi;
+        break;
+      }
+    }
+    // If no candidate within lookahead, take the first one after lastOrigLine
+    if (best === -1) {
+      for (const oi of candidates) {
+        if (oi > lastOrigLine) {
+          best = oi;
+          break;
+        }
+      }
+    }
+    if (best !== -1) {
+      matches.push([best, ti]);
+      lastOrigLine = best;
+    }
+  }
+
+  if (matches.length === 0) return null;
+
+  // Build source map using MagicString: start with original, overwrite to produce transformed
+  const s = new MagicString(original);
+
+  // Walk through matches to build the transformed output via MagicString mutations
+  // We need to map original ranges → transformed ranges
+  let origOffset = 0;
+  let transOffset = 0;
+  let lastOrigEnd = 0;
+
+  // Compute line start offsets
+  const origStarts = [0];
+  for (let i = 0; i < origLines.length; i++) {
+    origStarts.push(origStarts[i] + origLines[i].length + 1);
+  }
+  const transStarts = [0];
+  for (let i = 0; i < transLines.length; i++) {
+    transStarts.push(transStarts[i] + transLines[i].length + 1);
+  }
+
+  // Process regions between matches (and before first / after last match)
+  let prevOrigLine = -1;
+  let prevTransLine = -1;
+
+  for (const [origLine, transLine] of matches) {
+    // Handle the gap between previous match and this match
+    const gapOrigStart = prevOrigLine === -1 ? 0 : origStarts[prevOrigLine + 1];
+    const gapOrigEnd = origStarts[origLine];
+    const gapTransStart = prevTransLine === -1 ? 0 : transStarts[prevTransLine + 1];
+    const gapTransEnd = transStarts[transLine];
+
+    if (gapOrigEnd > gapOrigStart) {
+      const gapTransText = transformed.substring(gapTransStart, gapTransEnd);
+      // Overwrite the original gap region with the transformed gap content
+      if (gapOrigEnd <= original.length) {
+        try {
+          s.overwrite(gapOrigStart, gapOrigEnd, gapTransText);
+        } catch {
+          // MagicString throws on overlapping/invalid ranges — skip
+        }
+      }
+    }
+
+    prevOrigLine = origLine;
+    prevTransLine = transLine;
+  }
+
+  // Handle trailing content after last match
+  if (matches.length > 0) {
+    const [lastOrig, lastTrans] = matches[matches.length - 1];
+    const tailOrigStart = origStarts[lastOrig + 1];
+    const tailTransStart = transStarts[lastTrans + 1];
+
+    if (tailOrigStart < original.length) {
+      const tailTransText = transformed.substring(tailTransStart);
+      try {
+        s.overwrite(tailOrigStart, original.length, tailTransText);
+      } catch {
+        // Skip on error
+      }
+    }
+  }
+
+  const map = s.generateMap({
+    hires: true,
+    source: fileName,
+    includeContent: true,
+  });
+
+  return { ...map, version: 3 } as RawSourceMap;
 }
 
 /**
@@ -962,8 +1100,14 @@ export class TransformationPipeline {
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");
 
-      // Generate source map from expansion records
-      const map = globalExpansionTracker.generateSourceMap(originalCode, sourceFile.fileName);
+      // Generate source map from expansion records, with diff-based fallback
+      // for AST-level changes (import removal, operator rewrites, etc.)
+      const expansionMap = globalExpansionTracker.generateSourceMap(
+        originalCode,
+        sourceFile.fileName
+      );
+      const map =
+        expansionMap ?? generateDiffSourceMap(originalCode, transformed, sourceFile.fileName);
 
       // Capture expansion records before clearing
       const expansions = globalExpansionTracker.getExpansionsForFile(sourceFile.fileName);

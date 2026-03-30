@@ -1,6 +1,6 @@
 # PEP-028: Fix Symbolic Expression Type Hierarchy for Operator Overloading
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-03-29
 **Author:** Claude (with Dean Povey)
 **Depends on:** PEP-011 (Extension Methods / Operator Overloading)
@@ -67,108 +67,78 @@ The operator pass looks for `Numeric` for `"Constant"` (the resolved type name),
 
 ## Waves
 
-### Wave 1: Investigate the Type Hierarchy
+### Wave 1: Investigate the Type Hierarchy ✅
 
 **Tasks:**
 
-- [ ] Confirm that `const_()` return type annotation says `Constant<T>` not `Expression<T>`
-- [ ] Check `var_()` return type — does it return `Variable` or `Expression`?
-- [ ] Check `pow()`, `sin()`, `diff()` return types
-- [ ] Determine if changing return types to `Expression<T>` would break type narrowing (discriminated unions need specific types for pattern matching)
+- [x] Confirm that `const_()` return type annotation says `Constant<T>` not `Expression<T>`
+- [x] Check `var_()` return type — returns `Variable<T>`, not `Expression`
+- [x] Check `pow()`, `sin()`, `diff()` return types — all return narrow types (`BinaryOp`, `FunctionCall`, `Derivative`)
+- [x] Determine if changing return types to `Expression<T>` would break type narrowing — yes, it would (Option A rejected)
+
+**Findings:**
+
+All builder functions return narrow types. The union member fallback code already existed in both `transformer/src/index.ts` and `transformer-core/src/rewriting.ts`, but was broken because it skipped `.d.ts` files (`if (sf.isDeclarationFile) continue;`). Since `@typesugar/symbolic` is consumed as a compiled package, its `Expression` type alias only exists in `.d.ts` files — so the fallback never found it.
 
 **Gate:**
 
-- [ ] Full understanding of which functions return narrow types vs `Expression`
+- [x] Full understanding of which functions return narrow types vs `Expression`
 
-### Wave 2: Fix Return Types OR Register Additional Instances
+### Wave 2: Fix Union Membership Check in Operator Pass (Option C) ✅
 
-Two possible approaches:
+**Chosen approach:** Option C — fix the existing union membership check by:
 
-**Option A: Widen return types to `Expression<T>`**
-
-Change `const_()`, `var_()` etc. to return `Expression<T>` instead of `Constant<T>`:
-
-```typescript
-// Before
-export function const_<T>(value: T): Constant<T> { ... }
-// After
-export function const_<T>(value: T): Expression<T> { ... }
-```
-
-Pros: Operator overloading works immediately (Numeric is for Expression).
-Cons: Users lose type narrowing — `const_(5).value` would need a type guard.
-
-**Option B: Register Numeric for all union members**
-
-Register `Numeric` instances for each concrete type in the union:
-
-```typescript
-registerInstanceWithMeta({ typeclassName: "Numeric", forType: "Constant", ... });
-registerInstanceWithMeta({ typeclassName: "Numeric", forType: "Variable", ... });
-registerInstanceWithMeta({ typeclassName: "Numeric", forType: "BinaryOp", ... });
-```
-
-Pros: Preserves type narrowing.
-Cons: More registrations; must be kept in sync with the union.
-
-**Option C: Teach the operator pass to check union membership**
-
-When the operator pass sees `Numeric` for `Expression` but the operand type is `Constant`, check if `Constant` is a member of the `Expression` union type and use the `Expression` instance.
-
-Pros: Most correct — works for any discriminated union pattern.
-Cons: Requires type checker to resolve union membership, which adds complexity.
+1. Removing the `isDeclarationFile` guard so `.d.ts` type aliases are found
+2. Adding a cache (`unionMemberCache`) to avoid repeated file scanning (prevents performance regression)
 
 **Tasks:**
 
-- [ ] Evaluate which option preserves the best DX
-- [ ] Implement chosen option
-- [ ] Update `packages/symbolic/src/builders.ts` or `packages/symbolic/src/expression.ts`
+- [x] Fix `transformer/src/index.ts` — removed `isDeclarationFile` guard in both `inferBinaryExprResultType` and `tryRewriteTypeclassOperator`
+- [x] Fix `transformer-core/src/rewriting.ts` — same fix via `findUnionMemberInstance` helper
+- [x] Add `getUnionMembers()` cached lookup in both packages to avoid O(files) scan per operator
+- [x] Verify no performance regression — all 20 benchmark tests pass
 
 **Gate:**
 
-- [ ] `const_(0.5) * const_(2)` compiles to `numericExpr.mul(const_(0.5), const_(2))`
-- [ ] All existing symbolic tests pass
+- [x] `const_(0.5) * const_(2)` compiles to `numericExpr.mul(const_(0.5), const_(2))`
+- [x] All existing symbolic tests pass
+- [x] Benchmark tests pass (no regression from scanning .d.ts files)
 
-### Wave 3: Fix the Example and Remove Skip
+### Wave 3: Fix the Example and Remove Skip ✅
 
 **Tasks:**
 
-- [ ] Verify `docs/examples/symbolic/calculus.ts` runs without errors
-- [ ] Remove `"symbolic/calculus.ts"` from `EXECUTION_SKIP` in `tests/playground-examples.test.ts`
-- [ ] Verify all 157 playground example tests pass with 0 skips
+- [x] Verify `docs/examples/symbolic/calculus.ts` runs without errors
+- [x] Remove `"symbolic/calculus.ts"` from `EXECUTION_SKIP` in `tests/playground-examples.test.ts`
+- [x] Verify all 157 playground example tests pass with 0 skips
 
 **Gate:**
 
-- [ ] `EXECUTION_SKIP` is an empty set
-- [ ] CI green on all Node versions
+- [x] `EXECUTION_SKIP` is an empty set
+- [x] Full test suite: 222 files passed, 6646 tests passed, 0 failures
 
 ## Files Changed
 
-| File                                                   | Change                                                      |
-| ------------------------------------------------------ | ----------------------------------------------------------- |
-| `packages/symbolic/src/builders.ts` or `expression.ts` | Fix return types or register additional Numeric instances   |
-| `tests/playground-examples.test.ts`                    | Remove symbolic/calculus.ts from EXECUTION_SKIP             |
-| `packages/transformer/src/index.ts`                    | (Option C only) Add union membership check in operator pass |
+| File                                         | Change                                                                  |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| `packages/transformer/src/index.ts`          | Removed `isDeclarationFile` guard, added `getUnionMembers()` cache      |
+| `packages/transformer-core/src/rewriting.ts` | Same fix: cached `getUnionMembers()` + `findUnionMemberInstance` helper |
+| `tests/playground-examples.test.ts`          | Removed `symbolic/calculus.ts` from `EXECUTION_SKIP`                    |
 
 ## Consequences
 
 ### Benefits
 
-- Symbolic operator overloading works end-to-end
+- Symbolic operator overloading works end-to-end for discriminated union types
 - The calculus playground example executes correctly
-- Zero test skips — all examples pass
+- Zero test skips — all 157 playground examples pass
+- Generic solution: any discriminated union with a typeclass instance on the union type now works for all union members
 
 ### Trade-offs
 
-- Option A loses type narrowing (significant DX regression)
-- Option B adds maintenance burden (registrations must match union members)
-- Option C adds complexity to the operator pass
+- Scanning `.d.ts` files adds to the initial lookup cost, but the cache ensures each type alias is resolved only once per program
+- The `transformer/src/index.ts` and `transformer-core/src/rewriting.ts` still have duplicated operator rewriting logic (tracked by PEP-026)
 
-### Recommendation
+### Root Cause
 
-**Option C** is the most robust long-term solution — it handles any discriminated union pattern generically. But **Option B** is the simplest immediate fix and can be replaced by Option C later.
-
-### Future Work
-
-- If Option C is implemented, it could benefit other packages that use discriminated unions with operator overloading
-- Consider adding a `@numeric` or `@operators` decorator that auto-registers all union members
+The union member fallback code already existed but had a bug: `if (sf.isDeclarationFile) continue;` skipped `.d.ts` files. Since `@typesugar/symbolic` is consumed as a compiled package, its `Expression` type alias only appeared in `.d.ts` — so the fallback never found it.

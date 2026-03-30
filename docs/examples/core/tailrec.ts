@@ -27,4 +27,14 @@ console.log("Fib(100) =", fibonacci(100n));    // 354224848179261915075n
 // Without @tailrec these would stack overflow:
 console.log("Fib(10000) digit count:", fibonacci(10000n).toString().length);
 
+// ⚠️ This would NOT compile — the recursive calls are not in tail position:
+//
+// @tailrec
+// function fibonacci_naive(n: number): number {
+//   if (n <= 1) return n;
+//   return fibonacci_naive(n - 1) + fibonacci_naive(n - 2);
+// }
+//
+// Error: @tailrec: could not optimize 'fibonacci_naive' — recursive call not in tail position
+
 // Try: write a @tailrec gcd(a, b) and test with gcd(48n, 18n)

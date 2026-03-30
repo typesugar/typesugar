@@ -571,11 +571,7 @@ function transpileToJS(tsCode: string): string {
  * CJS/ESM module loading differences (the browser uses an IIFE runtime bundle,
  * the test uses require()). Verified working in browser on each change.
  */
-const EXECUTION_SKIP = new Set<string>([
-  // const_() returns Constant<number> but Numeric instance is for Expression.
-  // Fix: packages/symbolic should either return Expression or register Numeric<Constant>.
-  "symbolic/calculus.ts",
-]);
+const EXECUTION_SKIP = new Set<string>([]);
 
 describe("all examples execute without runtime errors", () => {
   const moduleRegistry = buildModuleRegistry();

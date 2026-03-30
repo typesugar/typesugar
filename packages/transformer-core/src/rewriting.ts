@@ -424,6 +424,70 @@ export function inferIdentifierResultType(
   return undefined;
 }
 
+/**
+ * Cache for union type alias member lookups. Maps a type alias name to
+ * the set of base member names in its union, or null if not found/not a union.
+ * Automatically cleared when the program instance changes.
+ */
+const unionMemberCache = new Map<string, Set<string> | null>();
+let unionMemberCacheProgram: ts.Program | undefined;
+
+function getUnionMembers(ctx: MacroContextImpl, candidateBase: string): Set<string> | null {
+  if (ctx.program !== unionMemberCacheProgram) {
+    unionMemberCache.clear();
+    unionMemberCacheProgram = ctx.program;
+  }
+  if (unionMemberCache.has(candidateBase)) {
+    return unionMemberCache.get(candidateBase)!;
+  }
+
+  let result: Set<string> | null = null;
+  for (const sf of ctx.program.getSourceFiles()) {
+    for (const stmt of sf.statements) {
+      if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
+        const aliasType = ctx.typeChecker.getTypeAtLocation(stmt.type);
+        if (aliasType.isUnion?.()) {
+          result = new Set<string>();
+          for (const unionMember of aliasType.types) {
+            const memberName = ctx.typeChecker.typeToString(unionMember);
+            result.add(stripTypeArguments(memberName));
+          }
+        }
+        break;
+      }
+    }
+    if (result !== null) break;
+  }
+
+  unionMemberCache.set(candidateBase, result);
+  return result;
+}
+
+/**
+ * Search for a union type alias whose members include the operand's base type.
+ * This handles the case where e.g. `Constant<T>` is a member of `Expression<T>`
+ * and the Numeric instance is registered for `Expression`, not `Constant`.
+ * Includes declaration files so that types from compiled packages are found.
+ * Uses a cache to avoid repeated file scanning.
+ */
+function findUnionMemberInstance(
+  ctx: MacroContextImpl,
+  candidate: { typeclassName: string; forType: string; instanceName: string },
+  candidateBase: string,
+  candidateArg: string,
+  baseTypeName: string,
+  typeArg: string
+): typeof candidate | undefined {
+  const members = getUnionMembers(ctx, candidateBase);
+  if (
+    members?.has(baseTypeName) &&
+    (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
+  ) {
+    return candidate;
+  }
+  return undefined;
+}
+
 export function inferBinaryExprResultType(
   ctx: MacroContextImpl,
   node: ts.BinaryExpression
@@ -465,30 +529,14 @@ export function inferBinaryExprResultType(
         const candidateBase = stripTypeArguments(candidate.forType);
         const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
 
-        for (const sf of ctx.program.getSourceFiles()) {
-          if (sf.isDeclarationFile) continue;
-          for (const stmt of sf.statements) {
-            if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-              const aliasType = ctx.typeChecker.getTypeAtLocation(stmt.type);
-              if (aliasType.isUnion?.()) {
-                for (const unionMember of aliasType.types) {
-                  const memberName = ctx.typeChecker.typeToString(unionMember);
-                  const memberBase = stripTypeArguments(memberName);
-                  if (
-                    memberBase === baseTypeName &&
-                    (candidateArg === typeArg ||
-                      candidateArg === typeArg.split("<")[0] ||
-                      !candidateArg)
-                  ) {
-                    inst = candidate;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-          if (inst) break;
-        }
+        inst = findUnionMemberInstance(
+          ctx,
+          candidate,
+          candidateBase,
+          candidateArg,
+          baseTypeName,
+          typeArg
+        );
         if (inst) break;
       }
     }
@@ -573,31 +621,14 @@ export function tryRewriteTypeclassOperator(
         const candidateBase = stripTypeArguments(candidate.forType);
         const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
 
-        for (const sf of ctx.program.getSourceFiles()) {
-          if (sf.isDeclarationFile) continue;
-          for (const stmt of sf.statements) {
-            if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-              const aliasType = ctx.typeChecker.getTypeAtLocation(stmt.type);
-
-              if (aliasType.isUnion?.()) {
-                for (const unionMember of aliasType.types) {
-                  const memberName = ctx.typeChecker.typeToString(unionMember);
-                  const memberBase = stripTypeArguments(memberName);
-                  if (
-                    memberBase === baseTypeName &&
-                    (candidateArg === typeArg ||
-                      candidateArg === typeArg.split("<")[0] ||
-                      !candidateArg)
-                  ) {
-                    inst = candidate;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-          if (inst) break;
-        }
+        inst = findUnionMemberInstance(
+          ctx,
+          candidate,
+          candidateBase,
+          candidateArg,
+          baseTypeName,
+          typeArg
+        );
         if (inst) break;
       }
     }

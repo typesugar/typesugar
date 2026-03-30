@@ -1335,6 +1335,13 @@ class MacroTransformer {
    */
   private specCache = new SpecializationCache();
 
+  /**
+   * Cache for union type alias member lookups. Maps a type alias name to
+   * the set of base member names in its union, or null if not found/not a union.
+   * Avoids repeatedly scanning all source files (including .d.ts) for the same alias.
+   */
+  private unionMemberCache = new Map<string, Set<string> | null>();
+
   private inlinedInstanceNames = new Set<string>();
 
   /**
@@ -5883,6 +5890,37 @@ class MacroTransformer {
   }
 
   /**
+   * Get (or compute and cache) the set of base member names for a type alias.
+   * Returns null if the type alias is not found or is not a union.
+   */
+  private getUnionMembers(candidateBase: string): Set<string> | null {
+    if (this.unionMemberCache.has(candidateBase)) {
+      return this.unionMemberCache.get(candidateBase)!;
+    }
+
+    let result: Set<string> | null = null;
+    for (const sf of this.ctx.program.getSourceFiles()) {
+      for (const stmt of sf.statements) {
+        if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
+          const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
+          if (aliasType.isUnion?.()) {
+            result = new Set<string>();
+            for (const unionMember of aliasType.types) {
+              const memberName = this.ctx.typeChecker.typeToString(unionMember);
+              result.add(stripTypeArguments(memberName));
+            }
+          }
+          break;
+        }
+      }
+      if (result !== null) break;
+    }
+
+    this.unionMemberCache.set(candidateBase, result);
+    return result;
+  }
+
+  /**
    * Infer the result type of a binary expression, accounting for potential typeclass rewriting.
    * If the expression would be rewritten to a typeclass method call, returns the instance's forType.
    */
@@ -5930,32 +5968,14 @@ class MacroTransformer {
         for (const candidate of candidateInstances) {
           const candidateBase = stripTypeArguments(candidate.forType);
           const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-
-          for (const sf of this.ctx.program.getSourceFiles()) {
-            if (sf.isDeclarationFile) continue;
-            for (const stmt of sf.statements) {
-              if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-                const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
-                if (aliasType.isUnion?.()) {
-                  for (const unionMember of aliasType.types) {
-                    const memberName = this.ctx.typeChecker.typeToString(unionMember);
-                    const memberBase = stripTypeArguments(memberName);
-                    if (
-                      memberBase === baseTypeName &&
-                      (candidateArg === typeArg ||
-                        candidateArg === typeArg.split("<")[0] ||
-                        !candidateArg)
-                    ) {
-                      inst = candidate;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-            if (inst) break;
+          const members = this.getUnionMembers(candidateBase);
+          if (
+            members?.has(baseTypeName) &&
+            (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
+          ) {
+            inst = candidate;
+            break;
           }
-          if (inst) break;
         }
       }
 
@@ -6033,46 +6053,23 @@ class MacroTransformer {
         findInstance(entry.typeclass, typeName, sfn) ??
         findInstance(entry.typeclass, baseTypeName, sfn);
 
-      // If no exact match, try to find an instance via structural subtyping
+      // If no exact match, try to find an instance via union membership
       // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)
       if (!inst) {
-        // Check if this type is a member of a registered union type
         const candidateInstances = instanceRegistry.filter(
           (i) => i.typeclassName === entry.typeclass
         );
         for (const candidate of candidateInstances) {
           const candidateBase = stripTypeArguments(candidate.forType);
           const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-
-          // Look up the candidate type alias in source files
-          for (const sf of this.ctx.program.getSourceFiles()) {
-            if (sf.isDeclarationFile) continue;
-            for (const stmt of sf.statements) {
-              if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-                // Found the type alias - get its type from the checker
-                const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
-
-                // Check if it's a union and the actual type is one of its members
-                if (aliasType.isUnion?.()) {
-                  for (const unionMember of aliasType.types) {
-                    const memberName = this.ctx.typeChecker.typeToString(unionMember);
-                    const memberBase = stripTypeArguments(memberName);
-                    if (
-                      memberBase === baseTypeName &&
-                      (candidateArg === typeArg ||
-                        candidateArg === typeArg.split("<")[0] ||
-                        !candidateArg)
-                    ) {
-                      inst = candidate;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-            if (inst) break;
+          const members = this.getUnionMembers(candidateBase);
+          if (
+            members?.has(baseTypeName) &&
+            (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
+          ) {
+            inst = candidate;
+            break;
           }
-          if (inst) break;
         }
       }
 
