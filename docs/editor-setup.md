@@ -104,20 +104,47 @@ indent = { tab-width = 2, unit = "  " }
 
 ## Zed
 
-Install the typesugar Zed extension from the extension marketplace, or build from source:
+### 1. Install the extension
+
+Install the typesugar Zed extension from the extension marketplace, or as a dev extension:
+
+- `cmd+shift+p` → "zed: install dev extension" → select the `packages/zed/` directory
+
+Or build from source:
 
 ```bash
 cd packages/zed
 cargo build --target wasm32-wasip1 --release
 ```
 
-The extension automatically:
+### 2. Configure language servers
 
-- Recognizes `.sts` and `.stsx` files
-- Starts `typesugar-lsp` from your project's `node_modules/.bin/`
-- Provides syntax highlighting via tree-sitter-typescript
+**Important:** Zed runs its built-in TypeScript language server alongside typesugar-lsp. The built-in server doesn't understand macros and will report false errors. You need to disable it for TypeScript files.
 
-Ensure `@typesugar/lsp-server` is installed in your project.
+Add to your project's `.zed/settings.json` (or global Zed settings via `cmd+,`):
+
+```json
+{
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["typesugar-lsp", "!typescript-language-server", "!vtsls"]
+    },
+    "TSX": {
+      "language_servers": ["typesugar-lsp", "!typescript-language-server", "!vtsls"]
+    }
+  }
+}
+```
+
+The `!` prefix disables a language server. This makes typesugar-lsp the sole TypeScript language server, which provides all standard TS features (diagnostics, completions, hover, go-to-definition, rename, etc.) plus macro-aware features (semantic tokens, codelens, inlay hints, macro expansion).
+
+### 3. Ensure the LSP server is installed
+
+```bash
+npm install --save-dev @typesugar/lsp-server
+```
+
+The extension finds the server at `node_modules/@typesugar/lsp-server/dist/server.js` and runs it via `node`.
 
 ---
 

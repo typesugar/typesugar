@@ -1,0 +1,10 @@
+{
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["typesugar-lsp", "!typescript-language-server", "!vtsls"]
+    },
+    "TSX": {
+      "language_servers": ["typesugar-lsp", "!typescript-language-server", "!vtsls"]
+    }
+  }
+}
