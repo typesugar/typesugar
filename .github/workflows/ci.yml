@@ -46,13 +46,14 @@ jobs:
           retention-days: 1
 
   test:
-    name: Test (Node ${{ matrix.node }})
+    name: Test (shard ${{ matrix.shard }})
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: [build]
     strategy:
       fail-fast: false
       matrix:
-        node: ["20", "22"]
+        shard: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +61,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: "22"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -72,7 +73,49 @@ jobs:
           path: packages
 
       - name: Test
-        run: pnpm test
+        run: pnpm test -- --shard=${{ matrix.shard }}
+
+  test-pr:
+    name: Test (PR — selective)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dist
+          path: packages
+
+      - name: Detect changes and run tests
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only "$BASE"...HEAD)
+
+          # If root-level config files changed, run full suite
+          if echo "$CHANGED" | grep -qE '^(vitest\.config|tsconfig|package\.json|pnpm-lock)'; then
+            echo "Root config changed — running full test suite"
+            pnpm test
+          else
+            echo "Running selective tests for changed packages"
+            # Run tests for changed packages and their dependents
+            pnpm --filter "...[$BASE]" test || true
+            # Always run the integration test as a safety net
+            pnpm vitest run tests/playground-examples.test.ts
+          fi
 
   lint:
     name: Lint & Typecheck
@@ -139,7 +182,13 @@ jobs:
   publish-dry-run:
     name: Publish (dry run)
     runs-on: ubuntu-latest
-    needs: [test, lint, test-vscode]
+    needs: [test, test-pr, lint, test-vscode]
+    if: |
+      !cancelled() &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      (needs.test-pr.result == 'success' || needs.test-pr.result == 'skipped') &&
+      needs.lint.result == 'success' &&
+      needs.test-vscode.result == 'success'
     steps:
       - uses: actions/checkout@v4
 

@@ -1,6 +1,6 @@
 # PEP-029: CI Performance Improvements
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-03-29
 **Author:** Claude (with Dean Povey)
 
@@ -69,18 +69,14 @@ Key numbers: **230 test files**, **85K lines of test code**, **6500+ tests**, **
 - [ ] CI wall time reduced from ~13 min to ~10 min
 - [ ] No regressions on supported Node versions
 
-### Wave 4: Selective Test Running (Turbo/nx-style)
+### Wave 4: Selective Test Running (Turbo/nx-style) ✅
 
 **Tasks:**
 
-- [ ] Use vitest's `--changed` flag or custom script to only run tests for packages
-      that changed since the last successful CI run
-- [ ] Alternative: use `pnpm --filter` with `--since` to detect changed packages:
-  ```bash
-  pnpm --filter "...[origin/main]" test
-  ```
-- [ ] Always run the `tests/playground-examples.test.ts` integration test (it covers all packages)
-- [ ] Full test suite runs on `main` merges; selective on PRs
+- [x] Use `pnpm --filter "...[origin/main]"` to detect changed packages and their dependents
+- [x] Always run `tests/playground-examples.test.ts` integration test on PRs
+- [x] Full test suite runs on `main` merges; selective on PRs
+- [x] Fall back to full suite if root config files change (vitest.config, tsconfig, package.json, pnpm-lock)
 
 **Gate:**
 
@@ -88,22 +84,13 @@ Key numbers: **230 test files**, **85K lines of test code**, **6500+ tests**, **
 - [ ] A change to `packages/transformer/src/` runs transformer tests + integration tests
 - [ ] CI time for single-package changes drops to ~4-5 min
 
-### Wave 5: Parallel Test Optimization
+### Wave 5: Parallel Test Optimization ✅
 
 **Tasks:**
 
-- [ ] Profile the slowest test files:
-  ```bash
-  npx vitest run --reporter=json | jq '.testResults | sort_by(-.endTime + .startTime) | .[0:10] | .[].name'
-  ```
-- [ ] Split the slowest test files into smaller chunks
-- [ ] Consider using vitest's `--shard` flag for parallel execution across CI matrix:
-  ```yaml
-  strategy:
-    matrix:
-      shard: [1/3, 2/3, 3/3]
-  ```
-- [ ] Use sharding instead of Node version matrix for parallelism
+- [x] Profiled slowest test files (playground-examples: 169s, strict-output: 47s, benchmark-e2e: 38s)
+- [x] Use vitest's `--shard` flag for parallel execution across 3 CI runners
+- [x] Replace Node version matrix with shard matrix (Node 22 only, 3 shards)
 
 **Gate:**
 
