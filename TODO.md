@@ -1,52 +1,33 @@
 # typesugar TODO
 
-## Cool Language Features to Implement
+## Language Features
 
 1. **Zero-Cost Optics (`@optics` / `Lens`)**
    - **What:** A macro that generates type-safe, zero-cost lenses for data structures.
    - **Why:** Deep immutable updates in TypeScript are verbose. This compiles to direct object spread operations with zero runtime overhead and fully typed paths.
 
-2. ~~**Algebraic Data Types (`@adt`)**~~ ✅ **Done** (PEP-014)
-   - **What:** A concise syntax for defining ADTs that auto-generates constructors, type guards, and matchers.
-   - **Status:** Implemented. See `peps/PEP-014-adt-macro.md` and `packages/macros/src/adt.ts`. Generates constructors, type guards, match arms, and auto-derives `Eq`, `Show`, `Clone`.
-
-3. ~~**Structural Pattern Matching (`match!`)**~~ ✅ **Done**
-   - Unified `match()` macro in `@typesugar/std` with:
-     - Compile-time exhaustiveness checking via type checker
-     - Auto-detected discriminants (`kind`, `_tag`, `type`, `tag`, `ok`, etc.)
-     - `when()`/`otherwise()` guard syntax
-     - **OR patterns**: pipe-separated keys (`"circle|square"`) compile to `||` conditions or switch fall-through
-     - **Type patterns**: `isType("string")` → `typeof`, `isType(Date)` → `instanceof`, `isType("null")` → `=== null`
-     - **Array/structural helpers**: `P.empty`, `P.length(n)`, `P.minLength(n)`, `P.between(lo, hi)`, `P.oneOf(...)`, `P.head(pred)`, `P.has(key)`, `P.regex(re)` — all inlined at compile time
-     - Binary search for sparse integers (O(log n))
-     - Switch IIFE for large case counts (V8-optimized)
-   - **Future enhancement:** Nested pattern merging (decision tree fusion across nested `match()` calls).
-
-4. **Zero-Cost Array Comprehensions**
+2. **Zero-Cost Array Comprehensions**
    - **What:** A macro that compiles declarative list comprehensions (e.g., `[for (x of items) if (x > 0) x * 2]`) into highly optimized, single-pass `for` loops.
    - **Why:** Avoids intermediate array allocations from `.map().filter()`, fitting the zero-cost abstraction philosophy perfectly.
 
-5. ~~**Implicit Context Passing (Scala 2 `implicit` style)**~~ **DONE**
-   - **What:** Functions declare implicit parameters with `= implicit()` default markers, and the transformer automatically resolves and threads typeclass instances through the call graph with propagation.
-   - **Status:** Implemented. See `packages/macros/src/implicits.ts` and `examples/implicits/basic.ts`. Future work: extend beyond typeclass instances to general context passing.
-
-6. **Standalone `@specialize` Macro (Non-Typeclass)**
+3. **Standalone `@specialize` Macro (Non-Typeclass)**
    - **What:** A `@specialize` annotation for generic functions outside the typeclass system, enabling C++-style template specialization.
    - **Why:** Sometimes you want to monomorphize a generic function for a specific type without defining a full typeclass. The transformer would generate specialized versions at call sites where the type argument is known.
    - **Challenge:** Tricky when the specialized function is passed as a callback (e.g., to `map`, `reduce`). Would need to trace through higher-order functions or limit to direct call sites.
-   - **Design consideration:** TypeScript generics are erased at runtime, so this would be pure compile-time code generation — similar to how typeclass auto-specialization inlines dictionary methods, but for arbitrary generic functions.
 
-7. **Keyword / Named Arguments**
+4. **Keyword / Named Arguments**
    - **What:** A preprocessor feature that allows calling functions with named arguments (e.g., `fn(a=1, b=2)`).
    - **Why:** The macro rewrites them into positional arguments at compile time based on the function signature, bringing Python/C#-style named arguments to TS with zero runtime cost.
 
-8. **`transformInto` Macro Expansion (`@typesugar/mapper`)**
+5. **`transformInto` Macro Expansion (`@typesugar/mapper`)**
    - **What:** Implement `transformInto<S, T>()` as a compile-time macro in the transformer. Currently it throws at runtime; the macro must expand to zero-cost object mapping code.
    - **Why:** Mapper tests are skipped until this is implemented. See `packages/mapper/src/__tests__/mapper.test.ts`.
 
-9. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
+6. **Deep-Type Compatibility Checking (`@typesugar/mapper`)**
    - **What:** Add recursive deep-type compatibility checking to the `transformInto` macro.
    - **Why:** To ensure nested objects and complex mappings strictly adhere to the target type without runtime mapping errors.
+
+7. **Nested pattern merging** — Decision tree fusion across nested `match()` calls.
 
 ## Polymorphic Result (`@typesugar/result`)
 
@@ -125,19 +106,16 @@ typesugar, not just Result. Tracked inline in `src/macros/specialize.ts`.
 ## Soundness & Type Safety
 
 - [ ] **Post-expansion type checking** — Macro expansions are not re-type-checked after the transformer runs. Explore running a second `tsc` pass on expanded output, or integrating with TypeScript's incremental checker to validate generated code. (Analysis §4.1)
-- [x] **Specialization diagnostics** — ✅ Done. `specialize()` now emits compile-time warnings with specific fallback reasons (early return, try/catch, loop, mutation).
 - [ ] **Binding-time analysis for specialization** — Replace the ad-hoc "can we inline this?" checks in `specialize.ts` with a proper binding-time analysis pass that statically determines specialization feasibility before attempting it. (Analysis §4.6)
 - [ ] **Macro expansion cycle detection** — No expansion depth limit or cycle detection exists for recursive re-expansion of macro results. Add a configurable max depth with a clear compile error when exceeded. (Analysis §4.7)
 
 ## Coherence & Instance Resolution
 
 - [ ] **Orphan instance detection** — `CoherenceChecker` exists with priority-based conflict detection, but there are no orphan rules (instances must be defined in the module of the typeclass or the type). In JS, this is especially dangerous since module execution order can be non-deterministic. (Analysis §4.3)
-- [x] **Integrate resolution traces into error messages** — ✅ Done. `summon()` failure diagnostics now include resolution traces showing what was tried and why each path failed. See `packages/core/src/resolution-trace.ts` and `packages/macros/src/typeclass.ts`.
 - [ ] **Migrate all error paths to rich diagnostics** — Some code still uses legacy `ctx.reportError()` (string-based) instead of `ctx.diagnostic()` (rich builder with spans, notes, suggestions). Audit and migrate remaining call sites.
 
 ## Source Maps & Debugging
 
-- [x] **AST transformer source maps** — ✅ Done. `ExpansionTracker.generateSourceMap()` is implemented in `packages/core/src/source-map.ts` using MagicString. The transformer pipeline calls it and composes with preprocessor source maps via `composeSourceMaps()`. Remaining: verify breakpoints and stack traces in real debugging sessions.
 - [ ] **Debug mode with expansion comments** — Consider a debug/development mode that emits inline comments in generated code showing the original macro invocation, making transformed output easier to read.
 
 ## Build & Bundle Optimization
@@ -148,7 +126,6 @@ typesugar, not just Result. Tracked inline in `src/macros/specialize.ts`.
 
 ## Tooling & DX
 
-- [x] **Prettier plugin** — ✅ Done. Full Prettier plugin in `packages/prettier-plugin/` with pre-format/post-format pipeline for custom syntax.
 - [ ] **Unplugin HMR/watch mode** — The unplugin creates `ts.Program` once at `buildStart` and never invalidates it. During dev mode, type information goes stale as files change. Add watch mode support with incremental program updates and proper cache invalidation.
 
 ## Language Design

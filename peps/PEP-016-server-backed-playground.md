@@ -1,6 +1,6 @@
 # PEP-016: Server-Backed Playground
 
-**Status:** In Progress
+**Status:** Done (superseded by PEP-024)
 **Date:** 2026-03-16
 **Author:** Dean Povey
 **Supersedes:** PEP-013 Wave 8 (StackBlitz), PEP-015 browser-only approach

@@ -761,3 +761,121 @@ typesugar exists to prove that TypeScript developers don't have to choose betwee
 - **What runs is what you'd write by hand** -- If you had infinite patience and perfect knowledge of every type in your program.
 
 Zero-cost abstractions aren't a feature. They're the philosophy.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     TypeScript Source                        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      typesugar Transformer                         │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  1. Identify macro invocations (calls, decorators,      ││
+│  │     tagged templates)                                   ││
+│  │  2. Look up macro in registry                           ││
+│  │  3. Expand macro (AST → AST transformation)             ││
+│  │  4. Report diagnostics through TS pipeline              ││
+│  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  TypeScript Compiler (tsc)                   │
+│  (with ts-patch for transformer integration)                │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     JavaScript Output                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### MacroContext
+
+Provides access to compilation context:
+
+```typescript
+interface MacroContext {
+  // Source information
+  sourceFile: ts.SourceFile;
+  typeChecker: ts.TypeChecker;
+  factory: ts.NodeFactory;
+
+  // Code generation
+  createIdentifier(name: string): ts.Identifier;
+  parseExpression(code: string): ts.Expression;
+  parseStatements(code: string): ts.Statement[];
+
+  // Type utilities
+  getTypeOf(node: ts.Node): ts.Type;
+  isAssignableTo(source: ts.Type, target: ts.Type): boolean;
+
+  // Compile-time evaluation
+  evaluate(node: ts.Node): ComptimeValue;
+
+  // Diagnostics (fed into TS diagnostic pipeline)
+  reportError(node: ts.Node, message: string): void;
+  reportWarning(node: ts.Node, message: string): void;
+}
+```
+
+### Macro Registry
+
+Four macro categories with type-safe definition helpers:
+
+```typescript
+// Expression macro
+const myMacro = defineExpressionMacro({
+  name: "myMacro",
+  expand(ctx, callExpr, args) { ... },
+});
+
+// Tagged template macro (first-class, not shoehorned through expression macros)
+const sql = defineTaggedTemplateMacro({
+  name: "sql",
+  validate(ctx, node) { ... },  // optional compile-time validation
+  expand(ctx, node) { ... },
+});
+
+// Derive macro
+const Eq = defineDeriveMacro({
+  name: "Eq",
+  expand(ctx, target, typeInfo) { ... },
+});
+
+// Attribute macro
+const reflect = defineAttributeMacro({
+  name: "reflect",
+  validTargets: ["class"],
+  expand(ctx, decorator, target, args) { ... },
+});
+```
+
+### Error Handling
+
+- Diagnostics are reported through the TypeScript diagnostic pipeline (not just console.log)
+- Failed macro expansions emit `throw new Error(...)` expressions so failures are loud at runtime
+- Compile-time evaluation has a configurable timeout to prevent infinite loops
+
+## Safety Guarantees
+
+1. **Type Safety**: All macro expansions are type-checked by tsc after expansion
+2. **Determinism**: Same input always produces same output (vm sandbox has no I/O)
+3. **Sandboxing**: Compile-time evaluation runs in a restricted vm context with timeout
+4. **Debugging**: Source maps point back to original macro invocations
+5. **Loud Failures**: Failed expansions emit runtime throws, not silent broken code
+6. **Diagnostics**: Errors feed into the TypeScript diagnostic pipeline
+
+## Limitations
+
+1. No runtime side effects in comptime (sandboxed — no fs, net, process)
+2. Compile-time evaluation has a 5-second timeout
+3. Decorators only work on classes (not interfaces or type aliases) — use expression macros for those
+4. Depends on ts-patch for transformer integration (or the unplugin/Vite integration)
