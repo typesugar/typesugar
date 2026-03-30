@@ -1223,7 +1223,7 @@ function tryDirectEmit(
   if (analysis.kind === "literal-union" && analysis.literalMembers?.size === 1) {
     const singleValue = [...analysis.literalMembers][0];
     for (const arm of arms) {
-      if (arm.guard) continue;
+      if (arm.guard) return undefined; // guarded arms need runtime evaluation
       const pattern = analyzePattern(arm.pattern);
       const key = getPatternLiteralKey(pattern);
       if (key === singleValue) return arm.result;

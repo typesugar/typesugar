@@ -27,9 +27,9 @@ console.log("p1 === p3?", p1 === p3);  // false
 
 // 4. match() compiles to optimized ternary chains
 const grade = match(85)
-  .case(x).if(() => x >= 90).then("A")
-  .case(x).if(() => x >= 80).then("B")
-  .case(x).if(() => x >= 70).then("C")
+  .case(x).if(x >= 90).then("A")
+  .case(x).if(x >= 80).then("B")
+  .case(x).if(x >= 70).then("C")
   .else("F");
 console.log("grade:", grade);
 
