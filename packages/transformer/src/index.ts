@@ -4161,11 +4161,16 @@ class MacroTransformer {
         macro.expand(this.ctx, node, Array.from(rootCall.arguments))
       );
 
-      if (this.verbose) {
+      // Record expansion for source maps and preserveBlankLines surgical replacement
+      if (this.expansionTracker) {
         const expandedText = this.printNodeSafe(result);
-        if (expandedText && this.expansionTracker) {
+        if (expandedText) {
           this.expansionTracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);
         }
+      }
+
+      if (this.verbose) {
+        console.log(`[typesugar] Chain macro ${macroName} expanded`);
       }
 
       if (result === (node as ts.Expression)) {
