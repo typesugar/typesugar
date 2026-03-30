@@ -472,7 +472,7 @@ function getUnionMembers(ctx: MacroContextImpl, candidateBase: string): Set<stri
  */
 function findUnionMemberInstance(
   ctx: MacroContextImpl,
-  candidate: { typeclassName: string; forType: string; instanceName: string },
+  candidate: { typeclassName: string; forType: string; instanceName: string; derived: boolean },
   candidateBase: string,
   candidateArg: string,
   baseTypeName: string,
@@ -605,7 +605,9 @@ export function tryRewriteTypeclassOperator(
   }
 
   let matchedEntry: { typeclass: string; method: string } | undefined;
-  let matchedInstance: { typeclassName: string; forType: string; instanceName: string } | undefined;
+  let matchedInstance:
+    | { typeclassName: string; forType: string; instanceName: string; derived: boolean }
+    | undefined;
 
   const sfn = ctx.sourceFile.fileName;
   for (const entry of entries) {
