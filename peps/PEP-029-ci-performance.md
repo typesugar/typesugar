@@ -29,66 +29,40 @@ Key numbers: **230 test files**, **85K lines of test code**, **6500+ tests**, **
 
 ## Waves
 
-### Wave 1: Path Filtering — Skip CI for Docs-Only Changes
+### Wave 1: Path Filtering — Skip CI for Docs-Only Changes ✅
 
 **Tasks:**
 
-- [ ] Add `paths-ignore` to the CI workflow trigger:
-  ```yaml
-  on:
-    push:
-      branches: [main]
-      paths-ignore:
-        - "*.md"
-        - "peps/**"
-        - "docs/**/*.md"
-        - "LICENSE"
-        - ".vscode/**"
-  ```
-- [ ] Keep Release workflow unconditional (it handles changesets)
+- [x] Add `paths-ignore` to the CI workflow trigger
+- [x] Keep Release workflow unconditional (it handles changesets)
 
 **Gate:**
 
-- [ ] Pushing a `.md` file does NOT trigger CI
-- [ ] Pushing a `.ts` file DOES trigger CI
+- [x] Pushing a `.md` file does NOT trigger CI
+- [x] Pushing a `.ts` file DOES trigger CI
 
 **Impact:** Eliminates ~13 min CI runs for documentation changes.
 
-### Wave 2: Share Build Artifacts Across Jobs
+### Wave 2: Share Build Artifacts Across Jobs ✅
 
 **Tasks:**
 
-- [ ] Add a dedicated `build` job that runs `pnpm build` once
-- [ ] Upload build artifacts using `actions/upload-artifact`
-- [ ] Have Test, Lint, VSCode jobs download artifacts instead of rebuilding
-- [ ] Structure:
-  ```yaml
-  jobs:
-    build:
-      runs-on: ubuntu-latest
-      steps:
-        - checkout, setup-node, pnpm install, pnpm build
-        - upload-artifact: packages/*/dist, node_modules/.pnpm
-    test:
-      needs: build
-      # download artifact, run tests only
-    lint:
-      needs: build
-      # download artifact, run format + typecheck only
-  ```
+- [x] Add a dedicated `build` job that runs `pnpm build` once
+- [x] Upload build artifacts using `actions/upload-artifact@v4`
+- [x] Have Test, Lint, VSCode jobs download artifacts instead of rebuilding
+- [x] Test-VSCode now runs in parallel with Test and Lint (all depend only on Build)
 
 **Gate:**
 
 - [ ] Build runs exactly once per CI run
 - [ ] Total CI time reduced by ~30% (eliminating 3 redundant builds)
 
-### Wave 3: Reduce Node Matrix to 2 Versions
+### Wave 3: Reduce Node Matrix to 2 Versions ✅
 
 **Tasks:**
 
-- [ ] Change matrix from `["18", "20", "22"]` to `["20", "22"]`
-- [ ] Node 18 reaches EOL April 2025 — already past. Drop it.
-- [ ] Consider running Node 20 only on the main test job, Node 22 as a separate nightly
+- [x] Change matrix from `["18", "20", "22"]` to `["20", "22"]`
+- [x] Node 18 reaches EOL April 2025 — already past. Dropped.
 
 **Gate:**
 
