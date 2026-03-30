@@ -103,5 +103,25 @@ function colorType(c: Color): string {
 console.log(`\nred: ${colorType("red")}`);
 console.log(`cyan: ${colorType("cyan")}`);
 
+// ============================================================
+// 7. Exhaustiveness — compiler checks all cases are covered
+// ============================================================
+
+// When matching a union type, the compiler verifies every variant
+// is handled. Try commenting out a .case() below — you'll get:
+//   error: Non-exhaustive match — missing case "west"
+
+type Direction = "north" | "south" | "east" | "west";
+
+function opposite(d: Direction): string {
+  return match(d)
+    .case("north").then("south")
+    .case("south").then("north")
+    .case("east").then("west")
+    .case("west").then("east")
+    .else("unreachable"); // all cases covered — .else() is dead code here
+}
+console.log(`\nopposite("north"): ${opposite("north")}`);
+console.log(`opposite("east"): ${opposite("east")}`);
+
 // 👀 Check JS Output — match() compiles to ternary chains or switch IIFEs
-// Try: add a new shape variant and see the exhaustiveness error
