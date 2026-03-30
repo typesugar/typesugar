@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+
+// Default to --stdio transport if no transport argument is provided
+if (!process.argv.includes("--stdio") &&
+    !process.argv.includes("--node-ipc") &&
+    !process.argv.some(a => a.startsWith("--socket="))) {
+  process.argv.push("--stdio");
+}
+
+import("../dist/server.js");

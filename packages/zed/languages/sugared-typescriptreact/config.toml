@@ -1,0 +1,17 @@
+name = "Sugared TypeScript React"
+grammar = "tsx"
+path_suffixes = ["stsx"]
+line_comments = ["// "]
+block_comment = ["/*", "*/"]
+autoclose_before = ";:.,=}])> \n\t"
+brackets = [
+  { start = "{", end = "}", close = true, newline = true },
+  { start = "[", end = "]", close = true, newline = true },
+  { start = "(", end = ")", close = true, newline = true },
+  { start = "<", end = ">", close = false, newline = false },
+  { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+  { start = "'", end = "'", close = true, newline = false, not_in = ["string", "comment"] },
+  { start = "`", end = "`", close = true, newline = false, not_in = ["string", "comment"] },
+]
+word_characters = ["#", "$"]
+tab_size = 2

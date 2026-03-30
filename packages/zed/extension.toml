@@ -1,0 +1,10 @@
+[package]
+name = "typesugar"
+version = "0.1.0"
+description = "Sugared TypeScript with compile-time macros"
+authors = ["Dean Povey <dean.povey@gmail.com>"]
+repository = "https://github.com/typesugar/typesugar"
+
+[language_servers.typesugar-lsp]
+name = "typesugar"
+languages = ["Sugared TypeScript", "Sugared TypeScript React"]

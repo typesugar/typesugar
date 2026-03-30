@@ -1,0 +1,63 @@
+{
+  "name": "@typesugar/lsp-server",
+  "version": "0.1.0",
+  "description": "Standalone LSP server for typesugar macro-aware IDE support",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/typesugar/typesugar.git",
+    "directory": "packages/lsp-server"
+  },
+  "homepage": "https://github.com/typesugar/typesugar/tree/main/packages/lsp-server#readme",
+  "bugs": {
+    "url": "https://github.com/typesugar/typesugar/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/server.cjs",
+  "module": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "bin": {
+    "typesugar-lsp": "./bin/typesugar-lsp"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "typescript",
+    "macros",
+    "lsp",
+    "language-server"
+  ],
+  "dependencies": {
+    "@typesugar/core": "workspace:*",
+    "@typesugar/macros": "workspace:*",
+    "@typesugar/preprocessor": "workspace:*",
+    "@typesugar/transformer": "workspace:*",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12",
+    "vscode-uri": "^3.1.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "sideEffects": false
+}

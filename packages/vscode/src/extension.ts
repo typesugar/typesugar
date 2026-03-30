@@ -1,115 +1,275 @@
 /**
- * typesugar VSCode Extension — entry point.
+ * typesugar VSCode Extension — thin LSP client.
  *
  * Activates when a workspace contains typesugar.manifest.json or has typesugar
- * installed. Registers all providers:
+ * installed. Connects to the @typesugar/lsp-server for all language intelligence:
  *
- * - Semantic tokens (manifest-driven macro highlighting)
+ * - Diagnostics (type errors + macro expansion errors)
+ * - Completions (with extension method support)
+ * - Hover, go-to-definition, references, rename
+ * - Semantic tokens (macro highlighting)
  * - CodeLens (expansion previews)
  * - Inlay hints (bind types, comptime results)
- * - Code actions (expand, wrap, add derive)
- * - Diagnostics (background transformer errors)
- * - Commands (expand macro, refresh/generate manifest, add derive)
+ * - Code actions (expand macro, wrap in comptime, add derive)
  *
- * The TextMate grammar handles structural syntax (let:/yield:, <<, comptime)
- * and is loaded declaratively from package.json — no activation needed.
+ * VS Code-specific features handled here:
+ * - Commands (expand macro peek widget, show transformed diff, generate manifest)
+ * - Status bar
+ * - TextMate grammars (loaded declaratively from package.json)
  */
 
 import * as vscode from "vscode";
-import { ManifestLoader } from "./manifest.js";
-import { MacroSemanticTokensProvider, LEGEND } from "./semantic-tokens.js";
-import { MacroCodeLensProvider } from "./codelens.js";
-import { MacroInlayHintsProvider } from "./inlay-hints.js";
-import { MacroCodeActionsProvider } from "./code-actions.js";
-import { MacroDiagnosticsManager } from "./diagnostics.js";
-import { ExpansionService } from "./expansion.js";
-import { registerCommands } from "./commands.js";
+import * as path from "path";
+import * as fs from "fs";
+import {
+  LanguageClient,
+  type LanguageClientOptions,
+  type ServerOptions,
+  TransportKind,
+} from "vscode-languageclient/node.js";
 
-const TS_SELECTOR: vscode.DocumentSelector = [
-  { language: "typescript", scheme: "file" },
-  { language: "typescriptreact", scheme: "file" },
-  { language: "sugared-typescript", scheme: "file" },
-  { language: "sugared-typescriptreact", scheme: "file" },
-];
+let client: LanguageClient | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const outputChannel = vscode.window.createOutputChannel("Typesugar");
   outputChannel.appendLine("typesugar extension activating...");
 
-  // --- Core services ---
-  const manifest = new ManifestLoader();
-  const expansion = new ExpansionService();
-
-  context.subscriptions.push(manifest, expansion);
-
-  // Initialize manifest from workspace
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  if (workspaceFolder) {
-    await manifest.initialize(workspaceFolder);
-    outputChannel.appendLine(
-      `Manifest loaded: ${Object.keys(manifest.current.macros.expression).length} expression macros, ` +
-        `${Object.keys(manifest.current.macros.decorator).length} decorator macros, ` +
-        `${Object.keys(manifest.current.macros.taggedTemplate).length} tagged template macros`
-    );
+  // --- Start LSP server ---
+  const serverModule = resolveServerPath();
+  if (!serverModule) {
+    outputChannel.appendLine("Could not find @typesugar/lsp-server. Language features disabled.");
+    return;
   }
 
-  // --- Semantic Tokens ---
-  const semanticTokens = new MacroSemanticTokensProvider(manifest);
-  context.subscriptions.push(
-    vscode.languages.registerDocumentSemanticTokensProvider(TS_SELECTOR, semanticTokens, LEGEND),
-    semanticTokens
+  outputChannel.appendLine(`Starting LSP server: ${serverModule}`);
+
+  const serverOptions: ServerOptions = {
+    run: { module: serverModule, transport: TransportKind.stdio },
+    debug: { module: serverModule, transport: TransportKind.stdio },
+  };
+
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [
+      { language: "typescript", scheme: "file" },
+      { language: "typescriptreact", scheme: "file" },
+      { language: "sugared-typescript", scheme: "file" },
+      { language: "sugared-typescriptreact", scheme: "file" },
+    ],
+    outputChannel,
+  };
+
+  client = new LanguageClient(
+    "typesugar",
+    "typesugar Language Server",
+    serverOptions,
+    clientOptions
   );
 
-  // --- CodeLens ---
-  const codeLens = new MacroCodeLensProvider(manifest, expansion);
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(TS_SELECTOR, codeLens),
-    codeLens
-  );
+  // Start the client (also starts the server)
+  try {
+    await client.start();
+    outputChannel.appendLine("LSP client started");
+  } catch (err) {
+    outputChannel.appendLine(`Failed to start LSP server: ${err}`);
+    vscode.window.showErrorMessage(
+      "typesugar: Failed to start language server. Check the output channel for details."
+    );
+    client = undefined;
+    return;
+  }
 
-  // --- Inlay Hints ---
-  const inlayHints = new MacroInlayHintsProvider(manifest, expansion);
-  context.subscriptions.push(
-    vscode.languages.registerInlayHintsProvider(TS_SELECTOR, inlayHints),
-    inlayHints
-  );
-
-  // --- Code Actions ---
-  const codeActions = new MacroCodeActionsProvider(manifest, expansion);
-  context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider(TS_SELECTOR, codeActions, {
-      providedCodeActionKinds: MacroCodeActionsProvider.providedCodeActionKinds,
-    })
-  );
-
-  // --- Diagnostics ---
-  const diagnostics = new MacroDiagnosticsManager(expansion);
-  context.subscriptions.push(diagnostics);
-
-  // --- Commands ---
-  registerCommands(context, manifest, expansion);
+  // --- Commands (VS Code-specific UI) ---
+  registerCommands(context, client, outputChannel);
 
   // --- Status bar ---
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.text = "$(zap) typesugar";
-  statusBar.tooltip = "typesugar macro system active";
+  statusBar.tooltip = "typesugar macro system active (LSP)";
   statusBar.command = "typesugar.refreshManifest";
   statusBar.show();
   context.subscriptions.push(statusBar);
 
-  // Update status bar when manifest changes
-  manifest.onDidChange((m) => {
-    const total =
-      Object.keys(m.macros.expression).length +
-      Object.keys(m.macros.decorator).length +
-      Object.keys(m.macros.taggedTemplate).length +
-      Object.keys(m.macros.labeledBlock).length;
-    statusBar.text = `$(zap) typesugar (${total} macros)`;
-  });
-
   outputChannel.appendLine("typesugar extension activated");
 }
 
-export function deactivate(): void {
-  // All disposables are cleaned up via context.subscriptions
+export async function deactivate(): Promise<void> {
+  if (client) {
+    try {
+      await client.stop();
+    } catch {
+      // Server may already be gone
+    }
+    client = undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Server path resolution
+// ---------------------------------------------------------------------------
+
+function resolveServerPath(): string | undefined {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const candidates: string[] = [];
+
+  if (workspaceFolder) {
+    // Try workspace node_modules first
+    candidates.push(
+      path.join(
+        workspaceFolder.uri.fsPath,
+        "node_modules",
+        "@typesugar",
+        "lsp-server",
+        "dist",
+        "server.js"
+      )
+    );
+  }
+
+  // Try relative to the extension
+  candidates.push(
+    path.join(__dirname, "..", "node_modules", "@typesugar", "lsp-server", "dist", "server.js")
+  );
+
+  // Try global install
+  candidates.push(path.join(__dirname, "..", "..", "lsp-server", "dist", "server.js"));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// VS Code-specific command registration
+// ---------------------------------------------------------------------------
+
+// Mutable content for virtual document providers (fix #6.1: single registration)
+let expansionContent = "";
+let transformedContent = "";
+let expansionCounter = 0;
+
+function registerCommands(
+  context: vscode.ExtensionContext,
+  lspClient: LanguageClient,
+  outputChannel: vscode.OutputChannel
+): void {
+  // Register content providers ONCE at activation (fix #6.1: no leaks)
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider("typesugar-expansion", {
+      provideTextDocumentContent: () => expansionContent,
+    }),
+    vscode.workspace.registerTextDocumentContentProvider("typesugar-transformed", {
+      provideTextDocumentContent: () => transformedContent,
+    })
+  );
+
+  // expandMacro: show expansion in peek widget
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "typesugar.expandMacro",
+      async (uri?: string, offset?: number) => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor && !uri) return;
+
+        const docUri = uri ?? editor!.document.uri.toString();
+        const pos = offset ?? (editor ? editor.document.offsetAt(editor.selection.active) : 0);
+
+        try {
+          const result = (await lspClient.sendRequest("workspace/executeCommand", {
+            command: "typesugar.expandMacro",
+            arguments: [docUri, pos],
+          })) as { macroName: string; expandedText: string } | null;
+
+          if (!result) {
+            vscode.window.showInformationMessage("No macro expansion found at this position.");
+            return;
+          }
+
+          expansionContent = result.expandedText;
+          // Use unique counter in URI to avoid stale cache (fix #6.8)
+          const previewUri = vscode.Uri.parse(
+            `typesugar-expansion://expansion/${result.macroName}-${++expansionCounter}.ts`
+          );
+
+          const doc = await vscode.workspace.openTextDocument(previewUri);
+          await vscode.window.showTextDocument(doc, {
+            preview: true,
+            viewColumn: vscode.ViewColumn.Beside,
+          });
+        } catch (error) {
+          outputChannel.appendLine(`expandMacro error: ${error}`);
+        }
+      }
+    )
+  );
+
+  // showTransformed: show full transformed source
+  context.subscriptions.push(
+    vscode.commands.registerCommand("typesugar.showTransformed", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+
+      const uri = editor.document.uri.toString();
+
+      try {
+        const result = (await lspClient.sendRequest("workspace/executeCommand", {
+          command: "typesugar.showTransformed",
+          arguments: [uri],
+        })) as { original: string; transformed: string; changed: boolean } | null;
+
+        if (!result || !result.changed) {
+          vscode.window.showInformationMessage("No transformations applied to this file.");
+          return;
+        }
+
+        transformedContent = result.transformed;
+        const originalUri = editor.document.uri;
+        const transformedUri = vscode.Uri.parse(
+          `typesugar-transformed://transformed/${path.basename(editor.document.fileName)}-${++expansionCounter}.ts`
+        );
+
+        await vscode.commands.executeCommand(
+          "vscode.diff",
+          originalUri,
+          transformedUri,
+          `${path.basename(editor.document.fileName)} — Macro Expansion`
+        );
+      } catch (error) {
+        outputChannel.appendLine(`showTransformed error: ${error}`);
+      }
+    })
+  );
+
+  // refreshManifest: tell the LSP server to reload
+  context.subscriptions.push(
+    vscode.commands.registerCommand("typesugar.refreshManifest", async () => {
+      try {
+        await lspClient.sendRequest("workspace/executeCommand", {
+          command: "typesugar.refreshManifest",
+          arguments: [],
+        });
+        vscode.window.showInformationMessage("typesugar manifest reloaded.");
+      } catch (error) {
+        outputChannel.appendLine(`refreshManifest error: ${error}`);
+      }
+    })
+  );
+
+  // generateManifest: run CLI in terminal
+  context.subscriptions.push(
+    vscode.commands.registerCommand("typesugar.generateManifest", () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) return;
+
+      const terminal = vscode.window.createTerminal({
+        name: "typesugar: Generate Manifest",
+        cwd: workspaceFolder.uri.fsPath,
+      });
+      terminal.sendText("npx typesugar build --manifest");
+      terminal.show();
+    })
+  );
 }
