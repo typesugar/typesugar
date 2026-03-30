@@ -52,6 +52,7 @@ import {
 } from "./helpers.js";
 import {
   TransformationPipeline,
+  transformCode,
   type TransformResult,
   type TransformDiagnostic,
 } from "@typesugar/transformer/pipeline";
@@ -261,7 +262,23 @@ function getTransformResult(fileName: string): TransformResult | null {
   suggestionCache.delete(normalizedFileName);
 
   try {
-    const result = pipeline.transform(normalizedFileName);
+    let result = pipeline.transform(normalizedFileName);
+
+    // If the pipeline returned unchanged AND has a crash diagnostic,
+    // fall back to single-file transformCode which creates its own
+    // program with the file as a root file. This handles the case
+    // where a file is opened that's not in the original project file
+    // list (e.g., example files, files outside tsconfig include).
+    if (!result.changed && result.diagnostics.some((d) => d.message.includes("Transform failed"))) {
+      log(`Pipeline crashed on ${normalizedFileName}, falling back to single-file transform`);
+      const content = getOriginalContent(normalizedFileName);
+      if (content) {
+        result = transformCode(content, {
+          fileName: normalizedFileName,
+          preserveBlankLines: true,
+        });
+      }
+    }
 
     if (result.diagnostics.length > 0) {
       rawMacroDiagnosticCache.set(normalizedFileName, result.diagnostics);
