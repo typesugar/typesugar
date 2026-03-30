@@ -1,9 +1,14 @@
-[package]
-name = "typesugar"
+id = "typesugar"
+name = "Sugared TypeScript"
 version = "0.1.0"
-description = "Sugared TypeScript with compile-time macros"
+schema_version = 1
 authors = ["Dean Povey <dean.povey@gmail.com>"]
+description = "Sugared TypeScript with compile-time macros — LSP support for .sts/.stsx files"
 repository = "https://github.com/typesugar/typesugar"
+
+[lib]
+kind = "Rust"
+version = "0.7.0"
 
 [language_servers.typesugar-lsp]
 name = "typesugar"
