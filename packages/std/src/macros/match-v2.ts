@@ -2699,6 +2699,25 @@ function inferDiscriminant(
  * 1. `match(value, handlers)` — discriminated union or literal dispatch (runtime)
  * 2. `match(value)` — fluent chain (macro-only, requires transformer)
  */
+// Overload: discriminated union with `kind` property
+export function match<T extends { kind: string }, R>(
+  value: T,
+  handlers: { [K in T["kind"]]?: (value: Extract<T, { kind: K }>) => R } & { _?: (value: T) => R }
+): R;
+// Overload: discriminated union with explicit discriminant
+export function match<T extends object, K extends keyof T & string, R>(
+  value: T,
+  handlers: Record<string, (value: T) => R>,
+  discriminant: K
+): R;
+// Overload: literal dispatch
+export function match<T extends string | number, R>(
+  value: T,
+  handlers: Partial<Record<string & T, (value: T) => R>> & { _?: (value: T) => R }
+): R;
+// Overload: fluent chain (macro-only)
+export function match(value: unknown): never;
+// Implementation
 export function match(value: any, handlers?: Record<string, any>, discriminant?: string): any {
   if (handlers === undefined) {
     throw new Error(
