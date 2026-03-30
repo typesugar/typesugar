@@ -57,6 +57,9 @@ importers:
       '@typesugar/hlist':
         specifier: workspace:*
         version: link:packages/hlist
+      '@typesugar/lsp-server':
+        specifier: workspace:^
+        version: link:packages/lsp-server
       '@typesugar/macros':
         specifier: workspace:*
         version: link:packages/macros

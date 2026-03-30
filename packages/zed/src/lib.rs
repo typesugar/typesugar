@@ -12,31 +12,21 @@ impl zed::Extension for TypesugarExtension {
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        // Try to find typesugar-lsp in the project's node_modules
-        let node_modules_bin = worktree
-            .which("typesugar-lsp")
-            .or_else(|| {
-                // Fallback: look in node_modules/.bin directly
-                let path = format!(
-                    "{}/node_modules/.bin/typesugar-lsp",
-                    worktree.root_path()
-                );
-                if std::path::Path::new(&path).exists() {
-                    Some(path)
-                } else {
-                    None
-                }
-            });
-
-        let binary_path = node_modules_bin.ok_or_else(|| {
-            "typesugar-lsp not found. Install @typesugar/lsp-server in your project: \
-             npm install --save-dev @typesugar/lsp-server"
-                .to_string()
+        // Find node binary
+        let node = worktree.which("node").ok_or_else(|| {
+            "node not found in PATH. Install Node.js to use typesugar.".to_string()
         })?;
 
+        // Find the LSP server script in node_modules
+        let root = worktree.root_path();
+        let server_script = format!(
+            "{}/node_modules/@typesugar/lsp-server/dist/server.js",
+            root
+        );
+
         Ok(zed::Command {
-            command: binary_path,
-            args: vec!["--stdio".to_string()],
+            command: node,
+            args: vec![server_script, "--stdio".to_string()],
             env: worktree.shell_env(),
         })
     }

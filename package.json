@@ -52,6 +52,7 @@
     "@typesugar/fusion": "workspace:*",
     "@typesugar/graph": "workspace:*",
     "@typesugar/hlist": "workspace:*",
+    "@typesugar/lsp-server": "workspace:^",
     "@typesugar/macros": "workspace:*",
     "@typesugar/mapper": "workspace:*",
     "@typesugar/parser": "workspace:*",

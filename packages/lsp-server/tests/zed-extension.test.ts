@@ -66,10 +66,10 @@ describe("Zed extension", () => {
     expect(tomlContent).toContain("Sugared TypeScript");
   });
 
-  it("Rust source resolves typesugar-lsp binary", () => {
+  it("Rust source launches server via node", () => {
     const libRs = fs.readFileSync(path.join(ZED_DIR, "src/lib.rs"), "utf-8");
-    expect(libRs).toContain("typesugar-lsp");
+    expect(libRs).toContain("node");
     expect(libRs).toContain("--stdio");
-    expect(libRs).toContain("node_modules/.bin/typesugar-lsp");
+    expect(libRs).toContain("@typesugar/lsp-server/dist/server.js");
   });
 });
