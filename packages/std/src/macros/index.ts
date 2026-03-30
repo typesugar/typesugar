@@ -13,6 +13,5 @@
 export * from "./comprehension-utils.js";
 export * from "./let-yield.js";
 export * from "./par-yield.js";
-export * from "./match.js";
 export * from "./match-v2.js";
 export { registerStdInstances, registerStdInstancesMacro } from "./register-instances.js";

@@ -31,7 +31,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Chain Parsing
@@ -2387,4 +2387,346 @@ function generateIIFE(
   );
   const paren = f.createParenthesizedExpression(arrow);
   return f.createCallExpression(paren, undefined, []);
+}
+
+// ============================================================================
+// Macro Registration
+// ============================================================================
+
+/**
+ * Expand the object-handler form: match(value, { kind1: handler, kind2: handler, _: fallback })
+ * Generates a simple ternary chain or IIFE with discriminant lookup.
+ */
+function expandObjectHandlerMatch(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  value: ts.Expression,
+  handlers: ts.ObjectLiteralExpression,
+  explicitDiscriminant?: string
+): ts.Expression {
+  const f = ctx.factory;
+
+  // Common discriminant names to try (compile-time inference from handler keys)
+  const discriminantNames = explicitDiscriminant
+    ? [explicitDiscriminant]
+    : [
+        "kind",
+        "_tag",
+        "type",
+        "ok",
+        "status",
+        "tag",
+        "variant",
+        "action",
+        "event",
+        "case",
+        "state",
+        "name",
+        "nodeType",
+      ];
+
+  // Collect handler entries: { key: string, handler: ts.Expression, isWildcard: boolean }
+  const entries: Array<{ keys: string[]; handler: ts.Expression; isWildcard: boolean }> = [];
+  let wildcardHandler: ts.Expression | undefined;
+
+  for (const prop of handlers.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const name =
+      prop.name && ts.isIdentifier(prop.name)
+        ? prop.name.text
+        : prop.name && ts.isStringLiteral(prop.name)
+          ? prop.name.text
+          : prop.name && ts.isNumericLiteral(prop.name)
+            ? prop.name.text
+            : undefined;
+    if (!name) continue;
+
+    if (name === "_") {
+      wildcardHandler = prop.initializer;
+    } else {
+      // Handle OR patterns: "a|b" splits into ["a", "b"]
+      const keys = name.includes("|") ? name.split("|").filter(Boolean) : [name];
+      entries.push({ keys, handler: prop.initializer, isWildcard: false });
+    }
+  }
+
+  // Check if all handlers are for literal/primitive values (no object destructuring needed)
+  // Use type checker to determine if value is a primitive type
+  const checker = ctx.typeChecker;
+  const valueType = checker?.getTypeAtLocation?.(value);
+  const isPrimitive =
+    valueType &&
+    ((valueType.flags & ts.TypeFlags.StringLike) !== 0 ||
+      (valueType.flags & ts.TypeFlags.NumberLike) !== 0 ||
+      (valueType.flags & ts.TypeFlags.BooleanLike) !== 0 ||
+      ((valueType.flags & ts.TypeFlags.Union) !== 0 &&
+        (valueType as ts.UnionType).types?.every(
+          (t) =>
+            (t.flags &
+              (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike)) !==
+            0
+        )));
+
+  // Generate IIFE: ((_m) => { ... })(value)
+  const paramName = f.createUniqueName("_m");
+  const paramDecl = f.createParameterDeclaration(undefined, undefined, paramName);
+
+  const statements: ts.Statement[] = [];
+
+  if (isPrimitive) {
+    // Primitive: direct comparison — _m === "ok" ? handler(_m) : ...
+    let result: ts.Expression = wildcardHandler
+      ? f.createCallExpression(wildcardHandler, undefined, [paramName])
+      : f.createCallExpression(
+          f.createPropertyAccessExpression(f.createIdentifier("MatchError"), "throw"),
+          undefined,
+          [paramName]
+        );
+
+    // Build ternary chain from last to first
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const { keys, handler } = entries[i];
+      const conditions = keys.map((k) =>
+        f.createBinaryExpression(
+          paramName,
+          f.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          /^\d+$/.test(k) ? f.createNumericLiteral(k) : f.createStringLiteral(k)
+        )
+      );
+      const condition =
+        conditions.length === 1
+          ? conditions[0]
+          : conditions.reduce((a, b) =>
+              f.createBinaryExpression(a, f.createToken(ts.SyntaxKind.BarBarToken), b)
+            );
+      result = f.createConditionalExpression(
+        condition,
+        undefined,
+        f.createCallExpression(handler, undefined, [paramName]),
+        undefined,
+        result
+      );
+    }
+
+    statements.push(f.createReturnStatement(result));
+  } else {
+    // Object: discriminant-based matching
+    // Try to infer discriminant at compile time from type
+    let discriminant = explicitDiscriminant;
+    if (!discriminant && valueType) {
+      for (const name of discriminantNames) {
+        const prop = valueType.getProperty?.(name);
+        if (prop) {
+          discriminant = name;
+          break;
+        }
+      }
+    }
+    if (!discriminant) discriminant = "kind"; // fallback
+
+    const tagExpr = f.createPropertyAccessExpression(paramName, discriminant);
+
+    // Build ternary chain: _m.kind === "circle" ? handler(_m) : ...
+    let result: ts.Expression = wildcardHandler
+      ? f.createCallExpression(wildcardHandler, undefined, [paramName])
+      : f.createCallExpression(
+          f.createParenthesizedExpression(
+            f.createArrowFunction(
+              undefined,
+              undefined,
+              [],
+              undefined,
+              f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+              f.createBlock(
+                [
+                  f.createThrowStatement(
+                    f.createNewExpression(f.createIdentifier("Error"), undefined, [
+                      f.createTemplateExpression(
+                        f.createTemplateHead("Non-exhaustive match: no handler for '"),
+                        [f.createTemplateSpan(tagExpr, f.createTemplateTail("'"))]
+                      ),
+                    ])
+                  ),
+                ],
+                true
+              )
+            )
+          ),
+          undefined,
+          []
+        );
+
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const { keys, handler } = entries[i];
+      const conditions = keys.map((k) =>
+        f.createBinaryExpression(
+          tagExpr,
+          f.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          /^\d+$/.test(k) ? f.createNumericLiteral(k) : f.createStringLiteral(k)
+        )
+      );
+      const condition =
+        conditions.length === 1
+          ? conditions[0]
+          : conditions.reduce((a, b) =>
+              f.createBinaryExpression(a, f.createToken(ts.SyntaxKind.BarBarToken), b)
+            );
+      result = f.createConditionalExpression(
+        condition,
+        undefined,
+        f.createCallExpression(handler, undefined, [paramName]),
+        undefined,
+        result
+      );
+    }
+
+    statements.push(f.createReturnStatement(result));
+  }
+
+  const arrowBody = f.createBlock(statements, true);
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    [paramDecl],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    arrowBody
+  );
+  return f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, [value]);
+}
+
+function expandMatch(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  args: readonly ts.Expression[]
+): ts.Expression {
+  // Fluent chain mode: match(x).case(...).then(...).else(...)
+  if (ts.isPropertyAccessExpression(callExpr.expression)) {
+    return expandFluentMatch(ctx, callExpr, args);
+  }
+
+  if (args.length < 2) {
+    ctx.reportError(callExpr, "match() requires at least a value argument");
+    return callExpr;
+  }
+
+  const value = args[0];
+  const handlersOrArms = args[1];
+
+  // Guard-array form [when(...), otherwise(...)] is no longer supported
+  if (ts.isArrayLiteralExpression(handlersOrArms)) {
+    ctx.reportError(
+      callExpr,
+      "match() with guard arrays [when(), otherwise()] is removed. " +
+        "Use the fluent API: match(value).case(x).if(pred).then(handler).else(fallback)"
+    );
+    return callExpr;
+  }
+
+  // Object-handler form: match(value, { variant: handler })
+  if (ts.isObjectLiteralExpression(handlersOrArms)) {
+    let explicitDiscriminant: string | undefined;
+    if (args.length >= 3 && ts.isStringLiteral(args[2])) {
+      explicitDiscriminant = args[2].text;
+    }
+    return expandObjectHandlerMatch(ctx, callExpr, value, handlersOrArms, explicitDiscriminant);
+  }
+
+  ctx.reportError(
+    handlersOrArms,
+    "match() second argument must be an object literal { variant: handler }"
+  );
+  return callExpr;
+}
+
+export const matchMacro = defineExpressionMacro({
+  name: "match",
+  module: "@typesugar/std",
+  description: "Zero-cost exhaustive pattern matching with compile-time optimization",
+  chainable: true,
+  expand: expandMatch,
+});
+
+globalRegistry.register(matchMacro);
+
+// ============================================================================
+// Runtime Fallback
+// ============================================================================
+
+// Common discriminant property names, ordered by frequency
+const DISCRIMINANT_NAMES = [
+  "kind",
+  "_tag",
+  "type",
+  "ok",
+  "status",
+  "tag",
+  "variant",
+  "action",
+  "event",
+  "case",
+  "state",
+  "name",
+  "nodeType",
+];
+
+function inferDiscriminant(
+  value: Record<string, unknown>,
+  handlers: Record<string, unknown>
+): string | undefined {
+  for (const name of DISCRIMINANT_NAMES) {
+    if (name in value) {
+      const tag = value[name];
+      if (typeof tag === "string" || typeof tag === "number" || typeof tag === "boolean") {
+        if (String(tag) in handlers || "_" in handlers) return name;
+      }
+    }
+  }
+  // Fallback: check boolean "true"/"false" handler keys
+  const keys = Object.keys(handlers).filter((k) => k !== "_");
+  if (keys.length === 2 && keys.includes("true") && keys.includes("false")) {
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === "boolean") return k;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Runtime match function.
+ *
+ * Two forms:
+ * 1. `match(value, handlers)` — discriminated union or literal dispatch (runtime)
+ * 2. `match(value)` — fluent chain (macro-only, requires transformer)
+ */
+export function match(value: any, handlers?: Record<string, any>, discriminant?: string): any {
+  if (handlers === undefined) {
+    throw new Error(
+      "match() fluent API requires the typesugar transformer. " +
+        "The .case().then().else() chain is expanded at compile time. " +
+        "Ensure your build pipeline includes @typesugar/transformer, " +
+        "or use the runtime form: match(value, { variant: handler })."
+    );
+  }
+
+  // Object value: discriminated union matching
+  if (typeof value === "object" && value !== null) {
+    const key = discriminant ?? inferDiscriminant(value, handlers);
+    if (!key) throw new Error("Non-exhaustive match: cannot infer discriminant property");
+    const tag = String(value[key]);
+    // Handle OR patterns: "a|b" splits on pipe
+    for (const [handlerKey, handler] of Object.entries(handlers)) {
+      if (handlerKey === "_") continue;
+      const variants = handlerKey.split("|").filter(Boolean);
+      if (variants.includes(tag)) return handler(value);
+    }
+    const fallback = handlers._;
+    if (fallback) return fallback(value);
+    throw new Error(`Non-exhaustive match: no handler for '${tag}'`);
+  }
+
+  // Primitive value: literal dispatch
+  const handler = handlers[value] ?? handlers._;
+  if (!handler) throw new Error(`Non-exhaustive match: no handler for '${String(value)}'`);
+  return handler(value);
 }
