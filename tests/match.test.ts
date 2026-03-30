@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
-import { expandFluentMatch } from "../packages/std/src/macros/match-v2.js";
+import { expandFluentMatch } from "../packages/std/src/macros/match.js";
 
 // ============================================================================
 // Test Helpers

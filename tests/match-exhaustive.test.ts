@@ -17,7 +17,7 @@ import {
   isAllPureLiteralArms,
   analyzeScrutineeType,
   type ScrutineeAnalysis,
-} from "../packages/std/src/macros/match-v2.js";
+} from "../packages/std/src/macros/match.js";
 import { MatchError } from "../packages/std/src/data/match-error.js";
 
 // ============================================================================

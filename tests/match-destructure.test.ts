@@ -18,7 +18,7 @@ import {
   registerProductExtractor,
   registerCustomExtractor,
   clearRegisteredExtractors,
-} from "../packages/std/src/macros/match-v2.js";
+} from "../packages/std/src/macros/match.js";
 
 // ============================================================================
 // Test Helpers

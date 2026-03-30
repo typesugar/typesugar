@@ -5,7 +5,7 @@
  * - specialize() inlining edge cases
  *
  * Note: Match macro edge case tests were removed in PEP-025
- * (old API consolidation). Match edge cases are covered by match-v2 tests.
+ * (old API consolidation). Match edge cases are covered by match tests.
  */
 import { describe, it, expect } from "vitest";
 
