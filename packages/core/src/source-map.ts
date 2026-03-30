@@ -69,8 +69,17 @@ export class ExpansionTracker {
     expandedText: string,
     fromCache: boolean = false
   ): void {
-    const start = originalNode.getStart(sourceFile);
-    const end = originalNode.getEnd();
+    // Skip synthetic nodes (created by preprocessor) that have no real position
+    if (originalNode.pos < 0 || originalNode.end < 0) return;
+
+    let start: number;
+    let end: number;
+    try {
+      start = originalNode.getStart(sourceFile);
+      end = originalNode.getEnd();
+    } catch {
+      return; // Node doesn't have a real position — can't record
+    }
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(start);
 
     let originalText: string;
