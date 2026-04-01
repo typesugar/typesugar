@@ -102,8 +102,8 @@ export interface PipelineOptions {
    * comments, indentation — byte-for-byte identical to the original.
    * This produces clean diffs that show only the actual expansions.
    *
-   * When false (default), reprints the full AST via TypeScript's printer,
-   * which strips blank lines and may reformat code.
+   * @deprecated Removed in PEP-032 Wave 10. Blank line restoration will be
+   * reimplemented using source maps. This option is now ignored.
    */
   preserveBlankLines?: boolean;
   /**
@@ -596,8 +596,7 @@ export class TransformationPipeline {
       verbose: this.verbose,
       ...options.transformerConfig,
     };
-    // Note: trackExpansions is used by formatExpansions() (focused diff view),
-    // not by the blank line restoration path. It's opt-in via config.
+    // trackExpansions is used by formatExpansions() (focused diff view). Opt-in via config.
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.fileNames = fileNames;
 
@@ -1358,23 +1357,7 @@ export class TransformationPipeline {
       // constructor erasure) was silently lost. The AST printer + blank line
       // restoration is correct by default with no opt-in tracking required.
       const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-      const printed = printer.printFile(transformedSourceFile);
-
-      // Generate source map from the printer output BEFORE blank line restoration
-      // or comment cleanup, so token positions match the AST exactly.
-      const transformMap = generateASTSourceMap(
-        originalCode,
-        transformedSourceFile,
-        printed,
-        sourceFile.fileName
-      );
-
-      // Post-process the printed output
-      let transformed = printed;
-
-      if (this.options.preserveBlankLines) {
-        transformed = restoreBlankLines(originalCode, transformed);
-      }
+      let transformed = printer.printFile(transformedSourceFile);
 
       // TypeScript's printer can attach stray comments from the original source
       // to macro-generated nodes when real-position and synthetic nodes are mixed.
@@ -1382,12 +1365,13 @@ export class TransformationPipeline {
       // closing paren/return-type and the => token).
       transformed = stripLeakedArrowComments(transformed);
 
-      // Use the AST source map directly. Post-processing (blank line restoration,
-      // comment cleanup) may shift line numbers, but the source map still correctly
-      // identifies which original source position each output token came from.
-      // Re-generating the source map against the final output is not needed —
-      // the line shift only affects blank lines (which have no tokens/mappings).
-      const map = transformMap;
+      // Generate source map by walking the transformed AST.
+      const map = generateASTSourceMap(
+        originalCode,
+        transformedSourceFile,
+        transformed,
+        sourceFile.fileName
+      );
 
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");

@@ -129,7 +129,6 @@ export class ExpansionService {
 
       const transformResult = transformCode(code, {
         fileName: document.uri.fsPath,
-        preserveBlankLines: true,
       });
 
       this.log(
@@ -219,7 +218,7 @@ export class ExpansionService {
 
       const transformCode = mod.transformCode as (
         code: string,
-        options?: { fileName?: string; preserveBlankLines?: boolean }
+        options?: { fileName?: string }
       ) => {
         code: string;
         changed: boolean;
@@ -236,7 +235,6 @@ export class ExpansionService {
       const code = document.getText();
       const result = transformCode(code, {
         fileName: document.uri.fsPath,
-        preserveBlankLines: true,
       });
 
       if (!result.changed) return undefined;
@@ -302,7 +300,7 @@ export class ExpansionService {
 
       const transformCode = mod.transformCode as (
         code: string,
-        options?: { fileName?: string; preserveBlankLines?: boolean }
+        options?: { fileName?: string }
       ) => { code: string; changed: boolean; original: string };
 
       const formatExpansionsFn = mod.formatExpansions as
@@ -311,7 +309,6 @@ export class ExpansionService {
 
       const result = transformCode(document.getText(), {
         fileName: document.uri.fsPath,
-        preserveBlankLines: true,
       });
 
       if (!result.changed) return undefined;

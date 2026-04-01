@@ -245,7 +245,6 @@ function createPipeline(compilerOptions: ts.CompilerOptions): void {
   currentCompilerOptions = compilerOptions;
   pipeline = new TransformationPipeline(compilerOptions, projectFileNames, {
     verbose: false,
-    preserveBlankLines: true,
     readFile: (f: string) => getOriginalContent(f),
     fileExists: (f: string) => {
       if (ts.sys.fileExists(f)) return true;

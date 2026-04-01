@@ -60,7 +60,6 @@ describe("showcase and example files", () => {
       expect(() => {
         result = transformCode(code, {
           fileName,
-          preserveBlankLines: true,
         });
       }).not.toThrow();
 

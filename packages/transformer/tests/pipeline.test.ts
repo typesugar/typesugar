@@ -3,12 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  TransformationPipeline,
-  transformCode,
-  restoreBlankLines,
-  formatExpansions,
-} from "../src/pipeline.js";
+import { TransformationPipeline, transformCode, formatExpansions } from "../src/pipeline.js";
 import * as ts from "typescript";
 
 // Load macro definitions (registers macros in the global registry)
@@ -198,7 +193,7 @@ describe("TransformationPipeline", () => {
       const code = ["const a = 1;", "", "const b = a |> double;", "", "const c = 3;"].join("\n");
 
       // Use .sts extension for files with custom syntax (PEP-001)
-      const result = transformCode(code, { fileName: "fmt-pipe.sts", preserveBlankLines: true });
+      const result = transformCode(code, { fileName: "fmt-pipe.sts" });
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");
@@ -210,7 +205,7 @@ describe("TransformationPipeline", () => {
 
     it("returns 'No changes.' for unchanged files", () => {
       const code = "const x = 1;\n";
-      const result = transformCode(code, { fileName: "fmt-noop.ts", preserveBlankLines: true });
+      const result = transformCode(code, { fileName: "fmt-noop.ts" });
       expect(formatExpansions(result)).toBe("No changes.");
     });
 
@@ -225,7 +220,7 @@ describe("TransformationPipeline", () => {
         "console.log(result);",
       ].join("\n");
 
-      const result = transformCode(code, { fileName: "fmt-preproc.sts", preserveBlankLines: true });
+      const result = transformCode(code, { fileName: "fmt-preproc.sts" });
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");
@@ -237,63 +232,8 @@ describe("TransformationPipeline", () => {
     });
   });
 
-  describe("restoreBlankLines", () => {
-    it("restores blank lines between unchanged content lines", () => {
-      const original = "a\n\nb\n\nc\n";
-      const printed = "a\nb\nc\n";
-
-      const result = restoreBlankLines(original, printed);
-      expect(result).toBe("a\n\nb\n\nc\n");
-    });
-
-    it("preserves blank lines around replaced lines", () => {
-      const original = "a\n\ncomptime(1 + 2)\n\nc\n";
-      const printed = "a\n3\nc\n";
-
-      const result = restoreBlankLines(original, printed);
-      expect(result).toContain("a\n");
-      expect(result).toContain("3\n");
-      expect(result).toContain("c\n");
-    });
-
-    it("handles removed lines (e.g. stripped imports)", () => {
-      const original = 'import { comptime } from "typesugar";\n\nconst x = 1;\n';
-      const printed = "const x = 1;\n";
-
-      const result = restoreBlankLines(original, printed);
-      expect(result).toContain("const x = 1;");
-    });
-
-    it("returns identical output when no blank lines exist", () => {
-      const text = "a\nb\nc\n";
-      expect(restoreBlankLines(text, text)).toBe(text);
-    });
-
-    it("integrates with transformCode", () => {
-      const code = [
-        'import { comptime } from "typesugar";',
-        "",
-        "// section 1",
-        "const a = 1;",
-        "",
-        "// section 2",
-        "const b = comptime(() => 2 + 3);",
-        "",
-        "// section 3",
-        "const c = 3;",
-      ].join("\n");
-
-      const result = transformCode(code, {
-        fileName: "blank-lines.ts",
-        preserveBlankLines: true,
-      });
-
-      // Blank lines between sections should be preserved
-      expect(result.code).toContain("// section 1\nconst a = 1;");
-      expect(result.code).toContain("\n\n// section 2");
-      expect(result.code).toContain("\n\n// section 3");
-    });
-  });
+  // Note: restoreBlankLines was removed (PEP-032 Wave 10).
+  // Blank line restoration will be reimplemented using source maps.
 
   describe("strict typecheck modes", () => {
     const simpleCode = `const x: number = 1;\n`;

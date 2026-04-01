@@ -390,7 +390,6 @@ function compile(code: string, fileName: string, strict: boolean): CompileResult
     fileName,
     extraRootFiles: [AMBIENT_FILE],
     strictOutput: false,
-    preserveBlankLines: true,
     readFile: (f: string) => {
       if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
       return ts.sys.readFile(f);
