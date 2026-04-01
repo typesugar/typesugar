@@ -107,7 +107,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
       if (id.startsWith("@typesugar/")) {
-        return require(path.join(projectRoot, "node_modules", id));
+        // Try node_modules first (pnpm symlinks), then fall back to
+        // packages/ directory directly for workspace packages without symlinks
+        try {
+          return require(path.join(projectRoot, "node_modules", id));
+        } catch {
+          // @typesugar/foo → packages/foo, @typesugar/foo/sub → packages/foo/dist/sub
+          const parts = id.replace("@typesugar/", "").split("/");
+          const pkgName = parts[0];
+          const subpath = parts.slice(1).join("/");
+          const pkgDir = path.join(projectRoot, "packages", pkgName);
+          if (subpath) {
+            // Try direct subpath first, then dist/ subpath (tsup output).
+            // Prefer .cjs for CJS compatibility in the VM sandbox.
+            try {
+              return require(path.join(pkgDir, subpath));
+            } catch {
+              try {
+                return require(path.join(pkgDir, "dist", subpath + ".cjs"));
+              } catch {
+                return require(path.join(pkgDir, "dist", subpath));
+              }
+            }
+          }
+          return require(pkgDir);
+        }
       }
       // Block filesystem/network access
       const BLOCKED = [

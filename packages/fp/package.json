@@ -28,6 +28,11 @@
       "import": "./dist/data/index.js",
       "require": "./dist/data/index.cjs"
     },
+    "./data/either": {
+      "types": "./dist/data/either.d.ts",
+      "import": "./dist/data/either.js",
+      "require": "./dist/data/either.cjs"
+    },
     "./io": {
       "types": "./dist/io/index.d.ts",
       "import": "./dist/io/index.js",

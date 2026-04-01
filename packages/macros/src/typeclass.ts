@@ -2712,7 +2712,12 @@ ${cases}
   Eq: {
     deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
       const fieldEqs = fields.map((f) => {
-        const inst = companionAccess("Eq", getBaseType(f));
+        const baseType = getBaseType(f);
+        // Inline primitive equality directly — no runtime instance needed
+        if (PRIMITIVE_TYPES.includes(baseType)) {
+          return `a.${f.name} === b.${f.name}`;
+        }
+        const inst = companionAccess("Eq", baseType);
         return `${inst}.equals(a.${f.name}, b.${f.name})`;
       });
       const body = fieldEqs.length > 0 ? fieldEqs.join(" && ") : "true";

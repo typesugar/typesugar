@@ -513,6 +513,44 @@ Identify all documentation, examples, and user-facing content that references th
 
 **Gate:** Zero regressions from PEP-032. All pre-existing test failures unchanged. `@impl`-declared instances emit companion property assignments for non-primitive types.
 
+### Wave 10: Transformer Source Map and Output Pipeline Cleanup
+
+Replace the fragile dual-path output pipeline (surgical text replacement vs. AST printer) with a single, correct-by-construction pipeline. Replace the dual source map generators (ExpansionTracker + diff-based fallback) with a single AST-based source map generator.
+
+**Background:** The `preserveBlankLines` option created two code paths: a "surgical" path using `ExpansionTracker.generateExpandedCode()` (which required every transform to manually opt in via `recordExpansion()`), and an AST printer fallback. The surgical path silently dropped any untracked transform — companion objects from `@derive`/`@impl`, implicit resolution, preprocessor macro expansion, extension method rewrites, and constructor erasure were all lost. Source maps had the same problem: `ExpansionTracker.generateSourceMap()` only covered tracked expansions, falling back to a line-level diff-based generator.
+
+**Design:** A single output pipeline:
+
+1. Always use `printer.printFile(transformedSourceFile)` for code generation (correct by construction)
+2. Generate source maps by walking the transformed AST and reading `getSourceMapRange()` on each node, correlated with output token positions via TypeScript's scanner (no opt-in tracking)
+3. Optionally restore blank lines using the source map (map output lines → original lines, insert blanks where original had gaps)
+
+Source map generation algorithm:
+
+1. Tokenize the output with `ts.createScanner()` — gives exact token positions
+2. Walk the transformed AST depth-first in source order
+3. Match each leaf node (identifiers, literals) to the next output token with the same text (incremental cursor)
+4. Read `getSourceMapRange(node)` on each matched node for the original position
+5. Build VLQ-encoded source map from the mappings
+
+This approach is **complete** (handles all transform types without opt-in), **precise** (token-level granularity), and has **no fallbacks** (one code path for all cases).
+
+- [ ] Implement `generateASTSourceMap()` using scanner-based token matching
+- [ ] Audit all transform methods for missing `preserveSourceMap()` calls (the catalog identified 5–6 sites)
+- [ ] Add missing `preserveSourceMap()` calls to: `tryAutoSpecialize`, return type stripping, recursive inlining
+- [ ] Replace `ExpansionTracker.generateSourceMap()` + `generateDiffSourceMap()` with `generateASTSourceMap()`
+- [ ] Remove `trackExpansions` force-enable from `preserveBlankLines` path
+- [ ] Remove surgical text replacement from `runTypescriptTransformer` (already done)
+- [ ] Retain `ExpansionTracker` only for `formatExpansions()` (focused diff view) — no longer on the critical path
+- [ ] Implement source-map-based `restoreBlankLines()` — use mappings to identify where original had blank lines between consecutive output statements
+- [ ] Add test: all playground examples produce identical output with and without `preserveBlankLines`
+- [ ] Add test: source map round-trip — for each output line, verify the mapped original line is semantically correct
+- [ ] Add test: `preserveBlankLines` output has blank lines between sections matching the original
+- [ ] Include transformer package version hash in `api/compile.ts` LRU cache key to prevent stale results across rebuilds
+- [ ] Inline primitive equality for all typeclasses that reference primitives (currently only `Eq`; also needed for `Ord`, `Hash`, `Show`)
+
+**Gate:** Single code path for output generation and source maps. No `ExpansionTracker` on the critical path. All 35 playground examples pass in vitest AND in the browser. Source maps are character-level precise for all transform types. `preserveBlankLines` produces correctly formatted output using source map data.
+
 ## Design Decisions
 
 ### Why companions instead of import emission?

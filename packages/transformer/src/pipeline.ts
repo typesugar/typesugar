@@ -316,10 +316,8 @@ export class TransformationPipeline {
       verbose: this.verbose,
       ...options.transformerConfig,
     };
-    // Surgical text replacement needs expansion tracking to know what changed
-    if (options.preserveBlankLines) {
-      this.transformerConfig.trackExpansions = true;
-    }
+    // Note: trackExpansions is used by formatExpansions() (focused diff view),
+    // not by the blank line restoration path. It's opt-in via config.
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.fileNames = fileNames;
 
@@ -1070,25 +1068,20 @@ export class TransformationPipeline {
       profiler.start("printFile");
       const printStart = PROFILING_ENABLED ? performance.now() : 0;
 
-      let transformed: string;
+      // Always use the AST printer — it's correct by construction since it
+      // reprints the entire transformed AST.
+      //
+      // Previous approach used surgical text replacement via ExpansionTracker
+      // when preserveBlankLines was true. This was fragile because it required
+      // every AST modification to manually record an expansion — any untracked
+      // change (companion objects, implicit resolution, extension rewrites,
+      // constructor erasure) was silently lost. The AST printer + blank line
+      // restoration is correct by default with no opt-in tracking required.
+      const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+      let transformed = printer.printFile(transformedSourceFile);
+
       if (this.options.preserveBlankLines) {
-        // Surgical text replacement: only macro call sites change, everything
-        // else (blank lines, comments, formatting) stays byte-for-byte identical.
-        // Falls back to the printer if no tracked expansions (e.g., only AST-level
-        // changes like import removal or extension rewrites).
-        const surgical = globalExpansionTracker.generateExpandedCode(
-          originalCode,
-          sourceFile.fileName
-        );
-        if (surgical !== null) {
-          transformed = surgical;
-        } else {
-          const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-          transformed = printer.printFile(transformedSourceFile);
-        }
-      } else {
-        const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-        transformed = printer.printFile(transformedSourceFile);
+        transformed = restoreBlankLines(originalCode, transformed);
       }
 
       // TypeScript's printer can attach stray comments from the original source

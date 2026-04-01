@@ -4051,6 +4051,7 @@ class MacroTransformer {
     }
 
     // For VariableStatement, we need to return the updated statement with results
+    let returnNodes: ts.Node | ts.Node[];
     if (ts.isVariableStatement(node)) {
       // Create updated VariableStatement with the modified declaration
       const factory = this.ctx.factory;
@@ -4060,11 +4061,13 @@ class MacroTransformer {
         ...node.declarationList.declarations.slice(1),
       ]);
       const updatedStmt = factory.updateVariableStatement(node, node.modifiers, updatedDeclList);
-      return results.length > 0 ? [updatedStmt, ...results] : updatedStmt;
+      returnNodes = results.length > 0 ? [updatedStmt, ...results] : updatedStmt;
+    } else {
+      // For other declaration types, return directly
+      returnNodes = results.length > 0 ? [currentNode, ...results] : currentNode;
     }
 
-    // For other declaration types, return directly
-    return results.length > 0 ? [currentNode, ...results] : currentNode;
+    return returnNodes;
   }
 
   /**
