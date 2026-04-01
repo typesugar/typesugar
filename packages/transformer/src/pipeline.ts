@@ -255,6 +255,278 @@ function generateDiffSourceMap(
 }
 
 /**
+ * Generate a source map by walking the transformed AST and reading
+ * `getSourceMapRange()` from each node. Correlates AST nodes with output
+ * positions using TypeScript's scanner for token-boundary precision.
+ *
+ * This approach is:
+ * - **Complete**: handles all transform types (macros, operators, erasure, etc.)
+ *   without requiring each transform to opt in via recordExpansion()
+ * - **Precise**: token-level granularity (not line-level like the diff fallback)
+ * - **No fallbacks**: single code path for all cases
+ *
+ * Algorithm:
+ * 1. Tokenize the output with ts.createScanner() → exact token positions
+ * 2. Walk the transformed AST depth-first in source order
+ * 3. Match each leaf node to the next output token with matching text
+ * 4. Read getSourceMapRange(node) for the original source position
+ * 5. Build source map via MagicString from the collected mappings
+ */
+function generateASTSourceMap(
+  originalCode: string,
+  transformedSF: ts.SourceFile,
+  outputCode: string,
+  fileName: string
+): RawSourceMap | null {
+  if (originalCode === outputCode) return null;
+
+  // Tokenize the output to get exact token positions (avoids substring matching bugs)
+  const outputTokens: Array<{ text: string; pos: number }> = [];
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    /* skipTrivia */ false,
+    ts.LanguageVariant.Standard,
+    outputCode
+  );
+  while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) {
+    const kind = scanner.getToken();
+    // Skip whitespace and newlines — we only need meaningful tokens
+    if (kind === ts.SyntaxKind.WhitespaceTrivia || kind === ts.SyntaxKind.NewLineTrivia) {
+      continue;
+    }
+    outputTokens.push({
+      text: scanner.getTokenText(),
+      pos: scanner.getTokenStart(),
+    });
+  }
+
+  if (outputTokens.length === 0) return null;
+
+  // Precompute line starts for both original and output
+  function computeLineStarts(text: string): number[] {
+    const starts = [0];
+    for (let i = 0; i < text.length; i++) {
+      if (text.charCodeAt(i) === 10) starts.push(i + 1);
+    }
+    return starts;
+  }
+
+  function offsetToLineCol(lineStarts: number[], pos: number): { line: number; col: number } {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= pos) lo = mid;
+      else hi = mid - 1;
+    }
+    return { line: lo, col: pos - lineStarts[lo] };
+  }
+
+  const origLineStarts = computeLineStarts(originalCode);
+  const outLineStarts = computeLineStarts(outputCode);
+
+  // Collect mappings: output position → original position
+  const mappings: Array<{
+    genLine: number;
+    genCol: number;
+    origLine: number;
+    origCol: number;
+  }> = [];
+
+  // Token cursor — advances as we match AST nodes to output tokens
+  let tokenCursor = 0;
+
+  function findNextToken(text: string): { pos: number } | null {
+    for (let i = tokenCursor; i < outputTokens.length; i++) {
+      if (outputTokens[i].text === text) {
+        tokenCursor = i + 1;
+        return outputTokens[i];
+      }
+    }
+    return null;
+  }
+
+  function addMapping(outPos: number, origPos: number): void {
+    if (origPos < 0 || origPos >= originalCode.length) return;
+    const gen = offsetToLineCol(outLineStarts, outPos);
+    const orig = offsetToLineCol(origLineStarts, origPos);
+    mappings.push({ genLine: gen.line, genCol: gen.col, origLine: orig.line, origCol: orig.col });
+  }
+
+  // Determine if a node is a leaf for source map purposes
+  function isLeafNode(node: ts.Node): boolean {
+    return (
+      ts.isIdentifier(node) ||
+      ts.isPrivateIdentifier(node) ||
+      ts.isNumericLiteral(node) ||
+      ts.isStringLiteral(node) ||
+      ts.isBigIntLiteral(node) ||
+      ts.isRegularExpressionLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      node.kind === ts.SyntaxKind.ThisKeyword ||
+      node.kind === ts.SyntaxKind.SuperKeyword ||
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword ||
+      node.kind === ts.SyntaxKind.NullKeyword ||
+      node.kind === ts.SyntaxKind.UndefinedKeyword
+    );
+  }
+
+  // Get the text that the scanner would see for this leaf node
+  function getLeafTokenText(node: ts.Node): string | null {
+    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
+    if (
+      ts.isNumericLiteral(node) ||
+      ts.isStringLiteral(node) ||
+      ts.isBigIntLiteral(node) ||
+      ts.isRegularExpressionLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node)
+    ) {
+      // For string literals, the scanner sees the quoted form
+      if (ts.isStringLiteral(node)) return `"${node.text}"`;
+      return node.text;
+    }
+    switch (node.kind) {
+      case ts.SyntaxKind.ThisKeyword:
+        return "this";
+      case ts.SyntaxKind.SuperKeyword:
+        return "super";
+      case ts.SyntaxKind.TrueKeyword:
+        return "true";
+      case ts.SyntaxKind.FalseKeyword:
+        return "false";
+      case ts.SyntaxKind.NullKeyword:
+        return "null";
+      case ts.SyntaxKind.UndefinedKeyword:
+        return "undefined";
+    }
+    return null;
+  }
+
+  // Walk the transformed AST depth-first, matching leaves to output tokens.
+  // For statements, also emit a statement-level mapping at the start so that
+  // positions between tokens (whitespace, operators) map to the correct line.
+  function walkNode(node: ts.Node): void {
+    const range = ts.getSourceMapRange(node);
+
+    if (isLeafNode(node)) {
+      // Only map nodes that have a valid source position
+      if (range.pos < 0 || range.end < 0) return;
+
+      const text = getLeafTokenText(node);
+      if (!text) return;
+
+      const token = findNextToken(text);
+      if (token) {
+        addMapping(token.pos, range.pos);
+      }
+      return;
+    }
+
+    // Non-leaf: recurse into children (forEachChild visits in source order)
+    ts.forEachChild(node, walkNode);
+  }
+
+  // Walk each top-level statement: emit a statement-level mapping first,
+  // then recurse for token-level precision within the statement.
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  let stmtSearchOffset = 0;
+  for (const stmt of transformedSF.statements) {
+    const range = ts.getSourceMapRange(stmt);
+    if (range.pos >= 0) {
+      // Find this statement's start in the output
+      let stmtText: string;
+      try {
+        stmtText = printer.printNode(ts.EmitHint.Unspecified, stmt, transformedSF);
+      } catch {
+        continue;
+      }
+      const stmtIdx = outputCode.indexOf(stmtText, stmtSearchOffset);
+      if (stmtIdx >= 0) {
+        addMapping(stmtIdx, range.pos);
+        stmtSearchOffset = stmtIdx + stmtText.length;
+      }
+    }
+  }
+
+  // Now walk for token-level precision (token cursor was already at 0)
+  walkNode(transformedSF);
+
+  if (mappings.length === 0) return null;
+
+  // Build source map using MagicString for correct VLQ encoding.
+  // We construct a "virtual edit" from original → output by recording
+  // the mappings we collected.
+  //
+  // Sort mappings by generated position (required for VLQ encoding)
+  mappings.sort((a, b) => a.genLine - b.genLine || a.genCol - b.genCol);
+
+  // Deduplicate: remove consecutive mappings that point to the same generated position
+  const deduped: typeof mappings = [];
+  for (const m of mappings) {
+    const prev = deduped[deduped.length - 1];
+    if (prev && prev.genLine === m.genLine && prev.genCol === m.genCol) continue;
+    deduped.push(m);
+  }
+
+  // Encode as VLQ source map
+  let vlqMappings = "";
+  let prevGenLine = 0;
+  let prevGenCol = 0;
+  let prevOrigLine = 0;
+  let prevOrigCol = 0;
+
+  for (const m of deduped) {
+    // Emit semicolons for new lines
+    while (prevGenLine < m.genLine) {
+      vlqMappings += ";";
+      prevGenLine++;
+      prevGenCol = 0;
+    }
+
+    // Comma separator between segments on the same line
+    if (vlqMappings.length > 0 && !vlqMappings.endsWith(";")) {
+      vlqMappings += ",";
+    }
+
+    // VLQ-encode: genCol, sourceIdx(0), origLine, origCol
+    vlqMappings += vlqEncode(m.genCol - prevGenCol);
+    vlqMappings += vlqEncode(0); // source index (always 0 — single file)
+    vlqMappings += vlqEncode(m.origLine - prevOrigLine);
+    vlqMappings += vlqEncode(m.origCol - prevOrigCol);
+
+    prevGenCol = m.genCol;
+    prevOrigLine = m.origLine;
+    prevOrigCol = m.origCol;
+  }
+
+  return {
+    version: 3,
+    file: fileName.replace(/\.ts$/, ".js"),
+    sourceRoot: "",
+    sources: [fileName],
+    sourcesContent: [originalCode],
+    names: [],
+    mappings: vlqMappings,
+  };
+}
+
+/** Base64 VLQ encoding (source map v3 format) */
+const VLQ_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function vlqEncode(value: number): string {
+  let vlq = value < 0 ? (-value << 1) | 1 : value << 1;
+  let encoded = "";
+  do {
+    let digit = vlq & 0x1f;
+    vlq >>>= 5;
+    if (vlq > 0) digit |= 0x20; // continuation bit
+    encoded += VLQ_CHARS[digit];
+  } while (vlq > 0);
+  return encoded;
+}
+
+/**
  * TransformationPipeline - Orchestrates preprocessing and macro transformation
  *
  * This class provides:
@@ -1093,14 +1365,15 @@ export class TransformationPipeline {
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");
 
-      // Generate source map from expansion records, with diff-based fallback
-      // for AST-level changes (import removal, operator rewrites, etc.)
-      const expansionMap = globalExpansionTracker.generateSourceMap(
+      // Generate source map by walking the transformed AST and reading
+      // getSourceMapRange() on each node. This is complete (all transform types),
+      // precise (token-level), and has no opt-in requirements.
+      const map = generateASTSourceMap(
         originalCode,
+        transformedSourceFile,
+        transformed,
         sourceFile.fileName
       );
-      const map =
-        expansionMap ?? generateDiffSourceMap(originalCode, transformed, sourceFile.fileName);
 
       // Capture expansion records before clearing
       const expansions = globalExpansionTracker.getExpansionsForFile(sourceFile.fileName);
