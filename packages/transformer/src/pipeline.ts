@@ -416,6 +416,43 @@ function generateASTSourceMap(
     return null;
   }
 
+  // Skip trivia (whitespace, comments) to find the actual token start.
+  // This mirrors TypeScript's emitter which calls skipSourceTrivia() on
+  // sourceMapRange.pos before recording the mapping.
+  function skipTrivia(pos: number): number {
+    if (pos < 0 || pos >= originalCode.length) return pos;
+    let i = pos;
+    while (i < originalCode.length) {
+      const ch = originalCode.charCodeAt(i);
+      if (ch === 32 || ch === 9 || ch === 10 || ch === 13) {
+        // space, tab, newline, carriage return
+        i++;
+      } else if (ch === 47) {
+        // '/' — possible comment
+        if (i + 1 < originalCode.length && originalCode.charCodeAt(i + 1) === 47) {
+          // // line comment — skip to end of line
+          i += 2;
+          while (i < originalCode.length && originalCode.charCodeAt(i) !== 10) i++;
+        } else if (i + 1 < originalCode.length && originalCode.charCodeAt(i + 1) === 42) {
+          // /* block comment */ — skip to */
+          i += 2;
+          while (i + 1 < originalCode.length) {
+            if (originalCode.charCodeAt(i) === 42 && originalCode.charCodeAt(i + 1) === 47) {
+              i += 2;
+              break;
+            }
+            i++;
+          }
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    return i;
+  }
+
   // Walk the transformed AST depth-first, matching leaves to output tokens.
   // For statements, also emit a statement-level mapping at the start so that
   // positions between tokens (whitespace, operators) map to the correct line.
@@ -426,10 +463,13 @@ function generateASTSourceMap(
       // Only map nodes that have a valid source position
       if (range.pos < 0 || range.end < 0) return;
 
+      // Skip leading trivia to get the actual token start in the original
+      const origPos = skipTrivia(range.pos);
+
       // String/template literals: match by inner content (quote style varies)
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
         const token = findNextStringToken(node.text);
-        if (token) addMapping(token.pos, range.pos);
+        if (token) addMapping(token.pos, origPos);
         return;
       }
 
@@ -438,7 +478,7 @@ function generateASTSourceMap(
 
       const token = findNextToken(text);
       if (token) {
-        addMapping(token.pos, range.pos);
+        addMapping(token.pos, origPos);
       }
       return;
     }
