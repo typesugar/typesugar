@@ -197,6 +197,7 @@ const numericPoint: Numeric<Point> = {
   add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
   mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
 };
+// Access via: Point.Numeric
 ```
 
 When generic functions are called with `@specialize` instances, method bodies are inlined:
@@ -207,7 +208,7 @@ function double<A>(a: A, N: Numeric<A>): A {
 }
 
 // Call with @specialize instance:
-double(p, numericPoint);
+double(p, Point.Numeric);
 
 // Compiles to:
 ({ x: p.x + p.x, y: p.y + p.y });
@@ -335,6 +336,7 @@ const numericPoint: Numeric<Point> = {
   mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
   div: (a, b) => ({ x: a.x / b.x, y: a.y / b.y }),
 };
+// Access via: Point.Numeric
 
 const p1: Point = { x: 1, y: 2 };
 const p2: Point = { x: 3, y: 4 };
@@ -343,7 +345,7 @@ const p2: Point = { x: 3, y: 4 };
 const p3 = p1 + p2;
 
 // Compiles to:
-const p3 = numericPoint.add(p1, p2);
+const p3 = Point.Numeric.add(p1, p2);
 ```
 
 ### Supported Operators

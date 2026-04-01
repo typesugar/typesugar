@@ -696,13 +696,15 @@ describe("Core Edge Cases", () => {
       expect(map).not.toBeNull();
     });
 
-    it("should throw on synthetic nodes (known limitation)", () => {
+    it("should silently skip synthetic nodes", () => {
       const sf = createSourceFile("const x = 1;", "test.ts");
       const syntheticNode = ts.factory.createNull();
 
+      // Synthetic nodes (pos < 0) are silently skipped — no throw, no expansion recorded
       expect(() => {
         tracker.recordExpansion("macro", syntheticNode, sf, "null", false);
-      }).toThrow(/position cannot precede the beginning of the file/);
+      }).not.toThrow();
+      expect(tracker.count).toBe(0);
     });
 
     it("should handle real nodes with valid positions", () => {

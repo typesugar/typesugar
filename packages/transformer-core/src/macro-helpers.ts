@@ -12,6 +12,7 @@ import {
   builtinDerivations,
   instanceRegistry,
   instanceVarName,
+  companionPath,
   tryExtractSumType,
 } from "@typesugar/macros";
 
@@ -486,6 +487,7 @@ export function expandDeriveDecorator(
           typeclassName: deriveName,
           forType: typeName,
           instanceName: instanceVarName(uncap, typeName),
+          companionPath: companionPath(deriveName, typeName),
           derived: true,
         });
       } catch (error) {

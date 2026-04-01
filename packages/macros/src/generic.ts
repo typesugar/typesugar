@@ -37,7 +37,12 @@
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
-import { instanceRegistry, typeclassRegistry, tryExtractSumType } from "./typeclass.js";
+import {
+  instanceRegistry,
+  typeclassRegistry,
+  tryExtractSumType,
+  companionPath,
+} from "./typeclass.js";
 
 // ============================================================================
 // Structural Representation Types
@@ -384,6 +389,7 @@ registerGeneric("${typeName}", generic${typeName});
     typeclassName: "Generic",
     forType: typeName,
     instanceName: `generic${typeName}`,
+    companionPath: companionPath("Generic", typeName),
     derived: true,
   });
 
@@ -484,6 +490,7 @@ registerGeneric("${typeName}", generic${typeName});
     typeclassName: "Generic",
     forType: typeName,
     instanceName: `generic${typeName}`,
+    companionPath: companionPath("Generic", typeName),
     derived: true,
   });
 

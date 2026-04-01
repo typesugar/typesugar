@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
-import { createDerivedFunctionName, deriveAttribute } from "@typesugar/macros";
+import { createDerivedFunctionName } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
 import { builtinDerivations } from "@typesugar/macros";
 
@@ -32,28 +32,6 @@ describe("createDerivedFunctionName", () => {
 // ============================================================================
 
 describe("unified derive system", () => {
-  describe("@derive attribute macro is registered", () => {
-    it("should have derive attribute macro registered", () => {
-      const macro = globalRegistry.getAttribute("derive");
-      assert(macro !== undefined);
-      assert(macro!.name === "derive");
-    });
-
-    it("deriveAttribute export matches the registered macro", () => {
-      assert(deriveAttribute !== undefined);
-      assert(deriveAttribute.name === "derive");
-      assert(deriveAttribute.kind === "attribute");
-    });
-  });
-
-  describe("@deriving attribute is registered as deprecated alias", () => {
-    it("should have deriving attribute macro registered", () => {
-      const macro = globalRegistry.getAttribute("deriving");
-      assert(macro !== undefined);
-      assert(macro!.name === "deriving");
-    });
-  });
-
   describe("typeclass auto-derivation strategies exist", () => {
     it("should have Show derivation strategy", () => {
       assert(builtinDerivations["Show"] !== undefined);
@@ -103,34 +81,6 @@ describe("unified derive system", () => {
 
     it("should have Functor derivation strategy", () => {
       assert(builtinDerivations["Functor"] !== undefined);
-    });
-  });
-
-  describe("typeclass TC derive macros are registered", () => {
-    it("should find ShowTC derive macro", () => {
-      const macro = globalRegistry.getDerive("ShowTC");
-      assert(macro !== undefined);
-      assert(macro!.kind === "derive");
-    });
-
-    it("should find EqTC derive macro", () => {
-      const macro = globalRegistry.getDerive("EqTC");
-      assert(macro !== undefined);
-    });
-
-    it("should find OrdTC derive macro", () => {
-      const macro = globalRegistry.getDerive("OrdTC");
-      assert(macro !== undefined);
-    });
-
-    it("should find HashTC derive macro", () => {
-      const macro = globalRegistry.getDerive("HashTC");
-      assert(macro !== undefined);
-    });
-
-    it("should find FunctorTC derive macro", () => {
-      const macro = globalRegistry.getDerive("FunctorTC");
-      assert(macro !== undefined);
     });
   });
 

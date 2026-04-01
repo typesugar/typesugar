@@ -72,8 +72,6 @@ export {
   // Primary names (preferred)
   implAttribute,
   implMacro,
-  // Unified derive attribute macro (@derive → typeclass derivation)
-  deriveAttribute,
   summonMacro,
   extendMacro,
   typeclassRegistry,
@@ -87,7 +85,7 @@ export {
   getTypeclasses,
   getInstances,
   instanceVarName,
-  createTypeclassDeriveMacro,
+  companionPath,
   generateStandardTypeclasses,
   tryExtractSumType,
   getSyntaxForOperator,
@@ -104,6 +102,8 @@ export {
   hasParCombineInstance,
   parCombineBuilderRegistry,
   getSpecializationMethodsForDerivation,
+  convertToCompanionAssignment,
+  ensureDataTypeCompanionConst,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,

@@ -59,12 +59,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  defineAttributeMacro,
-  defineExpressionMacro,
-  defineDeriveMacro,
-  globalRegistry,
-} from "@typesugar/core";
+import { defineAttributeMacro, defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import {
   MacroContext,
   DeriveTypeInfo,
@@ -90,19 +85,8 @@ import {
 } from "@typesugar/core";
 import type { DerivationResult } from "./auto-derive.js";
 import { globalResolutionScope } from "@typesugar/core";
-import {
-  TS9001,
-  TS9005,
-  TS9008,
-  TS9060,
-  TS9101,
-  TS9102,
-  TS9103,
-  TS9104,
-  TS9203,
-  TS9305,
-} from "@typesugar/core";
-import { getSuggestionsForSymbol, getSuggestionsForTypeclass } from "@typesugar/core";
+import { TS9001, TS9005, TS9008, TS9101, TS9203, TS9305 } from "@typesugar/core";
+import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 
 // ============================================================================
@@ -602,15 +586,31 @@ function executeTransitiveDerivation(
     // Generate instance
     let code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
 
-    // Strip runtime registration calls unless the typeclass is locally defined
-    // AND exported. Imported typeclasses don't have .registerInstance() in scope.
-    const currentFile = ctx.sourceFile.fileName;
-    const isLocallyDefined = globalResolutionScope
-      .getScope(currentFile)
-      .definedTypeclasses.has(typeclassName);
-    const tcInfo = typeclassRegistry.get(typeclassName);
-    if (!isLocallyDefined || !tcInfo?.isExported) {
-      code = stripRuntimeRegistration(code);
+    // Convert to companion property assignment (replaces flat const + runtime registration)
+    code = convertToCompanionAssignment(code, typeclassName, typeInfo.typeName);
+
+    // Ensure the transitive type has a companion const (for interfaces/type aliases)
+    const transitiveIsExported =
+      typeInfo.node.modifiers?.some(
+        (m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword
+      ) ?? false;
+    const transitiveCompanionCode = ensureDataTypeCompanionConst(
+      typeInfo.node,
+      typeInfo.typeName,
+      transitiveIsExported
+    );
+    if (transitiveCompanionCode) {
+      // Only emit companion const if we haven't already for this type
+      const alreadyHasCompanion = statements.some(
+        (s) =>
+          ts.isVariableStatement(s) &&
+          s.declarationList.declarations.some(
+            (d) => ts.isIdentifier(d.name) && d.name.text === typeInfo.typeName
+          )
+      );
+      if (!alreadyHasCompanion) {
+        statements.push(...ctx.parseStatements(transitiveCompanionCode));
+      }
     }
 
     statements.push(...ctx.parseStatements(code));
@@ -621,6 +621,7 @@ function executeTransitiveDerivation(
       typeclassName,
       forType: typeInfo.typeName,
       instanceName: varName,
+      companionPath: companionPath(typeclassName, typeInfo.typeName),
       derived: true,
     });
 
@@ -635,7 +636,11 @@ function executeTransitiveDerivation(
       for (const [name, impl] of Object.entries(specMethods)) {
         methodsMap.set(name, { source: impl.source, params: impl.params });
       }
-      registerInstanceMethodsFromAST(varName, typeInfo.typeName, methodsMap);
+      registerInstanceMethodsFromAST(
+        companionPath(typeclassName, typeInfo.typeName),
+        typeInfo.typeName,
+        methodsMap
+      );
     }
 
     // Notify coverage system
@@ -697,6 +702,8 @@ interface InstanceInfo {
   forType: string;
   /** Variable name holding the instance */
   instanceName: string;
+  /** Companion property path, e.g. "Point.Eq" or "Eq.number" */
+  companionPath?: string;
   /** Whether this was auto-derived */
   derived: boolean;
   /**
@@ -1266,14 +1273,62 @@ function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Generate the variable name for a typeclass instance.
+ * Generate the internal variable name for a typeclass instance.
  *
- * INTENTIONALLY UNHYGIENIC: Instance names like `showPoint`, `eqNumber` are part of
- * the public API. Users import and use these names directly.
+ * INTENTIONALLY UNHYGIENIC: Instance names like `showPoint`, `eqNumber` are still
+ * generated for internal use (specialization, inlining, registry tracking), but are
+ * no longer the primary public API. Users access instances via companion objects:
+ *   - Data type companion: Point.Eq, Point.Show (for user-defined types)
+ *   - Typeclass companion: Eq.number, Show.string (for primitives)
+ * See PEP-032 for the companion object pattern.
  */
 function instanceVarName(tcName: string, typeName: string): string {
   return `${uncapitalize(tcName)}${capitalize(typeName)}`;
+}
+
+/** Types where the companion lives on the typeclass, not on the type itself. */
+const PRIMITIVE_TYPES = [
+  "number",
+  "string",
+  "boolean",
+  "bigint",
+  "Date",
+  "symbol",
+  "undefined",
+  "null",
+  "void",
+  "never",
+  "unknown",
+  "any",
+  "object",
+];
+
+/**
+ * Generate the companion property path for a typeclass instance.
+ * E.g., companionPath("Eq", "Point") -> "Point.Eq"
+ *       companionPath("Eq", "number") -> "Eq.number"  (primitive on typeclass companion)
+ */
+function companionPath(tcName: string, typeName: string): string {
+  if (PRIMITIVE_TYPES.includes(typeName)) {
+    return `${tcName}.${typeName}`;
+  }
+  return `${typeName}.${tcName}`;
+}
+
+/**
+ * Generate a companion property access expression for use in generated code.
+ * Uses (X as any).Y to avoid TypeScript errors on dynamically-attached properties.
+ */
+function companionAccess(tcName: string, typeName: string): string {
+  if (PRIMITIVE_TYPES.includes(typeName)) {
+    return `(${tcName} as any).${typeName}`;
+  }
+  return `(${typeName} as any).${tcName}`;
 }
 
 /**
@@ -1285,6 +1340,113 @@ function instanceVarName(tcName: string, typeName: string): string {
  */
 function stripRuntimeRegistration(code: string): string {
   return code.replace(/\/\*#__PURE__\*\/\s*\w+\.registerInstance<[^>]+>\([^)]+\);\s*\n?/g, "");
+}
+
+/**
+ * Convert a derived instance const declaration to a companion property assignment.
+ *
+ * Transforms:
+ *   const eqPoint: Eq<Point> = /*#__PURE__*​/ { equals: ... };
+ * Into:
+ *   (Point as any).Eq = /*#__PURE__*​/ { equals: ... } satisfies Eq<Point>;
+ *
+ * This allows multiple @derive arguments to each add a property to the same
+ * data type companion object. The companion const itself is emitted separately
+ * (see ensureDataTypeCompanionConst).
+ *
+ * For generic factory functions (e.g., `export function eqPair<A, B>(...): Eq<Pair<A, B>>`),
+ * we leave them as-is since they can't be companion properties (they need type parameters).
+ */
+function convertToCompanionAssignment(code: string, tcName: string, typeName: string): string {
+  // First strip registerInstance calls — companion replaces runtime registration
+  code = stripRuntimeRegistration(code);
+
+  // Extract the type annotation by finding balanced angle brackets after "const varName: "
+  const constMatch = code.match(/const\s+\w+\s*:\s*/);
+  if (!constMatch) {
+    // Not a simple const declaration (might be a generic factory function) — leave as-is
+    return code;
+  }
+
+  // Extract the flat variable name for later self-reference replacement
+  const varNameFromConst = constMatch[0].match(/const\s+(\w+)/)?.[1];
+
+  // Extract type annotation with balanced angle brackets
+  const afterConst = code.substring(constMatch.index! + constMatch[0].length);
+  let angleDepth = 0;
+  let typeEnd = 0;
+  for (let i = 0; i < afterConst.length; i++) {
+    if (afterConst[i] === "<") angleDepth++;
+    if (afterConst[i] === ">") {
+      angleDepth--;
+      if (angleDepth === 0) {
+        typeEnd = i + 1;
+        break;
+      }
+    }
+  }
+  if (typeEnd === 0) return code; // No valid type annotation found
+
+  const typeAnnotation = afterConst.substring(0, typeEnd); // e.g., "Eq<Point>"
+
+  // Now match the full pattern including optional /*#__PURE__*/ marker
+  const fullPattern = new RegExp(
+    `const\\s+\\w+\\s*:\\s*${escapeRegExp(typeAnnotation)}\\s*=\\s*(\\/\\*#__PURE__\\*\\/\\s*)?(\\{)`
+  );
+  const fullMatch = code.match(fullPattern);
+  if (!fullMatch) return code;
+
+  const pureMarker = fullMatch[1] || "";
+
+  // Replace the const declaration prefix with a companion property assignment
+  code = code.replace(fullPattern, `(${typeName} as any).${tcName} = ${pureMarker}{`);
+
+  // Note: `satisfies` clause is omitted here. The `(X as any).TC = ...` pattern
+  // bypasses TypeScript's property checking, and the `declare namespace` declaration
+  // below provides the correct type for consumers. Adding `satisfies` would require
+  // the generated object literal to exactly match the typeclass interface, which fails
+  // when the interface has additional inherited methods (e.g., Ord extends Eq).
+
+  // Replace self-references to the old flat variable name with companion path.
+  // e.g., eqShape.equals → (Shape as any).Eq.equals
+  // This prevents dangling references after the const is removed.
+  // Uses word-boundary regex to avoid replacing substrings (e.g., eqA in eqArray).
+  if (varNameFromConst && code.includes(varNameFromConst)) {
+    const companionRef = `(${typeName} as any).${tcName}`;
+    const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
+    code = code.replace(wordBoundaryPattern, companionRef);
+  }
+
+  // Add a declare namespace for type-level visibility (needed for classes and
+  // any context where TypeScript's type checker doesn't see the property)
+  code += `\ndeclare namespace ${typeName} { const ${tcName}: ${typeAnnotation}; }\n`;
+
+  return code;
+}
+
+/**
+ * Generate a companion const declaration for a data type.
+ *
+ * For interfaces and type aliases, uses declaration merging:
+ *   interface Foo { ... }
+ *   const Foo: Record<string, any> = {};
+ *
+ * For classes (which are already values), returns null since properties can be
+ * assigned directly to the class.
+ */
+function ensureDataTypeCompanionConst(
+  target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+  typeName: string,
+  isExported: boolean
+): string | null {
+  // Classes are already values — can't create a const with the same name
+  if (ts.isClassDeclaration(target)) {
+    return null;
+  }
+
+  // For interfaces and type aliases: create companion const via declaration merging
+  const exportMod = isExported ? "export " : "";
+  return `${exportMod}const ${typeName}: Record<string, any> = {};`;
 }
 
 /**
@@ -1677,7 +1839,7 @@ export const typeclassAttribute = defineAttributeMacro({
     // Only generate runtime registry infrastructure for exported typeclasses.
     // Internal typeclasses use compile-time resolution only (zero-cost).
     if (isExported) {
-      const companionCode = generateCompanionNamespace(ctx, tcInfo, isExported);
+      const companionCode = generateCompanionConst(ctx, tcInfo, isExported);
       statements.push(...ctx.parseStatements(companionCode));
 
       // Generate extension method helpers (only needed when runtime registry exists,
@@ -1691,7 +1853,10 @@ export const typeclassAttribute = defineAttributeMacro({
 });
 
 /**
- * Generate a companion namespace for a typeclass.
+ * Generate a companion const for a typeclass.
+ *
+ * Uses TypeScript declaration merging: interface + const with the same name.
+ * The interface is the type, the const is the value (companion object).
  *
  * Scala 3 equivalent:
  *   object Show {
@@ -1699,11 +1864,7 @@ export const typeclassAttribute = defineAttributeMacro({
  *     def derived[A](using Mirror.ProductOf[A]): Show[A] = ...
  *   }
  */
-function generateCompanionNamespace(
-  ctx: MacroContext,
-  tc: TypeclassInfo,
-  isExported: boolean
-): string {
+function generateCompanionConst(ctx: MacroContext, tc: TypeclassInfo, isExported: boolean): string {
   const { name } = tc;
   const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
   const exportModifier = isExported ? "export " : "";
@@ -1712,31 +1873,25 @@ function generateCompanionNamespace(
 // Typeclass instance registry for ${name}
 const ${registryVar}: Map<string, ${name}<any>> = /*#__PURE__*/ new Map();
 
-${exportModifier}namespace ${name} {
-  /** Register an instance of ${name} for type T */
-  export function registerInstance<T>(typeName: string, instance: ${name}<T>): void {
+${exportModifier}const ${name} = {
+  registerInstance<T>(typeName: string, instance: ${name}<T>): void {
     ${registryVar}.set(typeName, instance);
-  }
-
-  /** Summon (resolve) an instance of ${name} for type T */
-  export function summon<T>(typeName: string): ${name}<T> {
+  },
+  summon<T>(typeName: string): ${name}<T> {
     const instance = ${registryVar}.get(typeName);
     if (!instance) {
       throw new Error(\`No ${name} instance found for type '\${typeName}'\`);
     }
     return instance as ${name}<T>;
-  }
-
-  /** Check if an instance exists for the given type */
-  export function hasInstance(typeName: string): boolean {
+  },
+  hasInstance(typeName: string): boolean {
     return ${registryVar}.has(typeName);
-  }
-
-  /** Get all registered type names */
-  export function registeredTypes(): string[] {
+  },
+  registeredTypes(): string[] {
     return Array.from(${registryVar}.keys());
-  }
-}
+  },
+};
+((globalThis as any).__typesugar_companions = (globalThis as any).__typesugar_companions || {})["${name}"] = ${name};
 `;
 }
 
@@ -1966,6 +2121,7 @@ export const implAttribute = defineAttributeMacro({
       typeclassName: tcName,
       forType: typeName,
       instanceName: varName,
+      companionPath: companionPath(tcName, typeName),
       derived: false,
     });
 
@@ -1997,18 +2153,41 @@ export const implAttribute = defineAttributeMacro({
       }
     }
 
-    // Only emit runtime registration for exported typeclasses.
+    const statements: ts.Node[] = [updatedTarget];
+
+    // Emit runtime registration for exported typeclasses.
     // Internal typeclasses use compile-time resolution only (zero-cost).
     const tcInfo = typeclassRegistry.get(tcName);
     if (tcInfo?.isExported) {
       const registrationStatements = quoteStatements(
         ctx
       )`/*#__PURE__*/ ${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
-      return [updatedTarget, ...registrationStatements];
+      statements.push(...registrationStatements);
     }
 
-    // No runtime registration needed - compile-time registry is sufficient
-    return updatedTarget;
+    // Emit companion property assignment for non-primitive types.
+    // Primitives are handled by registerInstanceWithMeta + __typesugar_companions.
+    const primitives = [
+      "number",
+      "string",
+      "boolean",
+      "bigint",
+      "Date",
+      "symbol",
+      "undefined",
+      "null",
+      "void",
+      "never",
+      "unknown",
+      "any",
+      "object",
+    ];
+    if (!primitives.includes(typeName)) {
+      const assignCode = `(${typeName} as any).${tcName} = ${varName};\ndeclare namespace ${typeName} { const ${tcName}: ${tcName}<${typeName}>; }`;
+      statements.push(...ctx.parseStatements(assignCode));
+    }
+
+    return statements;
   },
 });
 
@@ -2415,8 +2594,8 @@ function getFieldInstanceRef(
     return instanceParam;
   }
 
-  // Fall back to standard instance lookup
-  return instanceVarName(tcName.toLowerCase(), getBaseType(field));
+  // Fall back to companion access for field instance references
+  return companionAccess(tcName, getBaseType(field));
 }
 
 const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
@@ -2424,7 +2603,7 @@ const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
     deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
       const fieldShows = fields
         .map((f) => {
-          const inst = instanceVarName("show", getBaseType(f));
+          const inst = companionAccess("Show", getBaseType(f));
           return `${f.name} = \${${inst}.show(a.${f.name})}`;
         })
         .join(", ");
@@ -2446,7 +2625,7 @@ const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
       const varName = instanceVarName("show", typeName);
       const cases = variants
         .map((v) => {
-          const inst = instanceVarName("show", v.typeName);
+          const inst = companionAccess("Show", v.typeName);
           return `    case "${v.tag}": return ${inst}.show(a as any);`;
         })
         .join("\n");
@@ -2533,7 +2712,7 @@ ${cases}
   Eq: {
     deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
       const fieldEqs = fields.map((f) => {
-        const inst = instanceVarName("eq", getBaseType(f));
+        const inst = companionAccess("Eq", getBaseType(f));
         return `${inst}.equals(a.${f.name}, b.${f.name})`;
       });
       const body = fieldEqs.length > 0 ? fieldEqs.join(" && ") : "true";
@@ -2556,7 +2735,7 @@ const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
       const varName = instanceVarName("eq", typeName);
       const cases = variants
         .map((v) => {
-          const inst = instanceVarName("eq", v.typeName);
+          const inst = companionAccess("Eq", v.typeName);
           return `    case "${v.tag}": return (b as any).${discriminant} === "${v.tag}" && ${inst}.equals(a as any, b as any);`;
         })
         .join("\n");
@@ -2643,7 +2822,7 @@ ${cases}
       const varName = instanceVarName("ord", typeName);
       const fieldComparisons = fields
         .map((f) => {
-          const inst = instanceVarName("ord", getBaseType(f));
+          const inst = companionAccess("Ord", getBaseType(f));
           return `  { const c = ${inst}.compare(a.${f.name}, b.${f.name}); if (c !== 0) return c; }`;
         })
         .join("\n");
@@ -2668,7 +2847,7 @@ ${fieldComparisons}
       const tagOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
       const cases = variants
         .map((v) => {
-          const inst = instanceVarName("ord", v.typeName);
+          const inst = companionAccess("Ord", v.typeName);
           return `    case "${v.tag}": return ${inst}.compare(a as any, b as any);`;
         })
         .join("\n");
@@ -2768,7 +2947,7 @@ ${cases}
       const varName = instanceVarName("hash", typeName);
       const fieldHashes = fields
         .map((f) => {
-          const inst = instanceVarName("hash", getBaseType(f));
+          const inst = companionAccess("Hash", getBaseType(f));
           return `  hash = ((hash << 5) + hash) ^ ${inst}.hash(a.${f.name});`;
         })
         .join("\n");
@@ -2793,7 +2972,7 @@ ${fieldHashes}
       const varName = instanceVarName("hash", typeName);
       const cases = variants
         .map((v, i) => {
-          const inst = instanceVarName("hash", v.typeName);
+          const inst = companionAccess("Hash", v.typeName);
           return `    case "${v.tag}": return ((${i} << 16) | ${inst}.hash(a as any)) >>> 0;`;
         })
         .join("\n");
@@ -2836,7 +3015,7 @@ const ${varName}: Functor<${typeName}> = /*#__PURE__*/ {
       const varName = instanceVarName("functor", typeName);
       const cases = variants
         .map((v) => {
-          const inst = instanceVarName("functor", v.typeName);
+          const inst = companionAccess("Functor", v.typeName);
           return `    case "${v.tag}": return ${inst}.map(fa as any, f) as any;`;
         })
         .join("\n");
@@ -2855,100 +3034,6 @@ ${cases}
     },
   },
 };
-
-// ============================================================================
-// Deriving Derive Macro
-// ============================================================================
-
-/**
- * Create a derive macro for a specific typeclass that uses auto-derivation.
- */
-function createTypeclassDeriveMacro(tcName: string) {
-  return defineDeriveMacro({
-    name: `${tcName}TC`,
-    cacheable: false,
-    description: `Auto-derive ${tcName} typeclass instance`,
-
-    expand(
-      ctx: MacroContext,
-      target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
-      typeInfo: DeriveTypeInfo
-    ): ts.Statement[] {
-      const derivation = builtinDerivations[tcName];
-      if (!derivation) {
-        ctx
-          .diagnostic(TS9101)
-          .at(target)
-          .withArgs({ typeclass: tcName, type: typeInfo.name, field: "*", fieldType: "*" })
-          .help(
-            `Register a custom derivation or provide a manual @impl ${tcName}<${typeInfo.name}>`
-          )
-          .emit();
-        return [];
-      }
-
-      const { name: typeName, fields, kind, discriminant, variants, typeParameters } = typeInfo;
-      let code: string | undefined;
-
-      // Use typeInfo.kind to determine derivation method (zero-cost: metadata-driven)
-      if (kind === "sum" && discriminant && variants) {
-        // For generic types with type parameters, try factory function derivation
-        if (typeParameters.length > 0 && derivation.deriveGenericSum) {
-          code = derivation.deriveGenericSum(typeName, discriminant, variants, typeParameters);
-        }
-
-        // Fall back to non-generic derivation if generic not supported
-        if (!code) {
-          const variantInfos = variants.map((v) => ({
-            tag: v.tag,
-            typeName: v.typeName,
-          }));
-          code = derivation.deriveSum(typeName, discriminant, variantInfos);
-        }
-      } else {
-        // Product type derivation (default)
-        code = derivation.deriveProduct(typeName, fields);
-      }
-
-      // Strip runtime registration calls unless the typeclass is locally defined
-      // AND exported. Imported typeclasses don't have .registerInstance() in scope.
-      const currentFile = ctx.sourceFile.fileName;
-      const isLocallyDefined = globalResolutionScope
-        .getScope(currentFile)
-        .definedTypeclasses.has(tcName);
-      const tcInfo = typeclassRegistry.get(tcName);
-      if (!isLocallyDefined || !tcInfo?.isExported) {
-        code = stripRuntimeRegistration(code!);
-      }
-
-      const stmts = ctx.parseStatements(code!);
-
-      // Only register instance if not a generic factory function
-      // (generic factories are called at use site, not registered globally)
-      if (typeParameters.length === 0) {
-        const varName = instanceVarName(uncapitalize(tcName), typeName);
-        instanceRegistry.push({
-          typeclassName: tcName,
-          forType: typeName,
-          instanceName: varName,
-          derived: true,
-        });
-
-        // Bridge to specialization registry for zero-cost inlining at call sites
-        const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
-        if (specMethods && Object.keys(specMethods).length > 0) {
-          const methodsMap = new Map<string, { source?: string; params: string[] }>();
-          for (const [name, impl] of Object.entries(specMethods)) {
-            methodsMap.set(name, { source: impl.source, params: impl.params });
-          }
-          registerInstanceMethodsFromAST(varName, typeName, methodsMap);
-        }
-      }
-
-      return stmts;
-    },
-  });
-}
 
 /**
  * Try to extract sum type information from a type alias declaration.
@@ -3044,613 +3129,6 @@ export function tryExtractSumType(
   return undefined;
 }
 
-// Register derive macros for built-in typeclasses
-const showTCDerive = createTypeclassDeriveMacro("Show");
-const eqTCDerive = createTypeclassDeriveMacro("Eq");
-const ordTCDerive = createTypeclassDeriveMacro("Ord");
-const hashTCDerive = createTypeclassDeriveMacro("Hash");
-const functorTCDerive = createTypeclassDeriveMacro("Functor");
-
-// ============================================================================
-// @deriving - Attribute Macro (Convenience)
-// ============================================================================
-// A convenience attribute that combines multiple typeclass derivations.
-//
-// @deriving(Show, Eq, Ord)
-// interface Point { x: number; y: number; }
-// ============================================================================
-
-function isPrimitiveTypeFlags(type: ts.Type): boolean {
-  const f = type.flags;
-  return !!(
-    f & ts.TypeFlags.Number ||
-    f & ts.TypeFlags.String ||
-    f & ts.TypeFlags.Boolean ||
-    f & ts.TypeFlags.BigInt ||
-    f & ts.TypeFlags.Null ||
-    f & ts.TypeFlags.Undefined ||
-    f & ts.TypeFlags.Void ||
-    f & ts.TypeFlags.Never ||
-    f & ts.TypeFlags.NumberLiteral ||
-    f & ts.TypeFlags.StringLiteral ||
-    f & ts.TypeFlags.BooleanLiteral ||
-    f & ts.TypeFlags.BigIntLiteral
-  );
-}
-
-const BUILTIN_DERIVE_DEPS: Record<string, string[]> = {
-  Ord: ["Eq"],
-  Monoid: ["Semigroup"],
-};
-
-function sortArgsByDependency(args: readonly ts.Expression[]): ts.Expression[] {
-  const identArgs = args.filter(ts.isIdentifier);
-  if (identArgs.length < 2) return [...args];
-
-  const nameToIndex = new Map<string, number>();
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (ts.isIdentifier(a)) nameToIndex.set(a.text, i);
-  }
-
-  let hasDeps = false;
-  const n = args.length;
-  const inDegree = new Array<number>(n).fill(0);
-  const adj: number[][] = [];
-  for (let i = 0; i < n; i++) adj.push([]);
-
-  for (let i = 0; i < n; i++) {
-    const a = args[i];
-    if (!ts.isIdentifier(a)) continue;
-    const name = a.text;
-    const deps: string[] = [];
-
-    const deriveMacro = globalRegistry.getDerive(name);
-    if (deriveMacro?.expandAfter) deps.push(...deriveMacro.expandAfter);
-
-    const tcMacro = globalRegistry.getDerive(`${name}TC`);
-    if (tcMacro?.expandAfter) deps.push(...tcMacro.expandAfter);
-
-    const builtinDeps = BUILTIN_DERIVE_DEPS[name];
-    if (builtinDeps) deps.push(...builtinDeps);
-
-    for (const dep of deps) {
-      const depIdx = nameToIndex.get(dep);
-      if (depIdx !== undefined) {
-        adj[depIdx].push(i);
-        inDegree[i]++;
-        hasDeps = true;
-      }
-    }
-  }
-
-  if (!hasDeps) return [...args];
-
-  const queue: number[] = [];
-  for (let i = 0; i < n; i++) {
-    if (inDegree[i] === 0) queue.push(i);
-  }
-
-  const sorted: ts.Expression[] = [];
-  while (queue.length > 0) {
-    queue.sort((a, b) => a - b);
-    const idx = queue.shift()!;
-    sorted.push(args[idx]);
-    for (const next of adj[idx]) {
-      inDegree[next]--;
-      if (inDegree[next] === 0) queue.push(next);
-    }
-  }
-
-  return sorted.length < n ? [...args] : sorted;
-}
-
-function expandDeriving(
-  ctx: MacroContext,
-  _decorator: ts.Decorator,
-  target: ts.Declaration,
-  args: readonly ts.Expression[]
-): ts.Node | ts.Node[] {
-  if (
-    !ts.isInterfaceDeclaration(target) &&
-    !ts.isClassDeclaration(target) &&
-    !ts.isTypeAliasDeclaration(target)
-  ) {
-    ctx
-      .diagnostic(TS9102)
-      .at(target)
-      .withArgs({ typeclass: "@derive" })
-      .help("Apply @derive to an interface, class, or type alias declaration")
-      .emit();
-    return target;
-  }
-
-  const typeName = target.name?.text ?? "Anonymous";
-
-  let type: ts.Type | undefined;
-  try {
-    type = ctx.typeChecker.getTypeAtLocation(target);
-  } catch {
-    // TypeChecker not ready — fall through to AST-based extraction
-  }
-
-  // -----------------------------------------------------------------------
-  // DEGRADED MODE: TypeChecker unavailable (IDE background)
-  //
-  // When the TypeChecker can't resolve types, we can only do AST-based
-  // error detection. We must NOT generate derivation code because it would
-  // reference identifiers (eqNumber, ordNumber, etc.) that don't exist
-  // in the IDE's type scope, producing cascading spurious TS errors.
-  //
-  // Real derivation code generation happens during tspc build when the
-  // TypeChecker is fully operational.
-  // -----------------------------------------------------------------------
-  if (!type) {
-    const astFields = extractFieldsFromAST(target);
-
-    // TS9103: Union type without discriminant
-    if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type)) {
-      const astSum = tryExtractSumTypeFromAST(target);
-      if (!astSum) {
-        ctx
-          .diagnostic(TS9103)
-          .at(target)
-          .help('Add a discriminant field like `kind: "a"` to each variant')
-          .emit();
-      }
-      // Valid discriminated union or unresolvable — skip code generation
-      return target;
-    }
-
-    // TS9104: Empty type (no fields)
-    if (astFields.length === 0) {
-      for (const arg of args) {
-        if (ts.isIdentifier(arg)) {
-          ctx
-            .diagnostic(TS9104)
-            .at(target)
-            .withArgs({ typeclass: arg.text, type: typeName })
-            .help("Add fields to the type, or provide a manual @instance")
-            .emit();
-        }
-      }
-      return target;
-    }
-
-    // TS9101: Fields contain non-derivable types (functions, unknown, etc.)
-    for (const field of astFields) {
-      const t = field.typeString;
-      if (t.includes("=>") || t === "unknown" || t === "never" || t === "any") {
-        for (const arg of args) {
-          if (ts.isIdentifier(arg)) {
-            ctx
-              .diagnostic(TS9101)
-              .at(target)
-              .withArgs({ typeclass: arg.text, type: typeName, field: field.name, fieldType: t })
-              .help(
-                `Field \`${field.name}\` has type \`${t}\` which likely can't derive ${arg.text}`
-              )
-              .emit();
-          }
-        }
-        return target;
-      }
-    }
-
-    // Type looks valid but we can't generate code without TypeChecker.
-    // Return unchanged — derivation will happen during tspc build.
-    return target;
-  }
-
-  const typeParameters = target.typeParameters ? Array.from(target.typeParameters) : [];
-
-  // Extract fields via TypeChecker (available in this branch)
-  let fields: DeriveFieldInfo[] = [];
-  let properties: ts.Symbol[];
-  try {
-    properties = ctx.typeChecker.getPropertiesOfType(type) as ts.Symbol[];
-  } catch {
-    properties = [];
-  }
-
-  let isRecursive = false;
-  for (const prop of properties) {
-    if (!prop) continue;
-    const declarations = prop.getDeclarations();
-    if (!declarations || declarations.length === 0) continue;
-    const decl = declarations[0];
-
-    let propType: ts.Type;
-    let propTypeString: string;
-    try {
-      propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-      propTypeString = ctx.typeChecker.typeToString(propType);
-    } catch {
-      continue;
-    }
-
-    if (propTypeString === typeName || propTypeString.includes(`${typeName}<`)) {
-      isRecursive = true;
-    }
-
-    const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-    const readonly =
-      ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
-        ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
-        : false;
-
-    fields.push({
-      name: prop.name,
-      typeString: propTypeString,
-      type: propType,
-      optional,
-      readonly,
-    });
-  }
-
-  // AST fallback when TypeChecker returned empty properties
-  if (fields.length === 0) {
-    fields = extractFieldsFromAST(target);
-  }
-
-  // Detect if this is a sum type and populate metadata
-  let sumInfo:
-    | {
-        discriminant: string;
-        variants: Array<{ tag: string; typeName: string }>;
-      }
-    | undefined;
-  if (ts.isTypeAliasDeclaration(target)) {
-    sumInfo = tryExtractSumType(ctx, target);
-  }
-
-  // Extract variant fields for sum types
-  const variants: DeriveVariantInfo[] = [];
-  if (sumInfo && ts.isTypeAliasDeclaration(target)) {
-    for (const variant of sumInfo.variants) {
-      const variantFields: DeriveFieldInfo[] = [];
-      if (ts.isUnionTypeNode(target.type)) {
-        for (const member of target.type.types) {
-          let matched = false;
-          if (ts.isTypeReferenceNode(member) && member.typeName.getText() === variant.typeName) {
-            matched = true;
-          } else if (ts.isTypeLiteralNode(member)) {
-            // For inline type literals, match by checking the discriminant value
-            try {
-              const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
-              const discProp = ctx.typeChecker
-                .getPropertiesOfType(memberType)
-                .find((p: ts.Symbol) => p.name === sumInfo!.discriminant);
-              if (discProp) {
-                const decl = discProp.getDeclarations()?.[0];
-                if (decl) {
-                  const discType = ctx.typeChecker.getTypeOfSymbolAtLocation(discProp, decl);
-                  if (discType.isStringLiteral() && discType.value === variant.tag) {
-                    matched = true;
-                  }
-                }
-              }
-            } catch {
-              // TypeChecker not ready
-            }
-          }
-
-          if (matched) {
-            try {
-              const variantType = ctx.typeChecker.getTypeFromTypeNode(member);
-              const props = ctx.typeChecker.getPropertiesOfType(variantType);
-              for (const prop of props) {
-                if (!prop || prop.name === sumInfo.discriminant) continue;
-                const decl = prop.getDeclarations()?.[0];
-                if (!decl) continue;
-                const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-                variantFields.push({
-                  name: prop.name,
-                  typeString: ctx.typeChecker.typeToString(propType),
-                  type: propType,
-                  optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
-                  readonly: false,
-                });
-              }
-            } catch {
-              // TypeChecker not ready for variant resolution
-            }
-            break;
-          }
-        }
-      }
-      variants.push({
-        tag: variant.tag,
-        typeName: variant.typeName,
-        fields: variantFields,
-      });
-    }
-  }
-
-  // Check for union types without discriminant - emit TS9103
-  if (ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type) && !sumInfo) {
-    ctx
-      .diagnostic(TS9103)
-      .at(target)
-      .help('Add a discriminant field like `kind: "a"` to each variant')
-      .emit();
-    return target;
-  }
-
-  // Primitive type alias detection (e.g., `type UserId = string`)
-  const isPrimitive = ts.isTypeAliasDeclaration(target) && !sumInfo && isPrimitiveTypeFlags(type);
-
-  // TS9104: Empty type (no fields) — not a union, has no derivable content
-  if (
-    fields.length === 0 &&
-    !isPrimitive &&
-    !(ts.isTypeAliasDeclaration(target) && ts.isUnionTypeNode(target.type))
-  ) {
-    for (const arg of args) {
-      if (ts.isIdentifier(arg)) {
-        ctx
-          .diagnostic(TS9104)
-          .at(target)
-          .withArgs({ typeclass: arg.text, type: typeName })
-          .help("Add fields to the type, or provide a manual @instance")
-          .emit();
-      }
-    }
-    return target;
-  }
-
-  // Construct complete DeriveTypeInfo with sum type metadata
-  const typeInfo: DeriveTypeInfo = {
-    name: typeName,
-    fields,
-    typeParameters,
-    type: type as ts.Type,
-    kind: sumInfo ? "sum" : isPrimitive ? "primitive" : "product",
-    isRecursive: isRecursive || undefined,
-    ...(sumInfo && {
-      discriminant: sumInfo.discriminant,
-      variants,
-    }),
-  };
-
-  const allStatements: ts.Statement[] = [];
-
-  // Parse transitive options from args (e.g., { transitive: false })
-  const transitiveOptions = parseTransitiveOptions(args);
-
-  // Sort args by dependency order (e.g., Ord after Eq)
-  const sortedArgs = sortArgsByDependency(args);
-
-  for (const arg of sortedArgs) {
-    // Skip object literals (they're options, not typeclass names)
-    if (ts.isObjectLiteralExpression(arg)) {
-      continue;
-    }
-
-    if (!ts.isIdentifier(arg)) {
-      ctx
-        .diagnostic(TS9060)
-        .at(arg)
-        .withArgs({ name: arg.getText() })
-        .help("derive arguments must be identifiers, not expressions")
-        .emit();
-      continue;
-    }
-
-    const tcName = arg.text;
-
-    // Priority 1: Custom derive macro registered by name (allows overriding builtins)
-    const customDerive = globalRegistry.getDerive(tcName);
-    if (customDerive) {
-      try {
-        const stmts = customDerive.expand(ctx, target, typeInfo);
-        allStatements.push(...stmts);
-      } catch (err: unknown) {
-        ctx
-          .diagnostic(TS9101)
-          .at(arg)
-          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
-          .note(
-            `Derive macro expansion failed for '${tcName}': ${err instanceof Error ? err.message : String(err)}`
-          )
-          .emit();
-      }
-      continue;
-    }
-
-    // Priority 2: Builtin derivation strategy
-    const derivation = builtinDerivations[tcName];
-
-    if (derivation) {
-      // === TRANSITIVE DERIVATION ===
-      // Skip for sum types — variant decomposition is handled by deriveSum/deriveGenericSum.
-      // Transitive derivation on sum types would inspect the union's common properties
-      // (e.g., the discriminant field's literal union type), not the actual variant fields.
-      if (typeInfo.kind !== "sum") {
-        const plan = buildTransitiveDerivationPlan(ctx, typeName, tcName, transitiveOptions);
-
-        for (const err of plan.errors) {
-          ctx
-            .diagnostic(TS9101)
-            .at(target)
-            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
-            .note(err)
-            .help(`Ensure all nested types have ${tcName} instances`)
-            .emit();
-        }
-        for (const cycle of plan.cycles) {
-          ctx
-            .diagnostic(TS9101)
-            .at(target)
-            .withArgs({ typeclass: tcName, type: typeName, field: "*", fieldType: "*" })
-            .note(`Circular reference: ${cycle.join(" → ")}`)
-            .help(`Add explicit @derive(${tcName}) to one of the types in the cycle to break it`)
-            .emit();
-        }
-
-        const nestedTypes = plan.types.filter((t) => t.typeName !== typeName);
-        if (nestedTypes.length > 0) {
-          const nestedStatements = executeTransitiveDerivation(ctx, tcName, {
-            ...plan,
-            types: nestedTypes,
-          });
-          allStatements.push(...nestedStatements);
-        }
-      }
-
-      // === DERIVE ROOT TYPE ===
-      let code: string | undefined;
-      const varName = instanceVarName(uncapitalize(tcName), typeName);
-      const { typeParameters } = typeInfo;
-
-      // Use typeInfo.kind to determine derivation method
-      if (typeInfo.kind === "sum" && typeInfo.discriminant && variants.length > 0) {
-        // Prefer deriveGenericSum — it generates inline field comparisons per variant,
-        // which works for both named type references AND inline type literals.
-        if (derivation.deriveGenericSum) {
-          code = derivation.deriveGenericSum(
-            typeName,
-            typeInfo.discriminant,
-            variants,
-            typeParameters
-          );
-        }
-
-        // Fall back to non-generic derivation (requires named variant types with instances)
-        if (!code) {
-          code = derivation.deriveSum(typeName, typeInfo.discriminant, variants);
-        }
-      } else {
-        code = derivation.deriveProduct(typeName, fields);
-      }
-
-      // Strip runtime registration calls unless the typeclass is locally defined
-      // AND exported. Imported typeclasses don't have .registerInstance() in scope.
-      const currentFile = ctx.sourceFile.fileName;
-      const isLocallyDefined = globalResolutionScope
-        .getScope(currentFile)
-        .definedTypeclasses.has(tcName);
-      const tcInfo = typeclassRegistry.get(tcName);
-      if (!isLocallyDefined || !tcInfo?.isExported) {
-        code = stripRuntimeRegistration(code!);
-      }
-
-      allStatements.push(...ctx.parseStatements(code!));
-
-      // Only register instance if not a generic factory function
-      // (generic factories are called at use site, not registered globally)
-      if (typeParameters.length === 0) {
-        instanceRegistry.push({
-          typeclassName: tcName,
-          forType: typeName,
-          instanceName: varName,
-          derived: true,
-        });
-
-        // Notify coverage system
-        notifyPrimitiveRegistered(typeName, tcName);
-
-        // Bridge to specialization registry: register derived instance methods
-        // For HKT typeclasses (Functor, Monad, etc.), this enables zero-cost specialization
-        const specMethods = getSpecializationMethodsForDerivation(tcName, typeName, fields);
-        if (specMethods && Object.keys(specMethods).length > 0) {
-          // Convert plain object to Map<string, DictMethod> for registerInstanceMethodsFromAST
-          const methodsMap = new Map<string, { source?: string; params: string[] }>();
-          for (const [name, impl] of Object.entries(specMethods)) {
-            methodsMap.set(name, { source: impl.source, params: impl.params });
-          }
-          registerInstanceMethodsFromAST(varName, typeName, methodsMap);
-        }
-      }
-    } else {
-      // Special case: Builder doesn't fit the typeclass model
-      // It's a factory pattern, not a type-parameterized interface
-      if (tcName === "Builder") {
-        ctx
-          .diagnostic(TS9101)
-          .at(arg)
-          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
-          .note(
-            `Builder is not supported as a typeclass derivation. ` +
-              `Unlike Eq<T> or Clone<T>, Builder doesn't have a type parameter for the target type.`
-          )
-          .help(
-            `Use a builder library like '@sinclair/typebox' or write a manual builder:\n` +
-              `  static builder() { return new ${typeName}Builder(); }`
-          )
-          .emit();
-        continue;
-      }
-
-      // Priority 3: {Name}TC convention
-      const tcDerive = globalRegistry.getDerive(`${tcName}TC`);
-      if (tcDerive) {
-        try {
-          const stmts = tcDerive.expand(ctx, target, typeInfo);
-          allStatements.push(...stmts);
-        } catch (err: unknown) {
-          ctx
-            .diagnostic(TS9101)
-            .at(arg)
-            .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
-            .note(
-              `Derive macro expansion failed for '${tcName}': ${err instanceof Error ? err.message : String(err)}`
-            )
-            .emit();
-        }
-      } else {
-        const tcSuggestions = getSuggestionsForSymbol(tcName);
-        const builder = ctx
-          .diagnostic(TS9101)
-          .at(arg)
-          .withArgs({ typeclass: tcName, type: typeName, field: "—", fieldType: "—" })
-          .note(
-            `Unknown derive '${tcName}': no auto-derivation, no ${tcName}TC derive macro found`
-          );
-
-        if (tcSuggestions.length > 0) {
-          builder.help(`Import ${tcName}: ${tcSuggestions[0].importStatement}`);
-        } else {
-          builder.help(
-            `Define a custom derivation or provide a manual @impl ${tcName}<${typeName}>`
-          );
-        }
-
-        builder.emit();
-      }
-    }
-  }
-
-  return [target, ...allStatements];
-}
-
-export const deriveAttribute = defineAttributeMacro({
-  name: "derive",
-  module: "@typesugar/typeclass",
-  cacheable: false,
-  description: "Auto-derive typeclass instances for a type (unified decorator)",
-  validTargets: ["interface", "class", "type"],
-  expand: expandDeriving,
-});
-
-export const derivingAttribute = defineAttributeMacro({
-  name: "deriving",
-  module: "@typesugar/typeclass",
-  cacheable: false,
-  description: "@deprecated Use @derive instead",
-  validTargets: ["interface", "class", "type"],
-
-  expand(
-    ctx: MacroContext,
-    decorator: ts.Decorator,
-    target: ts.Declaration,
-    args: readonly ts.Expression[]
-  ): ts.Node | ts.Node[] {
-    ctx.reportWarning(target, "@deriving is renamed to @derive. Please update your code.");
-    return expandDeriving(ctx, decorator, target, args);
-  },
-});
-
 // ============================================================================
 // summon<TC<A>>() - Expression Macro
 // ============================================================================
@@ -3734,7 +3212,8 @@ export const summonMacro = defineExpressionMacro({
     // 1. Check for explicit instance in the compile-time registry
     const explicitInstance = findInstance(tcName, typeName, ctx.sourceFile.fileName);
     if (explicitInstance) {
-      return ctx.parseExpression(instanceVarName(tcName, typeName));
+      const cPath = explicitInstance.companionPath || instanceVarName(tcName, typeName);
+      return ctx.parseExpression(cPath);
     }
     attempts.push({
       step: "explicit-instance",
@@ -4352,7 +3831,7 @@ builtinDerivations["Semigroup"] = {
     const varName = instanceVarName("semigroup", typeName);
     const fieldCombines = fields
       .map((f) => {
-        const inst = instanceVarName("semigroup", getBaseType(f));
+        const inst = companionAccess("Semigroup", getBaseType(f));
         return `    ${f.name}: ${inst}.combine(a.${f.name}, b.${f.name})`;
       })
       .join(",\n");
@@ -4382,13 +3861,13 @@ builtinDerivations["Monoid"] = {
     const varName = instanceVarName("monoid", typeName);
     const fieldEmpties = fields
       .map((f) => {
-        const inst = instanceVarName("monoid", getBaseType(f));
+        const inst = companionAccess("Monoid", getBaseType(f));
         return `    ${f.name}: ${inst}.empty()`;
       })
       .join(",\n");
     const fieldCombines = fields
       .map((f) => {
-        const inst = instanceVarName("monoid", getBaseType(f));
+        const inst = companionAccess("Monoid", getBaseType(f));
         return `    ${f.name}: ${inst}.combine(a.${f.name}, b.${f.name})`;
       })
       .join(",\n");
@@ -4749,7 +4228,14 @@ export function updateTypeclassSyntax(tcName: string, syntax: Map<string, string
  *
  * @param info The instance information including optional metadata
  */
-export function registerInstanceWithMeta(info: InstanceInfo): void {
+export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any): void {
+  // Auto-compute companionPath when instanceValue is provided (indicating the caller
+  // wants companion population). This covers std primitives and @derive instances.
+  // Manual @impl instances without instanceValue keep flat variable names.
+  if (!info.companionPath && instanceValue !== undefined) {
+    info.companionPath = companionPath(info.typeclassName, info.forType);
+  }
+
   // Check for existing instance and update if found
   const existingIndex = instanceRegistry.findIndex(
     (i) => i.typeclassName === info.typeclassName && i.forType === info.forType
@@ -4758,6 +4244,14 @@ export function registerInstanceWithMeta(info: InstanceInfo): void {
     instanceRegistry[existingIndex] = info;
   } else {
     instanceRegistry.push(info);
+  }
+
+  // Attach to typeclass companion if available (populated by @typeclass macro)
+  if (instanceValue !== undefined) {
+    const companions = (globalThis as any).__typesugar_companions;
+    if (companions && companions[info.typeclassName]) {
+      companions[info.typeclassName][info.forType] = instanceValue;
+    }
   }
 }
 
@@ -4965,15 +4459,8 @@ export function registerTypeclassMacros(): void {
       expand: implMacro.expand,
     })
   );
-  globalRegistry.register(deriveAttribute);
-  globalRegistry.register(derivingAttribute);
   globalRegistry.register(summonMacro);
   globalRegistry.register(extendMacro);
-  globalRegistry.register(showTCDerive);
-  globalRegistry.register(eqTCDerive);
-  globalRegistry.register(ordTCDerive);
-  globalRegistry.register(hashTCDerive);
-  globalRegistry.register(functorTCDerive);
 }
 
 registerTypeclassMacros();
@@ -4998,7 +4485,9 @@ export {
   findInstance,
   getTypeclass,
   instanceVarName,
-  createTypeclassDeriveMacro,
+  companionPath,
+  convertToCompanionAssignment,
+  ensureDataTypeCompanionConst,
   getSyntaxForOperator,
   clearSyntaxRegistry, // deprecated, no-op
   // Comprehension typeclass support (exported via export function declarations above)

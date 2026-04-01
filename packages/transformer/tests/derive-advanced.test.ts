@@ -120,7 +120,7 @@ interface Point { x: number; y: number; }
 
     const result = transformCode(code, { fileName: "derive-eq-reg.ts" });
 
-    expect(result.code).toContain("eqPoint");
+    expect(result.code).toContain("(Point as any).Eq");
     expect(result.code).toContain("equals:");
     expect(result.changed).toBe(true);
 
@@ -138,7 +138,7 @@ interface User { name: string; age: number; }
     const result = transformCode(code, { fileName: "derive-show.ts" });
 
     expect(result.code).toContain("show");
-    expect(result.code).toContain("showUser");
+    expect(result.code).toContain("(User as any).Show");
     expect(result.changed).toBe(true);
   });
 
@@ -151,7 +151,7 @@ interface Score { value: number; }
     const result = transformCode(code, { fileName: "derive-ord.ts" });
 
     expect(result.code).toContain("compare");
-    expect(result.code).toContain("ordScore");
+    expect(result.code).toContain("(Score as any).Ord");
     expect(result.changed).toBe(true);
   });
 
@@ -164,7 +164,7 @@ interface Key { id: number; name: string; }
     const result = transformCode(code, { fileName: "derive-hash.ts" });
 
     expect(result.code).toContain("hash");
-    expect(result.code).toContain("hashKey");
+    expect(result.code).toContain("(Key as any).Hash");
     expect(result.changed).toBe(true);
   });
 
@@ -176,8 +176,8 @@ interface Pair { a: number; b: number; }
 
     const result = transformCode(code, { fileName: "derive-multi.ts" });
 
-    expect(result.code).toContain("eqPair");
-    expect(result.code).toContain("showPair");
+    expect(result.code).toContain("(Pair as any).Eq");
+    expect(result.code).toContain("(Pair as any).Show");
 
     const eqEntry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Pair");
     const showEntry = instanceRegistry.find(

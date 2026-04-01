@@ -478,7 +478,13 @@ function buildModuleRegistry(): Record<string, Record<string, unknown>> {
   }
 
   // Mirror packages/playground/src/runtime-entry.ts
-  register("typesugar", () => require("@typesugar/core"));
+  // Merge @typesugar/std exports into "typesugar" so that companion-style
+  // references like (Eq as any).number resolve at runtime (PEP-032 generates
+  // these for derived instances using imported typeclasses).
+  register("typesugar", () => ({
+    ...require("@typesugar/core"),
+    ...require("@typesugar/std"),
+  }));
   register("@typesugar/core", () => require("@typesugar/core"));
   register("@typesugar/type-system", () => require("@typesugar/type-system"));
   register("@typesugar/typeclass", () => require("@typesugar/typeclass"));
@@ -571,7 +577,9 @@ function transpileToJS(tsCode: string): string {
  * CJS/ESM module loading differences (the browser uses an IIFE runtime bundle,
  * the test uses require()). Verified working in browser on each change.
  */
-const EXECUTION_SKIP = new Set<string>([]);
+const EXECUTION_SKIP = new Set<string>([
+  // No skips — PEP-032 @impl companion assignments now work for all types
+]);
 
 describe("all examples execute without runtime errors", () => {
   const moduleRegistry = buildModuleRegistry();

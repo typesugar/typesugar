@@ -24,6 +24,7 @@ import {
   instanceRegistry,
   typeclassRegistry,
   instanceVarName,
+  companionPath,
   tryExtractSumType,
   hasImplicitParams,
   transformImplicitsCall,
@@ -53,6 +54,8 @@ import {
   type DictMethod,
   type ResultAlgebra,
   createRegistrationCall,
+  convertToCompanionAssignment,
+  ensureDataTypeCompanionConst,
 } from "@typesugar/macros";
 
 import {
@@ -109,6 +112,10 @@ import {
   parseTypeInstantiation,
   extractTypeArgumentsContent,
   stripTypeArguments,
+  // Derive diagnostics
+  TS9101,
+  TS9103,
+  TS9104,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -2733,7 +2740,15 @@ class MacroTransformer {
       return expr.text;
     }
     if (ts.isPropertyAccessExpression(expr)) {
+      // Return full dotted path for companion paths (e.g. "Point.Eq")
+      const objName = this.getInstanceName(expr.expression);
+      if (objName) {
+        return `${objName}.${expr.name.text}`;
+      }
       return expr.name.text;
+    }
+    if (ts.isParenthesizedExpression(expr)) {
+      return this.getInstanceName(expr.expression);
     }
     if (ts.isAsExpression(expr)) {
       return this.getInstanceName(expr.expression);
@@ -3966,6 +3981,24 @@ class MacroTransformer {
       const macroName = MacroTransformer.JSDOC_MACRO_TAGS.get(tag.tagName.text);
       if (!macroName) continue;
 
+      // Handle @derive/@deriving JSDoc directly through the transformer's derive handler
+      // (the macro-system derive attribute was removed in PEP-032; the transformer owns derive processing)
+      if (macroName === "deriving" || macroName === "derive") {
+        const args = this.parseJSDocMacroArgs(tag, macroName);
+        if (
+          ts.isInterfaceDeclaration(currentNode) ||
+          ts.isClassDeclaration(currentNode) ||
+          ts.isTypeAliasDeclaration(currentNode)
+        ) {
+          const syntheticDecorator = this.createSyntheticDecorator(tag, macroName, args);
+          const derives = this.expandDeriveDecorator(syntheticDecorator, currentNode, args);
+          if (derives) {
+            results.push(...derives);
+          }
+        }
+        continue;
+      }
+
       const macro = globalRegistry.getAttribute(macroName);
       if (!macro) {
         this.ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
@@ -4664,6 +4697,48 @@ class MacroTransformer {
             `[typesugar] Auto-deriving typeclass instance: ${deriveName} for ${typeName}`
           );
         }
+
+        // Check for empty types (no fields to derive from)
+        if (typeInfo.fields.length === 0 && !ts.isTypeAliasDeclaration(node)) {
+          this.ctx
+            .diagnostic(TS9104)
+            .at(arg)
+            .withArgs({ typeclass: deriveName, type: typeName })
+            .emit();
+          continue;
+        }
+
+        // Check for non-derivable field types (functions)
+        if (["Eq", "Ord", "Hash", "Clone"].includes(deriveName)) {
+          for (const field of typeInfo.fields) {
+            if (field.typeString.includes("=>") || field.typeString.startsWith("(")) {
+              this.ctx
+                .diagnostic(TS9101)
+                .at(arg)
+                .withArgs({
+                  typeclass: deriveName,
+                  type: typeName,
+                  field: field.name,
+                  fieldType: field.typeString,
+                })
+                .emit();
+            }
+          }
+        }
+
+        // Check for union without discriminant
+        if (ts.isTypeAliasDeclaration(node)) {
+          const sumCheck = tryExtractSumType(this.ctx, node);
+          if (!sumCheck && ts.isUnionTypeNode(node.type)) {
+            this.ctx
+              .diagnostic(TS9103)
+              .at(arg)
+              .withArgs({ typeclass: deriveName, type: typeName })
+              .emit();
+            continue;
+          }
+        }
+
         try {
           let code: string;
 
@@ -4682,18 +4757,26 @@ class MacroTransformer {
             code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
           }
 
-          // Strip runtime registration calls unless the typeclass is locally defined
-          // AND exported. Imported typeclasses don't have .registerInstance() in scope.
-          const currentFile = this.ctx.sourceFile.fileName;
-          const isLocallyDefined = globalResolutionScope
-            .getScope(currentFile)
-            .definedTypeclasses.has(deriveName);
-          const tcInfo = typeclassRegistry.get(deriveName);
-          if (!isLocallyDefined || !tcInfo?.isExported) {
-            code = code.replace(
-              /\/\*#__PURE__\*\/\s*\w+\.registerInstance<[^>]+>\([^)]+\);\s*\n?/g,
-              ""
+          // Convert to companion property assignment (replaces flat const + runtime registration)
+          code = convertToCompanionAssignment(code, deriveName, typeName);
+
+          // Ensure companion const exists for interfaces/type aliases
+          const isExported =
+            node.modifiers?.some((m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword) ??
+            false;
+          const companionCode = ensureDataTypeCompanionConst(node as any, typeName, isExported);
+          if (companionCode) {
+            // Only emit companion const if not already emitted for this type
+            const alreadyHasCompanion = statements.some(
+              (s) =>
+                ts.isVariableStatement(s) &&
+                s.declarationList.declarations.some(
+                  (d) => ts.isIdentifier(d.name) && d.name.text === typeName
+                )
             );
+            if (!alreadyHasCompanion) {
+              statements.push(...this.ctx.parseStatements(companionCode));
+            }
           }
 
           const parsedStmts = this.ctx.parseStatements(code);
@@ -4705,6 +4788,7 @@ class MacroTransformer {
             typeclassName: deriveName,
             forType: typeName,
             instanceName: varName,
+            companionPath: companionPath(deriveName, typeName),
             derived: true,
           });
 
@@ -4718,7 +4802,11 @@ class MacroTransformer {
             for (const [name, impl] of Object.entries(specMethods)) {
               methodsMap.set(name, { source: impl.source, params: impl.params });
             }
-            registerInstanceMethodsFromAST(varName, typeName, methodsMap);
+            registerInstanceMethodsFromAST(
+              companionPath(deriveName, typeName),
+              typeName,
+              methodsMap
+            );
           }
         } catch (error) {
           this.ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
@@ -6065,7 +6153,13 @@ class MacroTransformer {
 
     let matchedEntry: { typeclass: string; method: string } | undefined;
     let matchedInstance:
-      | { typeclassName: string; forType: string; instanceName: string; sourceModule?: string }
+      | {
+          typeclassName: string;
+          forType: string;
+          instanceName: string;
+          companionPath?: string;
+          sourceModule?: string;
+        }
       | undefined;
 
     const sfn = this.ctx.sourceFile.fileName;
@@ -6127,7 +6221,9 @@ class MacroTransformer {
     const right = ts.visitNode(node.right, this.visit.bind(this)) as ts.Expression;
 
     // Try zero-cost inlining if instance methods are available
-    const dictMethodMap = getInstanceMethods(matchedInstance.instanceName);
+    const dictMethodMap = getInstanceMethods(
+      matchedInstance.companionPath || matchedInstance.instanceName
+    );
     if (dictMethodMap) {
       const dictMethod = dictMethodMap.methods.get(matchedEntry.method);
       if (dictMethod && dictMethod.source) {
@@ -6137,21 +6233,36 @@ class MacroTransformer {
     }
 
     // If the instance comes from another module, schedule an import injection
-    if (matchedInstance.sourceModule && !this.isAlreadyImported(matchedInstance.instanceName)) {
-      const key = `${matchedInstance.instanceName}::${matchedInstance.sourceModule}`;
+    // With companion paths, we import the base type (e.g., "Point" from "Point.Eq")
+    const importName = matchedInstance.companionPath
+      ? matchedInstance.companionPath.split(".")[0]
+      : matchedInstance.instanceName;
+    if (matchedInstance.sourceModule && !this.isAlreadyImported(importName)) {
+      const key = `${importName}::${matchedInstance.sourceModule}`;
       if (!this.pendingTypeRewriteImports.has(key)) {
         this.pendingTypeRewriteImports.set(key, {
-          name: matchedInstance.instanceName,
+          name: importName,
           module: matchedInstance.sourceModule,
         });
       }
     }
 
-    // Emit instanceVar.method(left, right)
-    const methodAccess = factory.createPropertyAccessExpression(
-      factory.createIdentifier(matchedInstance.instanceName),
-      matchedEntry.method
-    );
+    // Emit instanceRef.method(left, right)
+    // Use companion path if available (e.g., (Point as any).Eq.equals instead of eqPoint.equals)
+    // Wrap in (X as any) to avoid TypeScript errors on dynamically-attached properties
+    const instName = matchedInstance.companionPath || matchedInstance.instanceName;
+    const instanceRef = instName.includes(".")
+      ? factory.createPropertyAccessExpression(
+          factory.createParenthesizedExpression(
+            factory.createAsExpression(
+              factory.createIdentifier(instName.split(".")[0]),
+              factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
+            )
+          ),
+          instName.split(".")[1]
+        )
+      : factory.createIdentifier(instName);
+    const methodAccess = factory.createPropertyAccessExpression(instanceRef, matchedEntry.method);
     const rewritten = factory.createCallExpression(methodAccess, undefined, [
       stripCommentsDeep(left),
       stripCommentsDeep(right),

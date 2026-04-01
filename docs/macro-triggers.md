@@ -6,19 +6,19 @@ This document describes all the ways macros can be triggered in the typesugar tr
 
 The transformer recognizes several distinct trigger patterns:
 
-| Pattern             | AST Node Type              | Example                   | Registration                                  |
-| ------------------- | -------------------------- | ------------------------- | --------------------------------------------- |
-| Expression Macro    | `CallExpression`           | `comptime(() => ...)`     | `defineExpressionMacro()`                     |
-| Attribute Macro     | `Decorator`                | `@typeclass`              | `defineAttributeMacro()`                      |
-| Derive Macro        | `Decorator`                | `@derive(Eq, Clone)`      | `deriveAttribute` / `registerTypeclassMacros` |
-| Tagged Template     | `TaggedTemplateExpression` | `` sql`SELECT ...` ``     | `defineTaggedTemplateMacro()`                 |
-| Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`                           |
-| Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                   |
-| HKT Syntax          | `TypeParameter`            | `F<_>`                    | Auto-detected                                 |
-| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                          |
-| Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `@op` JSDoc on typeclass methods          |
-| Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                         |
-| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`                          |
+| Pattern             | AST Node Type              | Example                   | Registration                                    |
+| ------------------- | -------------------------- | ------------------------- | ----------------------------------------------- |
+| Expression Macro    | `CallExpression`           | `comptime(() => ...)`     | `defineExpressionMacro()`                       |
+| Attribute Macro     | `Decorator`                | `@typeclass`              | `defineAttributeMacro()`                        |
+| Derive Macro        | `Decorator`                | `@derive(Eq, Clone)`      | Transformer-owned (see `expandDeriveDecorator`) |
+| Tagged Template     | `TaggedTemplateExpression` | `` sql`SELECT ...` ``     | `defineTaggedTemplateMacro()`                   |
+| Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`                             |
+| Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                     |
+| HKT Syntax          | `TypeParameter`            | `F<_>`                    | Auto-detected                                   |
+| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                            |
+| Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `@op` JSDoc on typeclass methods            |
+| Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                           |
+| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`                            |
 
 ---
 
@@ -136,7 +136,7 @@ defineDeriveMacro({
 });
 ```
 
-**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts` (invoked by `deriveAttribute`; `derivingAttribute` is a deprecated alias)
+**Transformer Location:** `expandDeriveDecorator()` in `packages/transformer-core/src/macro-helpers.ts` (handled directly by the transformer; `@deriving` is a deprecated alias for `@derive`)
 
 ---
 

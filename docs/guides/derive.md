@@ -317,13 +317,13 @@ class Point {
   ) {}
 }
 
-const eqPoint = summon<Eq<Point>>();
-const clonePoint = summon<Clone<Point>>();
-const debugPoint = summon<Debug<Point>>();
+// Access via companion objects — instances live on the type
+Point.Eq.equals(p1, p2);
+Point.Clone.clone(p1);
+Point.Debug.debug(p1);
 
-eqPoint.equals(p1, p2);
-clonePoint.clone(p1);
-debugPoint.debug(p1);
+// Or via summon()
+summon<Eq<Point>>().equals(p1, p2);
 ```
 
 This is useful in generic functions:
@@ -411,13 +411,14 @@ Derived instances are generated at compile time with optimal code:
 
 If you're upgrading from an older version of typesugar:
 
-| Old Pattern                                               | New Pattern                                                                                           |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `@derive(Eq)` generating standalone `pointEq()` functions | `@derive(Eq)` now generates typeclass instances — use `summon<Eq<Point>>().equals(a, b)` or `a === b` |
-| `@deriving(Show, Eq)`                                     | `@derive(Show, Eq)` — same behavior, `@deriving` is now a deprecated alias                            |
-| `pointEq(a, b)` standalone function                       | `summon<Eq<Point>>().equals(a, b)` or operator overloading `a === b`                                  |
-| `clonePoint(p)` standalone function                       | `summon<Clone<Point>>().clone(p)`                                                                     |
-| `debugPoint(p)` standalone function                       | `summon<Debug<Point>>().debug(p)`                                                                     |
+| Old Pattern                                               | New Pattern                                                                            |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `@derive(Eq)` generating standalone `pointEq()` functions | `@derive(Eq)` generates companion instances — use `Point.Eq.equals(a, b)` or `a === b` |
+| `@deriving(Show, Eq)`                                     | `@derive(Show, Eq)` — same behavior, `@deriving` is now a deprecated alias             |
+| `pointEq(a, b)` standalone function                       | `Point.Eq.equals(a, b)` or operator overloading `a === b`                              |
+| `clonePoint(p)` standalone function                       | `Point.Clone.clone(p)`                                                                 |
+| `debugPoint(p)` standalone function                       | `Point.Debug.debug(p)`                                                                 |
+| `import { eqPoint } from "./point"`                       | `import { Point } from "./point"` — instances come with the type                       |
 
 `@deriving(...)` still works but emits a deprecation warning. Update to `@derive(...)` in new code.
 

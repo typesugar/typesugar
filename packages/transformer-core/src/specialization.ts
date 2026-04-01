@@ -79,7 +79,15 @@ export function getInstanceName(expr: ts.Expression): string | undefined {
     return expr.text;
   }
   if (ts.isPropertyAccessExpression(expr)) {
+    // Return full dotted path for companion paths (e.g. "Point.Eq")
+    const objName = getInstanceName(expr.expression);
+    if (objName) {
+      return `${objName}.${expr.name.text}`;
+    }
     return expr.name.text;
+  }
+  if (ts.isParenthesizedExpression(expr)) {
+    return getInstanceName(expr.expression);
   }
   if (ts.isAsExpression(expr)) {
     return getInstanceName(expr.expression);

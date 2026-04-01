@@ -40,9 +40,9 @@ interface MyEq<A> {
 
     expect(result.changed).toBe(true);
 
-    // Non-exported typeclasses are zero-cost: no companion namespace, no runtime registry,
+    // Non-exported typeclasses are zero-cost: no companion object, no runtime registry,
     // no extension helpers (since they rely on the runtime registry)
-    expect(result.code).not.toContain("namespace MyEq");
+    expect(result.code).not.toContain("const MyEq");
     expect(result.code).not.toContain("registerInstance");
     expect(result.code).not.toContain("summon");
     expect(result.code).not.toContain("myEqEquals");
@@ -60,8 +60,8 @@ export interface MyEq<A> {
 
     expect(result.changed).toBe(true);
 
-    // Exported typeclasses generate full runtime support
-    expect(result.code).toContain("namespace MyEq");
+    // Exported typeclasses generate full runtime support via companion object
+    expect(result.code).toContain("const MyEq");
     expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("summon");
     expect(result.code).toContain("hasInstance");
@@ -83,8 +83,8 @@ interface MyNumeric<A> {
     const result = transformCode(code, { fileName: "jsdoc-numeric.ts" });
 
     expect(result.changed).toBe(true);
-    // Non-exported: no namespace, no extension helpers
-    expect(result.code).not.toContain("namespace MyNumeric");
+    // Non-exported: no companion object, no extension helpers
+    expect(result.code).not.toContain("const MyNumeric");
     expect(result.code).not.toContain("myNumericAdd");
     expect(result.code).not.toContain("myNumericMul");
   });
@@ -101,8 +101,8 @@ export interface MyNumeric<A> {
     const result = transformCode(code, { fileName: "jsdoc-numeric-exported.ts" });
 
     expect(result.changed).toBe(true);
-    // Exported: has namespace
-    expect(result.code).toContain("namespace MyNumeric");
+    // Exported: has companion object
+    expect(result.code).toContain("const MyNumeric");
     expect(result.code).toContain("registerInstance");
 
     // Should generate extension methods for each typeclass method
@@ -118,9 +118,9 @@ interface Marker<A> {}
 
     const result = transformCode(code, { fileName: "jsdoc-marker.ts" });
 
-    // Non-exported marker interface: zero-cost, no namespace
+    // Non-exported marker interface: zero-cost, no companion object
     expect(result.changed).toBe(true);
-    expect(result.code).not.toContain("namespace Marker");
+    expect(result.code).not.toContain("const Marker");
   });
 
   it("handles exported marker interface with @typeclass", () => {
@@ -131,9 +131,9 @@ export interface Marker<A> {}
 
     const result = transformCode(code, { fileName: "jsdoc-marker-exported.ts" });
 
-    // Exported marker interface: generates namespace
+    // Exported marker interface: generates companion object
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("namespace Marker");
+    expect(result.code).toContain("const Marker");
   });
 
   it("handles exported interface with @typeclass", () => {
@@ -147,7 +147,7 @@ export interface MyShow<A> {
     const result = transformCode(code, { fileName: "jsdoc-exported.ts" });
 
     expect(result.changed).toBe(true);
-    expect(result.code).toContain("namespace MyShow");
+    expect(result.code).toContain("const MyShow");
     expect(result.code).toContain("registerInstance");
     expect(result.code).toContain("myShowShow");
   });
@@ -173,8 +173,8 @@ export interface MyNumeric<A> {
 
     expect(result.changed).toBe(true);
 
-    // Exported typeclass generates companion namespace
-    expect(result.code).toContain("namespace MyNumeric");
+    // Exported typeclass generates companion object
+    expect(result.code).toContain("const MyNumeric");
     expect(result.code).toContain("myNumericAdd");
     expect(result.code).toContain("myNumericMul");
   });
@@ -191,8 +191,8 @@ interface MyNumeric<A> {
     const result = transformCode(code, { fileName: "jsdoc-op-internal.ts" });
 
     expect(result.changed).toBe(true);
-    // Non-exported: no namespace, no extension helpers
-    expect(result.code).not.toContain("namespace MyNumeric");
+    // Non-exported: no companion object, no extension helpers
+    expect(result.code).not.toContain("const MyNumeric");
     expect(result.code).not.toContain("myNumericAdd");
   });
 
@@ -368,20 +368,6 @@ type Color = { r: number; g: number; b: number; };
     expect(result.changed).toBe(true);
     expect(result.code).toContain("debug");
   });
-
-  it.skip("exported interface with @deriving works", () => {
-    // TODO: @deriving via JSDoc on interfaces is not yet implemented
-    // The derivingAttribute expects a decorator node structure
-    const code = `
-/** @deriving Clone */
-export interface Config { name: string; enabled: boolean; }
-    `.trim();
-
-    const result = transformCode(code, { fileName: "jsdoc-exported-deriving.ts" });
-
-    expect(result.changed).toBe(true);
-    expect(result.code).toContain("clone");
-  });
 });
 
 // ============================================================================
@@ -392,7 +378,7 @@ describe("JSDoc vs decorator equivalence", () => {
   it("@typeclass JSDoc produces same structure as decorator (exported)", () => {
     // NOTE: The decorator form uses preprocessor which rewrites to expression macro.
     // JSDoc form uses attribute macro directly.
-    // Both should produce companion namespace but via different paths.
+    // Both should produce companion object but via different paths.
     const jsdocCode = `
 /** @typeclass */
 export interface JsDocEq<A> {
@@ -404,9 +390,9 @@ export interface JsDocEq<A> {
       fileName: "jsdoc-eq.ts",
     });
 
-    // JSDoc form should produce companion namespace directly (exported)
+    // JSDoc form should produce companion object directly (exported)
     expect(jsdocResult.changed).toBe(true);
-    expect(jsdocResult.code).toContain("namespace JsDocEq");
+    expect(jsdocResult.code).toContain("const JsDocEq");
     expect(jsdocResult.code).toContain("jsDocEqEquals");
   });
 
@@ -483,8 +469,8 @@ interface NotATypeclass<A> {
 
     const result = transformCode(code, { fileName: "regular-comment.ts" });
 
-    // Should NOT generate companion namespace for regular comments
-    expect(result.code).not.toContain("namespace NotATypeclass");
+    // Should NOT generate companion object for regular comments
+    expect(result.code).not.toContain("const NotATypeclass");
     // Note: changed may be true due to formatting, but the key is no macro expansion
   });
 
@@ -503,8 +489,8 @@ export interface MyShow<A> {
     const result = transformCode(code, { fileName: "jsdoc-mixed.ts" });
 
     expect(result.changed).toBe(true);
-    // Exported: generates namespace
-    expect(result.code).toContain("namespace MyShow");
+    // Exported: generates companion object
+    expect(result.code).toContain("const MyShow");
   });
 
   it("handles empty @deriving tag gracefully", () => {

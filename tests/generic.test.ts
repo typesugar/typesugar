@@ -442,10 +442,14 @@ describe("derive system uses unified @derive attribute macro", () => {
     }
   });
 
-  it("@derive attribute macro is registered", () => {
+  it("@derive is handled by the transformer directly", () => {
+    // PEP-032: @derive is handled by the transformer's expandDeriveDecorator,
+    // not through the macro registry. The attribute macro was removed.
     const macro = globalRegistry.getAttribute("derive");
-    assert(macro !== undefined);
-    assert(macro!.name === "derive");
+    assert(
+      macro === undefined,
+      "@derive should not be in the macro registry (handled by transformer)"
+    );
   });
 });
 

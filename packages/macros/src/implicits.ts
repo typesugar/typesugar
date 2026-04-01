@@ -164,13 +164,14 @@ export function isRegisteredTypeclass(name: string): boolean {
 export function resolveImplicit(
   typeclassName: string,
   forType: string
-): { instanceName: string; derived: boolean } | undefined {
+): { instanceName: string; companionPath?: string; derived: boolean } | undefined {
   const instance = instanceRegistry.find(
     (i) => i.typeclassName === typeclassName && i.forType === forType
   );
   if (instance) {
     return {
-      instanceName: instance.instanceName,
+      instanceName: instance.companionPath || instance.instanceName,
+      companionPath: instance.companionPath,
       derived: instance.derived ?? false,
     };
   }
@@ -460,8 +461,12 @@ export function transformImplicitsCall(
     // 2. Fall back to global instance registry - inline the instance directly (zero-cost)
     const resolved = resolveImplicit(typeclassName, concreteType);
     if (resolved) {
-      // Use the instance variable directly instead of Show.summon(...)
-      newArgs.push(factory.createIdentifier(resolved.instanceName));
+      // If the instance name contains a dot (companion path), parse as expression
+      // Otherwise treat as a simple identifier
+      const instanceExpr = resolved.instanceName.includes(".")
+        ? ctx.parseExpression(resolved.instanceName)
+        : factory.createIdentifier(resolved.instanceName);
+      newArgs.push(instanceExpr);
       continue;
     }
 

@@ -65,7 +65,8 @@ const result = showValue(42);
     const r = transformCode(code, { fileName: "test-impl-template.ts" });
 
     // Must call showValue, not inline the body — the wrapping logic matters
-    expect(r.code).toContain("showValue(42, showNumber)");
+    // Companion path: Show.number (resolved via implicit() with companion-based registry)
+    expect(r.code).toContain("showValue(42, Show.number)");
     expect(r.code).not.toContain("__typesugar__");
   });
 });

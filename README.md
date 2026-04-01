@@ -295,12 +295,13 @@ interface Serialize<A> {
   deserialize(bytes: Uint8Array): A;
 }
 
-// Provide a custom instance when needed
+// Provide a custom instance — attaches to Point companion
 @instance
 const serializePoint: Serialize<Point> = {
   serialize: (p) => new Uint8Array([p.x, p.y]),
   deserialize: (b) => ({ x: b[0], y: b[1] }),
 };
+// Access via: Point.Serialize.serialize(myPoint)
 
 // Now it just works
 const bytes = myPoint.serialize();  // Uses custom instance, zero-cost
@@ -318,6 +319,7 @@ interface Vec2 { x: number; y: number }
 const vec2Semigroup: Semigroup<Vec2> = {
   combine: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
 };
+// Access via: Vec2.Semigroup.combine(a, b)
 
 // Now + just works on Vec2
 const a: Vec2 = { x: 1, y: 2 };

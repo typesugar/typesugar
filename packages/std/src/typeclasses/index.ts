@@ -47,56 +47,71 @@ export const eqNumber: Eq<number> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "number",
-  instanceName: "eqNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Eq",
+    forType: "number",
+    instanceName: "eqNumber",
+    derived: false,
+  },
+  eqNumber
+);
 
 export const eqBigInt: Eq<bigint> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "bigint",
-  instanceName: "eqBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Eq",
+    forType: "bigint",
+    instanceName: "eqBigInt",
+    derived: false,
+  },
+  eqBigInt
+);
 
 export const eqString: Eq<string> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "string",
-  instanceName: "eqString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Eq",
+    forType: "string",
+    instanceName: "eqString",
+    derived: false,
+  },
+  eqString
+);
 
 export const eqBoolean: Eq<boolean> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "boolean",
-  instanceName: "eqBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Eq",
+    forType: "boolean",
+    instanceName: "eqBoolean",
+    derived: false,
+  },
+  eqBoolean
+);
 
 export const eqDate: Eq<Date> = {
   equals: (a, b) => a.getTime() === b.getTime(),
   notEquals: (a, b) => a.getTime() !== b.getTime(),
 };
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "Date",
-  instanceName: "eqDate",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Eq",
+    forType: "Date",
+    instanceName: "eqDate",
+    derived: false,
+  },
+  eqDate
+);
 
 /**
  * Create an Eq instance from a custom equality function.
@@ -166,12 +181,15 @@ typeclass("Hash");
 export const hashNumber: Hash<number> = {
   hash: (a) => a | 0,
 };
-registerInstanceWithMeta({
-  typeclassName: "Hash",
-  forType: "number",
-  instanceName: "hashNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Hash",
+    forType: "number",
+    instanceName: "hashNumber",
+    derived: false,
+  },
+  hashNumber
+);
 
 export const hashString: Hash<string> = {
   hash: (a) => {
@@ -180,42 +198,54 @@ export const hashString: Hash<string> = {
     return h;
   },
 };
-registerInstanceWithMeta({
-  typeclassName: "Hash",
-  forType: "string",
-  instanceName: "hashString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Hash",
+    forType: "string",
+    instanceName: "hashString",
+    derived: false,
+  },
+  hashString
+);
 
 export const hashBoolean: Hash<boolean> = {
   hash: (a) => (a ? 1 : 0),
 };
-registerInstanceWithMeta({
-  typeclassName: "Hash",
-  forType: "boolean",
-  instanceName: "hashBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Hash",
+    forType: "boolean",
+    instanceName: "hashBoolean",
+    derived: false,
+  },
+  hashBoolean
+);
 
 export const hashBigInt: Hash<bigint> = {
   hash: (a) => Number(a & 0x7fffffffn) | 0,
 };
-registerInstanceWithMeta({
-  typeclassName: "Hash",
-  forType: "bigint",
-  instanceName: "hashBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Hash",
+    forType: "bigint",
+    instanceName: "hashBigInt",
+    derived: false,
+  },
+  hashBigInt
+);
 
 export const hashDate: Hash<Date> = {
   hash: (a) => a.getTime() | 0,
 };
-registerInstanceWithMeta({
-  typeclassName: "Hash",
-  forType: "Date",
-  instanceName: "hashDate",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Hash",
+    forType: "Date",
+    instanceName: "hashDate",
+    derived: false,
+  },
+  hashDate
+);
 
 /**
  * Create a Hash instance from a custom hash function.
@@ -294,12 +324,15 @@ export const ordNumber: Ord<number> = {
   greaterThan: (a, b) => a > b,
   greaterThanOrEqual: (a, b) => a >= b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "number",
-  instanceName: "ordNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Ord",
+    forType: "number",
+    instanceName: "ordNumber",
+    derived: false,
+  },
+  ordNumber
+);
 
 export const ordBigInt: Ord<bigint> = {
   equals: (a, b) => a === b,
@@ -310,12 +343,15 @@ export const ordBigInt: Ord<bigint> = {
   greaterThan: (a, b) => a > b,
   greaterThanOrEqual: (a, b) => a >= b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "bigint",
-  instanceName: "ordBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Ord",
+    forType: "bigint",
+    instanceName: "ordBigInt",
+    derived: false,
+  },
+  ordBigInt
+);
 
 export const ordString: Ord<string> = {
   equals: (a, b) => a === b,
@@ -326,12 +362,15 @@ export const ordString: Ord<string> = {
   greaterThan: (a, b) => a > b,
   greaterThanOrEqual: (a, b) => a >= b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "string",
-  instanceName: "ordString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Ord",
+    forType: "string",
+    instanceName: "ordString",
+    derived: false,
+  },
+  ordString
+);
 
 export const ordBoolean: Ord<boolean> = {
   equals: (a, b) => a === b,
@@ -342,12 +381,15 @@ export const ordBoolean: Ord<boolean> = {
   greaterThan: (a, b) => a && !b,
   greaterThanOrEqual: (a, b) => a || !b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "boolean",
-  instanceName: "ordBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Ord",
+    forType: "boolean",
+    instanceName: "ordBoolean",
+    derived: false,
+  },
+  ordBoolean
+);
 
 export const ordDate: Ord<Date> = {
   equals: (a, b) => a.getTime() === b.getTime(),
@@ -362,12 +404,15 @@ export const ordDate: Ord<Date> = {
   greaterThan: (a, b) => a.getTime() > b.getTime(),
   greaterThanOrEqual: (a, b) => a.getTime() >= b.getTime(),
 };
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "Date",
-  instanceName: "ordDate",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Ord",
+    forType: "Date",
+    instanceName: "ordDate",
+    derived: false,
+  },
+  ordDate
+);
 
 /**
  * Create an Ord instance from a compare function.
@@ -461,32 +506,41 @@ typeclass("Semigroup");
 export const semigroupString: Semigroup<string> = {
   combine: (a, b) => a + b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Semigroup",
-  forType: "string",
-  instanceName: "semigroupString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Semigroup",
+    forType: "string",
+    instanceName: "semigroupString",
+    derived: false,
+  },
+  semigroupString
+);
 
 export const semigroupNumber: Semigroup<number> = {
   combine: (a, b) => a + b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Semigroup",
-  forType: "number",
-  instanceName: "semigroupNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Semigroup",
+    forType: "number",
+    instanceName: "semigroupNumber",
+    derived: false,
+  },
+  semigroupNumber
+);
 
 export const semigroupBigInt: Semigroup<bigint> = {
   combine: (a, b) => a + b,
 };
-registerInstanceWithMeta({
-  typeclassName: "Semigroup",
-  forType: "bigint",
-  instanceName: "semigroupBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Semigroup",
+    forType: "bigint",
+    instanceName: "semigroupBigInt",
+    derived: false,
+  },
+  semigroupBigInt
+);
 
 /**
  * Semigroup for arrays (concatenation).
@@ -520,34 +574,43 @@ export const monoidString: Monoid<string> = {
   combine: (a, b) => a + b,
   empty: () => "",
 };
-registerInstanceWithMeta({
-  typeclassName: "Monoid",
-  forType: "string",
-  instanceName: "monoidString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Monoid",
+    forType: "string",
+    instanceName: "monoidString",
+    derived: false,
+  },
+  monoidString
+);
 
 export const monoidNumber: Monoid<number> = {
   combine: (a, b) => a + b,
   empty: () => 0,
 };
-registerInstanceWithMeta({
-  typeclassName: "Monoid",
-  forType: "number",
-  instanceName: "monoidNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Monoid",
+    forType: "number",
+    instanceName: "monoidNumber",
+    derived: false,
+  },
+  monoidNumber
+);
 
 export const monoidBigInt: Monoid<bigint> = {
   combine: (a, b) => a + b,
   empty: () => 0n,
 };
-registerInstanceWithMeta({
-  typeclassName: "Monoid",
-  forType: "bigint",
-  instanceName: "monoidBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Monoid",
+    forType: "bigint",
+    instanceName: "monoidBigInt",
+    derived: false,
+  },
+  monoidBigInt
+);
 
 /**
  * Monoid for arrays (concatenation with empty array).
@@ -589,45 +652,57 @@ export const boundedNumber: Bounded<number> = {
   minBound: () => Number.MIN_SAFE_INTEGER,
   maxBound: () => Number.MAX_SAFE_INTEGER,
 };
-registerInstanceWithMeta({
-  typeclassName: "Bounded",
-  forType: "number",
-  instanceName: "boundedNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Bounded",
+    forType: "number",
+    instanceName: "boundedNumber",
+    derived: false,
+  },
+  boundedNumber
+);
 
 export const boundedBigInt: Bounded<bigint> = {
   minBound: () => BigInt("-9007199254740991"),
   maxBound: () => BigInt("9007199254740991"),
 };
-registerInstanceWithMeta({
-  typeclassName: "Bounded",
-  forType: "bigint",
-  instanceName: "boundedBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Bounded",
+    forType: "bigint",
+    instanceName: "boundedBigInt",
+    derived: false,
+  },
+  boundedBigInt
+);
 
 export const boundedBoolean: Bounded<boolean> = {
   minBound: () => false,
   maxBound: () => true,
 };
-registerInstanceWithMeta({
-  typeclassName: "Bounded",
-  forType: "boolean",
-  instanceName: "boundedBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Bounded",
+    forType: "boolean",
+    instanceName: "boundedBoolean",
+    derived: false,
+  },
+  boundedBoolean
+);
 
 export const boundedString: Bounded<string> = {
   minBound: () => "",
   maxBound: () => "\uFFFF".repeat(256),
 };
-registerInstanceWithMeta({
-  typeclassName: "Bounded",
-  forType: "string",
-  instanceName: "boundedString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Bounded",
+    forType: "string",
+    instanceName: "boundedString",
+    derived: false,
+  },
+  boundedString
+);
 
 // ============================================================================
 // Enum — Haskell Enum, Rust: not built-in, Scala: Enumeration
@@ -651,12 +726,15 @@ export const enumNumber: Enum<number> = {
   toEnum: (n) => n,
   fromEnum: (a) => a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Enum",
-  forType: "number",
-  instanceName: "enumNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Enum",
+    forType: "number",
+    instanceName: "enumNumber",
+    derived: false,
+  },
+  enumNumber
+);
 
 export const enumBoolean: Enum<boolean> = {
   succ: (a) => !a,
@@ -664,12 +742,15 @@ export const enumBoolean: Enum<boolean> = {
   toEnum: (n) => n !== 0,
   fromEnum: (a) => (a ? 1 : 0),
 };
-registerInstanceWithMeta({
-  typeclassName: "Enum",
-  forType: "boolean",
-  instanceName: "enumBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Enum",
+    forType: "boolean",
+    instanceName: "enumBoolean",
+    derived: false,
+  },
+  enumBoolean
+);
 
 export const enumString: Enum<string> = {
   succ: (a) =>
@@ -679,12 +760,15 @@ export const enumString: Enum<string> = {
   toEnum: (n) => String.fromCharCode(n),
   fromEnum: (a) => (a.length > 0 ? a.charCodeAt(0) : 0),
 };
-registerInstanceWithMeta({
-  typeclassName: "Enum",
-  forType: "string",
-  instanceName: "enumString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Enum",
+    forType: "string",
+    instanceName: "enumString",
+    derived: false,
+  },
+  enumString
+);
 
 // ============================================================================
 // Numeric — Haskell Num, Scala Numeric, Kotlin: Number
@@ -734,12 +818,15 @@ export const numericNumber: Numeric<number> = {
   zero: () => 0,
   one: () => 1,
 };
-registerInstanceWithMeta({
-  typeclassName: "Numeric",
-  forType: "number",
-  instanceName: "numericNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Numeric",
+    forType: "number",
+    instanceName: "numericNumber",
+    derived: false,
+  },
+  numericNumber
+);
 
 export const numericBigInt: Numeric<bigint> = {
   add: (a, b) => a + b,
@@ -755,12 +842,15 @@ export const numericBigInt: Numeric<bigint> = {
   zero: () => 0n,
   one: () => 1n,
 };
-registerInstanceWithMeta({
-  typeclassName: "Numeric",
-  forType: "bigint",
-  instanceName: "numericBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Numeric",
+    forType: "bigint",
+    instanceName: "numericBigInt",
+    derived: false,
+  },
+  numericBigInt
+);
 
 // ============================================================================
 // Integral — Haskell Integral
@@ -799,12 +889,15 @@ export const integralNumber: Integral<number> = {
   rem: (a, b) => a % b,
   toInteger: (a) => BigInt(Math.trunc(a)),
 };
-registerInstanceWithMeta({
-  typeclassName: "Integral",
-  forType: "number",
-  instanceName: "integralNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Integral",
+    forType: "number",
+    instanceName: "integralNumber",
+    derived: false,
+  },
+  integralNumber
+);
 
 export const integralBigInt: Integral<bigint> = {
   div: (a, b) => {
@@ -820,12 +913,15 @@ export const integralBigInt: Integral<bigint> = {
   rem: (a, b) => a % b,
   toInteger: (a) => a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Integral",
-  forType: "bigint",
-  instanceName: "integralBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Integral",
+    forType: "bigint",
+    instanceName: "integralBigInt",
+    derived: false,
+  },
+  integralBigInt
+);
 
 // ============================================================================
 // Fractional — Haskell Fractional
@@ -854,12 +950,15 @@ export const fractionalNumber: Fractional<number> = {
   recip: (a) => 1 / a,
   fromRational: (num, den) => num / den,
 };
-registerInstanceWithMeta({
-  typeclassName: "Fractional",
-  forType: "number",
-  instanceName: "fractionalNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Fractional",
+    forType: "number",
+    instanceName: "fractionalNumber",
+    derived: false,
+  },
+  fractionalNumber
+);
 
 // ============================================================================
 // Floating — Haskell Floating
@@ -901,12 +1000,15 @@ export const floatingNumber: Floating<number> = {
   cosh: Math.cosh,
   tanh: Math.tanh,
 };
-registerInstanceWithMeta({
-  typeclassName: "Floating",
-  forType: "number",
-  instanceName: "floatingNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Floating",
+    forType: "number",
+    instanceName: "floatingNumber",
+    derived: false,
+  },
+  floatingNumber
+);
 
 // ============================================================================
 // Parseable — Haskell Read, Rust FromStr, Scala: not built-in
@@ -1249,12 +1351,15 @@ export const groupNumber: Group<number> = {
   combine: (a, b) => a + b,
   invert: (a) => -a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Group",
-  forType: "number",
-  instanceName: "groupNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Group",
+    forType: "number",
+    instanceName: "groupNumber",
+    derived: false,
+  },
+  groupNumber
+);
 
 /** Additive group for bigint */
 export const groupBigInt: Group<bigint> = {
@@ -1262,12 +1367,15 @@ export const groupBigInt: Group<bigint> = {
   combine: (a, b) => a + b,
   invert: (a) => -a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Group",
-  forType: "bigint",
-  instanceName: "groupBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Group",
+    forType: "bigint",
+    instanceName: "groupBigInt",
+    derived: false,
+  },
+  groupBigInt
+);
 
 // ============================================================================
 // Clone — Rust Clone, Haskell: not built-in (pure values), Scala: not built-in
@@ -1291,52 +1399,67 @@ typeclass("Clone");
 export const cloneNumber: Clone<number> = {
   clone: (a) => a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Clone",
-  forType: "number",
-  instanceName: "cloneNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Clone",
+    forType: "number",
+    instanceName: "cloneNumber",
+    derived: false,
+  },
+  cloneNumber
+);
 
 export const cloneString: Clone<string> = {
   clone: (a) => a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Clone",
-  forType: "string",
-  instanceName: "cloneString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Clone",
+    forType: "string",
+    instanceName: "cloneString",
+    derived: false,
+  },
+  cloneString
+);
 
 export const cloneBoolean: Clone<boolean> = {
   clone: (a) => a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Clone",
-  forType: "boolean",
-  instanceName: "cloneBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Clone",
+    forType: "boolean",
+    instanceName: "cloneBoolean",
+    derived: false,
+  },
+  cloneBoolean
+);
 
 export const cloneBigInt: Clone<bigint> = {
   clone: (a) => a,
 };
-registerInstanceWithMeta({
-  typeclassName: "Clone",
-  forType: "bigint",
-  instanceName: "cloneBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Clone",
+    forType: "bigint",
+    instanceName: "cloneBigInt",
+    derived: false,
+  },
+  cloneBigInt
+);
 
 export const cloneDate: Clone<Date> = {
   clone: (a) => new Date(a.getTime()),
 };
-registerInstanceWithMeta({
-  typeclassName: "Clone",
-  forType: "Date",
-  instanceName: "cloneDate",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Clone",
+    forType: "Date",
+    instanceName: "cloneDate",
+    derived: false,
+  },
+  cloneDate
+);
 
 /**
  * Create a Clone instance from a custom clone function.
@@ -1374,52 +1497,67 @@ typeclass("Debug");
 export const debugNumber: Debug<number> = {
   debug: (a) => String(a),
 };
-registerInstanceWithMeta({
-  typeclassName: "Debug",
-  forType: "number",
-  instanceName: "debugNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Debug",
+    forType: "number",
+    instanceName: "debugNumber",
+    derived: false,
+  },
+  debugNumber
+);
 
 export const debugString: Debug<string> = {
   debug: (a) => JSON.stringify(a),
 };
-registerInstanceWithMeta({
-  typeclassName: "Debug",
-  forType: "string",
-  instanceName: "debugString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Debug",
+    forType: "string",
+    instanceName: "debugString",
+    derived: false,
+  },
+  debugString
+);
 
 export const debugBoolean: Debug<boolean> = {
   debug: (a) => String(a),
 };
-registerInstanceWithMeta({
-  typeclassName: "Debug",
-  forType: "boolean",
-  instanceName: "debugBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Debug",
+    forType: "boolean",
+    instanceName: "debugBoolean",
+    derived: false,
+  },
+  debugBoolean
+);
 
 export const debugBigInt: Debug<bigint> = {
   debug: (a) => `${a}n`,
 };
-registerInstanceWithMeta({
-  typeclassName: "Debug",
-  forType: "bigint",
-  instanceName: "debugBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Debug",
+    forType: "bigint",
+    instanceName: "debugBigInt",
+    derived: false,
+  },
+  debugBigInt
+);
 
 export const debugDate: Debug<Date> = {
   debug: (a) => `Date(${JSON.stringify(a.toISOString())})`,
 };
-registerInstanceWithMeta({
-  typeclassName: "Debug",
-  forType: "Date",
-  instanceName: "debugDate",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Debug",
+    forType: "Date",
+    instanceName: "debugDate",
+    derived: false,
+  },
+  debugDate
+);
 
 /**
  * Create a Debug instance from a custom debug function.
@@ -1458,56 +1596,71 @@ export const jsonNumber: Json<number> = {
   toJson: (a) => a,
   fromJson: (json) => json as number,
 };
-registerInstanceWithMeta({
-  typeclassName: "Json",
-  forType: "number",
-  instanceName: "jsonNumber",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Json",
+    forType: "number",
+    instanceName: "jsonNumber",
+    derived: false,
+  },
+  jsonNumber
+);
 
 export const jsonString: Json<string> = {
   toJson: (a) => a,
   fromJson: (json) => json as string,
 };
-registerInstanceWithMeta({
-  typeclassName: "Json",
-  forType: "string",
-  instanceName: "jsonString",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Json",
+    forType: "string",
+    instanceName: "jsonString",
+    derived: false,
+  },
+  jsonString
+);
 
 export const jsonBoolean: Json<boolean> = {
   toJson: (a) => a,
   fromJson: (json) => json as boolean,
 };
-registerInstanceWithMeta({
-  typeclassName: "Json",
-  forType: "boolean",
-  instanceName: "jsonBoolean",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Json",
+    forType: "boolean",
+    instanceName: "jsonBoolean",
+    derived: false,
+  },
+  jsonBoolean
+);
 
 export const jsonBigInt: Json<bigint> = {
   toJson: (a) => String(a),
   fromJson: (json) => BigInt(json as string),
 };
-registerInstanceWithMeta({
-  typeclassName: "Json",
-  forType: "bigint",
-  instanceName: "jsonBigInt",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Json",
+    forType: "bigint",
+    instanceName: "jsonBigInt",
+    derived: false,
+  },
+  jsonBigInt
+);
 
 export const jsonDate: Json<Date> = {
   toJson: (a) => a.toISOString(),
   fromJson: (json) => new Date(json as string),
 };
-registerInstanceWithMeta({
-  typeclassName: "Json",
-  forType: "Date",
-  instanceName: "jsonDate",
-  derived: false,
-});
+registerInstanceWithMeta(
+  {
+    typeclassName: "Json",
+    forType: "Date",
+    instanceName: "jsonDate",
+    derived: false,
+  },
+  jsonDate
+);
 
 /**
  * Create a Json instance from custom serialization functions.

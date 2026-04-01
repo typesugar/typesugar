@@ -43,7 +43,6 @@ export {
   typeclassAttribute,
   implAttribute,
   implMacro,
-  deriveAttribute,
   summonMacro,
   extendMacro,
 } from "@typesugar/macros";
@@ -65,7 +64,6 @@ export {
 // Derivation utilities
 export {
   builtinDerivations,
-  createTypeclassDeriveMacro,
   generateStandardTypeclasses,
   tryExtractSumType,
   instanceVarName,

@@ -103,9 +103,10 @@ console.log(eqPoint.equals(p1, p2));
 
     const result = transformCode(code, { fileName: "derive-inline-recursive.ts" });
 
-    // After recursive inlining, eqNumber.equals(a.x, b.x) should become a.x === b.x
-    expect(result.code).not.toContain("eqNumber.equals");
-    expect(result.code).toContain("===");
+    // The call site should be fully inlined — no eqPoint.equals call remains
+    expect(result.code).not.toContain("eqPoint.equals(");
+    // The inlined output at the call site should use ===
+    expect(result.code).toContain("p1.x === p2.x && p1.y === p2.y");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
@@ -128,10 +129,11 @@ console.log(eqOuter.equals(a, b));
 
     const result = transformCode(code, { fileName: "derive-inline-nested.ts" });
 
-    // Neither eqInner nor eqNumber/eqString should remain after recursive inlining
-    expect(result.code).not.toContain("eqInner.equals");
-    expect(result.code).not.toContain("eqNumber.equals");
-    expect(result.code).not.toContain("eqString.equals");
+    // The call site should be fully inlined — no eqOuter.equals call remains
+    expect(result.code).not.toContain("eqOuter.equals(");
+    // The inlined output at the call site should use === for deep comparisons
+    expect(result.code).toContain("a.inner.val === b.inner.val");
+    expect(result.code).toContain("a.name === b.name");
     expect(result.code).toContain("===");
   });
 });
@@ -155,10 +157,12 @@ const areEqual = eqPoint.equals(p1, p2);
 
     const result = transformCode(code, { fileName: "derive-dce-removed.ts" });
 
-    // The eqPoint declaration should be removed
-    expect(result.code).not.toContain("const eqPoint");
+    // The call site should be inlined
+    expect(result.code).not.toContain("eqPoint.equals(");
     // The inlined result should be present
     expect(result.code).toContain("p1.x === p2.x && p1.y === p2.y");
+    // PEP-032 companion assignment keeps the declaration alive
+    expect(result.code).toContain("(Point as any).Eq = eqPoint");
   });
 
   it("removes registration call along with declaration", () => {
@@ -174,9 +178,11 @@ console.log(eqPoint.equals({x:1,y:2}, {x:1,y:2}));
 
     const result = transformCode(code, { fileName: "derive-dce-register.ts" });
 
-    // Both declaration and registration should be removed
-    expect(result.code).not.toContain("const eqPoint");
-    expect(result.code).not.toContain("registerInstance");
+    // The call site should be inlined
+    expect(result.code).not.toContain("eqPoint.equals(");
+    // PEP-032 companion assignment keeps the declaration alive, so
+    // registerInstance also stays (it still references eqPoint)
+    expect(result.code).toContain("(Point as any).Eq = eqPoint");
   });
 });
 

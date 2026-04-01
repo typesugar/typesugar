@@ -280,13 +280,9 @@ describe("Inline union derivation generates correct code", () => {
     // Should reference the discriminant
     expect(result.code).toContain(".kind");
 
-    // Should inline field comparisons (not reference non-existent variant instances)
-    expect(result.code).not.toContain("eqEvent_click");
-    expect(result.code).not.toContain("eqEvent_key");
-
-    // Should use primitive instance refs for field types
-    expect(result.code).toContain("eqNumber");
-    expect(result.code).toContain("eqString");
+    // Should delegate to per-variant companion instances
+    expect(result.code).toContain("(Event_click as any).Eq");
+    expect(result.code).toContain("(Event_key as any).Eq");
   });
 
   it("handles variant with no non-discriminant fields", () => {
@@ -299,8 +295,9 @@ describe("Inline union derivation generates correct code", () => {
     `);
     expectNoDiags(result);
     expect(result.code).toContain("switch");
-    // "eof" variant has no fields to compare, should produce "true"
-    expect(result.code).toContain("true");
+    // Delegates to per-variant companion instances
+    expect(result.code).toContain("(Token_eof as any).Eq");
+    expect(result.code).toContain("(Token_number as any).Eq");
   });
 
   it("uses _tag as discriminant", () => {
@@ -324,9 +321,9 @@ describe("Inline union derivation generates correct code", () => {
         | { kind: "b"; label: string };
     `);
     expectNoDiags(result);
-    // Should generate the instance variable with proper implementation
-    expect(result.code).toContain("const eqChoice");
-    expect(result.code).toContain("equals: (x: Choice, y: Choice)");
+    // Should generate the instance as a companion property assignment
+    expect(result.code).toContain("(Choice as any).Eq");
+    expect(result.code).toContain("equals: (a: Choice, b: Choice)");
     // Note: registerInstance is emitted for exported typeclasses.
     // When deriving from imported typeclasses (like Eq from @typesugar/std),
     // the runtime registration behavior depends on the source module's export status.

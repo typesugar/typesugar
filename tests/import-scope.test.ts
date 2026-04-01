@@ -301,10 +301,10 @@ describe("Built-in macros have module field", () => {
   });
 
   it("should have module set on all core attribute macros", async () => {
-    const { reflectAttribute, typeclassAttribute, implAttribute, deriveAttribute } =
+    const { reflectAttribute, typeclassAttribute, implAttribute } =
       await import("@typesugar/macros");
 
-    for (const macro of [reflectAttribute, typeclassAttribute, implAttribute, deriveAttribute]) {
+    for (const macro of [reflectAttribute, typeclassAttribute, implAttribute]) {
       expect(macro.module, `${macro.name} should have module set`).toBeTruthy();
       expect(typeof macro.module).toBe("string");
       expect((macro.module as string).length).toBeGreaterThan(0);

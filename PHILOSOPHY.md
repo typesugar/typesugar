@@ -295,9 +295,9 @@ The dictionary parameter exists for the type checker. The macro eliminates it, s
 
 Auto-derivation answers "where does the instance come from?" Auto-specialization answers "what happens to it at the call site?"
 
-In a traditional dictionary-passing FP system, even after resolving the correct instance, the runtime still calls methods through an object: `eqPoint.equals(p1, p2)`. The object allocation exists. The method dispatch is indirect. The abstraction has a cost.
+In a traditional dictionary-passing FP system, even after resolving the correct instance, the runtime still calls methods through an object: `Point.Eq.equals(p1, p2)`. The object allocation exists. The method dispatch is indirect. The abstraction has a cost.
 
-typesugar's default is to **inline the method body at every call site**. When the compiler resolves `Eq<Point>`, it doesn't emit a reference to an `eqPoint` object -- it emits the comparison directly:
+typesugar's default is to **inline the method body at every call site**. When the compiler resolves `Eq<Point>`, it doesn't emit a reference to a `Point.Eq` companion -- it emits the comparison directly:
 
 ```typescript
 // What the compiler resolves:     Eq<Point> with equals = (a, b) => a.x === b.x && a.y === b.y
