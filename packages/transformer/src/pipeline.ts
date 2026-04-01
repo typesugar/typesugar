@@ -372,20 +372,16 @@ function generateASTSourceMap(
     );
   }
 
-  // Get the text that the scanner would see for this leaf node
+  // Get the text that the scanner would see for this leaf node.
+  // For string literals, we don't know the quote style the printer used,
+  // so we return null and let the caller match by node kind instead.
   function getLeafTokenText(node: ts.Node): string | null {
     if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
-    if (
-      ts.isNumericLiteral(node) ||
-      ts.isStringLiteral(node) ||
-      ts.isBigIntLiteral(node) ||
-      ts.isRegularExpressionLiteral(node) ||
-      ts.isNoSubstitutionTemplateLiteral(node)
-    ) {
-      // For string literals, the scanner sees the quoted form
-      if (ts.isStringLiteral(node)) return `"${node.text}"`;
-      return node.text;
-    }
+    if (ts.isNumericLiteral(node)) return node.text;
+    if (ts.isBigIntLiteral(node)) return node.text;
+    if (ts.isRegularExpressionLiteral(node)) return node.text;
+    if (ts.isNoSubstitutionTemplateLiteral(node)) return null; // backtick matching is complex
+    if (ts.isStringLiteral(node)) return null; // quote style varies — match by content below
     switch (node.kind) {
       case ts.SyntaxKind.ThisKeyword:
         return "this";
@@ -403,6 +399,23 @@ function generateASTSourceMap(
     return null;
   }
 
+  // Find next token matching by content (for string/template literals
+  // where we don't know the exact quote style the printer used)
+  function findNextStringToken(content: string): { pos: number } | null {
+    for (let i = tokenCursor; i < outputTokens.length; i++) {
+      const t = outputTokens[i].text;
+      // Match if the token's inner content matches (strip quotes)
+      if (
+        (t.startsWith('"') || t.startsWith("'") || t.startsWith("`")) &&
+        t.slice(1, -1) === content
+      ) {
+        tokenCursor = i + 1;
+        return outputTokens[i];
+      }
+    }
+    return null;
+  }
+
   // Walk the transformed AST depth-first, matching leaves to output tokens.
   // For statements, also emit a statement-level mapping at the start so that
   // positions between tokens (whitespace, operators) map to the correct line.
@@ -412,6 +425,13 @@ function generateASTSourceMap(
     if (isLeafNode(node)) {
       // Only map nodes that have a valid source position
       if (range.pos < 0 || range.end < 0) return;
+
+      // String/template literals: match by inner content (quote style varies)
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        const token = findNextStringToken(node.text);
+        if (token) addMapping(token.pos, range.pos);
+        return;
+      }
 
       const text = getLeafTokenText(node);
       if (!text) return;
@@ -427,37 +447,25 @@ function generateASTSourceMap(
     ts.forEachChild(node, walkNode);
   }
 
-  // Walk each top-level statement: emit a statement-level mapping first,
-  // then recurse for token-level precision within the statement.
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  let stmtSearchOffset = 0;
-  for (const stmt of transformedSF.statements) {
-    const range = ts.getSourceMapRange(stmt);
-    if (range.pos >= 0) {
-      // Find this statement's start in the output
-      let stmtText: string;
-      try {
-        stmtText = printer.printNode(ts.EmitHint.Unspecified, stmt, transformedSF);
-      } catch {
-        continue;
-      }
-      const stmtIdx = outputCode.indexOf(stmtText, stmtSearchOffset);
-      if (stmtIdx >= 0) {
-        addMapping(stmtIdx, range.pos);
-        stmtSearchOffset = stmtIdx + stmtText.length;
-      }
+  // Walk the full AST for token-level precision
+  walkNode(transformedSF);
+
+  // Add line-start mappings: for each output line that has at least one
+  // token mapping, add a col-0 mapping pointing to the same original line.
+  // This ensures positions between tokens (whitespace, keywords like 'const')
+  // map correctly for the PositionMapper.
+  const lineHasMapping = new Map<number, number>(); // genLine → origLine
+  for (const m of mappings) {
+    if (!lineHasMapping.has(m.genLine)) {
+      lineHasMapping.set(m.genLine, m.origLine);
     }
   }
-
-  // Now walk for token-level precision (token cursor was already at 0)
-  walkNode(transformedSF);
+  for (const [genLine, origLine] of lineHasMapping) {
+    mappings.push({ genLine, genCol: 0, origLine, origCol: 0 });
+  }
 
   if (mappings.length === 0) return null;
 
-  // Build source map using MagicString for correct VLQ encoding.
-  // We construct a "virtual edit" from original → output by recording
-  // the mappings we collected.
-  //
   // Sort mappings by generated position (required for VLQ encoding)
   mappings.sort((a, b) => a.genLine - b.genLine || a.genCol - b.genCol);
 
@@ -1350,7 +1358,19 @@ export class TransformationPipeline {
       // constructor erasure) was silently lost. The AST printer + blank line
       // restoration is correct by default with no opt-in tracking required.
       const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-      let transformed = printer.printFile(transformedSourceFile);
+      const printed = printer.printFile(transformedSourceFile);
+
+      // Generate source map from the printer output BEFORE blank line restoration
+      // or comment cleanup, so token positions match the AST exactly.
+      const transformMap = generateASTSourceMap(
+        originalCode,
+        transformedSourceFile,
+        printed,
+        sourceFile.fileName
+      );
+
+      // Post-process the printed output
+      let transformed = printed;
 
       if (this.options.preserveBlankLines) {
         transformed = restoreBlankLines(originalCode, transformed);
@@ -1362,18 +1382,21 @@ export class TransformationPipeline {
       // closing paren/return-type and the => token).
       transformed = stripLeakedArrowComments(transformed);
 
+      // If post-processing changed the output, generate a diff source map for
+      // the post-processing step and compose it with the AST source map.
+      // For blank line insertion and comment stripping, line numbers shift
+      // but the semantic mapping (which original line does this come from) is
+      // preserved through composition.
+      let map: RawSourceMap | null;
+      if (transformed !== printed && transformMap) {
+        const postMap = generateDiffSourceMap(printed, transformed, sourceFile.fileName);
+        map = postMap ? composeSourceMaps(transformMap, postMap) : transformMap;
+      } else {
+        map = transformMap;
+      }
+
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");
-
-      // Generate source map by walking the transformed AST and reading
-      // getSourceMapRange() on each node. This is complete (all transform types),
-      // precise (token-level), and has no opt-in requirements.
-      const map = generateASTSourceMap(
-        originalCode,
-        transformedSourceFile,
-        transformed,
-        sourceFile.fileName
-      );
 
       // Capture expansion records before clearing
       const expansions = globalExpansionTracker.getExpansionsForFile(sourceFile.fileName);
