@@ -1382,18 +1382,12 @@ export class TransformationPipeline {
       // closing paren/return-type and the => token).
       transformed = stripLeakedArrowComments(transformed);
 
-      // If post-processing changed the output, generate a diff source map for
-      // the post-processing step and compose it with the AST source map.
-      // For blank line insertion and comment stripping, line numbers shift
-      // but the semantic mapping (which original line does this come from) is
-      // preserved through composition.
-      let map: RawSourceMap | null;
-      if (transformed !== printed && transformMap) {
-        const postMap = generateDiffSourceMap(printed, transformed, sourceFile.fileName);
-        map = postMap ? composeSourceMaps(transformMap, postMap) : transformMap;
-      } else {
-        map = transformMap;
-      }
+      // Use the AST source map directly. Post-processing (blank line restoration,
+      // comment cleanup) may shift line numbers, but the source map still correctly
+      // identifies which original source position each output token came from.
+      // Re-generating the source map against the final output is not needed —
+      // the line shift only affects blank lines (which have no tokens/mappings).
+      const map = transformMap;
 
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");

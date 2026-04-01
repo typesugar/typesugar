@@ -214,24 +214,26 @@ describe("TransformationPipeline", () => {
       expect(formatExpansions(result)).toBe("No changes.");
     });
 
-    it("shows comptime expansions with context", () => {
+    it("shows preprocessor expansions with context", () => {
+      // Use .sts extension with pipeline operator, which triggers the preprocessor
+      // and doesn't require import resolution (unlike comptime which needs "typesugar" to resolve)
       const code = [
-        'import { comptime } from "typesugar";',
+        "const double = (x: number) => x * 2;",
         "",
-        "const x = comptime(1 + 2);",
+        "const result = 5 |> double;",
         "",
-        "console.log(x);",
+        "console.log(result);",
       ].join("\n");
 
-      const result = transformCode(code, { fileName: "fmt-ct.ts", preserveBlankLines: true });
+      const result = transformCode(code, { fileName: "fmt-preproc.sts", preserveBlankLines: true });
       const focused = formatExpansions(result);
 
       expect(focused).toContain("changed line");
-      // Should show the comptime call as deleted and literal as inserted
-      expect(focused).toContain("- const x = comptime(1 + 2);");
-      expect(focused).toContain("+ const x = 3;");
+      // Should show the pipeline operator rewritten
+      expect(focused).toContain("- const result = 5 |> double;");
+      expect(focused).toContain("+ const result = double(5);");
       // Context should include surrounding lines
-      expect(focused).toContain("console.log(x);");
+      expect(focused).toContain("console.log(result);");
     });
   });
 
