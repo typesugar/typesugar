@@ -5,7 +5,7 @@ import { derive, Eq, Clone, Debug, summon } from "typesugar";
 
 // @derive() generates typeclass instances at compile time.
 // With Eq derived, === is rewritten to use structural equality!
-// 👀 Check JS Output to see the zero-cost compilation — generated instances and operator rewrites!
+// 👀 Check JS Output — each derived instance becomes a companion property on the class
 
 @derive(Eq, Clone, Debug)
 class Point {
@@ -19,7 +19,7 @@ const p1 = new Point(1, 2);
 const p2 = new Point(1, 2);
 const p3 = new Point(3, 4);
 
-// Operator overloading: === compiles to field-by-field comparison
+// Operator overloading: === compiles to Point.Eq.equals()
 console.log("p1 === p2:", p1 === p2); // true
 console.log("p1 === p3:", p1 === p3); // false
 

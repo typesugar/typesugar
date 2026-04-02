@@ -11,7 +11,7 @@ const buildId = comptime(() => Math.random().toString(36).slice(2, 8));
 staticAssert(1 + 1 === 2, "math works");
 staticAssert("typesugar".length === 9);
 
-// 3. @derive generates Eq — the === operator becomes field-by-field comparison
+// 3. @derive generates Eq — the === operator becomes Point.Eq.equals()
 @derive(Eq)
 class Point {
   constructor(public x: number, public y: number) {}
@@ -21,7 +21,7 @@ const p1 = new Point(3, 4);
 const p2 = new Point(3, 4);
 const p3 = new Point(1, 2);
 
-// 👀 In JS Output: === becomes p1.x === p2.x && p1.y === p2.y
+// 👀 In JS Output: === becomes Point.Eq.equals(p1, p2)
 console.log("p1 === p2?", p1 === p2);  // true (structural!)
 console.log("p1 === p3?", p1 === p3);  // false
 

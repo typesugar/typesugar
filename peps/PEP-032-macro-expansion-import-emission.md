@@ -184,12 +184,11 @@ class Point {
   ) {}
 }
 
-(Point as any).Eq = {
-  equals: (a: Point, b: Point) => Eq.number.equals(a.x, b.x) && Eq.number.equals(a.y, b.y),
-} satisfies Eq<Point>;
-
-declare namespace Point {
-  const Eq: Eq<Point>;
+namespace Point {
+  export const Eq = {
+    equals: (a: Point, b: Point) => a.x === b.x && a.y === b.y,
+    notEquals: (a: Point, b: Point) => !(a.x === b.x && a.y === b.y),
+  } as Eq<Point>;
 }
 ```
 

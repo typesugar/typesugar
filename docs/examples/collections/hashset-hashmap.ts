@@ -6,7 +6,7 @@ import { HashSet, HashMap } from "@typesugar/collections";
 import { eqNumber, hashNumber, makeEq, makeHash } from "@typesugar/std";
 
 // @derive(Eq) generates structural equality for custom types
-// 👀 Check JS Output: @derive creates field-by-field comparison
+// 👀 Check JS Output: @derive creates a companion Eq instance
 @derive(Eq)
 class Coord {
   constructor(public x: number, public y: number) {}

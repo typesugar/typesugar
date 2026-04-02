@@ -23,7 +23,7 @@ class User {
 // Operator overloading: === uses structural equality
 const u1 = new User(1, "Alice", "alice@example.com");
 const u2 = new User(1, "Alice", "alice@example.com");
-u1 === u2; // true (compiles to field-by-field comparison)
+u1 === u2; // true (compiles to User.Eq.equals(u1, u2))
 
 // summon() retrieves the generated instance
 const eq = summon<Eq<User>>();
@@ -53,7 +53,7 @@ class Point {
 const p1 = new Point(1, 2);
 const p2 = new Point(1, 2);
 
-// Operator overloading — compiles to p1.x === p2.x && p1.y === p2.y
+// Operator overloading — compiles to Point.Eq.equals(p1, p2)
 p1 === p2; // true
 
 // Or use summon

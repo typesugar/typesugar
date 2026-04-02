@@ -38,7 +38,7 @@ interface User {
   id: number;
   name: string;
 }
-user1 === user2; // Compiles to field-by-field comparison
+user1 === user2; // Compiles to User.Eq.equals(user1, user2)
 ```
 
 ### Ord — Ordering

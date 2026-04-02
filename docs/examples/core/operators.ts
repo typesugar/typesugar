@@ -1,5 +1,5 @@
 //! Operator Overloading
-//! a + b compiles to addVec2.add(a, b) — zero cost
+//! a + b compiles to Vec2.Addable.add(a, b)
 
 import { derive, Eq } from "typesugar";
 
@@ -22,7 +22,7 @@ const addableVec2: Addable<Vec2> = {
   add: (a, b) => new Vec2(a.x + b.x, a.y + b.y),
 };
 
-// @derive(Eq) gives us === for free (structural equality, fully inlined)
+// @derive(Eq) gives us === for free (structural equality via companion)
 @derive(Eq)
 class Point {
   constructor(public x: number, public y: number) {}
@@ -31,7 +31,7 @@ class Point {
 const a = new Vec2(1, 2);
 const b = new Vec2(3, 4);
 
-// 👀 In JS Output: a + b becomes new Vec2(a.x + b.x, a.y + b.y)
+// 👀 In JS Output: a + b becomes Vec2.Addable.add(a, b)
 const sum = a + b;
 console.log(`${a} + ${b} = ${sum}`);
 
@@ -39,7 +39,7 @@ const p1 = new Point(1, 2);
 const p2 = new Point(1, 2);
 const p3 = new Point(3, 4);
 
-// 👀 In JS Output: === becomes p1.x === p2.x && p1.y === p2.y
+// 👀 In JS Output: === becomes Point.Eq.equals(p1, p2)
 console.log("p1 === p2:", p1 === p2);
 console.log("p1 === p3:", p1 === p3);
 
