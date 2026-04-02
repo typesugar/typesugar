@@ -1322,13 +1322,13 @@ function companionPath(tcName: string, typeName: string): string {
 
 /**
  * Generate a companion property access expression for use in generated code.
- * Uses (X as any).Y to avoid TypeScript errors on dynamically-attached properties.
+ * Uses namespace merging for type-safe access (e.g., Point.Eq, Eq.number).
  */
 function companionAccess(tcName: string, typeName: string): string {
   if (PRIMITIVE_TYPES.includes(typeName)) {
-    return `(${tcName} as any).${typeName}`;
+    return `${tcName}.${typeName}`;
   }
-  return `(${typeName} as any).${tcName}`;
+  return `${typeName}.${tcName}`;
 }
 
 /**
@@ -1343,16 +1343,17 @@ function stripRuntimeRegistration(code: string): string {
 }
 
 /**
- * Convert a derived instance const declaration to a companion property assignment.
+ * Convert a derived instance const declaration to a namespace companion property.
  *
  * Transforms:
  *   const eqPoint: Eq<Point> = /*#__PURE__*​/ { equals: ... };
  * Into:
- *   (Point as any).Eq = /*#__PURE__*​/ { equals: ... } satisfies Eq<Point>;
+ *   namespace Point { export const Eq: Eq<Point> = /*#__PURE__*​/ { equals: ... }; }
  *
- * This allows multiple @derive arguments to each add a property to the same
- * data type companion object. The companion const itself is emitted separately
- * (see ensureDataTypeCompanionConst).
+ * Uses TypeScript's namespace-class declaration merging, which is type-safe
+ * (no `as any` cast) and provides both the runtime value and the type declaration
+ * in a single construct. Multiple @derive arguments each add a property to the
+ * same namespace block.
  *
  * For generic factory functions (e.g., `export function eqPair<A, B>(...): Eq<Pair<A, B>>`),
  * we leave them as-is since they can't be companion properties (they need type parameters).
@@ -1398,28 +1399,28 @@ function convertToCompanionAssignment(code: string, tcName: string, typeName: st
 
   const pureMarker = fullMatch[1] || "";
 
-  // Replace the const declaration prefix with a companion property assignment
-  code = code.replace(fullPattern, `(${typeName} as any).${tcName} = ${pureMarker}{`);
+  // Replace the const declaration with a namespace export.
+  // Use `as TypeAnnotation` instead of `: TypeAnnotation` to avoid requiring
+  // every method from the typeclass interface (e.g., Eq has eq/neq in addition
+  // to equals/notEquals). The namespace merging provides type-safe access for
+  // consumers without requiring the object literal to be exhaustive.
+  code = code.replace(
+    fullPattern,
+    `namespace ${typeName} { export const ${tcName} = ${pureMarker}{`
+  );
 
-  // Note: `satisfies` clause is omitted here. The `(X as any).TC = ...` pattern
-  // bypasses TypeScript's property checking, and the `declare namespace` declaration
-  // below provides the correct type for consumers. Adding `satisfies` would require
-  // the generated object literal to exactly match the typeclass interface, which fails
-  // when the interface has additional inherited methods (e.g., Ord extends Eq).
+  // Close the namespace block (find the trailing semicolon and add "as Type; }")
+  code = code.replace(/;\s*$/, ` as ${typeAnnotation}; }`);
 
   // Replace self-references to the old flat variable name with companion path.
-  // e.g., eqShape.equals → (Shape as any).Eq.equals
+  // e.g., eqShape.equals → Shape.Eq.equals
   // This prevents dangling references after the const is removed.
   // Uses word-boundary regex to avoid replacing substrings (e.g., eqA in eqArray).
   if (varNameFromConst && code.includes(varNameFromConst)) {
-    const companionRef = `(${typeName} as any).${tcName}`;
+    const companionRef = `${typeName}.${tcName}`;
     const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
     code = code.replace(wordBoundaryPattern, companionRef);
   }
-
-  // Add a declare namespace for type-level visibility (needed for classes and
-  // any context where TypeScript's type checker doesn't see the property)
-  code += `\ndeclare namespace ${typeName} { const ${tcName}: ${typeAnnotation}; }\n`;
 
   return code;
 }
@@ -2183,7 +2184,7 @@ export const implAttribute = defineAttributeMacro({
       "object",
     ];
     if (!primitives.includes(typeName)) {
-      const assignCode = `(${typeName} as any).${tcName} = ${varName};\ndeclare namespace ${typeName} { const ${tcName}: ${tcName}<${typeName}>; }`;
+      const assignCode = `namespace ${typeName} { export const ${tcName} = ${varName} as ${tcName}<${typeName}>; }`;
       statements.push(...ctx.parseStatements(assignCode));
     }
 

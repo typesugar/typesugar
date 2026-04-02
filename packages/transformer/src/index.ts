@@ -6251,17 +6251,11 @@ class MacroTransformer {
     }
 
     // Emit instanceRef.method(left, right)
-    // Use companion path if available (e.g., (Point as any).Eq.equals instead of eqPoint.equals)
-    // Wrap in (X as any) to avoid TypeScript errors on dynamically-attached properties
+    // Use companion path if available (e.g., Point.Eq.equals via namespace merging)
     const instName = matchedInstance.companionPath || matchedInstance.instanceName;
     const instanceRef = instName.includes(".")
       ? factory.createPropertyAccessExpression(
-          factory.createParenthesizedExpression(
-            factory.createAsExpression(
-              factory.createIdentifier(instName.split(".")[0]),
-              factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
-            )
-          ),
+          factory.createIdentifier(instName.split(".")[0]),
           instName.split(".")[1]
         )
       : factory.createIdentifier(instName);
