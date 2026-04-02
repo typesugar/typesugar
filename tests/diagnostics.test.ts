@@ -281,8 +281,8 @@ describe("Inline union derivation generates correct code", () => {
     expect(result.code).toContain(".kind");
 
     // Should delegate to per-variant companion instances
-    expect(result.code).toContain("(Event_click as any).Eq");
-    expect(result.code).toContain("(Event_key as any).Eq");
+    expect(result.code).toContain("Event_click.Eq.equals");
+    expect(result.code).toContain("Event_key.Eq.equals");
   });
 
   it("handles variant with no non-discriminant fields", () => {
@@ -296,8 +296,8 @@ describe("Inline union derivation generates correct code", () => {
     expectNoDiags(result);
     expect(result.code).toContain("switch");
     // Delegates to per-variant companion instances
-    expect(result.code).toContain("(Token_eof as any).Eq");
-    expect(result.code).toContain("(Token_number as any).Eq");
+    expect(result.code).toContain("Token_eof.Eq.equals");
+    expect(result.code).toContain("Token_number.Eq.equals");
   });
 
   it("uses _tag as discriminant", () => {
@@ -321,8 +321,9 @@ describe("Inline union derivation generates correct code", () => {
         | { kind: "b"; label: string };
     `);
     expectNoDiags(result);
-    // Should generate the instance as a companion property assignment
-    expect(result.code).toContain("(Choice as any).Eq");
+    // Should generate the instance as a namespace companion
+    expect(result.code).toContain("namespace Choice");
+    expect(result.code).toContain("export const Eq");
     expect(result.code).toContain("equals: (a: Choice, b: Choice)");
     // Note: registerInstance is emitted for exported typeclasses.
     // When deriving from imported typeclasses (like Eq from @typesugar/std),

@@ -161,8 +161,9 @@ const areEqual = eqPoint.equals(p1, p2);
     expect(result.code).not.toContain("eqPoint.equals(");
     // The inlined result should be present
     expect(result.code).toContain("p1.x === p2.x && p1.y === p2.y");
-    // PEP-032 companion assignment keeps the declaration alive
-    expect(result.code).toContain("(Point as any).Eq = eqPoint");
+    // PEP-032 companion namespace keeps the declaration alive
+    expect(result.code).toContain("namespace Point");
+    expect(result.code).toContain("export const Eq = eqPoint");
   });
 
   it("removes registration call along with declaration", () => {
@@ -180,9 +181,10 @@ console.log(eqPoint.equals({x:1,y:2}, {x:1,y:2}));
 
     // The call site should be inlined
     expect(result.code).not.toContain("eqPoint.equals(");
-    // PEP-032 companion assignment keeps the declaration alive, so
+    // PEP-032 companion namespace keeps the declaration alive, so
     // registerInstance also stays (it still references eqPoint)
-    expect(result.code).toContain("(Point as any).Eq = eqPoint");
+    expect(result.code).toContain("namespace Point");
+    expect(result.code).toContain("export const Eq = eqPoint");
   });
 });
 
