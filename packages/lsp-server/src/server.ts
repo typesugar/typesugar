@@ -124,6 +124,21 @@ function log(msg: string): void {
   connection.console.log(`[typesugar-lsp] ${msg}`);
 }
 
+/**
+ * Wrap an LSP handler so that uncaught exceptions return a fallback value
+ * instead of crashing the server (which resets the connection for the client).
+ */
+function safeHandler<P, R>(fallback: R, handler: (params: P) => R): (params: P) => R {
+  return (params: P): R => {
+    try {
+      return handler(params);
+    } catch (e) {
+      log(`Handler error: ${e instanceof Error ? e.message : String(e)}`);
+      return fallback;
+    }
+  };
+}
+
 // ---------------------------------------------------------------------------
 // File discovery
 // ---------------------------------------------------------------------------
@@ -994,587 +1009,636 @@ documents.onDidClose((event) => {
 // textDocument/completion (fix #4: store transformedOffset in item.data)
 // ---------------------------------------------------------------------------
 
-connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] => {
-  if (!languageService) return [];
+connection.onCompletion(
+  safeHandler([] as CompletionItem[], (params: TextDocumentPositionParams): CompletionItem[] => {
+    if (!languageService) return [];
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return [];
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return [];
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+    const offset = positionToOffset(originalText, params.position);
+    const mapper = getMapper(fileName);
+    const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return [];
+    if (transformedOffset === null) return [];
 
-  const result = languageService.getCompletionsAtPosition(fileName, transformedOffset, undefined);
-  if (!result) return [];
+    const result = languageService.getCompletionsAtPosition(fileName, transformedOffset, undefined);
+    if (!result) return [];
 
-  const items: CompletionItem[] = result.entries.map((entry) => ({
-    label: entry.name,
-    kind: tsKindToLspKind(entry.kind),
-    sortText: entry.sortText,
-    insertText: entry.insertText ?? entry.name,
-    detail: entry.labelDetails?.description,
-    data: {
-      fileName,
-      name: entry.name,
-      source: entry.source,
-      offset: transformedOffset, // fix #4: pass actual position for resolve
-    },
-  }));
+    const items: CompletionItem[] = result.entries.map((entry) => ({
+      label: entry.name,
+      kind: tsKindToLspKind(entry.kind),
+      sortText: entry.sortText,
+      insertText: entry.insertText ?? entry.name,
+      detail: entry.labelDetails?.description,
+      data: {
+        fileName,
+        name: entry.name,
+        source: entry.source,
+        offset: transformedOffset, // fix #4: pass actual position for resolve
+      },
+    }));
 
-  // Add extension method completions
-  try {
-    const program = languageService.getProgram();
-    if (program) {
-      const checker = program.getTypeChecker();
-      const sourceFile = program.getSourceFile(fileName);
-      if (sourceFile) {
-        const receiverType = getReceiverTypeAtPosition(sourceFile, transformedOffset, checker);
-        if (receiverType) {
-          const extensionEntries = getExtensionCompletions(sourceFile, receiverType, checker);
-          const existingNames = new Set(items.map((i) => i.label));
-          for (const ext of extensionEntries) {
-            if (!existingNames.has(ext.name)) {
-              items.push({
-                label: ext.name,
-                kind: CompletionItemKind.Function,
-                sortText: ext.sortText,
-                insertText: ext.insertText,
-                detail: ext.labelDetails?.description,
-              });
+    // Add extension method completions
+    try {
+      const program = languageService.getProgram();
+      if (program) {
+        const checker = program.getTypeChecker();
+        const sourceFile = program.getSourceFile(fileName);
+        if (sourceFile) {
+          const receiverType = getReceiverTypeAtPosition(sourceFile, transformedOffset, checker);
+          if (receiverType) {
+            const extensionEntries = getExtensionCompletions(sourceFile, receiverType, checker);
+            const existingNames = new Set(items.map((i) => i.label));
+            for (const ext of extensionEntries) {
+              if (!existingNames.has(ext.name)) {
+                items.push({
+                  label: ext.name,
+                  kind: CompletionItemKind.Function,
+                  sortText: ext.sortText,
+                  insertText: ext.insertText,
+                  detail: ext.labelDetails?.description,
+                });
+              }
             }
           }
         }
       }
+    } catch (error) {
+      log(`Error getting extension completions: ${error}`);
     }
-  } catch (error) {
-    log(`Error getting extension completions: ${error}`);
-  }
 
-  return items;
-});
+    return items;
+  })
+);
 
 // fix #4: use stored offset for completion resolve
-connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
-  if (!languageService || !item.data) return item;
+connection.onCompletionResolve(
+  safeHandler({} as CompletionItem, (item: CompletionItem): CompletionItem => {
+    if (!languageService || !item.data) return item;
 
-  const { fileName, name, source, offset } = item.data;
-  const details = languageService.getCompletionEntryDetails(
-    fileName,
-    offset ?? 0,
-    name,
-    undefined,
-    source,
-    undefined,
-    undefined
-  );
+    const { fileName, name, source, offset } = item.data;
+    const details = languageService.getCompletionEntryDetails(
+      fileName,
+      offset ?? 0,
+      name,
+      undefined,
+      source,
+      undefined,
+      undefined
+    );
 
-  if (details) {
-    item.documentation = ts.displayPartsToString(details.documentation);
-    item.detail = ts.displayPartsToString(details.displayParts);
-  }
+    if (details) {
+      item.documentation = ts.displayPartsToString(details.documentation);
+      item.detail = ts.displayPartsToString(details.displayParts);
+    }
 
-  return item;
-});
+    return item;
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/hover
 // ---------------------------------------------------------------------------
 
-connection.onHover((params: TextDocumentPositionParams): Hover | null => {
-  if (!languageService) return null;
+connection.onHover(
+  safeHandler(null as Hover | null, (params: TextDocumentPositionParams): Hover | null => {
+    if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+    const offset = positionToOffset(originalText, params.position);
+    const mapper = getMapper(fileName);
+    const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+    if (transformedOffset === null) return null;
 
-  const info = languageService.getQuickInfoAtPosition(fileName, transformedOffset);
-  if (!info) return null;
+    const info = languageService.getQuickInfoAtPosition(fileName, transformedOffset);
+    if (!info) return null;
 
-  const mappedSpan = mapTextSpanToOriginal(info.textSpan, mapper);
-  if (!mappedSpan) return null;
+    const mappedSpan = mapTextSpanToOriginal(info.textSpan, mapper);
+    if (!mappedSpan) return null;
 
-  const displayString = ts.displayPartsToString(info.displayParts);
-  const documentation = ts.displayPartsToString(info.documentation);
+    const displayString = ts.displayPartsToString(info.displayParts);
+    const documentation = ts.displayPartsToString(info.documentation);
 
-  let contents = "```typescript\n" + displayString + "\n```";
-  if (documentation) {
-    contents += "\n\n" + documentation;
-  }
+    let contents = "```typescript\n" + displayString + "\n```";
+    if (documentation) {
+      contents += "\n\n" + documentation;
+    }
 
-  return {
-    contents: { kind: "markdown", value: contents },
-    range: textSpanToRange(mappedSpan, originalText),
-  };
-});
+    return {
+      contents: { kind: "markdown", value: contents },
+      range: textSpanToRange(mappedSpan, originalText),
+    };
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/definition
 // ---------------------------------------------------------------------------
 
-connection.onDefinition((params: TextDocumentPositionParams): Definition | null => {
-  if (!languageService) return null;
+connection.onDefinition(
+  safeHandler(
+    null as Definition | null,
+    (params: TextDocumentPositionParams): Definition | null => {
+      if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const originalText = getOriginalContent(fileName);
+      if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+      const offset = positionToOffset(originalText, params.position);
+      const mapper = getMapper(fileName);
+      const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+      if (transformedOffset === null) return null;
 
-  const result = languageService.getDefinitionAndBoundSpan(fileName, transformedOffset);
-  if (!result?.definitions) return null;
+      const result = languageService.getDefinitionAndBoundSpan(fileName, transformedOffset);
+      if (!result?.definitions) return null;
 
-  const locations: Location[] = [];
-  for (const def of result.definitions) {
-    const targetMapper = getMapper(def.fileName);
-    const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
-    if (!mappedSpan) continue;
+      const locations: Location[] = [];
+      for (const def of result.definitions) {
+        const targetMapper = getMapper(def.fileName);
+        const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
+        if (!mappedSpan) continue;
 
-    const targetText = getOriginalContent(def.fileName);
-    if (!targetText) continue;
+        const targetText = getOriginalContent(def.fileName);
+        if (!targetText) continue;
 
-    locations.push({
-      uri: fileNameToUri(def.fileName),
-      range: textSpanToRange(mappedSpan, targetText),
-    });
-  }
+        locations.push({
+          uri: fileNameToUri(def.fileName),
+          range: textSpanToRange(mappedSpan, targetText),
+        });
+      }
 
-  return locations.length === 1 ? locations[0] : locations;
-});
+      return locations.length === 1 ? locations[0] : locations;
+    }
+  )
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/typeDefinition
 // ---------------------------------------------------------------------------
 
-connection.onTypeDefinition((params: TextDocumentPositionParams): Definition | null => {
-  if (!languageService) return null;
+connection.onTypeDefinition(
+  safeHandler(
+    null as Definition | null,
+    (params: TextDocumentPositionParams): Definition | null => {
+      if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const originalText = getOriginalContent(fileName);
+      if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+      const offset = positionToOffset(originalText, params.position);
+      const mapper = getMapper(fileName);
+      const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+      if (transformedOffset === null) return null;
 
-  const definitions = languageService.getTypeDefinitionAtPosition(fileName, transformedOffset);
-  if (!definitions) return null;
+      const definitions = languageService.getTypeDefinitionAtPosition(fileName, transformedOffset);
+      if (!definitions) return null;
 
-  const locations: Location[] = [];
-  for (const def of definitions) {
-    const targetMapper = getMapper(def.fileName);
-    const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
-    if (!mappedSpan) continue;
+      const locations: Location[] = [];
+      for (const def of definitions) {
+        const targetMapper = getMapper(def.fileName);
+        const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
+        if (!mappedSpan) continue;
 
-    const targetText = getOriginalContent(def.fileName);
-    if (!targetText) continue;
+        const targetText = getOriginalContent(def.fileName);
+        if (!targetText) continue;
 
-    locations.push({
-      uri: fileNameToUri(def.fileName),
-      range: textSpanToRange(mappedSpan, targetText),
-    });
-  }
+        locations.push({
+          uri: fileNameToUri(def.fileName),
+          range: textSpanToRange(mappedSpan, targetText),
+        });
+      }
 
-  return locations.length === 1 ? locations[0] : locations;
-});
+      return locations.length === 1 ? locations[0] : locations;
+    }
+  )
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/references
 // ---------------------------------------------------------------------------
 
-connection.onReferences((params: ReferenceParams): Location[] | null => {
-  if (!languageService) return null;
+connection.onReferences(
+  safeHandler(null as Location[] | null, (params: ReferenceParams): Location[] | null => {
+    if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+    const offset = positionToOffset(originalText, params.position);
+    const mapper = getMapper(fileName);
+    const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+    if (transformedOffset === null) return null;
 
-  const references = languageService.getReferencesAtPosition(fileName, transformedOffset);
-  if (!references) return null;
+    const references = languageService.getReferencesAtPosition(fileName, transformedOffset);
+    if (!references) return null;
 
-  const locations: Location[] = [];
-  for (const ref of references) {
-    const targetMapper = getMapper(ref.fileName);
-    const mappedSpan = mapTextSpanToOriginal(ref.textSpan, targetMapper);
-    if (!mappedSpan) continue;
+    const locations: Location[] = [];
+    for (const ref of references) {
+      const targetMapper = getMapper(ref.fileName);
+      const mappedSpan = mapTextSpanToOriginal(ref.textSpan, targetMapper);
+      if (!mappedSpan) continue;
 
-    const targetText = getOriginalContent(ref.fileName);
-    if (!targetText) continue;
+      const targetText = getOriginalContent(ref.fileName);
+      if (!targetText) continue;
 
-    locations.push({
-      uri: fileNameToUri(ref.fileName),
-      range: textSpanToRange(mappedSpan, targetText),
-    });
-  }
+      locations.push({
+        uri: fileNameToUri(ref.fileName),
+        range: textSpanToRange(mappedSpan, targetText),
+      });
+    }
 
-  return locations;
-});
+    return locations;
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/documentHighlight (fix #10: use DocumentHighlightKind enum)
 // ---------------------------------------------------------------------------
 
-connection.onDocumentHighlight((params: TextDocumentPositionParams): DocumentHighlight[] | null => {
-  if (!languageService) return null;
+connection.onDocumentHighlight(
+  safeHandler(
+    null as DocumentHighlight[] | null,
+    (params: TextDocumentPositionParams): DocumentHighlight[] | null => {
+      if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const originalText = getOriginalContent(fileName);
+      if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+      const offset = positionToOffset(originalText, params.position);
+      const mapper = getMapper(fileName);
+      const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+      if (transformedOffset === null) return null;
 
-  const highlights = languageService.getDocumentHighlights(fileName, transformedOffset, [fileName]);
-  if (!highlights) return null;
+      const highlights = languageService.getDocumentHighlights(fileName, transformedOffset, [
+        fileName,
+      ]);
+      if (!highlights) return null;
 
-  const result: DocumentHighlight[] = [];
-  for (const docHighlight of highlights) {
-    const targetMapper = getMapper(docHighlight.fileName);
-    for (const span of docHighlight.highlightSpans) {
-      const mappedSpan = mapTextSpanToOriginal(span.textSpan, targetMapper);
-      if (!mappedSpan) continue;
+      const result: DocumentHighlight[] = [];
+      for (const docHighlight of highlights) {
+        const targetMapper = getMapper(docHighlight.fileName);
+        for (const span of docHighlight.highlightSpans) {
+          const mappedSpan = mapTextSpanToOriginal(span.textSpan, targetMapper);
+          if (!mappedSpan) continue;
 
-      result.push({
-        range: textSpanToRange(mappedSpan, originalText),
-        kind:
-          span.kind === ts.HighlightSpanKind.writtenReference
-            ? DocumentHighlightKind.Write
-            : DocumentHighlightKind.Read,
-      });
+          result.push({
+            range: textSpanToRange(mappedSpan, originalText),
+            kind:
+              span.kind === ts.HighlightSpanKind.writtenReference
+                ? DocumentHighlightKind.Write
+                : DocumentHighlightKind.Read,
+          });
+        }
+      }
+
+      return result;
     }
-  }
-
-  return result;
-});
+  )
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/signatureHelp
 // ---------------------------------------------------------------------------
 
-connection.onSignatureHelp((params: TextDocumentPositionParams): SignatureHelp | null => {
-  if (!languageService) return null;
+connection.onSignatureHelp(
+  safeHandler(
+    null as SignatureHelp | null,
+    (params: TextDocumentPositionParams): SignatureHelp | null => {
+      if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const originalText = getOriginalContent(fileName);
+      if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+      const offset = positionToOffset(originalText, params.position);
+      const mapper = getMapper(fileName);
+      const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+      if (transformedOffset === null) return null;
 
-  const result = languageService.getSignatureHelpItems(fileName, transformedOffset, undefined);
-  if (!result) return null;
+      const result = languageService.getSignatureHelpItems(fileName, transformedOffset, undefined);
+      if (!result) return null;
 
-  return {
-    signatures: result.items.map((item) => ({
-      label:
-        ts.displayPartsToString(item.prefixDisplayParts) +
-        item.parameters
-          .map((p) => ts.displayPartsToString(p.displayParts))
-          .join(ts.displayPartsToString(item.separatorDisplayParts)) +
-        ts.displayPartsToString(item.suffixDisplayParts),
-      documentation: ts.displayPartsToString(item.documentation),
-      parameters: item.parameters.map((p) => ({
-        label: ts.displayPartsToString(p.displayParts),
-        documentation: ts.displayPartsToString(p.documentation),
-      })),
-    })),
-    activeSignature: result.selectedItemIndex,
-    activeParameter: result.argumentIndex,
-  };
-});
+      return {
+        signatures: result.items.map((item) => ({
+          label:
+            ts.displayPartsToString(item.prefixDisplayParts) +
+            item.parameters
+              .map((p) => ts.displayPartsToString(p.displayParts))
+              .join(ts.displayPartsToString(item.separatorDisplayParts)) +
+            ts.displayPartsToString(item.suffixDisplayParts),
+          documentation: ts.displayPartsToString(item.documentation),
+          parameters: item.parameters.map((p) => ({
+            label: ts.displayPartsToString(p.displayParts),
+            documentation: ts.displayPartsToString(p.documentation),
+          })),
+        })),
+        activeSignature: result.selectedItemIndex,
+        activeParameter: result.argumentIndex,
+      };
+    }
+  )
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/prepareRename + textDocument/rename
 // ---------------------------------------------------------------------------
 
-connection.onPrepareRename((params: PrepareRenameParams): Range | null => {
-  if (!languageService) return null;
+connection.onPrepareRename(
+  safeHandler(null as Range | null, (params: PrepareRenameParams): Range | null => {
+    if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+    const offset = positionToOffset(originalText, params.position);
+    const mapper = getMapper(fileName);
+    const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+    if (transformedOffset === null) return null;
 
-  const info = languageService.getRenameInfo(fileName, transformedOffset);
-  if (!info.canRename) return null;
+    const info = languageService.getRenameInfo(fileName, transformedOffset);
+    if (!info.canRename) return null;
 
-  const mappedSpan = mapTextSpanToOriginal(info.triggerSpan, mapper);
-  if (!mappedSpan) return null;
+    const mappedSpan = mapTextSpanToOriginal(info.triggerSpan, mapper);
+    if (!mappedSpan) return null;
 
-  return textSpanToRange(mappedSpan, originalText);
-});
+    return textSpanToRange(mappedSpan, originalText);
+  })
+);
 
-connection.onRenameRequest((params: RenameParams): WorkspaceEdit | null => {
-  if (!languageService) return null;
+connection.onRenameRequest(
+  safeHandler(null as WorkspaceEdit | null, (params: RenameParams): WorkspaceEdit | null => {
+    if (!languageService) return null;
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return null;
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return null;
 
-  const offset = positionToOffset(originalText, params.position);
-  const mapper = getMapper(fileName);
-  const transformedOffset = mapper.toTransformed(offset);
+    const offset = positionToOffset(originalText, params.position);
+    const mapper = getMapper(fileName);
+    const transformedOffset = mapper.toTransformed(offset);
 
-  if (transformedOffset === null) return null;
+    if (transformedOffset === null) return null;
 
-  const locations = languageService.findRenameLocations(fileName, transformedOffset, false, false);
+    const locations = languageService.findRenameLocations(
+      fileName,
+      transformedOffset,
+      false,
+      false
+    );
 
-  if (!locations) return null;
+    if (!locations) return null;
 
-  const changes: Record<string, Array<{ range: Range; newText: string }>> = {};
+    const changes: Record<string, Array<{ range: Range; newText: string }>> = {};
 
-  for (const loc of locations) {
-    const targetMapper = getMapper(loc.fileName);
-    const mappedSpan = mapTextSpanToOriginal(loc.textSpan, targetMapper);
-    if (!mappedSpan) continue;
+    for (const loc of locations) {
+      const targetMapper = getMapper(loc.fileName);
+      const mappedSpan = mapTextSpanToOriginal(loc.textSpan, targetMapper);
+      if (!mappedSpan) continue;
 
-    const targetText = getOriginalContent(loc.fileName);
-    if (!targetText) continue;
+      const targetText = getOriginalContent(loc.fileName);
+      if (!targetText) continue;
 
-    const uri = fileNameToUri(loc.fileName);
-    if (!changes[uri]) changes[uri] = [];
+      const uri = fileNameToUri(loc.fileName);
+      if (!changes[uri]) changes[uri] = [];
 
-    changes[uri].push({
-      range: textSpanToRange(mappedSpan, targetText),
-      newText: params.newName,
-    });
-  }
+      changes[uri].push({
+        range: textSpanToRange(mappedSpan, targetText),
+        newText: params.newName,
+      });
+    }
 
-  return { changes };
-});
+    return { changes };
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/codeAction
 // ---------------------------------------------------------------------------
 
-connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
-  if (!languageService) return [];
+connection.onCodeAction(
+  safeHandler([] as CodeAction[], (params: CodeActionParams): CodeAction[] => {
+    if (!languageService) return [];
 
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return [];
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return [];
 
-  const actions: CodeAction[] = [];
+    const actions: CodeAction[] = [];
 
-  // Check for typesugar Quick Fix suggestions
-  const fileSuggestions = suggestionCache.get(fileName);
-  if (fileSuggestions && fileSuggestions.length > 0) {
+    // Check for typesugar Quick Fix suggestions
+    const fileSuggestions = suggestionCache.get(fileName);
+    if (fileSuggestions && fileSuggestions.length > 0) {
+      const startOffset = positionToOffset(originalText, params.range.start);
+      const endOffset = positionToOffset(originalText, params.range.end);
+
+      for (const suggestion of fileSuggestions) {
+        const suggestionEnd = suggestion.start + suggestion.length;
+        if (suggestion.start <= endOffset && suggestionEnd >= startOffset) {
+          actions.push({
+            title: suggestion.description,
+            kind: "quickfix",
+            edit: {
+              changes: {
+                [params.textDocument.uri]: [
+                  {
+                    range: {
+                      start: offsetToPosition(originalText, suggestion.start),
+                      end: offsetToPosition(originalText, suggestion.start + suggestion.length),
+                    },
+                    newText: suggestion.replacement,
+                  },
+                ],
+              },
+            },
+          });
+        }
+      }
+    }
+
+    // Get TS code fixes
+    const mapper = getMapper(fileName);
     const startOffset = positionToOffset(originalText, params.range.start);
     const endOffset = positionToOffset(originalText, params.range.end);
+    const transformedStart = mapper.toTransformed(startOffset);
+    const transformedEnd = mapper.toTransformed(endOffset);
 
-    for (const suggestion of fileSuggestions) {
-      const suggestionEnd = suggestion.start + suggestion.length;
-      if (suggestion.start <= endOffset && suggestionEnd >= startOffset) {
-        actions.push({
-          title: suggestion.description,
-          kind: "quickfix",
-          edit: {
-            changes: {
-              [params.textDocument.uri]: [
-                {
-                  range: {
-                    start: offsetToPosition(originalText, suggestion.start),
-                    end: offsetToPosition(originalText, suggestion.start + suggestion.length),
-                  },
-                  newText: suggestion.replacement,
-                },
-              ],
-            },
-          },
-        });
-      }
-    }
-  }
+    if (transformedStart !== null && transformedEnd !== null) {
+      const errorCodes = params.context.diagnostics
+        .filter((d) => typeof d.code === "number")
+        .map((d) => d.code as number);
 
-  // Get TS code fixes
-  const mapper = getMapper(fileName);
-  const startOffset = positionToOffset(originalText, params.range.start);
-  const endOffset = positionToOffset(originalText, params.range.end);
-  const transformedStart = mapper.toTransformed(startOffset);
-  const transformedEnd = mapper.toTransformed(endOffset);
+      if (errorCodes.length > 0) {
+        const fixes = languageService.getCodeFixesAtPosition(
+          fileName,
+          transformedStart,
+          transformedEnd,
+          errorCodes,
+          {},
+          {}
+        );
 
-  if (transformedStart !== null && transformedEnd !== null) {
-    const errorCodes = params.context.diagnostics
-      .filter((d) => typeof d.code === "number")
-      .map((d) => d.code as number);
+        for (const fix of fixes) {
+          const changes: Record<string, Array<{ range: Range; newText: string }>> = {};
 
-    if (errorCodes.length > 0) {
-      const fixes = languageService.getCodeFixesAtPosition(
-        fileName,
-        transformedStart,
-        transformedEnd,
-        errorCodes,
-        {},
-        {}
-      );
+          for (const fileChange of fix.changes) {
+            const fileMapper = getMapper(fileChange.fileName);
+            const fileText = getOriginalContent(fileChange.fileName);
+            if (!fileText) continue;
 
-      for (const fix of fixes) {
-        const changes: Record<string, Array<{ range: Range; newText: string }>> = {};
+            const uri = fileNameToUri(fileChange.fileName);
+            if (!changes[uri]) changes[uri] = [];
 
-        for (const fileChange of fix.changes) {
-          const fileMapper = getMapper(fileChange.fileName);
-          const fileText = getOriginalContent(fileChange.fileName);
-          if (!fileText) continue;
+            for (const textChange of fileChange.textChanges) {
+              const mappedSpan = mapTextSpanToOriginal(textChange.span, fileMapper);
+              if (!mappedSpan) continue;
 
-          const uri = fileNameToUri(fileChange.fileName);
-          if (!changes[uri]) changes[uri] = [];
-
-          for (const textChange of fileChange.textChanges) {
-            const mappedSpan = mapTextSpanToOriginal(textChange.span, fileMapper);
-            if (!mappedSpan) continue;
-
-            changes[uri].push({
-              range: textSpanToRange(mappedSpan, fileText),
-              newText: textChange.newText,
-            });
+              changes[uri].push({
+                range: textSpanToRange(mappedSpan, fileText),
+                newText: textChange.newText,
+              });
+            }
           }
-        }
 
-        actions.push({
-          title: fix.description,
-          kind: "quickfix",
-          edit: { changes },
-        });
+          actions.push({
+            title: fix.description,
+            kind: "quickfix",
+            edit: { changes },
+          });
+        }
       }
     }
-  }
 
-  // Add macro-specific code actions (expand, wrap-in-comptime, add-derive)
-  const extraActions = computeExtraCodeActions(
-    originalText,
-    fileName,
-    manifest,
-    params.range,
-    params.textDocument.uri
-  );
-  actions.push(...extraActions);
+    // Add macro-specific code actions (expand, wrap-in-comptime, add-derive)
+    const extraActions = computeExtraCodeActions(
+      originalText,
+      fileName,
+      manifest,
+      params.range,
+      params.textDocument.uri
+    );
+    actions.push(...extraActions);
 
-  return actions;
-});
+    return actions;
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/semanticTokens/full (Wave 2)
 // ---------------------------------------------------------------------------
 
-connection.languages.semanticTokens.on((params) => {
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return { data: [] };
+connection.languages.semanticTokens.on(
+  safeHandler({ data: [] as number[] }, (params: any) => {
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return { data: [] };
 
-  return computeSemanticTokens(originalText, fileName, manifest);
-});
+    return computeSemanticTokens(originalText, fileName, manifest);
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/codeLens (Wave 2)
 // ---------------------------------------------------------------------------
 
-connection.onCodeLens((params) => {
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return [];
+connection.onCodeLens(
+  safeHandler([] as any[], (params: any) => {
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return [];
 
-  return computeCodeLenses(originalText, fileName, manifest, params.textDocument.uri);
-});
+    return computeCodeLenses(originalText, fileName, manifest, params.textDocument.uri);
+  })
+);
 
 // ---------------------------------------------------------------------------
 // textDocument/inlayHint (Wave 2)
 // ---------------------------------------------------------------------------
 
-connection.languages.inlayHint.on((params) => {
-  const fileName = path.normalize(uriToFileName(params.textDocument.uri));
-  const originalText = getOriginalContent(fileName);
-  if (!originalText) return [];
+connection.languages.inlayHint.on(
+  safeHandler([] as any[], (params: any) => {
+    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const originalText = getOriginalContent(fileName);
+    if (!originalText) return [];
 
-  // Get expansion records for macro expansion hints
-  const result = getTransformResult(fileName);
-  const expansions = result?.expansions;
+    // Get expansion records for macro expansion hints
+    const result = getTransformResult(fileName);
+    const expansions = result?.expansions;
 
-  return computeInlayHints(originalText, fileName, manifest, params.range, expansions);
-});
+    return computeInlayHints(originalText, fileName, manifest, params.range, expansions);
+  })
+);
 
 // ---------------------------------------------------------------------------
 // workspace/executeCommand (Wave 2)
 // ---------------------------------------------------------------------------
 
-connection.onExecuteCommand((params) => {
-  switch (params.command) {
-    case "typesugar.expandMacro": {
-      if (!params.arguments || params.arguments.length < 2) return null;
-      const [uri, offset] = params.arguments as [string, number];
-      const fileName = path.normalize(uriToFileName(uri));
-      const result = getTransformResult(fileName);
-      if (!result?.expansions) return null;
+connection.onExecuteCommand(
+  safeHandler(null, (params: any) => {
+    switch (params.command) {
+      case "typesugar.expandMacro": {
+        if (!params.arguments || params.arguments.length < 2) return null;
+        const [uri, offset] = params.arguments as [string, number];
+        const fileName = path.normalize(uriToFileName(uri));
+        const result = getTransformResult(fileName);
+        if (!result?.expansions) return null;
 
-      // Find expansion nearest to the offset
-      let best: { macroName: string; expandedText: string } | null = null;
-      let bestDist = Infinity;
-      for (const exp of result.expansions) {
-        if (offset >= exp.originalStart && offset <= exp.originalEnd) {
-          return { macroName: exp.macroName, expandedText: exp.expandedText };
+        // Find expansion nearest to the offset
+        let best: { macroName: string; expandedText: string } | null = null;
+        let bestDist = Infinity;
+        for (const exp of result.expansions) {
+          if (offset >= exp.originalStart && offset <= exp.originalEnd) {
+            return { macroName: exp.macroName, expandedText: exp.expandedText };
+          }
+          const dist = Math.min(
+            Math.abs(offset - exp.originalStart),
+            Math.abs(offset - exp.originalEnd)
+          );
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = { macroName: exp.macroName, expandedText: exp.expandedText };
+          }
         }
-        const dist = Math.min(
-          Math.abs(offset - exp.originalStart),
-          Math.abs(offset - exp.originalEnd)
-        );
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = { macroName: exp.macroName, expandedText: exp.expandedText };
+        return bestDist < 200 ? best : null;
+      }
+
+      case "typesugar.showTransformed": {
+        if (!params.arguments || params.arguments.length < 1) return null;
+        const [uri] = params.arguments as [string];
+        const fileName = path.normalize(uriToFileName(uri));
+        const result = getTransformResult(fileName);
+        if (!result) return null;
+        return { original: result.original, transformed: result.code, changed: result.changed };
+      }
+
+      case "typesugar.refreshManifest": {
+        if (manifest.load(workspaceRoot)) {
+          log("Manifest reloaded");
         }
+        return null;
       }
-      return bestDist < 200 ? best : null;
-    }
 
-    case "typesugar.showTransformed": {
-      if (!params.arguments || params.arguments.length < 1) return null;
-      const [uri] = params.arguments as [string];
-      const fileName = path.normalize(uriToFileName(uri));
-      const result = getTransformResult(fileName);
-      if (!result) return null;
-      return { original: result.original, transformed: result.code, changed: result.changed };
+      default:
+        return null;
     }
-
-    case "typesugar.refreshManifest": {
-      if (manifest.load(workspaceRoot)) {
-        log("Manifest reloaded");
-      }
-      return null;
-    }
-
-    default:
-      return null;
-  }
-});
+  })
+);
 
 // ---------------------------------------------------------------------------
 // Start server

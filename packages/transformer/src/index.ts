@@ -125,8 +125,36 @@ const nodePrinter = ts.createPrinter();
 // without inheriting stray comments from the original source file
 const commentFreePrinter = ts.createPrinter({ removeComments: true });
 
+/**
+ * Safety net: clamp any negative source positions to 0.
+ *
+ * Synthetic nodes created by macro expansion have pos = -1 (set by
+ * stripPositions). This is fine for the printer, but TypeScript's emitter
+ * crashes in createTextSpan when it encounters negative positions during
+ * program.emit(). Walking the tree once after transformation prevents that.
+ *
+ * Note: ts.forEachChild may not visit all leaf tokens (e.g. NumericLiteral
+ * in certain positions). The CLI also guards against this by collecting
+ * pre-emit diagnostics before emit, and wrapping post-emit checker access
+ * in try/catch.
+ */
+function clampSyntheticPositions<T extends ts.Node>(node: T): T {
+  if (node.pos < 0 || node.end < 0) {
+    ts.setTextRange(node, { pos: Math.max(0, node.pos), end: Math.max(0, node.end) });
+  }
+  ts.forEachChild(node, clampSyntheticPositions);
+  return node;
+}
+
 function isNullLiteral(node: ts.Expression): boolean {
   return node.kind === ts.SyntaxKind.NullKeyword;
+}
+
+function isNullOrUndefinedExpression(node: ts.Expression): boolean {
+  if (node.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isIdentifier(node) && node.text === "undefined") return true;
+  if (ts.isVoidExpression(node)) return true; // void 0
+  return false;
 }
 
 function isSimpleExpression(node: ts.Expression): boolean {
@@ -1283,6 +1311,10 @@ export default function macroTransformerFactory(
           console.log(`[typesugar ${prefix}]${loc} ${diag.message}`);
         }
       }
+
+      // Safety net: clamp negative positions so program.emit() doesn't crash
+      // in createTextSpan when encountering synthetic nodes from macro expansion
+      clampSyntheticPositions(result as ts.SourceFile);
 
       profiler.end("perFile.total");
       return result as ts.SourceFile;
@@ -4898,6 +4930,17 @@ class MacroTransformer {
       if (!declarations || declarations.length === 0) continue;
 
       const decl = declarations[0];
+
+      // Skip method declarations and accessors — only derive for data fields
+      if (
+        ts.isMethodDeclaration(decl) ||
+        ts.isMethodSignature(decl) ||
+        ts.isGetAccessorDeclaration(decl) ||
+        ts.isSetAccessorDeclaration(decl)
+      ) {
+        continue;
+      }
+
       let propType: ts.Type;
       let propTypeString: string;
       try {
@@ -6209,6 +6252,24 @@ class MacroTransformer {
     }
 
     if (!matchedEntry || !matchedInstance) {
+      return undefined;
+    }
+
+    // Guard: don't rewrite comparisons with null or undefined.
+    // `x === undefined` and `x === null` must stay as native checks —
+    // rewriting to Eq.equals(x, undefined) crashes at runtime.
+    if (isNullOrUndefinedExpression(node.right) || isNullOrUndefinedExpression(node.left)) {
+      return undefined;
+    }
+
+    // Also guard when either operand's *type* is null | undefined (e.g., `x == null`).
+    // getTypeAtLocation always returns a type; flags check is safe.
+    const rightType = this.ctx.typeChecker.getTypeAtLocation(node.right);
+    const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
+    if (
+      (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
+      (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
+    ) {
       return undefined;
     }
 

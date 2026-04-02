@@ -1,0 +1,22 @@
+{
+  "name": "ts-dryrun-6-fp-domain",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@typesugar/codec": "file:/Users/deapovey/src/typesugar/packages/codec",
+    "@typesugar/collections": "file:/Users/deapovey/src/typesugar/packages/collections",
+    "@typesugar/contracts": "file:/Users/deapovey/src/typesugar/packages/contracts",
+    "@typesugar/derive": "file:/Users/deapovey/src/typesugar/packages/derive",
+    "@typesugar/fp": "file:/Users/deapovey/src/typesugar/packages/fp",
+    "@typesugar/reflect": "file:/Users/deapovey/src/typesugar/packages/reflect",
+    "@typesugar/std": "file:/Users/deapovey/src/typesugar/packages/std",
+    "@typesugar/transformer": "file:/Users/deapovey/src/typesugar/packages/transformer",
+    "@typesugar/type-system": "file:/Users/deapovey/src/typesugar/packages/type-system",
+    "typescript": "^5.8.0",
+    "typesugar": "file:/Users/deapovey/src/typesugar/packages/typesugar"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

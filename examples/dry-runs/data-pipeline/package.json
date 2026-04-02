@@ -1,0 +1,34 @@
+{
+  "name": "ts-dryrun-2-data-pipeline",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx typesugar check",
+    "start": "npx typesugar run src/main.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@typesugar/codec": "file:../../../Users/deapovey/src/typesugar/packages/codec",
+    "@typesugar/collections": "file:../../../Users/deapovey/src/typesugar/packages/collections",
+    "@typesugar/core": "file:../../../Users/deapovey/src/typesugar/packages/core",
+    "@typesugar/derive": "file:../../../Users/deapovey/src/typesugar/packages/derive",
+    "@typesugar/fp": "file:../../../Users/deapovey/src/typesugar/packages/fp",
+    "@typesugar/fusion": "file:../../../Users/deapovey/src/typesugar/packages/fusion",
+    "@typesugar/macros": "file:../../../Users/deapovey/src/typesugar/packages/macros",
+    "@typesugar/reflect": "file:../../../Users/deapovey/src/typesugar/packages/reflect",
+    "@typesugar/specialize": "file:../../../Users/deapovey/src/typesugar/packages/specialize",
+    "@typesugar/std": "file:../../../Users/deapovey/src/typesugar/packages/std",
+    "@typesugar/transformer": "file:../../../Users/deapovey/src/typesugar/packages/transformer",
+    "@typesugar/type-system": "file:../../../Users/deapovey/src/typesugar/packages/type-system",
+    "@typesugar/typeclass": "file:../../../Users/deapovey/src/typesugar/packages/typeclass",
+    "@typesugar/validate": "file:../../../Users/deapovey/src/typesugar/packages/validate",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typesugar": "file:../../../Users/deapovey/src/typesugar/packages/typesugar",
+    "unplugin-typesugar": "file:../../../Users/deapovey/src/typesugar/packages/unplugin-typesugar"
+  }
+}

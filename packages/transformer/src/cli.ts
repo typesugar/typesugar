@@ -509,26 +509,44 @@ function build(options: CliOptions): void {
     }
   }
 
+  // Collect pre-emit diagnostics BEFORE emit. After emit, the transformer's
+  // synthetic nodes (pos = -1) cause deferred checker callbacks to crash in
+  // createTextSpan when getPreEmitDiagnostics triggers getGlobalDiagnostics.
+  profiler.start("cli.build.preEmitDiagnostics");
+  const preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
+  profiler.end("cli.build.preEmitDiagnostics");
+
   profiler.start("cli.build.emit");
   const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
     before: [transformerFactory],
   });
   profiler.end("cli.build.emit");
 
-  // Combine pre-emit diagnostics, emit diagnostics, and strict mode diagnostics
-  const rawDiagnostics = [
-    ...ts.getPreEmitDiagnostics(program),
-    ...emitResult.diagnostics,
-    ...strictDiagnostics,
-  ];
+  const rawDiagnostics = [...preEmitDiagnostics, ...emitResult.diagnostics, ...strictDiagnostics];
 
   // Filter diagnostics through SFINAE rules (suppress phantom errors from
-  // typesugar rewrites — extension methods, newtype assignment, opaque types)
-  const checker = program.getTypeChecker();
-  const allDiagnostics =
-    getSfinaeRules().length > 0
-      ? filterDiagnostics(rawDiagnostics, checker, (fn) => program.getSourceFile(fn))
-      : rawDiagnostics;
+  // typesugar rewrites — extension methods, newtype assignment, opaque types).
+  // getTypeChecker() after emit may trigger deferred callbacks that crash on
+  // synthetic nodes — catch and fall back to unfiltered diagnostics.
+  let allDiagnostics: readonly ts.Diagnostic[] = rawDiagnostics;
+  if (getSfinaeRules().length > 0) {
+    try {
+      const checker = program.getTypeChecker();
+      allDiagnostics = filterDiagnostics(rawDiagnostics, checker, (fn) =>
+        program.getSourceFile(fn)
+      );
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes("start < 0")) {
+        if (options.verbose) {
+          console.log(
+            `🧊 Warning: SFINAE filtering skipped — checker crashed on synthetic node positions`
+          );
+        }
+      } else {
+        throw e;
+      }
+    }
+  }
 
   const errorCount = reportDiagnostics(allDiagnostics);
 
@@ -722,10 +740,18 @@ function expand(options: CliOptions): void {
     return;
   }
 
-  const result = transformCode(originalContent, {
-    fileName: filePath,
+  // Use the project's tsconfig for full type resolution (needed for operator
+  // rewriting, instance resolution, etc.) instead of minimal hardcoded options.
+  const config = readTsConfig(options.project);
+  const allFiles = [...config.fileNames];
+  if (!allFiles.includes(filePath)) {
+    allFiles.push(filePath);
+  }
+
+  const pipeline = new TransformationPipeline({ ...config.options, noEmit: true }, allFiles, {
     verbose: options.verbose,
   });
+  const result = pipeline.transform(filePath);
 
   // Report diagnostics
   if (result.diagnostics.length > 0) {
@@ -847,15 +873,19 @@ async function run(options: CliOptions): Promise<void> {
 
   // Bundle with esbuild (handles TS transpilation and dependency resolution)
   const esbuild = await import("esbuild");
-  const os = await import("os");
   const crypto = await import("crypto");
   const { spawn } = await import("child_process");
 
   const fileDir = path.dirname(filePath);
   const hash = crypto.createHash("md5").update(filePath).digest("hex").slice(0, 8);
   const tempInputFile = path.join(fileDir, `.typesugar-${hash}-input.ts`);
-  const tempDir = os.tmpdir();
-  const tempFile = path.join(tempDir, `typesugar-${hash}.mjs`);
+  // Write bundled output inside the project tree (not os.tmpdir()) so that
+  // Node's ESM resolution can find `typescript` in the project's node_modules.
+  const cacheDir = path.join(fileDir, ".typesugar-cache");
+  if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+  }
+  const tempFile = path.join(cacheDir, `run-${hash}.mjs`);
 
   // Write transformed TypeScript to temp file next to original (for import resolution)
   fs.writeFileSync(tempInputFile, transformedCode);

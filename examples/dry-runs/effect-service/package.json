@@ -1,0 +1,29 @@
+{
+  "name": "ts-dryrun-5-effect-service",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@typesugar/core": "file:/Users/deapovey/src/typesugar/packages/core",
+    "@typesugar/derive": "file:/Users/deapovey/src/typesugar/packages/derive",
+    "@typesugar/effect": "file:/Users/deapovey/src/typesugar/packages/effect",
+    "@typesugar/erased": "file:/Users/deapovey/src/typesugar/packages/erased",
+    "@typesugar/fp": "file:/Users/deapovey/src/typesugar/packages/fp",
+    "@typesugar/macros": "file:/Users/deapovey/src/typesugar/packages/macros",
+    "@typesugar/mapper": "file:/Users/deapovey/src/typesugar/packages/mapper",
+    "@typesugar/preprocessor": "file:/Users/deapovey/src/typesugar/packages/preprocessor",
+    "@typesugar/reflect": "file:/Users/deapovey/src/typesugar/packages/reflect",
+    "@typesugar/specialize": "file:/Users/deapovey/src/typesugar/packages/specialize",
+    "@typesugar/std": "file:/Users/deapovey/src/typesugar/packages/std",
+    "@typesugar/transformer": "file:/Users/deapovey/src/typesugar/packages/transformer",
+    "@typesugar/typeclass": "file:/Users/deapovey/src/typesugar/packages/typeclass",
+    "@typesugar/validate": "file:/Users/deapovey/src/typesugar/packages/validate",
+    "effect": "^3.0.0",
+    "typescript": "~5.7.0",
+    "typesugar": "file:/Users/deapovey/src/typesugar/packages/typesugar",
+    "unplugin-typesugar": "file:/Users/deapovey/src/typesugar/packages/unplugin-typesugar"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

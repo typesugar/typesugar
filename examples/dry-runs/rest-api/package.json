@@ -1,0 +1,27 @@
+{
+  "name": "rest-api-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@typesugar/contracts": "file:../../../Users/deapovey/src/typesugar/packages/contracts",
+    "@typesugar/core": "file:../../../Users/deapovey/src/typesugar/packages/core",
+    "@typesugar/derive": "file:../../../Users/deapovey/src/typesugar/packages/derive",
+    "@typesugar/fp": "file:../../../Users/deapovey/src/typesugar/packages/fp",
+    "@typesugar/macros": "file:../../../Users/deapovey/src/typesugar/packages/macros",
+    "@typesugar/reflect": "file:../../../Users/deapovey/src/typesugar/packages/reflect",
+    "@typesugar/specialize": "file:../../../Users/deapovey/src/typesugar/packages/specialize",
+    "@typesugar/sql": "file:../../../Users/deapovey/src/typesugar/packages/sql",
+    "@typesugar/std": "file:../../../Users/deapovey/src/typesugar/packages/std",
+    "@typesugar/transformer": "file:../../../Users/deapovey/src/typesugar/packages/transformer",
+    "@typesugar/transformer-core": "file:../../../Users/deapovey/src/typesugar/packages/transformer-core",
+    "@typesugar/typeclass": "file:../../../Users/deapovey/src/typesugar/packages/typeclass",
+    "@typesugar/validate": "file:../../../Users/deapovey/src/typesugar/packages/validate",
+    "typescript": "^6.0.2",
+    "typesugar": "file:../../../Users/deapovey/src/typesugar/packages/typesugar",
+    "unplugin-typesugar": "file:../../../Users/deapovey/src/typesugar/packages/unplugin-typesugar"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.5"
+  }
+}

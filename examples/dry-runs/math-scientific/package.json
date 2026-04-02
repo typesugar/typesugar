@@ -1,0 +1,28 @@
+{
+  "name": "ts-dryrun-3-math-scientific",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx typesugar build",
+    "check": "npx typesugar check",
+    "run": "npx typesugar run src/main.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@typesugar/contracts": "file:../../../Users/deapovey/src/typesugar/packages/contracts",
+    "@typesugar/derive": "file:../../../Users/deapovey/src/typesugar/packages/derive",
+    "@typesugar/math": "file:../../../Users/deapovey/src/typesugar/packages/math",
+    "@typesugar/std": "file:../../../Users/deapovey/src/typesugar/packages/std",
+    "@typesugar/symbolic": "file:../../../Users/deapovey/src/typesugar/packages/symbolic",
+    "@typesugar/transformer": "file:../../../Users/deapovey/src/typesugar/packages/transformer",
+    "@typesugar/type-system": "file:../../../Users/deapovey/src/typesugar/packages/type-system",
+    "@typesugar/units": "file:../../../Users/deapovey/src/typesugar/packages/units",
+    "esbuild": "^0.27.5",
+    "typescript": "^6.0.2",
+    "typesugar": "file:../../../Users/deapovey/src/typesugar/packages/typesugar"
+  }
+}

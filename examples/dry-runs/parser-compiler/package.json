@@ -1,0 +1,30 @@
+{
+  "name": "ts-dryrun-4-parser-compiler",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx typesugar build",
+    "check": "npx typesugar check",
+    "run:main": "npx typesugar run src/main.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@typesugar/collections": "file:../../../Users/deapovey/src/typesugar/packages/collections",
+    "@typesugar/derive": "file:../../../Users/deapovey/src/typesugar/packages/derive",
+    "@typesugar/fp": "file:../../../Users/deapovey/src/typesugar/packages/fp",
+    "@typesugar/graph": "file:../../../Users/deapovey/src/typesugar/packages/graph",
+    "@typesugar/hlist": "file:../../../Users/deapovey/src/typesugar/packages/hlist",
+    "@typesugar/parser": "file:../../../Users/deapovey/src/typesugar/packages/parser",
+    "@typesugar/std": "file:../../../Users/deapovey/src/typesugar/packages/std",
+    "@typesugar/transformer": "file:../../../Users/deapovey/src/typesugar/packages/transformer",
+    "typescript": "^6.0.2",
+    "typesugar": "file:../../../Users/deapovey/src/typesugar/packages/typesugar"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
