@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/eslint-plugin",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "description": "🧊 ESLint plugin for typesugar macro system - lints transformed output",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

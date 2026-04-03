@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/transformer",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "description": "🧊 TypeScript transformer for typesugar macro expansion",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

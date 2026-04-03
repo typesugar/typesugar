@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/fp",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "description": "🧊 Functional programming library with typeclasses and data types for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

@@ -4338,19 +4338,17 @@ class MacroTransformer {
             );
           }
         }
-        const visited = ts.visitNode(cached, this.visit.bind(this)) as ts.Expression;
-        return preserveSourceMap(visited, node);
+        // Cached results are already fully expanded (visited), so no need to
+        // re-visit. Re-visiting would fail because parseExpression strips
+        // positions, making all nodes synthetic — the visitor skips macro
+        // expansion on synthetic nodes.
+        return preserveSourceMap(cached, node);
       }
     }
 
     try {
       // Wrap expansion in a hygiene scope so generated names are isolated
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
-
-      // Store in disk cache
-      if (cacheKey) {
-        this.cacheExpression(cacheKey, result);
-      }
 
       // Record expansion for source maps and diagnostics
       if (this.expansionTracker) {
@@ -4364,6 +4362,14 @@ class MacroTransformer {
         return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
       }
       const visited = ts.visitNode(result, this.visit.bind(this)) as ts.Expression;
+
+      // Store in disk cache AFTER visiting so nested macros are fully expanded.
+      // The cache stores printed text; on cache hit it's re-parsed with synthetic
+      // positions, and synthetic nodes skip macro expansion in the visitor.
+      if (cacheKey) {
+        this.cacheExpression(cacheKey, visited);
+      }
+
       return preserveSourceMap(visited, node);
     } catch (error) {
       this.ctx.reportError(node, `Macro expansion failed: ${error}`);

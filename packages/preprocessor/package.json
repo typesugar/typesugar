@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/preprocessor",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "description": "🧊 Lexical preprocessor for typesugar syntax extensions (HKT, custom operators)",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

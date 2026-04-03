@@ -13,6 +13,7 @@ import { registerTypeRewrite, globalRegistry, type MethodInlinePattern } from "@
 // IMPORTANT: Each of these packages must externalize @typesugar/core (and
 // @typesugar/macros if they import it) in their tsup.config.ts so they share
 // the same globalRegistry and instanceRegistry.
+import "@typesugar/macros";
 import "@typesugar/std";
 import "@typesugar/fp";
 import "@typesugar/graph";

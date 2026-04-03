@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/specialize",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "description": "🧊 Zero-cost typeclass specialization macros for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

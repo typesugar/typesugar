@@ -24,6 +24,7 @@ import * as vm from "vm";
 
 // Force-load ALL macro packages — same as api/compile.ts.
 // These side-effect imports register macros with globalRegistry.
+import "@typesugar/macros";
 import "@typesugar/std";
 import "@typesugar/fp";
 import "@typesugar/graph";

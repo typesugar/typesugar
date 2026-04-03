@@ -70,6 +70,6 @@ describe("Zed extension", () => {
     const libRs = fs.readFileSync(path.join(ZED_DIR, "src/lib.rs"), "utf-8");
     expect(libRs).toContain("node");
     expect(libRs).toContain("--stdio");
-    expect(libRs).toContain("@typesugar/lsp-server/dist/server.js");
+    expect(libRs).toContain("bin/typesugar-lsp");
   });
 });

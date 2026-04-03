@@ -1,12 +1,41 @@
+use std::env;
 use zed_extension_api::{self as zed, LanguageServerId, Result};
 
-struct TypesugarExtension;
+struct TypesugarExtension {
+    did_find_server: bool,
+}
 
 const SERVER_PACKAGE: &str = "@typesugar/lsp-server";
+const SERVER_PATH: &str = "node_modules/@typesugar/lsp-server/bin/typesugar-lsp";
+
+impl TypesugarExtension {
+    fn server_script_path(
+        &mut self,
+        language_server_id: &LanguageServerId,
+    ) -> Result<String> {
+        let version = zed::npm_package_latest_version(SERVER_PACKAGE)?;
+
+        if !self.did_find_server
+            || zed::npm_package_installed_version(SERVER_PACKAGE)?.as_deref()
+                != Some(version.as_str())
+        {
+            zed::set_language_server_installation_status(
+                language_server_id,
+                &zed::LanguageServerInstallationStatus::Downloading,
+            );
+            zed::npm_install_package(SERVER_PACKAGE, &version)?;
+            self.did_find_server = true;
+        }
+
+        Ok(SERVER_PATH.to_string())
+    }
+}
 
 impl zed::Extension for TypesugarExtension {
     fn new() -> Self {
-        TypesugarExtension
+        TypesugarExtension {
+            did_find_server: false,
+        }
     }
 
     fn language_server_command(
@@ -14,25 +43,18 @@ impl zed::Extension for TypesugarExtension {
         language_server_id: &LanguageServerId,
         _worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        // Use Zed's built-in npm package management to install the LSP server.
-        // This checks if already installed and downloads from npm if needed.
-        let version = zed::npm_package_latest_version(SERVER_PACKAGE)?;
-
-        if zed::npm_package_installed_version(SERVER_PACKAGE)?.as_deref() != Some(version.as_str())
-        {
-            zed::set_language_server_installation_status(
-                language_server_id,
-                &zed::LanguageServerInstallationStatus::Downloading,
-            );
-            zed::npm_install_package(SERVER_PACKAGE, &version)?;
-        }
-
-        let node = zed::node_binary_path()?;
-        let server_path = format!("node_modules/{}/bin/typesugar-lsp", SERVER_PACKAGE);
+        let server_path = self.server_script_path(language_server_id)?;
 
         Ok(zed::Command {
-            command: node,
-            args: vec![server_path, "--stdio".to_string()],
+            command: zed::node_binary_path()?,
+            args: vec![
+                env::current_dir()
+                    .unwrap()
+                    .join(&server_path)
+                    .to_string_lossy()
+                    .to_string(),
+                "--stdio".to_string(),
+            ],
             env: Default::default(),
         })
     }

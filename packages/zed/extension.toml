@@ -1,6 +1,6 @@
 id = "typesugar"
 name = "Sugared TypeScript"
-version = "0.1.0"
+version = "0.1.1"
 schema_version = 1
 authors = ["Dean Povey <dean.povey@gmail.com>"]
 description = "Sugared TypeScript with compile-time macros — LSP support for .sts/.stsx files"
@@ -13,3 +13,7 @@ version = "0.7.0"
 [language_servers.typesugar-lsp]
 name = "typesugar"
 languages = ["TypeScript", "TSX", "Sugared TypeScript", "Sugared TypeScript React"]
+
+[[capabilities]]
+kind = "npm:install"
+package = "@typesugar/lsp-server"

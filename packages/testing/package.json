@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/testing",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "description": "🧊 Compile-time testing macros — power assertions, property-based testing, type assertions",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
