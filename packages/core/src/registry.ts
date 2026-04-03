@@ -468,8 +468,19 @@ class MacroRegistryImpl implements MacroRegistry {
   }
 }
 
-/** Global macro registry singleton */
-export const globalRegistry = new MacroRegistryImpl();
+/**
+ * Global macro registry singleton.
+ *
+ * Stored on globalThis so that ESM and CJS copies of @typesugar/core share the
+ * same instance. Without this, the macro-loader (which uses createRequire /
+ * CJS) writes to a different MacroRegistryImpl than the transformer (ESM),
+ * causing macros from @typesugar/std, @typesugar/contracts etc. to silently
+ * fail to register.
+ */
+const GLOBAL_REGISTRY_KEY = "__typesugar_globalRegistry__";
+export const globalRegistry: MacroRegistry =
+  (globalThis as any)[GLOBAL_REGISTRY_KEY] ??
+  ((globalThis as any)[GLOBAL_REGISTRY_KEY] = new MacroRegistryImpl());
 
 /** Create a new isolated registry (for testing or scoped usage) */
 export function createRegistry(): MacroRegistry {

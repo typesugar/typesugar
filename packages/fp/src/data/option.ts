@@ -193,16 +193,17 @@ export function some<A>(a: A): Option<A> {
 // ============================================================================
 
 /**
- * Check if Option is Some (has a value)
+ * Check if Option is Some (has a value).
+ * Returns a type predicate so callers can narrow the Option in conditional branches.
  */
-export function isSome<A>(opt: Option<A>): boolean {
+export function isSome<A>(opt: Option<A>): opt is Option<A> & { __some: true } {
   return (opt as any) !== null;
 }
 
 /**
- * Check if Option is None (is null)
+ * Check if Option is None (is null).
  */
-export function isNone<A>(opt: Option<A>): boolean {
+export function isNone<A>(opt: Option<A>): opt is Option<never> {
   return (opt as any) === null;
 }
 

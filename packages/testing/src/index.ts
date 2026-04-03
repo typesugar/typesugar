@@ -183,14 +183,12 @@ export function typeInfo<T>(): TypeInfo {
  * // On failure:
  * //   Power Assert Failed
  * //
- * //   users.length === filtered.length
- * //
- * //   Sub-expressions:
- * //     users.length === filtered.length → false
- * //     users.length → 3
- * //     users → [{...}, {...}, {...}]
- * //     filtered.length → 2
- * //     filtered → [{...}, {...}]
+ * //   assert(users.length === filtered.length)
+ * //          |     |      |   |        |
+ * //          |     3      |   |        2
+ * //          |            |   [{...},{...}]
+ * //          |          false
+ * //          [{...},{...},{...}]
  * ```
  */
 export function assert(condition: boolean, message?: string): void {

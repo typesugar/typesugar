@@ -168,14 +168,18 @@ const c = mapFn(listFunctor, [5, 6]);
 
     const result = transformCode(code, { fileName: "auto-spec-cache.ts" });
 
-    // Find the hoisted specialization
-    const hoistedMatch = result.code.match(/const (__\w*mapFn\w*List\w*)/);
+    // Find the hoisted specialization (may have JSDoc comment between const and identifier)
+    const hoistedMatch = result.code.match(
+      /const\s+(?:\/\*[\s\S]*?\*\/\s*)?(__\w*mapFn\w*List\w*)/
+    );
     expect(hoistedMatch).not.toBeNull();
 
     const hoistedName = hoistedMatch![1];
 
-    // Should declare exactly once
-    const declMatches = result.code.match(new RegExp(`const ${hoistedName}`, "g"));
+    // Should declare exactly once (const may have JSDoc between keyword and name)
+    const declMatches = result.code.match(
+      new RegExp(`const\\s+(?:/\\*[\\s\\S]*?\\*/\\s*)?${hoistedName}`, "g")
+    );
     expect(declMatches).toHaveLength(1);
 
     // Should be called at all three sites

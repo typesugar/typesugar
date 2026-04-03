@@ -35,10 +35,10 @@ console.log("all assertions passed!");
 // assert(users.length === admins.length);
 //   Power Assert Output:
 //   assert(users.length === admins.length)
-//          |     |      |   |       |
-//          |     3      |   |       1
-//          |            |   ["alice"]
-//          |          false
+//          |     |      |   |      |
+//          |     3      |   |      1
+//          |            false
+//          |                 ["alice"]
 //          ["alice","bob","charlie"]
 
 // Try: change admins to have more entries than users and watch it fail

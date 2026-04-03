@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/contracts-refined",
-  "version": "0.1.0",
+  "version": "0.1.1-rc.0",
   "description": "🧊 Integrate @typesugar/contracts with @typesugar/type-system refinement types — single source of truth for type predicates",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

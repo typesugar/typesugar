@@ -504,12 +504,17 @@ export function inferBinaryExprResultType(
   }
 
   let leftTypeName: string;
-  if (ts.isBinaryExpression(unwrappedLeft)) {
-    const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
-    leftTypeName =
-      inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-  } else {
-    leftTypeName = ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
+  try {
+    if (ts.isBinaryExpression(unwrappedLeft)) {
+      const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
+      leftTypeName =
+        inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
+    } else {
+      leftTypeName = ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
+    }
+  } catch {
+    // Type checker crashed on synthetic node — skip operator rewriting
+    return undefined;
   }
 
   const baseTypeName = stripTypeArguments(leftTypeName);
@@ -559,6 +564,12 @@ export function tryRewriteTypeclassOperator(
   visit: VisitFn,
   node: ts.BinaryExpression
 ): ts.Expression | undefined {
+  // Skip synthetic nodes (from macro-generated code like assert IIFE).
+  // The type checker crashes on nodes whose symbols lack initialized links.
+  if (node.pos === -1 || node.end === -1) {
+    return undefined;
+  }
+
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }
@@ -575,17 +586,22 @@ export function tryRewriteTypeclassOperator(
   }
 
   let typeName: string;
-  if (ts.isBinaryExpression(unwrappedLeft)) {
-    const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
-    typeName =
-      inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-  } else if (ts.isIdentifier(unwrappedLeft)) {
-    const inferred = inferIdentifierResultType(ctx, unwrappedLeft);
-    typeName =
-      inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
-  } else {
-    const leftType = ctx.typeChecker.getTypeAtLocation(node.left);
-    typeName = ctx.typeChecker.typeToString(leftType);
+  try {
+    if (ts.isBinaryExpression(unwrappedLeft)) {
+      const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
+      typeName =
+        inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
+    } else if (ts.isIdentifier(unwrappedLeft)) {
+      const inferred = inferIdentifierResultType(ctx, unwrappedLeft);
+      typeName =
+        inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
+    } else {
+      const leftType = ctx.typeChecker.getTypeAtLocation(node.left);
+      typeName = ctx.typeChecker.typeToString(leftType);
+    }
+  } catch {
+    // Type checker crashed on synthetic node — skip operator rewriting
+    return undefined;
   }
   const baseTypeName = stripTypeArguments(typeName);
   const typeArg = extractTypeArgumentsContent(typeName) ?? "";

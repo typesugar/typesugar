@@ -1409,8 +1409,11 @@ function convertToCompanionAssignment(code: string, tcName: string, typeName: st
     `namespace ${typeName} { export const ${tcName} = ${pureMarker}{`
   );
 
-  // Close the namespace block (find the trailing semicolon and add "as Type; }")
-  code = code.replace(/;\s*$/, ` as ${typeAnnotation}; }`);
+  // Close the namespace block.
+  // Deliberately omit `as Eq<T>` cast — the derive symbol (e.g. `Eq`) is a
+  // value-level import, not a type.  Using it in `as Eq<T>` produces TS2749.
+  // The object literal is already structurally correct so no cast is needed.
+  code = code.replace(/;\s*$/, `; }`);
 
   // Replace self-references to the old flat variable name with companion path.
   // e.g., eqShape.equals → Shape.Eq.equals

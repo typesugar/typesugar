@@ -44,8 +44,22 @@ export { createMacroTestContext, parseSource, type TestMacroContext } from "./ma
 function collectSubExpressions(
   node: ts.Expression,
   sourceFile: ts.SourceFile
-): Array<{ node: ts.Expression; source: string }> {
-  const subs: Array<{ node: ts.Expression; source: string }> = [];
+): Array<{ node: ts.Expression; source: string; displayOffset: number }> {
+  const exprStart = node.getStart(sourceFile);
+  const subs: Array<{ node: ts.Expression; source: string; displayOffset: number }> = [];
+
+  // Compute the column position where this sub-expression's value indicator
+  // should appear in the tree diagram. For property access, position at the
+  // property name; for binary ops, at the operator; otherwise at the start.
+  function getDisplayOffset(n: ts.Expression): number {
+    if (ts.isPropertyAccessExpression(n)) {
+      return n.name.getStart(sourceFile) - exprStart;
+    }
+    if (ts.isBinaryExpression(n)) {
+      return n.operatorToken.getStart(sourceFile) - exprStart;
+    }
+    return n.getStart(sourceFile) - exprStart;
+  }
 
   function walk(n: ts.Expression): void {
     // Skip literals — they're self-explanatory
@@ -59,9 +73,9 @@ function collectSubExpressions(
       return;
     }
 
-    // Collect this sub-expression
+    // Collect this sub-expression with its display column offset
     const source = n.getText(sourceFile);
-    subs.push({ node: n, source });
+    subs.push({ node: n, source, displayOffset: getDisplayOffset(n) });
 
     // Recurse into children
     if (ts.isBinaryExpression(n)) {
@@ -123,43 +137,73 @@ export const assertMacro = defineExpressionMacro({
     const subs = collectSubExpressions(expr, sourceFile);
 
     // Build: const __vals__ = [sub1, sub2, ...] (evaluated left-to-right)
-    // Build: const __srcs__ = ["sub1Source", "sub2Source", ...]
     const valElements = subs.map((s) => s.node);
-    const srcElements = subs.map((s) => factory.createStringLiteral(s.source));
 
-    // Generate the power assertion IIFE:
+    // Compute display column positions for each sub-expression.
+    // The tree diagram shows "  assert(<expr>)" so the prefix is 9 chars.
+    const ASSERT_PREFIX_LEN = 9; // "  assert(".length
+    const displayPositions = subs.map((s) => s.displayOffset + ASSERT_PREFIX_LEN);
+
+    // Generate the power assertion IIFE with tree diagram output:
     //
     // (() => {
     //   const __result__ = <expr>;
     //   if (!__result__) {
     //     const __vals__ = [<sub1>, <sub2>, ...];
-    //     const __srcs__ = ["sub1Source", "sub2Source", ...];
-    //     let __diagram__ = "Power Assert Failed\n\n";
-    //     __diagram__ += "  " + <exprSource> + "\n\n";
-    //     __diagram__ += "Sub-expressions:\n";
-    //     for (let __i__ = 0; __i__ < __srcs__.length; __i__++) {
-    //       __diagram__ += "  " + __srcs__[__i__] + " → " + JSON.stringify(__vals__[__i__]) + "\n";
-    //     }
+    //     let __msg__ = <customMessage>;
+    //     // Build tree diagram with column-aligned values
+    //     ...
     //     throw new Error(__diagram__);
     //   }
     // })()
     //
     // We build this as a string and parse it, then splice in the real
-    // expression nodes for correctness.
+    // expression nodes for correctness. Display positions are embedded
+    // as compile-time constants.
 
     const code = `(() => {
   const __pa_result__ = undefined;
   if (!__pa_result__) {
-    const __pa_vals__ = [];
-    const __pa_srcs__ = [];
-    let __pa_msg__ = ${customMessage ? "undefined" : "undefined"};
-    let __pa_diagram__ = "\\n\\nPower Assert Failed" + (__pa_msg__ ? ": " + __pa_msg__ : "") + "\\n\\n";
-    __pa_diagram__ += "  " + ${JSON.stringify(exprSource)} + "\\n\\n";
-    __pa_diagram__ += "Sub-expressions:\\n";
-    for (let __pa_i__ = 0; __pa_i__ < __pa_srcs__.length; __pa_i__++) {
-      __pa_diagram__ += "  " + __pa_srcs__[__pa_i__] + " \\u2192 " + JSON.stringify(__pa_vals__[__pa_i__]) + "\\n";
+    const __pa_vals__: any[] = [];
+    let __pa_msg__: any = undefined;
+    var __pa_fv__ = __pa_vals__.map((v: any) => {
+      try { return JSON.stringify(v); } catch(e) { return String(v); }
+    });
+    var __pa_it__: any[] = [${displayPositions.join(", ")}].map((p: any, i: any) => {
+      return [p, __pa_fv__[i]];
+    }).sort((a: any, b: any) => {
+      return a[1].length - b[1].length || a[0] - b[0];
+    });
+    var __pa_d__ = "\\n\\nPower Assert Failed" + (__pa_msg__ ? ": " + __pa_msg__ : "") + "\\n\\n  assert(" + ${JSON.stringify(exprSource)} + ")\\n";
+    const __pa_row__ = (vs: any, ps: any) => {
+      var cs = vs.concat(ps.map((p: any) => { return [p, "|"]; }));
+      cs.sort((a: any, b: any) => { return a[0] - b[0]; });
+      var s = "", c = 0;
+      for (var k = 0; k < cs.length; k++) {
+        if (cs[k][0] < c) continue;
+        if (c < cs[k][0]) { s += " ".repeat(cs[k][0] - c); c = cs[k][0]; }
+        s += cs[k][1]; c += cs[k][1].length;
+      }
+      return s;
+    };
+    var __pa_ap__ = __pa_it__.map((x: any) => { return x[0]; });
+    __pa_d__ += __pa_row__([], __pa_ap__) + "\\n";
+    var __pa_rm__: any[] = __pa_it__.slice();
+    while (__pa_rm__.length > 0) {
+      var __pa_rw__: any[] = [], __pa_nx__: any[] = [], __pa_le__ = -Infinity;
+      for (var k = 0; k < __pa_rm__.length; k++) {
+        var dc = __pa_rm__[k][0];
+        if (dc >= __pa_le__ + 1) {
+          __pa_rw__.push([dc, __pa_rm__[k][1]]);
+          __pa_le__ = dc + __pa_rm__[k][1].length;
+        } else {
+          __pa_nx__.push(__pa_rm__[k]);
+        }
+      }
+      __pa_d__ += __pa_row__(__pa_rw__, __pa_nx__.map((x: any) => { return x[0]; })) + "\\n";
+      __pa_rm__ = __pa_nx__;
     }
-    throw new Error(__pa_diagram__);
+    throw new Error(__pa_d__);
   }
 })()`;
 
@@ -210,24 +254,8 @@ export const assertMacro = defineExpressionMacro({
       factory.updateVariableDeclarationList(valsDecl.declarationList, [newValsDecl])
     );
 
-    // ifBlock[1]: const __pa_srcs__ = [<source strings>]
-    const srcsDecl = ifBlock.statements[1] as ts.VariableStatement;
-    const srcsVarDecl = srcsDecl.declarationList.declarations[0];
-    const newSrcsDecl = factory.updateVariableDeclaration(
-      srcsVarDecl,
-      srcsVarDecl.name,
-      undefined,
-      undefined,
-      factory.createArrayLiteralExpression(srcElements)
-    );
-    const newSrcsStmt = factory.updateVariableStatement(
-      srcsDecl,
-      srcsDecl.modifiers,
-      factory.updateVariableDeclarationList(srcsDecl.declarationList, [newSrcsDecl])
-    );
-
-    // ifBlock[2]: let __pa_msg__ = <customMessage or undefined>
-    const msgDecl = ifBlock.statements[2] as ts.VariableStatement;
+    // ifBlock[1]: let __pa_msg__ = <customMessage or undefined>
+    const msgDecl = ifBlock.statements[1] as ts.VariableStatement;
     const msgVarDecl = msgDecl.declarationList.declarations[0];
     const newMsgDecl = factory.updateVariableDeclaration(
       msgVarDecl,
@@ -245,9 +273,8 @@ export const assertMacro = defineExpressionMacro({
     // Rebuild the if-block with patched statements
     const newIfBlock = factory.updateBlock(ifBlock, [
       newValsStmt,
-      newSrcsStmt,
       newMsgStmt,
-      ...ifBlock.statements.slice(3),
+      ...ifBlock.statements.slice(2),
     ]);
 
     const newIfStmt = factory.updateIfStatement(

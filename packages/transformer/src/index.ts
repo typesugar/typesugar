@@ -2253,6 +2253,14 @@ class MacroTransformer {
    * Visit a node and potentially transform it
    */
   visit(node: ts.Node): ts.Node | ts.Node[] {
+    // Skip transforms for synthetic nodes (pos === -1) from macro expansion
+    // output.  The type checker crashes on their unbound symbols.  Still
+    // descend into children so that real source nodes spliced into the
+    // expansion (e.g. assert sub-expressions) are visited.
+    if (node.pos === -1 && !ts.isSourceFile(node) && !ts.isBlock(node) && !ts.isModuleBlock(node)) {
+      return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    }
+
     if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
       return this.visitStatementContainer(node);
     }
@@ -6145,6 +6153,12 @@ class MacroTransformer {
   }
 
   private tryRewriteTypeclassOperator(node: ts.BinaryExpression): ts.Expression | undefined {
+    // Skip synthetic nodes (from macro-generated code like assert IIFE).
+    // The type checker crashes on nodes whose symbols lack initialized links.
+    if (node.pos === -1 || node.end === -1) {
+      return undefined;
+    }
+
     if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "extensions")) {
       return undefined;
     }
@@ -6155,28 +6169,35 @@ class MacroTransformer {
     const entries = getSyntaxForOperator(opString);
     if (!entries || entries.length === 0) return undefined;
 
-    // Get the type of the left operand, inferring from nested binary expressions if needed
-    // Unwrap parenthesized expressions to find the underlying expression
+    // Get the type of the left operand, inferring from nested binary expressions if needed.
+    // Wrap in try/catch: synthetic nodes from macro-generated code (e.g. assert IIFE)
+    // may crash TypeScript's checker in getTypeOfSymbol → getCheckFlags when their
+    // symbols lack initialized links.  Bail out and leave the expression untouched.
     let unwrappedLeft: ts.Expression = node.left;
     while (ts.isParenthesizedExpression(unwrappedLeft)) {
       unwrappedLeft = unwrappedLeft.expression;
     }
 
     let typeName: string;
-    if (ts.isBinaryExpression(unwrappedLeft)) {
-      const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-      typeName =
-        inferred ??
-        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-    } else if (ts.isIdentifier(unwrappedLeft)) {
-      // For variable references, check if the initializer is a binary expression we'd rewrite
-      const inferred = this.inferIdentifierResultType(unwrappedLeft);
-      typeName =
-        inferred ??
-        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(node.left));
-    } else {
-      const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-      typeName = this.ctx.typeChecker.typeToString(leftType);
+    try {
+      if (ts.isBinaryExpression(unwrappedLeft)) {
+        const inferred = this.inferBinaryExprResultType(unwrappedLeft);
+        typeName =
+          inferred ??
+          this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
+      } else if (ts.isIdentifier(unwrappedLeft)) {
+        // For variable references, check if the initializer is a binary expression we'd rewrite
+        const inferred = this.inferIdentifierResultType(unwrappedLeft);
+        typeName =
+          inferred ??
+          this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(node.left));
+      } else {
+        const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
+        typeName = this.ctx.typeChecker.typeToString(leftType);
+      }
+    } catch {
+      // Type checker crashed on a synthetic node — skip operator rewriting
+      return undefined;
     }
     const baseTypeName = stripTypeArguments(typeName);
     const typeArg = extractTypeArgumentsContent(typeName) ?? "";

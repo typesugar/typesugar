@@ -7,14 +7,26 @@ This guide will help you set up typesugar in your TypeScript project.
 ### 1. Install the packages
 
 ```bash
-# Core packages
-npm install typesugar @typesugar/transformer
+# Core packages (typescript is a required peer dependency)
+npm install typesugar @typesugar/transformer typescript
 
 # Or with pnpm
-pnpm add typesugar @typesugar/transformer
+pnpm add typesugar @typesugar/transformer typescript
 ```
 
-### 2. Configure your build tool
+### 2. Quick Start with the CLI
+
+The fastest way to try TypeSugar — no build tool configuration needed:
+
+```bash
+npx typesugar run src/main.ts    # compile + execute in one step
+npx typesugar check              # typecheck with macro expansion
+npx typesugar build              # compile to dist/
+npx typesugar expand src/main.ts # show macro-expanded output
+npx typesugar init               # interactive project setup wizard
+```
+
+### 3. Configure your build tool
 
 #### Vite
 
@@ -65,10 +77,13 @@ npx ts-patch install
 // tsconfig.json
 {
   "compilerOptions": {
-    "plugins": [{ "transform": "@typesugar/transformer" }]
+    "plugins": [{ "transform": "@typesugar/transformer" }],
+    "skipLibCheck": true
   }
 }
 ```
+
+> **Note:** `skipLibCheck: true` is recommended to avoid spurious errors from TypeSugar's generated declaration files (especially `@typesugar/fp`).
 
 ## Your First Macro
 
@@ -184,6 +199,49 @@ export default defineConfig({
 ```bash
 # Add to your CI or pre-commit hook
 tsc --noEmit
+```
+
+## Pattern Matching
+
+TypeSugar provides two forms of pattern matching:
+
+```typescript
+import { match } from "@typesugar/std";
+
+type Shape = { kind: "circle"; radius: number } | { kind: "rect"; width: number; height: number };
+
+// Object form (works at runtime, no macro expansion needed)
+const area = match(shape, {
+  circle: (s) => Math.PI * s.radius ** 2,
+  rect: (s) => s.width * s.height,
+});
+
+// Fluent form (requires the TypeSugar transformer for macro expansion)
+const area2 = match(shape)
+  .case({ kind: "circle" })
+  .then((s) => Math.PI * s.radius ** 2)
+  .case({ kind: "rect" })
+  .then((s) => s.width * s.height)
+  .else(() => 0);
+```
+
+## Option & Either (Zero-Cost Representation)
+
+`@typesugar/fp` uses a zero-cost representation: `Some(x)` returns the raw value `x`, and `None` is `null`. This means Option values have zero allocation overhead, but dot-syntax like `.map()` and `.flatMap()` requires the TypeSugar transformer to expand:
+
+```typescript
+import { Some, None, Option, isSome } from "@typesugar/fp";
+
+const x: Option<number> = Some(42); // x is just 42 at runtime
+const y: Option<number> = None; // y is null at runtime
+
+// With transformer: dot-syntax works (expanded at compile time)
+const doubled = x.map((n) => n * 2);
+
+// Without transformer: use manual null checks
+if (x != null) {
+  console.log(x * 2); // x is narrowed to number
+}
 ```
 
 ## Next Steps

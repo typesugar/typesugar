@@ -433,6 +433,72 @@ function checkUnplugin(cwd: string): DiagnosticCheck {
   }
 }
 
+function checkSkipLibCheck(cwd: string): DiagnosticCheck {
+  const tsconfigPath = path.join(cwd, "tsconfig.json");
+
+  if (!fs.existsSync(tsconfigPath)) {
+    return {
+      name: "skipLibCheck enabled",
+      status: "skip",
+      message: "No tsconfig.json",
+    };
+  }
+
+  try {
+    const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+    const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, cwd);
+
+    if (!config.options.skipLibCheck) {
+      return {
+        name: "skipLibCheck enabled",
+        status: "warn",
+        message: "skipLibCheck is not enabled — @typesugar/fp declarations may produce errors",
+        fix: 'Add "skipLibCheck": true to compilerOptions in tsconfig.json',
+      };
+    }
+
+    return {
+      name: "skipLibCheck enabled",
+      status: "pass",
+      message: "",
+    };
+  } catch {
+    return {
+      name: "skipLibCheck enabled",
+      status: "skip",
+      message: "Could not parse tsconfig.json",
+    };
+  }
+}
+
+function checkMacroRegistration(cwd: string): DiagnosticCheck {
+  try {
+    const { globalRegistry } = require("@typesugar/core");
+    const all = globalRegistry.getAll();
+
+    if (all.length === 0) {
+      return {
+        name: "Macro registration",
+        status: "warn",
+        message: "0 macros registered — macros may not be loading correctly",
+        fix: "Ensure @typesugar/core is loaded via ESM, or check for ESM/CJS dual-instance issues",
+      };
+    }
+
+    return {
+      name: "Macro registration",
+      status: "pass",
+      message: `${all.length} macros registered`,
+    };
+  } catch {
+    return {
+      name: "Macro registration",
+      status: "skip",
+      message: "Could not load @typesugar/core",
+    };
+  }
+}
+
 function checkVersionMismatch(cwd: string): DiagnosticCheck {
   const pkgPath = path.join(cwd, "package.json");
 
@@ -582,6 +648,8 @@ export async function runDoctor(verbose: boolean): Promise<void> {
     checkTsPatchActive(cwd),
     checkPrepareScript(cwd),
     checkUnplugin(cwd),
+    checkSkipLibCheck(cwd),
+    checkMacroRegistration(cwd),
     checkVersionMismatch(cwd),
   ];
 

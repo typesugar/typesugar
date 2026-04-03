@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/lsp-server",
-  "version": "0.1.0",
+  "version": "0.1.1-rc.0",
   "description": "Standalone LSP server for typesugar macro-aware IDE support",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

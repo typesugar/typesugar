@@ -282,6 +282,15 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
 
   visit(node: ts.Node): ts.Node | ts.Node[] {
+    // Skip synthetic subtrees (pos === -1) entirely.  These come from macro
+    // expansion output (e.g. assert IIFE, derive companions).  The type checker
+    // crashes on their unbound symbols, and they don't contain further macros.
+    // Exception: source-file, block, and module-block nodes that may contain a
+    // mix of real and synthetic children need to be descended into.
+    if (node.pos === -1 && !ts.isSourceFile(node) && !ts.isBlock(node) && !ts.isModuleBlock(node)) {
+      return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    }
+
     if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
       return this.visitStatementContainer(node);
     }

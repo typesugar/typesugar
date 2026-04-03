@@ -93,6 +93,17 @@ export function loadMacroPackages(program: ts.Program, verbose?: boolean): void 
   for (const pkg of toLoad) {
     loadPackage(pkg, verbose);
   }
+
+  if (verbose) {
+    const all = globalRegistry.getAll();
+    console.log(`[typesugar] Total registered macros: ${all.length}`);
+    if (all.length === 0 && toLoad.size > 0) {
+      console.warn(
+        `[typesugar] WARNING: ${toLoad.size} macro package(s) loaded but 0 macros registered. ` +
+          `This may indicate an ESM/CJS dual-instance issue.`
+      );
+    }
+  }
 }
 
 /**

@@ -599,7 +599,7 @@ export function includeJson<T = unknown>(_path: string): T {
  * staticAssert(config.version > 0, "Version must be positive");
  * ```
  */
-export function staticAssert(_condition: boolean, _message: string): void {
+export function staticAssert(_condition: boolean, _message?: string): void {
   throw new Error("staticAssert() must be processed by the typesugar transformer at compile time");
 }
 
