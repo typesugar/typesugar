@@ -47,6 +47,37 @@ export function composeSourceMaps(
 }
 
 /**
+ * Compose a chain of source maps (outermost first, innermost last).
+ *
+ * Unlike composeSourceMaps (which uses a loader and breaks when all maps
+ * reference the same source file), this uses remapping's array form which
+ * handles same-source chains correctly.
+ *
+ * @param maps - Source maps from outermost (closest to final output) to innermost
+ *               (closest to original source). Nulls are filtered out.
+ * @returns Composed source map, or null if no maps provided
+ */
+export function composeSourceMapChain(
+  maps: (RawSourceMap | null | undefined)[]
+): RawSourceMap | null {
+  const validMaps = maps.filter((m): m is RawSourceMap => m != null);
+  if (validMaps.length === 0) return null;
+  if (validMaps.length === 1) return validMaps[0];
+
+  const composed = remapping(validMaps, () => null);
+
+  return {
+    version: 3,
+    file: composed.file ?? undefined,
+    sourceRoot: composed.sourceRoot ?? "",
+    sources: composed.sources.filter((s): s is string => s !== null),
+    sourcesContent: composed.sourcesContent,
+    names: composed.names,
+    mappings: composed.mappings as string,
+  };
+}
+
+/**
  * Decoded source map segment
  */
 export interface DecodedSegment {

@@ -4695,6 +4695,22 @@ class MacroTransformer {
     return sorted;
   }
 
+  /**
+   * Recursively set the source map range on a node and all its descendants.
+   * Used for macro-generated statements (from parseStatements()) whose leaf
+   * nodes have pos: -1 from stripPositions(). This makes generateASTSourceMap()
+   * map the generated code back to the originating decorator.
+   */
+  private setSourceMapRangeDeep<T extends ts.Node>(node: T, original: ts.Node): T {
+    const range = ts.getSourceMapRange(original);
+    function visit(n: ts.Node): void {
+      ts.setSourceMapRange(n, range);
+      ts.forEachChild(n, visit);
+    }
+    visit(node);
+    return node;
+  }
+
   private expandDeriveDecorator(
     decorator: ts.Decorator,
     node: ts.Node,
@@ -4737,7 +4753,9 @@ class MacroTransformer {
           const result = this.ctx.hygiene.withScope(() =>
             deriveMacro.expand(this.ctx, node, typeInfo)
           );
-          statements.push(...result);
+          for (const stmt of result) {
+            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
+          }
         } catch (error) {
           this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
         }
@@ -4830,12 +4848,15 @@ class MacroTransformer {
                 )
             );
             if (!alreadyHasCompanion) {
-              statements.push(...this.ctx.parseStatements(companionCode));
+              for (const stmt of this.ctx.parseStatements(companionCode)) {
+                statements.push(this.setSourceMapRangeDeep(stmt, decorator));
+              }
             }
           }
 
-          const parsedStmts = this.ctx.parseStatements(code);
-          statements.push(...parsedStmts);
+          for (const stmt of this.ctx.parseStatements(code)) {
+            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
+          }
 
           const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
           const varName = instanceVarName(uncap, typeName);
@@ -4880,7 +4901,9 @@ class MacroTransformer {
           const result = this.ctx.hygiene.withScope(() =>
             tcDeriveMacro.expand(this.ctx, node, typeInfo)
           );
-          statements.push(...result);
+          for (const stmt of result) {
+            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
+          }
         } catch (error) {
           this.ctx.reportError(arg, `Typeclass derive macro expansion failed: ${error}`);
         }

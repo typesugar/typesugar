@@ -31,6 +31,7 @@ import {
   createPipeline,
   transformCode,
   formatExpansions,
+  transpileExpanded,
 } from "./pipeline.js";
 import { filterDiagnostics, getSfinaeRules, setSfinaeAuditMode } from "@typesugar/core";
 import { registerAllSfinaeRules } from "@typesugar/macros";
@@ -53,6 +54,7 @@ interface CliOptions {
   file?: string;
   diff?: boolean;
   ast?: boolean;
+  js?: boolean;
   createArgs?: string[];
   preprocessSources?: string[];
   outDir?: string;
@@ -135,6 +137,7 @@ function parseArgs(args: string[]): CliOptions {
   let file: string | undefined;
   let diff = false;
   let ast = false;
+  let js = false;
   let cache: boolean | string | undefined;
   let strict: boolean | "incremental" = false;
   let showSfinae = false;
@@ -149,6 +152,8 @@ function parseArgs(args: string[]): CliOptions {
       diff = true;
     } else if (arg === "--ast") {
       ast = true;
+    } else if (arg === "--js") {
+      js = true;
     } else if (arg === "--cache") {
       // Check if next arg is a path (not another flag)
       const next = args[i + 1];
@@ -174,7 +179,7 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
-  return { command, project, verbose, file, diff, ast, cache, strict, showSfinae };
+  return { command, project, verbose, file, diff, ast, js, cache, strict, showSfinae };
 }
 
 function printHelp(): void {
@@ -208,6 +213,7 @@ OPTIONS:
 EXPAND OPTIONS:
   --diff                 Show unified diff between original and expanded
   --ast                  Show expanded AST as JSON
+  --js                   Show transpiled JavaScript (portable output)
 
 PREPROCESS OPTIONS:
   --outDir <dir>         Output directory (default: .typesugar)
@@ -670,7 +676,7 @@ function watch(options: CliOptions): void {
 function expand(options: CliOptions): void {
   if (!options.file) {
     console.error("Error: expand command requires a file argument");
-    console.error("Usage: typesugar expand <file> [--diff] [--ast]");
+    console.error("Usage: typesugar expand <file> [--diff] [--ast] [--js]");
     process.exit(1);
   }
 
@@ -739,6 +745,7 @@ function expand(options: CliOptions): void {
 
   const pipeline = new TransformationPipeline({ ...config.options, noEmit: true }, allFiles, {
     verbose: options.verbose,
+    emitJs: options.js,
   });
   const result = pipeline.transform(filePath);
 
@@ -754,6 +761,8 @@ function expand(options: CliOptions): void {
     // Use formatExpansions for a clean focused diff
     const diffOutput = formatExpansions(result);
     console.log(diffOutput);
+  } else if (options.js && result.js) {
+    console.log(result.js);
   } else {
     console.log(result.code);
   }
@@ -830,7 +839,7 @@ async function run(options: CliOptions): Promise<void> {
     console.log(`🧊 Running ${filePath}...`);
   }
 
-  let transformedCode: string;
+  let jsCode: string;
 
   // Use pipeline with caching if --cache is enabled
   if (options.cache) {
@@ -842,12 +851,13 @@ async function run(options: CliOptions): Promise<void> {
     const pipeline = new TransformationPipeline(config.options, [filePath], {
       verbose: options.verbose,
       diskCache: options.cache,
+      emitJs: true,
       readFile: (f) => (f === filePath ? fileContent : ts.sys.readFile(f)),
       fileExists: (f) => (f === filePath ? true : ts.sys.fileExists(f)),
     });
 
     const result = pipeline.transform(filePath);
-    transformedCode = result.code;
+    jsCode = result.js ?? result.code;
 
     // Save caches for next run
     pipeline.cleanup();
@@ -856,8 +866,9 @@ async function run(options: CliOptions): Promise<void> {
     const result = transformCode(fileContent, {
       fileName: filePath,
       verbose: options.verbose,
+      emitJs: true,
     });
-    transformedCode = result.code;
+    jsCode = result.js ?? result.code;
   }
 
   // Bundle with esbuild (handles TS transpilation and dependency resolution)
@@ -867,7 +878,7 @@ async function run(options: CliOptions): Promise<void> {
 
   const fileDir = path.dirname(filePath);
   const hash = crypto.createHash("md5").update(filePath).digest("hex").slice(0, 8);
-  const tempInputFile = path.join(fileDir, `.typesugar-${hash}-input.ts`);
+  const tempInputFile = path.join(fileDir, `.typesugar-${hash}-input.mjs`);
   // Write bundled output inside the project tree (not os.tmpdir()) so that
   // Node's ESM resolution can find `typescript` in the project's node_modules.
   const cacheDir = path.join(fileDir, ".typesugar-cache");
@@ -876,8 +887,8 @@ async function run(options: CliOptions): Promise<void> {
   }
   const tempFile = path.join(cacheDir, `run-${hash}.mjs`);
 
-  // Write transformed TypeScript to temp file next to original (for import resolution)
-  fs.writeFileSync(tempInputFile, transformedCode);
+  // Write transpiled JavaScript to temp file next to original (for import resolution)
+  fs.writeFileSync(tempInputFile, jsCode);
 
   try {
     // Create an esbuild plugin to preprocess TypeScript files (including .sts/.stsx)
@@ -886,19 +897,22 @@ async function run(options: CliOptions): Promise<void> {
       setup(build: {
         onLoad: (
           opts: { filter: RegExp },
-          cb: (args: { path: string }) => Promise<{ contents: string; loader: "ts" | "tsx" }>
+          cb: (args: { path: string }) => Promise<{ contents: string; loader: "js" | "jsx" }>
         ) => void;
       }) {
-        // Match .ts, .tsx, .sts, .stsx files
+        // Match .ts, .tsx, .sts, .stsx files — preprocess custom syntax then
+        // transpile to JS so esbuild doesn't choke on namespaces/const enums
         build.onLoad({ filter: /\.(tsx?|stsx?)$/ }, async (args: { path: string }) => {
           const source = await fs.promises.readFile(args.path, "utf-8");
-          const result = preprocess(source, { fileName: args.path });
+          const preprocessed = preprocess(source, { fileName: args.path });
+          const isTsx = args.path.endsWith(".tsx") || args.path.endsWith(".stsx");
+          const transpiled = transpileExpanded(preprocessed.code, args.path, config.options, {
+            sourceMap: false,
+            jsx: isTsx ? ts.JsxEmit.ReactJSX : undefined,
+          });
           return {
-            contents: result.code,
-            loader:
-              args.path.endsWith(".tsx") || args.path.endsWith(".stsx")
-                ? ("tsx" as const)
-                : ("ts" as const),
+            contents: transpiled.outputText,
+            loader: isTsx ? ("jsx" as const) : ("js" as const),
           };
         });
       },

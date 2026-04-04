@@ -86,11 +86,37 @@ function shouldTransform(
   return /\.[jt]sx?$/.test(normalizedId);
 }
 
+/**
+ * Determine whether the transpile step (emitJs) is needed for the given bundler.
+ *
+ * Bundlers that use esbuild/swc for TS→JS need pre-transpiled JavaScript because
+ * they don't support namespaces, const enums, or declaration merging.
+ * Webpack with ts-loader uses tsc which handles these constructs natively.
+ */
+function needsEmitJs(framework: string): boolean {
+  switch (framework) {
+    case "esbuild":
+    case "vite": // Vite uses esbuild for TS transpilation
+    case "rolldown": // Rolldown uses swc/oxc
+    case "farm": // Farm uses swc
+      return true;
+    case "webpack": // May use ts-loader (tsc) — skip transpile by default
+    case "rspack": // Rspack uses swc but has better TS support
+      return false;
+    case "rollup": // Rollup typically uses @rollup/plugin-typescript (tsc)
+    default:
+      // For unknown bundlers, emit JS to be safe
+      return true;
+  }
+}
+
 export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined> = (
-  options = {}
+  options = {},
+  meta
 ) => {
   let pipeline: TransformationPipeline | undefined;
   const verbose = options?.verbose ?? false;
+  const emitJs = needsEmitJs(meta?.framework ?? "unknown");
 
   return {
     name: "typesugar",
@@ -104,10 +130,12 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
           extensions: options?.extensions,
           diskCache: options?.diskCache,
           strict: options?.strict,
+          emitJs,
         });
         if (verbose) {
           console.log(`[typesugar] Loaded config from ${configPath}`);
           console.log(`[typesugar] Program has ${pipeline.getFileNames().length} files`);
+          console.log(`[typesugar] Framework: ${meta?.framework ?? "unknown"}, emitJs: ${emitJs}`);
         }
       } catch (error) {
         console.error(String(error));
@@ -130,14 +158,14 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
           return null;
         }
 
-        // LOG TRANSFORMED CODE FOR DEBUGGING
         if (verbose) {
-          fs.writeFileSync(id + ".transformed.js", result.code);
+          const ext = emitJs ? ".transformed.js" : ".transformed.ts";
+          fs.writeFileSync(id + ext, result.js ?? result.code);
         }
 
         return {
-          code: result.code,
-          map: result.sourceMap,
+          code: result.js ?? result.code,
+          map: result.jsSourceMap ?? result.sourceMap,
         };
       } catch (error) {
         // If transformation fails, return null to skip this file

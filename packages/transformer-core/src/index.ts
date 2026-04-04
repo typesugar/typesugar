@@ -21,6 +21,7 @@ export { type TransformDiagnostic, type TransformResult, type TransformOptions }
 // Source map utilities
 export {
   composeSourceMaps,
+  composeSourceMapChain,
   decodeSourceMap,
   decodeMappings,
   findOriginalPosition,

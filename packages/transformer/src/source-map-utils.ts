@@ -3,6 +3,7 @@
  */
 export {
   composeSourceMaps,
+  composeSourceMapChain,
   decodeSourceMap,
   decodeMappings,
   findOriginalPosition,

@@ -101,7 +101,7 @@ describe("Diagnostic Parity — unified SFINAE pipeline", () => {
     const expected = [...ALL_SFINAE_RULE_NAMES];
     // Note: we can't easily reflect on create*Rule exports, but ALL_SFINAE_RULE_NAMES
     // is maintained alongside the registration function in the same file.
-    expect(expected).toHaveLength(6);
+    expect(expected).toHaveLength(7);
   });
 
   it("OperatorOverload: suppresses TS2365 for non-primitive operands", () => {
@@ -269,6 +269,7 @@ describe("SFINAE rule completeness (Wave 3B)", () => {
     const expectedNames = new Set([
       "MacroGenerated", // from @typesugar/core
       "ExtensionMethodCall", // from @typesugar/macros
+      "MacroCallChain", // from @typesugar/macros
       "MacroDecorator", // from @typesugar/macros
       "NewtypeAssignment", // from @typesugar/macros
       "OperatorOverload", // from @typesugar/macros
@@ -279,16 +280,16 @@ describe("SFINAE rule completeness (Wave 3B)", () => {
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllSfinaeRules with positionMapFn registers exactly 6 rules", () => {
+  it("registerAllSfinaeRules with positionMapFn registers exactly 7 rules", () => {
     const dummyMapFn = () => null;
     const registered = registerAllSfinaeRules({ positionMapFn: dummyMapFn });
-    expect(registered).toHaveLength(6);
+    expect(registered).toHaveLength(7);
     expect(new Set(registered)).toEqual(new Set(ALL_SFINAE_RULE_NAMES));
   });
 
-  it("registerAllSfinaeRules without positionMapFn registers exactly 5 rules", () => {
+  it("registerAllSfinaeRules without positionMapFn registers exactly 6 rules", () => {
     const registered = registerAllSfinaeRules();
-    expect(registered).toHaveLength(5);
+    expect(registered).toHaveLength(6);
     expect(registered).not.toContain("MacroGenerated");
   });
 });

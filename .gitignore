@@ -35,6 +35,9 @@ coverage/
 # Vitest results (for re-running failed tests)
 .vitest-results/
 
+# Test fixtures (created by integration tests)
+tests/.unplugin-fixture/
+
 # Build/test output captures (tee targets)
 *-output*.txt
 test-pipeline-gate.txt

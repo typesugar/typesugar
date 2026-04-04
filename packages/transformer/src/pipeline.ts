@@ -10,7 +10,7 @@ import * as path from "path";
 import { globalExpansionTracker, type ExpansionRecord } from "@typesugar/core";
 import { type RawSourceMap } from "@typesugar/preprocessor";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
-import { composeSourceMaps } from "./source-map-utils.js";
+import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
 import {
   createPositionMapper,
   IdentityPositionMapper,
@@ -53,8 +53,12 @@ export interface TransformResult {
   original: string;
   /** Transformed code (valid TypeScript) */
   code: string;
-  /** Composed source map (original → transformed) */
+  /** Transpiled JavaScript (when emitJs is enabled) */
+  js?: string;
+  /** Composed source map (original → transformed TS) */
   sourceMap: RawSourceMap | null;
+  /** Composed source map (original → transpiled JS, when emitJs is enabled) */
+  jsSourceMap?: RawSourceMap | null;
   /** Position mapper for IDE features */
   mapper: PositionMapper;
   /** Whether the file was modified */
@@ -115,6 +119,14 @@ export interface PipelineOptions {
    * build paths since it adds a typecheck pass per file.
    */
   strictOutput?: boolean;
+  /**
+   * Transpile expanded TypeScript to JavaScript using ts.transpileModule().
+   *
+   * When enabled, the result includes `js` and `jsSourceMap` fields containing
+   * portable JavaScript that works with esbuild, swc, and other tools that
+   * don't support the full TypeScript language (namespaces, const enums, etc.).
+   */
+  emitJs?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -591,6 +603,78 @@ function vlqEncode(value: number): string {
  * ```
  */
 /**
+ * Regex that matches the companion const pattern emitted by ensureDataTypeCompanionConst()
+ * in typeclass.ts. Matches `const X: Record<string, any> = {};` and `export const X: ...`.
+ *
+ * ts.transpileModule doesn't handle const + namespace declaration merging correctly —
+ * it emits `var X;` which redeclares the block-scoped `const`. Converting these to
+ * `var` makes the redeclaration legal JavaScript (var + var is fine).
+ */
+const COMPANION_CONST_RE = /^(export )?const (\w+): Record<string, any> = \{\};/gm;
+
+/**
+ * Apply the const→var fix for companion declarations, returning the fixed code
+ * and a source map tracking the substitution (so downstream source maps compose
+ * correctly even on the companion lines).
+ */
+function fixCompanionConsts(
+  code: string,
+  fileName: string
+): { code: string; map: RawSourceMap | null } {
+  const re = new RegExp(COMPANION_CONST_RE.source, "gm");
+  const matches: RegExpExecArray[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(code)) !== null) {
+    matches.push(match);
+  }
+  if (matches.length === 0) {
+    return { code, map: null };
+  }
+
+  const s = new MagicString(code);
+  for (const m of matches) {
+    const exportPrefix = m[1] ?? "";
+    const name = m[2];
+    s.overwrite(m.index, m.index + m[0].length, `${exportPrefix}var ${name} = {};`);
+  }
+
+  return {
+    code: s.toString(),
+    map: s.generateMap({ source: fileName, hires: true }) as unknown as RawSourceMap,
+  };
+}
+
+export function transpileExpanded(
+  code: string,
+  fileName: string,
+  compilerOptions: ts.CompilerOptions,
+  options?: { sourceMap?: boolean; jsx?: ts.JsxEmit }
+): { outputText: string; sourceMapText?: string; fixMap?: RawSourceMap | null } {
+  const emitSourceMap = options?.sourceMap ?? true;
+
+  const fixed = fixCompanionConsts(code, fileName);
+
+  const result = ts.transpileModule(fixed.code, {
+    compilerOptions: {
+      ...compilerOptions,
+      module: ts.ModuleKind.ESNext,
+      target: compilerOptions.target ?? ts.ScriptTarget.ESNext,
+      sourceMap: emitSourceMap,
+      declaration: false,
+      declarationMap: false,
+      isolatedModules: false,
+      jsx: options?.jsx,
+    },
+    fileName,
+  });
+  return {
+    outputText: result.outputText,
+    sourceMapText: result.sourceMapText ?? undefined,
+    fixMap: fixed.map,
+  };
+}
+
+/**
  * Cache for incremental strict typechecking.
  * Stores per-file results from the previous strict typecheck run so
  * only changed files (and their dependents) need re-checking.
@@ -730,6 +814,7 @@ export class TransformationPipeline {
         const sourceMap: RawSourceMap | null = diskCached.sourceMap
           ? (JSON.parse(diskCached.sourceMap) as RawSourceMap)
           : null;
+        const changed = diskCached.code.trimEnd() !== original.trimEnd();
         const result: TransformResult = {
           original,
           code: diskCached.code,
@@ -737,10 +822,16 @@ export class TransformationPipeline {
           mapper: sourceMap
             ? createPositionMapper(sourceMap, original, diskCached.code)
             : new IdentityPositionMapper(),
-          changed: diskCached.code !== original,
+          changed,
           diagnostics: [],
           dependencies,
         };
+
+        // Transpile cached TS to JS if requested
+        if (this.options.emitJs && changed) {
+          this.applyTranspileStep(result, normalizedFileName, sourceMap);
+        }
+
         // Populate in-memory cache (don't write back to disk)
         this.cacheResult(normalizedFileName, result, contentHash, dependencies, false);
         if (this.verbose) {
@@ -788,8 +879,9 @@ export class TransformationPipeline {
     // Create position mapper
     const mapper = createPositionMapper(composedMap, original, transformed);
 
-    // Determine if file changed
-    const changed = transformed !== original;
+    // Determine if file changed (normalize trailing whitespace — the TS printer
+    // always adds a trailing newline, causing false-positive diffs for unchanged files)
+    const changed = transformed.trimEnd() !== original.trimEnd();
 
     const result: TransformResult = {
       original,
@@ -801,6 +893,11 @@ export class TransformationPipeline {
       dependencies,
       expansions,
     };
+
+    // Transpile to JS if requested
+    if (this.options.emitJs && changed) {
+      this.applyTranspileStep(result, normalizedFileName, composedMap);
+    }
 
     // Cache the result with dependencies
     this.cacheResult(normalizedFileName, result, contentHash, dependencies);
@@ -1461,6 +1558,23 @@ export class TransformationPipeline {
 
     const entry = this.cache.getTransformed(fileName);
     return entry?.result ?? null;
+  }
+
+  /**
+   * Apply the transpile step to a TransformResult, populating `js` and `jsSourceMap`.
+   * Used by both the fresh-transform path and the disk-cache-hit path.
+   */
+  private applyTranspileStep(
+    result: TransformResult,
+    fileName: string,
+    upstreamMap: RawSourceMap | null
+  ): void {
+    const transpiled = transpileExpanded(result.code, fileName, this.compilerOptions);
+    result.js = transpiled.outputText.replace(/\n\/\/# sourceMappingURL=.*$/m, "");
+    if (transpiled.sourceMapText) {
+      const transpileMap = JSON.parse(transpiled.sourceMapText) as RawSourceMap;
+      result.jsSourceMap = composeSourceMapChain([transpileMap, transpiled.fixMap, upstreamMap]);
+    }
   }
 
   private cacheResult(

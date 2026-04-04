@@ -42,7 +42,7 @@ The three bugs that block every user. Fixing these alone would raise the average
 
 - [x] Write bundled temp file to `.typesugar-cache/` inside the project directory instead of `os.tmpdir()`
 
-**Remaining issue:** esbuild does not support TypeScript namespace merging (`const Point` + `namespace Point`), which the `@derive` namespace companion pattern generates. This blocks `typesugar run` for any file using `@derive`. See 2F.
+**Remaining issue:** esbuild does not support TypeScript namespace merging (`const Point` + `namespace Point`), which the `@derive` namespace companion pattern generates. This blocks `typesugar run` for any file using `@derive`. See [PEP-035](PEP-035-emit-pipeline-architecture.md).
 
 ### 1C. Fix ESM/CJS dual-package hazard in macro registration
 
@@ -162,26 +162,9 @@ With the CLI working, these fix cases where macros expand but produce incorrect 
 - [ ] Emit a type import for `Eq` alongside the value import, or use `typeof` in the cast expression
 - [ ] Regression test
 
-### 2F. Fix namespace companion pattern for esbuild compatibility (NEW)
+### 2F. Namespace companion pattern + esbuild — moved to PEP-035
 
-**Bug:** The `@derive` namespace companion pattern generates `const Point` + multiple `namespace Point` blocks. TypeScript supports this via declaration merging, but esbuild (used by `typesugar run` and `tsx`) does not. This means:
-
-- `typesugar run` fails with "The symbol 'Point' has already been declared"
-- `tsx` (used as a workaround) fails the same way
-- Only `tsc` handles the namespace merging correctly
-
-This is a fundamental issue: the expanded output is valid TypeScript but not valid for esbuild-based runners, which are the primary execution path.
-
-**Tasks:**
-
-- [ ] **Option A:** Generate IIFE-based companion objects instead of namespace blocks — `const Point = { Eq: { ... }, Clone: { ... } }` merged into a single declaration
-- [ ] **Option B:** Use `Object.defineProperty` or assignment (`Point.Eq = { ... }`) after the interface declaration instead of namespace merging
-- [ ] Regression test — `typesugar run` on a file with `@derive(Eq, Clone, Debug)` must execute successfully
-
-**Gate:**
-
-- [ ] `typesugar run` works with `@derive` on interfaces
-- [ ] Expanded output works with both `tsc` and esbuild
+Moved to [PEP-035 (Emit Pipeline Architecture)](PEP-035-emit-pipeline-architecture.md). The fix is to add a `ts.transpileModule()` post-pass that converts expanded TypeScript to JavaScript before handing it to esbuild/swc consumers, rather than changing the companion pattern itself.
 
 ### 2G. Fix `Hash.number` reference in derive expansion (NEW)
 
@@ -321,20 +304,21 @@ Lower priority improvements that smooth rough edges.
 
 ## Progress Summary
 
-| Item                           | Status                                     | Commit    |
-| ------------------------------ | ------------------------------------------ | --------- |
-| 1A. Build crash                | ✅ Done                                    | `7d96691` |
-| 1B. Run ERR_MODULE_NOT_FOUND   | ✅ Partial (esbuild compat blocks @derive) | `7d96691` |
-| 1C. ESM/CJS macro registration | ❌ Open                                    | —         |
-| 1D. SFINAE rules               | ✅ Done                                    | `b435838` |
-| 1E. LSP stability              | ✅ Done                                    | `7d96691` |
-| 1F. Zed extension              | ✅ Done                                    | `b2399a4` |
-| 1G. JSDoc @derive              | ✅ Done                                    | `b435838` |
-| 2A. === undefined guard        | ✅ Done                                    | `7d96691` |
-| 2B. @derive methods            | ✅ Done                                    | `7d96691` |
-| 2C-2H. Remaining correctness   | ❌ Open                                    | —         |
-| 3A-3F. Documentation           | ❌ Open                                    | —         |
-| 4A-4F. Polish                  | ❌ Open                                    | —         |
+| Item                                | Status                                     | Commit    |
+| ----------------------------------- | ------------------------------------------ | --------- |
+| 1A. Build crash                     | ✅ Done                                    | `7d96691` |
+| 1B. Run ERR_MODULE_NOT_FOUND        | ✅ Partial (esbuild compat blocks @derive) | `7d96691` |
+| 1C. ESM/CJS macro registration      | ❌ Open                                    | —         |
+| 1D. SFINAE rules                    | ✅ Done                                    | `b435838` |
+| 1E. LSP stability                   | ✅ Done                                    | `7d96691` |
+| 1F. Zed extension                   | ✅ Done                                    | `b2399a4` |
+| 1G. JSDoc @derive                   | ✅ Done                                    | `b435838` |
+| 2A. === undefined guard             | ✅ Done                                    | `7d96691` |
+| 2B. @derive methods                 | ✅ Done                                    | `7d96691` |
+| 2C-2E, 2G-2H. Remaining correctness | ❌ Open                                    | —         |
+| 2F. Namespace/esbuild               | ➡️ Moved to PEP-035                        | —         |
+| 3A-3F. Documentation                | ❌ Open                                    | —         |
+| 4A-4F. Polish                       | ❌ Open                                    | —         |
 
 ## Success Criteria
 
