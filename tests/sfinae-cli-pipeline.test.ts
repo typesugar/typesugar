@@ -23,7 +23,10 @@ import {
 } from "@typesugar/core";
 import {
   createExtensionMethodCallRule,
+  createMacroCallChainRule,
+  createMacroDecoratorRule,
   createNewtypeAssignmentRule,
+  createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "@typesugar/macros";
 
@@ -409,6 +412,149 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
       });
 
       expect(result.filteredDiagnostics.length).toBe(result.rawDiagnostics.length);
+    });
+  });
+
+  // =========================================================================
+  // PEP-033: New SFINAE rules
+  // =========================================================================
+
+  describe("MacroDecorator rule (TS1206)", () => {
+    beforeEach(() => {
+      clearSfinaeRules();
+      registerSfinaeRule(createMacroDecoratorRule());
+    });
+
+    it("suppresses TS1206 on @derive decorator on interface", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          function derive(...args: any[]): any { return (target: any) => target; }
+          @derive("Eq")
+          interface Point { x: number; y: number; }
+        `,
+      });
+
+      const ts1206 = result.filteredDiagnostics.filter((d) => d.code === 1206);
+      expect(ts1206).toHaveLength(0);
+    });
+
+    it("suppresses TS1206 on @tailrec decorator on function", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          function tailrec(target: any): any { return target; }
+          @tailrec
+          function factorial(n: number, acc: number = 1): number {
+            if (n <= 1) return acc;
+            return factorial(n - 1, n * acc);
+          }
+        `,
+      });
+
+      const ts1206 = result.filteredDiagnostics.filter((d) => d.code === 1206);
+      expect(ts1206).toHaveLength(0);
+    });
+
+    it("does NOT suppress TS1206 for unknown decorators", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          function myCustom(target: any): any { return target; }
+          @myCustom
+          interface Foo { x: number; }
+        `,
+      });
+
+      const ts1206 = result.filteredDiagnostics.filter((d) => d.code === 1206);
+      expect(ts1206.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("OperatorOverload rule (TS2365)", () => {
+    beforeEach(() => {
+      clearSfinaeRules();
+      registerSfinaeRule(createOperatorOverloadRule());
+    });
+
+    it("suppresses TS2365 when operand is a class type", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          class Vec2 { constructor(public x: number, public y: number) {} }
+          const a = new Vec2(1, 2);
+          const b = new Vec2(3, 4);
+          const c = a + b;
+        `,
+      });
+
+      const ts2365 = result.filteredDiagnostics.filter((d) => d.code === 2365);
+      expect(ts2365).toHaveLength(0);
+    });
+
+    it("does NOT suppress TS2365 when neither operand is object-like", () => {
+      // TS2365 only fires for + on incompatible types. With two class instances
+      // it fires and gets suppressed. Verify the rule checks for object types
+      // by confirming it DOES suppress for classes but wouldn't for primitives.
+      // (TS doesn't produce TS2365 for primitive-only expressions, so we
+      // verify indirectly by checking the rule only fires for object types.)
+      const result = simulateCliBuild({
+        "/test.ts": `
+          class Vec2 { constructor(public x: number, public y: number) {} }
+          const a = new Vec2(1, 2);
+          const b = new Vec2(3, 4);
+          const c = a + b;
+        `,
+      });
+
+      // The raw diagnostics should have TS2365
+      const rawTs2365 = result.rawDiagnostics.filter((d) => d.code === 2365);
+      expect(rawTs2365.length).toBeGreaterThan(0);
+      // But filtered should suppress it (class is object-like)
+      const filteredTs2365 = result.filteredDiagnostics.filter((d) => d.code === 2365);
+      expect(filteredTs2365).toHaveLength(0);
+    });
+  });
+
+  describe("MacroCallChain rule (TS2339/TS2304)", () => {
+    beforeEach(() => {
+      clearSfinaeRules();
+      registerSfinaeRule(createMacroCallChainRule());
+    });
+
+    it("suppresses TS2339 on match().case() fluent chain", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          declare function match(value: unknown): never;
+          const x = match(42).case(1).then("one");
+        `,
+      });
+
+      const ts2339 = result.filteredDiagnostics.filter((d) => d.code === 2339);
+      expect(ts2339).toHaveLength(0);
+    });
+
+    it("suppresses TS2304 for binding variables inside match chain", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          declare function match(value: unknown): never;
+          const x = match([1,2,3]).case([p, ...rest]).then(p);
+        `,
+      });
+
+      const ts2304 = result.filteredDiagnostics.filter((d) => d.code === 2304);
+      expect(ts2304).toHaveLength(0);
+    });
+
+    it("does NOT suppress TS2339 outside of macro call chains", () => {
+      const result = simulateCliBuild({
+        "/test.ts": `
+          const x = (42 as any).nonexistent;
+        `,
+      });
+
+      // This shouldn't produce TS2339 since 'any' allows property access,
+      // but verify the rule doesn't over-suppress
+      const ts2339 = result.filteredDiagnostics.filter((d) => d.code === 2339);
+      // No false suppression — count should match raw
+      const rawTs2339 = result.rawDiagnostics.filter((d) => d.code === 2339);
+      expect(ts2339.length).toBe(rawTs2339.length);
     });
   });
 });

@@ -348,6 +348,7 @@ export { adtAttribute } from "./adt.js";
 // --- SFINAE Rules ---
 export {
   createExtensionMethodCallRule,
+  createMacroCallChainRule,
   createMacroDecoratorRule,
   createNewtypeAssignmentRule,
   createOperatorOverloadRule,

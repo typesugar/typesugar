@@ -24,6 +24,7 @@ describe("registerAllSfinaeRules", () => {
 
     expect(registered).toEqual([
       "ExtensionMethodCall",
+      "MacroCallChain",
       "MacroDecorator",
       "NewtypeAssignment",
       "OperatorOverload",
@@ -40,7 +41,7 @@ describe("registerAllSfinaeRules", () => {
 
     expect(registered).toContain("MacroGenerated");
     expect(ruleNames).toContain("MacroGenerated");
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(7);
   });
 
   it("returns empty array on duplicate registration", () => {
@@ -48,7 +49,7 @@ describe("registerAllSfinaeRules", () => {
     const second = registerAllSfinaeRules();
     expect(second).toEqual([]);
     // Rules should still be there, just not re-registered
-    expect(getSfinaeRules()).toHaveLength(5);
+    expect(getSfinaeRules()).toHaveLength(6);
   });
 
   it("ALL_SFINAE_RULE_NAMES contains every rule", () => {

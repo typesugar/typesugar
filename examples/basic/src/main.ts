@@ -14,8 +14,10 @@
 import {
   comptime,
   pipe,
-  Eq, Clone, Debug, Hash
+  tailrec,
+  Eq, Clone, Debug, Hash,
 } from "typesugar";
+import { match } from "@typesugar/std";
 
 // ============================================================================
 // 1. Compile-Time Evaluation
@@ -143,3 +145,28 @@ const buildInfo = comptime(() => ({
 }));
 
 console.log("Build info:", buildInfo);
+
+// ============================================================================
+// 6. Tail Recursion with @tailrec + match
+// ============================================================================
+
+function distanceSquared(a: Vector2D, b: Vector2D): number {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+// @tailrec optimizes tail-recursive calls into while loops (like Scala)
+function closestPoint(q: Vector2D, points: Vector2D[]): Vector2D | null {
+  @tailrec
+  function go(pts: Vector2D[], best: Vector2D | null): Vector2D | null {
+    return match(pts)
+      .case([]).then(best)
+      .case([p, ...rest]).then(() => {
+        const dist1 = distanceSquared(p, q);
+        const dist2 = best ? distanceSquared(best, q) : Infinity;
+        return dist1 < dist2 ? go(rest, p) : go(rest, best);
+      });
+  }
+  return go(points, null);
+}

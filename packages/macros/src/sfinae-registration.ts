@@ -13,11 +13,14 @@ import {
   createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
-import { createExtensionMethodCallRule } from "./sfinae-rules.js";
-import { createMacroDecoratorRule } from "./sfinae-rules.js";
-import { createNewtypeAssignmentRule } from "./sfinae-rules.js";
-import { createOperatorOverloadRule } from "./sfinae-rules.js";
-import { createTypeRewriteAssignmentRule } from "./sfinae-rules.js";
+import {
+  createExtensionMethodCallRule,
+  createMacroCallChainRule,
+  createMacroDecoratorRule,
+  createNewtypeAssignmentRule,
+  createOperatorOverloadRule,
+  createTypeRewriteAssignmentRule,
+} from "./sfinae-rules.js";
 
 export interface SfinaeRegistrationOptions {
   /** Required for MacroGeneratedRule — maps transformed positions back to original */
@@ -43,6 +46,9 @@ export function registerAllSfinaeRules(options?: SfinaeRegistrationOptions): str
   if (registerSfinaeRuleOnce(createExtensionMethodCallRule())) {
     registered.push("ExtensionMethodCall");
   }
+  if (registerSfinaeRuleOnce(createMacroCallChainRule())) {
+    registered.push("MacroCallChain");
+  }
   if (registerSfinaeRuleOnce(createMacroDecoratorRule())) {
     registered.push("MacroDecorator");
   }
@@ -66,6 +72,7 @@ export function registerAllSfinaeRules(options?: SfinaeRegistrationOptions): str
 export const ALL_SFINAE_RULE_NAMES = [
   "MacroGenerated",
   "ExtensionMethodCall",
+  "MacroCallChain",
   "MacroDecorator",
   "NewtypeAssignment",
   "OperatorOverload",

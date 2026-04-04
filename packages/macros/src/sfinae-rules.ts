@@ -840,6 +840,8 @@ const MACRO_DECORATOR_NAMES = new Set([
   "opaque",
   "mock",
   "existential",
+  "tailrec",
+  "contract",
 ]);
 
 /**
@@ -887,6 +889,95 @@ export function createMacroDecoratorRule(): SfinaeRule {
       return false;
     },
   };
+}
+
+// ===========================================================================
+// Rule 7: MacroCallChain — suppress errors inside macro fluent chains
+// ===========================================================================
+
+/**
+ * Names of macro functions whose return type is a sentinel (e.g. `never`)
+ * indicating the call will be rewritten by the transformer. Any type errors
+ * inside the fluent chain or binding positions are pre-transform artifacts.
+ */
+const MACRO_FLUENT_NAMES = new Set(["match"]);
+
+/**
+ * Create the MacroCallChain SFINAE rule.
+ *
+ * Suppresses TS2339 ("Property does not exist on type 'never'") and TS2304
+ * ("Cannot find name") when the error occurs inside a fluent chain starting
+ * from a known macro call like `match()`. These errors are artifacts of the
+ * pre-transform source — the macro rewrites the entire chain at compile time.
+ */
+export function createMacroCallChainRule(): SfinaeRule {
+  return {
+    name: "MacroCallChain",
+    errorCodes: [2339, 2304],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      _checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined) return false;
+
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      if (!node) return false;
+
+      // Walk up the AST looking for a fluent call chain rooted in a macro call.
+      // The chain looks like: match(x).case(...).then(...).case(...).then(...)
+      // We need to find any CallExpression ancestor, then walk DOWN its
+      // receiver chain to find the root call (e.g. match()).
+      let current: ts.Node | undefined = node;
+      for (let depth = 0; depth < 20 && current; depth++) {
+        if (ts.isCallExpression(current)) {
+          if (isRootedInMacroCall(current)) {
+            return true;
+          }
+        }
+        current = current.parent;
+      }
+
+      return false;
+    },
+  };
+}
+
+/**
+ * Walk down the receiver chain of a fluent call expression to find the root call.
+ * e.g. match(x).case([]).then(y) — the root is match(x).
+ * Returns true if the root is a known macro call.
+ */
+function isRootedInMacroCall(call: ts.CallExpression): boolean {
+  let expr: ts.Expression = call.expression;
+
+  // Walk down through the chain: .then().case().then() etc.
+  // Each level is CallExpression -> PropertyAccessExpression -> CallExpression
+  for (let i = 0; i < 20; i++) {
+    // Direct call: match(x)
+    if (ts.isIdentifier(expr)) {
+      return MACRO_FLUENT_NAMES.has(expr.text);
+    }
+
+    // Property access: something.case(...)
+    if (ts.isPropertyAccessExpression(expr)) {
+      // The receiver of the property access is the previous call in the chain
+      const receiver = expr.expression;
+      if (ts.isCallExpression(receiver)) {
+        expr = receiver.expression;
+        continue;
+      }
+      // receiver is an identifier: match.something — unlikely but check
+      if (ts.isIdentifier(receiver)) {
+        return MACRO_FLUENT_NAMES.has(receiver.text);
+      }
+    }
+
+    break;
+  }
+
+  return false;
 }
 
 // ===========================================================================
