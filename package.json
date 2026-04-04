@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/setup-ts-plugin.js",
-    "build": "pnpm -r --filter '!typesugar-example-*' --workspace-concurrency=1 build",
+    "build": "pnpm -r --filter '!typesugar-example-*' build",
     "build:watch": "pnpm -r --parallel --filter '!typesugar-example-*' build:watch",
     "build:all": "pnpm -r build",
     "test": "vitest run",
