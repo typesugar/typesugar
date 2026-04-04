@@ -1,0 +1,40 @@
+{
+  "name": "@typesugar/lsp-common",
+  "version": "0.1.1",
+  "description": "Shared IDE infrastructure for typesugar LSP server and TS plugin",
+  "author": "Dean Povey <dean.povey@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/typesugar/typesugar.git",
+    "directory": "packages/lsp-common"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@typesugar/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

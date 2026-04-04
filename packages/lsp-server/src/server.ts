@@ -25,6 +25,7 @@ import {
   CompletionItemKind,
   DiagnosticSeverity,
   DocumentHighlightKind,
+  CodeActionKind,
   type InitializeParams,
   type TextDocumentPositionParams,
   type CompletionItem,
@@ -43,13 +44,7 @@ import {
   type Range,
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import {
-  uriToFileName,
-  fileNameToUri,
-  offsetToPosition,
-  positionToOffset,
-  textSpanToRange,
-} from "./helpers.js";
+import { uriToFileName, fileNameToUri } from "./helpers.js";
 import {
   TransformationPipeline,
   transformCode,
@@ -61,23 +56,19 @@ import {
   type PositionMapper,
 } from "@typesugar/transformer/position-mapper";
 import { preprocess } from "@typesugar/preprocessor";
+import { filterDiagnostics, getSfinaeRules, type PositionMapFn } from "@typesugar/core";
+import { registerAllSfinaeRules } from "@typesugar/macros";
 import {
-  filterDiagnostics,
-  registerSfinaeRuleOnce,
-  getSfinaeRules,
-  createMacroGeneratedRule,
-  type PositionMapFn,
-} from "@typesugar/core";
-import {
-  createExtensionMethodCallRule,
-  createNewtypeAssignmentRule,
-  createTypeRewriteAssignmentRule,
-} from "@typesugar/macros";
+  mapTextSpanToOriginal,
+  offsetToPosition,
+  positionToOffset,
+  textSpanToRange,
+  computeMacroCodeActions,
+} from "@typesugar/lsp-common";
 import { ManifestState } from "./manifest.js";
 import { computeSemanticTokens, getSemanticTokensLegend } from "./semantic-tokens.js";
 import { computeCodeLenses } from "./codelens.js";
 import { computeInlayHints } from "./inlay-hints.js";
-import { computeExtraCodeActions } from "./code-actions-extra.js";
 
 // ---------------------------------------------------------------------------
 // Connection setup (fix #9: always let vscode-languageserver auto-detect
@@ -339,17 +330,6 @@ function getMapper(fileName: string): PositionMapper {
   return result?.mapper ?? new IdentityPositionMapper();
 }
 
-function mapTextSpanToOriginal(span: ts.TextSpan, mapper: PositionMapper): ts.TextSpan | null {
-  const originalStart = mapper.toOriginal(span.start);
-  if (originalStart === null) return null;
-
-  const originalEnd = mapper.toOriginal(span.start + span.length);
-  const originalLength =
-    originalEnd !== null ? Math.max(1, originalEnd - originalStart) : span.length;
-
-  return { start: originalStart, length: originalLength };
-}
-
 // ---------------------------------------------------------------------------
 // LanguageServiceHost (fix #3: getScriptVersion does NOT call
 // getTransformResult — it uses a separate version scheme to avoid recursion.
@@ -516,10 +496,7 @@ function registerSfinaeRules(): void {
     return mapper.toOriginal(transformedPos);
   };
 
-  registerSfinaeRuleOnce(createMacroGeneratedRule(positionMapFn));
-  registerSfinaeRuleOnce(createExtensionMethodCallRule());
-  registerSfinaeRuleOnce(createNewtypeAssignmentRule());
-  registerSfinaeRuleOnce(createTypeRewriteAssignmentRule());
+  registerAllSfinaeRules({ positionMapFn });
 }
 
 // ---------------------------------------------------------------------------
@@ -1526,14 +1503,46 @@ connection.onCodeAction(
     }
 
     // Add macro-specific code actions (expand, wrap-in-comptime, add-derive)
-    const extraActions = computeExtraCodeActions(
+    const startOff = positionToOffset(originalText, params.range.start);
+    const endOff = positionToOffset(originalText, params.range.end);
+    const macroActions = computeMacroCodeActions(
       originalText,
       fileName,
       manifest,
-      params.range,
-      params.textDocument.uri
+      startOff,
+      endOff
     );
-    actions.push(...extraActions);
+    for (const ma of macroActions) {
+      const action: CodeAction = { title: ma.title, kind: CodeActionKind.Refactor };
+      if (ma.kind === "expand-macro") {
+        action.command = {
+          title: ma.title,
+          command: "typesugar.expandMacro",
+          arguments: [params.textDocument.uri, ma.macroOffset],
+        };
+      } else if (ma.kind === "wrap-comptime" && ma.edit) {
+        action.edit = {
+          changes: {
+            [params.textDocument.uri]: [
+              {
+                range: {
+                  start: offsetToPosition(originalText, ma.edit.start),
+                  end: offsetToPosition(originalText, ma.edit.start + ma.edit.length),
+                },
+                newText: ma.edit.newText,
+              },
+            ],
+          },
+        };
+      } else if (ma.kind === "add-derive") {
+        action.command = {
+          title: ma.title,
+          command: "typesugar.addDerive",
+          arguments: [params.textDocument.uri, ma.declOffset],
+        };
+      }
+      actions.push(action);
+    }
 
     return actions;
   })

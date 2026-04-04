@@ -31,6 +31,19 @@ impl TypesugarExtension {
     }
 }
 
+impl TypesugarExtension {
+    /// Check if the worktree has typesugar as a dependency in package.json.
+    /// Returns true for .sts/.stsx files (always active) or when typesugar
+    /// is found in dependencies/devDependencies.
+    fn is_typesugar_project(worktree: &zed::Worktree) -> bool {
+        if let Ok(content) = worktree.read_text_file("package.json") {
+            content.contains("typesugar") || content.contains("@typesugar/")
+        } else {
+            false
+        }
+    }
+}
+
 impl zed::Extension for TypesugarExtension {
     fn new() -> Self {
         TypesugarExtension {
@@ -41,8 +54,13 @@ impl zed::Extension for TypesugarExtension {
     fn language_server_command(
         &mut self,
         language_server_id: &LanguageServerId,
-        _worktree: &zed::Worktree,
+        worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
+        // Only start the LSP for workspaces that use typesugar
+        if !Self::is_typesugar_project(worktree) {
+            return Err("Not a typesugar project (no typesugar dependency in package.json)".into());
+        }
+
         let server_path = self.server_script_path(language_server_id)?;
 
         Ok(zed::Command {

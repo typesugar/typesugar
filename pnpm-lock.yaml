@@ -401,11 +401,23 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
+  packages/lsp-common:
+    dependencies:
+      '@typesugar/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: '>=5.0.0'
+        version: 5.9.3
+
   packages/lsp-server:
     dependencies:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/lsp-common':
+        specifier: workspace:*
+        version: link:../lsp-common
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
@@ -726,6 +738,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
+      '@typesugar/lsp-common':
+        specifier: workspace:*
+        version: link:../lsp-common
       '@typesugar/preprocessor':
         specifier: workspace:*
         version: link:../preprocessor

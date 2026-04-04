@@ -32,17 +32,16 @@ import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.j
 import { preprocess } from "@typesugar/preprocessor";
 import {
   filterDiagnostics,
-  registerSfinaeRuleOnce,
   getSfinaeRules,
   isSfinaeAuditEnabled,
-  createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
+import { registerAllSfinaeRules } from "@typesugar/macros";
 import {
-  createExtensionMethodCallRule,
-  createNewtypeAssignmentRule,
-  createTypeRewriteAssignmentRule,
-} from "@typesugar/macros";
+  mapTextSpanToOriginal,
+  computeMacroCodeActions,
+  type MacroManifest,
+} from "@typesugar/lsp-common";
 
 /**
  * Cache entry for transformed files
@@ -366,10 +365,8 @@ function init(modules: { typescript: typeof ts }) {
     // Register SFINAE rules
     // ---------------------------------------------------------------------------
 
-    // Register MacroGenerated rule (Rule 4) — suppresses diagnostics in
-    // macro-generated code whose positions can't map back to original source.
-    // This formalizes the ad-hoc suppression previously handled only by
-    // mapDiagnostic returning null.
+    // Register all built-in SFINAE rules via the unified registration function
+    // (PEP-034 Wave 1). This prevents drift between IDE paths.
     {
       const positionMapFn: PositionMapFn = (
         fileName: string,
@@ -379,28 +376,10 @@ function init(modules: { typescript: typeof ts }) {
         return mapper.toOriginal(transformedPos);
       };
 
-      if (registerSfinaeRuleOnce(createMacroGeneratedRule(positionMapFn))) {
-        log("Registered MacroGenerated SFINAE rule");
+      const registered = registerAllSfinaeRules({ positionMapFn });
+      for (const name of registered) {
+        log(`Registered ${name} SFINAE rule`);
       }
-    }
-
-    // Register ExtensionMethodCall rule: suppresses TS2339 when an extension
-    // method is resolvable for the receiver type (PEP-011 Wave 3).
-    if (registerSfinaeRuleOnce(createExtensionMethodCallRule())) {
-      log("Registered ExtensionMethodCall SFINAE rule");
-    }
-
-    // Register NewtypeAssignment rule: suppresses TS2322/TS2345 when a
-    // Newtype<Base, Brand> is involved and the other side matches Base (PEP-011 Wave 4).
-    if (registerSfinaeRuleOnce(createNewtypeAssignmentRule())) {
-      log("Registered NewtypeAssignment SFINAE rule");
-    }
-
-    // Register TypeRewriteAssignment rule: suppresses TS2322/TS2345/TS2355 when a
-    // type registered in the typeRewriteRegistry (@opaque) is involved and the
-    // other side matches the underlying representation (PEP-011 Wave 5).
-    if (registerSfinaeRuleOnce(createTypeRewriteAssignmentRule())) {
-      log("Registered TypeRewriteAssignment SFINAE rule");
     }
 
     if (isSfinaeAuditEnabled()) {
@@ -787,20 +766,6 @@ function init(modules: { typescript: typeof ts }) {
     // ---------------------------------------------------------------------------
     // Override: Position-based IDE features (map positions bidirectionally)
     // ---------------------------------------------------------------------------
-
-    /**
-     * Map a TextSpan back to original coordinates
-     */
-    function mapTextSpanToOriginal(span: ts.TextSpan, mapper: PositionMapper): ts.TextSpan | null {
-      const originalStart = mapper.toOriginal(span.start);
-      if (originalStart === null) return null;
-
-      const originalEnd = mapper.toOriginal(span.start + span.length);
-      const originalLength =
-        originalEnd !== null ? Math.max(1, originalEnd - originalStart) : span.length;
-
-      return { start: originalStart, length: originalLength };
-    }
 
     /**
      * Check if a function's first parameter type is compatible with a target type
@@ -1441,6 +1406,191 @@ function init(modules: { typescript: typeof ts }) {
 
     // Mark the project as needing a program update
     // This is a workaround for the fact that the TS server caches content
+    // ---------------------------------------------------------------------------
+    // Macro code actions via refactoring API (PEP-034 Wave 2B)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Lazily load the macro manifest from typesugar.manifest.json.
+     * Returns null if no manifest is found (macro code actions won't be offered).
+     */
+    let cachedManifest: MacroManifest | null | undefined;
+    function getMacroManifest(): MacroManifest | null {
+      if (cachedManifest !== undefined) return cachedManifest;
+
+      try {
+        const projectDir = info.project.getCurrentDirectory();
+        const manifestPath = path.join(projectDir, "typesugar.manifest.json");
+        if (fs.existsSync(manifestPath)) {
+          const raw = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          cachedManifest = {
+            expressionMacroNames: new Set(Object.keys(raw.macros?.expression ?? {})),
+            taggedTemplateMacroNames: new Set(Object.keys(raw.macros?.taggedTemplate ?? {})),
+            decoratorMacroNames: new Set(Object.keys(raw.macros?.decorator ?? {})),
+          };
+          log(
+            `Loaded macro manifest: ${cachedManifest.expressionMacroNames.size} expression, ${cachedManifest.decoratorMacroNames.size} decorator macros`
+          );
+        } else {
+          cachedManifest = null;
+        }
+      } catch {
+        cachedManifest = null;
+      }
+      return cachedManifest;
+    }
+
+    const TYPESUGAR_REFACTOR_NAME = "typesugar-macro";
+
+    proxy.getApplicableRefactors = (
+      fileName: string,
+      positionOrRange: number | ts.TextRange,
+      preferences: ts.UserPreferences | undefined,
+      triggerReason?: ts.RefactorTriggerReason,
+      kind?: string
+    ): ts.ApplicableRefactorInfo[] => {
+      const original = oldLS.getApplicableRefactors(
+        fileName,
+        positionOrRange,
+        preferences,
+        triggerReason,
+        kind
+      );
+
+      const manifest = getMacroManifest();
+      if (!manifest) return original;
+
+      const normalizedFileName = path.normalize(fileName);
+      const originalText = readOriginalFile(normalizedFileName);
+      if (!originalText) return original;
+
+      const start = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.pos;
+      const end = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.end;
+
+      const macroActions = computeMacroCodeActions(
+        originalText,
+        normalizedFileName,
+        manifest,
+        start,
+        end
+      );
+
+      if (macroActions.length === 0) return original;
+
+      const actions: ts.RefactorActionInfo[] = macroActions.map((ma, i) => ({
+        name: `${TYPESUGAR_REFACTOR_NAME}-${i}`,
+        description: ma.title,
+        kind: "refactor.rewrite",
+      }));
+
+      return [
+        ...original,
+        {
+          name: TYPESUGAR_REFACTOR_NAME,
+          description: "typesugar",
+          actions,
+        },
+      ];
+    };
+
+    proxy.getEditsForRefactor = (
+      fileName: string,
+      formatOptions: ts.FormatCodeSettings,
+      positionOrRange: number | ts.TextRange,
+      refactorName: string,
+      actionName: string,
+      preferences: ts.UserPreferences | undefined
+    ): ts.RefactorEditInfo | undefined => {
+      if (refactorName !== TYPESUGAR_REFACTOR_NAME) {
+        return oldLS.getEditsForRefactor(
+          fileName,
+          formatOptions,
+          positionOrRange,
+          refactorName,
+          actionName,
+          preferences
+        );
+      }
+
+      const manifest = getMacroManifest();
+      if (!manifest) return undefined;
+
+      const normalizedFileName = path.normalize(fileName);
+      const originalText = readOriginalFile(normalizedFileName);
+      if (!originalText) return undefined;
+
+      const start = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.pos;
+      const end = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.end;
+
+      const macroActions = computeMacroCodeActions(
+        originalText,
+        normalizedFileName,
+        manifest,
+        start,
+        end
+      );
+
+      const idx = parseInt(actionName.replace(`${TYPESUGAR_REFACTOR_NAME}-`, ""), 10);
+      const action = macroActions[idx];
+      if (!action) return undefined;
+
+      if (action.kind === "wrap-comptime" && action.edit) {
+        return {
+          edits: [
+            {
+              fileName: normalizedFileName,
+              textChanges: [
+                {
+                  span: { start: action.edit.start, length: action.edit.length },
+                  newText: action.edit.newText,
+                },
+              ],
+            },
+          ],
+        };
+      }
+
+      // For expand-macro and add-derive, return a command that the editor handles
+      // (these require running the transformer, which the plugin can't do inline)
+      return {
+        edits: [],
+        renameFilename: undefined,
+        renameLocation: undefined,
+      };
+    };
+
+    // ---------------------------------------------------------------------------
+    // Override: getCompletionEntryDetails (PEP-034 Wave 2C)
+    // Map positions to transformed coordinates before resolving completion details.
+    // ---------------------------------------------------------------------------
+
+    proxy.getCompletionEntryDetails = (
+      fileName: string,
+      position: number,
+      entryName: string,
+      formatOptions: ts.FormatCodeOptions | ts.FormatCodeSettings | undefined,
+      source: string | undefined,
+      preferences: ts.UserPreferences | undefined,
+      data: ts.CompletionEntryData | undefined
+    ): ts.CompletionEntryDetails | undefined => {
+      const mapper = getMapper(fileName);
+      const transformedPosition = mapper.toTransformed(position);
+
+      if (transformedPosition === null) {
+        return undefined;
+      }
+
+      return oldLS.getCompletionEntryDetails(
+        fileName,
+        transformedPosition,
+        entryName,
+        formatOptions,
+        source,
+        preferences,
+        data
+      );
+    };
+
     // before plugins have a chance to modify the host.
     try {
       const project = info.project as unknown as Record<string, unknown>;

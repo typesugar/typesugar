@@ -42,6 +42,7 @@
   ],
   "dependencies": {
     "@typesugar/core": "workspace:*",
+    "@typesugar/lsp-common": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "@typesugar/preprocessor": "workspace:*",
     "@typesugar/transformer": "workspace:*",

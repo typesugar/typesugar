@@ -348,9 +348,18 @@ export { adtAttribute } from "./adt.js";
 // --- SFINAE Rules ---
 export {
   createExtensionMethodCallRule,
+  createMacroDecoratorRule,
   createNewtypeAssignmentRule,
+  createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "./sfinae-rules.js";
+
+// --- Unified SFINAE Registration (PEP-034) ---
+export {
+  registerAllSfinaeRules,
+  ALL_SFINAE_RULE_NAMES,
+  type SfinaeRegistrationOptions,
+} from "./sfinae-registration.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
 // HKT enables typeclasses parameterized by type constructors (F<_>).

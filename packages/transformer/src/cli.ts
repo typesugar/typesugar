@@ -32,18 +32,8 @@ import {
   transformCode,
   formatExpansions,
 } from "./pipeline.js";
-import {
-  filterDiagnostics,
-  registerSfinaeRuleOnce,
-  getSfinaeRules,
-  setSfinaeAuditMode,
-  createMacroGeneratedRule,
-} from "@typesugar/core";
-import {
-  createExtensionMethodCallRule,
-  createNewtypeAssignmentRule,
-  createTypeRewriteAssignmentRule,
-} from "@typesugar/macros";
+import { filterDiagnostics, getSfinaeRules, setSfinaeAuditMode } from "@typesugar/core";
+import { registerAllSfinaeRules } from "@typesugar/macros";
 
 type Command =
   | "build"
@@ -302,13 +292,12 @@ function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
 /**
  * Register built-in SFINAE rules for the CLI pipeline.
  *
- * These are the same rules used by the language service (IDE), ensuring
- * consistent diagnostic filtering between `typesugar build` and the editor.
+ * Uses the unified registration function (PEP-034) to ensure consistent
+ * diagnostic filtering between `typesugar build` and the editor.
+ * No positionMapFn is provided since CLI doesn't need MacroGenerated rule.
  */
 function registerCliSfinaeRules(): void {
-  registerSfinaeRuleOnce(createExtensionMethodCallRule());
-  registerSfinaeRuleOnce(createNewtypeAssignmentRule());
-  registerSfinaeRuleOnce(createTypeRewriteAssignmentRule());
+  registerAllSfinaeRules();
 }
 
 function build(options: CliOptions): void {
