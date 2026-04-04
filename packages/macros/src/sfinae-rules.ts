@@ -822,6 +822,136 @@ function matchesUnderlyingWithTypeArgs(
   return isUnderlyingMatch(candidateText, substituted);
 }
 
+// ===========================================================================
+// Rule 5: MacroDecorator — suppress TS1206 for typesugar decorators on interfaces
+// ===========================================================================
+
+/**
+ * Known typesugar decorator names that the transformer handles on interfaces,
+ * type aliases, and other non-class declarations where TypeScript doesn't
+ * normally allow decorators.
+ */
+const MACRO_DECORATOR_NAMES = new Set([
+  "derive",
+  "typeclass",
+  "service",
+  "hkt",
+  "adt",
+  "opaque",
+  "mock",
+  "existential",
+]);
+
+/**
+ * Create the MacroDecorator SFINAE rule.
+ *
+ * Suppresses TS1206 ("Decorators are not valid here") when the decorator is a
+ * known typesugar macro. TypeScript doesn't allow decorators on interfaces or
+ * type aliases, but the typesugar transformer handles them at compile time.
+ */
+export function createMacroDecoratorRule(): SfinaeRule {
+  return {
+    name: "MacroDecorator",
+    errorCodes: [1206],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      _checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined) return false;
+
+      // Find the node at the diagnostic position — should be the @ decorator
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      if (!node) return false;
+
+      // Walk up to find a decorator
+      let current: ts.Node | undefined = node;
+      for (let i = 0; i < 5 && current; i++) {
+        if (ts.isDecorator(current)) {
+          // Extract the decorator name
+          const expr = current.expression;
+          let name: string | undefined;
+          if (ts.isIdentifier(expr)) {
+            name = expr.text;
+          } else if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
+            name = expr.expression.text;
+          }
+          if (name && MACRO_DECORATOR_NAMES.has(name)) {
+            return true;
+          }
+        }
+        current = current.parent;
+      }
+
+      return false;
+    },
+  };
+}
+
+// ===========================================================================
+// Rule 6: OperatorOverload — suppress TS2365 for @op operator overloading
+// ===========================================================================
+
+/**
+ * Create the OperatorOverload SFINAE rule.
+ *
+ * Suppresses TS2365 ("Operator 'X' cannot be applied to types 'A' and 'B'")
+ * when at least one operand is a non-primitive type. The typesugar transformer
+ * rewrites operators on custom types via @typeclass @op annotations — these
+ * errors are artifacts of the pre-transform source.
+ */
+export function createOperatorOverloadRule(): SfinaeRule {
+  return {
+    name: "OperatorOverload",
+    errorCodes: [2365],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined || diagnostic.length === undefined) {
+        return false;
+      }
+
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node) return false;
+
+      // Walk up to find a BinaryExpression
+      let current: ts.Node | undefined = node;
+      for (let i = 0; i < 5 && current; i++) {
+        if (ts.isBinaryExpression(current)) {
+          // Suppress if either operand is a non-primitive (object/class/interface)
+          // type — these are the types that @op can apply to.
+          try {
+            const leftType = checker.getTypeAtLocation(current.left);
+            const rightType = checker.getTypeAtLocation(current.right);
+            if (isObjectLikeType(leftType) || isObjectLikeType(rightType)) {
+              return true;
+            }
+          } catch {
+            return false;
+          }
+        }
+        current = current.parent;
+      }
+
+      return false;
+    },
+  };
+}
+
+function isObjectLikeType(type: ts.Type): boolean {
+  // Object types (classes, interfaces, object literals)
+  if (type.flags & ts.TypeFlags.Object) return true;
+  // Union/intersection containing object types
+  if (type.isUnionOrIntersection()) {
+    return type.types.some(isObjectLikeType);
+  }
+  return false;
+}
+
 /**
  * Handle TS2355 by checking if the function's return type is a registered
  * opaque type. If so, the function body may return the underlying type

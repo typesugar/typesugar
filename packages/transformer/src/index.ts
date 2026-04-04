@@ -3933,6 +3933,7 @@ class MacroTransformer {
     ["typeclass", "typeclass"],
     ["impl", "impl"],
     ["instance", "instance"],
+    ["derive", "derive"],
     ["deriving", "deriving"],
     ["extension", "extension"],
     ["reflect", "reflect"],
@@ -4143,14 +4144,19 @@ class MacroTransformer {
         if (!trimmed) return [];
         return [this.ctx.factory.createStringLiteral(trimmed)];
 
-      case "deriving":
-        // @deriving Show, Eq, Ord
+      case "derive":
+      case "deriving": {
+        // @derive(Eq, Clone, Debug) or @deriving Show, Eq, Ord
         if (!trimmed) return [];
-        const tcNames = trimmed
+        // Strip optional parentheses: "(Eq, Clone, Debug)" → "Eq, Clone, Debug"
+        const inner =
+          trimmed.startsWith("(") && trimmed.endsWith(")") ? trimmed.slice(1, -1) : trimmed;
+        const tcNames = inner
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean);
         return tcNames.map((name) => this.ctx.factory.createIdentifier(name));
+      }
 
       default:
         return [];
