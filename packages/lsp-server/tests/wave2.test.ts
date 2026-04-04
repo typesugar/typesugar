@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import * as path from "path";
 import { computeSemanticTokens, TOKEN_TYPES, TOKEN_MODIFIERS } from "../src/semantic-tokens.js";
 import { computeCodeLenses } from "../src/codelens.js";
 import { computeInlayHints } from "../src/inlay-hints.js";
@@ -317,7 +318,8 @@ describe("ManifestState", () => {
   it("loads from workspace root", () => {
     const m = new ManifestState();
     // Loading from the typesugar repo root should find the manifest
-    const loaded = m.load("/Users/deapovey/src/typesugar");
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const loaded = m.load(repoRoot);
     expect(loaded).toBe(true);
     // Should have the extra macros from the repo's manifest
     expect(m.expressionMacroNames.has("comptime")).toBe(true);
