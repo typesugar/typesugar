@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "node scripts/vercel-build.mjs",
+  "buildCommand": "TYPESUGAR_SKIP_DTS=1 pnpm build && pnpm docs:build",
   "devCommand": "pnpm docs:dev --port $PORT",
   "outputDirectory": "docs/.vitepress/dist",
   "installCommand": "pnpm install",
