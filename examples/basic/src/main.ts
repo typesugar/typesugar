@@ -12,10 +12,9 @@
 // Import from the typesugar umbrella package
 // Callable macros are exported directly, namespaces also available
 import {
-  comptimeEval as comptime,
+  comptime,
   pipe,
-  // Namespaces are also available:
-  // comptime, derive, typeclass, specialize
+  Eq, Clone, Debug, Hash
 } from "typesugar";
 
 // ============================================================================
@@ -46,7 +45,7 @@ console.log("First 11 Fibonacci numbers:", fibTable);
 // ============================================================================
 
 // @derive generates functions for common operations
-@derive("Eq", "Clone", "Debug", "Hash")
+/** @derive(Eq, Clone, Debug, Hash) */
 interface Point {
   x: number;
   y: number;
