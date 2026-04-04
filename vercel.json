@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  },
   "buildCommand": "export TYPESUGAR_SKIP_DTS=1 && pnpm build && pnpm docs:build",
   "devCommand": "pnpm docs:dev --port $PORT",
   "outputDirectory": "docs/.vitepress/dist",
