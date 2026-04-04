@@ -19,7 +19,7 @@ export default defineConfig({
     "dts-opaque-discovery": "src/dts-opaque-discovery.ts",
   },
   format: ["cjs", "esm"],
-  dts: true,
+  dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
   splitting: false,

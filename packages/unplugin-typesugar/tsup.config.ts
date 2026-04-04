@@ -9,7 +9,7 @@ export default defineConfig({
     rollup: "src/rollup.ts",
   },
   format: ["cjs", "esm"],
-  dts: true,
+  dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
   external: ["typescript", "@typesugar/transformer", "@typesugar/preprocessor", "unplugin"],

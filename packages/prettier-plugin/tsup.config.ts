@@ -4,7 +4,7 @@ export default defineConfig([
   {
     entry: ["src/index.ts"],
     format: ["esm"],
-    dts: true,
+    dts: !process.env.TYPESUGAR_SKIP_DTS,
     clean: true,
     external: ["typescript", "prettier"],
   },

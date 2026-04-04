@@ -10,7 +10,7 @@ export default defineConfig({
     "syntax/index": "src/syntax/index.ts",
   },
   format: ["cjs", "esm"],
-  dts: true,
+  dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
   external: ["typescript", "@typesugar/core", "@typesugar/macros", "@typesugar/type-system"],

@@ -6,7 +6,7 @@ export default defineConfig({
     "runtime-stubs": "src/runtime-stubs.ts",
   },
   format: ["cjs", "esm"],
-  dts: true,
+  dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
   external: ["typescript", "@typesugar/core"],

@@ -11,7 +11,7 @@ export default defineConfig({
     "code-actions-extra": "src/code-actions-extra.ts",
   },
   format: ["cjs", "esm"],
-  dts: true,
+  dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
   splitting: false,
