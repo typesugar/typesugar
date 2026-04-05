@@ -53,6 +53,8 @@ export default defineConfig({
       "sandbox/**",
       "packages/std/tests/extensions.test.ts", // Temporarily excluded - needs transformer fix
       "packages/vscode/test/integration/**", // VSCode integration tests use @vscode/test-electron
+      "packages/vscode/out/**", // Compiled VS Code integration test artifacts
+      "integration/**", // Standalone integration tests — run separately via cd integration && npx vitest
     ],
 
     pool: "forks",
