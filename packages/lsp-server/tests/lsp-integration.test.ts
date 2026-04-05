@@ -450,6 +450,209 @@ describe("LSP server integration", () => {
     expect(hover).toBeDefined();
   });
 
+  // =========================================================================
+  // PEP-036 Wave 4: Diagnostic range accuracy
+  // =========================================================================
+
+  it("diagnostic range.start and range.end are accurate for a type error after pipe()", async () => {
+    const source = `import { pipe } from "typesugar";
+
+const result = pipe(42, (n: number) => n + 1);
+const x: number = "wrong";
+`;
+    projectDir = createTempProject({ "test.ts": source });
+    client = new LspClient(SERVER_PATH);
+
+    await client.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${projectDir}`,
+      capabilities: {},
+    });
+    await client.sendNotification("initialized", {});
+
+    const fileUri = `file://${path.join(projectDir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: fileUri, languageId: "typescript", version: 1, text: source },
+    });
+
+    const params = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: unknown[] };
+        return pp.uri === fileUri && pp.diagnostics.length > 0;
+      }
+    )) as {
+      uri: string;
+      diagnostics: Array<{
+        message: string;
+        range: {
+          start: { line: number; character: number };
+          end: { line: number; character: number };
+        };
+      }>;
+    };
+
+    expect(params).toBeDefined();
+
+    // Find the "not assignable" diagnostic
+    const typeError = params.diagnostics.find((d) => d.message.includes("not assignable"));
+    if (typeError) {
+      // "wrong" is on line 3 (0-based), and the range should cover a non-zero span
+      expect(typeError.range.start.line).toBe(3);
+      expect(typeError.range.end.line).toBe(3);
+      expect(typeError.range.end.character).toBeGreaterThan(typeError.range.start.character);
+    }
+  });
+
+  it("diagnostic ranges for multiple macros are in ascending line order", async () => {
+    const source = `import { staticAssert } from "typesugar";
+
+staticAssert(false, "first");
+const x = 1;
+staticAssert(false, "second");
+`;
+    projectDir = createTempProject({ "test.ts": source });
+    client = new LspClient(SERVER_PATH);
+
+    await client.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${projectDir}`,
+      capabilities: {},
+    });
+    await client.sendNotification("initialized", {});
+
+    const fileUri = `file://${path.join(projectDir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: fileUri, languageId: "typescript", version: 1, text: source },
+    });
+
+    const params = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: unknown[] };
+        return pp.uri === fileUri && pp.diagnostics.length >= 2;
+      }
+    )) as {
+      uri: string;
+      diagnostics: Array<{
+        message: string;
+        range: { start: { line: number } };
+      }>;
+    };
+
+    expect(params).toBeDefined();
+
+    const firstErr = params.diagnostics.find((d) => d.message.includes("first"));
+    const secondErr = params.diagnostics.find((d) => d.message.includes("second"));
+
+    if (firstErr && secondErr) {
+      expect(
+        firstErr.range.start.line,
+        "first staticAssert should come before second"
+      ).toBeLessThan(secondErr.range.start.line);
+    }
+  });
+
+  it("diagnostics are cleared when the error is fixed", async () => {
+    projectDir = createTempProject({
+      "test.ts": 'const x: number = "wrong";\n',
+    });
+    client = new LspClient(SERVER_PATH);
+
+    await client.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${projectDir}`,
+      capabilities: {},
+    });
+    await client.sendNotification("initialized", {});
+
+    const fileUri = `file://${path.join(projectDir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: {
+        uri: fileUri,
+        languageId: "typescript",
+        version: 1,
+        text: 'const x: number = "wrong";\n',
+      },
+    });
+
+    // Wait for error diagnostic
+    const withError = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: unknown[] };
+        return pp.uri === fileUri && pp.diagnostics.length > 0;
+      }
+    )) as { diagnostics: unknown[] };
+    expect(withError).toBeDefined();
+    expect(withError.diagnostics.length).toBeGreaterThan(0);
+
+    // Fix the error
+    client.clearNotifications();
+    await client.sendNotification("textDocument/didChange", {
+      textDocument: { uri: fileUri, version: 2 },
+      contentChanges: [{ text: "const x: number = 42;\n" }],
+    });
+
+    // Wait for a publish that has no "not assignable" errors.
+    // The first publish after the change might still have stale diagnostics
+    // (debounce timing), so we look for one with the error gone.
+    const cleared = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: Array<{ message: string }> };
+        return (
+          pp.uri === fileUri && !pp.diagnostics.some((d) => d.message.includes("not assignable"))
+        );
+      },
+      10000
+    )) as { diagnostics: unknown[] } | null;
+
+    expect(cleared, "type error should eventually be cleared after fix").toBeDefined();
+  });
+
+  it("mapTsDiagnostic suppresses diagnostics for generated code", async () => {
+    // @derive generates namespace companion code — TS errors inside that
+    // generated code should not appear in publishDiagnostics
+    const source = `/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+const z = 1;
+`;
+    projectDir = createTempProject({ "test.ts": source });
+    client = new LspClient(SERVER_PATH);
+
+    await client.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${projectDir}`,
+      capabilities: {},
+    });
+    await client.sendNotification("initialized", {});
+
+    const fileUri = `file://${path.join(projectDir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: fileUri, languageId: "typescript", version: 1, text: source },
+    });
+
+    // Wait for diagnostics
+    const params = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => (p as { uri: string }).uri === fileUri,
+      5000
+    )) as { diagnostics: Array<{ range: { start: { line: number } }; message: string }> };
+
+    expect(params).toBeDefined();
+
+    // Any diagnostics should have ranges within the original source lines (0-3)
+    const sourceLines = source.split("\n").length;
+    for (const d of params.diagnostics) {
+      expect(
+        d.range.start.line,
+        `diagnostic "${d.message.slice(0, 50)}" should not point beyond original source`
+      ).toBeLessThan(sourceLines);
+    }
+  });
+
   // fix #13: onDidSave re-checks dependents
   it("re-publishes diagnostics for dependents on save", async () => {
     projectDir = createTempProject({

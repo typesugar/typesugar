@@ -250,3 +250,318 @@ describe("composeSourceMaps", () => {
     expect(result?.sources).toBeDefined();
   });
 });
+
+// ============================================================================
+// PEP-036 Wave 1: Roundtrip & Composition Accuracy
+// ============================================================================
+
+describe("findOriginalPosition — boundary precision", () => {
+  it("returns correct position at exact segment boundary", () => {
+    // Two segments: col 0 → (0,0) and col 10 → (0,10)
+    const map: RawSourceMap = {
+      version: 3,
+      sources: ["test.ts"],
+      names: [],
+      mappings: "AAAA,UAAU",
+    };
+    const decoded = decodeSourceMap(map);
+
+    // Exact boundary at col 10
+    const atBoundary = findOriginalPosition(decoded, 0, 10);
+    expect(atBoundary).toEqual({ line: 0, column: 10 });
+  });
+
+  it("returns correct position one column before segment boundary", () => {
+    const map: RawSourceMap = {
+      version: 3,
+      sources: ["test.ts"],
+      names: [],
+      mappings: "AAAA,UAAU",
+    };
+    const decoded = decodeSourceMap(map);
+
+    // Col 9 is between segment at 0 and segment at 10 — maps via first segment + offset
+    const beforeBoundary = findOriginalPosition(decoded, 0, 9);
+    expect(beforeBoundary).toEqual({ line: 0, column: 9 });
+  });
+
+  it("returns correct position one column after segment boundary", () => {
+    const map: RawSourceMap = {
+      version: 3,
+      sources: ["test.ts"],
+      names: [],
+      mappings: "AAAA,UAAU",
+    };
+    const decoded = decodeSourceMap(map);
+
+    // Col 11 is past segment at 10 — maps via second segment + offset 1
+    const afterBoundary = findOriginalPosition(decoded, 0, 11);
+    expect(afterBoundary).toEqual({ line: 0, column: 11 });
+  });
+});
+
+describe("forward → reverse roundtrip", () => {
+  it("findGeneratedPosition → findOriginalPosition roundtrips to same position", () => {
+    const map: RawSourceMap = {
+      version: 3,
+      sources: ["test.ts"],
+      names: [],
+      mappings: "AAAA;AACA;AACA",
+    };
+    const decoded = decodeSourceMap(map);
+
+    // Forward: original (1, 5) → generated position
+    const generated = findGeneratedPosition(decoded, 1, 5, 0);
+    expect(generated).not.toBeNull();
+
+    // Reverse: generated → original should return (1, 5)
+    const original = findOriginalPosition(decoded, generated!.line, generated!.column);
+    expect(original).toEqual({ line: 1, column: 5 });
+  });
+
+  it("roundtrips across multiple lines", () => {
+    // 3 lines each mapping line N → line N
+    const map: RawSourceMap = {
+      version: 3,
+      sources: ["test.ts"],
+      names: [],
+      mappings: "AAAA;AACA;AACA",
+    };
+    const decoded = decodeSourceMap(map);
+
+    for (let line = 0; line < 3; line++) {
+      const gen = findGeneratedPosition(decoded, line, 0, 0);
+      expect(gen, `forward lookup for line ${line}`).not.toBeNull();
+      const orig = findOriginalPosition(decoded, gen!.line, gen!.column);
+      expect(orig, `reverse lookup for line ${line}`).toEqual({ line, column: 0 });
+    }
+  });
+});
+
+describe("source map roundtrip via ExpansionTracker", () => {
+  // These tests generate a real source map, decode it, and verify lookups
+
+  it("single expansion: every decoded segment resolves to correct original offset", async () => {
+    const { ExpansionTracker } = await import("@typesugar/core");
+    const ts = await import("typescript");
+
+    const sourceCode = "const x = comptime(() => 5 * 5);";
+    const sourceFile = ts.createSourceFile("test.ts", sourceCode, ts.ScriptTarget.Latest, true);
+
+    // Find the call expression
+    let callNode: ts.CallExpression | undefined;
+    ts.forEachChild(sourceFile, (node) => {
+      if (ts.isVariableStatement(node)) {
+        const decl = node.declarationList.declarations[0];
+        if (decl.initializer && ts.isCallExpression(decl.initializer)) {
+          callNode = decl.initializer;
+        }
+      }
+    });
+    expect(callNode).toBeDefined();
+
+    const tracker = new ExpansionTracker();
+    tracker.recordExpansion("comptime", callNode!, sourceFile, "25");
+
+    const map = tracker.generateSourceMap(sourceCode, "test.ts");
+    expect(map).not.toBeNull();
+
+    // Decode and verify every segment
+    const decoded = decodeSourceMap(map!);
+    for (let lineIdx = 0; lineIdx < decoded.mappings.length; lineIdx++) {
+      for (const segment of decoded.mappings[lineIdx]) {
+        if (segment.sourceLine === undefined || segment.sourceColumn === undefined) continue;
+
+        // Forward: original position → generated
+        const gen = findGeneratedPosition(decoded, segment.sourceLine, segment.sourceColumn, 0);
+        expect(
+          gen,
+          `segment at gen col ${segment.generatedColumn} should forward-map`
+        ).not.toBeNull();
+
+        // Reverse: generated → original should match the segment's source position
+        const orig = findOriginalPosition(decoded, lineIdx, segment.generatedColumn);
+        expect(
+          orig,
+          `segment at gen col ${segment.generatedColumn} should reverse-map`
+        ).not.toBeNull();
+        expect(orig!.line).toBe(segment.sourceLine);
+        expect(orig!.column).toBe(segment.sourceColumn);
+      }
+    }
+  });
+
+  it("expansion that grows: short original → long replacement", async () => {
+    const { ExpansionTracker } = await import("@typesugar/core");
+    const ts = await import("typescript");
+
+    const sourceCode = "const x = m(); const y = 2;";
+    const sourceFile = ts.createSourceFile("test.ts", sourceCode, ts.ScriptTarget.Latest, true);
+
+    // Find m() call
+    let callNode: ts.CallExpression | undefined;
+    ts.forEachChild(sourceFile, (node) => {
+      if (ts.isVariableStatement(node)) {
+        for (const decl of node.declarationList.declarations) {
+          if (decl.initializer && ts.isCallExpression(decl.initializer)) {
+            if (!callNode) callNode = decl.initializer;
+          }
+        }
+      }
+    });
+    expect(callNode).toBeDefined();
+
+    // Replace m() (3 chars) with a long string (200 chars)
+    const longReplacement = "a".repeat(200);
+    const tracker = new ExpansionTracker();
+    tracker.recordExpansion("m", callNode!, sourceFile, longReplacement);
+
+    const expandedCode = tracker.generateExpandedCode(sourceCode, "test.ts");
+    expect(expandedCode).not.toBeNull();
+    expect(expandedCode).toContain(longReplacement);
+    expect(expandedCode).toContain("const y = 2;");
+
+    const map = tracker.generateSourceMap(sourceCode, "test.ts");
+    expect(map).not.toBeNull();
+
+    // "const y" in the expanded code should map back to "const y" in the original
+    const origYOffset = sourceCode.indexOf("const y");
+    const expandedYOffset = expandedCode!.indexOf("const y");
+    expect(expandedYOffset).toBeGreaterThan(-1);
+
+    // Use position mapper for offset-based verification
+    const { SourceMapPositionMapperCore } = await import("../src/position-mapping-core.js");
+    const mapper = new SourceMapPositionMapperCore(map!, sourceCode, expandedCode!);
+    const mappedBack = mapper.toOriginal(expandedYOffset);
+    expect(mappedBack, "code after grown expansion should map back correctly").toBe(origYOffset);
+  });
+
+  it("expansion that shrinks: long original → short replacement", async () => {
+    const { ExpansionTracker } = await import("@typesugar/core");
+    const ts = await import("typescript");
+
+    const sourceCode = "const x = veryLongFunctionName(arg1, arg2, arg3, arg4); const y = 2;";
+    const sourceFile = ts.createSourceFile("test.ts", sourceCode, ts.ScriptTarget.Latest, true);
+
+    let callNode: ts.CallExpression | undefined;
+    ts.forEachChild(sourceFile, (node) => {
+      if (ts.isVariableStatement(node)) {
+        for (const decl of node.declarationList.declarations) {
+          if (decl.initializer && ts.isCallExpression(decl.initializer)) {
+            if (!callNode) callNode = decl.initializer;
+          }
+        }
+      }
+    });
+    expect(callNode).toBeDefined();
+
+    // Replace long call with short "1"
+    const tracker = new ExpansionTracker();
+    tracker.recordExpansion("veryLongFunctionName", callNode!, sourceFile, "1");
+
+    const expandedCode = tracker.generateExpandedCode(sourceCode, "test.ts");
+    expect(expandedCode).not.toBeNull();
+    expect(expandedCode).toContain("const x = 1;");
+    expect(expandedCode).toContain("const y = 2;");
+
+    const map = tracker.generateSourceMap(sourceCode, "test.ts");
+    expect(map).not.toBeNull();
+
+    const { SourceMapPositionMapperCore } = await import("../src/position-mapping-core.js");
+    const mapper = new SourceMapPositionMapperCore(map!, sourceCode, expandedCode!);
+
+    const origYOffset = sourceCode.indexOf("const y");
+    const expandedYOffset = expandedCode!.indexOf("const y");
+    const mappedBack = mapper.toOriginal(expandedYOffset);
+    expect(mappedBack, "code after shrunk expansion should map back correctly").toBe(origYOffset);
+  });
+
+  it("identity-like expansion: same-length replacement", async () => {
+    const { ExpansionTracker } = await import("@typesugar/core");
+    const ts = await import("typescript");
+
+    const sourceCode = "const x = abcd(); const y = 2;";
+    const sourceFile = ts.createSourceFile("test.ts", sourceCode, ts.ScriptTarget.Latest, true);
+
+    let callNode: ts.CallExpression | undefined;
+    ts.forEachChild(sourceFile, (node) => {
+      if (ts.isVariableStatement(node)) {
+        for (const decl of node.declarationList.declarations) {
+          if (decl.initializer && ts.isCallExpression(decl.initializer)) {
+            if (!callNode) callNode = decl.initializer;
+          }
+        }
+      }
+    });
+    expect(callNode).toBeDefined();
+
+    // Replace "abcd()" (6 chars) with "wxyz()" (6 chars) — same length
+    const tracker = new ExpansionTracker();
+    tracker.recordExpansion("abcd", callNode!, sourceFile, "wxyz()");
+
+    const expandedCode = tracker.generateExpandedCode(sourceCode, "test.ts");
+    expect(expandedCode).not.toBeNull();
+
+    const map = tracker.generateSourceMap(sourceCode, "test.ts");
+    expect(map).not.toBeNull();
+
+    const { SourceMapPositionMapperCore } = await import("../src/position-mapping-core.js");
+    const mapper = new SourceMapPositionMapperCore(map!, sourceCode, expandedCode!);
+
+    // "const y" should be at the same offset in both
+    const origYOffset = sourceCode.indexOf("const y");
+    const expandedYOffset = expandedCode!.indexOf("const y");
+    expect(expandedYOffset).toBe(origYOffset); // same position since same length
+
+    const mappedBack = mapper.toOriginal(expandedYOffset);
+    expect(mappedBack).toBe(origYOffset);
+  });
+});
+
+describe("composition roundtrip", () => {
+  it("positions through composed map match direct lookup in innermost map", async () => {
+    const { ExpansionTracker } = await import("@typesugar/core");
+    const ts = await import("typescript");
+
+    // Simulate a two-stage pipeline:
+    // Stage 1 (preprocess): replace "MACRO1()" with "expanded1"
+    // Stage 2 (transform): replace another call in the already-preprocessed code
+    const originalCode = "const a = MACRO1(); const b = 2;";
+    const sourceFile1 = ts.createSourceFile("test.ts", originalCode, ts.ScriptTarget.Latest, true);
+
+    let call1: ts.CallExpression | undefined;
+    ts.forEachChild(sourceFile1, (node) => {
+      if (ts.isVariableStatement(node)) {
+        for (const decl of node.declarationList.declarations) {
+          if (decl.initializer && ts.isCallExpression(decl.initializer)) {
+            if (!call1) call1 = decl.initializer;
+          }
+        }
+      }
+    });
+    expect(call1).toBeDefined();
+
+    const tracker1 = new ExpansionTracker();
+    tracker1.recordExpansion("MACRO1", call1!, sourceFile1, "expanded1");
+
+    const map1 = tracker1.generateSourceMap(originalCode, "test.ts");
+    expect(map1).not.toBeNull();
+
+    const intermediateCode = tracker1.generateExpandedCode(originalCode, "test.ts");
+    expect(intermediateCode).not.toBeNull();
+
+    // Compose: we only have one map here, but we test the composition with identity
+    const { composeSourceMapChain } = await import("../src/source-map-utils.js");
+    const composed = composeSourceMapChain([map1]);
+    expect(composed).not.toBeNull();
+
+    // Verify "const b" maps back through composed map
+    const { SourceMapPositionMapperCore } = await import("../src/position-mapping-core.js");
+    const mapper = new SourceMapPositionMapperCore(composed!, originalCode, intermediateCode!);
+
+    const origBOffset = originalCode.indexOf("const b");
+    const intermediateBOffset = intermediateCode!.indexOf("const b");
+    const mappedBack = mapper.toOriginal(intermediateBOffset);
+    expect(mappedBack).toBe(origBOffset);
+  });
+});

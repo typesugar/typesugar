@@ -499,7 +499,7 @@ class MockFileSystemWatcher {
 
 // --- Diagnostic Collection ---
 
-class MockDiagnosticCollection {
+export class MockDiagnosticCollection {
   name: string;
   private _entries = new Map<string, Diagnostic[]>();
 
@@ -726,7 +726,9 @@ export const languages = {
   },
 
   createDiagnosticCollection(name: string): MockDiagnosticCollection {
-    return new MockDiagnosticCollection(name);
+    const collection = new MockDiagnosticCollection(name);
+    _diagnosticCollections.push(collection);
+    return collection;
   },
 
   setTextDocumentLanguage(_doc: any, _language: string): Promise<any> {
@@ -852,9 +854,13 @@ export function createMockTextDocument(
 }
 
 /** Reset all mock state between tests */
+/** All diagnostic collections created since last reset. */
+export const _diagnosticCollections: MockDiagnosticCollection[] = [];
+
 export function resetMockState(): void {
   _saveListeners.length = 0;
   _closeListeners.length = 0;
+  _diagnosticCollections.length = 0;
   _fsReadFileHandler = undefined;
   _fileSystemWatcher = undefined;
   _workspaceFolders = undefined;

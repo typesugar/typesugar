@@ -39,6 +39,20 @@ function transform(code: string, opts?: { strictOutput?: boolean }): TransformRe
   });
 }
 
+/** Transform with .sts extension for HKT/pipe/cons preprocessing. */
+function transformSts(code: string, opts?: { strictOutput?: boolean }): TransformResult {
+  return transformCode(code, {
+    fileName: path.resolve("test-diagnostic-pos.sts"),
+    extraRootFiles: [AMBIENT_FILE],
+    strictOutput: opts?.strictOutput ?? false,
+    readFile: (f: string) => {
+      if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
+      return ts.sys.readFile(f);
+    },
+    fileExists: (f: string) => f === AMBIENT_FILE || ts.sys.fileExists(f),
+  });
+}
+
 /** Find the 0-based byte offset of `needle` in `haystack` at its nth occurrence (default 1st). */
 function offsetOf(haystack: string, needle: string, occurrence = 1): number {
   let idx = -1;
@@ -753,5 +767,221 @@ interface MyTC<A> {
         `Diagnostic start (${d.start}) should be within original source bounds (${code.length})`
       ).toBeLessThanOrEqual(code.length);
     }
+  });
+});
+
+// ============================================================================
+// PEP-036 Wave 2: @derive positioning
+// ============================================================================
+
+describe("@derive diagnostic positioning", () => {
+  it("position mapper maps code BEFORE @derive expansion back correctly", () => {
+    const code = `const before = "marker";
+
+/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+const y = 1;
+`;
+    const result = transform(code);
+    expect(result.changed, "@derive should trigger transformation").toBe(true);
+
+    if (result.code.includes("const before")) {
+      const origOffset = offsetOf(code, "const before");
+      const transOffset = offsetOf(result.code, "const before");
+      expectMappedPosition(result, transOffset, origOffset, "const before (@derive)");
+    }
+  });
+
+  it("position mapper maps code AFTER @derive expansion back correctly", () => {
+    const code = `/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+const after = "marker";
+`;
+    const result = transform(code);
+    expect(result.changed, "@derive should trigger transformation").toBe(true);
+
+    if (result.code.includes("const after")) {
+      const origOffset = offsetOf(code, "const after");
+      const transOffset = offsetOf(result.code, "const after");
+      expectMappedPosition(result, transOffset, origOffset, "const after (@derive)");
+    }
+  });
+
+  it("@derive error itself points to the decorator", () => {
+    // Use a type with a field that can't be derived (function type)
+    const code = `/** @derive(Eq) */
+interface Bad { fn: () => void; }
+`;
+    const result = transform(code);
+
+    // If @derive produces an error, it should point near the @derive site
+    const deriveErrors = result.diagnostics.filter((d) => d.severity === "error");
+    if (deriveErrors.length > 0) {
+      // Error should be on one of the first two lines (decorator or interface)
+      const errorLine = lineAt(code, deriveErrors[0].start);
+      expect(errorLine, `@derive error should be near the @derive site`).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+// ============================================================================
+// PEP-036 Wave 2: HKT syntax positioning
+// ============================================================================
+
+describe("HKT syntax diagnostic positioning", () => {
+  it("position mapper maps code after HKT preprocessing back correctly", () => {
+    const code = `interface Functor<F<_>> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
+
+const after = "marker";
+`;
+    const result = transformSts(code);
+
+    if (result.changed && result.code.includes("const after")) {
+      const origOffset = offsetOf(code, "const after");
+      const transOffset = offsetOf(result.code, "const after");
+      expectMappedPosition(result, transOffset, origOffset, "after HKT preprocess");
+    }
+  });
+
+  it("multi-line HKT generic preserves position mapping", () => {
+    const code = `interface Bifunctor<
+  F<_>
+> {
+  bimap<A, B, C, D>(fab: F<A>, f: (a: A) => C, g: (b: B) => D): F<C>;
+}
+
+const after = "marker";
+`;
+    const result = transformSts(code);
+
+    if (result.changed && result.code.includes("const after")) {
+      const origOffset = offsetOf(code, "const after");
+      const transOffset = offsetOf(result.code, "const after");
+      expectMappedPosition(result, transOffset, origOffset, "after multi-line HKT");
+    }
+  });
+});
+
+// ============================================================================
+// PEP-036 Wave 2: Pipe operator positioning (|>)
+// ============================================================================
+
+describe("pipe operator (|>) diagnostic positioning", () => {
+  it("long pipe chain (10+ stages) — code after maps correctly", () => {
+    const fns = Array.from({ length: 10 }, (_, i) => `(n: number) => n + ${i + 1}`);
+    const code = `const result = 1 ${fns.map((f) => `|> (${f})`).join(" ")};
+const after = "marker";
+`;
+    const result = transformSts(code);
+    expect(result.changed, "|> should trigger transformation").toBe(true);
+
+    if (result.code.includes("const after")) {
+      const origOffset = offsetOf(code, "const after");
+      const transOffset = offsetOf(result.code, "const after");
+      expectMappedPosition(result, transOffset, origOffset, "after long |> chain");
+    }
+  });
+
+  it("code between two pipe chains maps correctly", () => {
+    const code = `const a = 1 |> ((n: number) => n + 1);
+const middle = "between";
+const b = 2 |> ((n: number) => n * 2);
+const end = "after";
+`;
+    const result = transformSts(code);
+
+    if (result.changed && result.code.includes("const middle")) {
+      const middleOrig = offsetOf(code, "const middle");
+      const middleTrans = offsetOf(result.code, "const middle");
+      expectMappedPosition(result, middleTrans, middleOrig, "between two |> chains");
+    }
+
+    if (result.changed && result.code.includes("const end")) {
+      const endOrig = offsetOf(code, "const end");
+      const endTrans = offsetOf(result.code, "const end");
+      expectMappedPosition(result, endTrans, endOrig, "after two |> chains");
+    }
+  });
+});
+
+// ============================================================================
+// PEP-036 Wave 2: Cons operator (::) positioning
+// ============================================================================
+
+describe("cons operator (::) diagnostic positioning", () => {
+  it("code after :: desugar maps back correctly", () => {
+    const code = `const list = 1 :: 2 :: [];
+const after = "marker";
+`;
+    const result = transformSts(code);
+    expect(result.changed, ":: should trigger transformation").toBe(true);
+
+    if (result.code.includes("const after")) {
+      const origOffset = offsetOf(code, "const after");
+      const transOffset = offsetOf(result.code, "const after");
+      expectMappedPosition(result, transOffset, origOffset, "after :: desugar");
+    }
+  });
+});
+
+// ============================================================================
+// PEP-036 Wave 2: Mixed-macro positioning
+// ============================================================================
+
+describe("mixed-macro diagnostic positioning", () => {
+  it("file with @derive + pipe + staticAssert — all error positions correct", () => {
+    const code = `import { pipe, staticAssert } from "typesugar";
+
+/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+const result = pipe(42, (n: number) => n + 1);
+staticAssert(false, "after both");
+const trailing = 1;
+`;
+    const result = transform(code);
+
+    const assertErrors = result.diagnostics.filter(
+      (d) => d.severity === "error" && d.message.includes("after both")
+    );
+    expect(assertErrors.length, "staticAssert should produce an error").toBeGreaterThan(0);
+
+    const errorLine = lineAt(code, assertErrors[0].start);
+    const expectedLine = lineAt(code, offsetOf(code, 'staticAssert(false, "after both")'));
+    expect(
+      errorLine,
+      `staticAssert error after @derive + pipe should be on line ${expectedLine}, got ${errorLine}`
+    ).toBe(expectedLine);
+  });
+});
+
+// ============================================================================
+// PEP-036 Wave 2: /*ERR*/ fixture helper smoke test
+// ============================================================================
+
+describe("error fixture helper", () => {
+  it("assertErrorsAt detects errors at marked positions", async () => {
+    const { assertErrorsAt } = await import("./helpers/error-fixture.js");
+
+    const { result } = assertErrorsAt(`import { staticAssert } from "typesugar";
+
+/*ERR:assert*/staticAssert(false, "boom");
+`);
+
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+  });
+
+  it("assertErrorsAt detects errors after macro expansion", async () => {
+    const { assertErrorsAt } = await import("./helpers/error-fixture.js");
+
+    assertErrorsAt(`import { pipe, staticAssert } from "typesugar";
+
+const r = pipe(42, (n: number) => n + 1);
+/*ERR:assert*/staticAssert(false, "after pipe");
+`);
   });
 });

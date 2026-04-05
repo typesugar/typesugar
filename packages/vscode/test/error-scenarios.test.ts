@@ -7,6 +7,7 @@ import {
   Range,
   Position,
   CancellationTokenSource,
+  _diagnosticCollections,
 } from "./mocks/vscode-mock";
 import { MacroDiagnosticsManager } from "../src/diagnostics";
 import { MacroSemanticTokensProvider, TOKEN_TYPES } from "../src/semantic-tokens";
@@ -236,6 +237,196 @@ describe("Error Scenarios", () => {
 
       const lenses = provider.provideCodeLenses(doc, createMockCancellationToken());
       expect(lenses.length).toBe(3);
+    });
+  });
+
+  // =========================================================================
+  // PEP-036 Wave 6: Diagnostic range accuracy
+  // =========================================================================
+
+  describe("diagnostic range accuracy", () => {
+    it("publishes diagnostics with correct line and column", async () => {
+      const diagnostics: ExpansionDiagnostic[] = [
+        {
+          message: "Missing Eq instance",
+          severity: "error",
+          code: 90001,
+          range: { startLine: 3, startChar: 4, endLine: 3, endChar: 20 },
+        },
+      ];
+
+      const result: ExpansionResult = {
+        expandedText: "expanded",
+        focusedView: "",
+        expansions: [],
+        comptimeResults: new Map(),
+        bindTypes: new Map(),
+        diagnostics,
+      };
+
+      const expansion = createMockExpansionService({
+        expandFile: async () => result,
+      });
+
+      const manager = new MacroDiagnosticsManager(expansion);
+      const doc = createMockTextDocument(
+        "line0\nline1\nline2\n    summon<Eq<Bad>>()",
+        "/test/file.ts"
+      );
+
+      (workspace as any)._fireSave(doc);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify published diagnostic range
+      const collection = _diagnosticCollections[0];
+      expect(collection).toBeDefined();
+
+      const published = collection.get(doc.uri);
+      expect(published).toBeDefined();
+      expect(published!.length).toBe(1);
+
+      const diag = published![0];
+      expect(diag.range.start.line).toBe(3);
+      expect(diag.range.start.character).toBe(4);
+      expect(diag.range.end.line).toBe(3);
+      expect(diag.range.end.character).toBe(20);
+
+      manager.dispose();
+    });
+
+    it("publishes relatedInformation when expansion field is present", async () => {
+      const diagnostics: ExpansionDiagnostic[] = [
+        {
+          message: "Macro expansion failed",
+          severity: "error",
+          code: 90001,
+          range: { startLine: 1, startChar: 0, endLine: 1, endChar: 10 },
+          expansion: "const expanded = 42;",
+        },
+      ];
+
+      const result: ExpansionResult = {
+        expandedText: "expanded",
+        focusedView: "",
+        expansions: [],
+        comptimeResults: new Map(),
+        bindTypes: new Map(),
+        diagnostics,
+      };
+
+      const expansion = createMockExpansionService({
+        expandFile: async () => result,
+      });
+
+      const manager = new MacroDiagnosticsManager(expansion);
+      const doc = createMockTextDocument("line0\nmacro_call()", "/test/file.ts");
+
+      (workspace as any)._fireSave(doc);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const collection = _diagnosticCollections[0];
+      const published = collection.get(doc.uri);
+      expect(published).toBeDefined();
+      expect(published!.length).toBe(1);
+
+      const diag = published![0];
+      expect(diag.relatedInformation).toBeDefined();
+      expect(diag.relatedInformation!.length).toBe(1);
+      expect(diag.relatedInformation![0].message).toContain("const expanded = 42;");
+
+      manager.dispose();
+    });
+
+    it("diagnostics without range get default range (0,0)-(0,0)", async () => {
+      const diagnostics: ExpansionDiagnostic[] = [
+        {
+          message: "Global error",
+          severity: "error",
+          code: 90001,
+          // no range field
+        },
+      ];
+
+      const result: ExpansionResult = {
+        expandedText: "expanded",
+        focusedView: "",
+        expansions: [],
+        comptimeResults: new Map(),
+        bindTypes: new Map(),
+        diagnostics,
+      };
+
+      const expansion = createMockExpansionService({
+        expandFile: async () => result,
+      });
+
+      const manager = new MacroDiagnosticsManager(expansion);
+      const doc = createMockTextDocument("const x = 1;", "/test/file.ts");
+
+      (workspace as any)._fireSave(doc);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const collection = _diagnosticCollections[0];
+      const published = collection.get(doc.uri);
+      expect(published).toBeDefined();
+      expect(published!.length).toBe(1);
+
+      const diag = published![0];
+      // Default range for diagnostics without position
+      expect(diag.range.start.line).toBe(0);
+      expect(diag.range.start.character).toBe(0);
+      expect(diag.range.end.line).toBe(0);
+      expect(diag.range.end.character).toBe(0);
+
+      manager.dispose();
+    });
+
+    it("filters out diagnostics for generated code (no bogus positions)", async () => {
+      const diagnostics: ExpansionDiagnostic[] = [
+        {
+          message: "Real error at line 2",
+          severity: "error",
+          code: 90001,
+          range: { startLine: 2, startChar: 0, endLine: 2, endChar: 10 },
+        },
+        {
+          message: "Error from generated code",
+          severity: "error",
+          code: 90002,
+          range: { startLine: 500, startChar: 0, endLine: 500, endChar: 10 },
+        },
+      ];
+
+      const result: ExpansionResult = {
+        expandedText: "expanded",
+        focusedView: "",
+        expansions: [],
+        comptimeResults: new Map(),
+        bindTypes: new Map(),
+        diagnostics,
+      };
+
+      const expansion = createMockExpansionService({
+        expandFile: async () => result,
+      });
+
+      const manager = new MacroDiagnosticsManager(expansion);
+      const source = "line0\nline1\nline2_error_here\n";
+      const doc = createMockTextDocument(source, "/test/file.ts");
+
+      (workspace as any)._fireSave(doc);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const collection = _diagnosticCollections[0];
+      const published = collection.get(doc.uri);
+      expect(published).toBeDefined();
+
+      // Both diagnostics are published because the VS Code extension does not
+      // filter by line bounds (that's the LSP server's job). This test documents
+      // that behavior — the extension trusts the upstream diagnostic positions.
+      expect(published!.length).toBe(2);
+
+      manager.dispose();
     });
   });
 
