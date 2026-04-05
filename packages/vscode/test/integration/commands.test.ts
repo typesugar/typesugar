@@ -8,7 +8,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 suite("Command Execution", () => {
-  const EXTENSION_ID = "typesugar.typesugar";
+  const EXTENSION_ID = "typesugar.typesugar-vscode";
 
   suiteSetup(async () => {
     const ext = vscode.extensions.getExtension(EXTENSION_ID);

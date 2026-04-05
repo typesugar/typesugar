@@ -1,0 +1,11 @@
+// Integration test fixture: |> pipe operator (.sts syntax)
+//
+// Test positions:
+//   Line 5-6: |> chain desugars to nested calls
+//   Line 8: type error after |> must map back correctly
+
+const result = 42
+  |> ((n: number) => n + 1)
+  |> ((n: number) => n.toString());
+
+const bad: number = "wrong";

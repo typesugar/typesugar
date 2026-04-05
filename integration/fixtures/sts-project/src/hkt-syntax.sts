@@ -1,0 +1,11 @@
+// Integration test fixture: F<_> HKT syntax (.sts syntax)
+//
+// Test positions:
+//   Line 3-5: F<_> preprocessed to Kind<F, A>
+//   Line 7: type error after HKT preprocessing must map back correctly
+
+interface Functor<F<_>> {
+  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
+}
+
+const bad: number = "wrong";

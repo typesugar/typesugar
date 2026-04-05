@@ -1,0 +1,11 @@
+{
+  "name": "typesugar-integration-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "typesugar": "latest",
+    "@typesugar/lsp-server": "latest",
+    "@typesugar/std": "latest"
+  }
+}

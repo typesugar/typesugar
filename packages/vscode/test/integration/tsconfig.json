@@ -4,7 +4,8 @@
     "outDir": "../../out/test/integration",
     "rootDir": ".",
     "module": "commonjs",
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "noEmit": false
   },
   "include": ["./**/*.ts"]
 }

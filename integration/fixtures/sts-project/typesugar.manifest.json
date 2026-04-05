@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "macros": {
+    "expression": {
+      "pipe": { "module": "typesugar", "description": "Function pipeline" }
+    },
+    "decorator": {},
+    "taggedTemplate": {},
+    "labeledBlock": {},
+    "type": {},
+    "extensionMethods": {}
+  }
+}

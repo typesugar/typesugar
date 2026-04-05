@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 
 suite("Provider Integration", () => {
-  const EXTENSION_ID = "typesugar.typesugar";
+  const EXTENSION_ID = "typesugar.typesugar-vscode";
   let sampleDocUri: vscode.Uri;
 
   suiteSetup(async () => {

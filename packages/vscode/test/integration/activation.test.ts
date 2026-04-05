@@ -9,7 +9,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 suite("Extension Activation", () => {
-  const EXTENSION_ID = "typesugar.typesugar";
+  const EXTENSION_ID = "typesugar.typesugar-vscode";
 
   test("Extension is present in extensions list", () => {
     const ext = vscode.extensions.getExtension(EXTENSION_ID);

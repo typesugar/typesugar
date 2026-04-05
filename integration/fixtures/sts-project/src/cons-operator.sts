@@ -1,0 +1,9 @@
+// Integration test fixture: :: cons operator (.sts syntax)
+//
+// Test positions:
+//   Line 3: :: desugars to spread array
+//   Line 5: type error after :: must map back correctly
+
+const list = 1 :: 2 :: 3 :: [];
+
+const bad: number = "wrong";

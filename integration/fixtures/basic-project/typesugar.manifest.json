@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "macros": {
+    "expression": {
+      "comptime": { "module": "typesugar", "description": "Compile-time evaluation" },
+      "summon": { "module": "typesugar", "description": "Typeclass instance lookup" },
+      "staticAssert": { "module": "typesugar", "description": "Compile-time assertion" },
+      "pipe": { "module": "typesugar", "description": "Function pipeline" }
+    },
+    "decorator": {
+      "derive": {
+        "module": "typesugar",
+        "description": "Auto-derive implementations",
+        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Show", "Default", "Json"]
+      },
+      "typeclass": { "module": "typesugar", "description": "Define a typeclass" },
+      "impl": { "module": "typesugar", "description": "Define a typeclass instance" }
+    },
+    "taggedTemplate": {},
+    "labeledBlock": {},
+    "type": {},
+    "extensionMethods": {}
+  }
+}

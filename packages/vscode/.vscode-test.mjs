@@ -4,6 +4,7 @@ export default defineConfig({
   files: "out/test/integration/**/*.test.js",
   version: "stable",
   workspaceFolder: "./test-fixtures/sample-project",
+  extensionDevelopmentPath: ".",
   mocha: {
     ui: "tdd",
     timeout: 60000,
