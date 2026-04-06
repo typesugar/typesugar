@@ -10,6 +10,7 @@ export default defineConfig({
   clean: true,
   splitting: false,
   external: ["vscode", "typescript"],
+  noExternal: ["vscode-languageclient"],
   // VSCode extensions use CJS
   platform: "node",
   target: "node18",

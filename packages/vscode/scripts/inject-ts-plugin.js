@@ -60,6 +60,21 @@ try {
     "package.json",
   ]);
 
+  // Copy lsp-server files (self-contained bundled CJS for standalone spawning)
+  const lspDest = join(tempDir, "extension", "node_modules", "@typesugar", "lsp-server", "dist");
+  mkdirSync(lspDest, { recursive: true });
+  const lspSrc = join(vscodeDir, "node_modules", "@typesugar", "lsp-server");
+  for (const file of ["dist/server-bundled.cjs", "dist/server-bundled.cjs.map", "package.json"]) {
+    const srcFile = join(lspSrc, file);
+    const destFile = join(tempDir, "extension", "node_modules", "@typesugar", "lsp-server", file);
+    if (existsSync(srcFile)) {
+      cpSync(srcFile, destFile);
+      console.log(`  Added lsp-server/${file}`);
+    } else {
+      console.warn(`  Warning: lsp-server/${file} not found`);
+    }
+  }
+
   // Remove old vsix and create new one
   rmSync(vsixFile);
   execSync(`cd "${tempDir}" && zip -rq "${vsixFile}" .`);

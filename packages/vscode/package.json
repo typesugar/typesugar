@@ -16,6 +16,7 @@
   "license": "MIT",
   "displayName": "typesugar",
   "publisher": "typesugar",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -25,8 +26,8 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:**/typesugar.manifest.json",
     "workspaceContains:**/node_modules/typesugar",
+    "workspaceContains:**/typesugar.manifest.json",
     "onLanguage:sugared-typescript",
     "onLanguage:sugared-typescriptreact"
   ],
@@ -279,12 +280,6 @@
       {
         "command": "typesugar.generateManifest",
         "title": "typesugar: Generate Macro Manifest"
-      }
-    ],
-    "typescriptServerPlugins": [
-      {
-        "name": "@typesugar/ts-plugin",
-        "enableForWorkspaceTypeScriptVersions": true
       }
     ],
     "configuration": {

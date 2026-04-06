@@ -600,15 +600,22 @@ function executeTransitiveDerivation(
       transitiveIsExported
     );
     if (transitiveCompanionCode) {
-      // Only emit companion const if we haven't already for this type
+      // Only emit companion const if:
+      // 1. We haven't already emitted one for this type
+      // 2. The derived code doesn't already contain a namespace for this type
+      //    (namespace provides the value binding, so const would conflict with TS2451)
       const alreadyHasCompanion = statements.some(
         (s) =>
-          ts.isVariableStatement(s) &&
-          s.declarationList.declarations.some(
-            (d) => ts.isIdentifier(d.name) && d.name.text === typeInfo.typeName
-          )
+          (ts.isVariableStatement(s) &&
+            s.declarationList.declarations.some(
+              (d) => ts.isIdentifier(d.name) && d.name.text === typeInfo.typeName
+            )) ||
+          (ts.isModuleDeclaration(s) &&
+            ts.isIdentifier(s.name) &&
+            s.name.text === typeInfo.typeName)
       );
-      if (!alreadyHasCompanion) {
+      const codeHasNamespace = code.includes(`namespace ${typeInfo.typeName}`);
+      if (!alreadyHasCompanion && !codeHasNamespace) {
         statements.push(...ctx.parseStatements(transitiveCompanionCode));
       }
     }
@@ -1399,30 +1406,42 @@ function convertToCompanionAssignment(code: string, tcName: string, typeName: st
 
   const pureMarker = fullMatch[1] || "";
 
-  // Replace the const declaration with a namespace export.
-  // Use `as TypeAnnotation` instead of `: TypeAnnotation` to avoid requiring
-  // every method from the typeclass interface (e.g., Eq has eq/neq in addition
-  // to equals/notEquals). The namespace merging provides type-safe access for
-  // consumers without requiring the object literal to be exhaustive.
-  code = code.replace(
-    fullPattern,
-    `namespace ${typeName} { export const ${tcName} = ${pureMarker}{`
-  );
+  // Check if the implementation references primitive companions of the same typeclass.
+  // e.g., Show.string inside a Show derivation. If so, the namespace would shadow
+  // the global typeclass reference. Use Option A: hoist to module scope, re-export.
+  const hasPrimitiveSelfRef = PRIMITIVE_TYPES.some((prim) => code.includes(`${tcName}.${prim}`));
 
-  // Close the namespace block.
-  // Deliberately omit `as Eq<T>` cast — the derive symbol (e.g. `Eq`) is a
-  // value-level import, not a type.  Using it in `as Eq<T>` produces TS2749.
-  // The object literal is already structurally correct so no cast is needed.
-  code = code.replace(/;\s*$/, `; }`);
+  if (hasPrimitiveSelfRef) {
+    // Option A: keep implementation at module scope (no shadowing), re-export from namespace.
+    // e.g.: const _MetricShow = { show: ... Show.string.show(...) ... };
+    //       namespace Metric { export const Show = _MetricShow; }
+    const hoistedName = `_${typeName}${tcName}`;
+    code = code.replace(fullPattern, `const ${hoistedName} = ${pureMarker}{`);
 
-  // Replace self-references to the old flat variable name with companion path.
-  // e.g., eqShape.equals → Shape.Eq.equals
-  // This prevents dangling references after the const is removed.
-  // Uses word-boundary regex to avoid replacing substrings (e.g., eqA in eqArray).
-  if (varNameFromConst && code.includes(varNameFromConst)) {
-    const companionRef = `${typeName}.${tcName}`;
-    const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
-    code = code.replace(wordBoundaryPattern, companionRef);
+    // Replace self-references to the old flat variable name with companion path.
+    if (varNameFromConst && code.includes(varNameFromConst)) {
+      const companionRef = `${typeName}.${tcName}`;
+      const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
+      code = code.replace(wordBoundaryPattern, companionRef);
+    }
+
+    code = `${code}\nnamespace ${typeName} { export const ${tcName} = ${hoistedName}; }`;
+  } else {
+    // Standard path: wrap in namespace directly (no shadowing risk).
+    code = code.replace(
+      fullPattern,
+      `namespace ${typeName} { export const ${tcName} = ${pureMarker}{`
+    );
+
+    // Close the namespace block.
+    code = code.replace(/;\s*$/, `; }`);
+
+    // Replace self-references to the old flat variable name with companion path.
+    if (varNameFromConst && code.includes(varNameFromConst)) {
+      const companionRef = `${typeName}.${tcName}`;
+      const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
+      code = code.replace(wordBoundaryPattern, companionRef);
+    }
   }
 
   return code;

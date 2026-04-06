@@ -17,6 +17,6 @@ const result = pipe(
 );
 
 // ERROR: type error after multi-line pipe expansion
-const bad: number = "wrong";
+const pipeBad: number = "wrong";
 
 const ok = result + 1;

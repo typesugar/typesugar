@@ -24,7 +24,7 @@ import * as os from "os";
 class LspClient {
   private server: ChildProcess;
   private msgId = 0;
-  private buf = "";
+  private buf = Buffer.alloc(0);
   private responses = new Map<number, unknown>();
   private notifications: Array<{ method: string; params: unknown }> = [];
   private ready: Promise<void>;
@@ -40,7 +40,7 @@ class LspClient {
     });
 
     this.server.stdout!.on("data", (chunk: Buffer) => {
-      this.buf += chunk.toString();
+      this.buf = Buffer.concat([this.buf, chunk]);
       this.parseMessages();
     });
 
@@ -50,18 +50,20 @@ class LspClient {
     setTimeout(() => this.resolve(), 100);
   }
 
+  private static readonly SEPARATOR = Buffer.from("\r\n\r\n");
+
   private parseMessages() {
     while (true) {
-      const headerEnd = this.buf.indexOf("\r\n\r\n");
+      const headerEnd = this.buf.indexOf(LspClient.SEPARATOR);
       if (headerEnd === -1) break;
-      const headerStr = this.buf.slice(0, headerEnd);
+      const headerStr = this.buf.subarray(0, headerEnd).toString("utf-8");
       const lenMatch = headerStr.match(/Content-Length: (\d+)/);
       if (!lenMatch) break;
       const len = parseInt(lenMatch[1]);
       const bodyStart = headerEnd + 4;
       if (this.buf.length < bodyStart + len) break;
-      const body = JSON.parse(this.buf.slice(bodyStart, bodyStart + len));
-      this.buf = this.buf.slice(bodyStart + len);
+      const body = JSON.parse(this.buf.subarray(bodyStart, bodyStart + len).toString("utf-8"));
+      this.buf = this.buf.subarray(bodyStart + len);
 
       if (body.id !== undefined && !body.method) {
         this.responses.set(body.id, body);
@@ -707,5 +709,129 @@ const z = 1;
 
     // We just check that the save triggered a diagnostic re-publish for B
     expect(diagForB).toBeDefined();
+  });
+
+  it("staticAssert error clears when condition is fixed (false → true)", async () => {
+    const source = `import { staticAssert } from "typesugar";
+staticAssert(false, "should fail");
+`;
+    projectDir = createTempProject({ "test.ts": source });
+    client = new LspClient(SERVER_PATH);
+
+    await client.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${projectDir}`,
+      capabilities: {},
+    });
+    await client.sendNotification("initialized", {});
+
+    const fileUri = `file://${path.join(projectDir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: fileUri, languageId: "typescript", version: 1, text: source },
+    });
+
+    // Wait for staticAssert error to appear
+    const withError = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: Array<{ message: string }> };
+        return pp.uri === fileUri && pp.diagnostics.some((d) => d.message.includes("should fail"));
+      }
+    )) as { diagnostics: Array<{ message: string }> };
+    expect(withError, "staticAssert(false) should produce an error").toBeDefined();
+
+    // Fix: change false → true
+    client.clearNotifications();
+    const fixedSource = `import { staticAssert } from "typesugar";
+staticAssert(true, "should fail");
+`;
+    await client.sendNotification("textDocument/didChange", {
+      textDocument: { uri: fileUri, version: 2 },
+      contentChanges: [{ text: fixedSource }],
+    });
+
+    // Wait for a publish where the "should fail" error is gone
+    const cleared = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: Array<{ message: string }> };
+        return pp.uri === fileUri && !pp.diagnostics.some((d) => d.message.includes("should fail"));
+      },
+      10000
+    )) as { diagnostics: unknown[] } | null;
+
+    expect(cleared, "staticAssert error should clear after changing false to true").toBeDefined();
+  });
+
+  it("@derive error updates when derives are added/removed", async () => {
+    const source = `/** @derive(Eq) */
+interface Metric {
+  name: string;
+  value: number;
+}
+`;
+    projectDir = createTempProject({ "test.ts": source });
+    client = new LspClient(SERVER_PATH);
+
+    await client.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${projectDir}`,
+      capabilities: {},
+    });
+    await client.sendNotification("initialized", {});
+
+    const fileUri = `file://${path.join(projectDir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: fileUri, languageId: "typescript", version: 1, text: source },
+    });
+
+    // Wait for initial diagnostics (may or may not have errors)
+    const initial = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => (p as { uri: string }).uri === fileUri
+    )) as { diagnostics: Array<{ message: string; code?: number }> };
+    expect(initial).toBeDefined();
+    const initialDiagCount = initial.diagnostics.length;
+
+    // Add Show to derives (Show is not imported, should produce an error)
+    client.clearNotifications();
+    const withShow = `/** @derive(Eq, Show) */
+interface Metric {
+  name: string;
+  value: number;
+}
+`;
+    await client.sendNotification("textDocument/didChange", {
+      textDocument: { uri: fileUri, version: 2 },
+      contentChanges: [{ text: withShow }],
+    });
+
+    // Wait for diagnostics to change
+    const afterShow = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: unknown[] };
+        return pp.uri === fileUri;
+      },
+      10000
+    )) as { diagnostics: Array<{ message: string }> } | null;
+    expect(afterShow, "should get diagnostics after adding Show").toBeDefined();
+
+    // Remove Show again — diagnostics should revert
+    client.clearNotifications();
+    await client.sendNotification("textDocument/didChange", {
+      textDocument: { uri: fileUri, version: 3 },
+      contentChanges: [{ text: source }],
+    });
+
+    const reverted = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: Array<{ message: string }> };
+        return pp.uri === fileUri && pp.diagnostics.length === initialDiagCount;
+      },
+      10000
+    )) as { diagnostics: unknown[] } | null;
+    expect(reverted, "diagnostics should revert after removing Show").toBeDefined();
   });
 });

@@ -90,4 +90,28 @@ transformerPkg.main = "./language-service-bundled.cjs";
 writeFileSync(transformerPkgPath, JSON.stringify(transformerPkg, null, 2));
 console.log(`Updated transformer/package.json exports`);
 
-console.log("✓ Bundled @typesugar/ts-plugin and @typesugar/transformer for packaging");
+// Bundle @typesugar/lsp-server (self-contained bundled CJS for standalone spawning)
+const lspServerSrc = join(packagesDir, "lsp-server");
+const lspServerDest = join(vscodeDir, "node_modules", "@typesugar", "lsp-server");
+
+if (existsSync(lspServerDest)) {
+  rmSync(lspServerDest, { recursive: true });
+}
+mkdirSync(join(lspServerDest, "dist"), { recursive: true });
+
+// Copy the fully-bundled server (all deps inlined except typescript)
+const lspServerFiles = ["dist/server-bundled.cjs", "dist/server-bundled.cjs.map", "package.json"];
+for (const file of lspServerFiles) {
+  const src = join(lspServerSrc, file);
+  const dest = join(lspServerDest, file);
+  if (existsSync(src)) {
+    cpSync(src, dest);
+    console.log(`Copied lsp-server/${file}`);
+  } else {
+    console.warn(`Warning: ${file} not found in lsp-server`);
+  }
+}
+
+console.log(
+  "✓ Bundled @typesugar/ts-plugin, @typesugar/transformer, and @typesugar/lsp-server for packaging"
+);

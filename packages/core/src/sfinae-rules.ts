@@ -31,10 +31,20 @@ export type PositionMapFn = (fileName: string, transformedPos: number) => number
  *
  * @param mapToOriginal - Callback that maps (fileName, transformedPos) → originalPos | null
  */
+// Error codes that are expected from macro-generated code and safe to suppress
+// when the diagnostic position has no original-source equivalent.
+const MACRO_GENERATED_SUPPRESS_CODES = [
+  2451, // Cannot redeclare block-scoped variable (namespace + interface merging)
+  2304, // Cannot find name (macro-internal references not in scope)
+  2339, // Property does not exist (companion object property access)
+  6133, // declared but never read (generated variables)
+  6196, // declared but never used
+];
+
 export function createMacroGeneratedRule(mapToOriginal: PositionMapFn): SfinaeRule {
   return {
     name: "MacroGenerated",
-    errorCodes: [], // wildcard — applies to any error code
+    errorCodes: MACRO_GENERATED_SUPPRESS_CODES,
 
     shouldSuppress(diagnostic: ts.Diagnostic): boolean {
       if (diagnostic.start === undefined || !diagnostic.file) {

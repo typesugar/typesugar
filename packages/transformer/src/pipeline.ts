@@ -718,9 +718,9 @@ export class TransformationPipeline {
     this.extensions = options.extensions ?? ["hkt", "pipeline", "cons", "decorator-rewrite"];
     this.transformerConfig = {
       verbose: this.verbose,
+      trackExpansions: true, // Always track — needed for CodeLens, inlay hints, expand preview
       ...options.transformerConfig,
     };
-    // trackExpansions is used by formatExpansions() (focused diff view). Opt-in via config.
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.fileNames = fileNames;
 
@@ -995,10 +995,11 @@ export class TransformationPipeline {
     this.host.invalidate(normalizedFileName);
     this.contentHashes.delete(normalizedFileName);
     this.cache.invalidate(normalizedFileName);
-    // Reset program for incremental rebuild (reuses old ASTs for unchanged files)
+    // Reset program and transformer factory — the factory captures a reference
+    // to the program at creation time, so it must be recreated when the program changes.
     this.oldProgram = this.program;
     this.program = null;
-    // Note: cachedTransformerFactory is preserved — it does not depend on file content
+    this.cachedTransformerFactory = null;
   }
 
   /**

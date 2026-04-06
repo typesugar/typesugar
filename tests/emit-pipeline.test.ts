@@ -316,6 +316,105 @@ interface Cached { a: number; }
 });
 
 // ============================================================================
+// Pipeline robustness — no crashes on realistic files
+// ============================================================================
+
+describe("pipeline robustness", () => {
+  it("@derive(Eq) with surrounding code does not crash the printer", () => {
+    // This fixture replicates the VS Code integration test project.
+    // The printer (ts.createPrinter().printFile()) used to crash with
+    // "Debug Failure: position cannot precede the beginning of the file"
+    // when mixing synthesized @derive nodes with original source nodes.
+    const code = `
+import { staticAssert } from "typesugar";
+
+const x: number = "wrong";
+
+/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+const y: string = 42;
+
+staticAssert(false, "intentional failure");
+    `.trim();
+
+    const result = transformCode(code, { fileName: "diagnostics-fixture.ts" });
+
+    // Must not produce a "Transform failed" diagnostic
+    const crashDiags = result.diagnostics.filter((d) => d.message.includes("Transform failed"));
+    expect(crashDiags, "pipeline should not crash during transform").toHaveLength(0);
+
+    // The transform should succeed (derive expands the interface)
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("Point");
+  });
+
+  it("@derive(Eq) on interface uses namespace, not const companion (TS2451)", () => {
+    // @derive generates a companion namespace for the derived implementations.
+    // It must NOT also emit `const TypeName: Record<string, any> = {}` because
+    // `const` + `interface` with the same name is TS2451 (cannot redeclare).
+    // Only `interface` + `namespace` merging is valid TypeScript.
+    const code = `
+/** @derive(Eq) */
+interface Point { x: number; y: number; }
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-companion.ts" });
+
+    expect(result.code).toContain("namespace Point");
+    expect(result.code).not.toContain("const Point:");
+    expect(result.code).not.toContain("Record<string, any>");
+  });
+
+  it("@derive(Eq) with multiple interfaces does not crash", () => {
+    const code = `
+/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+/** @derive(Eq) */
+interface Color { r: number; g: number; b: number; }
+
+const p: Point = { x: 1, y: 2 };
+    `.trim();
+
+    const result = transformCode(code, { fileName: "multi-derive.ts" });
+
+    const crashDiags = result.diagnostics.filter((d) => d.message.includes("Transform failed"));
+    expect(crashDiags).toHaveLength(0);
+    expect(result.changed).toBe(true);
+  });
+
+  it("@derive(Eq) through full pipeline does not crash", () => {
+    const code = `
+import { staticAssert } from "typesugar";
+
+const x: number = "wrong";
+
+/** @derive(Eq) */
+interface Point { x: number; y: number; }
+
+const y: string = 42;
+    `.trim();
+    const fileName = "/virtual/pipeline-derive-crash.ts";
+
+    const pipeline = new TransformationPipeline(
+      { target: ts.ScriptTarget.Latest, module: ts.ModuleKind.ESNext },
+      [fileName],
+      {
+        readFile: (f) => (f === fileName ? code : ts.sys.readFile(f)),
+        fileExists: (f) => f === fileName || ts.sys.fileExists(f),
+      }
+    );
+
+    const result = pipeline.transform(fileName);
+
+    const crashDiags = result.diagnostics.filter((d) => d.message.includes("Transform failed"));
+    expect(crashDiags, "full pipeline should not crash on @derive with errors").toHaveLength(0);
+    expect(result.changed).toBe(true);
+  });
+});
+
+// ============================================================================
 // composeSourceMapChain tests
 // ============================================================================
 

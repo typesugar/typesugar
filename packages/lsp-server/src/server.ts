@@ -81,6 +81,7 @@ const documents = new TextDocuments(TextDocument);
 let workspaceRoot = "";
 let languageService: ts.LanguageService | null = null;
 let pipeline: TransformationPipeline | null = null;
+let pipelineGeneration = 0; // Incremented on pipeline recreation to bust TS language service cache
 let currentCompilerOptions: ts.CompilerOptions = {};
 const manifest = new ManifestState();
 
@@ -249,6 +250,7 @@ function preprocessStsFile(fileName: string, content: string): string {
 
 function createPipeline(compilerOptions: ts.CompilerOptions): void {
   currentCompilerOptions = compilerOptions;
+  pipelineGeneration++;
   pipeline = new TransformationPipeline(compilerOptions, projectFileNames, {
     verbose: false,
     readFile: (f: string) => getOriginalContent(f),
@@ -262,21 +264,27 @@ function createPipeline(compilerOptions: ts.CompilerOptions): void {
   transformCache.clear();
   rawMacroDiagnosticCache.clear();
   suggestionCache.clear();
-}
 
-/** Track which files have been added to the pipeline's file list */
-const pipelineFileSet = new Set<string>();
-
-function ensureFileInPipeline(normalizedFileName: string): void {
-  if (pipelineFileSet.has(normalizedFileName)) return;
-  pipelineFileSet.add(normalizedFileName);
-
-  if (!projectFileNames.includes(normalizedFileName)) {
-    projectFileNames.push(normalizedFileName);
-    // Recreate the pipeline so the TS program includes this file
-    createPipeline(currentCompilerOptions);
-    log(`Recreated pipeline to include ${path.basename(normalizedFileName)}`);
+  // Pre-transform all project files in deterministic order.
+  // This populates global macro registries (instanceRegistry, etc.) consistently.
+  // Without this, files get transformed in random order driven by the TS language
+  // service, and the registries end up in different states each time.
+  for (const fn of projectFileNames) {
+    if (pipeline.shouldTransform(fn)) {
+      try {
+        const result = pipeline.transform(fn);
+        transformCache.set(fn, { result, version: getFileVersion(fn) });
+        if (result.diagnostics.length > 0) {
+          rawMacroDiagnosticCache.set(fn, result.diagnostics);
+        }
+      } catch {
+        // Non-fatal — individual file transform errors are handled later
+      }
+    }
   }
+  log(
+    `Pipeline created, pre-transformed ${projectFileNames.filter((f) => pipeline!.shouldTransform(f)).length} files`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -289,10 +297,9 @@ function getTransformResult(fileName: string): TransformResult | null {
 
   if (!pipeline) return null;
 
-  // Ensure the file is in the pipeline's program before transforming
-  ensureFileInPipeline(normalizedFileName);
-
-  if (!pipeline.shouldTransform(normalizedFileName)) return null;
+  if (!pipeline.shouldTransform(normalizedFileName)) {
+    return null;
+  }
 
   const currentVersion = getFileVersion(normalizedFileName);
   const cached = transformCache.get(normalizedFileName);
@@ -311,8 +318,15 @@ function getTransformResult(fileName: string): TransformResult | null {
   try {
     const result = pipeline.transform(normalizedFileName);
 
+    log(
+      `Transform ${path.basename(normalizedFileName)}: changed=${result.changed}, diags=${result.diagnostics.length}, code=${result.code.length} chars`
+    );
+
     if (result.diagnostics.length > 0) {
       rawMacroDiagnosticCache.set(normalizedFileName, result.diagnostics);
+      for (const d of result.diagnostics) {
+        log(`  macro diag: ${d.message.substring(0, 100)}`);
+      }
     } else {
       rawMacroDiagnosticCache.delete(normalizedFileName);
     }
@@ -352,23 +366,31 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
       const baseVersion = getFileVersion(normalizedFileName);
       const cached = transformCache.get(normalizedFileName);
       if (cached && cached.result.changed && cached.version === baseVersion) {
-        return `${baseVersion}-ts-${cached.result.code.length}`;
+        return `${baseVersion}-g${pipelineGeneration}-ts-${cached.result.code.length}`;
       }
 
       if (/\.stsx?$/.test(normalizedFileName)) {
         try {
           const mtime = fs.statSync(normalizedFileName).mtimeMs;
-          return `${baseVersion}-sts-${mtime}`;
+          return `${baseVersion}-g${pipelineGeneration}-sts-${mtime}`;
         } catch {
           // File might not exist
         }
       }
 
-      return baseVersion;
+      return `${baseVersion}-g${pipelineGeneration}`;
     },
 
     getScriptSnapshot: (fileName: string) => {
       const normalizedFileName = path.normalize(fileName);
+
+      // Skip transformation for declaration files and node_modules —
+      // these can never be macro-transformed and reading them directly
+      // avoids unnecessary pipeline calls (especially for 60+ lib.d.ts files)
+      if (normalizedFileName.endsWith(".d.ts") || normalizedFileName.includes("node_modules")) {
+        const content = getOriginalContent(normalizedFileName);
+        return content !== undefined ? ts.ScriptSnapshot.fromString(content) : undefined;
+      }
 
       // Try pipeline transformation first
       const result = getTransformResult(normalizedFileName);
@@ -518,21 +540,56 @@ function convertTransformDiagnostic(diag: TransformDiagnostic, originalText: str
   };
 }
 
-function mapTsDiagnostic(diag: ts.Diagnostic, mapper: PositionMapper): ts.Diagnostic | null {
+function mapTsDiagnostic(
+  diag: ts.Diagnostic,
+  mapper: PositionMapper,
+  transformedCode: string,
+  originalText: string
+): ts.Diagnostic | null {
   if (diag.start === undefined) return diag;
 
   const originalStart = mapper.toOriginal(diag.start);
-  if (originalStart === null) return null;
-
-  let originalLength = diag.length;
-  if (diag.length !== undefined) {
-    const originalEnd = mapper.toOriginal(diag.start + diag.length);
-    if (originalEnd !== null) {
-      originalLength = Math.max(1, originalEnd - originalStart);
+  if (originalStart !== null) {
+    let originalLength = diag.length;
+    if (diag.length !== undefined) {
+      const originalEnd = mapper.toOriginal(diag.start + diag.length);
+      if (originalEnd !== null) {
+        originalLength = Math.max(1, originalEnd - originalStart);
+      }
     }
+    return { ...diag, start: originalStart, length: originalLength };
   }
 
-  return { ...diag, start: originalStart, length: originalLength };
+  // Position mapper returned null — try line-based fallback.
+  // The source map may have gaps for lines after macro expansions.
+  // Map by finding which line in the transformed code this position is on,
+  // then finding the corresponding line in the original (by content match).
+  const transformedLines = transformedCode.split("\n");
+  const originalLines = originalText.split("\n");
+  let charCount = 0;
+  let transformedLine = 0;
+  for (let i = 0; i < transformedLines.length; i++) {
+    if (charCount + transformedLines[i].length >= diag.start) {
+      transformedLine = i;
+      break;
+    }
+    charCount += transformedLines[i].length + 1; // +1 for \n
+  }
+
+  const lineText = transformedLines[transformedLine]?.trim();
+  if (!lineText) return null;
+
+  // Find this line in the original source
+  const origLineIdx = originalLines.findIndex((l) => l.trim() === lineText);
+  if (origLineIdx < 0) return null; // Truly macro-generated, no original equivalent
+
+  // Map to the start of this line in the original
+  let origOffset = 0;
+  for (let i = 0; i < origLineIdx; i++) {
+    origOffset += originalLines[i].length + 1;
+  }
+
+  return { ...diag, start: origOffset, length: diag.length };
 }
 
 function getDiagnosticsForFile(fileName: string): Diagnostic[] {
@@ -542,16 +599,23 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
   const originalText = getOriginalContent(normalizedFileName);
   if (!originalText) return [];
 
-  // Ensure transformation has run
-  getTransformResult(normalizedFileName);
+  // Run transformation and capture its diagnostics directly.
+  // Don't rely on rawMacroDiagnosticCache — it can be overwritten by other code
+  // paths (e.g., getScriptSnapshot) that re-transform between calls.
+  const transformResult = getTransformResult(normalizedFileName);
+  const transformDiags = transformResult?.diagnostics ?? [];
 
-  const mapper = getMapper(normalizedFileName);
+  const mapper = transformResult?.mapper ?? new IdentityPositionMapper();
   const diagnostics: Diagnostic[] = [];
 
   // Get TS diagnostics and map them back
   const semanticDiags = languageService.getSemanticDiagnostics(normalizedFileName);
   const syntacticDiags = languageService.getSyntacticDiagnostics(normalizedFileName);
   const allTsDiags = [...syntacticDiags, ...semanticDiags];
+
+  log(
+    `getDiagnosticsForFile ${path.basename(normalizedFileName)}: ${allTsDiags.length} raw TS diags`
+  );
 
   // Apply SFINAE filtering
   const program = languageService.getProgram();
@@ -563,10 +627,36 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
     filtered = allTsDiags;
   }
 
+  const suppressedCount = allTsDiags.length - filtered.length;
+  log(`  After SFINAE: ${filtered.length} (suppressed ${suppressedCount})`);
+  if (suppressedCount > 0) {
+    for (const diag of allTsDiags) {
+      if (!filtered.includes(diag)) {
+        log(
+          `  SUPPRESSED: TS${diag.code} at pos ${diag.start}: ${ts.flattenDiagnosticMessageText(diag.messageText, " ").substring(0, 100)}`
+        );
+      }
+    }
+  }
+
   // Map positions back and convert to LSP format
+  let droppedByMapper = 0;
   for (const diag of filtered) {
-    const mapped = mapTsDiagnostic(diag, mapper);
-    if (!mapped || mapped.start === undefined) continue;
+    const mapped = mapTsDiagnostic(
+      diag,
+      mapper,
+      transformResult?.code ?? originalText,
+      originalText
+    );
+    if (!mapped || mapped.start === undefined) {
+      droppedByMapper++;
+      if (droppedByMapper <= 3) {
+        log(
+          `  Dropped by mapper: TS${diag.code} at pos ${diag.start} — ${ts.flattenDiagnosticMessageText(diag.messageText, " ").substring(0, 80)}`
+        );
+      }
+      continue;
+    }
 
     const range = {
       start: offsetToPosition(originalText, mapped.start),
@@ -587,11 +677,14 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
     });
   }
 
-  // Add macro diagnostics
-  const rawDiags = rawMacroDiagnosticCache.get(normalizedFileName) ?? [];
+  if (droppedByMapper > 0) {
+    log(`  Dropped by position mapper: ${droppedByMapper}`);
+  }
+
+  // Add macro diagnostics from this transform run (not from cache)
   const suggestions: StoredSuggestion[] = [];
 
-  for (const diag of rawDiags) {
+  for (const diag of transformDiags) {
     if (path.normalize(diag.file) !== normalizedFileName) continue;
     diagnostics.push(convertTransformDiagnostic(diag, originalText));
     if (diag.suggestion) {
@@ -619,6 +712,12 @@ function publishDiagnostics(uri: string): void {
       diagnosticTimers.delete(uri);
       const fileName = uriToFileName(uri);
       const diagnostics = getDiagnosticsForFile(fileName);
+      log(
+        `Publishing ${diagnostics.length} diagnostics for ${path.basename(fileName)} (debounced)`
+      );
+      for (const d of diagnostics) {
+        log(`  [${d.source}:${d.code}] L${d.range.start.line}: ${d.message.substring(0, 80)}`);
+      }
       connection.sendDiagnostics({ uri, diagnostics });
     }, DIAGNOSTIC_DELAY_MS)
   );
@@ -632,6 +731,11 @@ function publishDiagnosticsImmediate(uri: string): void {
 
   const fileName = uriToFileName(uri);
   const diagnostics = getDiagnosticsForFile(fileName);
+
+  log(`Publishing ${diagnostics.length} diagnostics for ${path.basename(fileName)} (immediate)`);
+  for (const d of diagnostics) {
+    log(`  [${d.source}:${d.code}] L${d.range.start.line}: ${d.message.substring(0, 80)}`);
+  }
   connection.sendDiagnostics({ uri, diagnostics });
 }
 
@@ -926,21 +1030,39 @@ connection.onExit(() => {
 
 documents.onDidOpen((event) => {
   log(`Document opened: ${event.document.uri}`);
-  // Ensure file is in project list
   const fileName = uriToFileName(event.document.uri);
   const normalized = path.normalize(fileName);
+
+  // Add new transformable files to the project and recreate pipeline ONCE
   if (!projectFileNames.includes(normalized)) {
     projectFileNames.push(normalized);
+    if (pipeline?.shouldTransform(normalized) && currentCompilerOptions) {
+      createPipeline(currentCompilerOptions);
+      log(`Recreated pipeline to include ${path.basename(normalized)}`);
+    }
   }
+
   // Immediate diagnostics on open (no debounce)
   publishDiagnosticsImmediate(event.document.uri);
 });
 
 documents.onDidChangeContent((event) => {
-  // Invalidate transform cache for changed file
   const fileName = path.normalize(uriToFileName(event.document.uri));
+  log(`onDidChangeContent: ${path.basename(fileName)} v${event.document.version}`);
+
+  // Skip if the cached transform is already for this version.
+  // onDidChangeContent fires on didOpen too (same version) — re-transforming
+  // would overwrite the correct diagnostics from publishDiagnosticsImmediate.
+  const currentVersion = getFileVersion(fileName);
+  const cached = transformCache.get(fileName);
+  if (cached && cached.version === currentVersion) {
+    log(`  Skipping — transform cache already at v${currentVersion}`);
+    return;
+  }
+
+  // Invalidate transform cache and reset pipeline program for changed file
   if (pipeline) {
-    pipeline.invalidate(fileName);
+    pipeline.invalidateContent(fileName);
   }
   transformCache.delete(fileName);
   rawMacroDiagnosticCache.delete(fileName);

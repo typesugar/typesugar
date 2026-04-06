@@ -4839,15 +4839,20 @@ class MacroTransformer {
             false;
           const companionCode = ensureDataTypeCompanionConst(node as any, typeName, isExported);
           if (companionCode) {
-            // Only emit companion const if not already emitted for this type
+            // Only emit companion const if:
+            // 1. Not already emitted for this type (variable or namespace)
+            // 2. The derived code doesn't already contain a namespace for this type
+            //    (namespace provides the value binding; const would conflict: TS2451)
             const alreadyHasCompanion = statements.some(
               (s) =>
-                ts.isVariableStatement(s) &&
-                s.declarationList.declarations.some(
-                  (d) => ts.isIdentifier(d.name) && d.name.text === typeName
-                )
+                (ts.isVariableStatement(s) &&
+                  s.declarationList.declarations.some(
+                    (d) => ts.isIdentifier(d.name) && d.name.text === typeName
+                  )) ||
+                (ts.isModuleDeclaration(s) && ts.isIdentifier(s.name) && s.name.text === typeName)
             );
-            if (!alreadyHasCompanion) {
+            const codeHasNamespace = code.includes(`namespace ${typeName}`);
+            if (!alreadyHasCompanion && !codeHasNamespace) {
               for (const stmt of this.ctx.parseStatements(companionCode)) {
                 statements.push(this.setSourceMapRangeDeep(stmt, decorator));
               }
