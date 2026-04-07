@@ -10,6 +10,8 @@ import * as ts from "typescript";
 
 import {
   builtinDerivations,
+  withDerivationContext,
+  tryExpandGenericDerive,
   instanceRegistry,
   instanceVarName,
   companionPath,
@@ -466,18 +468,22 @@ export function expandDeriveDecorator(
         console.log(`[typesugar] Auto-deriving typeclass instance: ${deriveName} for ${typeName}`);
       }
       try {
-        let code: string;
-
-        if (ts.isTypeAliasDeclaration(node)) {
-          const sumInfo = tryExtractSumType(ctx, node);
-          if (sumInfo) {
-            code = typeclassDerivation.deriveSum(typeName, sumInfo.discriminant, sumInfo.variants);
+        const code: string = withDerivationContext(ctx, () => {
+          if (ts.isTypeAliasDeclaration(node)) {
+            const sumInfo = tryExtractSumType(ctx, node);
+            if (sumInfo) {
+              return typeclassDerivation.deriveSum(
+                typeName,
+                sumInfo.discriminant,
+                sumInfo.variants
+              );
+            } else {
+              return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
+            }
           } else {
-            code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
+            return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
           }
-        } else {
-          code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
-        }
+        });
 
         const parsedStmts = ctx.parseStatements(code);
         statements.push(...parsedStmts);
@@ -493,6 +499,24 @@ export function expandDeriveDecorator(
       } catch (error) {
         ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
       }
+      continue;
+    }
+
+    // Check for a GenericDerivation strategy (same path summon uses)
+    try {
+      const genericExpansion = tryExpandGenericDerive(ctx, deriveName, typeName, node);
+      if (genericExpansion) {
+        if (verbose) {
+          console.log(
+            `[typesugar] Auto-deriving via GenericDerivation: ${deriveName} for ${typeName}`
+          );
+        }
+        statements.push(...genericExpansion.statements);
+        instanceRegistry.push(genericExpansion.registryEntry);
+        continue;
+      }
+    } catch (error) {
+      ctx.reportError(arg, `GenericDerivation failed for ${deriveName}: ${error}`);
       continue;
     }
 

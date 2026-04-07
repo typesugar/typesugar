@@ -88,6 +88,33 @@ import { globalResolutionScope } from "@typesugar/core";
 import { TS9001, TS9005, TS9008, TS9101, TS9203, TS9305 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
+import { resolveInstance } from "./instance-resolver.js";
+
+// ============================================================================
+// Ambient Derivation Context
+// ============================================================================
+//
+// Set before invoking derivation code so that `companionAccess` can use the
+// instance resolver without every derivation having to thread `ctx` through
+// its interface.  Callers use `withDerivationContext(ctx, fn)` which
+// guarantees cleanup even if `fn` throws.
+// ============================================================================
+
+let _currentDerivationCtx: MacroContext | undefined;
+
+/**
+ * Run `fn` with the given MacroContext available to `companionAccess`.
+ * The context is automatically restored (to its previous value) on exit.
+ */
+export function withDerivationContext<T>(ctx: MacroContext, fn: () => T): T {
+  const prev = _currentDerivationCtx;
+  _currentDerivationCtx = ctx;
+  try {
+    return fn();
+  } finally {
+    _currentDerivationCtx = prev;
+  }
+}
 
 // ============================================================================
 // Safe Node Text Extraction
@@ -568,93 +595,95 @@ function executeTransitiveDerivation(
   typeclassName: string,
   plan: { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] }
 ): ts.Statement[] {
-  const statements: ts.Statement[] = [];
-  const derivation = builtinDerivations[typeclassName];
+  return withDerivationContext(ctx, () => {
+    const statements: ts.Statement[] = [];
+    const derivation = builtinDerivations[typeclassName];
 
-  if (!derivation) return statements;
+    if (!derivation) return statements;
 
-  for (const typeInfo of plan.types) {
-    // Skip if already has instance (explicit override)
-    if (
-      instanceRegistry.some(
-        (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
-      )
-    ) {
-      continue;
-    }
-
-    // Generate instance
-    let code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
-
-    // Convert to companion property assignment (replaces flat const + runtime registration)
-    code = convertToCompanionAssignment(code, typeclassName, typeInfo.typeName);
-
-    // Ensure the transitive type has a companion const (for interfaces/type aliases)
-    const transitiveIsExported =
-      typeInfo.node.modifiers?.some(
-        (m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword
-      ) ?? false;
-    const transitiveCompanionCode = ensureDataTypeCompanionConst(
-      typeInfo.node,
-      typeInfo.typeName,
-      transitiveIsExported
-    );
-    if (transitiveCompanionCode) {
-      // Only emit companion const if:
-      // 1. We haven't already emitted one for this type
-      // 2. The derived code doesn't already contain a namespace for this type
-      //    (namespace provides the value binding, so const would conflict with TS2451)
-      const alreadyHasCompanion = statements.some(
-        (s) =>
-          (ts.isVariableStatement(s) &&
-            s.declarationList.declarations.some(
-              (d) => ts.isIdentifier(d.name) && d.name.text === typeInfo.typeName
-            )) ||
-          (ts.isModuleDeclaration(s) &&
-            ts.isIdentifier(s.name) &&
-            s.name.text === typeInfo.typeName)
-      );
-      const codeHasNamespace = code.includes(`namespace ${typeInfo.typeName}`);
-      if (!alreadyHasCompanion && !codeHasNamespace) {
-        statements.push(...ctx.parseStatements(transitiveCompanionCode));
+    for (const typeInfo of plan.types) {
+      // Skip if already has instance (explicit override)
+      if (
+        instanceRegistry.some(
+          (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
+        )
+      ) {
+        continue;
       }
-    }
 
-    statements.push(...ctx.parseStatements(code));
+      // Generate instance
+      let code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
 
-    // Register in compile-time registry (always needed for summon/implicit resolution)
-    const varName = instanceVarName(uncapitalize(typeclassName), typeInfo.typeName);
-    instanceRegistry.push({
-      typeclassName,
-      forType: typeInfo.typeName,
-      instanceName: varName,
-      companionPath: companionPath(typeclassName, typeInfo.typeName),
-      derived: true,
-    });
+      // Convert to companion property assignment (replaces flat const + runtime registration)
+      code = convertToCompanionAssignment(code, typeclassName, typeInfo.typeName);
 
-    // Bridge to specialization registry for zero-cost inlining at call sites
-    const specMethods = getSpecializationMethodsForDerivation(
-      typeclassName,
-      typeInfo.typeName,
-      typeInfo.fields
-    );
-    if (specMethods && Object.keys(specMethods).length > 0) {
-      const methodsMap = new Map<string, { source?: string; params: string[] }>();
-      for (const [name, impl] of Object.entries(specMethods)) {
-        methodsMap.set(name, { source: impl.source, params: impl.params });
-      }
-      registerInstanceMethodsFromAST(
-        companionPath(typeclassName, typeInfo.typeName),
+      // Ensure the transitive type has a companion const (for interfaces/type aliases)
+      const transitiveIsExported =
+        typeInfo.node.modifiers?.some(
+          (m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword
+        ) ?? false;
+      const transitiveCompanionCode = ensureDataTypeCompanionConst(
+        typeInfo.node,
         typeInfo.typeName,
-        methodsMap
+        transitiveIsExported
       );
+      if (transitiveCompanionCode) {
+        // Only emit companion const if:
+        // 1. We haven't already emitted one for this type
+        // 2. The derived code doesn't already contain a namespace for this type
+        //    (namespace provides the value binding, so const would conflict with TS2451)
+        const alreadyHasCompanion = statements.some(
+          (s) =>
+            (ts.isVariableStatement(s) &&
+              s.declarationList.declarations.some(
+                (d) => ts.isIdentifier(d.name) && d.name.text === typeInfo.typeName
+              )) ||
+            (ts.isModuleDeclaration(s) &&
+              ts.isIdentifier(s.name) &&
+              s.name.text === typeInfo.typeName)
+        );
+        const codeHasNamespace = code.includes(`namespace ${typeInfo.typeName}`);
+        if (!alreadyHasCompanion && !codeHasNamespace) {
+          statements.push(...ctx.parseStatements(transitiveCompanionCode));
+        }
+      }
+
+      statements.push(...ctx.parseStatements(code));
+
+      // Register in compile-time registry (always needed for summon/implicit resolution)
+      const varName = instanceVarName(uncapitalize(typeclassName), typeInfo.typeName);
+      instanceRegistry.push({
+        typeclassName,
+        forType: typeInfo.typeName,
+        instanceName: varName,
+        companionPath: companionPath(typeclassName, typeInfo.typeName),
+        derived: true,
+      });
+
+      // Bridge to specialization registry for zero-cost inlining at call sites
+      const specMethods = getSpecializationMethodsForDerivation(
+        typeclassName,
+        typeInfo.typeName,
+        typeInfo.fields
+      );
+      if (specMethods && Object.keys(specMethods).length > 0) {
+        const methodsMap = new Map<string, { source?: string; params: string[] }>();
+        for (const [name, impl] of Object.entries(specMethods)) {
+          methodsMap.set(name, { source: impl.source, params: impl.params });
+        }
+        registerInstanceMethodsFromAST(
+          companionPath(typeclassName, typeInfo.typeName),
+          typeInfo.typeName,
+          methodsMap
+        );
+      }
+
+      // Notify coverage system
+      notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
     }
 
-    // Notify coverage system
-    notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
-  }
-
-  return statements;
+    return statements;
+  }); // withDerivationContext
 }
 
 // ============================================================================
@@ -1330,12 +1359,58 @@ function companionPath(tcName: string, typeName: string): string {
 /**
  * Generate a companion property access expression for use in generated code.
  * Uses namespace merging for type-safe access (e.g., Point.Eq, Eq.number).
+ *
+ * When a derivation context is active (via `withDerivationContext`) and a
+ * `fieldType` is provided, attempts resolver-based instance lookup first
+ * (Scala 3-style). Falls back to the hardcoded companion path when the
+ * resolver finds nothing or when no context is active.
  */
-function companionAccess(tcName: string, typeName: string): string {
+function companionAccess(tcName: string, typeName: string, fieldType?: ts.Type): string {
+  // When an ambient derivation context is active, delegate to the public API
+  // which tries the resolver.  Otherwise fall back to the companion convention
+  // (no resolver available without a MacroContext).
+  if (_currentDerivationCtx) {
+    return resolveFieldInstance(_currentDerivationCtx, tcName, typeName, fieldType);
+  }
+  return companionPathFallback(tcName, typeName);
+}
+
+/** Companion-path convention without resolver (shared by companionAccess and resolveFieldInstance). */
+function companionPathFallback(tcName: string, typeName: string): string {
   if (PRIMITIVE_TYPES.includes(typeName)) {
     return `${tcName}.${typeName}`;
   }
   return `${typeName}.${tcName}`;
+}
+
+/**
+ * Resolve the code-gen reference for a typeclass instance on a field type.
+ *
+ * This is the public API that any derivation — builtin or external — should
+ * use to look up field-level instances.  It queries the instance resolver
+ * (Scala 3-style scope search) and falls back to the companion-path
+ * convention (`TC.prim` for primitives, `TypeName.TC` for user types).
+ *
+ * @param ctx       - The macro context (provides program, typeChecker, sourceFile)
+ * @param tcName    - Typeclass name (e.g., "Ord", "Pretty")
+ * @param typeName  - String name of the field type (e.g., "number", "Point")
+ * @param fieldType - Optional ts.Type for type-based matching (preferred when available)
+ * @returns A code expression string referencing the resolved instance
+ */
+export function resolveFieldInstance(
+  ctx: MacroContext,
+  tcName: string,
+  typeName: string,
+  fieldType?: ts.Type
+): string {
+  if (fieldType) {
+    const resolved = resolveInstance(ctx, tcName, fieldType);
+    if (resolved && resolved.kind === "resolved") {
+      return resolved.exportName;
+    }
+  }
+
+  return companionPathFallback(tcName, typeName);
 }
 
 /**
@@ -2618,7 +2693,7 @@ function getFieldInstanceRef(
   }
 
   // Fall back to companion access for field instance references
-  return companionAccess(tcName, getBaseType(field));
+  return companionAccess(tcName, getBaseType(field), field.type);
 }
 
 const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
@@ -2626,7 +2701,7 @@ const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
     deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
       const fieldShows = fields
         .map((f) => {
-          const inst = companionAccess("Show", getBaseType(f));
+          const inst = companionAccess("Show", getBaseType(f), f.type);
           return `${f.name} = \${${inst}.show(a.${f.name})}`;
         })
         .join(", ");
@@ -2740,7 +2815,7 @@ ${cases}
         if (PRIMITIVE_TYPES.includes(baseType)) {
           return `a.${f.name} === b.${f.name}`;
         }
-        const inst = companionAccess("Eq", baseType);
+        const inst = companionAccess("Eq", baseType, f.type);
         return `${inst}.equals(a.${f.name}, b.${f.name})`;
       });
       const body = fieldEqs.length > 0 ? fieldEqs.join(" && ") : "true";
@@ -2850,7 +2925,7 @@ ${cases}
       const varName = instanceVarName("ord", typeName);
       const fieldComparisons = fields
         .map((f) => {
-          const inst = companionAccess("Ord", getBaseType(f));
+          const inst = companionAccess("Ord", getBaseType(f), f.type);
           return `  { const c = ${inst}.compare(a.${f.name}, b.${f.name}); if (c !== 0) return c; }`;
         })
         .join("\n");
@@ -2975,7 +3050,7 @@ ${cases}
       const varName = instanceVarName("hash", typeName);
       const fieldHashes = fields
         .map((f) => {
-          const inst = companionAccess("Hash", getBaseType(f));
+          const inst = companionAccess("Hash", getBaseType(f), f.type);
           return `  hash = ((hash << 5) + hash) ^ ${inst}.hash(a.${f.name});`;
         })
         .join("\n");
@@ -3859,7 +3934,7 @@ builtinDerivations["Semigroup"] = {
     const varName = instanceVarName("semigroup", typeName);
     const fieldCombines = fields
       .map((f) => {
-        const inst = companionAccess("Semigroup", getBaseType(f));
+        const inst = companionAccess("Semigroup", getBaseType(f), f.type);
         return `    ${f.name}: ${inst}.combine(a.${f.name}, b.${f.name})`;
       })
       .join(",\n");
@@ -3889,13 +3964,13 @@ builtinDerivations["Monoid"] = {
     const varName = instanceVarName("monoid", typeName);
     const fieldEmpties = fields
       .map((f) => {
-        const inst = companionAccess("Monoid", getBaseType(f));
+        const inst = companionAccess("Monoid", getBaseType(f), f.type);
         return `    ${f.name}: ${inst}.empty()`;
       })
       .join(",\n");
     const fieldCombines = fields
       .map((f) => {
-        const inst = companionAccess("Monoid", getBaseType(f));
+        const inst = companionAccess("Monoid", getBaseType(f), f.type);
         return `    ${f.name}: ${inst}.combine(a.${f.name}, b.${f.name})`;
       })
       .join(",\n");
@@ -4492,6 +4567,106 @@ export function registerTypeclassMacros(): void {
 }
 
 registerTypeclassMacros();
+
+// ============================================================================
+// GenericDerivation expansion for @derive (shared by both transformers)
+// ============================================================================
+
+/**
+ * Result of expanding a GenericDerivation for @derive.
+ * Contains parsed AST statements (including companion namespace) and registry entry,
+ * or null if derivation wasn't possible.
+ */
+export interface GenericDeriveExpansion {
+  /** Statements to insert (may include companion const + namespace). */
+  statements: ts.Statement[];
+  registryEntry: InstanceInfo;
+}
+
+/**
+ * Try to expand a GenericDerivation strategy for use in @derive.
+ *
+ * This is the shared logic that both transformers call when @derive(Foo) isn't
+ * handled by a registered derive macro or builtinDerivations.  It calls the
+ * GenericDerivation strategy to get a code string, wraps it in a const
+ * declaration, converts to a companion namespace (same as builtins), and
+ * returns parsed statements.
+ *
+ * Returns null if no GenericDerivation is registered for `deriveName`, or if
+ * the strategy returns null (e.g., unsupported field types).
+ */
+export function tryExpandGenericDerive(
+  ctx: MacroContext,
+  deriveName: string,
+  typeName: string,
+  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+): GenericDeriveExpansion | null {
+  // Lazy import to avoid circular dependency at module load time
+  const { hasGenericDerivation: hasGD, tryDeriveViaGeneric: tryGD } =
+    require("./auto-derive.js") as typeof import("./auto-derive.js");
+
+  if (!hasGD(deriveName)) return null;
+
+  const result = tryGD(ctx, deriveName, typeName);
+  if (!result.expression) return null;
+
+  const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
+  const varName = instanceVarName(uncap, typeName);
+
+  // Build companion namespace directly as AST:
+  //   namespace TypeName { export const TCName: TC<Type> = <expression>; }
+  let expr = result.expression;
+  while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+
+  const companionProperty = ts.factory.createVariableStatement(
+    [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    ts.factory.createVariableDeclarationList(
+      [
+        ts.factory.createVariableDeclaration(
+          deriveName,
+          undefined,
+          ts.factory.createTypeReferenceNode(deriveName, [
+            ts.factory.createTypeReferenceNode(typeName),
+          ]),
+          expr
+        ),
+      ],
+      ts.NodeFlags.Const
+    )
+  );
+
+  const namespaceDecl = ts.factory.createModuleDeclaration(
+    undefined,
+    ts.factory.createIdentifier(typeName),
+    ts.factory.createModuleBlock([companionProperty]),
+    ts.NodeFlags.Namespace
+  );
+
+  const statements: ts.Statement[] = [];
+
+  // Ensure the type has a companion const (for interfaces/type aliases)
+  if (node) {
+    const isExported =
+      node.modifiers?.some((m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+    const companionCode = ensureDataTypeCompanionConst(node as any, typeName, isExported);
+    if (companionCode) {
+      statements.push(...ctx.parseStatements(companionCode));
+    }
+  }
+
+  statements.push(namespaceDecl);
+
+  return {
+    statements,
+    registryEntry: {
+      typeclassName: deriveName,
+      forType: typeName,
+      instanceName: varName,
+      companionPath: companionPath(deriveName, typeName),
+      derived: true,
+    },
+  };
+}
 
 // ============================================================================
 // Exports

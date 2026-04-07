@@ -77,6 +77,9 @@ export {
   typeclassRegistry,
   instanceRegistry,
   builtinDerivations,
+  withDerivationContext,
+  resolveFieldInstance,
+  tryExpandGenericDerive,
   findInstance,
   getTypeclass,
   clearRegistries,
@@ -256,6 +259,17 @@ export {
   Semigroup as SemigroupPrimitives,
   Monoid as MonoidPrimitives,
 } from "./primitives.js";
+
+// --- Instance Scanner & Resolver (PEP-038 Wave 2A/2B) ---
+export { InstanceScanner, instanceScanner, type ScannedInstance } from "./instance-scanner.js";
+export {
+  resolveInstance,
+  clearResolverCache,
+  type ResolvedInstance,
+  type AmbiguousInstances,
+  type ResolutionResult,
+  type ResolutionSource,
+} from "./instance-resolver.js";
 
 // --- Phase 1.1: Quasiquoting ---
 export {

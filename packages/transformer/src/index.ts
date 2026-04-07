@@ -21,6 +21,8 @@ import {
   isKindAnnotation,
   transformHKTDeclaration,
   builtinDerivations,
+  withDerivationContext,
+  tryExpandGenericDerive,
   instanceRegistry,
   typeclassRegistry,
   instanceVarName,
@@ -4813,22 +4815,22 @@ class MacroTransformer {
         }
 
         try {
-          let code: string;
-
-          if (ts.isTypeAliasDeclaration(node)) {
-            const sumInfo = tryExtractSumType(this.ctx, node);
-            if (sumInfo) {
-              code = typeclassDerivation.deriveSum(
-                typeName,
-                sumInfo.discriminant,
-                sumInfo.variants
-              );
+          let code: string = withDerivationContext(this.ctx, () => {
+            if (ts.isTypeAliasDeclaration(node)) {
+              const sumInfo = tryExtractSumType(this.ctx, node);
+              if (sumInfo) {
+                return typeclassDerivation.deriveSum(
+                  typeName,
+                  sumInfo.discriminant,
+                  sumInfo.variants
+                );
+              } else {
+                return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
+              }
             } else {
-              code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
+              return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
             }
-          } else {
-            code = typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
-          }
+          });
 
           // Convert to companion property assignment (replaces flat const + runtime registration)
           code = convertToCompanionAssignment(code, deriveName, typeName);
@@ -4895,7 +4897,28 @@ class MacroTransformer {
         continue;
       }
 
-      // 3. Check for a "{Name}TC" derive macro (typeclass derive convention)
+      // 3. Check for a GenericDerivation strategy (works for any typeclass
+      //    that called registerGenericDerivation — same path summon uses)
+      try {
+        const genericExpansion = tryExpandGenericDerive(this.ctx, deriveName, typeName, node);
+        if (genericExpansion) {
+          if (this.verbose) {
+            console.log(
+              `[typesugar] Auto-deriving via GenericDerivation: ${deriveName} for ${typeName}`
+            );
+          }
+          for (const stmt of genericExpansion.statements) {
+            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
+          }
+          instanceRegistry.push(genericExpansion.registryEntry);
+          continue;
+        }
+      } catch (error) {
+        this.ctx.reportError(arg, `GenericDerivation failed for ${deriveName}: ${error}`);
+        continue;
+      }
+
+      // 4. Check for a "{Name}TC" derive macro (typeclass derive convention)
       const tcDeriveMacro = globalRegistry.getDerive(`${deriveName}TC`);
       if (tcDeriveMacro) {
         if (this.verbose) {

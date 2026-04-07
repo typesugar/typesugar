@@ -33,26 +33,32 @@ import { instanceRegistry } from "./typeclass.js";
 // Show Instances
 // ============================================================================
 
+/** @impl("Show<number>") */
 export const showNumber = {
   show: (a: number): string => String(a),
 };
 
+/** @impl("Show<string>") */
 export const showString = {
   show: (a: string): string => `"${a}"`,
 };
 
+/** @impl("Show<boolean>") */
 export const showBoolean = {
   show: (a: boolean): string => (a ? "true" : "false"),
 };
 
+/** @impl("Show<bigint>") */
 export const showBigint = {
   show: (a: bigint): string => `${a}n`,
 };
 
+/** @impl("Show<null>") */
 export const showNull = {
   show: (_a: null): string => "null",
 };
 
+/** @impl("Show<undefined>") */
 export const showUndefined = {
   show: (_a: undefined): string => "undefined",
 };
@@ -68,26 +74,32 @@ export function showArray<A>(elementShow: { show: (a: A) => string }) {
 // Eq Instances
 // ============================================================================
 
+/** @impl("Eq<number>") */
 export const eqNumber = {
   eq: (a: number, b: number): boolean => a === b,
 };
 
+/** @impl("Eq<string>") */
 export const eqString = {
   eq: (a: string, b: string): boolean => a === b,
 };
 
+/** @impl("Eq<boolean>") */
 export const eqBoolean = {
   eq: (a: boolean, b: boolean): boolean => a === b,
 };
 
+/** @impl("Eq<bigint>") */
 export const eqBigint = {
   eq: (a: bigint, b: bigint): boolean => a === b,
 };
 
+/** @impl("Eq<null>") */
 export const eqNull = {
   eq: (_a: null, _b: null): boolean => true,
 };
 
+/** @impl("Eq<undefined>") */
 export const eqUndefined = {
   eq: (_a: undefined, _b: undefined): boolean => true,
 };
@@ -109,18 +121,22 @@ export function eqArray<A>(elementEq: { eq: (a: A, b: A) => boolean }) {
 // Ord Instances
 // ============================================================================
 
+/** @impl("Ord<number>") */
 export const ordNumber = {
   compare: (a: number, b: number): number => (a < b ? -1 : a > b ? 1 : 0),
 };
 
+/** @impl("Ord<string>") */
 export const ordString = {
   compare: (a: string, b: string): number => a.localeCompare(b),
 };
 
+/** @impl("Ord<boolean>") */
 export const ordBoolean = {
   compare: (a: boolean, b: boolean): number => (a === b ? 0 : a ? 1 : -1), // false < true
 };
 
+/** @impl("Ord<bigint>") */
 export const ordBigint = {
   compare: (a: bigint, b: bigint): number => (a < b ? -1 : a > b ? 1 : 0),
 };
@@ -145,6 +161,7 @@ export function ordArray<A>(elementOrd: { compare: (a: A, b: A) => number }) {
 
 // Simple hash functions (not cryptographic, just for hash tables)
 
+/** @impl("Hash<number>") */
 export const hashNumber = {
   hash: (a: number): number => {
     // Handle special cases
@@ -158,6 +175,7 @@ export const hashNumber = {
   },
 };
 
+/** @impl("Hash<string>") */
 export const hashString = {
   hash: (a: string): number => {
     // djb2 hash
@@ -169,10 +187,12 @@ export const hashString = {
   },
 };
 
+/** @impl("Hash<boolean>") */
 export const hashBoolean = {
   hash: (a: boolean): number => (a ? 1 : 0),
 };
 
+/** @impl("Hash<bigint>") */
 export const hashBigint = {
   hash: (a: bigint): number => {
     // Reduce to 32-bit range
@@ -181,10 +201,12 @@ export const hashBigint = {
   },
 };
 
+/** @impl("Hash<null>") */
 export const hashNull = {
   hash: (_a: null): number => 0,
 };
 
+/** @impl("Hash<undefined>") */
 export const hashUndefined = {
   hash: (_a: undefined): number => 1,
 };
@@ -205,6 +227,7 @@ export function hashArray<A>(elementHash: { hash: (a: A) => number }) {
 // Semigroup Instances (combine operation)
 // ============================================================================
 
+/** @impl("Semigroup<number>") */
 export const semigroupNumber = {
   combine: (a: number, b: number): number => a + b, // Addition
 };
@@ -213,10 +236,12 @@ export const semigroupNumberProduct = {
   combine: (a: number, b: number): number => a * b, // Multiplication
 };
 
+/** @impl("Semigroup<string>") */
 export const semigroupString = {
   combine: (a: string, b: string): string => a + b, // Concatenation
 };
 
+/** @impl("Semigroup<boolean>") */
 export const semigroupBoolean = {
   combine: (a: boolean, b: boolean): boolean => a && b, // Logical AND
 };
@@ -235,6 +260,7 @@ export function semigroupArray<A>() {
 // Monoid Instances (semigroup + identity)
 // ============================================================================
 
+/** @impl("Monoid<number>") */
 export const monoidNumber = {
   empty: (): number => 0,
   combine: (a: number, b: number): number => a + b,
@@ -245,11 +271,13 @@ export const monoidNumberProduct = {
   combine: (a: number, b: number): number => a * b,
 };
 
+/** @impl("Monoid<string>") */
 export const monoidString = {
   empty: (): string => "",
   combine: (a: string, b: string): string => a + b,
 };
 
+/** @impl("Monoid<boolean>") */
 export const monoidBoolean = {
   empty: (): boolean => true,
   combine: (a: boolean, b: boolean): boolean => a && b,
