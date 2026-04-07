@@ -426,7 +426,7 @@ describe("deriveGenericSum for parameterized sum types", () => {
     );
     assert(code !== undefined);
     assert(code!.includes("const showStatus"));
-    assert(code!.includes("registerInstance"));
+    assert(!code!.includes("registerInstance"));
     assert(!code!.includes("export function"));
   });
 });

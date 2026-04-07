@@ -529,20 +529,7 @@ export const deriveCodecMacro = defineDeriveMacro({
       )
     );
 
-    // Generate registration statement for implicit resolution
-    // Codec.registerInstance<User>("User", CodecUser);
-    const registerStatement = factory.createExpressionStatement(
-      factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier("Codec"),
-          "registerInstance"
-        ),
-        [factory.createTypeReferenceNode(typeName)],
-        [factory.createStringLiteral(typeName), factory.createIdentifier(`Codec${typeName}`)]
-      )
-    );
-
-    return [...readStatements, ...writeStatements, codecInstance, registerStatement];
+    return [...readStatements, ...writeStatements, codecInstance];
   },
 });
 

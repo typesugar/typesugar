@@ -382,21 +382,14 @@ Codec.registerInstance<User>("User", CodecUser);
 Read.registerInstance<Post>("Post", ReadPost);
 Write.registerInstance<Post>("Post", WritePost);
 
-// Now we can summon them by type name
-const summonedReader = Read.summon<User>("User");
+// Access instances via companion namespace (compile-time resolution)
+const summonedReader = User.Read;
 console.log("Summoned Read<User>:", summonedReader ? "Found!" : "Not found");
 console.log("Summoned Read<User>.columns:", summonedReader?.columns);
 
-const summonedWriter = Write.summon<User>("User");
+const summonedWriter = User.Write;
 console.log("Summoned Write<User>:", summonedWriter ? "Found!" : "Not found");
 console.log("Summoned Write<User>.columns:", summonedWriter?.columns);
-
-// Primitive instances are pre-registered
-const stringGet = Get.summon<string>("string");
-console.log("Get.summon('string'):", stringGet ? "Found!" : "Not found");
-
-const numberMeta = Meta.summon<number>("number");
-console.log("Meta.summon('number'):", numberMeta ? "Found!" : "Not found");
 
 /**
  * ## Auto-Derivation Flow
@@ -404,30 +397,17 @@ console.log("Meta.summon('number'):", numberMeta ? "Found!" : "Not found");
  * When you use @deriving(Read), the macro:
  *
  * 1. Inspects all field types
- * 2. Resolves Get instances for each field (using Get.summon)
+ * 2. Resolves Get instances for each field via companion access
  * 3. Generates the Read instance
- * 4. Registers it with Read.registerInstance
- *
- * This means after compilation, `Read.summon<MyType>("MyType")` will
- * return the derived instance.
+ * 4. Assigns it to the companion namespace (User.Read)
  *
  * ## Benefits
  *
  * - Generic code can work with any type that has instances:
  *
  *   ```typescript
- *   function queryFirst<T>(sql: string, typeName: string): T | null {
- *     const reader = Read.summon<T>(typeName);
- *     if (!reader) throw new Error(`No Read instance for ${typeName}`);
- *     // ... execute query and read result
- *   }
- *   ```
- *
- * - Library code can be written generically:
- *
- *   ```typescript
  *   function insert<T>(table: string, value: T, W: Write<T> = implicit()): Update {
- *     // W is resolved via Write.summon at compile time
+ *     // W is resolved via summon<Write<T>>() at compile time
  *   }
  *   ```
  */
@@ -521,16 +501,16 @@ SQL Typeclasses provide:
 1. Get<A> — Read single column values
    - Primitive instances: Get.string, Get.number, Get.boolean, Get.date, etc.
    - Combinators: Get.nullable, Get.optional, Get.array, Get.map
-   - Implicit resolution: Get.summon<A>(typeName)
+   - Compile-time resolution: summon<Get<A>>()
 
 2. Put<A> — Write single column values  
    - Primitive instances: Put.string, Put.number, Put.boolean, Put.date, etc.
    - Combinators: Put.nullable, Put.optional, Put.array, Put.contramap
-   - Implicit resolution: Put.summon<A>(typeName)
+   - Compile-time resolution: summon<Put<A>>()
 
 3. Meta<A> — Bidirectional single-column (Get + Put)
    - Invariant functor: Meta.imap for newtype derivation
-   - Implicit resolution: Meta.summon<A>(typeName)
+   - Compile-time resolution: summon<Meta<A>>()
 
 4. Read<A> — Read entire rows
    - deriveRead() for manual derivation

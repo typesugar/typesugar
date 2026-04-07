@@ -279,7 +279,7 @@ const optionFunctor = {
     expect(result.code).toContain("optionFunctor");
   });
 
-  it("@impl Functor<Option> with exported typeclass generates runtime registry", () => {
+  it("@impl Functor<Option> with exported typeclass does not generate runtime registry", () => {
     const code = `
 /** @typeclass */
 export interface Functor<F> {
@@ -298,8 +298,8 @@ const optionFunctor = {
     const result = transformCode(code, { fileName: "impl-option-exported.ts" });
 
     expect(result.changed).toBe(true);
-    // Exported typeclass: generates registerInstance
-    expect(result.code).toContain("registerInstance");
+    // No runtime registry — instances resolved at compile time via companions
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("optionFunctor");
   });
 

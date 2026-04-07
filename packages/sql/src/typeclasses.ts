@@ -1045,7 +1045,7 @@ metaRegistry.set("uuid", Meta.uuid as Meta<unknown>);
 // ============================================================================
 // Instance Registries — exported for macro integration
 // ============================================================================
-// Note: Summon and registerInstance functionality should use the registries directly.
+// Note: Instance resolution uses compile-time companions and the registries directly.
 // Example: const instance = getRegistry.get("MyType") as Get<MyType>;
 // Example: putRegistry.set("MyType", myPutInstance as Put<unknown>);
 // The @deriving(Read), @deriving(Write), @deriving(Codec) macros will

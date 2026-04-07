@@ -325,9 +325,8 @@ describe("Inline union derivation generates correct code", () => {
     expect(result.code).toContain("namespace Choice");
     expect(result.code).toContain("export const Eq");
     expect(result.code).toContain("equals: (a: Choice, b: Choice)");
-    // Note: registerInstance is emitted for exported typeclasses.
-    // When deriving from imported typeclasses (like Eq from @typesugar/std),
-    // the runtime registration behavior depends on the source module's export status.
+    // Instances are resolved at compile time via companion namespaces.
+    // No runtime registerInstance calls are emitted.
   });
 });
 

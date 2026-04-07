@@ -60,15 +60,10 @@ export interface MyEq<A> {
 
     expect(result.changed).toBe(true);
 
-    // Exported typeclasses generate full runtime support via companion object
+    // Exported typeclasses generate companion object (no runtime registry)
     expect(result.code).toContain("const MyEq");
-    expect(result.code).toContain("registerInstance");
-    expect(result.code).toContain("summon");
-    expect(result.code).toContain("hasInstance");
-    expect(result.code).toContain("registeredTypes");
-
-    // Should generate extension method helper
-    expect(result.code).toContain("myEqEquals");
+    expect(result.code).not.toContain("registerInstance");
+    expect(result.code).toContain("__typesugar_companions");
   });
 
   it("handles typeclass with multiple methods (non-exported, zero-cost)", () => {
@@ -101,13 +96,9 @@ export interface MyNumeric<A> {
     const result = transformCode(code, { fileName: "jsdoc-numeric-exported.ts" });
 
     expect(result.changed).toBe(true);
-    // Exported: has companion object
+    // Exported: has companion object (no runtime registry)
     expect(result.code).toContain("const MyNumeric");
-    expect(result.code).toContain("registerInstance");
-
-    // Should generate extension methods for each typeclass method
-    expect(result.code).toContain("myNumericAdd");
-    expect(result.code).toContain("myNumericMul");
+    expect(result.code).not.toContain("registerInstance");
   });
 
   it("handles typeclass with no methods (non-exported marker interface)", () => {
@@ -148,8 +139,7 @@ export interface MyShow<A> {
 
     expect(result.changed).toBe(true);
     expect(result.code).toContain("const MyShow");
-    expect(result.code).toContain("registerInstance");
-    expect(result.code).toContain("myShowShow");
+    expect(result.code).not.toContain("registerInstance");
   });
 });
 
@@ -173,10 +163,9 @@ export interface MyNumeric<A> {
 
     expect(result.changed).toBe(true);
 
-    // Exported typeclass generates companion object
+    // Exported typeclass generates companion object (no runtime registry)
     expect(result.code).toContain("const MyNumeric");
-    expect(result.code).toContain("myNumericAdd");
-    expect(result.code).toContain("myNumericMul");
+    expect(result.code).not.toContain("registerInstance");
   });
 
   it("non-exported typeclass with @op is zero-cost", () => {
@@ -248,8 +237,8 @@ const numEq: MyEq<number> = { equals: (a, b) => a === b };
 
     expect(result.changed).toBe(true);
 
-    // Exported typeclass: generates runtime registration
-    expect(result.code).toContain("registerInstance");
+    // No runtime registration — instances resolved at compile time
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("numEq");
   });
 
@@ -286,8 +275,8 @@ const arrayNumEq: MyEq<Array<number>> = {
     const result = transformCode(code, { fileName: "jsdoc-impl-generic-exported.ts" });
 
     expect(result.changed).toBe(true);
-    // Exported: has registerInstance
-    expect(result.code).toContain("registerInstance");
+    // No runtime registration — compile-time only
+    expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("arrayNumEq");
   });
 
@@ -318,9 +307,9 @@ const instTcString: InstTC<string> = { method: (a) => a };
     expect(implResult.changed).toBe(true);
     expect(instanceResult.changed).toBe(true);
 
-    // Both should contain instance registration (exported typeclasses)
-    expect(implResult.code).toContain("registerInstance");
-    expect(instanceResult.code).toContain("registerInstance");
+    // No runtime registration — compile-time only
+    expect(implResult.code).not.toContain("registerInstance");
+    expect(instanceResult.code).not.toContain("registerInstance");
   });
 });
 
@@ -350,9 +339,9 @@ interface Range { start: number; end: number; }
     const result = transformCode(code, { fileName: "jsdoc-multi-deriving.ts" });
 
     expect(result.changed).toBe(true);
-    // Should generate both Eq and Ord derives
-    expect(result.code).toContain("eq");
-    expect(result.code).toContain("ord");
+    // Should generate both Eq and Ord derives (companion namespace properties)
+    expect(result.code).toContain("Eq");
+    expect(result.code).toContain("Ord");
   });
 
   it.skip("@deriving on type alias works", () => {
@@ -390,10 +379,10 @@ export interface JsDocEq<A> {
       fileName: "jsdoc-eq.ts",
     });
 
-    // JSDoc form should produce companion object directly (exported)
+    // JSDoc form should produce companion object directly (exported, no runtime registry)
     expect(jsdocResult.changed).toBe(true);
     expect(jsdocResult.code).toContain("const JsDocEq");
-    expect(jsdocResult.code).toContain("jsDocEqEquals");
+    expect(jsdocResult.code).not.toContain("registerInstance");
   });
 
   it("decorator @typeclass rewritten by preprocessor to JSDoc", () => {
@@ -521,7 +510,7 @@ const tcImpl = { method: (a: string) => a };
 
     // Should still work with JSDoc-specified types
     expect(result.changed).toBe(true);
-    // Exported typeclass generates registerInstance
-    expect(result.code).toContain("registerInstance");
+    // No runtime registration — compile-time only
+    expect(result.code).not.toContain("registerInstance");
   });
 });

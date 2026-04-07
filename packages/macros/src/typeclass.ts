@@ -76,7 +76,6 @@ import {
   extractMethodsFromObjectLiteral,
   registerInstanceMethods,
 } from "./specialize.js";
-import { quoteStatements } from "./quote.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -1414,17 +1413,6 @@ export function resolveFieldInstance(
 }
 
 /**
- * Strip runtime registration calls from generated derivation code.
- * Used when the typeclass is not exported (internal = zero-cost, no runtime registry).
- *
- * Matches patterns like:
- *   /\*#__PURE__*\/ Show.registerInstance<Point>("Point", showPoint);
- */
-function stripRuntimeRegistration(code: string): string {
-  return code.replace(/\/\*#__PURE__\*\/\s*\w+\.registerInstance<[^>]+>\([^)]+\);\s*\n?/g, "");
-}
-
-/**
  * Convert a derived instance const declaration to a namespace companion property.
  *
  * Transforms:
@@ -1441,9 +1429,6 @@ function stripRuntimeRegistration(code: string): string {
  * we leave them as-is since they can't be companion properties (they need type parameters).
  */
 function convertToCompanionAssignment(code: string, tcName: string, typeName: string): string {
-  // First strip registerInstance calls — companion replaces runtime registration
-  code = stripRuntimeRegistration(code);
-
   // Extract the type annotation by finding balanced angle brackets after "const varName: "
   const constMatch = code.match(/const\s+\w+\s*:\s*/);
   if (!constMatch) {
@@ -1939,11 +1924,6 @@ export const typeclassAttribute = defineAttributeMacro({
     if (isExported) {
       const companionCode = generateCompanionConst(ctx, tcInfo, isExported);
       statements.push(...ctx.parseStatements(companionCode));
-
-      // Generate extension method helpers (only needed when runtime registry exists,
-      // as they dispatch through the namespace's summon() method)
-      const extensionCode = generateExtensionHelpers(tcInfo);
-      statements.push(...ctx.parseStatements(extensionCode));
     }
 
     return [target, ...statements];
@@ -1964,73 +1944,12 @@ export const typeclassAttribute = defineAttributeMacro({
  */
 function generateCompanionConst(ctx: MacroContext, tc: TypeclassInfo, isExported: boolean): string {
   const { name } = tc;
-  const registryVar = ctx.hygiene.mangleName(`${uncapitalize(name)}Instances`);
   const exportModifier = isExported ? "export " : "";
 
   return `
-// Typeclass instance registry for ${name}
-const ${registryVar}: Map<string, ${name}<any>> = /*#__PURE__*/ new Map();
-
-${exportModifier}const ${name} = {
-  registerInstance<T>(typeName: string, instance: ${name}<T>): void {
-    ${registryVar}.set(typeName, instance);
-  },
-  summon<T>(typeName: string): ${name}<T> {
-    const instance = ${registryVar}.get(typeName);
-    if (!instance) {
-      throw new Error(\`No ${name} instance found for type '\${typeName}'\`);
-    }
-    return instance as ${name}<T>;
-  },
-  hasInstance(typeName: string): boolean {
-    return ${registryVar}.has(typeName);
-  },
-  registeredTypes(): string[] {
-    return Array.from(${registryVar}.keys());
-  },
-};
+${exportModifier}const ${name} = {};
 ((globalThis as any).__typesugar_companions = (globalThis as any).__typesugar_companions || {})["${name}"] = ${name};
 `;
-}
-
-/**
- * Generate extension method helpers for a typeclass.
- *
- * Scala 3 equivalent:
- *   extension [A](a: A)(using tc: Show[A])
- *     def show: String = tc.show(a)
- *
- * In TypeScript, we generate functions that look up the instance and call the method:
- *   function show<A>(a: A, typeName: string): string {
- *     return Show.summon<A>(typeName).show(a);
- *   }
- */
-function generateExtensionHelpers(tc: TypeclassInfo): string {
-  const { name, methods } = tc;
-  const extensionFns: string[] = [];
-
-  for (const method of methods) {
-    if (method.isSelfMethod) {
-      // This is a "self" method - generate an extension function
-      const otherParams = method.params.slice(1);
-      const otherParamDecls = otherParams.map((p) => `${p.name}: ${p.typeString}`).join(", ");
-      const otherParamNames = otherParams.map((p) => p.name).join(", ");
-      const allArgs = ["self", ...otherParams.map((p) => p.name)].join(", ");
-
-      const paramList = otherParamDecls
-        ? `self: any, ${otherParamDecls}, typeName: string`
-        : `self: any, typeName: string`;
-
-      extensionFns.push(`
-/** Extension method: ${method.name} via ${name} typeclass */
-function ${uncapitalize(name)}${capitalize(method.name)}<A>(${paramList}): ${method.returnType} {
-  return ${name}.summon<A>(typeName).${method.name}(${allArgs});
-}
-`);
-    }
-  }
-
-  return extensionFns.join("\n");
 }
 
 // ============================================================================
@@ -2252,16 +2171,6 @@ export const implAttribute = defineAttributeMacro({
     }
 
     const statements: ts.Node[] = [updatedTarget];
-
-    // Emit runtime registration for exported typeclasses.
-    // Internal typeclasses use compile-time resolution only (zero-cost).
-    const tcInfo = typeclassRegistry.get(tcName);
-    if (tcInfo?.isExported) {
-      const registrationStatements = quoteStatements(
-        ctx
-      )`/*#__PURE__*/ ${tcName}.registerInstance<${typeName}>("${typeName}", ${varName});`;
-      statements.push(...registrationStatements);
-    }
 
     // Emit companion property assignment for non-primitive types.
     // Primitives are handled by registerInstanceWithMeta + __typesugar_companions.
@@ -2587,14 +2496,14 @@ function getTypeclassSignatureTemplate(
 //
 // Output:
 //   interface Point { x: number; y: number; }
-//   const showPoint: Show<Point> = {
-//     show: (a) => `Point(x = ${showNumber.show(a.x)}, y = ${showNumber.show(a.y)})`,
-//   };
-//   Show.registerInstance<Point>("Point", showPoint);
-//   const eqPoint: Eq<Point> = {
-//     eq: (a, b) => eqNumber.eq(a.x, b.x) && eqNumber.eq(a.y, b.y),
-//   };
-//   Eq.registerInstance<Point>("Point", eqPoint);
+//   namespace Point {
+//     export const Show: Show<Point> = {
+//       show: (a) => `Point(x = ${showNumber.show(a.x)}, y = ${showNumber.show(a.y)})`,
+//     };
+//     export const Eq: Eq<Point> = {
+//       eq: (a, b) => eqNumber.eq(a.x, b.x) && eqNumber.eq(a.y, b.y),
+//     };
+//   }
 // ============================================================================
 
 /**
@@ -2711,7 +2620,6 @@ const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
 const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
   show: (a: ${typeName}): string => \`${typeName}(${fieldShows})\`,
 };
-/*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2737,7 +2645,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2802,7 +2709,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Show.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2826,7 +2732,6 @@ const ${varName}: Eq<${typeName}> = /*#__PURE__*/ {
   equals: (a: ${typeName}, b: ${typeName}): boolean => ${body},
   notEquals: (a: ${typeName}, b: ${typeName}): boolean => !(${body}),
 };
-/*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2854,7 +2759,6 @@ ${cases}
   },
   notEquals: (a: ${typeName}, b: ${typeName}): boolean => !${varName}.equals(a, b),
 };
-/*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2915,7 +2819,6 @@ ${cases}
   },
   notEquals: (x: ${typeName}, y: ${typeName}): boolean => !${varName}.equals(x, y),
 };
-/*#__PURE__*/ Eq.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -2937,7 +2840,6 @@ ${fieldComparisons}
     return 0;
   },
 };
-/*#__PURE__*/ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -2968,7 +2870,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -3040,7 +2941,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Ord.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -3063,7 +2963,6 @@ ${fieldHashes}
     return hash >>> 0;
   },
 };
-/*#__PURE__*/ Hash.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -3089,7 +2988,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Hash.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -3106,7 +3004,6 @@ const ${varName}: Functor<${typeName}> = /*#__PURE__*/ {
     return { ...fa } as any;
   },
 };
-/*#__PURE__*/ Functor.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
 
@@ -3132,7 +3029,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Functor.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     },
   },
@@ -3836,52 +3732,43 @@ const eqNumber: Eq<number> = /*#__PURE__*/ {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
-/*#__PURE__*/ Eq.registerInstance<number>("number", eqNumber);
 
 const eqString: Eq<string> = /*#__PURE__*/ {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
-/*#__PURE__*/ Eq.registerInstance<string>("string", eqString);
 
 const eqBoolean: Eq<boolean> = /*#__PURE__*/ {
   eq: (a, b) => a === b,
   neq: (a, b) => a !== b,
 };
-/*#__PURE__*/ Eq.registerInstance<boolean>("boolean", eqBoolean);
 
 // Show instances for primitives
 const showNumber: Show<number> = /*#__PURE__*/ {
   show: (a) => String(a),
 };
-/*#__PURE__*/ Show.registerInstance<number>("number", showNumber);
 
 const showString: Show<string> = /*#__PURE__*/ {
   show: (a) => JSON.stringify(a),
 };
-/*#__PURE__*/ Show.registerInstance<string>("string", showString);
 
 const showBoolean: Show<boolean> = /*#__PURE__*/ {
   show: (a) => String(a),
 };
-/*#__PURE__*/ Show.registerInstance<boolean>("boolean", showBoolean);
 
 // Ord instances for primitives
 const ordNumber: Ord<number> = /*#__PURE__*/ {
   compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
 };
-/*#__PURE__*/ Ord.registerInstance<number>("number", ordNumber);
 
 const ordString: Ord<string> = /*#__PURE__*/ {
   compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
 };
-/*#__PURE__*/ Ord.registerInstance<string>("string", ordString);
 
 // Hash instances for primitives
 const hashNumber: Hash<number> = /*#__PURE__*/ {
   hash: (a) => a | 0,
 };
-/*#__PURE__*/ Hash.registerInstance<number>("number", hashNumber);
 
 const hashString: Hash<string> = /*#__PURE__*/ {
   hash: (a) => {
@@ -3892,36 +3779,30 @@ const hashString: Hash<string> = /*#__PURE__*/ {
     return h >>> 0;
   },
 };
-/*#__PURE__*/ Hash.registerInstance<string>("string", hashString);
 
 const hashBoolean: Hash<boolean> = /*#__PURE__*/ {
   hash: (a) => a ? 1 : 0,
 };
-/*#__PURE__*/ Hash.registerInstance<boolean>("boolean", hashBoolean);
 
 // Semigroup instances for primitives
 const semigroupNumber: Semigroup<number> = /*#__PURE__*/ {
   combine: (a, b) => a + b,
 };
-/*#__PURE__*/ Semigroup.registerInstance<number>("number", semigroupNumber);
 
 const semigroupString: Semigroup<string> = /*#__PURE__*/ {
   combine: (a, b) => a + b,
 };
-/*#__PURE__*/ Semigroup.registerInstance<string>("string", semigroupString);
 
 // Monoid instances for primitives
 const monoidNumber: Monoid<number> = /*#__PURE__*/ {
   empty: () => 0,
   combine: (a, b) => a + b,
 };
-/*#__PURE__*/ Monoid.registerInstance<number>("number", monoidNumber);
 
 const monoidString: Monoid<string> = /*#__PURE__*/ {
   empty: () => "",
   combine: (a, b) => a + b,
 };
-/*#__PURE__*/ Monoid.registerInstance<string>("string", monoidString);
 `;
 }
 
@@ -3945,7 +3826,6 @@ const ${varName}: Semigroup<${typeName}> = /*#__PURE__*/ {
 ${fieldCombines}
   }),
 };
-/*#__PURE__*/ Semigroup.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -3984,7 +3864,6 @@ ${fieldEmpties}
 ${fieldCombines}
   }),
 };
-/*#__PURE__*/ Monoid.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -4012,7 +3891,6 @@ const ${varName}: Clone<${typeName}> = {
 ${copies}
   }),
 };
-/*#__PURE__*/ Clone.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -4037,7 +3915,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Clone.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 };
@@ -4055,7 +3932,6 @@ builtinDerivations["Debug"] = {
 const ${varName}: Debug<${typeName}> = {
   debug: (a: ${typeName}): string => \`${typeName} { ${pairs} }\`,
 };
-/*#__PURE__*/ Debug.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -4080,7 +3956,6 @@ ${cases}
     }
   },
 };
-/*#__PURE__*/ Debug.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 };
@@ -4140,7 +4015,6 @@ const ${varName}: Default<${typeName}> = {
 ${defaults}
   }),
 };
-/*#__PURE__*/ Default.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -4189,7 +4063,6 @@ ${validations}
     return obj as unknown as ${typeName};
   },
 };
-/*#__PURE__*/ Json.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -4213,7 +4086,6 @@ const ${varName}: Json<${typeName}> = {
     return obj as unknown as ${typeName};
   },
 };
-/*#__PURE__*/ Json.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 };
@@ -4231,7 +4103,6 @@ builtinDerivations["TypeGuard"] = {
 const ${varName}: TypeGuard<${typeName}> = {
   is: (value: unknown): boolean => typeof value === "object" && value !== null,
 };
-/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
     }
 
@@ -4248,7 +4119,6 @@ const ${varName}: TypeGuard<${typeName}> = {
 const ${varName}: TypeGuard<${typeName}> = {
   is: (value: unknown): boolean => typeof value === "object" && value !== null && ${checks.join(" && ")},
 };
-/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 
@@ -4268,7 +4138,6 @@ const ${varName}: TypeGuard<${typeName}> = {
     return [${validTags}].includes((value as any).${discriminant});
   },
 };
-/*#__PURE__*/ TypeGuard.registerInstance<${typeName}>("${typeName}", ${varName});
 `;
   },
 };

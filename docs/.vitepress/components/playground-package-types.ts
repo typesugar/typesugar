@@ -204,17 +204,17 @@ export type Schedule<out Env, in In, out Out> = { readonly _tag: "Schedule" };
 
 const GLOBALS_CONTENT = `
 interface Eq<A> { eq(a: A, b: A): boolean; neq(a: A, b: A): boolean; equals?(a: A, b: A): boolean; notEquals?(a: A, b: A): boolean; }
-declare namespace Eq { function registerInstance<T>(name: string, instance: unknown): void; }
+declare namespace Eq {}
 interface Ord<A> extends Eq<A> { compare(a: A, b: A): number; lt(a: A, b: A): boolean; gt(a: A, b: A): boolean; lte(a: A, b: A): boolean; gte(a: A, b: A): boolean; }
-declare namespace Ord { function registerInstance<T>(name: string, instance: unknown): void; }
+declare namespace Ord {}
 interface Clone<A> { clone(a: A): A; }
-declare namespace Clone { function registerInstance<T>(name: string, instance: unknown): void; }
+declare namespace Clone {}
 interface Debug<A> { debug(a: A): string; }
-declare namespace Debug { function registerInstance<T>(name: string, instance: unknown): void; }
+declare namespace Debug {}
 interface Hash<A> { hash(a: A): number; }
-declare namespace Hash { function registerInstance<T>(name: string, instance: unknown): void; }
+declare namespace Hash {}
 interface Show<A> { show(a: A): string; }
-declare namespace Show { function registerInstance<T>(name: string, instance: unknown): void; }
+declare namespace Show {}
 declare const eqNumber: Eq<number>;
 declare const eqString: Eq<string>;
 declare const eqBoolean: Eq<boolean>;

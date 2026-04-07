@@ -58,6 +58,9 @@ import {
   createRegistrationCall,
   convertToCompanionAssignment,
   ensureDataTypeCompanionConst,
+  // Instance resolution (PEP-038)
+  resolveInstance,
+  type ResolvedInstance,
 } from "@typesugar/macros";
 
 import {
@@ -1392,6 +1395,15 @@ class MacroTransformer {
    */
   private pendingTypeRewriteImports = new Map<string, { name: string; module: string }>();
 
+  /**
+   * Pending imports for resolved typeclass instances (PEP-038 Wave 2E).
+   * When @derive resolves a field instance from another module, the generated
+   * code references the instance by its export name. This map collects those
+   * references so import declarations are injected at the top of the file.
+   * Deduped by exportName+importSpecifier.
+   */
+  private pendingInstanceImports = new Map<string, { name: string; module: string }>();
+
   constructor(
     private ctx: MacroContextImpl,
     private verbose: boolean,
@@ -2568,8 +2580,14 @@ class MacroTransformer {
       // Build type-rewrite import declarations (PEP-012 Wave 3)
       const typeRewriteImports = this.buildTypeRewriteImportDeclarations();
 
+      // Build instance import declarations (PEP-038 Wave 2E)
+      const instanceImports = this.buildInstanceImportDeclarations();
+
       const hasInjections =
-        pendingImports.length > 0 || hoistedDecls.length > 0 || typeRewriteImports.length > 0;
+        pendingImports.length > 0 ||
+        hoistedDecls.length > 0 ||
+        typeRewriteImports.length > 0 ||
+        instanceImports.length > 0;
 
       if (hasInjections) {
         // Find insertion point after existing imports
@@ -2582,9 +2600,10 @@ class MacroTransformer {
           }
         }
 
-        // Inject: [existing imports..., type-rewrite imports, aliased imports, hoisted decls, rest of file...]
+        // Inject: [existing imports..., instance imports, type-rewrite imports, aliased imports, hoisted decls, rest of file...]
         cleanedStatements = [
           ...cleanedStatements.slice(0, insertIndex),
+          ...instanceImports,
           ...typeRewriteImports,
           ...pendingImports,
           ...hoistedDecls,
@@ -2592,6 +2611,11 @@ class MacroTransformer {
         ];
 
         if (this.verbose) {
+          if (instanceImports.length > 0) {
+            console.log(
+              `[typesugar] Injected ${instanceImports.length} instance import(s) for derive resolution`
+            );
+          }
           if (typeRewriteImports.length > 0) {
             console.log(
               `[typesugar] Injected ${typeRewriteImports.length} type-rewrite import(s) for method erasure`
@@ -4891,6 +4915,10 @@ class MacroTransformer {
               methodsMap
             );
           }
+
+          // PEP-038 Wave 2E: Resolve field instances and schedule imports
+          // for any that come from another module.
+          this.resolveAndScheduleFieldInstanceImports(deriveName, typeInfo.fields);
         } catch (error) {
           this.ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
         }
@@ -6009,6 +6037,86 @@ class MacroTransformer {
     // Group by module
     const byModule = new Map<string, string[]>();
     for (const { name, module } of this.pendingTypeRewriteImports.values()) {
+      const list = byModule.get(module);
+      if (list) {
+        if (!list.includes(name)) list.push(name);
+      } else {
+        byModule.set(module, [name]);
+      }
+    }
+
+    const imports: ts.ImportDeclaration[] = [];
+    for (const [module, names] of byModule) {
+      const specifiers = names.map((n) =>
+        factory.createImportSpecifier(false, undefined, factory.createIdentifier(n))
+      );
+      imports.push(
+        factory.createImportDeclaration(
+          undefined,
+          factory.createImportClause(false, undefined, factory.createNamedImports(specifiers)),
+          factory.createStringLiteral(module)
+        )
+      );
+    }
+
+    return imports;
+  }
+
+  /**
+   * Resolve typeclass instances for each field type using the instance resolver.
+   * If an instance comes from another module (has importSpecifier), schedule
+   * the import so the generated derive code can reference it.
+   */
+  private resolveAndScheduleFieldInstanceImports(
+    typeclassName: string,
+    fields: DeriveFieldInfo[]
+  ): void {
+    for (const field of fields) {
+      const fieldType = field.type;
+      if (!fieldType) continue;
+
+      const result = resolveInstance(this.ctx, typeclassName, fieldType);
+      if (!result || result.kind !== "resolved") continue;
+
+      // Only schedule import if the instance comes from another module
+      if (result.importSpecifier && result.source !== "local-scope") {
+        this.scheduleInstanceImport(result.exportName, result.importSpecifier);
+
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Resolved field instance ${result.exportName} for ` +
+              `${typeclassName}<${field.typeString}> from ${result.importSpecifier}`
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Schedule an import for a resolved typeclass instance from another module.
+   * Deduplicates by export name + module specifier.
+   */
+  scheduleInstanceImport(exportName: string, importSpecifier: string): void {
+    if (this.isAlreadyImported(exportName)) return;
+
+    const key = `${exportName}::${importSpecifier}`;
+    if (!this.pendingInstanceImports.has(key)) {
+      this.pendingInstanceImports.set(key, { name: exportName, module: importSpecifier });
+    }
+  }
+
+  /**
+   * Build import declarations for resolved typeclass instances.
+   * Groups by module for cleaner output.
+   */
+  private buildInstanceImportDeclarations(): ts.ImportDeclaration[] {
+    if (this.pendingInstanceImports.size === 0) return [];
+
+    const factory = this.ctx.factory;
+
+    // Group by module
+    const byModule = new Map<string, string[]>();
+    for (const { name, module } of this.pendingInstanceImports.values()) {
       const list = byModule.get(module);
       if (list) {
         if (!list.includes(name)) list.push(name);
