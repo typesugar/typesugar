@@ -4788,6 +4788,49 @@ class MacroTransformer {
         continue;
       }
 
+      // Diagnostic checks for typeclass derivation (applies to both builtin and generic paths)
+
+      // Check for empty types (no fields to derive from)
+      if (typeInfo.fields.length === 0 && !ts.isTypeAliasDeclaration(node)) {
+        this.ctx
+          .diagnostic(TS9104)
+          .at(arg)
+          .withArgs({ typeclass: deriveName, type: typeName })
+          .emit();
+        continue;
+      }
+
+      // Check for non-derivable field types (functions)
+      if (["Eq", "Ord", "Hash", "Clone"].includes(deriveName)) {
+        for (const field of typeInfo.fields) {
+          if (field.typeString.includes("=>") || field.typeString.startsWith("(")) {
+            this.ctx
+              .diagnostic(TS9101)
+              .at(arg)
+              .withArgs({
+                typeclass: deriveName,
+                type: typeName,
+                field: field.name,
+                fieldType: field.typeString,
+              })
+              .emit();
+          }
+        }
+      }
+
+      // Check for union without discriminant
+      if (ts.isTypeAliasDeclaration(node)) {
+        const sumCheck = tryExtractSumType(this.ctx, node);
+        if (!sumCheck && ts.isUnionTypeNode(node.type)) {
+          this.ctx
+            .diagnostic(TS9103)
+            .at(arg)
+            .withArgs({ typeclass: deriveName, type: typeName })
+            .emit();
+          continue;
+        }
+      }
+
       // 2. Check for a built-in typeclass derivation strategy (auto-derivation)
       const typeclassDerivation = builtinDerivations[deriveName];
       if (typeclassDerivation) {
@@ -4795,47 +4838,6 @@ class MacroTransformer {
           console.log(
             `[typesugar] Auto-deriving typeclass instance: ${deriveName} for ${typeName}`
           );
-        }
-
-        // Check for empty types (no fields to derive from)
-        if (typeInfo.fields.length === 0 && !ts.isTypeAliasDeclaration(node)) {
-          this.ctx
-            .diagnostic(TS9104)
-            .at(arg)
-            .withArgs({ typeclass: deriveName, type: typeName })
-            .emit();
-          continue;
-        }
-
-        // Check for non-derivable field types (functions)
-        if (["Eq", "Ord", "Hash", "Clone"].includes(deriveName)) {
-          for (const field of typeInfo.fields) {
-            if (field.typeString.includes("=>") || field.typeString.startsWith("(")) {
-              this.ctx
-                .diagnostic(TS9101)
-                .at(arg)
-                .withArgs({
-                  typeclass: deriveName,
-                  type: typeName,
-                  field: field.name,
-                  fieldType: field.typeString,
-                })
-                .emit();
-            }
-          }
-        }
-
-        // Check for union without discriminant
-        if (ts.isTypeAliasDeclaration(node)) {
-          const sumCheck = tryExtractSumType(this.ctx, node);
-          if (!sumCheck && ts.isUnionTypeNode(node.type)) {
-            this.ctx
-              .diagnostic(TS9103)
-              .at(arg)
-              .withArgs({ typeclass: deriveName, type: typeName })
-              .emit();
-            continue;
-          }
         }
 
         try {

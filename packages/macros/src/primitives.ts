@@ -76,43 +76,56 @@ export function showArray<A>(elementShow: { show: (a: A) => string }) {
 
 /** @impl("Eq<number>") */
 export const eqNumber = {
-  eq: (a: number, b: number): boolean => a === b,
+  equals: (a: number, b: number): boolean => a === b,
+  notEquals: (a: number, b: number): boolean => a !== b,
 };
 
 /** @impl("Eq<string>") */
 export const eqString = {
-  eq: (a: string, b: string): boolean => a === b,
+  equals: (a: string, b: string): boolean => a === b,
+  notEquals: (a: string, b: string): boolean => a !== b,
 };
 
 /** @impl("Eq<boolean>") */
 export const eqBoolean = {
-  eq: (a: boolean, b: boolean): boolean => a === b,
+  equals: (a: boolean, b: boolean): boolean => a === b,
+  notEquals: (a: boolean, b: boolean): boolean => a !== b,
 };
 
 /** @impl("Eq<bigint>") */
 export const eqBigint = {
-  eq: (a: bigint, b: bigint): boolean => a === b,
+  equals: (a: bigint, b: bigint): boolean => a === b,
+  notEquals: (a: bigint, b: bigint): boolean => a !== b,
 };
 
 /** @impl("Eq<null>") */
 export const eqNull = {
-  eq: (_a: null, _b: null): boolean => true,
+  equals: (_a: null, _b: null): boolean => true,
+  notEquals: (_a: null, _b: null): boolean => false,
 };
 
 /** @impl("Eq<undefined>") */
 export const eqUndefined = {
-  eq: (_a: undefined, _b: undefined): boolean => true,
+  equals: (_a: undefined, _b: undefined): boolean => true,
+  notEquals: (_a: undefined, _b: undefined): boolean => false,
 };
 
 // Generic array Eq - structural equality
-export function eqArray<A>(elementEq: { eq: (a: A, b: A) => boolean }) {
+export function eqArray<A>(elementEq: { equals: (a: A, b: A) => boolean }) {
   return {
-    eq: (a: A[], b: A[]): boolean => {
+    equals: (a: A[], b: A[]): boolean => {
       if (a.length !== b.length) return false;
       for (let i = 0; i < a.length; i++) {
-        if (!elementEq.eq(a[i], b[i])) return false;
+        if (!elementEq.equals(a[i], b[i])) return false;
       }
       return true;
+    },
+    notEquals: (a: A[], b: A[]): boolean => {
+      if (a.length !== b.length) return true;
+      for (let i = 0; i < a.length; i++) {
+        if (!elementEq.equals(a[i], b[i])) return true;
+      }
+      return false;
     },
   };
 }

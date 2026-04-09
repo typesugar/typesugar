@@ -622,14 +622,34 @@ registerGenericDerivation("Eq", {
   typeclassName: "Eq",
   fieldTypeclass: "Eq",
 
-  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean", "bigint"])),
+  hasFieldInstance: () => true,
 
   deriveProduct(ctx, typeName, meta) {
-    if (!meta.fieldNames) return null;
+    if (!meta.fieldNames || !meta.fieldTypes) return null;
+    const { resolveFieldInstance } = require("./typeclass.js") as typeof import("./typeclass.js");
 
-    const checks = meta.fieldNames.map((name) => `a.${name} === b.${name}`).join(" && ");
+    const checks = meta.fieldNames.map((name, i) => {
+      const inst = resolveFieldInstance(ctx, "Eq", meta.fieldTypes![i]);
+      return `${inst}.equals(a.${name}, b.${name})`;
+    });
 
-    return `({ eq: (a: ${typeName}, b: ${typeName}) => ${checks || "true"} })`;
+    const body = checks.length > 0 ? checks.join(" && ") : "true";
+    return `({ equals: (a: ${typeName}, b: ${typeName}): boolean => ${body}, notEquals: (a: ${typeName}, b: ${typeName}): boolean => !(${body}) })`;
+  },
+
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants || !meta.discriminant) return null;
+    const { resolveFieldInstance } = require("./typeclass.js") as typeof import("./typeclass.js");
+    const disc = meta.discriminant;
+
+    const cases = meta.variants
+      .map((v) => {
+        const inst = resolveFieldInstance(ctx, "Eq", v.typeName);
+        return `case "${v.tag}": return (b as any).${disc} === "${v.tag}" && ${inst}.equals(a as any, b as any)`;
+      })
+      .join("; ");
+
+    return `({ equals: (a: ${typeName}, b: ${typeName}): boolean => { if ((a as any).${disc} !== (b as any).${disc}) return false; switch ((a as any).${disc}) { ${cases}; default: return false; } }, notEquals: (a: ${typeName}, b: ${typeName}): boolean => !${typeName}.Eq.equals(a, b) })`;
   },
 });
 
