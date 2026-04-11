@@ -28,6 +28,10 @@ export function offsetToPosition(text: string, offset: number): Position {
   let line = 0;
   let lastLineStart = 0;
   for (let i = 0; i < clamped; i++) {
+    if (text[i] === "\r" && text[i + 1] === "\n") {
+      // Skip \r in \r\n — the \n on the next iteration will count the line
+      continue;
+    }
     if (text[i] === "\n") {
       line++;
       lastLineStart = i + 1;
@@ -43,7 +47,13 @@ export function positionToOffset(text: string, position: Position): number {
       // Clamp character to the actual line length
       let lineEnd = text.indexOf("\n", i);
       if (lineEnd === -1) lineEnd = text.length;
+      // Exclude \r before \n from the line content
+      if (lineEnd > 0 && text[lineEnd - 1] === "\r") lineEnd--;
       return Math.min(i + position.character, lineEnd);
+    }
+    if (text[i] === "\r" && text[i + 1] === "\n") {
+      // Skip \r in \r\n — the \n on the next iteration will count the line
+      continue;
     }
     if (text[i] === "\n") {
       line++;

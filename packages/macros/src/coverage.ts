@@ -64,7 +64,7 @@ export function registerPrimitive(typeName: string, typeclassName: string): void
  * Check if a type has a primitive instance for a typeclass.
  */
 export function hasPrimitive(typeName: string, typeclassName: string): boolean {
-  const key = `${typeName}::__binop__(${typeclassName}`;
+  const key = `${typeName}::${typeclassName}`;
   return primitiveRegistry.has(key);
 }
 
@@ -74,7 +74,7 @@ export function hasPrimitive(typeName: string, typeclassName: string): boolean {
 export function getPrimitivesFor(typeclassName: string): string[] {
   const result: string[] = [];
   primitiveRegistry.forEach((key) => {
-    if (key.endsWith(`, "::", ${typeclassName}`)) {
+    if (key.endsWith(`::${typeclassName}`)) {
       result.push(key.split("::")[0]);
     }
   });
@@ -250,7 +250,9 @@ function capitalize(str: string): string {
  */
 function normalizeTypeName(typeName: string): string {
   // Strip generic parameters: Array<number> → Array
-  const baseType = typeName.replace(/<.*>$/, "").trim();
+  // Use indexOf('<') instead of regex to correctly handle nested generics
+  const ltIdx = typeName.indexOf("<");
+  const baseType = (ltIdx >= 0 ? typeName.substring(0, ltIdx) : typeName).trim();
 
   // Normalize common aliases
   const normalized = baseType.toLowerCase();

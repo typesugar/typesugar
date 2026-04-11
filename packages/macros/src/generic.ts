@@ -250,26 +250,10 @@ export function hashProduct<Fields extends readonly Field<string, unknown>[]>(fi
 // Primitive Generic Instances (for recursion base cases)
 // ============================================================================
 
-// Primitives are their own representation
-export const genericNumber: Generic<number, number> = {
-  to: (n) => n,
-  from: (n) => n,
-};
-
-export const genericString: Generic<string, string> = {
-  to: (s) => s,
-  from: (s) => s,
-};
-
-export const genericBoolean: Generic<boolean, boolean> = {
-  to: (b) => b,
-  from: (b) => b,
-};
-
-// Register primitive generics
-registerGeneric("number", genericNumber);
-registerGeneric("string", genericString);
-registerGeneric("boolean", genericBoolean);
+// Primitives are their own representation — identity to/from
+registerGeneric("number", { to: (n: number) => n, from: (n: number) => n });
+registerGeneric("string", { to: (s: string) => s, from: (s: string) => s });
+registerGeneric("boolean", { to: (b: boolean) => b, from: (b: boolean) => b });
 
 // ============================================================================
 // @derive(Generic) - Auto-derive Generic instance for a type

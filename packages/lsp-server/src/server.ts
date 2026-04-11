@@ -579,8 +579,29 @@ function mapTsDiagnostic(
   const lineText = transformedLines[transformedLine]?.trim();
   if (!lineText) return null;
 
-  // Find this line in the original source
-  const origLineIdx = originalLines.findIndex((l) => l.trim() === lineText);
+  // Find this line in the original source, searching outward from the expected position
+  // to disambiguate repeated lines (common in templates).
+  const trimmedOriginals = originalLines.map((l) => l.trim());
+  let origLineIdx = -1;
+  const maxDist = Math.max(transformedLine, trimmedOriginals.length - transformedLine);
+  for (let d = 0; d <= maxDist; d++) {
+    const above = transformedLine - d;
+    const below = transformedLine + d;
+    if (above >= 0 && above < trimmedOriginals.length && trimmedOriginals[above] === lineText) {
+      origLineIdx = above;
+      break;
+    }
+    // d > 0 avoids double-checking transformedLine itself
+    if (
+      d > 0 &&
+      below >= 0 &&
+      below < trimmedOriginals.length &&
+      trimmedOriginals[below] === lineText
+    ) {
+      origLineIdx = below;
+      break;
+    }
+  }
   if (origLineIdx < 0) return null; // Truly macro-generated, no original equivalent
 
   // Map to the start of this line in the original
@@ -650,7 +671,7 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
     );
     if (!mapped || mapped.start === undefined) {
       droppedByMapper++;
-      if (droppedByMapper <= 3) {
+      if (droppedByMapper <= 10) {
         log(
           `  Dropped by mapper: TS${diag.code} at pos ${diag.start} — ${ts.flattenDiagnosticMessageText(diag.messageText, " ").substring(0, 80)}`
         );

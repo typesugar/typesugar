@@ -32,8 +32,13 @@ function tryTypeclassResolution(
   try {
     const leftType = ctx.getTypeOf(left);
     if (leftType) {
-      const typeName = ctx.typeChecker.typeToString(leftType);
-      baseTypeName = typeName.split("<")[0].trim();
+      const symbol = leftType.getSymbol() ?? leftType.aliasSymbol;
+      if (symbol) {
+        baseTypeName = symbol.getName();
+      } else {
+        // Fallback for primitive types (number, string, etc.) which have no symbol
+        baseTypeName = ctx.typeChecker.typeToString(leftType, undefined, ts.TypeFormatFlags.None);
+      }
     }
   } catch {
     return null;
