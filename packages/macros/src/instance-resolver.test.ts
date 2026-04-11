@@ -143,8 +143,8 @@ export const ordNumber = {
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("ordNumber");
-      expect(result.source).toBe("local-scope");
+      expect(result!.exportName).toBe("ordNumber");
+      expect(result!.source).toBe("local-scope");
     }
   });
 
@@ -170,8 +170,8 @@ export const x = ordNumber;
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("ordNumber");
-      expect(result.source).toBe("explicit-import");
+      expect(result!.exportName).toBe("ordNumber");
+      expect(result!.source).toBe("explicit-import");
     }
   });
 
@@ -198,8 +198,8 @@ export const x = Ord;
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("ordNumber");
-      expect(result.source).toBe("module-scan");
+      expect(result!.exportName).toBe("ordNumber");
+      expect(result!.source).toBe("module-scan");
     }
   });
 
@@ -224,8 +224,8 @@ export const x = Ord;
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("ordNumber");
-      expect(result.source).toBe("registry");
+      expect(result!.exportName).toBe("ordNumber");
+      expect(result!.source).toBe("registry");
     }
   });
 
@@ -251,8 +251,8 @@ export const localEqNumber = { eq: (a: number, b: number): boolean => a === b };
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("localEqNumber");
-      expect(result.source).toBe("local-scope");
+      expect(result!.exportName).toBe("localEqNumber");
+      expect(result!.source).toBe("local-scope");
     }
   });
 
@@ -283,8 +283,8 @@ export const y = Eq;
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("eqNumberA");
-      expect(result.source).toBe("explicit-import");
+      expect(result!.exportName).toBe("eqNumberA");
+      expect(result!.source).toBe("explicit-import");
     }
   });
 
@@ -383,7 +383,7 @@ export const field: MyNum = 42;
     expect(result).toBeDefined();
     expect(result!.kind).toBe("resolved");
     if (result!.kind === "resolved") {
-      expect(result.exportName).toBe("ordNumber");
+      expect(result!.exportName).toBe("ordNumber");
     }
   });
 
@@ -407,7 +407,7 @@ export const ordNumber = {
     expect(showResult).toBeDefined();
     expect(showResult!.kind).toBe("resolved");
     if (showResult!.kind === "resolved") {
-      expect(showResult.exportName).toBe("showNumber");
+      expect(showResult!.exportName).toBe("showNumber");
     }
 
     const ordResult = resolveInstance(ctx, "Ord", getType("number"), scanner);
