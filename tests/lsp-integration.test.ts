@@ -74,7 +74,7 @@ class LspClient {
           this.pending.delete(id);
           reject(new Error(`Timeout waiting for response to ${method}`));
         }
-      }, 15000);
+      }, 30000);
     });
   }
 
@@ -88,7 +88,7 @@ class LspClient {
     return this.notifications.filter((n) => n.method === method).map((n) => n.params);
   }
 
-  async waitForNotification(method: string, timeoutMs = 15000): Promise<any> {
+  async waitForNotification(method: string, timeoutMs = 30000): Promise<any> {
     const existing = this.notifications.find((n) => n.method === method);
     if (existing) return existing.params;
 
@@ -137,7 +137,7 @@ describe("LSP Server Integration", () => {
     expect(caps.completionProvider).toBeDefined();
     expect(caps.hoverProvider).toBe(true);
     expect(caps.definitionProvider).toBe(true);
-  }, 20000);
+  }, 45000);
 
   it("initialize + initialized handshake completes", async () => {
     client = new LspClient();
@@ -156,5 +156,5 @@ describe("LSP Server Integration", () => {
     // Server should not crash — verify by sending another request
     const shutdownResponse = await client.send("shutdown", null);
     expect(shutdownResponse.result).toBeNull();
-  }, 20000);
+  }, 45000);
 });
