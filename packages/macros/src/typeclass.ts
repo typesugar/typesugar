@@ -594,95 +594,27 @@ function executeTransitiveDerivation(
   typeclassName: string,
   plan: { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] }
 ): ts.Statement[] {
-  return withDerivationContext(ctx, () => {
-    const statements: ts.Statement[] = [];
-    const derivation = builtinDerivations[typeclassName];
+  const statements: ts.Statement[] = [];
 
-    if (!derivation) return statements;
-
-    for (const typeInfo of plan.types) {
-      // Skip if already has instance (explicit override)
-      if (
-        instanceRegistry.some(
-          (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
-        )
-      ) {
-        continue;
-      }
-
-      // Generate instance
-      let code = derivation.deriveProduct(typeInfo.typeName, typeInfo.fields);
-
-      // Convert to companion property assignment (replaces flat const + runtime registration)
-      code = convertToCompanionAssignment(code, typeclassName, typeInfo.typeName);
-
-      // Ensure the transitive type has a companion const (for interfaces/type aliases)
-      const transitiveIsExported =
-        typeInfo.node.modifiers?.some(
-          (m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword
-        ) ?? false;
-      const transitiveCompanionCode = ensureDataTypeCompanionConst(
-        typeInfo.node,
-        typeInfo.typeName,
-        transitiveIsExported
-      );
-      if (transitiveCompanionCode) {
-        // Only emit companion const if:
-        // 1. We haven't already emitted one for this type
-        // 2. The derived code doesn't already contain a namespace for this type
-        //    (namespace provides the value binding, so const would conflict with TS2451)
-        const alreadyHasCompanion = statements.some(
-          (s) =>
-            (ts.isVariableStatement(s) &&
-              s.declarationList.declarations.some(
-                (d) => ts.isIdentifier(d.name) && d.name.text === typeInfo.typeName
-              )) ||
-            (ts.isModuleDeclaration(s) &&
-              ts.isIdentifier(s.name) &&
-              s.name.text === typeInfo.typeName)
-        );
-        const codeHasNamespace = code.includes(`namespace ${typeInfo.typeName}`);
-        if (!alreadyHasCompanion && !codeHasNamespace) {
-          statements.push(...ctx.parseStatements(transitiveCompanionCode));
-        }
-      }
-
-      statements.push(...ctx.parseStatements(code));
-
-      // Register in compile-time registry (always needed for summon/implicit resolution)
-      const varName = instanceVarName(uncapitalize(typeclassName), typeInfo.typeName);
-      instanceRegistry.push({
-        typeclassName,
-        forType: typeInfo.typeName,
-        instanceName: varName,
-        companionPath: companionPath(typeclassName, typeInfo.typeName),
-        derived: true,
-      });
-
-      // Bridge to specialization registry for zero-cost inlining at call sites
-      const specMethods = getSpecializationMethodsForDerivation(
-        typeclassName,
-        typeInfo.typeName,
-        typeInfo.fields
-      );
-      if (specMethods && Object.keys(specMethods).length > 0) {
-        const methodsMap = new Map<string, { source?: string; params: string[] }>();
-        for (const [name, impl] of Object.entries(specMethods)) {
-          methodsMap.set(name, { source: impl.source, params: impl.params });
-        }
-        registerInstanceMethodsFromAST(
-          companionPath(typeclassName, typeInfo.typeName),
-          typeInfo.typeName,
-          methodsMap
-        );
-      }
-
-      // Notify coverage system
-      notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
+  for (const typeInfo of plan.types) {
+    if (
+      instanceRegistry.some(
+        (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
+      )
+    ) {
+      continue;
     }
 
-    return statements;
-  }); // withDerivationContext
+    const expansion = tryExpandGenericDerive(ctx, typeclassName, typeInfo.typeName, typeInfo.node);
+    if (expansion) {
+      statements.push(...expansion.statements);
+      instanceRegistry.push(expansion.registryEntry);
+    }
+
+    notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
+  }
+
+  return statements;
 }
 
 // ============================================================================
@@ -2605,324 +2537,7 @@ function getFieldInstanceRef(
   return companionAccess(tcName, getBaseType(field), field.type);
 }
 
-const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {
-  Show: {
-    deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-      const fieldShows = fields
-        .map((f) => {
-          const inst = companionAccess("Show", getBaseType(f), f.type);
-          return `${f.name} = \${${inst}.show(a.${f.name})}`;
-        })
-        .join(", ");
-
-      const varName = instanceVarName("show", typeName);
-      return `
-const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
-  show: (a: ${typeName}): string => \`${typeName}(${fieldShows})\`,
-};
-`;
-    },
-
-    deriveSum(
-      typeName: string,
-      discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>
-    ): string {
-      const varName = instanceVarName("show", typeName);
-      const cases = variants
-        .map((v) => {
-          const inst = companionAccess("Show", v.typeName);
-          return `    case "${v.tag}": return ${inst}.show(a as any);`;
-        })
-        .join("\n");
-
-      return `
-const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
-  show: (a: ${typeName}): string => {
-    switch ((a as any).${discriminant}) {
-${cases}
-      default: return String(a);
-    }
-  },
-};
-`;
-    },
-
-    deriveGenericSum(
-      typeName: string,
-      discriminant: string,
-      variants: DeriveVariantInfo[],
-      typeParams: ts.TypeParameterDeclaration[]
-    ): string | undefined {
-      const isGeneric = typeParams.length > 0;
-      const paramMap: Map<string, string> = isGeneric
-        ? buildGenericFactorySignature("Show", typeName, typeParams).paramMap
-        : new Map();
-
-      const cases = variants
-        .map((v) => {
-          const fields = v.fields.filter((f) => f.name !== discriminant);
-          if (fields.length === 0) {
-            return `      case "${v.tag}": return "${v.tag}";`;
-          }
-          if (fields.length === 1) {
-            const f = fields[0];
-            const inst = getFieldInstanceRef("Show", f, paramMap);
-            return `      case "${v.tag}": return \`${v.tag}(\${${inst}.show((a as any).${f.name})})\`;`;
-          }
-          const fieldShows = fields
-            .map((f) => {
-              const inst = getFieldInstanceRef("Show", f, paramMap);
-              return `${f.name} = \${${inst}.show((a as any).${f.name})}`;
-            })
-            .join(", ");
-          return `      case "${v.tag}": return \`${v.tag}(${fieldShows})\`;`;
-        })
-        .join("\n");
-
-      if (isGeneric) {
-        const { signature } = buildGenericFactorySignature("Show", typeName, typeParams);
-        const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
-        const fullTypeName = `${typeName}<${typeParamsStr}>`;
-
-        return `
-export function ${signature} {
-  return {
-    show: (a: ${fullTypeName}): string => {
-      switch ((a as any).${discriminant}) {
-${cases}
-        default: return String(a);
-      }
-    },
-  };
-}
-`;
-      }
-
-      const varName = instanceVarName("show", typeName);
-      return `
-const ${varName}: Show<${typeName}> = /*#__PURE__*/ {
-  show: (a: ${typeName}): string => {
-    switch ((a as any).${discriminant}) {
-${cases}
-      default: return String(a);
-    }
-  },
-};
-`;
-    },
-  },
-
-  Ord: {
-    deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-      const varName = instanceVarName("ord", typeName);
-      const fieldComparisons = fields
-        .map((f) => {
-          const inst = companionAccess("Ord", getBaseType(f), f.type);
-          return `  { const c = ${inst}.compare(a.${f.name}, b.${f.name}); if (c !== 0) return c; }`;
-        })
-        .join("\n");
-
-      return `
-const ${varName}: Ord<${typeName}> = /*#__PURE__*/ {
-  compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
-${fieldComparisons}
-    return 0;
-  },
-};
-`;
-    },
-
-    deriveSum(
-      typeName: string,
-      discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>
-    ): string {
-      const varName = instanceVarName("ord", typeName);
-      const tagOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
-      const cases = variants
-        .map((v) => {
-          const inst = companionAccess("Ord", v.typeName);
-          return `    case "${v.tag}": return ${inst}.compare(a as any, b as any);`;
-        })
-        .join("\n");
-
-      return `
-const ${varName}: Ord<${typeName}> = /*#__PURE__*/ {
-  compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
-    const tagOrder: Record<string, number> = { ${tagOrder} };
-    const aTag = (a as any).${discriminant};
-    const bTag = (b as any).${discriminant};
-    if (aTag !== bTag) return aTag < bTag ? -1 : 1;
-    switch (aTag) {
-${cases}
-      default: return 0;
-    }
-  },
-};
-`;
-    },
-
-    deriveGenericSum(
-      typeName: string,
-      discriminant: string,
-      variants: DeriveVariantInfo[],
-      typeParams: ts.TypeParameterDeclaration[]
-    ): string | undefined {
-      const isGeneric = typeParams.length > 0;
-      const paramMap: Map<string, string> = isGeneric
-        ? buildGenericFactorySignature("Ord", typeName, typeParams).paramMap
-        : new Map();
-
-      const cases = variants
-        .map((v) => {
-          const fieldComps = v.fields
-            .filter((f) => f.name !== discriminant)
-            .map((f) => {
-              const inst = getFieldInstanceRef("Ord", f, paramMap);
-              return `      { const c = ${inst}.compare((x as any).${f.name}, (y as any).${f.name}); if (c !== 0) return c; }`;
-            });
-          const body =
-            fieldComps.length > 0 ? fieldComps.join("\n") + "\n      return 0;" : "return 0;";
-          return `      case "${v.tag}":\n${body}`;
-        })
-        .join("\n");
-
-      const tagOrder = variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
-
-      if (isGeneric) {
-        const { signature } = buildGenericFactorySignature("Ord", typeName, typeParams);
-        const typeParamsStr = typeParams.map((tp) => tp.name.text).join(", ");
-        const fullTypeName = `${typeName}<${typeParamsStr}>`;
-        const eqParams = typeParams
-          .map((tp) => getInstanceParamName("Ord", tp.name.text))
-          .join(", ");
-
-        return `
-export function ${signature} {
-  const tagOrder: Record<string, number> = { ${tagOrder} };
-  return {
-    eqv: getEq(${eqParams}).eqv,
-    compare: (x: ${fullTypeName}, y: ${fullTypeName}): Ordering => {
-      const xTag = (x as any).${discriminant};
-      const yTag = (y as any).${discriminant};
-      if (xTag !== yTag) return (tagOrder[xTag] < tagOrder[yTag] ? -1 : 1) as Ordering;
-      switch (xTag) {
-${cases}
-        default: return 0 as Ordering;
-      }
-    },
-  };
-}
-`;
-      }
-
-      const varName = instanceVarName("ord", typeName);
-      return `
-const ${varName}: Ord<${typeName}> = /*#__PURE__*/ {
-  compare: (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => {
-    const tagOrder: Record<string, number> = { ${tagOrder} };
-    const aTag = (a as any).${discriminant};
-    const bTag = (b as any).${discriminant};
-    if (aTag !== bTag) return aTag < bTag ? -1 : 1;
-    switch (aTag) {
-${cases}
-      default: return 0;
-    }
-  },
-};
-`;
-    },
-  },
-
-  Hash: {
-    deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-      const varName = instanceVarName("hash", typeName);
-      const fieldHashes = fields
-        .map((f) => {
-          const inst = companionAccess("Hash", getBaseType(f), f.type);
-          return `  hash = ((hash << 5) + hash) ^ ${inst}.hash(a.${f.name});`;
-        })
-        .join("\n");
-
-      return `
-const ${varName}: Hash<${typeName}> = /*#__PURE__*/ {
-  hash: (a: ${typeName}): number => {
-    let hash = 5381;
-${fieldHashes}
-    return hash >>> 0;
-  },
-};
-`;
-    },
-
-    deriveSum(
-      typeName: string,
-      discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>
-    ): string {
-      const varName = instanceVarName("hash", typeName);
-      const cases = variants
-        .map((v, i) => {
-          const inst = companionAccess("Hash", v.typeName);
-          return `    case "${v.tag}": return ((${i} << 16) | ${inst}.hash(a as any)) >>> 0;`;
-        })
-        .join("\n");
-
-      return `
-const ${varName}: Hash<${typeName}> = /*#__PURE__*/ {
-  hash: (a: ${typeName}): number => {
-    switch ((a as any).${discriminant}) {
-${cases}
-      default: return 0;
-    }
-  },
-};
-`;
-    },
-  },
-
-  Functor: {
-    deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-      // Functor derivation for product types - maps over the "contained" value
-      // This is a simplified version; real Functor derivation would need
-      // to know which field is the "contained" type parameter
-      const varName = instanceVarName("functor", typeName);
-      return `
-const ${varName}: Functor<${typeName}> = /*#__PURE__*/ {
-  map: <A, B>(fa: ${typeName}, f: (a: A) => B): ${typeName} => {
-    return { ...fa } as any;
-  },
-};
-`;
-    },
-
-    deriveSum(
-      typeName: string,
-      discriminant: string,
-      variants: Array<{ tag: string; typeName: string }>
-    ): string {
-      const varName = instanceVarName("functor", typeName);
-      const cases = variants
-        .map((v) => {
-          const inst = companionAccess("Functor", v.typeName);
-          return `    case "${v.tag}": return ${inst}.map(fa as any, f) as any;`;
-        })
-        .join("\n");
-
-      return `
-const ${varName}: Functor<${typeName}> = /*#__PURE__*/ {
-  map: <A, B>(fa: ${typeName}, f: (a: A) => B): ${typeName} => {
-    switch ((fa as any).${discriminant}) {
-${cases}
-      default: return fa;
-    }
-  },
-};
-`;
-    },
-  },
-};
+const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {};
 
 /**
  * Try to extract sum type information from a type alias declaration.
@@ -3561,9 +3176,9 @@ export function generateStandardTypeclasses(): string {
 
 interface Eq<A> {
   /** @op === */
-  eq(a: A, b: A): boolean;
+  equals(a: A, b: A): boolean;
   /** @op !== */
-  neq(a: A, b: A): boolean;
+  notEquals(a: A, b: A): boolean;
 }
 typeclass("Eq");
 
@@ -3619,18 +3234,18 @@ typeclass("Functor");
 
 // Eq instances for primitives
 const eqNumber: Eq<number> = /*#__PURE__*/ {
-  eq: (a, b) => a === b,
-  neq: (a, b) => a !== b,
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
 };
 
 const eqString: Eq<string> = /*#__PURE__*/ {
-  eq: (a, b) => a === b,
-  neq: (a, b) => a !== b,
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
 };
 
 const eqBoolean: Eq<boolean> = /*#__PURE__*/ {
-  eq: (a, b) => a === b,
-  neq: (a, b) => a !== b,
+  equals: (a, b) => a === b,
+  notEquals: (a, b) => a !== b,
 };
 
 // Show instances for primitives
@@ -3695,342 +3310,6 @@ const monoidString: Monoid<string> = /*#__PURE__*/ {
 };
 `;
 }
-
-// ============================================================================
-// Semigroup/Monoid derivation for products
-// ============================================================================
-
-builtinDerivations["Semigroup"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("semigroup", typeName);
-    const fieldCombines = fields
-      .map((f) => {
-        const inst = companionAccess("Semigroup", getBaseType(f), f.type);
-        return `    ${f.name}: ${inst}.combine(a.${f.name}, b.${f.name})`;
-      })
-      .join(",\n");
-
-    return `
-const ${varName}: Semigroup<${typeName}> = /*#__PURE__*/ {
-  combine: (a: ${typeName}, b: ${typeName}): ${typeName} => ({
-${fieldCombines}
-  }),
-};
-`;
-  },
-
-  deriveSum(
-    _typeName: string,
-    _discriminant: string,
-    _variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    // Semigroup cannot generally be derived for sum types
-    return `// Semigroup cannot be auto-derived for sum types`;
-  },
-};
-
-builtinDerivations["Monoid"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("monoid", typeName);
-    const fieldEmpties = fields
-      .map((f) => {
-        const inst = companionAccess("Monoid", getBaseType(f), f.type);
-        return `    ${f.name}: ${inst}.empty()`;
-      })
-      .join(",\n");
-    const fieldCombines = fields
-      .map((f) => {
-        const inst = companionAccess("Monoid", getBaseType(f), f.type);
-        return `    ${f.name}: ${inst}.combine(a.${f.name}, b.${f.name})`;
-      })
-      .join(",\n");
-
-    return `
-const ${varName}: Monoid<${typeName}> = /*#__PURE__*/ {
-  empty: (): ${typeName} => ({
-${fieldEmpties}
-  }),
-  combine: (a: ${typeName}, b: ${typeName}): ${typeName} => ({
-${fieldCombines}
-  }),
-};
-`;
-  },
-
-  deriveSum(
-    _typeName: string,
-    _discriminant: string,
-    _variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    return `// Monoid cannot be auto-derived for sum types`;
-  },
-};
-
-// ============================================================================
-// Clone derivation
-// ============================================================================
-
-builtinDerivations["Clone"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("clone", typeName);
-    const copies = fields.map((f) => `    ${f.name}: a.${f.name}`).join(",\n");
-
-    return `
-const ${varName}: Clone<${typeName}> = {
-  clone: (a: ${typeName}): ${typeName} => ({
-${copies}
-  }),
-};
-`;
-  },
-
-  deriveSum(
-    typeName: string,
-    discriminant: string,
-    variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    const varName = instanceVarName("clone", typeName);
-    const cases = variants
-      .map((v) => {
-        return `      case "${v.tag}": return { ...a } as ${typeName};`;
-      })
-      .join("\n");
-
-    return `
-const ${varName}: Clone<${typeName}> = {
-  clone: (a: ${typeName}): ${typeName} => {
-    switch ((a as any).${discriminant}) {
-${cases}
-      default: return { ...a } as ${typeName};
-    }
-  },
-};
-`;
-  },
-};
-
-// ============================================================================
-// Debug derivation
-// ============================================================================
-
-builtinDerivations["Debug"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("debug", typeName);
-    const pairs = fields.map((f) => `${f.name}: \${JSON.stringify(a.${f.name})}`).join(", ");
-
-    return `
-const ${varName}: Debug<${typeName}> = {
-  debug: (a: ${typeName}): string => \`${typeName} { ${pairs} }\`,
-};
-`;
-  },
-
-  deriveSum(
-    typeName: string,
-    discriminant: string,
-    variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    const varName = instanceVarName("debug", typeName);
-    const cases = variants
-      .map((v) => {
-        return `      case "${v.tag}": return \`${v.typeName}(\${JSON.stringify(a)})\`;`;
-      })
-      .join("\n");
-
-    return `
-const ${varName}: Debug<${typeName}> = {
-  debug: (a: ${typeName}): string => {
-    switch ((a as any).${discriminant}) {
-${cases}
-      default: return String(a);
-    }
-  },
-};
-`;
-  },
-};
-
-// ============================================================================
-// Default derivation
-// ============================================================================
-
-function getDefaultValueForType(field: DeriveFieldInfo): string {
-  if (field.optional) return "undefined";
-  const baseType = getBaseType(field);
-  switch (baseType) {
-    case "number":
-      return "0";
-    case "string":
-      return '""';
-    case "boolean":
-      return "false";
-    case "array":
-      return "[]";
-    default: {
-      // Try to detect known types that need special handling
-      const typeStr = field.typeString.trim();
-      const lower = typeStr.toLowerCase();
-      if (lower === "date") {
-        return "new Date(0)";
-      }
-      if (lower.startsWith("map<") || lower === "map") {
-        return "new Map()";
-      }
-      if (lower.startsWith("set<") || lower === "set") {
-        return "new Set()";
-      }
-      if (lower === "null") {
-        return "null";
-      }
-      // For unknown object types, summon their Default instance if available
-      // This enables transitive derivation - if the nested type also has @derive(Default),
-      // its default instance will be used
-      if (/^[A-Z]/.test(typeStr) && !typeStr.includes("<") && !typeStr.includes("|")) {
-        return `summon<Default<${typeStr}>>().default()`;
-      }
-      // Fallback: empty object cast (will fail typecheck if wrong)
-      return `({} as ${typeStr})`;
-    }
-  }
-}
-
-builtinDerivations["Default"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("default", typeName);
-    const defaults = fields.map((f) => `    ${f.name}: ${getDefaultValueForType(f)}`).join(",\n");
-
-    return `
-const ${varName}: Default<${typeName}> = {
-  default: (): ${typeName} => ({
-${defaults}
-  }),
-};
-`;
-  },
-
-  deriveSum(
-    typeName: string,
-    _discriminant: string,
-    _variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    return `// Default cannot be auto-derived for sum types`;
-  },
-};
-
-// ============================================================================
-// Json derivation
-// ============================================================================
-
-builtinDerivations["Json"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("json", typeName);
-    const fieldCopies = fields.map((f) => `      ${f.name}: a.${f.name}`).join(",\n");
-    const validations = fields
-      .map((f) => {
-        const baseType = getBaseType(f);
-        const lines: string[] = [];
-        if (!f.optional) {
-          lines.push(
-            `    if (obj.${f.name} === undefined) throw new Error("Missing required field: ${f.name}");`
-          );
-        }
-        lines.push(
-          `    if (obj.${f.name} !== undefined && typeof obj.${f.name} !== "${baseType}") throw new Error("Field ${f.name} must be ${baseType}");`
-        );
-        return lines.join("\n");
-      })
-      .join("\n");
-
-    return `
-const ${varName}: Json<${typeName}> = {
-  toJson: (a: ${typeName}): unknown => ({
-${fieldCopies}
-  }),
-  fromJson: (json: unknown): ${typeName} => {
-    if (typeof json !== "object" || json === null) throw new Error("Expected object for ${typeName}");
-    const obj = json as Record<string, unknown>;
-${validations}
-    return obj as unknown as ${typeName};
-  },
-};
-`;
-  },
-
-  deriveSum(
-    typeName: string,
-    discriminant: string,
-    variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    const varName = instanceVarName("json", typeName);
-    const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
-
-    return `
-const ${varName}: Json<${typeName}> = {
-  toJson: (a: ${typeName}): unknown => ({ ...a }),
-  fromJson: (json: unknown): ${typeName} => {
-    if (typeof json !== "object" || json === null) throw new Error("Expected object for ${typeName}");
-    const obj = json as Record<string, unknown>;
-    if (typeof obj.${discriminant} !== "string") throw new Error("Missing discriminant: ${discriminant}");
-    const validTags = [${validTags}];
-    if (!validTags.includes(obj.${discriminant} as string)) throw new Error(\`Invalid ${discriminant}: \${obj.${discriminant}}\`);
-    return obj as unknown as ${typeName};
-  },
-};
-`;
-  },
-};
-
-// ============================================================================
-// TypeGuard derivation
-// ============================================================================
-
-builtinDerivations["TypeGuard"] = {
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string {
-    const varName = instanceVarName("typeGuard", typeName);
-
-    if (fields.length === 0) {
-      return `
-const ${varName}: TypeGuard<${typeName}> = {
-  is: (value: unknown): boolean => typeof value === "object" && value !== null,
-};
-`;
-    }
-
-    const checks = fields.map((f) => {
-      const baseType = getBaseType(f);
-      const check = `typeof (value as any).${f.name} === "${baseType}"`;
-      if (f.optional) {
-        return `((value as any).${f.name} === undefined || ${check})`;
-      }
-      return check;
-    });
-
-    return `
-const ${varName}: TypeGuard<${typeName}> = {
-  is: (value: unknown): boolean => typeof value === "object" && value !== null && ${checks.join(" && ")},
-};
-`;
-  },
-
-  deriveSum(
-    typeName: string,
-    discriminant: string,
-    variants: Array<{ tag: string; typeName: string }>
-  ): string {
-    const varName = instanceVarName("typeGuard", typeName);
-    const validTags = variants.map((v) => `"${v.tag}"`).join(", ");
-
-    return `
-const ${varName}: TypeGuard<${typeName}> = {
-  is: (value: unknown): boolean => {
-    if (typeof value !== "object" || value === null) return false;
-    if (typeof (value as any).${discriminant} !== "string") return false;
-    return [${validTags}].includes((value as any).${discriminant});
-  },
-};
-`;
-  },
-};
 
 // ============================================================================
 // Comprehension Typeclass Support (FlatMap, ParCombine)
@@ -4346,7 +3625,7 @@ export interface GenericDeriveExpansion {
  * Try to expand a GenericDerivation strategy for use in @derive.
  *
  * This is the shared logic that both transformers call when @derive(Foo) isn't
- * handled by a registered derive macro or builtinDerivations.  It calls the
+ * handled by a registered derive macro.  It calls the
  * GenericDerivation strategy to get a code string, wraps it in a const
  * declaration, converts to a companion namespace (same as builtins), and
  * returns parsed statements.
@@ -4366,54 +3645,137 @@ export function tryExpandGenericDerive(
 
   if (!hasGD(deriveName)) return null;
 
-  const result = tryGD(ctx, deriveName, typeName);
+  const result = tryGD(ctx, deriveName, typeName, node);
   if (!result.expression) return null;
 
   const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
   const varName = instanceVarName(uncap, typeName);
 
   // Build companion namespace directly as AST:
-  //   namespace TypeName { export const TCName: TC<Type> = <expression>; }
+  //   namespace TypeName { export const TCName = <expression>; }
   let expr = result.expression;
   while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
 
-  const companionProperty = ts.factory.createVariableStatement(
-    [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-    ts.factory.createVariableDeclarationList(
-      [
-        ts.factory.createVariableDeclaration(
-          deriveName,
-          undefined,
-          ts.factory.createTypeReferenceNode(deriveName, [
-            ts.factory.createTypeReferenceNode(typeName),
-          ]),
-          expr
-        ),
-      ],
-      ts.NodeFlags.Const
-    )
-  );
+  // Check if the expression references primitive companions of the same typeclass
+  // (e.g. Eq.number inside a derived Eq). If so, putting the expression inside
+  // `namespace Point { export const Eq = ... }` would shadow the imported `Eq`,
+  // breaking the reference. Fix: hoist the impl to module scope and re-export.
+  const hasPrimitiveSelfRef = (function checkPrimRef(n: ts.Node): boolean {
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === deriveName &&
+      PRIMITIVE_TYPES.includes(n.name.text)
+    ) {
+      return true;
+    }
+    return ts.forEachChild(n, checkPrimRef) || false;
+  })(expr);
 
-  const namespaceDecl = ts.factory.createModuleDeclaration(
-    undefined,
-    ts.factory.createIdentifier(typeName),
-    ts.factory.createModuleBlock([companionProperty]),
-    ts.NodeFlags.Namespace
-  );
+  // Don't emit a type annotation (e.g. `Eq<Point>`) — the typeclass name may
+  // be a value (frozen object) rather than a generic type. TypeScript infers
+  // the structural type from the initializer, which is sufficient.
+  const typeAnnotation = undefined;
 
   const statements: ts.Statement[] = [];
+  const isExported =
+    node?.modifiers?.some((m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+  const nsModifiers = isExported
+    ? [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)]
+    : undefined;
 
   // Ensure the type has a companion const (for interfaces/type aliases)
   if (node) {
-    const isExported =
-      node.modifiers?.some((m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
     const companionCode = ensureDataTypeCompanionConst(node as any, typeName, isExported);
     if (companionCode) {
       statements.push(...ctx.parseStatements(companionCode));
     }
   }
 
-  statements.push(namespaceDecl);
+  if (hasPrimitiveSelfRef) {
+    // If the source file doesn't already import the typeclass name (e.g. Eq),
+    // inject an import so the hoisted code can reference Eq.number at runtime.
+    const alreadyImported = ctx.sourceFile.statements.some(
+      (s) =>
+        ts.isImportDeclaration(s) &&
+        s.importClause?.namedBindings &&
+        ts.isNamedImports(s.importClause.namedBindings) &&
+        s.importClause.namedBindings.elements.some((e) => e.name.text === deriveName)
+    );
+    if (!alreadyImported) {
+      const importDecl = ts.factory.createImportDeclaration(
+        undefined,
+        ts.factory.createImportClause(
+          false,
+          undefined,
+          ts.factory.createNamedImports([
+            ts.factory.createImportSpecifier(
+              false,
+              undefined,
+              ts.factory.createIdentifier(deriveName)
+            ),
+          ])
+        ),
+        ts.factory.createStringLiteral("@typesugar/macros")
+      );
+      statements.push(importDecl as unknown as ts.Statement);
+    }
+
+    // Hoist: const _PointEq = { ... Eq.number ... };
+    //        namespace Point { export const Eq = _PointEq; }
+    const hoistedName = `_${typeName}${deriveName}`;
+
+    const hoistedDecl = ts.factory.createVariableStatement(
+      undefined,
+      ts.factory.createVariableDeclarationList(
+        [ts.factory.createVariableDeclaration(hoistedName, undefined, typeAnnotation, expr)],
+        ts.NodeFlags.Const
+      )
+    );
+
+    const reExport = ts.factory.createVariableStatement(
+      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+      ts.factory.createVariableDeclarationList(
+        [
+          ts.factory.createVariableDeclaration(
+            deriveName,
+            undefined,
+            typeAnnotation,
+            ts.factory.createIdentifier(hoistedName)
+          ),
+        ],
+        ts.NodeFlags.Const
+      )
+    );
+
+    const namespaceDecl = ts.factory.createModuleDeclaration(
+      nsModifiers,
+      ts.factory.createIdentifier(typeName),
+      ts.factory.createModuleBlock([reExport]),
+      ts.NodeFlags.Namespace
+    );
+
+    statements.push(hoistedDecl);
+    statements.push(namespaceDecl);
+  } else {
+    // Standard path: wrap in namespace directly (no shadowing risk).
+    const companionProperty = ts.factory.createVariableStatement(
+      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+      ts.factory.createVariableDeclarationList(
+        [ts.factory.createVariableDeclaration(deriveName, undefined, typeAnnotation, expr)],
+        ts.NodeFlags.Const
+      )
+    );
+
+    const namespaceDecl = ts.factory.createModuleDeclaration(
+      nsModifiers,
+      ts.factory.createIdentifier(typeName),
+      ts.factory.createModuleBlock([companionProperty]),
+      ts.NodeFlags.Namespace
+    );
+
+    statements.push(namespaceDecl);
+  }
 
   return {
     statements,
@@ -4431,19 +3793,11 @@ export function tryExpandGenericDerive(
 // Exports
 // ============================================================================
 
-export type {
-  TypeclassInfo,
-  TypeclassMethod,
-  InstanceInfo,
-  InstanceMeta,
-  BuiltinTypeclassDerivation,
-  SyntaxEntry,
-};
+export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, SyntaxEntry };
 
 export {
   typeclassRegistry,
   instanceRegistry,
-  builtinDerivations,
   findInstance,
   getTypeclass,
   instanceVarName,

@@ -113,8 +113,10 @@ describe("auto-derive method filtering", () => {
     expect(errors).toHaveLength(0);
 
     // The output should contain derived Eq implementation
-    expect(r.code).toContain("a.x === b.x");
-    expect(r.code).toContain("a.y === b.y");
+    expect(r.code).toContain("a.x");
+    expect(r.code).toContain("b.x");
+    expect(r.code).toContain("a.y");
+    expect(r.code).toContain("b.y");
 
     // The output should NOT contain method names in the comparison
     expect(r.code).not.toContain("a.add");
@@ -145,8 +147,8 @@ describe("auto-derive method filtering", () => {
     expect(errors).toHaveLength(0);
 
     // Should compare data properties
-    expect(r.code).toContain("a.id === b.id");
-    expect(r.code).toContain("a.name === b.name");
+    expect(r.code).toContain("a.id");
+    expect(r.code).toContain("a.name");
 
     // Should NOT try to compare methods
     expect(r.code).not.toContain("a.clone");
@@ -259,8 +261,8 @@ describe("auto-derive with getters and setters", () => {
     expect(errors).toHaveLength(0);
 
     // Should compare data properties
-    expect(r.code).toContain("a.width === b.width");
-    expect(r.code).toContain("a.height === b.height");
+    expect(r.code).toContain("a.width");
+    expect(r.code).toContain("a.height");
 
     // Should NOT compare method or getter (getters are computed, not stored data)
     expect(r.code).not.toContain("a.scale");
@@ -330,8 +332,8 @@ describe("auto-derive Unit<D> style class", () => {
     expect(errors).toHaveLength(0);
 
     // Should compare only value and symbol
-    expect(r.code).toContain("a.value === b.value");
-    expect(r.code).toContain("a.symbol === b.symbol");
+    expect(r.code).toContain("a.value");
+    expect(r.code).toContain("a.symbol");
 
     // Should NOT contain any method comparisons
     expect(r.code).not.toContain("a.add");

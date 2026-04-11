@@ -20,8 +20,6 @@ import {
   createSpecializedFunction,
   isKindAnnotation,
   transformHKTDeclaration,
-  builtinDerivations,
-  withDerivationContext,
   tryExpandGenericDerive,
   instanceRegistry,
   typeclassRegistry,
@@ -4831,104 +4829,7 @@ class MacroTransformer {
         }
       }
 
-      // 2. Check for a built-in typeclass derivation strategy (auto-derivation)
-      const typeclassDerivation = builtinDerivations[deriveName];
-      if (typeclassDerivation) {
-        if (this.verbose) {
-          console.log(
-            `[typesugar] Auto-deriving typeclass instance: ${deriveName} for ${typeName}`
-          );
-        }
-
-        try {
-          let code: string = withDerivationContext(this.ctx, () => {
-            if (ts.isTypeAliasDeclaration(node)) {
-              const sumInfo = tryExtractSumType(this.ctx, node);
-              if (sumInfo) {
-                return typeclassDerivation.deriveSum(
-                  typeName,
-                  sumInfo.discriminant,
-                  sumInfo.variants
-                );
-              } else {
-                return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
-              }
-            } else {
-              return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
-            }
-          });
-
-          // Convert to companion property assignment (replaces flat const + runtime registration)
-          code = convertToCompanionAssignment(code, deriveName, typeName);
-
-          // Ensure companion const exists for interfaces/type aliases
-          const isExported =
-            node.modifiers?.some((m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword) ??
-            false;
-          const companionCode = ensureDataTypeCompanionConst(node as any, typeName, isExported);
-          if (companionCode) {
-            // Only emit companion const if:
-            // 1. Not already emitted for this type (variable or namespace)
-            // 2. The derived code doesn't already contain a namespace for this type
-            //    (namespace provides the value binding; const would conflict: TS2451)
-            const alreadyHasCompanion = statements.some(
-              (s) =>
-                (ts.isVariableStatement(s) &&
-                  s.declarationList.declarations.some(
-                    (d) => ts.isIdentifier(d.name) && d.name.text === typeName
-                  )) ||
-                (ts.isModuleDeclaration(s) && ts.isIdentifier(s.name) && s.name.text === typeName)
-            );
-            const codeHasNamespace = code.includes(`namespace ${typeName}`);
-            if (!alreadyHasCompanion && !codeHasNamespace) {
-              for (const stmt of this.ctx.parseStatements(companionCode)) {
-                statements.push(this.setSourceMapRangeDeep(stmt, decorator));
-              }
-            }
-          }
-
-          for (const stmt of this.ctx.parseStatements(code)) {
-            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
-          }
-
-          const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
-          const varName = instanceVarName(uncap, typeName);
-          instanceRegistry.push({
-            typeclassName: deriveName,
-            forType: typeName,
-            instanceName: varName,
-            companionPath: companionPath(deriveName, typeName),
-            derived: true,
-          });
-
-          const specMethods = getSpecializationMethodsForDerivation(
-            deriveName,
-            typeName,
-            typeInfo.fields
-          );
-          if (specMethods && Object.keys(specMethods).length > 0) {
-            const methodsMap = new Map<string, { source?: string; params: string[] }>();
-            for (const [name, impl] of Object.entries(specMethods)) {
-              methodsMap.set(name, { source: impl.source, params: impl.params });
-            }
-            registerInstanceMethodsFromAST(
-              companionPath(deriveName, typeName),
-              typeName,
-              methodsMap
-            );
-          }
-
-          // PEP-038 Wave 2E: Resolve field instances and schedule imports
-          // for any that come from another module.
-          this.resolveAndScheduleFieldInstanceImports(deriveName, typeInfo.fields);
-        } catch (error) {
-          this.ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
-        }
-        continue;
-      }
-
-      // 3. Check for a GenericDerivation strategy (works for any typeclass
-      //    that called registerGenericDerivation — same path summon uses)
+      // 2. Check for a GenericDerivation strategy (unified path for all typeclasses)
       try {
         const genericExpansion = tryExpandGenericDerive(this.ctx, deriveName, typeName, node);
         if (genericExpansion) {

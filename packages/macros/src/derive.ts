@@ -16,23 +16,80 @@
  */
 
 // ============================================================================
-// Derive Name Symbols
+// Derive Name Markers & Primitive Companions
 // ============================================================================
-// These are placeholder symbols for use in @derive() decorators.
-// The transformer recognizes these by name and invokes the corresponding
-// typeclass derivation via the @derive attribute macro.
-// They exist to satisfy the LSP and enable autocomplete.
+// These identifiers serve two purposes:
+//   1. Markers for @derive() decorators — the transformer recognizes them by
+//      identifier name (arg.text), never inspecting the runtime value.
+//   2. Runtime companion namespaces for primitive typeclass instances, so that
+//      generated code like `Eq.number.equals(a, b)` works at runtime. This
+//      follows the same companion pattern as user types (`Point.Eq.equals`).
+//
+// Typeclasses that have primitive instances (Eq, Ord, Hash, Show) are frozen
+// objects whose properties are the primitive instances.  Typeclasses without
+// primitive instances stay as plain symbols.
 
-/** Derive equality comparison (equals method) */
-export const Eq: unique symbol = Symbol("Eq");
-/** Derive ordering/comparison (compare method) */
-export const Ord: unique symbol = Symbol("Ord");
+import {
+  eqNumber,
+  eqString,
+  eqBoolean,
+  eqBigint,
+  eqNull,
+  eqUndefined,
+  eqArray,
+  ordNumber,
+  ordString,
+  ordBoolean,
+  ordBigint,
+  ordArray,
+  hashNumber,
+  hashString,
+  hashBoolean,
+  hashBigint,
+  hashNull,
+  hashUndefined,
+  hashArray,
+  showNumber,
+  showString,
+  showBoolean,
+  showBigint,
+  showNull,
+  showUndefined,
+  showArray,
+} from "./primitives.js";
+
+/** Derive equality comparison (equals method). Also carries primitive Eq instances. */
+export const Eq = Object.freeze({
+  number: eqNumber,
+  string: eqString,
+  boolean: eqBoolean,
+  bigint: eqBigint,
+  null: eqNull,
+  undefined: eqUndefined,
+  array: eqArray,
+});
+/** Derive ordering/comparison (compare method). Also carries primitive Ord instances. */
+export const Ord = Object.freeze({
+  number: ordNumber,
+  string: ordString,
+  boolean: ordBoolean,
+  bigint: ordBigint,
+  array: ordArray,
+});
 /** Derive deep cloning (clone method) */
 export const Clone: unique symbol = Symbol("Clone");
 /** Derive debug string representation (debug method) */
 export const Debug: unique symbol = Symbol("Debug");
-/** Derive hash code generation (hash method) */
-export const Hash: unique symbol = Symbol("Hash");
+/** Derive hash code generation (hash method). Also carries primitive Hash instances. */
+export const Hash = Object.freeze({
+  number: hashNumber,
+  string: hashString,
+  boolean: hashBoolean,
+  bigint: hashBigint,
+  null: hashNull,
+  undefined: hashUndefined,
+  array: hashArray,
+});
 /** Derive default value factory (default static method) */
 export const Default: unique symbol = Symbol("Default");
 /** Derive JSON serialization (toJson/fromJson methods) */
@@ -41,6 +98,16 @@ export const Json: unique symbol = Symbol("Json");
 export const Builder: unique symbol = Symbol("Builder");
 /** Derive type guard function (isTypeName static method) */
 export const TypeGuard: unique symbol = Symbol("TypeGuard");
+/** Derive show/display string representation. Also carries primitive Show instances. */
+export const Show = Object.freeze({
+  number: showNumber,
+  string: showString,
+  boolean: showBoolean,
+  bigint: showBigint,
+  null: showNull,
+  undefined: showUndefined,
+  array: showArray,
+});
 
 // ============================================================================
 // Utility Functions

@@ -41,7 +41,8 @@ import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
 // Re-export for programmatic use
 export { comptimeMacro, jsToComptimeValue, type ComptimePermissions } from "./comptime.js";
 export {
-  // Derive name symbols for use in @derive() decorators
+  // Derive markers for use in @derive() decorators
+  // Eq, Ord, Hash, Show are frozen objects carrying primitive instances
   Eq,
   Ord,
   Clone,
@@ -51,6 +52,7 @@ export {
   Json,
   Builder,
   TypeGuard,
+  Show,
   // Utility for derived function naming
   createDerivedFunctionName,
 } from "./derive.js";
@@ -76,7 +78,6 @@ export {
   extendMacro,
   typeclassRegistry,
   instanceRegistry,
-  builtinDerivations,
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
@@ -111,7 +112,6 @@ export {
   type TypeclassMethod,
   type InstanceInfo,
   type InstanceMeta,
-  type BuiltinTypeclassDerivation,
   type SyntaxEntry,
   type ParCombineBuilder,
 } from "./typeclass.js";
@@ -251,11 +251,7 @@ export {
   monoidNumber,
   monoidString,
   monoidArray,
-  // Grouped exports
-  Show as ShowPrimitives,
-  Eq as EqPrimitives,
-  Ord as OrdPrimitives,
-  Hash as HashPrimitives,
+  // Grouped exports (Eq, Ord, Hash, Show are now on the derive markers in derive.ts)
   Semigroup as SemigroupPrimitives,
   Monoid as MonoidPrimitives,
 } from "./primitives.js";

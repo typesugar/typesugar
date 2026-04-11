@@ -73,12 +73,17 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typesugar.specializeNamespace).toBeDefined();
     });
 
-    it("exports all derive symbols as actual symbols", () => {
-      expect(typeof Eq).toBe("symbol");
-      expect(typeof Ord).toBe("symbol");
+    it("exports all derive markers", () => {
+      // Eq, Ord, Hash, Show are frozen objects carrying primitive instances
+      expect(typeof Eq).toBe("object");
+      expect(Eq.number).toBeDefined();
+      expect(typeof Ord).toBe("object");
+      expect(Ord.number).toBeDefined();
+      expect(typeof Hash).toBe("object");
+      expect(Hash.number).toBeDefined();
+      // Clone, Debug, Default, Json, Builder, TypeGuard remain symbols
       expect(typeof Clone).toBe("symbol");
       expect(typeof Debug).toBe("symbol");
-      expect(typeof Hash).toBe("symbol");
       expect(typeof Default).toBe("symbol");
       expect(typeof Json).toBe("symbol");
       expect(typeof Builder).toBe("symbol");
@@ -131,11 +136,10 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typeof compose).toBe("function");
     });
 
-    it("deriveNamespace contains symbols", () => {
+    it("deriveNamespace contains derive markers", () => {
       // deriveNamespace is the full @typesugar/derive namespace
-      // It contains Eq (symbol) for use with the unified @derive attribute macro
-      expect(typeof deriveNamespace.Eq).toBe("symbol");
-      expect(typeof Eq).toBe("symbol");
+      // Eq is now a frozen object carrying primitive instances
+      expect(typeof deriveNamespace.Eq).toBe("object");
       expect(deriveNamespace.Eq).toBe(Eq);
     });
   });
@@ -288,14 +292,11 @@ describe("Typesugar Umbrella Edge Cases", () => {
   // Attack 7: Cross-Module Consistency
   // ==========================================================================
   describe("Cross-module consistency", () => {
-    it("derive symbol descriptions match their names", () => {
-      // Symbol.for() creates globally registered symbols with descriptions
-      // Our symbols use Symbol() which creates unique symbols with descriptions
-      expect(Eq.description).toBe("Eq");
-      expect(Ord.description).toBe("Ord");
+    it("derive marker descriptions match their names", () => {
+      // Eq, Ord, Hash, Show are now frozen objects (not symbols)
+      // Clone, Debug, Default, Json, Builder, TypeGuard remain symbols with descriptions
       expect(Clone.description).toBe("Clone");
       expect(Debug.description).toBe("Debug");
-      expect(Hash.description).toBe("Hash");
       expect(Default.description).toBe("Default");
       expect(Json.description).toBe("Json");
       expect(Builder.description).toBe("Builder");
@@ -303,7 +304,7 @@ describe("Typesugar Umbrella Edge Cases", () => {
     });
 
     it("derive symbols are unique (not Symbol.for)", () => {
-      // Each symbol should be unique, not globally registered
+      // Symbol-based markers should be unique, not globally registered
       expect(Eq).not.toBe(Symbol.for("Eq"));
       expect(Ord).not.toBe(Symbol.for("Ord"));
 

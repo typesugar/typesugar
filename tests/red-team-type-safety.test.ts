@@ -16,7 +16,6 @@ import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext, globalRegistry } from "@typesugar/core";
 import {
-  builtinDerivations,
   typeclassRegistry,
   instanceRegistry,
   clearRegistries,
@@ -334,7 +333,7 @@ describe("Red Team: Type Safety", () => {
       const result = globalRegistry.getDerive("Eqq");
       expect(result).toBeUndefined();
       // PEP-032: TC derive macros removed. @derive is handled by the transformer
-      // directly via builtinDerivations, not through the macro registry.
+      // directly via GenericDerivation, not through the macro registry.
       // Neither "Eq" nor "EqTC" should be in the derive registry.
       expect(globalRegistry.getDerive("Eq")).toBeUndefined();
       expect(globalRegistry.getDerive("EqTC")).toBeUndefined();
@@ -367,19 +366,18 @@ describe("Red Team: Type Safety", () => {
     });
 
     // Finding TS-23: Deeply nested generics in summon
-    it("deeply nested generics — Functor has code-gen derivation", () => {
-      // Functor uses the builtin code-gen derivation system.
-      // Deeply nested type args like Array<Option<number>> are valid TypeScript
-      // but challenging for macro resolution — the macro must parse the full type string.
-      expect(builtinDerivations["Functor"]).toBeDefined();
-      expect(typeof builtinDerivations["Functor"].deriveProduct).toBe("function");
+    it("deeply nested generics — derivation strategies are registered", () => {
+      // All typeclasses use GenericDerivation now
+      const { hasGenericDerivation } = require("@typesugar/macros");
+      expect(hasGenericDerivation("Eq")).toBe(true);
+      expect(hasGenericDerivation("Show")).toBe(true);
     });
 
-    // Finding TS-24: Wrong casing in builtinDerivations
-    it("builtinDerivations lookup is case-sensitive", () => {
-      expect(builtinDerivations["NonExistent"]).toBeUndefined();
-      expect(builtinDerivations["eQ"]).toBeUndefined();
-      expect(builtinDerivations["EQ"]).toBeUndefined();
+    it("GenericDerivation lookup is case-sensitive", () => {
+      const { hasGenericDerivation } = require("@typesugar/macros");
+      expect(hasGenericDerivation("NonExistent")).toBe(false);
+      expect(hasGenericDerivation("eQ")).toBe(false);
+      expect(hasGenericDerivation("EQ")).toBe(false);
     });
 
     // Finding TS-25: assertTypeReliable on never gives clear diagnostic
@@ -672,8 +670,8 @@ describe("Red Team: Type Safety", () => {
       expect(result).toContain(">>> 0");
     });
 
-    // Finding TS-43: Clone derivation uses structuredClone
-    it("Generic Clone deriveProduct uses structuredClone", () => {
+    // Finding TS-43: Clone derivation generates shallow copy
+    it("Generic Clone deriveProduct generates field copy", () => {
       const cloneDerivation = getGenericDerivation("Clone");
       expect(cloneDerivation).toBeDefined();
 
@@ -687,7 +685,9 @@ describe("Red Team: Type Safety", () => {
       const result = cloneDerivation!.deriveProduct(ctx as any, "State", meta);
 
       expect(result).toBeDefined();
-      expect(result).toContain("structuredClone");
+      expect(result).toContain("clone");
+      expect(result).toContain("a.data");
+      expect(result).toContain("a.count");
     });
   });
 

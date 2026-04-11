@@ -282,6 +282,12 @@
         "title": "typesugar: Generate Macro Manifest"
       }
     ],
+    "typescriptServerPlugins": [
+      {
+        "name": "@typesugar/ts-plugin",
+        "enableForWorkspaceTypeScriptVersions": true
+      }
+    ],
     "configuration": {
       "title": "typesugar",
       "properties": {

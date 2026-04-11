@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { assert, typeAssert, type Equal } from "@typesugar/testing";
 import { createDerivedFunctionName } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
-import { builtinDerivations } from "@typesugar/macros";
+import { hasGenericDerivation } from "@typesugar/macros";
 
 describe("createDerivedFunctionName", () => {
   it("should create function names with correct conventions", () => {
@@ -33,55 +33,23 @@ describe("createDerivedFunctionName", () => {
 
 describe("unified derive system", () => {
   describe("typeclass auto-derivation strategies exist", () => {
-    it("should have Show derivation strategy", () => {
-      assert(builtinDerivations["Show"] !== undefined);
-      assert(typeof builtinDerivations["Show"].deriveProduct === "function");
-      assert(typeof builtinDerivations["Show"].deriveSum === "function");
-    });
-
-    it("should have Eq derivation strategy", () => {
-      assert(builtinDerivations["Eq"] !== undefined);
-    });
-
-    it("should have Ord derivation strategy", () => {
-      assert(builtinDerivations["Ord"] !== undefined);
-    });
-
-    it("should have Hash derivation strategy", () => {
-      assert(builtinDerivations["Hash"] !== undefined);
-    });
-
-    it("should have Clone derivation strategy", () => {
-      assert(builtinDerivations["Clone"] !== undefined);
-    });
-
-    it("should have Debug derivation strategy", () => {
-      assert(builtinDerivations["Debug"] !== undefined);
-    });
-
-    it("should have Default derivation strategy", () => {
-      assert(builtinDerivations["Default"] !== undefined);
-    });
-
-    it("should have Json derivation strategy", () => {
-      assert(builtinDerivations["Json"] !== undefined);
-    });
-
-    it("should have TypeGuard derivation strategy", () => {
-      assert(builtinDerivations["TypeGuard"] !== undefined);
-    });
-
-    it("should have Semigroup derivation strategy", () => {
-      assert(builtinDerivations["Semigroup"] !== undefined);
-    });
-
-    it("should have Monoid derivation strategy", () => {
-      assert(builtinDerivations["Monoid"] !== undefined);
-    });
-
-    it("should have Functor derivation strategy", () => {
-      assert(builtinDerivations["Functor"] !== undefined);
-    });
+    for (const name of [
+      "Show",
+      "Eq",
+      "Ord",
+      "Hash",
+      "Clone",
+      "Debug",
+      "Default",
+      "Json",
+      "TypeGuard",
+      "Semigroup",
+      "Monoid",
+    ]) {
+      it(`should have ${name} derivation strategy via GenericDerivation`, () => {
+        assert(hasGenericDerivation(name));
+      });
+    }
   });
 
   describe("old defineDeriveMacro-based macros are removed", () => {

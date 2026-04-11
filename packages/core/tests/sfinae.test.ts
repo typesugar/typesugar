@@ -453,16 +453,21 @@ describe("MacroGenerated Rule (Rule 4)", () => {
     expect(fileNames).toEqual(["generated.ts"]);
   });
 
-  it("works with any error code (wildcard)", () => {
+  it("suppresses macro-generated diagnostics for all registered codes", () => {
     const rule = createMacroGeneratedRule(() => null);
-    expect(rule.errorCodes).toEqual([]);
+    expect(rule.errorCodes.length).toBeGreaterThan(0);
 
     registerSfinaeRule(rule);
 
-    for (const code of [2322, 2339, 2345, 9001]) {
+    // All registered error codes should be suppressed when position maps to null (generated)
+    for (const code of rule.errorCodes) {
       const diag = makeDiagnostic(code, "test", sf, 0);
       expect(evaluateSfinae(diag, dummyChecker, sf)).toBe(true);
     }
+
+    // Codes NOT in the list should not be suppressed
+    const unregistered = makeDiagnostic(9999, "test", sf, 0);
+    expect(evaluateSfinae(unregistered, dummyChecker, sf)).toBe(false);
   });
 
   it("selectively suppresses based on position mapping", () => {

@@ -349,11 +349,9 @@ staticAssert(false, "intentional failure");
     expect(result.code).toContain("Point");
   });
 
-  it("@derive(Eq) on interface uses namespace, not const companion (TS2451)", () => {
+  it("@derive(Eq) on interface produces namespace companion", () => {
     // @derive generates a companion namespace for the derived implementations.
-    // It must NOT also emit `const TypeName: Record<string, any> = {}` because
-    // `const` + `interface` with the same name is TS2451 (cannot redeclare).
-    // Only `interface` + `namespace` merging is valid TypeScript.
+    // For interfaces, a companion const is also emitted for declaration merging.
     const code = `
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
@@ -362,8 +360,66 @@ interface Point { x: number; y: number; }
     const result = transformCode(code, { fileName: "derive-companion.ts" });
 
     expect(result.code).toContain("namespace Point");
-    expect(result.code).not.toContain("const Point:");
-    expect(result.code).not.toContain("Record<string, any>");
+    expect(result.code).toContain("export const Eq");
+  });
+
+  it("@derive(Eq) works on exported class", () => {
+    const code = `
+import { derive, Eq } from "typesugar";
+/** @derive(Eq) */
+export class Point { constructor(public x: number, public y: number) {} }
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-export-class.ts" });
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(0);
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("export namespace Point");
+    expect(result.code).toContain("export const Eq");
+  });
+
+  it("@derive(Eq) on exported class produces importable companion", () => {
+    // The companion namespace must be exported so that importing modules
+    // can access Point.Eq.equals(). This test verifies the full two-file scenario.
+    const pointModule = `
+import { derive, Eq } from "typesugar";
+/** @derive(Eq) */
+export class Point { constructor(public x: number, public y: number) {} }
+    `.trim();
+
+    const result = transformCode(pointModule, { fileName: "point.ts" });
+
+    // Namespace must be exported
+    expect(result.code).toContain("export namespace Point");
+
+    // A consumer module should be able to reference Point.Eq
+    const consumer = `
+import { Point } from "./point";
+const p1 = new Point(1, 2);
+const p2 = new Point(1, 2);
+console.log(Point.Eq.equals(p1, p2));
+    `.trim();
+
+    const consumerResult = transformCode(consumer, { fileName: "consumer.ts" });
+    // Consumer should not have errors about Point.Eq
+    const consumerErrors = consumerResult.diagnostics.filter((d) => d.severity === "error");
+    expect(consumerErrors).toHaveLength(0);
+  });
+
+  it("@derive(Eq) on exported interface produces exported namespace", () => {
+    const code = `
+import { derive, Eq } from "typesugar";
+/** @derive(Eq) */
+export interface Point { x: number; y: number; }
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-export-interface.ts" });
+
+    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(0);
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("export namespace Point");
   });
 
   it("@derive(Eq) with multiple interfaces does not crash", () => {

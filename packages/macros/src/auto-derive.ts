@@ -248,7 +248,8 @@ export function clearDerivationCaches(): void {
 export function tryDeriveViaGeneric(
   ctx: MacroContext,
   typeclassName: string,
-  typeName: string
+  typeName: string,
+  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
 ): DerivationResult {
   const trace: ResolutionAttempt[] = [];
 
@@ -299,7 +300,7 @@ export function tryDeriveViaGeneric(
     if (mirrorCached) {
       meta = mirrorCached;
     } else {
-      meta = extractMetaFromTypeChecker(ctx, typeName);
+      meta = extractMetaFromTypeChecker(ctx, typeName, node);
       mirrorCache.set(typeName, meta ?? false);
       if (!meta) {
         trace.push({
@@ -328,8 +329,9 @@ export function tryDeriveViaGeneric(
     children: [],
   };
 
-  // Step 3: Check all fields have the required instances
-  if (strategy.fieldTypeclass && meta.fieldTypes && meta.fieldNames) {
+  // Step 3: Check all fields have the required instances (product types only —
+  // sum types delegate to per-variant Eq companions, so field checks don't apply)
+  if (strategy.fieldTypeclass && meta.kind === "product" && meta.fieldTypes && meta.fieldNames) {
     let allFieldsOk = true;
     for (let i = 0; i < meta.fieldTypes.length; i++) {
       const fieldType = meta.fieldTypes[i];
@@ -492,22 +494,33 @@ export function canDeriveViaGeneric(typeclassName: string, typeName: string): bo
  * case classes — no annotation needed, the compiler just knows the structure.
  * We use the TypeScript type checker to extract field names and types.
  */
-function extractMetaFromTypeChecker(ctx: MacroContext, typeName: string): GenericMeta | null {
+function extractMetaFromTypeChecker(
+  ctx: MacroContext,
+  typeName: string,
+  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+): GenericMeta | null {
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
 
   let typeSymbol: ts.Symbol | undefined;
 
-  // Search imports and local declarations
-  const symbols = typeChecker.getSymbolsInScope(
-    sourceFile,
-    ts.SymbolFlags.Type | ts.SymbolFlags.Interface | ts.SymbolFlags.Class
-  );
+  // If we have the AST node, get the symbol directly (works for exported decls)
+  if (node?.name) {
+    typeSymbol = typeChecker.getSymbolAtLocation(node.name);
+  }
 
-  for (const sym of symbols) {
-    if (sym.name === typeName) {
-      typeSymbol = sym;
-      break;
+  // Fallback: search imports and local declarations
+  if (!typeSymbol) {
+    const symbols = typeChecker.getSymbolsInScope(
+      sourceFile,
+      ts.SymbolFlags.Type | ts.SymbolFlags.Interface | ts.SymbolFlags.Class
+    );
+
+    for (const sym of symbols) {
+      if (sym.name === typeName) {
+        typeSymbol = sym;
+        break;
+      }
     }
   }
 
@@ -544,6 +557,53 @@ function extractMetaFromTypeChecker(ctx: MacroContext, typeName: string): Generi
 
   // If all properties were methods (no data fields), derivation isn't possible
   if (fieldNames.length === 0) return null;
+
+  // Check if this is a discriminated union (sum type)
+  if (type.isUnion()) {
+    const unionTypes = type.types;
+    // Find the discriminant — a string-literal property common to all variants
+    let discriminant: string | undefined;
+    for (const fname of fieldNames) {
+      const allLiteral = unionTypes.every((ut) => {
+        const prop = ut.getProperty(fname);
+        if (!prop) return false;
+        const propType = typeChecker.getTypeOfSymbolAtLocation(
+          prop,
+          prop.valueDeclaration ?? sourceFile
+        );
+        return propType.isStringLiteral();
+      });
+      if (allLiteral) {
+        discriminant = fname;
+        break;
+      }
+    }
+
+    if (discriminant) {
+      const variants = unionTypes.map((ut) => {
+        const discProp = ut.getProperty(discriminant!);
+        const discType = typeChecker.getTypeOfSymbolAtLocation(
+          discProp!,
+          discProp!.valueDeclaration ?? sourceFile
+        );
+        const tag = (discType as ts.StringLiteralType).value;
+
+        // Get variant type name — use the symbol name if available, else synthesize
+        const variantTypeName =
+          ut.symbol?.name && ut.symbol.name !== "__type" ? ut.symbol.name : `${typeName}_${tag}`;
+
+        return { tag, typeName: variantTypeName };
+      });
+
+      return {
+        kind: "sum" as const,
+        discriminant,
+        variants,
+        fieldNames,
+        fieldTypes,
+      };
+    }
+  }
 
   return {
     kind: "product",
@@ -622,7 +682,9 @@ registerGenericDerivation("Eq", {
   typeclassName: "Eq",
   fieldTypeclass: "Eq",
 
-  hasFieldInstance: () => true,
+  hasFieldInstance: makePrimitiveChecker(
+    new Set(["number", "string", "boolean", "bigint", "symbol", "null", "undefined"])
+  ),
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames || !meta.fieldTypes) return null;
@@ -672,6 +734,16 @@ registerGenericDerivation("Ord", {
 
     return `({ compare: (a: ${typeName}, b: ${typeName}): number => { ${comparisons} return 0; } })`;
   },
+
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants || !meta.discriminant) return null;
+    const disc = meta.discriminant;
+    const tagOrder = meta.variants.map((v, i) => `"${v.tag}": ${i}`).join(", ");
+    const cases = meta.variants
+      .map((v) => `case "${v.tag}": return ${v.typeName}.Ord.compare(a as any, b as any)`)
+      .join("; ");
+    return `({ compare: (a: ${typeName}, b: ${typeName}): number => { const tagOrder: Record<string, number> = { ${tagOrder} }; const ta = tagOrder[(a as any).${disc}] ?? 0; const tb = tagOrder[(b as any).${disc}] ?? 0; if (ta !== tb) return ta < tb ? -1 : 1; switch ((a as any).${disc}) { ${cases}; default: return 0; } } })`;
+  },
 });
 
 // Hash derivation via Generic
@@ -695,6 +767,17 @@ registerGenericDerivation("Hash", {
 
     return `({ hash: (a: ${typeName}): number => { let h = 0; ${hashSteps.join("; ")}; return h >>> 0; } })`;
   },
+
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants || !meta.discriminant) return null;
+    const disc = meta.discriminant;
+    const cases = meta.variants
+      .map(
+        (v, i) => `case "${v.tag}": return ${i * 2654435761} ^ ${v.typeName}.Hash.hash(a as any)`
+      )
+      .join("; ");
+    return `({ hash: (a: ${typeName}): number => { switch ((a as any).${disc}) { ${cases}; default: return 0; } } })`;
+  },
 });
 
 // Clone derivation via Generic
@@ -707,9 +790,166 @@ registerGenericDerivation("Clone", {
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
 
-    const fields = meta.fieldNames.map((name) => `${name}: structuredClone(a.${name})`).join(", ");
+    const fields = meta.fieldNames.map((name) => `${name}: a.${name}`).join(", ");
 
     return `({ clone: (a: ${typeName}): ${typeName} => ({ ${fields} }) })`;
+  },
+});
+
+// Debug derivation via Generic
+registerGenericDerivation("Debug", {
+  typeclassName: "Debug",
+  fieldTypeclass: null,
+  hasFieldInstance: () => true,
+
+  deriveProduct(ctx, typeName, meta) {
+    if (!meta.fieldNames) return null;
+    const pairs = meta.fieldNames
+      .map((name) => `${name}: \${JSON.stringify(a.${name})}`)
+      .join(", ");
+    return `({ debug: (a: ${typeName}): string => \`${typeName} { ${pairs} }\` })`;
+  },
+
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants || !meta.discriminant) return null;
+    const disc = meta.discriminant;
+    const cases = meta.variants
+      .map((v) => `case "${v.tag}": return \`${v.typeName}(\${JSON.stringify(a)})\``)
+      .join("; ");
+    return `({ debug: (a: ${typeName}): string => { switch ((a as any).${disc}) { ${cases}; default: return String(a) } } })`;
+  },
+});
+
+// Default derivation via Generic
+registerGenericDerivation("Default", {
+  typeclassName: "Default",
+  fieldTypeclass: null,
+  hasFieldInstance: () => true,
+
+  deriveProduct(ctx, typeName, meta) {
+    if (!meta.fieldNames || !meta.fieldTypes) return null;
+    const defaults = meta.fieldNames
+      .map((name, i) => {
+        const ft = meta.fieldTypes![i];
+        let val: string;
+        switch (ft) {
+          case "number":
+            val = "0";
+            break;
+          case "string":
+            val = '""';
+            break;
+          case "boolean":
+            val = "false";
+            break;
+          default:
+            if (ft.endsWith("[]")) val = "[]";
+            else if (/^[A-Z]/.test(ft) && !ft.includes("<") && !ft.includes("|"))
+              val = `({} as ${ft})`;
+            else val = `({} as ${ft})`;
+        }
+        return `${name}: ${val}`;
+      })
+      .join(", ");
+    return `({ default: (): ${typeName} => ({ ${defaults} }) })`;
+  },
+});
+
+// Json derivation via Generic
+registerGenericDerivation("Json", {
+  typeclassName: "Json",
+  fieldTypeclass: null,
+  hasFieldInstance: () => true,
+
+  deriveProduct(ctx, typeName, meta) {
+    if (!meta.fieldNames || !meta.fieldTypes) return null;
+    const toFields = meta.fieldNames.map((name) => `${name}: a.${name}`).join(", ");
+    const validations = meta.fieldNames
+      .map((name, i) => {
+        const ft = meta.fieldTypes![i];
+        return `if (obj.${name} !== undefined && typeof obj.${name} !== "${ft}") throw new Error("Field ${name} must be ${ft}");`;
+      })
+      .join(" ");
+    return `({ toJson: (a: ${typeName}): unknown => ({ ${toFields} }), fromJson: (json: unknown): ${typeName} => { if (typeof json !== "object" || json === null) throw new Error("Expected object"); const obj = json as Record<string, unknown>; ${validations} return obj as unknown as ${typeName}; } })`;
+  },
+
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants || !meta.discriminant) return null;
+    const disc = meta.discriminant;
+    const validTags = meta.variants.map((v) => `"${v.tag}"`).join(", ");
+    return `({ toJson: (a: ${typeName}): unknown => ({ ...a }), fromJson: (json: unknown): ${typeName} => { if (typeof json !== "object" || json === null) throw new Error("Expected object"); const obj = json as Record<string, unknown>; if (typeof obj.${disc} !== "string") throw new Error("Missing discriminant"); if (![${validTags}].includes(obj.${disc} as string)) throw new Error("Invalid tag"); return obj as unknown as ${typeName}; } })`;
+  },
+});
+
+// TypeGuard derivation via Generic
+registerGenericDerivation("TypeGuard", {
+  typeclassName: "TypeGuard",
+  fieldTypeclass: null,
+  hasFieldInstance: () => true,
+
+  deriveProduct(ctx, typeName, meta) {
+    if (!meta.fieldNames || !meta.fieldTypes) return null;
+    if (meta.fieldNames.length === 0) {
+      return `({ is: (value: unknown): boolean => typeof value === "object" && value !== null })`;
+    }
+    const checks = meta.fieldNames
+      .map((name, i) => {
+        const ft = meta.fieldTypes![i];
+        return `typeof (value as any).${name} === "${ft}"`;
+      })
+      .join(" && ");
+    return `({ is: (value: unknown): boolean => typeof value === "object" && value !== null && ${checks} })`;
+  },
+
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants || !meta.discriminant) return null;
+    const disc = meta.discriminant;
+    const validTags = meta.variants.map((v) => `"${v.tag}"`).join(", ");
+    return `({ is: (value: unknown): boolean => typeof value === "object" && value !== null && typeof (value as any).${disc} === "string" && [${validTags}].includes((value as any).${disc}) })`;
+  },
+});
+
+// Semigroup derivation via Generic
+registerGenericDerivation("Semigroup", {
+  typeclassName: "Semigroup",
+  fieldTypeclass: "Semigroup",
+  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean"])),
+
+  deriveProduct(ctx, typeName, meta) {
+    if (!meta.fieldNames || !meta.fieldTypes) return null;
+    const { resolveFieldInstance } = require("./typeclass.js") as typeof import("./typeclass.js");
+    const combines = meta.fieldNames
+      .map((name, i) => {
+        const inst = resolveFieldInstance(ctx, "Semigroup", meta.fieldTypes![i]);
+        return `${name}: ${inst}.combine(a.${name}, b.${name})`;
+      })
+      .join(", ");
+    return `({ combine: (a: ${typeName}, b: ${typeName}): ${typeName} => ({ ${combines} }) })`;
+  },
+});
+
+// Monoid derivation via Generic
+registerGenericDerivation("Monoid", {
+  typeclassName: "Monoid",
+  fieldTypeclass: "Monoid",
+  hasFieldInstance: makePrimitiveChecker(new Set(["number", "string", "boolean"])),
+
+  deriveProduct(ctx, typeName, meta) {
+    if (!meta.fieldNames || !meta.fieldTypes) return null;
+    const { resolveFieldInstance } = require("./typeclass.js") as typeof import("./typeclass.js");
+    const empties = meta.fieldNames
+      .map((name, i) => {
+        const inst = resolveFieldInstance(ctx, "Monoid", meta.fieldTypes![i]);
+        return `${name}: ${inst}.empty()`;
+      })
+      .join(", ");
+    const combines = meta.fieldNames
+      .map((name, i) => {
+        const inst = resolveFieldInstance(ctx, "Monoid", meta.fieldTypes![i]);
+        return `${name}: ${inst}.combine(a.${name}, b.${name})`;
+      })
+      .join(", ");
+    return `({ empty: (): ${typeName} => ({ ${empties} }), combine: (a: ${typeName}, b: ${typeName}): ${typeName} => ({ ${combines} }) })`;
   },
 });
 

@@ -8,15 +8,7 @@
 
 import * as ts from "typescript";
 
-import {
-  builtinDerivations,
-  withDerivationContext,
-  tryExpandGenericDerive,
-  instanceRegistry,
-  instanceVarName,
-  companionPath,
-  tryExtractSumType,
-} from "@typesugar/macros";
+import { tryExpandGenericDerive, instanceRegistry, tryExtractSumType } from "@typesugar/macros";
 
 import {
   MacroContextImpl,
@@ -462,47 +454,7 @@ export function expandDeriveDecorator(
       continue;
     }
 
-    const typeclassDerivation = builtinDerivations[deriveName];
-    if (typeclassDerivation) {
-      if (verbose) {
-        console.log(`[typesugar] Auto-deriving typeclass instance: ${deriveName} for ${typeName}`);
-      }
-      try {
-        const code: string = withDerivationContext(ctx, () => {
-          if (ts.isTypeAliasDeclaration(node)) {
-            const sumInfo = tryExtractSumType(ctx, node);
-            if (sumInfo) {
-              return typeclassDerivation.deriveSum(
-                typeName,
-                sumInfo.discriminant,
-                sumInfo.variants
-              );
-            } else {
-              return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
-            }
-          } else {
-            return typeclassDerivation.deriveProduct(typeName, typeInfo.fields);
-          }
-        });
-
-        const parsedStmts = ctx.parseStatements(code);
-        statements.push(...parsedStmts);
-
-        const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);
-        instanceRegistry.push({
-          typeclassName: deriveName,
-          forType: typeName,
-          instanceName: instanceVarName(uncap, typeName),
-          companionPath: companionPath(deriveName, typeName),
-          derived: true,
-        });
-      } catch (error) {
-        ctx.reportError(arg, `Typeclass auto-derivation failed for ${deriveName}: ${error}`);
-      }
-      continue;
-    }
-
-    // Check for a GenericDerivation strategy (same path summon uses)
+    // Check for a GenericDerivation strategy (unified path for all typeclasses)
     try {
       const genericExpansion = tryExpandGenericDerive(ctx, deriveName, typeName, node);
       if (genericExpansion) {
