@@ -315,7 +315,7 @@ export const y = Ord2;
     expect(result).toBeDefined();
     expect(result!.kind).toBe("ambiguous");
     if (result!.kind === "ambiguous") {
-      expect(result.candidates.length).toBeGreaterThanOrEqual(2);
+      expect(result!.candidates.length).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -414,7 +414,7 @@ export const ordNumber = {
     expect(ordResult).toBeDefined();
     expect(ordResult!.kind).toBe("resolved");
     if (ordResult!.kind === "resolved") {
-      expect(ordResult.exportName).toBe("ordNumber");
+      expect(ordResult!.exportName).toBe("ordNumber");
     }
   });
 
