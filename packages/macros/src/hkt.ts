@@ -624,28 +624,152 @@ function countUnderscoreMarkers(node: ts.TypeNode, checker: ts.TypeChecker | und
 }
 
 /**
- * Replace all `_` marker occurrences with `this["__kind__"]` in source text.
- * Returns the transformed type string.
+ * Replace all `_` marker type references in a type node with `this["__kind__"]`
+ * indexed access types. This is the AST-based replacement for the old regex approach.
  */
-function replaceUnderscoreInTypeText(typeText: string): string {
-  // We need to replace the standalone identifier `_` used as a type, not inside strings.
-  // A simple regex handles the common case: `_` surrounded by non-identifier chars.
-  return typeText.replace(/(?<![a-zA-Z0-9_$])_(?![a-zA-Z0-9_$])/g, 'this["__kind__"]');
-}
+function replaceUnderscoreInTypeNode(
+  factory: ts.NodeFactory,
+  node: ts.TypeNode,
+  checker: ts.TypeChecker | undefined
+): ts.TypeNode {
+  if (isUnderscoreMarker(node, checker)) {
+    return factory.createIndexedAccessTypeNode(
+      factory.createThisTypeNode(),
+      factory.createLiteralTypeNode(factory.createStringLiteral("__kind__"))
+    );
+  }
 
-/**
- * Print a type node to string using the TypeScript printer.
- */
-function printTypeNode(node: ts.TypeNode): string {
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-  const sourceFile = ts.createSourceFile(
-    "__print__.ts",
-    "",
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.TS
-  );
-  return printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
+  if (ts.isTypeReferenceNode(node)) {
+    if (node.typeArguments) {
+      return factory.updateTypeReferenceNode(
+        node,
+        node.typeName,
+        factory.createNodeArray(
+          node.typeArguments.map((a) => replaceUnderscoreInTypeNode(factory, a, checker))
+        )
+      );
+    }
+    return node;
+  }
+
+  if (ts.isArrayTypeNode(node)) {
+    return factory.updateArrayTypeNode(
+      node,
+      replaceUnderscoreInTypeNode(factory, node.elementType, checker)
+    );
+  }
+
+  if (ts.isUnionTypeNode(node)) {
+    return factory.updateUnionTypeNode(
+      node,
+      factory.createNodeArray(
+        node.types.map((t) => replaceUnderscoreInTypeNode(factory, t, checker))
+      )
+    );
+  }
+
+  if (ts.isIntersectionTypeNode(node)) {
+    return factory.updateIntersectionTypeNode(
+      node,
+      factory.createNodeArray(
+        node.types.map((t) => replaceUnderscoreInTypeNode(factory, t, checker))
+      )
+    );
+  }
+
+  if (ts.isTupleTypeNode(node)) {
+    return factory.updateTupleTypeNode(
+      node,
+      factory.createNodeArray(
+        node.elements.map((el) => {
+          if (ts.isNamedTupleMember(el)) {
+            return factory.updateNamedTupleMember(
+              el,
+              el.dotDotDotToken,
+              el.name,
+              el.questionToken,
+              replaceUnderscoreInTypeNode(factory, el.type, checker)
+            );
+          }
+          return replaceUnderscoreInTypeNode(factory, el, checker);
+        })
+      )
+    );
+  }
+
+  if (ts.isFunctionTypeNode(node)) {
+    const newParams = node.parameters.map((p) => {
+      if (p.type) {
+        return factory.updateParameterDeclaration(
+          p,
+          p.modifiers,
+          p.dotDotDotToken,
+          p.name,
+          p.questionToken,
+          replaceUnderscoreInTypeNode(factory, p.type, checker),
+          p.initializer
+        );
+      }
+      return p;
+    });
+    return factory.updateFunctionTypeNode(
+      node,
+      node.typeParameters,
+      factory.createNodeArray(newParams),
+      node.type ? replaceUnderscoreInTypeNode(factory, node.type, checker) : node.type
+    );
+  }
+
+  if (ts.isParenthesizedTypeNode(node)) {
+    return factory.updateParenthesizedType(
+      node,
+      replaceUnderscoreInTypeNode(factory, node.type, checker)
+    );
+  }
+
+  if (ts.isConditionalTypeNode(node)) {
+    return factory.updateConditionalTypeNode(
+      node,
+      replaceUnderscoreInTypeNode(factory, node.checkType, checker),
+      replaceUnderscoreInTypeNode(factory, node.extendsType, checker),
+      replaceUnderscoreInTypeNode(factory, node.trueType, checker),
+      replaceUnderscoreInTypeNode(factory, node.falseType, checker)
+    );
+  }
+
+  if (ts.isTypeLiteralNode(node)) {
+    return factory.updateTypeLiteralNode(
+      node,
+      factory.createNodeArray(
+        node.members.map((m) => {
+          if (ts.isPropertySignature(m) && m.type) {
+            return factory.updatePropertySignature(
+              m,
+              m.modifiers,
+              m.name,
+              m.questionToken,
+              replaceUnderscoreInTypeNode(factory, m.type, checker)
+            );
+          }
+          return m;
+        })
+      )
+    );
+  }
+
+  if (ts.isMappedTypeNode(node)) {
+    return factory.updateMappedTypeNode(
+      node,
+      node.readonlyToken,
+      node.typeParameter,
+      node.nameType ? replaceUnderscoreInTypeNode(factory, node.nameType, checker) : undefined,
+      node.questionToken,
+      node.type ? replaceUnderscoreInTypeNode(factory, node.type, checker) : undefined,
+      node.members
+    );
+  }
+
+  return node;
 }
 
 /**
@@ -682,31 +806,44 @@ function expandTier3HKT(
     return node;
   }
 
-  const rhsText = printTypeNode(rhs);
-  const replacedRhs = replaceUnderscoreInTypeText(rhsText);
+  const factory = ctx.factory;
 
-  const typeParamsStr =
-    typeParams && typeParams.length > 0
-      ? `<${typeParams
-          .map((tp) => {
-            let s = tp.name.text;
-            if (tp.constraint) s += ` extends ${printTypeNode(tp.constraint)}`;
-            if (tp.default) s += ` = ${printTypeNode(tp.default)}`;
-            return s;
-          })
-          .join(", ")}>`
-      : "";
+  // Replace _ markers in the RHS type node with this["__kind__"] via AST walking
+  const replacedRhs = replaceUnderscoreInTypeNode(factory, rhs, checker);
 
   const hasExport = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-  const exportPrefix = hasExport ? "export " : "";
+  const modifiers = hasExport ? [factory.createModifier(ts.SyntaxKind.ExportKeyword)] : undefined;
 
-  const code = `${exportPrefix}interface ${typeName}${typeParamsStr} extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: ${replacedRhs};
-}`;
+  // Build: interface TypeName<...> extends TypeFunction { readonly __kind__: unknown; readonly _: ReplacedRHS; }
+  const interfaceDecl = factory.createInterfaceDeclaration(
+    modifiers,
+    typeName,
+    typeParams ? [...typeParams] : undefined,
+    [
+      factory.createHeritageClause(ts.SyntaxKind.ExtendsKeyword, [
+        factory.createExpressionWithTypeArguments(
+          factory.createIdentifier("TypeFunction"),
+          undefined
+        ),
+      ]),
+    ],
+    [
+      factory.createPropertySignature(
+        [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+        "__kind__",
+        undefined,
+        factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+      ),
+      factory.createPropertySignature(
+        [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+        "_",
+        undefined,
+        replacedRhs
+      ),
+    ]
+  );
 
-  const stmts = ctx.parseStatements(code);
-  return stmts.length === 1 ? stmts[0] : stmts;
+  return interfaceDecl;
 }
 
 // ============================================================================
@@ -731,39 +868,59 @@ function expandTier2Companion(
   node: ts.TypeAliasDeclaration | ts.InterfaceDeclaration,
   typeParams: ts.NodeArray<ts.TypeParameterDeclaration>
 ): ts.Node[] {
+  const factory = ctx.factory;
   const typeName = node.name.text;
   const companionName = `${typeName}F`;
 
   const lastParam = typeParams[typeParams.length - 1];
   const fixedParams = typeParams.slice(0, -1);
 
-  const fixedParamsStr =
-    fixedParams.length > 0
-      ? `<${fixedParams
-          .map((tp) => {
-            let s = tp.name.text;
-            if (tp.constraint) s += ` extends ${printTypeNode(tp.constraint)}`;
-            if (tp.default) s += ` = ${printTypeNode(tp.default)}`;
-            return s;
-          })
-          .join(", ")}>`
-      : "";
-
-  const allParamNames = typeParams.map((tp) => tp.name.text);
-  const typeArgsStr = allParamNames
-    .map((name) => (name === lastParam.name.text ? 'this["__kind__"]' : name))
-    .join(", ");
-
   const hasExport = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-  const exportPrefix = hasExport ? "export " : "";
+  const modifiers = hasExport ? [factory.createModifier(ts.SyntaxKind.ExportKeyword)] : undefined;
 
-  const companionCode = `${exportPrefix}interface ${companionName}${fixedParamsStr} extends TypeFunction {
-  readonly __kind__: unknown;
-  readonly _: ${typeName}<${typeArgsStr}>;
-}`;
+  // Build type arguments for the RHS: replace last param with this["__kind__"]
+  const thisKindType = factory.createIndexedAccessTypeNode(
+    factory.createThisTypeNode(),
+    factory.createLiteralTypeNode(factory.createStringLiteral("__kind__"))
+  );
 
-  const companionStmts = ctx.parseStatements(companionCode);
-  return [node, ...companionStmts];
+  const typeArgs: ts.TypeNode[] = typeParams.map((tp) =>
+    tp === lastParam ? thisKindType : factory.createTypeReferenceNode(tp.name.text)
+  );
+
+  // Build: interface TypeNameF<...fixedParams> extends TypeFunction {
+  //   readonly __kind__: unknown;
+  //   readonly _: TypeName<...args, this["__kind__"]>;
+  // }
+  const companionDecl = factory.createInterfaceDeclaration(
+    modifiers,
+    companionName,
+    fixedParams.length > 0 ? [...fixedParams] : undefined,
+    [
+      factory.createHeritageClause(ts.SyntaxKind.ExtendsKeyword, [
+        factory.createExpressionWithTypeArguments(
+          factory.createIdentifier("TypeFunction"),
+          undefined
+        ),
+      ]),
+    ],
+    [
+      factory.createPropertySignature(
+        [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+        "__kind__",
+        undefined,
+        factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+      ),
+      factory.createPropertySignature(
+        [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+        "_",
+        undefined,
+        factory.createTypeReferenceNode(typeName, typeArgs)
+      ),
+    ]
+  );
+
+  return [node, companionDecl];
 }
 
 // ============================================================================

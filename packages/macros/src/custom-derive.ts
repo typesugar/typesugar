@@ -1,9 +1,9 @@
 /**
- * Simplified Custom Derive Macro API
+ * Custom Derive Macro API
  *
- * Provides an easy-to-use API for defining custom derive macros without
- * needing to understand the internal DeriveTypeInfo structures or AST
- * construction directly.
+ * Provides an API for defining custom derive macros that generate AST
+ * statements via `ts.factory.create*`. For advanced use cases, the raw
+ * DeriveTypeInfo is available via `defineCustomDeriveAst`.
  *
  * Inspired by: Rust's `#[derive(...)]` with custom derive procedural macros
  *
@@ -11,22 +11,15 @@
  * ```typescript
  * import { defineCustomDerive } from "typesugar";
  *
- * // Simple derive that generates a toString function
- * defineCustomDerive("ToString", (info) => {
- *   const fieldStrs = info.fields.map(f =>
- *     `\`${f.name}: \${value.${f.name}}\``
- *   );
- *   return `
- *     function ${info.name.toLowerCase()}ToString(value: ${info.name}): string {
- *       return ${fieldStrs.join(" + ', ' + ")};
- *     }
- *   `;
+ * defineCustomDerive("ToString", (ctx, info) => {
+ *   const factory = ctx.factory;
+ *   // Build a toString function via AST factory
+ *   return [factory.createFunctionDeclaration(...)];
  * });
  *
  * // Usage:
  * @derive(ToString)
  * interface Point { x: number; y: number; }
- * // Generates: function pointToString(value: Point): string { ... }
  * ```
  */
 
@@ -111,13 +104,12 @@ function toSimpleTypeInfo(typeInfo: DeriveTypeInfo): SimpleTypeInfo {
 // =============================================================================
 
 /**
- * A custom derive callback that returns source code as a string.
- * The string is parsed into statements by the framework.
+ * A custom derive callback that returns AST statements directly.
  */
-export type StringDeriveCallback = (info: SimpleTypeInfo) => string;
+export type CustomDeriveCallback = (ctx: MacroContext, info: SimpleTypeInfo) => ts.Statement[];
 
 /**
- * A custom derive callback that returns AST statements directly.
+ * A custom derive callback with access to raw DeriveTypeInfo.
  * For advanced use cases that need full AST control.
  */
 export type AstDeriveCallback = (
@@ -131,31 +123,28 @@ export type AstDeriveCallback = (
 // =============================================================================
 
 /**
- * Define a custom derive macro using a simple string-returning callback.
+ * Define a custom derive macro using an AST-returning callback.
  *
- * The callback receives simplified type information and returns TypeScript
- * source code as a string. The framework handles parsing it into AST nodes.
+ * The callback receives the macro context and simplified type information,
+ * and returns AST statements built via `ts.factory.create*`.
  *
  * @param name - The derive name (used in `@derive(Name)`)
- * @param callback - Function that generates source code from type info
+ * @param callback - Function that generates AST statements from type info
  * @param options - Optional configuration
  * @returns The registered DeriveMacro
  *
  * @example
  * ```typescript
- * defineCustomDerive("Printable", (info) => {
- *   const fields = info.fields.map(f => `"${f.name}: " + String(value.${f.name})`);
- *   return `
- *     function print${info.name}(value: ${info.name}): string {
- *       return ${fields.join(' + ", " + ')};
- *     }
- *   `;
+ * defineCustomDerive("Printable", (ctx, info) => {
+ *   const factory = ctx.factory;
+ *   // Build AST statements using factory.create*
+ *   return [factory.createExpressionStatement(...)];
  * });
  * ```
  */
 export function defineCustomDerive(
   name: string,
-  callback: StringDeriveCallback,
+  callback: CustomDeriveCallback,
   options?: {
     module?: string;
     description?: string;
@@ -174,13 +163,7 @@ export function defineCustomDerive(
       const simpleInfo = toSimpleTypeInfo(typeInfo);
 
       try {
-        const code = callback(simpleInfo);
-
-        if (!code || code.trim() === "") {
-          return [];
-        }
-
-        return ctx.parseStatements(code);
+        return callback(ctx, simpleInfo);
       } catch (error) {
         ctx.reportError(
           target,
@@ -255,45 +238,47 @@ export function defineCustomDeriveAst(
 // =============================================================================
 
 /**
- * Define a derive that generates a function for each field.
+ * Define a derive that generates statements for each field.
  *
  * @example
  * ```typescript
- * defineFieldDerive("Getter", (typeName, field) =>
- *   `function get${capitalize(field.name)}(obj: ${typeName}): ${field.type} { return obj.${field.name}; }`
- * );
+ * defineFieldDerive("Getter", (ctx, typeName, field) => {
+ *   const factory = ctx.factory;
+ *   // Build getter function via AST
+ *   return [factory.createFunctionDeclaration(...)];
+ * });
  * ```
  */
 export function defineFieldDerive(
   name: string,
-  fieldCallback: (typeName: string, field: SimpleFieldInfo) => string,
+  fieldCallback: (ctx: MacroContext, typeName: string, field: SimpleFieldInfo) => ts.Statement[],
   options?: {
     module?: string;
     description?: string;
-    /** Optional preamble code generated once before field functions */
-    preamble?: (info: SimpleTypeInfo) => string;
-    /** Optional postamble code generated once after field functions */
-    postamble?: (info: SimpleTypeInfo) => string;
+    /** Optional preamble statements generated once before field statements */
+    preamble?: (ctx: MacroContext, info: SimpleTypeInfo) => ts.Statement[];
+    /** Optional postamble statements generated once after field statements */
+    postamble?: (ctx: MacroContext, info: SimpleTypeInfo) => ts.Statement[];
   }
 ): DeriveMacro {
   return defineCustomDerive(
     name,
-    (info) => {
-      const parts: string[] = [];
+    (ctx, info) => {
+      const stmts: ts.Statement[] = [];
 
       if (options?.preamble) {
-        parts.push(options.preamble(info));
+        stmts.push(...options.preamble(ctx, info));
       }
 
       for (const field of info.fields) {
-        parts.push(fieldCallback(info.name, field));
+        stmts.push(...fieldCallback(ctx, info.name, field));
       }
 
       if (options?.postamble) {
-        parts.push(options.postamble(info));
+        stmts.push(...options.postamble(ctx, info));
       }
 
-      return parts.join("\n");
+      return stmts;
     },
     options
   );
@@ -302,25 +287,29 @@ export function defineFieldDerive(
 /**
  * Define a derive that generates a single function operating on all fields.
  *
+ * The callback returns the function structure; the framework builds the
+ * function declaration via AST.
+ *
  * @example
  * ```typescript
- * defineTypeFunctionDerive("Validate", (info) => ({
+ * defineTypeFunctionDerive("Validate", (ctx, info) => ({
  *   functionName: `validate${info.name}`,
- *   params: [{ name: "value", type: `unknown` }],
+ *   params: [{ name: "value", type: "unknown" }],
  *   returnType: `value is ${info.name}`,
- *   body: info.fields.map(f =>
- *     `if (typeof (value as any).${f.name} !== "${f.type}") return false;`
- *   ).join("\n") + "\nreturn true;",
+ *   body: [/* AST statements for the function body *\/],
  * }));
  * ```
  */
 export function defineTypeFunctionDerive(
   name: string,
-  callback: (info: SimpleTypeInfo) => {
+  callback: (
+    ctx: MacroContext,
+    info: SimpleTypeInfo
+  ) => {
     functionName: string;
-    params: Array<{ name: string; type: string }>;
-    returnType: string;
-    body: string;
+    params: Array<{ name: string; type: ts.TypeNode }>;
+    returnType: ts.TypeNode;
+    body: ts.Statement[];
     exported?: boolean;
   },
   options?: {
@@ -330,11 +319,23 @@ export function defineTypeFunctionDerive(
 ): DeriveMacro {
   return defineCustomDerive(
     name,
-    (info) => {
-      const fn = callback(info);
-      const exportKw = fn.exported ? "export " : "";
-      const params = fn.params.map((p) => `${p.name}: ${p.type}`).join(", ");
-      return `${exportKw}function ${fn.functionName}(${params}): ${fn.returnType} {\n${fn.body}\n}`;
+    (ctx, info) => {
+      const fn = callback(ctx, info);
+      const factory = ctx.factory;
+
+      const funcDecl = factory.createFunctionDeclaration(
+        fn.exported ? [factory.createModifier(ts.SyntaxKind.ExportKeyword)] : undefined,
+        undefined,
+        fn.functionName,
+        undefined,
+        fn.params.map((p) =>
+          factory.createParameterDeclaration(undefined, undefined, p.name, undefined, p.type)
+        ),
+        fn.returnType,
+        factory.createBlock(fn.body, true)
+      );
+
+      return [funcDecl];
     },
     options
   );

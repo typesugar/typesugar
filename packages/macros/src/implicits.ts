@@ -182,6 +182,19 @@ export function resolveImplicit(
 // AST Helpers
 // ============================================================================
 
+/**
+ * Build an expression from a potentially dotted name like "Show.number".
+ * Simple names return an identifier; dotted names return a property access chain.
+ */
+function buildDottedExpression(factory: ts.NodeFactory, name: string): ts.Expression {
+  const parts = name.split(".");
+  let expr: ts.Expression = factory.createIdentifier(parts[0]);
+  for (let i = 1; i < parts.length; i++) {
+    expr = factory.createPropertyAccessExpression(expr, parts[i]);
+  }
+  return expr;
+}
+
 const TS_KEYWORD_TYPES = new Set([
   "number",
   "string",
@@ -461,11 +474,8 @@ export function transformImplicitsCall(
     // 2. Fall back to global instance registry - inline the instance directly (zero-cost)
     const resolved = resolveImplicit(typeclassName, concreteType);
     if (resolved) {
-      // If the instance name contains a dot (companion path), parse as expression
-      // Otherwise treat as a simple identifier
-      const instanceExpr = resolved.instanceName.includes(".")
-        ? ctx.parseExpression(resolved.instanceName)
-        : factory.createIdentifier(resolved.instanceName);
+      // Build expression from instance name — dotted paths become property access chains
+      const instanceExpr = buildDottedExpression(factory, resolved.instanceName);
       newArgs.push(instanceExpr);
       continue;
     }

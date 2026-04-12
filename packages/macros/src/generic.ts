@@ -322,6 +322,73 @@ export const genericDerive = defineAttributeMacro({
 });
 
 /**
+ * Build the shared AST statements for a Generic instance:
+ * - const declaration with identity to/from
+ * - registerGeneric() call
+ * The caller provides the registerGenericMeta() call since meta differs per kind.
+ */
+function buildGenericInstanceStatements(
+  factory: ts.NodeFactory,
+  typeName: string,
+  metaCall: ts.Statement
+): { statements: ts.Statement[]; instanceName: string } {
+  const instanceName = `generic${typeName}`;
+
+  const constDecl = factory.createVariableStatement(
+    undefined,
+    factory.createVariableDeclarationList(
+      [
+        factory.createVariableDeclaration(
+          instanceName,
+          undefined,
+          factory.createTypeReferenceNode("Generic", [
+            factory.createTypeReferenceNode(typeName),
+            factory.createTypeReferenceNode(typeName),
+          ]),
+          factory.createObjectLiteralExpression(
+            [
+              factory.createPropertyAssignment(
+                "to",
+                factory.createArrowFunction(
+                  undefined,
+                  undefined,
+                  [factory.createParameterDeclaration(undefined, undefined, "value")],
+                  undefined,
+                  factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+                  factory.createIdentifier("value")
+                )
+              ),
+              factory.createPropertyAssignment(
+                "from",
+                factory.createArrowFunction(
+                  undefined,
+                  undefined,
+                  [factory.createParameterDeclaration(undefined, undefined, "rep")],
+                  undefined,
+                  factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+                  factory.createIdentifier("rep")
+                )
+              ),
+            ],
+            true
+          )
+        ),
+      ],
+      ts.NodeFlags.Const
+    )
+  );
+
+  const registerCall = factory.createExpressionStatement(
+    factory.createCallExpression(factory.createIdentifier("registerGeneric"), undefined, [
+      factory.createStringLiteral(typeName),
+      factory.createIdentifier(instanceName),
+    ])
+  );
+
+  return { statements: [constDecl, metaCall, registerCall], instanceName };
+}
+
+/**
  * Expand @derive(Generic) for a product type (interface, class, record).
  * Generates zero-cost identity conversion with metadata registration.
  */
@@ -347,32 +414,38 @@ function expandGenericForProductType(
     }
   }
 
-  // Generate zero-cost Generic instance with identity to/from
-  // The metadata is what drives derivation, not runtime conversion
-  const code = `
-// Zero-cost Generic instance for ${typeName} (product type)
-const generic${typeName}: Generic<${typeName}, ${typeName}> = {
-  to: (value) => value,
-  from: (rep) => rep,
-};
+  const factory = ctx.factory;
 
-// Register type metadata for derivation
-registerGenericMeta("${typeName}", {
-  kind: "product",
-  fieldNames: ${JSON.stringify(fieldNames)},
-  fieldTypes: ${JSON.stringify(fieldTypes)},
-});
+  const metaCall = factory.createExpressionStatement(
+    factory.createCallExpression(factory.createIdentifier("registerGenericMeta"), undefined, [
+      factory.createStringLiteral(typeName),
+      factory.createObjectLiteralExpression(
+        [
+          factory.createPropertyAssignment("kind", factory.createStringLiteral("product")),
+          factory.createPropertyAssignment(
+            "fieldNames",
+            factory.createArrayLiteralExpression(
+              fieldNames.map((n) => factory.createStringLiteral(n))
+            )
+          ),
+          factory.createPropertyAssignment(
+            "fieldTypes",
+            factory.createArrayLiteralExpression(
+              fieldTypes.map((t) => factory.createStringLiteral(t))
+            )
+          ),
+        ],
+        true
+      ),
+    ])
+  );
 
-registerGeneric("${typeName}", generic${typeName});
-`;
+  const { statements, instanceName } = buildGenericInstanceStatements(factory, typeName, metaCall);
 
-  const statements = ctx.parseStatements(code);
-
-  // Register in compile-time instance registry
   instanceRegistry.push({
     typeclassName: "Generic",
     forType: typeName,
-    instanceName: `generic${typeName}`,
+    instanceName,
     companionPath: companionPath("Generic", typeName),
     derived: true,
   });
@@ -448,32 +521,47 @@ function expandGenericForSumType(
     }
   }
 
-  // Generate zero-cost Generic instance with identity to/from
-  // Sum types keep their native discriminated union form
-  const code = `
-// Zero-cost Generic instance for ${typeName} (sum type)
-const generic${typeName}: Generic<${typeName}, ${typeName}> = {
-  to: (value) => value,
-  from: (rep) => rep,
-};
+  const factory = ctx.factory;
 
-// Register type metadata for derivation
-registerGenericMeta("${typeName}", {
-  kind: "sum",
-  discriminant: "${sumInfo.discriminant}",
-  variants: ${JSON.stringify(sumInfo.variants)},
-});
+  const metaCall = factory.createExpressionStatement(
+    factory.createCallExpression(factory.createIdentifier("registerGenericMeta"), undefined, [
+      factory.createStringLiteral(typeName),
+      factory.createObjectLiteralExpression(
+        [
+          factory.createPropertyAssignment("kind", factory.createStringLiteral("sum")),
+          factory.createPropertyAssignment(
+            "discriminant",
+            factory.createStringLiteral(sumInfo.discriminant)
+          ),
+          factory.createPropertyAssignment(
+            "variants",
+            factory.createArrayLiteralExpression(
+              sumInfo.variants.map((v) =>
+                factory.createObjectLiteralExpression(
+                  [
+                    factory.createPropertyAssignment("tag", factory.createStringLiteral(v.tag)),
+                    factory.createPropertyAssignment(
+                      "typeName",
+                      factory.createStringLiteral(v.typeName)
+                    ),
+                  ],
+                  false
+                )
+              )
+            )
+          ),
+        ],
+        true
+      ),
+    ])
+  );
 
-registerGeneric("${typeName}", generic${typeName});
-`;
+  const { statements, instanceName } = buildGenericInstanceStatements(factory, typeName, metaCall);
 
-  const statements = ctx.parseStatements(code);
-
-  // Register in compile-time instance registry
   instanceRegistry.push({
     typeclassName: "Generic",
     forType: typeName,
-    instanceName: `generic${typeName}`,
+    instanceName,
     companionPath: companionPath("Generic", typeName),
     derived: true,
   });

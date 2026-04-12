@@ -119,51 +119,68 @@ Fix the bugs that produce wrong behavior today.
   verify `positionToOffset()` handles `\r\n`; verify `findIndex` replacement is
   correct; verify no new string codegen introduced
 
-### Wave 2: String Codegen to AST Conversion
+### Wave 2: String Codegen to AST Conversion ✅
+
+**Status:** Complete (2026-04-12)
 
 Convert all `ctx.parseStatements()`/`ctx.parseExpression()` string-template patterns
 to proper `ts.factory.create*` AST construction.
 
 **`packages/macros/src/generic.ts` (~34 lines):**
 
-- `expandGenericForProductType()` — replace template string + `parseStatements` with:
+- [x] `expandGenericForProductType()` — replace template string + `parseStatements` with:
   - `factory.createVariableStatement` for the `genericFoo` const
   - `factory.createObjectLiteralExpression` for the `{ to, from }` object
   - `factory.createExpressionStatement` + `factory.createCallExpression` for
     `registerGenericMeta()` and `registerGeneric()` calls
   - Use `factory.createArrayLiteralExpression` instead of `JSON.stringify(fieldNames)`
-- `expandGenericForSumType()` — same approach
+- [x] `expandGenericForSumType()` — same approach
 
 **`packages/macros/src/hkt.ts` (~18 lines):**
 
-- `expandTier3HKT()` — replace template string interface with
-  `factory.createInterfaceDeclaration` with heritage clause, `__kind__` member, and
-  `_` member whose type is the replaced RHS
-- `expandTier2Companion()` — same pattern for companion interface
-- `replaceUnderscoreInTypeText()` — replace regex substitution on type text with proper
-  AST walking: visit type nodes and replace `_` identifiers with `this["__kind__"]`
-  indexed access types
+- [x] `expandTier3HKT()` — replace template string interface with
+      `factory.createInterfaceDeclaration` with heritage clause, `__kind__` member, and
+      `_` member whose type is the replaced RHS
+- [x] `expandTier2Companion()` — same pattern for companion interface
+- [x] `replaceUnderscoreInTypeText()` — replaced with `replaceUnderscoreInTypeNode()`:
+      proper AST walking that visits type nodes and replaces `_` identifiers with
+      `this["__kind__"]` indexed access types. Handles type references, arrays, unions,
+      intersections, tuples, function types, parenthesized types, conditional types,
+      type literals, and mapped types.
 
 **`packages/macros/src/custom-derive.ts` (~45 lines):**
 
-- `defineCustomDerive()` — change the callback contract from returning a code string to
-  returning `ts.Statement[]` directly. Update all callers.
-- `defineFieldDerive()` — build statements per-field using AST factory, collect into array
-- `defineTypeFunctionDerive()` — build function declaration via
-  `factory.createFunctionDeclaration` with proper parameter list and body
+- [x] `defineCustomDerive()` — changed callback contract from `(info) => string` to
+      `(ctx, info) => ts.Statement[]`. Breaking API change (acknowledged in trade-offs).
+- [x] `defineFieldDerive()` — callback changed to `(ctx, typeName, field) => ts.Statement[]`;
+      preamble/postamble also changed to return `ts.Statement[]`
+- [x] `defineTypeFunctionDerive()` — callback returns `{ params: Array<{name, type: TypeNode}>,
+returnType: TypeNode, body: ts.Statement[] }`. Framework builds function declaration via
+      `factory.createFunctionDeclaration`.
 
 **`packages/macros/src/implicits.ts` (~3 lines):**
 
-- `transformImplicitsCall()` — replace `ctx.parseExpression(resolved.instanceName)` with
-  a helper that splits on `.` and builds a chain of `factory.createPropertyAccessExpression`
+- [x] `transformImplicitsCall()` — replaced `ctx.parseExpression(resolved.instanceName)` with
+      `buildDottedExpression()` helper that splits on `.` and builds a chain of
+      `factory.createPropertyAccessExpression`
+
+**Notes:**
+
+- The `printTypeNode()` helper in hkt.ts was removed (no longer needed).
+- The old `replaceUnderscoreInTypeText()` regex function was replaced by the AST-walking
+  `replaceUnderscoreInTypeNode()`.
+- `StringDeriveCallback` type was replaced by `CustomDeriveCallback` with the new signature.
+- Remaining `parseStatements`/`parseExpression` calls in other files (typeclass.ts, quote.ts,
+  verify-laws.ts, syntax-macro.ts, auto-derive.ts, specialize.ts) are out of Wave 2's scope.
+  These are legacy string codegen tracked in CLAUDE.md for future cleanup.
 
 **Gate:**
 
 - `cd packages/macros && npx vitest run` — all tests pass
 - `cd packages/transformer && npx vitest run` — all tests pass
 - `cd packages/macros && npx tsc --noEmit` — zero errors
-- Grep verification: `grep -rn 'parseStatements\|parseExpression' packages/macros/src/` should
-  return zero hits (excluding any legitimate parse-from-file uses in `include.ts`)
+- Grep verification: `grep -rn 'parseStatements\|parseExpression'` in the four converted
+  files (generic.ts, hkt.ts, custom-derive.ts, implicits.ts) returns zero hits
 - Code review: verify all new AST construction is correct and produces identical output
   to the old string-based approach; verify no regressions in macro expansion behavior
 
