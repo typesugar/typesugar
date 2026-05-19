@@ -1,8 +1,47 @@
 # PEP-039: Core Hardening — Bug Fixes, String Codegen Removal, and Test Coverage
 
-**Status:** In Progress
+**Status:** Complete (2026-05-19) — all 6 waves landed
 **Date:** 2026-04-11
 **Author:** Claude (with Dean Povey)
+
+**Summary of outcomes:**
+
+- 4 critical bugs fixed in Wave 1 (`coverage.ts` key format, `getPrimitivesFor`
+  filter, `normalizeTypeName` greedy regex, LSP repeated-line first-occurrence).
+- LSP `\r\n` handling fixed across `lsp-server` and `lsp-common`.
+- 4 string-codegen files migrated to AST in Wave 2 (`generic.ts`, `hkt.ts`,
+  `custom-derive.ts`, `implicits.ts`). Remaining call sites in
+  `typeclass.ts` / `quote.ts` / `verify-laws.ts` / `syntax-macro.ts` /
+  `auto-derive.ts` / `specialize.ts` deferred to a follow-up PEP.
+- Playground robustness (Wave 6): expression-position comprehensions
+  (arrow body, `return`, `export default`), `inferTypeConstructor`
+  crash recovery, TS9222 (discarded value-producing comprehension) and
+  TS9223 (`yield:` inside generator) diagnostics.
+- Test coverage went from 16% file-coverage in macros (5/31) to nearly
+  complete (26/29 testable files). ~1,033 new test cases across Waves
+  3–5:
+  - Wave 3: 100 tests across 5 critical macro files.
+  - Wave 4: 585 tests across 16 macro files (target was 100).
+  - Wave 5: 348 tests across transformer-core (190) + LSP (40) + std
+    typeclasses (118).
+- Three real bugs pinned as regression-locking tests (with `expect.toThrow`
+  / behaviour snapshots) so they fail when fixed:
+  1. `hkt.ts` — `isKindAnnotation`/`getKindArity` text slicing doesn't
+     match TS parsing of `<F<_>>`; `countUnderscoreMarkers` skips
+     `PropertySignature` children of `TypeLiteral` (`.todo`).
+  2. `tailrec.ts` — `return f(...)` inside a `for`/`while` body is
+     incorrectly classified as tail position and crashes
+     `transformTailRecursion` with `Cannot start a block scope during
+initialization` instead of emitting a diagnostic.
+  3. `module-graph.ts` — literal-filename patterns (no `*` or `/`) never
+     match anything because `matchesKindPattern` (line 234) rejects every
+     declaration when the pattern is neither `*`, a kind, nor contains
+     glob chars.
+- Several behavioural quirks pinned as documented contracts (not bugs):
+  `cfg.ts` triple-equals falls through to missing-key, lone-`\r` is line
+  content not terminator, `Destructure` protocol can't distinguish
+  `Some(undefined)` from `None`, `resolveSymbolToMacro` only consults
+  registry for `packages/` / `node_modules/` paths.
 
 ## Context
 
@@ -323,7 +362,7 @@ but still important for confidence.
       `findRecursiveCalls` treats any `ReturnStatement` as a tail position
       unconditionally — `return f(...)` nested inside a `for`/`while` body
       crashes `transformTailRecursion` with `Cannot start a block scope
-  during initialization` instead of emitting a tail-position diagnostic.
+during initialization` instead of emitting a tail-position diagnostic.
       Test pins the current behaviour so it will fail when fixed.
 - [x] `quote.ts` (548 LOC) — 56 tests. Splice wrappers (SpreadSplice /
       IdentSplice / RawSplice with cross-type instanceof checks), `quote` /
@@ -400,34 +439,86 @@ skips PropertySignature children).
 - Code review: verify no test is a pure smoke test (must assert on specific behavior);
   verify edge cases are covered for the medium-complexity files
 
-### Wave 5: Test Coverage — Transformer-Core and LSP Edge Cases
+### Wave 5: Test Coverage — Transformer-Core and LSP Edge Cases ✅
+
+**Status:** Complete (2026-05-19, 348 tests)
 
 Fill the remaining test gaps in the transformer-core and LSP packages.
 
-**`packages/transformer-core/` — untested modules:**
+**`packages/transformer-core/` — untested modules (190 tests):**
 
-- `rewriting.ts` (~1000 LOC) — AST rewriting engine: node replacement, scope handling,
-  import injection, statement ordering
-- `specialization.ts` (~1100 LOC) — specialization pass: monomorphization, inline
-  expansion, dead code elimination
-- `import-resolution.ts` (695 LOC) — import specifier resolution, re-export following,
-  circular dependency detection
-- `macro-helpers.ts` (671 LOC) — shared utilities used by macro implementations
+- [x] `rewriting.ts` (1375 LOC) — 51 tests. The file's actual scope (NOT
+      what the PEP backlog initially described): macro/operator/opaque
+      rewriting pass — tagged-template + type macros, extension methods,
+      HKT, typeclass operator rewriting, opaque ctor/method/constant/
+      annotation erasure and inference helpers. All 14 exports covered.
+- [x] `specialization.ts` (1214 LOC) — 51 tests. `tryAutoSpecialize`
+      end-to-end (cache hit/miss/clear, hoisted decl, TS9602 diagnostic,
+      synthetic-node suppression, `@no-specialize` directive,
+      no-instance-args skip), dictionary call rewriting, hoisted
+      specialization construction, return-type-driven specialization,
+      derived-instance inlining, DCE tracker. Notes: `@no-specialize`
+      only fires on the same source line as the call;
+      `generateHoistedName` produces hygiene-mangled identifiers.
+- [x] `import-resolution.ts` (694 LOC) — 46 tests. All 11 exports:
+      specifier resolution, alias matching, name lookup, import cleanup,
+      symbol→macro resolution incl. re-export chains, star re-exports,
+      aliased imports, package-boundary imports, circular re-exports.
+      Note: `resolveSymbolToMacro` only consults the registry for
+      symbols whose declaring file is under `packages/` or
+      `node_modules/` — by design (prevents `Show.summon` matching a
+      global `summon` macro).
+- [x] `macro-helpers.ts` (670 LOC) — 42 tests. `JSDOC_MACRO_TAGS`,
+      `isJSDocMacroTargetNode`, `hasJSDocMacroTags`, `parseJSDocMacroArgs`,
+      `createSyntheticDecorator`, `parseDecorator`,
+      `sortDecoratorsByDependency`, `sortDeriveArgsByDependency`
+      (builtin Ord/Eq, Monoid/Semigroup deps), `extractTypeInfo`
+      (product / primitive / generic / recursive / anonymous),
+      `expandDeriveDecorator` error paths, `tryExpandJSDocMacros`.
 
-**`packages/lsp-server/` — edge case tests:**
+**`packages/lsp-server/` and `packages/lsp-common/` — edge case tests (40 tests):**
 
-- Position mapping with Windows `\r\n` line endings (verify Wave 1 fix)
-- Position mapping with files containing repeated/duplicate lines
-- Diagnostic mapping when transformation fails partway through
-- Rapid open/close/save cycles (race condition testing)
-- Large file performance (>100KB source files)
-- UTF-16 surrogate pair handling in character positions
+- [x] CRLF / `\r\n` regression tests pinning the Wave 1 fix
+      (`positionToOffset` and `offsetToPosition` don't double-count `\r`).
+- [x] UTF-16 surrogate pair handling (e.g. `𝟘` U+1D7D8) — character
+      offsets count UTF-16 code units per LSP spec.
+- [x] Boundary clamping (position past EOF, negative offsets) and
+      long-line stress (10K-char single line stays accurate).
+- [x] Empty file / `\n`-only / `\r\n`-only edge cases.
+- [x] Documented behaviours: lone `\r` (Mac classic) treated as line
+      content (not terminator); minor `offsetToPosition` vs
+      `positionToOffset` asymmetry at the `\n` of a CRLF.
+- `lsp-common` previously had no test config — added
+  `packages/lsp-common/vitest.config.ts` and the first test file
+  `tests/position-helpers.test.ts` (18 tests).
+- `mapTsDiagnostic` repeated-line outward-search is not exported from
+  `server.ts`, so unit-level coverage isn't feasible without refactor;
+  that path is covered indirectly by `lsp-integration.test.ts`.
 
-**`packages/std/` — typeclass tests:**
+**`packages/std/` — typeclass tests (118 tests):**
 
-- Add tests for Eq, Ord, Semigroup, Monoid instances
-- Add tests for numeric-ops (gcd, lcm, pow)
-- Add tests for Destructure and ParCombine typeclasses
+- [x] `typeclass-laws.test.ts` — 43 tests. Eq reflexivity / symmetry /
+      transitivity for number / string / boolean / array<number>;
+      Ord laws (reflexivity, antisymmetry, transitivity, Eq compatibility)
+      for number / string / boolean / array; Semigroup associativity
+      for number / string / bigint / array; Monoid left / right identity + associativity for the same set.
+- [x] `numeric-ops.test.ts` — 37 tests. `gcdWith` (zero edge cases,
+      negatives, commutativity, coprimes, bigint), `lcmWith` (zero,
+      1-identity, coprimes-as-product, bigint), `pow` (0^0=1, 0^n=0,
+      n^0=1, large 2^16, signs, negative-throws, bigint 2^64),
+      `powFrac` (negative exponent reciprocal), `sum` / `product`
+      sanity.
+- [x] `destructure.test.ts` — 17 tests. Tuple (positional),
+      Object (named), sum-variant (Option-style Some/None), nested
+      patterns; extract-on-match, undefined-on-mismatch,
+      construct-round-trip. Documented quirk: protocol uses
+      `T | undefined` so `Some(undefined)` is indistinguishable from
+      `None` — acknowledged in source's "Design" comment.
+- [x] `par-combine.test.ts` — 21 tests. `parCombinePromise` (order
+      preservation, empty, rejection), `parCombineArray` (cartesian
+      product cardinality + values, empty inner),
+      `parCombineIterable` (generators), `parCombineAsyncIterable`,
+      registry lookup (`getParCombine`/`getParCombineBuilder`).
 
 **Gate:**
 
