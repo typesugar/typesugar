@@ -254,15 +254,39 @@ the macro system and bugs here propagate everywhere.
 Add unit tests for the remaining untested macro files. These are medium-complexity
 but still important for confidence.
 
-**Batch A — Macro expansion mechanics:**
+**Batch A — Macro expansion mechanics ✅ (Complete 2026-05-19, 165 tests):**
 
-- `operators.ts` (285 LOC) — operator rewriting for each operator type, precedence,
-  typeclass resolution
-- `extension.ts` (450 LOC) — extension method binding, method resolution, conflict detection
-- `hkt.ts` (837 LOC) — HKT rewriting, tier detection, companion generation, underscore
-  replacement
-- `generic.ts` (568 LOC) — Generic instance generation for product and sum types,
-  metadata registration
+- [x] `operators.ts` (289 LOC) — 44 tests covering `getOperatorString` across 19
+      `SyntaxKind` cases + undefined fallback, macro metadata for all five exports,
+      default expansion of `__pipe__`/`__cons__`/`__apply__`, typeclass-dispatch path
+      with `globalResolutionScope`, primitive-no-symbol fallback, and `pipe`/`compose`
+      expansion plus error paths.
+- [x] `extension.ts` (449 LOC) — 33 tests covering `createRegistrationCall` AST shape,
+      `registerExtensionsMacro` / `registerExtensionMacro` success + error paths,
+      `extensionAttribute` on function decls / variable decls / namespaces (export
+      gating, primitive type handling, qualified names, TS9206 paths). All AST
+      built with `ts.factory.*`.
+- [x] `hkt.ts` (993 LOC) — 50 tests + 1 `.todo` covering `parseTypeConstructor`
+      across simple/generic/nested/malformed inputs, kind annotation predicates,
+      `replaceUnderscoreInTypeNode` across all 10 type-node variants
+      (TypeReference, ArrayType, UnionType, IntersectionType, TupleType, FunctionType,
+      ConditionalType, TypeLiteral, MappedType, ParenthesizedType), `expandTier3HKT`
+      / `expandTier2Companion` interface shape, and `kindParamRegistry` lifecycle.
+      Surfaced two real bugs (documented in module comment + `.todo`): (1)
+      `isKindAnnotation` / `getKindArity` rely on `param.getStart()..getEnd()` text
+      slicing that doesn't match how TS actually parses `<F<_>>`; (2)
+      `countUnderscoreMarkers` skips `PropertySignature` children of `TypeLiteral`,
+      so `type ObjF = { value: _ }` is not detected as Tier 3.
+- [x] `generic.ts` (639 LOC) — 38 tests covering `registerGeneric` / `getGeneric`
+      lifecycle, `registerGenericMeta` / `getGenericMeta`, `showProduct` / `showSum`
+      / `eqProduct` / `eqSum` / `ordProduct` / `hashProduct` with field-equality and
+      lexicographic / deterministic semantics, `deriveShowViaGeneric` /
+      `deriveEqViaGeneric` (success + missing-instance throws), and the
+      `genericDerive` attribute macro end-to-end against a real `ts.Program` +
+      `createMacroContext` — asserting it emits the 4 expected nodes (interface +
+      const + `registerGenericMeta` + `registerGeneric`), handles classes and
+      discriminated unions, and that the Wave-2 AST path produces real
+      `ts.ArrowFunction` initializers.
 
 **Batch B — Code generation macros:**
 
@@ -366,21 +390,18 @@ silently-discarded Effects that confused first-time users.
     bare empty return statement followed by an orphaned `let:` label;
     `export default` parses as `export default let` (bare identifier) with
     the labeled blocks stranded as top-level siblings.
-  - Fix (Tier 3 — parse, detect, source-rewrite, reparse):
-    - Arrow / `return`: wrap in a double `{ { const __letyield_N = <labeled
+  - Fix (Tier 3 — parse, detect, source-rewrite, reparse): - Arrow / `return`: wrap in a double `{ { const __letyield_N = <labeled
 blocks>; return __letyield_N; } }` so the parser's error-recovery
-      consumes the stray `}` from the user's `let:` block against the inner
-      wrapper Block. The transformer then flattens the inner Block and the
-      existing `const x = let;` merge runs unchanged. Post-merge,
-      `{ const __letyield_N = EXPR; return __letyield_N; }` collapses back
-      to `(params) => EXPR` / `return EXPR;`.
-    - `export default`: hoist to a top-level `const __letyield_N = <labeled
+    consumes the stray `}` from the user's `let:` block against the inner
+    wrapper Block. The transformer then flattens the inner Block and the
+    existing `const x = let;` merge runs unchanged. Post-merge,
+    `{ const __letyield_N = EXPR; return __letyield_N; }` collapses back
+    to `(params) => EXPR` / `return EXPR;`. - `export default`: hoist to a top-level `const __letyield_N = <labeled
 blocks>` and rewrite the export to reference that name. (An IIFE wrap
-      would work for arrow but TS's brace-recovery in
-      `(() => { … })()` detaches the invocation.)
-    - `await`: intentionally not rewritten — any wrap inside a function body
-      runs into the same stray-`}` issue. Users should bind the
-      comprehension to a `const` explicitly and `await` that.
+    would work for arrow but TS's brace-recovery in
+    `(() => { … })()` detaches the invocation.) - `await`: intentionally not rewritten — any wrap inside a function body
+    runs into the same stray-`}` issue. Users should bind the
+    comprehension to a `const` explicitly and `await` that.
   - Preprocessor: `packages/transformer/src/arrow-comprehension-preprocess.ts`.
     Wired from `packages/transformer/src/pipeline.ts` ahead of the main TS
     parse; the generated source map is composed with the surrounding chain.
