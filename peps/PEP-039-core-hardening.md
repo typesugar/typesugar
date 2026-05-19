@@ -288,12 +288,51 @@ but still important for confidence.
       discriminated unions, and that the Wave-2 AST path produces real
       `ts.ArrowFunction` initializers.
 
-**Batch B — Code generation macros:**
+**Batch B — Code generation macros ✅ (Complete 2026-05-19, 158 tests):**
 
-- `custom-derive.ts` (342 LOC) — custom derive registration and expansion
-- `auto-derive.ts` (~1100 LOC) — automatic derivation selection and ordering
-- `tailrec.ts` (716 LOC) — tail call optimization transformation
-- `quote.ts` (548 LOC) — quasi-quotation and splicing
+- [x] `custom-derive.ts` (342 LOC) — 31 tests. `defineCustomDerive`
+      registration/options/default+custom description, ctx + SimpleTypeInfo
+      shape, field flags, typeParams, `hasField`/`getField`, zero-field,
+      verbatim AST return, Error + non-Error throw diagnostics.
+      `defineCustomDeriveAst`: registration, AST-flavored default description,
+      raw `DeriveTypeInfo` forwarding incl. sum-type, error diagnostic.
+      `defineFieldDerive`: per-field invocation order, zero-field skip,
+      preamble/postamble bracketing, multi-stmt flattening.
+      `defineTypeFunctionDerive`: FunctionDeclaration shape, export modifier,
+      multi-param ordering with type nodes.
+- [x] `auto-derive.ts` (~1100 LOC) — 36 tests. Registry register/get/has/
+      overwrite/built-ins, `clearDerivationCaches` cache vs registration
+      semantics, `canDeriveViaGeneric` (5 cases), `tryDeriveViaGeneric`
+      error/trace paths (unknown typeclass, missing meta, field-check
+      rejection, codegen-null, sum without `deriveSum`), success paths incl.
+      cache-hit, TypeChecker mirror synthesis for interface/class/type-alias
+      product, discriminated-union → switch output, methods-only rejection,
+      `makePrimitiveChecker`. Documented real bug:
+      `extractMetaFromTypeChecker` scope-search fallback returns `any` from
+      `getDeclaredTypeOfSymbol` for interface symbols obtained via
+      `getSymbolsInScope`. Real callers always pass the declaring node,
+      masking this in production.
+- [x] `tailrec.ts` (716 LOC) — 35 tests. Macro metadata, factorial transform
+      with AST shape assertions, if-statement / switch / ternary /
+      mutually-exclusive-branches tail calls, non-tail diagnostics including
+      binary op and try/catch, no-recursion diagnostic, unwrappers (parens,
+      `as`, non-null, `await` rejection), logical `&&`/`||` RHS, unsupported
+      shapes (arrow var, class method, anonymous default-export, ambient
+      declaration), decorator stripping, parameter-rebinding `_next_*`
+      temporaries. Documented real bug:
+      `findRecursiveCalls` treats any `ReturnStatement` as a tail position
+      unconditionally — `return f(...)` nested inside a `for`/`while` body
+      crashes `transformTailRecursion` with `Cannot start a block scope
+    during initialization` instead of emitting a tail-position diagnostic.
+      Test pins the current behaviour so it will fail when fixed.
+- [x] `quote.ts` (548 LOC) — 56 tests. Splice wrappers (SpreadSplice /
+      IdentSplice / RawSplice with cross-type instanceof checks), `quote` /
+      `quoteStatements` / `quoteType` / `quoteBlock` with structural AST
+      assertions, builders (`quoteCall`/`quotePropAccess`/`quoteMethodCall` /
+      `quoteConst`/`quoteLet` Const-vs-Let flag, `quoteReturn`, `quoteIf`
+      block-wrap and array bodies, `quoteArrow` block-vs-expr body,
+      `quoteFunction` modifiers/return type/typed-optional params),
+      template/splice arity edge cases.
 
 **Batch C — Smaller macros:**
 
