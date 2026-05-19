@@ -51,6 +51,11 @@ inspect-output.txt
 # Auto-generated tracking markers
 .pep-gate
 
+# Claude Code local state
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.claude/settings.local.json
+
 # Orphaned screenshots (not referenced)
 file-based-examples.png
 grouped-examples-dropdown.png
@@ -68,5 +73,6 @@ docs/.vitepress/dist/
 # VSCode extension packaging
 *.vsix
 .typesugar-cache/
+packages/vscode/.vscode-test/
 .vitepress/cache
 .vercel
