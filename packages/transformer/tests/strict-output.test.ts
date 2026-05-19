@@ -139,7 +139,10 @@ describe("Strict Output Mode", () => {
     }
   });
 
-  it("strictOutput overhead is reasonable (< 3x base transform time)", () => {
+  // Timeout bump: 8 full transforms (2 warm-ups + 3+3 measurements) on a real
+  // example file routinely exceed vitest's 5s default — some showcase
+  // transforms alone run 2.5s on slower CI runners.
+  it("strictOutput overhead is reasonable (< 3x base transform time)", { timeout: 30000 }, () => {
     const example = examples[0];
     if (!example) return;
 
