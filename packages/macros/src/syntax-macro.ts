@@ -114,7 +114,7 @@ const CAPTURE_RE = /\$(\w+)(?::(\w+))?/g;
  * - `$name` — shorthand for `$name:expr`
  * - Everything else is literal syntax
  */
-function parsePattern(pattern: string): {
+export function parsePattern(pattern: string): {
   captures: PatternCapture[];
   captureNames: string[];
 } {
@@ -141,7 +141,7 @@ function parsePattern(pattern: string): {
  * For expression macros, the pattern's captures map to the call arguments
  * positionally. E.g., `myMacro($a:expr, $b:expr)` maps args[0] → $a, args[1] → $b.
  */
-function extractCaptures(
+export function extractCaptures(
   captures: PatternCapture[],
   args: readonly ts.Expression[],
   ctx: MacroContext
@@ -195,7 +195,7 @@ function extractCaptures(
 /**
  * Print a captured AST node to its source text representation.
  */
-function nodeToText(node: ts.Node, ctx: MacroContext): string {
+export function nodeToText(node: ts.Node, ctx: MacroContext): string {
   const printer = getPrinter();
 
   // For nodes from a real source file, getText() works.
@@ -233,7 +233,7 @@ function nodeToText(node: ts.Node, ctx: MacroContext): string {
  * substitution with no surrounding text), the captured node is returned
  * directly, avoiding the print→reparse cycle entirely.
  */
-function expandTemplate(
+export function expandTemplate(
   template: string,
   captures: Map<string, ts.Node>,
   ctx: MacroContext

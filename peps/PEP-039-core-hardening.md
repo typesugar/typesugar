@@ -323,7 +323,7 @@ but still important for confidence.
       `findRecursiveCalls` treats any `ReturnStatement` as a tail position
       unconditionally — `return f(...)` nested inside a `for`/`while` body
       crashes `transformTailRecursion` with `Cannot start a block scope
-    during initialization` instead of emitting a tail-position diagnostic.
+  during initialization` instead of emitting a tail-position diagnostic.
       Test pins the current behaviour so it will fail when fixed.
 - [x] `quote.ts` (548 LOC) — 56 tests. Splice wrappers (SpreadSplice /
       IdentSplice / RawSplice with cross-type instanceof checks), `quote` /
@@ -334,16 +334,61 @@ but still important for confidence.
       `quoteFunction` modifiers/return type/typed-optional params),
       template/splice arity edge cases.
 
-**Batch C — Smaller macros:**
+**Batch C — Smaller macros ✅ (Complete 2026-05-19, 262 tests):**
 
-- `reflect.ts` (895 LOC) — runtime type reflection generation
-- `verify-laws.ts` (458 LOC) — law verification test generation
-- `static-assert.ts` (244 LOC) — compile-time assertion checking
-- `cfg.ts` (254 LOC) — conditional compilation
-- `config-when.ts` (144 LOC) — config-based conditional code
-- `syntax-macro.ts` (379 LOC) — custom syntax macro registration
-- `module-graph.ts` (375 LOC) — module dependency analysis
-- `coverage.ts` (339 LOC) — coverage checking (verify the Wave 1 fixes work correctly)
+- [x] `reflect.ts` (895 LOC) — 24 tests. `reflectAttribute` on interfaces
+      (incl. empty, generic, readonly/optional flags), classes
+      (fields+methods+async+optional params+type params), type-alias
+      products, type-alias sums, unsupported declarations. `typeInfoMacro`
+      object-literal shape, fields, kind variants, missing type-arg
+      diagnostic. Structural assertions via `ts.is*` predicates.
+- [x] `verify-laws.ts` (458 LOC) — 36 tests covering config / inference /
+      extraction / arg parsing / codegen / `capitalize` / end-to-end.
+      Source change: added an `@internal`-tagged re-export block to make
+      internals testable. NOTE: uses `ctx.parseStatements(...)` over
+      template strings — adds to the Wave 8 string-codegen migration list.
+- [x] `static-assert.ts` (244 LOC) — 35 tests. `staticAssertMacro`
+      (truthy/falsy literals, comparisons, runtime expressions emitting
+      TS9219, arity errors, message variants), `compileErrorMacro`,
+      `compileWarningMacro` (severity divergence, arity, fallback),
+      `printConditionBrief` / `extractStringArg` indirect coverage.
+- [x] `cfg.ts` (254 LOC) — 39 tests. Pins notable contracts:
+      `setCfgConfig` is shallow replace (not deep merge); evaluator only
+      matches `==`/`!=`, not `===`/`!==` — `target.platform === 'browser'`
+      falls through to missing-key lookup and is falsy.
+      `initializeFromEnvironment` gated by `cfgInitialized` flag.
+- [x] `config-when.ts` (144 LOC) — 24 tests covering `configWhenMacro`
+      (expression: true/false/missing-key/nested-path/string/number/
+      equality/arrow-invocation/arity/non-literal errors) and
+      `configWhenAttrMacro` (function/class/variable for both branches,
+      arity + non-literal errors).
+- [x] `syntax-macro.ts` (379 LOC) — 39 tests. Source change: exported
+      four previously-private functions (`parsePattern`, `extractCaptures`,
+      `nodeToText`, `expandTemplate`) for direct unit testing. Confirmed:
+      `expandTemplate` fast-path when template is exactly `$name`,
+      unmatched `$z` left untouched, `extractCaptures` returns null on
+      arity / kind mismatch.
+- [x] `module-graph.ts` (375 LOC) — 28 tests. Documented real bug:
+      literal-filename patterns (no `*` or `/`, e.g. `"foo.ts"`) never
+      match anything — `matchesPattern` accepts the file by glob, but
+      `matchesKindPattern` (line 234) rejects every declaration because
+      the pattern is neither `*`, a kind, nor contains `*`/`/`.
+- [x] `coverage.ts` (339 LOC) — 37 tests including Wave 1 regression
+      guards: key format `number::Show` not `number::__binop__(Show`;
+      `getPrimitivesFor` returns registered types; `normalizeTypeName`
+      handles nested generics like `Map<string, Array<number>>` via
+      `indexOf('<')`. Plus registry semantics, built-in primitives,
+      `checkCoverage` (covered/missing/opt-out/custom message),
+      `configureCoverage`/`getCoverageConfig`, `validateCoverageOrError`
+      diagnostic emission with summary dedup. Minor: `coverage.ts:118`
+      has a stray `)))` in the Show missing-message template (cosmetic).
+
+**Wave 4 totals:** 585 new test cases across 16 files (target ~100).
+Macros package now has 831 tests across 26 test files. Three real bugs
+documented as pinned `expect.toThrow` / behaviour-snapshot tests for
+later fixes (hkt-`<F<_>>`, tailrec loop-nested-return, module-graph
+literal-filename pattern); one as `.todo` (hkt countUnderscoreMarkers
+skips PropertySignature children).
 
 **Gate:**
 

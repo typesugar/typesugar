@@ -455,3 +455,22 @@ globalRegistry.register(verifyLawsAttribute);
 // ============================================================================
 
 export { getVerifyLawsConfig };
+
+/**
+ * @internal
+ * Exposed for unit testing. Not part of the public API.
+ */
+export {
+  extractInstanceInfo,
+  parseVerifyLawsArgs,
+  inferLawGenerator,
+  expandCompileTimeVerification,
+  generateCompileTimeCheck,
+  expandPropertyTestVerification,
+  generatePropertyTests,
+  capitalize,
+  type VerifyLawsConfig,
+  type VerifyLawsArgs,
+  type InstanceInfo,
+  type VerificationContext,
+};
