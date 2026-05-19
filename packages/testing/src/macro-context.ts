@@ -3,7 +3,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext, ComptimeValue } from "@typesugar/core";
+import type { MacroContext, ComptimeValue, MacroDiagnostic } from "@typesugar/core";
 import { HygieneContext, DiagnosticBuilder, richToLegacyDiagnostic } from "@typesugar/core";
 import type { DiagnosticDescriptor } from "@typesugar/core";
 
@@ -26,6 +26,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
 
   const errors: string[] = [];
   const warnings: string[] = [];
+  const diagnostics: MacroDiagnostic[] = [];
 
   let uniqueIdCounter = 0;
   const hygiene = new HygieneContext();
@@ -119,11 +120,13 @@ export function createMacroTestContext(source: string): TestMacroContext {
     reportError(node: ts.Node, message: string): void {
       const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart());
       errors.push(`Error at ${pos.line + 1}:${pos.character + 1}: ${message}`);
+      diagnostics.push({ severity: "error", message, node });
     },
 
     reportWarning(node: ts.Node, message: string): void {
       const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart());
       warnings.push(`Warning at ${pos.line + 1}:${pos.character + 1}: ${message}`);
+      diagnostics.push({ severity: "warning", message, node });
     },
 
     diagnostic(descriptor: DiagnosticDescriptor): DiagnosticBuilder {
@@ -134,7 +137,12 @@ export function createMacroTestContext(source: string): TestMacroContext {
         } else {
           warnings.push(legacy.message);
         }
+        diagnostics.push(legacy);
       });
+    },
+
+    getDiagnostics(): MacroDiagnostic[] {
+      return [...diagnostics];
     },
 
     // Compile-time evaluation
