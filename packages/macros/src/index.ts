@@ -106,7 +106,6 @@ export {
   hasParCombineInstance,
   parCombineBuilderRegistry,
   getSpecializationMethodsForDerivation,
-  convertToCompanionAssignment,
   ensureDataTypeCompanionConst,
   type TypeclassInfo,
   type TypeclassMethod,

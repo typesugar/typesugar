@@ -109,6 +109,15 @@ export interface MacroContext {
     descriptor: import("./diagnostics.js").DiagnosticDescriptor
   ): import("./diagnostics.js").DiagnosticBuilder;
 
+  /**
+   * Return the list of diagnostics emitted so far in this macro context.
+   * Primarily intended for tests that exercise macro expansion and want to
+   * assert on emitted diagnostics; production callers should rely on the
+   * pipeline-level diagnostic surface instead. Returns a fresh array — safe
+   * to mutate without affecting the context's internal state.
+   */
+  getDiagnostics(): MacroDiagnostic[];
+
   // -------------------------------------------------------------------------
   // Compile-Time Evaluation
   // -------------------------------------------------------------------------
@@ -294,16 +303,23 @@ export interface AttributeMacro extends MacroDefinitionBase {
   validTargets: AttributeTarget[];
 
   /**
-   * Expand the attribute macro
+   * Expand the attribute macro.
+   *
+   * `target` is typed as `ts.Node` because in practice the framework hands
+   * macros a variety of node shapes (class / interface / type-alias /
+   * variable statement / function declaration). Macros that only support
+   * specific shapes should narrow via `ts.isXxx` predicates and report a
+   * diagnostic on unsupported targets.
+   *
    * @param ctx - The macro context
    * @param decorator - The decorator node
-   * @param target - The decorated declaration
+   * @param target - The decorated node
    * @param args - Arguments passed to the decorator
    */
   expand(
     ctx: MacroContext,
     decorator: ts.Decorator,
-    target: ts.Declaration,
+    target: ts.Node,
     args: readonly ts.Expression[]
   ): ts.Node | ts.Node[];
 }

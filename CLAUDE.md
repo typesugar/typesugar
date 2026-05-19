@@ -15,7 +15,20 @@ String-based codegen is fragile (regex can't reliably parse TypeScript) and make
 harder to compose transformations. AST-based codegen is type-safe, composable, and
 doesn't round-trip through the parser.
 
-**Legacy exception:** `builtinDerivations` in `typeclass.ts` currently use string-based
-codegen with `convertToCompanionAssignment` (regex rewriting). This is technical debt
-tracked for cleanup — do not extend this pattern to new code. See PEP backlog for the
-audit/migration plan.
+**Remaining `parseStatements`/`parseExpression` call sites** (deferred to a follow-up
+PEP for migration):
+
+- `typeclass.ts` — companion + namespace assignment codegen (`companionCode`,
+  `assignCode`).
+- `verify-laws.ts` — law verification + property-test codegen.
+- `auto-derive.ts` — cached derivation output (memory + disk caches store strings;
+  changing the cache contract to store AST is the bigger refactor).
+- `specialize.ts` — legacy string-source `method.source` path (replaced where
+  possible by AST-based `registerInstanceMethodsFromAST`).
+- `quote.ts` and `syntax-macro.ts` — these ARE the quasi-quote / user-defined
+  syntax-macro primitives. String→AST parsing is their documented purpose; they
+  are not migration targets.
+
+The original `builtinDerivations` + `convertToCompanionAssignment` legacy exception
+was removed in 2026-05 after they were confirmed to be dead code (orphaned by
+PEP-038 Wave 2F's GenericDerivation migration).

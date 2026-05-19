@@ -45,6 +45,9 @@ export type QuoteSplice =
   | ts.Statement[]
   | ts.TypeNode
   | ts.Identifier
+  | SpreadSplice
+  | IdentSplice
+  | RawSplice
   | string
   | number
   | boolean;

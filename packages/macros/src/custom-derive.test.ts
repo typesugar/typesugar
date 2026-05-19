@@ -697,7 +697,12 @@ describe("defineTypeFunctionDerive", () => {
     const fn = statements[0] as ts.FunctionDeclaration;
     expect(fn.body).toBeDefined();
     expect(fn.body!.statements.length).toBe(3);
-    // multiLine flag — the factory call passes `true` for the block.
-    expect((fn.body as ts.Block).multiLine).toBe(true);
+    // The block is created with `multiLine: true`. That flag isn't a public
+    // property of ts.Block, but it does affect the printed output — verify
+    // via the printer that statements end up on separate lines.
+    const printed = ts
+      .createPrinter({ newLine: ts.NewLineKind.LineFeed })
+      .printNode(ts.EmitHint.Unspecified, fn.body!, fn.getSourceFile());
+    expect(printed.split("\n").length).toBeGreaterThan(2);
   });
 });

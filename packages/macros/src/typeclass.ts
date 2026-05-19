@@ -1240,10 +1240,6 @@ function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Generate the internal variable name for a typeclass instance.
  *
@@ -1342,101 +1338,6 @@ export function resolveFieldInstance(
   }
 
   return companionPathFallback(tcName, typeName);
-}
-
-/**
- * Convert a derived instance const declaration to a namespace companion property.
- *
- * Transforms:
- *   const eqPoint: Eq<Point> = /*#__PURE__*​/ { equals: ... };
- * Into:
- *   namespace Point { export const Eq: Eq<Point> = /*#__PURE__*​/ { equals: ... }; }
- *
- * Uses TypeScript's namespace-class declaration merging, which is type-safe
- * (no `as any` cast) and provides both the runtime value and the type declaration
- * in a single construct. Multiple @derive arguments each add a property to the
- * same namespace block.
- *
- * For generic factory functions (e.g., `export function eqPair<A, B>(...): Eq<Pair<A, B>>`),
- * we leave them as-is since they can't be companion properties (they need type parameters).
- */
-function convertToCompanionAssignment(code: string, tcName: string, typeName: string): string {
-  // Extract the type annotation by finding balanced angle brackets after "const varName: "
-  const constMatch = code.match(/const\s+\w+\s*:\s*/);
-  if (!constMatch) {
-    // Not a simple const declaration (might be a generic factory function) — leave as-is
-    return code;
-  }
-
-  // Extract the flat variable name for later self-reference replacement
-  const varNameFromConst = constMatch[0].match(/const\s+(\w+)/)?.[1];
-
-  // Extract type annotation with balanced angle brackets
-  const afterConst = code.substring(constMatch.index! + constMatch[0].length);
-  let angleDepth = 0;
-  let typeEnd = 0;
-  for (let i = 0; i < afterConst.length; i++) {
-    if (afterConst[i] === "<") angleDepth++;
-    if (afterConst[i] === ">") {
-      angleDepth--;
-      if (angleDepth === 0) {
-        typeEnd = i + 1;
-        break;
-      }
-    }
-  }
-  if (typeEnd === 0) return code; // No valid type annotation found
-
-  const typeAnnotation = afterConst.substring(0, typeEnd); // e.g., "Eq<Point>"
-
-  // Now match the full pattern including optional /*#__PURE__*/ marker
-  const fullPattern = new RegExp(
-    `const\\s+\\w+\\s*:\\s*${escapeRegExp(typeAnnotation)}\\s*=\\s*(\\/\\*#__PURE__\\*\\/\\s*)?(\\{)`
-  );
-  const fullMatch = code.match(fullPattern);
-  if (!fullMatch) return code;
-
-  const pureMarker = fullMatch[1] || "";
-
-  // Check if the implementation references primitive companions of the same typeclass.
-  // e.g., Show.string inside a Show derivation. If so, the namespace would shadow
-  // the global typeclass reference. Use Option A: hoist to module scope, re-export.
-  const hasPrimitiveSelfRef = PRIMITIVE_TYPES.some((prim) => code.includes(`${tcName}.${prim}`));
-
-  if (hasPrimitiveSelfRef) {
-    // Option A: keep implementation at module scope (no shadowing), re-export from namespace.
-    // e.g.: const _MetricShow = { show: ... Show.string.show(...) ... };
-    //       namespace Metric { export const Show = _MetricShow; }
-    const hoistedName = `_${typeName}${tcName}`;
-    code = code.replace(fullPattern, `const ${hoistedName} = ${pureMarker}{`);
-
-    // Replace self-references to the old flat variable name with companion path.
-    if (varNameFromConst && code.includes(varNameFromConst)) {
-      const companionRef = `${typeName}.${tcName}`;
-      const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
-      code = code.replace(wordBoundaryPattern, companionRef);
-    }
-
-    code = `${code}\nnamespace ${typeName} { export const ${tcName} = ${hoistedName}; }`;
-  } else {
-    // Standard path: wrap in namespace directly (no shadowing risk).
-    code = code.replace(
-      fullPattern,
-      `namespace ${typeName} { export const ${tcName} = ${pureMarker}{`
-    );
-
-    // Close the namespace block.
-    code = code.replace(/;\s*$/, `; }`);
-
-    // Replace self-references to the old flat variable name with companion path.
-    if (varNameFromConst && code.includes(varNameFromConst)) {
-      const companionRef = `${typeName}.${tcName}`;
-      const wordBoundaryPattern = new RegExp(`\\b${escapeRegExp(varNameFromConst)}\\b`, "g");
-      code = code.replace(wordBoundaryPattern, companionRef);
-    }
-  }
-
-  return code;
 }
 
 /**
@@ -2438,40 +2339,6 @@ function getTypeclassSignatureTemplate(
 //   }
 // ============================================================================
 
-/**
- * Built-in typeclass definitions with their derivation strategies.
- *
- * These define how to auto-derive instances for product and sum types.
- * Each entry specifies:
- * - methods: The typeclass methods to generate
- * - productDerive: How to combine field instances for product types
- * - sumDerive: How to dispatch on variants for sum types
- *
- * For generic types (with type parameters), we generate factory functions
- * instead of constants:
- * - `getEq<A>(E: Eq<A>): Eq<Option<A>>` instead of `const eqOption: Eq<Option>`
- */
-interface BuiltinTypeclassDerivation {
-  /** Generate instance code for a product type */
-  deriveProduct(typeName: string, fields: DeriveFieldInfo[]): string;
-  /** Generate instance code for a sum type */
-  deriveSum(
-    typeName: string,
-    discriminant: string,
-    variants: Array<{ tag: string; typeName: string }>
-  ): string;
-  /**
-   * Generate factory function for a generic sum type.
-   * Returns undefined if not supported, falling back to non-generic derivation.
-   */
-  deriveGenericSum?(
-    typeName: string,
-    discriminant: string,
-    variants: DeriveVariantInfo[],
-    typeParams: ts.TypeParameterDeclaration[]
-  ): string | undefined;
-}
-
 // ============================================================================
 // Generic Type Derivation Helpers
 // ============================================================================
@@ -2536,8 +2403,6 @@ function getFieldInstanceRef(
   // Fall back to companion access for field instance references
   return companionAccess(tcName, getBaseType(field), field.type);
 }
-
-const builtinDerivations: Record<string, BuiltinTypeclassDerivation> = {};
 
 /**
  * Try to extract sum type information from a type alias declaration.
@@ -3802,7 +3667,6 @@ export {
   getTypeclass,
   instanceVarName,
   companionPath,
-  convertToCompanionAssignment,
   ensureDataTypeCompanionConst,
   getSyntaxForOperator,
   clearSyntaxRegistry, // deprecated, no-op

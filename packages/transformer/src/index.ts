@@ -54,7 +54,6 @@ import {
   type DictMethod,
   type ResultAlgebra,
   createRegistrationCall,
-  convertToCompanionAssignment,
   ensureDataTypeCompanionConst,
   // Instance resolution (PEP-038)
   resolveInstance,

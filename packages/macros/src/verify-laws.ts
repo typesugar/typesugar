@@ -169,7 +169,7 @@ interface InstanceInfo {
   forType: string;
 }
 
-function extractInstanceInfo(ctx: MacroContext, target: ts.Declaration): InstanceInfo | undefined {
+function extractInstanceInfo(ctx: MacroContext, target: ts.Node): InstanceInfo | undefined {
   let varName: string | undefined;
   let typeNode: ts.TypeNode | undefined;
 

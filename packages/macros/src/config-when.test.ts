@@ -122,7 +122,7 @@ function runExpressionMacro(source: string): {
  */
 function runAttributeMacro(
   source: string,
-  pick: (sf: ts.SourceFile) => ts.Declaration | undefined,
+  pick: (sf: ts.SourceFile) => ts.Node | undefined,
   argFactories: ((factory: ts.NodeFactory) => ts.Expression)[]
 ): {
   nodes: ts.Node[];
