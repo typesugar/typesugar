@@ -24,6 +24,7 @@ import macroTransformerFactory, {
 } from "./index.js";
 import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
 import MagicString from "magic-string";
+import { preprocessExpressionComprehensions } from "./arrow-comprehension-preprocess.js";
 
 /**
  * Diagnostic from macro expansion
@@ -850,7 +851,26 @@ export class TransformationPipeline {
     const preprocessed = this.host.getPreprocessedFile(normalizedFileName);
     const preprocessMs = PROFILING_ENABLED ? performance.now() - preprocessStart : 0;
     const preprocessMap = preprocessed?.map ?? null;
-    const codeForTransform = preprocessed?.code ?? original;
+    let codeForTransform = preprocessed?.code ?? original;
+
+    // Expression-position comprehension preprocessing: rewrite arrow-body,
+    // `return`, and `export default` uses of `let:/yield:` into shapes the
+    // `const x = let;`-merge path can handle, and emit TS9223 for `yield:`
+    // inside generator functions. See arrow-comprehension-preprocess.ts.
+    const compResult = preprocessExpressionComprehensions(codeForTransform, normalizedFileName);
+    let compMap: RawSourceMap | null = null;
+    if (compResult.changed) {
+      codeForTransform = compResult.source;
+      compMap = compResult.sourceMap ?? null;
+    }
+    const compDiagnostics: TransformDiagnostic[] = compResult.diagnostics.map((d) => ({
+      file: normalizedFileName,
+      start: d.start,
+      length: d.length,
+      message: d.message,
+      severity: d.severity,
+      code: d.code,
+    }));
 
     // Get or create source file
     const sourceFile = this.getSourceFile(normalizedFileName, codeForTransform);
@@ -874,7 +894,11 @@ export class TransformationPipeline {
     const transformerMs = PROFILING_ENABLED ? performance.now() - transformerStart : 0;
 
     // Compose source maps
-    const composedMap = composeSourceMaps(preprocessMap, transformMap);
+    // Chain: original → (preprocess) → (expr-comp rewrite) → transform.
+    // composeSourceMapChain expects outermost first (closest to final).
+    const composedMap = compMap
+      ? composeSourceMapChain([transformMap, compMap, preprocessMap])
+      : composeSourceMaps(preprocessMap, transformMap);
 
     // Create position mapper
     const mapper = createPositionMapper(composedMap, original, transformed);
@@ -889,7 +913,7 @@ export class TransformationPipeline {
       sourceMap: composedMap,
       mapper,
       changed,
-      diagnostics,
+      diagnostics: compDiagnostics.length > 0 ? [...compDiagnostics, ...diagnostics] : diagnostics,
       dependencies,
       expansions,
     };

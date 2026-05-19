@@ -109,6 +109,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   name: "parYield",
   label: ["par", "all"],
   continuationLabels: ["yield", "pure"],
+  valueProducing: true,
   expand(
     ctx: MacroContext,
     mainBlock: ts.LabeledStatement,

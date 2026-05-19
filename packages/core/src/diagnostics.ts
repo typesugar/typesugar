@@ -924,6 +924,47 @@ Common causes:
   seeAlso: "https://typesugar.dev/errors/TS9221",
 };
 
+export const TS9223: DiagnosticDescriptor = {
+  code: 9223,
+  severity: "error",
+  category: DiagnosticCategory.MacroSyntax,
+  messageTemplate: "`yield:` cannot be used as a continuation label inside a generator function",
+  explanation: `The \`yield:\` continuation of a \`let:\`/\`seq:\`/\`par:\`/\`all:\` comprehension
+collides with the \`yield\` keyword inside a generator function (\`function*\` or
+method generator), so TypeScript cannot parse it as a label.
+
+Use \`pure:\` or \`return:\` as the continuation instead:
+
+  function* g() {
+    const result = let: {
+      x << effect1()
+    }
+    pure: { x + 1 }   // or  return: { x + 1 }
+    yield result
+  }`,
+  seeAlso: "https://typesugar.dev/errors/TS9223",
+};
+
+export const TS9222: DiagnosticDescriptor = {
+  code: 9222,
+  severity: "warning",
+  category: DiagnosticCategory.MacroSyntax,
+  messageTemplate: "Result of {label}: comprehension is discarded",
+  explanation: `A do-comprehension (let:/yield:, par:/yield:, etc.) was used at
+statement position and its result is not assigned to anything. The
+comprehension computed a value, but nothing uses it.
+
+If the underlying type is lazy (Effect, Iterable, AsyncIterable), this
+means no side effects will run and the computation is silently dropped.
+Even for eager types, the computed value is wasted.
+
+Fix one of:
+1. Assign to a variable:        const result = let: { ... } yield: { ... }
+2. Pass to a consumer:           await Effect.runPromise(let: { ... } yield: { ... })
+3. Prefix with \`void\` to silence: void (let: { ... } yield: { ... })`,
+  seeAlso: "https://typesugar.dev/errors/TS9222",
+};
+
 // ============================================================================
 // Error Catalog: HKT Issues (9300-9399)
 // ============================================================================
@@ -1290,6 +1331,8 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9219, TS9219],
   [9220, TS9220],
   [9221, TS9221],
+  [9222, TS9222],
+  [9223, TS9223],
 
   // HKT Issues (9300-9399)
   [9301, TS9301],

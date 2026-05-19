@@ -119,6 +119,7 @@ import {
   TS9101,
   TS9103,
   TS9104,
+  TS9222,
 } from "@typesugar/core";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
@@ -541,6 +542,53 @@ export class TransformerState {
  * Check if a file is a "sugared TypeScript" file that needs preprocessing.
  * Only .sts and .stsx files go through the preprocessor.
  */
+/**
+ * If `body` is a Block of the form `{ const __letyield_N = EXPR; return __letyield_N; }`
+ * (ignoring EmptyStatements), return `EXPR` so the caller can collapse an arrow body
+ * produced by `arrow-comprehension-preprocess.ts` back into an expression body.
+ * Returns `undefined` when the shape doesn't match.
+ */
+function tryExtractCompReturnExpr(body: ts.Block): ts.Expression | undefined {
+  const stmts = body.statements.filter((s) => !ts.isEmptyStatement(s));
+  if (stmts.length !== 2) return undefined;
+  const [decl, ret] = stmts;
+  if (!ts.isVariableStatement(decl)) return undefined;
+  if (decl.declarationList.declarations.length !== 1) return undefined;
+  const d = decl.declarationList.declarations[0];
+  if (!ts.isIdentifier(d.name)) return undefined;
+  if (!d.name.text.startsWith("__letyield_")) return undefined;
+  if (!d.initializer) return undefined;
+  if (!ts.isReturnStatement(ret)) return undefined;
+  if (!ret.expression || !ts.isIdentifier(ret.expression)) return undefined;
+  if (ret.expression.text !== d.name.text) return undefined;
+  return d.initializer;
+}
+
+/**
+ * Detect a Block that was synthesized by `arrow-comprehension-preprocess.ts`
+ * to wrap an expression-position `let:/yield:` comprehension.
+ *
+ * The preprocessor emits two nested `{ { ... } }` so TS's error-recovery for
+ * `const __letyield_N = let: {...}` consumes the stray `}` from the user's
+ * labeled block without closing the enclosing arrow/function body. The inner
+ * Block always begins with the broken two-decl VariableStatement whose first
+ * declaration is `__letyield_N = let|par|seq|all`.
+ */
+function isPreprocessedCompWrapperBlock(block: ts.Block): boolean {
+  const first = block.statements[0];
+  if (!first || !ts.isVariableStatement(first)) return false;
+  const decls = first.declarationList.declarations;
+  if (decls.length !== 2) return false;
+  const firstDecl = decls[0];
+  const secondDecl = decls[1];
+  if (!ts.isIdentifier(firstDecl.name)) return false;
+  if (!firstDecl.name.text.startsWith("__letyield_")) return false;
+  if (!firstDecl.initializer || !ts.isIdentifier(firstDecl.initializer)) return false;
+  const init = firstDecl.initializer.text;
+  if (init !== "let" && init !== "par" && init !== "seq" && init !== "all") return false;
+  return ts.isObjectBindingPattern(secondDecl.name);
+}
+
 function isSugaredTypeScriptFile(fileName: string): boolean {
   return /\.stsx?$/i.test(fileName);
 }
@@ -2277,6 +2325,31 @@ class MacroTransformer {
       return this.visitStatementContainer(node);
     }
 
+    // Simplify arrow bodies of the shape
+    //   (params) => { const __letyield_N = EXPR; return __letyield_N; }
+    // to
+    //   (params) => EXPR
+    // This cleans up the block produced by `arrow-comprehension-preprocess.ts`
+    // after the const-x-equals-let merge has expanded the comprehension.
+    if (ts.isArrowFunction(node) && ts.isBlock(node.body)) {
+      const visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      if (visited && ts.isArrowFunction(visited) && ts.isBlock(visited.body)) {
+        const simplified = tryExtractCompReturnExpr(visited.body);
+        if (simplified) {
+          return this.ctx.factory.updateArrowFunction(
+            visited,
+            visited.modifiers,
+            visited.typeParameters,
+            visited.parameters,
+            visited.type,
+            visited.equalsGreaterThanToken,
+            simplified
+          );
+        }
+      }
+      return visited;
+    }
+
     // Handle = implicit() function scope tracking for propagation
     if (
       (ts.isFunctionDeclaration(node) ||
@@ -2312,6 +2385,35 @@ class MacroTransformer {
     this.specCache = new SpecializationCache();
 
     for (let i = 0; i < statements.length; i++) {
+      // ---------------------------------------------------------------
+      // Expression-position comprehension wrapper: flatten the Block
+      // emitted by `arrow-comprehension-preprocess.ts`.
+      //
+      // The preprocessor wraps `(x) => let:/yield:` (and the return/await/
+      // export-default variants) in a double `{ { ... } }` block so the
+      // parser's error-recovery consumes the stray `}` from the user's
+      // `let:` block without closing the enclosing function body. Here we
+      // splice the inner Block's statements into the outer statement list
+      // so the existing `const x = let;` merge (below) sees the broken
+      // VariableStatement, its bind siblings, and the trailing
+      // `LabeledStatement` continuation all at the same level.
+      //
+      // We only flatten when the Block's first statement matches the
+      // broken pattern *and* names a `__letyield_` synthetic tag, so
+      // ordinary user-written blocks are never rewritten.
+      // ---------------------------------------------------------------
+      {
+        const outer = statements[i];
+        if (
+          ts.isBlock(outer) &&
+          outer.statements.length >= 2 &&
+          isPreprocessedCompWrapperBlock(outer)
+        ) {
+          statements.splice(i, 1, ...outer.statements);
+          modified = true;
+        }
+      }
+
       const stmt = statements[i];
 
       // ---------------------------------------------------------------
@@ -2510,6 +2612,29 @@ class MacroTransformer {
             );
             const expanded = Array.isArray(result) ? result : [result];
 
+            // Value-producing comprehension at statement position — the result
+            // is discarded. Warn (TS9222). For lazy types (Effect, Iterable)
+            // this means side effects never run. See LabeledBlockMacro.valueProducing.
+            // Note: the `const x = let:/yield:` pattern is handled in a different
+            // branch (line ~4440+) which merges the expansion into a variable
+            // declaration before reaching this code path, so this warning only
+            // fires when the value is genuinely discarded.
+            if (
+              macro.valueProducing === true &&
+              expanded.length === 1 &&
+              ts.isExpressionStatement(expanded[0])
+            ) {
+              this.ctx
+                .diagnostic(TS9222)
+                .at(stmt)
+                .withArgs({ label: labelName })
+                .help(
+                  `Assign to a variable (const result = ${labelName}: { ... } yield: { ... }) ` +
+                    `or prefix with \`void\` to silence.`
+                )
+                .emit();
+            }
+
             for (const s of expanded) {
               const visited = ts.visitNode(s, this.visit.bind(this));
               if (visited) {
@@ -2555,7 +2680,18 @@ class MacroTransformer {
             if (replacement) newStatements.push(replacement);
             modified = true;
           } else {
-            newStatements.push(visited);
+            // Collapse synthesized `{ const __letyield_N = EXPR; return __letyield_N; }`
+            // Block statements (from `arrow-comprehension-preprocess.ts`'s
+            // `return`-pattern rewrite) back into a single `return EXPR;`.
+            let out: ts.Statement = visited;
+            if (ts.isBlock(out)) {
+              const ret = tryExtractCompReturnExpr(out);
+              if (ret) {
+                out = this.ctx.factory.createReturnStatement(ret);
+                modified = true;
+              }
+            }
+            newStatements.push(out);
           }
         }
       }

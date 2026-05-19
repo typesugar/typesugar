@@ -36,6 +36,7 @@ import {
   MacroExpansionCache,
   isRemoveExpression,
   getRemoveComment,
+  TS9222,
 } from "@typesugar/core";
 
 import {
@@ -423,6 +424,23 @@ class MacroTransformer {
               );
               expanded = [newVarStmt];
               pendingVarDecl = undefined;
+            } else if (
+              // Value-producing comprehension at statement position — the result
+              // is discarded. Warn (TS9222). For lazy types (Effect, Iterable)
+              // this means side effects never run. See LabeledBlockMacro.valueProducing.
+              macro.valueProducing === true &&
+              expanded.length === 1 &&
+              ts.isExpressionStatement(expanded[0])
+            ) {
+              this.ctx
+                .diagnostic(TS9222)
+                .at(stmt)
+                .withArgs({ label: labelName })
+                .help(
+                  `Assign to a variable (const result = ${labelName}: { ... } yield: { ... }) ` +
+                    `or prefix with \`void\` to silence.`
+                )
+                .emit();
             }
 
             for (const s of expanded) {

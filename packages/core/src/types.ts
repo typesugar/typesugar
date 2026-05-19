@@ -448,6 +448,20 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   continuationLabels?: string[];
 
   /**
+   * Whether the expansion produces a value (vs. a side-effecting block).
+   *
+   * Comprehensions like `let:/yield:`, `par:/yield:` evaluate to a value
+   * (a monadic container). When true and the macro is used at statement
+   * position (not assigned, not returned), the transformer emits a
+   * discarded-value warning — analogous to TypeScript's `no-unused-expressions`
+   * but aware that the value may be lazy (Effect, Iterable, etc.) and is
+   * therefore almost certainly a bug.
+   *
+   * Default: false (no warning — for side-effecting labeled blocks).
+   */
+  valueProducing?: boolean;
+
+  /**
    * Expand the labeled block macro
    * @param ctx - The macro context
    * @param mainBlock - The main labeled statement (e.g., `let: { ... }`)

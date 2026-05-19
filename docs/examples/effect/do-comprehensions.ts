@@ -8,6 +8,7 @@ import { Effect } from "effect";
 // ============================================================================
 
 // Fetch user profile and their posts sequentially
+const userWithPosts =
 let: {
   user << Effect.succeed({ id: "u1", name: "Alice" });
   _    << Effect.log(`Found user: ${user.name}`);
@@ -25,6 +26,7 @@ yield: { ({ user, posts }) }
 //   )
 
 // Pure map steps — intermediate computation without a bind
+const doubledPlusY =
 let: {
   x << Effect.succeed(10);
   doubled = x * 2;
@@ -49,9 +51,15 @@ yield: { `${host}:${port}` }
 //     Effect.map(Effect.succeed(3000), port => `${host}:${port}`)
 //   );
 
-// Run the last one to show it works
-const result = await Effect.runPromise(config);
-console.log("Config:", result);
+// Run all three so the playground shows their output
+const r1 = await Effect.runPromise(userWithPosts);
+console.log("user + posts:", r1);
+
+const r2 = await Effect.runPromise(doubledPlusY);
+console.log("doubled + y:", r2);
+
+const r3 = await Effect.runPromise(config);
+console.log("Config:", r3);
 
 // 👀 Check JS Output:
 //   - let:/yield: → Effect.flatMap/map chains (sequential)

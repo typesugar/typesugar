@@ -116,6 +116,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   name: "letYield",
   label: ["let", "seq"],
   continuationLabels: ["yield", "pure", "return"],
+  valueProducing: true,
   expand(
     ctx: MacroContext,
     mainBlock: ts.LabeledStatement,

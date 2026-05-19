@@ -209,13 +209,51 @@ export function extractReturnExpr(
  *
  * @returns The type constructor name (e.g., "Array", "Promise", "Option", "Effect")
  */
+/**
+ * AST-only fallback for inferring the type constructor.
+ *
+ * Used when the TypeChecker fails or returns an uninformative `any` type.
+ * Handles common patterns:
+ *   - `Effect.succeed(...)` → "Effect"
+ *   - `Promise.resolve(...)` → "Promise"
+ *   - `Option.some(...)` → "Option"
+ *   - `[1, 2, 3]` → "Array"
+ *   - `new Promise(...)` → "Promise"
+ */
+function inferTypeConstructorFromAST(expr: ts.Expression): string | undefined {
+  // `Effect.succeed(...)`, `Promise.resolve(...)`, etc. — use the receiver name
+  if (ts.isCallExpression(expr)) {
+    const callee = expr.expression;
+    if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+      return callee.expression.text;
+    }
+  }
+  if (ts.isArrayLiteralExpression(expr)) return "Array";
+  if (ts.isNewExpression(expr) && ts.isIdentifier(expr.expression)) {
+    return expr.expression.text;
+  }
+  return undefined;
+}
+
 export function inferTypeConstructor(
   expr: ts.Expression,
   typeChecker: ts.TypeChecker,
   sourceFile?: ts.SourceFile
 ): string | undefined {
-  const type = typeChecker.getTypeAtLocation(expr);
-  const typeString = typeChecker.typeToString(type);
+  // TypeScript's checker can throw an internal TypeError when it encounters
+  // unresolvable call expressions with object-literal arguments
+  // (observed in .sts mode where the imported module can't be resolved —
+  // the call becomes an error call, and contextual typing of the object
+  // literal trips a null-ref in getContextualTypeForObjectLiteralElement).
+  // Fall back to AST-based detection if the checker fails.
+  let type: ts.Type;
+  let typeString: string;
+  try {
+    type = typeChecker.getTypeAtLocation(expr);
+    typeString = typeChecker.typeToString(type);
+  } catch {
+    return inferTypeConstructorFromAST(expr);
+  }
 
   // Handle Array<T> or T[]
   if (type.symbol?.name === "Array" || /^[A-Za-z_]\w*\[\]$/.test(typeString)) {
@@ -305,7 +343,13 @@ export function inferTypeConstructor(
     }
   }
 
-  return undefined;
+  // Last resort: pure AST-based detection.
+  // Useful when:
+  //   - The TypeChecker returned `any` but the expression has a clear form like
+  //     `Effect.succeed(...)` or `Promise.resolve(...)` (unresolvable imports in
+  //     .sts mode, isolated test files without the module's declaration, etc.)
+  //   - The type string doesn't match any known generic pattern
+  return inferTypeConstructorFromAST(expr);
 }
 
 // ============================================================================
