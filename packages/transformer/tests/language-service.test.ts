@@ -184,7 +184,6 @@ describe("Language Service Plugin", () => {
       // Should be essentially the original content (printer may add trailing newline)
       expect(content?.trim()).toBe("const x = 1 + 2;");
     });
-
   });
 
   describe("diagnostics mapping", () => {

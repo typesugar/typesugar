@@ -36,57 +36,57 @@ git tag `pre-triage-2026-06` preserves recovery).
 
 ### Keep — Core (12)
 
-| Package | Note |
-| --- | --- |
-| core | registry, diagnostics, context |
-| transformer | main pipeline |
-| transformer-core | browser-safe engine; playground depends on it |
-| macros | all built-in macros |
-| std | flagship typeclasses + match |
-| type-system | refined types — **zero tests today; add tests as a condition of Keep** |
-| typesugar | umbrella |
-| unplugin-typesugar | the supported integration path |
-| ts-plugin | editor story for `.ts` |
-| vscode | expansion preview, diagnostics (post-PEP-047 slimming) |
-| playground | the marketing surface |
-| derive / reflect / typeclass / specialize | facades; cheap (counted as one line item) |
+| Package                                   | Note                                                                   |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| core                                      | registry, diagnostics, context                                         |
+| transformer                               | main pipeline                                                          |
+| transformer-core                          | browser-safe engine; playground depends on it                          |
+| macros                                    | all built-in macros                                                    |
+| std                                       | flagship typeclasses + match                                           |
+| type-system                               | refined types — **zero tests today; add tests as a condition of Keep** |
+| typesugar                                 | umbrella                                                               |
+| unplugin-typesugar                        | the supported integration path                                         |
+| ts-plugin                                 | editor story for `.ts`                                                 |
+| vscode                                    | expansion preview, diagnostics (post-PEP-047 slimming)                 |
+| playground                                | the marketing surface                                                  |
+| derive / reflect / typeclass / specialize | facades; cheap (counted as one line item)                              |
 
 ### Keep — Wedge (10)
 
-| Package | Justification |
-| --- | --- |
-| validate | wedge in its own right + dependency of PEP-040/045 |
-| mapper | **condition: implement `transformInto` (TODO #5/#6) or demote to Freeze** — the README must not advertise a runtime-throwing macro |
-| contracts, contracts-refined | contracts prover backs PEP-045; refined integration is ROADMAP P4 |
-| testing | property tests back verify-laws; ROADMAP P4 shrinking |
-| fp | typeclass showcase; **only 2 test files for 19k LoC — add coverage or shrink scope** |
-| effect | Effect-TS interop is an adoption bridge, not a competitor play |
-| sql | PEP-043 |
-| graph | PEP-046 |
-| fusion | PEP-042 |
-| tool *(new)* | PEP-040 |
+| Package                      | Justification                                                                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| validate                     | wedge in its own right + dependency of PEP-040/045                                                                                 |
+| mapper                       | **condition: implement `transformInto` (TODO #5/#6) or demote to Freeze** — the README must not advertise a runtime-throwing macro |
+| contracts, contracts-refined | contracts prover backs PEP-045; refined integration is ROADMAP P4                                                                  |
+| testing                      | property tests back verify-laws; ROADMAP P4 shrinking                                                                              |
+| fp                           | typeclass showcase; **only 2 test files for 19k LoC — add coverage or shrink scope**                                               |
+| effect                       | Effect-TS interop is an adoption bridge, not a competitor play                                                                     |
+| sql                          | PEP-043                                                                                                                            |
+| graph                        | PEP-046                                                                                                                            |
+| fusion                       | PEP-042                                                                                                                            |
+| tool _(new)_                 | PEP-040                                                                                                                            |
 
 ### Freeze (8)
 
-| Package | Why frozen, not removed |
-| --- | --- |
-| parser | PEG machinery is reused by PEP-043 Wave 3 (SQL subset parser); no standalone roadmap |
-| collections | small, harmless; verify nothing in std imports it before freezing |
-| codec | versioned codecs are coherent but audience-less today |
-| units | good demo, tiny; revisit if implicit conversion (P4) ever schedules |
-| math | standalone numerics; PEP-042 Phase 3 may revive parts (typed-array vectors live in fusion, not here) |
-| strings | tiny; keep published, no work planned |
-| erased | Phase 2 unstarted; niche |
+| Package                 | Why frozen, not removed                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| parser                  | PEG machinery is reused by PEP-043 Wave 3 (SQL subset parser); no standalone roadmap                                                                            |
+| collections             | small, harmless; verify nothing in std imports it before freezing                                                                                               |
+| codec                   | versioned codecs are coherent but audience-less today                                                                                                           |
+| units                   | good demo, tiny; revisit if implicit conversion (P4) ever schedules                                                                                             |
+| math                    | standalone numerics; PEP-042 Phase 3 may revive parts (typed-array vectors live in fusion, not here)                                                            |
+| strings                 | tiny; keep published, no work planned                                                                                                                           |
+| erased                  | Phase 2 unstarted; niche                                                                                                                                        |
 | lsp-server + lsp-common | post-PEP-047 the `.ts`-only story is ts-plugin; standalone LSP mattered mostly for `.sts`/Zed. Freeze rather than remove: non-VS Code editors may still want it |
 
 ### Remove (4)
 
-| Package | Why |
-| --- | --- |
-| zed | `.sts`-only, empty skeleton (via PEP-047) |
-| prettier-plugin | purpose was custom syntax; stock Prettier handles `.ts` (via PEP-047) |
-| symbolic | 6k LoC of symbolic calculus — impressive, wholly off-mission, drags math with it. Extract to a personal repo if sentimental |
-| hlist | TS tuple recursion limits cap it (~20 elements, ROADMAP P6); Boost.Fusion homage with no path to an audience |
+| Package         | Why                                                                                                                         |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| zed             | `.sts`-only, empty skeleton (via PEP-047)                                                                                   |
+| prettier-plugin | purpose was custom syntax; stock Prettier handles `.ts` (via PEP-047)                                                       |
+| symbolic        | 6k LoC of symbolic calculus — impressive, wholly off-mission, drags math with it. Extract to a personal repo if sentimental |
+| hlist           | TS tuple recursion limits cap it (~20 elements, ROADMAP P6); Boost.Fusion homage with no path to an audience                |
 
 Net effect: 42 → ~36 in-repo, **22 actively claimed** packages, and a README
 table that matches reality.

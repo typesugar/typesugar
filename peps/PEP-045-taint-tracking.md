@@ -12,8 +12,8 @@ macros, the contracts prover — "all the pieces exist; the composition does not
 The ROADMAP then parks taint tracking at P6 with the note: "TS injection surfaces
 are narrow. Frameworks solve this."
 
-That skepticism is right about the *feature* framing and wrong about the
-*product* framing. As a typesugar feature for typesugar users, taint tracking is
+That skepticism is right about the _feature_ framing and wrong about the
+_product_ framing. As a typesugar feature for typesugar users, taint tracking is
 niche. As a standalone security gate — "Perl taint mode for TypeScript, enforced
 in CI, zero runtime cost" — it addresses a buyer (security teams) who does not
 care about typeclasses at all, and who currently pays for Semgrep/CodeQL rules
@@ -21,7 +21,7 @@ that approximate this with far less precision than a type system provides.
 
 The mechanism is the key insight: **tsc does the flow analysis for free.**
 `Tainted<string>` is not assignable to `string`, so tainted data propagating to a
-clean-typed sink is a *TypeScript error*, not a bespoke dataflow engine. The
+clean-typed sink is a _TypeScript error_, not a bespoke dataflow engine. The
 macros' job is only to brand sources, declare sinks, and bless sanitizers.
 
 ## Proposal
@@ -41,9 +41,9 @@ without writing any annotations:
 
 ```typescript
 // @typesugar/secure/express
-req.query   // Record<string, Tainted<string>>
-req.params  // Record<string, Tainted<string>>
-req.body    // DeepTainted<T>
+req.query; // Record<string, Tainted<string>>
+req.params; // Record<string, Tainted<string>>
+req.body; // DeepTainted<T>
 ```
 
 Adapters: express, hono, fastify first. `DeepTainted<T>` is a mapped type
@@ -61,7 +61,7 @@ const id = validate<OrderId>(req.params.id);  // validate<T>() already proves sh
 `@sanitizer` is mostly documentation plus registry entry (for reporting); the
 type signature itself does the work. Crucially, `@typesugar/validate`'s
 `validate<T>()` / `is<T>()` macros become sanitizers for free — proving a value
-matches `OrderId` *is* sanitization. This is the validate ↔ refined-types
+matches `OrderId` _is_ sanitization. This is the validate ↔ refined-types
 integration (ROADMAP P4) earning its keep.
 
 ### Sinks — declared, then enforced
@@ -88,7 +88,7 @@ Required reason string; every use is collected into a build report
 
 ## Why this is credible where P6 doubted it
 
-- No dataflow engine to build or maintain — assignability *is* the analysis,
+- No dataflow engine to build or maintain — assignability _is_ the analysis,
   including through ordinary user functions (a helper that passes a tainted
   string through inherits the taint in its inferred types).
 - False-positive control is the type system's: explicit sanitizers, no

@@ -63,7 +63,6 @@ function init(modules: { typescript: typeof ts }) {
   console.log("[typesugar] Language service plugin v2 (transform-first) initializing...");
   const tsModule = modules.typescript;
 
-
   function create(info: ts.server.PluginCreateInfo): ts.LanguageService {
     const projectName = info.project.getProjectName();
     console.log("[typesugar] Creating language service proxy for project:", projectName);

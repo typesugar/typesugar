@@ -77,7 +77,6 @@ describe("Pipeline E2E: source map accuracy", () => {
     expect(result.mapper.toOriginal(5)).toBe(5);
     expect(result.mapper.toTransformed(5)).toBe(5);
   });
-
 });
 
 // =============================================================================
@@ -148,7 +147,6 @@ export const result = double(21);
       expect(hasUtilDep).toBe(true);
     }
   });
-
 });
 
 // =============================================================================

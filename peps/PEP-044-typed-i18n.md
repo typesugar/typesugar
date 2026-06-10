@@ -11,7 +11,7 @@ stacks (i18next, FormatJS/react-intl) share the same failure modes:
 
 - Message keys are strings; a typo is a runtime fallback to the key name.
 - Interpolation variables aren't checked: `t("greeting", { nmae })` ships.
-- ICU plural/select messages are parsed and interpreted *at runtime*, costing
+- ICU plural/select messages are parsed and interpreted _at runtime_, costing
   bundle size (the ICU parser) and startup time.
 - Extraction is a separate Babel/regex tool that drifts from the source.
 
@@ -30,7 +30,7 @@ import { t } from "@typesugar/i18n";
 
 t`Hello ${name}!`;
 t`You have ${count}:plural(one {# message} other {# messages})`;
-t("checkout.title")`Review your order`;   // explicit key form
+t("checkout.title")`Review your order`; // explicit key form
 ```
 
 At compile time the macro:
@@ -38,12 +38,12 @@ At compile time the macro:
 1. **Derives a stable key** from the message (content hash) unless given
    explicitly.
 2. **Extracts** `{ key, defaultMessage, placeholders: { name: string, count: number } }`
-   into a build artifact (`i18n/messages.en.json`) — extraction is a *side effect
-   of compilation*, so it can never drift from source.
+   into a build artifact (`i18n/messages.en.json`) — extraction is a _side effect
+   of compilation_, so it can never drift from source.
 3. **Type-checks interpolations**: placeholder names and types come from the
    actual expressions; `:plural` requires `number`, `:date` requires
    `Date | number`, etc. Mismatches are diagnostics at the exact span.
-4. **Compiles the call site** to a direct lookup-and-format against *precompiled*
+4. **Compiles the call site** to a direct lookup-and-format against _precompiled_
    message functions — no ICU parser in the bundle:
 
 ```typescript

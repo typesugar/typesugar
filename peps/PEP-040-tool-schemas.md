@@ -12,7 +12,7 @@ arguments the model sends back. Today this is done one of three ways:
 
 1. **Hand-written JSON Schema** — drifts from the TypeScript signature immediately.
 2. **Zod (or similar) + `zod-to-json-schema`** — the schema is duplicated as a
-   runtime value, adds a dependency, and the TypeScript type is *derived from* the
+   runtime value, adds a dependency, and the TypeScript type is _derived from_ the
    schema rather than being the source of truth.
 3. **Decorator + reflect-metadata frameworks** — require `emitDecoratorMetadata`,
    lose precision (no unions, no literals), and carry runtime weight.
@@ -24,7 +24,7 @@ at transform time. This PEP composes them into a single wedge feature.
 
 **Strategic framing:** the ROADMAP says typesugar's problem is adoption, not
 features. `@tool` is deliberately chosen as a wedge: it is small, self-contained,
-solves a problem every AI team has *this year*, requires only the unplugin (no
+solves a problem every AI team has _this year_, requires only the unplugin (no
 typeclasses, no operators, no philosophy buy-in), and demonstrates the core thesis
 — type-directed codegen with zero runtime — in twenty lines of user code.
 
@@ -70,7 +70,7 @@ getWeather.tool = /*#__PURE__*/ {
 ```
 
 No runtime dependency. The schema is a plain object literal; the validator is
-inlined structural checks. Everything is derived from the *actual signature* —
+inlined structural checks. Everything is derived from the _actual signature_ —
 it cannot drift.
 
 ### Provider adapters

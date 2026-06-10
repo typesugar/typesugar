@@ -27,17 +27,19 @@ Part of `@typesugar/graph` (no new package).
 const order = machine({
   initial: "cart",
   states: {
-    cart:      { on: { CHECKOUT: "payment" } },
-    payment:   { on: { SUCCESS: "confirmed", FAILURE: "payment", CANCEL: "cart" },
-                 entry: (ctx) => startPaymentTimer(ctx) },
+    cart: { on: { CHECKOUT: "payment" } },
+    payment: {
+      on: { SUCCESS: "confirmed", FAILURE: "payment", CANCEL: "cart" },
+      entry: (ctx) => startPaymentTimer(ctx),
+    },
     confirmed: { final: true },
-    legacy:    { on: { NEVER: "cart" } },   // ← unreachable
+    legacy: { on: { NEVER: "cart" } }, // ← unreachable
   },
 });
 ```
 
 `machine()` is an expression macro. The config must be a static object literal
-(actions/guards may be arbitrary expressions; the *graph* must be static —
+(actions/guards may be arbitrary expressions; the _graph_ must be static —
 enforced with a diagnostic on any computed key).
 
 ### Compile-time verification
@@ -50,8 +52,8 @@ At expansion time, on the static graph:
 - **Final-state sanity** — at least one final state reachable from initial
   (configurable off for long-running machines).
 - **Exhaustiveness at call sites** — `send()` accepts only the union of events
-  valid in *some* state; optionally (strict mode) the phantom-typed API below
-  narrows to events valid in the *current* state.
+  valid in _some_ state; optionally (strict mode) the phantom-typed API below
+  narrows to events valid in the _current_ state.
 
 ### Generated code
 
@@ -80,9 +82,9 @@ For workflow-engine use, the existing phantom state machine types in
 legal in the statically-known current state:
 
 ```typescript
-const m = order.start();          // Machine<"cart">
-const m2 = m.send("CHECKOUT");    // Machine<"payment">
-m2.send("CHECKOUT");              // compile error: not valid in "payment"
+const m = order.start(); // Machine<"cart">
+const m2 = m.send("CHECKOUT"); // Machine<"payment">
+m2.send("CHECKOUT"); // compile error: not valid in "payment"
 ```
 
 ### Diagram artifact

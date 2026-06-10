@@ -18,7 +18,7 @@ InversifyJS, tsyringe, Awilix. All of them share the same costs:
   bundler cannot see through
 
 typesugar's implicit resolution machinery (`= implicit()`, the instance registry,
-resolution traces) is *already* a DI container — one that runs at compile time.
+resolution traces) is _already_ a DI container — one that runs at compile time.
 This PEP names that capability and productizes it. The ROADMAP's P5 "Implicit
 Context Passing" gestures at the mechanism; this PEP reframes it around the use
 case enterprise TypeScript teams actually have.
@@ -111,7 +111,7 @@ const app = wire<App>(AppModule, { override: [bind<Database>().to(FakeDb)] });
 Overrides are applied at the macro call site — each `wire()` is its own static
 graph, so test wiring has no global state to reset.
 
-## What this is *not*
+## What this is _not_
 
 - Not request-scoped runtime DI (no per-request container). Transient scope +
   explicit factories cover the common cases; request scoping is a future PEP if

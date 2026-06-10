@@ -24,8 +24,8 @@ graph at compile time and emit the loop a C programmer would write.
 
 ```typescript
 const total = orders
-  .filter(o => o.status === "paid")
-  .map(o => o.amount * 1.1)
+  .filter((o) => o.status === "paid")
+  .map((o) => o.amount * 1.1)
   .reduce((a, b) => a + b, 0);
 ```
 
@@ -56,8 +56,9 @@ for (let i = 0; i < orders.length; i++) {
 ```typescript
 import { vec } from "@typesugar/fusion/numeric";
 
-const a = vec(Float64Array, n), b = vec(Float64Array, n);
-const c = a * 2.0 + b / scale;   // via operator typeclass instances
+const a = vec(Float64Array, n),
+  b = vec(Float64Array, n);
+const c = a * 2.0 + b / scale; // via operator typeclass instances
 ```
 
 Without fusion, operator overloading allocates two temporaries. With it, the
@@ -79,7 +80,9 @@ for (let i = 0; i < n; i++) c[i] = a[i] * 2.0 + b[i] / scale;
 For data-parallel chains marked explicitly:
 
 ```typescript
-const result = await gpu(pixels).map(p => brighten(p, 1.2)).run();
+const result = await gpu(pixels)
+  .map((p) => brighten(p, 1.2))
+  .run();
 ```
 
 The macro compiles the (restricted) kernel expression to WGSL at build time via
@@ -105,7 +108,7 @@ to validate WGSL emission through `comptime`.
 
 ## Open Questions
 
-1. Opt-in vs implicit: should fusion apply to *all* array chains (implicit, like
+1. Opt-in vs implicit: should fusion apply to _all_ array chains (implicit, like
    `===` rewriting — with the same least-surprise concerns) or only chains rooted
    in an explicit marker (`fuse(items).map...`)? Recommendation: implicit for
    `.ts` projects with the transformer enabled is the headline, but ship opt-in

@@ -41,11 +41,15 @@ Match exact values — numbers, strings, booleans, `null`, `undefined`:
 
 ```typescript
 match(x)
-  .case(42).then("the answer")
-  .case("hello").then("greeting")
-  .case(true).then("yes")
-  .case(null).then("nothing")
-  .else("other")
+  .case(42)
+  .then("the answer")
+  .case("hello")
+  .then("greeting")
+  .case(true)
+  .then("yes")
+  .case(null)
+  .then("nothing")
+  .else("other");
 ```
 
 **Compiles to:** direct `===` comparisons. 7+ literal arms get a `switch` statement for V8 optimization.
@@ -56,8 +60,11 @@ Bind the matched value to a name, optionally with a guard:
 
 ```typescript
 match(x)
-  .case(n).if(n > 0).then(n * 2)
-  .case(n).then(-n)
+  .case(n)
+  .if(n > 0)
+  .then(n * 2)
+  .case(n)
+  .then(-n);
 ```
 
 Pattern variables don't need pre-declaration — the macro creates properly scoped bindings.
@@ -91,12 +98,19 @@ Destructure arrays by position, with optional rest:
 
 ```typescript
 match(arr)
-  .case([]).then("empty")
-  .case([x]).then(`singleton: ${x}`)
-  .case([a, b]).then(`pair: ${a + b}`)
-  .case([first, _, _]).if(first > 0).then(first)
-  .case([head, ...tail]).if(tail.length > 0).then(`${head} + ${tail.length} more`)
-  .else("other")
+  .case([])
+  .then("empty")
+  .case([x])
+  .then(`singleton: ${x}`)
+  .case([a, b])
+  .then(`pair: ${a + b}`)
+  .case([first, _, _])
+  .if(first > 0)
+  .then(first)
+  .case([head, ...tail])
+  .if(tail.length > 0)
+  .then(`${head} + ${tail.length} more`)
+  .else("other");
 ```
 
 **Pattern semantics:**
@@ -125,10 +139,16 @@ Match on property presence and values:
 
 ```typescript
 match(obj)
-  .case({ a, b }).if(a > 0).then(a + b)
-  .case({ name: n, age }).if(age >= 18).then(`Adult: ${n}`)
-  .case({ name }).then(name)
-  .case({ ...rest }).then(Object.keys(rest).length)
+  .case({ a, b })
+  .if(a > 0)
+  .then(a + b)
+  .case({ name: n, age })
+  .if(age >= 18)
+  .then(`Adult: ${n}`)
+  .case({ name })
+  .then(name)
+  .case({ ...rest })
+  .then(Object.keys(rest).length);
 ```
 
 **Pattern semantics:**
@@ -153,9 +173,12 @@ type Shape =
 
 // Exhaustive by default — compile error if a variant is missing
 match(shape)
-  .case({ kind: "circle", radius: r }).then(Math.PI * r ** 2)
-  .case({ kind: "square", side: s }).then(s ** 2)
-  .case({ kind: "rect", w, h }).then(w * h)
+  .case({ kind: "circle", radius: r })
+  .then(Math.PI * r ** 2)
+  .case({ kind: "square", side: s })
+  .then(s ** 2)
+  .case({ kind: "rect", w, h })
+  .then(w * h);
 ```
 
 **Compiles to:** optimized switch on the discriminant field. No IIFE for small unions.
@@ -166,13 +189,20 @@ Match on runtime type using constructor syntax:
 
 ```typescript
 match(value)
-  .case(String(s)).then(`string: ${s}`)
-  .case(Number(n)).if(n > 0).then(`positive: ${n}`)
-  .case(Number(n)).then(`number: ${n}`)
-  .case(Array(a)).then(`array[${a.length}]`)
-  .case(Date(d)).then(d.toISOString())
-  .case(TypeError(e)).then(`type error: ${e.message}`)
-  .else("unknown")
+  .case(String(s))
+  .then(`string: ${s}`)
+  .case(Number(n))
+  .if(n > 0)
+  .then(`positive: ${n}`)
+  .case(Number(n))
+  .then(`number: ${n}`)
+  .case(Array(a))
+  .then(`array[${a.length}]`)
+  .case(Date(d))
+  .then(d.toISOString())
+  .case(TypeError(e))
+  .then(`type error: ${e.message}`)
+  .else("unknown");
 ```
 
 **Type check mapping:**
@@ -194,10 +224,21 @@ Match multiple alternatives with the same handler:
 ```typescript
 // .or() chaining
 match(status)
-  .case(200).or(201).or(204).then("success")
-  .case(400).or(401).or(403).or(404).then("client error")
-  .case(500).or(502).or(503).then("server error")
-  .case(code).then(`status: ${code}`)
+  .case(200)
+  .or(201)
+  .or(204)
+  .then("success")
+  .case(400)
+  .or(401)
+  .or(403)
+  .or(404)
+  .then("client error")
+  .case(500)
+  .or(502)
+  .or(503)
+  .then("server error")
+  .case(code)
+  .then(`status: ${code}`);
 ```
 
 OR patterns bind no variables (same restriction as Scala).
@@ -210,8 +251,13 @@ Bind the whole matched value to an alias alongside destructured bindings:
 
 ```typescript
 match(point)
-  .case([x, y]).as(p).if(x > 0 && y > 0).then({ point: p, quadrant: 1 })
-  .case([x, y]).as(p).then({ point: p, quadrant: 0 })
+  .case([x, y])
+  .as(p)
+  .if(x > 0 && y > 0)
+  .then({ point: p, quadrant: 1 })
+  .case([x, y])
+  .as(p)
+  .then({ point: p, quadrant: 0 });
 ```
 
 ### Regex Patterns
@@ -220,10 +266,17 @@ Match strings against regular expressions and destructure capture groups:
 
 ```typescript
 match(str)
-  .case(/^(\w+)@(\w+)\.(\w+)$/).as([_, user, domain, tld]).then({ user, domain, tld })
-  .case(/^https?:\/\/(.+)$/).as([_, url]).then(fetch(url))
-  .case(/^\d+$/).as([num]).then(parseInt(num))
-  .case(s).then(s)
+  .case(/^(\w+)@(\w+)\.(\w+)$/)
+  .as([_, user, domain, tld])
+  .then({ user, domain, tld })
+  .case(/^https?:\/\/(.+)$/)
+  .as([_, url])
+  .then(fetch(url))
+  .case(/^\d+$/)
+  .as([num])
+  .then(parseInt(num))
+  .case(s)
+  .then(s);
 ```
 
 **Compiles to:**
@@ -244,10 +297,12 @@ Patterns compose at arbitrary depth:
 
 ```typescript
 match(data)
-  .case({ user: { name, scores: [first, ...rest] } }).if(first > 90)
-    .then(`${name} aced it with ${first}`)
-  .case({ user: { name }, active: true }).then(`Active: ${name}`)
-  .else("unknown")
+  .case({ user: { name, scores: [first, ...rest] } })
+  .if(first > 90)
+  .then(`${name} aced it with ${first}`)
+  .case({ user: { name }, active: true })
+  .then(`Active: ${name}`)
+  .else("unknown");
 ```
 
 ### Extractor Patterns (Destructure Typeclass)

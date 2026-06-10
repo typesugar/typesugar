@@ -120,13 +120,13 @@ console.log(x);"
 
 ### Props
 
-| Prop         | Type                | Default   | Description              |
-| ------------ | ------------------- | --------- | ------------------------ |
-| `code`       | `string`            | Required  | Initial code content     |
-| `readonly`   | `boolean`           | `false`   | Prevent editing          |
-| `height`     | `string`            | `"300px"` | Editor panel height      |
-| `hideOutput` | `boolean`           | `false`   | Hide the output panel    |
-| `title`      | `string`            | `""`      | Optional title in header |
+| Prop         | Type      | Default   | Description              |
+| ------------ | --------- | --------- | ------------------------ |
+| `code`       | `string`  | Required  | Initial code content     |
+| `readonly`   | `boolean` | `false`   | Prevent editing          |
+| `height`     | `string`  | `"300px"` | Editor panel height      |
+| `hideOutput` | `boolean` | `false`   | Hide the output panel    |
+| `title`      | `string`  | `""`      | Optional title in header |
 
 Every embedded playground has an **Open in Playground** button that opens the code in the full playground with all settings preserved.
 

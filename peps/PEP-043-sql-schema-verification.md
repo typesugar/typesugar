@@ -9,10 +9,10 @@
 `@typesugar/sql` builds typed queries Doobie-style, but the types are asserted by
 the user: nothing checks that `users.email` actually exists in the database, or
 that it's a `text` and not an `integer`. The query is type-safe against a schema
-*the user transcribed by hand* — drift between the real schema and the TypeScript
+_the user transcribed by hand_ — drift between the real schema and the TypeScript
 declaration is invisible until runtime.
 
-Rust's sqlx proved the better model: verify queries against the *actual schema*
+Rust's sqlx proved the better model: verify queries against the _actual schema_
 at compile time. typesugar has the machinery to do this — `comptime` can read
 files (and, with explicit capability, talk to a dev database) during compilation,
 and the diagnostics system can point at the exact column reference that's wrong.
@@ -86,7 +86,7 @@ Stale-snapshot detection: a hash of the snapshot is embedded in the cache key, s
 
 ## Open Questions
 
-1. Row-type inference (Wave 3) generates a *type* at the call site — this needs
+1. Row-type inference (Wave 3) generates a _type_ at the call site — this needs
    type macros (PEP-012, Done) in expression position. Verify the language
    service surfaces the inferred type in hover; if not, this couples to PEP-034
    follow-ups.

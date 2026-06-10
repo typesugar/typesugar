@@ -60,8 +60,8 @@ CRITICALs with no evidence of remediation in the log:
       allowlisting is a project of its own; the Wave-3 deliverable is (a) a
       `macros.allow` config option gating which modules may register macros when
       set, default permissive, and (b) an honest `docs/SECURITY.md` trust-model
-      statement: *compiling untrusted code with typesugar executes that code's
-      macros; treat macro-bearing dependencies like build scripts.*
+      statement: _compiling untrusted code with typesugar executes that code's
+      macros; treat macro-bearing dependencies like build scripts._
 - [ ] Re-date the review; downgrade/close findings that PEP-039 or config
       changes already addressed; file issues for remaining HIGHs (F3–F5) so they
       live in the tracker, not only in a stale doc.
