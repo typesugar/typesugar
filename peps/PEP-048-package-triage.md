@@ -91,6 +91,33 @@ git tag `pre-triage-2026-06` preserves recovery).
 Net effect: 42 → ~36 in-repo, **22 actively claimed** packages, and a README
 table that matches reality.
 
+## Wave 0 Findings (2026-06-10) — tier + mechanic adjustments
+
+The dependency-graph pass surfaced more entanglement than the draft tiers
+assumed. Adjustments made before execution:
+
+- **`lsp-common` → Keep (Core), not Freeze.** `@typesugar/transformer` (core,
+  published) runtime-depends on it. It is load-bearing infrastructure, not a
+  standalone-LSP leaf; freezing/excluding it would break the published
+  transformer.
+- **`playground` → `private: true`.** It is published today but is a
+  bundled docs-site app that runtime-`dependencies` ~20 workspace packages
+  (incl. `symbolic`, `math`, `units`, `parser`, `codec`, `collections`).
+  Publishing it forces all of those to stay published. Marking it private
+  (correct for a bundled app — the docs site consumes it via workspace, not
+  npm) unblocks release-excluding the freeze packages it bundles.
+- **Changeset release-exclusion is applied only where safe.** A package may be
+  changeset-`ignore`d only if no *published* Keep package runtime-depends on
+  it. After the two changes above, the safe set is `strings`, `erased`,
+  `lsp-server` (only `vscode`, which is private, bundles it), and
+  `math`/`units`/`parser`/`codec` (only `playground`, now private). **`collections`
+  stays released** — `@typesugar/graph` (published Wedge, PEP-046) runtime-depends
+  on its `HashSet`/`HashMap`. All frozen packages still get README-demotion +
+  a status banner regardless.
+- **Remove set unblocking:** `playground` is the only non-test consumer of a
+  Remove-set package (`symbolic`); its import/dep/bundle entries are removed.
+  `hlist` and `prettier-plugin` have only test/example/docs consumers.
+
 ## Mechanics
 
 1. **Verification pass first** (Wave 0): `pnpm why` / grep import graph to
