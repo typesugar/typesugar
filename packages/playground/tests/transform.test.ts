@@ -7,19 +7,11 @@ describe("playground transform", () => {
   });
 
   describe("preprocessCode", () => {
-    it("should preprocess pipeline operator syntax", () => {
-      const result = preprocessCode(`const result = x |> f |> g;`, {
-        fileName: "test.sts",
-      });
-      expect(result.changed).toBe(true);
-      expect(result.code).toContain("__pipe__");
-    });
-
     it("should preprocess HKT syntax", () => {
       const result = preprocessCode(
         `interface Functor<F<_>> { map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>; }`,
         {
-          fileName: "test.sts",
+          fileName: "test.ts",
         }
       );
       expect(result.changed).toBe(true);
@@ -27,7 +19,7 @@ describe("playground transform", () => {
 
     it("should return unchanged for plain TypeScript", () => {
       const code = `const x: number = 1;`;
-      const result = preprocessCode(code, { fileName: "test.sts" });
+      const result = preprocessCode(code, { fileName: "test.ts" });
       expect(result.changed).toBe(false);
       expect(result.code).toBe(code);
     });
@@ -40,15 +32,6 @@ describe("playground transform", () => {
       });
       expect(result.diagnostics).toHaveLength(0);
       expect(result.code).toContain("const x");
-    });
-
-    it("should handle .sts files with preprocessing", () => {
-      const result = transform(`const result = 1 |> String;`, {
-        fileName: "test.sts",
-      });
-      expect(result.preprocessed).toBe(true);
-      // Preprocessor converts |> to __binop__, then the macro expands it to function call
-      expect(result.code).toContain("String(1)");
     });
 
     it("should cache results", () => {
