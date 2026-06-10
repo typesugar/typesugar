@@ -6,7 +6,6 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { preprocess } from "@typesugar/preprocessor";
 import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
 import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 
@@ -538,10 +537,6 @@ export class TransformerState {
 }
 
 /**
- * Check if a file is a "sugared TypeScript" file that needs preprocessing.
- * Only .sts and .stsx files go through the preprocessor.
- */
-/**
  * If `body` is a Block of the form `{ const __letyield_N = EXPR; return __letyield_N; }`
  * (ignoring EmptyStatements), return `EXPR` so the caller can collapse an arrow body
  * produced by `arrow-comprehension-preprocess.ts` back into an expression body.
@@ -586,78 +581,6 @@ function isPreprocessedCompWrapperBlock(block: ts.Block): boolean {
   const init = firstDecl.initializer.text;
   if (init !== "let" && init !== "par" && init !== "seq" && init !== "all") return false;
   return ts.isObjectBindingPattern(secondDecl.name);
-}
-
-function isSugaredTypeScriptFile(fileName: string): boolean {
-  return /\.stsx?$/i.test(fileName);
-}
-
-/**
- * Regex to detect custom syntax in non-.sts files (for error reporting).
- * If a .ts file contains this syntax, we should emit a diagnostic.
- */
-const CUSTOM_SYNTAX_RE = /\|>|<_>|[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/;
-
-/**
- * Detect whether a source file needs preprocessing and, if so, create a
- * new SourceFile from the preprocessed text.
- *
- * Extension-based routing:
- * - `.sts`/`.stsx` files: ALWAYS preprocess (custom syntax allowed)
- * - `.ts`/`.tsx` files: NEVER preprocess (use JSDoc syntax only)
- *
- * CAVEATS:
- * - The type checker was built against the original (non-preprocessed) program,
- *   so type resolution may be incomplete for preprocessed constructs. Macros
- *   that rely on the type checker (e.g. = implicit(), extension methods) may
- *   not resolve correctly in preprocessed regions.
- * - For full type-aware transformation of files with custom syntax, use
- *   `unplugin-typesugar` or the `TransformationPipeline` which creates a
- *   fresh program from preprocessed content.
- * - This inline preprocessing is a best-effort fallback for `tsc` + ts-patch
- *   users who have .sts files with custom syntax mixed with macros.
- */
-function maybePreprocess(sourceFile: ts.SourceFile, verbose: boolean): ts.SourceFile {
-  const fileName = sourceFile.fileName;
-
-  // Only preprocess .sts/.stsx files
-  if (!isSugaredTypeScriptFile(fileName)) {
-    return sourceFile;
-  }
-
-  const text = sourceFile.text;
-
-  try {
-    const result = preprocess(text, { fileName });
-
-    if (!result.changed) {
-      return sourceFile;
-    }
-
-    if (verbose) {
-      console.log("[typesugar] Preprocessing: " + fileName);
-    }
-
-    const scriptKind =
-      fileName.endsWith(".stsx") || fileName.endsWith(".tsx") || fileName.endsWith(".jsx")
-        ? ts.ScriptKind.TSX
-        : fileName.endsWith(".mts") || fileName.endsWith(".cts")
-          ? ts.ScriptKind.TS
-          : ts.ScriptKind.TS;
-
-    return ts.createSourceFile(
-      fileName,
-      result.code,
-      sourceFile.languageVersion,
-      /* setParentNodes */ true,
-      scriptKind
-    );
-  } catch (e) {
-    if (verbose) {
-      console.log(`[typesugar] Preprocessing failed for ${fileName}: ${e}`);
-    }
-    return sourceFile;
-  }
 }
 
 /**
@@ -1213,13 +1136,6 @@ export default function macroTransformerFactory(
       if (verbose) {
         console.log(`[typesugar] Processing: ${sourceFile.fileName}`);
       }
-
-      // Phase 1: Preprocess custom syntax (|>, ::, F<_>) into valid TypeScript.
-      // This must happen before macro expansion because the original source may
-      // contain syntax that TypeScript couldn't parse correctly.
-      profiler.start("perFile.maybePreprocess");
-      sourceFile = maybePreprocess(sourceFile, verbose);
-      profiler.end("perFile.maybePreprocess");
 
       const ctx = createMacroContext(program, sourceFile, context, hygiene);
 

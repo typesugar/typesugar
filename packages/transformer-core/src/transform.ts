@@ -151,7 +151,7 @@ function createInMemoryCompilerHost(
  * Get the TypeScript script kind from a file name.
  */
 function getScriptKind(fileName: string): ts.ScriptKind {
-  if (fileName.endsWith(".tsx") || fileName.endsWith(".stsx")) {
+  if (fileName.endsWith(".tsx")) {
     return ts.ScriptKind.TSX;
   }
   if (fileName.endsWith(".jsx")) {
