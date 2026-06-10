@@ -2,17 +2,19 @@
  * VirtualCompilerHost - A ts.CompilerHost that serves preprocessed content
  *
  * This enables TypeScript to build a Program from valid TypeScript even when
- * the original source contains custom syntax (|>, ::, F<_>).
+ * the original source uses HKT type-parameter syntax (`F<A>` for a type
+ * parameter `F`), which is rewritten to `Kind<F, A>` before the type checker
+ * sees it.
  *
  * Key responsibilities:
- * 1. Preprocess .sts files (serve valid TypeScript to the type checker)
- * 2. Module resolution: resolve `import "./foo"` to `foo.sts` when `foo.ts` doesn't exist
- * 3. Declaration emit: ensure `foo.sts` produces `foo.d.ts` (not `foo.d.sts.ts`)
+ * 1. Rewrite HKT type references in .ts/.tsx files (serve valid TypeScript to
+ *    the type checker)
+ * 2. Module resolution for relative imports
  */
 
 import * as ts from "typescript";
 import * as path from "path";
-import { preprocess, type RawSourceMap } from "@typesugar/preprocessor";
+import type { RawSourceMap } from "@typesugar/preprocessor";
 import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
 
 /**
@@ -41,8 +43,6 @@ export interface VirtualCompilerHostOptions {
   readFile?: (fileName: string) => string | undefined;
   /** File existence checker (defaults to ts.sys.fileExists) */
   fileExists?: (fileName: string) => boolean;
-  /** Syntax extensions to enable (defaults to all) */
-  extensions?: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
 }
 
 /**
@@ -70,13 +70,11 @@ function hashContent(content: string): string {
 export class VirtualCompilerHost implements ts.CompilerHost {
   private preprocessedFiles = new Map<string, PreprocessedFile>();
   private baseHost: ts.CompilerHost;
-  private extensions: string[];
   private customReadFile: (fileName: string) => string | undefined;
   private customFileExists: (fileName: string) => boolean;
 
   constructor(private options: VirtualCompilerHostOptions) {
     this.baseHost = options.baseHost ?? ts.createCompilerHost(options.compilerOptions);
-    this.extensions = options.extensions ?? ["hkt", "pipeline", "cons", "decorator-rewrite"];
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.customFileExists = options.fileExists ?? ts.sys.fileExists;
   }
@@ -101,27 +99,6 @@ export class VirtualCompilerHost implements ts.CompilerHost {
     const content = this.customReadFile(fileName);
     if (!content) return undefined;
 
-    // .sts/.stsx → full preprocessor (|>, ::, F<_>)
-    if (this.shouldPreprocess(fileName)) {
-      const result = preprocess(content, {
-        fileName,
-        extensions: this.extensions,
-      });
-
-      if (result.changed) {
-        const preprocessed: PreprocessedFile = {
-          code: result.code,
-          map: result.map,
-          original: content,
-          hash: hashContent(content),
-        };
-        this.preprocessedFiles.set(fileName, preprocessed);
-        return preprocessed;
-      }
-
-      return undefined;
-    }
-
     // .ts/.tsx → HKT rewrite only (F<A> → Kind<F, A>)
     if (this.shouldRewriteHKT(fileName) && hasHKTPatterns(content)) {
       const result = rewriteHKTTypeReferences(content, fileName);
@@ -142,26 +119,13 @@ export class VirtualCompilerHost implements ts.CompilerHost {
   }
 
   /**
-   * Check if a file should be preprocessed (custom syntax: |>, ::, F<_>).
-   *
-   * Only .sts and .stsx files go through the preprocessor.
-   */
-  private shouldPreprocess(fileName: string): boolean {
-    if (fileName.includes("node_modules")) return false;
-    if (fileName.endsWith(".d.ts")) return false;
-    return /\.stsx?$/.test(fileName);
-  }
-
-  /**
    * Check if a file should be checked for HKT type reference rewriting.
    *
-   * Only .ts/.tsx files are candidates (`.sts` files are handled by the
-   * preprocessor which already rewrites `F<_>` syntax).
+   * Only .ts/.tsx files are candidates.
    */
   private shouldRewriteHKT(fileName: string): boolean {
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
-    if (/\.stsx?$/.test(fileName)) return false;
     return /\.tsx?$/.test(fileName);
   }
 
@@ -268,18 +232,15 @@ export class VirtualCompilerHost implements ts.CompilerHost {
   }
 
   // ---------------------------------------------------------------------------
-  // Module resolution for .sts files
+  // Module resolution
   // ---------------------------------------------------------------------------
 
   /**
-   * Resolve module names with .sts fallback.
+   * Resolve module names.
    *
    * Resolution order:
    * 1. Standard TypeScript extensions (.ts, .tsx, .d.ts, .js, .jsx)
-   * 2. Sugared TypeScript extensions (.sts, .stsx)
-   * 3. Index files in directories
-   *
-   * This ensures .ts files are preferred over .sts when both exist.
+   * 2. Index files in directories
    */
   resolveModuleNames(
     moduleNames: string[],
@@ -323,12 +284,11 @@ export class VirtualCompilerHost implements ts.CompilerHost {
   /**
    * Resolve a relative module path to a file.
    *
-   * Resolution order ensures .ts is preferred over .sts:
+   * Resolution order:
    * 1. .ts, .tsx (standard TypeScript)
-   * 2. .sts, .stsx (sugared TypeScript)
-   * 3. .d.ts (declaration files)
-   * 4. .js, .jsx (JavaScript)
-   * 5. index files in directories
+   * 2. .d.ts (declaration files)
+   * 3. .js, .jsx (JavaScript)
+   * 4. index files in directories
    */
   private resolveRelativeModule(
     modulePath: string,
@@ -336,8 +296,8 @@ export class VirtualCompilerHost implements ts.CompilerHost {
   ): ts.ResolvedModule | undefined {
     const basePath = path.resolve(baseDir, modulePath);
 
-    // Extension order: standard TS first, then sugared TS, then declarations, then JS
-    const extensions = [".ts", ".tsx", ".sts", ".stsx", ".d.ts", ".js", ".jsx"];
+    // Extension order: standard TS first, then declarations, then JS
+    const extensions = [".ts", ".tsx", ".d.ts", ".js", ".jsx"];
 
     // Try direct file with extensions
     for (const ext of extensions) {
@@ -372,16 +332,6 @@ export class VirtualCompilerHost implements ts.CompilerHost {
     return undefined;
   }
 
-  // ---------------------------------------------------------------------------
-  // Declaration emit for .sts files
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Intercept file writes to fix declaration file naming.
-   *
-   * When emitting declarations for `foo.sts`, TypeScript would normally produce
-   * `foo.d.sts.ts`. We intercept this and write `foo.d.ts` instead.
-   */
   writeFile(
     fileName: string,
     data: string,
@@ -389,21 +339,7 @@ export class VirtualCompilerHost implements ts.CompilerHost {
     onError?: (message: string) => void,
     sourceFiles?: readonly ts.SourceFile[]
   ): void {
-    // Fix declaration file names for .sts files
-    const correctedFileName = this.correctDeclarationFileName(fileName);
-    this.baseHost.writeFile(correctedFileName, data, writeByteOrderMark, onError, sourceFiles);
-  }
-
-  /**
-   * Correct declaration file names for .sts source files.
-   *
-   * Transforms:
-   * - foo.d.sts.ts → foo.d.ts
-   * - foo.d.stsx.ts → foo.d.ts
-   */
-  private correctDeclarationFileName(fileName: string): string {
-    // Match patterns like .d.sts.ts or .d.stsx.ts
-    return fileName.replace(/\.d\.stsx?\.ts$/, ".d.ts");
+    this.baseHost.writeFile(fileName, data, writeByteOrderMark, onError, sourceFiles);
   }
 
   // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ The transformer recognizes several distinct trigger patterns:
 | Tagged Template     | `TaggedTemplateExpression` | `` sql`SELECT ...` ``     | `defineTaggedTemplateMacro()`                   |
 | Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`                             |
 | Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                     |
-| HKT Syntax          | `TypeParameter`            | `F<_>`                    | Auto-detected                                   |
+| HKT Syntax          | `TypeParameter`            | `F<A>`                    | Auto-detected                                   |
 | Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                            |
 | Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `@op` JSDoc on typeclass methods            |
 | Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                           |
@@ -249,15 +249,15 @@ defineLabeledBlockMacro({
 
 ---
 
-## 7. HKT `F<_>` Syntax (Auto-Detection)
+## 7. HKT `F<A>` Syntax (Auto-Detection)
 
-**Trigger:** Type parameter with `<_>` suffix in interface/type declarations
+**Trigger:** A type parameter applied to a type argument (`F<A>`) inside an interface/type declaration
 
 This is NOT a registered macro—the transformer auto-detects it.
 
 ```typescript
 // User writes:
-interface Functor<F<_>> {
+interface Functor<F> {
   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
 
@@ -267,10 +267,7 @@ interface Functor<F> {
 }
 ```
 
-The `F<_>` syntax indicates "F is a type constructor that takes one type argument." The transformer:
-
-1. Strips the `<_>` from the type parameter
-2. Rewrites all `F<A>` applications to `Kind<F, A>` (the HKT encoding)
+Applying a type parameter to a type argument (`F<A>`) signals "F is a type constructor that takes one type argument." The transformer rewrites all `F<A>` applications to `Kind<F, A>` (the HKT encoding). Works in plain `.ts` files.
 
 **Transformer Location:** `tryTransformHKTDeclaration()` in `packages/transformer-core/src/rewriting.ts`
 
@@ -389,7 +386,7 @@ The transformer processes each node in a single pass, checking for macro trigger
 3. **TaggedTemplateExpression** → tagged template macro
 4. **TypeReferenceNode** → type macro
 5. **Decorated declarations** → attribute macros → derive macros
-6. **Interface/TypeAlias with `F<_>`** → HKT transformation
+6. **Interface/TypeAlias with `F<A>`** → HKT transformation
 7. **BinaryExpression** → typeclass operator overloading
 
 Each transformation may produce new nodes that are recursively visited, allowing macro compositions.

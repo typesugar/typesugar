@@ -2,9 +2,6 @@
  * Pipeline End-to-End Tests
  *
  * Verifies the full TransformationPipeline on realistic typesugar code:
- * - HKT syntax (F<_> → Kind<F, A>)
- * - Pipeline operator (|> → __binop__)
- * - Cons operator (:: → __binop__)
  * - Source map round-trip accuracy
  * - Multi-file projects
  * - Cache invalidation
@@ -17,10 +14,7 @@ import * as ts from "typescript";
 // Load macro definitions (registers macros in the global registry)
 import "@typesugar/macros";
 
-function createPipelineFromFiles(
-  files: Map<string, string>,
-  opts?: { extensions?: ("hkt" | "pipeline" | "cons")[] }
-): TransformationPipeline {
+function createPipelineFromFiles(files: Map<string, string>): TransformationPipeline {
   return new TransformationPipeline(
     {
       target: ts.ScriptTarget.ESNext,
@@ -32,7 +26,6 @@ function createPipelineFromFiles(
     {
       readFile: (f) => files.get(f),
       fileExists: (f) => files.has(f) || ts.sys.fileExists(f),
-      extensions: opts?.extensions,
     }
   );
 }
@@ -42,40 +35,6 @@ function createPipelineFromFiles(
 // =============================================================================
 
 describe("Pipeline E2E: HKT syntax", () => {
-  it("transforms F<_> parameter and F<A> usages", () => {
-    const input = `
-interface Functor<F<_>> {
-  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
-}
-    `.trim();
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "hkt.sts" });
-
-    expect(result.code).toBeDefined();
-    expect(result.changed).toBe(true);
-
-    // F<_> is rewritten to plain F, and F<A>/F<B> become Kind<F, A>/Kind<F, B>
-    expect(result.code).toContain("Kind<F, A>");
-    expect(result.code).toContain("Kind<F, B>");
-    // The HKT parameter sugar F<_> should be gone
-    expect(result.code).not.toContain("F<_>");
-  });
-
-  it("transforms HKT in type aliases", () => {
-    const input = `
-type Apply<F<_>, A> = F<A>;
-type Result = Apply<Array, string>;
-    `.trim();
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "hkt-alias.sts" });
-
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.code).toBeDefined();
-    expect(result.changed).toBe(true);
-  });
-
   it("preserves non-HKT generics untouched", () => {
     const input = `
 interface Container<T> {
@@ -93,88 +52,7 @@ const c: Container<string> = { value: "hello" };
 });
 
 // =============================================================================
-// 2. Pipeline Operator Transformation
-// =============================================================================
-
-describe("Pipeline E2E: pipe operator", () => {
-  it("transforms |> to function calls", () => {
-    const input = `const result = 1 |> ((x: number) => x + 1) |> ((x: number) => x * 2);`;
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "pipe.sts" });
-
-    expect(result.diagnostics).toHaveLength(0);
-    // Pipe operator is expanded via __binop__ macro to function calls
-    // 1 |> f |> g becomes g(f(1))
-    expect(result.code).toContain("((x: number) => x * 2)(((x: number) => x + 1)(1))");
-    // The |> token should only appear as a string argument to __binop__, not as an operator
-    const codeWithoutStrings = result.code.replace(/"[^"]*"/g, "").replace(/'[^']*'/g, "");
-    expect(codeWithoutStrings).not.toContain("|>");
-  });
-
-  it("handles chained pipe operators", () => {
-    const input = `
-const add1 = (x: number): number => x + 1;
-const double = (x: number): number => x * 2;
-const toString = (x: number): string => String(x);
-const result = 10 |> add1 |> double |> toString;
-    `.trim();
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "chained-pipe.sts" });
-
-    expect(result.diagnostics).toHaveLength(0);
-    // Chained pipes are expanded to nested function calls
-    expect(result.code).toContain("toString(double(add1(10)))");
-    expect(result.changed).toBe(true);
-  });
-
-  it("preserves code without pipe operators", () => {
-    const input = `const x = 1 + 2;`;
-
-    const result = transformCode(input, {
-      fileName: "no-pipe.ts",
-      extensions: ["pipeline"],
-    });
-
-    expect(result.code).toContain("1 + 2");
-  });
-});
-
-// =============================================================================
-// 3. Cons Operator Transformation
-// =============================================================================
-
-describe("Pipeline E2E: cons operator", () => {
-  it("transforms :: to spread array literals", () => {
-    const input = `const list = 1 :: 2 :: [];`;
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "cons.sts" });
-
-    expect(result.diagnostics).toHaveLength(0);
-    // Cons operator (::) is expanded to spread arrays: [h, ...t]
-    expect(result.code).toContain("[1, ...[2, ...[]]]");
-    // :: should only appear as a string literal argument after expansion
-    const codeWithoutStrings = result.code.replace(/"[^"]*"/g, "").replace(/'[^']*'/g, "");
-    expect(codeWithoutStrings).not.toContain("::");
-  });
-
-  it("handles nested cons expressions", () => {
-    const input = `const nested = 1 :: 2 :: 3 :: [];`;
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "nested-cons.sts" });
-
-    expect(result.diagnostics).toHaveLength(0);
-    // Cons operator (::) is expanded to spread arrays: [h, ...t]
-    expect(result.code).toContain("[1, ...[2, ...[3, ...[]]]]");
-    expect(result.changed).toBe(true);
-  });
-});
-
-// =============================================================================
-// 4. Source Map Accuracy
+// 2. Source Map Accuracy
 // =============================================================================
 
 describe("Pipeline E2E: source map accuracy", () => {
@@ -198,66 +76,6 @@ describe("Pipeline E2E: source map accuracy", () => {
     expect(result.mapper.toTransformed(0)).toBe(0);
     expect(result.mapper.toOriginal(5)).toBe(5);
     expect(result.mapper.toTransformed(5)).toBe(5);
-  });
-
-  it("maps positions for pipe-transformed code", () => {
-    const input = `const result = 1 |> ((x: number) => x + 1);`;
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "pipe-map.sts" });
-
-    // "const" is at position 0 in the original
-    // After transformation, "const" should still map back to 0
-    const constTransformed = result.mapper.toTransformed(0);
-    expect(constTransformed).not.toBeNull();
-
-    if (constTransformed !== null) {
-      const roundTripped = result.mapper.toOriginal(constTransformed);
-      // Round-trip should get us back to the start
-      expect(roundTripped).not.toBeNull();
-      if (roundTripped !== null) {
-        expect(roundTripped).toBe(0);
-      }
-    }
-  });
-
-  it("maps 'result' identifier position through transformation", () => {
-    const input = `const result = 1 |> ((x: number) => x + 1);`;
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "result-map.sts" });
-
-    const originalPos = input.indexOf("result");
-    expect(originalPos).toBeGreaterThan(0);
-
-    const transformedPos = result.mapper.toTransformed(originalPos);
-    if (transformedPos !== null) {
-      // The identifier "result" should exist at the transformed position
-      const snippet = result.code.substring(transformedPos, transformedPos + 6);
-      expect(snippet).toBe("result");
-
-      // Round-trip
-      const roundTripped = result.mapper.toOriginal(transformedPos);
-      expect(roundTripped).not.toBeNull();
-      if (roundTripped !== null) {
-        expect(roundTripped).toBe(originalPos);
-      }
-    }
-  });
-
-  it("maps positions for HKT-transformed code", () => {
-    const input = `
-type Apply<F<_>, A> = F<A>;
-const x = 42;
-    `.trim();
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "hkt-map.sts" });
-
-    // "const x" should still be findable after HKT transformation
-    const constOriginalPos = input.indexOf("const x");
-    const constTransformed = result.mapper.toTransformed(constOriginalPos);
-    expect(constTransformed).not.toBeNull();
   });
 });
 
@@ -328,30 +146,6 @@ export const result = double(21);
       const hasUtilDep = deps.some((d) => d.includes("util"));
       expect(hasUtilDep).toBe(true);
     }
-  });
-
-  it("handles mixed transformed and untransformed files", () => {
-    const files = new Map<string, string>();
-    files.set("/test/plain.ts", `export const x = 42;`);
-    // Use .sts extension for files with custom syntax (PEP-001)
-    files.set(
-      "/test/piped.sts",
-      `
-import { x } from "./plain";
-const result = x |> ((n: number) => n + 1);
-      `.trim()
-    );
-
-    const pipeline = createPipelineFromFiles(files);
-
-    const plainResult = pipeline.transform("/test/plain.ts");
-    const pipedResult = pipeline.transform("/test/piped.sts");
-
-    // Plain file should be essentially unchanged
-    expect(plainResult.code).toContain("42");
-
-    // Piped file should be transformed (pipe expanded to function call)
-    expect(pipedResult.code).toContain("((n: number) => n + 1)(x)");
   });
 });
 
@@ -481,22 +275,6 @@ describe("Pipeline E2E: edge cases", () => {
         "/test/node_modules/foo/index.ts"
       )
     ).toBe(false);
-  });
-
-  it("handles code with all three custom operators in .sts files", () => {
-    const input = `
-const piped = 1 |> ((x: number) => x + 1);
-const consed = 1 :: [];
-    `.trim();
-
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "all-ops.sts" });
-
-    expect(result.diagnostics).toHaveLength(0);
-    // Operators are fully expanded via __binop__ macro
-    expect(result.code).toContain("((x: number) => x + 1)(1)");
-    expect(result.code).toContain("[1, ...[]]");
-    expect(result.changed).toBe(true);
   });
 
   it("getProgram() returns a valid ts.Program", () => {

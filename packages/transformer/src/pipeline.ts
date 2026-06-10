@@ -78,8 +78,6 @@ export interface TransformResult {
 export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
-  /** Syntax extensions to enable (defaults to all) */
-  extensions?: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   /** Macro transformer config */
   transformerConfig?: MacroTransformerConfig;
   /** Custom file reader (defaults to ts.sys.readFile) */
@@ -695,7 +693,6 @@ export class TransformationPipeline {
   private cache: TransformCache;
   private diskCache: DiskTransformCache | null = null;
   private verbose: boolean;
-  private extensions: ("hkt" | "pipeline" | "cons" | "decorator-rewrite")[];
   private transformerConfig: MacroTransformerConfig;
   private customReadFile: (fileName: string) => string | undefined;
   private fileNames: string[];
@@ -716,7 +713,6 @@ export class TransformationPipeline {
     private options: PipelineOptions = {}
   ) {
     this.verbose = options.verbose ?? false;
-    this.extensions = options.extensions ?? ["hkt", "pipeline", "cons", "decorator-rewrite"];
     this.transformerConfig = {
       verbose: this.verbose,
       trackExpansions: true, // Always track — needed for CodeLens, inlay hints, expand preview
@@ -741,7 +737,6 @@ export class TransformationPipeline {
     // Create virtual host that serves preprocessed content
     this.host = new VirtualCompilerHost({
       compilerOptions,
-      extensions: this.extensions,
       readFile: this.customReadFile,
       fileExists: options.fileExists,
     });
@@ -1311,7 +1306,7 @@ export class TransformationPipeline {
     }
 
     // Transform TS/TSX/JS/JSX and STS/STSX files
-    return /\.(([tj]sx?)|sts|stsx)$/.test(fileName);
+    return /\.[tj]sx?$/.test(fileName);
   }
 
   // ---------------------------------------------------------------------------
@@ -1949,7 +1944,7 @@ function typecheckOutput(
   const fileExists = callerFileExists ?? ts.sys.fileExists;
 
   const outputFileName = fileName;
-  const inputFileName = fileName.replace(/\.(ts|tsx|sts|stsx)$/, ".__input__.$1");
+  const inputFileName = fileName.replace(/\.(ts|tsx)$/, ".__input__.$1");
   const virtualFiles = new Map<string, string>([
     [outputFileName, outputCode],
     [inputFileName, inputCode],

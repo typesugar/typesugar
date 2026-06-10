@@ -22,14 +22,12 @@ interface TransformResult {
 const props = withDefaults(
   defineProps<{
     code: string;
-    mode?: ".ts" | ".sts";
     readonly?: boolean;
     height?: string;
     hideOutput?: boolean;
     title?: string;
   }>(),
   {
-    mode: ".ts",
     readonly: false,
     height: "300px",
     hideOutput: false,
@@ -55,286 +53,13 @@ const transformError = ref<string | null>(null);
 const lastResult = ref<TransformResult | null>(null);
 const showOutput = ref(!props.hideOutput);
 
-const fileName = computed(() => `input${props.mode}`);
+const fileName = computed(() => "input.ts");
 
 const errorCount = computed(() => lastResult.value?.diagnostics?.length ?? 0);
 
-function registerStsLanguage(monacoInstance: typeof Monaco) {
-  if (monacoInstance.languages.getLanguages().some((lang) => lang.id === "sts")) {
-    return;
-  }
-
-  monacoInstance.languages.register({ id: "sts", extensions: [".sts", ".stsx"] });
-
-  monacoInstance.languages.setMonarchTokensProvider("sts", {
-    defaultToken: "",
-    tokenPostfix: ".sts",
-
-    keywords: [
-      "abstract",
-      "any",
-      "as",
-      "asserts",
-      "async",
-      "await",
-      "boolean",
-      "break",
-      "case",
-      "catch",
-      "class",
-      "const",
-      "constructor",
-      "continue",
-      "debugger",
-      "declare",
-      "default",
-      "delete",
-      "do",
-      "else",
-      "enum",
-      "export",
-      "extends",
-      "false",
-      "finally",
-      "for",
-      "from",
-      "function",
-      "get",
-      "if",
-      "implements",
-      "import",
-      "in",
-      "infer",
-      "instanceof",
-      "interface",
-      "is",
-      "keyof",
-      "let",
-      "module",
-      "namespace",
-      "never",
-      "new",
-      "null",
-      "number",
-      "object",
-      "of",
-      "package",
-      "private",
-      "protected",
-      "public",
-      "readonly",
-      "require",
-      "return",
-      "satisfies",
-      "set",
-      "static",
-      "string",
-      "super",
-      "switch",
-      "symbol",
-      "this",
-      "throw",
-      "true",
-      "try",
-      "type",
-      "typeof",
-      "undefined",
-      "unique",
-      "unknown",
-      "var",
-      "void",
-      "while",
-      "with",
-      "yield",
-    ],
-
-    typeKeywords: ["F", "HKT", "Kind", "Type", "Functor", "Monad", "Apply", "Applicative"],
-
-    operators: [
-      "<=",
-      ">=",
-      "==",
-      "!=",
-      "===",
-      "!==",
-      "=>",
-      "+",
-      "-",
-      "**",
-      "*",
-      "/",
-      "%",
-      "++",
-      "--",
-      "<<",
-      "</",
-      ">>",
-      ">>>",
-      "&",
-      "|",
-      "^",
-      "!",
-      "~",
-      "&&",
-      "||",
-      "??",
-      "?",
-      ":",
-      "=",
-      "+=",
-      "-=",
-      "*=",
-      "**=",
-      "/=",
-      "%=",
-      "<<=",
-      ">>=",
-      ">>>=",
-      "&=",
-      "|=",
-      "^=",
-      "@",
-      "|>",
-      "<|",
-      "::",
-      "~>",
-    ],
-
-    symbols: /[=><!~?:&|+\-*\/\^%@]+/,
-    escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
-    digits: /\d+(_+\d+)*/,
-    octaldigits: /[0-7]+(_+[0-7]+)*/,
-    binarydigits: /[0-1]+(_+[0-1]+)*/,
-    hexdigits: /[[0-9a-fA-F]+(_+[0-9a-fA-F]+)*/,
-
-    regexpctl: /[(){}\[\]\$\^|\-*+?\.]/,
-    regexpesc: /\\(?:[bBdDfnrstvwWn0\\\/]|@regexpctl|c[A-Z]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})/,
-
-    tokenizer: {
-      root: [[/[{}]/, "delimiter.bracket"], { include: "common" }],
-
-      common: [
-        [/F<_>/, "type.identifier.hkt"],
-        [/\b_\b/, "type.identifier.placeholder"],
-        [/@@typeclass\b/, "annotation.typeclass"],
-        [/@@impl\b/, "annotation.impl"],
-        [/@@deriving\b/, "annotation.deriving"],
-        [/@@derive\b/, "annotation.derive"],
-        [/@@extension\b/, "annotation.extension"],
-        [/@@comptime\b/, "annotation.comptime"],
-        [/@@macro\b/, "annotation.macro"],
-        [/@@[a-zA-Z_$][\w$]*/, "annotation"],
-        [/\|>/, "operator.pipeline"],
-        [/<\|/, "operator.pipeline"],
-        [/::/, "operator.cons"],
-        [/~>/, "operator.kind"],
-        [
-          /[a-z_$][\w$]*/,
-          {
-            cases: {
-              "@typeKeywords": "type.identifier",
-              "@keywords": "keyword",
-              "@default": "identifier",
-            },
-          },
-        ],
-        [/[A-Z][\w\$]*/, "type.identifier"],
-        { include: "@whitespace" },
-        [
-          /\/(?=([^\\\/]|\\.)+\/([dgimsuy]*)(\s*)(\.|;|,|\)|\]|\}|$))/,
-          { token: "regexp", bracket: "@open", next: "@regexp" },
-        ],
-        [/[()\[\]]/, "@brackets"],
-        [/[<>](?!@symbols)/, "@brackets"],
-        [/!(?=([^=]|$))/, "delimiter"],
-        [/@symbols/, { cases: { "@operators": "operator", "@default": "" } }],
-        [/(@digits)[eE]([\-+]?(@digits))?/, "number.float"],
-        [/(@digits)\.(@digits)([eE][\-+]?(@digits))?/, "number.float"],
-        [/0[xX](@hexdigits)n?/, "number.hex"],
-        [/0[oO]?(@octaldigits)n?/, "number.octal"],
-        [/0[bB](@binarydigits)n?/, "number.binary"],
-        [/(@digits)n?/, "number"],
-        [/[;,.]/, "delimiter"],
-        [/"([^"\\]|\\.)*$/, "string.invalid"],
-        [/'([^'\\]|\\.)*$/, "string.invalid"],
-        [/"/, "string", "@string_double"],
-        [/'/, "string", "@string_single"],
-        [/`/, "string", "@string_backtick"],
-      ],
-
-      whitespace: [
-        [/[ \t\r\n]+/, ""],
-        [/\/\*\*(?!\/)/, "comment.doc", "@jsdoc"],
-        [/\/\*/, "comment", "@comment"],
-        [/\/\/.*$/, "comment"],
-      ],
-
-      comment: [
-        [/[^\/*]+/, "comment"],
-        [/\*\//, "comment", "@pop"],
-        [/[\/*]/, "comment"],
-      ],
-      jsdoc: [
-        [/[^\/*]+/, "comment.doc"],
-        [/\*\//, "comment.doc", "@pop"],
-        [/[\/*]/, "comment.doc"],
-      ],
-
-      regexp: [
-        [
-          /(\{)(\d+(?:,\d*)?)(\})/,
-          ["regexp.escape.control", "regexp.escape.control", "regexp.escape.control"],
-        ],
-        [
-          /(\[)(\^?)(?=(?:[^\]\\\/]|\\.)+)/,
-          ["regexp.escape.control", { token: "regexp.escape.control", next: "@regexrange" }],
-        ],
-        [/(\()(\?:|\?=|\?!)/, ["regexp.escape.control", "regexp.escape.control"]],
-        [/[()]/, "regexp.escape.control"],
-        [/@regexpctl/, "regexp.escape.control"],
-        [/[^\\\/]/, "regexp"],
-        [/@regexpesc/, "regexp.escape"],
-        [/\\\./, "regexp.invalid"],
-        [
-          /(\/)([dgimsuy]*)/,
-          [{ token: "regexp", bracket: "@close", next: "@pop" }, "keyword.other"],
-        ],
-      ],
-
-      regexrange: [
-        [/-/, "regexp.escape.control"],
-        [/\^/, "regexp.invalid"],
-        [/@regexpesc/, "regexp.escape"],
-        [/[^\]]/, "regexp"],
-        [/\]/, { token: "regexp.escape.control", next: "@pop", bracket: "@close" }],
-      ],
-
-      string_double: [
-        [/[^\\"]+/, "string"],
-        [/@escapes/, "string.escape"],
-        [/\\./, "string.escape.invalid"],
-        [/"/, "string", "@pop"],
-      ],
-      string_single: [
-        [/[^\\']+/, "string"],
-        [/@escapes/, "string.escape"],
-        [/\\./, "string.escape.invalid"],
-        [/'/, "string", "@pop"],
-      ],
-      string_backtick: [
-        [/\$\{/, { token: "delimiter.bracket", next: "@bracketCounting" }],
-        [/[^\\`$]+/, "string"],
-        [/@escapes/, "string.escape"],
-        [/\\./, "string.escape.invalid"],
-        [/`/, "string", "@pop"],
-      ],
-      bracketCounting: [
-        [/\{/, "delimiter.bracket", "@bracketCounting"],
-        [/\}/, "delimiter.bracket", "@pop"],
-        { include: "common" },
-      ],
-    },
-  });
+function registerTypesugarThemes(monacoInstance: typeof Monaco) {
+  if ((registerTypesugarThemes as { done?: boolean }).done) return;
+  (registerTypesugarThemes as { done?: boolean }).done = true;
 
   monacoInstance.editor.defineTheme("typesugar-dark", {
     base: "vs-dark",
@@ -444,7 +169,6 @@ function openInPlayground() {
   const compressed = compressToEncodedURIComponent(code);
   const params = new URLSearchParams({
     code: compressed,
-    mode: props.mode,
     ts: "5.8",
   });
   const url = `/playground#${params.toString()}`;
@@ -463,7 +187,7 @@ async function initMonaco() {
     const monacoInstance = await loader.default.init();
     monaco.value = monacoInstance;
 
-    registerStsLanguage(monacoInstance);
+    registerTypesugarThemes(monacoInstance);
     await loadPlayground();
 
     const isDark = document.documentElement.classList.contains("dark");
@@ -472,7 +196,7 @@ async function initMonaco() {
     if (inputContainer.value) {
       inputEditor.value = monacoInstance.editor.create(inputContainer.value, {
         value: props.code,
-        language: props.mode === ".sts" ? "sts" : "typescript",
+        language: "typescript",
         theme,
         minimap: { enabled: false },
         fontSize: 13,
@@ -558,19 +282,6 @@ watch(
   }
 );
 
-watch(
-  () => props.mode,
-  (newMode) => {
-    if (inputEditor.value && monaco.value) {
-      const model = inputEditor.value.getModel();
-      if (model) {
-        monaco.value.editor.setModelLanguage(model, newMode === ".sts" ? "sts" : "typescript");
-      }
-      doTransform();
-    }
-  }
-);
-
 onMounted(() => {
   initMonaco();
 });
@@ -590,7 +301,7 @@ onUnmounted(() => {
     <div class="embed-header">
       <div class="embed-header-left">
         <span v-if="title" class="embed-title">{{ title }}</span>
-        <span class="embed-file-type">{{ mode }}</span>
+        <span class="embed-file-type">.ts</span>
         <span v-if="readonly" class="embed-readonly-badge">Read-only</span>
         <span v-if="errorCount > 0" class="embed-error-badge"
           >{{ errorCount }} error{{ errorCount > 1 ? "s" : "" }}</span

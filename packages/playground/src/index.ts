@@ -17,9 +17,9 @@
  *
  * console.log(result.code);
  *
- * // Preprocess .sts code (custom syntax)
+ * // Preprocess HKT type syntax (F<_> -> Kind<F, A>)
  * const { code } = preprocess(`
- *   const result = x |> f |> g;
+ *   interface Functor<F<_>> { map<A, B>(fa: F<A>, f: (a: A) => B): F<B>; }
  * `);
  * ```
  *
@@ -27,11 +27,7 @@
  */
 
 import { preprocess, type RawSourceMap, type PreprocessResult } from "@typesugar/preprocessor";
-import {
-  transformCode,
-  type TransformDiagnostic,
-  composeSourceMaps,
-} from "@typesugar/transformer-core";
+import { transformCode, type TransformDiagnostic } from "@typesugar/transformer-core";
 import { BrowserTransformCache, hashContent } from "./cache.js";
 
 export interface TransformResult {
@@ -66,22 +62,18 @@ export function getCacheStats(): string {
   return transformCache?.getStatsString() ?? "Cache not initialized";
 }
 
-function isSugaredTypeScriptFile(fileName: string): boolean {
-  return /\.stsx?$/i.test(fileName);
-}
-
 export function preprocessCode(
   code: string,
   options: { fileName?: string } = {}
 ): PreprocessResult {
-  const fileName = options.fileName ?? "input.sts";
+  const fileName = options.fileName ?? "input.ts";
   return preprocess(code, { fileName });
 }
 
 /**
  * Transform TypeScript/JavaScript code with typesugar macro expansion.
  *
- * This function handles both preprocessing (for .sts files) and macro expansion.
+ * This function handles HKT preprocessing and macro expansion.
  * It uses the transformer-core package for the actual macro transformation.
  */
 export function transform(code: string, options: BrowserTransformOptions = {}): TransformResult {
@@ -104,56 +96,18 @@ export function transform(code: string, options: BrowserTransformOptions = {}): 
     };
   }
 
-  let preprocessedCode = code;
-  let preprocessMap: RawSourceMap | null = null;
-  let wasPreprocessed = false;
-
-  if (isSugaredTypeScriptFile(fileName)) {
-    try {
-      const result = preprocess(code, { fileName });
-      if (result.changed) {
-        preprocessedCode = result.code;
-        preprocessMap = result.map;
-        wasPreprocessed = true;
-        if (verbose) {
-          console.log(`[playground] Preprocessed ${fileName}`);
-        }
-      }
-    } catch (e) {
-      return {
-        original: code,
-        code,
-        sourceMap: null,
-        changed: false,
-        diagnostics: [
-          {
-            file: fileName,
-            start: 0,
-            length: 0,
-            message: `Preprocessing failed: ${e}`,
-            severity: "error",
-          },
-        ],
-      };
-    }
-  }
-
   try {
-    const transformFileName = isSugaredTypeScriptFile(fileName)
-      ? fileName.replace(/\.sts(x?)$/i, ".ts$1")
-      : fileName;
-
-    const result = transformCode(preprocessedCode, {
-      fileName: transformFileName,
+    const result = transformCode(code, {
+      fileName,
       verbose,
     });
 
-    const finalSourceMap = composeSourceMaps(preprocessMap, result.sourceMap);
+    const finalSourceMap = result.sourceMap;
 
     const cacheEntry = {
       code: result.code,
       sourceMap: finalSourceMap ? JSON.stringify(finalSourceMap) : null,
-      changed: result.changed || wasPreprocessed,
+      changed: result.changed,
       diagnostics: result.diagnostics,
     };
     cache.set(fileName, contentHash, cacheEntry);
@@ -162,16 +116,16 @@ export function transform(code: string, options: BrowserTransformOptions = {}): 
       original: code,
       code: result.code,
       sourceMap: finalSourceMap,
-      changed: result.changed || wasPreprocessed,
+      changed: result.changed,
       diagnostics: result.diagnostics,
-      preprocessed: wasPreprocessed,
+      preprocessed: false,
     };
   } catch (e) {
     return {
       original: code,
-      code: preprocessedCode,
-      sourceMap: preprocessMap,
-      changed: wasPreprocessed,
+      code,
+      sourceMap: null,
+      changed: false,
       diagnostics: [
         {
           file: fileName,

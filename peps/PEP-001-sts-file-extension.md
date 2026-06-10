@@ -1,8 +1,17 @@
 # PEP-001: `.sts` File Extension for Sugared TypeScript
 
-**Status:** Done
+**Status:** Superseded by [PEP-047](PEP-047-remove-sts.md)
 **Date:** 2026-03-12
 **Author:** Dean Povey
+
+> **Superseded (2026-06-10):** The `.sts`/`.stsx` extension and the custom
+> surface syntax it gated (`|>`, `::`, `| pattern =>`, interface decorators,
+> the lexical `F<_>` form) were removed in PEP-047 to shrink the support
+> matrix and keep typesugar on TypeScript-compatible syntax. The `.ts` HKT
+> rewriter (`F<A>` → `Kind<F, A>`) and the `Kind<F, A>` encoding remain. This
+> document is retained as the historical record; if real custom syntax is
+> revived later, the intended vehicle is an oxc-based parser, not the
+> text-rewriting preprocessor (see PEP-003, withdrawn).
 
 ## Context
 

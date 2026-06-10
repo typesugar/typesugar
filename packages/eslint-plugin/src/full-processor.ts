@@ -143,8 +143,8 @@ export function createFullProcessor(): Linter.Processor {
     supportsAutofix: true,
 
     preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
-      // Process TypeScript files and sugared TypeScript files (.sts/.stsx)
-      const isTypeScript = /\.(ts|tsx|sts|stsx)$/.test(filename);
+      // Process TypeScript files
+      const isTypeScript = /\.(ts|tsx)$/.test(filename);
       if (!isTypeScript) {
         return [text];
       }

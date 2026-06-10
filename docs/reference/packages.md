@@ -105,7 +105,7 @@ npm install --save-dev @typesugar/transformer
 
 ### @typesugar/preprocessor {#preprocessor}
 
-Lexical preprocessor for custom syntax (`F<_>`, `|>`).
+Lexical preprocessor for HKT type syntax (`F<A>` → `Kind<F, A>`) plus the shared source-map types used by the transformer pipeline.
 
 ```bash
 npm install --save-dev @typesugar/preprocessor

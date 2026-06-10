@@ -241,10 +241,10 @@ export function inferTypeConstructor(
   sourceFile?: ts.SourceFile
 ): string | undefined {
   // TypeScript's checker can throw an internal TypeError when it encounters
-  // unresolvable call expressions with object-literal arguments
-  // (observed in .sts mode where the imported module can't be resolved —
-  // the call becomes an error call, and contextual typing of the object
-  // literal trips a null-ref in getContextualTypeForObjectLiteralElement).
+  // unresolvable call expressions with object-literal arguments (e.g. when the
+  // imported module can't be resolved — the call becomes an error call, and
+  // contextual typing of the object literal trips a null-ref in
+  // getContextualTypeForObjectLiteralElement).
   // Fall back to AST-based detection if the checker fails.
   let type: ts.Type;
   let typeString: string;
@@ -346,8 +346,8 @@ export function inferTypeConstructor(
   // Last resort: pure AST-based detection.
   // Useful when:
   //   - The TypeChecker returned `any` but the expression has a clear form like
-  //     `Effect.succeed(...)` or `Promise.resolve(...)` (unresolvable imports in
-  //     .sts mode, isolated test files without the module's declaration, etc.)
+  //     `Effect.succeed(...)` or `Promise.resolve(...)` (unresolvable imports,
+  //     isolated test files without the module's declaration, etc.)
   //   - The type string doesn't match any known generic pattern
   return inferTypeConstructorFromAST(expr);
 }

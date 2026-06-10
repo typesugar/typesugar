@@ -2,12 +2,12 @@
  * Regression tests for inferTypeConstructor AST-based fallback.
  *
  * Background (PEP-039 follow-up):
- * In .sts mode, the effect module can be unresolvable, which makes
- * TypeScript's checker treat `Effect.succeed(...)` as an error call.
- * When the argument is an object literal, TypeScript's error-recovery
- * path trips a null-ref in getContextualTypeForObjectLiteralElement
- * (reading .escapedName on undefined). This caused the playground's
- * let:/yield: macro to throw on the Effect example in .sts mode.
+ * When the effect module is unresolvable, TypeScript's checker treats
+ * `Effect.succeed(...)` as an error call. When the argument is an object
+ * literal, TypeScript's error-recovery path trips a null-ref in
+ * getContextualTypeForObjectLiteralElement (reading .escapedName on
+ * undefined). This caused the playground's let:/yield: macro to throw on
+ * the Effect example when the module couldn't be resolved.
  *
  * The fix: inferTypeConstructor wraps the TypeChecker call in try/catch
  * and falls back to AST-based detection for common forms like
@@ -24,8 +24,8 @@ function firstCallArg(source: string): ts.Expression {
 }
 
 /**
- * A TypeChecker stub that always throws — simulates the .sts mode crash
- * in TypeScript's internal contextual-type resolution.
+ * A TypeChecker stub that always throws — simulates the crash in
+ * TypeScript's internal contextual-type resolution.
  */
 const throwingChecker = {
   getTypeAtLocation: () => {

@@ -17,10 +17,6 @@ import type {
   RawSourceMap,
 } from "./extensions/types.js";
 import { hktExtension } from "./extensions/hkt.js";
-import { pipelineExtension } from "./extensions/pipeline.js";
-import { consExtension } from "./extensions/cons.js";
-import { decoratorRewriteExtension } from "./extensions/decorator-rewrite.js";
-import { matchSyntaxExtension } from "./extensions/match-syntax.js";
 
 /**
  * Union type for any preprocessor extension
@@ -29,13 +25,7 @@ type AnyExtension = SyntaxExtension | CustomOperatorExtension;
 
 const BUILT_IN_EXTENSIONS: Record<string, AnyExtension> = {
   hkt: hktExtension,
-  pipeline: pipelineExtension,
-  cons: consExtension,
-  "decorator-rewrite": decoratorRewriteExtension,
-  "match-syntax": matchSyntaxExtension,
 };
-
-const BUILT_IN_OPERATORS: CustomOperatorExtension[] = [pipelineExtension, consExtension];
 
 export interface PreprocessOptions {
   extensions?: string[];

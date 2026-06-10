@@ -3,7 +3,7 @@ import { ref } from "vue";
 export interface ExamplePreset {
   name: string;
   description: string;
-  fileType: ".ts" | ".sts";
+  fileType: ".ts";
   code: string;
 }
 
@@ -23,7 +23,6 @@ const GROUP_META: Record<string, { label: string; order: number }> = {
   core: { label: "Core Macros", order: 10 },
   fp: { label: "@typesugar/fp", order: 20 },
   std: { label: "@typesugar/std", order: 25 },
-  preprocessor: { label: "Preprocessor (.sts)", order: 28 },
   effect: { label: "@typesugar/effect", order: 30 },
   collections: { label: "@typesugar/collections", order: 35 },
   graph: { label: "@typesugar/graph", order: 40 },
@@ -74,13 +73,9 @@ const EXAMPLE_ORDER: Record<string, Record<string, number>> = {
     "Service & Layer": 0,
     "Do-Comprehensions (Effect)": 10,
   },
-  preprocessor: {
-    "Pipeline Operator": 0,
-    "Cons Operator ::": 10,
-  },
 };
 
-const rawFiles = import.meta.glob("../../examples/**/*.{ts,sts}", {
+const rawFiles = import.meta.glob("../../examples/**/*.ts", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -96,11 +91,11 @@ const rawFiles = import.meta.glob("../../examples/**/*.{ts,sts}", {
  *   <code>
  */
 function parseExample(path: string, raw: string): { group: string; preset: ExamplePreset } | null {
-  const match = path.match(/\/examples\/([^/]+)\/.+\.(ts|sts)$/);
+  const match = path.match(/\/examples\/([^/]+)\/.+\.ts$/);
   if (!match) return null;
 
-  const [, group, ext] = match;
-  const fileType = `.${ext}` as ".ts" | ".sts";
+  const [, group] = match;
+  const fileType = ".ts" as const;
 
   const lines = raw.split("\n");
   let name = "";

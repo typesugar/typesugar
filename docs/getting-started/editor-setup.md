@@ -160,7 +160,7 @@ The plugin preprocesses your code so ESLint sees the expanded output.
 
 ## Prettier
 
-typesugar works with Prettier out of the box for standard TypeScript syntax. Custom syntax extensions (like `|>` or `::` operators) should be preprocessed before formatting.
+typesugar works with Prettier out of the box — all source is standard TypeScript.
 
 ### Recommended Setup
 

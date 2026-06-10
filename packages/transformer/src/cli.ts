@@ -198,7 +198,7 @@ COMMANDS:
   init               Interactive setup wizard for existing projects
   doctor             Diagnose configuration issues
   create [template]  Create a new project from a template
-  preprocess <files|dirs>  Preprocess files (custom syntax only, no macro expansion)
+  preprocess <files|dirs>  Preprocess files (HKT syntax only, no macro expansion)
 
 OPTIONS:
   -p, --project <path>   Path to tsconfig.json (default: tsconfig.json)
@@ -349,14 +349,14 @@ function build(options: CliOptions): void {
     console.log(`🧊 Disk cache enabled`);
   }
 
-  // Stage 1: Preprocess all files (custom syntax like HKT F<_>, |>, ::)
+  // Stage 1: Preprocess all files (HKT F<_> type syntax)
   profiler.start("cli.build.preprocess");
   const preprocessedFiles = new Map<string, string>();
   let preprocessCount = 0;
 
   for (const fileName of config.fileNames) {
-    // Include .ts, .tsx, .js, .jsx, .sts, .stsx files
-    if (/\.(([jt]sx?)|sts|stsx)$/.test(fileName) && !/node_modules/.test(fileName)) {
+    // Include .ts, .tsx, .js, .jsx files
+    if (/\.[jt]sx?$/.test(fileName) && !/node_modules/.test(fileName)) {
       try {
         const source = fs.readFileSync(fileName, "utf-8");
 
@@ -379,7 +379,7 @@ function build(options: CliOptions): void {
   profiler.end("cli.build.preprocess");
 
   if (options.verbose && preprocessCount > 0) {
-    console.log(`🧊 Preprocessed custom syntax in ${preprocessCount} files`);
+    console.log(`🧊 Preprocessed HKT syntax in ${preprocessCount} files`);
   }
 
   // Create compiler host that serves preprocessed content
@@ -891,7 +891,7 @@ async function run(options: CliOptions): Promise<void> {
   fs.writeFileSync(tempInputFile, jsCode);
 
   try {
-    // Create an esbuild plugin to preprocess TypeScript files (including .sts/.stsx)
+    // Create an esbuild plugin to preprocess TypeScript files
     const preprocessPlugin = {
       name: "typesugar-preprocess",
       setup(build: {
@@ -900,12 +900,12 @@ async function run(options: CliOptions): Promise<void> {
           cb: (args: { path: string }) => Promise<{ contents: string; loader: "js" | "jsx" }>
         ) => void;
       }) {
-        // Match .ts, .tsx, .sts, .stsx files — preprocess custom syntax then
-        // transpile to JS so esbuild doesn't choke on namespaces/const enums
-        build.onLoad({ filter: /\.(tsx?|stsx?)$/ }, async (args: { path: string }) => {
+        // Match .ts, .tsx files — preprocess HKT syntax then transpile to JS
+        // so esbuild doesn't choke on namespaces/const enums
+        build.onLoad({ filter: /\.tsx?$/ }, async (args: { path: string }) => {
           const source = await fs.promises.readFile(args.path, "utf-8");
           const preprocessed = preprocess(source, { fileName: args.path });
-          const isTsx = args.path.endsWith(".tsx") || args.path.endsWith(".stsx");
+          const isTsx = args.path.endsWith(".tsx");
           const transpiled = transpileExpanded(preprocessed.code, args.path, config.options, {
             sourceMap: false,
             jsx: isTsx ? ts.JsxEmit.ReactJSX : undefined,
@@ -983,8 +983,8 @@ function collectTypeScriptFiles(sources: string[]): string[] {
     const stat = fs.statSync(resolved);
 
     if (stat.isFile()) {
-      // Include .ts, .tsx, .js, .jsx, .sts, .stsx files
-      if (/\.(([jt]sx?)|sts|stsx)$/.test(resolved)) {
+      // Include .ts, .tsx, .js, .jsx files
+      if (/\.[jt]sx?$/.test(resolved)) {
         files.push(resolved);
       }
     } else if (stat.isDirectory()) {
@@ -993,7 +993,7 @@ function collectTypeScriptFiles(sources: string[]): string[] {
         const entryPath = path.join(resolved, entry.name);
         if (entry.isDirectory() && entry.name !== "node_modules" && !entry.name.startsWith(".")) {
           files.push(...collectTypeScriptFiles([entryPath]));
-        } else if (entry.isFile() && /\.(([jt]sx?)|sts|stsx)$/.test(entry.name)) {
+        } else if (entry.isFile() && /\.[jt]sx?$/.test(entry.name)) {
           files.push(entryPath);
         }
       }

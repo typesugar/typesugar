@@ -105,13 +105,13 @@ If you're into FP, typesugar has you covered:
 - **Typeclasses** with implicit resolution and zero-cost specialization — Eq, Ord, Show, Functor, Monad, and more
 - **Data types** — Option (null-based, zero-cost), Either, IO, Validated, List
 - **Do-notation** via `let:/yield:` labeled blocks — works with any monad
-- **HKT** with `F<_>` syntax — write generic code over type constructors
+- **HKT** with `F<A>` syntax — write generic code over type constructors
 - **Refined types** — `Positive`, `Port`, `Email`, `NonEmpty<T>` with compile-time validation
 - **Design by Contract** — `requires()`, `ensures()`, `@invariant` with compile-time proof elimination
 
 ```typescript
-// HKT with F<_> syntax
-interface Functor<F<_>> {
+// HKT with F<A> syntax (the transformer rewrites F<A> to Kind<F, A>)
+interface Functor<F> {
   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
 

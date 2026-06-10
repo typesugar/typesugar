@@ -15,13 +15,9 @@ const area = match(shape)
 // Compile error if you miss a variant. Zero runtime overhead.
 ```
 
-## Two Syntaxes
+## The Fluent API
 
-typesugar offers two ways to write pattern matches. Pick whichever fits your project.
-
-### Fluent API (`.ts` files)
-
-Works in any TypeScript file — no preprocessor needed. Uses `.case().if().then()` chains:
+Pattern matches use a `.case().if().then()` chain that works in any TypeScript file:
 
 ```typescript
 const y = match(x)
@@ -33,25 +29,7 @@ const y = match(x)
   .else(0);
 ```
 
-### Preprocessor Syntax (`.sts` files)
-
-Scala-like syntax with `|` separators — needs the preprocessor (automatic for `.sts` files):
-
-```typescript
-const y = match(x)
-| [first, _, _] if first > 0 => first
-| [_, second, _] => second
-| _ => 0
-```
-
-Both compile to identical optimized output. The preprocessor syntax rewrites to the fluent API before the macro runs.
-
-**When to use which:**
-
-| Syntax       | File extension | Best for                                        |
-| ------------ | -------------- | ----------------------------------------------- |
-| Fluent API   | `.ts`          | Broad compatibility, no build config changes    |
-| Preprocessor | `.sts`         | Maximum readability, Scala/Rust-like experience |
+Matches compile to optimized output with zero runtime overhead.
 
 ---
 
@@ -62,21 +40,16 @@ Both compile to identical optimized output. The preprocessor syntax rewrites to 
 Match exact values — numbers, strings, booleans, `null`, `undefined`:
 
 ```typescript
-// Fluent
 match(x)
-  .case(42).then("the answer")
-  .case("hello").then("greeting")
-  .case(true).then("yes")
-  .case(null).then("nothing")
-  .else("other")
-
-// Preprocessor
-match(x)
-| 42 => "the answer"
-| "hello" => "greeting"
-| true => "yes"
-| null => "nothing"
-| _ => "other"
+  .case(42)
+  .then("the answer")
+  .case("hello")
+  .then("greeting")
+  .case(true)
+  .then("yes")
+  .case(null)
+  .then("nothing")
+  .else("other");
 ```
 
 **Compiles to:** direct `===` comparisons. 7+ literal arms get a `switch` statement for V8 optimization.
@@ -86,15 +59,12 @@ match(x)
 Bind the matched value to a name, optionally with a guard:
 
 ```typescript
-// Fluent
 match(x)
-  .case(n).if(n > 0).then(n * 2)
-  .case(n).then(-n)
-
-// Preprocessor
-match(x)
-| n if n > 0 => n * 2
-| n => -n
+  .case(n)
+  .if(n > 0)
+  .then(n * 2)
+  .case(n)
+  .then(-n);
 ```
 
 Pattern variables don't need pre-declaration — the macro creates properly scoped bindings.
@@ -127,23 +97,20 @@ match(x)
 Destructure arrays by position, with optional rest:
 
 ```typescript
-// Fluent
 match(arr)
-  .case([]).then("empty")
-  .case([x]).then(`singleton: ${x}`)
-  .case([a, b]).then(`pair: ${a + b}`)
-  .case([first, _, _]).if(first > 0).then(first)
-  .case([head, ...tail]).if(tail.length > 0).then(`${head} + ${tail.length} more`)
-  .else("other")
-
-// Preprocessor
-match(arr)
-| [] => "empty"
-| [x] => `singleton: ${x}`
-| [a, b] => `pair: ${a + b}`
-| [first, _, _] if first > 0 => first
-| [head, ...tail] if tail.length > 0 => `${head} + ${tail.length} more`
-| _ => "other"
+  .case([])
+  .then("empty")
+  .case([x])
+  .then(`singleton: ${x}`)
+  .case([a, b])
+  .then(`pair: ${a + b}`)
+  .case([first, _, _])
+  .if(first > 0)
+  .then(first)
+  .case([head, ...tail])
+  .if(tail.length > 0)
+  .then(`${head} + ${tail.length} more`)
+  .else("other");
 ```
 
 **Pattern semantics:**
@@ -171,19 +138,17 @@ if (Array.isArray(__m) && __m.length === 1) {
 Match on property presence and values:
 
 ```typescript
-// Fluent
 match(obj)
-  .case({ a, b }).if(a > 0).then(a + b)
-  .case({ name: n, age }).if(age >= 18).then(`Adult: ${n}`)
-  .case({ name }).then(name)
-  .case({ ...rest }).then(Object.keys(rest).length)
-
-// Preprocessor
-match(obj)
-| { a, b } if a > 0 => a + b
-| { name: n, age } if age >= 18 => `Adult: ${n}`
-| { name } => name
-| { ...rest } => Object.keys(rest).length
+  .case({ a, b })
+  .if(a > 0)
+  .then(a + b)
+  .case({ name: n, age })
+  .if(age >= 18)
+  .then(`Adult: ${n}`)
+  .case({ name })
+  .then(name)
+  .case({ ...rest })
+  .then(Object.keys(rest).length);
 ```
 
 **Pattern semantics:**
@@ -206,17 +171,14 @@ type Shape =
   | { kind: "square"; side: number }
   | { kind: "rect"; w: number; h: number };
 
-// Fluent — exhaustive by default, compile error if a variant is missing
+// Exhaustive by default — compile error if a variant is missing
 match(shape)
-  .case({ kind: "circle", radius: r }).then(Math.PI * r ** 2)
-  .case({ kind: "square", side: s }).then(s ** 2)
-  .case({ kind: "rect", w, h }).then(w * h)
-
-// Preprocessor
-match(shape)
-| { kind: "circle", radius: r } => Math.PI * r ** 2
-| { kind: "square", side: s } => s ** 2
-| { kind: "rect", w, h } => w * h
+  .case({ kind: "circle", radius: r })
+  .then(Math.PI * r ** 2)
+  .case({ kind: "square", side: s })
+  .then(s ** 2)
+  .case({ kind: "rect", w, h })
+  .then(w * h);
 ```
 
 **Compiles to:** optimized switch on the discriminant field. No IIFE for small unions.
@@ -226,25 +188,21 @@ match(shape)
 Match on runtime type using constructor syntax:
 
 ```typescript
-// Fluent
 match(value)
-  .case(String(s)).then(`string: ${s}`)
-  .case(Number(n)).if(n > 0).then(`positive: ${n}`)
-  .case(Number(n)).then(`number: ${n}`)
-  .case(Array(a)).then(`array[${a.length}]`)
-  .case(Date(d)).then(d.toISOString())
-  .case(TypeError(e)).then(`type error: ${e.message}`)
-  .else("unknown")
-
-// Preprocessor
-match(value)
-| s: string => `string: ${s}`
-| n: number if n > 0 => `positive: ${n}`
-| n: number => `number: ${n}`
-| a: Array<unknown> => `array[${a.length}]`
-| d: Date => d.toISOString()
-| e: TypeError => `type error: ${e.message}`
-| _ => "unknown"
+  .case(String(s))
+  .then(`string: ${s}`)
+  .case(Number(n))
+  .if(n > 0)
+  .then(`positive: ${n}`)
+  .case(Number(n))
+  .then(`number: ${n}`)
+  .case(Array(a))
+  .then(`array[${a.length}]`)
+  .case(Date(d))
+  .then(d.toISOString())
+  .case(TypeError(e))
+  .then(`type error: ${e.message}`)
+  .else("unknown");
 ```
 
 **Type check mapping:**
@@ -264,19 +222,23 @@ match(value)
 Match multiple alternatives with the same handler:
 
 ```typescript
-// Fluent — .or() chaining
+// .or() chaining
 match(status)
-  .case(200).or(201).or(204).then("success")
-  .case(400).or(401).or(403).or(404).then("client error")
-  .case(500).or(502).or(503).then("server error")
-  .case(code).then(`status: ${code}`)
-
-// Preprocessor — pipe separator
-match(status)
-| 200 | 201 | 204 => "success"
-| 400 | 401 | 403 | 404 => "client error"
-| 500 | 502 | 503 => "server error"
-| code => `status: ${code}`
+  .case(200)
+  .or(201)
+  .or(204)
+  .then("success")
+  .case(400)
+  .or(401)
+  .or(403)
+  .or(404)
+  .then("client error")
+  .case(500)
+  .or(502)
+  .or(503)
+  .then("server error")
+  .case(code)
+  .then(`status: ${code}`);
 ```
 
 OR patterns bind no variables (same restriction as Scala).
@@ -288,15 +250,14 @@ OR patterns bind no variables (same restriction as Scala).
 Bind the whole matched value to an alias alongside destructured bindings:
 
 ```typescript
-// Fluent
 match(point)
-  .case([x, y]).as(p).if(x > 0 && y > 0).then({ point: p, quadrant: 1 })
-  .case([x, y]).as(p).then({ point: p, quadrant: 0 })
-
-// Preprocessor
-match(point)
-| p @ [x, y] if x > 0 && y > 0 => { point: p, quadrant: 1 }
-| p @ [x, y] => { point: p, quadrant: 0 }
+  .case([x, y])
+  .as(p)
+  .if(x > 0 && y > 0)
+  .then({ point: p, quadrant: 1 })
+  .case([x, y])
+  .as(p)
+  .then({ point: p, quadrant: 0 });
 ```
 
 ### Regex Patterns
@@ -304,19 +265,18 @@ match(point)
 Match strings against regular expressions and destructure capture groups:
 
 ```typescript
-// Fluent
 match(str)
-  .case(/^(\w+)@(\w+)\.(\w+)$/).as([_, user, domain, tld]).then({ user, domain, tld })
-  .case(/^https?:\/\/(.+)$/).as([_, url]).then(fetch(url))
-  .case(/^\d+$/).as([num]).then(parseInt(num))
-  .case(s).then(s)
-
-// Preprocessor
-match(str)
-| /^(\w+)@(\w+)\.(\w+)$/ as [_, user, domain, tld] => { user, domain, tld }
-| /^https?:\/\/(.+)$/ as [_, url] => fetch(url)
-| /^\d+$/ as [num] => parseInt(num)
-| s => s
+  .case(/^(\w+)@(\w+)\.(\w+)$/)
+  .as([_, user, domain, tld])
+  .then({ user, domain, tld })
+  .case(/^https?:\/\/(.+)$/)
+  .as([_, url])
+  .then(fetch(url))
+  .case(/^\d+$/)
+  .as([num])
+  .then(parseInt(num))
+  .case(s)
+  .then(s);
 ```
 
 **Compiles to:**
@@ -336,19 +296,13 @@ match(str)
 Patterns compose at arbitrary depth:
 
 ```typescript
-// Fluent
 match(data)
-  .case({ user: { name, scores: [first, ...rest] } }).if(first > 90)
-    .then(`${name} aced it with ${first}`)
-  .case({ user: { name }, active: true }).then(`Active: ${name}`)
-  .else("unknown")
-
-// Preprocessor
-match(data)
-| { user: { name, scores: [first, ...rest] } } if first > 90 =>
-    `${name} aced it with ${first}`
-| { user: { name }, active: true } => `Active: ${name}`
-| _ => "unknown"
+  .case({ user: { name, scores: [first, ...rest] } })
+  .if(first > 90)
+  .then(`${name} aced it with ${first}`)
+  .case({ user: { name }, active: true })
+  .then(`Active: ${name}`)
+  .else("unknown");
 ```
 
 ### Extractor Patterns (Destructure Typeclass)
@@ -661,26 +615,11 @@ function evaluate(expr: Expr, env: Record<string, number>): number {
 }
 ```
 
-The same in preprocessor syntax:
-
-```typescript
-function evaluate(expr: Expr, env: Record<string, number>): number {
-  return match(expr)
-  | { kind: "num", value: v } => v
-  | { kind: "add", left: l, right: r } => evaluate(l, env) + evaluate(r, env)
-  | { kind: "mul", left: l, right: r } => evaluate(l, env) * evaluate(r, env)
-  | { kind: "neg", expr: e } => -evaluate(e, env)
-  | { kind: "var", name: n } => env[n] ?? 0
-}
-```
-
 ---
 
 ## IDE Experience
 
 The fluent API uses compile-time macros, so your editor's TypeScript language service won't recognise pattern variables (`r`, `s`, `w`, `h` in the examples above) as declared bindings. **You'll see red squiggles on those identifiers — this is expected.** The macro rewrites them into valid JavaScript at build time.
-
-If the squiggles bother you, use the preprocessor `.sts` syntax instead — the preprocessor emits valid TypeScript that the language service can check. See [Two Syntaxes](#two-syntaxes) above.
 
 ---
 

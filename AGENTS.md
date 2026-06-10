@@ -12,30 +12,9 @@
   git push -u origin HEAD
   ```
 
-## File Extensions: `.ts` vs `.sts`
+## File Extensions
 
-typesugar uses two file extensions based on whether custom syntax is needed:
-
-| Extension        | Preprocessor | Use When                                                                      |
-| ---------------- | ------------ | ----------------------------------------------------------------------------- |
-| `.ts` / `.tsx`   | No           | JSDoc macros only (`/** @typeclass */`, `let:`, `comptime()`, `summon()`)     |
-| `.sts` / `.stsx` | Yes          | Custom operators (`\|>`, `::`), HKT syntax (`F<_>`), decorators on interfaces |
-
-**Extension routing is automatic.** The build pipeline routes files by extension:
-
-- `.sts`/`.stsx` files ALWAYS go through the preprocessor
-- `.ts`/`.tsx` files NEVER go through the preprocessor
-
-**Module resolution is transparent.** `import { foo } from "./bar"` resolves to:
-
-1. `bar.ts` (preferred)
-2. `bar.tsx`
-3. `bar.sts` (fallback)
-4. `bar.stsx`
-5. `bar/index.ts`
-6. `bar/index.sts`
-
-**Declaration files are standard.** `.sts` files emit `.d.ts` (not `.d.sts.ts`), so consumers don't need typesugar.
+typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driven by JSDoc macros (`/** @typeclass */`, `let:`, `comptime()`, `summon()`) and the transformer (which rewrites `F<A>` HKT applications to `Kind<F, A>`). No custom file extension or preprocessor surface syntax is required.
 
 ## Key Principles
 
@@ -64,11 +43,11 @@ typesugar uses two file extensions based on whether custom syntax is needed:
 
 10. **Respect Package Boundaries** — Typeclass machinery in `@typesugar/typeclass`, typeclass definitions in `@typesugar/std`, FP data types in `@typesugar/fp`, collection hierarchy in `@typesugar/collections`. Don't mix.
 
-11. **HKT: Use Tier 0/1 by Default** — Write `F<A>` in typeclass bodies (the transformer rewrites to `Kind<F, A>`). Use `@impl Functor<Option>` for instances (the macro resolves the type constructor). Manual `TypeFunction` interfaces are the escape hatch. When writing manual interfaces, `_` MUST use `this["__kind__"]` — unsound phantom types must NOT implement Functor/Monad. Use `F<_>` syntax in `.sts` files, `F<A>` in `.ts` files, never Scala's `F[_]`.
+11. **HKT: Use Tier 0/1 by Default** — Write `F<A>` in typeclass bodies (the transformer rewrites to `Kind<F, A>`). Use `@impl Functor<Option>` for instances (the macro resolves the type constructor). Manual `TypeFunction` interfaces are the escape hatch. When writing manual interfaces, `_` MUST use `this["__kind__"]` — unsound phantom types must NOT implement Functor/Monad. Write `F<A>` in `.ts` files, never Scala's `F[_]`.
 
 12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
 
-13. **Pattern Matching Conventions** — `match()` supports two forms: fluent (`.case().then().else()`) and legacy (object handler). Always prefer the fluent API for new code. The fluent API supports structural patterns (array, object, type, regex, OR, AS, nested, extractors), compile-time exhaustiveness, and optimized code generation. The preprocessor syntax (`| pattern => expr`) in `.sts` files rewrites to the fluent API. `when()`, `otherwise()`, and `P.*` are deprecated — use `.case().if().then()` and `.else()` instead. `match` lives in `@typesugar/std`, not `@typesugar/fp`. See [docs/guides/pattern-matching.md](docs/guides/pattern-matching.md) for the full guide and [PEP-008](peps/PEP-008-pattern-matching.md) for the spec.
+13. **Pattern Matching Conventions** — `match()` supports two forms: fluent (`.case().then().else()`) and legacy (object handler). Always prefer the fluent API for new code. The fluent API supports structural patterns (array, object, type, regex, OR, AS, nested, extractors), compile-time exhaustiveness, and optimized code generation. `when()`, `otherwise()`, and `P.*` are deprecated — use `.case().if().then()` and `.else()` instead. `match` lives in `@typesugar/std`, not `@typesugar/fp`. See [docs/guides/pattern-matching.md](docs/guides/pattern-matching.md) for the full guide and [PEP-008](peps/PEP-008-pattern-matching.md) for the spec.
 
 14. **Type Macros (`@opaque`) — Rich Types with Cheap Runtime (PEP-012)** — The `@opaque` JSDoc macro defines types where TypeScript sees a rich interface (with methods, IDE completions, full type inference) but the runtime uses a simpler underlying representation. `Option<A>` is `A | null` at runtime, `Either<E, A>` is `{ _tag, left/right }`, but you call `.map()`, `.flatMap()`, `.getOrElse()` as dot syntax. The transformer rewrites method calls to standalone function calls via the type rewrite registry. No namespace imports needed — importing the constructor (`Some`, `Right`) is enough to activate methods.
 
@@ -221,7 +200,6 @@ console.log(...);
 
 - First `//!` → name in dropdown. Second `//!` → description tooltip.
 - Directory name → group label (mapped via `GROUP_META` in `playground-examples.ts`).
-- Use `.ts` for JSDoc macros, `.sts` for preprocessor syntax.
 - Keep examples runnable — use `console.log()` to produce visible output.
 
 ### Adding a runtime package to the playground
@@ -273,7 +251,6 @@ If you add a new `@typesugar/*` package with runtime exports:
 | Check SFINAE suppression        | `shouldSuppressDiagnostic(code, node, ctx)`                             | `packages/transformer/src/sfinae.ts`         |
 | Work on match exhaustiveness    | `analyzeScrutineeType()`, `isAllPureLiteralArms()`, `ScrutineeAnalysis` | `packages/std/src/macros/match-v2.ts`        |
 | Write fluent pattern match      | `match(v).case(...).if(...).then(...).else(...)`                        | `packages/std/src/macros/match.ts`           |
-| Write preprocessor match        | `match(v) \| pattern => expr` (`.sts` files only)                       | `packages/preprocessor/src/scanner.ts`       |
 
 ---
 

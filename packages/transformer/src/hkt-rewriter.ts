@@ -38,8 +38,7 @@ export function rewriteHKTTypeReferences(
   source: string,
   fileName: string
 ): { code: string; map: RawSourceMap | null; changed: boolean } {
-  const scriptKind =
-    fileName.endsWith(".tsx") || fileName.endsWith(".stsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const scriptKind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 
   const sourceFile = ts.createSourceFile(
     fileName,

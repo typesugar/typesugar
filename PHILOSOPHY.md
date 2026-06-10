@@ -156,7 +156,7 @@ interface Functor<F extends URIS> { map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) 
 const Functor: Functor1<URI> = { URI, map: (fa, f) => ... };
 ```
 
-The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For `.sts` files, the preprocessor handles `F<_>` syntax. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
+The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
 
 ---
 

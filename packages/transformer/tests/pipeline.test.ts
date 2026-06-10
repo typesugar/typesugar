@@ -26,20 +26,6 @@ describe("TransformationPipeline", () => {
       expect(result.diagnostics).toHaveLength(0);
     });
 
-    it("transforms pipe operator", () => {
-      const code = `
-        const result = 1 |> ((x) => x + 1) |> ((x) => x * 2);
-      `;
-
-      // Use .sts extension to trigger preprocessing for pipe operator
-      const result = transformCode(code, { fileName: "test.sts" });
-
-      // Pipe operator is expanded via __binop__ macro to function calls
-      // 1 |> f |> g becomes g(f(1))
-      expect(result.code).toContain("((x) => x * 2)(((x) => x + 1)(1))");
-      expect(result.diagnostics).toHaveLength(0);
-    });
-
     it("returns unchanged flag when no transformation needed", () => {
       const code = `const x = 1 + 2;`;
 
@@ -189,46 +175,10 @@ describe("TransformationPipeline", () => {
   });
 
   describe("formatExpansions (focused diff)", () => {
-    it("shows only changed regions for pipe operators", () => {
-      const code = ["const a = 1;", "", "const b = a |> double;", "", "const c = 3;"].join("\n");
-
-      // Use .sts extension for files with custom syntax (PEP-001)
-      const result = transformCode(code, { fileName: "fmt-pipe.sts" });
-      const focused = formatExpansions(result);
-
-      expect(focused).toContain("changed line");
-      // After transformation, |> becomes a function call (double(a))
-      expect(focused).toContain("double");
-      expect(focused).toContain("const a = 1;");
-      expect(focused).toContain("const c = 3;");
-    });
-
     it("returns 'No changes.' for unchanged files", () => {
       const code = "const x = 1;\n";
       const result = transformCode(code, { fileName: "fmt-noop.ts" });
       expect(formatExpansions(result)).toBe("No changes.");
-    });
-
-    it("shows preprocessor expansions with context", () => {
-      // Use .sts extension with pipeline operator, which triggers the preprocessor
-      // and doesn't require import resolution (unlike comptime which needs "typesugar" to resolve)
-      const code = [
-        "const double = (x: number) => x * 2;",
-        "",
-        "const result = 5 |> double;",
-        "",
-        "console.log(result);",
-      ].join("\n");
-
-      const result = transformCode(code, { fileName: "fmt-preproc.sts" });
-      const focused = formatExpansions(result);
-
-      expect(focused).toContain("changed line");
-      // Should show the pipeline operator rewritten
-      expect(focused).toContain("- const result = 5 |> double;");
-      expect(focused).toContain("+ const result = double(5);");
-      // Context should include surrounding lines
-      expect(focused).toContain("console.log(result);");
     });
   });
 

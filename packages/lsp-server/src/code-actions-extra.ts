@@ -42,7 +42,7 @@ export function computeExtraCodeActions(
     text,
     ts.ScriptTarget.Latest,
     true,
-    fileName.endsWith(".tsx") || fileName.endsWith(".stsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
 
   const actions: CodeAction[] = [];

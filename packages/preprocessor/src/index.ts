@@ -1,9 +1,10 @@
 /**
- * @typesugar/preprocessor - Lexical preprocessor for typesugar syntax extensions
+ * @typesugar/preprocessor - Lexical preprocessor for HKT type syntax
  *
- * This package provides a lexical preprocessing layer that transforms custom
- * syntax (HKT F<_>, pipeline |>, cons ::) into valid TypeScript before the
- * macro transformer runs.
+ * This package provides a lexical preprocessing layer that transforms HKT
+ * type-parameter syntax (`F<_>`) into valid TypeScript (`Kind<F, A>`) before
+ * the macro transformer runs, and exposes the shared source-map types used by
+ * the transformer pipeline.
  *
  * @example
  * ```typescript
@@ -13,13 +14,10 @@
  *   interface Functor<F<_>> {
  *     map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>;
  *   }
- *
- *   const result = x |> f |> g;
  * `;
  *
  * const { code, changed, sourceMap } = preprocess(source);
  * // code is now valid TypeScript with F<A> rewritten to Kind<F, A>
- * // and |> rewritten to __binop__ calls
  * ```
  *
  * @packageDocumentation
@@ -57,10 +55,6 @@ export { isCustomOperatorExtension } from "./extensions/types.js";
 
 // Built-in extensions
 export { hktExtension } from "./extensions/hkt.js";
-export { pipelineExtension } from "./extensions/pipeline.js";
-export { consExtension } from "./extensions/cons.js";
-export { decoratorRewriteExtension } from "./extensions/decorator-rewrite.js";
-export { matchSyntaxExtension } from "./extensions/match-syntax.js";
 
 // HKT Registry and Import Tracking
 export {

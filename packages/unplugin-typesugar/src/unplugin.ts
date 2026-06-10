@@ -25,9 +25,6 @@ export interface TypesugarPluginOptions {
   /** Enable verbose logging */
   verbose?: boolean;
 
-  /** Syntax extensions to enable (default: all) */
-  extensions?: ("hkt" | "pipeline" | "cons")[];
-
   /** Enable disk-backed transform cache */
   diskCache?: boolean | string;
 
@@ -127,7 +124,6 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
         const configPath = findTsConfig(process.cwd(), options?.tsconfig);
         pipeline = createPipeline(configPath, {
           verbose,
-          extensions: options?.extensions,
           diskCache: options?.diskCache,
           strict: options?.strict,
           emitJs,

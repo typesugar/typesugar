@@ -78,8 +78,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     documentSelector: [
       { language: "typescript", scheme: "file" },
       { language: "typescriptreact", scheme: "file" },
-      { language: "sugared-typescript", scheme: "file" },
-      { language: "sugared-typescriptreact", scheme: "file" },
     ],
     outputChannel,
     // Intercept executeCommand to add VS Code-specific UI (peek widget, diff view).

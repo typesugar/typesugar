@@ -1,10 +1,15 @@
 # PEP-003: Oxc-Based .sts Parser
 
-**Status:** Draft
+**Status:** Withdrawn (depends on `.sts`, removed in [PEP-047](PEP-047-remove-sts.md))
 **Date:** 2026-03-12
 **Author:** Dan Povey
 **Depends on:** PEP-001 (.sts File Extension)
 **Enhances:** PEP-002 (Oxc-Native Macro Engine)
+
+> **Withdrawn (2026-06-10):** PEP-047 removed the `.sts` extension and custom
+> surface syntax. This proposal depended on `.sts`, so it is withdrawn. If
+> custom syntax is revived, an oxc-based parser remains the right vehicle and
+> this PEP can be reopened.
 
 ## Context
 
