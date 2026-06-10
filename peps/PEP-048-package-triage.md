@@ -107,7 +107,7 @@ assumed. Adjustments made before execution:
   (correct for a bundled app — the docs site consumes it via workspace, not
   npm) unblocks release-excluding the freeze packages it bundles.
 - **Changeset release-exclusion is applied only where safe.** A package may be
-  changeset-`ignore`d only if no *published* Keep package runtime-depends on
+  changeset-`ignore`d only if no _published_ Keep package runtime-depends on
   it. After the two changes above, the safe set is `strings`, `erased`,
   `lsp-server` (only `vscode`, which is private, bundles it), and
   `math`/`units`/`parser`/`codec` (only `playground`, now private). **`collections`

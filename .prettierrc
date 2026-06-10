@@ -1,16 +1,7 @@
 {
-  "plugins": ["@typesugar/prettier-plugin"],
   "semi": true,
   "singleQuote": false,
   "trailingComma": "es5",
   "tabWidth": 2,
-  "printWidth": 100,
-  "overrides": [
-    {
-      "files": ["*.ts", "*.tsx", "*.mts", "*.cts"],
-      "options": {
-        "parser": "typesugar-ts"
-      }
-    }
-  ]
+  "printWidth": 100
 }
