@@ -70,15 +70,7 @@ export async function openFile(
   const uri = `file://${filePath}`;
 
   // Determine languageId from extension
-  const ext = path.extname(relativePath);
-  const languageId =
-    ext === ".sts"
-      ? "sugared-typescript"
-      : ext === ".stsx"
-        ? "sugared-typescriptreact"
-        : relativePath.endsWith(".tsx")
-          ? "typescriptreact"
-          : "typescript";
+  const languageId = relativePath.endsWith(".tsx") ? "typescriptreact" : "typescript";
 
   await session.client.notify("textDocument/didOpen", {
     textDocument: { uri, languageId, version: 1, text },

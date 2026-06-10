@@ -106,7 +106,7 @@ describe("VSCode Extension Configuration Edge Cases", () => {
 
         if (grammar.injectTo) {
           for (const target of grammar.injectTo) {
-            expect(target).toMatch(/^source\.(ts|tsx|js|jsx|sts|stsx)$/);
+            expect(target).toMatch(/^source\.(ts|tsx|js|jsx)$/);
           }
         }
       }
@@ -195,8 +195,6 @@ describe("VSCode Extension Configuration Edge Cases", () => {
           "typescriptreact",
           "javascript",
           "javascriptreact",
-          "sugared-typescript",
-          "sugared-typescriptreact",
         ]).toContain(scope.language);
 
         for (const [tokenType, tmScopes] of Object.entries(scope.scopes)) {
@@ -235,7 +233,7 @@ describe("VSCode Extension Configuration Edge Cases", () => {
 
     it("has valid injection selector", () => {
       expect(grammar.injectionSelector).toMatch(
-        /^L:source\.(ts|tsx|sts|stsx)(,\s*L:source\.(ts|tsx|sts|stsx))*$/
+        /^L:source\.(ts|tsx)(,\s*L:source\.(ts|tsx))*$/
       );
     });
 
