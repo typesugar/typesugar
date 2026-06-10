@@ -150,8 +150,7 @@ describe("Language Service Plugin", () => {
       expect(info.languageServiceHost.getScriptVersion).not.toBe(originalGetVersion);
     });
 
-    it(".ts files no longer get preprocessed for custom syntax (PEP-001)", () => {
-      // PEP-001 Wave 1: Only .sts files get preprocessed for custom syntax.
+    it(".ts files are not preprocessed for non-TypeScript operator syntax", () => {
       // .ts files should NOT be transformed even if they contain |>
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const result = 1 |> ((x) => x + 1);");
@@ -186,21 +185,6 @@ describe("Language Service Plugin", () => {
       expect(content?.trim()).toBe("const x = 1 + 2;");
     });
 
-    it("adds version marker for transformed files", () => {
-      const files = new Map<string, string>();
-      // Use .sts extension for files with custom syntax (PEP-001)
-      files.set("/test/index.sts", "const result = 1 |> ((x) => x + 1);");
-
-      const plugin = init({ typescript: ts });
-      const info = createMockPluginInfo(files);
-
-      plugin.create(info);
-
-      const version = info.languageServiceHost.getScriptVersion("/test/index.sts");
-
-      // Version should contain typesugar marker
-      expect(version).toContain("-ts-");
-    });
   });
 
   describe("diagnostics mapping", () => {
@@ -601,95 +585,7 @@ const result = 1 |> ((x) => x + 1);
 // New integration test cases for realistic typesugar code
 // =============================================================================
 
-describe("Preprocessing via Language Service Plugin", () => {
-  // NOTE: These tests are skipped because PEP-001 Wave 1 changed preprocessing to only
-  // work on .sts files. TypeScript's language service doesn't recognize .sts files
-  // until Wave 2. See peps/PEP-001-sts-file-extension.md for details.
-
-  it.skip("transforms pipe operator in diagnostics (.sts files) - requires Wave 2", () => {
-    // This test requires Wave 2 to add .sts support to the language service.
-    // For now, .ts files no longer get preprocessed for custom syntax.
-    const files = new Map<string, string>([
-      [
-        "/test/index.sts",
-        `
-declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
-const add1 = (x: number): number => x + 1;
-const double = (x: number): number => x * 2;
-const result: number = 5 |> add1 |> double;
-        `.trim(),
-      ],
-    ]);
-
-    const plugin = init({ typescript: ts });
-    const info = createMockPluginInfo(files);
-    const proxy = plugin.create(info);
-
-    const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.sts");
-    const content = snapshot?.getText(0, snapshot.getLength());
-
-    expect(content).toContain("__binop__");
-
-    const syntacticDiags = proxy.getSyntacticDiagnostics("/test/index.sts");
-    const syntaxErrors = syntacticDiags.filter(
-      (d) => d.code === 1005 || d.code === 1109 || d.code === 1128
-    );
-    expect(syntaxErrors).toHaveLength(0);
-  });
-
-  it.skip("transforms HKT syntax (.sts files) - requires Wave 2", () => {
-    // This test requires Wave 2 to add .sts support to the language service.
-    const files = new Map<string, string>([
-      [
-        "/test/index.sts",
-        `
-type Apply<F<_>, A> = F<A>;
-type Result = Apply<Array, string>;
-        `.trim(),
-      ],
-    ]);
-
-    const plugin = init({ typescript: ts });
-    const info = createMockPluginInfo(files);
-    const proxy = plugin.create(info);
-
-    const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.sts");
-    const content = snapshot?.getText(0, snapshot.getLength());
-
-    expect(content).toBeDefined();
-
-    const syntacticDiags = proxy.getSyntacticDiagnostics("/test/index.sts");
-    const syntaxErrors = syntacticDiags.filter(
-      (d) => d.code === 1005 || d.code === 1109 || d.code === 1128
-    );
-    expect(syntaxErrors).toHaveLength(0);
-  });
-});
-
 describe("Diagnostic Position Mapping", () => {
-  it.skip("maps diagnostic positions back to original source (.sts files) - requires Wave 2", () => {
-    // This test requires Wave 2 to add .sts support to the language service.
-    const originalSource = `
-const x: string = 42;
-const y = 1 |> ((n: number) => n + 1);
-    `.trim();
-
-    const files = new Map<string, string>([["/test/index.sts", originalSource]]);
-
-    const plugin = init({ typescript: ts });
-    const info = createMockPluginInfo(files);
-    const proxy = plugin.create(info);
-
-    const diagnostics = proxy.getSemanticDiagnostics("/test/index.sts");
-
-    const typeErrors = diagnostics.filter((d) => d.start !== undefined);
-
-    for (const diag of typeErrors) {
-      expect(diag.start).toBeGreaterThanOrEqual(0);
-      expect(diag.start!).toBeLessThan(originalSource.length);
-    }
-  });
-
   it("preserves diagnostic for type error on first line", () => {
     const files = new Map<string, string>([["/test/index.ts", `const x: string = 42;`]]);
 
@@ -763,48 +659,6 @@ obj.
 
 describe("Transform-First Analysis", () => {
   describe("TypeScript sees transformed content", () => {
-    it.skip("analyzes transformed code without pipe operator syntax errors (.sts files) - requires Wave 2", () => {
-      // This test requires Wave 2 to add .sts support to the language service.
-      // .ts files no longer get preprocessed for custom syntax (PEP-001)
-      const files = new Map<string, string>();
-      files.set(
-        "/test/index.sts",
-        `
-// Declare __binop__ so transformed code is valid
-declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
-
-const result = 1 |> ((x) => x + 1);
-        `.trim()
-      );
-
-      const plugin = init({ typescript: ts });
-      const info = createMockPluginInfo(files);
-      const proxy = plugin.create(info);
-
-      const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.sts");
-      const content = snapshot?.getText(0, snapshot.getLength());
-
-      console.log("Transformed content:", content);
-
-      const diagnostics = proxy.getSemanticDiagnostics("/test/index.sts");
-
-      console.log(
-        "Diagnostics:",
-        diagnostics.map((d) => ({
-          code: d.code,
-          message: typeof d.messageText === "string" ? d.messageText : d.messageText.messageText,
-          start: d.start,
-        }))
-      );
-
-      const syntaxErrors = diagnostics.filter(
-        (d) => d.code === 1005 || d.code === 1109 || d.code === 1128
-      );
-
-      // Should have NO syntax errors from the pipe operator
-      expect(syntaxErrors).toHaveLength(0);
-    });
-
     it("returns proper types for transformed expressions", () => {
       const files = new Map<string, string>();
       files.set(
