@@ -55,7 +55,6 @@ import {
   IdentityPositionMapper,
   type PositionMapper,
 } from "@typesugar/transformer/position-mapper";
-import { preprocess } from "@typesugar/preprocessor";
 import { filterDiagnostics, getSfinaeRules, type PositionMapFn } from "@typesugar/core";
 import { registerAllSfinaeRules } from "@typesugar/macros";
 import {
@@ -135,36 +134,6 @@ function safeHandler<P, R>(fallback: R, handler: (params: P) => R): (params: P) 
 // File discovery
 // ---------------------------------------------------------------------------
 
-function discoverStsFiles(dir: string): string[] {
-  const stsFiles: string[] = [];
-
-  function scan(d: string) {
-    try {
-      const entries = fs.readdirSync(d, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(d, entry.name);
-        if (entry.isDirectory()) {
-          if (
-            entry.name === "node_modules" ||
-            entry.name.startsWith(".") ||
-            entry.name === "dist"
-          ) {
-            continue;
-          }
-          scan(fullPath);
-        } else if (entry.isFile() && /\.stsx?$/.test(entry.name)) {
-          stsFiles.push(fullPath);
-        }
-      }
-    } catch {
-      // Ignore permission errors
-    }
-  }
-
-  scan(dir);
-  return stsFiles;
-}
-
 function loadTsConfig(rootDir: string): {
   compilerOptions: ts.CompilerOptions;
   fileNames: string[];
@@ -232,18 +201,6 @@ function getFileVersion(fileName: string): string {
   }
 }
 
-function preprocessStsFile(fileName: string, content: string): string {
-  try {
-    const result = preprocess(content, {
-      fileName,
-      extensions: ["hkt", "pipeline", "cons", "decorator-rewrite"],
-    });
-    return result.changed ? result.code : content;
-  } catch {
-    return content;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Pipeline lifecycle
 // ---------------------------------------------------------------------------
@@ -254,11 +211,7 @@ function createPipeline(compilerOptions: ts.CompilerOptions): void {
   pipeline = new TransformationPipeline(compilerOptions, projectFileNames, {
     verbose: false,
     readFile: (f: string) => getOriginalContent(f),
-    fileExists: (f: string) => {
-      if (ts.sys.fileExists(f)) return true;
-      if (/\.stsx?$/.test(f)) return fs.existsSync(f);
-      return false;
-    },
+    fileExists: (f: string) => ts.sys.fileExists(f),
   });
   // Clear transform caches when pipeline is recreated
   transformCache.clear();
@@ -351,8 +304,6 @@ function getMapper(fileName: string): PositionMapper {
 // ---------------------------------------------------------------------------
 
 function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.LanguageServiceHost {
-  const stsPreprocessCache = new Map<string, { code: string; version: string }>();
-
   const host: ts.LanguageServiceHost = {
     getScriptFileNames: () => projectFileNames,
 
@@ -367,15 +318,6 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
       const cached = transformCache.get(normalizedFileName);
       if (cached && cached.result.changed && cached.version === baseVersion) {
         return `${baseVersion}-g${pipelineGeneration}-ts-${cached.result.code.length}`;
-      }
-
-      if (/\.stsx?$/.test(normalizedFileName)) {
-        try {
-          const mtime = fs.statSync(normalizedFileName).mtimeMs;
-          return `${baseVersion}-g${pipelineGeneration}-sts-${mtime}`;
-        } catch {
-          // File might not exist
-        }
       }
 
       return `${baseVersion}-g${pipelineGeneration}`;
@@ -398,26 +340,6 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
         return ts.ScriptSnapshot.fromString(result.code);
       }
 
-      // For .sts files not in the pipeline, preprocess directly
-      if (/\.stsx?$/.test(normalizedFileName)) {
-        const currentVersion = getFileVersion(normalizedFileName);
-        const cached = stsPreprocessCache.get(normalizedFileName);
-
-        if (cached && cached.version === currentVersion) {
-          return ts.ScriptSnapshot.fromString(cached.code);
-        }
-
-        const content = getOriginalContent(normalizedFileName);
-        if (content) {
-          const preprocessed = preprocessStsFile(normalizedFileName, content);
-          stsPreprocessCache.set(normalizedFileName, {
-            code: preprocessed,
-            version: currentVersion,
-          });
-          return ts.ScriptSnapshot.fromString(preprocessed);
-        }
-      }
-
       // Regular files
       const content = getOriginalContent(normalizedFileName);
       if (content !== undefined) {
@@ -431,11 +353,7 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
     getCurrentDirectory: () => workspaceRoot,
     getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
 
-    fileExists: (fileName: string) => {
-      if (ts.sys.fileExists(fileName)) return true;
-      if (/\.stsx?$/.test(fileName)) return fs.existsSync(fileName);
-      return false;
-    },
+    fileExists: (fileName: string) => ts.sys.fileExists(fileName),
 
     readFile: (fileName: string) => {
       return getOriginalContent(fileName);
@@ -467,37 +385,7 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
           redirectedReference
         );
 
-        if (result.resolvedModule) {
-          return result.resolvedModule;
-        }
-
-        // Try .sts/.stsx extensions for relative imports
-        if (moduleName.startsWith(".") || moduleName.startsWith("/")) {
-          const baseDir = path.dirname(containingFile);
-          const basePath = path.resolve(baseDir, moduleName);
-
-          for (const ext of [".sts", ".stsx"]) {
-            const candidate = basePath + ext;
-            if (fs.existsSync(candidate)) {
-              return {
-                resolvedFileName: candidate,
-                isExternalLibraryImport: false,
-                extension: ext === ".stsx" ? ts.Extension.Tsx : ts.Extension.Ts,
-              };
-            }
-
-            const indexCandidate = path.join(basePath, "index" + ext);
-            if (fs.existsSync(indexCandidate)) {
-              return {
-                resolvedFileName: indexCandidate,
-                isExternalLibraryImport: false,
-                extension: ext === ".stsx" ? ts.Extension.Tsx : ts.Extension.Ts,
-              };
-            }
-          }
-        }
-
-        return undefined;
+        return result.resolvedModule;
       });
     },
   };
@@ -946,12 +834,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   // Load tsconfig
   const { compilerOptions, fileNames: tsFileNames } = loadTsConfig(workspaceRoot);
 
-  // Discover .sts/.stsx files
-  const stsFiles = discoverStsFiles(workspaceRoot);
-  log(`Found ${stsFiles.length} .sts/.stsx files`);
-
-  // Combine file lists
-  projectFileNames = [...new Set([...tsFileNames, ...stsFiles])];
+  projectFileNames = [...new Set(tsFileNames)];
 
   // Load macro manifest
   if (manifest.load(workspaceRoot)) {

@@ -71,7 +71,7 @@ export interface PostFormatOptions {
 function getScriptKind(fileName?: string): ts.ScriptKind {
   if (fileName) {
     const lower = fileName.toLowerCase();
-    if (lower.endsWith(".tsx") || lower.endsWith(".jsx") || lower.endsWith(".stsx")) {
+    if (lower.endsWith(".tsx") || lower.endsWith(".jsx")) {
       return ts.ScriptKind.TSX;
     }
   }

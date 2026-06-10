@@ -1,15 +1,15 @@
 /**
  * ESLint Processor for typesugar (Lightweight)
  *
- * This processor runs the typesugar preprocessor (HKT, operators) and
- * ESLint-specific regex heuristics (commenting out decorators and labeled blocks)
- * before ESLint lints the file.
+ * This processor runs the typesugar preprocessor (HKT) and ESLint-specific
+ * regex heuristics (commenting out decorators and labeled blocks) before
+ * ESLint lints the file.
  *
  * It uses the preprocessor's source map for accurate position mapping via
  * PositionMapper from @typesugar/transformer.
  *
  * How it works:
- * 1. preprocess(): Runs preprocessor for custom syntax, then regex heuristics
+ * 1. preprocess(): Runs preprocessor for HKT syntax, then regex heuristics
  *    for ESLint-specific concerns (decorators, labeled blocks)
  * 2. ESLint lints the transformed code (no false positives from macro syntax)
  * 3. postprocess(): Maps lint messages back to original source locations
@@ -182,9 +182,7 @@ export function createProcessor(): Linter.Processor {
         text.includes("ensures:") ||
         text.includes("@operators") ||
         text.includes("@reflect") ||
-        text.includes("<_>") || // HKT syntax
-        text.includes("|>") || // Pipeline operator
-        /[)\]}\w]\s*::\s*[(\[{A-Za-z_$]/.test(text); // Cons operator
+        text.includes("<_>"); // HKT syntax
 
       if (!usesTypesugar) {
         fileStates.set(filename, {
