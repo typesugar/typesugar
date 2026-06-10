@@ -1,8 +1,14 @@
 # PEP-031: Standalone LSP Server & Zed Extension
 
-**Status:** Implemented
+**Status:** Implemented (scope reduced by [PEP-047](PEP-047-remove-sts.md))
 **Date:** 2026-03-30
 **Author:** Claude (with Dean Povey)
+
+> **Scope reduced (2026-06-10):** PEP-047 removed the `.sts`/`.stsx` extension
+> and custom surface syntax. The `@typesugar/zed` package and all `.sts`-specific
+> LSP file discovery, snapshot preprocessing, and language detection described
+> below were deleted. The standalone LSP server itself remains, now serving
+> macro-aware diagnostics/features for plain `.ts`/`.tsx` files.
 
 ## Context
 
