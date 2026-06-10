@@ -1,9 +1,6 @@
 # Operator Overloading
 
-typesugar provides operator overloading through two mechanisms:
-
-1. **`@op` JSDoc on typeclass methods (standard operators)** — `+`, `-`, `*`, `/`, `===`, etc. dispatch to typeclass methods
-2. **Preprocessor (`|>`, `::`, `<|`)** — Custom operators rewritten to `__binop__()` calls, resolved via typeclass `@op` or hardcoded defaults
+typesugar provides operator overloading via `@op` JSDoc on typeclass methods: standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) dispatch to typeclass methods at compile time.
 
 ## Standard Operators via @op JSDoc
 
@@ -84,13 +81,6 @@ Operators respect JavaScript operator precedence:
 a + b * c; // → add(a, mul(b, c))
 (a + b) * c; // → mul(add(a, b), c)
 ```
-
-## Custom Operators (Preprocessor)
-
-The preprocessor handles custom syntax (`|>`, `::`, `<|`) in `.sts` files. These are rewritten to `__binop__()` calls, which the transformer resolves via:
-
-1. Typeclass `@op` annotations (e.g., `/** @op |> */` on a method)
-2. Hardcoded defaults (e.g., `|>` → `right(left)`)
 
 ## Pipe Operator
 

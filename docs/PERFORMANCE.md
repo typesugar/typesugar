@@ -19,7 +19,7 @@ All paths share core infrastructure for caching and transformation.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ L1: In-Memory Preprocessor Cache                                │
-│     • Caches preprocessed code (HKT F<_>, |>, :: syntax)        │
+│     • Caches preprocessed code (HKT F<A> rewriting)             │
 │     • Key: file content hash                                    │
 │     • Invalidates on file content change                        │
 └─────────────────────────────────────────────────────────────────┘

@@ -6,47 +6,25 @@ This document describes the internal architecture of the typesugar macro system.
 
 typesugar transforms TypeScript source code in two phases:
 
-1. **Lexical Preprocessing** — Text-level transformations for custom syntax (HKT, custom operators)
+1. **HKT Rewriting** — Rewrites higher-kinded type applications (`F<A>` where `F` is a type parameter) to `Kind<F, A>`
 2. **AST Transformation** — Macro expansion, specialization, and extension method rewriting
 
-### Extension-Based Routing
-
-The build pipeline routes files by extension:
-
-| Extension        | Preprocessor | HKT Rewriter | Macro Transformer | Custom Syntax Allowed                                      |
-| ---------------- | ------------ | ------------ | ----------------- | ---------------------------------------------------------- |
-| `.sts` / `.stsx` | Yes          | No           | Yes               | `F<_>`, `\|>`, `::`, `@typeclass` on interfaces            |
-| `.ts` / `.tsx`   | No           | Yes          | Yes               | `F<A>` in generics, JSDoc: `/** @typeclass */`, `let:` etc |
-
-This separation provides:
-
-- **Clear contract** — File extension tells you whether custom syntax is in play
-- **Ecosystem safety** — Plain `.ts` files work with any TypeScript tool
-- **Faster builds** — No regex scanning of `.ts` files for custom operators
+All source is standard TypeScript (`.ts` / `.tsx`). There is no custom file extension or surface syntax — every feature is driven by JSDoc macros (`/** @typeclass */`, `let:`, etc.) and the type-parameter HKT rewrite. This keeps plain `.ts` files compatible with any TypeScript tool.
 
 ```
                     ┌─────────────────┐
                     │  Source File    │
+                    │   .ts / .tsx    │
                     └────────┬────────┘
                              │
-              ┌──────────────┴──────────────┐
-              │ Extension check (O(1))       │
-              └──────────────┬──────────────┘
-                             │
-           ┌─────────────────┴─────────────────┐
-           │                                   │
-    .sts / .stsx                        .ts / .tsx
-           │                                   │
-           ▼                                   ▼
-┌─────────────────────────────────┐  ┌─────────────────────────────────┐
-│  1a. PREPROCESSOR (text-level)  │  │  1b. HKT REWRITER (AST-only)   │
-│  - Tokenize with custom ops     │  │  - F<A> → Kind<F, A> where F   │
-│  - HKT: F<_> → Kind<F, A>      │  │    is a type parameter          │
-│  - Operators: |> → __binop__    │  │  - Inject Kind import           │
-│  - Generate source map          │  │  - Generate source map          │
-└─────────────────────────────────┘  └─────────────────────────────────┘
-           │                                   │
-           └─────────────────┬─────────────────┘
+                             ▼
+┌─────────────────────────────────┐
+│  1. HKT REWRITER                │
+│  - F<A> → Kind<F, A> where F   │
+│    is a type parameter          │
+│  - Inject Kind import           │
+│  - Generate source map          │
+└─────────────────────────────────┘
                              │
                              ▼
                     Valid TypeScript
@@ -68,53 +46,36 @@ This separation provides:
 
 ### Module Resolution
 
-When resolving `import { foo } from "./bar"`, the pipeline checks extensions in order:
-
-1. `bar.ts` (preferred)
-2. `bar.tsx`
-3. `bar.sts` (fallback for sugared files)
-4. `bar.stsx`
-5. `bar/index.ts`
-6. `bar/index.sts`
-
-This allows mixed projects where some files use custom syntax and others don't.
+Module resolution follows standard TypeScript rules (`bar.ts`, `bar.tsx`, `bar/index.ts`, ...).
 
 ---
 
-## 1. Lexical Preprocessor (`@typesugar/preprocessor`)
+## 1. HKT Preprocessor (`@typesugar/preprocessor`)
 
-The preprocessor operates on text before TypeScript parsing. It transforms custom syntax into valid TypeScript that the standard compiler can understand.
+The preprocessor rewrites higher-kinded type syntax (`F<A>` applications of a type parameter) into valid TypeScript (`Kind<F, A>`) and exposes the shared source-map types used across the transformer pipeline.
 
 ### Location
 
 ```
 packages/preprocessor/src/
 ├── index.ts           # Public API exports
-├── preprocess.ts      # Main entry point, orchestrates extensions
-├── scanner.ts         # Wraps TS scanner, merges custom operators
+├── preprocess.ts      # Main entry point
+├── scanner.ts         # Wraps TS scanner
 ├── token-stream.ts    # Cursor-based token stream with lookahead
+├── hkt-registry.ts    # Tracks HKT type parameters in scope
+├── import-tracker.ts  # Kind import injection
 └── extensions/
-    ├── types.ts       # SyntaxExtension, CustomOperatorExtension interfaces
-    ├── hkt.ts         # F<_> → Kind<F, A> rewriting
-    ├── pipeline.ts    # |> operator transformation
-    └── cons.ts        # :: operator transformation
+    ├── types.ts       # SyntaxExtension interfaces
+    └── hkt.ts         # HKT type-application rewriting
 ```
 
 ### Pipeline Flow
 
-The preprocessor runs in two phases:
+The preprocessor performs pattern-based HKT rewriting:
 
-**Phase 1: Syntax Extensions (HKT)**
-
-- Pattern-based text rewriting
-- Transforms `F<_>` declarations to just `F`
+- Detects type parameters used as type constructors
 - Rewrites `F<A>` usages to `Kind<F, A>` within the declaration scope
-
-**Phase 2: Operator Extensions (Pipeline, Cons)**
-
-- Iterative operator rewriting with precedence and associativity
-- Transforms `a |> f` to `__binop__(a, "|>", f)`
-- Transforms `x :: xs` to `__binop__(x, "::", xs)`
+- Injects the `Kind` import where needed
 
 ### Key Functions
 
@@ -128,19 +89,6 @@ preprocess(source: string, options?: PreprocessOptions): PreprocessResult
 ### Source Maps
 
 The preprocessor uses `magic-string` to track source positions through transformations. The returned `RawSourceMap` follows the standard v3 source map format and can be passed through build tools.
-
-### Type Context Detection
-
-To avoid rewriting operators inside type annotations, the preprocessor uses heuristic-based tracking with four state variables:
-
-- `typeAnnotationDepth` — Incremented after `:` tokens (parameter/return type annotations). Decremented at `=`, `)`, `}`, `,`, `{` tokens. Reset to 0 at `;`.
-- `inTypeAlias` — Set to `true` after the `type` keyword. Reset at `;`. While active, the entire right-hand side of `type X = ...` is treated as type context.
-- `inInterface` — Set to `true` after the `interface` keyword. Reset at closing `}`. Everything inside an interface body is type context.
-- `angleBracketDepth` — Tracks nested generic type parameters. `<` after an identifier or keyword increments; `>` decrements. Anything inside generics is type context.
-
-The heuristic also tracks `lastSignificantKind` (skipping whitespace/newlines) to determine whether a `<` is likely a generic opening or a less-than comparison.
-
-An operator is suppressed when `typeAnnotationDepth > 0 || angleBracketDepth > 0 || inTypeAlias || inInterface`.
 
 ---
 
@@ -751,7 +699,7 @@ packages/unplugin-typesugar/src/unplugin.ts
 
 ### Known Limitation
 
-Currently, the `ts.Program` is created with original source files, but preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<_>`), not preprocessed content (`Kind<F, A>`).
+Currently, the `ts.Program` is created with original source files, but preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<A>`), not preprocessed content (`Kind<F, A>`).
 
 See `docs/PLAN-implicit-operators.md` for the planned fix using a custom `CompilerHost`.
 
@@ -863,9 +811,9 @@ This section documents known limitations and planned enhancements.
 
 ### unplugin Type-Aware Transformation
 
-**Current State:** The `unplugin-typesugar` creates the `ts.Program` at `buildStart` with original source files. Preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<_>`) rather than preprocessed content (`Kind<F, A>`).
+**Current State:** The `unplugin-typesugar` creates the `ts.Program` at `buildStart` with original source files. Preprocessing happens later in the `load` hook. This means the type checker sees original content (`F<A>`) rather than preprocessed content (`Kind<F, A>`).
 
-**Impact:** Macros that rely on accurate type information may produce incorrect results when custom syntax is involved.
+**Impact:** Macros that rely on accurate type information may produce incorrect results when HKT rewriting is involved.
 
 **Proposed Solution:**
 

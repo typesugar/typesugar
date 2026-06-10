@@ -95,16 +95,7 @@ Once you've followed your persona guide, you may need environment-specific confi
 
 ## File Extensions
 
-typesugar supports two file extensions:
-
-| Extension        | Use When                                                                      |
-| ---------------- | ----------------------------------------------------------------------------- |
-| `.ts` / `.tsx`   | JSDoc macros only (`/** @typeclass */`, `let:`, `comptime()`)                 |
-| `.sts` / `.stsx` | Custom operators (`\|>`, `::`), HKT syntax (`F<_>`), decorators on interfaces |
-
-Most typesugar features work in `.ts` files. Use `.sts` only when you need custom syntax that isn't valid TypeScript.
-
-See the [migration guide](../migration/sts-migration.md) for details.
+typesugar works with standard TypeScript files (`.ts` / `.tsx`). All features are driven by JSDoc macros (`/** @typeclass */`, `let:`, `comptime()`) and the HKT type rewrite (`F<A>` → `Kind<F, A>`) — no custom file extension or surface syntax is required.
 
 ## Additional Setup
 

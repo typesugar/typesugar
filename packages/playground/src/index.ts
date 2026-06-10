@@ -17,9 +17,9 @@
  *
  * console.log(result.code);
  *
- * // Preprocess .sts code (custom syntax)
+ * // Preprocess HKT type syntax (F<_> -> Kind<F, A>)
  * const { code } = preprocess(`
- *   const result = x |> f |> g;
+ *   interface Functor<F<_>> { map<A, B>(fa: F<A>, f: (a: A) => B): F<B>; }
  * `);
  * ```
  *
@@ -73,7 +73,7 @@ export function preprocessCode(
 /**
  * Transform TypeScript/JavaScript code with typesugar macro expansion.
  *
- * This function handles both preprocessing (for .sts files) and macro expansion.
+ * This function handles HKT preprocessing and macro expansion.
  * It uses the transformer-core package for the actual macro transformation.
  */
 export function transform(code: string, options: BrowserTransformOptions = {}): TransformResult {

@@ -1,5 +1,7 @@
 # Plan: Transform-First Language Service Plugin
 
+> Note: PEP-047 removed the `.sts`/`.stsx` extension and its custom surface syntax (`|>`, `::`, `| pattern =>`, the lexical HKT `F<_>` form). References to that syntax below are historical; the only remaining transform-time rewrite is HKT type applications (`F<A>` → `Kind<F, A>`) in plain `.ts` files.
+
 ## Current State
 
 The current `@typesugar/ts-plugin` language service uses a **diagnostic suppression** approach:

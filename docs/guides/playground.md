@@ -11,7 +11,6 @@ The playground runs the full typesugar transformer in your browser. You can:
 - **Write and transform** — see your code compiled in real time
 - **Run the output** — execute transformed code with console output
 - **Use runtime libraries** — `import` from `@typesugar/*` packages and run real code
-- **Toggle file types** — switch between `.ts` (JSDoc macros) and `.sts` (custom syntax)
 - **Share** — copy a URL that encodes your code
 
 ### Runtime Library Support
@@ -56,7 +55,6 @@ The playground ships with 20+ examples organized by module. Pick one from the **
 | **@typesugar/codec**       | Schema Codec                                                                               |
 | **@typesugar/parser**      | Arithmetic Parser                                                                          |
 | **@typesugar/symbolic**    | Calculus                                                                                   |
-| **Preprocessor (.sts)**    | _(coming soon)_                                                                            |
 
 All examples are runnable — they use real runtime libraries, not stubs.
 
@@ -116,7 +114,6 @@ You can embed smaller playgrounds directly in documentation pages:
 <PlaygroundEmbed
   code="const x = 42;
 console.log(x);"
-  mode=".ts"
   height="150px"
 />
 ```
@@ -126,7 +123,6 @@ console.log(x);"
 | Prop         | Type                | Default   | Description              |
 | ------------ | ------------------- | --------- | ------------------------ |
 | `code`       | `string`            | Required  | Initial code content     |
-| `mode`       | `".ts"` \| `".sts"` | `".ts"`   | File type / syntax mode  |
 | `readonly`   | `boolean`           | `false`   | Prevent editing          |
 | `height`     | `string`            | `"300px"` | Editor panel height      |
 | `hideOutput` | `boolean`           | `false`   | Hide the output panel    |

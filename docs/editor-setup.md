@@ -35,35 +35,13 @@ if not configs.typesugar then
   configs.typesugar = {
     default_config = {
       cmd = { 'typesugar-lsp', '--stdio' },
-      filetypes = { 'sugared-typescript', 'sugared-typescriptreact', 'typescript', 'typescriptreact' },
+      filetypes = { 'typescript', 'typescriptreact' },
       root_dir = lspconfig.util.root_pattern('typesugar.manifest.json', 'tsconfig.json', 'package.json'),
     },
   }
 end
 
 lspconfig.typesugar.setup{}
-```
-
-### Filetype detection
-
-Add to `~/.config/nvim/filetype.lua`:
-
-```lua
-vim.filetype.add({
-  extension = {
-    sts = 'sugared-typescript',
-    stsx = 'sugared-typescriptreact',
-  },
-})
-```
-
-### Treesitter (syntax highlighting)
-
-`.sts` files use TypeScript syntax. Map them to the TypeScript parser:
-
-```lua
-vim.treesitter.language.register('typescript', 'sugared-typescript')
-vim.treesitter.language.register('tsx', 'sugared-typescriptreact')
 ```
 
 ---
@@ -78,26 +56,12 @@ command = "typesugar-lsp"
 args = ["--stdio"]
 
 [[language]]
-name = "sugared-typescript"
-scope = "source.sts"
-injection-regex = "sts"
-file-types = ["sts"]
-roots = ["typesugar.manifest.json", "tsconfig.json", "package.json"]
+name = "typescript"
 language-servers = ["typesugar-lsp"]
-grammar = "typescript"
-comment-token = "//"
-indent = { tab-width = 2, unit = "  " }
 
 [[language]]
-name = "sugared-typescriptreact"
-scope = "source.stsx"
-injection-regex = "stsx"
-file-types = ["stsx"]
-roots = ["typesugar.manifest.json", "tsconfig.json", "package.json"]
+name = "tsx"
 language-servers = ["typesugar-lsp"]
-grammar = "tsx"
-comment-token = "//"
-indent = { tab-width = 2, unit = "  " }
 ```
 
 ---
