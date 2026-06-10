@@ -12,7 +12,6 @@ const runtimePackages = [
   "@typesugar/math",
   "@typesugar/parser",
   "@typesugar/std",
-  "@typesugar/symbolic",
   "@typesugar/type-system",
   "@typesugar/typeclass",
   "@typesugar/units",

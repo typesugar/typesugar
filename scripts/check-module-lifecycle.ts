@@ -47,7 +47,6 @@ const SKIP_GUIDE_CHECK = new Set([
   "ts-plugin",
   "vscode",
   "eslint-plugin",
-  "prettier-plugin",
   "typesugar",
 ]);
 

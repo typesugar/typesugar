@@ -29,7 +29,6 @@ const GROUP_META: Record<string, { label: string; order: number }> = {
   contracts: { label: "@typesugar/contracts", order: 45 },
   units: { label: "@typesugar/units", order: 50 },
   math: { label: "@typesugar/math", order: 55 },
-  symbolic: { label: "@typesugar/symbolic", order: 60 },
   codec: { label: "@typesugar/codec", order: 65 },
   parser: { label: "@typesugar/parser", order: 70 },
   validate: { label: "@typesugar/validate", order: 75 },

@@ -85,7 +85,6 @@ export default defineConfig({
             text: "Data Structures & Algorithms",
             items: [
               { text: "@typesugar/fp", link: "/reference/packages#fp" },
-              { text: "@typesugar/hlist", link: "/reference/packages#hlist" },
               { text: "@typesugar/parser", link: "/reference/packages#parser" },
               { text: "@typesugar/fusion", link: "/reference/packages#fusion" },
               { text: "@typesugar/graph", link: "/reference/packages#graph" },
@@ -219,7 +218,6 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { text: "Functional Programming", link: "/guides/fp" },
-                { text: "HList", link: "/guides/hlist" },
                 { text: "Type Erasure", link: "/guides/erased" },
                 { text: "Loop Fusion", link: "/guides/fusion" },
                 { text: "Parser Combinators", link: "/guides/parser" },

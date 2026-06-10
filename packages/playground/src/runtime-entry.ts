@@ -64,9 +64,6 @@ register("@typesugar/units", () => units);
 import * as parser from "@typesugar/parser";
 register("@typesugar/parser", () => parser);
 
-import * as symbolic from "@typesugar/symbolic";
-register("@typesugar/symbolic", () => symbolic);
-
 import * as testing from "@typesugar/testing";
 register("@typesugar/testing", () => testing);
 
