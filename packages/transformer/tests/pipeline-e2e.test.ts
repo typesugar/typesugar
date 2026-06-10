@@ -2,9 +2,6 @@
  * Pipeline End-to-End Tests
  *
  * Verifies the full TransformationPipeline on realistic typesugar code:
- * - HKT syntax (F<_> → Kind<F, A>)
- * - Pipeline operator (|> → __binop__)
- * - Cons operator (:: → __binop__)
  * - Source map round-trip accuracy
  * - Multi-file projects
  * - Cache invalidation
@@ -17,10 +14,7 @@ import * as ts from "typescript";
 // Load macro definitions (registers macros in the global registry)
 import "@typesugar/macros";
 
-function createPipelineFromFiles(
-  files: Map<string, string>,
-  opts?: { extensions?: ("hkt" | "pipeline" | "cons")[] }
-): TransformationPipeline {
+function createPipelineFromFiles(files: Map<string, string>): TransformationPipeline {
   return new TransformationPipeline(
     {
       target: ts.ScriptTarget.ESNext,
@@ -32,7 +26,6 @@ function createPipelineFromFiles(
     {
       readFile: (f) => files.get(f),
       fileExists: (f) => files.has(f) || ts.sys.fileExists(f),
-      extensions: opts?.extensions,
     }
   );
 }
