@@ -54,7 +54,6 @@ alice.toJson(); // JSON serialization
 | [@typesugar/core](packages/core)                  | Macro registration and types                     |
 | [@typesugar/macros](packages/macros)              | Built-in macro implementations                   |
 | [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch)                |
-| [@typesugar/preprocessor](packages/preprocessor)  | Lexical preprocessor for custom syntax           |
 | [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack) |
 | [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin               |
 
@@ -73,12 +72,6 @@ alice.toJson(); // JSON serialization
 | [@typesugar/specialize](packages/specialize) | Zero-cost typeclass specialization                   |
 | [@typesugar/reflect](packages/reflect)       | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
-### Syntax Sugar
-
-| Package                                | Description                             |
-| -------------------------------------- | --------------------------------------- |
-| [@typesugar/strings](packages/strings) | `regex`, `html`, `raw` tagged templates |
-
 ### Type Safety & Contracts
 
 | Package                                                    | Description                                |
@@ -87,23 +80,15 @@ alice.toJson(); // JSON serialization
 | [@typesugar/contracts](packages/contracts)                 | `requires:`, `ensures:`, `@invariant`      |
 | [@typesugar/contracts-refined](packages/contracts-refined) | Refinement type integration                |
 | [@typesugar/validate](packages/validate)                   | Schema validation macros                   |
-| [@typesugar/units](packages/units)                         | Type-safe physical units                   |
 
 ### Data Structures & Algorithms
 
-| Package                                        | Description                                     |
-| ---------------------------------------------- | ----------------------------------------------- |
-| [@typesugar/fp](packages/fp)                   | Option, Either, IO, Result, List                |
-| [@typesugar/hlist](packages/hlist)             | Heterogeneous lists (Boost.Fusion)              |
-| [@typesugar/fusion](packages/fusion)           | Iterator fusion, expression templates (Blitz++) |
-| [@typesugar/parser](packages/parser)           | PEG parser generation (Boost.Spirit)            |
-| [@typesugar/collections](packages/collections) | Collection typeclasses, HashSet, HashMap        |
-| [@typesugar/graph](packages/graph)             | GraphLike typeclass, algorithms, state machines |
-| [@typesugar/erased](packages/erased)           | Type erasure / dyn Trait                        |
-| [@typesugar/codec](packages/codec)             | Versioned codecs, schema evolution              |
-| [@typesugar/math](packages/math)               | Math types and typeclasses                      |
-| [@typesugar/mapper](packages/mapper)           | Zero-cost object mapping                        |
-| [@typesugar/symbolic](packages/symbolic)       | Symbolic math, calculus, simplification         |
+| Package                              | Description                                     |
+| ------------------------------------ | ----------------------------------------------- |
+| [@typesugar/fp](packages/fp)         | Option, Either, IO, Result, List                |
+| [@typesugar/fusion](packages/fusion) | Iterator fusion, expression templates (Blitz++) |
+| [@typesugar/graph](packages/graph)   | GraphLike typeclass, algorithms, state machines |
+| [@typesugar/mapper](packages/mapper) | Zero-cost object mapping                        |
 
 ### Ecosystem Integrations
 
@@ -114,12 +99,29 @@ alice.toJson(); // JSON serialization
 
 ### Developer Experience
 
-| Package                                                | Description                        |
-| ------------------------------------------------------ | ---------------------------------- |
-| [@typesugar/vscode](packages/vscode)                   | VS Code/Cursor extension           |
-| [@typesugar/eslint-plugin](packages/eslint-plugin)     | ESLint processor and rules         |
-| [@typesugar/prettier-plugin](packages/prettier-plugin) | Prettier formatting                |
-| [@typesugar/testing](packages/testing)                 | Power assertions, property testing |
+| Package                                            | Description                        |
+| -------------------------------------------------- | ---------------------------------- |
+| [@typesugar/vscode](packages/vscode)               | VS Code/Cursor extension           |
+| [@typesugar/eslint-plugin](packages/eslint-plugin) | ESLint processor and rules         |
+| [@typesugar/testing](packages/testing)             | Power assertions, property testing |
+
+### Frozen
+
+Not under active development ([PEP-048](peps/PEP-048-package-triage.md)) — these
+remain in the repo and build, but are not part of typesugar's actively-maintained
+surface and are excluded from release (except where a released package depends on
+them).
+
+| Package                                        | Description                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------------- |
+| [@typesugar/math](packages/math)               | Math types and typeclasses                                          |
+| [@typesugar/units](packages/units)             | Type-safe physical units                                            |
+| [@typesugar/parser](packages/parser)           | PEG parser generation                                               |
+| [@typesugar/codec](packages/codec)             | Versioned codecs, schema evolution                                  |
+| [@typesugar/collections](packages/collections) | HashSet/HashMap (still released — `@typesugar/graph` depends on it) |
+| [@typesugar/erased](packages/erased)           | Type erasure / dyn Trait                                            |
+| [@typesugar/strings](packages/strings)         | `regex`, `html`, `raw` tagged templates                             |
+| [@typesugar/lsp-server](packages/lsp-server)   | Standalone LSP server (use `@typesugar/ts-plugin` instead)          |
 
 ## Getting Started
 

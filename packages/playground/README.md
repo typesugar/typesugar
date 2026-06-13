@@ -5,7 +5,6 @@ Browser-compatible bundle for the typesugar interactive playground.
 ## Features
 
 - **Browser-compatible**: Runs entirely in the browser without Node.js
-- **Preprocessor support**: Transform `.sts` files with custom syntax (HKT, pipeline, cons)
 - **Macro transformation**: Expand typesugar macros at compile time
 - **In-memory caching**: LRU cache for fast repeated transformations
 - **TypeScript transformer**: Uses TypeScript's transformer API
@@ -19,7 +18,7 @@ npm install @typesugar/playground
 ## Usage
 
 ```typescript
-import { transform, preprocess } from "@typesugar/playground";
+import { transform } from "@typesugar/playground";
 
 // Transform TypeScript with macros
 const result = transform(`
@@ -29,9 +28,6 @@ const result = transform(`
 
 console.log(result.code);
 console.log(result.diagnostics);
-
-// Preprocess .sts files (custom syntax)
-const { code, changed } = preprocess(`const result = x |> f |> g;`, { fileName: "test.sts" });
 ```
 
 ## API
@@ -42,7 +38,7 @@ Transform TypeScript code with typesugar macros.
 
 **Options:**
 
-- `fileName?: string` - File name (affects preprocessing for `.sts` files)
+- `fileName?: string` - File name used for diagnostics and the HKT rewrite
 - `verbose?: boolean` - Enable verbose logging
 - `cacheSize?: number` - Maximum cache entries (default: 100)
 
@@ -78,7 +74,6 @@ The browser playground has some limitations compared to the full transformer:
 
 The browser bundle includes:
 
-- `@typesugar/preprocessor` - Custom syntax transforms
 - `@typesugar/core` - Macro registry and context
 - `@typesugar/macros` - Built-in macro implementations
 

@@ -11,7 +11,7 @@
 
 import * as ts from "typescript";
 import MagicString from "magic-string";
-import type { RawSourceMap } from "@typesugar/preprocessor";
+import type { RawSourceMap } from "@typesugar/core";
 
 /**
  * Fast regex heuristic to check if a source file might contain HKT patterns.

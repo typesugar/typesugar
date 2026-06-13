@@ -1,16 +1,16 @@
 /**
  * ESLint Processor for typesugar (Lightweight)
  *
- * This processor runs the typesugar preprocessor (HKT) and ESLint-specific
- * regex heuristics (commenting out decorators and labeled blocks) before
- * ESLint lints the file.
+ * This processor runs the HKT type-reference rewriter (`F<A>` -> `Kind<F, A>`)
+ * and ESLint-specific regex heuristics (commenting out decorators and labeled
+ * blocks) before ESLint lints the file.
  *
- * It uses the preprocessor's source map for accurate position mapping via
+ * It uses the rewriter's source map for accurate position mapping via
  * PositionMapper from @typesugar/transformer.
  *
  * How it works:
- * 1. preprocess(): Runs preprocessor for HKT syntax, then regex heuristics
- *    for ESLint-specific concerns (decorators, labeled blocks)
+ * 1. transformSource(): Runs the HKT rewriter, then regex heuristics for
+ *    ESLint-specific concerns (decorators, labeled blocks)
  * 2. ESLint lints the transformed code (no false positives from macro syntax)
  * 3. postprocess(): Maps lint messages back to original source locations
  *
@@ -18,7 +18,7 @@
  */
 
 import type { Linter } from "eslint";
-import { preprocess as preprocessCustomSyntax } from "@typesugar/preprocessor";
+import { rewriteHKTTypeReferences, hasHKTPatterns } from "@typesugar/transformer";
 import { createPositionMapper, type PositionMapper } from "@typesugar/transformer/position-mapper";
 
 /** typesugar package prefixes for import detection */
@@ -109,15 +109,17 @@ interface TransformResult {
 /**
  * Run preprocessing and ESLint-specific heuristics on source code.
  *
- * 1. Preprocessor handles custom syntax (F<_> HKT, |>, ::)
+ * 1. HKT rewriter rewrites `F<A>` -> `Kind<F, A>` for type parameters
  * 2. Regex heuristics comment out decorators and labeled blocks that would
  *    cause ESLint false positives
  */
 function transformSource(fileName: string, source: string): TransformResult {
   try {
-    const preprocessResult = preprocessCustomSyntax(source, { fileName });
-    let transformed = preprocessResult.code;
-    const sourceMap = preprocessResult.map;
+    const hktResult = hasHKTPatterns(source)
+      ? rewriteHKTTypeReferences(source, fileName)
+      : { code: source, map: null };
+    let transformed = hktResult.code;
+    const sourceMap = hktResult.map;
 
     // ESLint-specific heuristics: comment out macro decorators
     const decoratorPattern =
@@ -182,7 +184,7 @@ export function createProcessor(): Linter.Processor {
         text.includes("ensures:") ||
         text.includes("@operators") ||
         text.includes("@reflect") ||
-        text.includes("<_>"); // HKT syntax
+        hasHKTPatterns(text); // HKT type-parameter syntax (F<A>)
 
       if (!usesTypesugar) {
         fileStates.set(filename, {

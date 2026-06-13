@@ -42,10 +42,6 @@ const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null
 const monaco = shallowRef<typeof Monaco | null>(null);
 const playground = shallowRef<{
   transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-  preprocessCode: (
-    code: string,
-    options: { fileName: string }
-  ) => { code: string; changed: boolean };
 } | null>(null);
 
 const isLoading = ref(true);

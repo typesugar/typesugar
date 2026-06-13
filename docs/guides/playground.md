@@ -30,7 +30,6 @@ Available packages:
 | `@typesugar/units`              | Dimensional analysis                          |
 | `@typesugar/codec`              | Schema codecs                                 |
 | `@typesugar/parser`             | Parser combinators                            |
-| `@typesugar/symbolic`           | Symbolic expressions, calculus                |
 | `@typesugar/type-system`        | Newtype, refined types                        |
 | `@typesugar/typeclass`          | `@typeclass`, `@instance`, `summon`           |
 | `@typesugar/validate`           | Schema validation                             |
@@ -54,7 +53,6 @@ The playground ships with 20+ examples organized by module. Pick one from the **
 | **@typesugar/units**       | Dimensional Analysis                                                                       |
 | **@typesugar/codec**       | Schema Codec                                                                               |
 | **@typesugar/parser**      | Arithmetic Parser                                                                          |
-| **@typesugar/symbolic**    | Calculus                                                                                   |
 
 All examples are runnable — they use real runtime libraries, not stubs.
 

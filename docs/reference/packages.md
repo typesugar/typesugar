@@ -103,22 +103,6 @@ npm install --save-dev @typesugar/transformer
 - Default export: transformer factory
 - CLI: `typesugar` command
 
-### @typesugar/preprocessor {#preprocessor}
-
-Lexical preprocessor for HKT type syntax (`F<A>` → `Kind<F, A>`) plus the shared source-map types used by the transformer pipeline.
-
-```bash
-npm install --save-dev @typesugar/preprocessor
-```
-
-**Exports:**
-
-```typescript
-preprocess();
-```
-
-**Inspired by:** Zig comptime
-
 ### unplugin-typesugar {#unplugin}
 
 Bundler plugins for Vite, Webpack, esbuild, Rollup.
@@ -174,14 +158,6 @@ configs.recommended;
 configs.full;
 configs.strict;
 processor;
-```
-
-### @typesugar/prettier-plugin {#prettier-plugin}
-
-Prettier formatting for custom syntax.
-
-```bash
-npm install --save-dev @typesugar/prettier-plugin
 ```
 
 ### @typesugar/testing {#testing}
@@ -531,28 +507,6 @@ IO;
 
 [Guide](/guides/fp)
 
-### @typesugar/hlist {#hlist}
-
-Heterogeneous lists with compile-time type tracking.
-
-```bash
-npm install @typesugar/hlist
-```
-
-**Exports:**
-
-```typescript
-hlist();
-(head(), tail(), last(), at());
-(append(), prepend(), concat(), reverse(), zip());
-(labeled(), get(), set(), project(), merge());
-(map(), foldLeft(), forEach());
-```
-
-**Inspired by:** Boost.Fusion, Boost.Hana
-
-[Guide](/guides/hlist)
-
 ### @typesugar/fusion {#fusion}
 
 Single-pass iterator fusion and expression templates.
@@ -739,44 +693,6 @@ transformInto<S, T>();
 **Inspired by:** Scala Chimney
 
 [Guide](/guides/mapper)
-
-### @typesugar/symbolic {#symbolic}
-
-Type-safe symbolic mathematics with AST, rendering, evaluation, calculus, and simplification.
-
-```bash
-npm install @typesugar/symbolic
-```
-
-**Exports:**
-
-```typescript
-// AST construction
-var_;
-const_;
-add;
-mul;
-pow;
-sin;
-cos;
-ln;
-
-// Calculus
-diff;
-integrate;
-limit;
-
-// Evaluation & rendering
-evaluate;
-toLatex;
-toMathML;
-simplify;
-solve;
-```
-
-**Inspired by:** SymPy, Mathematica
-
-[Guide](/guides/symbolic)
 
 ---
 

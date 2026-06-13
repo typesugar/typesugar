@@ -12,7 +12,6 @@ const runtimePackages = [
   "@typesugar/math",
   "@typesugar/parser",
   "@typesugar/std",
-  "@typesugar/symbolic",
   "@typesugar/type-system",
   "@typesugar/typeclass",
   "@typesugar/units",
@@ -40,7 +39,7 @@ export default defineConfig([
     target: "es2022",
     minify: false,
     bundle: true,
-    noExternal: ["@typesugar/preprocessor", "@typesugar/transformer-core", "magic-string"],
+    noExternal: ["@typesugar/transformer-core", "magic-string"],
     external: ["typescript"],
     define: {
       "process.env.NODE_ENV": '"production"',

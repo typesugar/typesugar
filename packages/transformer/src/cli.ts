@@ -22,7 +22,7 @@ import macroTransformerFactory, {
   getExpansionCacheStats,
   TransformerState,
 } from "./index.js";
-import { preprocess } from "@typesugar/preprocessor";
+import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
@@ -366,10 +366,12 @@ function build(options: CliOptions): void {
           contentHashes.set(resolvedPath, hashContent(source));
         }
 
-        const result = preprocess(source, { fileName });
-        if (result.changed) {
-          preprocessedFiles.set(path.resolve(fileName), result.code);
-          preprocessCount++;
+        if (hasHKTPatterns(source)) {
+          const result = rewriteHKTTypeReferences(source, fileName);
+          if (result.changed) {
+            preprocessedFiles.set(path.resolve(fileName), result.code);
+            preprocessCount++;
+          }
         }
       } catch {
         // File read error - let TS handle it
@@ -904,9 +906,11 @@ async function run(options: CliOptions): Promise<void> {
         // so esbuild doesn't choke on namespaces/const enums
         build.onLoad({ filter: /\.tsx?$/ }, async (args: { path: string }) => {
           const source = await fs.promises.readFile(args.path, "utf-8");
-          const preprocessed = preprocess(source, { fileName: args.path });
+          const hktCode = hasHKTPatterns(source)
+            ? rewriteHKTTypeReferences(source, args.path).code
+            : source;
           const isTsx = args.path.endsWith(".tsx");
-          const transpiled = transpileExpanded(preprocessed.code, args.path, config.options, {
+          const transpiled = transpileExpanded(hktCode, args.path, config.options, {
             sourceMap: false,
             jsx: isTsx ? ts.JsxEmit.ReactJSX : undefined,
           });
@@ -1067,7 +1071,9 @@ function preprocessCommand(options: CliOptions): void {
   for (const file of files) {
     try {
       const source = fs.readFileSync(file, "utf-8");
-      const result = preprocess(source, { fileName: file });
+      const result = hasHKTPatterns(source)
+        ? rewriteHKTTypeReferences(source, file)
+        : { code: source, changed: false, map: null };
 
       processedCount++;
 

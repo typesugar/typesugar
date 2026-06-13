@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { transformCode, TransformationPipeline } from "@typesugar/transformer";
+import { transformCode } from "@typesugar/transformer";
 import { globalRegistry, registerTypeRewrite, type MethodInlinePattern } from "@typesugar/core";
 import { AMBIENT_DECLARATIONS } from "../api/playground-declarations.js";
 import * as ts from "typescript";
@@ -30,7 +30,6 @@ import "@typesugar/fp";
 import "@typesugar/graph";
 import "@typesugar/parser";
 import "@typesugar/strings";
-import "@typesugar/symbolic";
 import "@typesugar/testing/macros";
 import "@typesugar/erased";
 import "@typesugar/effect";
@@ -39,7 +38,6 @@ import "@typesugar/contracts";
 import "@typesugar/codec";
 import "@typesugar/mapper";
 import "@typesugar/fusion";
-import "@typesugar/hlist";
 import "@typesugar/units";
 import "@typesugar/sql";
 
@@ -112,7 +110,6 @@ const AMBIENT_FILE = path.resolve(__dirname, "../__playground_ambient__.d.ts");
 interface Example {
   name: string;
   code: string;
-  ext: ".ts" | ".sts";
   relPath: string;
   fullPath: string;
   category: string;
@@ -128,16 +125,15 @@ function collectExamples(): Example[] {
         walk(full);
         continue;
       }
-      if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".sts")) continue;
+      if (!entry.name.endsWith(".ts")) continue;
 
       const relPath = path.relative(EXAMPLES_DIR, full);
       const category = path.dirname(relPath);
       const code = fs.readFileSync(full, "utf-8");
       const titleLine = code.split("\n").find((l) => l.startsWith("//! "));
       const name = titleLine?.slice(4).trim() ?? relPath;
-      const ext = entry.name.endsWith(".sts") ? (".sts" as const) : (".ts" as const);
 
-      examples.push({ name, code, ext, relPath, fullPath: full, category });
+      examples.push({ name, code, relPath, fullPath: full, category });
     }
   }
 
@@ -165,18 +161,8 @@ function warningsOf(result: { diagnostics: Diagnostic[] }) {
  * - strictOutput: true (same as api/compile.ts)
  * - Ambient declarations injected (same as api/compile.ts)
  * - All macro packages loaded (same as api/compile.ts)
- *
- * .sts files use TransformationPipeline which handles preprocessing internally.
  */
 function transform(ex: Example) {
-  if (ex.ext === ".sts") {
-    const pipeline = new TransformationPipeline({ target: ts.ScriptTarget.Latest }, [ex.fullPath], {
-      extensions: ["pipeline", "cons", "decorator-rewrite"],
-    });
-    const result = pipeline.transform(ex.fullPath);
-    return { ...result, preprocessed: true };
-  }
-
   const result = transformCode(ex.code, {
     fileName: ex.fullPath,
     extraRootFiles: [AMBIENT_FILE],
@@ -382,15 +368,6 @@ describe("match() compiles to ternary or switch", () => {
   });
 });
 
-describe("preprocessor operators rewrite", () => {
-  it("cons-operator.sts: :: is preprocessed", () => {
-    const ex = examples.find((e) => e.relPath.includes("cons-operator.sts"));
-    if (!ex) return;
-    const result = transform(ex);
-    expect(result.preprocessed).toBe(true);
-  });
-});
-
 describe("stateMachine tagged template expands to object literal", () => {
   it("graph/state-machine.ts — tagged template is gone", () => {
     const result = transform(findExample("graph/state-machine"));
@@ -500,7 +477,6 @@ function buildModuleRegistry(): Record<string, Record<string, unknown>> {
   register("@typesugar/graph", () => require("@typesugar/graph"));
   register("@typesugar/units", () => require("@typesugar/units"));
   register("@typesugar/parser", () => require("@typesugar/parser"));
-  register("@typesugar/symbolic", () => require("@typesugar/symbolic"));
   register("@typesugar/testing", () => require("@typesugar/testing"));
   register("@typesugar/mapper", () => require("@typesugar/mapper"));
   register("@typesugar/math", () => require("@typesugar/math"));

@@ -1,6 +1,6 @@
 # PEP-047: Remove the `.sts` Extension and Custom Surface Syntax
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-06-10
 **Author:** Dean Povey
 
@@ -128,7 +128,34 @@ Each wave is independently land-able; Wave 1 must land first.
    the package as a **playground-internal** demo dependency only, out of the
    supported build path. Recommendation: (b) if the playground currently demos
    comprehensions, (a) otherwise — decide during Wave 1 audit.
+   **Resolved (a): full delete.** No comprehension extension was ever present in
+   the package (its only source extension was `hkt`), so the (b) condition never
+   held. See Resolution below.
 2. **Prettier plugin**: delete now (this PEP) or freeze (PEP-048)?
    Recommendation: delete here — its entire purpose was custom syntax.
+   **Resolved:** removed in PEP-048 (Remove set) rather than here.
 3. Keep reserving the `.sts` extension name (npm org, docs note) for a possible
    PEP-003 revival? Costless: add one line to PEP-001's superseded notice.
+
+## Resolution (2026-06-13)
+
+The `.sts` extension routing, editors/tooling, and docs (Waves 1–4) shipped in
+PR #8. This follow-up finished the job by **deleting `@typesugar/preprocessor`
+entirely**:
+
+- **Kept HKT path is the AST rewriter.** `F<A>` → `Kind<F, A>` for type
+  parameters on plain `.ts` is handled by
+  `packages/transformer/src/hkt-rewriter.ts` (`rewriteHKTTypeReferences`), which
+  the type-checker path (`virtual-host.ts`) already used. The three remaining
+  runtime callers of the lexical `preprocess()` (CLI build/run/preprocess,
+  eslint-plugin processor) were switched to it; the playground's redundant
+  `preprocess`/`preprocessOnly` public API was dropped.
+- **`RawSourceMap` moved to `@typesugar/core`** (it already lived there); all
+  type-only imports were repointed.
+- **Behavior drop (accepted):** the lexical preprocessor's "Phase 4" resolution
+  of `Kind<OptionF, A>` → concrete `Option<A>` (via the HKT registry) is gone. It
+  was used nowhere on the kept `.ts` path — the type-checker, pipeline, and
+  playground already ran without it — so no code was ported; `Kind<…>` now relies
+  on the `Kind` type's own instantiation, exactly as the kept path already did.
+- **Removed the lexical `F<_>` declaration form** and the dead `|>`/`::`/cons
+  operator tests; the kept `pipe()`/`match()` macros are unaffected.

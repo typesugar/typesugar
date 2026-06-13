@@ -7,8 +7,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { globalExpansionTracker, type ExpansionRecord } from "@typesugar/core";
-import { type RawSourceMap } from "@typesugar/preprocessor";
+import { globalExpansionTracker, type ExpansionRecord, type RawSourceMap } from "@typesugar/core";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
 import {

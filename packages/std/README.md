@@ -247,7 +247,7 @@ Rich extension methods for every basic type:
 
 ## Pattern Matching
 
-Scala-style pattern matching with **compile-time exhaustiveness checking** and zero runtime overhead. Two syntaxes: fluent API (any `.ts` file) and preprocessor syntax (`.sts` files).
+Scala-style pattern matching with **compile-time exhaustiveness checking** and zero runtime overhead, via a fluent API in any `.ts` file.
 
 ### Fluent API
 
@@ -267,15 +267,6 @@ const area = match(shape)
   .case({ kind: "rect", w, h })
   .then(w * h);
 // Compile error if you miss a variant. Zero runtime overhead.
-```
-
-### Preprocessor Syntax (`.sts` files)
-
-```typescript
-const area = match(shape)
-| { kind: "circle", radius: r } => Math.PI * r ** 2
-| { kind: "square", side: s } => s ** 2
-| { kind: "rect", w, h } => w * h
 ```
 
 ### Pattern Types

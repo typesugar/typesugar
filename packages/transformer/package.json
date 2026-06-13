@@ -91,7 +91,6 @@
     "@typesugar/core": "workspace:*",
     "@typesugar/lsp-common": "workspace:*",
     "@typesugar/transformer-core": "workspace:*",
-    "@typesugar/preprocessor": "workspace:*",
     "esbuild": "^0.20.0",
     "magic-string": "^0.30.21",
     "xxhash-wasm": "^1.1.0"

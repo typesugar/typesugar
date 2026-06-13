@@ -1,6 +1,6 @@
 # PEP-048: Package Triage — Keep, Freeze, or Remove
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-06-10
 **Author:** Dean Povey
 
@@ -91,6 +91,33 @@ git tag `pre-triage-2026-06` preserves recovery).
 Net effect: 42 → ~36 in-repo, **22 actively claimed** packages, and a README
 table that matches reality.
 
+## Wave 0 Findings (2026-06-10) — tier + mechanic adjustments
+
+The dependency-graph pass surfaced more entanglement than the draft tiers
+assumed. Adjustments made before execution:
+
+- **`lsp-common` → Keep (Core), not Freeze.** `@typesugar/transformer` (core,
+  published) runtime-depends on it. It is load-bearing infrastructure, not a
+  standalone-LSP leaf; freezing/excluding it would break the published
+  transformer.
+- **`playground` → `private: true`.** It is published today but is a
+  bundled docs-site app that runtime-`dependencies` ~20 workspace packages
+  (incl. `symbolic`, `math`, `units`, `parser`, `codec`, `collections`).
+  Publishing it forces all of those to stay published. Marking it private
+  (correct for a bundled app — the docs site consumes it via workspace, not
+  npm) unblocks release-excluding the freeze packages it bundles.
+- **Changeset release-exclusion is applied only where safe.** A package may be
+  changeset-`ignore`d only if no _published_ Keep package runtime-depends on
+  it. After the two changes above, the safe set is `strings`, `erased`,
+  `lsp-server` (only `vscode`, which is private, bundles it), and
+  `math`/`units`/`parser`/`codec` (only `playground`, now private). **`collections`
+  stays released** — `@typesugar/graph` (published Wedge, PEP-046) runtime-depends
+  on its `HashSet`/`HashMap`. All frozen packages still get README-demotion +
+  a status banner regardless.
+- **Remove set unblocking:** `playground` is the only non-test consumer of a
+  Remove-set package (`symbolic`); its import/dep/bundle entries are removed.
+  `hlist` and `prettier-plugin` have only test/example/docs consumers.
+
 ## Mechanics
 
 1. **Verification pass first** (Wave 0): `pnpm why` / grep import graph to
@@ -121,6 +148,36 @@ table that matches reality.
 1. Is `effect` Keep or Freeze? It's the interop bridge argument vs. 19 source
    files of maintenance against a fast-moving upstream. Recommendation: Keep,
    but pin the supported Effect version range explicitly.
+   **Resolved: Keep.** Pinned the peer range to `effect: ">=3.0.0 <4.0.0"` in
+   `packages/effect/package.json` so support is an explicit Effect-3.x claim, not
+   open-ended.
 2. Should facades (derive/reflect/typeclass/specialize) collapse into the
    umbrella package's subpath exports (`typesugar/derive`)? Cleaner long-term;
    churn now. Recommendation: defer to a publishing-focused PEP.
+   **Resolved: defer.** Facades stay as-is; revisit in a future publishing PEP.
+
+## Wave 3 — Keep-conditions (tracked 2026-06-13)
+
+Each conditional Keep is tracked as a GitHub issue with a **re-triage date of
+2026-12-10** (6 months from the PEP date); if the condition is unmet by then, the
+package demotes to Freeze.
+
+| Package         | Condition                                  | State (2026-06-13)                                                                               | Tracking                                |
+| --------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| **mapper**      | implement `transformInto`                  | macro generates code (`buildMappingExpression`; tests pass); remaining gaps tracked in the issue | #9 — re-triage 2026-12-10, else Freeze  |
+| **type-system** | add tests (zero today)                     | 0 test files                                                                                     | #10 — re-triage 2026-12-10, else Freeze |
+| **fp**          | add coverage or shrink scope (2 files/19k) | 2 test files                                                                                     | #11 — re-triage 2026-12-10, else Freeze |
+
+## Completion (2026-06-13)
+
+All waves landed:
+
+- **Wave 1 — Remove:** `zed`, `prettier-plugin`, `symbolic`, `hlist` deleted (git
+  tag `pre-triage-2026-06` preserves recovery); leftover build-artifact dirs cleared.
+- **Wave 2 — Freeze:** the 8 frozen packages (`parser`, `collections`, `codec`,
+  `units`, `math`, `strings`, `erased`, `lsp-server`) carry README status banners
+  and a README "Frozen" section; `playground` is `private: true`; changeset `ignore`
+  covers the safe release-exclusion set (`strings`, `erased`, `lsp-server`, `math`,
+  `units`, `parser`, `codec`).
+- **Wave 3 — Keep-conditions:** tracked above with a 2026-12-10 re-triage date.
+- **Open Questions:** both resolved (effect Keep + pinned; facades deferred).

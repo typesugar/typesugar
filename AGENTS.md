@@ -22,7 +22,7 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@derive` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `Point.Eq.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@derive(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
 
-3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @derive Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305. Decorator syntax (`@typeclass`, `@instance`) is supported via the preprocessor, which rewrites them to JSDoc so everything flows through one path in the transformer.
+3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @derive Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305.
 
 4. **Extensions are Import-Scoped (Scala 3 Model)** — Extension methods only activate when you import the function. `import { clamp } from "@typesugar/std"` makes `n.clamp(0, 100)` work. No import, no extension. This prevents surprising method injection and makes dependencies explicit. Extension files must have `"use extension"` at the top. The package's `index.ts` must barrel-export all extensions.
 
@@ -74,7 +74,6 @@ packages/
 ├── macros/             # @typesugar/macros — built-in macro implementations
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin (Node.js)
 ├── transformer-core/   # @typesugar/transformer-core — browser-compatible transform core
-├── preprocessor/       # @typesugar/preprocessor — lexical preprocessor for custom syntax
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
 ├── ts-plugin/          # @typesugar/ts-plugin — TypeScript language service plugin
 │
@@ -259,7 +258,6 @@ If you add a new `@typesugar/*` package with runtime exports:
 For detailed documentation beyond this overview:
 
 - **Macro authoring** (MacroContext API, macro kinds, quasiquoting, built-in macros, transformer): see the `macro-authoring` skill
-- **Preprocessor** (custom operators, scanner, source maps, rewriting rules): see the `preprocessor-guidelines` skill
 - **Compilation pipeline**: [docs/architecture.md](docs/architecture.md)
 - **Design philosophy**: [PHILOSOPHY.md](PHILOSOPHY.md)
 - **Code quality**: `.cursor/rules/code-quality-checklist.mdc`

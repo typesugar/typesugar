@@ -244,7 +244,7 @@ const csv = grammar`
 `;
 ```
 
-[HList Guide](/guides/hlist) · [Parser Guide](/guides/parser) · [Fusion Guide](/guides/fusion) · [Graph Guide](/guides/graph)
+[Parser Guide](/guides/parser) · [Fusion Guide](/guides/fusion) · [Graph Guide](/guides/graph)
 
 ---
 
@@ -406,7 +406,6 @@ specialize(add); // @ts-no-typesugar     // one line
 | Package                                         | Description                           |
 | ----------------------------------------------- | ------------------------------------- |
 | [@typesugar/fp](/reference/packages#fp)         | Option, Either, IO, Result, List      |
-| [@typesugar/hlist](/reference/packages#hlist)   | Heterogeneous lists                   |
 | [@typesugar/fusion](/reference/packages#fusion) | Iterator fusion, expression templates |
 | [@typesugar/parser](/reference/packages#parser) | PEG parser generation                 |
 | [@typesugar/graph](/reference/packages#graph)   | Graph algorithms, state machines      |
@@ -443,7 +442,7 @@ typesugar draws from the best ideas across language ecosystems:
 | Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                    |
 | Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, specialize, codec, erased, validate              |
 | Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                          |
-| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, hlist, graph, parser, units                      |
+| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, graph, parser, units                             |
 | Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math |
 
 ---
