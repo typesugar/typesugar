@@ -1,6 +1,6 @@
 # PEP-048: Package Triage — Keep, Freeze, or Remove
 
-**Status:** Draft
+**Status:** Done
 **Date:** 2026-06-10
 **Author:** Dean Povey
 
@@ -148,6 +148,35 @@ assumed. Adjustments made before execution:
 1. Is `effect` Keep or Freeze? It's the interop bridge argument vs. 19 source
    files of maintenance against a fast-moving upstream. Recommendation: Keep,
    but pin the supported Effect version range explicitly.
+   **Resolved: Keep.** Pinned the peer range to `effect: ">=3.0.0 <4.0.0"` in
+   `packages/effect/package.json` so support is an explicit Effect-3.x claim, not
+   open-ended.
 2. Should facades (derive/reflect/typeclass/specialize) collapse into the
    umbrella package's subpath exports (`typesugar/derive`)? Cleaner long-term;
    churn now. Recommendation: defer to a publishing-focused PEP.
+   **Resolved: defer.** Facades stay as-is; revisit in a future publishing PEP.
+
+## Wave 3 — Keep-conditions (resolved 2026-06-13)
+
+Each conditional Keep gets an owner or a **re-triage date of 2026-12-10** (6 months
+from the PEP date); if the condition is unmet by then, the package demotes to Freeze.
+
+| Package         | Condition                                  | State (2026-06-13)                                                              | Resolution                                                    |
+| --------------- | ------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| **mapper**      | implement `transformInto` (TODO #5/#6)     | **Met** — `transformInto`/`transformArrayInto` macros generate code (`buildMappingExpression`); the runtime `throw` is the standard transformer-not-configured guard; tests pass | Keep confirmed; README claim is accurate. No demotion. |
+| **type-system** | add tests (zero today)                     | **Unmet** — 0 test files                                                       | Re-triage 2026-12-10; demote to Freeze if still untested.     |
+| **fp**          | add coverage or shrink scope (2 files/19k) | **Unmet** — 2 test files                                                       | Re-triage 2026-12-10; add coverage or shrink scope.           |
+
+## Completion (2026-06-13)
+
+All waves landed:
+
+- **Wave 1 — Remove:** `zed`, `prettier-plugin`, `symbolic`, `hlist` deleted (git
+  tag `pre-triage-2026-06` preserves recovery); leftover build-artifact dirs cleared.
+- **Wave 2 — Freeze:** the 8 frozen packages (`parser`, `collections`, `codec`,
+  `units`, `math`, `strings`, `erased`, `lsp-server`) carry README status banners
+  and a README "Frozen" section; `playground` is `private: true`; changeset `ignore`
+  covers the safe release-exclusion set (`strings`, `erased`, `lsp-server`, `math`,
+  `units`, `parser`, `codec`).
+- **Wave 3 — Keep-conditions:** tracked above with a 2026-12-10 re-triage date.
+- **Open Questions:** both resolved (effect Keep + pinned; facades deferred).
