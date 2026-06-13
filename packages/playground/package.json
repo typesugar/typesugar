@@ -52,7 +52,6 @@
     "@typesugar/mapper": "workspace:*",
     "@typesugar/math": "workspace:*",
     "@typesugar/parser": "workspace:*",
-    "@typesugar/preprocessor": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/testing": "workspace:*",
     "@typesugar/transformer-core": "workspace:*",

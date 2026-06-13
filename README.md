@@ -54,7 +54,6 @@ alice.toJson(); // JSON serialization
 | [@typesugar/core](packages/core)                  | Macro registration and types                     |
 | [@typesugar/macros](packages/macros)              | Built-in macro implementations                   |
 | [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch)                |
-| [@typesugar/preprocessor](packages/preprocessor)  | HKT type-syntax preprocessor + source-map types  |
 | [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack) |
 | [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin               |
 

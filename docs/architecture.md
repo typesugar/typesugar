@@ -50,45 +50,36 @@ Module resolution follows standard TypeScript rules (`bar.ts`, `bar.tsx`, `bar/i
 
 ---
 
-## 1. HKT Preprocessor (`@typesugar/preprocessor`)
+## 1. HKT Rewriter (`@typesugar/transformer`)
 
-The preprocessor rewrites higher-kinded type syntax (`F<A>` applications of a type parameter) into valid TypeScript (`Kind<F, A>`) and exposes the shared source-map types used across the transformer pipeline.
+The HKT rewriter rewrites higher-kinded type syntax (`F<A>` applications of a type parameter) into valid TypeScript (`Kind<F, A>`). It runs inside `VirtualCompilerHost` before `ts.Program` creation, so the type checker never sees the invalid `F<A>` (which would otherwise raise TS2315).
 
 ### Location
 
 ```
-packages/preprocessor/src/
-├── index.ts           # Public API exports
-├── preprocess.ts      # Main entry point
-├── scanner.ts         # Wraps TS scanner
-├── token-stream.ts    # Cursor-based token stream with lookahead
-├── hkt-registry.ts    # Tracks HKT type parameters in scope
-├── import-tracker.ts  # Kind import injection
-└── extensions/
-    ├── types.ts       # SyntaxExtension interfaces
-    └── hkt.ts         # HKT type-application rewriting
+packages/transformer/src/hkt-rewriter.ts   # AST-based HKT rewriter
 ```
 
 ### Pipeline Flow
 
-The preprocessor performs pattern-based HKT rewriting:
+The rewriter is AST-based (`ts.createSourceFile` only — no Program, no TypeChecker):
 
-- Detects type parameters used as type constructors
-- Rewrites `F<A>` usages to `Kind<F, A>` within the declaration scope
-- Injects the `Kind` import where needed
+- Collects `TypeReference` nodes whose identifier matches a type parameter of an enclosing scope
+- Rewrites `F<A>` usages to `Kind<F, A>`, innermost-first for nested applications
+- Injects `import type { Kind }` where needed
 
 ### Key Functions
 
 ```typescript
-// Main entry point
-preprocess(source: string, options?: PreprocessOptions): PreprocessResult
+rewriteHKTTypeReferences(source: string, fileName: string):
+  { code: string; map: RawSourceMap | null; changed: boolean }
 
-// Returns { code: string, changed: boolean, map: RawSourceMap | null }
+hasHKTPatterns(source: string): boolean // fast regex pre-check
 ```
 
 ### Source Maps
 
-The preprocessor uses `magic-string` to track source positions through transformations. The returned `RawSourceMap` follows the standard v3 source map format and can be passed through build tools.
+The rewriter uses `magic-string` to track source positions through transformations. The returned `RawSourceMap` (re-exported from `@typesugar/core`) follows the standard v3 source map format and can be passed through build tools.
 
 ---
 
@@ -721,7 +712,7 @@ Tests run via vitest with a workspace configuration. The root `vitest.config.ts`
 
 ```
 pnpm test                           # all tests via vitest workspace
-pnpm --filter @typesugar/preprocessor test  # single package
+pnpm --filter @typesugar/transformer test  # single package
 ```
 
 Package-level vitest configs typically set a project name matching the package, used for test filtering.

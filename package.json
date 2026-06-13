@@ -57,7 +57,6 @@
     "@typesugar/mapper": "workspace:*",
     "@typesugar/parser": "workspace:*",
     "@typesugar/playground": "workspace:^",
-    "@typesugar/preprocessor": "workspace:*",
     "@typesugar/sql": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/strings": "workspace:*",

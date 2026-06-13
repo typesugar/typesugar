@@ -17,9 +17,9 @@ import * as ts from "typescript";
 
 const AMBIENT_FILE = path.resolve(__dirname, "../__playground_ambient__.d.ts");
 
-function transform(code: string, ext = ".ts"): TransformResult {
+function transform(code: string): TransformResult {
   return transformCode(code, {
-    fileName: path.resolve(`test-redteam${ext}`),
+    fileName: path.resolve("test-redteam.ts"),
     extraRootFiles: [AMBIENT_FILE],
     readFile: (f: string) => {
       if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
@@ -214,16 +214,6 @@ const after = "end";
     const result = transform(code);
     expect(result.changed).toBe(true);
     expectMapped(result, "const after", "code after two @derive expansions");
-  });
-
-  it("pipe operator (|>) on .sts with many stages", () => {
-    const stages = Array.from({ length: 15 }, () => `((n: number) => n + 1)`).join(" |> ");
-    const code = `const result = 0 |> ${stages};
-const after = "end";
-`;
-    const result = transform(code, ".sts");
-    expect(result.changed).toBe(true);
-    expectMapped(result, "const after", "code after 15-stage |> chain");
   });
 });
 

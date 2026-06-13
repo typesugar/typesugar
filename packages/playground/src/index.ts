@@ -7,7 +7,7 @@
  *
  * @example
  * ```typescript
- * import { transform, preprocess } from "@typesugar/playground";
+ * import { transform } from "@typesugar/playground";
  *
  * // Transform TypeScript code with macros
  * const result = transform(`
@@ -16,17 +16,12 @@
  * `);
  *
  * console.log(result.code);
- *
- * // Preprocess HKT type syntax (F<_> -> Kind<F, A>)
- * const { code } = preprocess(`
- *   interface Functor<F<_>> { map<A, B>(fa: F<A>, f: (a: A) => B): F<B>; }
- * `);
  * ```
  *
  * @packageDocumentation
  */
 
-import { preprocess, type RawSourceMap, type PreprocessResult } from "@typesugar/preprocessor";
+import { type RawSourceMap } from "@typesugar/core";
 import { transformCode, type TransformDiagnostic } from "@typesugar/transformer-core";
 import { BrowserTransformCache, hashContent } from "./cache.js";
 
@@ -60,14 +55,6 @@ export function clearCache(): void {
 
 export function getCacheStats(): string {
   return transformCache?.getStatsString() ?? "Cache not initialized";
-}
-
-export function preprocessCode(
-  code: string,
-  options: { fileName?: string } = {}
-): PreprocessResult {
-  const fileName = options.fileName ?? "input.ts";
-  return preprocess(code, { fileName });
 }
 
 /**
@@ -139,8 +126,6 @@ export function transform(code: string, options: BrowserTransformOptions = {}): 
   }
 }
 
-export const preprocessOnly = preprocessCode;
-
 export { BrowserTransformCache, LRUCache, hashContent } from "./cache.js";
-export { preprocess, type PreprocessResult, type RawSourceMap };
+export { type RawSourceMap };
 export { type TransformDiagnostic };

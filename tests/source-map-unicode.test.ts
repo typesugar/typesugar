@@ -34,18 +34,6 @@ function transform(code: string, opts?: { strictOutput?: boolean }): TransformRe
   });
 }
 
-function transformSts(code: string): TransformResult {
-  return transformCode(code, {
-    fileName: path.resolve("test-unicode.sts"),
-    extraRootFiles: [AMBIENT_FILE],
-    readFile: (f: string) => {
-      if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
-      return ts.sys.readFile(f);
-    },
-    fileExists: (f: string) => f === AMBIENT_FILE || ts.sys.fileExists(f),
-  });
-}
-
 /** Find 0-based byte offset of text in source. */
 function offsetOf(source: string, needle: string): number {
   const idx = source.indexOf(needle);
@@ -254,26 +242,5 @@ const 変数 = 1;  staticAssert(false, "after CJK");
     expect(errorOffset, "macro error offset should point to staticAssert call").toBe(
       expectedOffset
     );
-  });
-});
-
-// ============================================================================
-// .sts preprocessing with Unicode
-// ============================================================================
-
-describe("STS preprocessing with Unicode", () => {
-  it("pipe operator with emoji in surrounding code maps correctly", () => {
-    const code = `const 🎉 = 1;
-const result = 42 |> ((n: number) => n + 1);
-const 結果 = "done";
-`;
-    const result = transformSts(code);
-
-    if (result.changed && result.code.includes("結果")) {
-      const origOffset = offsetOf(code, "const 結果");
-      const transOffset = offsetOf(result.code, "const 結果");
-      const mapped = result.mapper.toOriginal(transOffset);
-      expect(mapped, "CJK identifier after |> with emoji should map back").toBe(origOffset);
-    }
   });
 });

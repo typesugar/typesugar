@@ -16,7 +16,6 @@ export default defineConfig({
         "@typesugar/macros",
         "@typesugar/transformer",
         "@typesugar/transformer-core",
-        "@typesugar/preprocessor",
       ],
     },
   },

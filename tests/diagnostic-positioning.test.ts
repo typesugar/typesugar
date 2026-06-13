@@ -39,20 +39,6 @@ function transform(code: string, opts?: { strictOutput?: boolean }): TransformRe
   });
 }
 
-/** Transform with .sts extension for HKT/pipe/cons preprocessing. */
-function transformSts(code: string, opts?: { strictOutput?: boolean }): TransformResult {
-  return transformCode(code, {
-    fileName: path.resolve("test-diagnostic-pos.sts"),
-    extraRootFiles: [AMBIENT_FILE],
-    strictOutput: opts?.strictOutput ?? false,
-    readFile: (f: string) => {
-      if (f === AMBIENT_FILE) return AMBIENT_DECLARATIONS;
-      return ts.sys.readFile(f);
-    },
-    fileExists: (f: string) => f === AMBIENT_FILE || ts.sys.fileExists(f),
-  });
-}
-
 /** Find the 0-based byte offset of `needle` in `haystack` at its nth occurrence (default 1st). */
 function offsetOf(haystack: string, needle: string, occurrence = 1): number {
   let idx = -1;
@@ -822,108 +808,6 @@ interface Bad { fn: () => void; }
       // Error should be on one of the first two lines (decorator or interface)
       const errorLine = lineAt(code, deriveErrors[0].start);
       expect(errorLine, `@derive error should be near the @derive site`).toBeLessThanOrEqual(2);
-    }
-  });
-});
-
-// ============================================================================
-// PEP-036 Wave 2: HKT syntax positioning
-// ============================================================================
-
-describe("HKT syntax diagnostic positioning", () => {
-  it("position mapper maps code after HKT preprocessing back correctly", () => {
-    const code = `interface Functor<F<_>> {
-  map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
-}
-
-const after = "marker";
-`;
-    const result = transformSts(code);
-
-    if (result.changed && result.code.includes("const after")) {
-      const origOffset = offsetOf(code, "const after");
-      const transOffset = offsetOf(result.code, "const after");
-      expectMappedPosition(result, transOffset, origOffset, "after HKT preprocess");
-    }
-  });
-
-  it("multi-line HKT generic preserves position mapping", () => {
-    const code = `interface Bifunctor<
-  F<_>
-> {
-  bimap<A, B, C, D>(fab: F<A>, f: (a: A) => C, g: (b: B) => D): F<C>;
-}
-
-const after = "marker";
-`;
-    const result = transformSts(code);
-
-    if (result.changed && result.code.includes("const after")) {
-      const origOffset = offsetOf(code, "const after");
-      const transOffset = offsetOf(result.code, "const after");
-      expectMappedPosition(result, transOffset, origOffset, "after multi-line HKT");
-    }
-  });
-});
-
-// ============================================================================
-// PEP-036 Wave 2: Pipe operator positioning (|>)
-// ============================================================================
-
-describe("pipe operator (|>) diagnostic positioning", () => {
-  it("long pipe chain (10+ stages) — code after maps correctly", () => {
-    const fns = Array.from({ length: 10 }, (_, i) => `(n: number) => n + ${i + 1}`);
-    const code = `const result = 1 ${fns.map((f) => `|> (${f})`).join(" ")};
-const after = "marker";
-`;
-    const result = transformSts(code);
-    expect(result.changed, "|> should trigger transformation").toBe(true);
-
-    if (result.code.includes("const after")) {
-      const origOffset = offsetOf(code, "const after");
-      const transOffset = offsetOf(result.code, "const after");
-      expectMappedPosition(result, transOffset, origOffset, "after long |> chain");
-    }
-  });
-
-  it("code between two pipe chains maps correctly", () => {
-    const code = `const a = 1 |> ((n: number) => n + 1);
-const middle = "between";
-const b = 2 |> ((n: number) => n * 2);
-const end = "after";
-`;
-    const result = transformSts(code);
-
-    if (result.changed && result.code.includes("const middle")) {
-      const middleOrig = offsetOf(code, "const middle");
-      const middleTrans = offsetOf(result.code, "const middle");
-      expectMappedPosition(result, middleTrans, middleOrig, "between two |> chains");
-    }
-
-    if (result.changed && result.code.includes("const end")) {
-      const endOrig = offsetOf(code, "const end");
-      const endTrans = offsetOf(result.code, "const end");
-      expectMappedPosition(result, endTrans, endOrig, "after two |> chains");
-    }
-  });
-});
-
-// ============================================================================
-// PEP-036 Wave 2: Cons operator (::) positioning
-// ============================================================================
-
-describe("cons operator (::) diagnostic positioning", () => {
-  it("code after :: desugar maps back correctly", () => {
-    const code = `const list = 1 :: 2 :: [];
-const after = "marker";
-`;
-    const result = transformSts(code);
-    expect(result.changed, ":: should trigger transformation").toBe(true);
-
-    if (result.code.includes("const after")) {
-      const origOffset = offsetOf(code, "const after");
-      const transOffset = offsetOf(result.code, "const after");
-      expectMappedPosition(result, transOffset, origOffset, "after :: desugar");
     }
   });
 });

@@ -7,7 +7,7 @@
  * - L3: ts.Program instance (expensive, invalidate on tsconfig or file add/remove)
  */
 
-import type { RawSourceMap } from "@typesugar/preprocessor";
+import type { RawSourceMap } from "@typesugar/core";
 import type { TransformResult } from "./pipeline.js";
 import xxhashInit, { type XXHashAPI } from "xxhash-wasm";
 

@@ -14,7 +14,7 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import type { RawSourceMap } from "@typesugar/preprocessor";
+import type { RawSourceMap } from "@typesugar/core";
 import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
 
 /**

@@ -103,22 +103,6 @@ npm install --save-dev @typesugar/transformer
 - Default export: transformer factory
 - CLI: `typesugar` command
 
-### @typesugar/preprocessor {#preprocessor}
-
-Lexical preprocessor for HKT type syntax (`F<A>` → `Kind<F, A>`) plus the shared source-map types used by the transformer pipeline.
-
-```bash
-npm install --save-dev @typesugar/preprocessor
-```
-
-**Exports:**
-
-```typescript
-preprocess();
-```
-
-**Inspired by:** Zig comptime
-
 ### unplugin-typesugar {#unplugin}
 
 Bundler plugins for Vite, Webpack, esbuild, Rollup.

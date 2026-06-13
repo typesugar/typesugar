@@ -12,5 +12,5 @@ export default defineConfig({
   dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
-  external: ["typescript", "@typesugar/transformer", "@typesugar/preprocessor", "unplugin"],
+  external: ["typescript", "@typesugar/transformer", "unplugin"],
 });

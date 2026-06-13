@@ -10,7 +10,7 @@ import {
   findOriginalPosition,
   findGeneratedPosition,
 } from "../src/source-map-utils.js";
-import type { RawSourceMap } from "@typesugar/preprocessor";
+import type { RawSourceMap } from "@typesugar/core";
 
 describe("composeSourceMaps", () => {
   it("returns null when both maps are null", () => {

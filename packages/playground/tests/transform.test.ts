@@ -1,28 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { transform, preprocessCode, clearCache, getCacheStats } from "../src/index.js";
+import { transform, clearCache, getCacheStats } from "../src/index.js";
 
 describe("playground transform", () => {
   beforeEach(() => {
     clearCache();
-  });
-
-  describe("preprocessCode", () => {
-    it("should preprocess HKT syntax", () => {
-      const result = preprocessCode(
-        `interface Functor<F<_>> { map: <A, B>(fa: F<A>, f: (a: A) => B) => F<B>; }`,
-        {
-          fileName: "test.ts",
-        }
-      );
-      expect(result.changed).toBe(true);
-    });
-
-    it("should return unchanged for plain TypeScript", () => {
-      const code = `const x: number = 1;`;
-      const result = preprocessCode(code, { fileName: "test.ts" });
-      expect(result.changed).toBe(false);
-      expect(result.code).toBe(code);
-    });
   });
 
   describe("transform", () => {

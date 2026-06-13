@@ -8,7 +8,7 @@ import {
   SourceMapPositionMapper,
   IdentityPositionMapper,
 } from "../src/position-mapper.js";
-import type { RawSourceMap } from "@typesugar/preprocessor";
+import type { RawSourceMap } from "@typesugar/core";
 
 describe("PositionMapper", () => {
   describe("IdentityPositionMapper", () => {

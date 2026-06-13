@@ -61,7 +61,7 @@ export function colAt(source: string, offset: number): number {
 }
 
 export interface AssertErrorsAtOptions {
-  /** File extension, defaults to ".ts". Use ".sts" for HKT/pipe/cons syntax. */
+  /** File extension, defaults to ".ts". */
   ext?: string;
   /** Enable strictOutput to get TS type errors mapped back. */
   strictOutput?: boolean;

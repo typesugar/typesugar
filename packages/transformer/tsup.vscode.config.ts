@@ -17,7 +17,6 @@ export default defineConfig({
   external: ["typescript"], // Only TypeScript is external
   noExternal: [
     "@typesugar/core",
-    "@typesugar/preprocessor",
     "@typesugar/macros",
     "@typesugar/std",
     "@ampproject/remapping",

@@ -69,9 +69,6 @@ importers:
       '@typesugar/playground':
         specifier: workspace:^
         version: link:packages/playground
-      '@typesugar/preprocessor':
-        specifier: workspace:*
-        version: link:packages/preprocessor
       '@typesugar/sql':
         specifier: workspace:*
         version: link:packages/sql
@@ -293,9 +290,6 @@ importers:
 
   packages/eslint-plugin:
     dependencies:
-      '@typesugar/preprocessor':
-        specifier: workspace:*
-        version: link:../preprocessor
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer
@@ -399,9 +393,6 @@ importers:
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
-      '@typesugar/preprocessor':
-        specifier: workspace:*
-        version: link:../preprocessor
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer
@@ -523,9 +514,6 @@ importers:
       '@typesugar/parser':
         specifier: workspace:*
         version: link:../parser
-      '@typesugar/preprocessor':
-        specifier: workspace:*
-        version: link:../preprocessor
       '@typesugar/std':
         specifier: workspace:*
         version: link:../std
@@ -560,22 +548,6 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
-
-  packages/preprocessor:
-    dependencies:
-      magic-string:
-        specifier: ^0.30.21
-        version: 0.30.21
-    devDependencies:
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
-      typescript:
-        specifier: ^5.8.3
-        version: 5.9.3
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
@@ -675,9 +647,6 @@ importers:
       '@typesugar/lsp-common':
         specifier: workspace:*
         version: link:../lsp-common
-      '@typesugar/preprocessor':
-        specifier: workspace:*
-        version: link:../preprocessor
       '@typesugar/transformer-core':
         specifier: workspace:*
         version: link:../transformer-core
@@ -802,9 +771,6 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
-      '@typesugar/preprocessor':
-        specifier: workspace:*
-        version: link:../preprocessor
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer
