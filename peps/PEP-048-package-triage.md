@@ -162,11 +162,11 @@ Each conditional Keep is tracked as a GitHub issue with a **re-triage date of
 2026-12-10** (6 months from the PEP date); if the condition is unmet by then, the
 package demotes to Freeze.
 
-| Package         | Condition                                  | State (2026-06-13)                                                                              | Tracking                                 |
-| --------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **mapper**      | implement `transformInto`                  | macro generates code (`buildMappingExpression`; tests pass); remaining gaps tracked in the issue | #9 — re-triage 2026-12-10, else Freeze   |
-| **type-system** | add tests (zero today)                     | 0 test files                                                                                    | #10 — re-triage 2026-12-10, else Freeze  |
-| **fp**          | add coverage or shrink scope (2 files/19k) | 2 test files                                                                                    | #11 — re-triage 2026-12-10, else Freeze  |
+| Package         | Condition                                  | State (2026-06-13)                                                                               | Tracking                                |
+| --------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| **mapper**      | implement `transformInto`                  | macro generates code (`buildMappingExpression`; tests pass); remaining gaps tracked in the issue | #9 — re-triage 2026-12-10, else Freeze  |
+| **type-system** | add tests (zero today)                     | 0 test files                                                                                     | #10 — re-triage 2026-12-10, else Freeze |
+| **fp**          | add coverage or shrink scope (2 files/19k) | 2 test files                                                                                     | #11 — re-triage 2026-12-10, else Freeze |
 
 ## Completion (2026-06-13)
 
