@@ -156,16 +156,17 @@ assumed. Adjustments made before execution:
    churn now. Recommendation: defer to a publishing-focused PEP.
    **Resolved: defer.** Facades stay as-is; revisit in a future publishing PEP.
 
-## Wave 3 — Keep-conditions (resolved 2026-06-13)
+## Wave 3 — Keep-conditions (tracked 2026-06-13)
 
-Each conditional Keep gets an owner or a **re-triage date of 2026-12-10** (6 months
-from the PEP date); if the condition is unmet by then, the package demotes to Freeze.
+Each conditional Keep is tracked as a GitHub issue with a **re-triage date of
+2026-12-10** (6 months from the PEP date); if the condition is unmet by then, the
+package demotes to Freeze.
 
-| Package         | Condition                                  | State (2026-06-13)                                                              | Resolution                                                    |
-| --------------- | ------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| **mapper**      | implement `transformInto` (TODO #5/#6)     | **Met** — `transformInto`/`transformArrayInto` macros generate code (`buildMappingExpression`); the runtime `throw` is the standard transformer-not-configured guard; tests pass | Keep confirmed; README claim is accurate. No demotion. |
-| **type-system** | add tests (zero today)                     | **Unmet** — 0 test files                                                       | Re-triage 2026-12-10; demote to Freeze if still untested.     |
-| **fp**          | add coverage or shrink scope (2 files/19k) | **Unmet** — 2 test files                                                       | Re-triage 2026-12-10; add coverage or shrink scope.           |
+| Package         | Condition                                  | State (2026-06-13)                                                                              | Tracking                                 |
+| --------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **mapper**      | implement `transformInto`                  | macro generates code (`buildMappingExpression`; tests pass); remaining gaps tracked in the issue | #9 — re-triage 2026-12-10, else Freeze   |
+| **type-system** | add tests (zero today)                     | 0 test files                                                                                    | #10 — re-triage 2026-12-10, else Freeze  |
+| **fp**          | add coverage or shrink scope (2 files/19k) | 2 test files                                                                                    | #11 — re-triage 2026-12-10, else Freeze  |
 
 ## Completion (2026-06-13)
 
