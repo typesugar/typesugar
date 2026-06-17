@@ -14,6 +14,10 @@ import * as ts from "typescript";
 // Load macro definitions (registers macros in the global registry)
 import "@typesugar/macros";
 
+// HKT syntax (`F<_>`) is rewritten by the kept transformer path — a real
+// transformation, so cache/source-map assertions are non-vacuous.
+const HKT_SRC = `type F<_> = { value: 1 };\ntype A = F<string>;`;
+
 function createPipelineFromFiles(files: Map<string, string>): TransformationPipeline {
   return new TransformationPipeline(
     {
@@ -57,10 +61,10 @@ const c: Container<string> = { value: "hello" };
 
 describe("Pipeline E2E: source map accuracy", () => {
   it("produces a source map for transformed files", () => {
-    const input = `const result = 1 |> ((x: number) => x + 1);`;
+    // HKT syntax (`F<_>`) is rewritten by the kept transformer path.
+    const input = `type F<_> = { value: number };\ntype Applied = F<string>;`;
 
-    // Use .sts extension for files with custom syntax (PEP-001)
-    const result = transformCode(input, { fileName: "map-test.sts" });
+    const result = transformCode(input, { fileName: "map-test.ts" });
 
     expect(result.sourceMap).not.toBeNull();
     expect(result.mapper).toBeDefined();
@@ -156,13 +160,12 @@ export const result = double(21);
 describe("Pipeline E2E: cache invalidation", () => {
   it("returns cached result on repeated transforms", () => {
     const files = new Map<string, string>();
-    // Use .sts extension for files with custom syntax (PEP-001)
-    files.set("/test/main.sts", `const result = 1 |> ((x: number) => x + 1);`);
+    files.set("/test/main.ts", HKT_SRC);
 
     const pipeline = createPipelineFromFiles(files);
 
-    const result1 = pipeline.transform("/test/main.sts");
-    const result2 = pipeline.transform("/test/main.sts");
+    const result1 = pipeline.transform("/test/main.ts");
+    const result2 = pipeline.transform("/test/main.ts");
 
     // Cached: same code
     expect(result1.code).toBe(result2.code);
@@ -171,20 +174,19 @@ describe("Pipeline E2E: cache invalidation", () => {
 
   it("returns fresh result after invalidation", () => {
     const files = new Map<string, string>();
-    // Use .sts extension for files with custom syntax (PEP-001)
-    files.set("/test/main.sts", `const result = 1 |> ((x: number) => x + 1);`);
+    files.set("/test/main.ts", HKT_SRC);
 
     const pipeline = createPipelineFromFiles(files);
 
-    const result1 = pipeline.transform("/test/main.sts");
+    const result1 = pipeline.transform("/test/main.ts");
 
     // Update file content
-    files.set("/test/main.sts", `const result = 99 |> ((x: number) => x + 1);`);
+    files.set("/test/main.ts", `type F<_> = { value: 99 };\ntype A = F<string>;`);
 
     // Invalidate cache
-    pipeline.invalidate("/test/main.sts");
+    pipeline.invalidate("/test/main.ts");
 
-    const result3 = pipeline.transform("/test/main.sts");
+    const result3 = pipeline.transform("/test/main.ts");
 
     // Should reflect the new content
     expect(result3.original).toContain("99");
@@ -213,15 +215,14 @@ describe("Pipeline E2E: cache invalidation", () => {
 
   it("tracks cache statistics", () => {
     const files = new Map<string, string>();
-    // Use .sts extension for files with custom syntax (PEP-001)
-    files.set("/test/main.sts", `const x = 1 |> ((n: number) => n + 1);`);
+    files.set("/test/main.ts", HKT_SRC);
 
     const pipeline = createPipelineFromFiles(files);
 
     const statsBefore = pipeline.getCacheStats();
     expect(statsBefore.transformedCount).toBe(0);
 
-    pipeline.transform("/test/main.sts");
+    pipeline.transform("/test/main.ts");
 
     const statsAfter = pipeline.getCacheStats();
     expect(statsAfter.transformedCount).toBeGreaterThanOrEqual(1);
