@@ -1,6 +1,11 @@
 # typesugar Roadmap
 
-> Last updated: 2026-03-16
+> Last updated: 2026-06-17
+
+> **Reconciled with PEPs 040–049 (2026-06).** Items now owned by a PEP point at
+> it; `.sts`-dependent items were removed per [PEP-047](peps/PEP-047-remove-sts.md);
+> packages frozen/removed by [PEP-048](peps/PEP-048-package-triage.md) are noted.
+> See [`peps/README.md`](peps/README.md) for the full PEP index.
 
 This roadmap is ordered by **adoption impact**, not coolness. The core thesis: typesugar has a compelling macro system with ~30 packages — but zero external users. More features won't fix that. Debuggability, trust, and killer demos will.
 
@@ -23,15 +28,17 @@ These gate adoption. Nothing else matters until these work. A developer evaluati
 
 **Where:** `packages/core/src/source-map.ts`, `packages/transformer/src/pipeline.ts`
 
-### Prettier Plugin ✅ Complete
+### Prettier Plugin ✅ Removed (PEP-047 / PEP-048)
 
 **Difficulty: 3 · Impact: 5**
 
-Full Prettier plugin implemented in `packages/prettier-plugin/` with pre-format/post-format pipeline for custom syntax.
+The custom Prettier plugin existed only to format `.sts` custom syntax (`F<_>`,
+`|>`, `::`). With `.sts` removed ([PEP-047](peps/PEP-047-remove-sts.md)), stock
+Prettier formats plain `.ts`/`.tsx` with no plugin; the
+`@typesugar/prettier-plugin` package was deleted in
+[PEP-048](peps/PEP-048-package-triage.md).
 
-- [x] Prettier plugin or preprocessor integration for custom operators
-- [x] Handle `F<_>` HKT syntax
-- [x] Handle `|>` pipeline and `::` cons operators
+- [x] ~~Prettier plugin for custom operators~~ — obsolete; use stock Prettier on `.ts`
 
 ### Specialization Diagnostics ✅ Complete
 
@@ -124,6 +131,8 @@ User.address.city.set(user, "NYC")
 
 Everyone uses arrays. Everyone chains `.map().filter()`. Showing this compiles to a single for-loop with zero intermediate allocations is a mic-drop moment.
 
+> **Vehicle note:** `[for (x of items) ...]` is not valid TypeScript, and the `.sts` preprocessor that could have parsed it was removed in [PEP-047](peps/PEP-047-remove-sts.md). A comprehension feature must now use a valid-syntax form (a tagged-template or function-call macro) until a parser strategy ([PEP-003](peps/PEP-003-oxc-sts-parser.md), withdrawn) returns.
+
 - [ ] Comprehension syntax: `[for (x of items) if (x > 0) x * 2]`
 - [ ] Compiles to single-pass `for` loop
 - [ ] No intermediate array allocations
@@ -141,17 +150,11 @@ for (let i = 0; i < items.length; i++) {
 }
 ```
 
-### Iterator Fusion (Phase 2 — compile-time chain analysis)
+### Iterator Fusion (Phase 2 — compile-time chain analysis) → [PEP-042](peps/PEP-042-fusion-kernels.md)
 
 **Difficulty: 5 · Impact: 5**
 
-The ultimate zero-cost demo. "Blitz++/Eigen but in TypeScript" is genuinely novel. Phase 1 (runtime lazy iterators) exists in `packages/fusion/`. Phase 2 fuses method chains at compile time.
-
-- [ ] Compile-time analysis of `.filter().map().reduce()` chains
-- [ ] Fuse into single loop with inlined predicates and transforms
-- [ ] Handle `take()`, `drop()`, early termination
-- [ ] Detect unfusable operations (sort, reverse) and materialize at boundaries
-- [ ] Benchmark suite proving zero intermediate allocations
+The ultimate zero-cost demo. "Blitz++/Eigen but in TypeScript" is genuinely novel. Phase 1 (runtime lazy iterators) exists in `packages/fusion/`. Phase 2 — compile-time chain fusion (inlined predicates, single-loop emission, unfusable-boundary materialization, a benchmark suite proving zero intermediate allocations) — is now planned in **[PEP-042](peps/PEP-042-fusion-kernels.md)**.
 
 **Where:** `packages/fusion/`
 
@@ -291,16 +294,11 @@ The unplugin creates `ts.Program` once at `buildStart` and never invalidates it.
 
 Practical features that make the type system feel magical.
 
-### Validate + Refined Type Integration
+### Validate + Refined Type Integration → [PEP-045](peps/PEP-045-taint-tracking.md)
 
 **Difficulty: 3 · Impact: 4**
 
-`@typesugar/validate` and `@typesugar/type-system` refined types aren't wired together. `generateValidationChecks` sees `Refined<number, Positive>` as plain `number` and misses the registered predicate.
-
-- [ ] Wire `generateValidationChecks` to recognize `Refined<Base, Brand>` types
-- [ ] Look up `REFINEMENT_PREDICATES` from the registry
-- [ ] Emit `.is()` / `.refine()` checks instead of just checking the base type
-- [ ] Compose with `@typesugar/contracts` to avoid duplicating checks
+Wiring `@typesugar/validate` to `@typesugar/type-system` refined types (recognize `Refined<Base, Brand>`, look up `REFINEMENT_PREDICATES`, emit `.is()`/`.refine()` checks, compose with `@typesugar/contracts`) is the foundation of **[PEP-045](peps/PEP-045-taint-tracking.md)** (taint tracking as a security product) and tracked there. Today `generateValidationChecks` still sees `Refined<number, Positive>` as plain `number`.
 
 **Where:** `packages/validate/`, `packages/type-system/`
 
@@ -316,17 +314,11 @@ Discriminated unions are everywhere in TypeScript. The validator should detect t
 
 **Where:** `packages/validate/`
 
-### Inline Constraint Syntax (`number :| Positive`)
+### Inline Constraint Syntax (`number :| Positive`) — blocked (no surface-syntax vehicle)
 
 **Difficulty: 3 · Impact: 4**
 
-Beautiful ergonomics. `number :| Positive` instead of `Refined<number, Positive>`. Needs preprocessor support.
-
-- [ ] Preprocessor rewrite: `T :| C` → `Refined<T, C>`
-- [ ] Support constraint composition: `number :| Positive & Lt<100>`
-- [ ] Integrate with Prettier plugin (P0)
-
-**Where:** `packages/preprocessor/`
+`number :| Positive` instead of `Refined<number, Positive>` would need custom surface syntax. The `.sts` preprocessor that could have rewritten `T :| C` → `Refined<T, C>` was removed in [PEP-047](peps/PEP-047-remove-sts.md), and the oxc-parser vehicle ([PEP-003](peps/PEP-003-oxc-sts-parser.md)) is withdrawn. Use `Refined<T, C>` directly until a parser strategy returns.
 
 ### Implicit Unit Conversion
 
@@ -359,16 +351,11 @@ Shrinking is the difference between "property testing" and "random testing." Whe
 
 For power users. These are the exciting roadmap items that keep engaged users invested once adoption exists.
 
-### Compile-Time Parser Generation (Phase 2)
+### Compile-Time Parser Generation (Phase 2) → [PEP-043](peps/PEP-043-sql-schema-verification.md) Wave 3
 
 **Difficulty: 5 · Impact: 5**
 
-The `grammar` tagged template already parses and produces runtime combinators. Phase 2 compiles the grammar into a zero-cost recursive descent parser — no combinator overhead, just `if`/`while` loops.
-
-- [ ] Compile grammar IR to recursive descent parser AST
-- [ ] Inline semantic actions
-- [ ] Error recovery with furthest-failure tracking
-- [ ] Benchmark against hand-written parsers
+The `grammar` tagged template already parses and produces runtime combinators. Phase 2 (compile grammar IR to a zero-cost recursive-descent parser) is now carried by **[PEP-043](peps/PEP-043-sql-schema-verification.md) Wave 3**, which reuses the PEG machinery for its SQL-subset parser. Note: `@typesugar/parser` is **Frozen** ([PEP-048](peps/PEP-048-package-triage.md)) — no standalone roadmap of its own.
 
 **Where:** `packages/parser/`
 
@@ -387,7 +374,7 @@ Extends the `= implicit()` pattern beyond typeclass instances to general context
 
 **Difficulty: 4 · Impact: 4**
 
-Phase 1 has explicit vtables. Phase 2 auto-resolves vtables from the typeclass registry at compile time. `dyn Trait` for TypeScript.
+Phase 1 has explicit vtables. Phase 2 auto-resolves vtables from the typeclass registry at compile time. `dyn Trait` for TypeScript. Note: `@typesugar/erased` is **Frozen** ([PEP-048](peps/PEP-048-package-triage.md)) — Phase 2 is unscheduled.
 
 - [ ] `erased(value)` inspects type and resolves typeclass instances
 - [ ] Auto-generate vtable from resolved instances
@@ -395,16 +382,11 @@ Phase 1 has explicit vtables. Phase 2 auto-resolves vtables from the typeclass r
 
 **Where:** `packages/erased/`
 
-### State Machine Verification
+### State Machine Verification → [PEP-046](peps/PEP-046-zero-cost-state-machines.md)
 
 **Difficulty: 3 · Impact: 4**
 
-Compile-time reachability analysis, deadlock detection, and determinism checking for state machines. Practical for workflow engines and order processing.
-
-- [ ] Reachability from initial state
-- [ ] Dead-end state detection
-- [ ] Determinism check (no state has two transitions with same event)
-- [ ] Integrate with phantom state machines from `type-system`
+Compile-time reachability analysis, deadlock detection, and determinism checking for state machines (reachability, dead-end detection, determinism, integration with `type-system` phantom state machines) is now planned in **[PEP-046](peps/PEP-046-zero-cost-state-machines.md)**.
 
 **Where:** `packages/graph/`
 
@@ -414,18 +396,18 @@ Compile-time reachability analysis, deadlock detection, and determinism checking
 
 Lower priority. Either the audience is narrow, the problem is solved elsewhere, or the effort-to-value ratio is poor.
 
-| Feature                                            | Difficulty | Why Lower                                                                                                       |
-| -------------------------------------------------- | :--------: | --------------------------------------------------------------------------------------------------------------- |
-| **Taint tracking** (`@tainted`/`@sanitized`)       |     4      | Intellectually elegant but TS injection surfaces are narrow. Frameworks solve this.                             |
-| **Capability tracking** (`@requires`/`@provides`)  |     4      | Effect-system-for-TS has been attempted many times. Small audience, already served by Effect.                   |
-| **Cross-function contract propagation**            |     4      | Inter-procedural analysis is a research project. Basic contracts are good enough for now.                       |
-| ~~**Z3 integration for decidable predicates**~~    |     —      | Removed. Basic algebraic prover is sufficient.                                                                  |
-| **Compile-time graph algorithms (Dijkstra, etc.)** |     4      | When will someone run shortest-path at compile time? State machine verification (P5) covers the practical case. |
-| **`@profiled` / `@timeout` / `@retry` macros**     |     2      | Easy but not differentiating. These exist as npm packages. Build after `defineWrappingMacro()` as examples.     |
-| **Debug mode with expansion comments**             |     2      | Source maps (P0) solve this better.                                                                             |
-| **HList `mapWith(TC)` Phase 2**                    |     3      | TS tuple type recursion limits (~20 elements) limit the practical audience.                                     |
-| **Lazy instance registration**                     |     3      | Tree-shaking improvement. Nice but `/*#__PURE__*/` (P0) covers most of it.                                      |
-| **`@deprecated` attribute macro**                  |     3      | JSDoc `@deprecated` + TypeScript's built-in strikethrough covers 80% of this.                                   |
+| Feature                                            | Difficulty | Why Lower                                                                                                                                                             |
+| -------------------------------------------------- | :--------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Taint tracking** (`@tainted`/`@sanitized`)       |     4      | Superseded by [PEP-045](peps/PEP-045-taint-tracking.md) — reframed as a security product. (Earlier note: injection surfaces narrow; PEP-045 makes the security case.) |
+| **Capability tracking** (`@requires`/`@provides`)  |     4      | Effect-system-for-TS has been attempted many times. Small audience, already served by Effect.                                                                         |
+| **Cross-function contract propagation**            |     4      | Inter-procedural analysis is a research project. Basic contracts are good enough for now.                                                                             |
+| ~~**Z3 integration for decidable predicates**~~    |     —      | Removed. Basic algebraic prover is sufficient.                                                                                                                        |
+| **Compile-time graph algorithms (Dijkstra, etc.)** |     4      | When will someone run shortest-path at compile time? State machine verification (P5) covers the practical case.                                                       |
+| **`@profiled` / `@timeout` / `@retry` macros**     |     2      | Easy but not differentiating. These exist as npm packages. Build after `defineWrappingMacro()` as examples.                                                           |
+| **Debug mode with expansion comments**             |     2      | Source maps (P0) solve this better.                                                                                                                                   |
+| **HList `mapWith(TC)` Phase 2**                    |     3      | TS tuple type recursion limits (~20 elements) limit the practical audience.                                                                                           |
+| **Lazy instance registration**                     |     3      | Tree-shaking improvement. Nice but `/*#__PURE__*/` (P0) covers most of it.                                                                                            |
+| **`@deprecated` attribute macro**                  |     3      | JSDoc `@deprecated` + TypeScript's built-in strikethrough covers 80% of this.                                                                                         |
 
 ---
 
@@ -445,11 +427,11 @@ See `docs/VISION-WEB-FRAMEWORK.md` for the full design.
 
 These are design questions, not implementation tasks. They need decisions before work can proceed.
 
-| Question                         | Context                                                                                    | Options                                                                   |
-| -------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| **`===` operator semantics**     | Rewriting `===` from reference to structural equality violates principle of least surprise | Use a distinct operator for structural equality? Keep `===` and document? |
-| **True lexical hygiene**         | Current hygiene is name-mangling, not scope-aware                                          | Investigate TypeScript Symbol API for scope tracking? Accept gensym?      |
-| **Phase separation in unplugin** | Preprocessor rewrites text but type checker sees original source                           | Custom CompilerHost (see PLAN-implicit-operators.md)? Accept limitation?  |
+| Question                           | Context                                                                                                                                                                                                               | Options                                                                   |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **`===` operator semantics**       | Rewriting `===` from reference to structural equality violates principle of least surprise                                                                                                                            | Use a distinct operator for structural equality? Keep `===` and document? |
+| **True lexical hygiene**           | Current hygiene is name-mangling, not scope-aware                                                                                                                                                                     | Investigate TypeScript Symbol API for scope tracking? Accept gensym?      |
+| **HKT rewriter checker alignment** | The kept `.ts` HKT rewriter rewrites `F<A>`→`Kind<F,A>` text; the checker sees rewritten text (single-identifier blast radius). The broader `.sts` preprocessor was removed in [PEP-047](peps/PEP-047-remove-sts.md). | Custom CompilerHost? Accept the limitation?                               |
 
 See `docs/ANALYSIS-language-design.md` for detailed analysis.
 

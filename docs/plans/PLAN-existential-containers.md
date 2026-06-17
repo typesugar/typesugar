@@ -1,5 +1,9 @@
 # Plan: Type Erasure / Existential Containers (Boost.TypeErasure-Style)
 
+> **Plan doc.** Phase 1 shipped as `@typesugar/erased`, now **Frozen**
+> ([PEP-048](../../peps/PEP-048-package-triage.md)). Phase 2 unstarted. Retained
+> for design history.
+
 ## Status: PHASE 1 IMPLEMENTED
 
 Phase 1 (Erased type with explicit vtables, built-in capabilities, collections, widen/narrow) is implemented in `packages/erased/`. Phase 2 (auto-resolve vtables from typeclass registry at compile time) is future work.

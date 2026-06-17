@@ -1,5 +1,9 @@
 # Plan: Expression Templates / Loop Fusion
 
+> **Plan doc — superseded by [PEP-042](../../peps/PEP-042-fusion-kernels.md).**
+> Phase 1 shipped as `@typesugar/fusion`; further work is tracked in PEP-042.
+> Retained for design history.
+
 ## Status: PHASE 1 IMPLEMENTED
 
 Phase 1 (lazy iterator fusion with single-pass execution, vec element-wise operations) is implemented in `packages/fusion/`. Phase 2 (compile-time method chain analysis and fused loop emission) is future work.

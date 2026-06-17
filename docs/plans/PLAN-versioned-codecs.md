@@ -1,5 +1,9 @@
 # Plan: Versioned Codec Generation (Boost.Serialization-Style)
 
+> **Plan doc.** Phase 1 shipped as `@typesugar/codec`, now **Frozen**
+> ([PEP-048](../../peps/PEP-048-package-triage.md)). Phase 2 unstarted. Retained
+> for design history.
+
 ## Status: PHASE 1 IMPLEMENTED
 
 Phase 1 (schema builder, JSON codec with versioning, binary codec, migration chains, validation) is implemented in `packages/codec/`. Phase 2 (MessagePack format, compile-time schema reading from types) is future work.
