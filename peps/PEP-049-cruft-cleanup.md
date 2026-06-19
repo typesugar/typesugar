@@ -1,6 +1,6 @@
 # PEP-049: Cruft Cleanup — Stale Plans, Docs Drift, Test Debt, Security Backlog
 
-**Status:** Draft
+**Status:** In Progress
 **Date:** 2026-06-10
 **Author:** Dean Povey
 
@@ -22,31 +22,53 @@ Related but **not** in scope here: `.sts` removal (PEP-047), package triage
 
 Per `docs/PLAN-post-migration-cleanup.md`:
 
-- [ ] Fix root `tsconfig.json` references (still points at deleted `src/`)
-- [ ] Remove legacy test exclusions in the vitest workspace config
-- [ ] Fix vitest coverage paths
-- [ ] Replace transformer's hardcoded path mappings with the generic pattern
+- [x] Fix root `tsconfig.json` references (still points at deleted `src/`) — was
+      already free of `src/` refs; removed the stale `rootDir: "."` to match the
+      PLAN's intended final shape.
+- [x] Remove legacy test exclusions in the vitest workspace config — moot:
+      `vitest.workspace.ts` no longer exists; projects moved into
+      `vitest.config.ts` and the listed exclusions are gone.
+- [x] Fix vitest coverage paths — already corrected to `packages/*/src/**/*.ts`.
+- [x] Replace transformer's hardcoded path mappings with the generic pattern —
+      `resolveModuleSpecifier()` already uses the generic `/packages/([a-z0-9-]+)/`
+      regex; no legacy `/src/use-cases/` mappings remain.
 
-Then delete the PLAN file (its content moves into the commit message).
+Done (2026-06-17): the four substantive items had already drifted into their fixed
+state in the tree, so Wave 1 reduced to the `rootDir` tidy plus deleting the PLAN
+file and clearing the dangling reference in PEP-021. Note: relocating the root
+`tests/contracts*.test.ts` files (PLAN Phase 2 detail) was **not** done — the
+package already has a _different_ `packages/contracts/tests/contracts.test.ts`, so
+that is a merge, not a move, and it overlaps Wave 4 test-debt territory.
 
 ## Wave 2 — Docs hygiene
 
-- [ ] **Rename `docs/completed/` → `docs/plans/`** — it contains forward-looking
-      feature plans, not completed work. Audit each file: plans superseded by
-      shipped PEPs get a one-line header pointing at the PEP; plans superseded
-      by PEP-042/043/046 likewise (expression-templates → PEP-042, spirit-parsers
-      → PEP-043 Wave 3 note, graph → PEP-046).
-- [ ] **Refresh ROADMAP.md** (last updated 2026-03-16): mark shipped items
-      (PEP-039 hardening), fold the P1/P4/P5 items now owned by PEP-040…046 into
-      references, remove `.sts`-dependent items per PEP-047, restate the P6 taint
-      row as "superseded by PEP-045".
-- [ ] **Refresh TODO.md**: delete entries that are now PEPs (state machines,
-      taint, validate+refined wiring), delete `.sts`-obsoleted entries
-      (phase-separation item shrinks to the HKT-rewriter note per PEP-047).
-- [ ] **README accuracy pass**: package table per PEP-048 tiers; remove the
-      `.sts` comparison table; do not advertise `transformInto` until it works.
-- [ ] Add a `peps/README.md` index (number, title, status, one-liner) — 39+ PEPs
-      with no index is real friction.
+- [x] **Rename `docs/completed/` → `docs/plans/`** — `git mv`'d; each of the 8
+      plan files got a one-line PEP-pointer header (expression-templates → PEP-042,
+      graph → PEP-046, spirit-parsers → PEP-043 Wave 3 / parser Frozen,
+      implicit-operators → PEP-004, contracts → PEP-045, hlist-fusion → removed in
+      PEP-048, existential-containers/versioned-codecs → erased/codec Frozen).
+      Repointed the live `docs/completed/` reference in PEP-042.
+- [x] **Refresh ROADMAP.md**: re-dated to 2026-06-17 with a "reconciled with
+      PEPs 040–049" banner; Prettier-plugin section restated as Removed
+      (PEP-047/048); Iterator Fusion → PEP-042, Parser Gen → PEP-043 Wave 3,
+      State-Machine Verification → PEP-046, Validate+Refined → PEP-045; P6 taint
+      row → superseded by PEP-045; `.sts`-dependent items (inline `:|` constraint
+      syntax, `[for …]` comprehensions, phase-separation row) annotated/removed
+      per PEP-047.
+- [x] **Refresh TODO.md**: validate+refined and taint entries folded into PEP-045
+      references; phase-separation item shrunk to the HKT-rewriter note (PEP-047);
+      dropped the `===`-via-preprocessor aside.
+- [x] **README accuracy pass**: the root README was already PEP-048-tier-accurate
+      (Frozen section present, removed packages gone) and carries no `.sts`
+      comparison table or `transformInto` advertising — no changes needed.
+      (`transformInto` now generates code per PEP-048 Wave 3, so the mapper README
+      advertising it is honest.)
+- [x] Added [`peps/README.md`](README.md) index (number, title, status) covering
+      all 48 PEPs.
+
+Done (2026-06-17). Note: `docs/PLAN-language-service-v2.md` (a docs-root plan with
+`.sts` mentions) was left in place — not in this wave's named scope; it is a
+candidate for a future move to `docs/plans/`.
 
 ## Wave 3 — Security backlog
 

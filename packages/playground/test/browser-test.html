@@ -113,9 +113,7 @@
       <button id="transform-btn">Transform</button>
       <select id="file-type">
         <option value=".ts">.ts (TypeScript)</option>
-        <option value=".sts">.sts (Sugar TypeScript)</option>
       </select>
-      <button id="preprocess-btn">Preprocess Only</button>
     </div>
 
     <div class="container">
@@ -165,7 +163,6 @@ console.log(greet("World"));
         const output = document.getElementById("output");
         const diagnostics = document.getElementById("diagnostics");
         const transformBtn = document.getElementById("transform-btn");
-        const preprocessBtn = document.getElementById("preprocess-btn");
         const fileType = document.getElementById("file-type");
 
         status.textContent = "✓ Playground loaded successfully!";
@@ -200,25 +197,6 @@ console.log(greet("World"));
               verbose: true,
             });
             showResult(result);
-          } catch (e) {
-            status.textContent = "Error: " + e.message;
-            status.className = "error";
-            console.error(e);
-          }
-        });
-
-        preprocessBtn.addEventListener("click", () => {
-          try {
-            const code = input.value;
-            const result = window.playground.preprocessCode(code, {
-              fileName: getFileName(),
-            });
-            output.value = result.code;
-            diagnostics.innerHTML = "";
-            status.textContent = result.changed
-              ? "Preprocessing complete (changed)"
-              : "No preprocessing needed";
-            status.className = "success";
           } catch (e) {
             status.textContent = "Error: " + e.message;
             status.className = "error";

@@ -1,5 +1,8 @@
 # Plan: Typeclass-Based Operator Overloading — `@op` JSDoc Design
 
+> **Plan doc — superseded by [PEP-004](../../peps/PEP-004-source-based-typeclass-features.md).**
+> Retained for design history.
+
 ## Status: IMPLEMENTED (Superseded by PEP-004)
 
 The core infrastructure is implemented. This document describes the design and implementation.

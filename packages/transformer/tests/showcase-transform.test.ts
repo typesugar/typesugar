@@ -29,7 +29,7 @@ function findExampleFiles(): Array<{ pkg: string; file: string; fullPath: string
 
     const files = fs.readdirSync(examplesDir);
     for (const file of files) {
-      if (/\.(ts|sts)x?$/.test(file)) {
+      if (/\.tsx?$/.test(file)) {
         results.push({
           pkg: entry.name,
           file,
@@ -52,8 +52,7 @@ describe("showcase and example files", () => {
   for (const { pkg, file, fullPath } of exampleFiles) {
     it(`${pkg}/examples/${file} transforms without crashing`, () => {
       const code = fs.readFileSync(fullPath, "utf-8");
-      const fileName =
-        fullPath.endsWith(".sts") || fullPath.endsWith(".stsx") ? fullPath : fullPath;
+      const fileName = fullPath;
 
       // Must not throw — crashes indicate transformer bugs
       let result: ReturnType<typeof transformCode>;

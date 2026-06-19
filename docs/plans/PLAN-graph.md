@@ -1,5 +1,8 @@
 # Plan: Compile-Time Graph Algorithms & State Machine Verification
 
+> **Plan doc — superseded by [PEP-046](../../peps/PEP-046-zero-cost-state-machines.md).**
+> Phase 1 shipped as `@typesugar/graph`. Retained for design history.
+
 ## Status: PHASE 1 IMPLEMENTED
 
 Phase 1 (graph construction, algorithms, state machine verification, DSL, tagged templates) is implemented in `packages/graph/`. Phase 2 (compile-time algorithm execution via `comptime()`) is future work.

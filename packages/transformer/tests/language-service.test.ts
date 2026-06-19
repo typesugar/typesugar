@@ -22,6 +22,10 @@ import {
   type SfinaeRule,
 } from "@typesugar/core";
 
+// HKT syntax (`F<_>`) is rewritten by the kept transformer path — a real
+// transformation, so changed-flag/source-map assertions are non-vacuous.
+const HKT_SRC = `type F<_> = { value: number };\ntype Applied = F<string>;`;
+
 /**
  * Creates a mock LanguageServiceHost for testing
  */
@@ -349,7 +353,7 @@ describe("TransformationPipeline integration", () => {
 
   describe("transform result", () => {
     it("includes position mapper", () => {
-      const code = "const result = 1 |> ((x) => x + 1);";
+      const code = HKT_SRC;
       const result = transformCode(code, { fileName: "test.ts" });
 
       expect(result.mapper).toBeDefined();
@@ -358,9 +362,9 @@ describe("TransformationPipeline integration", () => {
     });
 
     it("includes changed flag", () => {
-      const code = "const result = 1 |> ((x) => x + 1);";
-      // Use .sts extension for files with custom syntax (PEP-001)
-      const result = transformCode(code, { fileName: "test.sts" });
+      // HKT syntax (`F<_>`) is rewritten by the kept transformer path.
+      const code = HKT_SRC;
+      const result = transformCode(code, { fileName: "test.ts" });
 
       expect(result.changed).toBe(true);
     });
@@ -377,21 +381,21 @@ describe("TransformationPipeline integration", () => {
 });
 
 describe("Position Mapping", () => {
-  describe("pipe operator transformation", () => {
-    it("maps positions correctly after pipe transformation", () => {
-      const original = "const result = 1 |> ((x) => x + 1);";
+  describe("position mapping after transformation", () => {
+    it("maps positions correctly after HKT transformation", () => {
+      const original = HKT_SRC;
       const result = transformCode(original, { fileName: "test.ts" });
 
-      // The "const" keyword should still be at position 0
-      const constPos = result.mapper.toOriginal(0);
-      expect(constPos).toBe(0);
+      // The "type" keyword should still be at position 0
+      const typePos = result.mapper.toOriginal(0);
+      expect(typePos).toBe(0);
     });
 
     it("handles multi-line transformations", () => {
       const original = `
-const a = 1;
-const b = a |> ((x) => x + 1);
-const c = b |> ((x) => x * 2);
+type F<_> = { value: number };
+type G<_> = { items: string[] };
+type Applied = F<string>;
       `.trim();
 
       const result = transformCode(original, { fileName: "test.ts" });

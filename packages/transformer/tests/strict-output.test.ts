@@ -82,7 +82,7 @@ function getAllExamples(): { name: string; filePath: string; code: string }[] {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
-      } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".sts")) {
+      } else if (entry.name.endsWith(".ts")) {
         const rel = path.relative(DOCS_EXAMPLES_DIR, full);
         examples.push({
           name: rel,

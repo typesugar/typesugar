@@ -154,7 +154,7 @@ describe("TransformationPipeline", () => {
 
   describe("source map composition", () => {
     it("provides a position mapper", () => {
-      const code = `const result = 1 |> ((x) => x + 1);`;
+      const code = `type F<_> = { value: number };\ntype Applied = F<string>;`;
 
       const result = transformCode(code, { fileName: "test.ts" });
 

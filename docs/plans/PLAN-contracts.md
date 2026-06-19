@@ -1,5 +1,8 @@
 # Design by Contract for typesugar
 
+> **Plan doc.** Shipped as `@typesugar/contracts`; the prover backs
+> [PEP-045](../../peps/PEP-045-taint-tracking.md). Retained for design history.
+
 > **Status**: Implemented (Phase 1-4). Coq-inspired extensions complete.
 
 ## Overview

@@ -71,7 +71,7 @@ for (let i = 0; i < n; i++) c[i] = a[i] * 2.0 + b[i] / scale;
 
 - In-place forms (`c.set(a * 2 + b)`) emit zero allocations.
 - Reductions (`sum(a * b)` = dot product) fuse into the same loop.
-- This is the expression-templates plan from `docs/completed/` made real, scoped
+- This is the expression-templates plan from `docs/plans/` made real, scoped
   to 1-D typed arrays first. Matrices (`@typesugar/math`) come later, if at all —
   see PEP-048 triage.
 

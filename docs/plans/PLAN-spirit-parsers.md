@@ -1,5 +1,10 @@
 # Plan: Compile-Time Parser Generation (Spirit-Style)
 
+> **Plan doc.** Phase 1 shipped as `@typesugar/parser` (now **Frozen**,
+> [PEP-048](../../peps/PEP-048-package-triage.md)); its PEG machinery is reused by
+> [PEP-043](../../peps/PEP-043-sql-schema-verification.md) Wave 3. Retained for
+> design history.
+
 ## Status: PHASE 1 IMPLEMENTED
 
 Phase 1 (runtime combinators + grammar DSL + tagged template macro) is implemented in `packages/parser/`. Phase 2 (compile-time inlined parser generation) is future work.

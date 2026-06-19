@@ -159,3 +159,32 @@ entirely**:
   on the `Kind` type's own instantiation, exactly as the kept path already did.
 - **Removed the lexical `F<_>` declaration form** and the dead `|>`/`::`/cons
   operator tests; the kept `pipe()`/`match()` macros are unaffected.
+
+## Follow-up (2026-06-17) — Wave 3/4 leftovers swept
+
+A PEP-049 audit found the substantive removal (Waves 1–2, most of 4) had landed,
+but stale `.sts`/`|>` references survived in tests and a couple of scraps — they
+passed vacuously, so the Done marking had drifted ahead of the tree. Swept:
+
+- **Dead operator macros removed.** `pipeOpMacro`/`consOpMacro`/`applyOpMacro`
+  (`__pipe__`/`__cons__`/`__apply__`) and their helper `tryTypeclassResolution`
+  in `packages/macros/src/operators.ts` were only ever emitted by the deleted
+  preprocessor (the "audit; if syntax-only, remove it too" item under "What is
+  kept"). Removed them, their registrations, and their `operators.test.ts` cases.
+  The kept `pipe()`/`compose()` named macros and `getOperatorString` stay. The
+  dormant `"custom-operator"` `ResolutionKind` member is left as-is (removing a
+  published union member is a breaking type change for no behavioural gain).
+- **Stale test inputs rewritten to the kept HKT path.** `.sts` filenames and
+  `1 |> f` snippets in `pipeline-e2e`, `pipeline`, and `language-service` tests
+  now use `type F<_> = …` (the kept rewrite) so the source-map/cache/changed-flag
+  assertions exercise a real transformation again. The language-service tests
+  that feed `|>` as deliberately-invalid syntax (LSP robustness, self-contained
+  `__binop__` mocks) were left — that is valid post-removal coverage.
+- **Scraps:** dropped `sts|stsx` from `showcase-transform`/`strict-output` test
+  file-scan filters and the no-op `.sts` ternary; narrowed the `api/compile.ts`
+  input-filename regex to `\.(ts|tsx)$`; removed the `.sts` dropdown option and
+  the dead "Preprocess Only" button (called the removed `preprocessCode` API)
+  from `packages/playground/test/browser-test.html`.
+
+Status stays **Done** — the `.sts` feature removal shipped 2026-06-13; this was
+test/doc rot cleanup, not a reopening.

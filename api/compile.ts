@@ -321,7 +321,7 @@ function typecheckOutput(
   inputCode: string,
   fileName: string
 ): TransformDiagnostic[] {
-  const inputFileName = fileName.replace(/\.(ts|tsx|sts|stsx)$/, ".__input__.$1");
+  const inputFileName = fileName.replace(/\.(ts|tsx)$/, ".__input__.$1");
 
   _strictFiles = new Map([
     [fileName, outputCode],

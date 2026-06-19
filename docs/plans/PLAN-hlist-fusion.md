@@ -1,5 +1,9 @@
 # Plan: HList / Heterogeneous Sequences (Fusion-Style)
 
+> **Plan doc — obsolete.** `@typesugar/hlist` was **removed** in
+> [PEP-048](../../peps/PEP-048-package-triage.md) (TS tuple-recursion limits cap it
+> at ~20 elements; no path to an audience). Retained for design history.
+
 ## Status: PHASE 1 IMPLEMENTED
 
 Phase 1 (HList types, operations, LabeledHList, macros) is implemented in `packages/hlist/`. Phase 2 (macro-based zero-cost inlining, `mapWith(TC)` typeclass resolution) is future work.

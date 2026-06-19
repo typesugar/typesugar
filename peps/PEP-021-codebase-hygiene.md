@@ -221,7 +221,7 @@ Additionally, `docs/PEP-014-adt-macro.md` and `docs/PEP-019-output-quality.md` a
   - `PLAN-spirit-parsers.md` (Phase 1 implemented)
 - [x] Keep active PLANs in `docs/`:
   - `PLAN-language-service-v2.md` (not yet started)
-  - `PLAN-post-migration-cleanup.md` (pending critical items)
+  - `PLAN-post-migration-cleanup.md` (executed and removed under PEP-049, 2026-06)
 - [x] In `packages/std/src/data/range.ts`: add `@deprecated` JSDoc to legacy function-based API (`range`, `rangeInclusive`, `rangeBy`, `rangeTo`, `rangeUntil`, `rangeToArray`) pointing users to `.to()` / `.until()` extension methods
 - [x] Update `packages/std/README.md` range section to lead with extension method API and show function API as deprecated
 - [x] Update stale TODO.md files in `packages/std/` and `packages/testing/` — remove items with passed dates (2026-02-21) or mark them as deferred
