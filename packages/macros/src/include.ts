@@ -62,10 +62,17 @@ function recordDependency(absolutePath: string): void {
  * Resolve a path against the source file's directory, ensuring the result
  * stays within the project root to prevent path traversal attacks (F2).
  *
- * Blocks:
+ * Blocks (lexically — `path.resolve` + `path.normalize`, then a project-root
+ * boundary check):
  * - Absolute paths: `/etc/passwd`
- * - Traversal: `../../../.env`
- * - Symlink escapes: resolved path is checked, not the raw input
+ * - Traversal: `../../../.env`, including forms that re-enter the root
+ *   (`./a/../../b`) — `..` segments are collapsed before the check.
+ *
+ * Does NOT resolve symlinks: a symlink *already planted inside* the project
+ * root that points outside it would not be caught. That requires write access
+ * to the repo, which is outside the macro-argument threat model (a hostile
+ * dependency can only pass a path string, not plant files). See F2 in
+ * docs/SECURITY-REVIEW.md.
  */
 function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
   if (path.isAbsolute(relativePath)) {
