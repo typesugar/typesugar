@@ -19,7 +19,6 @@ import "@typesugar/fp";
 import "@typesugar/graph";
 import "@typesugar/parser";
 import "@typesugar/strings";
-import "@typesugar/symbolic";
 import "@typesugar/testing/macros";
 import "@typesugar/erased";
 import "@typesugar/effect";
@@ -28,7 +27,6 @@ import "@typesugar/contracts";
 import "@typesugar/codec";
 import "@typesugar/mapper";
 import "@typesugar/fusion";
-import "@typesugar/hlist";
 import "@typesugar/units";
 import "@typesugar/sql";
 
