@@ -343,9 +343,7 @@ interface Range { start: number; end: number; }
     expect(result.code).toContain("Ord");
   });
 
-  it.skip("@deriving on type alias works", () => {
-    // TODO: JSDoc macros currently only fire on interface declarations, not type aliases
-    // This test is skipped until type alias support is added
+  it("@deriving on type alias works", () => {
     const code = `
 /** @deriving Debug */
 type Color = { r: number; g: number; b: number; };

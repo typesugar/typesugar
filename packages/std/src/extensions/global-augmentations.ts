@@ -333,7 +333,9 @@ declare global {
 
     // Rust-inspired
     thenSome<A>(value: A): A | undefined;
-    then<A>(fn: () => A): A | undefined;
+    // NOT `then`: a `then` method makes booleans look like thenables to
+    // `await` and breaks ESM module export (see boolean.ts). Use `andThen`.
+    andThen<A>(fn: () => A): A | undefined;
     elseSome<A>(value: A): A | undefined;
 
     // Haskell-inspired

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:failed": "bash scripts/rerun-failed.sh",
     "test:watch": "vitest",
+    "check:skips": "node scripts/check-test-skips.mjs",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "typecheck": "pnpm -r --filter '!typesugar-example-*' typecheck",
     "lint": "pnpm -r lint",

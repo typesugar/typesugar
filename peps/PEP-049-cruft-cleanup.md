@@ -110,24 +110,50 @@ with the tree + open findings into the tracker.
 
 ## Wave 4 — Test debt (items not owned by another PEP)
 
-- [ ] `packages/std/tests/extensions.test.ts` — excluded in `vitest.config.ts`
-      "temporarily… needs transformer fix". Fix or delete; "temporarily" with no
-      owner is how suites rot.
-- [ ] `packages/contracts/tests/contracts.test.ts:174` — `requiresMacro.expand`
-      returns wrong node type; pre-existing failure. Fix the macro or the test.
-- [ ] `packages/macros/src/hkt.test.ts:620` (`it.todo`) —
-      `countUnderscoreMarkers` misses PropertySignature inside TypeLiteral
-      (TypeElement vs TypeNode in the recursion filter). Known bug with a known
-      cause; fix it.
-- [ ] `tests/source-map-unicode.test.ts:196` (`it.fails`) — position mapping
-      returns null after emoji + pipe expansion. Note: if PEP-047 removes pipe
-      syntax, re-test; the bug may evaporate or may reproduce with other
-      expansions — keep the multi-byte regression test either way.
-- [ ] `tests/jsdoc-macros.test.ts` — `@deriving` on type alias skipped with no
-      reason recorded. Decide: support it (it's a natural ask) or document the
-      limitation and delete the skip.
-- [ ] Policy line for AGENTS.md: **every `.skip` must carry a reason comment and
-      an issue/PEP reference**; CI greps for naked skips.
+- [x] `packages/std/tests/extensions.test.ts` — **not** a transformer issue.
+      Real causes: (1) `boolean.ts` exported a function named `then`, which makes
+      the ESM module namespace a thenable so `await import()` of it rejects with
+      `undefined` (renamed → `andThen`, with a comment); (2) a wrong import path
+      (`../extensions/…` → `../src/extensions/…`). Removed both vitest exclusions;
+      96 runtime tests now pass in CI. Deleted the 7 "Global Augmentation
+      type-check" tests — they used method syntax needing transformer rewriting
+      that doesn't run in vitest, while `typecheck` is off and std's tsconfig
+      excludes tests, so they asserted nothing; augmentation coverage already
+      lives in `augmentation-consistency.test.ts` + `tsc` on `src/`.
+- [x] `packages/contracts/tests/contracts.test.ts` — the "wrong node type" TODO
+      was stale; `requiresMacro.expand` returns the right `BinaryExpression`
+      now. Un-skipped; passes.
+- [x] `packages/macros/src/hkt.test.ts` (`it.todo`) — fixed
+      `countUnderscoreMarkers` to walk the full subtree (was gated on
+      `ts.isTypeNode`, skipping `PropertySignature` members of a `TypeLiteral`).
+      Replaced the todo with two real tests (`{ value: _ }` and a nested case).
+- [x] `tests/source-map-unicode.test.ts` (`it.fails`) — bug did **not** evaporate
+      and is **not** multi-byte: a `${…}` template-literal substitution (emoji or
+      not) loses mapping after a macro expansion; a plain string maps fine. Filed
+      #19, rewrote the test to state the true root cause, kept it as a live
+      `it.fails` guard. Genuine multi-byte mapping is covered by the passing
+      sibling tests.
+- [x] `tests/jsdoc-macros.test.ts` — `@deriving` on type alias **is** supported
+      now (`isJSDocMacroTargetNode` includes `TypeAliasDeclaration`); the skip was
+      stale. Un-skipped; passes.
+- [x] Root `tests/contracts.test.ts` was a pure duplicate of the package file
+      (identical `it()` titles, differs only in harness setup) — deleted.
+      `tests/contracts-coq.test.ts` (distinct dependent-types/decidability suite)
+      `git mv`'d to `packages/contracts/tests/contracts-coq.test.ts` (kept as its
+      own file by concern rather than crammed into `contracts.test.ts`). Both run
+      in the package project; 84 tests pass.
+- [x] AGENTS.md "Test Skips" policy added: every `.skip`/`.todo`/`.fails`/`xit`
+      needs a reason + issue/PEP reference (same line or within 3 lines above).
+      CI enforces it in **Lint & Typecheck** via `pnpm run check:skips`
+      (`scripts/check-test-skips.mjs`); `skipIf` and empty-body placeholders are
+      exempt. Collapsed the 11 `describe.skip` in `tests/red-team-mapper.test.ts`
+      into one documented outer skip (blocked on #9).
+
+Done (2026-06-21). Recurring theme: most "broken test" markers were stale (the
+contracts and jsdoc skips, the source-map "multi-byte" framing) or mislabeled
+(the std "transformer fix" was an ESM `then`-export footgun). Real fixes landed
+for the hkt recursion bug, the `then`→`andThen` rename, and the import-path typo;
+one genuine source-map generation bug (#19) was documented rather than fixed.
 
 ## Wave 5 — Benchmarks out of the dark
 

@@ -170,8 +170,7 @@ describe("requires() macro", () => {
     });
   });
 
-  // TODO: pre-existing failure — requiresMacro.expand returns wrong node type
-  it.skip("should generate a check expression in full mode", () => {
+  it("should generate a check expression in full mode", () => {
     const condition = ts.factory.createBinaryExpression(
       ts.factory.createIdentifier("x"),
       ts.factory.createToken(ts.SyntaxKind.GreaterThanToken),
