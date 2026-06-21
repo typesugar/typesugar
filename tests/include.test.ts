@@ -178,4 +178,105 @@ describe("compile-time file I/O macros", () => {
       expect(text).toContain("108"); // 0x6c = 108
     });
   });
+
+  // ===========================================================================
+  // Red-team: path traversal (F2 in docs/SECURITY-REVIEW.md)
+  //
+  // A hostile dependency can only influence the *path string* passed to an
+  // include macro. These tests assert the boundary check blocks every way of
+  // escaping the project root. `resolveRelativePath` throws synchronously; the
+  // transformer catches that and surfaces it as a diagnostic (see
+  // transformer.ts: `Macro expansion failed`), so compilation fails loudly
+  // rather than embedding the file.
+  // ===========================================================================
+  describe("security: path traversal (F2)", () => {
+    // Stage a secret OUTSIDE the project root so an escape would be observable.
+    let secretPath: string;
+    beforeAll(() => {
+      secretPath = path.join(os.tmpdir(), `typesugar-secret-${path.basename(tmpDir)}.txt`);
+      fs.writeFileSync(secretPath, "TOP_SECRET_CONTENTS");
+    });
+    afterAll(() => {
+      fs.rmSync(secretPath, { force: true });
+    });
+
+    function callWith(arg: string): () => ts.Expression {
+      const node = ts.factory.createStringLiteral(arg);
+      const callExpr = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("includeStr"),
+        undefined,
+        [node]
+      );
+      return () => includeStrMacro.expand(ctx, callExpr, [node]);
+    }
+
+    it("blocks relative traversal that escapes the project root", () => {
+      expect(callWith("../../../../etc/passwd")).toThrow(/Security|outside the project root/);
+    });
+
+    it("blocks traversal aimed at the staged out-of-root secret", () => {
+      // ../<basename of secret> from the source dir resolves to the secret file.
+      const rel = path.relative(tmpDir, secretPath);
+      expect(rel.startsWith("..")).toBe(true); // sanity: the path really escapes
+      expect(callWith(rel)).toThrow(/Security|outside the project root/);
+    });
+
+    it("blocks a POSIX absolute path", () => {
+      expect(callWith("/etc/passwd")).toThrow(/Security: absolute paths/);
+    });
+
+    it("blocks an absolute path to the staged secret", () => {
+      expect(callWith(secretPath)).toThrow(/Security: absolute paths/);
+    });
+
+    it("blocks traversal even when it re-enters via a sibling dir", () => {
+      // ./../<dir>/../../etc/passwd — collapses to an escape after normalization.
+      expect(callWith("./sub/../../../../etc/passwd")).toThrow(/Security|outside the project root/);
+    });
+
+    it("does not embed secret contents when an escape is attempted", () => {
+      // Belt-and-suspenders: confirm the secret never leaks into output even if
+      // the throw contract above ever regressed to a return.
+      let text: string | undefined;
+      try {
+        text = printExpr(callWith(secretPath)());
+      } catch {
+        text = undefined;
+      }
+      expect(text ?? "").not.toContain("TOP_SECRET_CONTENTS");
+    });
+
+    it("still allows legitimate relative paths that stay in-root", () => {
+      // Positive control: `.`-laden but in-bounds paths must keep working.
+      const node = ts.factory.createStringLiteral("./sub/../hello.txt");
+      const callExpr = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("includeStr"),
+        undefined,
+        [node]
+      );
+      const result = includeStrMacro.expand(ctx, callExpr, [node]);
+      expect(ts.isStringLiteral(result)).toBe(true);
+      expect((result as ts.StringLiteral).text).toBe("Hello, World!");
+    });
+
+    it("applies the same boundary to includeBytes and includeJson", () => {
+      const node = ts.factory.createStringLiteral("/etc/passwd");
+      const bytesCall = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("includeBytes"),
+        undefined,
+        [node]
+      );
+      const jsonCall = ts.factory.createCallExpression(
+        ts.factory.createIdentifier("includeJson"),
+        undefined,
+        [node]
+      );
+      expect(() => includeBytesMacro.expand(ctx, bytesCall, [node])).toThrow(
+        /Security: absolute paths/
+      );
+      expect(() => includeJsonMacro.expand(ctx, jsonCall, [node])).toThrow(
+        /Security: absolute paths/
+      );
+    });
+  });
 });

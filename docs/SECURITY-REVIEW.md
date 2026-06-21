@@ -1,13 +1,30 @@
-> **STALE NOTICE:** This security review was conducted on 2026-02-21 and may be outdated.
-> The codebase has evolved since then — file paths, API surfaces, and mitigations
-> referenced below may no longer be accurate. Treat this as a historical snapshot,
-> not a current assessment.
-
 # Security Review: typesugar Macro System
 
-**Date:** 2026-02-21
+**Original review:** 2026-02-21
+**Reconciled with tree:** 2026-06-21 (PEP-049 Wave 3)
 **Scope:** All macro execution paths, compile-time evaluation, file I/O, extension method resolution
 **Severity scale:** CRITICAL / HIGH / MEDIUM / LOW / INFO
+
+> **Reconciliation note (2026-06-21):** This review was originally conducted on
+> 2026-02-21. Each finding below now carries a **Status** line reflecting the
+> current tree, and the open HIGH findings live in the issue tracker rather than
+> only here. The longer-form proposals (trust tiers, taint tracking, WASM
+> sandbox) further down are still forward-looking, not implemented. The
+> authoritative plain-language trust model is [`SECURITY.md`](./SECURITY.md).
+>
+> Status summary:
+>
+> | Finding                             | Original | Now                                                                                                |
+> | ----------------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+> | F1 Unrestricted macro registration  | CRITICAL | Documented limitation — [#14](https://github.com/typesugar/typesugar/issues/14), see `SECURITY.md` |
+> | F2 Path traversal in include macros | CRITICAL | **Resolved** — boundary check + red-team tests                                                     |
+> | F3 Comptime `node:vm` escape        | HIGH     | Partially mitigated — [#15](https://github.com/typesugar/typesugar/issues/15)                      |
+> | F4 Capabilities advisory            | HIGH     | Partially addressed — [#16](https://github.com/typesugar/typesugar/issues/16)                      |
+> | F5 No macro output validation       | HIGH     | Open (detection exists) — [#17](https://github.com/typesugar/typesugar/issues/17)                  |
+> | F6–F8                               | MEDIUM   | Unchanged (see each finding)                                                                       |
+>
+> Detection: `typesugar expand <file> [--diff]` — the review's highest-ROI item —
+> **shipped** (`packages/transformer/src/cli.ts`).
 
 ---
 
@@ -66,9 +83,19 @@ This review identifies 8 vulnerabilities across 3 severity tiers and proposes a 
 
 ## Findings
 
-### F1: Unrestricted Macro Registration (CRITICAL)
+### F1: Unrestricted Macro Registration (CRITICAL → documented limitation)
 
-**Location:** `src/core/registry.ts`
+> **Status (2026-06-21):** Reclassified to a **documented known limitation** and
+> tracked in [#14](https://github.com/typesugar/typesugar/issues/14). The
+> proposed `macros.allow` allowlist was **deliberately not shipped**: the registry
+> keys on the macro's _self-declared_ `module` field
+> (`packages/core/src/registry.ts`), which a hostile package can set to any
+> allowlisted value — so the gate would be trivially bypassable (security
+> theater) and off-by-default. The honest trust-model statement is published in
+> [`SECURITY.md`](./SECURITY.md); a real control requires deriving the registering
+> package's identity from the module-resolution graph (future work, #14).
+
+**Location:** `packages/core/src/registry.ts`
 
 Any code that runs during TypeScript compilation can call `globalRegistry.register()` to add a macro. There is no authentication, signing, or allowlisting. A malicious `node_modules` package that is imported (even transitively) during compilation can register a macro that intercepts common patterns.
 
@@ -95,9 +122,23 @@ globalRegistry.register({
 
 ---
 
-### F2: Path Traversal in Include Macros (CRITICAL)
+### F2: Path Traversal in Include Macros (CRITICAL → RESOLVED)
 
-**Location:** `src/macros/include.ts:63-66`
+> **Status (2026-06-21):** **Resolved.** `resolveRelativePath`
+> (`packages/macros/src/include.ts`) now rejects absolute paths and boundary-checks
+> the normalized resolved path against the project root, throwing a `Security:`
+> error that the transformer surfaces as a diagnostic (compilation fails rather
+> than embedding the file). Red-team coverage lives in `tests/include.test.ts`
+> → "security: path traversal (F2)" (escaping traversal, absolute paths,
+> re-entrant traversal, a staged out-of-root secret, and `includeBytes`/
+> `includeJson` parity). The check is lexical (it does not resolve symlinks); a
+> symlink planted _inside_ the repo requires repo write access, which is outside
+> the macro-argument threat model. The same project-root boundary now also
+> applies to `comptime({ fs })` (`createSandboxFs`).
+>
+> The original finding follows for historical context.
+
+**Location (at review time):** `src/macros/include.ts:63-66`
 
 `resolveRelativePath` uses `path.resolve()` with no validation that the result stays within the project directory. Both relative traversal (`../../etc/passwd`) and absolute paths work.
 
@@ -127,9 +168,18 @@ function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
 
 ---
 
-### F3: Comptime Sandbox Escape via `node:vm` (HIGH)
+### F3: Comptime Sandbox Escape via `node:vm` (HIGH — partially mitigated)
 
-**Location:** `src/macros/comptime.ts`
+> **Status (2026-06-21):** Partially mitigated; tracked in
+> [#15](https://github.com/typesugar/typesugar/issues/15). Sub-point #3 (**no path
+> validation**) is **fixed** — `createSandboxFs` in
+> `packages/macros/src/comptime.ts` rejects absolute paths and `..` traversal
+> outside the project root. The core finding (prototype-chain escape via
+> `node:vm`, sub-points #1–#2) **remains**: globals are not frozen and
+> `codeGeneration` is not disabled. `SECURITY.md` states plainly that the sandbox
+> is not an isolation boundary.
+
+**Location:** `packages/macros/src/comptime.ts`
 
 The comptime sandbox uses Node.js `vm.createContext()`, which is [explicitly documented as not a security mechanism](https://nodejs.org/api/vm.html#vm_vm_createcontext_contextobject_options). Known escape techniques include:
 
@@ -147,9 +197,17 @@ The sandbox provides `Math`, `Number`, `String`, `Boolean`, `Array`, `Object`, `
 
 ---
 
-### F4: Capabilities Are Advisory, Not Enforced (HIGH)
+### F4: Capabilities Are Advisory, Not Enforced (HIGH — partially addressed)
 
-**Location:** `src/core/capabilities.ts`
+> **Status (2026-06-21):** Partially addressed; tracked in
+> [#16](https://github.com/typesugar/typesugar/issues/16). `DEFAULT_CAPABILITIES`
+> now defaults `needsFileSystem: false` (`packages/core/src/capabilities.ts`), so
+> file access is opt-in. Capabilities remain **advisory** otherwise
+> (`needsTypeChecker` still defaults `true`; the restricted-context proxy does not
+> deeply restrict indirect access). Deny-by-default enforcement is a breaking
+> change deferred to #16.
+
+**Location:** `packages/core/src/capabilities.ts`
 
 The `createRestrictedContext()` proxy blocks property access on `MacroContext`, but:
 
@@ -173,9 +231,16 @@ This is a breaking change but aligns with the principle of least privilege.
 
 ---
 
-### F5: No Macro Output Validation (HIGH)
+### F5: No Macro Output Validation (HIGH — open, detection exists)
 
-**Location:** `src/transforms/macro-transformer.ts`
+> **Status (2026-06-21):** Open; tracked in
+> [#17](https://github.com/typesugar/typesugar/issues/17). No static validation of
+> macro output yet. Partial detection shipped: `typesugar build --strict` and
+> `typesugar expand` typecheck/surface expanded output, catching accidental
+> breakage and enabling human audit — but not blocking malicious injected
+> patterns.
+
+**Location:** transformer (`packages/transformer-core/src/transformer.ts`)
 
 The transformer trusts macro output completely. There is no validation that:
 
@@ -526,9 +591,17 @@ Mark AST nodes produced by third-party macros with a `__tainted` symbol property
 
 ## Next Steps
 
-1. **Immediate:** Fix path traversal in `include.ts` (P0, small change)
-2. **This sprint:** Build `typesugar expand` CLI tool (P0, enables all other detection)
-3. **Next sprint:** Macro allowlist + comptime hardening (P1)
-4. **Backlog:** Trust tiers, taint tracking, WASM sandbox (P2-P3)
+> **Progress (2026-06-21):** Items 1 and 2 below are **done** — path traversal is
+> fixed (F2, resolved) and `typesugar expand` shipped. The remaining open work is
+> tracked in the issue tracker: [#15](https://github.com/typesugar/typesugar/issues/15)
+> (comptime hardening), [#16](https://github.com/typesugar/typesugar/issues/16)
+> (deny-by-default capabilities), [#17](https://github.com/typesugar/typesugar/issues/17)
+> (output validation), and [#14](https://github.com/typesugar/typesugar/issues/14)
+> (real macro-registration identity, superseding the bypassable allowlist idea).
+
+1. ~~**Immediate:** Fix path traversal in `include.ts` (P0, small change)~~ — **done** (F2).
+2. ~~**This sprint:** Build `typesugar expand` CLI tool (P0, enables all other detection)~~ — **done**.
+3. **Next sprint:** Comptime hardening (#15); macro-registration identity instead of a bypassable allowlist (#14).
+4. **Backlog:** Trust tiers, taint tracking, WASM sandbox (P2-P3).
 
 The single highest-ROI item is `typesugar expand`. If developers can see what macros produce, they can reason about trust. Everything else is defense-in-depth.

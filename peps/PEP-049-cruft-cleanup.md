@@ -75,18 +75,38 @@ candidate for a future move to `docs/plans/`.
 `docs/SECURITY-REVIEW.md` (2026-02-21, carries its own stale notice) has two
 CRITICALs with no evidence of remediation in the log:
 
-- [ ] **F2 (CRITICAL, ~1 day): path traversal in `includeStr`/include macros** —
-      boundary-check resolved paths against the project root; add red-team tests
-      (`includeStr("../../../.env")` must fail with a diagnostic).
-- [ ] **F1 (CRITICAL, decision + docs): unrestricted macro registration** — full
-      allowlisting is a project of its own; the Wave-3 deliverable is (a) a
-      `macros.allow` config option gating which modules may register macros when
-      set, default permissive, and (b) an honest `docs/SECURITY.md` trust-model
-      statement: _compiling untrusted code with typesugar executes that code's
-      macros; treat macro-bearing dependencies like build scripts._
-- [ ] Re-date the review; downgrade/close findings that PEP-039 or config
-      changes already addressed; file issues for remaining HIGHs (F3–F5) so they
-      live in the tracker, not only in a stale doc.
+- [x] **F2 (CRITICAL): path traversal in `includeStr`/include macros** — was
+      already fixed in the tree (`resolveRelativePath` rejects absolute paths and
+      boundary-checks the normalized resolved path against the project root,
+      throwing a `Security:` error that the transformer turns into a diagnostic).
+      Added red-team tests (`tests/include.test.ts` → "security: path traversal
+      (F2)"): escaping traversal, absolute paths, re-entrant traversal, a staged
+      out-of-root secret, in-root positive control, and `includeBytes`/
+      `includeJson` parity. Corrected the over-claiming "symlink escapes" comment
+      (the check is lexical; symlink planting needs repo write access, outside the
+      macro-argument threat model). **Resolved.**
+- [x] **F1 (CRITICAL → documented limitation): unrestricted macro registration** —
+      decision (2026-06-21, with Dean): ship docs only, do **not** build the
+      `macros.allow` config. The registry keys on the self-declared `macro.module`
+      field, so an allowlist on it is trivially bypassable (a hostile package just
+      declares `module: "typesugar"`) — security theater, off by default. Shipped
+      `docs/SECURITY.md` with the honest trust-model statement and a "Known
+      limitations" section. Filed [#14](https://github.com/typesugar/typesugar/issues/14)
+      for the real fix (derive registering-package identity from the module graph).
+- [x] Re-dated `docs/SECURITY-REVIEW.md` (reconciled 2026-06-21): per-finding
+      Status lines + a summary table; F2 marked Resolved; F3 (#15) and F4 (#16)
+      noted as partially addressed (comptime fs path-validation done; capabilities
+      now default `needsFileSystem:false`); F5 (#17) open with `typesugar expand`/
+      `--strict` as partial detection. Noted that `typesugar expand` (the review's
+      #1 item) shipped. Filed tracker issues for the open HIGHs:
+      [#15](https://github.com/typesugar/typesugar/issues/15),
+      [#16](https://github.com/typesugar/typesugar/issues/16),
+      [#17](https://github.com/typesugar/typesugar/issues/17).
+
+Done (2026-06-21). F2 had already drifted into its fixed state (consistent with
+the repo's pattern of running ahead of its PEPs); Wave 3 reduced to red-team
+tests, the honest-docs decision on F1, and getting the stale review reconciled
+with the tree + open findings into the tracker.
 
 ## Wave 4 — Test debt (items not owned by another PEP)
 
