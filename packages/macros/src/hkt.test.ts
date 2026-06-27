@@ -610,16 +610,33 @@ describe("hktAttribute.expand — Tier 3 (`_` placeholder in RHS)", () => {
     });
   });
 
-  /**
-   * Bug: countUnderscoreMarkers recurses via ts.forEachChild + ts.isTypeNode,
-   * which skips PropertySignature children of TypeLiteral (PropertySignature
-   * is a TypeElement, not a TypeNode). So `type ObjF = { value: _ }` is NOT
-   * detected as Tier 3 — it falls through to Tier 2 (no type params) and
-   * errors with TS9302.
-   */
-  it.todo(
-    "BUG: should replace `_` inside a TypeLiteral PropertySignature — countUnderscoreMarkers skips it"
-  );
+  // Regression: countUnderscoreMarkers used to recurse only into TypeNode
+  // children, skipping PropertySignature members of a TypeLiteral (a
+  // TypeElement, not a TypeNode). So `type ObjF = { value: _ }` was
+  // misclassified as Tier 2 and errored with TS9302. Now it walks the full
+  // subtree. (replaceUnderscoreInTypeNode already handled TypeLiteral members.)
+  it("replaces `_` inside a TypeLiteral PropertySignature", () => {
+    const src = `/** @hkt */ type ObjF = { value: _ };`;
+    withMacroContext(src, (ctx, sf) => {
+      const alias = findTypeAlias(sf, "ObjF")!;
+      const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("hkt"));
+      const result = hktAttribute.expand(ctx, decorator, alias, []);
+      const text = print(Array.isArray(result) ? result[0] : result, sf);
+      expect(text).toContain('this["__kind__"]');
+      expect(text).toContain("value");
+    });
+  });
+
+  it("replaces `_` nested deep inside a TypeLiteral member", () => {
+    const src = `/** @hkt */ type NestedF = { items: _[]; meta: { tag: string } };`;
+    withMacroContext(src, (ctx, sf) => {
+      const alias = findTypeAlias(sf, "NestedF")!;
+      const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("hkt"));
+      const result = hktAttribute.expand(ctx, decorator, alias, []);
+      const text = print(Array.isArray(result) ? result[0] : result, sf);
+      expect(text).toContain('this["__kind__"][]');
+    });
+  });
 });
 
 // ============================================================================

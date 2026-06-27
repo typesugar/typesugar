@@ -610,15 +610,21 @@ function isNeverAndKindIntersection(node: ts.TypeNode): boolean {
 
 /**
  * Count occurrences of `_` marker in a type node tree.
+ *
+ * Walks the full subtree rather than only TypeNode children: markers can live
+ * inside structural members that are not themselves TypeNodes — e.g. the
+ * `value: _` in `type ObjF = { value: _ }`, where `value` is a
+ * `PropertySignature` (a `TypeElement`, not a `TypeNode`). Gating recursion on
+ * `ts.isTypeNode` skipped those, so such aliases were misclassified as Tier 2.
+ * `isUnderscoreMarker` only matches `_` type references, so visiting non-type
+ * nodes is harmless.
  */
-function countUnderscoreMarkers(node: ts.TypeNode, checker: ts.TypeChecker | undefined): number {
-  if (isUnderscoreMarker(node, checker)) return 1;
+function countUnderscoreMarkers(node: ts.Node, checker: ts.TypeChecker | undefined): number {
+  if (ts.isTypeNode(node) && isUnderscoreMarker(node, checker)) return 1;
 
   let count = 0;
   ts.forEachChild(node, (child) => {
-    if (ts.isTypeNode(child as ts.Node)) {
-      count += countUnderscoreMarkers(child as ts.TypeNode, checker);
-    }
+    count += countUnderscoreMarkers(child, checker);
   });
   return count;
 }

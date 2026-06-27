@@ -145,6 +145,9 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Test skip policy
+        run: pnpm run check:skips
+
   test-vscode:
     name: VS Code Extension Tests
     runs-on: ubuntu-latest

@@ -180,24 +180,36 @@ const farewell = "Goodbye 🌙!";
     }
   });
 
-  // BUG: mapper.toOriginal returns null for code after template literal with emoji + pipe expansion
-  it.fails("position mapping works with template literals containing multi-byte chars", () => {
-    const code = `import { pipe } from "typesugar";
+  // KNOWN BUG — github.com/typesugar/typesugar/issues/19. `toOriginal` returns
+  // null for code AFTER a template literal containing a `${…}` substitution when
+  // a macro also expands in the file. Investigation (PEP-049 Wave 4) showed the
+  // trigger is the substitution, NOT the emoji: `\`Hello world ${42}\`` (no
+  // emoji) reproduces it too, while a plain string does not. The emoji here is
+  // incidental — genuine multi-byte mapping is covered by the passing tests
+  // above (emoji in comments / strings, CJK identifiers). Kept as `it.fails` so
+  // it flips red and prompts a fix once the source-map generation bug is closed.
+  it.fails(
+    "BUG #19: mapping is lost after a template literal with a substitution (+ macro expansion)",
+    () => {
+      const code = `import { pipe } from "typesugar";
 
 const msg = \`Hello 🎉 \${42}\`;
 const result = pipe(1, (n: number) => n + 1);
 const after = "done";
 `;
-    const result = transform(code);
-    expect(result.changed).toBe(true);
+      const result = transform(code);
+      expect(result.changed).toBe(true);
 
-    if (result.code.includes("const after")) {
-      const origOffset = offsetOf(code, "const after");
-      const transOffset = offsetOf(result.code, "const after");
-      const mapped = result.mapper.toOriginal(transOffset);
-      expect(mapped, "code after template literal with emoji should map back").toBe(origOffset);
+      if (result.code.includes("const after")) {
+        const origOffset = offsetOf(code, "const after");
+        const transOffset = offsetOf(result.code, "const after");
+        const mapped = result.mapper.toOriginal(transOffset);
+        expect(mapped, "code after a template-literal substitution should map back").toBe(
+          origOffset
+        );
+      }
     }
-  });
+  );
 });
 
 // ============================================================================

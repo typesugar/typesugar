@@ -47,8 +47,16 @@ export function thenSome<A>(b: boolean, value: A): A | undefined {
   return b ? value : undefined;
 }
 
-/** Calls `fn` if `true`, otherwise returns `undefined`. Like Rust's `then`. */
-export function then<A>(b: boolean, fn: () => A): A | undefined {
+/**
+ * Calls `fn` if `true`, otherwise returns `undefined`. Like Rust's `then`.
+ *
+ * NOTE: this is intentionally NOT named `then`. A top-level ESM export named
+ * `then` makes the whole module namespace a thenable, so `await import(...)` of
+ * this module invokes it as `then(resolve, reject)` and hijacks the import
+ * (rejecting with `undefined`). That previously broke `extensions.test.ts` and
+ * any dynamic import of this module. Keep it as `andThen`.
+ */
+export function andThen<A>(b: boolean, fn: () => A): A | undefined {
   return b ? fn() : undefined;
 }
 
@@ -138,7 +146,7 @@ export const BooleanExt = {
   toYesNo,
   toOnOff,
   thenSome,
-  then,
+  andThen,
   elseSome,
   bool,
   fold,

@@ -11,10 +11,12 @@
  * - Compute function side effects
  * - Type coercion edge cases
  *
- * NOTE: The transformInto() macro requires compile-time transformation.
- * Tests in this file are marked with .skip because the macro expansion
- * infrastructure is not yet fully configured for the test runner.
- * Once AGENTS.md indicates macro tests are supported, remove .skip.
+ * NOTE: The transformInto() macro requires compile-time transformation. The
+ * whole suite is skipped at the top-level describe because `tests/` is excluded
+ * from the typesugar vite plugin (see vitest.config.ts), so transformInto()
+ * calls here are not expanded and fail at runtime. Tracked by #9 (PEP-048
+ * keep-condition: implement @typesugar/mapper transformInto or demote to Frozen).
+ * Remove the `.skip` once these tests run under the transformer.
  *
  * To run these tests properly, ensure:
  * 1. @typesugar/mapper macro is registered in @typesugar/transformer
@@ -24,12 +26,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { transformInto, type TransformConfig } from "@typesugar/mapper";
 
-describe("Mapper Edge Cases", () => {
+// Skipped: blocked on #9 — transformInto() is not expanded for files under
+// tests/ (excluded from the typesugar vite plugin), so these fail at runtime.
+describe.skip("Mapper Edge Cases", () => {
   // ==========================================================================
   // Attack 1: Nested Object Mapping
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("nested object mapping", () => {
+  describe("nested object mapping", () => {
     interface SourceWithNested {
       id: number;
       metadata: { createdAt: Date; tags: string[] };
@@ -99,7 +103,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 2: Null/Undefined Field Handling
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("null/undefined field handling", () => {
+  describe("null/undefined field handling", () => {
     interface NullableSource {
       name: string | null;
       age: number | undefined;
@@ -146,7 +150,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 3: Optional Field Mapping
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("optional field mapping", () => {
+  describe("optional field mapping", () => {
     interface SourceWithOptional {
       required: string;
       optional?: number;
@@ -192,7 +196,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 4: Array/Collection Field Mapping
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("array/collection field mapping", () => {
+  describe("array/collection field mapping", () => {
     interface SourceWithArrays {
       items: number[];
       matrix: number[][];
@@ -265,7 +269,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 5: Special Property Names
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("special property names", () => {
+  describe("special property names", () => {
     it("handles numeric-like property names", () => {
       interface NumericKeys {
         "0": string;
@@ -321,7 +325,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 6: Getter Invocation During Mapping
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("getter invocation during mapping", () => {
+  describe("getter invocation during mapping", () => {
     it("invokes getters when reading properties", () => {
       interface WithGetter {
         value: number;
@@ -394,7 +398,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 7: Compute Function Side Effects
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("compute function side effects", () => {
+  describe("compute function side effects", () => {
     it("compute functions execute in order of target properties", () => {
       const executionOrder: string[] = [];
 
@@ -508,7 +512,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 8: Type Coercion Edge Cases
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("type coercion edge cases", () => {
+  describe("type coercion edge cases", () => {
     it("does not coerce incompatible primitive types", () => {
       interface StringSource {
         value: string;
@@ -571,7 +575,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 9: Rename Configuration Edge Cases
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("rename configuration edge cases", () => {
+  describe("rename configuration edge cases", () => {
     it("handles chained renames (A->B, where B exists in source)", () => {
       interface Source {
         oldName: string;
@@ -642,7 +646,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 10: Const Configuration Edge Cases
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("const configuration edge cases", () => {
+  describe("const configuration edge cases", () => {
     it("const takes precedence over rename", () => {
       interface Source {
         value: string;
@@ -720,7 +724,7 @@ describe("Mapper Edge Cases", () => {
   // Attack 11: Empty and Edge Case Objects
   // ==========================================================================
   // Skip: These tests require compile-time macro expansion
-  describe.skip("empty and edge case objects", () => {
+  describe("empty and edge case objects", () => {
     it("maps empty object to empty object", () => {
       interface Empty {}
 

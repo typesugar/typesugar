@@ -178,6 +178,28 @@ packages/
 5. Re-export everything from `index.ts` — including derived operations
 6. Don't export dead code — if a type has no instances, don't export it
 
+## Test Skips
+
+Every disabled test must carry a **reason and a tracking reference** — a GitHub
+issue (`#123`), a PEP (`PEP-049`), or an `issues/…` URL. This applies to
+`describe/it/test.skip`, `.todo`, `.fails`, and `xit`/`xdescribe`. The reference
+must sit on the same line as the skip or within the 3 lines above it (for
+multi-line calls, the title line just below counts). A "temporarily skipped,
+no owner" test is how a suite rots — if it can't be fixed now, it gets an issue.
+
+- Put the whole-suite reason in the file header **and** skip at the outermost
+  `describe.skip` so one documented skip covers the suite (see
+  `tests/red-team-mapper.test.ts`, blocked on #9).
+- Prefer `it.fails` over `it.skip` for a known bug you want to keep reproducing —
+  it runs, stays green while the bug exists, and flips red when fixed, prompting
+  the flip to `it` (see the `#19` case in `tests/source-map-unicode.test.ts`).
+- Conditional gates (`skipIf(...)`, `runIf(...)`) and empty-body placeholder
+  skips (`it.skip("…", () => {})`, e.g. a quarantine list keyed on a path) are
+  not naked skips and are exempt.
+
+CI enforces this in the **Lint & Typecheck** job via `pnpm run check:skips`
+(`scripts/check-test-skips.mjs`). Run it locally before pushing.
+
 ## Playground & Examples
 
 The interactive playground at `/playground` runs the typesugar transformer in-browser via `@typesugar/playground`. Runtime `@typesugar/*` packages are bundled as an IIFE (`packages/playground/dist/runtime.global.js`) and injected into the sandbox iframe, so `import { Some } from "@typesugar/fp"` works at runtime.
