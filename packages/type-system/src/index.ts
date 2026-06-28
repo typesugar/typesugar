@@ -41,6 +41,13 @@
  * - **Newtype** — Pure branding, zero runtime cost. Use for type discrimination.
  * - **Opaque** — Module-scoped access. Use to hide representation details.
  * - **Refined** — Runtime validation. Use when values must satisfy invariants.
+ *
+ * ## Runtime vs build-time (PEP-050)
+ *
+ * This `.` entry is **runtime-only** and does NOT import `typescript`. It exposes
+ * the runtime values, types, and helpers. The macro *definitions* (which import
+ * `typescript`) live in the `./macros` entry, loaded by the transformer at build
+ * time. Application code never imports `@typesugar/type-system/macros`.
  */
 
 // Type-Level Boolean Utilities (canonical definitions)
@@ -92,9 +99,6 @@ export {
   showValue,
   comparable,
   serializable,
-  existentialAttribute,
-  packExistsMacro,
-  useExistsMacro,
 } from "./existential.js";
 
 // Refinement Types
@@ -124,8 +128,6 @@ export {
   NonEmptyArray,
   MaxLength,
   MinLength,
-  refineMacro,
-  unsafeRefineMacro,
   // Predicate exports for @typesugar/contracts-refined
   type RefinementPredicate,
   REFINEMENT_PREDICATES,
@@ -148,27 +150,8 @@ export {
 // A proper GADT implementation is tracked as a future project.
 
 // Type-Level Arithmetic
-export {
-  addTypeMacro,
-  subTypeMacro,
-  mulTypeMacro,
-  divTypeMacro,
-  modTypeMacro,
-  powTypeMacro,
-  negateTypeMacro,
-  absTypeMacro,
-  maxTypeMacro,
-  minTypeMacro,
-  ltTypeMacro,
-  lteTypeMacro,
-  gtTypeMacro,
-  gteTypeMacro,
-  eqTypeMacro,
-  incTypeMacro,
-  decTypeMacro,
-  isEvenTypeMacro,
-  isOddTypeMacro,
-} from "./type-arithmetic.js";
+// NOTE: the Add/Sub/Mul/... type macros are build-time only and live in the
+// `./macros` entry. They are not re-exported from this runtime `.` entry.
 
 // Newtype (Zero-Cost Branding)
 export {
@@ -178,9 +161,6 @@ export {
   unwrap,
   newtypeCtor,
   validatedNewtype,
-  wrapMacro,
-  unwrapMacro,
-  newtypeCtorMacro,
 } from "./newtype.js";
 
 // Opaque Type Modules
@@ -195,7 +175,6 @@ export {
   NonEmptyString,
   EmailAddress,
   SafeUrl,
-  opaqueModuleMacro,
 } from "./opaque.js";
 
 // Phantom Type State Machines
@@ -217,8 +196,6 @@ export {
   createStateMachine,
   createBuilder,
   transition,
-  phantomAttribute,
-  stateMachineMacro,
 } from "./phantom.js";
 
 // Effect System Annotations
@@ -240,8 +217,6 @@ export {
   io,
   async_ as async,
   assertPure,
-  pureAttribute,
-  effectAttribute,
 } from "./effects.js";
 
 // Length-Indexed Vectors (Coq-inspired Dependent Types)

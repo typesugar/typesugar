@@ -1,5 +1,15 @@
+/**
+ * @typesugar/validate — Macro definitions (BUILD-TIME ONLY).
+ *
+ * This entry imports `typescript` and is loaded by the transformer at build time
+ * (via the `./macros` subpath). It must NOT be imported by application runtime
+ * code — the runtime stubs + helpers live in the package's `.` entry. See PEP-050.
+ *
+ * Provides the expression macros: is<T>(), assert<T>(), validate<T>().
+ */
+
 import * as ts from "typescript";
-import { defineExpressionMacro, MacroContext } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Shared Validation Generation
@@ -586,8 +596,11 @@ export const assertMacro = defineExpressionMacro({
   },
 });
 
-export function register(registry: import("@typesugar/core").MacroRegistry): void {
-  registry.register(validateMacro);
-  registry.register(isMacro);
-  registry.register(assertMacro);
+export function register(): void {
+  globalRegistry.register(validateMacro);
+  globalRegistry.register(isMacro);
+  globalRegistry.register(assertMacro);
 }
+
+// Auto-register on import (the transformer loads this entry for its side effects).
+register();

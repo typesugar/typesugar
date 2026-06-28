@@ -57,8 +57,6 @@ export {
   toArray,
 } from "./vec.js";
 
-export { lazyMacro, fusedMacro, register, resetFusionCounter } from "./macros.js";
-
 export {
   lazyPipelineFunctor,
   lazyPipelineFilterable,
@@ -70,6 +68,3 @@ export {
   type FilterableLazyPipeline,
   type FoldableLazyPipeline,
 } from "./typeclasses.js";
-
-import { register } from "./macros.js";
-register();

@@ -1,12 +1,19 @@
-import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
-import type { MacroContext } from "@typesugar/core";
-
 /**
+ * @typesugar/codec — Macro definitions (BUILD-TIME ONLY).
+ *
+ * This entry imports `typescript` and is loaded by the transformer at build time
+ * (via the `./macros` subpath). It must NOT be imported by application runtime
+ * code — the runtime values, types, and helpers live in the package's `.` entry.
+ * See PEP-050.
+ *
  * Macros registered with the transformer.
  * @codec extracts type structure and generates defineSchema() call,
  * reading @since, @removed, @renamed, @defaultValue annotations from members.
  */
+
+import * as ts from "typescript";
+import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import type { MacroContext } from "@typesugar/core";
 
 function simplifyTypeForSchema(typeStr: string): string {
   if (typeStr.includes("|") || typeStr.includes("&")) return "unknown";
@@ -331,3 +338,6 @@ export function register(): void {
   globalRegistry.register(renamedMacro);
   globalRegistry.register(defaultValueMacro);
 }
+
+// Auto-register on import (the transformer loads this entry for its side effects).
+register();

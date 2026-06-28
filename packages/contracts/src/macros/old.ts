@@ -28,15 +28,6 @@ import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 /**
- * Runtime old function — identity at runtime (only meaningful with transformer).
- * Without the transformer, old(x) just returns x (which is wrong for mutation,
- * but at least doesn't crash).
- */
-export function old<T>(value: T): T {
-  return value;
-}
-
-/**
  * Collected old() captures for the current function being processed.
  * The ensures() and @contract macros use this to hoist captures.
  */
@@ -128,16 +119,26 @@ export const oldMacro = defineExpressionMacro({
   description: "Capture the pre-call value of an expression for use in postconditions.",
 
   expand(
-    _ctx: MacroContext,
-    _callExpr: ts.CallExpression,
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
     args: readonly ts.Expression[]
   ): ts.Expression {
-    // When old() is encountered standalone (not inside ensures/@contract),
-    // just return the argument as-is (identity).
-    if (args.length >= 1) {
-      return args[0];
-    }
-    return _callExpr;
+    // old() is only meaningful inside an `ensures:` block of a function that is
+    // (explicitly or implicitly) under @contract. In that case the @contract
+    // attribute macro rewrites old(expr) into a hoisted pre-state snapshot
+    // BEFORE the transformer ever descends to this call, so reaching this
+    // expander means old() was used somewhere it cannot capture pre-state
+    // (e.g. a standalone `ensures(old(x))` expression call). Report it rather
+    // than silently returning the current value, which would make valid
+    // postconditions throw.
+    ctx.reportError(
+      callExpr,
+      "old() can only be used inside an `ensures:` block of an @contract function. " +
+        "Use the requires:/ensures: block form (see the Design by Contract guide); " +
+        "old() is not supported in a standalone ensures(...) call."
+    );
+    // Fall back to identity so downstream emit still produces valid code.
+    return args.length >= 1 ? args[0] : callExpr;
   },
 });
 

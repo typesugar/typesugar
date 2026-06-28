@@ -12,6 +12,7 @@ import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 import {
   getOperatorString,
   getSyntaxForOperator,
+  getTypeclassesForMethod,
   findInstance,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
@@ -53,7 +54,6 @@ import {
   type DictMethod,
   type ResultAlgebra,
   createRegistrationCall,
-  ensureDataTypeCompanionConst,
   // Instance resolution (PEP-038)
   resolveInstance,
   type ResolvedInstance,
@@ -122,6 +122,31 @@ import {
 import { profiler, PROFILING_ENABLED } from "./profiling.js";
 
 // Printer for safe text extraction from nodes (works on synthetic nodes too)
+// Built-in container/global types whose native methods (map/filter/then/…) must
+// never be hijacked by typeclass instance-method sugar. See
+// MacroTransformer.isBuiltinMethodReceiver.
+const BUILTIN_METHOD_RECEIVER_NAMES: ReadonlySet<string> = new Set([
+  "Array",
+  "ReadonlyArray",
+  "Promise",
+  "Map",
+  "ReadonlyMap",
+  "Set",
+  "ReadonlySet",
+  "WeakMap",
+  "WeakSet",
+  "String",
+  "Number",
+  "Boolean",
+  "BigInt",
+  "Date",
+  "RegExp",
+  "Iterator",
+  "AsyncIterator",
+  "Generator",
+  "AsyncGenerator",
+]);
+
 const nodePrinter = ts.createPrinter();
 // Printer that strips all comments — used to reparse macro-generated expressions
 // without inheriting stray comments from the original source file
@@ -1768,7 +1793,10 @@ class MacroTransformer {
         const params = sig.getParameters();
         if (params.length === 0) continue;
         const firstParamType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(params[0], ident);
-        if (this.isTypeCompatible(receiverType, firstParamType)) {
+        if (
+          this.isConcreteExtensionParam(firstParamType) &&
+          this.isTypeCompatible(receiverType, firstParamType)
+        ) {
           return { methodName, forType: "", qualifier: undefined };
         }
       }
@@ -1785,12 +1813,26 @@ class MacroTransformer {
       const params = sig.getParameters();
       if (params.length === 0) continue;
       const firstParamType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(params[0], ident);
-      if (this.isTypeCompatible(receiverType, firstParamType)) {
+      if (
+        this.isConcreteExtensionParam(firstParamType) &&
+        this.isTypeCompatible(receiverType, firstParamType)
+      ) {
         return { methodName, forType: "", qualifier: ident.text };
       }
     }
 
     return undefined;
+  }
+
+  /**
+   * A UFCS extension candidate must declare a *concrete* receiver (first) param.
+   * A first param typed `unknown`/`any` would match every receiver, so an
+   * imported object that merely happens to have a method of the same name
+   * (e.g. `parCombinePromise.map(combined: unknown, f)`) would hijack unrelated
+   * `x.map(...)` calls. Requiring a concrete first param prevents that.
+   */
+  private isConcreteExtensionParam(type: ts.Type): boolean {
+    return (type.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) === 0;
   }
 
   /**
@@ -2759,6 +2801,18 @@ class MacroTransformer {
     const factory = this.ctx.factory;
     const result: ts.Statement[] = [];
 
+    // A macro import is only safe to remove if the imported binding no longer
+    // appears in the transformed output. Some macros are pass-throughs that
+    // leave the call in place and rely on a runtime export of the same name
+    // (e.g. @typesugar/fusion's `lazy`); removing their import would produce a
+    // ReferenceError. Conversely, names that ARE fully consumed (e.g. a derive
+    // decorator's `Eq`, or `old()` rewritten away by @contract) should be
+    // dropped. Collecting used names (conservatively, across all positions)
+    // lets us keep only what is still referenced.
+    const usedNames = this.collectUsedImportNames(statements);
+    const stillUsed = (name: string | undefined): boolean =>
+      name !== undefined && usedNames.has(name);
+
     for (const stmt of statements) {
       if (!ts.isImportDeclaration(stmt)) {
         result.push(stmt);
@@ -2779,20 +2833,26 @@ class MacroTransformer {
 
       const hasDefaultImport = importClause.name !== undefined;
       const defaultIsMacro = tracked.has("default");
-      const keepDefault = hasDefaultImport && !defaultIsMacro;
+      // Keep the default binding if it isn't a macro, or if it's still referenced.
+      const keepDefault =
+        hasDefaultImport && (!defaultIsMacro || stillUsed(importClause.name?.text));
 
       const namedBindings = importClause.namedBindings;
       let newNamedBindings: ts.NamedImportBindings | undefined;
 
       if (namedBindings) {
         if (ts.isNamespaceImport(namedBindings)) {
-          if (tracked.has("namespace")) {
+          if (tracked.has("namespace") && !stillUsed(namedBindings.name.text)) {
             newNamedBindings = undefined;
           } else {
             newNamedBindings = namedBindings;
           }
         } else if (ts.isNamedImports(namedBindings)) {
-          const remainingSpecifiers = namedBindings.elements.filter((spec) => !tracked.has(spec));
+          // Drop a specifier only if it's a tracked macro import AND its local
+          // binding is no longer used anywhere in the output.
+          const remainingSpecifiers = namedBindings.elements.filter(
+            (spec) => !tracked.has(spec) || stillUsed(spec.name.text)
+          );
 
           if (remainingSpecifiers.length === namedBindings.elements.length) {
             newNamedBindings = namedBindings;
@@ -2840,6 +2900,49 @@ class MacroTransformer {
     }
 
     return result;
+  }
+
+  /**
+   * Collect the set of identifier names that are *value-referenced* in
+   * `statements`, used to decide whether a macro import is still needed.
+   *
+   * Counts only reference-position identifiers: it skips import declarations
+   * (a binding doesn't keep itself alive) and non-reference positions — the
+   * `.name` of a property access / qualified name (`Point.Eq`), the key of a
+   * property assignment (`{ Eq: ... }`), and member/enum names. Without this,
+   * a fully-consumed `@derive(Eq)` whose output references `Point.Eq` would
+   * keep a now-dead `import { Eq }` alive. Conservative within reference
+   * positions, so a name that is still genuinely used is never dropped.
+   */
+  private collectUsedImportNames(statements: ts.Statement[]): Set<string> {
+    const names = new Set<string>();
+    const visit = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node)) return; // don't count the import binding sites
+      // Property access `a.b` / qualified name `A.B`: `b`/`B` is a member name,
+      // not a reference to an imported binding — only recurse into the lhs.
+      if (ts.isPropertyAccessExpression(node)) {
+        visit(node.expression);
+        return;
+      }
+      if (ts.isQualifiedName(node)) {
+        visit(node.left);
+        return;
+      }
+      // Object literal key `{ key: value }` (non-shorthand): the key is not a
+      // value reference — only recurse into the initializer.
+      if (ts.isPropertyAssignment(node)) {
+        if (!ts.isIdentifier(node.name)) visit(node.name); // computed names still count
+        visit(node.initializer);
+        return;
+      }
+      if (ts.isIdentifier(node)) {
+        names.add(node.text);
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    for (const stmt of statements) visit(stmt);
+    return names;
   }
 
   // ---------------------------------------------------------------------------
@@ -3866,6 +3969,17 @@ class MacroTransformer {
       }
     }
 
+    // Implicitly apply trigger-label attribute macros (e.g. @contract) to
+    // functions/methods that contain matching labeled blocks (requires:/ensures:)
+    // without an explicit decorator. Must run before descending into the body
+    // so the macro can hoist/reposition (e.g. old() snapshots) the labeled blocks.
+    if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+      const result = this.tryExpandImplicitLabelMacro(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
     // JSDoc-triggered macros: @typeclass, @impl, @deriving
     // This allows preprocessor-free syntax for typeclass features
     if (this.hasJSDocMacroTags(node)) {
@@ -4236,6 +4350,75 @@ class MacroTransformer {
       default:
         return [];
     }
+  }
+
+  /**
+   * Implicitly apply a trigger-label attribute macro (e.g. @contract) to a
+   * function/method whose body contains a matching top-level labeled block
+   * (e.g. `requires:` / `ensures:`), as if it were explicitly decorated.
+   *
+   * This makes the documented contract-block form work without an explicit
+   * `@contract` decorator. It only fires when a package registering a macro
+   * with matching `triggerLabels` is loaded (e.g. @typesugar/contracts), so
+   * ordinary labeled statements are unaffected unless that package is imported.
+   */
+  private tryExpandImplicitLabelMacro(
+    node: ts.FunctionDeclaration | ts.MethodDeclaration
+  ): ts.Node | ts.Node[] | undefined {
+    const body = node.body;
+    if (!body) return undefined;
+
+    // Find the first top-level labeled statement whose label is a trigger
+    // label of a registered attribute macro. Only contract-block-shaped bodies
+    // qualify (`label: { ... }` or `label: (result) => { ... }`), so ordinary
+    // loop/break labels like `requires: for (...)` are never hijacked.
+    let macro: AttributeMacro | undefined;
+    for (const stmt of body.statements) {
+      if (!ts.isLabeledStatement(stmt)) continue;
+      const isBlockShaped =
+        ts.isBlock(stmt.statement) ||
+        (ts.isExpressionStatement(stmt.statement) && ts.isArrowFunction(stmt.statement.expression));
+      if (!isBlockShaped) continue;
+      const candidate = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
+      if (candidate) {
+        macro = candidate;
+        break;
+      }
+    }
+    if (!macro) return undefined;
+
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    if (this.verbose) {
+      console.log(`[typesugar] Implicitly applying @${macro.name} via trigger label`);
+    }
+
+    const factory = this.ctx.factory;
+    const decorator = factory.createDecorator(factory.createIdentifier(macro.name));
+
+    let currentNode: ts.Node;
+    try {
+      currentNode = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, decorator, node as ts.Declaration, [])
+      ) as ts.Node;
+      if (Array.isArray(currentNode)) {
+        currentNode = currentNode[0];
+      }
+    } catch (error) {
+      this.ctx.reportError(node, `Implicit @${macro.name} expansion failed: ${error}`);
+      return undefined;
+    }
+
+    let visited: ts.Node;
+    try {
+      visited = ts.visitNode(currentNode, this.visit.bind(this)) as ts.Node;
+    } catch (error) {
+      this.ctx.reportError(node, `Visiting implicit @${macro.name} result failed: ${error}`);
+      visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    }
+    return preserveSourceMap(visited, node);
   }
 
   /**
@@ -5415,6 +5598,17 @@ class MacroTransformer {
     }
 
     if (!standaloneExt) {
+      // Instance-method sugar: x.method(args) → Companion.method(x, args) for a
+      // typeclass method (e.g. derived `p.equals(q)` → `Point.Eq.equals(p, q)`).
+      // This consults the typeclass instance registry, mirroring the operator
+      // rewrite path — derived/@instance typeclasses aren't standalone extensions.
+      //
+      // (tryResolveTypeclassMethod rejects instances registered on built-in
+      // types — e.g. ParCombine's Promise/Array instances — so a derived
+      // `arr.map`/`p.then` is never hijacked into a typeclass instance call.)
+      const tcRewrite = this.tryResolveTypeclassMethod(node, receiver, methodName, typeName);
+      if (tcRewrite) return tcRewrite;
+
       return undefined;
     }
 
@@ -5441,6 +5635,116 @@ class MacroTransformer {
       this.ctx.reportError(node, `Extension method rewrite failed: ${error}`);
       return undefined;
     }
+  }
+
+  /**
+   * Resolve `receiver.method(args)` as a typeclass instance method and rewrite it
+   * to the companion call `Companion.method(receiver, ...args)` (e.g. a derived
+   * `p.equals(q)` → `Point.Eq.equals(p, q)`).
+   *
+   * Mirrors the operator-rewrite resolution (`getSyntaxForOperator` → `findInstance`):
+   * map the method name to the typeclass(es) declaring it, then look up an instance
+   * for the receiver's type. Ambiguity (two typeclasses with the same method, both
+   * with an instance for the type) is an error — the user should call the companion
+   * form to disambiguate.
+   */
+  private tryResolveTypeclassMethod(
+    node: ts.CallExpression,
+    receiver: ts.Expression,
+    methodName: string,
+    typeName: string
+  ): ts.Expression | undefined {
+    const candidates = getTypeclassesForMethod(methodName);
+    if (!candidates) return undefined;
+
+    const sfn = this.ctx.sourceFile.fileName;
+    const baseTypeName = stripTypeArguments(typeName);
+
+    let matched: ReturnType<typeof findInstance>;
+    let matchedTc: string | undefined;
+    for (const { typeclass } of candidates) {
+      // For instance-method sugar the instance is uniquely keyed by
+      // (typeclass, type), so the import-scope gate (which governs ambiguous
+      // cross-module imported instances) doesn't apply — a builtin typeclass like
+      // `Eq` is neither defined in-file nor imported, yet `@derive(Eq)` registers a
+      // concrete `Type.Eq` instance. Prefer the scoped match, then fall back to the
+      // unscoped registry (cross-module refs get an import injected below).
+      const inst =
+        findInstance(typeclass, typeName, sfn) ??
+        findInstance(typeclass, baseTypeName, sfn) ??
+        findInstance(typeclass, typeName) ??
+        findInstance(typeclass, baseTypeName);
+      // Never apply instance-method sugar for instances registered on a built-in
+      // type (Promise/Array/Map/…). Those types carry native methods (map,
+      // filter, then, …) that collide with typeclass method names; rewriting
+      // `someArray.map(fn)` into `parCombineArray.map(someArray, fn)` is always
+      // wrong. Checking the instance's registered forType is reliable even when
+      // the receiver's static type can't be resolved (e.g. a build context
+      // without full lib types). Native usage stays a plain method call.
+      if (inst && BUILTIN_METHOD_RECEIVER_NAMES.has(inst.forType)) {
+        continue;
+      }
+      if (inst) {
+        if (matched) {
+          this.ctx.reportError(
+            node,
+            `Ambiguous method '${methodName}' for type '${typeName}': both ` +
+              `${matchedTc} and ${typeclass} provide it. Use the companion form ` +
+              `(e.g. ${typeName}.${typeclass}.${methodName}(...)) to disambiguate.`
+          );
+          return undefined;
+        }
+        matched = inst;
+        matchedTc = typeclass;
+      }
+    }
+
+    if (!matched) return undefined;
+
+    const factory = this.ctx.factory;
+
+    // Schedule an import for the companion's base type if it comes from another module
+    // (e.g. import `Point` for `Point.Eq`), mirroring the operator-rewrite path.
+    const importName = matched.companionPath
+      ? matched.companionPath.split(".")[0]
+      : matched.instanceName;
+    if (matched.sourceModule && !this.isAlreadyImported(importName)) {
+      const key = `${importName}::${matched.sourceModule}`;
+      if (!this.pendingTypeRewriteImports.has(key)) {
+        this.pendingTypeRewriteImports.set(key, {
+          name: importName,
+          module: matched.sourceModule,
+        });
+      }
+    }
+
+    // Build the companion reference: "Point.Eq" → Point.Eq, or a bare instance name.
+    const instName = matched.companionPath || matched.instanceName;
+    const instanceRef = instName.includes(".")
+      ? factory.createPropertyAccessExpression(
+          factory.createIdentifier(instName.split(".")[0]),
+          instName.split(".")[1]
+        )
+      : factory.createIdentifier(instName);
+    const methodAccess = factory.createPropertyAccessExpression(instanceRef, methodName);
+
+    // The receiver becomes the first argument; existing args follow.
+    const visitedReceiver = ts.visitNode(receiver, this.visit.bind(this)) as ts.Expression;
+    const visitedArgs = node.arguments.map(
+      (a) => ts.visitNode(a, this.visit.bind(this)) as ts.Expression
+    );
+    const rewritten = factory.createCallExpression(methodAccess, undefined, [
+      stripCommentsDeep(visitedReceiver),
+      ...visitedArgs,
+    ]);
+
+    if (this.verbose) {
+      console.log(
+        `[typesugar] Rewriting typeclass method: ${typeName}.${methodName}() → ${instName}.${methodName}(...)`
+      );
+    }
+
+    return preserveSourceMap(rewritten, node);
   }
 
   /**

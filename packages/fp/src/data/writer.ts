@@ -14,7 +14,7 @@
  * W must be a Monoid for proper composition
  */
 
-import { Monoid, combineAll as combineAllMonoid } from "../typeclasses/semigroup";
+import { Monoid, combineAll as combineAllMonoid } from "../typeclasses/semigroup.js";
 
 // ============================================================================
 // Writer Type Definition

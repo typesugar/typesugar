@@ -6,7 +6,6 @@ import { describe, it, expect } from "vitest";
 import {
   erased,
   eraseWith,
-  erasedMacro,
   unwrapErased,
   callMethod,
   show,
@@ -28,6 +27,7 @@ import {
   showable,
   equatable,
 } from "../src/index.js";
+import { erasedMacro } from "../src/macros.js";
 import type {
   JsonCapability,
   ShowCapability,

@@ -55,17 +55,14 @@
  *   return add(data.length, extra.length);  // OK: pure functions are always callable
  * }
  * ```
+ *
+ * The `@pure` / `@effect` macro definitions live in the package's `./macros`
+ * entry (loaded by the transformer at build time). This module is runtime-only
+ * and does NOT import `typescript`; it exposes the effect registry + helpers
+ * (`registerPure`, `registerEffect`, `checkEffectCall`) that those macros call.
  */
 
-import * as ts from "typescript";
-import {
-  defineAttributeMacro,
-  defineExpressionMacro,
-  globalRegistry,
-  createGenericRegistry,
-  type GenericRegistry,
-} from "@typesugar/core";
-import { MacroContext, AttributeTarget } from "@typesugar/core";
+import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
 
 // ============================================================================
 // Effect Types
@@ -198,150 +195,6 @@ export function checkEffectCall(caller: string, callee: string): string | undefi
 }
 
 // ============================================================================
-// @pure Attribute Macro
-// ============================================================================
-
-/**
- * @pure decorator — marks a function as having no side effects.
- *
- * The macro:
- * 1. Registers the function as pure in the effect registry
- * 2. Walks the function body to find calls to other annotated functions
- * 3. Reports errors if any called function has effects
- */
-export const pureAttribute = defineAttributeMacro({
-  name: "pure",
-  description:
-    "Mark a function as pure (no side effects). Compile error if it calls effectful functions.",
-  validTargets: ["function", "method"] as AttributeTarget[],
-
-  expand(
-    ctx: MacroContext,
-    _decorator: ts.Decorator,
-    target: ts.Declaration,
-    _args: readonly ts.Expression[]
-  ): ts.Node | ts.Node[] {
-    if (!ts.isFunctionDeclaration(target) && !ts.isMethodDeclaration(target)) {
-      ctx.reportError(target, "@pure can only be applied to functions and methods");
-      return target;
-    }
-
-    const name = target.name
-      ? ts.isIdentifier(target.name)
-        ? target.name.text
-        : target.name.getText()
-      : "anonymous";
-
-    // Register as pure
-    registerPure(
-      name,
-      `${ctx.sourceFile.fileName}:${ctx.sourceFile.getLineAndCharacterOfPosition(target.getStart()).line + 1}`
-    );
-
-    // Walk the function body to check for effect violations
-    if (target.body) {
-      walkForEffectViolations(ctx, name, target.body);
-    }
-
-    // Return the function unchanged (decorator is consumed)
-    return target;
-  },
-});
-
-// ============================================================================
-// @effect Attribute Macro
-// ============================================================================
-
-/**
- * @effect("io", "async", ...) decorator — marks a function as having effects.
- *
- * The macro:
- * 1. Registers the function with its declared effects
- * 2. Checks that all called functions' effects are covered
- */
-export const effectAttribute = defineAttributeMacro({
-  name: "effect",
-  description: "Declare the side effects of a function. Enables compile-time effect checking.",
-  validTargets: ["function", "method"] as AttributeTarget[],
-
-  expand(
-    ctx: MacroContext,
-    _decorator: ts.Decorator,
-    target: ts.Declaration,
-    args: readonly ts.Expression[]
-  ): ts.Node | ts.Node[] {
-    if (!ts.isFunctionDeclaration(target) && !ts.isMethodDeclaration(target)) {
-      ctx.reportError(target, "@effect can only be applied to functions and methods");
-      return target;
-    }
-
-    const name = target.name
-      ? ts.isIdentifier(target.name)
-        ? target.name.text
-        : target.name.getText()
-      : "anonymous";
-
-    // Extract effect names from arguments
-    const effects: EffectKind[] = [];
-    for (const arg of args) {
-      if (ts.isStringLiteral(arg)) {
-        effects.push(arg.text as EffectKind);
-      }
-    }
-
-    if (effects.length === 0) {
-      ctx.reportWarning(target, '@effect requires at least one effect name, e.g. @effect("io")');
-    }
-
-    // Register with effects
-    registerEffect(
-      name,
-      effects,
-      `${ctx.sourceFile.fileName}:${ctx.sourceFile.getLineAndCharacterOfPosition(target.getStart()).line + 1}`
-    );
-
-    // Walk the function body to check for undeclared effects
-    if (target.body) {
-      walkForEffectViolations(ctx, name, target.body);
-    }
-
-    return target;
-  },
-});
-
-// ============================================================================
-// Effect Checking Helpers
-// ============================================================================
-
-/**
- * Walk a function body and check for effect violations.
- */
-function walkForEffectViolations(ctx: MacroContext, callerName: string, body: ts.Node): void {
-  const visitor = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      let calleeName: string | undefined;
-
-      if (ts.isIdentifier(node.expression)) {
-        calleeName = node.expression.text;
-      } else if (ts.isPropertyAccessExpression(node.expression)) {
-        calleeName = node.expression.name.text;
-      }
-
-      if (calleeName) {
-        const error = checkEffectCall(callerName, calleeName);
-        if (error) {
-          ctx.reportError(node, error);
-        }
-      }
-    }
-
-    ts.forEachChild(node, visitor);
-  };
-
-  ts.forEachChild(body, visitor);
-}
-
-// ============================================================================
 // Effect-Typed Function Wrappers
 // ============================================================================
 
@@ -416,9 +269,3 @@ export function async_<T>(value: T): Async<T> {
 export function assertPure<T extends (...args: any[]) => any>(fn: T): T {
   return fn;
 }
-
-// ============================================================================
-// Register macros
-// ============================================================================
-
-globalRegistry.register(pureAttribute);

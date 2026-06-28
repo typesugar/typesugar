@@ -96,13 +96,12 @@
  * ```
  */
 
-// --- Macros (import to register) ---
-import "./macros/requires.js";
-import "./macros/ensures.js";
-import "./macros/old.js";
-import "./macros/contract.js";
-import "./macros/invariant.js";
-import "./macros/decidable.js";
+// =============================================================================
+// PEP-050 (Case-1): This `.` entry is the **runtime** API and does NOT import
+// `typescript`. The macro definitions + compile-time proof/parsing helpers
+// (which import `typescript`) live in the isolated `./macros` entry, loaded by
+// the transformer at build time. See ./macros.ts and docs/guides/authoring-libraries.md.
+// =============================================================================
 
 // --- Compile-Time Evaluation ---
 // Re-export comptime for convenient use with contracts.
@@ -112,17 +111,7 @@ import "./macros/decidable.js";
 // Users should import it directly from one of those packages
 
 // --- Runtime API ---
-export { requires } from "./macros/requires.js";
-export { ensures } from "./macros/ensures.js";
-export { old } from "./macros/old.js";
-
-// --- Macro definitions (for programmatic use) ---
-export { requiresMacro } from "./macros/requires.js";
-export { ensuresMacro } from "./macros/ensures.js";
-export { oldMacro } from "./macros/old.js";
-export { contractAttribute } from "./macros/contract.js";
-export { invariantAttribute } from "./macros/invariant.js";
-export { decidableAttribute, decidable } from "./macros/decidable.js";
+export { requires, ensures, old, decidable, laws } from "./runtime/api.js";
 
 // --- Configuration ---
 export {
@@ -140,19 +129,16 @@ export {
 } from "./config.js";
 
 // --- Prover ---
+// Note: the compile-time proof engine (tryProve, tryProveAsync,
+// proveGoalWithPlugins, tryProveWithCertificate[Async], extractTypeFacts) imports
+// `typescript` and is therefore exposed from "@typesugar/contracts/macros" only.
+export type { ProofResult, ProverPlugin } from "./prover/index.js";
+export type { TypeFact } from "./prover/type-facts.js";
 export {
-  type ProofResult,
-  type ProverPlugin,
-  type TypeFact,
-  tryProve,
-  tryProveAsync,
-  proveGoalWithPlugins,
   // Proof certificates (Coq-inspired)
   type ProofCertificate,
   type ProofStep,
   type ProofMethod,
-  tryProveWithCertificate,
-  tryProveWithCertificateAsync,
   createCertificate,
   succeedCertificate,
   failCertificate,
@@ -160,9 +146,8 @@ export {
   createStep,
   formatCertificate,
   certificateToResult,
-} from "./prover/index.js";
+} from "./prover/certificate.js";
 export {
-  extractTypeFacts,
   registerRefinementPredicate,
   getRefinementPredicate,
   // Dynamic predicate generators (for parameterized types like Vec<N>)
@@ -200,16 +185,11 @@ export {
 } from "./prover/linear.js";
 
 // --- Parser ---
-export {
-  type ContractCondition,
-  normalizeExpression,
-  extractConditionsFromBlock,
-} from "./parser/predicate.js";
-export {
-  type ParsedContractBlocks,
-  type EnsuresBlock,
-  parseContractBlocks,
-} from "./parser/contract-block.js";
+// The parser/predicate and parser/contract-block modules import `typescript`
+// (they walk the TS AST), so their values are exposed from
+// "@typesugar/contracts/macros". Only the runtime-pure types stay here.
+export type { ContractCondition } from "./parser/predicate.js";
+export type { ParsedContractBlocks, EnsuresBlock } from "./parser/contract-block.js";
 
 // --- Runtime Errors ---
 export {
@@ -220,10 +200,13 @@ export {
 } from "./runtime/errors.js";
 
 // --- old() utilities ---
-export { type OldCapture, extractOldCaptures, generateOldCaptureStatements } from "./macros/old.js";
+// extractOldCaptures / generateOldCaptureStatements import `typescript`; they are
+// exposed from "@typesugar/contracts/macros". The OldCapture type stays here.
+export type { OldCapture } from "./macros/old.js";
 
 // --- Laws Verification System ---
-// Re-export law types and verification utilities
+// Re-export law types and verification utilities (runtime-pure). The @laws macro
+// (`lawsAttribute`) imports `typescript` and is exposed from "@typesugar/contracts/macros".
 export {
   // Core types
   type Law,
@@ -237,11 +220,14 @@ export {
   type VerifyOptions,
   type LawVerificationResult,
   type VerificationSummary,
+  type LawsDecoratorOptions,
   // Builder utilities
   defineLaw,
   combineLaws,
   filterLaws,
   filterByHint,
+} from "./laws/types.js";
+export {
   // Configuration
   type LawsConfig,
   setLawsConfig,
@@ -255,8 +241,4 @@ export {
   proofHintToFacts,
   generatePropertyTest,
   formatVerificationSummary,
-  // Macro
-  lawsAttribute,
-  laws,
-  type LawsDecoratorOptions,
-} from "./laws/index.js";
+} from "./laws/verify.js";

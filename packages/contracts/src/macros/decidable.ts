@@ -298,30 +298,3 @@ function stripDecoratorFromTypeAlias(
 
 // Register the macro
 globalRegistry.register(decidableAttribute);
-
-// ============================================================================
-// Runtime API (for programmatic use without decorators)
-// ============================================================================
-
-/**
- * Programmatic version of @decidable for use without decorators.
- *
- * @example
- * ```typescript
- * import { decidable } from "@typesugar/contracts";
- *
- * // Register decidability for a custom type
- * decidable("MyCustomType", "compile-time", "constant");
- * ```
- */
-export function decidable(
-  brand: string,
-  decidability: Decidability,
-  preferredStrategy: ProofStrategy = "algebra"
-): void {
-  registerDecidability({
-    brand,
-    decidability,
-    preferredStrategy,
-  });
-}

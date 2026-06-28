@@ -601,12 +601,16 @@ function vlqEncode(value: number): string {
  * ```
  */
 /**
- * Regex that matches the companion const pattern emitted by ensureDataTypeCompanionConst()
- * in typeclass.ts. Matches `const X: Record<string, any> = {};` and `export const X: ...`.
+ * Defensive no-op safety net for a legacy companion-const pattern
+ * (`const X: Record<string, any> = {};`).
  *
- * ts.transpileModule doesn't handle const + namespace declaration merging correctly —
- * it emits `var X;` which redeclares the block-scoped `const`. Converting these to
- * `var` makes the redeclaration legal JavaScript (var + var is fine).
+ * Derive no longer emits this — PEP-033 N1 removed it because a companion `const`
+ * cannot declaration-merge with the generated `namespace X` (it caused TS2451 at the
+ * type level and duplicate decls); the namespace alone now provides the runtime value.
+ * This pass is retained only to neutralize any such pattern from external/legacy input:
+ * `ts.transpileModule` would emit `var X;` for the namespace, which redeclares a
+ * block-scoped `const`; rewriting `const`→`var` keeps that legal. Matches nothing for
+ * current derive output.
  */
 const COMPANION_CONST_RE = /^(export )?const (\w+): Record<string, any> = \{\};/gm;
 

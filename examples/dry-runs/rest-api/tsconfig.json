@@ -11,7 +11,13 @@
     "declaration": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": false,
-    "plugins": [{ "transform": "@typesugar/transformer" }]
+    "plugins": [
+      {
+        "transform": "@typesugar/transformer"
+      }
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

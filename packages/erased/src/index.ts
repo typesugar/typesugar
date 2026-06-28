@@ -66,8 +66,10 @@ export { mapErased, filterErased, showAll, sortErased, dedup, groupByHash } from
 // Capability widening / narrowing
 export { widen, narrow, extendCapabilities, hasCapability } from "./widen-narrow.js";
 
-// Macro
-export { erasedMacro } from "./macros.js";
+// NOTE: The `erasedMacro` definition (which imports `typescript`) lives in the
+// `./macros` entry, loaded by the transformer at build time. It is intentionally
+// NOT re-exported here so this `.` runtime entry stays free of `typescript`
+// (PEP-050 Case-1). See ./macros.ts.
 
 // ============================================================================
 // Runtime Stub

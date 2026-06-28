@@ -19,6 +19,7 @@ import {
   clearSyntaxRegistry,
   instanceRegistry,
   registerTypeclassMacros,
+  registerStandardTypeclasses,
 } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
 import type { DeriveTypeInfo } from "@typesugar/core";
@@ -128,6 +129,62 @@ interface Point { x: number; y: number; }
     const entry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Point");
     expect(entry).toBeDefined();
     expect(entry?.derived).toBe(true);
+  });
+
+  // PEP-033 N1: multi-arg @derive on an interface must NOT emit a companion
+  // `const X: Record<string, any> = {}`. That const cannot declaration-merge with
+  // the generated `namespace X` (TS2451 "Cannot redeclare ..."), and was emitted
+  // once per derive arg (duplicate const). The namespace alone provides the runtime
+  // value and merges legally with the interface, so the companion form
+  // `X.Eq.equals` type-checks.
+  it("@derive(Eq, Clone) on interface emits no companion const and no duplicate declarations", () => {
+    const code = `
+@derive(Eq, Clone)
+interface User { id: number; name: string; }
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-n1.ts" });
+
+    // No companion const (the TS2451 source) for any arg.
+    expect(result.code).not.toMatch(/const User\s*:\s*Record<string,\s*any>\s*=\s*\{\}/);
+    // One namespace per derived typeclass, both present.
+    expect(result.code).toContain("namespace User");
+    expect(result.code).toContain("export const Eq");
+    expect(result.code).toContain("export const Clone");
+    // No bare `const User =` / `var User =` companion left to clash with the namespace.
+    expect(result.code).not.toMatch(/^\s*(export\s+)?(const|var|let)\s+User\s*[:=]/m);
+  });
+
+  it("@derive(Eq) on a class still works (namespace merges with the class)", () => {
+    const code = `
+@derive(Eq)
+class P { constructor(public x: number) {} }
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-n1-class.ts" });
+    expect(result.code).toContain("namespace P");
+    expect(result.code).toContain("export const Eq");
+    // Classes never had a companion const; ensure that's still true.
+    expect(result.code).not.toMatch(/const P\s*:\s*Record<string,\s*any>/);
+  });
+
+  // PEP-033 N3: instance-method sugar — `p.equals(q)` on a derived type is
+  // rewritten to the companion call `P.Eq.equals(p, q)` (receiver → first arg).
+  it("rewrites instance-method sugar `p.equals(q)` to the companion call", () => {
+    // clearRegistries() (beforeEach) wipes the standard typeclass defs that
+    // getTypeclassesForMethod("equals") relies on — restore them.
+    registerStandardTypeclasses();
+    const code = `
+@derive(Eq)
+class P { constructor(public x: number) {} }
+const p1 = new P(1);
+const p2 = new P(1);
+export const same = p1.equals(p2);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-n3-sugar.ts" });
+    expect(result.code).toContain("P.Eq.equals(p1, p2)");
+    expect(result.code).not.toMatch(/p1\.equals\(/);
   });
 
   it("@derive(Show) generates show instance code", () => {

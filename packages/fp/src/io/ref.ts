@@ -7,8 +7,8 @@
  * Inspired by Scala's Cats Effect Ref
  */
 
-import { IO } from "./io";
-import { Option, Some, None } from "../data/option";
+import { IO } from "./io.js";
+import { Option, Some, None } from "../data/option.js";
 
 // ============================================================================
 // Ref Type

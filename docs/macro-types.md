@@ -67,15 +67,15 @@ class User {
   name: string;
 }
 
-// @reflect — enable type reflection
-@reflect
+// @reflect — enable type reflection (JSDoc form on interfaces)
+/** @reflect */
 interface Config {
   host: string;
   port: number;
 }
 
 // @typeclass — define a typeclass (use @op JSDoc on methods for operator dispatch)
-@typeclass
+/** @typeclass */
 interface Show<A> {
   show(a: A): string;
 }
@@ -85,9 +85,14 @@ interface Show<A> {
 const numberShow: Show<number> = { show: String };
 
 // @derive — auto-derive typeclass instances
-@derive(Show, Eq)
+/** @derive(Show, Eq) */
 interface Point { x: number; y: number; }
 ```
+
+> Interfaces, functions, and type aliases use the **JSDoc form**
+> (`/** @macro */`) above. The decorator form works under TypeSugar too, but
+> plain `tsc` flags it with TS1206 on non-class targets — see
+> [JSDoc vs Decorator Syntax](./guides/jsdoc-vs-decorators.md).
 
 ### How They Work
 

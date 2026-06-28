@@ -56,12 +56,17 @@ describe("Compiled macro structure", () => {
     expect(compiled.compileGenExpression).toBeDefined();
   });
 
-  it("should export all necessary symbols from main index", async () => {
+  it("should export the runtime placeholders from the package root", async () => {
     const index = await import("../src/index.js");
 
     expect(index.compileGen).toBeDefined();
     expect(index.compiled).toBeDefined();
-    expect(index.compiledAttribute).toBeDefined();
-    expect(index.compileGenExpression).toBeDefined();
+  });
+
+  it("should export the macro definitions from the ./macros entry", async () => {
+    const macros = await import("../src/macros.js");
+
+    expect(macros.compiledAttribute).toBeDefined();
+    expect(macros.compileGenExpression).toBeDefined();
   });
 });

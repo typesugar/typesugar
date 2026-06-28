@@ -395,7 +395,7 @@ describe("Type Facts Edge Cases", () => {
 describe("Contract Runtime Edge Cases", () => {
   describe("requires() at runtime", () => {
     it("Falsy but valid values", async () => {
-      const { requires } = await import("../packages/contracts/src/macros/requires.js");
+      const { requires } = await import("../packages/contracts/src/runtime/api.js");
 
       // requires(0) should throw (0 is falsy)
       expect(() => requires(0 as unknown as boolean)).toThrow();
@@ -411,7 +411,7 @@ describe("Contract Runtime Edge Cases", () => {
     });
 
     it("Truthy but potentially unexpected values", async () => {
-      const { requires } = await import("../packages/contracts/src/macros/requires.js");
+      const { requires } = await import("../packages/contracts/src/runtime/api.js");
 
       // Any non-empty string is truthy
       expect(() => requires("false" as unknown as boolean)).not.toThrow();
@@ -430,7 +430,7 @@ describe("Contract Runtime Edge Cases", () => {
     });
 
     it("Error message interpolation", async () => {
-      const { requires } = await import("../packages/contracts/src/macros/requires.js");
+      const { requires } = await import("../packages/contracts/src/runtime/api.js");
 
       try {
         requires(false, "${process.env.SECRET}");
@@ -443,7 +443,7 @@ describe("Contract Runtime Edge Cases", () => {
 
   describe("ensures() at runtime", () => {
     it("Runtime ensures with falsy condition", async () => {
-      const { ensures } = await import("../packages/contracts/src/macros/ensures.js");
+      const { ensures } = await import("../packages/contracts/src/runtime/api.js");
 
       expect(() => ensures(false)).toThrow();
     });
@@ -451,7 +451,7 @@ describe("Contract Runtime Edge Cases", () => {
 
   describe("old() at runtime", () => {
     it("Runtime old without transformer", async () => {
-      const { old } = await import("../packages/contracts/src/macros/old.js");
+      const { old } = await import("../packages/contracts/src/runtime/api.js");
 
       // old() should just return its argument at runtime
       const value = { count: 5 };

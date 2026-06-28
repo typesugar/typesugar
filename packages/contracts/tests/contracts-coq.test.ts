@@ -664,7 +664,7 @@ describe("@decidable macro", () => {
   });
 
   it("should export decidableAttribute", async () => {
-    const { decidableAttribute } = await import("@typesugar/contracts");
+    const { decidableAttribute } = await import("@typesugar/contracts/macros");
 
     expect(decidableAttribute).toBeDefined();
     expect(decidableAttribute.name).toBe("decidable");

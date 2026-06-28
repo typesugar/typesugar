@@ -208,6 +208,10 @@ export function createMacroTestContext(source: string): TestMacroContext {
     safeRef(symbol: string, _from: string): ts.Identifier {
       return ts.factory.createIdentifier(symbol);
     },
+
+    ensureImport(symbol: string, _from: string): ts.Identifier {
+      return ts.factory.createIdentifier(symbol);
+    },
   };
 
   return ctx;

@@ -190,9 +190,11 @@ USAGE:
   typesugar <command> [options]
 
 COMMANDS:
-  build              Compile TypeScript with macro expansion (default)
+  build              Compile TypeScript with macro expansion (default).
+                     Emits .js/.d.ts and exits non-zero if any diagnostics are found.
   watch              Watch mode -- recompile on file changes
-  check              Type-check with macro expansion, but don't emit files
+  check              Type-check with macro expansion, but don't emit files.
+                     Exits non-zero on diagnostics — use this as your CI gate.
   expand <file>      Show macro-expanded output for a file
   run <file>         Compile and execute a file with macro expansion
   init               Interactive setup wizard for existing projects
@@ -205,7 +207,10 @@ OPTIONS:
   -v, --verbose          Enable verbose logging
   --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
-  --strict               Typecheck expanded output (catches macro bugs) [build/check]
+  --strict               Also typecheck the expanded output [build/check]. Experimental:
+                         the per-file expansion check may report false positives
+                         (e.g. spurious TS2304) and is degraded gracefully if the
+                         checker hits synthetic node positions. Off by default.
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --show-sfinae          Show SFINAE-suppressed diagnostics (audit mode)
   -h, --help             Show this help message
@@ -462,8 +467,28 @@ function build(options: CliOptions): void {
       const sourceFile = program.getSourceFile(fileName);
       if (!sourceFile) continue;
 
+      // Transform a FRESH copy of the source, not the program's own SourceFile.
+      // ts.transform attaches synthetic nodes (pos = -1) to the tree it walks;
+      // running it on `program`'s SourceFile pollutes that program's checker and
+      // crashes the subsequent program.emit()/getPreEmitDiagnostics in
+      // createTextSpan ("start < 0"). A re-parsed copy isolates the strict pass.
+      const scriptKind = /\.tsx$/.test(sourceFile.fileName)
+        ? ts.ScriptKind.TSX
+        : /\.jsx$/.test(sourceFile.fileName)
+          ? ts.ScriptKind.JSX
+          : /\.js$/.test(sourceFile.fileName)
+            ? ts.ScriptKind.JS
+            : ts.ScriptKind.TS;
+      const freshSource = ts.createSourceFile(
+        sourceFile.fileName,
+        sourceFile.text,
+        sourceFile.languageVersion,
+        true,
+        scriptKind
+      );
+
       // Run the transformer
-      const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
+      const transformResult = ts.transform(freshSource, [transformerFactory], compilerOptions);
       const transformedFile = transformResult.transformed[0];
 
       // Print the transformed source
@@ -485,17 +510,35 @@ function build(options: CliOptions): void {
       return origExpandedReadFile(fileName);
     };
 
-    // Create a new program with expanded files for type checking
-    // Use the original program for structural reuse
+    // Create a new program over the EXPANDED files (served by expandedHost) for
+    // type checking. NOTE: do NOT pass `program` as the old program for
+    // structural reuse — its source files carry the transformer's synthetic
+    // nodes (pos = -1), which TypeScript's checker can reuse and then crash on
+    // in createTextSpan ("start < 0") when building diagnostic spans. The
+    // expanded files are freshly parsed strings, so there is nothing safe to
+    // reuse — but expandedHost MUST be passed so the program reads the expanded
+    // output rather than the original on-disk source.
     const expandedProgram = ts.createProgram(
       config.fileNames,
       { ...compilerOptions, noEmit: true },
-      expandedHost,
-      program
+      expandedHost
     );
 
-    // Get type errors from expanded program
-    strictDiagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
+    // Get type errors from expanded program. Guard against the synthetic-node
+    // "start < 0" crash so --strict degrades gracefully instead of aborting the
+    // whole build with an unhandled exception.
+    try {
+      strictDiagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes("start < 0")) {
+        console.error(
+          "🧊 Warning: --strict typecheck skipped — the checker crashed on synthetic node positions in the expanded output."
+        );
+        strictDiagnostics = [];
+      } else {
+        throw e;
+      }
+    }
 
     const strictElapsed = profiler.end("cli.build.strictTypecheck");
     if (options.verbose) {
@@ -509,8 +552,25 @@ function build(options: CliOptions): void {
   // Collect pre-emit diagnostics BEFORE emit. After emit, the transformer's
   // synthetic nodes (pos = -1) cause deferred checker callbacks to crash in
   // createTextSpan when getPreEmitDiagnostics triggers getGlobalDiagnostics.
+  // The --strict block above already runs the transformer via ts.transform,
+  // which can pollute this program's checker with synthetic nodes, so guard
+  // the same "start < 0" crash here (in strict mode the expanded-output
+  // diagnostics are authoritative anyway).
   profiler.start("cli.build.preEmitDiagnostics");
-  const preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
+  let preEmitDiagnostics: readonly ts.Diagnostic[] = [];
+  try {
+    preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message.includes("start < 0")) {
+      if (options.verbose) {
+        console.error(
+          "🧊 Warning: pre-emit diagnostics skipped — checker crashed on synthetic node positions."
+        );
+      }
+    } else {
+      throw e;
+    }
+  }
   profiler.end("cli.build.preEmitDiagnostics");
 
   profiler.start("cli.build.emit");

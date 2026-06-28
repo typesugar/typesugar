@@ -166,6 +166,47 @@ build-time overhead is the first adopter question.
       transform overhead on a representative 50-file project).
 - [ ] Add the headline number to the README once it exists.
 
+## Wave 6 — Residual `__binop__` text scrub (from PEP-020 withdrawal)
+
+[PEP-020](PEP-020-replace-binop-with-named-macros.md) was withdrawn (superseded by
+PEP-047, which deleted the `.sts` preprocessor and all `__binop__`/`__pipe__` operator
+machinery). Stale text describing the removed `__binop__` dispatch still survives in a
+few non-test files and should be scrubbed:
+
+- [ ] `packages/core/src/diagnostics.ts` (~L1236, L1246) — two diagnostic message
+      strings still tell users to "implement a method that `__binop__` can dispatch
+      to" / reference "the `__binop__` macro". Rewrite for the current `@op`
+      typeclass-method operator path (no `__binop__`).
+- [ ] `docs/architecture.md` (~L373) — "Operator Resolution Order (for `__binop__`)"
+      section describes a removed pipeline. Rewrite or delete.
+- [ ] `packages/unplugin-typesugar/examples/showcase.ts` (~L219),
+      `packages/eslint-plugin/examples/showcase.ts` (~L109–110),
+      `packages/transformer/examples/showcase.ts` (~L167, L172) — stale comments and
+      one `__binop__(...)` code/assert string. Update to current output.
+
+`packages/transformer/tests/language-service.test.ts` — PEP-047 called these "valid
+post-removal coverage", but on inspection most are not. The LS-plugin mechanism they
+exercise (wrapping `getScriptSnapshot` to serve transformed code) is **still live**
+(`language-service.ts:348`), so the fix is to **rewrite them against real transformer
+output**, not preserve a fabricated `__binop__` transform:
+
+- [ ] **"VS Code Simulation" ×2 + "Transform-First Analysis"** (~L461, L502–561, L670)
+      hand-roll `declare function __binop__` + a regex `|> → __binop__(…)` to fake a
+      transform that no longer exists. Rewrite the mock host to emit a **real** macro
+      the transformer still produces (e.g. a `match()`/`pipe()`/`@derive` snippet) so
+      they test the live snapshot-wrapping path against real output.
+- [ ] **`not.toContain("__binop__")`** (~L160–173) is now a tautology (`__binop__`
+      can never be emitted). Rewrite to assert the actual intent — a plain `.ts` file
+      is served unchanged (preprocessing skipped) — or delete.
+- [ ] **"suppresses diagnostics that cannot be mapped"** (~L425) is the one keeper;
+      only its comment references `__binop__`. Drop the stale comment.
+
+The `number::__binop__(Show` regression guard in `packages/macros/src/coverage.test.ts`
+is a registry-key string literal, not a feature reference — leave it.
+
+**Gate:** `rg '__binop__' --type ts --type md` returns only the `coverage.test.ts`
+registry-key guard (plus historical PEP markdown).
+
 ## Done Criteria
 
 - `git grep -l "PLAN-post-migration"` returns nothing.
@@ -174,6 +215,8 @@ build-time overhead is the first adopter question.
 - Red-team include-path test passes; SECURITY doc dated 2026-06 or later.
 - Zero `.skip` without reason+reference; std extensions test runs in CI.
 - PERFORMANCE.md contains dated, machine-generated numbers.
+- `rg '__binop__' --type ts --type md` returns only the `coverage.test.ts`
+  registry-key guard and historical PEP markdown.
 
 ## Suggested order of the whole program
 

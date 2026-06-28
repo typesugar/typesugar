@@ -24,8 +24,11 @@
 // Re-export everything from types
 export * from "./types.js";
 
-// Re-export macro
-export { unitsMacro, register } from "./macro.js";
+// NOTE: The `units` macro definition (which imports `typescript`) lives in the
+// isolated `./macros` entry, loaded by the transformer at build time. It is
+// intentionally NOT re-exported here so this runtime `.` entry stays
+// typescript-free (PEP-050). Application code uses the `units` runtime fallback
+// exported below.
 
 // ============================================================================
 // Fallback units function for non-macro usage

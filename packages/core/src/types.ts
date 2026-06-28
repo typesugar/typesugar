@@ -173,6 +173,25 @@ export interface MacroContext {
    */
   safeRef(symbol: string, from: string): ts.Identifier;
 
+  /**
+   * Like {@link safeRef}, but also GUARANTEES the symbol is imported from `from`.
+   *
+   * `safeRef` only avoids name collisions; in the common "not in scope" case it
+   * returns a bare identifier and leaves importing to the caller. Expression
+   * macros return an expression (not statements) and so cannot inject an import
+   * statement themselves — use this to reference a runtime symbol the source file
+   * may not import (e.g. `MatchError`). The pending import is flushed into the
+   * file by the transformer.
+   *
+   * @example
+   * ```typescript
+   * // Source file does not import MatchError:
+   * ctx.ensureImport("MatchError", "@typesugar/std")
+   * // Returns: MatchError (bare) + pending: import { MatchError } from "@typesugar/std"
+   * ```
+   */
+  ensureImport(symbol: string, from: string): ts.Identifier;
+
   // -------------------------------------------------------------------------
   // Type Confidence
   // -------------------------------------------------------------------------
@@ -301,6 +320,20 @@ export interface AttributeMacro extends MacroDefinitionBase {
    * Valid targets for this attribute
    */
   validTargets: AttributeTarget[];
+
+  /**
+   * Labels that implicitly trigger this attribute macro on an enclosing
+   * function/method, even without an explicit decorator. When the transformer
+   * sees a function or method whose body contains a top-level labeled block
+   * (e.g. `requires:` / `ensures:`) matching one of these labels, it applies
+   * this attribute macro as if the function were decorated with it.
+   *
+   * Used by `@contract` so the documented `requires:`/`ensures:` block form
+   * works without an explicit `@contract` decorator. The macro only activates
+   * when its package is loaded, so unrelated `label:` statements are unaffected
+   * unless the owning package is imported.
+   */
+  triggerLabels?: string[];
 
   /**
    * Expand the attribute macro.
@@ -512,6 +545,9 @@ export interface MacroRegistry {
 
   /** Get an attribute macro by name */
   getAttribute(name: string): AttributeMacro | undefined;
+
+  /** Find an attribute macro that declares `label` in its triggerLabels */
+  getAttributeByTriggerLabel(label: string): AttributeMacro | undefined;
 
   /** Get a derive macro by name */
   getDerive(name: string): DeriveMacro | undefined;

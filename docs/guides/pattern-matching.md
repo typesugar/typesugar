@@ -569,19 +569,22 @@ const result = match(list).case([]).then("empty").case([x]).then(`one: ${x}`).el
 
 ### What Changed
 
-| Old API               | New Fluent API                 | Notes                                  |
-| --------------------- | ------------------------------ | -------------------------------------- |
-| `match(v, { ... })`   | `match(v).case(...).then(...)` | Object form removed                    |
-| `when(pred, handler)` | `.case(n).if(pred).then(...)`  | `when()` removed                       |
-| `otherwise(handler)`  | `.else(value)`                 | `otherwise()` removed                  |
-| `P.empty`             | `.case([])`                    | `P.*` removed                          |
-| `P.length(n)`         | `.case([a, b, ...])`           | Array patterns are first-class         |
-| `isType("string")`    | `.case(String(s))`             | Constructor syntax replaces `isType()` |
+| Old API               | New Fluent API                 | Notes                                                    |
+| --------------------- | ------------------------------ | -------------------------------------------------------- |
+| `match(v, { ... })`   | `match(v).case(...).then(...)` | Object form still supported (see [match.md](./match.md)) |
+| `when(pred, handler)` | `.case(n).if(pred).then(...)`  | `when()` removed                                         |
+| `otherwise(handler)`  | `.else(value)`                 | `otherwise()` removed                                    |
+| `P.empty`             | `.case([])`                    | `P.*` removed                                            |
+| `P.length(n)`         | `.case([a, b, ...])`           | Array patterns are first-class                           |
+| `isType("string")`    | `.case(String(s))`             | Constructor syntax replaces `isType()`                   |
 
 ### Migration
 
-The old API (`when()`, `otherwise()`, `P.*`, `isType()`, and the object handler form)
-has been removed. Use the fluent API shown above for all pattern matching.
+Only `when()`, `otherwise()`, `P.*`, and `isType()` were removed. The object-handler
+form `match(value, { variant: handler })` is **preserved** (see the dedicated
+[runtime-form guide](./match.md)); the fluent API shown above adds structural patterns
+on top of it. Use whichever form fits — the fluent API for structural/guard patterns,
+the object-handler form for simple discriminated-union dispatch.
 
 ---
 

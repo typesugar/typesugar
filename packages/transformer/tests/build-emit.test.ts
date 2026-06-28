@@ -140,6 +140,47 @@ console.log(a);
     }
   });
 
+  it("strict-style transform on a fresh source copy does not pollute the program (PEP-033 N5)", () => {
+    // `typesugar build --strict` transforms each file with ts.transform to
+    // typecheck the expanded output. Running that on the program's OWN
+    // SourceFile attaches synthetic nodes (pos = -1) to it, which crashes the
+    // subsequent program.emit()/getPreEmitDiagnostics in createTextSpan. The
+    // CLI now transforms a re-parsed copy; this test locks in that isolation.
+    const program = createInMemoryProgram({
+      "test.ts": `
+import { derive, Eq } from "typesugar";
+
+@derive(Eq)
+interface Point { x: number; y: number; }
+
+const a: Point = { x: 1, y: 2 };
+console.log(a);
+`,
+    });
+
+    const sourceFile = program.getSourceFile("test.ts")!;
+    // Mirror the CLI's strict pass: transform a FRESH copy, not the original.
+    const freshSource = ts.createSourceFile(
+      sourceFile.fileName,
+      sourceFile.text,
+      sourceFile.languageVersion,
+      true,
+      ts.ScriptKind.TS
+    );
+    const transformResult = ts.transform(freshSource, [
+      macroTransformerFactory(program, { verbose: false }),
+    ]);
+    transformResult.dispose();
+
+    // Because the original tree was untouched, the program's checker is still
+    // healthy: emit and pre-emit diagnostics must not crash.
+    expect(() => ts.getPreEmitDiagnostics(program)).not.toThrow();
+    const emitResult = program.emit(undefined, () => {}, undefined, false, {
+      before: [macroTransformerFactory(program, { verbose: false })],
+    });
+    expect(emitResult.emitSkipped).toBe(false);
+  });
+
   it("emit produces JS output for comptime macros", () => {
     const program = createInMemoryProgram({
       "test.ts": `

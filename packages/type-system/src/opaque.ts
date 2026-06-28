@@ -47,10 +47,11 @@
  * // The representation is hidden:
  * const raw: number = id;        // Error: UserId is not assignable to number
  * ```
+ *
+ * The `opaqueModule` macro definition lives in the package's `./macros` entry
+ * (loaded by the transformer at build time). This module is runtime-only and
+ * does NOT import `typescript`.
  */
-
-import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -253,28 +254,3 @@ export const SafeUrl = opaqueModule<string>("SafeUrl", (s: string) => {
   pathname: (s: string) => new URL(s).pathname,
   protocol: (s: string) => new URL(s).protocol,
 });
-
-// ============================================================================
-// opaqueModule Expression Macro
-// ============================================================================
-
-/**
- * opaqueModule macro — at compile time, validates the module definition
- * and generates optimized code.
- */
-export const opaqueModuleMacro = defineExpressionMacro({
-  name: "opaqueModule",
-  description: "Create an opaque type module with smart constructors and controlled access",
-
-  expand(
-    _ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
-  ): ts.Expression {
-    // Pass through to the runtime implementation — the type system
-    // handles the opacity via branded types
-    return callExpr;
-  },
-});
-
-globalRegistry.register(opaqueModuleMacro);

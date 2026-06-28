@@ -13,9 +13,11 @@
  */
 import { describe, it, expect } from "vitest";
 
-// Register all macro packages — same pattern as tests/playground-examples.test.ts
+// Register all macro packages — same pattern as tests/playground-examples.test.ts.
+// PEP-050 Case-1: macro definitions live in the isolated `./macros` entry (the
+// runtime `.` entry no longer registers them), so import the macros subpath.
 import "@typesugar/macros";
-import "@typesugar/std";
+import "@typesugar/std/macros";
 import "@typesugar/effect";
 
 import { transformCode } from "@typesugar/transformer";

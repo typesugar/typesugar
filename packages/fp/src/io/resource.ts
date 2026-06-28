@@ -7,7 +7,7 @@
  * Inspired by Scala's Cats Effect Resource
  */
 
-import { IO, runIO } from "./io";
+import { IO, runIO } from "./io.js";
 
 // ============================================================================
 // Resource Type
@@ -232,15 +232,17 @@ export class FileHandle {
 /**
  * Timer resource - will cancel on release
  */
-export function timerResource(intervalMs: number): Resource<NodeJS.Timer | number> {
+export function timerResource(intervalMs: number): Resource<ReturnType<typeof setInterval>> {
+  // Use ReturnType<typeof setInterval> rather than NodeJS.Timer so the public
+  // .d.ts doesn't leak the Node-only `NodeJS` namespace (it resolves to `number`
+  // in the browser and `NodeJS.Timeout` under @types/node — no global dependency).
   return Resource.make(
-    IO.delay(
-      () =>
-        setInterval(() => {
-          /* tick */
-        }, intervalMs) as NodeJS.Timer | number
+    IO.delay(() =>
+      setInterval(() => {
+        /* tick */
+      }, intervalMs)
     ),
-    (timer) => IO.delay(() => clearInterval(timer as NodeJS.Timeout))
+    (timer) => IO.delay(() => clearInterval(timer))
   );
 }
 

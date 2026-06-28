@@ -1,8 +1,32 @@
 # PEP-020: Replace `__binop__` with Named Operator Macros
 
-**Status:** In Progress
+**Status:** Withdrawn (superseded by [PEP-047](PEP-047-remove-sts.md))
 **Date:** 2026-03-19
 **Author:** Claude (with Dean Povey)
+
+## Withdrawal note (2026-06-28)
+
+This PEP is moot. Its goal was to migrate the `.sts` operator dispatch
+`__binop__(a, "|>", f)` to named macros `__pipe__` / `__cons__` / `__apply__`.
+[PEP-047](PEP-047-remove-sts.md) (Done) deleted the entire `.sts` preprocessor,
+removing **both** sides of this migration:
+
+- The old `__binop__` dispatch is gone (the preprocessor that emitted it was deleted).
+- The replacement macros `pipeOpMacro`/`consOpMacro`/`applyOpMacro`
+  (`__pipe__`/`__cons__`/`__apply__`) were also removed — see PEP-047's changelog;
+  `operators.ts` now documents their removal in its module header.
+- The implementation files this PEP lists (`preprocessor/src/extensions/pipeline.ts`,
+  `cons.ts`, `prettier-plugin/src/post-format.ts`) no longer exist.
+
+The `pipe()`/`compose()` named macros that survive in `operators.ts` are unrelated
+call-form macros, not operator sugar. No work remains under this PEP.
+
+Residual stale `__binop__` text in `core/src/diagnostics.ts`, `docs/architecture.md`,
+three `examples/showcase.ts` files, and `language-service.test.ts` describes the
+removed feature and is tracked as cleanup under [PEP-049](PEP-049-cruft-cleanup.md)
+Wave 6. (The `language-service.test.ts` mocks fake a dead transform; the LS plumbing
+they exercise is still live, so they get rewritten against real transformer output
+rather than kept as-is.)
 
 ## Context
 

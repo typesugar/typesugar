@@ -50,5 +50,6 @@ export { parseGrammarDef, buildParser } from "./grammar.js";
 // Compile-time codegen (Phase 2)
 export { generateParserCode, resetVarCounter } from "./codegen.js";
 
-// Tagged template macro + runtime fallback
-export { grammarMacro, grammar, register } from "./grammar-macro.js";
+// Runtime `grammar` tagged-template fallback.
+// The macro *definition* lives in the `./macros` entry (build-time only).
+export { grammar } from "./grammar-macro.js";

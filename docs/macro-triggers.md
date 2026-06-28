@@ -82,6 +82,11 @@ const showPoint = {
 };
 ```
 
+> On interfaces, functions, and type aliases the equivalent JSDoc trigger
+> (`/** @typeclass */`) is preferred — plain `tsc` flags the decorator form with
+> TS1206 (TypeSugar suppresses it). See
+> [JSDoc vs Decorator Syntax](./guides/jsdoc-vs-decorators.md).
+
 **Registration:**
 
 ```typescript

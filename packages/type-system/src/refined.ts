@@ -51,16 +51,13 @@
  * listen(8080);    // Error: number is not Port
  * listen(isPort.refine(8080)); // OK
  * ```
+ *
+ * The `refine` / `unsafeRefine` macro definitions live in the package's
+ * `./macros` entry (loaded by the transformer at build time). This module is
+ * runtime-only and does NOT import `typescript`.
  */
 
-import * as ts from "typescript";
-import {
-  defineExpressionMacro,
-  globalRegistry,
-  MacroContext,
-  createGenericRegistry,
-  type GenericRegistry,
-} from "@typesugar/core";
+import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -541,82 +538,6 @@ export type MinLength<T> = Refined<T[], "MinLength">;
 export function MinLength<T>(min: number): Refinement<T[], "MinLength"> {
   return refinement<T[], "MinLength">((arr) => arr.length >= min, "MinLength");
 }
-
-// ============================================================================
-// refine Expression Macro — compile-time validation for literals
-// ============================================================================
-
-/**
- * refine macro — validates a literal value at compile time.
- *
- * For compile-time-known values (literals), the macro evaluates the predicate
- * during compilation and reports an error if it fails. For dynamic values,
- * it generates a runtime validation call.
- */
-export const refineMacro = defineExpressionMacro({
-  name: "refine",
-  description: "Validate and refine a value at compile time (for literals) or runtime",
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    if (args.length < 2) {
-      // If called as refine(refinement, value), pass through
-      // If called as refine<Type>(value), the type arg tells us the refinement
-      return callExpr;
-    }
-
-    const [refinementArg, valueArg] = args;
-
-    // Try to evaluate the value at compile time
-    if (ctx.isComptime(valueArg)) {
-      const value = ctx.evaluate(valueArg);
-      if (value.kind !== "error") {
-        // We have a compile-time value — the runtime refinement.refine()
-        // will validate it. We can't run the predicate at compile time
-        // (it's a closure), but we can emit the call.
-      }
-    }
-
-    // Generate: refinementArg.refine(valueArg)
-    const factory = ctx.factory;
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(refinementArg, "refine"),
-      undefined,
-      [valueArg]
-    );
-  },
-});
-
-/**
- * unsafeRefine macro — bypass validation (escape hatch).
- * The value is cast to the refined type without checking.
- * Use only when you've already validated externally.
- */
-export const unsafeRefineMacro = defineExpressionMacro({
-  name: "unsafeRefine",
-  description: "Bypass refinement validation (unsafe escape hatch)",
-
-  expand(
-    _ctx: MacroContext,
-    _callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    // unsafeRefine(value) => value (identity — the type cast happens at the type level)
-    if (args.length >= 1) {
-      return args[0];
-    }
-    return _callExpr;
-  },
-});
-
-// ============================================================================
-// Register macros
-// ============================================================================
-
-globalRegistry.register(refineMacro);
 
 // ============================================================================
 // Predicate Exports for @typesugar/contracts-refined

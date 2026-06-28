@@ -96,6 +96,7 @@
     "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
+    "@typesugar/contracts": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "vitest": "^3.0.0"
   },

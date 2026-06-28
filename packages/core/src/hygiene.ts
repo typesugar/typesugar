@@ -433,6 +433,49 @@ export class FileBindingCache {
   }
 
   /**
+   * Like {@link safeRef}, but additionally GUARANTEES the symbol is imported
+   * from `from`. Use this from expression macros that emit a reference to a
+   * runtime symbol the source file may not already import (e.g. `MatchError`).
+   *
+   * `safeRef` only avoids name conflicts — in the common "not in scope" case it
+   * returns a bare identifier and leaves importing to the caller. Expression
+   * macros (which return an expression, not statements) have no way to inject an
+   * import statement, so they need this to register a pending import.
+   *
+   * - Known global → bare identifier (no import needed).
+   * - Already imported by name from the same module → bare identifier (reuse).
+   * - Conflict (imported from a different module, or declared locally) → aliased import.
+   * - Otherwise → registers a plain pending import (`import { symbol } from "from"`).
+   */
+  ensureImport(symbol: string, from: string): ts.Identifier {
+    if (KNOWN_GLOBALS.has(symbol)) return this.safeRef(symbol, from);
+
+    const importedFrom = this.importMap.get(symbol);
+    if (importedFrom === from) {
+      // Already imported by name from the same module — reuse it bare.
+      return this.safeRef(symbol, from);
+    }
+    if (importedFrom !== undefined || this.localDecls.has(symbol)) {
+      // Conflict: different module or local declaration — alias it
+      // (getOrCreateAlias also records the pending import).
+      this.stats.conflicts++;
+      return this.getOrCreateAlias(symbol, from);
+    }
+
+    // Not in scope — register a plain (non-aliased) pending import.
+    const key = `${symbol}\0${from}`;
+    if (!this.pendingAliases.has(key)) {
+      this.pendingAliases.set(key, { symbol, from, alias: symbol });
+    }
+    let cached = this.identifierCache.get(key);
+    if (!cached) {
+      cached = ts.factory.createIdentifier(symbol);
+      this.identifierCache.set(key, cached);
+    }
+    return cached;
+  }
+
+  /**
    * Get or create an aliased import for a conflicting symbol.
    * Deduped: same (symbol, from) pair reuses existing alias.
    */
@@ -471,7 +514,8 @@ export class FileBindingCache {
       const specifiers = entries.map((e) =>
         ts.factory.createImportSpecifier(
           false,
-          ts.factory.createIdentifier(e.symbol),
+          // alias === symbol → plain `import { symbol }` (no `as`)
+          e.alias === e.symbol ? undefined : ts.factory.createIdentifier(e.symbol),
           ts.factory.createIdentifier(e.alias)
         )
       );

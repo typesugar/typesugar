@@ -1,7 +1,13 @@
 /**
- * Units Macro - Parse unit literals at compile time
+ * @typesugar/units — Macro definitions (BUILD-TIME ONLY).
  *
- * Usage:
+ * This entry imports `typescript` and is loaded by the transformer at build time
+ * (via the `./macros` subpath). It must NOT be imported by application runtime
+ * code — the runtime `units` fallback + unit constructors live in the package's
+ * `.` entry. See PEP-050.
+ *
+ * Provides the `units` tagged-template / call macro that parses unit literals at
+ * compile time:
  *   const distance = units`5 meters`;
  *   const speed = units`100 km/h`;
  *   const force = units`9.8 N`;
@@ -135,5 +141,5 @@ export function register(): void {
   globalRegistry.register(unitsMacro);
 }
 
-// Auto-register
+// Auto-register on import (the transformer loads this entry for its side effects).
 register();

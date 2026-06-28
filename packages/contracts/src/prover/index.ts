@@ -35,13 +35,8 @@
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
 import type { ContractCondition } from "../parser/predicate.js";
-import {
-  extractTypeFacts,
-  type TypeFact,
-  getDecidability,
-  canWiden,
-  getSubtypingRule,
-} from "./type-facts.js";
+import { type TypeFact, getDecidability, canWiden, getSubtypingRule } from "./type-facts.js";
+import { extractTypeFacts } from "./extract.js";
 import { tryAlgebraicProof, type AlgebraicProofResult } from "./algebra.js";
 import { tryLinearArithmetic, type LinearProofResult } from "./linear.js";
 import { getContractConfig, emitDecidabilityWarning, canProveAtCompileTime } from "../config.js";

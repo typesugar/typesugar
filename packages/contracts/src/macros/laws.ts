@@ -40,25 +40,10 @@
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
-import type { LawSet, VerificationMode, UndecidableAction } from "../laws/types.js";
+import type { VerificationMode, UndecidableAction, LawsDecoratorOptions } from "../laws/types.js";
 import { getLawsConfig } from "../laws/verify.js";
 
-// ============================================================================
-// Types
-// ============================================================================
-
-export interface LawsDecoratorOptions {
-  /** Override verification mode */
-  mode?: VerificationMode;
-  /** Arbitrary instance expression for property tests */
-  arbitrary?: string;
-  /** Additional equality instance if needed */
-  eq?: string;
-  /** What to do when proof is undecidable */
-  onUndecidable?: UndecidableAction;
-  /** Number of property test iterations */
-  iterations?: number;
-}
+export type { LawsDecoratorOptions };
 
 // ============================================================================
 // @laws Attribute Macro
@@ -339,18 +324,3 @@ function stripDecorator(
 // ============================================================================
 
 globalRegistry.register(lawsAttribute);
-
-// ============================================================================
-// Runtime Stub
-// ============================================================================
-
-/**
- * Runtime stub for @laws decorator.
- * At runtime this is a no-op; all verification happens at compile time.
- */
-export function laws<T extends object>(
-  lawGenerator: (instance: T) => LawSet,
-  options?: LawsDecoratorOptions
-): (target: T) => T {
-  return (target) => target;
-}

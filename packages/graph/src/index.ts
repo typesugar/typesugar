@@ -75,11 +75,13 @@ export {
 
 export { parseDigraph, parseStateMachine } from "./dsl.js";
 
+// Runtime tagged-template helpers + the helper the stateMachine macro emits.
+// The macro *definitions* live in the `./macros` entry (build-time only) and are
+// deliberately NOT re-exported here so the `.` runtime entry stays
+// typescript-free. See PEP-050.
 export {
   digraph,
   graph,
   stateMachine,
-  stateMachineMacro,
   __typesugar_createStateMachineInstance,
-  register,
-} from "./macros.js";
+} from "./templates.js";

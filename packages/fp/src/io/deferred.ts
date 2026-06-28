@@ -7,9 +7,9 @@
  * Inspired by Scala's Cats Effect Deferred
  */
 
-import { IO, runIO } from "./io";
-import { Either, Left, Right } from "../data/either";
-import { Option, Some, None } from "../data/option";
+import { IO, runIO } from "./io.js";
+import { Either, Left, Right } from "../data/either.js";
+import { Option, Some, None } from "../data/option.js";
 
 // ============================================================================
 // Deferred Type

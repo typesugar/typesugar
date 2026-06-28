@@ -26,10 +26,14 @@ describe("layerMake() expression macro", () => {
   });
 });
 
-describe("layerMake exports from main index", () => {
-  it("should be importable from the package root", async () => {
+describe("layerMake exports", () => {
+  it("should export the runtime placeholder from the package root", async () => {
     const pkg = await import("../src/index.js");
     expect(typeof pkg.layerMake).toBe("function");
-    expect(pkg.layerMakeMacro).toBeDefined();
+  });
+
+  it("should export the macro definition from the ./macros entry", async () => {
+    const macros = await import("../src/macros.js");
+    expect(macros.layerMakeMacro).toBeDefined();
   });
 });

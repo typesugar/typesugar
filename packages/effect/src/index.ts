@@ -1,322 +1,163 @@
 /**
- * @typesugar/effect
+ * @typesugar/effect — runtime entry (PEP-050 Case-1 split).
  *
  * Deep Effect-TS integration with typesugar's typeclass system.
  *
- * ## Core Features
+ * This `.` entry is **runtime-only** and does NOT import `typescript`. It exposes:
+ * - the runtime placeholders that the `@service`, `@layer`, `resolveLayer<R>()`,
+ *   `@compiled`/`compileGen()`, `@fused`/`fusePipeline()` and
+ *   `specializeSchema()` macros replace at compile time (they throw / no-op if the
+ *   transformer didn't run),
+ * - the `@derive` tokens (`EffectSchema`, `EffectEqual`, `EffectHash`),
+ * - the Effect typeclass instances, extension namespaces, testing utilities and
+ *   diagnostics, and
+ * - the `FlatMap` instance for Effect (registered as a runtime side effect) that
+ *   powers @typesugar/std's generic `let:/yield:` do-notation.
  *
- * ### @service - Define Effect Services
- *
- * ```ts
- * @service
- * interface HttpClient {
- *   get(url: string): Effect.Effect<Response, HttpError>
- *   post(url: string, body: unknown): Effect.Effect<Response, HttpError>
- * }
- * // Generates: Context.Tag class + accessor functions namespace
- * ```
- *
- * ### @layer - Define Effect Layers
- *
- * ```ts
- * @layer(HttpClient)
- * const httpClientLive = {
- *   get: (url) => Effect.tryPromise(() => fetch(url)),
- *   post: (url, body) => Effect.tryPromise(() => fetch(url, { method: "POST", body: JSON.stringify(body) })),
- * }
- * // Generates: Layer.succeed(HttpClientTag, { ... })
- *
- * @layer(UserRepo, { requires: [Database] })
- * const userRepoLive =
- * let: {
- *   db << Database;
- * }
- * yield: ({ findById: (id) => db.query(...) })
- * // Generates: Layer.effect(UserRepoTag, ...)
- * // + registers dependency for automatic layer resolution
- * ```
- *
- * ### resolveLayer<R>() - Automatic Layer Composition
- *
- * Automatically resolve and compose layers to satisfy Effect requirements:
- *
- * ```ts
- * // Given registered layers:
- * @layer(Database) const databaseLive = { ... }
- * @layer(UserRepo, { requires: [Database] }) const userRepoLive = ...
- *
- * // Resolve all layers:
- * const program: Effect<void, Error, UserRepo> = ...
- * const runnable = program.pipe(Effect.provide(resolveLayer<UserRepo>()))
- * // Generates: Layer.merge(userRepoLive.pipe(Layer.provide(databaseLive)))
- * ```
- *
- * ### Extension Methods
- *
- * Import `EffectExt` to enable fluent method chaining on Effect types:
- *
- * ```ts
- * import { EffectExt } from "@typesugar/effect";
- *
- * // The transformer rewrites .method() calls to direct function calls
- * effect.map(x => x + 1)  // → EffectExt.map(effect, x => x + 1)
- *
- * // Chain operations fluently:
- * effect
- *   .map(x => x + 1)
- *   .flatMap(x => Effect.succeed(x * 2))
- *   .tap(x => Effect.log(`Got: ${x}`))
- * ```
- *
- * Also available: `OptionExt`, `EitherExt` for Effect's Option and Either types.
- *
- * ### @derive Macros
- *
- * Automatically generate Effect Schema, Equal, and Hash implementations:
- *
- * ```ts
- * @derive(EffectSchema)
- * interface User { id: string; name: string; age: number; }
- * // Generates: export const UserSchema = Schema.Struct({ ... })
- *
- * @derive(EffectEqual)
- * interface Point { x: number; y: number; }
- * // Generates: export const PointEqual: Equal.Equal<Point> = { ... }
- *
- * @derive(EffectHash)
- * interface Point { x: number; y: number; }
- * // Generates: export const PointHash: Hash.Hash<Point> = { ... }
- * ```
- *
- * ## Do-Notation (via @typesugar/std)
- *
- * The `let:/yield:` syntax is provided by @typesugar/std's generic do-notation macro.
- * This package registers a `FlatMap` instance for Effect that enables this syntax:
- *
- * ```ts
- * import "@typesugar/effect"; // Registers FlatMap instance for Effect
- *
- * // Labeled block syntax (compiles to Effect.flatMap chain)
- * let: {
- *   user << getUserById(id)
- *   posts << getPostsForUser(user.id)
- * }
- * yield: { user, posts }
- *
- * // Compiles to:
- * Effect.flatMap(getUserById(id), (user) =>
- *   Effect.flatMap(getPostsForUser(user.id), (posts) =>
- *     Effect.succeed({ user, posts })
- *   )
- * );
- * ```
+ * The macro *definitions* (which import `typescript`) live in the `./macros`
+ * entry, loaded by the transformer at build time. See PEP-050.
  *
  * @module
  */
 
-import { globalRegistry } from "@typesugar/core";
 import { registerFlatMap } from "@typesugar/std/typeclasses/flatmap";
 
-// Import @service and @layer macros
-import {
-  serviceAttribute,
-  service,
-  serviceRegistry,
-  registerService,
-  getService,
-  type ServiceInfo,
-  type ServiceMethodInfo,
-} from "./macros/service.js";
+// ============================================================================
+// Runtime Placeholders (replaced by the macros at compile time)
+// ============================================================================
 
-import {
-  layerAttribute,
-  layer,
-  layerRegistry,
-  registerLayer,
-  getLayer,
-  getLayersForService,
-  type LayerInfo,
-} from "./macros/layer.js";
+/**
+ * Runtime placeholder for the `@service` decorator.
+ * No-op that signals to the macro system; transformed away at compile time.
+ */
+export function service<T>(_target: T): T {
+  return _target;
+}
 
-import { resolveLayerMacro, resolveLayer } from "./macros/resolve-layer.js";
-import { layerMakeMacro, layerMake } from "./macros/layer-make.js";
+/**
+ * Runtime placeholder for the `@layer` decorator factory.
+ * Returns a no-op decorator; transformed away at compile time.
+ */
+export function layer<S>(_service: S, _options?: { requires?: unknown[] }): <T>(target: T) => T {
+  return (target) => target;
+}
 
-// Import shared graph utilities
-import {
-  resolveGraph,
-  generateLayerComposition as generateLayerCompositionFn,
-  formatDebugTree,
-  extractServiceNames,
-  CircularDependencyError,
-  type ResolvedLayer,
-  type GraphResolution,
-} from "./macros/layer-graph.js";
+/**
+ * Runtime placeholder for `resolveLayer<R>()`. Should be transformed at compile time.
+ */
+export function resolveLayer<R>(_options?: { debug?: boolean }): never {
+  void _options;
+  throw new Error(
+    "resolveLayer<R>() was not transformed at compile time. " +
+      "Make sure @typesugar/effect is registered with the transformer."
+  );
+}
 
-// Import @compiled and compileGen macros
-import {
-  compiledAttribute,
-  compileGenExpression,
-  compileGen,
-  compiled,
-} from "./macros/compiled.js";
+/**
+ * Runtime placeholder for `layerMake<R>(...)`. Should be transformed at compile time.
+ */
+export function layerMake<R>(...args: unknown[]): never {
+  void args;
+  throw new Error(
+    "layerMake<R>() was not transformed at compile time. " +
+      "Make sure @typesugar/effect is registered with the transformer."
+  );
+}
 
-// Import @fused and fusePipeline macros
-import { fusedAttribute, fusePipelineExpression, fusePipeline, fused } from "./macros/fused.js";
+/**
+ * Runtime placeholder for `compileGen()`.
+ * Replaced at compile time with the transformed expression.
+ */
+export function compileGen<A, E, R>(
+  _effect: import("effect").Effect.Effect<A, E, R>
+): import("effect").Effect.Effect<A, E, R> {
+  throw new Error(
+    "compileGen() requires the typesugar transformer. Configure it in your build tool."
+  );
+}
 
-// Import schema specialization macros
-import {
-  specializeSchemaExpression,
-  specializeSchemaUnsafeExpression,
-  specializeSchema,
-  specializeSchemaUnsafe,
-} from "./macros/schema-specialize.js";
+/**
+ * Decorator placeholder for `@compiled`.
+ * Replaced at compile time with the transformed declaration.
+ */
+export function compiled<T>(
+  target: T,
+  _context?: ClassDecoratorContext | ClassMethodDecoratorContext | ClassFieldDecoratorContext
+): T {
+  console.warn("@compiled decorator requires the typesugar transformer.");
+  return target;
+}
 
-// Import derive macros
-import {
-  EffectSchemaDerive,
-  EffectSchema,
-  EffectEqualDerive,
-  EffectEqual,
-  EffectHashDerive,
-  EffectHash,
-} from "./derive/index.js";
+/**
+ * Runtime placeholder for `fusePipeline()`.
+ */
+export function fusePipeline<A, E, R>(
+  _effect: import("effect").Effect.Effect<A, E, R>
+): import("effect").Effect.Effect<A, E, R> {
+  throw new Error(
+    "fusePipeline() requires the typesugar transformer. Configure it in your build tool."
+  );
+}
 
-// Import diagnostics
-import {
-  EFFECT001,
-  EFFECT002,
-  EFFECT003,
-  EFFECT010,
-  EFFECT011,
-  EFFECT020,
-  EFFECT021,
-  EFFECT030,
-  EFFECT040,
-  effectDiagnostics,
-  getEffectDiagnostic,
-  EffectDiagnosticBuilder,
-  EffectDiagnosticCategory,
-  formatEffectDiagnosticCLI,
-  toTsDiagnostic,
-  type EffectDiagnosticDescriptor,
-  type EffectLabeledSpan,
-  type EffectCodeSuggestion,
-  type EffectRichDiagnostic,
-} from "./diagnostics.js";
+/**
+ * Decorator placeholder for `@fused`.
+ */
+export function fused<T>(
+  target: T,
+  _context?: ClassDecoratorContext | ClassMethodDecoratorContext | ClassFieldDecoratorContext
+): T {
+  console.warn("@fused decorator requires the typesugar transformer.");
+  return target;
+}
 
-// Import testing utilities
-import {
-  mockService,
-  testLayer,
-  combineLayers,
-  succeedMock,
-  failMock,
-  dieMock,
-  assertCalled,
-  assertNotCalled,
-  assertCalledTimes,
-  type MockService,
-  type MockMethodConfig,
-  type TestLayerOptions,
-} from "./testing.js";
+/**
+ * Runtime placeholder for `specializeSchema()`.
+ * Throws at runtime — this call should be compiled away by the transformer.
+ */
+export function specializeSchema<A, I, R>(
+  _schema: import("effect").Schema.Schema<A, I, R>
+): (input: unknown) => A {
+  throw new Error(
+    "specializeSchema() is a compile-time macro and requires the typesugar transformer. " +
+      "See: https://github.com/dpovey/typesugar#setup"
+  );
+}
 
-// Import extension namespaces
-import { EffectExt, OptionExt, EitherExt } from "./extensions.js";
+/**
+ * Runtime placeholder for `specializeSchemaUnsafe()`.
+ * Throws at runtime — this call should be compiled away by the transformer.
+ */
+export function specializeSchemaUnsafe<A, I, R>(
+  _schema: import("effect").Schema.Schema<A, I, R>,
+  _input: unknown
+): A {
+  throw new Error(
+    "specializeSchemaUnsafe() is a compile-time macro and requires the typesugar transformer. " +
+      "See: https://github.com/dpovey/typesugar#setup"
+  );
+}
 
-// Re-export macros and registries
-export {
-  // @service macro
-  serviceAttribute,
-  service,
-  serviceRegistry,
-  registerService,
-  getService,
-  type ServiceInfo,
-  type ServiceMethodInfo,
-  // @layer macro
-  layerAttribute,
-  layer,
-  layerRegistry,
-  registerLayer,
-  getLayer,
-  getLayersForService,
-  type LayerInfo,
-  // resolveLayer<R>() macro — implicit resolution from import scope
-  resolveLayerMacro,
-  resolveLayer,
-  // layerMake<R>(...layers) macro — ZIO-style explicit wiring
-  layerMakeMacro,
-  layerMake,
-  // Shared graph utilities (built on @typesugar/graph)
-  resolveGraph,
-  generateLayerCompositionFn,
-  formatDebugTree,
-  extractServiceNames,
-  CircularDependencyError,
-  type ResolvedLayer,
-  type GraphResolution,
-  // @compiled and compileGen() macros
-  compiledAttribute,
-  compileGenExpression,
-  compileGen,
-  compiled,
-  // @fused and fusePipeline() macros
-  fusedAttribute,
-  fusePipelineExpression,
-  fusePipeline,
-  fused,
-  // Schema specialization macros
-  specializeSchemaExpression,
-  specializeSchemaUnsafeExpression,
-  specializeSchema,
-  specializeSchemaUnsafe,
-  // @derive macros
-  EffectSchemaDerive,
-  EffectSchema,
-  EffectEqualDerive,
-  EffectEqual,
-  EffectHashDerive,
-  EffectHash,
-  // Extension namespaces (import these to enable .method() syntax on Effect types)
-  EffectExt,
-  OptionExt,
-  EitherExt,
-  // Diagnostics
-  EFFECT001,
-  EFFECT002,
-  EFFECT003,
-  EFFECT010,
-  EFFECT011,
-  EFFECT020,
-  EFFECT021,
-  EFFECT030,
-  EFFECT040,
-  effectDiagnostics,
-  getEffectDiagnostic,
-  EffectDiagnosticBuilder,
-  EffectDiagnosticCategory,
-  formatEffectDiagnosticCLI,
-  toTsDiagnostic,
-  type EffectDiagnosticDescriptor,
-  type EffectLabeledSpan,
-  type EffectCodeSuggestion,
-  type EffectRichDiagnostic,
-  // Testing utilities
-  mockService,
-  testLayer,
-  combineLayers,
-  succeedMock,
-  failMock,
-  dieMock,
-  assertCalled,
-  assertNotCalled,
-  assertCalledTimes,
-  type MockService,
-  type MockMethodConfig,
-  type TestLayerOptions,
-};
+/** Runtime placeholder token for `@derive(EffectSchema)`. */
+export const EffectSchema = "EffectSchema";
 
+/** Runtime placeholder token for `@derive(EffectEqual)`. */
+export const EffectEqual = "EffectEqual";
+
+/** Runtime placeholder token for `@derive(EffectHash)`. */
+export const EffectHash = "EffectHash";
+
+// ============================================================================
+// Public types (erased at runtime)
+// ============================================================================
+
+export type { ServiceInfo, ServiceMethodInfo } from "./macros/service.js";
+export type { LayerInfo } from "./macros/layer.js";
+export type { ResolvedLayer, GraphResolution } from "./macros/layer-graph.js";
+
+// ============================================================================
 // HKT types for Effect
+// ============================================================================
+
 export {
   type EffectF,
   type ChunkF,
@@ -330,7 +171,10 @@ export {
   type EffectRequirements,
 } from "./hkt.js";
 
+// ============================================================================
 // Typeclass instances for Effect
+// ============================================================================
+
 export {
   // Effect.Effect instances
   effectFunctor,
@@ -353,6 +197,57 @@ export {
   // All instances for specialize()
   effectInstances,
 } from "./instances.js";
+
+// ============================================================================
+// Extension namespaces (import these to enable .method() syntax on Effect types)
+// ============================================================================
+
+export { EffectExt, OptionExt, EitherExt } from "./extensions.js";
+
+// ============================================================================
+// Diagnostics
+// ============================================================================
+
+export {
+  EFFECT001,
+  EFFECT002,
+  EFFECT003,
+  EFFECT010,
+  EFFECT011,
+  EFFECT020,
+  EFFECT021,
+  EFFECT030,
+  EFFECT040,
+  effectDiagnostics,
+  getEffectDiagnostic,
+  EffectDiagnosticBuilder,
+  EffectDiagnosticCategory,
+  formatEffectDiagnosticCLI,
+  toTsDiagnostic,
+  type EffectDiagnosticDescriptor,
+  type EffectLabeledSpan,
+  type EffectCodeSuggestion,
+  type EffectRichDiagnostic,
+} from "./diagnostics.js";
+
+// ============================================================================
+// Testing utilities
+// ============================================================================
+
+export {
+  mockService,
+  testLayer,
+  combineLayers,
+  succeedMock,
+  failMock,
+  dieMock,
+  assertCalled,
+  assertNotCalled,
+  assertCalledTimes,
+  type MockService,
+  type MockMethodConfig,
+  type TestLayerOptions,
+} from "./testing.js";
 
 // ============================================================================
 // Effect FlatMap Instance (for @typesugar/std do-notation)
@@ -392,44 +287,6 @@ export const flatMapEffect = {
   },
 };
 
-// ============================================================================
-// Registration
-// ============================================================================
-
-/**
- * Register all Effect adapter macros with the global registry.
- */
-export function register(): void {
-  // Register FlatMap instance for Effect (enables let:/yield: from @typesugar/std)
-  registerFlatMap("Effect", flatMapEffect);
-
-  // Register @service and @layer attribute macros
-  globalRegistry.register(serviceAttribute);
-  globalRegistry.register(layerAttribute);
-
-  // Register resolveLayer<R>() expression macro
-  globalRegistry.register(resolveLayerMacro);
-
-  // Register layerMake<R>() expression macro (ZIO-style explicit wiring)
-  globalRegistry.register(layerMakeMacro);
-
-  // Register @compiled attribute and compileGen() expression macros
-  globalRegistry.register(compiledAttribute);
-  globalRegistry.register(compileGenExpression);
-
-  // Register @fused attribute and fusePipeline() expression macros
-  globalRegistry.register(fusedAttribute);
-  globalRegistry.register(fusePipelineExpression);
-
-  // Register schema specialization expression macros
-  globalRegistry.register(specializeSchemaExpression);
-  globalRegistry.register(specializeSchemaUnsafeExpression);
-
-  // Register @derive macros for Effect Schema, Equal, Hash
-  globalRegistry.register(EffectSchemaDerive);
-  globalRegistry.register(EffectEqualDerive);
-  globalRegistry.register(EffectHashDerive);
-}
-
-// Auto-register on import
-register();
+// Register the FlatMap instance for Effect as a runtime side effect so the
+// generic let:/yield: do-notation macro (@typesugar/std) can expand for Effect.
+registerFlatMap("Effect", flatMapEffect);

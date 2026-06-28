@@ -19,11 +19,16 @@ Typeclasses enable ad-hoc polymorphism — adding behavior to types without modi
 ```typescript
 import { typeclass, instance, summon } from "@typesugar/typeclass";
 
-@typeclass
+/** @typeclass */
 interface Show<A> {
   show(a: A): string;
 }
 ```
+
+> On an `interface`, prefer the JSDoc form `/** @typeclass */` shown here: it is
+> portable and type-checks cleanly under plain `tsc`. The decorator form
+> `@typeclass interface Show<A> {}` also works under TypeSugar, but plain `tsc`
+> flags it with TS1206. See [JSDoc vs Decorator Syntax](./jsdoc-vs-decorators.md).
 
 <details>
 <summary><strong>Try it</strong></summary>

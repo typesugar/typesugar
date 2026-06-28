@@ -5,8 +5,8 @@
  * that use IO as their effect type.
  */
 
-import { IO, runIO } from "./io";
-import { Either, Left, Right } from "../data/either";
+import { IO, runIO } from "./io.js";
+import { Either, Left, Right } from "../data/either.js";
 
 // ============================================================================
 // Exit Codes

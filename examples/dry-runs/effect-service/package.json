@@ -1,28 +1,33 @@
 {
-  "name": "ts-dryrun-5-effect-service",
-  "version": "1.0.0",
+  "name": "typesugar-example-dry-run-effect-service",
+  "version": "0.0.1",
   "type": "module",
   "private": true,
   "dependencies": {
-    "@typesugar/core": "file:/Users/deapovey/src/typesugar/packages/core",
-    "@typesugar/derive": "file:/Users/deapovey/src/typesugar/packages/derive",
-    "@typesugar/effect": "file:/Users/deapovey/src/typesugar/packages/effect",
-    "@typesugar/erased": "file:/Users/deapovey/src/typesugar/packages/erased",
-    "@typesugar/fp": "file:/Users/deapovey/src/typesugar/packages/fp",
-    "@typesugar/macros": "file:/Users/deapovey/src/typesugar/packages/macros",
-    "@typesugar/mapper": "file:/Users/deapovey/src/typesugar/packages/mapper",
-    "@typesugar/reflect": "file:/Users/deapovey/src/typesugar/packages/reflect",
-    "@typesugar/specialize": "file:/Users/deapovey/src/typesugar/packages/specialize",
-    "@typesugar/std": "file:/Users/deapovey/src/typesugar/packages/std",
-    "@typesugar/transformer": "file:/Users/deapovey/src/typesugar/packages/transformer",
-    "@typesugar/typeclass": "file:/Users/deapovey/src/typesugar/packages/typeclass",
-    "@typesugar/validate": "file:/Users/deapovey/src/typesugar/packages/validate",
+    "@typesugar/core": "workspace:*",
+    "@typesugar/derive": "workspace:*",
+    "@typesugar/effect": "workspace:*",
+    "@typesugar/erased": "workspace:*",
+    "@typesugar/fp": "workspace:*",
+    "@typesugar/macros": "workspace:*",
+    "@typesugar/mapper": "workspace:*",
+    "@typesugar/reflect": "workspace:*",
+    "@typesugar/specialize": "workspace:*",
+    "@typesugar/std": "workspace:*",
+    "@typesugar/transformer": "workspace:*",
+    "@typesugar/typeclass": "workspace:*",
+    "@typesugar/validate": "workspace:*",
     "effect": "^3.0.0",
-    "typescript": "~5.7.0",
-    "typesugar": "file:/Users/deapovey/src/typesugar/packages/typesugar",
-    "unplugin-typesugar": "file:/Users/deapovey/src/typesugar/packages/unplugin-typesugar"
+    "typescript": "^5.9.3",
+    "typesugar": "workspace:*",
+    "unplugin-typesugar": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.21.0"
+  },
+  "scripts": {
+    "check": "typesugar check",
+    "build": "typesugar build",
+    "start": "typesugar run src/main.ts"
   }
 }

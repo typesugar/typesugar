@@ -188,13 +188,11 @@ export const registerStdInstancesMacro: ExpressionMacro = defineExpressionMacro(
   },
 });
 
-/**
- * Runtime stub for registerStdInstances.
- * This function does nothing at runtime - all work is done at compile time.
- */
-export function registerStdInstances(): void {
-  // Placeholder - processed by transformer at compile time
-}
+// The runtime stub `registerStdInstances` is `typescript`-free and lives in
+// `./register-instances-runtime.ts` (PEP-050 Case-1) so the runtime `.` entry
+// can re-export it without pulling `typescript`. Re-exported here so the
+// `./macros` entry continues to expose `registerStdInstances`.
+export { registerStdInstances } from "./register-instances-runtime.js";
 
 /**
  * Get the list of standard instances for programmatic access.

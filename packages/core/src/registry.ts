@@ -392,6 +392,21 @@ class MacroRegistryImpl implements MacroRegistry {
     return this.attributeMacros.get(name);
   }
 
+  /**
+   * Find a registered attribute macro that declares `label` in its
+   * `triggerLabels`. Used to implicitly apply attribute macros (e.g.
+   * `@contract`) to functions containing matching labeled blocks
+   * (`requires:` / `ensures:`) without an explicit decorator.
+   */
+  getAttributeByTriggerLabel(label: string): AttributeMacro | undefined {
+    for (const macro of this.attributeMacros.values()) {
+      if (macro.triggerLabels?.includes(label)) {
+        return macro;
+      }
+    }
+    return undefined;
+  }
+
   getDerive(name: string): DeriveMacro | undefined {
     return this.deriveMacros.get(name);
   }

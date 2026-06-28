@@ -114,6 +114,37 @@ export function getOrElse<A>(opt: Option<A>, defaultValue: () => A): A;
     expect(entry!.constructors?.get("None")).toEqual({ kind: "constant", value: "null" });
   });
 
+  it("discovers @opaque on an interface (e.g. @typesugar/fp Option) — PEP-033 N3b", () => {
+    // fp publishes Option as an `@opaque interface` (so it can declare its
+    // dot-syntax method surface for type-checking) rather than a type alias.
+    const dts = `
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+  flatMap<B>(f: (a: A) => Option<B>): Option<B>;
+}
+export function Some<A>(value: A): Option<A>;
+export const None: Option<never>;
+export function map<A, B>(opt: Option<A>, f: (a: A) => B): Option<B>;
+export function flatMap<A, B>(opt: Option<A>, f: (a: A) => Option<B>): Option<B>;
+`;
+
+    const source = `import { Option, Some, None, map } from "my-lib";`;
+    const program = createTestProgram(source, dts);
+    const sourceFile = program.getSourceFile("/test/source.ts")!;
+
+    discoverOpaqueTypesFromImports(sourceFile, program);
+
+    const entry = getTypeRewrite("Option");
+    expect(entry).toBeDefined();
+    expect(entry!.underlyingTypeText).toBe("A | null");
+    expect(entry!.transparent).toBe(false);
+    expect(entry!.methods?.get("map")).toBe("map");
+    expect(entry!.methods?.get("flatMap")).toBe("flatMap");
+    expect(entry!.constructors?.get("Some")).toEqual({ kind: "identity" });
+    expect(entry!.constructors?.get("None")).toEqual({ kind: "constant", value: "null" });
+  });
+
   it("skips relative imports", () => {
     const source = `import { Foo } from "./local";`;
     const program = createTestProgram(source, "");

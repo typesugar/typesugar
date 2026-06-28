@@ -41,6 +41,11 @@ export const contractAttribute = defineAttributeMacro({
     "Enable requires:/ensures: contract blocks on a function. " +
     "Generates runtime checks (strippable) and attempts compile-time proofs.",
   validTargets: ["function", "method"] as AttributeTarget[],
+  // Functions/methods containing `requires:`/`ensures:` labeled blocks are
+  // treated as if decorated with @contract, so the documented block form works
+  // without an explicit decorator. Only active when @typesugar/contracts is
+  // loaded (which is what registers this macro).
+  triggerLabels: ["requires", "ensures"],
 
   expand(
     ctx: MacroContext,
@@ -126,7 +131,10 @@ export const contractAttribute = defineAttributeMacro({
                       undefined,
                       undefined,
                       [],
-                      undefined,
+                      // Carry the function's declared return type onto the IIFE so
+                      // the captured result keeps its precise type (e.g. a tuple
+                      // `[number, number]` is not widened to `number[]`).
+                      fn.type,
                       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                       factory.createBlock(parsed.body, true)
                     )

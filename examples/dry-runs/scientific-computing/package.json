@@ -1,0 +1,16 @@
+{
+  "name": "typesugar-example-dry-run-scientific-computing",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "typesugar check",
+    "build": "typesugar build",
+    "start": "typesugar run src/main.ts"
+  },
+  "dependencies": {
+    "@typesugar/units": "workspace:*",
+    "typescript": "^5.9.3",
+    "typesugar": "workspace:*"
+  }
+}

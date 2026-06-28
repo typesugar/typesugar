@@ -74,8 +74,16 @@ export * from "./extensions";
 // Data types
 export * from "./data";
 
-// Macros (let:/yield:, match/when/otherwise/isType/P)
-export * from "./macros";
+// Macros (let:/yield:, match/when/otherwise/isType/P).
+//
+// PEP-050 Case-1: the macro *definitions* live in the `./macros` entry (which
+// imports `typescript`) and are loaded by the transformer at build time — they
+// must NOT be bundled into this runtime `.` entry. Here we re-export only the
+// `typescript`-free runtime surface that application code calls directly:
+//   - `match` — runtime fallback dispatch (the fluent chain is macro-expanded)
+//   - `registerStdInstances` — runtime no-op stub (registration is compile-time)
+export { match } from "./macros/match-runtime.js";
+export { registerStdInstances } from "./macros/register-instances-runtime.js";
 
 // Specialization support (FlatMap instances registered for specialize() macro)
 export * from "./specialize";

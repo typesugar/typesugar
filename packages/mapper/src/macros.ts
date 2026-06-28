@@ -664,3 +664,6 @@ export function register(): void {
   globalRegistry.register(transformIntoMacro);
   globalRegistry.register(transformArrayIntoMacro);
 }
+
+// Auto-register on import (the transformer loads this entry for its side effects).
+register();
