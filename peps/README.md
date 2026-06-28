@@ -27,7 +27,7 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [016](PEP-016-server-backed-playground.md)              | Server-Backed Playground                                  | Done (superseded by [024](PEP-024-playground-architecture-consolidation.md)) |
 | [017](PEP-017-derive-unification.md)                    | Unify `@derive`/`@deriving` — "Everything is a Typeclass" | Done                                                                         |
 | [019](PEP-019-output-quality.md)                        | Output Quality — Valid TypeScript, Cleaner Codegen        | Done                                                                         |
-| [020](PEP-020-replace-binop-with-named-macros.md)       | Replace `__binop__` with Named Operator Macros            | In Progress                                                                  |
+| [020](PEP-020-replace-binop-with-named-macros.md)       | Replace `__binop__` with Named Operator Macros            | Withdrawn (superseded by [047](PEP-047-remove-sts.md))                       |
 | [021](PEP-021-codebase-hygiene.md)                      | Codebase Hygiene — Artifacts, Doc Consistency, Slop       | Implemented                                                                  |
 | [022](PEP-022-tree-shaking-pure-annotations.md)         | Automatic Tree-Shaking via `/*#__PURE__*/`                | Draft                                                                        |
 | [023](PEP-023-playground-examples-overhaul.md)          | Playground Examples Overhaul                              | Done                                                                         |
@@ -57,3 +57,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [047](PEP-047-remove-sts.md)                            | Remove the `.sts` Extension and Custom Surface Syntax     | Done                                                                         |
 | [048](PEP-048-package-triage.md)                        | Package Triage — Keep, Freeze, or Remove                  | Done                                                                         |
 | [049](PEP-049-cruft-cleanup.md)                         | Cruft Cleanup — Plans, Docs Drift, Test Debt, Security    | In Progress                                                                  |
+| [050](PEP-050-shipping-typesugar-libraries.md)          | Authoring & Shipping Standalone typesugar Libraries       | Implemented                                                                  |

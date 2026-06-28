@@ -4,11 +4,12 @@
  * Define versioned schemas for your types and get automatic migration
  * chains, JSON codecs, and binary codecs with zero external dependencies.
  *
+ * This `.` entry is **runtime-only** and does NOT import `typescript`. The macro
+ * definitions (which import `typescript`) live in the `./macros` entry, loaded by
+ * the transformer at build time. See PEP-050.
+ *
  * @packageDocumentation
  */
-
-import { register } from "./macros.js";
-register();
 
 export type {
   FieldMeta,
@@ -26,12 +27,3 @@ export { createJsonCodec } from "./json-codec.js";
 export { createBinaryCodec, type FieldLayout } from "./binary-codec.js";
 
 export { SchemaBuilder, schema } from "./decorators.js";
-
-export {
-  codecMacro,
-  sinceMacro,
-  removedMacro,
-  renamedMacro,
-  defaultValueMacro,
-  register,
-} from "./macros.js";

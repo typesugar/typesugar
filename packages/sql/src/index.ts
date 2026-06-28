@@ -99,9 +99,9 @@ export type {
 // Note: auto-derive-strategies.ts provides Scala 3-style summon auto-derivation
 // for Read/Write/Codec, but is not exported as it depends on internal infrastructure.
 // Use @deriving(Read), @deriving(Write), @deriving(Codec) decorators instead.
-
-// Derive macros for @deriving(Read), @deriving(Write), @deriving(Codec)
-export { deriveReadMacro, deriveWriteMacro, deriveCodecMacro } from "./derive-typeclasses.js";
+//
+// The @deriving(Read|Write|Codec) macro *definitions* import `typescript` and live
+// in the `./macros` entry (PEP-050), not in this runtime `.` entry.
 
 // Legacy Meta exports (deprecated - use typeclasses.ts)
 export type {
@@ -177,12 +177,13 @@ export {
 } from "./connection-io.js";
 
 // ============================================================================
-// Macros — Compile-time SQL transformation
+// Query Builder DSL (runtime)
 // ============================================================================
+// The compile-time SQL macros (`sql`, `sql$`/`@schema`, `@deriving(Meta|Read|
+// Write|Codec)`), `validateSqlSyntax`, and `registerSchema` import `typescript`
+// and live in the `./macros` entry (PEP-050) — NOT in this runtime `.` entry.
 
-export { sqlMacro, register } from "./macro.js";
-export { sql$Macro, schemaMacro, select, registerSchema } from "./infer-macro.js";
-export { deriveMetaMacro } from "./derive-meta.js";
+export { select, SelectBuilder } from "./query-builder.js";
 
 // ============================================================================
 // Typeclasses for ORM Integration
@@ -190,12 +191,6 @@ export { deriveMetaMacro } from "./derive-meta.js";
 
 export type { Queryable } from "./queryable.js";
 export { Queryable as QueryableCompanion } from "./queryable.js";
-
-// ============================================================================
-// Macro Utilities
-// ============================================================================
-
-export { validateSqlSyntax } from "./macro-utils.js";
 
 // ============================================================================
 // Runtime Helper (used by the sql macro)

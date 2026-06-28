@@ -7,17 +7,27 @@
 `@typesugar/contracts` provides Eiffel/Dafny-style contracts with a multi-layer proof engine that eliminates runtime checks when conditions can be proven at compile time.
 
 ```typescript
-import { requires, ensures, old } from "@typesugar/contracts";
+import { old } from "@typesugar/contracts";
 import { Positive } from "@typesugar/type-system";
 
 function withdraw(account: Account, amount: Positive): number {
-  requires(account.balance >= amount, "Insufficient funds");
-  ensures(account.balance === old(account.balance) - amount);
-
+  requires: {
+    (account.balance >= amount, "Insufficient funds");
+  }
+  ensures: {
+    account.balance === old(account.balance) - amount;
+  }
   account.balance -= amount;
   return account.balance;
 }
 ```
+
+> Postconditions (`ensures:`) and `old()` use the **block form** shown above:
+> a function containing `requires:`/`ensures:` labeled blocks is treated as if
+> it were decorated with [`@contract`](#block-style) — no decorator required.
+> The inline `ensures(condition)` call form cannot capture pre-state with
+> `old()` (the check runs where it is written, not at function exit), so use a
+> block for any postcondition.
 
 ## Installation
 
@@ -31,13 +41,13 @@ npm install @typesugar/contracts-refined @typesugar/type-system
 
 ### Core Contracts
 
-| Construct                   | Description                                    |
-| --------------------------- | ---------------------------------------------- |
-| `requires(condition, msg?)` | Precondition — checked at function entry       |
-| `ensures(condition, msg?)`  | Postcondition — checked at function exit       |
-| `old(expr)`                 | Capture pre-call value (inside ensures)        |
-| `@contract`                 | Enable `requires:`/`ensures:` labeled blocks   |
-| `@invariant(predicate)`     | Class invariant — checked after public methods |
+| Construct                      | Description                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `requires:` / `ensures:` block | Pre/postcondition blocks — auto-detected on any function (no decorator needed) |
+| `requires(condition, msg?)`    | Inline precondition shorthand — checked at function entry                      |
+| `old(expr)`                    | Capture pre-call value (inside an `ensures:` block)                            |
+| `@contract`                    | Optional explicit marker for `requires:`/`ensures:` blocks                     |
+| `@invariant(predicate)`        | Class invariant — checked after public methods                                 |
 
 ### Proof Engine
 
@@ -187,13 +197,16 @@ console.log(formatCertificate(cert));
 
 ### Inline Style
 
+Inline `requires(...)` calls are a shorthand for simple preconditions (checked
+at entry). Postconditions and `old()` need the [block style](#block-style)
+below, because the check must run at function exit and `old()` must be snapshotted
+at entry.
+
 ```typescript
-import { requires, ensures, old } from "@typesugar/contracts";
+import { requires } from "@typesugar/contracts";
 
 function deposit(account: Account, amount: Positive): void {
   requires(amount > 0); // PROVEN: Positive type
-  ensures(account.balance === old(account.balance) + amount);
-
   account.balance += amount;
 }
 ```

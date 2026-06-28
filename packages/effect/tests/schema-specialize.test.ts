@@ -44,12 +44,17 @@ describe("Schema specialization macro structure", () => {
     expect(schemaSpecialize.specializeSchemaUnsafeExpression).toBeDefined();
   });
 
-  it("should export all necessary symbols from main index", async () => {
+  it("should export the runtime placeholders from the package root", async () => {
     const index = await import("../src/index.js");
 
     expect(index.specializeSchema).toBeDefined();
     expect(index.specializeSchemaUnsafe).toBeDefined();
-    expect(index.specializeSchemaExpression).toBeDefined();
-    expect(index.specializeSchemaUnsafeExpression).toBeDefined();
+  });
+
+  it("should export the macro definitions from the ./macros entry", async () => {
+    const macros = await import("../src/macros.js");
+
+    expect(macros.specializeSchemaExpression).toBeDefined();
+    expect(macros.specializeSchemaUnsafeExpression).toBeDefined();
   });
 });

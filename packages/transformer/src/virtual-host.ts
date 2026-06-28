@@ -296,6 +296,23 @@ export class VirtualCompilerHost implements ts.CompilerHost {
   ): ts.ResolvedModule | undefined {
     const basePath = path.resolve(baseDir, modulePath);
 
+    // NodeNext-style specifiers carry a JS extension (e.g. `./data/option.js`).
+    // For type resolution, the corresponding declaration/source must win over the
+    // emitted `.js` itself — otherwise we'd load the typeless JavaScript and the
+    // imported types collapse to `any`. (This matters for de-bundled library .d.ts
+    // that import siblings with explicit `.js` extensions — PEP-050.)
+    const jsExt = /\.(js|mjs|cjs)$/.exec(basePath);
+    if (jsExt) {
+      const withoutExt = basePath.slice(0, -jsExt[0].length);
+      const typeExts = [".d.ts", ".ts", ".tsx", ".d.mts", ".mts", ".d.cts", ".cts"];
+      for (const ext of typeExts) {
+        const candidate = withoutExt + ext;
+        if (this.customFileExists(candidate)) {
+          return { resolvedFileName: candidate, isExternalLibraryImport: false };
+        }
+      }
+    }
+
     // Extension order: standard TS first, then declarations, then JS
     const extensions = [".ts", ".tsx", ".d.ts", ".js", ".jsx"];
 

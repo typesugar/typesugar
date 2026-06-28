@@ -1,5 +1,10 @@
 /**
- * Expression macro registrations for @typesugar/fusion
+ * @typesugar/fusion — Macro definitions (BUILD-TIME ONLY).
+ *
+ * This entry imports `typescript` and is loaded by the transformer at build time
+ * (via the `./macros` subpath). It must NOT be imported by application runtime
+ * code — the runtime values, types, and pipeline live in the package's `.` entry.
+ * See PEP-050.
  *
  * **Phase 1:** Pass through to runtime LazyPipeline construction.
  * The LazyPipeline class handles fusion at runtime (single-pass iteration,
@@ -682,3 +687,6 @@ export function register(): void {
   globalRegistry.register(lazyMacro);
   globalRegistry.register(fusedMacro);
 }
+
+// Auto-register on import (the transformer loads this entry for its side effects).
+register();

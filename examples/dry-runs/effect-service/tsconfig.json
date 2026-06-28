@@ -10,7 +10,13 @@
     "rootDir": "src",
     "declaration": true,
     "experimentalDecorators": true,
-    "plugins": [{ "transform": "@typesugar/transformer" }]
+    "plugins": [
+      {
+        "transform": "@typesugar/transformer"
+      }
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

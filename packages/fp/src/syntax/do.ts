@@ -13,9 +13,9 @@
  * 3. Fluent API with type inference
  */
 
-import { Option, Some, None } from "../data/option";
-import { Either, Left, Right, isLeft } from "../data/either";
-import { IO } from "../io/io";
+import { Option, Some, None } from "../data/option.js";
+import { Either, Left, Right, isLeft } from "../data/either.js";
+import { IO } from "../io/io.js";
 
 // ============================================================================
 // Generic Do Builder

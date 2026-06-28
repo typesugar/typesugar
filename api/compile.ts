@@ -25,7 +25,7 @@ import "@typesugar/effect";
 import "@typesugar/type-system";
 import "@typesugar/contracts";
 import "@typesugar/codec";
-import "@typesugar/mapper";
+import "@typesugar/mapper/macros";
 import "@typesugar/fusion";
 import "@typesugar/units";
 import "@typesugar/sql";

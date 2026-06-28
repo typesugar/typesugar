@@ -148,6 +148,9 @@ jobs:
       - name: Test skip policy
         run: pnpm run check:skips
 
+      - name: Runtime purity (no `typescript` in runtime entries)
+        run: pnpm run check:runtime-purity
+
   test-vscode:
     name: VS Code Extension Tests
     runs-on: ubuntu-latest

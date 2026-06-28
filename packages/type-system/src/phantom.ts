@@ -56,11 +56,11 @@
  * Connection.close(conn);        // Error: close not available in "closed" state
  * Connection.open(opened);       // Error: open not available in "open" state
  * ```
+ *
+ * The `@phantom` / `stateMachine` macro definitions live in the package's
+ * `./macros` entry (loaded by the transformer at build time). This module is
+ * runtime-only and does NOT import `typescript`.
  */
-
-import * as ts from "typescript";
-import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
-import { MacroContext, AttributeTarget } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -349,143 +349,10 @@ export type Dual<P> =
         ? Done
         : never;
 
-// ============================================================================
-// @phantom Attribute Macro
-// ============================================================================
-
-/**
- * @phantom decorator — adds phantom type parameter tracking to a class.
- *
- * The macro:
- * 1. Reads @transition annotations on methods
- * 2. Generates typed overloads that enforce state transitions
- * 3. Makes invalid transitions a compile-time error
- */
-export const phantomAttribute = defineAttributeMacro({
-  name: "phantom",
-  description: "Add phantom type state tracking to a class for type-safe state machines",
-  validTargets: ["class"] as AttributeTarget[],
-
-  expand(
-    ctx: MacroContext,
-    _decorator: ts.Decorator,
-    target: ts.Declaration,
-    _args: readonly ts.Expression[]
-  ): ts.Node | ts.Node[] {
-    if (!ts.isClassDeclaration(target)) {
-      ctx.reportError(target, "@phantom can only be applied to classes");
-      return target;
-    }
-
-    const name = target.name?.text ?? "Anonymous";
-    const factory = ctx.factory;
-
-    // Extract state transitions from @transition decorators on methods
-    const transitions: Array<{
-      method: string;
-      from: string;
-      to: string;
-    }> = [];
-
-    for (const member of target.members) {
-      if (!ts.isMethodDeclaration(member)) continue;
-      const decorators = ts.getDecorators(member);
-      if (!decorators) continue;
-
-      for (const dec of decorators) {
-        if (!ts.isCallExpression(dec.expression)) continue;
-        if (!ts.isIdentifier(dec.expression.expression)) continue;
-        if (dec.expression.expression.text !== "transition") continue;
-
-        const args = dec.expression.arguments;
-        if (args.length >= 2) {
-          const from = ts.isStringLiteral(args[0]) ? args[0].text : "";
-          const to = ts.isStringLiteral(args[1]) ? args[1].text : "";
-          const methodName = ts.isIdentifier(member.name) ? member.name.text : "";
-
-          if (from && to && methodName) {
-            transitions.push({ method: methodName, from, to });
-          }
-        }
-      }
-    }
-
-    // Generate a companion type that encodes the state machine
-    if (transitions.length > 0) {
-      // Build the state machine definition type
-      const stateMap = new Map<string, Map<string, string>>();
-      for (const { method, from, to } of transitions) {
-        if (!stateMap.has(from)) stateMap.set(from, new Map());
-        stateMap.get(from)!.set(method, to);
-      }
-
-      const stateTypeMembers: ts.TypeElement[] = [];
-      for (const [state, trans] of stateMap) {
-        const transMembers: ts.TypeElement[] = [];
-        for (const [method, target] of trans) {
-          transMembers.push(
-            factory.createPropertySignature(
-              [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
-              factory.createIdentifier(method),
-              undefined,
-              factory.createLiteralTypeNode(factory.createStringLiteral(target))
-            )
-          );
-        }
-
-        stateTypeMembers.push(
-          factory.createPropertySignature(
-            [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
-            factory.createIdentifier(state),
-            undefined,
-            factory.createTypeLiteralNode(transMembers)
-          )
-        );
-      }
-
-      const stateDefType = factory.createTypeAliasDeclaration(
-        [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-        factory.createIdentifier(`${name}States`),
-        undefined,
-        factory.createTypeLiteralNode(stateTypeMembers)
-      );
-
-      return [target, stateDefType];
-    }
-
-    return target;
-  },
-});
-
 /**
  * @transition decorator placeholder — marks a method as a state transition.
- * Processed by @phantom.
+ * Processed by the `@phantom` macro (see the package's `./macros` entry).
  */
 export function transition(_from: string, _to: string): MethodDecorator {
   return () => {};
 }
-
-// ============================================================================
-// stateMachine Expression Macro
-// ============================================================================
-
-export const stateMachineMacro = defineExpressionMacro({
-  name: "stateMachine",
-  description: "Create a type-safe state machine with phantom type tracking",
-
-  expand(
-    _ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
-  ): ts.Expression {
-    // Pass through to createStateMachine runtime implementation
-    return callExpr;
-  },
-});
-
-// ============================================================================
-// Register macros
-// ============================================================================
-
-globalRegistry.register(phantomAttribute);
-globalRegistry.register(stateMachineMacro);

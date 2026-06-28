@@ -18,8 +18,8 @@
  * Inspired by Scala's Cats Effect IO
  */
 
-import { Either, Left, Right, isLeft, isRight } from "../data/either";
-import { Option, Some, None, isSome } from "../data/option";
+import { Either, Left, Right, isLeft, isRight } from "../data/either.js";
+import { Option, Some, None, isSome } from "../data/option.js";
 
 // ============================================================================
 // IO ADT Definition

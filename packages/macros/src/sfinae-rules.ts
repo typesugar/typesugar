@@ -25,6 +25,7 @@ import {
   extractTypeArgumentsContent,
   splitTopLevelTypeArgs,
 } from "@typesugar/core";
+import { getTypeclassesForMethod } from "./typeclass.js";
 
 /**
  * Create the ExtensionMethodCall SFINAE rule.
@@ -90,9 +91,91 @@ export function createExtensionMethodCallRule(): SfinaeRule {
         return true;
       }
 
+      // 3. Typeclass instance method (derived / @instance): e.g. `p.equals(q)` is
+      // rewritten by the transformer to `Point.Eq.equals(p, q)`. Suppress the
+      // pre-transform TS2339 when the method belongs to a typeclass that has an
+      // instance for the receiver type.
+      if (
+        resolveTypeclassInstanceMethod(propertyName, typeName, receiverType, checker, sourceFile)
+      ) {
+        return true;
+      }
+
       return false;
     },
   };
+}
+
+/**
+ * Check whether `methodName` is a typeclass method that the receiver's type
+ * derives — i.e. the transformer will rewrite `recv.methodName(...)` to the
+ * companion call `Type.TC.methodName(recv, ...)`.
+ *
+ * This is decided from the AST (the receiver type's declaration carries a
+ * `@derive(...)` decorator or `@derive`/`@deriving` JSDoc tag), NOT from the
+ * instance registry: `typesugar check` runs with `noEmit`, so the transformer
+ * never runs and the registry is empty at diagnostic-filter time. The annotation
+ * is always present in the source, so it is the reliable signal — and it works
+ * for both the decorator and JSDoc trigger forms.
+ */
+function resolveTypeclassInstanceMethod(
+  methodName: string,
+  _typeName: string,
+  receiverType: ts.Type,
+  _checker: ts.TypeChecker,
+  _sourceFile: ts.SourceFile
+): boolean {
+  const candidates = getTypeclassesForMethod(methodName);
+  if (!candidates) return false;
+  const candidateNames = new Set(candidates.map((c) => c.typeclass));
+
+  const symbol = receiverType.getSymbol() ?? receiverType.aliasSymbol;
+  const declarations = symbol?.getDeclarations();
+  if (!declarations) return false;
+
+  for (const decl of declarations) {
+    for (const derived of deriveNamesFromDeclaration(decl)) {
+      if (candidateNames.has(derived)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extract the typeclass names a declaration derives, from either trigger form:
+ * - decorator: `@derive(Eq, Clone)` (stored in `modifiers` even on interfaces)
+ * - JSDoc: `/** @derive(Eq, Clone) *\/` or `@deriving Eq, Clone`
+ */
+function deriveNamesFromDeclaration(decl: ts.Node): string[] {
+  const names: string[] = [];
+
+  const modifiers = (decl as { modifiers?: ts.NodeArray<ts.ModifierLike> }).modifiers;
+  if (modifiers) {
+    for (const m of modifiers) {
+      if (!ts.isDecorator(m)) continue;
+      const expr = m.expression;
+      if (
+        ts.isCallExpression(expr) &&
+        ts.isIdentifier(expr.expression) &&
+        (expr.expression.text === "derive" || expr.expression.text === "deriving")
+      ) {
+        for (const arg of expr.arguments) {
+          if (ts.isIdentifier(arg)) names.push(arg.text);
+        }
+      }
+    }
+  }
+
+  for (const tag of ts.getJSDocTags(decl)) {
+    const tagName = tag.tagName.text;
+    if (tagName !== "derive" && tagName !== "deriving") continue;
+    const comment = typeof tag.comment === "string" ? tag.comment : "";
+    for (const ident of comment.matchAll(/[A-Za-z_$][\w$]*/g)) {
+      names.push(ident[0]);
+    }
+  }
+
+  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -905,15 +988,21 @@ const MACRO_FLUENT_NAMES = new Set(["match"]);
 /**
  * Create the MacroCallChain SFINAE rule.
  *
- * Suppresses TS2339 ("Property does not exist on type 'never'") and TS2304
- * ("Cannot find name") when the error occurs inside a fluent chain starting
+ * Suppresses TS2339 ("Property does not exist on type 'never'"), TS2304
+ * ("Cannot find name"), and TS18004 ("No value exists in scope for the
+ * shorthand property 'X'") when the error occurs inside a fluent chain starting
  * from a known macro call like `match()`. These errors are artifacts of the
  * pre-transform source — the macro rewrites the entire chain at compile time.
+ *
+ * TS18004 specifically covers pattern-variable binding via object shorthand in
+ * `.case({ kind: "circle", r })`: in the pre-transform source `r` is a shorthand
+ * property with no value in scope, but the transformer binds it (`const r = _x.r`)
+ * before the `.then(...)` expression that uses it.
  */
 export function createMacroCallChainRule(): SfinaeRule {
   return {
     name: "MacroCallChain",
-    errorCodes: [2339, 2304],
+    errorCodes: [2339, 2304, 18004],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,

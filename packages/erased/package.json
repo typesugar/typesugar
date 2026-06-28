@@ -21,6 +21,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./macros": {
+      "types": "./dist/macros.d.ts",
+      "import": "./dist/macros.js",
+      "require": "./dist/macros.cjs"
     }
   },
   "scripts": {

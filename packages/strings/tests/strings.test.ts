@@ -6,19 +6,15 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { __typesugar_escapeHtml, regex, html, fmt, raw } from "../src/index.js";
 import {
-  __typesugar_escapeHtml,
-  regex,
-  html,
-  fmt,
-  raw,
   regexMacro,
   htmlMacro,
   fmtMacro,
   rawMacro,
   register,
   parseFormatString,
-} from "../src/index.js";
+} from "../src/macros.js";
 
 describe("@typesugar/strings", () => {
   // ==========================================================================
@@ -196,31 +192,32 @@ describe("@typesugar/strings", () => {
   // Package Structure Tests
   // ==========================================================================
 
-  describe("package exports", () => {
-    it("should export all expected symbols", async () => {
-      const exports = await import("../src/index.js");
+  describe("package exports (PEP-050 macro/runtime split)", () => {
+    it("the `.` runtime entry exports only runtime symbols (no macros, no typescript)", async () => {
+      const runtime = await import("../src/index.js");
 
-      // Runtime stubs
-      expect(exports.regex).toBeDefined();
-      expect(exports.html).toBeDefined();
-      expect(exports.fmt).toBeDefined();
-      expect(exports.raw).toBeDefined();
+      // Runtime stubs + helper
+      expect(runtime.regex).toBeDefined();
+      expect(runtime.html).toBeDefined();
+      expect(runtime.fmt).toBeDefined();
+      expect(runtime.raw).toBeDefined();
+      expect(runtime.__typesugar_escapeHtml).toBeDefined();
 
-      // Macro definitions
-      expect(exports.regexMacro).toBeDefined();
-      expect(exports.htmlMacro).toBeDefined();
-      expect(exports.fmtMacro).toBeDefined();
-      expect(exports.rawMacro).toBeDefined();
+      // Macro definitions must NOT leak into the runtime entry.
+      expect((runtime as Record<string, unknown>).regexMacro).toBeUndefined();
+      expect((runtime as Record<string, unknown>).register).toBeUndefined();
+    });
 
-      // Register function
-      expect(exports.register).toBeDefined();
+    it("the `./macros` entry exports the macro definitions", async () => {
+      const macros = await import("../src/macros.js");
 
-      // Runtime helper
-      expect(exports.__typesugar_escapeHtml).toBeDefined();
-
-      // Format string parser
-      expect(exports.parseFormatString).toBeDefined();
-      expect(exports.applyFormatSpecifier).toBeDefined();
+      expect(macros.regexMacro).toBeDefined();
+      expect(macros.htmlMacro).toBeDefined();
+      expect(macros.fmtMacro).toBeDefined();
+      expect(macros.rawMacro).toBeDefined();
+      expect(macros.register).toBeDefined();
+      expect(macros.parseFormatString).toBeDefined();
+      expect(macros.applyFormatSpecifier).toBeDefined();
     });
   });
 

@@ -625,8 +625,11 @@ export function monoidArray<A>(): Monoid<A[]> {
 // Re-export FlatMap typeclass (HKT-based, for let:/yield: macro)
 export * from "./flatmap.js";
 
-// Re-export ParCombine typeclass (for par:/yield: macro)
-export * from "./par-combine.js";
+// Re-export ParCombine typeclass + runtime instances (for par:/yield: macro).
+// Only the `typescript`-free runtime surface is re-exported here so the runtime
+// `.` entry stays typescript-free (PEP-050 Case-1). The compile-time builders +
+// registry live in `./par-combine.js`, loaded by the transformer via `./macros`.
+export * from "./par-combine-instances.js";
 
 // Re-export generic numeric operations
 export * from "./numeric-ops.js";

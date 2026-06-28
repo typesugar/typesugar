@@ -761,6 +761,27 @@ function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined {
 }
 
 /**
+ * Get all typeclasses that declare a method with the given name.
+ *
+ * This is the method-name analogue of {@link getSyntaxForOperator}: it powers
+ * the instance-method sugar (`x.method(args)` → `Companion.method(x, args)`) by
+ * mapping a called method name back to the typeclass(es) that define it.
+ * Multiple typeclasses may declare the same method name — ambiguity is resolved
+ * at the call site by checking which one has an instance for the receiver type.
+ */
+function getTypeclassesForMethod(methodName: string): SyntaxEntry[] | undefined {
+  const entries: SyntaxEntry[] = [];
+
+  for (const [tcName, tcInfo] of typeclassRegistry) {
+    if (tcInfo.methods.some((m) => m.name === methodName)) {
+      entries.push({ typeclass: tcName, method: methodName });
+    }
+  }
+
+  return entries.length > 0 ? entries : undefined;
+}
+
+/**
  * Clear syntax mappings from all typeclasses.
  * For testing only - clears syntax while keeping typeclass definitions.
  */
@@ -1350,21 +1371,6 @@ export function resolveFieldInstance(
  * For classes (which are already values), returns null since properties can be
  * assigned directly to the class.
  */
-function ensureDataTypeCompanionConst(
-  target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
-  typeName: string,
-  isExported: boolean
-): string | null {
-  // Classes are already values — can't create a const with the same name
-  if (ts.isClassDeclaration(target)) {
-    return null;
-  }
-
-  // For interfaces and type aliases: create companion const via declaration merging
-  const exportMod = isExported ? "export " : "";
-  return `${exportMod}const ${typeName}: Record<string, any> = {};`;
-}
-
 /**
  * Get method implementations for specialization based on derived typeclass.
  * Returns source strings suitable for registration with the specialization system.
@@ -3549,13 +3555,15 @@ export function tryExpandGenericDerive(
     ? [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)]
     : undefined;
 
-  // Ensure the type has a companion const (for interfaces/type aliases)
-  if (node) {
-    const companionCode = ensureDataTypeCompanionConst(node as any, typeName, isExported);
-    if (companionCode) {
-      statements.push(...ctx.parseStatements(companionCode));
-    }
-  }
+  // NOTE: We deliberately do NOT emit a companion `const TypeName = {}` here.
+  // A `namespace TypeName { export const Eq = ... }` already produces a runtime
+  // value for `TypeName` and declaration-merges legally with an interface (type
+  // space), a type alias, or a class. A companion `const` instead *conflicts*
+  // with the namespace ("Cannot redeclare block-scoped variable" / TS2451) at the
+  // type level, and was only ever made to work in the emitted JS by a `const`→`var`
+  // rewrite in the transpile path (see fixCompanionConsts in pipeline.ts) — which
+  // never ran for type-checking or `typesugar expand`. Dropping it makes the
+  // companion form (`TypeName.Eq.equals`) type-check for all three node kinds.
 
   if (hasPrimitiveSelfRef) {
     // If the source file doesn't already import the typeclass name (e.g. Eq),
@@ -3667,8 +3675,8 @@ export {
   getTypeclass,
   instanceVarName,
   companionPath,
-  ensureDataTypeCompanionConst,
   getSyntaxForOperator,
+  getTypeclassesForMethod,
   clearSyntaxRegistry, // deprecated, no-op
   // Comprehension typeclass support (exported via export function declarations above)
   parCombineBuilderRegistry,

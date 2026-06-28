@@ -101,8 +101,8 @@ export {
 // Macro (import to register)
 // ============================================================================
 
-// Import the macro to register it with the global registry
-import "../macros/laws.js";
-
-// Export macro components
-export { lawsAttribute, laws, type LawsDecoratorOptions } from "../macros/laws.js";
+// The @laws macro (`lawsAttribute`) imports `typescript` and lives in the
+// build-time `@typesugar/contracts/macros` entry (PEP-050). The runtime `laws`
+// stub lives in the runtime API. Re-export both for convenience.
+export { lawsAttribute, type LawsDecoratorOptions } from "../macros/laws.js";
+export { laws } from "../runtime/api.js";

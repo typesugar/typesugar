@@ -985,6 +985,10 @@ export class MacroContextImpl implements MacroContext {
     return this.fileBindingCache.safeRef(symbol, from);
   }
 
+  ensureImport(symbol: string, from: string): ts.Identifier {
+    return this.fileBindingCache.ensureImport(symbol, from);
+  }
+
   // -------------------------------------------------------------------------
   // Helper: Convert ComptimeValue to TypeScript Expression
   // -------------------------------------------------------------------------

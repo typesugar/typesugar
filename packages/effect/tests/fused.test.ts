@@ -54,12 +54,17 @@ describe("Fused macro structure", () => {
     expect(fused.fusePipelineExpression).toBeDefined();
   });
 
-  it("should export all necessary symbols from main index", async () => {
+  it("should export the runtime placeholders from the package root", async () => {
     const index = await import("../src/index.js");
 
     expect(index.fusePipeline).toBeDefined();
     expect(index.fused).toBeDefined();
-    expect(index.fusedAttribute).toBeDefined();
-    expect(index.fusePipelineExpression).toBeDefined();
+  });
+
+  it("should export the macro definitions from the ./macros entry", async () => {
+    const macros = await import("../src/macros.js");
+
+    expect(macros.fusedAttribute).toBeDefined();
+    expect(macros.fusePipelineExpression).toBeDefined();
   });
 });

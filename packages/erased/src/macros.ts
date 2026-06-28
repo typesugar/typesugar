@@ -19,7 +19,7 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, MacroContext } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 import { findInstance } from "@typesugar/macros";
 
 /**
@@ -298,6 +298,13 @@ export const erasedMacro = defineExpressionMacro({
   },
 });
 
-// Register with global registry
-import { globalRegistry } from "@typesugar/core";
-globalRegistry.register(erasedMacro);
+// ============================================================================
+// Registration
+// ============================================================================
+
+export function register(): void {
+  globalRegistry.register(erasedMacro);
+}
+
+// Auto-register on import (the transformer loads this entry for its side effects).
+register();

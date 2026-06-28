@@ -5,18 +5,18 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
+import { setContractConfig, shouldEmitCheck, type ContractConfig } from "@typesugar/contracts";
+// Macro definitions + compile-time parser helpers live in the build-time
+// `./macros` entry (PEP-050 Case-1 split).
 import {
   requiresMacro,
   ensuresMacro,
   oldMacro,
   contractAttribute,
   invariantAttribute,
-  setContractConfig,
-  shouldEmitCheck,
-  type ContractConfig,
-} from "@typesugar/contracts";
-import { parseContractBlocks } from "@typesugar/contracts";
-import { normalizeExpression } from "@typesugar/contracts";
+  parseContractBlocks,
+  normalizeExpression,
+} from "@typesugar/contracts/macros";
 import { tryAlgebraicProof, type TypeFact } from "@typesugar/contracts";
 
 // ============================================================================
@@ -309,7 +309,12 @@ describe("old() macro", () => {
     ctx = createTestContext();
   });
 
-  it("should return identity when used standalone", () => {
+  it("reports a diagnostic when used outside an @contract ensures: block", () => {
+    // old() only captures pre-state inside a (possibly implicit) @contract
+    // function, where the attribute macro rewrites it before this expander is
+    // reached. Reaching the expander means old() was misused (e.g. a standalone
+    // ensures(old(x)) call); it reports rather than silently returning the
+    // current value, falling back to identity so emit still produces valid code.
     const arg = ts.factory.createIdentifier("x");
     const callExpr = ts.factory.createCallExpression(
       ts.factory.createIdentifier("old"),
@@ -320,6 +325,7 @@ describe("old() macro", () => {
     const result = oldMacro.expand(ctx, callExpr, [arg]);
     expect(ts.isIdentifier(result)).toBe(true);
     expect((result as ts.Identifier).text).toBe("x");
+    expect(ctx.getDiagnostics().some((d) => /old\(\) can only be used/.test(d.message))).toBe(true);
   });
 });
 

@@ -57,11 +57,17 @@
       "types": "./dist/zero-cost/index.d.ts",
       "import": "./dist/zero-cost/index.js",
       "require": "./dist/zero-cost/index.cjs"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js",
+      "require": "./dist/*.cjs"
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json",
     "build:watch": "tsup --watch",
+    "build:dts": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

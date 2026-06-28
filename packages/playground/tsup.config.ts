@@ -51,6 +51,7 @@ export default defineConfig([
         crypto: "./src/browser-shims/crypto.ts",
         process: "./src/browser-shims/process.ts",
         vm: "./src/browser-shims/vm.ts",
+        readline: "./src/browser-shims/readline.ts",
       };
     },
   },
@@ -78,6 +79,7 @@ export default defineConfig([
         process: "./src/browser-shims/process.ts",
         vm: "./src/browser-shims/vm.ts",
         os: "./src/browser-shims/os.ts",
+        readline: "./src/browser-shims/readline.ts",
       };
     },
   },

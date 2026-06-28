@@ -16,6 +16,7 @@
  */
 
 import * as ts from "typescript";
+import * as path from "path";
 import {
   registerTypeRewrite,
   getTypeRewrite,
@@ -81,14 +82,112 @@ export function discoverOpaqueTypesFromImports(
     const dtsSourceFile = declarations[0].getSourceFile();
     if (!dtsSourceFile.isDeclarationFile) continue;
 
-    const resolvedFileName = dtsSourceFile.fileName;
+    // Scan the package entry .d.ts AND every .d.ts it re-exports from (transitively,
+    // following only relative re-exports so we stay within the package). Library
+    // authors commonly publish an `@opaque` type in a sub-module and only re-export
+    // it from the entry (e.g. @typesugar/fp's `index.d.ts` →
+    // `export type { Option } from "./data/option.js"`); without following the
+    // re-export the type — and its companion functions — would be invisible.
+    const packageName = packageNameOf(moduleSpecifier);
+    const entryDir = path.dirname(dtsSourceFile.fileName);
 
-    // Skip if already scanned
-    if (scannedDtsFiles.has(resolvedFileName)) continue;
-    scannedDtsFiles.add(resolvedFileName);
-
-    scanDtsForOpaqueTypes(dtsSourceFile, moduleSpecifier, verbose);
+    const collected = collectReExportedDtsFiles(dtsSourceFile, program);
+    for (const dts of collected) {
+      if (scannedDtsFiles.has(dts.fileName)) continue;
+      scannedDtsFiles.add(dts.fileName);
+      // The companion functions for an @opaque type are co-located with it in the
+      // same module. Import them from THAT module's subpath, not the consumer's
+      // entry import — a library can't expose same-named companions (Option.map vs
+      // Either.map) from one entry, so each lives at its own subpath
+      // (e.g. "@typesugar/fp/data/option").
+      const subModule = subpathFor(packageName, entryDir, dts.fileName);
+      scanDtsForOpaqueTypes(dts, subModule, verbose);
+    }
   }
+}
+
+/** Bare package name of an import specifier ("@scope/pkg/sub" → "@scope/pkg"). */
+function packageNameOf(spec: string): string {
+  const parts = spec.split("/");
+  return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+/**
+ * Compute the public subpath for a .d.ts file relative to the resolved entry dir,
+ * e.g. entry `.../fp/dist/index.d.ts` + file `.../fp/dist/data/option.d.ts`
+ * → "@typesugar/fp/data/option". The entry file itself maps to the bare package name.
+ */
+function subpathFor(packageName: string, entryDir: string, fileName: string): string {
+  const rel = path
+    .relative(entryDir, fileName)
+    .replace(/\.d\.ts$/, "")
+    .replace(/\\/g, "/");
+  if (rel === "" || rel === "index" || rel.startsWith("..")) return packageName;
+  return `${packageName}/${rel}`;
+}
+
+/**
+ * Collect a .d.ts file and all .d.ts files reachable from it via *relative*
+ * re-export declarations (`export ... from "./x"`, `export * from "./x"`).
+ *
+ * Relative-only keeps traversal bounded to the package being imported — cross-package
+ * re-exports are discovered when the consumer imports that package directly.
+ */
+function collectReExportedDtsFiles(entry: ts.SourceFile, program: ts.Program): ts.SourceFile[] {
+  const out: ts.SourceFile[] = [];
+  const seen = new Set<string>();
+  const stack: ts.SourceFile[] = [entry];
+
+  while (stack.length > 0) {
+    const file = stack.pop()!;
+    if (seen.has(file.fileName)) continue;
+    seen.add(file.fileName);
+    if (!file.isDeclarationFile) continue;
+    out.push(file);
+
+    for (const stmt of file.statements) {
+      if (!ts.isExportDeclaration(stmt) || !stmt.moduleSpecifier) continue;
+      if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+      if (!stmt.moduleSpecifier.text.startsWith(".")) continue; // relative only
+
+      // Resolve by file path rather than via the checker: the re-export targets of a
+      // dependency's .d.ts are usually NOT loaded into the consumer's program, so
+      // checker.getSymbolAtLocation(moduleSpecifier) returns undefined for them.
+      const targetFile = resolveRelativeDts(file.fileName, stmt.moduleSpecifier.text, program);
+      if (targetFile && !seen.has(targetFile.fileName)) {
+        stack.push(targetFile);
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Resolve a relative `.js`/extensionless module specifier from `fromFile` to its
+ * `.d.ts` SourceFile. Prefers a file already in the program; otherwise parses it
+ * from disk (the discovery scan is AST-only, so a checker-less SourceFile is fine).
+ */
+function resolveRelativeDts(
+  fromFile: string,
+  specifier: string,
+  program: ts.Program
+): ts.SourceFile | undefined {
+  const dir = path.dirname(fromFile);
+  const base = specifier.replace(/\.[cm]?js$/, "");
+  const candidates = [`${base}.d.ts`, `${base}.d.mts`, `${base}.d.cts`, `${base}/index.d.ts`];
+  for (const candidate of candidates) {
+    const resolved = path.resolve(dir, candidate);
+    const inProgram = program.getSourceFile(resolved);
+    if (inProgram) return inProgram;
+    if (ts.sys.fileExists(resolved)) {
+      const text = ts.sys.readFile(resolved);
+      if (text !== undefined) {
+        return ts.createSourceFile(resolved, text, ts.ScriptTarget.Latest, true);
+      }
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,8 +216,11 @@ function scanDtsForOpaqueTypes(
   const exportedConstants = new Map<string, ts.VariableDeclaration>();
 
   for (const stmt of dtsFile.statements) {
-    // Find @opaque type aliases
-    if (ts.isTypeAliasDeclaration(stmt)) {
+    // Find @opaque type aliases AND interfaces. Library authors may publish a
+    // zero-cost type as either `@opaque type Foo = ...` or `@opaque interface Foo {...}`
+    // (e.g. @typesugar/fp's `Option` is an interface so it can declare its dot-syntax
+    // method surface for type-checking while erasing to the underlying type).
+    if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) {
       const tag = extractOpaqueTagFromNode(stmt, fullText);
       if (tag) {
         opaqueTypes.push({
@@ -292,8 +394,26 @@ function isConstantConstructorCandidate(
   if (!isPascalCase(name)) return false;
   if (!decl.type) return false;
 
-  const typeText = decl.type.getText(sourceFile);
-  return typeText === typeName || typeText.startsWith(typeName + "<");
+  // Must be a reference to the opaque type itself.
+  if (!ts.isTypeReferenceNode(decl.type)) {
+    // Fall back to the textual check for non-reference type nodes (rare).
+    const typeText = decl.type.getText(sourceFile);
+    return typeText === typeName;
+  }
+  const refName = ts.isIdentifier(decl.type.typeName)
+    ? decl.type.typeName.text
+    : decl.type.typeName.getText(sourceFile);
+  if (refName !== typeName) return false;
+
+  // A genuine nullary/zero-cost constructor (e.g. `None: Option<never>`) carries
+  // no payload — its type arguments are all `never` (or it has none). A constant
+  // that names a real payload type (e.g. `Do: List<{}>` / `Do: Option<{}>` is a
+  // regular value, NOT the null representation) must NOT be erased to `null`.
+  // This disambiguates `None`/`Empty` from ordinary exported constants whose
+  // type happens to be the opaque type.
+  const typeArgs = decl.type.typeArguments;
+  if (!typeArgs || typeArgs.length === 0) return true;
+  return typeArgs.every((arg) => arg.kind === ts.SyntaxKind.NeverKeyword);
 }
 
 function isPascalCase(name: string): boolean {

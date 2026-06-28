@@ -1,7 +1,16 @@
-import type { Graph, StateMachineDefinition } from "./types.js";
-import { parseDigraph, parseStateMachine } from "./dsl.js";
-import { createGraph as createUndirectedGraph } from "./graph.js";
-import { createInstance, verify } from "./state-machine.js";
+/**
+ * @typesugar/graph — Macro definitions (BUILD-TIME ONLY).
+ *
+ * This entry imports `typescript` and is loaded by the transformer at build time
+ * (via the `./macros` subpath). It must NOT be imported by application runtime
+ * code — the runtime tagged-template helpers + the
+ * `__typesugar_createStateMachineInstance` helper live in the package's `.`
+ * entry (see `./templates.ts`). See PEP-050.
+ */
+
+import type { StateMachineDefinition } from "./types.js";
+import { parseStateMachine } from "./dsl.js";
+import { verify } from "./state-machine.js";
 import {
   defineTaggedTemplateMacro,
   globalRegistry,
@@ -9,87 +18,6 @@ import {
   type TaggedTemplateMacroDef,
 } from "@typesugar/core";
 import ts from "typescript";
-
-/**
- * Tagged template literal for creating directed graphs from the DSL.
- *
- * @example
- * ```ts
- * const g = digraph`
- *   a -> b, c
- *   b -> d
- *   c -> d
- * `;
- * ```
- */
-export function digraph(strings: TemplateStringsArray, ...values: unknown[]): Graph {
-  return parseDigraph(interpolate(strings, values));
-}
-
-/**
- * Tagged template literal for creating undirected graphs from the DSL.
- *
- * Uses the same arrow syntax as `digraph`, but edges are bidirectional.
- *
- * @example
- * ```ts
- * const g = graph`
- *   a -> b, c
- *   b -> d
- * `;
- * ```
- */
-export function graph(strings: TemplateStringsArray, ...values: unknown[]): Graph {
-  const parsed = parseDigraph(interpolate(strings, values));
-  return createUndirectedGraph(
-    parsed.nodes.map((n) => n.id),
-    parsed.edges.map((e) => [e.from, e.to, e.label])
-  );
-}
-
-/**
- * Tagged template literal for defining state machines from the DSL.
- *
- * **Compile-time features:**
- * - Parses and validates the state machine definition at compile time
- * - Reports unreachable states, dead ends, and nondeterminism as compile errors
- * - Generates type-safe state and event union types
- *
- * Returns the definition augmented with a `create()` helper to instantiate it.
- *
- * @example
- * ```ts
- * const sm = stateMachine`
- *   @initial Idle
- *   @terminal Done
- *   Idle --start--> Running
- *   Running --stop--> Done
- * `;
- *
- * const instance = sm.create();
- * // instance.current is typed as "Idle" | "Running" | "Done"
- * ```
- */
-export function stateMachine(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): StateMachineDefinition & {
-  create: <S extends string, E extends string>() => ReturnType<typeof createInstance<S, E>>;
-} {
-  const def = parseStateMachine(interpolate(strings, values));
-  return {
-    ...def,
-    create: <S extends string, E extends string>() => createInstance<S, E>(def),
-  };
-}
-
-function interpolate(strings: TemplateStringsArray, values: unknown[]): string {
-  let result = strings[0];
-  for (let i = 0; i < values.length; i++) {
-    result += String(values[i]) + strings[i + 1];
-  }
-  return result;
-}
 
 /**
  * Compile-time macro for state machine verification.
@@ -248,22 +176,11 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
 });
 
 /**
- * Runtime helper for creating state machine instances.
- * Called by the compiled output of `stateMachineMacro`.
- */
-export function __typesugar_createStateMachineInstance<
-  S extends string = string,
-  E extends string = string,
->(def: StateMachineDefinition) {
-  return createInstance<S, E>(def);
-}
-
-/**
  * Register all graph macros with the global registry.
  */
 export function register(): void {
   globalRegistry.register(stateMachineMacro);
 }
 
-// Auto-register on import
+// Auto-register on import (the transformer loads this entry for its side effects).
 register();

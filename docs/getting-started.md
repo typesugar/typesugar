@@ -20,11 +20,25 @@ The fastest way to try TypeSugar — no build tool configuration needed:
 
 ```bash
 npx typesugar run src/main.ts    # compile + execute in one step
-npx typesugar check              # typecheck with macro expansion
+npx typesugar check              # typecheck with macro expansion (no output)
 npx typesugar build              # compile to dist/
 npx typesugar expand src/main.ts # show macro-expanded output
 npx typesugar init               # interactive project setup wizard
 ```
+
+#### `check` vs `build`
+
+- **`typesugar check`** type-checks your code (with macros expanded) and emits
+  nothing. It exits non-zero when there are diagnostics — **use it as your CI
+  gate**.
+- **`typesugar build`** compiles to `dist/`. It also exits non-zero when it
+  finds diagnostics, so a green `build` means "compiled and no errors were
+  detected." (Internally it reports the same diagnostics `check` does, after
+  TypeSugar's SFINAE filtering removes the phantom errors that valid pre-expansion
+  source produces.)
+- Add `--strict` to either command to _also_ type-check the fully expanded
+  output. This is **experimental** — it can surface false positives — so it is
+  off by default and is not a substitute for `check`.
 
 ### 3. Configure your build tool
 
@@ -77,13 +91,16 @@ npx ts-patch install
 // tsconfig.json
 {
   "compilerOptions": {
-    "plugins": [{ "transform": "@typesugar/transformer" }],
-    "skipLibCheck": true
+    "plugins": [{ "transform": "@typesugar/transformer" }]
   }
 }
 ```
 
-> **Note:** `skipLibCheck: true` is recommended to avoid spurious errors from TypeSugar's generated declaration files (especially `@typesugar/fp`).
+> **Note:** TypeSugar's published declaration files (including `@typesugar/fp`)
+> type-check cleanly with `skipLibCheck: false`, so it is no longer required.
+> `skipLibCheck: true` remains a reasonable default if you want to skip checking
+> _all_ third-party `.d.ts` files for speed, but it is no longer needed for
+> TypeSugar specifically.
 
 ## Your First Macro
 
@@ -216,13 +233,15 @@ const area = match(shape, {
   rect: (s) => s.width * s.height,
 });
 
-// Fluent form (requires the TypeSugar transformer for macro expansion)
+// Fluent form (requires the TypeSugar transformer for macro expansion).
+// Bind fields in the pattern, then use them as an expression in `.then(...)`.
+// `.then()` takes an expression (not a handler function), and `.else()` a value.
 const area2 = match(shape)
-  .case({ kind: "circle" })
-  .then((s) => Math.PI * s.radius ** 2)
-  .case({ kind: "rect" })
-  .then((s) => s.width * s.height)
-  .else(() => 0);
+  .case({ kind: "circle", radius: r })
+  .then(Math.PI * r ** 2)
+  .case({ kind: "rect", width: w, height: h })
+  .then(w * h)
+  .else(0);
 ```
 
 ## Option & Either (Zero-Cost Representation)

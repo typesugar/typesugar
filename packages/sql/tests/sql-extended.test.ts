@@ -12,9 +12,6 @@ import {
   QueryableCompanion,
   type Queryable,
 
-  // Macro utils
-  validateSqlSyntax,
-
   // ConnectionIO combinators
   ConnectionIO,
   Transactor,
@@ -53,6 +50,8 @@ import {
   SimpleConnectionIO,
   SimpleTransactor,
 } from "../src/index.js";
+// Macro utils live in the build-time `./macros` entry (PEP-050).
+import { validateSqlSyntax } from "../src/macros.js";
 
 // ============================================================================
 // Helpers

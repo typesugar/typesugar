@@ -329,3 +329,25 @@ export function filterByHint(laws: LawSet, hint: ProofHint): LawSet {
     return law.proofHint === hint;
   });
 }
+
+// ============================================================================
+// @laws Decorator Options
+// ============================================================================
+
+/**
+ * Options for the `@laws` attribute macro and the `laws()` runtime stub.
+ * Defined here (runtime-pure) so both the `.` entry and the `./macros` entry
+ * can share it without pulling `typescript` into the runtime entry.
+ */
+export interface LawsDecoratorOptions {
+  /** Override verification mode */
+  mode?: VerificationMode;
+  /** Arbitrary instance expression for property tests */
+  arbitrary?: string;
+  /** Additional equality instance if needed */
+  eq?: string;
+  /** What to do when proof is undecidable */
+  onUndecidable?: UndecidableAction;
+  /** Number of property test iterations */
+  iterations?: number;
+}

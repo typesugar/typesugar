@@ -6,9 +6,9 @@
  * Inspired by Scala's Cats Effect Console
  */
 
-import { IO } from "./io";
-import { Option, Some, None } from "../data/option";
-import { Either, Left, Right } from "../data/either";
+import { IO } from "./io.js";
+import { Option, Some, None } from "../data/option.js";
+import { Either, Left, Right } from "../data/either.js";
 
 // ============================================================================
 // Console Output

@@ -53,10 +53,11 @@
  * move(d, t);  // OK
  * move(t, d);  // Error: Seconds is not Meters
  * ```
+ *
+ * The `wrap`/`unwrap`/`newtypeCtor` macro definitions live in the package's
+ * `./macros` entry (loaded by the transformer at build time). This module is
+ * runtime-only and does NOT import `typescript`.
  */
-
-import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -129,76 +130,3 @@ export function validatedNewtype<T>(
     return value as T;
   };
 }
-
-// ============================================================================
-// Newtype Macros - Erase wrap/unwrap at compile time
-// ============================================================================
-
-export const wrapMacro = defineExpressionMacro({
-  name: "wrap",
-  module: "@typesugar/type-system",
-  description: "Zero-cost newtype wrap — compiles away to the raw value",
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    if (args.length !== 1) {
-      ctx.reportError(callExpr, "wrap() expects exactly one argument");
-      return callExpr;
-    }
-    // wrap<UserId>(42) => 42
-    return args[0];
-  },
-});
-
-export const unwrapMacro = defineExpressionMacro({
-  name: "unwrap",
-  module: "@typesugar/type-system",
-  description: "Zero-cost newtype unwrap — compiles away to the raw value",
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    if (args.length !== 1) {
-      ctx.reportError(callExpr, "unwrap() expects exactly one argument");
-      return callExpr;
-    }
-    // unwrap(userId) => userId
-    return args[0];
-  },
-});
-
-export const newtypeCtorMacro = defineExpressionMacro({
-  name: "newtypeCtor",
-  module: "@typesugar/type-system",
-  description: "Zero-cost newtype constructor factory — the returned function compiles to identity",
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
-  ): ts.Expression {
-    // newtypeCtor<UserId>() => (v) => v
-    // Which further inlines at call sites
-    const factory = ctx.factory;
-    const vIdent = ctx.generateUniqueName("v");
-    const param = factory.createParameterDeclaration(undefined, undefined, vIdent);
-    return factory.createArrowFunction(
-      undefined,
-      undefined,
-      [param],
-      undefined,
-      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      factory.createIdentifier(vIdent.text)
-    );
-  },
-});
-
-// Register macros
-globalRegistry.register(wrapMacro);
-globalRegistry.register(unwrapMacro);
-globalRegistry.register(newtypeCtorMacro);

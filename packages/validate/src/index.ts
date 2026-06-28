@@ -1,6 +1,10 @@
 /**
- * @module @typesugar/validate
- * Zero-cost validation and schema macros for typesugar.
+ * @module @typesugar/validate — runtime entry (Case-1, PEP-050).
+ *
+ * This `.` entry is **runtime-only** and does NOT import `typescript`. It exposes
+ * the macro stubs (which throw if the transformer didn't run) plus the runtime
+ * schema/types modules. The macro *definitions* (which import `typescript`) live
+ * in the `./macros` entry, loaded by the transformer at build time.
  */
 
 export function is<T>(): (value: unknown) => value is T {
@@ -22,17 +26,3 @@ export function validate<T>(): (
 
 export * from "./types";
 export * from "./schema";
-
-// Register macros if this file is imported in a compiler context
-import { globalRegistry } from "@typesugar/core";
-try {
-  // Use dynamic import so it doesn't fail in pure runtime environments
-  // where the compiler API isn't present, but still registers in the transformer
-  import("./macros.js")
-    .then((m) => {
-      m.register(globalRegistry);
-    })
-    .catch(() => {});
-} catch (e) {
-  // Runtime environment, ignore
-}

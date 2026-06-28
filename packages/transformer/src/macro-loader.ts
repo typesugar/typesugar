@@ -161,8 +161,22 @@ export function resetLoadedPackages(): void {
 function loadPackage(pkg: string, verbose?: boolean): boolean {
   if (loadedPackages.has(pkg)) return true;
 
+  // Prefer the dedicated `./macros` entry (PEP-050 Case-1 isolation): macro
+  // definitions import `typescript` and must NOT live in the `.` runtime entry.
+  // Packages that haven't split yet have no `./macros` subpath, so we fall back
+  // to the package root (the original behavior).
+  for (const target of [`${pkg}/macros`, pkg]) {
+    if (tryLoadModule(pkg, target, verbose)) return true;
+  }
+  if (verbose) {
+    console.log(`[typesugar] Could not load macro package: ${pkg}`);
+  }
+  return false;
+}
+
+function tryLoadModule(pkg: string, target: string, verbose?: boolean): boolean {
   try {
-    const loaded = _require(pkg);
+    const loaded = _require(target);
     loadedPackages.add(pkg);
 
     // Convention: __typesugar_macros__ exports an array of MacroDefinition
@@ -176,7 +190,7 @@ function loadPackage(pkg: string, verbose?: boolean): boolean {
       }
       if (verbose) {
         console.log(
-          `[typesugar] Loaded ${loaded.__typesugar_macros__.length} macros from ${pkg} (convention)`
+          `[typesugar] Loaded ${loaded.__typesugar_macros__.length} macros from ${target} (convention)`
         );
       }
       return true;
@@ -186,15 +200,12 @@ function loadPackage(pkg: string, verbose?: boolean): boolean {
     // effect of being imported (via globalRegistry.register() calls at
     // module scope). The require() above already triggered this.
     if (verbose) {
-      console.log(`[typesugar] Loaded macro package: ${pkg}`);
+      console.log(`[typesugar] Loaded macro package: ${target}`);
     }
     return true;
-  } catch (e) {
-    // Package not installed or failed to load — not an error for
-    // speculative loads of @typesugar/* packages.
-    if (verbose) {
-      console.log(`[typesugar] Could not load macro package ${pkg}: ${e}`);
-    }
+  } catch {
+    // Module not resolvable (e.g. no `./macros` subpath) — caller tries the next
+    // candidate. Silent: missing `./macros` is the normal not-yet-split case.
     return false;
   }
 }

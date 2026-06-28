@@ -9,7 +9,14 @@
     "outDir": "dist",
     "declaration": true,
     "experimentalDecorators": true,
-    "plugins": [{ "transform": "@typesugar/transformer" }]
+    "plugins": [
+      {
+        "transform": "@typesugar/transformer"
+      }
+    ],
+    "rootDir": "src"
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }
