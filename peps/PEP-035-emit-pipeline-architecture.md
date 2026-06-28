@@ -1,7 +1,7 @@
 # PEP-035: Emit Pipeline Architecture
 
-**Status:** Draft
-**Date:** 2026-04-04
+**Status:** Implemented (reconciled 2026-06-29 — `transpileExpanded()` post-pass + `fixCompanionConsts` live; all Testing + Success Criteria met)
+**Date:** 2026-04-04 (reconciled 2026-06-29)
 **Author:** Claude (with Dean Povey)
 **Supersedes:** PEP-033 2F (namespace companion / esbuild compatibility)
 

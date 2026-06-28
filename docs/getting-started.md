@@ -267,4 +267,5 @@ if (x != null) {
 
 - [Macro Types](./macro-types.md) — Learn about different kinds of macros
 - [Writing Macros](./writing-macros.md) — Create your own macros
+- [Authoring Libraries](./guides/authoring-libraries.md) — Ship a standalone + transformer library (macros vs runtime, packaging)
 - [Package Reference](./index.md#packages) — Explore available packages

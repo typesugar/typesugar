@@ -105,9 +105,7 @@
 //   @reflect                    Commented out
 //   requires: { ... }          Commented out (labeled block)
 //   ensures: { ... }           Commented out (labeled block)
-//   F<_> (HKT syntax)          Preprocessed to valid TS
-//   a |> b (pipeline)          Preprocessed to __binop__() call
-//   a :: b (cons)              Preprocessed to __binop__() call
+//   F<_> (HKT syntax)          Preprocessed to valid TS (Kind<F, _>)
 //
 // The full processor runs the actual transformer for complete expansion.
 

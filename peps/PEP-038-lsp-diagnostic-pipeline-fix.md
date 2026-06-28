@@ -1,5 +1,11 @@
 # PEP-038: LSP Diagnostic Pipeline Fix
 
+**Status:** Partially Implemented (reconciled 2026-06-29) — the titular LSP
+diagnostic fix (Wave 1) and the type-based instance resolver (Waves 2A–2C) are
+implemented; Waves 2D–2G (remove runtime instance registry, third-party package
+support, full AST-based builtin codegen, docs) remain open. The AST-codegen
+migration (2F) is the same deferred work tracked in `typesugar/CLAUDE.md`.
+
 ## Status: Waves 1+2A+2B+2C Implemented, Waves 2D–2G In Design
 
 ## Problem

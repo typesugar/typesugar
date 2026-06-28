@@ -1232,9 +1232,9 @@ export const TS9802: DiagnosticDescriptor = {
 
 They cannot be registered with @operator because @operator is for standard JavaScript operators.
 
-For custom operators:
-- Implement a method that __binop__ can dispatch to
-- Use @instance to define typeclass behavior`,
+To overload an operator for your own type:
+- Annotate a typeclass method with @op (e.g. /** @op + */ add(b: A): A)
+- Provide an @instance so the transformer can resolve the operator to that method`,
   seeAlso: "https://typesugar.dev/errors/TS9802",
 };
 
@@ -1242,18 +1242,16 @@ export const TS9803: DiagnosticDescriptor = {
   code: 9803,
   severity: "warning",
   category: DiagnosticCategory.Operator,
-  messageTemplate: "Unknown custom operator '{operator}' with no registered method",
-  explanation: `The __binop__ macro encountered an operator that:
-- Is not a built-in operator (|>, <|, ::)
-- Has no method registered via @operator
+  messageTemplate: "Operator '{operator}' has no registered overload for the operand type",
+  explanation: `The transformer encountered an operator expression it cannot resolve:
+- No typeclass method is annotated with @op for this operator on the operand type
+- No @instance provides that behavior for the type
 
-The expression will be left as-is, which may cause a runtime error.
+The expression will be left as-is, which may cause a type or runtime error.
 
-To register a custom operator:
-  @operator("|>")
-  myPipe(right: (a: A) => B): B { ... }
-
-Or use a built-in operator: |>, <|, ::`,
+To overload an operator, annotate a typeclass method with @op and provide an @instance:
+  /** @op + */
+  add(b: A): A { ... }`,
   seeAlso: "https://typesugar.dev/errors/TS9803",
 };
 

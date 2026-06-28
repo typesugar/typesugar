@@ -154,25 +154,6 @@ describe("Language Service Plugin", () => {
       expect(info.languageServiceHost.getScriptVersion).not.toBe(originalGetVersion);
     });
 
-    it(".ts files are not preprocessed for non-TypeScript operator syntax", () => {
-      // .ts files should NOT be transformed even if they contain |>
-      const files = new Map<string, string>();
-      files.set("/test/index.ts", "const result = 1 |> ((x) => x + 1);");
-
-      const plugin = init({ typescript: ts });
-      const info = createMockPluginInfo(files);
-
-      plugin.create(info);
-
-      // Get the script snapshot through the modified host
-      const snapshot = info.languageServiceHost.getScriptSnapshot("/test/index.ts");
-      const content = snapshot?.getText(0, snapshot.getLength());
-
-      // Should NOT contain __binop__ because .ts files skip preprocessing
-      // The |> will remain as invalid TypeScript (or be parsed as | and > separately)
-      expect(content).not.toContain("__binop__");
-    });
-
     it("returns original content for files that don't need transformation", () => {
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const x = 1 + 2;");
@@ -424,7 +405,10 @@ describe("Error Suppression", () => {
   describe("diagnostics in generated code", () => {
     it("suppresses diagnostics that cannot be mapped", () => {
       const files = new Map<string, string>();
-      files.set("/test/index.ts", `const result = 1 |> ((x: string) => x);`);
+      files.set(
+        "/test/index.ts",
+        `import { pipe } from "typesugar";\nconst result = pipe(1, (x: string) => x.length);`
+      );
 
       const plugin = init({ typescript: ts });
       const info = createMockPluginInfo(files);
@@ -432,8 +416,9 @@ describe("Error Suppression", () => {
 
       const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
 
-      // Diagnostics in generated code (like __binop__) should be suppressed
-      // if they can't be mapped back
+      // Diagnostics that land on macro-generated code with no mapping back to
+      // the original source are suppressed; anything returned must carry a valid
+      // (mapped) position.
       for (const diag of diagnostics) {
         // All returned diagnostics should have valid mapped positions
         // or no start position (global errors)
@@ -442,145 +427,6 @@ describe("Error Suppression", () => {
         }
       }
     });
-  });
-});
-
-describe("VS Code Simulation", () => {
-  it("simulates VS Code scenario: LS created before plugin", () => {
-    // This test simulates what happens in VS Code:
-    // 1. TS server creates the host
-    // 2. TS server creates the LanguageService using that host
-    // 3. Plugin `create()` is called
-    // 4. Plugin modifies the host
-    // 5. Diagnostics are requested
-
-    const files = new Map<string, string>();
-    files.set(
-      "/test/index.ts",
-      `
-declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
-const result = 1 |> ((x) => x + 1);
-      `.trim()
-    );
-
-    // Step 1: Create the host (as TS server would)
-    const host = {
-      getCompilationSettings: () => ({
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-        strict: true,
-      }),
-      getScriptFileNames: () => ["/test/index.ts"],
-      getScriptVersion: (_fileName: string) => "1",
-      getScriptSnapshot: (fileName: string) => {
-        const content = files.get(fileName);
-        if (content !== undefined) {
-          return ts.ScriptSnapshot.fromString(content);
-        }
-        return undefined;
-      },
-      getCurrentDirectory: () => "/test",
-      getDefaultLibFileName: (options: ts.CompilerOptions) => ts.getDefaultLibFilePath(options),
-      fileExists: (fileName: string) => files.has(fileName) || ts.sys.fileExists(fileName),
-      readFile: (fileName: string) => files.get(fileName) ?? ts.sys.readFile(fileName),
-    };
-
-    // Step 2: Create the LanguageService (as TS server would)
-    // This LS will cache file contents from the ORIGINAL host
-    const oldLS = ts.createLanguageService(host);
-
-    // At this point, if we get diagnostics, TS sees the ORIGINAL code with |>
-    const diagsBeforePlugin = oldLS.getSemanticDiagnostics("/test/index.ts");
-    console.log("Diagnostics BEFORE plugin (should have errors for |>):", diagsBeforePlugin.length);
-
-    // Step 3: Plugin would be called with info containing oldLS and host
-    // Step 4: Plugin modifies the host
-    const originalGetSnapshot = host.getScriptSnapshot;
-    let transformCallCount = 0;
-
-    host.getScriptSnapshot = (fileName: string) => {
-      // Simulate transformation - replace |> with __binop__
-      const content = files.get(fileName);
-      if (content && content.includes("|>")) {
-        transformCallCount++;
-        // More accurate regex that preserves the arrow function
-        const transformed = content.replace(
-          /(\w+)\s*\|>\s*(\([^)]*\)\s*=>\s*[^;]+)/g,
-          '__binop__($1, "|>", $2)'
-        );
-        console.log("Serving transformed content:", transformed);
-        return ts.ScriptSnapshot.fromString(transformed);
-      }
-      return originalGetSnapshot(fileName);
-    };
-
-    host.getScriptVersion = (fileName: string) => {
-      // Return a new version to trigger re-read
-      return "1-transformed";
-    };
-
-    // Step 5: Get diagnostics again
-    // The CRITICAL QUESTION: Does oldLS use the new getScriptSnapshot?
-    const diagsAfterPlugin = oldLS.getSemanticDiagnostics("/test/index.ts");
-    console.log("Diagnostics AFTER plugin modification:", diagsAfterPlugin.length);
-    console.log("Transform call count:", transformCallCount);
-
-    // The test reveals whether modifying the host AFTER LS creation works
-    // If transformCallCount > 0, it means TS re-read the file
-    // If diagsAfterPlugin.length === 0, the transformation worked
-
-    // Note: This test documents the behavior, not necessarily asserts success
-    // The key insight is whether changing the host affects the existing LS
-  });
-
-  it("creates new LS after modifying host (works)", () => {
-    // This simulates the approach where we create a NEW LS after modifying the host
-    const files = new Map<string, string>();
-    files.set(
-      "/test/index.ts",
-      `
-declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
-const result = 1 |> ((x) => x + 1);
-      `.trim()
-    );
-
-    const host: ts.LanguageServiceHost = {
-      getCompilationSettings: () => ({
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-        strict: true,
-      }),
-      getScriptFileNames: () => ["/test/index.ts"],
-      getScriptVersion: (_fileName: string) => "1",
-      getScriptSnapshot: (fileName: string) => {
-        const content = files.get(fileName);
-        if (content && content.includes("|>")) {
-          // Transform |> to __binop__ - preserve the arrow function
-          const transformed = content.replace(
-            /(\w+)\s*\|>\s*(\([^)]*\)\s*=>\s*[^;]+)/g,
-            '__binop__($1, "|>", $2)'
-          );
-          return ts.ScriptSnapshot.fromString(transformed);
-        }
-        if (content) {
-          return ts.ScriptSnapshot.fromString(content);
-        }
-        return undefined;
-      },
-      getCurrentDirectory: () => "/test",
-      getDefaultLibFileName: (options: ts.CompilerOptions) => ts.getDefaultLibFilePath(options),
-      fileExists: (fileName: string) => files.has(fileName) || ts.sys.fileExists(fileName),
-      readFile: (fileName: string) => files.get(fileName) ?? ts.sys.readFile(fileName),
-    };
-
-    // Create LS with the ALREADY-MODIFIED host
-    const ls = ts.createLanguageService(host);
-
-    const diags = ls.getSemanticDiagnostics("/test/index.ts");
-    console.log("Diagnostics with modified host from start:", diags.length);
-
-    // This SHOULD have 0 errors because TS sees the transformed code
-    expect(diags.length).toBe(0);
   });
 });
 
@@ -664,12 +510,14 @@ describe("Transform-First Analysis", () => {
   describe("TypeScript sees transformed content", () => {
     it("returns proper types for transformed expressions", () => {
       const files = new Map<string, string>();
+      // A real macro the transformer still expands (pipe()), served through the
+      // live snapshot-wrapping path.
       files.set(
         "/test/index.ts",
         `
-declare function __binop__<T, R>(value: T, op: string, fn: (x: T) => R): R;
+import { pipe } from "typesugar";
 
-const result = 1 |> ((x) => x + 1);
+const result = pipe(1, (x) => x + 1);
         `.trim()
       );
 

@@ -44,6 +44,11 @@ alice.toJson(); // JSON serialization
 | **Operator overloading** | `+`, `*`, etc. via typeclass instances | No                      | No           |
 | **Safety**               | Sandboxed, timeout, loud failures      | `$raw` runs unsandboxed | N/A          |
 
+**Fast:** with the TS program cached (the editor/watch case), macro transformation
+adds **~4 ms for a 50-line file** and **~12 ms for a 200-line file**; `comptime`
+evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
+(run `pnpm bench` to reproduce).
+
 ## Packages
 
 ### Build Infrastructure
@@ -333,7 +338,9 @@ See the [docs/](docs/) directory:
 - [Getting Started](docs/getting-started.md)
 - [Macro Types](docs/macro-types.md)
 - [Writing Macros](docs/writing-macros.md)
+- [Authoring Libraries](docs/guides/authoring-libraries.md) — publishing a standalone + transformer library
 - [Architecture](docs/architecture.md)
+- [Performance](docs/PERFORMANCE.md)
 - [FAQ](docs/faq.md)
 - [Vision](docs/vision/index.md) — Future features (reactivity, components, Fx effects, Effect-TS integration)
 

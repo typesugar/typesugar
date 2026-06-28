@@ -427,3 +427,56 @@ typesugar build --cache --verbose
 # [typesugar] Disk cache hit for src/app.ts
 # [typesugar] Transform cache miss for src/changed.ts
 ```
+
+---
+
+## Measured Numbers
+
+Machine-generated from the benchmark suites (`tests/benchmark.test.ts`,
+`tests/benchmark-e2e.test.ts`). Reproduce locally with `pnpm bench`.
+
+The benchmarks are skipped in normal CI (their absolute thresholds are
+machine-dependent). A weekly scheduled workflow
+(`.github/workflows/benchmark.yml`) runs them on a fixed GitHub runner and writes
+the numbers to that run's job summary so they stay out of the dark.
+
+> **Headline:** with the TS program and transformer factory cached (the realistic
+> editor/watch scenario), per-file macro transformation costs **~4 ms for a
+> 50-line file** and **~12 ms for a 200-line file**. The one-time `ts.Program`
+> creation (~135 ms) dominates a cold run and is amortized across every file.
+
+**Snapshot — 2026-06-29**, local dev (darwin 25.5, Node 22.20.0). _Indicative;
+the weekly CI job is the fixed-runner reference. Treat these as orders of
+magnitude, not guarantees._
+
+### Transform-only (program + factory cached — realistic watch/editor cost)
+
+| Input                     | Median  |
+| ------------------------- | ------- |
+| 50-line file, no macros   | ~4 ms   |
+| 200-line file, no macros  | ~12 ms  |
+| 1000-line file, no macros | ~54 ms  |
+| 50 macro calls            | ~1.6 ms |
+| 100 macro calls           | ~3.4 ms |
+| 1000 lines + 100 macros   | ~38 ms  |
+
+### Full pipeline (cold — includes one-time `ts.Program` creation)
+
+| Input                  | Total median | program creation | transform |
+| ---------------------- | ------------ | ---------------- | --------- |
+| 50-line, no macros     | ~185 ms      | ~136 ms          | ~50 ms    |
+| 1000-line, no macros   | ~274 ms      | ~137 ms          | ~137 ms   |
+| 1000 lines, 100 macros | ~213 ms      | ~132 ms          | ~81 ms    |
+
+Transformer **factory creation** is a one-time ~0.1 ms per program.
+
+### `comptime` AST evaluator & hygiene (throughput)
+
+| Operation                       | ops/sec |
+| ------------------------------- | ------- |
+| `comptime` numeric literal      | ~6.2M   |
+| `comptime` binary arithmetic    | ~530k   |
+| `isComptime` literal            | ~9.5M   |
+| `safeRef` tier 0 (known global) | ~48M    |
+| instance/expression lookup      | ~100M   |
+| `ts.factory.createIdentifier`   | ~9.6M   |

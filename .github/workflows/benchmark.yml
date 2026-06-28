@@ -1,0 +1,60 @@
+name: Benchmarks
+
+# Build-time overhead is the first adopter question. The benchmark suites are
+# skipped in normal CI (their absolute thresholds are machine-dependent), so this
+# scheduled job runs them on a fixed runner class and publishes the numbers to the
+# run's job summary + an artifact, keeping them out of the dark. See
+# docs/PERFORMANCE.md.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Benchmark (numbers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run benchmarks
+        id: bench
+        # Report-only: absolute thresholds vary by runner, so threshold
+        # assertions must not fail the job — we capture the numbers, not a gate.
+        continue-on-error: true
+        run: pnpm bench 2>&1 | tee benchmark-results.txt
+
+      - name: Publish to job summary
+        if: always()
+        run: |
+          {
+            echo "# Benchmark results"
+            echo ""
+            echo "Runner: \`${{ runner.os }}\` · Node 22 · $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            echo '```'
+            grep -E 'ops/sec|median=|transform only|program creation|plain TS|macro calls' benchmark-results.txt || cat benchmark-results.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.txt
+          retention-days: 30

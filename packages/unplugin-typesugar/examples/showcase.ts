@@ -216,8 +216,8 @@ assert(unplugin !== undefined);
 // disconnected from the ts.Program. This means the type checker cannot
 // resolve types for preprocessed code.
 //
-// Consequence: __binop__ dispatch on custom types falls back to default
-// semantics (e.g., |> becomes f(a)).
+// Consequence: type-directed rewrites (extension-method and operator resolution
+// that need the type checker) fall back to conservative defaults.
 //
 // For full type-aware transformation, use ts-patch instead of unplugin:
 //

@@ -42,10 +42,10 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [032](PEP-032-macro-expansion-import-emission.md)       | Self-Contained Macro Expansions via Companion Objects     | Implemented                                                                  |
 | [033](PEP-033-production-readiness.md)                  | Production Readiness — CLI, Macro Registration, Docs      | In Progress                                                                  |
 | [034](PEP-034-language-service-parity.md)               | Language Service Parity — Unified SFINAE & IDE Infra      | Implemented                                                                  |
-| [035](PEP-035-emit-pipeline-architecture.md)            | Emit Pipeline Architecture                                | Draft                                                                        |
+| [035](PEP-035-emit-pipeline-architecture.md)            | Emit Pipeline Architecture                                | Implemented                                                                  |
 | [036](PEP-036-source-map-red-team.md)                   | Source Map Red Team — Error Positioning Accuracy          | Done                                                                         |
 | [037](PEP-037-editor-integration-testing.md)            | Editor Integration Testing Framework                      | Draft                                                                        |
-| [038](PEP-038-lsp-diagnostic-pipeline-fix.md)           | LSP Diagnostic Pipeline Fix                               | Implemented                                                                  |
+| [038](PEP-038-lsp-diagnostic-pipeline-fix.md)           | LSP Diagnostic Pipeline Fix                               | Partially Implemented (Waves 1–2C done; 2D–2G open)                          |
 | [039](PEP-039-core-hardening.md)                        | Core Hardening — Bug Fixes, Codegen, Test Coverage        | Complete (all 6 waves)                                                       |
 | [040](PEP-040-tool-schemas.md)                          | `@tool` — Compile-Time Agent Tool Schemas                 | Draft                                                                        |
 | [041](PEP-041-compile-time-di.md)                       | Compile-Time Dependency Injection                         | Draft                                                                        |
@@ -56,5 +56,5 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [046](PEP-046-zero-cost-state-machines.md)              | Zero-Cost Verified State Machines                         | Draft                                                                        |
 | [047](PEP-047-remove-sts.md)                            | Remove the `.sts` Extension and Custom Surface Syntax     | Done                                                                         |
 | [048](PEP-048-package-triage.md)                        | Package Triage — Keep, Freeze, or Remove                  | Done                                                                         |
-| [049](PEP-049-cruft-cleanup.md)                         | Cruft Cleanup — Plans, Docs Drift, Test Debt, Security    | In Progress                                                                  |
-| [050](PEP-050-shipping-typesugar-libraries.md)          | Authoring & Shipping Standalone typesugar Libraries       | Implemented                                                                  |
+| [049](PEP-049-cruft-cleanup.md)                         | Cruft Cleanup — Plans, Docs Drift, Test Debt, Security    | Done                                                                         |
+| [050](PEP-050-shipping-typesugar-libraries.md)          | Authoring & Shipping Standalone typesugar Libraries       | Done                                                                         |
