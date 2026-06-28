@@ -161,15 +161,16 @@ const hostOpts: VirtualCompilerHostOptions = {
 
 typeAssert<Equal<typeof hostOpts, VirtualCompilerHostOptions>>();
 
-// PreprocessedFile tracks which files have been preprocessed
+// PreprocessedFile tracks which files have been preprocessed. The remaining
+// preprocessing step is HKT syntax: `F<A>` (F a type parameter) → `Kind<F, A>`.
 const preprocessed: PreprocessedFile = {
-  originalCode: 'const x = data |> filter;',
-  processedCode: 'const x = __binop__(data, "|>", filter);',
+  originalCode: "type Lifted = F<A>;",
+  processedCode: "type Lifted = Kind<F, A>;",
   sourceMap: undefined,
 };
 
-assert(preprocessed.originalCode.includes("|>"));
-assert(preprocessed.processedCode.includes("__binop__"));
+assert(preprocessed.originalCode.includes("F<A>"));
+assert(preprocessed.processedCode.includes("Kind<F, A>"));
 
 // ============================================================================
 // 4. POSITION MAPPING - Navigate Between Original and Transformed Code

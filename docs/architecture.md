@@ -370,14 +370,15 @@ When the transformer encounters `value.method(args)`, it resolves the method thr
    - Pre-registered entries in `standaloneExtensionRegistry` (`findStandaloneExtension()`)
    - Import-scoped resolution via `resolveExtensionFromImports()`
 
-### Operator Resolution Order (for `__binop__`)
+### Operator Overloading
 
-When the transformer encounters `__binop__(left, op, right)` (from preprocessor-rewritten custom operators like `|>` and `::`):
+Standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) are overloaded through the typeclass system via `@op` JSDoc tags on typeclass method signatures — there is no wrapper function or lexical preprocessor. (The earlier `.sts` preprocessor and its custom-operator dispatch machinery were removed in [PEP-047](peps/PEP-047-remove-sts.md).)
 
-1. `typeclassRegistry.syntax` — Typeclass `@op` JSDoc annotations on methods
-2. Hardcoded semantic defaults (e.g., `|>` defaults to `right(left)`, `::` to `[left, ...right]`)
+When the transformer encounters a binary expression `a op b`:
 
-Standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) are handled by the typeclass system via `@op` JSDoc tags on typeclass method signatures — no wrapper function needed. When a typeclass instance exists, `a + b` rewrites directly to the corresponding method call.
+1. It resolves a typeclass method annotated with `@op {operator}` for the operand type via `typeclassRegistry.syntax`.
+2. If an `@instance` exists for that type, `a op b` rewrites directly to the corresponding method call (e.g. `Point.Semigroup.combine(a, b)`).
+3. Otherwise the expression is left as-is (native semantics).
 
 ### HKT Conventions
 

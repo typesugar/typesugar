@@ -1,6 +1,6 @@
 # PEP-049: Cruft Cleanup — Stale Plans, Docs Drift, Test Debt, Security Backlog
 
-**Status:** In Progress
+**Status:** Done (all 6 waves complete 2026-06-29)
 **Date:** 2026-06-10
 **Author:** Dean Povey
 
@@ -160,11 +160,21 @@ one genuine source-map generation bug (#19) was documented rather than fixed.
 The benchmark suites are `skipIf(CI)` — they never run anywhere visible, yet
 build-time overhead is the first adopter question.
 
-- [ ] A scheduled (weekly) CI job running `tests/benchmark.test.ts` and
+- [x] A scheduled (weekly) CI job running `tests/benchmark.test.ts` and
       `benchmark-e2e.test.ts` on a fixed runner class, publishing results to
       `docs/PERFORMANCE.md` (numbers section: cold build, warm cache, per-file
       transform overhead on a representative 50-file project).
-- [ ] Add the headline number to the README once it exists.
+- [x] Add the headline number to the README once it exists.
+
+Done (2026-06-29): added `pnpm bench` (prefixes `CI=` so the `skipIf(CI)` suites
+un-skip even on a runner) and `.github/workflows/benchmark.yml` (weekly + manual;
+report-only via `continue-on-error`, publishes to the job summary + a 30-day
+artifact). Seeded `docs/PERFORMANCE.md` with a dated "Measured Numbers" section
+(transform-only, cold-pipeline, comptime/hygiene throughput) from a local run, and
+added the headline (~4 ms / 50-line, ~12 ms / 200-line, ~6M comptime expr/sec) to
+the README. Note: the weekly job publishes to the run's job summary/artifact rather
+than auto-committing `PERFORMANCE.md` (avoids bot-commit churn); regenerate the doc
+locally with `pnpm bench`.
 
 ## Wave 6 — Residual `__binop__` text scrub (from PEP-020 withdrawal)
 
@@ -173,13 +183,13 @@ PEP-047, which deleted the `.sts` preprocessor and all `__binop__`/`__pipe__` op
 machinery). Stale text describing the removed `__binop__` dispatch still survives in a
 few non-test files and should be scrubbed:
 
-- [ ] `packages/core/src/diagnostics.ts` (~L1236, L1246) — two diagnostic message
+- [x] `packages/core/src/diagnostics.ts` (~L1236, L1246) — two diagnostic message
       strings still tell users to "implement a method that `__binop__` can dispatch
       to" / reference "the `__binop__` macro". Rewrite for the current `@op`
       typeclass-method operator path (no `__binop__`).
-- [ ] `docs/architecture.md` (~L373) — "Operator Resolution Order (for `__binop__`)"
+- [x] `docs/architecture.md` (~L373) — "Operator Resolution Order (for `__binop__`)"
       section describes a removed pipeline. Rewrite or delete.
-- [ ] `packages/unplugin-typesugar/examples/showcase.ts` (~L219),
+- [x] `packages/unplugin-typesugar/examples/showcase.ts` (~L219),
       `packages/eslint-plugin/examples/showcase.ts` (~L109–110),
       `packages/transformer/examples/showcase.ts` (~L167, L172) — stale comments and
       one `__binop__(...)` code/assert string. Update to current output.
@@ -190,15 +200,15 @@ exercise (wrapping `getScriptSnapshot` to serve transformed code) is **still liv
 (`language-service.ts:348`), so the fix is to **rewrite them against real transformer
 output**, not preserve a fabricated `__binop__` transform:
 
-- [ ] **"VS Code Simulation" ×2 + "Transform-First Analysis"** (~L461, L502–561, L670)
+- [x] **"VS Code Simulation" ×2 + "Transform-First Analysis"** (~L461, L502–561, L670)
       hand-roll `declare function __binop__` + a regex `|> → __binop__(…)` to fake a
       transform that no longer exists. Rewrite the mock host to emit a **real** macro
       the transformer still produces (e.g. a `match()`/`pipe()`/`@derive` snippet) so
       they test the live snapshot-wrapping path against real output.
-- [ ] **`not.toContain("__binop__")`** (~L160–173) is now a tautology (`__binop__`
+- [x] **`not.toContain("__binop__")`** (~L160–173) is now a tautology (`__binop__`
       can never be emitted). Rewrite to assert the actual intent — a plain `.ts` file
       is served unchanged (preprocessing skipped) — or delete.
-- [ ] **"suppresses diagnostics that cannot be mapped"** (~L425) is the one keeper;
+- [x] **"suppresses diagnostics that cannot be mapped"** (~L425) is the one keeper;
       only its comment references `__binop__`. Drop the stale comment.
 
 The `number::__binop__(Show` regression guard in `packages/macros/src/coverage.test.ts`
@@ -206,6 +216,15 @@ is a registry-key string literal, not a feature reference — leave it.
 
 **Gate:** `rg '__binop__' --type ts --type md` returns only the `coverage.test.ts`
 registry-key guard (plus historical PEP markdown).
+
+Done (2026-06-29): rewrote the two `diagnostics.ts` operator messages for the `@op`
+typeclass path; rewrote the `architecture.md` operator section; updated the
+transformer/unplugin/eslint showcase comments + the transformer showcase
+`PreprocessedFile` example (now HKT `F<A>`→`Kind<F, A>`). In
+`language-service.test.ts`: deleted the redundant tautology test and the entire
+fabricated-transform "VS Code Simulation" block (the live snapshot-wrapping path is
+covered by the real-plugin tests + "verifies LS uses modified host"), and rewrote
+"Transform-First Analysis" to drive a real `pipe()` macro. Gate holds.
 
 ## Done Criteria
 

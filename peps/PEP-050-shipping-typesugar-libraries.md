@@ -1,6 +1,6 @@
 # PEP-050: Authoring & Shipping Standalone typesugar Libraries
 
-**Status:** Implemented (Waves 1–3 done; optional getting-started/README cross-links remain)
+**Status:** Done (Waves 1–3 + cross-links complete 2026-06-29)
 **Date:** 2026-06-28
 **Author:** Claude (with Dean Povey)
 
@@ -158,7 +158,8 @@ std, type-system, units, validate` — each macros → `./macros`, runtime `.` e
       tiers, packaging rules, checklist, with **strings** (Case 1) and **fp** (Case 2)
       as worked examples.
 - [x] Cross-linked from `docs/guides/index.md`.
-- [ ] (Optional) cross-link from getting-started and package READMEs.
+- [x] (Optional) cross-link from getting-started and the root README (Next Steps +
+      Documentation sections), 2026-06-29.
 
 ## Consequences
 
