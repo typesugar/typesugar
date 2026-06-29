@@ -23,21 +23,33 @@ features:
   - icon: 🔧
     title: Macro System
     details: 6 macro kinds to extend TypeScript with custom syntax that compiles away completely.
+    link: /macro-types
+    linkText: Explore macro kinds
   - icon: λ
     title: FP & Type Theory
     details: Typeclasses, monads, do-notation, refined types, and Coq-like contracts with compile-time proofs.
+    link: /guides/typeclasses
+    linkText: Read the guide
   - icon: ⚡
     title: Compile-Time Powers
     details: Run code at build time, embed files, tail-call optimization, conditional compilation.
+    link: /guides/comptime
+    linkText: Learn about comptime
   - icon: 📦
     title: Standard Library
     details: Pattern matching, extension methods on primitives, reflection, validation, derive macros.
+    link: /guides/
+    linkText: Browse the guides
   - icon: 🎯
     title: Developer Experience
     details: Rust-style error messages, "did you mean?" import suggestions, opt-out directives, and ESLint/IDE integration that just works.
+    link: /guides/developer-experience
+    linkText: See the DX
   - icon: 🦀
     title: Inspired by the Best
     details: Scala 3 typeclasses, Rust derives, Zig comptime, C++ expression templates — brought to TypeScript.
+    link: /architecture
+    linkText: How it works
 ---
 
 ## Quick Example
