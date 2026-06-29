@@ -1,5 +1,7 @@
 # @typesugar/graph
 
+> 📖 **Full documentation:** [Graph Algorithms guide](https://typesugar.org/guides/graph). The microsite is the canonical reference; this README is a quickstart.
+
 Compile-time graph algorithms and state machine verification for TypeScript, inspired by Boost.Graph.
 
 Define graphs and state machines via a concise DSL or programmatic API, then run classic algorithms (topological sort, shortest path, SCC, cycle detection) and verify state machine properties (reachability, dead ends, nondeterminism) — all with immutable data structures.

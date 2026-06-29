@@ -1,5 +1,7 @@
 # @typesugar/transformer
 
+> 📖 **Full documentation:** [Getting Started](https://typesugar.org/getting-started/). The microsite is the canonical reference; this README is a quickstart.
+
 > TypeScript transformer for typesugar macro expansion.
 
 ## Overview

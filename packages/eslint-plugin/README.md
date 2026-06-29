@@ -1,5 +1,7 @@
 # @typesugar/eslint-plugin
 
+> 📖 **Full documentation:** [Package reference](https://typesugar.org/reference/packages). The microsite is the canonical reference; this README is a quickstart.
+
 ESLint plugin that runs the typesugar macro transformer before linting.
 
 This allows ESLint to see the expanded code, eliminating false positives from macro syntax like undefined identifiers in `@derive(Eq, Clone)`.

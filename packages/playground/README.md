@@ -1,5 +1,7 @@
 # @typesugar/playground
 
+> 📖 **Full documentation:** [Interactive Playground](https://typesugar.org/playground). The microsite is the canonical reference; this README is a quickstart.
+
 Browser-compatible bundle for the typesugar interactive playground.
 
 ## Features

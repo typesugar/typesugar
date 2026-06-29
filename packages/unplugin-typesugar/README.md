@@ -1,5 +1,7 @@
 # unplugin-typesugar
 
+> 📖 **Full documentation:** [Getting Started (build tools)](https://typesugar.org/getting-started/). The microsite is the canonical reference; this README is a quickstart.
+
 > Bundler integrations for typesugar macro expansion.
 
 ## Overview

@@ -1,5 +1,7 @@
 # @typesugar/fusion
 
+> 📖 **Full documentation:** [Loop Fusion guide](https://typesugar.org/guides/fusion). The microsite is the canonical reference; this README is a quickstart.
+
 Expression templates and loop fusion for TypeScript. Iterator chains like `.filter().map().reduce()` execute in a single pass with no intermediate arrays.
 
 Inspired by Blitz++/Eigen expression templates and Rust's zero-cost iterator adapters.

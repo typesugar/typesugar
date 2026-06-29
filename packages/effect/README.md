@@ -1,5 +1,7 @@
 # @typesugar/effect
 
+> 📖 **Full documentation:** [Effect-TS Integration guide](https://typesugar.org/guides/effect). The microsite is the canonical reference; this README is a quickstart.
+
 > Zero-boilerplate services, automatic layer wiring, and compile-time optimization for Effect-TS.
 
 ## Why @typesugar/effect?

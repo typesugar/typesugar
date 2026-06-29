@@ -1,5 +1,7 @@
 # @typesugar/ts-plugin
 
+> 📖 **Full documentation:** [Editor Setup](https://typesugar.org/getting-started/editor-setup). The microsite is the canonical reference; this README is a quickstart.
+
 TypeScript Language Service Plugin for typesugar that enables full IDE support including:
 
 - **Type-aware transformation** — Custom syntax (`|>`, `::`, `F<_>`) and macros are transformed before TypeScript processes the code

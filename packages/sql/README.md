@@ -1,5 +1,7 @@
 # @typesugar/sql
 
+> 📖 **Full documentation:** [SQL guide](https://typesugar.org/guides/sql). The microsite is the canonical reference; this README is a quickstart.
+
 > Doobie-inspired type-safe SQL for TypeScript with compile-time validation and zero-cost abstractions.
 
 ## Overview

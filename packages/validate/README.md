@@ -1,5 +1,7 @@
 # @typesugar/validate
 
+> 📖 **Full documentation:** [Validation guide](https://typesugar.org/guides/validate). The microsite is the canonical reference; this README is a quickstart.
+
 Zero-cost validation macros and library-agnostic Schema typeclass for typesugar.
 
 Compile-time type guards, assertions, and validation with rich error accumulation.

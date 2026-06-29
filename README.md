@@ -131,38 +131,23 @@ them).
 ## Getting Started
 
 ```bash
-npm install typesugar @typesugar/transformer
+npm install typesugar @typesugar/transformer typescript
 ```
 
-### Vite
-
-```typescript
-// vite.config.ts
-import { defineConfig } from "vite";
-import typesugar from "unplugin-typesugar/vite";
-
-export default defineConfig({
-  plugins: [typesugar()],
-});
-```
-
-### ts-patch (for tsc)
+Fastest way in — no build config:
 
 ```bash
-npm install -D ts-patch
-npx ts-patch install
+npx typesugar init              # wire typesugar into an existing project (recommended)
+npx typesugar run src/main.ts   # compile + run in one step
 ```
 
-```json
-// tsconfig.json
-{
-  "compilerOptions": {
-    "plugins": [{ "transform": "@typesugar/transformer" }]
-  }
-}
-```
+Or explore in the browser: **[Interactive Playground →](https://typesugar.org/playground)** (no install).
+
+📖 **Full setup** — Vite, esbuild, Webpack, tsc/ts-patch, Bun, Vitest, editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
 
 ## Features
+
+> The snippets below are a tour; each links to its full guide on [typesugar.org](https://typesugar.org).
 
 ### Compile-Time Evaluation
 
@@ -332,17 +317,14 @@ interface User { id: string; name: string; }
 
 ## Documentation
 
-See the [docs/](docs/) directory:
+The canonical docs live on the microsite: **[typesugar.org](https://typesugar.org)**.
 
-- **[Interactive Playground](https://typesugar.org/playground)** — Try typesugar in your browser with full runtime library support (`@typesugar/fp`, `@typesugar/collections`, `@typesugar/graph`, and more)
-- [Getting Started](docs/getting-started.md)
-- [Macro Types](docs/macro-types.md)
-- [Writing Macros](docs/writing-macros.md)
-- [Authoring Libraries](docs/guides/authoring-libraries.md) — publishing a standalone + transformer library
-- [Architecture](docs/architecture.md)
-- [Performance](docs/PERFORMANCE.md)
-- [FAQ](docs/faq.md)
-- [Vision](docs/vision/index.md) — Future features (reactivity, components, Fx effects, Effect-TS integration)
+- **[Interactive Playground](https://typesugar.org/playground)** — try typesugar in your browser, full runtime libraries included
+- [Getting Started](https://typesugar.org/getting-started/) — install, first macro, every build tool + editor setup
+- [Guides](https://typesugar.org/guides/) — feature deep-dives (derive, typeclasses, comptime, operators, pattern matching, fp, contracts, units, …)
+- [Writing Macros](https://typesugar.org/writing-macros/) · [Authoring Libraries](https://typesugar.org/guides/authoring-libraries)
+- [Architecture](https://typesugar.org/architecture) · [Reference](https://typesugar.org/reference/) · [FAQ](https://typesugar.org/faq)
+- [Performance](docs/PERFORMANCE.md) (repo) · run `pnpm bench` to reproduce
 
 ## Safety
 

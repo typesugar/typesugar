@@ -1,5 +1,7 @@
 # @typesugar/macros
 
+> 📖 **Full documentation:** [Compile-Time Eval guide](https://typesugar.org/guides/comptime). The microsite is the canonical reference; this README is a quickstart.
+
 Built-in macro implementations for the typesugar transformer.
 
 ## Overview

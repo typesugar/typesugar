@@ -1,5 +1,7 @@
 # @typesugar/vscode
 
+> 📖 **Full documentation:** [Editor Setup](https://typesugar.org/getting-started/editor-setup). The microsite is the canonical reference; this README is a quickstart.
+
 > VSCode/Cursor IDE extension for typesugar macro development.
 
 ## Overview

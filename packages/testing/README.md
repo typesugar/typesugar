@@ -1,5 +1,7 @@
 # @typesugar/testing
 
+> 📖 **Full documentation:** [Testing guide](https://typesugar.org/guides/testing). The microsite is the canonical reference; this README is a quickstart.
+
 > Compile-time testing macros — power assertions, property-based testing, and more.
 
 ## Overview

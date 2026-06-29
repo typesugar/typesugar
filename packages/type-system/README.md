@@ -1,5 +1,7 @@
 # @typesugar/type-system
 
+> 📖 **Full documentation:** [Type System guide](https://typesugar.org/guides/type-system). The microsite is the canonical reference; this README is a quickstart.
+
 > Advanced type system extensions for TypeScript.
 
 ## Overview
