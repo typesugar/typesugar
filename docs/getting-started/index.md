@@ -8,41 +8,60 @@ Want to explore typesugar before setting up? **[Try the Interactive Playground �
 Write code, see transformed output, and run examples — all in your browser.
 :::
 
-## Quick Start
+## Quickstart (5 minutes)
 
-### New Project
-
-Create a new project from a template:
-
-```bash
-# Create an app with Vite
-npx typesugar create app my-app
-
-# Create a library with typeclasses
-npx typesugar create library my-lib
-
-# Create a custom macros package
-npx typesugar create macro-plugin my-macros
-```
-
-Then:
-
-```bash
-cd my-app
-npm install
-npx ts-patch install
-npm run dev
-```
-
-### Existing Project
-
-Add typesugar to an existing project with our setup wizard:
+From an existing TypeScript project, run the setup wizard:
 
 ```bash
 npx typesugar init
 ```
 
-This will detect your project setup, install the required packages, and configure everything automatically.
+`init` detects your stack (package manager, bundler, TypeScript), installs the
+packages, configures `tsconfig.json` (the transformer **and** the editor plugin),
+wires up `ts-patch`, patches your bundler config, and drops a runnable example at
+`src/typesugar-example.ts`.
+
+Run the example and see its output:
+
+```bash
+npx typesugar run src/typesugar-example.ts
+```
+
+Now see what the macros actually compiled to:
+
+```bash
+npx typesugar expand src/typesugar-example.ts --diff
+```
+
+That `--diff` is the "aha": `@derive(Eq, Clone, Debug, Json)` becomes plain
+comparison/copy/serialize code, and `comptime(...)` becomes a constant — exactly
+what you'd write by hand, with no runtime library or overhead.
+
+> **Starting fresh?** `npx typesugar create app my-app` scaffolds a ready-to-run
+> Vite project (also `create library` and `create macro-plugin`).
+>
+> **No install at all?** Try everything in the **[Playground](/playground)**.
+
+## How typesugar works
+
+typesugar is a set of **compile-time macros** — transformations that run during
+the build, before your code executes. `comptime(expr)` evaluates `expr` at build
+time and inlines the result; `@derive(Eq)` generates comparison code from your
+type's shape. The output is ordinary TypeScript/JavaScript, so there's nothing to
+ship at runtime.
+
+Because the work happens at compile time, typesugar plugs into three layers —
+and `typesugar init` wires all three for you:
+
+| Layer      | What it gives you                                  | How                                                                         |
+| ---------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Build**  | macros expand when you compile or bundle           | `@typesugar/transformer` (via ts-patch, or the Vite/esbuild/Webpack plugin) |
+| **Editor** | your IDE sees the expanded types — no false errors | the `typesugar/language-service` TypeScript plugin                          |
+| **CI**     | the build fails on real type errors                | `typesugar check`                                                           |
+
+If your editor flags valid macro code as an error, the **Editor** layer isn't
+active — see [Editor Setup](./editor-setup.md). For the full model and how to
+configure each layer, see [Type Safety](../guides/type-safety.md).
 
 ## Choose Your Path
 

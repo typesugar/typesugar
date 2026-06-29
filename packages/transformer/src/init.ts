@@ -569,6 +569,6 @@ export async function runInit(verbose: boolean): Promise<void> {
   log(`     ${COLORS.cyan}npx typesugar doctor${COLORS.reset}`);
 
   log("");
-  info("Documentation: https://typesugar.dev/getting-started");
+  info("Documentation: https://typesugar.org/getting-started/");
   log("");
 }

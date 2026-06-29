@@ -62,8 +62,8 @@ But any consumer of your code that runs **plain `tsc`** — a CI step without th
 plugin, a teammate's editor that hasn't installed it, or a downstream library
 build — will still surface TS1206, because they don't run TypeSugar's filter.
 (Note that `typesugar build` does not gate on TS1206 either; see
-[Type Safety](./type-safety.md) and the `check`/`build` split in
-[Getting Started](../getting-started.md).)
+[Type Safety](./type-safety.md) and the `check`/`build` split in the
+[CLI reference](../reference/cli.md#check).)
 
 The JSDoc form sidesteps all of this: `/** @derive(...) */` is a comment, so
 plain `tsc` never complains, on any declaration.
