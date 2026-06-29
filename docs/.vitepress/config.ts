@@ -118,6 +118,7 @@ export default defineConfig({
           text: "Introduction",
           items: [
             { text: "What is typesugar?", link: "/" },
+            { text: "Zero-Cost, Seen", link: "/guides/zero-cost" },
             { text: "FAQ", link: "/faq" },
           ],
         },

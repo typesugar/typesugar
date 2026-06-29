@@ -13,6 +13,9 @@ hero:
       text: Get Started
       link: /getting-started/
     - theme: alt
+      text: Try in the Playground
+      link: /playground
+    - theme: alt
       text: View on GitHub
       link: https://github.com/typesugar/typesugar
 
@@ -60,6 +63,8 @@ alice.toJson(); // JSON serialization
 ```
 
 **How it works:** The compiler sees `===` on a `User`, resolves the `Eq` typeclass, auto-derives an instance from the type's fields, and inlines the comparison directly — no dictionary lookup, no runtime cost.
+
+➡️ **Skeptical?** [**Zero-Cost, Seen**](/guides/zero-cost) shows the _actual_ compiled output — including `Option`'s `Some(42)` becoming literally `42`.
 
 ---
 
