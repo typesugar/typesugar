@@ -1,6 +1,6 @@
 # PEP-051: README → Guide Consolidation (one set of docs)
 
-**Status:** In Progress (2026-06-29)
+**Status:** Done (all 3 waves / 17 packages complete 2026-06-29)
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Follows:** the docs overhaul series (PRs #23 SSOT, #24 onboarding, #25 examples)
@@ -92,3 +92,16 @@ Each wave is one reviewable PR.
 - `pnpm docs:build` passes; no dead links introduced.
 - A spot-check confirms no API/feature documented in the old README is missing
   from the guide.
+
+## Outcome (2026-06-29)
+
+All three waves landed (Wave 1 #26, Wave 2 #27, Wave 3 this PR): all 17
+feature-package READMEs are now ~30-46-line pointers; each guide is the canonical
+reference (the `sql` guide grew from 120 → ~1100 lines). The migration also
+surfaced and fixed two **fictional docs** that documented APIs not present in
+source — the `specialize` guide's wrong `specialize$` signature, and the
+`validate` guide's non-existent `Schema.object(...)` fluent builder.
+
+Remaining (separate, tracked): the no-guide infra/tooling packages keep the
+banner; the 3-tier `docs/examples/` collapse and the `typesugar.dev`→`.org`
+canonicalization are their own follow-ups.
