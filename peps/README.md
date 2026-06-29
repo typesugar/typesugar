@@ -59,3 +59,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [049](PEP-049-cruft-cleanup.md)                         | Cruft Cleanup — Plans, Docs Drift, Test Debt, Security    | Done                                                                         |
 | [050](PEP-050-shipping-typesugar-libraries.md)          | Authoring & Shipping Standalone typesugar Libraries       | Done                                                                         |
 | [051](PEP-051-readme-guide-consolidation.md)            | README → Guide Consolidation (one set of docs)            | Done                                                                         |
+| [052](PEP-052-import-scoped-macro-activation.md)        | Import-Scoped Macro Activation (cats-style syntax)        | Draft                                                                        |
