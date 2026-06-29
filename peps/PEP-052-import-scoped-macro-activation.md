@@ -122,26 +122,32 @@ them (we are leaning into `===` as the typeclass operator).
 
 The two-trigger-class rule covers all six macro kinds:
 
-| Macro kind                                                                        | Trigger                          | Class         | Import-scoped how                                                                                                                                                                                     |
-| --------------------------------------------------------------------------------- | -------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Expression** (`comptime`, `staticAssert`, `pipe`)                               | imported call ident              | named         | already explicit — resolve the callee symbol; expand iff its declaration is `@macro`. No builtin name list.                                                                                           |
-| **Tagged template** (`sql`, `regex`, `html`)                                      | imported tag ident               | named         | already explicit — same, on the tag symbol.                                                                                                                                                           |
-| **Attribute / derive** (`@derive`, `@reflect`, `@tailrec`)                        | imported decorator ident         | named         | already explicit — the decorator symbol's `@attribute-macro`/`@deriving` declaration drives it; derivables (`Eq`…) are imported too.                                                                  |
-| **Type** (`Refined<T,P>`, `Kind<F,A>`)                                            | imported type alias              | named         | already explicit — the alias is imported; recognized by its `@type-macro` declaration.                                                                                                                |
-| **Operators** (`===`, `+`, `<`)                                                   | operator token                   | **syntactic** | **NEW:** `@syntax-operators <TC>` activation import (Part 1).                                                                                                                                         |
-| **Labeled block** (`let:`/`yield:` do-notation, `requires:`/`ensures:` contracts) | statement label                  | **syntactic** | **NEW:** `@syntax-labels <macro>` activation import — e.g. `import "@typesugar/contracts/syntax"` activates `requires:`/`ensures:` in the file. Replaces today's global `triggerLabels` registration. |
-| **HKT** (`F<A>` → `Kind<F,A>`)                                                    | type application of a type param | **syntactic** | **NEW:** `@syntax-hkt` activation (e.g. `import "@typesugar/hkt/syntax"`), combined with the existing `@hkt` declaration tier. (Nuanced — see Open Questions.)                                        |
+| Macro kind                                                                        | Trigger                          | Class                  | Import-scoped how                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------- | -------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Expression** (`comptime`, `staticAssert`, `pipe`)                               | imported call ident              | named                  | already explicit — resolve the callee symbol; expand iff its declaration is `@macro`. No builtin name list.                                                                                                                                                                                                                                            |
+| **Tagged template** (`sql`, `regex`, `html`)                                      | imported tag ident               | named                  | already explicit — same, on the tag symbol.                                                                                                                                                                                                                                                                                                            |
+| **Attribute / derive** (`@derive`, `@reflect`, `@tailrec`)                        | imported decorator ident         | named                  | already explicit — the decorator symbol's `@attribute-macro`/`@deriving` declaration drives it; derivables (`Eq`…) are imported too.                                                                                                                                                                                                                   |
+| **Type** (`Refined<T,P>`, `Kind<F,A>`)                                            | imported type alias              | named                  | already explicit — the alias is imported; recognized by its `@type-macro` declaration.                                                                                                                                                                                                                                                                 |
+| **Operators** (`===`, `+`, `<`)                                                   | operator token                   | **syntactic**          | **NEW:** `@syntax-operators <TC>` activation import (Part 1).                                                                                                                                                                                                                                                                                          |
+| **Labeled block** (`let:`/`yield:` do-notation, `requires:`/`ensures:` contracts) | statement label                  | **syntactic**          | **NEW:** `@syntax-labels <macro>` activation import — e.g. `import "@typesugar/contracts/syntax"` activates `requires:`/`ensures:` in the file. Replaces today's global `triggerLabels` registration.                                                                                                                                                  |
+| **HKT** (`F<A>` → `Kind<F,A>`)                                                    | type application of a type param | **declaration-scoped** | **The binder is the activation.** `F<A>` only appears where a higher-kinded parameter `F` is in scope, and only its binding declaration introduces `F` — so that declaration carries `@hkt` (existing tier) and `F<A>` rewrites within its scope. No use-site/file import: concrete consumers write `Option<number>`/`Functor<OptionF>`, never `F<A>`. |
 
 **Named-trigger macros are already the model** — importing the symbol _is_ the
 opt-in. The only work is **de-magicking**: resolve them purely from the imported
 symbol's macro annotation, deleting any hardcoded builtin name lists, so a
 third-party `comptime`-style macro is resolved identically to std's.
 
-**Syntactic-trigger macros** (operators, labels, HKT) all gain the **same
-`@syntax-*` activation-import mechanism**. A file with no such marker in its import
-graph is never a rewrite candidate for that form — which also gives the transformer
-a cheap, correct **per-file gate** (the original question that started this thread:
-"the transformer should only be in scope if there are appropriate imports").
+**Free-standing syntactic triggers** (operators, labels) gain the **`@syntax-*`
+activation-import mechanism**. A file with no such marker in its import graph is
+never a rewrite candidate for that form — which also gives the transformer a cheap,
+correct **per-file gate** (the original question that started this thread: "the
+transformer should only be in scope if there are appropriate imports").
+
+**HKT is the exception that proves the rule** — it's syntactic but **bound**, not
+free-standing: `F<A>` can only occur inside the declaration that binds the
+higher-kinded `F`, so the activation lives on that binder (`@hkt`) rather than on a
+file import. There are no use sites to gate. So HKT needs _less_ machinery than I
+first proposed, not more.
 
 ## Part 3 — The generic engine (no hardcoded magic)
 
@@ -232,12 +238,12 @@ queried with another is the user's responsibility.
 
 ## Open questions
 
-- **HKT activation granularity.** `F<A>` rewriting is pervasive in FP code;
-  requiring a per-file `@syntax-hkt` import may be friction. Options: (a) per-file
-  syntax import like everything else (consistent); (b) activate when the
-  enclosing declaration carries `@hkt` (more local to the declaration, less to the
-  use site). Leaning (a) for consistency, but wants validation against real FP
-  code ergonomics.
+- **HKT activation — RESOLVED (declaration-scoped).** `F<A>` can only appear where
+  a higher-kinded parameter `F` is in scope, and only the declaration that binds
+  `F` introduces it. So activation lives on that binder (the `@hkt` tier that
+  already exists) and `F<A>` rewrites within its scope; there are no free-standing
+  use sites to gate, so no `@syntax-hkt` file import is needed. (Earlier draft
+  wrongly lumped HKT with operators/labels.)
 - **Naming** of the activation markers and syntax module paths (`/syntax/eq` vs
   `/eq/syntax`, `@syntax-operators` vs `@op-syntax`).
 - **Diagnostics** for "you wrote `a === b` and an instance exists but you didn't
