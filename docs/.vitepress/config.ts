@@ -239,9 +239,12 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { text: "Overview", link: "/guides/developer-experience" },
+                { text: "Type Safety (build/IDE/CI)", link: "/guides/type-safety" },
+                { text: "JSDoc vs Decorators", link: "/guides/jsdoc-vs-decorators" },
                 { text: "Error Messages", link: "/guides/error-messages" },
                 { text: "Opt-Out Directives", link: "/guides/opt-out" },
                 { text: "Testing", link: "/guides/testing" },
+                { text: "Authoring Libraries", link: "/guides/authoring-libraries" },
                 { text: "Library Manifest", link: "/guides/library-manifest" },
                 { text: "Interactive Playground", link: "/guides/playground" },
               ],

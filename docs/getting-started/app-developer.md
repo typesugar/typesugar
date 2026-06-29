@@ -136,14 +136,18 @@ class User {
 
 const user = new User(1, "Alice", "alice@example.com");
 
-// Auto-generated methods:
-user.equals(user.clone()); // true
-user.debug(); // "User { id: 1, name: \"Alice\", email: \"alice@example.com\" }"
-user.toJson(); // "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}"
-User.fromJson("..."); // Parse JSON back to User
+// @derive generated these methods from the class's fields — at compile time,
+// inlined to plain code. They are real methods on the instance/class:
+user.equals(user.clone()); // true     (Eq + Clone)
+user.debug(); // "User { id: 1, name: \"Alice\", email: \"alice@example.com\" }"  (Debug)
+user.toJson(); // "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}" (Json)
+User.fromJson("..."); // Parse JSON back to User                                  (Json, static)
 ```
 
-Available derives: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `Builder`, `TypeGuard`
+Each derive adds methods: `Eq`→`.equals()`, `Clone`→`.clone()`, `Debug`→`.debug()`,
+`Json`→`.toJson()`/`fromJson()`. Run `typesugar expand <file> --diff` to see exactly
+what each one generates. Available derives: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`,
+`Default`, `Json`, `Builder`, `TypeGuard`.
 
 ### Type-Safe SQL
 

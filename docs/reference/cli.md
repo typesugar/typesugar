@@ -78,7 +78,8 @@ typesugar watch --verbose
 
 ### check
 
-Type-check with macro expansion, but don't emit files.
+Type-check with macro expansion, but don't emit files. **Exits non-zero on
+diagnostics — use this as your CI gate.**
 
 ```bash
 typesugar check [options]
@@ -88,7 +89,17 @@ typesugar check [options]
 
 - `-p, --project <path>` — Path to tsconfig.json
 - `-v, --verbose` — Enable verbose logging
-- `--strict` — Typecheck expanded output (catches macro bugs)
+- `--strict` — Also type-check the fully expanded output. Experimental: it can
+  surface false positives, so it is off by default and is not a substitute for
+  `check`.
+
+> **`check` vs `build`:** `check` type-checks and emits nothing; `build` emits to
+> `dist/`. Both report the same diagnostics (after typesugar's SFINAE filtering
+> removes the phantom errors valid pre-expansion source produces) and both exit
+> non-zero when errors are found — so a green `build` means "compiled, no errors
+> detected." typesugar's published `.d.ts` files type-check cleanly, so
+> `skipLibCheck: true` is **not** required (it remains a fine speed optimization
+> for skipping _all_ third-party `.d.ts`).
 
 **Examples:**
 
