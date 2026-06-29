@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
-import { MacroContextImpl, createMacroContext } from "@typesugar/core";
+import { MacroContextImpl, createMacroContext, clearTypeRewrites } from "@typesugar/core";
 import {
   expandFluentMatch,
   registerProductExtractor,
@@ -135,6 +135,11 @@ function call(name: string, ...args: ts.Expression[]): ts.CallExpression {
 describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
   beforeEach(() => {
     clearRegisteredExtractors();
+    // Reset the global type-rewrite registry so a prior test file that registered
+    // Option/Either as @opaque (None → null constant constructor) can't leak in and
+    // flip this file's default ADT codegen (`_tag === "None"`) to the zero-cost
+    // null form. These tests assert the default, unregistered behavior.
+    clearTypeRewrites();
   });
 
   // --------------------------------------------------------------------------
