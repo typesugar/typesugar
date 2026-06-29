@@ -37,10 +37,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Full build (with .d.ts emit) — matches ci.yml's build job. The packages'
+      # `tsc` step needs their dependencies' declaration files, so we must NOT set
+      # TYPESUGAR_SKIP_DTS here (doing so breaks @typesugar/fp's typecheck with
+      # TS7016 "could not find a declaration file for @typesugar/core").
       - name: Build packages and docs
         run: pnpm run build && pnpm docs:build
-        env:
-          TYPESUGAR_SKIP_DTS: "1"
 
       - name: Build Vercel output
         run: node scripts/build-vercel-output.mjs
