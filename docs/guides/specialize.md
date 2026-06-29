@@ -1,6 +1,6 @@
 # Zero-Cost Specialization
 
-Compile-time specialization for generic functions, eliminating runtime typeclass dictionary passing.
+Compile-time specialization for generic functions, eliminating runtime typeclass dictionary passing. Similar to GHC's `SPECIALIZE` pragma or Rust's monomorphization — achieve true zero-cost abstractions where the typeclass instance is baked in at compile time rather than looked up at runtime.
 
 ## Quick Start
 
@@ -92,6 +92,74 @@ const sorted = sortWith([3, 1, 2]);
 // Or override: sortWith([3, 1, 2], customOrd)
 ```
 
+## Other Specialization Macros
+
+Beyond `= implicit()` and `.specialize()`, the package provides three lower-level macros for inlining and monomorphization.
+
+### Inline a single expression — `specialize$()`
+
+`specialize$(dict, expr)` inline-specializes one expression. `expr` is a lambda `F => body`, and every `F.method()` call in the body is replaced with the inlined implementation from `dict`:
+
+```typescript
+import { specialize$ } from "@typesugar/specialize";
+
+// The lambda parameter receives the dictionary; method calls are inlined
+const result = specialize$(arrayMonad, (F) => F.map([1, 2, 3], (x) => x * 2));
+// Compiles to: [1, 2, 3].map((x) => x * 2)
+
+// Nesting works too
+const nested = specialize$(arrayMonad, (F) =>
+  F.flatMap([1, 2], (x) => F.map([x, x + 1], (y) => y * 2))
+);
+// Compiles to: [1, 2].flatMap((x) => [x, x + 1].map((y) => y * 2))
+```
+
+### Monomorphize a generic — `mono()`
+
+`mono<T>(fn)` produces a version of a generic function fixed to specific type arguments:
+
+```typescript
+import { mono } from "@typesugar/specialize";
+
+const identity = <T>(x: T): T => x;
+
+const identityNumber = mono<number>(identity);
+// Type: (x: number) => number
+
+const identityString = mono<string>(identity);
+// Type: (x: string) => string
+```
+
+### Inline a function call — `inlineCall()`
+
+`inlineCall(expr)` inlines a function call at compile time:
+
+```typescript
+import { inlineCall } from "@typesugar/specialize";
+
+const double = (x: number) => x * 2;
+
+const result = inlineCall(double(21));
+// Compiles to: ((x) => x * 2)(21)
+// And, where the optimizer can fold it: 42
+```
+
+### Legacy: `specialize()` function form
+
+The array-syntax `specialize(fn, [instances])` predates the `.specialize()` extension method and remains for backwards compatibility:
+
+```typescript
+import { specialize } from "@typesugar/specialize";
+
+function sortWith<T>(items: T[], ord: Ord<T>): T[] {
+  return items.slice().sort((a, b) => ord.compare(a, b));
+}
+
+const sortNumbers = specialize(sortWith, [numberOrd]);
+// Type: (items: number[]) => number[]
+const sorted = sortNumbers([3, 1, 2]); // [1, 2, 3]
+```
+
 ## API
 
 ### Extension Method (Preferred)
@@ -102,7 +170,7 @@ const sorted = sortWith([3, 1, 2]);
 ### Functions
 
 - `specialize(fn, [instances])` — Legacy: create a specialized function (array syntax)
-- `specialize$(call)` — Inline specialization for a single call
+- `specialize$(dict, expr)` — Inline specialization: `expr` is a lambda `F => body` where `F.method()` calls get inlined
 - `mono<T1, ...>(fn)` — Monomorphize a generic function for specific types
 - `inlineCall(call)` — Attempt to inline a function call
 
@@ -112,7 +180,7 @@ const sorted = sortWith([3, 1, 2]);
 | --------------------------------- | -------------------------------- |
 | Most cases                        | `= implicit()` — fully automatic |
 | Need a named specialized function | `fn.specialize(dict)`            |
-| One-off inline specialization     | `specialize$(call)`              |
+| One-off inline specialization     | `specialize$(dict, expr)`        |
 | Legacy code / edge cases          | `specialize(fn, [dict])`         |
 
 ## Learn More

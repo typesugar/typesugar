@@ -2,6 +2,8 @@
 
 Bridge refinement types with compile-time contract verification. Import once to enable the prover to understand refinement predicates.
 
+`@typesugar/contracts-refined` bridges `@typesugar/type-system` refinement types with `@typesugar/contracts` compile-time verification. Import this module once to enable the prover to understand and verify refinement type predicates automatically.
+
 ## Quick Start
 
 ```bash
@@ -27,20 +29,21 @@ function add(a: Positive, b: Positive): number {
 
 All built-in refinement types from `@typesugar/type-system`:
 
-| Category      | Types                                                          |
-| ------------- | -------------------------------------------------------------- |
-| **Numeric**   | `Positive`, `NonNegative`, `Int`, `Byte`, `Port`, `Percentage` |
-| **String**    | `NonEmpty`, `Trimmed`, `Email`, `Url`, `Uuid`                  |
-| **Array**     | `NonEmptyArray`                                                |
-| **Dependent** | `Vec<N>` (length-indexed vectors)                              |
+| Category      | Types                                                                                |
+| ------------- | ------------------------------------------------------------------------------------ |
+| **Numeric**   | `Positive`, `NonNegative`, `Negative`, `Int`, `Byte`, `Port`, `Percentage`, `Finite` |
+| **String**    | `NonEmpty`, `Trimmed`, `Lowercase`, `Uppercase`, `Email`, `Url`, `Uuid`              |
+| **Array**     | `NonEmptyArray`                                                                      |
+| **Dependent** | `Vec<N>` (length-indexed vectors)                                                    |
 
 ## Subtyping Rules
 
-The integration registers safe widening rules:
+The integration registers safe widening rules, allowing the prover to verify safe coercions at compile time:
 
 - `Positive` → `NonNegative` (x > 0 implies x >= 0)
 - `Byte` → `NonNegative`, `Int`
 - `Port` → `Positive`, `NonNegative`, `Int`
+- `Percentage` → `NonNegative`
 
 ## Custom Refinements
 
@@ -57,6 +60,26 @@ function halve(n: PositiveEven): number {
   return n / 2;
 }
 ```
+
+## API Reference
+
+### Functions
+
+- `registerRefinementPredicate(brand, predicate, decidability?)` — Register a custom refinement predicate
+- `getRegisteredPredicates()` — Get all registered predicates (built-in + custom)
+- `hasRefinementPredicate(brand)` — Check if a predicate is registered
+
+### Re-exports from `@typesugar/contracts`
+
+- `getRefinementPredicate()`, `registerSubtypingRule()`, `canWiden()`
+- `registerDecidability()`, `getDecidability()`, `isCompileTimeDecidable()`
+- `registerDynamicPredicateGenerator()` — For parameterized types like `Vec<N>`
+
+### Re-exports from `@typesugar/type-system`
+
+- All refinement types and their utilities
+- `Vec`, `isVec`, `extractVecLength`, `generateVecPredicate`
+- `widen()`, `widenTo()`, `isSubtype()`
 
 ## Learn More
 
