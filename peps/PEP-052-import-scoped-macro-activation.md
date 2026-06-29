@@ -224,17 +224,20 @@ locality and flexibility, and is the deliberate choice implied by "follow the
 Scala model." Consequence to document: e.g. a structure built with one `Ord` and
 queried with another is the user's responsibility.
 
-## Decisions (proposed defaults)
+## Decisions (DECIDED — 2026-06-29)
 
 1. **Tiers:** methods and operators are **separate** imports (tier 2 vs tier 3),
    with bundles `@typesugar/syntax/all` (methods) and `…/all/ops` / a `prelude`
-   (incl. operators). ✅ proposed.
+   (incl. operators). ✅ **Decided.**
 2. **Operator syntax imported but no instance for `T`:** **native fallback +
    opt-in lint** (friendlier than cats's hard error, since `===` is already
-   valid TS). ✅ proposed.
+   valid TS). ✅ **Decided.**
 3. **Reference equality:** ship **both** `a.ref` and `refEq()`, both emitting
-   native `===` (not `Object.is`). ✅ proposed.
-4. **Loose `==`/`!=`:** native + opt-out-able discouragement lint. ✅ proposed.
+   native `===` (not `Object.is`). ✅ **Decided.**
+4. **Loose `==`/`!=`:** native + opt-out-able discouragement lint. ✅ **Decided.**
+
+(Naming of marker tags / module paths remains a bikeshed to settle during
+implementation; it doesn't affect the design.)
 
 ## Open questions
 
