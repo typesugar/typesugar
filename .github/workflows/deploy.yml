@@ -1,0 +1,52 @@
+name: Deploy Docs
+
+# Deploys the VitePress microsite to Vercel on every push to main.
+#
+# This lives in its own workflow (not ci.yml) on purpose: ci.yml `paths-ignore`s
+# `**.md` / `docs/**`, so a docs-only change skips ci.yml entirely — and a deploy
+# job inside ci.yml would never run for documentation edits. This workflow has no
+# such path filter, so doc changes actually ship. Vercel's native git deploy is
+# disabled (vercel.json `deploymentEnabled: false`), so this is the only deploy path.
+#
+# It self-builds (`pnpm build && pnpm docs:build`) rather than reusing ci.yml's
+# `build-dist` artifact, because that artifact does not exist for docs-only pushes
+# (ci.yml didn't run). Deploy was never gated on tests, so this preserves behavior.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build packages and docs
+        run: pnpm run build && pnpm docs:build
+        env:
+          TYPESUGAR_SKIP_DTS: "1"
+
+      - name: Build Vercel output
+        run: node scripts/build-vercel-output.mjs
+
+      - name: Deploy to Vercel
+        run: npx vercel deploy --prebuilt --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
