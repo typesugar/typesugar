@@ -138,7 +138,10 @@ This checks:
 
 ## What's Next?
 
-Once you're set up, explore the feature guides:
+- **[Zero-Cost, Seen](../guides/zero-cost.md)** — the actual compiled output; see the magic, proven
+- **[Runnable examples](https://github.com/typesugar/typesugar/tree/main/examples)** — six full app scenarios (REST API, data pipeline, FP domain, scientific computing, parser, Effect service) you can `typesugar run`
+
+Then explore the feature guides:
 
 - [Compile-Time Evaluation](../guides/comptime.md) — Run code at build time
 - [Derive Macros](../guides/derive.md) — Auto-generate implementations

@@ -2,6 +2,12 @@
 
 Deep-dive guides for typesugar features, organized by category.
 
+**New here?** [**Zero-Cost, Seen**](./zero-cost.md) shows the actual compiled
+output (the headline claim, proven), and the
+[runnable examples](https://github.com/typesugar/typesugar/tree/main/examples) —
+including six full app scenarios (REST API, data pipeline, FP domain, …) — run
+with `typesugar run`.
+
 ## Standard Library
 
 Everyday features from `@typesugar/std`:
