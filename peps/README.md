@@ -58,4 +58,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [048](PEP-048-package-triage.md)                        | Package Triage — Keep, Freeze, or Remove                  | Done                                                                         |
 | [049](PEP-049-cruft-cleanup.md)                         | Cruft Cleanup — Plans, Docs Drift, Test Debt, Security    | Done                                                                         |
 | [050](PEP-050-shipping-typesugar-libraries.md)          | Authoring & Shipping Standalone typesugar Libraries       | Done                                                                         |
-| [051](PEP-051-readme-guide-consolidation.md)            | README → Guide Consolidation (one set of docs)            | In Progress                                                                  |
+| [051](PEP-051-readme-guide-consolidation.md)            | README → Guide Consolidation (one set of docs)            | Done                                                                         |
