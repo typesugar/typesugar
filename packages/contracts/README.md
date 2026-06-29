@@ -1,5 +1,7 @@
 # @typesugar/contracts
 
+> 📖 **Full documentation:** [Design by Contract guide](https://typesugar.org/guides/contracts). The microsite is the canonical reference; this README is a quickstart.
+
 > Design by Contract for TypeScript with compile-time proof elimination.
 
 ## Overview

@@ -1,5 +1,7 @@
 # @typesugar/collections
 
+> 📖 **Full documentation:** [Package reference](https://typesugar.org/reference/packages). The microsite is the canonical reference; this README is a quickstart.
+
 > 🧊 **Frozen ([PEP-048](../../peps/PEP-048-package-triage.md)).** Not under active development. Still published because `@typesugar/graph` depends on its `HashSet`/`HashMap`.
 
 > Collection typeclasses and hash-based data structures.

@@ -1,5 +1,7 @@
 # @typesugar/specialize
 
+> 📖 **Full documentation:** [Specialization guide](https://typesugar.org/guides/specialize). The microsite is the canonical reference; this README is a quickstart.
+
 > Zero-cost typeclass specialization macros.
 
 ## Overview

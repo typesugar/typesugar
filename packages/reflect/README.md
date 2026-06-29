@@ -1,5 +1,7 @@
 # @typesugar/reflect
 
+> 📖 **Full documentation:** [Reflection guide](https://typesugar.org/guides/reflect). The microsite is the canonical reference; this README is a quickstart.
+
 > Compile-time type reflection macros.
 
 ## Overview

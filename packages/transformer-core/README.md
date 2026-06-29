@@ -1,5 +1,7 @@
 # @typesugar/transformer-core
 
+> 📖 **Full documentation:** [Architecture](https://typesugar.org/architecture). The microsite is the canonical reference; this README is a quickstart.
+
 Browser-compatible transformation core for typesugar macro expansion.
 
 ## Overview

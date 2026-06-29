@@ -1,5 +1,7 @@
 # @typesugar/std
 
+> 📖 **Full documentation:** [Standard Library guides](https://typesugar.org/guides/std-typeclasses). The microsite is the canonical reference; this README is a quickstart.
+
 > Standard library extensions for TypeScript.
 
 ## Overview

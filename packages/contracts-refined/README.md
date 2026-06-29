@@ -1,5 +1,7 @@
 # @typesugar/contracts-refined
 
+> 📖 **Full documentation:** [Refined Contracts guide](https://typesugar.org/guides/contracts-refined). The microsite is the canonical reference; this README is a quickstart.
+
 > Refinement type integration for @typesugar/contracts.
 
 ## Overview

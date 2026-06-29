@@ -1,5 +1,7 @@
 # @typesugar/core
 
+> 📖 **Full documentation:** [Macro Context API reference](https://typesugar.org/reference/macro-context). The microsite is the canonical reference; this README is a quickstart.
+
 > Foundation types, registry, and context for the typesugar macro system.
 
 ## Overview

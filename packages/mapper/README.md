@@ -1,5 +1,7 @@
 # @typesugar/mapper
 
+> 📖 **Full documentation:** [Object Mapping guide](https://typesugar.org/guides/mapper). The microsite is the canonical reference; this README is a quickstart.
+
 Zero-cost compile-time object mapping and transformation. Inspired by Scala's Chimney and .NET's AutoMapper, but fully integrated into TypeScript with zero runtime overhead.
 
 ## The Problem
