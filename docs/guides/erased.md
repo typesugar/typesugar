@@ -1,5 +1,7 @@
 # Type Erasure
 
+> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** `@typesugar/erased` is not under active development and is excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+
 Typeclass-based type erasure for heterogeneous collections — `dyn Trait` for TypeScript.
 
 ## The Problem
@@ -33,15 +35,15 @@ Each value is wrapped in an `Erased<Caps>` that carries a vtable — a record of
 
 ## Built-in Capabilities
 
-| Capability        | Methods                 | Matches Typeclass |
-| ----------------- | ----------------------- | ----------------- |
-| `ShowCapability`  | `show(value): string`   | Show              |
-| `EqCapability`    | `equals(a, b): boolean` | Eq                |
-| `OrdCapability`   | `compare(a, b): number` | Ord               |
-| `HashCapability`  | `hash(value): number`   | Hash              |
-| `CloneCapability` | `clone(value): unknown` | Clone             |
-| `DebugCapability` | `debug(value): string`  | Debug             |
-| `JsonCapability`  | `toJson / fromJson`     | Json              |
+| Capability        | Methods                                             | Matches Typeclass |
+| ----------------- | --------------------------------------------------- | ----------------- |
+| `ShowCapability`  | `show(value): string`                               | Show              |
+| `EqCapability`    | `equals(a, b): boolean`                             | Eq                |
+| `OrdCapability`   | `compare(a, b): number`                             | Ord               |
+| `HashCapability`  | `hash(value): number`                               | Hash              |
+| `CloneCapability` | `clone(value): unknown`                             | Clone             |
+| `DebugCapability` | `debug(value): string`                              | Debug             |
+| `JsonCapability`  | `toJson(value): unknown`, `fromJson(json): unknown` | Json              |
 
 ### Convenience Constructors
 
@@ -179,6 +181,81 @@ if (hasCapability(erased, "show")) {
 | Use case    | Heterogeneous collections, plugins | Type-level existentials     |
 
 Use `Erased` when you need collections of mixed types with shared behavior. Use `Exists` when you need type-level existential quantification and don't care about collections.
+
+## Runtime Representation
+
+An `Erased` value is a plain object at runtime:
+
+```typescript
+{
+  __erased__: true,
+  __value: /* the concrete value */,
+  __vtable: { show: /* ... */, equals: /* ... */ },
+}
+```
+
+No classes, no prototypes, no hidden state. `widen()` is literally identity.
+
+## Zero-Cost Analysis
+
+| Operation                  | Cost                                             |
+| -------------------------- | ------------------------------------------------ |
+| `eraseWith()`              | One object allocation (value + vtable ref)       |
+| `show()`, `equals()`, etc. | One vtable lookup + one function call            |
+| `widen()`                  | Zero — identity cast                             |
+| `narrow()`                 | O(n) where n = number of required methods        |
+| `clone()`                  | Depends on clone implementation + one allocation |
+| `unwrapErased()`           | Zero — property access                           |
+
+The vtable is shared across all values created with the same method implementations, so there is no per-element overhead for the method pointers themselves.
+
+## Typeclass Integration
+
+The capability system mirrors typesugar's typeclass system. The `erased()` macro automatically resolves vtables from registered typeclass instances:
+
+| Capability       | Typeclass | Method Mapping        |
+| ---------------- | --------- | --------------------- |
+| `ShowCapability` | `Show`    | `show` → `show`       |
+| `EqCapability`   | `Eq`      | `equals` → `equals`   |
+| `OrdCapability`  | `Ord`     | `compare` → `compare` |
+| `HashCapability` | `Hash`    | `hash` → `hash`       |
+
+**Available for auto-derivation:** Show, Eq, Ord, Hash (these have typeclass definitions in `@typesugar/std` and `@typesugar/fp`).
+
+**Requires manual vtable construction:** Clone, Debug, Json. These capabilities are supported by `eraseWith()` but have no corresponding typeclass in the registry, so `erased()` cannot resolve them automatically. Use `eraseWith()` or the convenience constructors to provide implementations.
+
+## Auto-Derivation with `erased()`
+
+The `erased()` macro resolves vtables automatically from the typeclass registry at compile time:
+
+```typescript
+import { erased } from "@typesugar/erased";
+
+@derive(Show, Eq)
+interface Point {
+  x: number;
+  y: number;
+}
+
+const p = { x: 1, y: 2 };
+const e = erased<[Show, Eq]>(p);
+// Automatically generates the vtable from Show<Point> and Eq<Point> instances.
+```
+
+**How it works:**
+
+1. Parse type arguments: `erased<[Show, Eq]>(value)` → capabilities = `[Show, Eq]`
+2. Infer the value's type: the TypeChecker determines `typeof value`
+3. Resolve instances: look up `Show<T>`, `Eq<T>` from the registry
+4. Generate the vtable: build `{ show: ..., equals: ... }` at compile time
+
+**Benefits:**
+
+- **No boilerplate**: skip manual vtable construction
+- **Type safety**: compile error if a capability instance doesn't exist
+- **Consistent**: the same instances are used for operators and erased values
+
+**Fallback:** for types without registered instances, use `eraseWith()`, `showable()`, etc. for manual vtable construction.
 
 ## What's Next
 
