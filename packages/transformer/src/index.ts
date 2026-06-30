@@ -185,6 +185,20 @@ function isNullOrUndefinedExpression(node: ts.Expression): boolean {
   return false;
 }
 
+/**
+ * Does this variable declaration carry a typeclass-shaped type annotation —
+ * `const x: Functor<F> = …` (a PascalCase type reference with ≥1 type argument)?
+ * Used to recognize a typeclass instance for source-based inlining without an
+ * explicit `@impl` tag, mirroring the instance scanner's resolution discovery.
+ */
+function hasTypeclassTypeAnnotation(varDecl: ts.VariableDeclaration | undefined): boolean {
+  const typeNode = varDecl?.type;
+  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) return false;
+  if (!ts.isIdentifier(typeNode.typeName)) return false;
+  if (!/^[A-Z][a-zA-Z0-9]*$/.test(typeNode.typeName.text)) return false;
+  return (typeNode.typeArguments?.length ?? 0) >= 1;
+}
+
 function isSimpleExpression(node: ts.Expression): boolean {
   return (
     ts.isIdentifier(node) ||
@@ -3056,9 +3070,6 @@ class MacroTransformer {
       if (!declarations || declarations.length === 0) return undefined;
 
       for (const decl of declarations) {
-        // Auto-specialize all @impl instances
-        if (!this.hasImplAnnotation(decl)) continue;
-
         // Find the object literal initializer
         let objLiteral: ts.ObjectLiteralExpression | undefined;
         let varDecl: ts.VariableDeclaration | undefined;
@@ -3071,6 +3082,15 @@ class MacroTransformer {
         }
 
         if (!objLiteral) continue;
+
+        // Accept an instance for source-based inlining if it is either explicitly
+        // `@impl`/`@instance`-annotated, OR carries a typeclass-shaped type
+        // annotation (`const x: Functor<F> = { ... }`). The latter lets instances
+        // be inlined from source WITHOUT an `@impl` tag — and therefore without
+        // triggering the `@impl` attribute macro's companion generation, which would
+        // change a transformed package's exports (PEP-052). Mirrors the scanner's
+        // type-annotation discovery used for resolution.
+        if (!this.hasImplAnnotation(decl) && !hasTypeclassTypeAnnotation(varDecl)) continue;
 
         // Extract brand from @impl annotation or infer from type annotation
         let brand = this.extractBrandFromImpl(decl);
