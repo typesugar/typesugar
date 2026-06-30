@@ -40,6 +40,7 @@ export interface FunctorLazyPipeline {
   readonly map: <A, B>(fa: LazyPipeline<A>, f: (a: A) => B) => LazyPipeline<B>;
 }
 
+/** @impl Functor<LazyPipeline> */
 export const lazyPipelineFunctor: FunctorLazyPipeline = {
   map: <A, B>(fa: LazyPipeline<A>, f: (a: A) => B): LazyPipeline<B> => fa.map(f),
 };
@@ -65,6 +66,7 @@ export interface FilterableLazyPipeline {
   readonly filter: <A>(fa: LazyPipeline<A>, predicate: (a: A) => boolean) => LazyPipeline<A>;
 }
 
+/** @impl Filterable<LazyPipeline> */
 export const lazyPipelineFilterable: FilterableLazyPipeline = {
   filter: <A>(fa: LazyPipeline<A>, predicate: (a: A) => boolean): LazyPipeline<A> =>
     fa.filter(predicate),
@@ -91,6 +93,7 @@ export interface FoldableLazyPipeline {
   readonly foldRight: <A, B>(fa: LazyPipeline<A>, b: B, f: (a: A, b: B) => B) => B;
 }
 
+/** @impl Foldable<LazyPipeline> */
 export const lazyPipelineFoldable: FoldableLazyPipeline = {
   foldLeft: <A, B>(fa: LazyPipeline<A>, b: B, f: (b: B, a: A) => B): B => fa.reduce(f, b),
   foldRight: <A, B>(fa: LazyPipeline<A>, b: B, f: (a: A, b: B) => B): B => {

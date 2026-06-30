@@ -26,6 +26,7 @@ export interface Show<A> {
 /**
  * Show for strings (with quotes)
  */
+/** @impl Show<string> */
 export const showString: Show<string> = {
   show: (s) => JSON.stringify(s),
 };
@@ -40,6 +41,7 @@ registerInstanceWithMeta({
 /**
  * Show for numbers
  */
+/** @impl Show<number> */
 export const showNumber: Show<number> = {
   show: (n) => String(n),
 };
@@ -54,6 +56,7 @@ registerInstanceWithMeta({
 /**
  * Show for booleans
  */
+/** @impl Show<boolean> */
 export const showBoolean: Show<boolean> = {
   show: (b) => String(b),
 };
@@ -68,6 +71,7 @@ registerInstanceWithMeta({
 /**
  * Show for bigints
  */
+/** @impl Show<bigint> */
 export const showBigInt: Show<bigint> = {
   show: (n) => `${n}n`,
 };
@@ -82,6 +86,7 @@ registerInstanceWithMeta({
 /**
  * Show for undefined
  */
+/** @impl Show<undefined> */
 export const showUndefined: Show<undefined> = {
   show: () => "undefined",
 };
@@ -96,6 +101,7 @@ registerInstanceWithMeta({
 /**
  * Show for null
  */
+/** @impl Show<null> */
 export const showNull: Show<null> = {
   show: () => "null",
 };
@@ -110,6 +116,7 @@ registerInstanceWithMeta({
 /**
  * Show for dates
  */
+/** @impl Show<Date> */
 export const showDate: Show<Date> = {
   show: (d) => `Date(${d.toISOString()})`,
 };
@@ -124,6 +131,7 @@ registerInstanceWithMeta({
 /**
  * Show for symbols
  */
+/** @impl Show<symbol> */
 export const showSymbol: Show<symbol> = {
   show: (s) => s.toString(),
 };

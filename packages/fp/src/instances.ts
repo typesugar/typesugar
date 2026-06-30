@@ -253,6 +253,7 @@ type EitherSemigroupK<E> = {
  * With null-based Option, Some(x) is just x and None is null.
  * Uses concrete expanded types to avoid TypeScript's HKT recursion.
  */
+/** @impl Functor<OptionF> */
 export const optionFunctor: OptionFunctor = {
   map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
     (fa as any) !== null ? (f(fa as any) as any) : (null as any),
@@ -271,6 +272,7 @@ registerInstanceWithMeta({
  * Uses concrete expanded types (OptionMonad) instead of Monad<OptionF>
  * to avoid TypeScript's recursive type instantiation limit.
  */
+/** @impl Monad<OptionF> */
 export const optionMonad: OptionMonad = {
   map: optionFunctor.map,
   flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
@@ -292,6 +294,7 @@ registerInstanceWithMeta({
 /**
  * Foldable instance for Option
  */
+/** @impl Foldable<OptionF> */
 export const optionFoldable: OptionFoldable = {
   foldLeft: <A, B>(fa: Option<A>, b: B, f: (b: B, a: A) => B): B =>
     (fa as any) !== null ? f(b, fa as any) : b,
@@ -309,6 +312,7 @@ registerInstanceWithMeta({
 /**
  * Traverse instance for Option
  */
+/** @impl Traverse<OptionF> */
 export const optionTraverse: OptionTraverse = {
   ...optionFunctor,
   ...optionFoldable,
@@ -332,6 +336,7 @@ registerInstanceWithMeta({
 /**
  * SemigroupK instance for Option (first Some wins)
  */
+/** @impl SemigroupK<OptionF> */
 export const optionSemigroupK: OptionSemigroupK = {
   combineK: <A>(x: Option<A>, y: Option<A>): Option<A> => ((x as any) !== null ? x : y),
 };
@@ -346,6 +351,7 @@ registerInstanceWithMeta({
 /**
  * MonoidK instance for Option
  */
+/** @impl MonoidK<OptionF> */
 export const optionMonoidK: OptionMonoidK = {
   ...optionSemigroupK,
   emptyK: <A>(): Option<A> => null as any,
@@ -361,6 +367,7 @@ registerInstanceWithMeta({
 /**
  * Alternative instance for Option
  */
+/** @impl Alternative<OptionF> */
 export const optionAlternative: OptionAlternative = {
   ...optionMonad,
   ...optionMonoidK,
@@ -380,6 +387,7 @@ registerInstanceWithMeta({
 /**
  * Functor instance for Array
  */
+/** @impl Functor<ArrayF> */
 export const arrayFunctor: ArrayFunctor = {
   map: <A, B>(fa: A[], f: (a: A) => B): B[] => fa.map(f),
 };
@@ -394,6 +402,7 @@ registerInstanceWithMeta({
 /**
  * Monad instance for Array
  */
+/** @impl Monad<ArrayF> */
 export const arrayMonad: ArrayMonad = {
   map: arrayFunctor.map,
   flatMap: <A, B>(fa: A[], f: (a: A) => B[]): B[] => fa.flatMap(f),
@@ -411,6 +420,7 @@ registerInstanceWithMeta({
 /**
  * Foldable instance for Array
  */
+/** @impl Foldable<ArrayF> */
 export const arrayFoldable: ArrayFoldable = {
   foldLeft: <A, B>(fa: A[], b: B, f: (b: B, a: A) => B): B => fa.reduce(f, b),
   foldRight: <A, B>(fa: A[], b: B, f: (a: A, b: B) => B): B =>
@@ -427,6 +437,7 @@ registerInstanceWithMeta({
 /**
  * Traverse instance for Array
  */
+/** @impl Traverse<ArrayF> */
 export const arrayTraverse: ArrayTraverse = {
   ...arrayFunctor,
   ...arrayFoldable,
@@ -453,6 +464,7 @@ registerInstanceWithMeta({
 /**
  * SemigroupK instance for Array
  */
+/** @impl SemigroupK<ArrayF> */
 export const arraySemigroupK: ArraySemigroupK = {
   combineK: <A>(x: A[], y: A[]): A[] => [...x, ...y],
 };
@@ -467,6 +479,7 @@ registerInstanceWithMeta({
 /**
  * MonoidK instance for Array
  */
+/** @impl MonoidK<ArrayF> */
 export const arrayMonoidK: ArrayMonoidK = {
   ...arraySemigroupK,
   emptyK: <A>(): A[] => [],
@@ -482,6 +495,7 @@ registerInstanceWithMeta({
 /**
  * Alternative instance for Array
  */
+/** @impl Alternative<ArrayF> */
 export const arrayAlternative: ArrayAlternative = {
   ...arrayMonad,
   ...arrayMonoidK,
@@ -501,6 +515,7 @@ registerInstanceWithMeta({
 /**
  * Functor instance for Promise
  */
+/** @impl Functor<PromiseF> */
 export const promiseFunctor: PromiseFunctor = {
   map: <A, B>(fa: Promise<A>, f: (a: A) => B): Promise<B> => fa.then(f),
 };
@@ -515,6 +530,7 @@ registerInstanceWithMeta({
 /**
  * Monad instance for Promise
  */
+/** @impl Monad<PromiseF> */
 export const promiseMonad: PromiseMonad = {
   map: promiseFunctor.map,
   flatMap: <A, B>(fa: Promise<A>, f: (a: A) => Promise<B>): Promise<B> => fa.then(f),
@@ -657,6 +673,7 @@ import { map as validatedMap, andThen as validatedFlatMap } from "./data/validat
  * FlatMap instance for Option.
  * Option<A> = A | null (zero-cost representation)
  */
+/** @impl FlatMap<OptionF> */
 export const flatMapOption = {
   _tag: "Option" as const,
   map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
@@ -688,6 +705,7 @@ export function flatMapEither<E>() {
 /**
  * FlatMap instance for IO.
  */
+/** @impl FlatMap<IOF> */
 export const flatMapIO = {
   _tag: "IO" as const,
   map: <A, B>(fa: IO<A>, f: (a: A) => B): IO<B> => IONamespace.map(fa, f),
@@ -704,6 +722,7 @@ registerInstanceWithMeta({
 /**
  * FlatMap instance for List.
  */
+/** @impl FlatMap<ListF> */
 export const flatMapList = {
   _tag: "List" as const,
   map: <A, B>(fa: List<A>, f: (a: A) => B): List<B> => listMap(fa, f),

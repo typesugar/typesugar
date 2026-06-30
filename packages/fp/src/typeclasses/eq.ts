@@ -298,6 +298,7 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
 /**
  * Eq for strings - enables `str1 === str2` operator rewriting
  */
+/** @impl Eq<string> */
 export const eqString: Eq<string> = eqStrict();
 
 registerInstanceWithMeta({
@@ -310,6 +311,7 @@ registerInstanceWithMeta({
 /**
  * Eq for numbers - enables `n1 === n2` operator rewriting
  */
+/** @impl Eq<number> */
 export const eqNumber: Eq<number> = eqStrict();
 
 registerInstanceWithMeta({
@@ -322,6 +324,7 @@ registerInstanceWithMeta({
 /**
  * Eq for booleans - enables `b1 === b2` operator rewriting
  */
+/** @impl Eq<boolean> */
 export const eqBoolean: Eq<boolean> = eqStrict();
 
 registerInstanceWithMeta({
@@ -334,6 +337,7 @@ registerInstanceWithMeta({
 /**
  * Ord for strings - enables `str1 < str2` operator rewriting
  */
+/** @impl Ord<string> */
 export const ordString: Ord<string> = {
   eqv: (x, y) => x === y,
   compare: (x, y) => (x < y ? LT : x > y ? GT : EQ),
@@ -353,6 +357,7 @@ registerInstanceWithMeta({
 /**
  * Ord for numbers - enables `n1 < n2` operator rewriting
  */
+/** @impl Ord<number> */
 export const ordNumber: Ord<number> = {
   eqv: (x, y) => x === y,
   compare: (x, y) => (x < y ? LT : x > y ? GT : EQ),
@@ -372,6 +377,7 @@ registerInstanceWithMeta({
 /**
  * Ord for booleans (false < true) - enables `b1 < b2` operator rewriting
  */
+/** @impl Ord<boolean> */
 export const ordBoolean: Ord<boolean> = {
   eqv: (x, y) => x === y,
   compare: (x, y) => (x === y ? EQ : x ? GT : LT),
@@ -391,6 +397,7 @@ registerInstanceWithMeta({
 /**
  * Ord for dates - enables `d1 < d2` operator rewriting
  */
+/** @impl Ord<Date> */
 export const ordDate: Ord<Date> = {
   eqv: (x, y) => x.getTime() === y.getTime(),
   compare: (x, y) => {
