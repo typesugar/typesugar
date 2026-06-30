@@ -286,10 +286,14 @@ implementation; it doesn't affect the design.)
 **Deferred to later waves (tracked — none of this is "broken", it still works via
 the still-present global registry until migrated):**
 
-1. **Method-syntax scoping.** `a.eq(b)` method sugar (`tryResolveTypeclassMethod`)
-   is still registry-based (`getTypeclassesForMethod` → `findInstance`) and not yet
-   gated on `@syntax-methods`. The activation state is already tracked; only the
-   consumer is unmigrated.
+1. **Method-syntax scoping.** Instance lookup is now **registry-free**:
+   `tryResolveTypeclassMethod` resolves `receiver.method()` from scope — an
+   imported/local `@impl`/`@instance` via `resolveInstance`, or a `@derive(TC)`
+   companion detected on the receiver's type (emitted `<Type>.<TC>`). It no longer
+   calls `findInstance`. REMAINING: the typeclass-_definition_ candidate lookup still
+   uses `getTypeclassesForMethod` (the definition registry), and the path is not yet
+   gated on `@syntax-methods` activation (the activation state is tracked but unused
+   for methods — gating is the breaking flip).
 2. **Re-ship remaining instances** as scanner-discoverable `@impl` + per-package
    `<pkg>/syntax/<tc>` markers (const form), and **empty the prelude** so non-Eq/Ord
    typeclasses also stop being ambient.
