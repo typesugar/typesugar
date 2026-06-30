@@ -1180,6 +1180,25 @@ for (const def of STANDARD_TYPECLASS_DEFS) {
 }
 
 /**
+ * Static op/method metadata for the standard typeclasses, derived from the
+ * built-in definitions. This is plain immutable data (NOT the mutable
+ * `typeclassRegistry`); the typeclass index consumes it as a built-in fallback so
+ * standard typeclass operators/methods resolve even when the typeclass interface
+ * isn't present in the program's source (e.g. code/tests that don't import std).
+ */
+export function getStandardTypeclassOpInfos(): Array<{
+  name: string;
+  opToMethod: Map<string, string>;
+  methodNames: Set<string>;
+}> {
+  return STANDARD_TYPECLASS_DEFS.map((def) => ({
+    name: def.name,
+    opToMethod: new Map(def.syntax),
+    methodNames: new Set(def.methods.map((m) => m.name)),
+  }));
+}
+
+/**
  * Extract an operator symbol from a JSDoc `@op` tag on a method signature.
  *
  * @param member - The method signature node to check

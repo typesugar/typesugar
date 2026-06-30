@@ -11,7 +11,6 @@ import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 
 import {
   getOperatorString,
-  getTypeclassesForMethod,
   findInstance,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
@@ -58,6 +57,7 @@ import {
   type ResolvedInstance,
   // Generic typeclass op/method index (PEP-052)
   getOperatorCandidates,
+  getTypeclassesDeclaringMethod,
 } from "@typesugar/macros";
 
 import {
@@ -5685,8 +5685,8 @@ class MacroTransformer {
     methodName: string,
     typeName: string
   ): ts.Expression | undefined {
-    const candidates = getTypeclassesForMethod(methodName);
-    if (!candidates) return undefined;
+    const candidates = getTypeclassesDeclaringMethod(this.ctx.program, methodName);
+    if (candidates.length === 0) return undefined;
 
     const baseTypeName = stripTypeArguments(typeName);
     const receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);

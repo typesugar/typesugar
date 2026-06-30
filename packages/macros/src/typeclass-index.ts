@@ -16,7 +16,7 @@
  */
 
 import * as ts from "typescript";
-import { extractOpFromJSDoc } from "./typeclass.js";
+import { extractOpFromJSDoc, getStandardTypeclassOpInfos } from "./typeclass.js";
 
 /** Operator/method metadata for a single typeclass, read from its declaration. */
 export interface TypeclassOpInfo {
@@ -64,6 +64,26 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
   if (cached) return cached;
 
   const index = new Map<string, TypeclassOpInfo>();
+
+  // Seed with the built-in standard typeclass metadata (plain static data) so
+  // standard typeclasses (Eq/Ord/Show/…) resolve even when their interface isn't
+  // in the program's source. Source `@typeclass` interfaces below merge over this.
+  for (const info of getStandardTypeclassOpInfos()) {
+    index.set(info.name, {
+      name: info.name,
+      opToMethod: new Map(info.opToMethod),
+      methodNames: new Set(info.methodNames),
+      conflictedOps: new Set(),
+    });
+  }
+
+  // Names that came from the built-in seed. The FIRST source `@typeclass`
+  // declaration of such a name is authoritative and REPLACES the seed (rather than
+  // merging) — otherwise the built-in `Eq` would mask/conflict with a user `Eq`
+  // that maps the same operator to a different method. Subsequent same-name source
+  // declarations then merge against the (now source-authoritative) entry.
+  const seededNames = new Set(index.keys());
+
   for (const sourceFile of program.getSourceFiles()) {
     // Default lib files (lib.es*.d.ts) never carry @typeclass — skip the scan cost.
     if (program.isSourceFileDefaultLibrary(sourceFile)) continue;
@@ -73,6 +93,12 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
       if (!hasTypeclassTag(stmt)) continue;
 
       const info = readTypeclassInterface(stmt);
+      if (seededNames.has(info.name)) {
+        // First source declaration overrides the built-in seed.
+        index.set(info.name, info);
+        seededNames.delete(info.name);
+        continue;
+      }
       const existing = index.get(info.name);
       if (existing) {
         // Same-named typeclass declared in multiple modules (e.g. std `Eq` vs a
