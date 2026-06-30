@@ -152,3 +152,23 @@ export function getMethodCandidates(
   }
   return candidates;
 }
+
+/**
+ * Find EVERY `@typeclass` in the program that declares a method with the given
+ * name. This is the registry-free replacement for `getTypeclassesForMethod`
+ * (which scanned the global `typeclassRegistry`). Unscoped — used by the
+ * instance-method-sugar path, which resolves the concrete instance from scope and
+ * is not yet gated on `@syntax-methods` activation.
+ */
+export function getTypeclassesDeclaringMethod(
+  program: ts.Program,
+  methodName: string
+): Array<{ typeclass: string; method: string }> {
+  const candidates: Array<{ typeclass: string; method: string }> = [];
+  for (const info of buildIndex(program).values()) {
+    if (info.methodNames.has(methodName)) {
+      candidates.push({ typeclass: info.name, method: methodName });
+    }
+  }
+  return candidates;
+}

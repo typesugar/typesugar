@@ -269,6 +269,7 @@ export {
   getOpMapForTypeclass,
   getOperatorCandidates,
   getMethodCandidates,
+  getTypeclassesDeclaringMethod,
   type TypeclassOpInfo,
 } from "./typeclass-index.js";
 

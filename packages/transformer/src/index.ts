@@ -186,6 +186,19 @@ function isNullOrUndefinedExpression(node: ts.Expression): boolean {
 }
 
 /**
+ * A typeclass instance resolved (registry-free) for instance-method sugar: either
+ * a companion reference (`Point.Eq`) or a bare instance name (`eqPoint`), with the
+ * module to import it from (if any) and the base type name for the builtin-receiver
+ * guard.
+ */
+interface MethodSugarInstance {
+  companionPath?: string;
+  instanceName?: string;
+  sourceModule?: string;
+  forType: string;
+}
+
+/**
  * Does this variable declaration carry a typeclass-shaped type annotation —
  * `const x: Functor<F> = …` (a PascalCase type reference with ≥1 type argument)?
  * Used to recognize a typeclass instance for source-based inlining without an
@@ -5675,30 +5688,20 @@ class MacroTransformer {
     const candidates = getTypeclassesForMethod(methodName);
     if (!candidates) return undefined;
 
-    const sfn = this.ctx.sourceFile.fileName;
     const baseTypeName = stripTypeArguments(typeName);
+    const receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
 
-    let matched: ReturnType<typeof findInstance>;
+    let matched: MethodSugarInstance | undefined;
     let matchedTc: string | undefined;
     for (const { typeclass } of candidates) {
-      // For instance-method sugar the instance is uniquely keyed by
-      // (typeclass, type), so the import-scope gate (which governs ambiguous
-      // cross-module imported instances) doesn't apply — a builtin typeclass like
-      // `Eq` is neither defined in-file nor imported, yet `@derive(Eq)` registers a
-      // concrete `Type.Eq` instance. Prefer the scoped match, then fall back to the
-      // unscoped registry (cross-module refs get an import injected below).
-      const inst =
-        findInstance(typeclass, typeName, sfn) ??
-        findInstance(typeclass, baseTypeName, sfn) ??
-        findInstance(typeclass, typeName) ??
-        findInstance(typeclass, baseTypeName);
-      // Never apply instance-method sugar for instances registered on a built-in
-      // type (Promise/Array/Map/…). Those types carry native methods (map,
-      // filter, then, …) that collide with typeclass method names; rewriting
-      // `someArray.map(fn)` into `parCombineArray.map(someArray, fn)` is always
-      // wrong. Checking the instance's registered forType is reliable even when
-      // the receiver's static type can't be resolved (e.g. a build context
-      // without full lib types). Native usage stays a plain method call.
+      // Resolve the instance purely from scope (PEP-052): an imported/local
+      // `@impl`/`@instance` value, or a `@derive(TC)` companion on the receiver's
+      // type. No process-global instance registry.
+      const inst = this.resolveMethodSugarInstance(receiverType, typeName, baseTypeName, typeclass);
+      // Never apply instance-method sugar for instances on a built-in receiver
+      // (Promise/Array/Map/…). Those carry native methods (map, then, …) that
+      // collide with typeclass method names; rewriting `arr.map(fn)` into a
+      // typeclass call is always wrong. Native usage stays a plain method call.
       if (inst && BUILTIN_METHOD_RECEIVER_NAMES.has(inst.forType)) {
         continue;
       }
@@ -5721,11 +5724,13 @@ class MacroTransformer {
 
     const factory = this.ctx.factory;
 
-    // Schedule an import for the companion's base type if it comes from another module
-    // (e.g. import `Point` for `Point.Eq`), mirroring the operator-rewrite path.
-    const importName = matched.companionPath
-      ? matched.companionPath.split(".")[0]
-      : matched.instanceName;
+    // The emitted reference: a companion path ("Point.Eq") or a bare instance name.
+    const instName = matched.companionPath ?? matched.instanceName;
+    if (!instName) return undefined;
+
+    // Schedule an import for the companion's base type / instance if it comes from
+    // another module (e.g. import `Point` for `Point.Eq`), mirroring the operator path.
+    const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
     if (matched.sourceModule && !this.isAlreadyImported(importName)) {
       const key = `${importName}::${matched.sourceModule}`;
       if (!this.pendingTypeRewriteImports.has(key)) {
@@ -5736,8 +5741,6 @@ class MacroTransformer {
       }
     }
 
-    // Build the companion reference: "Point.Eq" → Point.Eq, or a bare instance name.
-    const instName = matched.companionPath || matched.instanceName;
     const instanceRef = instName.includes(".")
       ? factory.createPropertyAccessExpression(
           factory.createIdentifier(instName.split(".")[0]),
@@ -5763,6 +5766,92 @@ class MacroTransformer {
     }
 
     return preserveSourceMap(rewritten, node);
+  }
+
+  /**
+   * Resolve a typeclass instance for instance-method sugar, purely from scope
+   * (PEP-052) — no process-global instance registry. Tries, in order:
+   *   1. an imported/local `@impl`/`@instance` value (via the scope resolver);
+   *   2. a `@derive(TC)` companion on the receiver's own type declaration, emitted
+   *      by convention as `<TypeName>.<TC>` (e.g. `Point.Eq`).
+   */
+  private resolveMethodSugarInstance(
+    receiverType: ts.Type,
+    typeName: string,
+    baseTypeName: string,
+    typeclass: string
+  ): MethodSugarInstance | undefined {
+    // 1. Scope-based @impl/@instance resolution.
+    try {
+      const r = resolveInstance(this.ctx, typeclass, receiverType);
+      if (r && r.kind === "resolved") {
+        return {
+          instanceName: r.exportName,
+          sourceModule: r.source !== "local-scope" ? r.importSpecifier : undefined,
+          forType: baseTypeName,
+        };
+      }
+    } catch {
+      // checker may throw on synthetic nodes — fall through to companion detection
+    }
+
+    // 2. Derived companion: the receiver's type is declared with `@derive(TC)`.
+    if (this.typeDerivesTypeclass(receiverType, typeclass)) {
+      return {
+        companionPath: companionPath(typeclass, baseTypeName),
+        sourceModule: this.moduleSpecifierForType(receiverType),
+        forType: baseTypeName,
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Does the receiver's type declaration carry a `@derive(TC)` / `@deriving(TC)`
+   * (decorator or JSDoc tag) — meaning a `<Type>.<TC>` companion will exist?
+   */
+  private typeDerivesTypeclass(receiverType: ts.Type, typeclass: string): boolean {
+    const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;
+    const decls = sym?.getDeclarations();
+    if (!decls) return false;
+    for (const decl of decls) {
+      // Decorator form: `@derive(Eq) class P {}`
+      if (ts.canHaveDecorators(decl)) {
+        for (const dec of ts.getDecorators(decl) ?? []) {
+          if (this.deriveDecoratorNames(dec.expression, typeclass)) return true;
+        }
+      }
+      // JSDoc form: `/** @derive(Eq) */`
+      for (const tag of ts.getJSDocTags(decl)) {
+        const name = tag.tagName.text;
+        if (name !== "derive" && name !== "deriving") continue;
+        const comment =
+          typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+        if (comment && new RegExp(`\\b${typeclass}\\b`).test(comment)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Does a decorator expression `derive(Eq, ...)` name the given typeclass? */
+  private deriveDecoratorNames(expr: ts.Expression, typeclass: string): boolean {
+    if (!ts.isCallExpression(expr)) return false;
+    const callee = expr.expression;
+    const calleeName = ts.isIdentifier(callee) ? callee.text : undefined;
+    if (calleeName !== "derive" && calleeName !== "deriving") return false;
+    return expr.arguments.some((a) => ts.isIdentifier(a) && a.text === typeclass);
+  }
+
+  /**
+   * The module specifier to import the companion's base type from. For a derived
+   * companion `<Type>.<TC>` the base `<Type>` value must be in scope; when the type
+   * is local, or already imported (the usual case — you imported the type to have a
+   * value of it), no injection is needed, so this returns `undefined`. (A dedicated
+   * cross-module companion-import path can be added if a case needs it.)
+   */
+  private moduleSpecifierForType(_receiverType: ts.Type): string | undefined {
+    return undefined;
   }
 
   /**
