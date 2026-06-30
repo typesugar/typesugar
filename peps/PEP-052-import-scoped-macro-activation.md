@@ -290,13 +290,19 @@ the still-present global registry until migrated):**
    is still registry-based (`getTypeclassesForMethod` → `findInstance`) and not yet
    gated on `@syntax-methods`. The activation state is already tracked; only the
    consumer is unmigrated.
-2. **Re-ship remaining instances** (fp / math / fusion / collections) as
-   scanner-discoverable `@instance`/`@impl` + per-package `<pkg>/syntax/<tc>` markers
-   (const form), and **empty the prelude** so non-Eq/Ord typeclasses also stop being
-   ambient. (std Eq/Ord done.)
-3. **Inlining/specialization registry.** The separate `instanceMethodRegistry`
-   (zero-cost inlining codegen) is unchanged; replace it with scanner-fed method-body
-   extraction.
+2. **Re-ship remaining instances** as scanner-discoverable `@impl` + per-package
+   `<pkg>/syntax/<tc>` markers (const form), and **empty the prelude** so non-Eq/Ord
+   typeclasses also stop being ambient.
+   - DONE (additive `@impl`, registry still populated): std Eq/Ord (+ markers);
+     fp (instances + eq/show/semigroup), math (complex/rational/interval/bigdecimal),
+     fusion — all now scanner-discoverable AND source-inlinable.
+   - REMAINING: std collections (`flatmap`/`par-combine`, dynamic `forType`), effect,
+     sql; per-package `/syntax/*` markers for the method typeclasses; empty prelude.
+3. **Inlining/specialization registry.** The separate `instanceMethodRegistry` and
+   its 30 static source-string builtins. With the `@impl` additions above,
+   `tryExtractInstanceFromSource` already covers fp/math/fusion instances by symbol —
+   so the builtins/registry can be retired once every inlined instance has `@impl`
+   source in-program. (Verify the full specialization suite when removing.)
 4. **Second operator path in `transformer-core`** (`rewriting.ts`
    `tryRewriteTypeclassOperator`, used by the **playground**) is still registry-based
    and ungated — so the playground currently rewrites operators ambiently. Migrate it
