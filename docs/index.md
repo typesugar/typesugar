@@ -55,6 +55,13 @@ features:
 ## Quick Example
 
 ```typescript
+import { derive, Eq, Ord } from "@typesugar/std";
+// Opt the file into typeclass operator syntax (cats-style). Without these imports,
+// `===` / `<` stay the vanilla TypeScript operators — sugar is never ambient.
+import "@typesugar/std/syntax/eq/ops";
+import "@typesugar/std/syntax/ord/ops";
+
+@derive(Eq, Ord)
 interface User {
   id: number;
   name: string;
@@ -64,7 +71,7 @@ interface User {
 const alice: User = { id: 1, name: "Alice", email: "alice@example.com" };
 const bob: User = { id: 2, name: "Bob", email: "bob@example.com" };
 
-// Operators just work — auto-derived, auto-specialized
+// Operators are activated for this file and an instance is in scope, so they rewrite
 alice === bob; // Compiles to: alice.id === bob.id && alice.name === bob.name && ...
 alice < bob; // Lexicographic comparison
 
@@ -74,7 +81,12 @@ alice.clone(); // Deep copy
 alice.toJson(); // JSON serialization
 ```
 
-**How it works:** The compiler sees `===` on a `User`, resolves the `Eq` typeclass, auto-derives an instance from the type's fields, and inlines the comparison directly — no dictionary lookup, no runtime cost.
+**How it works:** activation is explicit and local (PEP-052). Importing
+`@typesugar/std/syntax/eq/ops` opts _this file_ into `Eq`'s operator syntax; the
+compiler then sees `===` on a `User`, resolves the `@derive(Eq)` instance **from
+scope** (no global registry), and inlines the comparison directly — no dictionary
+lookup, no runtime cost. A file that doesn't import the syntax marker keeps native
+`===`.
 
 ➡️ **Skeptical?** [**Zero-Cost, Seen**](/guides/zero-cost) shows the _actual_ compiled output — including `Option`'s `Some(42)` becoming literally `42`.
 
