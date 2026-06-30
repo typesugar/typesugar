@@ -318,3 +318,18 @@ the still-present global registry until migrated):**
 **Invariant for every deferred item:** the global registry remains in place and
 populated until its last consumer is migrated, so the build, the language service,
 and the playground are never left broken between waves.
+
+### Why deleting the registry is gated on the HKT/method-sugar work
+
+The instances still served by the global registry (and by the 30 static inlining
+builtins) are overwhelmingly **higher-kinded** — `Functor<OptionF>`,
+`Monad<ArrayF>`, `FlatMap`, `ParCombine`, etc. (fp / effect / std collections), keyed
+by a type-constructor _brand_ (`forType: "OptionF"`), not a concrete type. They are
+consumed by **method sugar** (`xs.map(f)`, `o.flatMap(g)`), which resolves by the
+receiver's type constructor — a different mechanism than the concrete-type instance
+matching used for `Eq`/`Ord` operators. Making them scope-resolvable therefore needs
+**HKT-aware scope resolution**, which is PEP **Part 2** (the `@hkt` declaration-scoped
+path + `@syntax-methods`/labels). Concrete-type operator resolution (Eq/Ord) is fully
+migrated in Wave 1; the HKT method-sugar migration + the registry/inlining deletion it
+unblocks is Wave 2. Attempting the deletion before that would break method sugar,
+zero-cost inlining, and the playground — hence it is deferred, not partially done.
