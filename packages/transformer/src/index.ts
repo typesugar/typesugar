@@ -5781,6 +5781,11 @@ class MacroTransformer {
     baseTypeName: string,
     typeclass: string
   ): MethodSugarInstance | undefined {
+    // Normalize the receiver's name for the builtin-receiver guard: the array
+    // shorthand stringifies as `number[]` / `readonly number[]`, which would slip
+    // past BUILTIN_METHOD_RECEIVER_NAMES — collapse it to "Array".
+    const guardName = /\[\]$/.test(typeName) ? "Array" : baseTypeName;
+
     // 1. Scope-based @impl/@instance resolution.
     try {
       const r = resolveInstance(this.ctx, typeclass, receiverType);
@@ -5788,8 +5793,19 @@ class MacroTransformer {
         return {
           instanceName: r.exportName,
           sourceModule: r.source !== "local-scope" ? r.importSpecifier : undefined,
-          forType: baseTypeName,
+          forType: guardName,
         };
+      }
+      if (r && r.kind === "ambiguous") {
+        // Two distinct in-scope instances for the same typeclass/type — surface it
+        // rather than silently falling through to a companion or no-op.
+        this.ctx.reportError(
+          this.ctx.sourceFile,
+          `Ambiguous ${typeclass} instance for '${typeName}': ` +
+            `${r.candidates.map((c) => c.exportName).join(", ")}. ` +
+            `Import exactly one to disambiguate.`
+        );
+        return undefined;
       }
     } catch {
       // checker may throw on synthetic nodes — fall through to companion detection
@@ -5800,7 +5816,7 @@ class MacroTransformer {
       return {
         companionPath: companionPath(typeclass, baseTypeName),
         sourceModule: this.moduleSpecifierForType(receiverType),
-        forType: baseTypeName,
+        forType: guardName,
       };
     }
 
@@ -5838,19 +5854,47 @@ class MacroTransformer {
   private deriveDecoratorNames(expr: ts.Expression, typeclass: string): boolean {
     if (!ts.isCallExpression(expr)) return false;
     const callee = expr.expression;
-    const calleeName = ts.isIdentifier(callee) ? callee.text : undefined;
+    if (!ts.isIdentifier(callee)) return false;
+    // Match the local text, but also resolve through an alias import
+    // (`import { derive as d }`) to the original `derive`/`deriving` export.
+    let calleeName: string | undefined = callee.text;
+    if (calleeName !== "derive" && calleeName !== "deriving") {
+      let sym = this.ctx.typeChecker.getSymbolAtLocation(callee);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) {
+        try {
+          sym = this.ctx.typeChecker.getAliasedSymbol(sym);
+        } catch {
+          /* ignore */
+        }
+      }
+      calleeName = sym?.getName();
+    }
     if (calleeName !== "derive" && calleeName !== "deriving") return false;
     return expr.arguments.some((a) => ts.isIdentifier(a) && a.text === typeclass);
   }
 
   /**
-   * The module specifier to import the companion's base type from. For a derived
-   * companion `<Type>.<TC>` the base `<Type>` value must be in scope; when the type
-   * is local, or already imported (the usual case — you imported the type to have a
-   * value of it), no injection is needed, so this returns `undefined`. (A dedicated
-   * cross-module companion-import path can be added if a case needs it.)
+   * The module specifier to import the companion's base type from for a derived
+   * companion `<Type>.<TC>`. Returns `undefined` when the type is declared in the
+   * current file (no import needed). Otherwise finds an existing import in this file
+   * that resolves to the type's declaration module and reuses its specifier — so the
+   * companion namespace value (e.g. `Point`) is imported even when only an unrelated
+   * binding from that module (or `import type`) was present.
    */
-  private moduleSpecifierForType(_receiverType: ts.Type): string | undefined {
+  private moduleSpecifierForType(receiverType: ts.Type): string | undefined {
+    const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;
+    const declFile = sym?.getDeclarations()?.[0]?.getSourceFile();
+    if (!declFile || declFile.fileName === this.ctx.sourceFile.fileName) return undefined;
+
+    const checker = this.ctx.typeChecker;
+    for (const stmt of this.ctx.sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+      const modSym = checker.getSymbolAtLocation(stmt.moduleSpecifier);
+      const modFile = modSym?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d));
+      if (modFile?.fileName === declFile.fileName) {
+        return stmt.moduleSpecifier.text;
+      }
+    }
     return undefined;
   }
 
