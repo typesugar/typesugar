@@ -6713,13 +6713,10 @@ class MacroTransformer {
     const right = ts.visitNode(node.right, this.visit.bind(this)) as ts.Expression;
 
     // Schedule an import if the instance comes from another module. Scope-resolved
-    // instances carry an `importSpecifier`; registry-fallback results carry only a
-    // `sourceModule` — use whichever is present so the emitted reference resolves
-    // (the bare export name would otherwise be unbound). Local-scope instances need
-    // no import.
-    const importModule = matched.resolved.importSpecifier || matched.resolved.sourceModule;
-    if (importModule && matched.resolved.source !== "local-scope") {
-      this.scheduleInstanceImport(matched.resolved.exportName, importModule);
+    // instances (explicit-import / module-scan) carry the original `importSpecifier`;
+    // local-scope instances are already in the file and need no import.
+    if (matched.resolved.importSpecifier && matched.resolved.source !== "local-scope") {
+      this.scheduleInstanceImport(matched.resolved.exportName, matched.resolved.importSpecifier);
     }
 
     // Emit instanceRef.method(left, right). The export name may be a companion

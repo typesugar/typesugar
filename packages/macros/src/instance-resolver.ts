@@ -6,10 +6,13 @@
  * Matching is type-based (via TypeChecker.isTypeAssignableTo), not string-based.
  *
  * Resolution precedence (highest first):
- * 1. Local scope — @impl-annotated values in the current file
+ * 1. Local scope — @impl-annotated values in the current file (incl. non-exported)
  * 2. Explicit imports — values imported by name
  * 3. Module-level search — scanning all exports of imported modules
- * 4. Registry fallback — the legacy instanceRegistry
+ *
+ * Resolution is purely scope-based — there is no process-global registry
+ * fallback (PEP-052): a file's behavior depends only on its own imports and the
+ * instances visible in their modules.
  *
  * @packageDocumentation
  */
@@ -21,13 +24,12 @@ import {
   instanceScanner as defaultScanner,
   type ScannedInstance,
 } from "./instance-scanner.js";
-import { findInstance } from "./typeclass.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type ResolutionSource = "local-scope" | "explicit-import" | "module-scan" | "registry";
+export type ResolutionSource = "local-scope" | "explicit-import" | "module-scan";
 
 export interface ResolvedInstance {
   kind: "resolved";
@@ -144,7 +146,7 @@ function isTypeMatch(
  * Resolve a typeclass instance for a given type.
  *
  * Searches the scope using Scala 3-style precedence rules:
- * local scope > explicit imports > module-level search > registry fallback.
+ * local scope > explicit imports > module-level search.
  *
  * @param ctx - The macro context (provides program, typeChecker, sourceFile)
  * @param tcName - Typeclass name (e.g., "Ord")
@@ -165,11 +167,7 @@ export function resolveInstance(
   if (localResult) return localResult;
 
   // Stage 2 & 3: Imports (explicit and module-level)
-  const importResult = resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
-  if (importResult) return importResult;
-
-  // Stage 4: Registry fallback
-  return resolveFromRegistry(ctx, tcName, forType, forTypeString);
+  return resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
 }
 
 function resolveFromLocalScope(
@@ -249,28 +247,6 @@ function resolveFromImports(
 
   // Stage 3 result
   return pickResult(moduleMatches, tcName, forType);
-}
-
-function resolveFromRegistry(
-  _ctx: MacroContext,
-  tcName: string,
-  forType: ts.Type,
-  forTypeString: string
-): ResolutionResult {
-  // Registry fallback: skip scope check — if we got here, scanner-based
-  // resolution didn't find anything, so fall back unconditionally
-  const info = findInstance(tcName, forTypeString);
-  if (!info) return undefined;
-
-  return {
-    kind: "resolved",
-    typeclassName: tcName,
-    forType,
-    forTypeString,
-    exportName: info.instanceName,
-    sourceModule: info.sourceModule || "",
-    source: "registry",
-  };
 }
 
 // ============================================================================

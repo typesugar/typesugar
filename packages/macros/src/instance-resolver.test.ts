@@ -203,31 +203,8 @@ export const x = Ord;
     }
   });
 
-  it("falls back to registry", () => {
-    const { ctx, scanner, getType } = createResolverContext(
-      {
-        "main.ts": `export const x = 1;`,
-      },
-      "main.ts"
-    );
-
-    // Push a fake instance into the registry
-    instanceRegistry.push({
-      typeclassName: "Ord",
-      forType: "number",
-      instanceName: "ordNumber",
-      derived: false,
-    });
-
-    const result = resolveInstance(ctx, "Ord", getType("number"), scanner);
-
-    expect(result).toBeDefined();
-    expect(result!.kind).toBe("resolved");
-    if (result!.kind === "resolved") {
-      expect(result!.exportName).toBe("ordNumber");
-      expect(result!.source).toBe("registry");
-    }
-  });
+  // NOTE: the legacy "falls back to registry" test was removed — PEP-052 deleted
+  // the process-global registry fallback; resolution is now purely scope-based.
 
   it("local scope beats explicit import", () => {
     const { ctx, scanner, getType } = createResolverContext(
