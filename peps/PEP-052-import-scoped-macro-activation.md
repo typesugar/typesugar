@@ -283,17 +283,34 @@ implementation; it doesn't affect the design.)
 - std ships `@op` tags + `@typesugar/std/syntax/{eq,eq/ops,ord,ord/ops}` markers;
   std `Eq`/`Ord` operators resolve through the public mechanism, no builtin magic.
 
-**Deferred to later waves (tracked — none of this is "broken", it still works via
-the still-present global registry until migrated):**
+**Status of the registry removal:** the two USER-FACING resolution paths are now
+fully **registry-free in BOTH transformers** (main + transformer-core/playground):
 
-1. **Method-syntax scoping.** Instance lookup is now **registry-free**:
-   `tryResolveTypeclassMethod` resolves `receiver.method()` from scope — an
-   imported/local `@impl`/`@instance` via `resolveInstance`, or a `@derive(TC)`
-   companion detected on the receiver's type (emitted `<Type>.<TC>`). It no longer
-   calls `findInstance`. REMAINING: the typeclass-_definition_ candidate lookup still
-   uses `getTypeclassesForMethod` (the definition registry), and the path is not yet
-   gated on `@syntax-methods` activation (the activation state is tracked but unused
-   for methods — gating is the breaking flip).
+- **Operators** (`a === b`, `a < b`): import-scoped (activation marker or in-file
+  `@typeclass`), instances from scope. The typeclass-definition lookup reads the
+  **op-index** (seeded with `STANDARD_TYPECLASS_DEFS` as static built-in metadata,
+  source `@typeclass` interfaces authoritative), NOT the mutable `typeclassRegistry`.
+- **Instance-method sugar** (`p.equals()`): candidates from the op-index
+  (`getTypeclassesDeclaringMethod`), instances via `resolveInstance` + `@derive`
+  companion detection. No `findInstance`.
+
+This fixes the cross-file leakage motivation. **The deep remaining work** is removing
+`instanceRegistry` from the INTERNAL machinery where it is still load-bearing:
+
+- `@derive` field-instance resolution (deriving `Eq<Point>` needs `Eq<number>` for the
+  `number` field — currently from the registry's primitive instances);
+- do-notation / comprehensions FlatMap/ParCombine detection (by type-constructor);
+- `implicits`, `generic`-expansion, `primitives` (writers), `erased` (reader).
+
+Cleanly removing it needs a **static built-in primitive-instance table** (analogous to
+the op-index seed) for derivation, plus scope-based resolution for user instances —
+not the user-facing ambient operator/method behavior (already fixed). Tracked below.
+
+Deferred (the registry stays populated for the above until migrated — nothing broken):
+
+1. **Method-syntax `@syntax-methods` gating** — method sugar resolves from scope but
+   is not yet gated on an activation import (the breaking flip; activation state is
+   already tracked).
 2. **Re-ship remaining instances** as scanner-discoverable `@impl` + per-package
    `<pkg>/syntax/<tc>` markers (const form), and **empty the prelude** so non-Eq/Ord
    typeclasses also stop being ambient.
@@ -307,15 +324,15 @@ the still-present global registry until migrated):**
    `tryExtractInstanceFromSource` already covers fp/math/fusion instances by symbol —
    so the builtins/registry can be retired once every inlined instance has `@impl`
    source in-program. (Verify the full specialization suite when removing.)
-4. **Second operator path in `transformer-core`** (`rewriting.ts`
-   `tryRewriteTypeclassOperator`, used by the **playground**) is still registry-based
-   and ungated — so the playground currently rewrites operators ambiently. Migrate it
-   to the same activation gate + scope resolution + import injection (ideally DRY the
-   two copies into one). Until then it keeps working via the registry.
+4. **Second operator path in `transformer-core`** (playground) — **DONE**: migrated to
+   the gated, scope-based model (`scanImportsForScope` wired into its transform; the
+   registry-based inference helpers removed). The playground is now import-scoped for
+   operators.
 5. **Delete the global registry objects** (`instanceRegistry`/`typeclassRegistry`/
    `STANDARD_TYPECLASS_DEFS`) and the `coherence.ts` `instances` map (fold into the
-   resolver's `ambiguous` result) — only after consumers (1)–(4) are migrated. Then
-   remove `clearRegistries`/`clearSyntaxRegistry` from test setup.
+   resolver's `ambiguous` result) — only after the internal derivation/do-notation/
+   implicits consumers are migrated (see "deep remaining work" above). Then remove
+   `clearRegistries`/`clearSyntaxRegistry` from test setup.
 6. **Operator type-inference parity.** Nested operator chains (`(a + b) === c`),
    unannotated-initializer inference, and union-member instance matching are not
    ported to the scope-based resolver and currently fall through to native.
