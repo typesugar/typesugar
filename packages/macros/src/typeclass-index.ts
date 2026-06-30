@@ -1,0 +1,140 @@
+/**
+ * Typeclass declaration index (PEP-052).
+ *
+ * A generic, registry-free source of typeclass operator/method metadata. Given a
+ * `ts.Program`, it discovers every `@typeclass`-annotated interface in scope and
+ * reads each member's `@op <token>` JSDoc tag, producing a per-typeclass map from
+ * operator token → method name (and the set of method names).
+ *
+ * This replaces the hardcoded `STANDARD_TYPECLASS_DEFS` + global `typeclassRegistry`
+ * for the operator/method-resolution path: the compiler special-cases no typeclass,
+ * and a third-party `@typeclass` is read identically to std's. The index caches its
+ * result per `ts.Program`; watch/LSP rebuilds produce a fresh program, so the cache
+ * invalidates naturally.
+ *
+ * @packageDocumentation
+ */
+
+import * as ts from "typescript";
+import { extractOpFromJSDoc } from "./typeclass.js";
+
+/** Operator/method metadata for a single typeclass, read from its declaration. */
+export interface TypeclassOpInfo {
+  /** The typeclass name (e.g., "Eq"). */
+  name: string;
+  /** Map from operator token (e.g., "===") to the method it dispatches to (e.g., "equals"). */
+  opToMethod: Map<string, string>;
+  /** All method names declared by the typeclass interface. */
+  methodNames: Set<string>;
+}
+
+const indexCache = new WeakMap<ts.Program, Map<string, TypeclassOpInfo>>();
+
+/** Does this declaration carry a `@typeclass` JSDoc tag? */
+function hasTypeclassTag(node: ts.Node): boolean {
+  return ts.getJSDocTags(node).some((tag) => tag.tagName.text === "typeclass");
+}
+
+/** Read a single `@typeclass` interface declaration into a {@link TypeclassOpInfo}. */
+function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo {
+  const opToMethod = new Map<string, string>();
+  const methodNames = new Set<string>();
+
+  for (const member of iface.members) {
+    if (!member.name || !ts.isIdentifier(member.name)) continue;
+    const methodName = member.name.text;
+    methodNames.add(methodName);
+
+    const op = extractOpFromJSDoc(member);
+    if (op) opToMethod.set(op, methodName);
+  }
+
+  return { name: iface.name.text, opToMethod, methodNames };
+}
+
+/** Build (and cache) the typeclass index for a program. */
+function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
+  const cached = indexCache.get(program);
+  if (cached) return cached;
+
+  const index = new Map<string, TypeclassOpInfo>();
+  for (const sourceFile of program.getSourceFiles()) {
+    // Default lib files (lib.es*.d.ts) never carry @typeclass — skip the scan cost.
+    if (program.isSourceFileDefaultLibrary(sourceFile)) continue;
+
+    for (const stmt of sourceFile.statements) {
+      if (!ts.isInterfaceDeclaration(stmt)) continue;
+      if (!hasTypeclassTag(stmt)) continue;
+
+      const info = readTypeclassInterface(stmt);
+      const existing = index.get(info.name);
+      if (existing) {
+        // Same-named typeclass declared in multiple modules (e.g. std `Eq` vs a
+        // third-party `Eq`): union their method names, but for op→method mappings
+        // keep the FIRST declaration on conflict rather than clobbering. Clobbering
+        // could map `===` to the wrong method (one decl's `equals` vs another's
+        // `eq`) and emit a call to a method the resolved instance doesn't have.
+        // (A fully correct fix would key activation by module, not bare name.)
+        for (const [op, method] of info.opToMethod) {
+          if (!existing.opToMethod.has(op)) existing.opToMethod.set(op, method);
+        }
+        for (const m of info.methodNames) existing.methodNames.add(m);
+      } else {
+        index.set(info.name, info);
+      }
+    }
+  }
+
+  indexCache.set(program, index);
+  return index;
+}
+
+/**
+ * Get the operator/method metadata for a typeclass by name, read generically from
+ * its `@typeclass` declaration in the program. Returns `undefined` if no such
+ * typeclass is declared.
+ */
+export function getOpMapForTypeclass(
+  program: ts.Program,
+  tcName: string
+): TypeclassOpInfo | undefined {
+  return buildIndex(program).get(tcName);
+}
+
+/**
+ * Among a set of activated typeclasses, find those whose declaration maps the
+ * given operator token, returning `{ typeclass, method }` candidates. This is the
+ * registry-free replacement for `getSyntaxForOperator`, scoped to the typeclasses
+ * the using file actually activated via `@syntax-operators` imports.
+ */
+export function getOperatorCandidates(
+  program: ts.Program,
+  activatedTypeclasses: Iterable<string>,
+  op: string
+): Array<{ typeclass: string; method: string }> {
+  const candidates: Array<{ typeclass: string; method: string }> = [];
+  for (const tc of activatedTypeclasses) {
+    const info = getOpMapForTypeclass(program, tc);
+    const method = info?.opToMethod.get(op);
+    if (method) candidates.push({ typeclass: tc, method });
+  }
+  return candidates;
+}
+
+/**
+ * Among a set of activated typeclasses, find those whose declaration declares the
+ * given method name, returning `{ typeclass, method }` candidates. Registry-free
+ * replacement for `getTypeclassesForMethod`, scoped to activated method syntax.
+ */
+export function getMethodCandidates(
+  program: ts.Program,
+  activatedTypeclasses: Iterable<string>,
+  methodName: string
+): Array<{ typeclass: string; method: string }> {
+  const candidates: Array<{ typeclass: string; method: string }> = [];
+  for (const tc of activatedTypeclasses) {
+    const info = getOpMapForTypeclass(program, tc);
+    if (info?.methodNames.has(methodName)) candidates.push({ typeclass: tc, method: methodName });
+  }
+  return candidates;
+}

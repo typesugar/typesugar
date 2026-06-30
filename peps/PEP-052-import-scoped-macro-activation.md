@@ -1,6 +1,6 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
-**Status:** Draft (2026-06-29)
+**Status:** In Progress (2026-06-30) — Wave 1 (generic engine + Eq/Ord, remove global registry for that path)
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")

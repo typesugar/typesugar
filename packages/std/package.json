@@ -47,6 +47,26 @@
       "types": "./dist/macros/index.d.ts",
       "import": "./dist/macros/index.js",
       "require": "./dist/macros/index.cjs"
+    },
+    "./syntax/eq": {
+      "types": "./dist/syntax/eq.d.ts",
+      "import": "./dist/syntax/eq.js",
+      "require": "./dist/syntax/eq.cjs"
+    },
+    "./syntax/eq/ops": {
+      "types": "./dist/syntax/eq/ops.d.ts",
+      "import": "./dist/syntax/eq/ops.js",
+      "require": "./dist/syntax/eq/ops.cjs"
+    },
+    "./syntax/ord": {
+      "types": "./dist/syntax/ord.d.ts",
+      "import": "./dist/syntax/ord.js",
+      "require": "./dist/syntax/ord.cjs"
+    },
+    "./syntax/ord/ops": {
+      "types": "./dist/syntax/ord/ops.d.ts",
+      "import": "./dist/syntax/ord/ops.js",
+      "require": "./dist/syntax/ord/ops.cjs"
     }
   },
   "scripts": {

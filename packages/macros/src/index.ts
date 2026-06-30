@@ -265,6 +265,12 @@ export {
   type ResolutionResult,
   type ResolutionSource,
 } from "./instance-resolver.js";
+export {
+  getOpMapForTypeclass,
+  getOperatorCandidates,
+  getMethodCandidates,
+  type TypeclassOpInfo,
+} from "./typeclass-index.js";
 
 // --- Phase 1.1: Quasiquoting ---
 export {

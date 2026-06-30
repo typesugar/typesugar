@@ -57,6 +57,8 @@ import {
   // Instance resolution (PEP-038)
   resolveInstance,
   type ResolvedInstance,
+  // Generic typeclass op/method index (PEP-052)
+  getOperatorCandidates,
 } from "@typesugar/macros";
 
 import {
@@ -1166,7 +1168,7 @@ export default function macroTransformerFactory(
 
       // Scan for imports and opt-out directives
       profiler.start("perFile.scanImportsForScope");
-      scanImportsForScope(sourceFile, globalResolutionScope);
+      scanImportsForScope(sourceFile, globalResolutionScope, program);
       profiler.end("perFile.scanImportsForScope");
 
       // Load macro packages based on this file's imports.
@@ -1915,7 +1917,7 @@ class MacroTransformer {
 
       // For source files, check both directive and decorator
       if (fileName !== this.ctx.sourceFile.fileName) {
-        scanImportsForScope(sourceFile, globalResolutionScope);
+        scanImportsForScope(sourceFile, globalResolutionScope, this.ctx.program);
       }
 
       if (globalResolutionScope.hasUseExtension(fileName)) {
@@ -6595,44 +6597,60 @@ class MacroTransformer {
     const opString = getOperatorString(node.operatorToken.kind);
     if (!opString) return undefined;
 
-    const entries = getSyntaxForOperator(opString);
-    if (!entries || entries.length === 0) return undefined;
+    // PEP-052 activation gate: an operator only rewrites if the using file
+    // activated a typeclass that maps this operator token — either by importing a
+    // `@syntax-operators <TC>` marker module, or by defining the typeclass in this
+    // file ("you don't import what you define"). No activation → native operator,
+    // byte-for-byte unchanged.
+    const sfn = this.ctx.sourceFile.fileName;
+    const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
+    const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+    const activatedForOps =
+      definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
+    if (activatedForOps.size === 0) return undefined;
 
-    // Get the type of the left operand, inferring from nested binary expressions if needed.
-    // Wrap in try/catch: synthetic nodes from macro-generated code (e.g. assert IIFE)
-    // may crash TypeScript's checker in getTypeOfSymbol → getCheckFlags when their
-    // symbols lack initialized links.  Bail out and leave the expression untouched.
-    let unwrappedLeft: ts.Expression = node.left;
-    while (ts.isParenthesizedExpression(unwrappedLeft)) {
-      unwrappedLeft = unwrappedLeft.expression;
-    }
+    const candidates = getOperatorCandidates(this.ctx.program, activatedForOps, opString);
+    if (candidates.length === 0) return undefined;
 
-    let typeName: string;
-    try {
-      if (ts.isBinaryExpression(unwrappedLeft)) {
-        const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-        typeName =
-          inferred ??
-          this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-      } else if (ts.isIdentifier(unwrappedLeft)) {
-        // For variable references, check if the initializer is a binary expression we'd rewrite
-        const inferred = this.inferIdentifierResultType(unwrappedLeft);
-        typeName =
-          inferred ??
-          this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(node.left));
-      } else {
-        const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-        typeName = this.ctx.typeChecker.typeToString(leftType);
-      }
-    } catch {
-      // Type checker crashed on a synthetic node — skip operator rewriting
+    // Guard: don't rewrite comparisons with null or undefined literals.
+    // `x === undefined` / `x === null` must stay native — rewriting to
+    // Eq.equals(x, undefined) crashes at runtime.
+    if (isNullOrUndefinedExpression(node.right) || isNullOrUndefinedExpression(node.left)) {
       return undefined;
     }
-    const baseTypeName = stripTypeArguments(typeName);
-    const typeArg = extractTypeArgumentsContent(typeName) ?? "";
 
-    // Skip primitive types - native JS operators work correctly and we don't want to
-    // generate unnecessary method calls or require imports
+    // Resolve the operand type (used for the primitive skip, logging, and the
+    // scope-based instance search). Wrap in try/catch: synthetic nodes from
+    // macro-generated code may crash the checker.
+    //
+    // NOTE (PEP-052 wave 1, deferred): we use the checker's type of `node.left`
+    // directly. The legacy path additionally inferred result types through nested
+    // operator chains (`(a + b) === c`) and unannotated initializers, and matched
+    // instances declared on a union via member-type widening. Those are not yet
+    // ported to the scope-based resolver (`resolveInstance` requires exact
+    // bidirectional type match), so such cases currently fall through to native.
+    // Re-introducing them on top of the resolver is tracked for a later wave.
+    let leftType: ts.Type;
+    let rightType: ts.Type;
+    let typeName: string;
+    try {
+      leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
+      rightType = this.ctx.typeChecker.getTypeAtLocation(node.right);
+      typeName = this.ctx.typeChecker.typeToString(leftType);
+    } catch {
+      return undefined;
+    }
+
+    // Guard when either operand's *type* is null | undefined (e.g., `x == null`).
+    if (
+      (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
+      (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
+    ) {
+      return undefined;
+    }
+
+    // Skip primitive types — native JS operators are already correct and we don't
+    // want to generate unnecessary method calls or require imports.
     const PRIMITIVE_TYPES = new Set([
       "number",
       "string",
@@ -6643,90 +6661,50 @@ class MacroTransformer {
       "any",
       "unknown",
     ]);
-    if (PRIMITIVE_TYPES.has(baseTypeName)) {
+    if (PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) {
       return undefined;
     }
 
-    let matchedEntry: { typeclass: string; method: string } | undefined;
-    let matchedInstance:
-      | {
-          typeclassName: string;
-          forType: string;
-          instanceName: string;
-          companionPath?: string;
-          sourceModule?: string;
-        }
-      | undefined;
-
-    const sfn = this.ctx.sourceFile.fileName;
-    for (const entry of entries) {
-      // First try exact match
-      let inst =
-        findInstance(entry.typeclass, typeName, sfn) ??
-        findInstance(entry.typeclass, baseTypeName, sfn);
-
-      // If no exact match, try to find an instance via union membership
-      // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)
-      if (!inst) {
-        const candidateInstances = instanceRegistry.filter(
-          (i) => i.typeclassName === entry.typeclass
+    // Search activated typeclasses for an instance for the operand type, resolved
+    // purely from scope (imports + companions) — no global registry. Two activated
+    // typeclasses both resolving an instance for this op/type is an ambiguity error
+    // (local coherence).
+    let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
+    for (const candidate of candidates) {
+      const result = resolveInstance(this.ctx, candidate.typeclass, leftType);
+      if (!result) continue;
+      if (result.kind === "ambiguous") {
+        this.ctx.reportError(
+          node,
+          `Ambiguous ${candidate.typeclass} instance for type '${typeName}': ` +
+            `${result.candidates.map((c) => c.exportName).join(", ")}. ` +
+            `Import exactly one instance to disambiguate.`
         );
-        for (const candidate of candidateInstances) {
-          const candidateBase = stripTypeArguments(candidate.forType);
-          const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-          const members = this.getUnionMembers(candidateBase);
-          if (
-            members?.has(baseTypeName) &&
-            (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
-          ) {
-            inst = candidate;
-            break;
-          }
-        }
+        return undefined;
       }
-
-      if (inst) {
-        if (matchedEntry) {
-          this.ctx.reportError(
-            node,
-            `Ambiguous operator '${opString}' for type '${typeName}': ` +
-              `both ${matchedEntry.typeclass}.${matchedEntry.method} and ` +
-              `${entry.typeclass}.${entry.method} apply. ` +
-              `Use explicit method calls to disambiguate.`
-          );
-          return undefined;
-        }
-        matchedEntry = entry;
-        matchedInstance = inst;
+      if (matched) {
+        this.ctx.reportError(
+          node,
+          `Ambiguous operator '${opString}' for type '${typeName}': ` +
+            `both ${matched.typeclass}.${matched.method} and ` +
+            `${candidate.typeclass}.${candidate.method} apply. ` +
+            `Use explicit method calls to disambiguate.`
+        );
+        return undefined;
       }
+      matched = { typeclass: candidate.typeclass, method: candidate.method, resolved: result };
     }
 
-    if (!matchedEntry || !matchedInstance) {
-      return undefined;
-    }
-
-    // Guard: don't rewrite comparisons with null or undefined.
-    // `x === undefined` and `x === null` must stay as native checks —
-    // rewriting to Eq.equals(x, undefined) crashes at runtime.
-    if (isNullOrUndefinedExpression(node.right) || isNullOrUndefinedExpression(node.left)) {
-      return undefined;
-    }
-
-    // Also guard when either operand's *type* is null | undefined (e.g., `x == null`).
-    // getTypeAtLocation always returns a type; flags check is safe.
-    const rightType = this.ctx.typeChecker.getTypeAtLocation(node.right);
-    const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-    if (
-      (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
-      (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
-    ) {
+    // Operator activated but no instance for T → native fallback (PEP-052 decision:
+    // friendlier than a hard error since `===` is already valid TS).
+    if (!matched) {
       return undefined;
     }
 
     if (this.verbose) {
       console.log(
         `[typesugar] Rewriting operator: ${typeName} ${opString} → ` +
-          `${matchedEntry.typeclass}.${matchedEntry.method}()`
+          `${matched.typeclass}.${matched.method}()`
       );
     }
 
@@ -6734,43 +6712,26 @@ class MacroTransformer {
     const left = ts.visitNode(node.left, this.visit.bind(this)) as ts.Expression;
     const right = ts.visitNode(node.right, this.visit.bind(this)) as ts.Expression;
 
-    // Try zero-cost inlining if instance methods are available
-    const dictMethodMap = getInstanceMethods(
-      matchedInstance.companionPath || matchedInstance.instanceName
-    );
-    if (dictMethodMap) {
-      const dictMethod = dictMethodMap.methods.get(matchedEntry.method);
-      if (dictMethod && dictMethod.source) {
-        // TODO: Full inlining will be added in Step 6 (auto-specialization).
-        // For now, fall through to the method call below.
-      }
+    // Schedule an import if the instance comes from another module. Scope-resolved
+    // instances carry an `importSpecifier`; registry-fallback results carry only a
+    // `sourceModule` — use whichever is present so the emitted reference resolves
+    // (the bare export name would otherwise be unbound). Local-scope instances need
+    // no import.
+    const importModule = matched.resolved.importSpecifier || matched.resolved.sourceModule;
+    if (importModule && matched.resolved.source !== "local-scope") {
+      this.scheduleInstanceImport(matched.resolved.exportName, importModule);
     }
 
-    // If the instance comes from another module, schedule an import injection
-    // With companion paths, we import the base type (e.g., "Point" from "Point.Eq")
-    const importName = matchedInstance.companionPath
-      ? matchedInstance.companionPath.split(".")[0]
-      : matchedInstance.instanceName;
-    if (matchedInstance.sourceModule && !this.isAlreadyImported(importName)) {
-      const key = `${importName}::${matchedInstance.sourceModule}`;
-      if (!this.pendingTypeRewriteImports.has(key)) {
-        this.pendingTypeRewriteImports.set(key, {
-          name: importName,
-          module: matchedInstance.sourceModule,
-        });
-      }
-    }
-
-    // Emit instanceRef.method(left, right)
-    // Use companion path if available (e.g., Point.Eq.equals via namespace merging)
-    const instName = matchedInstance.companionPath || matchedInstance.instanceName;
+    // Emit instanceRef.method(left, right). The export name may be a companion
+    // member path (e.g. "Point.Eq") — emit a property access in that case.
+    const instName = matched.resolved.exportName;
     const instanceRef = instName.includes(".")
       ? factory.createPropertyAccessExpression(
           factory.createIdentifier(instName.split(".")[0]),
           instName.split(".")[1]
         )
       : factory.createIdentifier(instName);
-    const methodAccess = factory.createPropertyAccessExpression(instanceRef, matchedEntry.method);
+    const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
     const rewritten = factory.createCallExpression(methodAccess, undefined, [
       stripCommentsDeep(left),
       stripCommentsDeep(right),

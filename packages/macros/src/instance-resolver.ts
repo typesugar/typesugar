@@ -66,19 +66,32 @@ function getImportMap(ctx: MacroContext): ImportMapEntry[] {
   const cached = importMapCache.get(key);
   if (cached) return cached;
 
+  const checker = ctx.typeChecker;
   const entries: ImportMapEntry[] = [];
   for (const stmt of ctx.sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
     if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
 
     const specifier = (stmt.moduleSpecifier as ts.StringLiteral).text;
-    const resolved = ts.resolveModuleName(
-      specifier,
-      ctx.sourceFile.fileName,
-      ctx.program.getCompilerOptions(),
-      ts.sys
+
+    // Resolve via the checker (respects the program's module resolution — works
+    // for on-disk and virtual/in-memory hosts alike). Fall back to ts.sys-based
+    // resolution only if the symbol can't be resolved.
+    let resolvedPath: string | undefined;
+    const moduleSymbol = checker.getSymbolAtLocation(stmt.moduleSpecifier);
+    const moduleFile = moduleSymbol?.declarations?.find((d): d is ts.SourceFile =>
+      ts.isSourceFile(d)
     );
-    const resolvedPath = resolved.resolvedModule?.resolvedFileName;
+    resolvedPath = moduleFile?.fileName;
+    if (!resolvedPath) {
+      const resolved = ts.resolveModuleName(
+        specifier,
+        ctx.sourceFile.fileName,
+        ctx.program.getCompilerOptions(),
+        ts.sys
+      );
+      resolvedPath = resolved.resolvedModule?.resolvedFileName;
+    }
     if (!resolvedPath) continue;
 
     const namedImports: string[] = [];
@@ -169,10 +182,11 @@ function resolveFromLocalScope(
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
 
-  const moduleSymbol = typeChecker.getSymbolAtLocation(sourceFile);
-  if (!moduleSymbol) return undefined;
-
-  const scanned = scanner.scanModule(typeChecker, moduleSymbol, sourceFile.fileName);
+  // Scan the file's top-level declarations directly (not just module exports), so
+  // a `@impl`/`@instance` const that is in local scope but NOT exported is still
+  // found — and found independent of declaration order. This is the registry-free
+  // replacement for instances the global registry used to provide.
+  const scanned = scanner.scanLocalFile(typeChecker, sourceFile);
   const matches = filterMatches(
     typeChecker,
     scanned,

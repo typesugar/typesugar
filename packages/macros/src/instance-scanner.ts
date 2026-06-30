@@ -110,37 +110,101 @@ export class InstanceScanner {
     if (!declarations || declarations.length === 0) return results;
 
     for (const decl of declarations) {
-      // JSDoc attaches to the VariableStatement, not the VariableDeclaration.
-      // Walk up if needed.
-      const stmtNode =
-        ts.isVariableDeclaration(decl) && decl.parent?.parent ? decl.parent.parent : decl;
+      results.push(...this.scanDeclaration(typeChecker, decl, exportName, resolvedPath));
+    }
 
-      // Strategy 1: @impl JSDoc tag
-      const implResult = this.extractFromImplTag(typeChecker, stmtNode, exportName, resolvedPath);
-      if (implResult) {
-        results.push(implResult);
-        continue; // @impl tag takes precedence
+    return results;
+  }
+
+  /**
+   * Extract instance info from a single declaration node (a variable declaration
+   * or statement). Shared by the export-based scan ({@link scanExport}) and the
+   * local-file scan ({@link scanLocalFile}), so non-exported instances are found
+   * identically to exported ones.
+   */
+  private scanDeclaration(
+    typeChecker: ts.TypeChecker,
+    decl: ts.Node,
+    exportName: string,
+    resolvedPath: string
+  ): ScannedInstance[] {
+    const results: ScannedInstance[] = [];
+
+    // JSDoc attaches to the VariableStatement, not the VariableDeclaration.
+    // Walk up if needed.
+    const stmtNode =
+      ts.isVariableDeclaration(decl) && decl.parent?.parent ? decl.parent.parent : decl;
+
+    const varDecl = ts.isVariableDeclaration(decl)
+      ? decl
+      : ts.isVariableStatement(decl)
+        ? decl.declarationList.declarations[0]
+        : undefined;
+    const typeResult = varDecl
+      ? this.extractFromTypeAnnotation(typeChecker, varDecl, exportName, resolvedPath)
+      : null;
+
+    // Strategy 1: @impl/@instance JSDoc tag (takes precedence for the typeclass
+    // name). When the tag's type string is a non-primitive whose forType can't be
+    // resolved from the string alone (R2), borrow forType from the value's own
+    // type annotation (`: Eq<Point>`), which the checker resolves reliably.
+    const implResult = this.extractFromImplTag(typeChecker, stmtNode, exportName, resolvedPath);
+    if (implResult) {
+      // Only borrow forType from the annotation when it describes the SAME
+      // typeclass — otherwise `@impl Foo<X>` on `const v: Bar<Y>` would fabricate
+      // a `Foo<Y>` instance that was never declared.
+      if (
+        !implResult.forType &&
+        typeResult?.forType &&
+        typeResult.typeclassName === implResult.typeclassName
+      ) {
+        implResult.forType = typeResult.forType;
+        implResult.forTypeString = typeResult.forTypeString;
       }
+      results.push(implResult);
+      return results; // @impl tag takes precedence
+    }
 
-      // Strategy 2: Type annotation on variable declaration
-      const varDecl = ts.isVariableDeclaration(decl)
-        ? decl
-        : ts.isVariableStatement(decl)
-          ? decl.declarationList.declarations[0]
-          : undefined;
-      if (varDecl) {
-        const typeResult = this.extractFromTypeAnnotation(
-          typeChecker,
-          varDecl,
-          exportName,
-          resolvedPath
+    // Strategy 2: Type annotation on variable declaration
+    if (typeResult) {
+      results.push(typeResult);
+    }
+
+    return results;
+  }
+
+  /**
+   * Scan a source file's TOP-LEVEL declarations for typeclass instances,
+   * including **non-exported** ones. This is the local-scope path (PEP-052): a
+   * `@impl`/`@instance` const declared in the using file is in scope for that
+   * file whether or not it is exported, and must be discoverable without the
+   * global registry. Order-independent (scans the whole file).
+   *
+   * Cached per resolved path (the same key space as {@link scanModule}, suffixed
+   * to avoid collisions with the exports-only scan).
+   */
+  scanLocalFile(typeChecker: ts.TypeChecker, sourceFile: ts.SourceFile): ScannedInstance[] {
+    const cacheKey = sourceFile.fileName + "::local";
+    const cached = this.cache.get(cacheKey);
+    if (cached) return cached;
+
+    const results: ScannedInstance[] = [];
+    for (const stmt of sourceFile.statements) {
+      if (!ts.isVariableStatement(stmt)) continue;
+      for (const declaration of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue;
+        results.push(
+          ...this.scanDeclaration(
+            typeChecker,
+            declaration,
+            declaration.name.text,
+            sourceFile.fileName
+          )
         );
-        if (typeResult) {
-          results.push(typeResult);
-        }
       }
     }
 
+    this.cache.set(cacheKey, results);
     return results;
   }
 

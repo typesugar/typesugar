@@ -537,7 +537,7 @@ export function isExtensionEnabled(ctx: MacroContextImpl, symbol: ts.Symbol): bo
     }
 
     if (fileName !== ctx.sourceFile.fileName) {
-      scanImportsForScope(sourceFile, globalResolutionScope);
+      scanImportsForScope(sourceFile, globalResolutionScope, ctx.program);
     }
 
     if (globalResolutionScope.hasUseExtension(fileName)) {
