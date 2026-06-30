@@ -10,13 +10,13 @@ import * as ts from "typescript";
 
 import {
   getOperatorString,
-  getSyntaxForOperator,
-  findInstance,
   getInstanceMethods,
   createSpecializedFunction,
   isKindAnnotation,
   transformHKTDeclaration,
-  instanceRegistry,
+  getOperatorCandidates,
+  resolveInstance,
+  type ResolvedInstance,
 } from "@typesugar/macros";
 
 import {
@@ -394,169 +394,26 @@ export function tryTransformHKTDeclaration(
 }
 
 // ---------------------------------------------------------------------------
-// Operator rewriting helpers
+// Operator rewriting entry point (PEP-052: import-scoped, registry-free)
 // ---------------------------------------------------------------------------
 
-export function inferIdentifierResultType(
-  ctx: MacroContextImpl,
-  node: ts.Identifier
-): string | undefined {
-  const symbol = ctx.typeChecker.getSymbolAtLocation(node);
-  if (!symbol) return undefined;
-
-  const decls = symbol.getDeclarations();
-  if (!decls || decls.length === 0) return undefined;
-
-  for (const decl of decls) {
-    if (ts.isVariableDeclaration(decl) && decl.initializer) {
-      let init: ts.Expression = decl.initializer;
-      while (ts.isParenthesizedExpression(init)) {
-        init = init.expression;
-      }
-
-      if (ts.isBinaryExpression(init)) {
-        const inferred = inferBinaryExprResultType(ctx, init);
-        if (inferred) return inferred;
-      }
-    }
-  }
-
-  return undefined;
+function isNullOrUndefinedExpr(node: ts.Expression): boolean {
+  if (node.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isIdentifier(node) && node.text === "undefined") return true;
+  if (ts.isVoidExpression(node)) return true;
+  return false;
 }
 
-/**
- * Cache for union type alias member lookups. Maps a type alias name to
- * the set of base member names in its union, or null if not found/not a union.
- * Automatically cleared when the program instance changes.
- */
-const unionMemberCache = new Map<string, Set<string> | null>();
-let unionMemberCacheProgram: ts.Program | undefined;
-
-function getUnionMembers(ctx: MacroContextImpl, candidateBase: string): Set<string> | null {
-  if (ctx.program !== unionMemberCacheProgram) {
-    unionMemberCache.clear();
-    unionMemberCacheProgram = ctx.program;
-  }
-  if (unionMemberCache.has(candidateBase)) {
-    return unionMemberCache.get(candidateBase)!;
-  }
-
-  let result: Set<string> | null = null;
-  for (const sf of ctx.program.getSourceFiles()) {
-    for (const stmt of sf.statements) {
-      if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-        const aliasType = ctx.typeChecker.getTypeAtLocation(stmt.type);
-        if (aliasType.isUnion?.()) {
-          result = new Set<string>();
-          for (const unionMember of aliasType.types) {
-            const memberName = ctx.typeChecker.typeToString(unionMember);
-            result.add(stripTypeArguments(memberName));
-          }
-        }
-        break;
-      }
-    }
-    if (result !== null) break;
-  }
-
-  unionMemberCache.set(candidateBase, result);
-  return result;
-}
-
-/**
- * Search for a union type alias whose members include the operand's base type.
- * This handles the case where e.g. `Constant<T>` is a member of `Expression<T>`
- * and the Numeric instance is registered for `Expression`, not `Constant`.
- * Includes declaration files so that types from compiled packages are found.
- * Uses a cache to avoid repeated file scanning.
- */
-function findUnionMemberInstance(
-  ctx: MacroContextImpl,
-  candidate: { typeclassName: string; forType: string; instanceName: string; derived: boolean },
-  candidateBase: string,
-  candidateArg: string,
-  baseTypeName: string,
-  typeArg: string
-): typeof candidate | undefined {
-  const members = getUnionMembers(ctx, candidateBase);
-  if (
-    members?.has(baseTypeName) &&
-    (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
-  ) {
-    return candidate;
-  }
-  return undefined;
-}
-
-export function inferBinaryExprResultType(
-  ctx: MacroContextImpl,
-  node: ts.BinaryExpression
-): string | undefined {
-  const opString = getOperatorString(node.operatorToken.kind);
-  if (!opString) return undefined;
-
-  const entries = getSyntaxForOperator(opString);
-  if (!entries || entries.length === 0) return undefined;
-
-  let unwrappedLeft: ts.Expression = node.left;
-  while (ts.isParenthesizedExpression(unwrappedLeft)) {
-    unwrappedLeft = unwrappedLeft.expression;
-  }
-
-  let leftTypeName: string;
-  try {
-    if (ts.isBinaryExpression(unwrappedLeft)) {
-      const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
-      leftTypeName =
-        inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-    } else {
-      leftTypeName = ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
-    }
-  } catch {
-    // Type checker crashed on synthetic node — skip operator rewriting
-    return undefined;
-  }
-
-  const baseTypeName = stripTypeArguments(leftTypeName);
-  const typeArg = extractTypeArgumentsContent(leftTypeName) ?? "";
-
-  const currentFileName = ctx.sourceFile.fileName;
-  for (const entry of entries) {
-    let inst =
-      findInstance(entry.typeclass, leftTypeName, currentFileName) ??
-      findInstance(entry.typeclass, baseTypeName, currentFileName);
-
-    if (!inst) {
-      const candidateInstances = instanceRegistry.filter(
-        (i) => i.typeclassName === entry.typeclass
-      );
-      for (const candidate of candidateInstances) {
-        const candidateBase = stripTypeArguments(candidate.forType);
-        const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-
-        inst = findUnionMemberInstance(
-          ctx,
-          candidate,
-          candidateBase,
-          candidateArg,
-          baseTypeName,
-          typeArg
-        );
-        if (inst) break;
-      }
-    }
-
-    if (inst) {
-      return inst.forType;
-    }
-  }
-
-  return undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Operator rewriting entry point
-// ---------------------------------------------------------------------------
+const OPERATOR_PRIMITIVE_TYPES = new Set([
+  "number",
+  "string",
+  "boolean",
+  "bigint",
+  "null",
+  "undefined",
+  "any",
+  "unknown",
+]);
 
 export function tryRewriteTypeclassOperator(
   ctx: MacroContextImpl,
@@ -564,12 +421,8 @@ export function tryRewriteTypeclassOperator(
   visit: VisitFn,
   node: ts.BinaryExpression
 ): ts.Expression | undefined {
-  // Skip synthetic nodes (from macro-generated code like assert IIFE).
-  // The type checker crashes on nodes whose symbols lack initialized links.
-  if (node.pos === -1 || node.end === -1) {
-    return undefined;
-  }
-
+  // Skip synthetic nodes (from macro-generated code) — the checker can crash.
+  if (node.pos === -1 || node.end === -1) return undefined;
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }
@@ -577,104 +430,73 @@ export function tryRewriteTypeclassOperator(
   const opString = getOperatorString(node.operatorToken.kind);
   if (!opString) return undefined;
 
-  const entries = getSyntaxForOperator(opString);
-  if (!entries || entries.length === 0) return undefined;
+  // PEP-052 activation gate: rewrite only if the file activated a typeclass that
+  // maps this operator (imported `@syntax-operators` marker or in-file `@typeclass`).
+  const sfn = ctx.sourceFile.fileName;
+  const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
+  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  const activatedForOps =
+    definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
+  if (activatedForOps.size === 0) return undefined;
 
-  let unwrappedLeft: ts.Expression = node.left;
-  while (ts.isParenthesizedExpression(unwrappedLeft)) {
-    unwrappedLeft = unwrappedLeft.expression;
-  }
+  const candidates = getOperatorCandidates(ctx.program, activatedForOps, opString);
+  if (candidates.length === 0) return undefined;
 
+  if (isNullOrUndefinedExpr(node.right) || isNullOrUndefinedExpr(node.left)) return undefined;
+
+  let leftType: ts.Type;
+  let rightType: ts.Type;
   let typeName: string;
   try {
-    if (ts.isBinaryExpression(unwrappedLeft)) {
-      const inferred = inferBinaryExprResultType(ctx, unwrappedLeft);
-      typeName =
-        inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-    } else if (ts.isIdentifier(unwrappedLeft)) {
-      const inferred = inferIdentifierResultType(ctx, unwrappedLeft);
-      typeName =
-        inferred ?? ctx.typeChecker.typeToString(ctx.typeChecker.getTypeAtLocation(node.left));
-    } else {
-      const leftType = ctx.typeChecker.getTypeAtLocation(node.left);
-      typeName = ctx.typeChecker.typeToString(leftType);
-    }
+    leftType = ctx.typeChecker.getTypeAtLocation(node.left);
+    rightType = ctx.typeChecker.getTypeAtLocation(node.right);
+    typeName = ctx.typeChecker.typeToString(leftType);
   } catch {
-    // Type checker crashed on synthetic node — skip operator rewriting
-    return undefined;
-  }
-  const baseTypeName = stripTypeArguments(typeName);
-  const typeArg = extractTypeArgumentsContent(typeName) ?? "";
-
-  const PRIMITIVE_TYPES = new Set([
-    "number",
-    "string",
-    "boolean",
-    "bigint",
-    "null",
-    "undefined",
-    "any",
-    "unknown",
-  ]);
-  if (PRIMITIVE_TYPES.has(baseTypeName)) {
     return undefined;
   }
 
-  let matchedEntry: { typeclass: string; method: string } | undefined;
-  let matchedInstance:
-    | { typeclassName: string; forType: string; instanceName: string; derived: boolean }
-    | undefined;
+  if (
+    (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
+    (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
+  ) {
+    return undefined;
+  }
 
-  const sfn = ctx.sourceFile.fileName;
-  for (const entry of entries) {
-    let inst =
-      findInstance(entry.typeclass, typeName, sfn) ??
-      findInstance(entry.typeclass, baseTypeName, sfn);
+  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
 
-    if (!inst) {
-      const candidateInstances = instanceRegistry.filter(
-        (i) => i.typeclassName === entry.typeclass
+  // Resolve an instance for the operand type from scope (no global registry).
+  let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
+  for (const candidate of candidates) {
+    const result = resolveInstance(ctx, candidate.typeclass, leftType);
+    if (!result) continue;
+    if (result.kind === "ambiguous") {
+      ctx.reportError(
+        node,
+        `Ambiguous ${candidate.typeclass} instance for type '${typeName}': ` +
+          `${result.candidates.map((c) => c.exportName).join(", ")}. ` +
+          `Import exactly one instance to disambiguate.`
       );
-      for (const candidate of candidateInstances) {
-        const candidateBase = stripTypeArguments(candidate.forType);
-        const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-
-        inst = findUnionMemberInstance(
-          ctx,
-          candidate,
-          candidateBase,
-          candidateArg,
-          baseTypeName,
-          typeArg
-        );
-        if (inst) break;
-      }
+      return undefined;
     }
-
-    if (inst) {
-      if (matchedEntry) {
-        ctx.reportError(
-          node,
-          `Ambiguous operator '${opString}' for type '${typeName}': ` +
-            `both ${matchedEntry.typeclass}.${matchedEntry.method} and ` +
-            `${entry.typeclass}.${entry.method} apply. ` +
-            `Use explicit method calls to disambiguate.`
-        );
-        return undefined;
-      }
-      matchedEntry = entry;
-      matchedInstance = inst;
+    if (matched) {
+      ctx.reportError(
+        node,
+        `Ambiguous operator '${opString}' for type '${typeName}': both ` +
+          `${matched.typeclass}.${matched.method} and ` +
+          `${candidate.typeclass}.${candidate.method} apply. ` +
+          `Use explicit method calls to disambiguate.`
+      );
+      return undefined;
     }
+    matched = { typeclass: candidate.typeclass, method: candidate.method, resolved: result };
   }
 
-  if (!matchedEntry || !matchedInstance) {
-    return undefined;
-  }
+  if (!matched) return undefined;
 
   if (verbose) {
     console.log(
       `[typesugar] Rewriting operator: ${typeName} ${opString} → ` +
-        `${matchedEntry.typeclass}.${matchedEntry.method}()`
+        `${matched.typeclass}.${matched.method}()`
     );
   }
 
@@ -682,18 +504,17 @@ export function tryRewriteTypeclassOperator(
   const left = ts.visitNode(node.left, visit) as ts.Expression;
   const right = ts.visitNode(node.right, visit) as ts.Expression;
 
-  const dictMethodMap = getInstanceMethods(matchedInstance.instanceName);
-  if (dictMethodMap) {
-    const dictMethod = dictMethodMap.methods.get(matchedEntry.method);
-    if (dictMethod && dictMethod.source) {
-      // TODO: Full inlining will be added in Step 6 (auto-specialization).
-    }
-  }
-
-  const methodAccess = factory.createPropertyAccessExpression(
-    factory.createIdentifier(matchedInstance.instanceName),
-    matchedEntry.method
-  );
+  // Emit instanceRef.method(left, right). The export name may be a companion path
+  // (e.g. "Point.Eq"). Instances are expected to be imported by name or local;
+  // module-scan results assume the binding is in scope (matches prior behavior).
+  const instName = matched.resolved.exportName;
+  const instanceRef = instName.includes(".")
+    ? factory.createPropertyAccessExpression(
+        factory.createIdentifier(instName.split(".")[0]),
+        instName.split(".")[1]
+      )
+    : factory.createIdentifier(instName);
+  const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
   const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
   return preserveSourceMap(rewritten, node);
 }

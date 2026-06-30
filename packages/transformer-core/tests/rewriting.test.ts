@@ -48,9 +48,8 @@ import {
   tryStripOpaqueTypeAnnotation,
   tryStripOpaqueParamAnnotation,
   shouldStripOpaqueReturnType,
-  inferBinaryExprResultType,
-  inferIdentifierResultType,
 } from "../src/rewriting.js";
+import { scanImportsForScope, globalResolutionScope } from "@typesugar/core";
 import type { VisitFn } from "../src/transformer-utils.js";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +79,14 @@ function makeProgram(source: string, fileName = "test.ts"): Fixture {
   };
 
   const host = ts.createCompilerHost(options);
+  // Re-parse our fixture with setParentNodes=true so JSDoc tags (@typeclass/@impl/@op)
+  // are visible to ts.getJSDocTags — needed for PEP-052 activation/instance scanning.
+  const origGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (fn, lang, onErr, shouldCreate) => {
+    const sf = origGetSourceFile(fn, lang, onErr, shouldCreate);
+    if (sf && fn === filePath) return ts.createSourceFile(fn, sf.text, lang, true);
+    return sf;
+  };
   const program = ts.createProgram([filePath], options, host);
   const sourceFile = program.getSourceFile(filePath)!;
 
@@ -1013,12 +1020,29 @@ describe("tryRewriteTypeclassOperator", () => {
     });
   }
 
-  it("rewrites a + b to numericPoint.add(a, b) when an instance is registered", () => {
-    registerNumericForPoint();
+  it("rewrites a + b to numericPoint.add(a, b) when the typeclass + instance are in scope", () => {
+    // PEP-052: an in-file `@typeclass` (with `@op +`) activates operator syntax, and
+    // the `@impl` instance resolves from scope — no global registry.
+    const source = [
+      "/** @typeclass */",
+      "interface Numeric<A> {",
+      "  /** @op + */",
+      "  add(a: A, b: A): A;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Numeric<Point> */",
+      "const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+      "declare const a: Point;",
+      "declare const b: Point;",
+      "a + b;",
+    ].join("\n");
     const { result } = withContext(
-      `interface Point { x: number; y: number; }\ndeclare const a: Point;\ndeclare const b: Point;\na + b;`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[3] as ts.ExpressionStatement).expression as ts.BinaryExpression;
+      source,
+      (ctx, sf, visit, program) => {
+        scanImportsForScope(sf, globalResolutionScope, program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
         return tryRewriteTypeclassOperator(ctx, false, visit, expr);
       },
       "consumer.ts"
@@ -1074,56 +1098,9 @@ describe("tryRewriteTypeclassOperator", () => {
     expect(result).toBeUndefined();
   });
 
-  it("inferBinaryExprResultType returns the registered type name for a matching instance", () => {
-    registerNumericForPoint();
-    const { result } = withContext(
-      `interface Point { x: number; y: number; }\ndeclare const a: Point;\ndeclare const b: Point;\na + b;`,
-      (ctx, sf) => {
-        const expr = (sf.statements[3] as ts.ExpressionStatement).expression as ts.BinaryExpression;
-        return inferBinaryExprResultType(ctx, expr);
-      },
-      "consumer.ts"
-    );
-    expect(result).toBe("Point");
-  });
-
-  it("inferBinaryExprResultType returns undefined when no syntax mapping exists", () => {
-    // Standard typeclasses don't register the `&` (BitwiseAnd) operator.
-    const { result } = withContext(
-      `declare const a: number;\ndeclare const b: number;\na & b;`,
-      (ctx, sf) => {
-        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.BinaryExpression;
-        return inferBinaryExprResultType(ctx, expr);
-      },
-      "consumer.ts"
-    );
-    expect(result).toBeUndefined();
-  });
-
-  it("inferIdentifierResultType walks back to an initializer's binary expression", () => {
-    registerNumericForPoint();
-    const { result } = withContext(
-      `interface Point { x: number; y: number; }\ndeclare const a: Point;\ndeclare const b: Point;\nconst c = a + b;\nc;`,
-      (ctx, sf) => {
-        const id = (sf.statements[4] as ts.ExpressionStatement).expression as ts.Identifier;
-        return inferIdentifierResultType(ctx, id);
-      },
-      "consumer.ts"
-    );
-    expect(result).toBe("Point");
-  });
-
-  it("inferIdentifierResultType returns undefined for an identifier without a binary initializer", () => {
-    const { result } = withContext(
-      `const c = 1;\nc;`,
-      (ctx, sf) => {
-        const id = (sf.statements[1] as ts.ExpressionStatement).expression as ts.Identifier;
-        return inferIdentifierResultType(ctx, id);
-      },
-      "consumer.ts"
-    );
-    expect(result).toBeUndefined();
-  });
+  // NOTE: the `inferBinaryExprResultType` / `inferIdentifierResultType` helpers were
+  // removed with the registry-based operator path (PEP-052) — operand types now come
+  // straight from the checker, so those nested-inference helpers no longer exist.
 
   it("returns undefined for synthetic binary expressions (pos = -1)", () => {
     const synthetic = ts.factory.createBinaryExpression(
