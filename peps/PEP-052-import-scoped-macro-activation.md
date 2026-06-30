@@ -1,6 +1,6 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
-**Status:** In Progress (2026-06-30) — Wave 1 (generic engine + Eq/Ord, remove global registry for that path)
+**Status:** In Progress (2026-06-30) — Wave 1 landed (generic engine + Eq/Ord operators, resolver registry-fallback deleted); remaining migration deferred to later waves (see "Implementation status & deferred work")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -266,3 +266,55 @@ implementation; it doesn't affect the design.)
   fixture package in the test suite).
 - A file that imports no `@syntax-*` marker and no named macro is byte-for-byte
   unchanged by the transformer.
+
+## Implementation status & deferred work
+
+**Wave 1 (landed):** the generic import-scoped activation engine + Eq/Ord
+**operators**.
+
+- Activation-marker discovery (`@syntax-operators`/`@syntax-methods`), read via the
+  checker; markers are carried on an exported `const` so the JSDoc survives `.d.ts`
+  generation. A typeclass **defined in the using file** activates its own syntax
+  locally ("you don't import what you define").
+- A registry-free typeclass op/method index read from `@typeclass` + `@op` JSDoc.
+- Operator rewriting gated on activation and resolved purely from scope
+  (`resolveInstance`: local-scope incl. non-exported decls → explicit-import →
+  module-scan). **The process-global registry fallback in the resolver is deleted.**
+- std ships `@op` tags + `@typesugar/std/syntax/{eq,eq/ops,ord,ord/ops}` markers;
+  std `Eq`/`Ord` operators resolve through the public mechanism, no builtin magic.
+
+**Deferred to later waves (tracked — none of this is "broken", it still works via
+the still-present global registry until migrated):**
+
+1. **Method-syntax scoping.** `a.eq(b)` method sugar (`tryResolveTypeclassMethod`)
+   is still registry-based (`getTypeclassesForMethod` → `findInstance`) and not yet
+   gated on `@syntax-methods`. The activation state is already tracked; only the
+   consumer is unmigrated.
+2. **Re-ship remaining instances** (fp / math / fusion / collections) as
+   scanner-discoverable `@instance`/`@impl` + per-package `<pkg>/syntax/<tc>` markers
+   (const form), and **empty the prelude** so non-Eq/Ord typeclasses also stop being
+   ambient. (std Eq/Ord done.)
+3. **Inlining/specialization registry.** The separate `instanceMethodRegistry`
+   (zero-cost inlining codegen) is unchanged; replace it with scanner-fed method-body
+   extraction.
+4. **Second operator path in `transformer-core`** (`rewriting.ts`
+   `tryRewriteTypeclassOperator`, used by the **playground**) is still registry-based
+   and ungated — so the playground currently rewrites operators ambiently. Migrate it
+   to the same activation gate + scope resolution + import injection (ideally DRY the
+   two copies into one). Until then it keeps working via the registry.
+5. **Delete the global registry objects** (`instanceRegistry`/`typeclassRegistry`/
+   `STANDARD_TYPECLASS_DEFS`) and the `coherence.ts` `instances` map (fold into the
+   resolver's `ambiguous` result) — only after consumers (1)–(4) are migrated. Then
+   remove `clearRegistries`/`clearSyntaxRegistry` from test setup.
+6. **Operator type-inference parity.** Nested operator chains (`(a + b) === c`),
+   unannotated-initializer inference, and union-member instance matching are not
+   ported to the scope-based resolver and currently fall through to native.
+7. **Version-keyed caching.** Module-fact caches (scanner, importMap, markers,
+   op-index) are keyed by path/program; key them by source-file version for
+   watch/LSP incremental correctness, and clear them on pipeline invalidation.
+8. **Labels / HKT** activation (PEP Part 2) — `@syntax-labels` for
+   `requires:`/`ensures:`/do-notation and the `@hkt` declaration-scoped path.
+
+**Invariant for every deferred item:** the global registry remains in place and
+populated until its last consumer is migrated, so the build, the language service,
+and the playground are never left broken between waves.

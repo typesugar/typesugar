@@ -11,7 +11,6 @@ import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 
 import {
   getOperatorString,
-  getSyntaxForOperator,
   getTypeclassesForMethod,
   findInstance,
   getInstanceMethods,
@@ -1366,13 +1365,6 @@ class MacroTransformer {
    * and reuse the identifier.
    */
   private specCache = new SpecializationCache();
-
-  /**
-   * Cache for union type alias member lookups. Maps a type alias name to
-   * the set of base member names in its union, or null if not found/not a union.
-   * Avoids repeatedly scanning all source files (including .d.ts) for the same alias.
-   */
-  private unionMemberCache = new Map<string, Set<string> | null>();
 
   private inlinedInstanceNames = new Set<string>();
 
@@ -5644,11 +5636,15 @@ class MacroTransformer {
    * to the companion call `Companion.method(receiver, ...args)` (e.g. a derived
    * `p.equals(q)` → `Point.Eq.equals(p, q)`).
    *
-   * Mirrors the operator-rewrite resolution (`getSyntaxForOperator` → `findInstance`):
-   * map the method name to the typeclass(es) declaring it, then look up an instance
-   * for the receiver's type. Ambiguity (two typeclasses with the same method, both
-   * with an instance for the type) is an error — the user should call the companion
-   * form to disambiguate.
+   * Maps the method name to the typeclass(es) declaring it, then looks up an
+   * instance for the receiver's type. Ambiguity (two typeclasses with the same
+   * method, both with an instance for the type) is an error — the user should call
+   * the companion form to disambiguate.
+   *
+   * NOTE (PEP-052): this method-sugar path is still registry-based
+   * (`getTypeclassesForMethod` → `findInstance`) and NOT yet import-scoped. It is
+   * migrated to activation + scope-based resolution in a later wave (see the
+   * "Deferred to a later wave" section of PEP-052).
    */
   private tryResolveTypeclassMethod(
     node: ts.CallExpression,
@@ -6454,135 +6450,6 @@ class MacroTransformer {
    * instance of that typeclass gets rewritten to a direct method call
    * (or inlined for zero-cost).
    */
-  /**
-   * Infer the result type of an identifier by looking at its initializer.
-   * If the variable was assigned from a binary expression that would be rewritten,
-   * returns the instance's forType instead of the TypeChecker's inferred type.
-   */
-  private inferIdentifierResultType(node: ts.Identifier): string | undefined {
-    const symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
-    if (!symbol) return undefined;
-
-    const decls = symbol.getDeclarations();
-    if (!decls || decls.length === 0) return undefined;
-
-    for (const decl of decls) {
-      if (ts.isVariableDeclaration(decl) && decl.initializer) {
-        // Unwrap parentheses
-        let init: ts.Expression = decl.initializer;
-        while (ts.isParenthesizedExpression(init)) {
-          init = init.expression;
-        }
-
-        if (ts.isBinaryExpression(init)) {
-          const inferred = this.inferBinaryExprResultType(init);
-          if (inferred) return inferred;
-        }
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Get (or compute and cache) the set of base member names for a type alias.
-   * Returns null if the type alias is not found or is not a union.
-   */
-  private getUnionMembers(candidateBase: string): Set<string> | null {
-    if (this.unionMemberCache.has(candidateBase)) {
-      return this.unionMemberCache.get(candidateBase)!;
-    }
-
-    let result: Set<string> | null = null;
-    for (const sf of this.ctx.program.getSourceFiles()) {
-      for (const stmt of sf.statements) {
-        if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-          const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
-          if (aliasType.isUnion?.()) {
-            result = new Set<string>();
-            for (const unionMember of aliasType.types) {
-              const memberName = this.ctx.typeChecker.typeToString(unionMember);
-              result.add(stripTypeArguments(memberName));
-            }
-          }
-          break;
-        }
-      }
-      if (result !== null) break;
-    }
-
-    this.unionMemberCache.set(candidateBase, result);
-    return result;
-  }
-
-  /**
-   * Infer the result type of a binary expression, accounting for potential typeclass rewriting.
-   * If the expression would be rewritten to a typeclass method call, returns the instance's forType.
-   */
-  private inferBinaryExprResultType(node: ts.BinaryExpression): string | undefined {
-    const opString = getOperatorString(node.operatorToken.kind);
-    if (!opString) return undefined;
-
-    const entries = getSyntaxForOperator(opString);
-    if (!entries || entries.length === 0) return undefined;
-
-    // Unwrap parenthesized expressions
-    let unwrappedLeft: ts.Expression = node.left;
-    while (ts.isParenthesizedExpression(unwrappedLeft)) {
-      unwrappedLeft = unwrappedLeft.expression;
-    }
-
-    // Get the type of the left operand, recursively inferring if it's also a binary expression
-    let leftTypeName: string;
-    if (ts.isBinaryExpression(unwrappedLeft)) {
-      const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-      leftTypeName =
-        inferred ??
-        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-    } else {
-      leftTypeName = this.ctx.typeChecker.typeToString(
-        this.ctx.typeChecker.getTypeAtLocation(node.left)
-      );
-    }
-
-    const baseTypeName = stripTypeArguments(leftTypeName);
-    const typeArg = extractTypeArgumentsContent(leftTypeName) ?? "";
-
-    const currentFileName = this.ctx.sourceFile.fileName;
-    // Check if there's an instance for this type and operator
-    for (const entry of entries) {
-      let inst =
-        findInstance(entry.typeclass, leftTypeName, currentFileName) ??
-        findInstance(entry.typeclass, baseTypeName, currentFileName);
-
-      // Check union membership if no direct match
-      if (!inst) {
-        const candidateInstances = instanceRegistry.filter(
-          (i) => i.typeclassName === entry.typeclass
-        );
-        for (const candidate of candidateInstances) {
-          const candidateBase = stripTypeArguments(candidate.forType);
-          const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-          const members = this.getUnionMembers(candidateBase);
-          if (
-            members?.has(baseTypeName) &&
-            (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
-          ) {
-            inst = candidate;
-            break;
-          }
-        }
-      }
-
-      if (inst) {
-        // Found an instance - the result type is the instance's forType
-        return inst.forType;
-      }
-    }
-
-    return undefined;
-  }
-
   private tryRewriteTypeclassOperator(node: ts.BinaryExpression): ts.Expression | undefined {
     // Skip synthetic nodes (from macro-generated code like assert IIFE).
     // The type checker crashes on nodes whose symbols lack initialized links.
