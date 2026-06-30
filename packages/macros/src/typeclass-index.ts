@@ -26,6 +26,12 @@ export interface TypeclassOpInfo {
   opToMethod: Map<string, string>;
   /** All method names declared by the typeclass interface. */
   methodNames: Set<string>;
+  /**
+   * Operators that two same-named declarations mapped to DIFFERENT methods — the
+   * bare name is ambiguous for these, so they are excluded from `opToMethod` and
+   * yield no operator candidate (native fallback).
+   */
+  conflictedOps: Set<string>;
 }
 
 const indexCache = new WeakMap<ts.Program, Map<string, TypeclassOpInfo>>();
@@ -49,7 +55,7 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
     if (op) opToMethod.set(op, methodName);
   }
 
-  return { name: iface.name.text, opToMethod, methodNames };
+  return { name: iface.name.text, opToMethod, methodNames, conflictedOps: new Set() };
 }
 
 /** Build (and cache) the typeclass index for a program. */
@@ -70,13 +76,21 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
       const existing = index.get(info.name);
       if (existing) {
         // Same-named typeclass declared in multiple modules (e.g. std `Eq` vs a
-        // third-party `Eq`): union their method names, but for op→method mappings
-        // keep the FIRST declaration on conflict rather than clobbering. Clobbering
-        // could map `===` to the wrong method (one decl's `equals` vs another's
-        // `eq`) and emit a call to a method the resolved instance doesn't have.
-        // (A fully correct fix would key activation by module, not bare name.)
+        // third-party `Eq`). Union the method names. For op→method mappings: if the
+        // two declarations AGREE, keep it; if they CONFLICT (map the same operator
+        // to different methods), the bare name is ambiguous — drop that op entirely
+        // so the operator falls back to native rather than emitting a call to a
+        // method the resolved instance may not implement (silent miscompile).
+        // A fully correct fix keys activation by declaring module, not bare name.
         for (const [op, method] of info.opToMethod) {
-          if (!existing.opToMethod.has(op)) existing.opToMethod.set(op, method);
+          if (existing.conflictedOps.has(op)) continue;
+          const prev = existing.opToMethod.get(op);
+          if (prev === undefined) {
+            existing.opToMethod.set(op, method);
+          } else if (prev !== method) {
+            existing.opToMethod.delete(op);
+            existing.conflictedOps.add(op);
+          }
         }
         for (const m of info.methodNames) existing.methodNames.add(m);
       } else {

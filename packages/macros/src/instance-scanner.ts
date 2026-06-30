@@ -36,11 +36,31 @@ export interface ScannedInstance {
 /**
  * Scans module exports for typeclass instances.
  *
- * Caches results per resolved module path. Call `clearCache()` when the
- * compilation pipeline is invalidated (e.g., watch mode file change).
+ * Results are cached **per `ts.Program`** (and per resolved module path within a
+ * program). Keying by program is essential for correctness, not just perf:
+ *   - watch/LSP rebuilds produce a fresh `ts.Program`, so the cache invalidates
+ *     automatically when source changes (no stale instances);
+ *   - cached `ScannedInstance.forType` holds `ts.Type` objects owned by a specific
+ *     program's checker. Partitioning by program guarantees those types are only
+ *     ever compared against types from the *same* program — mixing checkers is
+ *     unsupported by the TS API and can throw.
+ *
+ * A program-less fallback partition exists for unit tests that build their own
+ * one-off programs; `clearCache()` clears only that fallback.
  */
 export class InstanceScanner {
-  private cache = new Map<string, ScannedInstance[]>();
+  private cacheByProgram = new WeakMap<ts.Program, Map<string, ScannedInstance[]>>();
+  private fallbackCache = new Map<string, ScannedInstance[]>();
+
+  private cacheFor(program?: ts.Program): Map<string, ScannedInstance[]> {
+    if (!program) return this.fallbackCache;
+    let m = this.cacheByProgram.get(program);
+    if (!m) {
+      m = new Map();
+      this.cacheByProgram.set(program, m);
+    }
+    return m;
+  }
 
   /**
    * Scan a module's exports for typeclass instances.
@@ -48,14 +68,17 @@ export class InstanceScanner {
    * @param typeChecker - The TypeScript type checker
    * @param moduleSymbol - The module's symbol (from typeChecker.getSymbolAtLocation on the module)
    * @param resolvedPath - Resolved file path of the module (used as cache key)
+   * @param program - The owning program (cache partition key — pass it in production)
    * @returns Array of discovered instances
    */
   scanModule(
     typeChecker: ts.TypeChecker,
     moduleSymbol: ts.Symbol,
-    resolvedPath: string
+    resolvedPath: string,
+    program?: ts.Program
   ): ScannedInstance[] {
-    const cached = this.cache.get(resolvedPath);
+    const cache = this.cacheFor(program);
+    const cached = cache.get(resolvedPath);
     if (cached) return cached;
 
     const results: ScannedInstance[] = [];
@@ -64,7 +87,7 @@ export class InstanceScanner {
     try {
       exports = typeChecker.getExportsOfModule(moduleSymbol);
     } catch {
-      this.cache.set(resolvedPath, []);
+      cache.set(resolvedPath, []);
       return [];
     }
 
@@ -73,15 +96,16 @@ export class InstanceScanner {
       results.push(...instances);
     }
 
-    this.cache.set(resolvedPath, results);
+    cache.set(resolvedPath, results);
     return results;
   }
 
   /**
-   * Clear the scan cache.
+   * Clear the program-less fallback cache (used by unit tests). Per-program caches
+   * are invalidated automatically when their program is collected.
    */
   clearCache(): void {
-    this.cache.clear();
+    this.fallbackCache.clear();
   }
 
   /**
@@ -180,12 +204,17 @@ export class InstanceScanner {
    * file whether or not it is exported, and must be discoverable without the
    * global registry. Order-independent (scans the whole file).
    *
-   * Cached per resolved path (the same key space as {@link scanModule}, suffixed
-   * to avoid collisions with the exports-only scan).
+   * Cached per program, under a `::local` cache-key suffix to avoid collisions
+   * with the exports-only {@link scanModule} scan of the same path.
    */
-  scanLocalFile(typeChecker: ts.TypeChecker, sourceFile: ts.SourceFile): ScannedInstance[] {
+  scanLocalFile(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program
+  ): ScannedInstance[] {
+    const cache = this.cacheFor(program);
     const cacheKey = sourceFile.fileName + "::local";
-    const cached = this.cache.get(cacheKey);
+    const cached = cache.get(cacheKey);
     if (cached) return cached;
 
     const results: ScannedInstance[] = [];
@@ -204,7 +233,7 @@ export class InstanceScanner {
       }
     }
 
-    this.cache.set(cacheKey, results);
+    cache.set(cacheKey, results);
     return results;
   }
 

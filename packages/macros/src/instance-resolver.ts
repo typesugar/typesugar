@@ -61,11 +61,24 @@ interface ImportMapEntry {
   namedImports: string[];
 }
 
-const importMapCache = new Map<string, ImportMapEntry[]>();
+// Keyed per program (and per file within a program) so watch/LSP rebuilds — which
+// produce a fresh program — invalidate automatically and never serve a stale map
+// for an edited file.
+const importMapCache = new WeakMap<ts.Program, Map<string, ImportMapEntry[]>>();
+
+function importMapCacheFor(program: ts.Program): Map<string, ImportMapEntry[]> {
+  let m = importMapCache.get(program);
+  if (!m) {
+    m = new Map();
+    importMapCache.set(program, m);
+  }
+  return m;
+}
 
 function getImportMap(ctx: MacroContext): ImportMapEntry[] {
+  const cache = importMapCacheFor(ctx.program);
   const key = ctx.sourceFile.fileName;
-  const cached = importMapCache.get(key);
+  const cached = cache.get(key);
   if (cached) return cached;
 
   const checker = ctx.typeChecker;
@@ -107,13 +120,17 @@ function getImportMap(ctx: MacroContext): ImportMapEntry[] {
     entries.push({ specifier, resolvedPath, namedImports });
   }
 
-  importMapCache.set(key, entries);
+  cache.set(key, entries);
   return entries;
 }
 
-/** Clear resolver caches. Call on pipeline invalidation. */
+/**
+ * Clear resolver caches. Per-program caches invalidate automatically when their
+ * program is collected; this remains for explicit test isolation (it cannot clear
+ * a WeakMap, so it is now a no-op kept for API compatibility).
+ */
 export function clearResolverCache(): void {
-  importMapCache.clear();
+  // No-op: importMapCache is a WeakMap<Program> and self-invalidates per program.
 }
 
 // ============================================================================
@@ -184,7 +201,7 @@ function resolveFromLocalScope(
   // a `@impl`/`@instance` const that is in local scope but NOT exported is still
   // found — and found independent of declaration order. This is the registry-free
   // replacement for instances the global registry used to provide.
-  const scanned = scanner.scanLocalFile(typeChecker, sourceFile);
+  const scanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
   const matches = filterMatches(
     typeChecker,
     scanned,
@@ -220,7 +237,7 @@ function resolveFromImports(
     const moduleSymbol = typeChecker.getSymbolAtLocation(moduleSourceFile);
     if (!moduleSymbol) continue;
 
-    const scanned = scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath);
+    const scanned = scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath, ctx.program);
     const allMatches = filterMatches(
       typeChecker,
       scanned,

@@ -318,11 +318,22 @@ export const globalResolutionScope = new ResolutionScopeTracker();
  * a `program` to resolve the module specifier to its source file; without one,
  * no markers are discovered (callers in registry-only paths pass none).
  */
+interface SyntaxMarkers {
+  operatorTCs: string[];
+  methodTCs: string[];
+}
+
+// Memoize marker results per resolved module SourceFile. Marker modules are
+// program-stable, and importing a large barrel/.d.ts otherwise re-scans all its
+// statements per importing file. Keyed by SourceFile (a WeakMap) so it invalidates
+// automatically across watch/LSP program rebuilds.
+const markerCache = new WeakMap<ts.SourceFile, SyntaxMarkers>();
+
 function readSyntaxActivationMarkers(
   checker: ts.TypeChecker,
   moduleSpecifier: ts.Expression
-): { operatorTCs: string[]; methodTCs: string[] } {
-  const empty = { operatorTCs: [], methodTCs: [] };
+): SyntaxMarkers {
+  const empty: SyntaxMarkers = { operatorTCs: [], methodTCs: [] };
 
   // Resolve the imported module via the checker (respects the program's module
   // resolution — works for on-disk and virtual/in-memory hosts alike).
@@ -331,6 +342,9 @@ function readSyntaxActivationMarkers(
     ts.isSourceFile(d)
   );
   if (!moduleFile) return empty;
+
+  const cached = markerCache.get(moduleFile);
+  if (cached) return cached;
 
   // The marker JSDoc is attached to an exported declaration in the module (a real
   // declaration rather than a bare `export {}`, so it survives `.d.ts` bundling).
@@ -351,7 +365,9 @@ function readSyntaxActivationMarkers(
       else methodTCs.push(tc);
     }
   }
-  return { operatorTCs, methodTCs };
+  const result: SyntaxMarkers = { operatorTCs, methodTCs };
+  markerCache.set(moduleFile, result);
+  return result;
 }
 
 /**
@@ -453,11 +469,27 @@ export function scanImportsForScope(
   // visit) makes activation independent of declaration order — an operator used
   // above its typeclass's declaration in the same file still activates.
   for (const stmt of sourceFile.statements) {
+    // (a) `/** @typeclass */ interface Foo<A> { ... }`
     if (
       ts.isInterfaceDeclaration(stmt) &&
       ts.getJSDocTags(stmt).some((tag) => tag.tagName.text === "typeclass")
     ) {
       tracker.registerDefinedTypeclass(fileName, stmt.name.text);
+      continue;
+    }
+    // (b) the call form `typeclass("Foo");` (used when the interface carries no
+    // JSDoc tag) — register it here too so same-file activation doesn't depend on
+    // the macro running during the top-down visit.
+    if (ts.isExpressionStatement(stmt) && ts.isCallExpression(stmt.expression)) {
+      const call = stmt.expression;
+      if (
+        ts.isIdentifier(call.expression) &&
+        call.expression.text === "typeclass" &&
+        call.arguments.length >= 1 &&
+        ts.isStringLiteralLike(call.arguments[0])
+      ) {
+        tracker.registerDefinedTypeclass(fileName, call.arguments[0].text);
+      }
     }
   }
 
