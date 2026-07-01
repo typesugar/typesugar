@@ -780,10 +780,9 @@ function mirrorDoNotationInstance(info: InstanceInfo): void {
 
 /**
  * Look up a do-notation (FlatMap/ParCombine) instance in scope. `present` mirrors the
- * old `findInstance(...) !== undefined` existence check (key presence, independent of
- * whether the instance carries metadata); `meta` is the method-name overrides, if any.
- * Scope-gated like {@link findInstance}: a lookup only resolves when the typeclass is
- * in scope for the source file.
+ * old registry existence check (key presence, independent of whether the instance
+ * carries metadata); `meta` is the method-name overrides, if any. Scope-gated: a
+ * lookup only resolves when the typeclass is in scope for the source file.
  */
 function lookupDoNotationInstance(
   tcName: string,
@@ -1686,23 +1685,6 @@ function getBaseType(field: DeriveFieldInfo): string {
   }
 
   return "object";
-}
-
-/**
- * Find a registered instance for a given typeclass and type.
- *
- * When sourceFileName is provided, the instance is only returned if the
- * typeclass is in scope for that file (import-scoped resolution).
- */
-function findInstance(
-  tcName: string,
-  typeName: string,
-  sourceFileName?: string
-): InstanceInfo | undefined {
-  if (sourceFileName && !globalResolutionScope.isTypeclassInScope(sourceFileName, tcName)) {
-    return undefined;
-  }
-  return instanceRegistry.find((i) => i.typeclassName === tcName && i.forType === typeName);
 }
 
 /**
@@ -3777,7 +3759,6 @@ export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, Syntax
 export {
   typeclassRegistry,
   instanceRegistry,
-  findInstance,
   getTypeclass,
   instanceVarName,
   companionPath,

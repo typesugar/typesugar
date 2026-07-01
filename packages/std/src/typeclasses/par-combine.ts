@@ -34,7 +34,6 @@ import type { BindStep, MapStep } from "../macros/comprehension-utils.js";
 import { createArrowFn, createIIFE } from "../macros/comprehension-utils.js";
 import {
   registerInstanceWithMeta,
-  findInstance,
   registerParCombineBuilder,
   getParCombineBuilderFromRegistry,
 } from "@typesugar/macros";
@@ -129,7 +128,7 @@ registerParCombineBuilder("Iterable", buildIterableParCombine);
 /**
  * Get a ParCombine instance by type constructor name.
  *
- * @deprecated Use findInstance("ParCombine", name) from @typesugar/macros for new code.
+ * @deprecated Use hasParCombineInstance(name) from @typesugar/macros for new code.
  * This function is maintained for backward compatibility.
  */
 export function getParCombine(name: string): ParCombine<unknown> | undefined {

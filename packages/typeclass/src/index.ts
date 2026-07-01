@@ -54,7 +54,6 @@ export type { TypeclassInfo, TypeclassMethod, InstanceInfo } from "@typesugar/ma
 export {
   typeclassRegistry,
   instanceRegistry,
-  findInstance,
   getTypeclass,
   clearRegistries,
   getTypeclasses,

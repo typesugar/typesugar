@@ -11,7 +11,6 @@ import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 
 import {
   getOperatorString,
-  findInstance,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
   isRegisteredInstance,
@@ -824,12 +823,13 @@ function ensureImportedRegistrations(
                   parent = parent.parent;
                 }
 
-                if (instanceName && !findInstance(parsed.typeclassName, parsed.forType)) {
+                if (instanceName) {
                   if (verbose) {
                     console.log(
                       `[typesugar] Pre-registered instance: ${parsed.typeclassName}<${parsed.forType}> = ${instanceName}`
                     );
                   }
+                  // registerInstanceWithMeta is idempotent (replace-in-place).
                   registerInstanceWithMeta({
                     typeclassName: parsed.typeclassName,
                     forType: parsed.forType,
@@ -863,12 +863,13 @@ function ensureImportedRegistrations(
             const arg = node.arguments[0];
             if (ts.isObjectLiteralExpression(arg)) {
               const info = extractInstanceInfoFromLiteral(arg);
-              if (info && !findInstance(info.typeclassName, info.forType)) {
+              if (info) {
                 if (verbose) {
                   console.log(
                     `[typesugar] Pre-registered instance (meta): ${info.typeclassName}<${info.forType}> = ${info.instanceName}`
                   );
                 }
+                // registerInstanceWithMeta is idempotent (replace-in-place).
                 registerInstanceWithMeta(info);
               }
             }

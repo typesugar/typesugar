@@ -81,7 +81,6 @@ export {
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
-  findInstance,
   getTypeclass,
   clearRegistries,
   registerTypeclassMacros,
