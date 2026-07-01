@@ -390,14 +390,23 @@ bounded, non-redesign follow-up:
     instance-resolver isolation cruft; showcase). `registerInstanceWithMeta` survives only to
     populate the focused do-notation lookup (`mirrorDoNotationInstance`) + attach companions.
     The only surviving instance store is the FlatMap/ParCombine do-notation lookup.
-  - **C2 — REMAINING: `typeclassRegistry` + coherence + prelude + hooks.** Delete
-    `typeclassRegistry` (still load-bearing for operator/method _syntax_ metadata —
-    `getSyntaxForOperator`/`getTypeclassesDeclaringMethod`/`getTypeclassesForMethod`/
-    `updateTypeclassSyntax`, the `@typeclass` macro writes, and the public `getTypeclass`/
-    `getTypeclasses` API; needs the op-index seeded from `STANDARD_TYPECLASS_DEFS` to become
-    the sole owner of syntax metadata), fold `coherence.ts`'s `instances` map into the
-    resolver's `ambiguous`, empty the prelude, and remove `clearRegistries`/
-    `clearSyntaxRegistry` from ~21 hooks.
+  - **C2a — `typeclassRegistry`'s operator/method _syntax_-lookup role removed. DONE (PR #34).**
+    The op-index (`getOperatorCandidates`/`getTypeclassesDeclaringMethod`, seeded from
+    `STANDARD_TYPECLASS_DEFS` + program `@typeclass` interfaces) is the sole owner of syntax
+    lookup: deleted the dead `getSyntaxForOperator` + its "syntax registry" mechanism tests;
+    migrated the `extend`-macro extension-method scan to `getTypeclassesDeclaringMethod(program)`.
+  - **C2b — REMAINING (deep, low ambient-leak value): delete the `typeclassRegistry` object.**
+    It survives only as a compile-time _definition_ store — NOT an ambient-behaviour leak (the
+    instance registry that caused the PR #29 cross-file leak is gone; syntax activation is
+    scope-gated). Deleting the object needs the op-index (or a per-program structure) to own full
+    typeclass definitions: `fullSignatureText`/`typeParam` for HKT expansion (`generateHKTExpandedType`,
+    has `ctx.program`) AND full method lists for the public `getTypeclass`/`getTypeclasses` API;
+    plus migrate `sfinae` `getTypeclassesForMethod` + `isRegisteredTypeclass`, delete the writers
+    (`registerTypeclassDef`, the `@typeclass` macro writes, `updateTypeclassSyntax`,
+    `registerStandardTypeclasses`), drop `typeclassRegistry.clear()` from `clearRegistries`, and
+    update the mechanism tests. Then **C2c**: fold `coherence.ts`'s `instances` map into the
+    resolver's `ambiguous`, empty the prelude, and remove `clearRegistries`/`clearSyntaxRegistry`
+    from ~21 hooks (gated on C2b, since `clearRegistries` still resets `typeclassRegistry`).
 - **Phase D — inlining registry.** Replace `instanceMethodRegistry` + its 30 static
   source-string builtins with `tryExtractInstanceFromSource` (already covers annotated/
   `@impl` instances); handle function-form instances (`effectFunctor<R,E>()`) which aren't
