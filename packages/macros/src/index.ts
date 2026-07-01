@@ -80,7 +80,6 @@ export {
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
-  getTypeclass,
   clearRegistries,
   registerTypeclassMacros,
   registerStandardTypeclasses,
@@ -156,7 +155,6 @@ export {
   getImplicitParamIndices,
   buildImplicitScopeFromDecl,
   transformImplicitsCall,
-  isRegisteredTypeclass,
   type ImplicitScope,
 } from "./implicits.js";
 

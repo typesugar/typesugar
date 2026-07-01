@@ -57,7 +57,6 @@ import {
   stripTypeArguments,
   splitTopLevelTypeArgs,
 } from "@typesugar/core";
-import { typeclassRegistry } from "./typeclass.js";
 import { resolveInstance, resolveInstanceInScopeByName } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
 import {
@@ -151,13 +150,6 @@ export function buildImplicitScopeFromDecl(decl: ts.SignatureDeclaration): Impli
 // ============================================================================
 // Instance Resolution
 // ============================================================================
-
-/**
- * Check if a type name is a registered typeclass.
- */
-export function isRegisteredTypeclass(name: string): boolean {
-  return typeclassRegistry.has(name);
-}
 
 // ============================================================================
 // AST Helpers

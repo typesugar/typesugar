@@ -90,7 +90,7 @@ import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hk
 import { resolveInstance, hasInstanceInScopeByName } from "./instance-resolver.js";
 // Circular by design (typeclass-index seeds from this module's STANDARD_TYPECLASS_DEFS);
 // only referenced inside macro `expand` bodies, so the binding is resolved at call time.
-import { getTypeclassesDeclaringMethod } from "./typeclass-index.js";
+import { getTypeclassesDeclaringMethod, getTypeclassDef } from "./typeclass-index.js";
 
 // ============================================================================
 // Ambient Derivation Context
@@ -815,11 +815,14 @@ interface SyntaxEntry {
  * at the call site by checking which one has an instance for the receiver type.
  */
 function getTypeclassesForMethod(methodName: string): SyntaxEntry[] | undefined {
+  // Registry-free (PEP-052): the SFINAE diagnostic filter that calls this runs at
+  // check-time (`noEmit`), where no transformer has populated user typeclasses — so
+  // the static standard definitions are the authoritative method→typeclass source.
   const entries: SyntaxEntry[] = [];
 
-  for (const [tcName, tcInfo] of typeclassRegistry) {
-    if (tcInfo.methods.some((m) => m.name === methodName)) {
-      entries.push({ typeclass: tcName, method: methodName });
+  for (const def of STANDARD_TYPECLASS_DEFS) {
+    if (def.methods.some((m) => m.name === methodName)) {
+      entries.push({ typeclass: def.name, method: methodName });
     }
   }
 
@@ -1235,11 +1238,22 @@ export function getStandardTypeclassOpInfos(): Array<{
   name: string;
   opToMethod: Map<string, string>;
   methodNames: Set<string>;
+  def: TypeclassInfo;
 }> {
   return STANDARD_TYPECLASS_DEFS.map((def) => ({
     name: def.name,
     opToMethod: new Map(def.syntax),
     methodNames: new Set(def.methods.map((m) => m.name)),
+    // Full definition for the op-index's definition store (HKT expansion, public API).
+    // Std defs carry no fullSignatureText — HKT expansion uses the template fallback.
+    def: {
+      name: def.name,
+      typeParam: def.typeParam,
+      methods: def.methods,
+      canDeriveProduct: def.canDeriveProduct,
+      canDeriveSum: def.canDeriveSum,
+      syntax: def.syntax,
+    },
   }));
 }
 
@@ -1650,13 +1664,6 @@ function getBaseType(field: DeriveFieldInfo): string {
   return "object";
 }
 
-/**
- * Get the typeclass info for a given name.
- */
-function getTypeclass(name: string): TypeclassInfo | undefined {
-  return typeclassRegistry.get(name);
-}
-
 // ============================================================================
 // @typeclass - Attribute Macro
 // ============================================================================
@@ -1678,6 +1685,91 @@ function getTypeclass(name: string): TypeclassInfo | undefined {
 //   // + registers typeclass metadata for derivation
 // ============================================================================
 
+/**
+ * Extract a {@link TypeclassInfo} from a `@typeclass` interface declaration.
+ *
+ * Pure (no macro context): shared by the `@typeclass` attribute macro and the
+ * per-program op-index (`typeclass-index.ts`), which re-derives definitions directly
+ * from the interface AST rather than a process-global registry (PEP-052 Phase C).
+ * Returns `undefined` when the interface has no type parameter.
+ */
+export function buildTypeclassInfoFromInterface(
+  iface: ts.InterfaceDeclaration
+): TypeclassInfo | undefined {
+  const typeParams = iface.typeParameters;
+  if (!typeParams || typeParams.length === 0) return undefined;
+  const typeParam = typeParams[0].name.text;
+
+  // Extract methods from the interface (handles both MethodSignature and PropertySignature).
+  const methods: TypeclassMethod[] = [];
+  const memberTexts: string[] = [];
+
+  for (const member of iface.members) {
+    // Capture raw source text of each member for HKT expansion.
+    const sourceFile = member.getSourceFile();
+    if (sourceFile) {
+      memberTexts.push(member.getText(sourceFile));
+    }
+
+    if (ts.isMethodSignature(member) && member.name) {
+      const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
+
+      const params: Array<{ name: string; typeString: string }> = [];
+      let isSelfMethod = false;
+
+      for (let i = 0; i < member.parameters.length; i++) {
+        const param = member.parameters[i];
+        const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
+        const paramType = param.type ? param.type.getText() : "unknown";
+
+        // Check if this parameter uses the typeclass's type param.
+        if (i === 0 && paramType === typeParam) {
+          isSelfMethod = true;
+        }
+
+        params.push({ name: paramName, typeString: paramType });
+      }
+
+      const operatorSymbol = extractOpFromJSDoc(member);
+      const returnType = member.type ? member.type.getText() : "void";
+
+      methods.push({ name: methodName, params, returnType, isSelfMethod, operatorSymbol });
+    } else if (ts.isPropertySignature(member) && member.name) {
+      const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
+      methods.push({
+        name: methodName,
+        params: [],
+        returnType: member.type ? member.type.getText() : "unknown",
+        isSelfMethod: false,
+      });
+    }
+  }
+
+  // Full interface body text for HKT expansion.
+  const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
+
+  // Syntax map from @op JSDoc tags on methods.
+  const syntax = new Map<string, string>();
+  for (const method of methods) {
+    if (method.operatorSymbol) {
+      syntax.set(method.operatorSymbol, method.name);
+    }
+  }
+
+  const isExported = iface.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+
+  return {
+    name: iface.name.text,
+    typeParam,
+    methods,
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    fullSignatureText,
+    syntax: syntax.size > 0 ? syntax : undefined,
+    isExported,
+  };
+}
+
 export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
   module: "@typesugar/typeclass",
@@ -1696,10 +1788,8 @@ export const typeclassAttribute = defineAttributeMacro({
       return target;
     }
 
-    const tcName = target.name.text;
-    const typeParams = target.typeParameters;
-
-    if (!typeParams || typeParams.length === 0) {
+    const tcInfo = buildTypeclassInfoFromInterface(target);
+    if (!tcInfo) {
       ctx.reportError(
         target,
         "@typeclass interface must have at least one type parameter (e.g., interface Show<A>)"
@@ -1707,86 +1797,8 @@ export const typeclassAttribute = defineAttributeMacro({
       return target;
     }
 
-    const typeParam = typeParams[0].name.text;
-
-    // Extract methods from the interface (handles both MethodSignature and PropertySignature)
-    const methods: TypeclassMethod[] = [];
-    const memberTexts: string[] = [];
-
-    for (const member of target.members) {
-      // Capture raw source text of each member for HKT expansion
-      const sourceFile = member.getSourceFile();
-      if (sourceFile) {
-        const memberText = member.getText(sourceFile);
-        memberTexts.push(memberText);
-      }
-
-      if (ts.isMethodSignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        const params: Array<{ name: string; typeString: string }> = [];
-        let isSelfMethod = false;
-
-        for (let i = 0; i < member.parameters.length; i++) {
-          const param = member.parameters[i];
-          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
-          const paramType = param.type ? param.type.getText() : "unknown";
-
-          // Check if this parameter uses the typeclass's type param
-          if (i === 0 && paramType === typeParam) {
-            isSelfMethod = true;
-          }
-
-          params.push({ name: paramName, typeString: paramType });
-        }
-
-        const operatorSymbol = extractOpFromJSDoc(member);
-        const returnType = member.type ? member.type.getText() : "void";
-
-        methods.push({
-          name: methodName,
-          params,
-          returnType,
-          isSelfMethod,
-          operatorSymbol,
-        });
-      } else if (ts.isPropertySignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        methods.push({
-          name: methodName,
-          params: [],
-          returnType: member.type ? member.type.getText() : "unknown",
-          isSelfMethod: false,
-        });
-      }
-    }
-
-    // Build the full interface body text for HKT expansion
-    const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
-
-    // Build syntax map from @op JSDoc tags or Op<> annotations on methods
-    const syntax = new Map<string, string>();
-    for (const method of methods) {
-      if (method.operatorSymbol) {
-        syntax.set(method.operatorSymbol, method.name);
-      }
-    }
-
-    const isExported =
-      target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-
-    // Register the typeclass
-    const tcInfo: TypeclassInfo = {
-      name: tcName,
-      typeParam,
-      methods,
-      canDeriveProduct: true,
-      canDeriveSum: true,
-      fullSignatureText,
-      syntax: syntax.size > 0 ? syntax : undefined,
-      isExported,
-    };
+    const tcName = tcInfo.name;
+    const isExported = tcInfo.isExported ?? false;
     typeclassRegistry.set(tcName, tcInfo);
 
     globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
@@ -2194,7 +2206,7 @@ function generateHKTExpandedType(
   const expansionWithFixedArgs =
     fixedArgs.length > 0 ? `${expansion}<${fixedArgs.join(", ")}, $1>` : `${expansion}<$1>`;
 
-  const tcInfo = typeclassRegistry.get(typeclassName);
+  const tcInfo = getTypeclassDef(ctx.program, typeclassName);
   let signature: string | undefined;
 
   if (tcInfo?.fullSignatureText) {
@@ -3708,7 +3720,6 @@ export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, Syntax
 
 export {
   typeclassRegistry,
-  getTypeclass,
   instanceVarName,
   companionPath,
   getTypeclassesForMethod,

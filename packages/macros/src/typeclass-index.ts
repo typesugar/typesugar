@@ -16,7 +16,12 @@
  */
 
 import * as ts from "typescript";
-import { extractOpFromJSDoc, getStandardTypeclassOpInfos } from "./typeclass.js";
+import {
+  extractOpFromJSDoc,
+  getStandardTypeclassOpInfos,
+  buildTypeclassInfoFromInterface,
+  type TypeclassInfo,
+} from "./typeclass.js";
 
 /** Operator/method metadata for a single typeclass, read from its declaration. */
 export interface TypeclassOpInfo {
@@ -32,6 +37,12 @@ export interface TypeclassOpInfo {
    * yield no operator candidate (native fallback).
    */
   conflictedOps: Set<string>;
+  /**
+   * The full typeclass definition (methods, typeParam, fullSignatureText, …) — the
+   * registry-free replacement for `typeclassRegistry.get(name)`, used by HKT
+   * expansion and the public `getTypeclass`/`getTypeclasses` API (PEP-052 Phase C).
+   */
+  def?: TypeclassInfo;
 }
 
 const indexCache = new WeakMap<ts.Program, Map<string, TypeclassOpInfo>>();
@@ -55,7 +66,13 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
     if (op) opToMethod.set(op, methodName);
   }
 
-  return { name: iface.name.text, opToMethod, methodNames, conflictedOps: new Set() };
+  return {
+    name: iface.name.text,
+    opToMethod,
+    methodNames,
+    conflictedOps: new Set(),
+    def: buildTypeclassInfoFromInterface(iface),
+  };
 }
 
 /** Build (and cache) the typeclass index for a program. */
@@ -74,6 +91,7 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
       opToMethod: new Map(info.opToMethod),
       methodNames: new Set(info.methodNames),
       conflictedOps: new Set(),
+      def: info.def,
     });
   }
 
@@ -197,4 +215,30 @@ export function getTypeclassesDeclaringMethod(
     }
   }
   return candidates;
+}
+
+/**
+ * Get the full definition of a typeclass by name, read from its `@typeclass`
+ * declaration in the program (or the built-in seed). Registry-free replacement for
+ * `typeclassRegistry.get(name)` — used by HKT expansion (`fullSignatureText`).
+ */
+export function getTypeclassDef(program: ts.Program, tcName: string): TypeclassInfo | undefined {
+  return buildIndex(program).get(tcName)?.def;
+}
+
+/**
+ * All typeclass definitions in scope for the program (source `@typeclass`
+ * declarations + the built-in seed). Registry-free replacement for `getTypeclasses()`.
+ */
+export function getAllTypeclassDefs(program: ts.Program): Map<string, TypeclassInfo> {
+  const out = new Map<string, TypeclassInfo>();
+  for (const info of buildIndex(program).values()) {
+    if (info.def) out.set(info.name, info.def);
+  }
+  return out;
+}
+
+/** Whether a typeclass with the given name is declared/seeded for the program. */
+export function isTypeclassDeclared(program: ts.Program, tcName: string): boolean {
+  return buildIndex(program).has(tcName);
 }

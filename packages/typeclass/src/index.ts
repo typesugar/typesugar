@@ -51,12 +51,7 @@ export {
 export type { TypeclassInfo, TypeclassMethod, InstanceInfo } from "@typesugar/macros";
 
 // Registry access (for testing and advanced use)
-export {
-  typeclassRegistry,
-  getTypeclass,
-  clearRegistries,
-  getTypeclasses,
-} from "@typesugar/macros";
+export { typeclassRegistry, clearRegistries, getTypeclasses } from "@typesugar/macros";
 
 // Derivation utilities
 export { generateStandardTypeclasses, tryExtractSumType, instanceVarName } from "@typesugar/macros";

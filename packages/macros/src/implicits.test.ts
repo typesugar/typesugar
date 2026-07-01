@@ -6,20 +6,16 @@
  * - hasImplicitParams checking
  * - getImplicitParamIndices extraction
  * - buildImplicitScopeFromDecl scope building
- * - isRegisteredTypeclass lookups
- * - resolveImplicit instance resolution
  */
 
 import * as ts from "typescript";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   isImplicitDefault,
   hasImplicitParams,
   getImplicitParamIndices,
   buildImplicitScopeFromDecl,
-  isRegisteredTypeclass,
 } from "./implicits.js";
-import { clearRegistries, registerStandardTypeclasses } from "./typeclass.js";
 
 // ============================================================================
 // Helpers
@@ -184,29 +180,5 @@ describe("buildImplicitScopeFromDecl", () => {
     const fn = findFunctionDecl(sf)!;
     const scope = buildImplicitScopeFromDecl(fn);
     expect(scope.available.size).toBe(0);
-  });
-});
-
-// ============================================================================
-// isRegisteredTypeclass
-// ============================================================================
-
-describe("isRegisteredTypeclass", () => {
-  beforeEach(() => {
-    clearRegistries();
-    registerStandardTypeclasses();
-  });
-
-  it("returns true for standard typeclasses", () => {
-    expect(isRegisteredTypeclass("Eq")).toBe(true);
-    expect(isRegisteredTypeclass("Ord")).toBe(true);
-    expect(isRegisteredTypeclass("Semigroup")).toBe(true);
-    expect(isRegisteredTypeclass("Monoid")).toBe(true);
-    expect(isRegisteredTypeclass("Clone")).toBe(true);
-  });
-
-  it("returns false for unregistered names", () => {
-    expect(isRegisteredTypeclass("FooBar")).toBe(false);
-    expect(isRegisteredTypeclass("")).toBe(false);
   });
 });
