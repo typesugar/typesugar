@@ -773,19 +773,21 @@ function mirrorDoNotationInstance(info: InstanceInfo): void {
 }
 
 /**
- * Look up a do-notation (FlatMap/ParCombine) instance in scope. `present` mirrors the
- * old registry existence check (key presence, independent of whether the instance
- * carries metadata); `meta` is the method-name overrides, if any. Scope-gated: a
- * lookup only resolves when the typeclass is in scope for the source file.
+ * Look up a do-notation (FlatMap/ParCombine) instance. `present` reports key presence
+ * (independent of whether the instance carries metadata); `meta` is the method-name
+ * overrides, if any.
+ *
+ * NOT scope-gated on the typeclass being imported: the do-notation macros
+ * (`let:`/`yield:`/`par:`) self-activate via their own import, and resolve FlatMap/
+ * ParCombine by the comprehension effect's type-constructor name — a user never
+ * imports `FlatMap` to use `let:`. (`sourceFileName` is accepted for call-site
+ * compatibility but not consulted.)
  */
 function lookupDoNotationInstance(
   tcName: string,
   forType: string,
-  sourceFileName?: string
+  _sourceFileName?: string
 ): { present: boolean; meta: InstanceMeta | undefined } {
-  if (sourceFileName && !globalResolutionScope.isTypeclassInScope(sourceFileName, tcName)) {
-    return { present: false, meta: undefined };
-  }
   const key = doNotationKey(tcName, forType);
   return { present: doNotationRegistry.has(key), meta: doNotationRegistry.get(key) };
 }
@@ -821,15 +823,6 @@ function getTypeclassesForMethod(methodName: string): SyntaxEntry[] | undefined 
   }
 
   return entries.length > 0 ? entries : undefined;
-}
-
-/**
- * Deprecated no-op (PEP-052). Operator/method syntax is derived per-program by the
- * op-index from `@op` JSDoc — there is no mutable syntax registry to clear. Retained
- * as an exported no-op so existing test hooks that call it keep compiling.
- */
-function clearSyntaxRegistry(): void {
-  /* no-op */
 }
 
 // ============================================================================
@@ -3508,7 +3501,6 @@ export {
   instanceVarName,
   companionPath,
   getTypeclassesForMethod,
-  clearSyntaxRegistry, // deprecated, no-op
   // Comprehension typeclass support (exported via export function declarations above)
   parCombineBuilderRegistry,
 };

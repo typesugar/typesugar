@@ -17,11 +17,10 @@ import {
   decodeSourceMap,
   findOriginalPosition,
 } from "@typesugar/transformer-core";
-import { clearRegistries, clearSyntaxRegistry } from "@typesugar/macros";
+import { clearRegistries } from "@typesugar/macros";
 import type { RawSourceMap } from "@typesugar/core";
 
 beforeEach(() => {
-  clearSyntaxRegistry();
   clearRegistries();
 });
 

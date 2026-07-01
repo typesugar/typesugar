@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "@typesugar/transformer";
 import {
   clearRegistries,
-  clearSyntaxRegistry,
   registerInstanceWithMeta,
   clearDerivationCaches,
 } from "@typesugar/macros";
@@ -26,7 +25,6 @@ import "@typesugar/macros";
 beforeEach(() => {
   // Clear typeclass-specific registries but NOT the global macro registry
   // since we need summonMacro to remain registered
-  clearSyntaxRegistry();
   clearRegistries();
   clearDerivationCaches();
 });

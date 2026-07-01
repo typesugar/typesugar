@@ -10,10 +10,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import * as path from "path";
 import { transformCode, TransformationPipeline } from "@typesugar/transformer/pipeline";
-import { clearRegistries, clearSyntaxRegistry } from "@typesugar/macros";
+import { clearRegistries } from "@typesugar/macros";
 
 beforeEach(() => {
-  clearSyntaxRegistry();
   clearRegistries();
 });
 

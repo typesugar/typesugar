@@ -14,12 +14,11 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries, clearSyntaxRegistry, registerTypeclassMacros } from "@typesugar/macros";
+import { clearRegistries, registerTypeclassMacros } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
 import type { DeriveTypeInfo } from "@typesugar/core";
 
 beforeEach(() => {
-  clearSyntaxRegistry();
   clearRegistries();
   globalRegistry.clear();
   registerTypeclassMacros();

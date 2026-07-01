@@ -86,7 +86,6 @@ export {
   generateStandardTypeclasses,
   tryExtractSumType,
   getTypeclassesForMethod,
-  clearSyntaxRegistry,
   extractOpFromJSDoc,
   registerInstanceWithMeta,
   getInstanceMeta,
