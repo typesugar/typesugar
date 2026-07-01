@@ -727,6 +727,38 @@ if (!_g.__typesugar_instanceRegistry) _g.__typesugar_instanceRegistry = [];
 const typeclassRegistry: Map<string, TypeclassInfo> = _g.__typesugar_typeclassRegistry;
 const instanceRegistry: InstanceInfo[] = _g.__typesugar_instanceRegistry;
 
+/**
+ * Focused do-notation instance lookup (PEP-052 Phase B).
+ *
+ * The `let:`/`yield:`/`par:` comprehension macros resolve FlatMap/ParCombine by the
+ * comprehension effect's *type-constructor name* (`Option`, `Array`, `Effect`…) —
+ * genuine HKT resolution by brand/name, not the concrete-type matching used for
+ * Eq/Ord operators. Rather than read the general `instanceRegistry`, they read this
+ * focused map, populated whenever {@link registerInstanceWithMeta} registers a
+ * FlatMap or ParCombine instance (via side-effect imports like
+ * `import "@typesugar/effect"`). Keeping it separate lets the general
+ * `instanceRegistry` be deleted (Phase C) without breaking do-notation.
+ *
+ * Keyed by `"<typeclass>:<typeConstructorName>"`, e.g. `"FlatMap:Option"`. The value
+ * is the instance's `meta` (or `undefined` when it has none) — presence of the key,
+ * not the value, signals that an instance exists.
+ */
+if (!_g.__typesugar_doNotationRegistry)
+  _g.__typesugar_doNotationRegistry = new Map<string, InstanceMeta | undefined>();
+const doNotationRegistry: Map<string, InstanceMeta | undefined> = _g.__typesugar_doNotationRegistry;
+
+function doNotationKey(tcName: string, forType: string): string {
+  return `${tcName}:${forType}`;
+}
+
+/**
+ * Scope gate for do-notation lookups, mirroring {@link findInstance}: a lookup only
+ * resolves when the FlatMap/ParCombine typeclass is in scope for the source file.
+ */
+function isDoNotationTypeclassInScope(tcName: string, sourceFileName?: string): boolean {
+  return !sourceFileName || globalResolutionScope.isTypeclassInScope(sourceFileName, tcName);
+}
+
 // ============================================================================
 // Operator Syntax Lookup — operator → typeclass method mappings
 // ============================================================================
@@ -1266,6 +1298,7 @@ export function registerStandardTypeclasses(): void {
 export function clearRegistries(): void {
   typeclassRegistry.clear();
   instanceRegistry.length = 0;
+  doNotationRegistry.clear();
 }
 
 // ============================================================================
@@ -2603,7 +2636,20 @@ export const summonMacro = defineExpressionMacro({
     // Build resolution trace for detailed error messages
     const attempts: ResolutionAttempt[] = [];
 
-    // 1. Check for explicit instance in the compile-time registry
+    // 1. Resolve an explicit instance from scope (PEP-052): an imported/local
+    //    `@impl`/`@instance` value for this typeclass + concrete type. Registry-free
+    //    — the file brings the instance into scope by importing (or defining) it.
+    try {
+      const forType = ctx.typeChecker.getTypeFromTypeNode(innerType);
+      const scopeResult = resolveInstance(ctx, tcName, forType);
+      if (scopeResult && scopeResult.kind === "resolved") {
+        return ctx.parseExpression(scopeResult.exportName);
+      }
+    } catch {
+      // checker may throw on unusual type nodes — fall through to the registry
+    }
+
+    // 1b. Fall back to an explicit instance in the compile-time registry.
     const explicitInstance = findInstance(tcName, typeName, ctx.sourceFile.fileName);
     if (explicitInstance) {
       const cPath = explicitInstance.companionPath || instanceVarName(tcName, typeName);
@@ -3277,6 +3323,12 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
     instanceRegistry.push(info);
   }
 
+  // PEP-052 Phase B: mirror FlatMap/ParCombine registrations into the focused
+  // do-notation lookup so let:/yield:/par: resolve without the general registry.
+  if (info.typeclassName === "FlatMap" || info.typeclassName === "ParCombine") {
+    doNotationRegistry.set(doNotationKey(info.typeclassName, info.forType), info.meta);
+  }
+
   // Attach to typeclass companion if available (populated by @typeclass macro)
   if (instanceValue !== undefined) {
     const companions = (globalThis as any).__typesugar_companions;
@@ -3289,12 +3341,20 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
 /**
  * Get instance metadata for a typeclass+type combination.
  * Returns undefined if no instance is found or if it has no metadata.
+ *
+ * FlatMap/ParCombine metadata (used by the do-notation macros) is served from the
+ * focused do-notation lookup (PEP-052 Phase B); other typeclasses fall back to the
+ * general registry.
  */
 export function getInstanceMeta(
   typeclassName: string,
   forType: string,
   sourceFileName?: string
 ): InstanceMeta | undefined {
+  if (typeclassName === "FlatMap" || typeclassName === "ParCombine") {
+    if (!isDoNotationTypeclassInScope(typeclassName, sourceFileName)) return undefined;
+    return doNotationRegistry.get(doNotationKey(typeclassName, forType));
+  }
   const instance = findInstance(typeclassName, forType, sourceFileName);
   return instance?.meta;
 }
@@ -3314,8 +3374,9 @@ export function getFlatMapMethodNames(
   map: string;
   orElse?: string;
 } {
-  const instance = findInstance("FlatMap", forType, sourceFileName);
-  const meta = instance?.meta;
+  const meta = isDoNotationTypeclassInScope("FlatMap", sourceFileName)
+    ? doNotationRegistry.get(doNotationKey("FlatMap", forType))
+    : undefined;
   const methodNames = meta?.methodNames;
 
   // Defaults
@@ -3389,7 +3450,10 @@ export function getParCombineBuilderFromRegistry(forType: string): ParCombineBui
  * Used by let:/yield: macro to validate type support.
  */
 export function hasFlatMapInstance(forType: string, sourceFileName?: string): boolean {
-  return findInstance("FlatMap", forType, sourceFileName) !== undefined;
+  return (
+    isDoNotationTypeclassInScope("FlatMap", sourceFileName) &&
+    doNotationRegistry.has(doNotationKey("FlatMap", forType))
+  );
 }
 
 /**
@@ -3397,7 +3461,10 @@ export function hasFlatMapInstance(forType: string, sourceFileName?: string): bo
  * Used by par:/yield: macro to validate type support.
  */
 export function hasParCombineInstance(forType: string, sourceFileName?: string): boolean {
-  return findInstance("ParCombine", forType, sourceFileName) !== undefined;
+  return (
+    isDoNotationTypeclassInScope("ParCombine", sourceFileName) &&
+    doNotationRegistry.has(doNotationKey("ParCombine", forType))
+  );
 }
 
 // ============================================================================

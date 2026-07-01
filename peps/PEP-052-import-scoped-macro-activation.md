@@ -359,12 +359,21 @@ bounded, non-redesign follow-up:
   green). Edge case: the implicit inference builds a synthetic type node — resolve the
   concrete field type robustly (e.g. from the call's resolved signature / arg types)
   rather than `getTypeFromTypeNode` on a synthetic node.
-- **Phase B — do-notation FlatMap/ParCombine → focused/HKT scope resolution.** `let:`/
+- **Phase B — do-notation FlatMap/ParCombine → focused lookup. DONE (PR #34).** `let:`/
   `yield:`/`par:` call `hasFlatMapInstance`/`getFlatMapMethodNames`/`hasParCombineInstance`
-  (resolve by type-constructor _name_, HKT). Move these off `instanceRegistry` to either
-  a dedicated do-notation lookup (populated by the FlatMap/ParCombine registration, kept
-  separate from the general registry) or brand-based scope resolution (scanner records
-  the `FlatMap<_ArrayTag>` brand; the do-notation file imports the instance).
+  (resolve by type-constructor _name_, HKT). These now read a dedicated `doNotationRegistry`
+  (`Map<"<TC>:<forType>", meta>`) kept separate from the general registry and populated by
+  `registerInstanceWithMeta` whenever it registers a FlatMap/ParCombine instance (chosen over
+  brand-based scope resolution as the smaller, bounded change; side-effect imports like
+  `import "@typesugar/effect"` still populate it). `getInstanceMeta` routes FlatMap/ParCombine
+  through the same map. **Also required for the gate:** the neuter experiment revealed the
+  memory's "exactly two consumers" undercounted — `summon<TC<T>>()`'s explicit-instance step
+  was a _third_ live `findInstance` read. Migrated it to scope-first (`resolveInstance` on the
+  inner type's `ts.Type`) with the registry retained as fallback, mirroring Phase A's implicits
+  migration. After this, the neuter gate (stub `findInstance`→`undefined`, full suite) shows
+  **0 failures** — `instanceRegistry` has no live reads, so Phase C (delete the objects) can
+  proceed. (The `typeclass.test "instance registry"` mechanism test that used to fail under
+  neuter now passes because `getInstanceMeta` reads the focused `doNotationRegistry`.)
 - **Phase C — delete the objects.** With A+B done, `instanceRegistry` has no live reads:
   delete it + `findInstance`/`getInstances`/`registerInstanceWithMeta` writers (`primitives`,
   `generic`, transformer pushes), delete `typeclassRegistry` (op-index is seeded from the

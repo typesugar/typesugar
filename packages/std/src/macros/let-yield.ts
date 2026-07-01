@@ -77,7 +77,7 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { findInstance, getFlatMapMethodNames, hasFlatMapInstance } from "@typesugar/macros";
+import { getFlatMapMethodNames, hasFlatMapInstance } from "@typesugar/macros";
 import {
   type ComprehensionStep,
   type BindStep,
