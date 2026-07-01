@@ -61,9 +61,6 @@ export {
 // Derivation utilities
 export { generateStandardTypeclasses, tryExtractSumType, instanceVarName } from "@typesugar/macros";
 
-// Operator syntax support
-export { getSyntaxForOperator } from "@typesugar/macros";
-
 export type { SyntaxEntry } from "@typesugar/macros";
 
 // HKT support

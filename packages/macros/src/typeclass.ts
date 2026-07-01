@@ -88,6 +88,9 @@ import { TS9001, TS9005, TS9008, TS9101, TS9203, TS9305 } from "@typesugar/core"
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 import { resolveInstance, hasInstanceInScopeByName } from "./instance-resolver.js";
+// Circular by design (typeclass-index seeds from this module's STANDARD_TYPECLASS_DEFS);
+// only referenced inside macro `expand` bodies, so the binding is resolved at call time.
+import { getTypeclassesDeclaringMethod } from "./typeclass-index.js";
 
 // ============================================================================
 // Ambient Derivation Context
@@ -803,33 +806,9 @@ interface SyntaxEntry {
 }
 
 /**
- * Get all syntax entries for a given operator.
- *
- * This function queries the typeclassRegistry directly, looking up
- * typeclasses that have the given operator in their syntax map.
- * Multiple typeclasses may map the same operator — ambiguity
- * is resolved at the call site by checking which typeclass has an instance
- * for the operand type.
- */
-function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined {
-  const entries: SyntaxEntry[] = [];
-
-  for (const [tcName, tcInfo] of typeclassRegistry) {
-    if (tcInfo.syntax) {
-      const method = tcInfo.syntax.get(op);
-      if (method) {
-        entries.push({ typeclass: tcName, method });
-      }
-    }
-  }
-
-  return entries.length > 0 ? entries : undefined;
-}
-
-/**
  * Get all typeclasses that declare a method with the given name.
  *
- * This is the method-name analogue of {@link getSyntaxForOperator}: it powers
+ * This is the method-name analogue of operator lookup: it powers
  * the instance-method sugar (`x.method(args)` → `Companion.method(x, args)`) by
  * mapping a called method name back to the typeclass(es) that define it.
  * Multiple typeclasses may declare the same method name — ambiguity is resolved
@@ -2772,24 +2751,22 @@ export const extendMacro = defineExpressionMacro({
     const valueType = ctx.typeChecker.getTypeAtLocation(value);
     const typeName = ctx.typeChecker.typeToString(valueType);
 
-    // Find which typeclass provides this method
-    for (const [tcName, tcInfo] of typeclassRegistry) {
-      const method = tcInfo.methods.find((m) => m.name === methodName);
-      if (method) {
-        // Found it! Generate the call
-        const grandParent = parent.parent;
-        if (grandParent && ts.isCallExpression(grandParent)) {
-          const extraArgs = Array.from(grandParent.arguments)
-            .map((a) => a.getText())
-            .join(", ");
-          const allArgs = extraArgs ? `${value.getText()}, ${extraArgs}` : value.getText();
-          const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
-          return ctx.parseExpression(code);
-        }
-
-        const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${value.getText()})`;
+    // Find which typeclass provides this method (op-index, scope-based; PEP-052).
+    for (const candidate of getTypeclassesDeclaringMethod(ctx.program, methodName)) {
+      const tcName = candidate.typeclass;
+      // Found it! Generate the call
+      const grandParent = parent.parent;
+      if (grandParent && ts.isCallExpression(grandParent)) {
+        const extraArgs = Array.from(grandParent.arguments)
+          .map((a) => a.getText())
+          .join(", ");
+        const allArgs = extraArgs ? `${value.getText()}, ${extraArgs}` : value.getText();
+        const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
         return ctx.parseExpression(code);
       }
+
+      const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${value.getText()})`;
+      return ctx.parseExpression(code);
     }
 
     // Check standalone extensions (Scala 3-style concrete type extensions)
@@ -3734,7 +3711,6 @@ export {
   getTypeclass,
   instanceVarName,
   companionPath,
-  getSyntaxForOperator,
   getTypeclassesForMethod,
   clearSyntaxRegistry, // deprecated, no-op
   // Comprehension typeclass support (exported via export function declarations above)

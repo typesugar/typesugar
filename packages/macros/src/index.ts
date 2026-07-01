@@ -89,7 +89,6 @@ export {
   companionPath,
   generateStandardTypeclasses,
   tryExtractSumType,
-  getSyntaxForOperator,
   getTypeclassesForMethod,
   clearSyntaxRegistry,
   updateTypeclassSyntax,
