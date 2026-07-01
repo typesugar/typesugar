@@ -18,7 +18,6 @@ import {
   isKindAnnotation,
   transformHKTDeclaration,
   tryExpandGenericDerive,
-  instanceRegistry,
   typeclassRegistry,
   instanceVarName,
   companionPath,
@@ -5103,7 +5102,6 @@ class MacroTransformer {
           for (const stmt of genericExpansion.statements) {
             statements.push(this.setSourceMapRangeDeep(stmt, decorator));
           }
-          instanceRegistry.push(genericExpansion.registryEntry);
           continue;
         }
       } catch (error) {

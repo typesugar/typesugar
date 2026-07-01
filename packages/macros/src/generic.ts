@@ -37,12 +37,7 @@
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
-import {
-  instanceRegistry,
-  typeclassRegistry,
-  tryExtractSumType,
-  companionPath,
-} from "./typeclass.js";
+import { typeclassRegistry, tryExtractSumType } from "./typeclass.js";
 
 // ============================================================================
 // Structural Representation Types
@@ -440,15 +435,7 @@ function expandGenericForProductType(
     ])
   );
 
-  const { statements, instanceName } = buildGenericInstanceStatements(factory, typeName, metaCall);
-
-  instanceRegistry.push({
-    typeclassName: "Generic",
-    forType: typeName,
-    instanceName,
-    companionPath: companionPath("Generic", typeName),
-    derived: true,
-  });
+  const { statements } = buildGenericInstanceStatements(factory, typeName, metaCall);
 
   // Also register metadata at compile time for immediate use
   genericMetaRegistry.set(typeName, {
@@ -556,15 +543,7 @@ function expandGenericForSumType(
     ])
   );
 
-  const { statements, instanceName } = buildGenericInstanceStatements(factory, typeName, metaCall);
-
-  instanceRegistry.push({
-    typeclassName: "Generic",
-    forType: typeName,
-    instanceName,
-    companionPath: companionPath("Generic", typeName),
-    derived: true,
-  });
+  const { statements } = buildGenericInstanceStatements(factory, typeName, metaCall);
 
   // Also register metadata at compile time for immediate use
   genericMetaRegistry.set(typeName, {

@@ -30,7 +30,6 @@ import {
   implicit,
   type TypeclassInfo,
   getTypeclasses,
-  getInstances,
   // clearRegistries — not used in showcase, available for test isolation
 } from "@typesugar/typeclass";
 
@@ -247,9 +246,6 @@ typeAssert<Extends<typeof showInfo, TypeclassInfo>>();
 assert(showInfo.name === "Show");
 assert(showInfo.methods.length > 0);
 assert(showInfo.methods[0].name === "show");
-
-const instances = getInstances();
-assert(instances.size > 0);
 
 // ============================================================================
 // 8. REAL-WORLD EXAMPLE — Config system with typeclasses

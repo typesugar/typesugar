@@ -53,11 +53,9 @@ export type { TypeclassInfo, TypeclassMethod, InstanceInfo } from "@typesugar/ma
 // Registry access (for testing and advanced use)
 export {
   typeclassRegistry,
-  instanceRegistry,
   getTypeclass,
   clearRegistries,
   getTypeclasses,
-  getInstances,
 } from "@typesugar/macros";
 
 // Derivation utilities

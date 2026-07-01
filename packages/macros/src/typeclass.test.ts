@@ -15,7 +15,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   getTypeclasses,
-  getInstances,
   clearRegistries,
   registerStandardTypeclasses,
   registerTypeclassDef,
@@ -54,14 +53,15 @@ describe("typeclass registry", () => {
 
     it("clears all instances", () => {
       registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "number",
-        instanceName: "eqNumber",
+        typeclassName: "FlatMap",
+        forType: "Promise",
+        instanceName: "flatMapPromise",
         derived: false,
+        meta: { methodNames: { bind: "then", map: "then", orElse: "catch" } },
       });
-      expect(getInstances().size).toBe(1);
+      expect(hasFlatMapInstance("Promise")).toBe(true);
       clearRegistries();
-      expect(getInstances().size).toBe(0);
+      expect(hasFlatMapInstance("Promise")).toBe(false);
     });
   });
 
@@ -213,96 +213,17 @@ describe("typeclass registry", () => {
 // Instance Registry
 // ============================================================================
 
-describe("instance registry", () => {
+// PEP-052: the general instance registry is deleted; instance *resolution* is
+// scope-based (see instance-resolver). The only surviving registry is the focused
+// do-notation lookup (FlatMap/ParCombine), populated by registerInstanceWithMeta.
+describe("do-notation instance lookup", () => {
   beforeEach(() => {
     clearRegistries();
     registerStandardTypeclasses();
   });
 
   describe("registerInstanceWithMeta", () => {
-    it("registers a new instance", () => {
-      registerInstanceWithMeta({
-        typeclassName: "Show",
-        forType: "number",
-        instanceName: "showNumber",
-        derived: false,
-      });
-
-      const instances = getInstances();
-      expect(instances.has("Show<number>")).toBe(true);
-      const inst = instances.get("Show<number>")!;
-      expect(inst.instanceName).toBe("showNumber");
-      expect(inst.derived).toBe(false);
-    });
-
-    it("updates existing instance (duplicate detection)", () => {
-      registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "Point",
-        instanceName: "eqPoint_v1",
-        derived: true,
-      });
-      registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "Point",
-        instanceName: "eqPoint_v2",
-        derived: false,
-      });
-
-      const instances = getInstances();
-      const inst = instances.get("Eq<Point>")!;
-      // Should have the updated instance
-      expect(inst.instanceName).toBe("eqPoint_v2");
-      expect(inst.derived).toBe(false);
-    });
-
-    it("auto-computes companionPath for primitives when instanceValue provided", () => {
-      registerInstanceWithMeta(
-        {
-          typeclassName: "Show",
-          forType: "number",
-          instanceName: "showNumber",
-          derived: false,
-        },
-        { show: (a: number) => String(a) }
-      );
-
-      const inst = getInstances().get("Show<number>")!;
-      expect(inst.companionPath).toBe("Show.number");
-    });
-
-    it("auto-computes companionPath for user types when instanceValue provided", () => {
-      registerInstanceWithMeta(
-        {
-          typeclassName: "Eq",
-          forType: "Point",
-          instanceName: "eqPoint",
-          derived: true,
-        },
-        { equals: () => true }
-      );
-
-      const inst = getInstances().get("Eq<Point>")!;
-      expect(inst.companionPath).toBe("Point.Eq");
-    });
-
-    it("does not override explicit companionPath", () => {
-      registerInstanceWithMeta(
-        {
-          typeclassName: "Eq",
-          forType: "Point",
-          instanceName: "eqPoint",
-          companionPath: "Custom.Path",
-          derived: false,
-        },
-        {}
-      );
-
-      const inst = getInstances().get("Eq<Point>")!;
-      expect(inst.companionPath).toBe("Custom.Path");
-    });
-
-    it("stores metadata", () => {
+    it("stores do-notation metadata", () => {
       registerInstanceWithMeta({
         typeclassName: "FlatMap",
         forType: "Promise",
@@ -319,45 +240,42 @@ describe("instance registry", () => {
       expect(meta!.methodNames!.map).toBe("then");
       expect(meta!.methodNames!.orElse).toBe("catch");
     });
-  });
 
-  describe("getInstances", () => {
-    it("returns a copy keyed by Typeclass<Type>", () => {
+    it("updates an existing instance (replace in place)", () => {
       registerInstanceWithMeta({
-        typeclassName: "Show",
-        forType: "number",
-        instanceName: "showNumber",
+        typeclassName: "FlatMap",
+        forType: "Promise",
+        instanceName: "v1",
         derived: false,
+        meta: { methodNames: { bind: "then" } },
       });
       registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "string",
-        instanceName: "eqString",
+        typeclassName: "FlatMap",
+        forType: "Promise",
+        instanceName: "v2",
         derived: false,
+        meta: { methodNames: { bind: "chain" } },
       });
 
-      const instances = getInstances();
-      expect(instances.size).toBe(2);
-      expect(instances.has("Show<number>")).toBe(true);
-      expect(instances.has("Eq<string>")).toBe(true);
+      expect(getInstanceMeta("FlatMap", "Promise")!.methodNames!.bind).toBe("chain");
     });
   });
 
   describe("getInstanceMeta", () => {
-    it("returns undefined for non-existent instance", () => {
+    it("returns undefined for a non-do-notation typeclass", () => {
       const meta = getInstanceMeta("Show", "UnknownType");
       expect(meta).toBeUndefined();
     });
 
-    it("returns undefined when instance has no metadata", () => {
+    it("returns undefined when a do-notation instance carries no metadata", () => {
       registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "Point",
-        instanceName: "eqPoint",
-        derived: true,
+        typeclassName: "FlatMap",
+        forType: "Array",
+        instanceName: "flatMapArray",
+        derived: false,
       });
-      const meta = getInstanceMeta("Eq", "Point");
-      expect(meta).toBeUndefined();
+      expect(hasFlatMapInstance("Array")).toBe(true);
+      expect(getInstanceMeta("FlatMap", "Array")).toBeUndefined();
     });
   });
 });

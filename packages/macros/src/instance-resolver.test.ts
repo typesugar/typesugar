@@ -12,7 +12,6 @@ import * as path from "path";
 import * as os from "os";
 import { InstanceScanner } from "./instance-scanner.js";
 import { resolveInstance, clearResolverCache, type ResolutionResult } from "./instance-resolver.js";
-import { instanceRegistry } from "./typeclass.js";
 import type { MacroContext } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
@@ -20,18 +19,14 @@ import type { MacroContext } from "@typesugar/core";
 // ---------------------------------------------------------------------------
 
 const cleanups: (() => void)[] = [];
-let registrySnapshot: number;
 
 beforeEach(() => {
-  registrySnapshot = instanceRegistry.length;
   clearResolverCache();
 });
 
 afterEach(() => {
   for (const fn of cleanups) fn();
   cleanups.length = 0;
-  // Restore registry to pre-test state
-  instanceRegistry.length = registrySnapshot;
   clearResolverCache();
 });
 

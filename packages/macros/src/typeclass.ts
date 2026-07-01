@@ -614,7 +614,6 @@ function executeTransitiveDerivation(
     const expansion = tryExpandGenericDerive(ctx, typeclassName, typeInfo.typeName, typeInfo.node);
     if (expansion) {
       statements.push(...expansion.statements);
-      instanceRegistry.push(expansion.registryEntry);
       generated.add(typeInfo.typeName);
     }
 
@@ -722,17 +721,15 @@ interface InstanceMeta {
   [key: string]: unknown;
 }
 
-/** Global compile-time registry of typeclasses and instances.
+/** Global compile-time registry of typeclasses.
  * Uses globalThis backing to share across ESM/CJS module instances.
  * Without this, `import` (ESM transformer) and `require` (CJS test/runtime)
- * create separate registries and instances registered via CJS are invisible
+ * create separate registries and definitions registered via CJS are invisible
  * to the ESM transformer's operator overloading pass. */
 const _g = globalThis as any;
 if (!_g.__typesugar_typeclassRegistry)
   _g.__typesugar_typeclassRegistry = new Map<string, TypeclassInfo>();
-if (!_g.__typesugar_instanceRegistry) _g.__typesugar_instanceRegistry = [];
 const typeclassRegistry: Map<string, TypeclassInfo> = _g.__typesugar_typeclassRegistry;
-const instanceRegistry: InstanceInfo[] = _g.__typesugar_instanceRegistry;
 
 /**
  * Focused do-notation instance lookup (PEP-052 Phase B).
@@ -740,11 +737,11 @@ const instanceRegistry: InstanceInfo[] = _g.__typesugar_instanceRegistry;
  * The `let:`/`yield:`/`par:` comprehension macros resolve FlatMap/ParCombine by the
  * comprehension effect's *type-constructor name* (`Option`, `Array`, `Effect`…) —
  * genuine HKT resolution by brand/name, not the concrete-type matching used for
- * Eq/Ord operators. Rather than read the general `instanceRegistry`, they read this
- * focused map, populated whenever {@link registerInstanceWithMeta} registers a
+ * Eq/Ord operators (which is scope-based). This focused map is populated whenever
+ * {@link registerInstanceWithMeta} or the `@instance`/`@impl` macro registers a
  * FlatMap or ParCombine instance (via side-effect imports like
- * `import "@typesugar/effect"`). Keeping it separate lets the general
- * `instanceRegistry` be deleted (Phase C) without breaking do-notation.
+ * `import "@typesugar/effect"`). It is the only surviving instance registry — general
+ * instance resolution is scope-based (see instance-resolver).
  *
  * Keyed by `"<typeclass>:<typeConstructorName>"`, e.g. `"FlatMap:Option"`. The value
  * is the instance's `meta` (or `undefined` when it has none) — presence of the key,
@@ -1304,18 +1301,6 @@ export function getTypeclasses(): Map<string, TypeclassInfo> {
 }
 
 /**
- * Get a copy of the instance registry as a Map keyed by "Typeclass<Type>".
- * Returns a new Map so mutations don't affect the internal registry.
- */
-export function getInstances(): Map<string, InstanceInfo> {
-  const map = new Map<string, InstanceInfo>();
-  for (const inst of instanceRegistry) {
-    map.set(`${inst.typeclassName}<${inst.forType}>`, inst);
-  }
-  return map;
-}
-
-/**
  * Re-register standard typeclass definitions.
  * Called to restore standard typeclasses after clearRegistries().
  */
@@ -1334,7 +1319,6 @@ export function registerStandardTypeclasses(): void {
  */
 export function clearRegistries(): void {
   typeclassRegistry.clear();
-  instanceRegistry.length = 0;
   doNotationRegistry.clear();
 }
 
@@ -2044,18 +2028,16 @@ export const implAttribute = defineAttributeMacro({
       }
     }
 
-    // Register in our compile-time registry
-    const instanceInfo: InstanceInfo = {
+    // Keep the do-notation lookup in sync so a user-defined @impl/@instance
+    // FlatMap/ParCombine monad is visible to let:/yield:/par: (PEP-052). General
+    // instance resolution is scope-based, so there is no registry to push to.
+    mirrorDoNotationInstance({
       typeclassName: tcName,
       forType: typeName,
       instanceName: varName,
       companionPath: companionPath(tcName, typeName),
       derived: false,
-    };
-    instanceRegistry.push(instanceInfo);
-    // Keep the do-notation lookup in sync so a user-defined @impl/@instance
-    // FlatMap/ParCombine monad is visible to let:/yield:/par: (PEP-052 Phase B).
-    mirrorDoNotationInstance(instanceInfo);
+    });
 
     // Notify coverage system that this type has an instance
     notifyPrimitiveRegistered(typeName, tcName);
@@ -3328,18 +3310,9 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
     info.companionPath = companionPath(info.typeclassName, info.forType);
   }
 
-  // Check for existing instance and update if found
-  const existingIndex = instanceRegistry.findIndex(
-    (i) => i.typeclassName === info.typeclassName && i.forType === info.forType
-  );
-  if (existingIndex >= 0) {
-    instanceRegistry[existingIndex] = info;
-  } else {
-    instanceRegistry.push(info);
-  }
-
-  // PEP-052 Phase B: mirror FlatMap/ParCombine registrations into the focused
-  // do-notation lookup so let:/yield:/par: resolve without the general registry.
+  // PEP-052: general instance resolution is scope-based (no registry). This call
+  // survives only to (1) populate the focused do-notation lookup for FlatMap/ParCombine
+  // and (2) attach the value to its typeclass companion, below.
   mirrorDoNotationInstance(info);
 
   // Attach to typeclass companion if available (populated by @typeclass macro)
@@ -3758,7 +3731,6 @@ export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, Syntax
 
 export {
   typeclassRegistry,
-  instanceRegistry,
   getTypeclass,
   instanceVarName,
   companionPath,

@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   clearRegistries,
   getTypeclasses,
-  getInstances,
   TypeclassInfo,
   InstanceInfo,
 } from "../packages/typeclass/src/index.js";
@@ -34,49 +33,11 @@ describe("Typeclass Registry Edge Cases", () => {
       expect(typeclasses.size).toBe(0);
     });
 
-    it("clearRegistries removes all instances", () => {
-      const instances = getInstances();
-      expect(instances.size).toBe(0);
-    });
-
     it("getTypeclasses returns a copy, not the internal map", () => {
       const map1 = getTypeclasses();
       const map2 = getTypeclasses();
 
       expect(map1).not.toBe(map2);
-    });
-
-    it("getInstances returns a copy, not the internal map", () => {
-      const map1 = getInstances();
-      const map2 = getInstances();
-
-      expect(map1).not.toBe(map2);
-    });
-  });
-
-  // ==========================================================================
-  // Attack 2: Instance Key Format Edge Cases
-  // ==========================================================================
-  describe("Instance key edge cases", () => {
-    beforeEach(() => {
-      clearRegistries();
-    });
-
-    it("Instance key format is 'Typeclass<Type>'", () => {
-      const instances = getInstances();
-
-      for (const key of instances.keys()) {
-        expect(key).toMatch(/^[A-Za-z_][A-Za-z0-9_]*<[^>]+>$/);
-      }
-    });
-
-    it("Generic types in instance keys preserve full type string", () => {
-      const instances = getInstances();
-
-      for (const [key, instance] of instances) {
-        const expectedKey = `${instance.typeclassName}<${instance.forType}>`;
-        expect(key).toBe(expectedKey);
-      }
     });
   });
 });
@@ -253,22 +214,12 @@ describe("Instance Registry Concurrency Edge Cases", () => {
       clearRegistries();
 
       expect(getTypeclasses().size).toBe(0);
-      expect(getInstances().size).toBe(0);
     });
 
     it("getTypeclasses after clear returns empty map", () => {
       const before = getTypeclasses();
       clearRegistries();
       const after = getTypeclasses();
-
-      expect(after.size).toBe(0);
-      expect(before).not.toBe(after);
-    });
-
-    it("getInstances after clear returns empty map", () => {
-      const before = getInstances();
-      clearRegistries();
-      const after = getInstances();
 
       expect(after.size).toBe(0);
       expect(before).not.toBe(after);
@@ -483,13 +434,6 @@ describe("Registry Isolation", () => {
   // Attack 13: Registry State Isolation
   // ==========================================================================
   describe("Registry state isolation", () => {
-    it("Clearing typeclasses does not affect instance query results format", () => {
-      clearRegistries();
-
-      const instances = getInstances();
-      expect(instances instanceof Map).toBe(true);
-    });
-
     it("Clearing instances does not affect typeclass query results format", () => {
       clearRegistries();
 
@@ -498,16 +442,11 @@ describe("Registry Isolation", () => {
     });
 
     it("Registry clear is synchronous", () => {
-      const beforeTypeclasses = getTypeclasses().size;
-      const beforeInstances = getInstances().size;
-
       clearRegistries();
 
       const afterTypeclasses = getTypeclasses().size;
-      const afterInstances = getInstances().size;
 
       expect(afterTypeclasses).toBe(0);
-      expect(afterInstances).toBe(0);
     });
   });
 });

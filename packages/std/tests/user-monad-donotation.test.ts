@@ -3,12 +3,12 @@
  * `@impl`/`@instance` attribute macro must be visible to the `let:`/`yield:` and
  * `par:`/`yield:` do-notation macros.
  *
- * The Phase-B migration moved do-notation FlatMap/ParCombine detection off the
- * general `instanceRegistry` onto a focused `doNotationRegistry`. That registry is
- * populated by `registerInstanceWithMeta` AND by the `@instance`/`@impl` attribute
- * macro's direct `instanceRegistry.push` — if the latter mirror is dropped, a
- * user-defined `@impl FlatMap<T>` monad silently stops resolving in do-notation
- * (the std built-ins keep working, so the suite would otherwise stay green).
+ * Do-notation FlatMap/ParCombine detection resolves via the focused
+ * `doNotationRegistry`, populated by `mirrorDoNotationInstance` at every instance
+ * registration site (`registerInstanceWithMeta` AND the `@instance`/`@impl` attribute
+ * macro). If the macro's mirror call is dropped, a user-defined `@impl FlatMap<T>`
+ * monad silently stops resolving in do-notation (the std built-ins keep working, so
+ * the suite would otherwise stay green).
  */
 import { describe, it, expect } from "vitest";
 

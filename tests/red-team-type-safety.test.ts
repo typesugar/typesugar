@@ -17,11 +17,8 @@ import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext, globalRegistry } from "@typesugar/core";
 import {
   typeclassRegistry,
-  instanceRegistry,
   clearRegistries,
   getTypeclasses,
-  getInstances,
-  findInstance,
   makePrimitiveChecker,
   getGenericDerivation,
   hasGenericDerivation,
@@ -285,27 +282,6 @@ describe("Red Team: Type Safety", () => {
       typeclassRegistry.set("TestTC", tc2 as any);
 
       expect(typeclassRegistry.get("TestTC")).toBe(tc2);
-    });
-
-    // Finding TS-16: Instance registry (array) accepts any entry without validation
-    it("instance registry accepts entries without key format validation", () => {
-      clearRegistries();
-
-      // instanceRegistry is an array — push accepts any shape
-      instanceRegistry.push({
-        typeclassName: "X",
-        forType: "Y",
-        instanceName: "not_a_real_instance",
-      } as any);
-      expect(instanceRegistry.length).toBeGreaterThan(0);
-
-      // Empty strings are also accepted
-      instanceRegistry.push({
-        typeclassName: "",
-        forType: "",
-        instanceName: "",
-      } as any);
-      expect(instanceRegistry.some((i) => i.typeclassName === "")).toBe(true);
     });
 
     // Finding TS-17: @deriving decorator is no-op at runtime

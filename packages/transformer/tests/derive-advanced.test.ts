@@ -17,7 +17,6 @@ import { transformCode } from "../src/pipeline.js";
 import {
   clearRegistries,
   clearSyntaxRegistry,
-  instanceRegistry,
   registerTypeclassMacros,
   registerStandardTypeclasses,
 } from "@typesugar/macros";
@@ -125,10 +124,6 @@ interface Point { x: number; y: number; }
     expect(result.code).toContain("export const Eq");
     expect(result.code).toContain("equals:");
     expect(result.changed).toBe(true);
-
-    const entry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Point");
-    expect(entry).toBeDefined();
-    expect(entry?.derived).toBe(true);
   });
 
   // PEP-033 N1: multi-arg @derive on an interface must NOT emit a companion
@@ -240,13 +235,6 @@ interface Pair { a: number; b: number; }
     expect(result.code).toContain("namespace Pair");
     expect(result.code).toContain("export const Eq");
     expect(result.code).toContain("export const Show");
-
-    const eqEntry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Pair");
-    const showEntry = instanceRegistry.find(
-      (e) => e.typeclassName === "Show" && e.forType === "Pair"
-    );
-    expect(eqEntry).toBeDefined();
-    expect(showEntry).toBeDefined();
   });
 });
 
