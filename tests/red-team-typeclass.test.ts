@@ -11,8 +11,8 @@
  * - Instance priority/ordering when multiple instances exist
  * - Method extraction from typeclass interfaces
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { clearRegistries, TypeclassInfo, InstanceInfo } from "../packages/typeclass/src/index.js";
+import { describe, it, expect } from "vitest";
+import { TypeclassInfo, InstanceInfo } from "../packages/typeclass/src/index.js";
 
 // PEP-052: the global typeclass registry is deleted; typeclass definitions are
 // discovered per-program by the op-index. The registry-clearing/copy adversarial
@@ -171,25 +171,6 @@ describe("Typeclass Macro Placeholder Edge Cases", () => {
 
       const decorator = deriving("Show", "Eq");
       expect(typeof decorator).toBe("function");
-    });
-  });
-});
-
-describe("Instance Registry Concurrency Edge Cases", () => {
-  // ==========================================================================
-  // Attack 7: Rapid Registry Operations
-  // ==========================================================================
-  describe("Registry operation ordering", () => {
-    beforeEach(() => {
-      clearRegistries();
-    });
-
-    it("Multiple clearRegistries calls are idempotent", () => {
-      expect(() => {
-        clearRegistries();
-        clearRegistries();
-        clearRegistries();
-      }).not.toThrow();
     });
   });
 });
@@ -392,17 +373,6 @@ describe("Typeclass Interface Constraints", () => {
       };
 
       expect(info.methods[0].typeParams).toEqual(["Input", "Output"]);
-    });
-  });
-});
-
-describe("Registry Isolation", () => {
-  // ==========================================================================
-  // Attack 13: Registry State Isolation
-  // ==========================================================================
-  describe("Registry state isolation", () => {
-    it("clearRegistries is synchronous and does not throw", () => {
-      expect(() => clearRegistries()).not.toThrow();
     });
   });
 });

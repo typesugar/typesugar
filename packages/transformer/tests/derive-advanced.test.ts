@@ -160,8 +160,8 @@ class P { constructor(public x: number) {} }
   // PEP-033 N3: instance-method sugar — `p.equals(q)` on a derived type is
   // rewritten to the companion call `P.Eq.equals(p, q)` (receiver → first arg).
   it("rewrites instance-method sugar `p.equals(q)` to the companion call", () => {
-    // clearRegistries() (beforeEach) wipes the standard typeclass defs that
-    // getTypeclassesForMethod("equals") relies on — restore them.
+    // `equals` resolves to Eq via the op-index's static standard-typeclass seed
+    // (no per-test registration needed — the seed is immutable, not a cleared registry).
     const code = `
 @derive(Eq)
 class P { constructor(public x: number) {} }

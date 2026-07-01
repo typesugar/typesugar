@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries, registerInstanceWithMeta } from "@typesugar/macros";
+import { clearRegistries } from "@typesugar/macros";
 
 beforeEach(() => {
   clearRegistries();
