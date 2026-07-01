@@ -12,35 +12,11 @@
  * - Method extraction from typeclass interfaces
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  clearRegistries,
-  getTypeclasses,
-  TypeclassInfo,
-  InstanceInfo,
-} from "../packages/typeclass/src/index.js";
+import { clearRegistries, TypeclassInfo, InstanceInfo } from "../packages/typeclass/src/index.js";
 
-describe("Typeclass Registry Edge Cases", () => {
-  // ==========================================================================
-  // Attack 1: Registry Clearing and State Management
-  // ==========================================================================
-  describe("Registry clearing", () => {
-    beforeEach(() => {
-      clearRegistries();
-    });
-
-    it("clearRegistries removes all typeclasses", () => {
-      const typeclasses = getTypeclasses();
-      expect(typeclasses.size).toBe(0);
-    });
-
-    it("getTypeclasses returns a copy, not the internal map", () => {
-      const map1 = getTypeclasses();
-      const map2 = getTypeclasses();
-
-      expect(map1).not.toBe(map2);
-    });
-  });
-});
+// PEP-052: the global typeclass registry is deleted; typeclass definitions are
+// discovered per-program by the op-index. The registry-clearing/copy adversarial
+// tests targeted that deleted mechanism.
 
 describe("Typeclass Info Structure Edge Cases", () => {
   // ==========================================================================
@@ -209,20 +185,11 @@ describe("Instance Registry Concurrency Edge Cases", () => {
     });
 
     it("Multiple clearRegistries calls are idempotent", () => {
-      clearRegistries();
-      clearRegistries();
-      clearRegistries();
-
-      expect(getTypeclasses().size).toBe(0);
-    });
-
-    it("getTypeclasses after clear returns empty map", () => {
-      const before = getTypeclasses();
-      clearRegistries();
-      const after = getTypeclasses();
-
-      expect(after.size).toBe(0);
-      expect(before).not.toBe(after);
+      expect(() => {
+        clearRegistries();
+        clearRegistries();
+        clearRegistries();
+      }).not.toThrow();
     });
   });
 });
@@ -434,19 +401,8 @@ describe("Registry Isolation", () => {
   // Attack 13: Registry State Isolation
   // ==========================================================================
   describe("Registry state isolation", () => {
-    it("Clearing instances does not affect typeclass query results format", () => {
-      clearRegistries();
-
-      const typeclasses = getTypeclasses();
-      expect(typeclasses instanceof Map).toBe(true);
-    });
-
-    it("Registry clear is synchronous", () => {
-      clearRegistries();
-
-      const afterTypeclasses = getTypeclasses().size;
-
-      expect(afterTypeclasses).toBe(0);
+    it("clearRegistries is synchronous and does not throw", () => {
+      expect(() => clearRegistries()).not.toThrow();
     });
   });
 });

@@ -1,11 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import {
-  clearRegistries,
-  clearSyntaxRegistry,
-  registerTypeclassDef,
-  registerInstanceWithMeta,
-} from "@typesugar/macros";
+import { clearRegistries, clearSyntaxRegistry, registerInstanceWithMeta } from "@typesugar/macros";
 
 beforeEach(() => {
   clearSyntaxRegistry();

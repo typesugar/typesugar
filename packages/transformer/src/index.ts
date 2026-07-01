@@ -18,7 +18,6 @@ import {
   isKindAnnotation,
   transformHKTDeclaration,
   tryExpandGenericDerive,
-  typeclassRegistry,
   instanceVarName,
   companionPath,
   tryExtractSumType,
@@ -38,8 +37,6 @@ import {
   clearDerivationCaches,
   // Registration functions for AST-based extraction
   registerInstanceWithMeta,
-  registerTypeclassDef,
-  updateTypeclassSyntax,
   extractOpFromJSDoc,
   // Source-based specialization
   extractMethodsFromObjectLiteral,
@@ -689,42 +686,6 @@ function resolveRelativeImport(modulePath: string, baseDir: string): string | un
  */
 
 /**
- * Extract operator syntax from an interface definition by scanning for @op JSDoc tags.
- */
-function extractOpsFromInterface(
-  sourceFile: ts.SourceFile,
-  interfaceName: string
-): Map<string, string> | undefined {
-  // Find the interface declaration
-  let targetInterface: ts.InterfaceDeclaration | undefined;
-  for (const stmt of sourceFile.statements) {
-    if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === interfaceName) {
-      targetInterface = stmt;
-      break;
-    }
-  }
-
-  if (!targetInterface) return undefined;
-
-  const result = new Map<string, string>();
-
-  // Scan method signatures for @op JSDoc tags
-  for (const member of targetInterface.members) {
-    if (!ts.isMethodSignature(member)) continue;
-    if (!member.name || !ts.isIdentifier(member.name)) continue;
-
-    const methodName = member.name.text;
-
-    const jsdocOp = extractOpFromJSDoc(member);
-    if (jsdocOp) {
-      result.set(jsdocOp, methodName);
-    }
-  }
-
-  return result.size > 0 ? result : undefined;
-}
-
-/**
  * Extract and pre-register `instance()` and `typeclass()` calls from imported workspace files.
  *
  * This ensures typeclass instances and syntax mappings are registered BEFORE the transformer
@@ -783,12 +744,7 @@ function ensureImportedRegistrations(
     // OPTIMIZATION: Fast string-based skip for files without registration calls
     // Most files don't contain registrations, so avoid the expensive AST walk
     const fileText = importedSf.text;
-    if (
-      !fileText.includes("instance(") &&
-      !fileText.includes("typeclass(") &&
-      !fileText.includes("registerInstanceWithMeta(") &&
-      !fileText.includes("updateTypeclassSyntax(")
-    ) {
+    if (!fileText.includes("instance(") && !fileText.includes("registerInstanceWithMeta(")) {
       // File doesn't have any registration calls — just recurse into imports
       ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
       continue;
@@ -840,22 +796,8 @@ function ensureImportedRegistrations(
             }
           }
 
-          // Handle typeclass("Name") — extract @op from interface definition
-          if (fnName === "typeclass" && node.arguments.length >= 1) {
-            const nameArg = node.arguments[0];
-            if (ts.isStringLiteral(nameArg)) {
-              const tcName = nameArg.text;
-              const opsMap = extractOpsFromInterface(importedSf, tcName);
-              if (opsMap && opsMap.size > 0) {
-                if (verbose) {
-                  console.log(
-                    `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
-                  );
-                }
-                updateTypeclassSyntax(tcName, opsMap);
-              }
-            }
-          }
+          // (@op operator syntax is discovered generically by the op-index, which
+          // scans @typeclass interfaces across the program — no pre-registration.)
 
           // Handle registerInstanceWithMeta({ ... })
           if (fnName === "registerInstanceWithMeta" && node.arguments.length >= 1) {

@@ -37,7 +37,7 @@
 import * as ts from "typescript";
 import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
-import { typeclassRegistry, tryExtractSumType } from "./typeclass.js";
+import { tryExtractSumType } from "./typeclass.js";
 
 // ============================================================================
 // Structural Representation Types

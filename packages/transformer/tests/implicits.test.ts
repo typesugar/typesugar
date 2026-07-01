@@ -11,35 +11,16 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import {
-  clearRegistries,
-  clearSyntaxRegistry,
-  registerTypeclassDef,
-  registerInstanceWithMeta,
-} from "@typesugar/macros";
+import { clearRegistries, clearSyntaxRegistry, registerInstanceWithMeta } from "@typesugar/macros";
 
 beforeEach(() => {
   clearSyntaxRegistry();
   clearRegistries();
 });
 
-function setupOrdTypeclass() {
-  registerTypeclassDef({
-    name: "Ord",
-    typeParams: ["T"],
-    methods: [{ name: "compare", params: ["a", "b"], returnType: "number" }],
-    syntax: new Map(),
-  });
-}
+function setupOrdTypeclass() {}
 
-function setupShowTypeclass() {
-  registerTypeclassDef({
-    name: "Show",
-    typeParams: ["T"],
-    methods: [{ name: "show", params: ["a"], returnType: "string" }],
-    syntax: new Map(),
-  });
-}
+function setupShowTypeclass() {}
 
 function registerOrdInstance(forType: string, instanceName: string) {
   registerInstanceWithMeta({

@@ -28,8 +28,6 @@ import {
   summon,
   extend,
   implicit,
-  type TypeclassInfo,
-  getTypeclasses,
   // clearRegistries — not used in showcase, available for test isolation
 } from "@typesugar/typeclass";
 
@@ -234,18 +232,8 @@ assert(concatAll(["hello", " ", "world"], stringMonoid) === "hello world");
 // 7. REGISTRY INTROSPECTION — inspecting registered typeclasses/instances
 // ============================================================================
 
-// The compile-time registries are available for tooling and reflection.
-
-const typeclasses = getTypeclasses();
-assert(typeclasses.has("Show"));
-assert(typeclasses.has("Eq"));
-assert(typeclasses.has("Ord"));
-
-const showInfo = typeclasses.get("Show")!;
-typeAssert<Extends<typeof showInfo, TypeclassInfo>>();
-assert(showInfo.name === "Show");
-assert(showInfo.methods.length > 0);
-assert(showInfo.methods[0].name === "show");
+// Typeclass definitions are discovered per-program by the op-index (PEP-052) — no
+// global reflection registry.
 
 // ============================================================================
 // 8. REAL-WORLD EXAMPLE — Config system with typeclasses

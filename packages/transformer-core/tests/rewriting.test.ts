@@ -28,12 +28,7 @@ import {
   type TypeMacro,
 } from "@typesugar/core";
 
-import {
-  clearRegistries,
-  registerStandardTypeclasses,
-  registerTypeclassDef,
-  registerInstanceWithMeta,
-} from "@typesugar/macros";
+import { clearRegistries, registerInstanceWithMeta } from "@typesugar/macros";
 
 import {
   tryExpandTaggedTemplate,
@@ -150,7 +145,6 @@ beforeEach(() => {
   clearTypeRewrites();
   standaloneExtensionRegistry.length = 0;
   globalRegistry.clear();
-  registerStandardTypeclasses();
 });
 
 afterEach(() => {
@@ -998,20 +992,6 @@ describe("tryRewriteSpecializeExtension", () => {
 
 describe("tryRewriteTypeclassOperator", () => {
   function registerNumericForPoint(): void {
-    registerTypeclassDef({
-      name: "Numeric",
-      typeParam: "A",
-      methods: [
-        { name: "add", operatorSymbol: "+" },
-        { name: "sub", operatorSymbol: "-" },
-      ],
-      canDeriveProduct: false,
-      canDeriveSum: false,
-      syntax: new Map([
-        ["+", "add"],
-        ["-", "sub"],
-      ]),
-    });
     registerInstanceWithMeta({
       typeclassName: "Numeric",
       forType: "Point",

@@ -724,15 +724,9 @@ interface InstanceMeta {
   [key: string]: unknown;
 }
 
-/** Global compile-time registry of typeclasses.
- * Uses globalThis backing to share across ESM/CJS module instances.
- * Without this, `import` (ESM transformer) and `require` (CJS test/runtime)
- * create separate registries and definitions registered via CJS are invisible
- * to the ESM transformer's operator overloading pass. */
+/** globalThis backing shares registries across ESM/CJS module instances (the ESM
+ * transformer `import`s this module while CJS tests `require` it). */
 const _g = globalThis as any;
-if (!_g.__typesugar_typeclassRegistry)
-  _g.__typesugar_typeclassRegistry = new Map<string, TypeclassInfo>();
-const typeclassRegistry: Map<string, TypeclassInfo> = _g.__typesugar_typeclassRegistry;
 
 /**
  * Focused do-notation instance lookup (PEP-052 Phase B).
@@ -830,18 +824,12 @@ function getTypeclassesForMethod(methodName: string): SyntaxEntry[] | undefined 
 }
 
 /**
- * Clear syntax mappings from all typeclasses.
- * For testing only - clears syntax while keeping typeclass definitions.
+ * Deprecated no-op (PEP-052). Operator/method syntax is derived per-program by the
+ * op-index from `@op` JSDoc — there is no mutable syntax registry to clear. Retained
+ * as an exported no-op so existing test hooks that call it keep compiling.
  */
 function clearSyntaxRegistry(): void {
-  for (const tc of typeclassRegistry.values()) {
-    if (tc.syntax) {
-      tc.syntax.clear();
-    }
-    for (const method of tc.methods) {
-      delete method.operatorSymbol;
-    }
-  }
+  /* no-op */
 }
 
 // ============================================================================
@@ -1222,11 +1210,6 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
   },
 ];
 
-// Register standard typeclasses on module load (transform time, not runtime)
-for (const def of STANDARD_TYPECLASS_DEFS) {
-  typeclassRegistry.set(def.name, def);
-}
-
 /**
  * Static op/method metadata for the standard typeclasses, derived from the
  * built-in definitions. This is plain immutable data (NOT the mutable
@@ -1286,32 +1269,11 @@ export function extractOpFromJSDoc(member: ts.Node): string | undefined {
 }
 
 /**
- * Get a copy of the typeclass registry.
- * Returns a new Map so mutations don't affect the internal registry.
- */
-export function getTypeclasses(): Map<string, TypeclassInfo> {
-  return new Map(typeclassRegistry);
-}
-
-/**
- * Re-register standard typeclass definitions.
- * Called to restore standard typeclasses after clearRegistries().
- */
-export function registerStandardTypeclasses(): void {
-  for (const def of STANDARD_TYPECLASS_DEFS) {
-    typeclassRegistry.set(def.name, def);
-  }
-}
-
-/**
- * Clear all typeclass-related registries.
- * Useful for testing to ensure clean state between tests.
- *
- * Note: This DOES clear standard typeclasses. Call registerStandardTypeclasses()
- * if you need them restored.
+ * Clear the do-notation instance lookup. Retained for test isolation; typeclass
+ * definitions are no longer a mutable registry (PEP-052) so there is nothing else
+ * to clear.
  */
 export function clearRegistries(): void {
-  typeclassRegistry.clear();
   doNotationRegistry.clear();
 }
 
@@ -1799,8 +1761,8 @@ export const typeclassAttribute = defineAttributeMacro({
 
     const tcName = tcInfo.name;
     const isExported = tcInfo.isExported ?? false;
-    typeclassRegistry.set(tcName, tcInfo);
-
+    // No registry write (PEP-052): the op-index re-derives this definition from the
+    // interface AST per program. We only mark the typeclass as in-scope for this file.
     globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
 
     const statements: ts.Statement[] = [];
@@ -2984,95 +2946,16 @@ export const typeclassMacro = defineExpressionMacro({
       return ctx.factory.createVoidZero();
     }
 
-    const typeParams = targetInterface.typeParameters;
-    if (!typeParams || typeParams.length === 0) {
+    // Validate + mark in-scope. No registry write (PEP-052): the op-index re-derives
+    // the definition from the interface AST per program.
+    if (!buildTypeclassInfoFromInterface(targetInterface)) {
       ctx.reportError(
         targetInterface,
         `Interface ${tcName} must have at least one type parameter (e.g., interface ${tcName}<A>)`
       );
       return ctx.factory.createVoidZero();
     }
-
-    const typeParam = typeParams[0].name.text;
-
-    // Extract methods from the interface (same logic as typeclassAttribute)
-    const methods: TypeclassMethod[] = [];
-    const memberTexts: string[] = [];
-
-    for (const member of targetInterface.members) {
-      // Capture raw source text of each member for HKT expansion
-      try {
-        const memberText = member.getText(sourceFile);
-        memberTexts.push(memberText);
-      } catch {
-        // Node may not have real position (synthetic) - skip
-      }
-
-      if (ts.isMethodSignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        const params: Array<{ name: string; typeString: string }> = [];
-        let isSelfMethod = false;
-
-        for (let i = 0; i < member.parameters.length; i++) {
-          const param = member.parameters[i];
-          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
-          const paramType = param.type ? param.type.getText() : "unknown";
-
-          // Check if this parameter uses the typeclass's type param
-          if (i === 0 && paramType === typeParam) {
-            isSelfMethod = true;
-          }
-
-          params.push({ name: paramName, typeString: paramType });
-        }
-
-        const operatorSymbol = extractOpFromJSDoc(member);
-        const returnType = member.type ? member.type.getText() : "void";
-
-        methods.push({
-          name: methodName,
-          params,
-          returnType,
-          isSelfMethod,
-          operatorSymbol,
-        });
-      } else if (ts.isPropertySignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        methods.push({
-          name: methodName,
-          params: [],
-          returnType: member.type ? member.type.getText() : "unknown",
-          isSelfMethod: false,
-        });
-      }
-    }
-
-    // Build the full interface body text for HKT expansion
-    const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
-
-    // Build syntax map from @op JSDoc tags or Op<> annotations on methods
-    const syntax = new Map<string, string>();
-    for (const method of methods) {
-      if (method.operatorSymbol) {
-        syntax.set(method.operatorSymbol, method.name);
-      }
-    }
-
-    // Register the typeclass
-    const tcInfo: TypeclassInfo = {
-      name: tcName,
-      typeParam,
-      methods,
-      canDeriveProduct: true,
-      canDeriveSum: true,
-      fullSignatureText,
-      syntax: syntax.size > 0 ? syntax : undefined,
-    };
-    typeclassRegistry.set(tcName, tcInfo);
     globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
-
     return ctx.factory.createVoidZero();
   },
 });
@@ -3241,50 +3124,6 @@ const monoidString: Monoid<string> = /*#__PURE__*/ {
 // registries for FlatMap and ParCombine instances.
 
 /**
- * Register a typeclass programmatically (without @typeclass decorator).
- * Used to register FlatMap, ParCombine, and similar HKT typeclasses
- * that are defined as plain interfaces.
- */
-export function registerTypeclassDef(info: TypeclassInfo): void {
-  typeclassRegistry.set(info.name, info);
-  // syntax is stored directly in typeclassRegistry as part of TypeclassInfo
-}
-
-/**
- * Update or create a minimal typeclass registration with operator syntax.
- * Used by the transformer for pre-scanning typeclass definitions in imports.
- *
- * If the typeclass already exists, only updates the syntax field.
- * If it doesn't exist, creates a minimal placeholder entry.
- *
- * @param tcName - Typeclass name
- * @param syntax - Operator to method name mappings
- */
-export function updateTypeclassSyntax(tcName: string, syntax: Map<string, string>): void {
-  const existing = typeclassRegistry.get(tcName);
-  if (existing) {
-    // Merge new syntax into existing
-    if (!existing.syntax) {
-      existing.syntax = syntax;
-    } else {
-      for (const [op, method] of syntax) {
-        existing.syntax.set(op, method);
-      }
-    }
-  } else {
-    // Create minimal placeholder - will be fully registered when @typeclass is processed
-    typeclassRegistry.set(tcName, {
-      name: tcName,
-      typeParam: "A",
-      methods: [],
-      canDeriveProduct: false,
-      canDeriveSum: false,
-      syntax,
-    });
-  }
-}
-
-/**
  * Register a typeclass instance with optional metadata.
  * Used by comprehension macros to register FlatMap/ParCombine instances
  * for standard types (Promise, Array, etc.).
@@ -3431,62 +3270,9 @@ export function hasParCombineInstance(forType: string, sourceFileName?: string):
   return lookupDoNotationInstance("ParCombine", forType, sourceFileName).present;
 }
 
-// ============================================================================
-// Register FlatMap and ParCombine typeclasses
-// ============================================================================
-
-// Register FlatMap typeclass definition
-registerTypeclassDef({
-  name: "FlatMap",
-  typeParam: "F",
-  methods: [
-    {
-      name: "map",
-      params: [
-        { name: "fa", typeString: "F" },
-        { name: "f", typeString: "(a: A) => B" },
-      ],
-      returnType: "F",
-      isSelfMethod: true,
-    },
-    {
-      name: "flatMap",
-      params: [
-        { name: "fa", typeString: "F" },
-        { name: "f", typeString: "(a: A) => F" },
-      ],
-      returnType: "F",
-      isSelfMethod: true,
-    },
-  ],
-  canDeriveProduct: false,
-  canDeriveSum: false,
-});
-
-// Register ParCombine typeclass definition
-registerTypeclassDef({
-  name: "ParCombine",
-  typeParam: "F",
-  methods: [
-    {
-      name: "all",
-      params: [{ name: "effects", typeString: "readonly F[]" }],
-      returnType: "F",
-      isSelfMethod: false,
-    },
-    {
-      name: "map",
-      params: [
-        { name: "combined", typeString: "F" },
-        { name: "f", typeString: "(results: unknown[]) => unknown" },
-      ],
-      returnType: "F",
-      isSelfMethod: false,
-    },
-  ],
-  canDeriveProduct: false,
-  canDeriveSum: false,
-});
+// FlatMap/ParCombine are not registered as typeclass definitions: the do-notation
+// macros resolve their INSTANCES via the focused do-notation lookup, and neither
+// needs op-index operator/method metadata (PEP-052 Phase C).
 
 // ============================================================================
 // Register all macros with the global registry
@@ -3719,7 +3505,6 @@ export function tryExpandGenericDerive(
 export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, SyntaxEntry };
 
 export {
-  typeclassRegistry,
   instanceVarName,
   companionPath,
   getTypeclassesForMethod,

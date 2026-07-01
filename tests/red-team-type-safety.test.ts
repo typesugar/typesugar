@@ -16,9 +16,7 @@ import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext, globalRegistry } from "@typesugar/core";
 import {
-  typeclassRegistry,
   clearRegistries,
-  getTypeclasses,
   makePrimitiveChecker,
   getGenericDerivation,
   hasGenericDerivation,
@@ -266,22 +264,6 @@ describe("Red Team: Type Safety", () => {
     // Finding TS-14: summon() with no type args
     it("summon<>() runtime stub throws", () => {
       expect(() => summon()).toThrow("must be processed by the typesugar transformer");
-    });
-
-    // Finding TS-15: Registry allows duplicate typeclass entries
-    it("registry allows overwriting typeclass entries without warning", () => {
-      clearRegistries();
-
-      const tc1 = { name: "TestTC", methods: [] };
-      const tc2 = {
-        name: "TestTC",
-        methods: [{ name: "run", typeParams: [], params: [], returnType: "void" }],
-      };
-
-      typeclassRegistry.set("TestTC", tc1 as any);
-      typeclassRegistry.set("TestTC", tc2 as any);
-
-      expect(typeclassRegistry.get("TestTC")).toBe(tc2);
     });
 
     // Finding TS-17: @deriving decorator is no-op at runtime

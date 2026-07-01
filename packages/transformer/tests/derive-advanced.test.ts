@@ -14,12 +14,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import {
-  clearRegistries,
-  clearSyntaxRegistry,
-  registerTypeclassMacros,
-  registerStandardTypeclasses,
-} from "@typesugar/macros";
+import { clearRegistries, clearSyntaxRegistry, registerTypeclassMacros } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
 import type { DeriveTypeInfo } from "@typesugar/core";
 
@@ -168,7 +163,6 @@ class P { constructor(public x: number) {} }
   it("rewrites instance-method sugar `p.equals(q)` to the companion call", () => {
     // clearRegistries() (beforeEach) wipes the standard typeclass defs that
     // getTypeclassesForMethod("equals") relies on — restore them.
-    registerStandardTypeclasses();
     const code = `
 @derive(Eq)
 class P { constructor(public x: number) {} }

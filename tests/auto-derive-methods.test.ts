@@ -16,7 +16,6 @@ import { transformCode } from "@typesugar/transformer";
 import {
   clearRegistries,
   clearSyntaxRegistry,
-  registerTypeclassDef,
   registerInstanceWithMeta,
   clearDerivationCaches,
 } from "@typesugar/macros";
@@ -33,12 +32,6 @@ beforeEach(() => {
 });
 
 function setupEqTypeclass() {
-  registerTypeclassDef({
-    name: "Eq",
-    typeParams: ["T"],
-    methods: [{ name: "eq", params: ["a", "b"], returnType: "boolean" }],
-    syntax: new Map([["===", "eq"]]),
-  });
   registerInstanceWithMeta({
     typeclassName: "Eq",
     forType: "number",
@@ -54,12 +47,6 @@ function setupEqTypeclass() {
 }
 
 function setupShowTypeclass() {
-  registerTypeclassDef({
-    name: "Show",
-    typeParams: ["T"],
-    methods: [{ name: "show", params: ["a"], returnType: "string" }],
-    syntax: new Map(),
-  });
   registerInstanceWithMeta({
     typeclassName: "Show",
     forType: "number",
