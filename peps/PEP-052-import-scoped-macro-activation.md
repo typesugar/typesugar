@@ -395,18 +395,30 @@ bounded, non-redesign follow-up:
     `STANDARD_TYPECLASS_DEFS` + program `@typeclass` interfaces) is the sole owner of syntax
     lookup: deleted the dead `getSyntaxForOperator` + its "syntax registry" mechanism tests;
     migrated the `extend`-macro extension-method scan to `getTypeclassesDeclaringMethod(program)`.
-  - **C2b — REMAINING (deep, low ambient-leak value): delete the `typeclassRegistry` object.**
-    It survives only as a compile-time _definition_ store — NOT an ambient-behaviour leak (the
-    instance registry that caused the PR #29 cross-file leak is gone; syntax activation is
-    scope-gated). Deleting the object needs the op-index (or a per-program structure) to own full
-    typeclass definitions: `fullSignatureText`/`typeParam` for HKT expansion (`generateHKTExpandedType`,
-    has `ctx.program`) AND full method lists for the public `getTypeclass`/`getTypeclasses` API;
-    plus migrate `sfinae` `getTypeclassesForMethod` + `isRegisteredTypeclass`, delete the writers
-    (`registerTypeclassDef`, the `@typeclass` macro writes, `updateTypeclassSyntax`,
-    `registerStandardTypeclasses`), drop `typeclassRegistry.clear()` from `clearRegistries`, and
-    update the mechanism tests. Then **C2c**: fold `coherence.ts`'s `instances` map into the
-    resolver's `ambiguous`, empty the prelude, and remove `clearRegistries`/`clearSyntaxRegistry`
-    from ~21 hooks (gated on C2b, since `clearRegistries` still resets `typeclassRegistry`).
+  - **C2b — `typeclassRegistry` object deleted. DONE (PR #34).** The op-index now owns full
+    typeclass _definitions_: a shared `buildTypeclassInfoFromInterface` (factored out of the
+    `@typeclass` macro) + the `STANDARD_TYPECLASS_DEFS` seed populate a per-program `def`
+    (`getTypeclassDef`/`getAllTypeclassDefs`/`isTypeclassDeclared`). Migrated the readers — HKT
+    expansion (`generateHKTExpandedType` → `getTypeclassDef(ctx.program)`), `getTypeclassesForMethod`
+    (SFINAE, → static seed), and deleted the dead `getTypeclass`/`isRegisteredTypeclass`. Then
+    deleted the object + globalThis backing + ALL writers (both `@typeclass` macro forms, the
+    module-load seeding, `registerStandardTypeclasses`, `registerTypeclassDef` incl. the
+    FlatMap/ParCombine self-registrations, `updateTypeclassSyntax` + the transformer's
+    pre-registration pass) + the public `getTypeclasses`; `clearSyntaxRegistry` → no-op then
+    deleted; `clearRegistries` now clears only the do-notation lookup. Mechanism tests migrated
+    (typeclass.test "typeclass registry" block, fusion/red-team probes, showcase reflection;
+    transformer/derive setups no longer call the deleted setup fns — std comes from the seed).
+  - **C2c — DONE (PR #34).** Emptied the ambient prelude (nothing in scope by default in
+    import-scoped mode; `resolution.prelude` still configurable) and decoupled do-notation from
+    the scope gate (`let:`/`yield:`/`par:` self-activate via their macro import, resolving
+    FlatMap/ParCombine by type-constructor name). Deleted `clearSyntaxRegistry` (no-op) + its ~29
+    call sites across 15 test files. `coherence.ts`'s `instances` map needed no fold — the
+    `CoherenceChecker` is an unwired standalone utility (never called in resolution) and the
+    resolver already owns ambiguity via its `ambiguous` result.
+  - **Phase C RESULT: both ambient registries (`instanceRegistry`, `typeclassRegistry`) are
+    deleted; instance resolution is scope-based and typeclass definitions/syntax are per-program
+    (op-index). The only surviving instance store is the focused do-notation lookup. Full suite
+    7233/0 green.**
 - **Phase D — inlining registry.** Replace `instanceMethodRegistry` + its 30 static
   source-string builtins with `tryExtractInstanceFromSource` (already covers annotated/
   `@impl` instances); handle function-form instances (`effectFunctor<R,E>()`) which aren't
