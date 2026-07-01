@@ -303,6 +303,52 @@ function filterMatches(
   return results;
 }
 
+/**
+ * Name-based scope membership: does a type *named* `typeName` have an instance of
+ * `tcName` visible in `ctx.sourceFile`'s scope — either a local `@impl`/`@instance`
+ * declaration or an export of an imported module?
+ *
+ * The `@derive` transitive-derivation planner walks type *names* (not resolved
+ * `ts.Type`s, since a field type may not be resolvable in isolation) and must skip
+ * types that already have an instance. This is the registry-free replacement for the
+ * old `instanceRegistry.some(...)` membership check (PEP-052 Phase C): scope, not a
+ * process-global registry, so it can't leak instances across files.
+ */
+export function hasInstanceInScopeByName(
+  ctx: MacroContext,
+  tcName: string,
+  typeName: string,
+  scanner: InstanceScanner = defaultScanner
+): boolean {
+  const baseName = (s: string): string => {
+    const m = /^[A-Za-z_$][\w$]*/.exec(s.trim());
+    return m ? m[0] : s.trim();
+  };
+  const matches = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName && baseName(inst.forTypeString) === typeName;
+
+  // Local file (includes non-exported @impl/@instance values).
+  const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
+  if (local.some(matches)) return true;
+
+  // Imported modules.
+  for (const entry of getImportMap(ctx)) {
+    const moduleSourceFile = ctx.program.getSourceFile(entry.resolvedPath);
+    if (!moduleSourceFile) continue;
+    const moduleSymbol = ctx.typeChecker.getSymbolAtLocation(moduleSourceFile);
+    if (!moduleSymbol) continue;
+    const scanned = scanner.scanModule(
+      ctx.typeChecker,
+      moduleSymbol,
+      entry.resolvedPath,
+      ctx.program
+    );
+    if (scanned.some(matches)) return true;
+  }
+
+  return false;
+}
+
 function pickResult(
   matches: ResolvedInstance[],
   tcName: string,

@@ -87,7 +87,7 @@ import { globalResolutionScope } from "@typesugar/core";
 import { TS9001, TS9005, TS9008, TS9101, TS9203, TS9305 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
-import { resolveInstance } from "./instance-resolver.js";
+import { resolveInstance, hasInstanceInScopeByName } from "./instance-resolver.js";
 
 // ============================================================================
 // Ambient Derivation Context
@@ -301,20 +301,23 @@ function normalizeTypeNameForLookup(typeName: string): string {
 }
 
 /**
- * Check if a type has a primitive/instance for a typeclass.
+ * Check if a type already has an instance for a typeclass — a primitive (built-in
+ * companion instance) or an `@impl`/`@instance` value visible in the file's scope.
+ * Registry-free (PEP-052 Phase C): scope-based, so it can't see instances registered
+ * by an unrelated file's compilation.
  */
-function hasPrimitiveOrInstance(typeName: string, typeclassName: string): boolean {
-  // Check instance registry
-  if (instanceRegistry.some((i) => i.typeclassName === typeclassName && i.forType === typeName)) {
+function hasPrimitiveOrInstance(
+  ctx: MacroContext,
+  typeName: string,
+  typeclassName: string
+): boolean {
+  // Hardcoded primitives — always have built-in/companion instances.
+  const primitives = ["number", "string", "boolean", "bigint", "null", "undefined"];
+  if (primitives.includes(typeName.toLowerCase())) {
     return true;
   }
-  // Check via coverage hook
-  if (onPrimitiveRegistered) {
-    // Primitives are registered there
-  }
-  // Hardcoded primitives as fallback
-  const primitives = ["number", "string", "boolean", "bigint", "null", "undefined"];
-  return primitives.includes(typeName.toLowerCase());
+  // A user instance for this typeclass + type visible in scope (local or imported).
+  return hasInstanceInScopeByName(ctx, typeclassName, typeName);
 }
 
 /**
@@ -507,7 +510,7 @@ function buildTransitiveDerivationPlan(
     }
 
     // Already has instance?
-    if (hasPrimitiveOrInstance(typeName, typeclassName)) {
+    if (hasPrimitiveOrInstance(ctx, typeName, typeclassName)) {
       visited.add(typeName);
       return true;
     }
@@ -595,12 +598,15 @@ function executeTransitiveDerivation(
   plan: { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] }
 ): ts.Statement[] {
   const statements: ts.Statement[] = [];
+  // Types generated in this pass — the scanner can't see instances we emit as new
+  // AST until a re-scan, so track them locally to avoid double-generating a type
+  // that appears more than once in the plan (registry-free dedup, PEP-052 Phase C).
+  const generated = new Set<string>();
 
   for (const typeInfo of plan.types) {
     if (
-      instanceRegistry.some(
-        (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
-      )
+      generated.has(typeInfo.typeName) ||
+      hasPrimitiveOrInstance(ctx, typeInfo.typeName, typeclassName)
     ) {
       continue;
     }
@@ -609,6 +615,7 @@ function executeTransitiveDerivation(
     if (expansion) {
       statements.push(...expansion.statements);
       instanceRegistry.push(expansion.registryEntry);
+      generated.add(typeInfo.typeName);
     }
 
     notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
@@ -2681,14 +2688,7 @@ export const summonMacro = defineExpressionMacro({
         return ctx.parseExpression(scopeResult.exportName);
       }
     } catch {
-      // checker may throw on unusual type nodes — fall through to the registry
-    }
-
-    // 1b. Fall back to an explicit instance in the compile-time registry.
-    const explicitInstance = findInstance(tcName, typeName, ctx.sourceFile.fileName);
-    if (explicitInstance) {
-      const cPath = explicitInstance.companionPath || instanceVarName(tcName, typeName);
-      return ctx.parseExpression(cPath);
+      // checker may throw on unusual type nodes — fall through to auto-derivation
     }
     attempts.push({
       step: "explicit-instance",
@@ -2952,19 +2952,17 @@ export const implMacro = defineExpressionMacro({
 
     const instanceName = varDecl.name.text;
 
-    // Register idempotently using registerInstanceWithMeta
-    const existingInstance = findInstance(typeclassName, forType);
-    if (!existingInstance) {
-      registerInstanceWithMeta({
-        typeclassName,
-        forType,
-        instanceName,
-        derived: false,
-      });
+    // registerInstanceWithMeta is idempotent (replaces in place), so no dedup guard
+    // is needed.
+    registerInstanceWithMeta({
+      typeclassName,
+      forType,
+      instanceName,
+      derived: false,
+    });
 
-      // Notify coverage system
-      notifyPrimitiveRegistered(forType, typeclassName);
-    }
+    // Notify coverage system
+    notifyPrimitiveRegistered(forType, typeclassName);
 
     // Extract and register methods for specialization (if object literal)
     if (ts.isObjectLiteralExpression(objectLiteralArg)) {
@@ -3375,9 +3373,8 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
  * Get instance metadata for a typeclass+type combination.
  * Returns undefined if no instance is found or if it has no metadata.
  *
- * FlatMap/ParCombine metadata (used by the do-notation macros) is served from the
- * focused do-notation lookup (PEP-052 Phase B); other typeclasses fall back to the
- * general registry.
+ * Only the do-notation typeclasses (FlatMap/ParCombine) carry instance metadata,
+ * served from the focused do-notation lookup (PEP-052); other typeclasses have none.
  */
 export function getInstanceMeta(
   typeclassName: string,
@@ -3387,8 +3384,7 @@ export function getInstanceMeta(
   if (isDoNotationTypeclass(typeclassName)) {
     return lookupDoNotationInstance(typeclassName, forType, sourceFileName).meta;
   }
-  const instance = findInstance(typeclassName, forType, sourceFileName);
-  return instance?.meta;
+  return undefined;
 }
 
 /**
