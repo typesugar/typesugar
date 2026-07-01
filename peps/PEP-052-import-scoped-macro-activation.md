@@ -374,13 +374,30 @@ bounded, non-redesign follow-up:
   **0 failures** — `instanceRegistry` has no live reads, so Phase C (delete the objects) can
   proceed. (The `typeclass.test "instance registry"` mechanism test that used to fail under
   neuter now passes because `getInstanceMeta` reads the focused `doNotationRegistry`.)
-- **Phase C — delete the objects.** With A+B done, `instanceRegistry` has no live reads:
-  delete it + `findInstance`/`getInstances`/`registerInstanceWithMeta` writers (`primitives`,
-  `generic`, transformer pushes), delete `typeclassRegistry` (op-index is seeded from the
-  now-static `STANDARD_TYPECLASS_DEFS`), fold `coherence.ts`'s `instances` map into the
-  resolver's `ambiguous`, empty the prelude, and update the ~11 registry-_mechanism_ tests
-  (typeclass.test "instance registry", fusion "registered in the instance registry",
-  implicit-no-autospec) + remove `clearRegistries`/`clearSyntaxRegistry` from ~21 hooks.
+- **Phase C — delete the objects.** Split into two sub-parts (bigger than first scoped —
+  the derivation planner and `summon`/`erased` also read the registry, uncovered by the
+  neuter which only stubbed `findInstance`):
+  - **C1 — `instanceRegistry` deleted. DONE (PR #34).** Migrated every remaining reader off
+    it first (each verified): the `@derive` transitive-derivation planner
+    (`hasPrimitiveOrInstance`) → scope (`hasInstanceInScopeByName`); `summon`/`erased` →
+    `resolveInstance`; `= implicit()` → scope + a name-based scope fallback
+    (`resolveInstanceInScopeByName`); the transformer/`@instance` dedup guards dropped
+    (`registerInstanceWithMeta` is idempotent). Then deleted `findInstance`, `getInstances`,
+    `resolveImplicit`, the array + globalThis backing + all writers (`primitives`, `generic`
+    ×2, transformer + transformer-core pushes, the `@impl` macro push), and updated the
+    registry-_mechanism_ tests (typeclass.test → do-notation lookup; fusion "registered in
+    the instance registry" dropped; derive-advanced membership asserts dropped; red-team +
+    instance-resolver isolation cruft; showcase). `registerInstanceWithMeta` survives only to
+    populate the focused do-notation lookup (`mirrorDoNotationInstance`) + attach companions.
+    The only surviving instance store is the FlatMap/ParCombine do-notation lookup.
+  - **C2 — REMAINING: `typeclassRegistry` + coherence + prelude + hooks.** Delete
+    `typeclassRegistry` (still load-bearing for operator/method _syntax_ metadata —
+    `getSyntaxForOperator`/`getTypeclassesDeclaringMethod`/`getTypeclassesForMethod`/
+    `updateTypeclassSyntax`, the `@typeclass` macro writes, and the public `getTypeclass`/
+    `getTypeclasses` API; needs the op-index seeded from `STANDARD_TYPECLASS_DEFS` to become
+    the sole owner of syntax metadata), fold `coherence.ts`'s `instances` map into the
+    resolver's `ambiguous`, empty the prelude, and remove `clearRegistries`/
+    `clearSyntaxRegistry` from ~21 hooks.
 - **Phase D — inlining registry.** Replace `instanceMethodRegistry` + its 30 static
   source-string builtins with `tryExtractInstanceFromSource` (already covers annotated/
   `@impl` instances); handle function-form instances (`effectFunctor<R,E>()`) which aren't
