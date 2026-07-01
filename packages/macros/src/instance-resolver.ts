@@ -314,22 +314,23 @@ function filterMatches(
  * old `instanceRegistry.some(...)` membership check (PEP-052 Phase C): scope, not a
  * process-global registry, so it can't leak instances across files.
  */
-export function hasInstanceInScopeByName(
+export function resolveInstanceInScopeByName(
   ctx: MacroContext,
   tcName: string,
   typeName: string,
   scanner: InstanceScanner = defaultScanner
-): boolean {
+): string | undefined {
   const baseName = (s: string): string => {
     const m = /^[A-Za-z_$][\w$]*/.exec(s.trim());
     return m ? m[0] : s.trim();
   };
-  const matches = (inst: ScannedInstance): boolean =>
+  const match = (inst: ScannedInstance): boolean =>
     inst.typeclassName === tcName && baseName(inst.forTypeString) === typeName;
 
   // Local file (includes non-exported @impl/@instance values).
   const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
-  if (local.some(matches)) return true;
+  const localHit = local.find(match);
+  if (localHit) return localHit.exportName;
 
   // Imported modules.
   for (const entry of getImportMap(ctx)) {
@@ -343,10 +344,25 @@ export function hasInstanceInScopeByName(
       entry.resolvedPath,
       ctx.program
     );
-    if (scanned.some(matches)) return true;
+    const hit = scanned.find(match);
+    if (hit) return hit.exportName;
   }
 
-  return false;
+  return undefined;
+}
+
+/**
+ * Boolean form of {@link resolveInstanceInScopeByName} — does a type *named*
+ * `typeName` have an instance of `tcName` visible in scope? Used by the `@derive`
+ * transitive-derivation planner.
+ */
+export function hasInstanceInScopeByName(
+  ctx: MacroContext,
+  tcName: string,
+  typeName: string,
+  scanner: InstanceScanner = defaultScanner
+): boolean {
+  return resolveInstanceInScopeByName(ctx, tcName, typeName, scanner) !== undefined;
 }
 
 function pickResult(

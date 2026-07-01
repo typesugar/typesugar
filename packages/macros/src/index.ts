@@ -154,7 +154,6 @@ export {
 // --- Implicit parameter resolution (= implicit() default pattern) ---
 export {
   summonAllMacro,
-  resolveImplicit,
   isImplicitDefault,
   hasImplicitParams,
   getImplicitParamIndices,

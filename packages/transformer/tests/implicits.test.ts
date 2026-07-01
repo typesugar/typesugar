@@ -126,6 +126,7 @@ describe("= implicit() nested propagation", () => {
     const code = [
       "declare function implicit<T>(): T;",
       "declare interface Show<T> { show(a: T): string; }",
+      "declare const showNumber: Show<number>;",
       "",
       "function inner<T>(a: T, S: Show<T> = implicit()): string {",
       "  return S.show(a);",
@@ -162,6 +163,8 @@ describe("= implicit() scope shadowing", () => {
       "declare function implicit<T>(): T;",
       "declare interface Ord<T> { compare(a: T, b: T): number; }",
       "declare interface Show<T> { show(a: T): string; }",
+      "declare const ordNumber: Ord<number>;",
+      "declare const showNumber: Show<number>;",
       "",
       "function innerFn<T>(a: T, O: Ord<T> = implicit()): number {",
       "  return O.compare(a, a);",

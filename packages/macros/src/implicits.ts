@@ -57,8 +57,8 @@ import {
   stripTypeArguments,
   splitTopLevelTypeArgs,
 } from "@typesugar/core";
-import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
-import { resolveInstance } from "./instance-resolver.js";
+import { typeclassRegistry } from "./typeclass.js";
+import { resolveInstance, resolveInstanceInScopeByName } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
 import {
   formatResolutionTrace,
@@ -157,26 +157,6 @@ export function buildImplicitScopeFromDecl(decl: ts.SignatureDeclaration): Impli
  */
 export function isRegisteredTypeclass(name: string): boolean {
   return typeclassRegistry.has(name);
-}
-
-/**
- * Resolve an implicit instance from the registry.
- */
-export function resolveImplicit(
-  typeclassName: string,
-  forType: string
-): { instanceName: string; companionPath?: string; derived: boolean } | undefined {
-  const instance = instanceRegistry.find(
-    (i) => i.typeclassName === typeclassName && i.forType === forType
-  );
-  if (instance) {
-    return {
-      instanceName: instance.companionPath || instance.instanceName,
-      companionPath: instance.companionPath,
-      derived: instance.derived ?? false,
-    };
-  }
-  return undefined;
 }
 
 // ============================================================================
@@ -483,19 +463,20 @@ export function transformImplicitsCall(
     // 2. Resolve the instance from scope (PEP-052): an imported/local `@impl`/
     //    `@instance` value for this typeclass + concrete type. Recursive and
     //    registry-free — the file brings the instance into scope by importing it.
-    //    Falls back to the compile-time registry (do-notation/legacy) if scope misses.
     let instanceRef: string | undefined;
     if (concreteTsType) {
       try {
         const r = resolveInstance(ctx, typeclassName, concreteTsType);
         if (r && r.kind === "resolved") instanceRef = r.exportName;
       } catch {
-        // checker may throw on synthetic nodes — fall through to the registry
+        // checker may throw on synthetic nodes — fall through to name-based scope
       }
     }
+    // Name-based scope fallback for when the concrete `ts.Type` isn't available
+    // (e.g. a synthetic/inferred type parameter): match a scanned in-scope instance
+    // by its type-constructor name. Still scope-based — no process-global registry.
     if (!instanceRef) {
-      const resolved = resolveImplicit(typeclassName, concreteType);
-      if (resolved) instanceRef = resolved.instanceName;
+      instanceRef = resolveInstanceInScopeByName(ctx, typeclassName, concreteType);
     }
     if (instanceRef) {
       // Build expression from instance name — dotted paths become property access chains
