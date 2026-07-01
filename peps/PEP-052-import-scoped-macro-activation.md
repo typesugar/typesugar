@@ -346,6 +346,40 @@ Deferred (the registry stays populated for the above until migrated — nothing 
 populated until its last consumer is migrated, so the build, the language service,
 and the playground are never left broken between waves.
 
+### Registry-object deletion — phased plan (empirically scoped)
+
+A neuter experiment (stub `findInstance`→`undefined`, run the suite) proved the
+general `instanceRegistry` is **already dead** for derive/operators/methods/specialize
+(all scope-based). It has exactly **two** live consumers, so deleting the objects is a
+bounded, non-redesign follow-up:
+
+- **Phase A — implicits → scope.** `resolveImplicit` (implicits.ts) reads the registry
+  directly to fill `= implicit()` params. Migrate its call site (has `ctx` + the type
+  node) to `resolveInstance` (scope), keeping the registry as a fallback (additive,
+  green). Edge case: the implicit inference builds a synthetic type node — resolve the
+  concrete field type robustly (e.g. from the call's resolved signature / arg types)
+  rather than `getTypeFromTypeNode` on a synthetic node.
+- **Phase B — do-notation FlatMap/ParCombine → focused/HKT scope resolution.** `let:`/
+  `yield:`/`par:` call `hasFlatMapInstance`/`getFlatMapMethodNames`/`hasParCombineInstance`
+  (resolve by type-constructor _name_, HKT). Move these off `instanceRegistry` to either
+  a dedicated do-notation lookup (populated by the FlatMap/ParCombine registration, kept
+  separate from the general registry) or brand-based scope resolution (scanner records
+  the `FlatMap<_ArrayTag>` brand; the do-notation file imports the instance).
+- **Phase C — delete the objects.** With A+B done, `instanceRegistry` has no live reads:
+  delete it + `findInstance`/`getInstances`/`registerInstanceWithMeta` writers (`primitives`,
+  `generic`, transformer pushes), delete `typeclassRegistry` (op-index is seeded from the
+  now-static `STANDARD_TYPECLASS_DEFS`), fold `coherence.ts`'s `instances` map into the
+  resolver's `ambiguous`, empty the prelude, and update the ~11 registry-_mechanism_ tests
+  (typeclass.test "instance registry", fusion "registered in the instance registry",
+  implicit-no-autospec) + remove `clearRegistries`/`clearSyntaxRegistry` from ~21 hooks.
+- **Phase D — inlining registry.** Replace `instanceMethodRegistry` + its 30 static
+  source-string builtins with `tryExtractInstanceFromSource` (already covers annotated/
+  `@impl` instances); handle function-form instances (`effectFunctor<R,E>()`) which aren't
+  object-literal consts.
+- **Phase E — `@syntax-methods` gating + docs sweep.** Gate method sugar on the activation
+  marker (the breaking flip; activation state already tracked) and update the guides/
+  getting-started/type-safety docs to the import-scoped model.
+
 ### Why deleting the registry is gated on the HKT/method-sugar work
 
 The instances still served by the global registry (and by the 30 static inlining

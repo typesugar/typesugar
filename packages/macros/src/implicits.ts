@@ -58,6 +58,7 @@ import {
   splitTopLevelTypeArgs,
 } from "@typesugar/core";
 import { instanceRegistry, typeclassRegistry } from "./typeclass.js";
+import { resolveInstance } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
 import {
   formatResolutionTrace,
@@ -348,6 +349,9 @@ export function transformImplicitsCall(
 
   // Infer type parameter mappings using TypeChecker's inference
   const typeParamMap = new Map<string, string>();
+  // Concrete ts.Type per type parameter (from the call's argument types), so the
+  // implicit instance can be resolved from scope (PEP-052) rather than the registry.
+  const typeParamTypeMap = new Map<string, ts.Type>();
   try {
     // 1. Explicit type arguments take priority
     if (callExpr.typeArguments && decl.typeParameters) {
@@ -421,6 +425,7 @@ export function transformImplicitsCall(
             }
 
             typeParamMap.set(paramTypeName, argTypeStr);
+            typeParamTypeMap.set(paramTypeName, widenedType);
           }
         }
       }
@@ -457,10 +462,14 @@ export function transformImplicitsCall(
       continue;
     }
 
-    let concreteType = typeArgs[0].getText();
+    const typeParamKey = typeArgs[0].getText();
+    let concreteType = typeParamKey;
     if (typeParamMap.has(concreteType)) {
       concreteType = typeParamMap.get(concreteType)!;
     }
+    // The concrete ts.Type for the type parameter (from the call's argument types),
+    // used for scope-based instance resolution below.
+    const concreteTsType = typeParamTypeMap.get(typeParamKey);
 
     const scopeKey = `${typeclassName}<${concreteType}>`;
 
@@ -471,12 +480,26 @@ export function transformImplicitsCall(
       continue;
     }
 
-    // 2. Fall back to global instance registry - inline the instance directly (zero-cost)
-    const resolved = resolveImplicit(typeclassName, concreteType);
-    if (resolved) {
+    // 2. Resolve the instance from scope (PEP-052): an imported/local `@impl`/
+    //    `@instance` value for this typeclass + concrete type. Recursive and
+    //    registry-free — the file brings the instance into scope by importing it.
+    //    Falls back to the compile-time registry (do-notation/legacy) if scope misses.
+    let instanceRef: string | undefined;
+    if (concreteTsType) {
+      try {
+        const r = resolveInstance(ctx, typeclassName, concreteTsType);
+        if (r && r.kind === "resolved") instanceRef = r.exportName;
+      } catch {
+        // checker may throw on synthetic nodes — fall through to the registry
+      }
+    }
+    if (!instanceRef) {
+      const resolved = resolveImplicit(typeclassName, concreteType);
+      if (resolved) instanceRef = resolved.instanceName;
+    }
+    if (instanceRef) {
       // Build expression from instance name — dotted paths become property access chains
-      const instanceExpr = buildDottedExpression(factory, resolved.instanceName);
-      newArgs.push(instanceExpr);
+      newArgs.push(buildDottedExpression(factory, instanceRef));
       continue;
     }
 
