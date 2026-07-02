@@ -341,9 +341,30 @@ eitherFunctor<E>()` inside a factory body) that would dangle even
   - Wave 4 note: `arrayFoldable`'s builtin registers a `reduce` method its
     source instance does not define — deleting the builtin drops `reduce`
     inlining for it (callers fall back); no code depends on it in-repo.
-- **Wave 3 — pipeline unification.** Legacy transformer consumes
-  transformer-core's specialization module; delete the clone. Full suite +
-  LSP/vscode + playground gates.
+- **Wave 3 — pipeline unification. DONE (2026-07-02).** The legacy
+  transformer's private specialization clone (`tryAutoSpecialize`,
+  `tryInlineDerivedInstanceCall` + recursive inliner,
+  `tryReturnTypeDrivenSpecialize`, `specializeForResultAlgebra`,
+  `rewriteResultCalls`, `getTypeName`, `getContextualTypeForCall`,
+  `resolveAutoSpecFunctionBody`, `rewriteDictCallsForAutoSpec`,
+  `inlineAutoSpecializeForHoisting`, plus the top-level DCE pair
+  `eliminateDeadDerivedInstances`/`containsIdentifierRef` — ~700 lines) is
+  deleted; three thin private shims map class state (`ctx`, `verbose`,
+  `specCache`) onto the shared free functions, now exported from
+  `@typesugar/transformer-core`'s index (the dependency already pointed the
+  right way). A pre-deletion line-by-line divergence audit found the two
+  copies identical except three deltas, resolved as: (1) shared's stripping
+  of dangling type-parameter annotations on hoisted specializations WINS
+  (legacy kept unresolvable annotations); (2) shared's suppression of the
+  spurious `[TS9602] no return statement` warning for void functions WINS
+  (legacy warned); (3) legacy's `stripCommentsDeep` on inlined
+  derived-instance output was PORTED INTO the shared function (prevents the
+  printer emitting instance-declaration trivia at call sites). DCE stays
+  driven by the class-level `inlinedInstanceNames` set on both sides —
+  `DerivedInstanceDCETracker`/`scanForDerivedInstanceDeclarations`/
+  `checkForValueRef` remain exported but are exercised only by unit tests.
+  Production paths (ts-patch, unplugin, CLI, LSP, api/compile.ts) and the
+  playground now run the SAME specialization code.
 - **Wave 4 — delete the static builtins.** Remove the 30
   `registerInstanceMethods` calls, the function itself, and the
   internal-registration machinery; author-or-drop `eitherBifunctor`/

@@ -68,3 +68,22 @@ export { MacroTransformer } from "./transformer.js";
 
 // Browser-compatible transform function
 export { transformCode, type TransformCodeOptions, type TransformCodeResult } from "./transform.js";
+
+// Specialization pipeline — the single shared implementation (PEP-053 Wave 3).
+// The legacy @typesugar/transformer delegates here instead of keeping a clone.
+export {
+  tryAutoSpecialize,
+  tryReturnTypeDrivenSpecialize,
+  tryInlineDerivedInstanceCall,
+  eliminateDeadDerivedInstances,
+  resolveAutoSpecFunctionBody,
+  rewriteDictCallsForAutoSpec,
+  inlineAutoSpecializeForHoisting,
+  specializeForResultAlgebra,
+  rewriteResultCalls,
+  getTypeName,
+  getContextualTypeForCall,
+  DerivedInstanceDCETracker,
+  scanForDerivedInstanceDeclarations,
+  checkForValueRef,
+} from "./specialization.js";
