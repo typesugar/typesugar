@@ -6,7 +6,7 @@
  *
  * ## Zero-Cost Philosophy
  *
- * When combined with `specialize()`, the Schema dictionary is eliminated at compile time.
+ * Auto-specialization eliminates the Schema dictionary at compile time.
  * Generic validation code compiles down to direct library-specific calls with no overhead.
  *
  * @example
@@ -16,7 +16,7 @@
  *   return S.parse(schema, data);
  * }
  *
- * // After specialize(), this becomes:
+ * // Auto-specialized at a call site with a known instance, this becomes:
  * function processBody_zod(schema: ZodType<User>, data: unknown): User {
  *   return schema.parse(data);
  * }

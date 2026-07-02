@@ -2,7 +2,7 @@
  * HashSet<K> — A set backed by hash bucketing using Eq<K> + Hash<K>.
  *
  * API mirrors native Set<K> for drop-in usage.
- * With specialize(), HashSet<string> compiles to equivalent of native Set<string>.
+ * Auto-specialization compiles HashSet<string> to the equivalent of native Set<string>.
  */
 
 import type { Eq, Hash } from "@typesugar/std";
