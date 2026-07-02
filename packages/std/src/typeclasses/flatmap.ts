@@ -38,7 +38,7 @@
  */
 
 import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
-import { registerInstanceWithMeta, findInstance, type InstanceMeta } from "@typesugar/macros";
+import { registerInstanceWithMeta, hasFlatMapInstance, type InstanceMeta } from "@typesugar/macros";
 
 // ============================================================================
 // FlatMap Typeclass
@@ -276,7 +276,7 @@ export function registerFlatMap<F>(name: string, instance: FlatMap<F>, meta?: In
  * @param name The name of the type constructor
  * @returns The FlatMap instance, or undefined if not found
  *
- * @deprecated Use findInstance("FlatMap", name) from @typesugar/macros for new code.
+ * @deprecated Use hasFlatMapInstance("FlatMap", name) from @typesugar/macros for new code.
  * This function is maintained for backward compatibility.
  */
 export function getFlatMap(name: string): FlatMap<unknown> | undefined {
@@ -288,5 +288,5 @@ export function getFlatMap(name: string): FlatMap<unknown> | undefined {
  * Uses the unified registry.
  */
 export function hasFlatMap(name: string, sourceFileName?: string): boolean {
-  return findInstance("FlatMap", name, sourceFileName) !== undefined;
+  return hasFlatMapInstance(name, sourceFileName);
 }

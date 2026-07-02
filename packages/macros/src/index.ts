@@ -76,28 +76,17 @@ export {
   implMacro,
   summonMacro,
   extendMacro,
-  typeclassRegistry,
-  instanceRegistry,
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
-  findInstance,
-  getTypeclass,
   clearRegistries,
   registerTypeclassMacros,
-  registerStandardTypeclasses,
-  getTypeclasses,
-  getInstances,
   instanceVarName,
   companionPath,
   generateStandardTypeclasses,
   tryExtractSumType,
-  getSyntaxForOperator,
   getTypeclassesForMethod,
-  clearSyntaxRegistry,
-  updateTypeclassSyntax,
   extractOpFromJSDoc,
-  registerTypeclassDef,
   registerInstanceWithMeta,
   getInstanceMeta,
   getFlatMapMethodNames,
@@ -155,13 +144,11 @@ export {
 // --- Implicit parameter resolution (= implicit() default pattern) ---
 export {
   summonAllMacro,
-  resolveImplicit,
   isImplicitDefault,
   hasImplicitParams,
   getImplicitParamIndices,
   buildImplicitScopeFromDecl,
   transformImplicitsCall,
-  isRegisteredTypeclass,
   type ImplicitScope,
 } from "./implicits.js";
 
@@ -265,6 +252,13 @@ export {
   type ResolutionResult,
   type ResolutionSource,
 } from "./instance-resolver.js";
+export {
+  getOpMapForTypeclass,
+  getOperatorCandidates,
+  getMethodCandidates,
+  getTypeclassesDeclaringMethod,
+  type TypeclassOpInfo,
+} from "./typeclass-index.js";
 
 // --- Phase 1.1: Quasiquoting ---
 export {

@@ -6,25 +6,16 @@
  * - hasImplicitParams checking
  * - getImplicitParamIndices extraction
  * - buildImplicitScopeFromDecl scope building
- * - isRegisteredTypeclass lookups
- * - resolveImplicit instance resolution
  */
 
 import * as ts from "typescript";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   isImplicitDefault,
   hasImplicitParams,
   getImplicitParamIndices,
   buildImplicitScopeFromDecl,
-  isRegisteredTypeclass,
-  resolveImplicit,
 } from "./implicits.js";
-import {
-  clearRegistries,
-  registerStandardTypeclasses,
-  registerInstanceWithMeta,
-} from "./typeclass.js";
 
 // ============================================================================
 // Helpers
@@ -189,101 +180,5 @@ describe("buildImplicitScopeFromDecl", () => {
     const fn = findFunctionDecl(sf)!;
     const scope = buildImplicitScopeFromDecl(fn);
     expect(scope.available.size).toBe(0);
-  });
-});
-
-// ============================================================================
-// isRegisteredTypeclass
-// ============================================================================
-
-describe("isRegisteredTypeclass", () => {
-  beforeEach(() => {
-    clearRegistries();
-    registerStandardTypeclasses();
-  });
-
-  it("returns true for standard typeclasses", () => {
-    expect(isRegisteredTypeclass("Eq")).toBe(true);
-    expect(isRegisteredTypeclass("Ord")).toBe(true);
-    expect(isRegisteredTypeclass("Semigroup")).toBe(true);
-    expect(isRegisteredTypeclass("Monoid")).toBe(true);
-    expect(isRegisteredTypeclass("Clone")).toBe(true);
-  });
-
-  it("returns false for unregistered names", () => {
-    expect(isRegisteredTypeclass("FooBar")).toBe(false);
-    expect(isRegisteredTypeclass("")).toBe(false);
-  });
-});
-
-// ============================================================================
-// resolveImplicit
-// ============================================================================
-
-describe("resolveImplicit", () => {
-  beforeEach(() => {
-    clearRegistries();
-    registerStandardTypeclasses();
-  });
-
-  it("resolves a registered instance", () => {
-    registerInstanceWithMeta({
-      typeclassName: "Show",
-      forType: "number",
-      instanceName: "showNumber",
-      companionPath: "Show.number",
-      derived: false,
-    });
-
-    const result = resolveImplicit("Show", "number");
-    expect(result).toBeDefined();
-    expect(result!.instanceName).toBe("Show.number");
-    expect(result!.companionPath).toBe("Show.number");
-    expect(result!.derived).toBe(false);
-  });
-
-  it("returns undefined for missing instance", () => {
-    const result = resolveImplicit("Show", "UnknownType");
-    expect(result).toBeUndefined();
-  });
-
-  it("resolves a derived instance", () => {
-    registerInstanceWithMeta({
-      typeclassName: "Eq",
-      forType: "Point",
-      instanceName: "eqPoint",
-      companionPath: "Point.Eq",
-      derived: true,
-    });
-
-    const result = resolveImplicit("Eq", "Point");
-    expect(result).toBeDefined();
-    expect(result!.derived).toBe(true);
-    expect(result!.instanceName).toBe("Point.Eq");
-  });
-
-  it("uses companionPath over instanceName when available", () => {
-    registerInstanceWithMeta({
-      typeclassName: "Eq",
-      forType: "number",
-      instanceName: "eqNumber",
-      companionPath: "Eq.number",
-      derived: false,
-    });
-
-    const result = resolveImplicit("Eq", "number");
-    expect(result!.instanceName).toBe("Eq.number");
-  });
-
-  it("uses instanceName when no companionPath", () => {
-    registerInstanceWithMeta({
-      typeclassName: "Eq",
-      forType: "Custom",
-      instanceName: "eqCustom",
-      derived: false,
-    });
-
-    const result = resolveImplicit("Eq", "Custom");
-    expect(result!.instanceName).toBe("eqCustom");
   });
 });

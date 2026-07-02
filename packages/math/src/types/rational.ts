@@ -199,6 +199,7 @@ export function toString(r: Rational): string {
  * Numeric instance for Rational numbers.
  * Supports add, sub, mul with exact arithmetic.
  */
+/** @impl Numeric<Rational> */
 export const numericRational: Numeric<Rational> = {
   add: (a, b) => normalize(a.num * b.den + b.num * a.den, a.den * b.den),
 
@@ -247,6 +248,7 @@ registerInstanceWithMeta({
  * Fractional instance for Rational numbers.
  * Supports exact division.
  */
+/** @impl Fractional<Rational> */
 export const fractionalRational: Fractional<Rational> = {
   div: (a, b) => {
     if (b.num === 0n) {
@@ -276,6 +278,7 @@ registerInstanceWithMeta({
  * Ord instance for Rational numbers.
  * Compares by cross-multiplication to avoid floating-point.
  */
+/** @impl Ord<Rational> */
 export const ordRational: Ord<Rational> = {
   equals: (a, b) => a.num === b.num && a.den === b.den,
   notEquals: (a, b) => a.num !== b.num || a.den !== b.den,

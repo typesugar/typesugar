@@ -6,10 +6,13 @@
  * Matching is type-based (via TypeChecker.isTypeAssignableTo), not string-based.
  *
  * Resolution precedence (highest first):
- * 1. Local scope — @impl-annotated values in the current file
+ * 1. Local scope — @impl-annotated values in the current file (incl. non-exported)
  * 2. Explicit imports — values imported by name
  * 3. Module-level search — scanning all exports of imported modules
- * 4. Registry fallback — the legacy instanceRegistry
+ *
+ * Resolution is purely scope-based — there is no process-global registry
+ * fallback (PEP-052): a file's behavior depends only on its own imports and the
+ * instances visible in their modules.
  *
  * @packageDocumentation
  */
@@ -21,13 +24,12 @@ import {
   instanceScanner as defaultScanner,
   type ScannedInstance,
 } from "./instance-scanner.js";
-import { findInstance } from "./typeclass.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type ResolutionSource = "local-scope" | "explicit-import" | "module-scan" | "registry";
+export type ResolutionSource = "local-scope" | "explicit-import" | "module-scan";
 
 export interface ResolvedInstance {
   kind: "resolved";
@@ -59,26 +61,52 @@ interface ImportMapEntry {
   namedImports: string[];
 }
 
-const importMapCache = new Map<string, ImportMapEntry[]>();
+// Keyed per program (and per file within a program) so watch/LSP rebuilds — which
+// produce a fresh program — invalidate automatically and never serve a stale map
+// for an edited file.
+const importMapCache = new WeakMap<ts.Program, Map<string, ImportMapEntry[]>>();
+
+function importMapCacheFor(program: ts.Program): Map<string, ImportMapEntry[]> {
+  let m = importMapCache.get(program);
+  if (!m) {
+    m = new Map();
+    importMapCache.set(program, m);
+  }
+  return m;
+}
 
 function getImportMap(ctx: MacroContext): ImportMapEntry[] {
+  const cache = importMapCacheFor(ctx.program);
   const key = ctx.sourceFile.fileName;
-  const cached = importMapCache.get(key);
+  const cached = cache.get(key);
   if (cached) return cached;
 
+  const checker = ctx.typeChecker;
   const entries: ImportMapEntry[] = [];
   for (const stmt of ctx.sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
     if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
 
     const specifier = (stmt.moduleSpecifier as ts.StringLiteral).text;
-    const resolved = ts.resolveModuleName(
-      specifier,
-      ctx.sourceFile.fileName,
-      ctx.program.getCompilerOptions(),
-      ts.sys
+
+    // Resolve via the checker (respects the program's module resolution — works
+    // for on-disk and virtual/in-memory hosts alike). Fall back to ts.sys-based
+    // resolution only if the symbol can't be resolved.
+    let resolvedPath: string | undefined;
+    const moduleSymbol = checker.getSymbolAtLocation(stmt.moduleSpecifier);
+    const moduleFile = moduleSymbol?.declarations?.find((d): d is ts.SourceFile =>
+      ts.isSourceFile(d)
     );
-    const resolvedPath = resolved.resolvedModule?.resolvedFileName;
+    resolvedPath = moduleFile?.fileName;
+    if (!resolvedPath) {
+      const resolved = ts.resolveModuleName(
+        specifier,
+        ctx.sourceFile.fileName,
+        ctx.program.getCompilerOptions(),
+        ts.sys
+      );
+      resolvedPath = resolved.resolvedModule?.resolvedFileName;
+    }
     if (!resolvedPath) continue;
 
     const namedImports: string[] = [];
@@ -92,13 +120,17 @@ function getImportMap(ctx: MacroContext): ImportMapEntry[] {
     entries.push({ specifier, resolvedPath, namedImports });
   }
 
-  importMapCache.set(key, entries);
+  cache.set(key, entries);
   return entries;
 }
 
-/** Clear resolver caches. Call on pipeline invalidation. */
+/**
+ * Clear resolver caches. Per-program caches invalidate automatically when their
+ * program is collected; this remains for explicit test isolation (it cannot clear
+ * a WeakMap, so it is now a no-op kept for API compatibility).
+ */
 export function clearResolverCache(): void {
-  importMapCache.clear();
+  // No-op: importMapCache is a WeakMap<Program> and self-invalidates per program.
 }
 
 // ============================================================================
@@ -131,7 +163,7 @@ function isTypeMatch(
  * Resolve a typeclass instance for a given type.
  *
  * Searches the scope using Scala 3-style precedence rules:
- * local scope > explicit imports > module-level search > registry fallback.
+ * local scope > explicit imports > module-level search.
  *
  * @param ctx - The macro context (provides program, typeChecker, sourceFile)
  * @param tcName - Typeclass name (e.g., "Ord")
@@ -152,11 +184,7 @@ export function resolveInstance(
   if (localResult) return localResult;
 
   // Stage 2 & 3: Imports (explicit and module-level)
-  const importResult = resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
-  if (importResult) return importResult;
-
-  // Stage 4: Registry fallback
-  return resolveFromRegistry(ctx, tcName, forType, forTypeString);
+  return resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
 }
 
 function resolveFromLocalScope(
@@ -169,10 +197,11 @@ function resolveFromLocalScope(
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
 
-  const moduleSymbol = typeChecker.getSymbolAtLocation(sourceFile);
-  if (!moduleSymbol) return undefined;
-
-  const scanned = scanner.scanModule(typeChecker, moduleSymbol, sourceFile.fileName);
+  // Scan the file's top-level declarations directly (not just module exports), so
+  // a `@impl`/`@instance` const that is in local scope but NOT exported is still
+  // found — and found independent of declaration order. This is the registry-free
+  // replacement for instances the global registry used to provide.
+  const scanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
   const matches = filterMatches(
     typeChecker,
     scanned,
@@ -208,7 +237,7 @@ function resolveFromImports(
     const moduleSymbol = typeChecker.getSymbolAtLocation(moduleSourceFile);
     if (!moduleSymbol) continue;
 
-    const scanned = scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath);
+    const scanned = scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath, ctx.program);
     const allMatches = filterMatches(
       typeChecker,
       scanned,
@@ -235,28 +264,6 @@ function resolveFromImports(
 
   // Stage 3 result
   return pickResult(moduleMatches, tcName, forType);
-}
-
-function resolveFromRegistry(
-  _ctx: MacroContext,
-  tcName: string,
-  forType: ts.Type,
-  forTypeString: string
-): ResolutionResult {
-  // Registry fallback: skip scope check — if we got here, scanner-based
-  // resolution didn't find anything, so fall back unconditionally
-  const info = findInstance(tcName, forTypeString);
-  if (!info) return undefined;
-
-  return {
-    kind: "resolved",
-    typeclassName: tcName,
-    forType,
-    forTypeString,
-    exportName: info.instanceName,
-    sourceModule: info.sourceModule || "",
-    source: "registry",
-  };
 }
 
 // ============================================================================
@@ -294,6 +301,68 @@ function filterMatches(
   }
 
   return results;
+}
+
+/**
+ * Name-based scope membership: does a type *named* `typeName` have an instance of
+ * `tcName` visible in `ctx.sourceFile`'s scope — either a local `@impl`/`@instance`
+ * declaration or an export of an imported module?
+ *
+ * The `@derive` transitive-derivation planner walks type *names* (not resolved
+ * `ts.Type`s, since a field type may not be resolvable in isolation) and must skip
+ * types that already have an instance. This is the registry-free replacement for the
+ * old `instanceRegistry.some(...)` membership check (PEP-052 Phase C): scope, not a
+ * process-global registry, so it can't leak instances across files.
+ */
+export function resolveInstanceInScopeByName(
+  ctx: MacroContext,
+  tcName: string,
+  typeName: string,
+  scanner: InstanceScanner = defaultScanner
+): string | undefined {
+  const baseName = (s: string): string => {
+    const m = /^[A-Za-z_$][\w$]*/.exec(s.trim());
+    return m ? m[0] : s.trim();
+  };
+  const match = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName && baseName(inst.forTypeString) === typeName;
+
+  // Local file (includes non-exported @impl/@instance values).
+  const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
+  const localHit = local.find(match);
+  if (localHit) return localHit.exportName;
+
+  // Imported modules.
+  for (const entry of getImportMap(ctx)) {
+    const moduleSourceFile = ctx.program.getSourceFile(entry.resolvedPath);
+    if (!moduleSourceFile) continue;
+    const moduleSymbol = ctx.typeChecker.getSymbolAtLocation(moduleSourceFile);
+    if (!moduleSymbol) continue;
+    const scanned = scanner.scanModule(
+      ctx.typeChecker,
+      moduleSymbol,
+      entry.resolvedPath,
+      ctx.program
+    );
+    const hit = scanned.find(match);
+    if (hit) return hit.exportName;
+  }
+
+  return undefined;
+}
+
+/**
+ * Boolean form of {@link resolveInstanceInScopeByName} — does a type *named*
+ * `typeName` have an instance of `tcName` visible in scope? Used by the `@derive`
+ * transitive-derivation planner.
+ */
+export function hasInstanceInScopeByName(
+  ctx: MacroContext,
+  tcName: string,
+  typeName: string,
+  scanner: InstanceScanner = defaultScanner
+): boolean {
+  return resolveInstanceInScopeByName(ctx, tcName, typeName, scanner) !== undefined;
 }
 
 function pickResult(

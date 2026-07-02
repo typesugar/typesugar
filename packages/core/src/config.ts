@@ -475,21 +475,10 @@ function matchGlob(fileName: string, pattern: string): boolean {
  */
 function isInPrelude(typeclassName: string): boolean {
   const resolution = get<ResolutionConfig>("resolution");
-  const prelude = resolution?.prelude ?? [
-    "Eq",
-    "Ord",
-    "Show",
-    "Clone",
-    "Debug",
-    "Hash",
-    "Default",
-    "Semigroup",
-    "Monoid",
-    "Numeric",
-    "Integral",
-    "FlatMap",
-    "ParCombine",
-  ];
+  // PEP-052: no ambient prelude — nothing is in scope by default in import-scoped
+  // mode; a file activates a typeclass only by importing it (or its @syntax marker).
+  // A project may still opt into a prelude via `resolution.prelude` config.
+  const prelude = resolution?.prelude ?? [];
   return prelude.includes(typeclassName);
 }
 

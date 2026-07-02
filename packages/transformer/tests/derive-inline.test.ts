@@ -11,11 +11,10 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries, clearSyntaxRegistry } from "@typesugar/macros";
+import { clearRegistries } from "@typesugar/macros";
 
 beforeEach(() => {
   clearRegistries();
-  clearSyntaxRegistry();
 });
 
 // ============================================================================

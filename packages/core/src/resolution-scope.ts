@@ -44,6 +44,21 @@ export interface FileResolutionScope {
   optedOutFeatures: Set<string>;
   /** Whether this file has a "use extension" directive */
   hasUseExtension: boolean;
+  /**
+   * Typeclasses whose OPERATOR syntax (tier 3) is activated in this file, via a
+   * side-effect import of a module carrying a `@syntax-operators <TC>` marker
+   * (PEP-052). `a === b` only rewrites when its typeclass is in this set.
+   * Operators imply methods, so an entry here is also added to
+   * {@link activatedMethodSyntax}.
+   */
+  activatedOperatorSyntax: Set<string>;
+  /**
+   * Typeclasses whose METHOD syntax (tier 2) is activated in this file, via a
+   * side-effect import of a module carrying a `@syntax-methods <TC>` (or the
+   * louder `@syntax-operators <TC>`) marker (PEP-052). `a.eq(b)` only resolves
+   * when its typeclass is in this set.
+   */
+  activatedMethodSyntax: Set<string>;
 }
 
 /**
@@ -66,6 +81,8 @@ export class ResolutionScopeTracker {
         optedOut: false,
         optedOutFeatures: new Set(),
         hasUseExtension: false,
+        activatedOperatorSyntax: new Set(),
+        activatedMethodSyntax: new Set(),
       });
     }
     return this.fileScopes.get(fileName)!;
@@ -97,6 +114,59 @@ export class ResolutionScopeTracker {
   registerDefinedTypeclass(fileName: string, typeclassName: string): void {
     const scope = this.getScope(fileName);
     scope.definedTypeclasses.add(typeclassName);
+  }
+
+  /**
+   * Activate operator syntax (tier 3) for a typeclass in a file (PEP-052).
+   * Operators imply methods, so this also activates method syntax.
+   */
+  activateOperatorSyntax(fileName: string, typeclassName: string): void {
+    const scope = this.getScope(fileName);
+    scope.activatedOperatorSyntax.add(typeclassName);
+    scope.activatedMethodSyntax.add(typeclassName);
+  }
+
+  /**
+   * Activate method syntax (tier 2) for a typeclass in a file (PEP-052).
+   */
+  activateMethodSyntax(fileName: string, typeclassName: string): void {
+    const scope = this.getScope(fileName);
+    scope.activatedMethodSyntax.add(typeclassName);
+  }
+
+  /**
+   * Whether a typeclass's operator syntax is activated in a file.
+   * Respects file-level opt-out.
+   */
+  isOperatorSyntaxActivated(fileName: string, typeclassName: string): boolean {
+    const scope = this.getScope(fileName);
+    if (scope.optedOut) return false;
+    return scope.activatedOperatorSyntax.has(typeclassName);
+  }
+
+  /**
+   * Whether a typeclass's method syntax is activated in a file.
+   * Respects file-level opt-out.
+   */
+  isMethodSyntaxActivated(fileName: string, typeclassName: string): boolean {
+    const scope = this.getScope(fileName);
+    if (scope.optedOut) return false;
+    return scope.activatedMethodSyntax.has(typeclassName);
+  }
+
+  /** Typeclasses defined in a file (via `@typeclass`) — always activated locally. */
+  getDefinedTypeclasses(fileName: string): Set<string> {
+    return this.getScope(fileName).definedTypeclasses;
+  }
+
+  /** All typeclasses with operator syntax activated in a file. */
+  getActivatedOperatorSyntax(fileName: string): Set<string> {
+    return this.getScope(fileName).activatedOperatorSyntax;
+  }
+
+  /** All typeclasses with method syntax activated in a file. */
+  getActivatedMethodSyntax(fileName: string): Set<string> {
+    return this.getScope(fileName).activatedMethodSyntax;
   }
 
   /**
@@ -234,11 +304,82 @@ export class ResolutionScopeTracker {
 export const globalResolutionScope = new ResolutionScopeTracker();
 
 /**
+ * Read PEP-052 syntax-activation markers from a module imported by a side-effect
+ * (or any) import. A marker module is a tiny file whose first statement carries a
+ * module-level JSDoc tag naming the typeclass it activates, e.g.:
+ *
+ * ```ts
+ * // @typesugar/std/syntax/eq/ops
+ * /** @syntax-operators Eq *\/
+ * export {};
+ * ```
+ *
+ * Returns the typeclass names activated for operator and method syntax. Requires
+ * a `program` to resolve the module specifier to its source file; without one,
+ * no markers are discovered (callers in registry-only paths pass none).
+ */
+interface SyntaxMarkers {
+  operatorTCs: string[];
+  methodTCs: string[];
+}
+
+// Memoize marker results per resolved module SourceFile. Marker modules are
+// program-stable, and importing a large barrel/.d.ts otherwise re-scans all its
+// statements per importing file. Keyed by SourceFile (a WeakMap) so it invalidates
+// automatically across watch/LSP program rebuilds.
+const markerCache = new WeakMap<ts.SourceFile, SyntaxMarkers>();
+
+function readSyntaxActivationMarkers(
+  checker: ts.TypeChecker,
+  moduleSpecifier: ts.Expression
+): SyntaxMarkers {
+  const empty: SyntaxMarkers = { operatorTCs: [], methodTCs: [] };
+
+  // Resolve the imported module via the checker (respects the program's module
+  // resolution — works for on-disk and virtual/in-memory hosts alike).
+  const moduleSymbol = checker.getSymbolAtLocation(moduleSpecifier);
+  const moduleFile = moduleSymbol?.declarations?.find((d): d is ts.SourceFile =>
+    ts.isSourceFile(d)
+  );
+  if (!moduleFile) return empty;
+
+  const cached = markerCache.get(moduleFile);
+  if (cached) return cached;
+
+  // The marker JSDoc is attached to an exported declaration in the module (a real
+  // declaration rather than a bare `export {}`, so it survives `.d.ts` bundling).
+  // Scan every top-level statement so we don't depend on declaration ordering in
+  // the generated declaration file.
+  const operatorTCs: string[] = [];
+  const methodTCs: string[] = [];
+  for (const stmt of moduleFile.statements) {
+    for (const tag of ts.getJSDocTags(stmt)) {
+      const tagName = tag.tagName.text;
+      if (tagName !== "syntax-operators" && tagName !== "syntax-methods") continue;
+      const tc =
+        typeof tag.comment === "string"
+          ? tag.comment.trim()
+          : ts.getTextOfJSDocComment(tag.comment)?.trim();
+      if (!tc) continue;
+      if (tagName === "syntax-operators") operatorTCs.push(tc);
+      else methodTCs.push(tc);
+    }
+  }
+  const result: SyntaxMarkers = { operatorTCs, methodTCs };
+  markerCache.set(moduleFile, result);
+  return result;
+}
+
+/**
  * Parse imports from a source file and register them in the scope.
+ *
+ * When `program` is supplied, PEP-052 syntax-activation markers on imported
+ * modules are discovered and recorded (operator/method syntax activation).
  */
 export function scanImportsForScope(
   sourceFile: ts.SourceFile,
-  tracker: ResolutionScopeTracker = globalResolutionScope
+  tracker: ResolutionScopeTracker = globalResolutionScope,
+  program?: ts.Program
 ): void {
   const fileName = sourceFile.fileName;
 
@@ -281,6 +422,18 @@ export function scanImportsForScope(
       const moduleName = moduleSpecifier.text;
       const importClause = node.importClause;
 
+      // PEP-052: discover syntax-activation markers on the imported module.
+      // This runs for every import — including side-effect imports
+      // (`import "@typesugar/std/syntax/eq/ops"`), which have no import clause.
+      if (program) {
+        const { operatorTCs, methodTCs } = readSyntaxActivationMarkers(
+          program.getTypeChecker(),
+          moduleSpecifier
+        );
+        for (const tc of operatorTCs) tracker.activateOperatorSyntax(fileName, tc);
+        for (const tc of methodTCs) tracker.activateMethodSyntax(fileName, tc);
+      }
+
       if (!importClause) return;
 
       // Named imports: import { Eq, Ord } from "@typesugar/std"
@@ -308,6 +461,37 @@ export function scanImportsForScope(
       }
     }
   });
+
+  // PEP-052: pre-register typeclasses DEFINED in this file (interfaces carrying a
+  // `@typeclass` JSDoc tag). A defined typeclass activates its own operator/method
+  // syntax locally ("you don't import what you define"). Doing this in the pre-scan
+  // (rather than waiting for the `@typeclass` macro to expand during the top-down
+  // visit) makes activation independent of declaration order — an operator used
+  // above its typeclass's declaration in the same file still activates.
+  for (const stmt of sourceFile.statements) {
+    // (a) `/** @typeclass */ interface Foo<A> { ... }`
+    if (
+      ts.isInterfaceDeclaration(stmt) &&
+      ts.getJSDocTags(stmt).some((tag) => tag.tagName.text === "typeclass")
+    ) {
+      tracker.registerDefinedTypeclass(fileName, stmt.name.text);
+      continue;
+    }
+    // (b) the call form `typeclass("Foo");` (used when the interface carries no
+    // JSDoc tag) — register it here too so same-file activation doesn't depend on
+    // the macro running during the top-down visit.
+    if (ts.isExpressionStatement(stmt) && ts.isCallExpression(stmt.expression)) {
+      const call = stmt.expression;
+      if (
+        ts.isIdentifier(call.expression) &&
+        call.expression.text === "typeclass" &&
+        call.arguments.length >= 1 &&
+        ts.isStringLiteralLike(call.arguments[0])
+      ) {
+        tracker.registerDefinedTypeclass(fileName, call.arguments[0].text);
+      }
+    }
+  }
 
   // Scan for directives at file level (top-level statements only)
   for (const stmt of sourceFile.statements) {

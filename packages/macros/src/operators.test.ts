@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type { MacroContext } from "@typesugar/core";
 
 import { pipeMacro, composeMacro, getOperatorString } from "./operators.js";
-import { clearRegistries, registerStandardTypeclasses } from "./typeclass.js";
+import { clearRegistries } from "./typeclass.js";
 
 // ============================================================================
 // Stub MacroContext
@@ -151,7 +151,6 @@ describe("macro registration metadata", () => {
 describe("pipeMacro.expand", () => {
   beforeEach(() => {
     clearRegistries();
-    registerStandardTypeclasses();
   });
 
   it("pipe(x, f) → f(x)", () => {
@@ -211,7 +210,6 @@ describe("pipeMacro.expand", () => {
 describe("composeMacro.expand", () => {
   beforeEach(() => {
     clearRegistries();
-    registerStandardTypeclasses();
   });
 
   it("compose(f) → (x) => f(x)", () => {

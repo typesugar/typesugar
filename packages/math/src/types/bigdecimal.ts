@@ -288,6 +288,7 @@ export function round(
  * Numeric instance for BigDecimal.
  * Note: Division is not included because it requires explicit scale.
  */
+/** @impl Numeric<BigDecimal> */
 export const numericBigDecimal: Numeric<BigDecimal> = {
   add: (a, b) => {
     const [aa, bb] = alignScales(a, b);
@@ -366,6 +367,7 @@ registerInstanceWithMeta({
 /**
  * Ord instance for BigDecimal.
  */
+/** @impl Ord<BigDecimal> */
 export const ordBigDecimal: Ord<BigDecimal> = {
   equals: (a, b) => {
     const [aa, bb] = alignScales(a, b);

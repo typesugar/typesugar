@@ -266,6 +266,7 @@ export function pow(i: Interval, n: number): Interval {
 /**
  * Numeric instance for intervals.
  */
+/** @impl Numeric<Interval> */
 export const numericInterval: Numeric<Interval> = {
   add: (a, b) => add(a, b),
   sub: (a, b) => sub(a, b),
@@ -302,6 +303,7 @@ registerInstanceWithMeta({
 /**
  * Ord instance for intervals (by lower bound, then upper bound).
  */
+/** @impl Ord<Interval> */
 export const ordInterval: Ord<Interval> = {
   equals: (a, b) => a.lo === b.lo && a.hi === b.hi,
   notEquals: (a, b) => a.lo !== b.lo || a.hi !== b.hi,

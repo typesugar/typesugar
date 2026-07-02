@@ -14,18 +14,11 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import {
-  clearRegistries,
-  clearSyntaxRegistry,
-  instanceRegistry,
-  registerTypeclassMacros,
-  registerStandardTypeclasses,
-} from "@typesugar/macros";
+import { clearRegistries, registerTypeclassMacros } from "@typesugar/macros";
 import { globalRegistry } from "@typesugar/core";
 import type { DeriveTypeInfo } from "@typesugar/core";
 
 beforeEach(() => {
-  clearSyntaxRegistry();
   clearRegistries();
   globalRegistry.clear();
   registerTypeclassMacros();
@@ -125,10 +118,6 @@ interface Point { x: number; y: number; }
     expect(result.code).toContain("export const Eq");
     expect(result.code).toContain("equals:");
     expect(result.changed).toBe(true);
-
-    const entry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Point");
-    expect(entry).toBeDefined();
-    expect(entry?.derived).toBe(true);
   });
 
   // PEP-033 N1: multi-arg @derive on an interface must NOT emit a companion
@@ -171,9 +160,8 @@ class P { constructor(public x: number) {} }
   // PEP-033 N3: instance-method sugar — `p.equals(q)` on a derived type is
   // rewritten to the companion call `P.Eq.equals(p, q)` (receiver → first arg).
   it("rewrites instance-method sugar `p.equals(q)` to the companion call", () => {
-    // clearRegistries() (beforeEach) wipes the standard typeclass defs that
-    // getTypeclassesForMethod("equals") relies on — restore them.
-    registerStandardTypeclasses();
+    // `equals` resolves to Eq via the op-index's static standard-typeclass seed
+    // (no per-test registration needed — the seed is immutable, not a cleared registry).
     const code = `
 @derive(Eq)
 class P { constructor(public x: number) {} }
@@ -240,13 +228,6 @@ interface Pair { a: number; b: number; }
     expect(result.code).toContain("namespace Pair");
     expect(result.code).toContain("export const Eq");
     expect(result.code).toContain("export const Show");
-
-    const eqEntry = instanceRegistry.find((e) => e.typeclassName === "Eq" && e.forType === "Pair");
-    const showEntry = instanceRegistry.find(
-      (e) => e.typeclassName === "Show" && e.forType === "Pair"
-    );
-    expect(eqEntry).toBeDefined();
-    expect(showEntry).toBeDefined();
   });
 });
 

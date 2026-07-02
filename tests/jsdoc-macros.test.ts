@@ -14,11 +14,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { transformCode } from "@typesugar/transformer/pipeline";
-import { clearRegistries, clearSyntaxRegistry } from "@typesugar/macros";
+import { clearRegistries } from "@typesugar/macros";
 
 beforeEach(() => {
   // Clear registries for clean test state (in our module scope)
-  clearSyntaxRegistry();
   clearRegistries();
 });
 

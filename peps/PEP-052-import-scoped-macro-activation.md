@@ -1,6 +1,6 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
-**Status:** Draft (2026-06-29)
+**Status:** In Progress (2026-06-30) — Wave 1 landed (generic engine + Eq/Ord operators, resolver registry-fallback deleted); remaining migration deferred to later waves (see "Implementation status & deferred work")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -266,3 +266,178 @@ implementation; it doesn't affect the design.)
   fixture package in the test suite).
 - A file that imports no `@syntax-*` marker and no named macro is byte-for-byte
   unchanged by the transformer.
+
+## Implementation status & deferred work
+
+**Wave 1 (landed):** the generic import-scoped activation engine + Eq/Ord
+**operators**.
+
+- Activation-marker discovery (`@syntax-operators`/`@syntax-methods`), read via the
+  checker; markers are carried on an exported `const` so the JSDoc survives `.d.ts`
+  generation. A typeclass **defined in the using file** activates its own syntax
+  locally ("you don't import what you define").
+- A registry-free typeclass op/method index read from `@typeclass` + `@op` JSDoc.
+- Operator rewriting gated on activation and resolved purely from scope
+  (`resolveInstance`: local-scope incl. non-exported decls → explicit-import →
+  module-scan). **The process-global registry fallback in the resolver is deleted.**
+- std ships `@op` tags + `@typesugar/std/syntax/{eq,eq/ops,ord,ord/ops}` markers;
+  std `Eq`/`Ord` operators resolve through the public mechanism, no builtin magic.
+
+**Status of the registry removal:** the two USER-FACING resolution paths are now
+fully **registry-free in BOTH transformers** (main + transformer-core/playground):
+
+- **Operators** (`a === b`, `a < b`): import-scoped (activation marker or in-file
+  `@typeclass`), instances from scope. The typeclass-definition lookup reads the
+  **op-index** (seeded with `STANDARD_TYPECLASS_DEFS` as static built-in metadata,
+  source `@typeclass` interfaces authoritative), NOT the mutable `typeclassRegistry`.
+- **Instance-method sugar** (`p.equals()`): candidates from the op-index
+  (`getTypeclassesDeclaringMethod`), instances via `resolveInstance` + `@derive`
+  companion detection. No `findInstance`.
+
+This fixes the cross-file leakage motivation. **The deep remaining work** is removing
+`instanceRegistry` from the INTERNAL machinery where it is still load-bearing:
+
+- `@derive` field-instance resolution (deriving `Eq<Point>` needs `Eq<number>` for the
+  `number` field — currently from the registry's primitive instances);
+- do-notation / comprehensions FlatMap/ParCombine detection (by type-constructor);
+- `implicits`, `generic`-expansion, `primitives` (writers), `erased` (reader).
+
+Cleanly removing it needs a **static built-in primitive-instance table** (analogous to
+the op-index seed) for derivation, plus scope-based resolution for user instances —
+not the user-facing ambient operator/method behavior (already fixed). Tracked below.
+
+Deferred (the registry stays populated for the above until migrated — nothing broken):
+
+1. **Method-syntax `@syntax-methods` gating** — method sugar resolves from scope but
+   is not yet gated on an activation import (the breaking flip; activation state is
+   already tracked).
+2. **Re-ship remaining instances** as scanner-discoverable `@impl` + per-package
+   `<pkg>/syntax/<tc>` markers (const form), and **empty the prelude** so non-Eq/Ord
+   typeclasses also stop being ambient.
+   - DONE (additive `@impl`, registry still populated): std Eq/Ord (+ markers);
+     fp (instances + eq/show/semigroup), math (complex/rational/interval/bigdecimal),
+     fusion — all now scanner-discoverable AND source-inlinable.
+   - REMAINING: std collections (`flatmap`/`par-combine`, dynamic `forType`), effect,
+     sql; per-package `/syntax/*` markers for the method typeclasses; empty prelude.
+3. **Inlining/specialization registry.** The separate `instanceMethodRegistry` and
+   its 30 static source-string builtins. With the `@impl` additions above,
+   `tryExtractInstanceFromSource` already covers fp/math/fusion instances by symbol —
+   so the builtins/registry can be retired once every inlined instance has `@impl`
+   source in-program. (Verify the full specialization suite when removing.)
+4. **Second operator path in `transformer-core`** (playground) — **DONE**: migrated to
+   the gated, scope-based model (`scanImportsForScope` wired into its transform; the
+   registry-based inference helpers removed). The playground is now import-scoped for
+   operators.
+5. **Delete the global registry objects** (`instanceRegistry`/`typeclassRegistry`/
+   `STANDARD_TYPECLASS_DEFS`) and the `coherence.ts` `instances` map (fold into the
+   resolver's `ambiguous` result) — only after the internal derivation/do-notation/
+   implicits consumers are migrated (see "deep remaining work" above). Then remove
+   `clearRegistries`/`clearSyntaxRegistry` from test setup.
+6. **Operator type-inference parity.** Nested operator chains (`(a + b) === c`),
+   unannotated-initializer inference, and union-member instance matching are not
+   ported to the scope-based resolver and currently fall through to native.
+7. **Version-keyed caching.** Module-fact caches (scanner, importMap, markers,
+   op-index) are keyed by path/program; key them by source-file version for
+   watch/LSP incremental correctness, and clear them on pipeline invalidation.
+8. **Labels / HKT** activation (PEP Part 2) — `@syntax-labels` for
+   `requires:`/`ensures:`/do-notation and the `@hkt` declaration-scoped path.
+
+**Invariant for every deferred item:** the global registry remains in place and
+populated until its last consumer is migrated, so the build, the language service,
+and the playground are never left broken between waves.
+
+### Registry-object deletion — phased plan (empirically scoped)
+
+A neuter experiment (stub `findInstance`→`undefined`, run the suite) proved the
+general `instanceRegistry` is **already dead** for derive/operators/methods/specialize
+(all scope-based). It has exactly **two** live consumers, so deleting the objects is a
+bounded, non-redesign follow-up:
+
+- **Phase A — implicits → scope.** `resolveImplicit` (implicits.ts) reads the registry
+  directly to fill `= implicit()` params. Migrate its call site (has `ctx` + the type
+  node) to `resolveInstance` (scope), keeping the registry as a fallback (additive,
+  green). Edge case: the implicit inference builds a synthetic type node — resolve the
+  concrete field type robustly (e.g. from the call's resolved signature / arg types)
+  rather than `getTypeFromTypeNode` on a synthetic node.
+- **Phase B — do-notation FlatMap/ParCombine → focused lookup. DONE (PR #34).** `let:`/
+  `yield:`/`par:` call `hasFlatMapInstance`/`getFlatMapMethodNames`/`hasParCombineInstance`
+  (resolve by type-constructor _name_, HKT). These now read a dedicated `doNotationRegistry`
+  (`Map<"<TC>:<forType>", meta>`) kept separate from the general registry and populated by
+  `registerInstanceWithMeta` whenever it registers a FlatMap/ParCombine instance (chosen over
+  brand-based scope resolution as the smaller, bounded change; side-effect imports like
+  `import "@typesugar/effect"` still populate it). `getInstanceMeta` routes FlatMap/ParCombine
+  through the same map. **Also required for the gate:** the neuter experiment revealed the
+  memory's "exactly two consumers" undercounted — `summon<TC<T>>()`'s explicit-instance step
+  was a _third_ live `findInstance` read. Migrated it to scope-first (`resolveInstance` on the
+  inner type's `ts.Type`) with the registry retained as fallback, mirroring Phase A's implicits
+  migration. After this, the neuter gate (stub `findInstance`→`undefined`, full suite) shows
+  **0 failures** — `instanceRegistry` has no live reads, so Phase C (delete the objects) can
+  proceed. (The `typeclass.test "instance registry"` mechanism test that used to fail under
+  neuter now passes because `getInstanceMeta` reads the focused `doNotationRegistry`.)
+- **Phase C — delete the objects.** Split into two sub-parts (bigger than first scoped —
+  the derivation planner and `summon`/`erased` also read the registry, uncovered by the
+  neuter which only stubbed `findInstance`):
+  - **C1 — `instanceRegistry` deleted. DONE (PR #34).** Migrated every remaining reader off
+    it first (each verified): the `@derive` transitive-derivation planner
+    (`hasPrimitiveOrInstance`) → scope (`hasInstanceInScopeByName`); `summon`/`erased` →
+    `resolveInstance`; `= implicit()` → scope + a name-based scope fallback
+    (`resolveInstanceInScopeByName`); the transformer/`@instance` dedup guards dropped
+    (`registerInstanceWithMeta` is idempotent). Then deleted `findInstance`, `getInstances`,
+    `resolveImplicit`, the array + globalThis backing + all writers (`primitives`, `generic`
+    ×2, transformer + transformer-core pushes, the `@impl` macro push), and updated the
+    registry-_mechanism_ tests (typeclass.test → do-notation lookup; fusion "registered in
+    the instance registry" dropped; derive-advanced membership asserts dropped; red-team +
+    instance-resolver isolation cruft; showcase). `registerInstanceWithMeta` survives only to
+    populate the focused do-notation lookup (`mirrorDoNotationInstance`) + attach companions.
+    The only surviving instance store is the FlatMap/ParCombine do-notation lookup.
+  - **C2a — `typeclassRegistry`'s operator/method _syntax_-lookup role removed. DONE (PR #34).**
+    The op-index (`getOperatorCandidates`/`getTypeclassesDeclaringMethod`, seeded from
+    `STANDARD_TYPECLASS_DEFS` + program `@typeclass` interfaces) is the sole owner of syntax
+    lookup: deleted the dead `getSyntaxForOperator` + its "syntax registry" mechanism tests;
+    migrated the `extend`-macro extension-method scan to `getTypeclassesDeclaringMethod(program)`.
+  - **C2b — `typeclassRegistry` object deleted. DONE (PR #34).** The op-index now owns full
+    typeclass _definitions_: a shared `buildTypeclassInfoFromInterface` (factored out of the
+    `@typeclass` macro) + the `STANDARD_TYPECLASS_DEFS` seed populate a per-program `def`
+    (`getTypeclassDef`/`getAllTypeclassDefs`/`isTypeclassDeclared`). Migrated the readers — HKT
+    expansion (`generateHKTExpandedType` → `getTypeclassDef(ctx.program)`), `getTypeclassesForMethod`
+    (SFINAE, → static seed), and deleted the dead `getTypeclass`/`isRegisteredTypeclass`. Then
+    deleted the object + globalThis backing + ALL writers (both `@typeclass` macro forms, the
+    module-load seeding, `registerStandardTypeclasses`, `registerTypeclassDef` incl. the
+    FlatMap/ParCombine self-registrations, `updateTypeclassSyntax` + the transformer's
+    pre-registration pass) + the public `getTypeclasses`; `clearSyntaxRegistry` → no-op then
+    deleted; `clearRegistries` now clears only the do-notation lookup. Mechanism tests migrated
+    (typeclass.test "typeclass registry" block, fusion/red-team probes, showcase reflection;
+    transformer/derive setups no longer call the deleted setup fns — std comes from the seed).
+  - **C2c — DONE (PR #34).** Emptied the ambient prelude (nothing in scope by default in
+    import-scoped mode; `resolution.prelude` still configurable) and decoupled do-notation from
+    the scope gate (`let:`/`yield:`/`par:` self-activate via their macro import, resolving
+    FlatMap/ParCombine by type-constructor name). Deleted `clearSyntaxRegistry` (no-op) + its ~29
+    call sites across 15 test files. `coherence.ts`'s `instances` map needed no fold — the
+    `CoherenceChecker` is an unwired standalone utility (never called in resolution) and the
+    resolver already owns ambiguity via its `ambiguous` result.
+  - **Phase C RESULT: both ambient registries (`instanceRegistry`, `typeclassRegistry`) are
+    deleted; instance resolution is scope-based and typeclass definitions/syntax are per-program
+    (op-index). The only surviving instance store is the focused do-notation lookup. Full suite
+    7233/0 green.**
+- **Phase D — inlining registry.** Replace `instanceMethodRegistry` + its 30 static
+  source-string builtins with `tryExtractInstanceFromSource` (already covers annotated/
+  `@impl` instances); handle function-form instances (`effectFunctor<R,E>()`) which aren't
+  object-literal consts.
+- **Phase E — `@syntax-methods` gating + docs sweep.** Gate method sugar on the activation
+  marker (the breaking flip; activation state already tracked) and update the guides/
+  getting-started/type-safety docs to the import-scoped model.
+
+### Why deleting the registry is gated on the HKT/method-sugar work
+
+The instances still served by the global registry (and by the 30 static inlining
+builtins) are overwhelmingly **higher-kinded** — `Functor<OptionF>`,
+`Monad<ArrayF>`, `FlatMap`, `ParCombine`, etc. (fp / effect / std collections), keyed
+by a type-constructor _brand_ (`forType: "OptionF"`), not a concrete type. They are
+consumed by **method sugar** (`xs.map(f)`, `o.flatMap(g)`), which resolves by the
+receiver's type constructor — a different mechanism than the concrete-type instance
+matching used for `Eq`/`Ord` operators. Making them scope-resolvable therefore needs
+**HKT-aware scope resolution**, which is PEP **Part 2** (the `@hkt` declaration-scoped
+path + `@syntax-methods`/labels). Concrete-type operator resolution (Eq/Ord) is fully
+migrated in Wave 1; the HKT method-sugar migration + the registry/inlining deletion it
+unblocks is Wave 2. Attempting the deletion before that would break method sugar,
+zero-cost inlining, and the playground — hence it is deferred, not partially done.

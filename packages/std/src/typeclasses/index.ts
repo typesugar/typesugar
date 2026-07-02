@@ -38,7 +38,9 @@ import { registerInstanceWithMeta } from "@typesugar/macros";
  * @typeclass
  */
 export interface Eq<A> {
+  /** @op === */
   equals(a: A, b: A): boolean;
+  /** @op !== */
   notEquals(a: A, b: A): boolean;
 }
 typeclass("Eq");
@@ -308,9 +310,13 @@ export const GT: Ordering = 1;
  */
 export interface Ord<A> extends Eq<A> {
   compare(a: A, b: A): Ordering;
+  /** @op < */
   lessThan(a: A, b: A): boolean;
+  /** @op <= */
   lessThanOrEqual(a: A, b: A): boolean;
+  /** @op > */
   greaterThan(a: A, b: A): boolean;
+  /** @op >= */
   greaterThanOrEqual(a: A, b: A): boolean;
 }
 typeclass("Ord");

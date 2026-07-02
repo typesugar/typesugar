@@ -8,7 +8,6 @@ import {
   filterMap,
   foldLazy,
 } from "../typeclasses.js";
-import { getInstances } from "@typesugar/macros";
 
 // ============================================================================
 // Functor<LazyPipeline>
@@ -156,42 +155,6 @@ describe("Typeclass composition", () => {
   });
 });
 
-// ============================================================================
-// @op typeclass registration — instances registered with the global registry
-// ============================================================================
-
-describe("@op typeclass registration", () => {
-  it("Functor<LazyPipeline> is registered in the instance registry", () => {
-    // Importing typeclasses.ts triggers registerInstanceWithMeta calls
-    const instances = getInstances();
-    const entry = instances.get("Functor<LazyPipeline>");
-    expect(entry).toBeDefined();
-    expect(entry!.instanceName).toBe("lazyPipelineFunctor");
-    expect(entry!.sourceModule).toBe("@typesugar/fusion");
-  });
-
-  it("Filterable<LazyPipeline> is registered in the instance registry", () => {
-    const instances = getInstances();
-    const entry = instances.get("Filterable<LazyPipeline>");
-    expect(entry).toBeDefined();
-    expect(entry!.instanceName).toBe("lazyPipelineFilterable");
-    expect(entry!.sourceModule).toBe("@typesugar/fusion");
-  });
-
-  it("Foldable<LazyPipeline> is registered in the instance registry", () => {
-    const instances = getInstances();
-    const entry = instances.get("Foldable<LazyPipeline>");
-    expect(entry).toBeDefined();
-    expect(entry!.instanceName).toBe("lazyPipelineFoldable");
-    expect(entry!.sourceModule).toBe("@typesugar/fusion");
-  });
-
-  it("all three LazyPipeline instances are not marked as derived", () => {
-    const instances = getInstances();
-    for (const tc of ["Functor", "Filterable", "Foldable"]) {
-      const entry = instances.get(`${tc}<LazyPipeline>`);
-      expect(entry).toBeDefined();
-      expect(entry!.derived).toBe(false);
-    }
-  });
-});
+// The fusion Functor/Filterable/Foldable<LazyPipeline> instances are `@op`-tagged in
+// typeclasses.ts and resolved by scope (the scanner), not a global registry (PEP-052).
+// Their behavior is covered by the LazyPipeline operation tests above.

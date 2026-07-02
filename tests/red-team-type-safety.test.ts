@@ -16,12 +16,7 @@ import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext, globalRegistry } from "@typesugar/core";
 import {
-  typeclassRegistry,
-  instanceRegistry,
   clearRegistries,
-  getTypeclasses,
-  getInstances,
-  findInstance,
   makePrimitiveChecker,
   getGenericDerivation,
   hasGenericDerivation,
@@ -269,43 +264,6 @@ describe("Red Team: Type Safety", () => {
     // Finding TS-14: summon() with no type args
     it("summon<>() runtime stub throws", () => {
       expect(() => summon()).toThrow("must be processed by the typesugar transformer");
-    });
-
-    // Finding TS-15: Registry allows duplicate typeclass entries
-    it("registry allows overwriting typeclass entries without warning", () => {
-      clearRegistries();
-
-      const tc1 = { name: "TestTC", methods: [] };
-      const tc2 = {
-        name: "TestTC",
-        methods: [{ name: "run", typeParams: [], params: [], returnType: "void" }],
-      };
-
-      typeclassRegistry.set("TestTC", tc1 as any);
-      typeclassRegistry.set("TestTC", tc2 as any);
-
-      expect(typeclassRegistry.get("TestTC")).toBe(tc2);
-    });
-
-    // Finding TS-16: Instance registry (array) accepts any entry without validation
-    it("instance registry accepts entries without key format validation", () => {
-      clearRegistries();
-
-      // instanceRegistry is an array — push accepts any shape
-      instanceRegistry.push({
-        typeclassName: "X",
-        forType: "Y",
-        instanceName: "not_a_real_instance",
-      } as any);
-      expect(instanceRegistry.length).toBeGreaterThan(0);
-
-      // Empty strings are also accepted
-      instanceRegistry.push({
-        typeclassName: "",
-        forType: "",
-        instanceName: "",
-      } as any);
-      expect(instanceRegistry.some((i) => i.typeclassName === "")).toBe(true);
     });
 
     // Finding TS-17: @deriving decorator is no-op at runtime

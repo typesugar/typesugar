@@ -8,7 +8,7 @@
 
 import * as ts from "typescript";
 
-import { tryExpandGenericDerive, instanceRegistry, tryExtractSumType } from "@typesugar/macros";
+import { tryExpandGenericDerive, tryExtractSumType } from "@typesugar/macros";
 
 import {
   MacroContextImpl,
@@ -464,7 +464,6 @@ export function expandDeriveDecorator(
           );
         }
         statements.push(...genericExpansion.statements);
-        instanceRegistry.push(genericExpansion.registryEntry);
         continue;
       }
     } catch (error) {

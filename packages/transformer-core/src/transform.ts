@@ -22,6 +22,8 @@ import {
   MacroContextImpl,
   globalExpansionTracker,
   HygieneContext,
+  scanImportsForScope,
+  globalResolutionScope,
   type RawSourceMap,
 } from "@typesugar/core";
 
@@ -326,6 +328,10 @@ function createTransformerFactory(
         undefined,
         verbose
       );
+
+      // PEP-052: populate per-file activation scope (syntax markers + in-file
+      // typeclass definitions) so the operator path is import-scoped.
+      scanImportsForScope(sourceFile, globalResolutionScope, program);
 
       const transformer = new MacroTransformer(ctx, verbose, expansionTracker);
 

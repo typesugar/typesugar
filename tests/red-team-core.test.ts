@@ -305,11 +305,14 @@ describe("Core Edge Cases", () => {
       expect(evaluated).toBe(false);
     });
 
-    it("should check isInPrelude for known typeclasses", () => {
-      expect(config.isInPrelude("Eq")).toBe(true);
-      expect(config.isInPrelude("Ord")).toBe(true);
-      expect(config.isInPrelude("Show")).toBe(true);
+    it("prelude is empty by default (PEP-052); a configured prelude is honored", () => {
+      // No ambient prelude — nothing is in scope by default.
+      expect(config.isInPrelude("Eq")).toBe(false);
       expect(config.isInPrelude("NonExistentTypeclass")).toBe(false);
+      // A project may still opt into a prelude via config.
+      config.set({ resolution: { prelude: ["Eq"] } });
+      expect(config.isInPrelude("Eq")).toBe(true);
+      expect(config.isInPrelude("Ord")).toBe(false);
     });
   });
 
@@ -329,8 +332,8 @@ describe("Core Edge Cases", () => {
       expect(scope.mode).toBe("import-scoped");
     });
 
-    it("should return true for prelude typeclasses and false for unknown in import-scoped mode", () => {
-      expect(tracker.isTypeclassInScope("test.ts", "Show")).toBe(true);
+    it("import-scoped mode: nothing is in scope by default (empty prelude, PEP-052)", () => {
+      expect(tracker.isTypeclassInScope("test.ts", "Show")).toBe(false);
       expect(tracker.isTypeclassInScope("test.ts", "RandomTypeclass")).toBe(false);
     });
 
@@ -339,8 +342,9 @@ describe("Core Edge Cases", () => {
       const newTracker = new ResolutionScopeTracker();
 
       newTracker.registerImportedTypeclass("test.ts", "Eq", "@typesugar/std");
-      expect(newTracker.isTypeclassInScope("test.ts", "Eq")).toBe(true);
-      expect(newTracker.isTypeclassInScope("test.ts", "Show")).toBe(true);
+      expect(newTracker.isTypeclassInScope("test.ts", "Eq")).toBe(true); // imported
+      // Not imported and no ambient prelude → out of scope (PEP-052).
+      expect(newTracker.isTypeclassInScope("test.ts", "Show")).toBe(false);
       expect(newTracker.isTypeclassInScope("test.ts", "CustomTC")).toBe(false);
     });
 

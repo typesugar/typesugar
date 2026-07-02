@@ -11,9 +11,6 @@ import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
 
 import {
   getOperatorString,
-  getSyntaxForOperator,
-  getTypeclassesForMethod,
-  findInstance,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
   isRegisteredInstance,
@@ -21,8 +18,6 @@ import {
   isKindAnnotation,
   transformHKTDeclaration,
   tryExpandGenericDerive,
-  instanceRegistry,
-  typeclassRegistry,
   instanceVarName,
   companionPath,
   tryExtractSumType,
@@ -42,8 +37,6 @@ import {
   clearDerivationCaches,
   // Registration functions for AST-based extraction
   registerInstanceWithMeta,
-  registerTypeclassDef,
-  updateTypeclassSyntax,
   extractOpFromJSDoc,
   // Source-based specialization
   extractMethodsFromObjectLiteral,
@@ -57,6 +50,9 @@ import {
   // Instance resolution (PEP-038)
   resolveInstance,
   type ResolvedInstance,
+  // Generic typeclass op/method index (PEP-052)
+  getOperatorCandidates,
+  getTypeclassesDeclaringMethod,
 } from "@typesugar/macros";
 
 import {
@@ -182,6 +178,33 @@ function isNullOrUndefinedExpression(node: ts.Expression): boolean {
   if (ts.isIdentifier(node) && node.text === "undefined") return true;
   if (ts.isVoidExpression(node)) return true; // void 0
   return false;
+}
+
+/**
+ * A typeclass instance resolved (registry-free) for instance-method sugar: either
+ * a companion reference (`Point.Eq`) or a bare instance name (`eqPoint`), with the
+ * module to import it from (if any) and the base type name for the builtin-receiver
+ * guard.
+ */
+interface MethodSugarInstance {
+  companionPath?: string;
+  instanceName?: string;
+  sourceModule?: string;
+  forType: string;
+}
+
+/**
+ * Does this variable declaration carry a typeclass-shaped type annotation —
+ * `const x: Functor<F> = …` (a PascalCase type reference with ≥1 type argument)?
+ * Used to recognize a typeclass instance for source-based inlining without an
+ * explicit `@impl` tag, mirroring the instance scanner's resolution discovery.
+ */
+function hasTypeclassTypeAnnotation(varDecl: ts.VariableDeclaration | undefined): boolean {
+  const typeNode = varDecl?.type;
+  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) return false;
+  if (!ts.isIdentifier(typeNode.typeName)) return false;
+  if (!/^[A-Z][a-zA-Z0-9]*$/.test(typeNode.typeName.text)) return false;
+  return (typeNode.typeArguments?.length ?? 0) >= 1;
 }
 
 function isSimpleExpression(node: ts.Expression): boolean {
@@ -663,42 +686,6 @@ function resolveRelativeImport(modulePath: string, baseDir: string): string | un
  */
 
 /**
- * Extract operator syntax from an interface definition by scanning for @op JSDoc tags.
- */
-function extractOpsFromInterface(
-  sourceFile: ts.SourceFile,
-  interfaceName: string
-): Map<string, string> | undefined {
-  // Find the interface declaration
-  let targetInterface: ts.InterfaceDeclaration | undefined;
-  for (const stmt of sourceFile.statements) {
-    if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === interfaceName) {
-      targetInterface = stmt;
-      break;
-    }
-  }
-
-  if (!targetInterface) return undefined;
-
-  const result = new Map<string, string>();
-
-  // Scan method signatures for @op JSDoc tags
-  for (const member of targetInterface.members) {
-    if (!ts.isMethodSignature(member)) continue;
-    if (!member.name || !ts.isIdentifier(member.name)) continue;
-
-    const methodName = member.name.text;
-
-    const jsdocOp = extractOpFromJSDoc(member);
-    if (jsdocOp) {
-      result.set(jsdocOp, methodName);
-    }
-  }
-
-  return result.size > 0 ? result : undefined;
-}
-
-/**
  * Extract and pre-register `instance()` and `typeclass()` calls from imported workspace files.
  *
  * This ensures typeclass instances and syntax mappings are registered BEFORE the transformer
@@ -757,12 +744,7 @@ function ensureImportedRegistrations(
     // OPTIMIZATION: Fast string-based skip for files without registration calls
     // Most files don't contain registrations, so avoid the expensive AST walk
     const fileText = importedSf.text;
-    if (
-      !fileText.includes("instance(") &&
-      !fileText.includes("typeclass(") &&
-      !fileText.includes("registerInstanceWithMeta(") &&
-      !fileText.includes("updateTypeclassSyntax(")
-    ) {
+    if (!fileText.includes("instance(") && !fileText.includes("registerInstanceWithMeta(")) {
       // File doesn't have any registration calls — just recurse into imports
       ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
       continue;
@@ -796,12 +778,13 @@ function ensureImportedRegistrations(
                   parent = parent.parent;
                 }
 
-                if (instanceName && !findInstance(parsed.typeclassName, parsed.forType)) {
+                if (instanceName) {
                   if (verbose) {
                     console.log(
                       `[typesugar] Pre-registered instance: ${parsed.typeclassName}<${parsed.forType}> = ${instanceName}`
                     );
                   }
+                  // registerInstanceWithMeta is idempotent (replace-in-place).
                   registerInstanceWithMeta({
                     typeclassName: parsed.typeclassName,
                     forType: parsed.forType,
@@ -813,34 +796,21 @@ function ensureImportedRegistrations(
             }
           }
 
-          // Handle typeclass("Name") — extract @op from interface definition
-          if (fnName === "typeclass" && node.arguments.length >= 1) {
-            const nameArg = node.arguments[0];
-            if (ts.isStringLiteral(nameArg)) {
-              const tcName = nameArg.text;
-              const opsMap = extractOpsFromInterface(importedSf, tcName);
-              if (opsMap && opsMap.size > 0) {
-                if (verbose) {
-                  console.log(
-                    `[typesugar] Pre-registered syntax (from interface): ${tcName}: ${[...opsMap.entries()].map(([k, v]) => `${k}->${v}`).join(", ")}`
-                  );
-                }
-                updateTypeclassSyntax(tcName, opsMap);
-              }
-            }
-          }
+          // (@op operator syntax is discovered generically by the op-index, which
+          // scans @typeclass interfaces across the program — no pre-registration.)
 
           // Handle registerInstanceWithMeta({ ... })
           if (fnName === "registerInstanceWithMeta" && node.arguments.length >= 1) {
             const arg = node.arguments[0];
             if (ts.isObjectLiteralExpression(arg)) {
               const info = extractInstanceInfoFromLiteral(arg);
-              if (info && !findInstance(info.typeclassName, info.forType)) {
+              if (info) {
                 if (verbose) {
                   console.log(
                     `[typesugar] Pre-registered instance (meta): ${info.typeclassName}<${info.forType}> = ${info.instanceName}`
                   );
                 }
+                // registerInstanceWithMeta is idempotent (replace-in-place).
                 registerInstanceWithMeta(info);
               }
             }
@@ -1166,7 +1136,7 @@ export default function macroTransformerFactory(
 
       // Scan for imports and opt-out directives
       profiler.start("perFile.scanImportsForScope");
-      scanImportsForScope(sourceFile, globalResolutionScope);
+      scanImportsForScope(sourceFile, globalResolutionScope, program);
       profiler.end("perFile.scanImportsForScope");
 
       // Load macro packages based on this file's imports.
@@ -1364,13 +1334,6 @@ class MacroTransformer {
    * and reuse the identifier.
    */
   private specCache = new SpecializationCache();
-
-  /**
-   * Cache for union type alias member lookups. Maps a type alias name to
-   * the set of base member names in its union, or null if not found/not a union.
-   * Avoids repeatedly scanning all source files (including .d.ts) for the same alias.
-   */
-  private unionMemberCache = new Map<string, Set<string> | null>();
 
   private inlinedInstanceNames = new Set<string>();
 
@@ -1915,7 +1878,7 @@ class MacroTransformer {
 
       // For source files, check both directive and decorator
       if (fileName !== this.ctx.sourceFile.fileName) {
-        scanImportsForScope(sourceFile, globalResolutionScope);
+        scanImportsForScope(sourceFile, globalResolutionScope, this.ctx.program);
       }
 
       if (globalResolutionScope.hasUseExtension(fileName)) {
@@ -3062,9 +3025,6 @@ class MacroTransformer {
       if (!declarations || declarations.length === 0) return undefined;
 
       for (const decl of declarations) {
-        // Auto-specialize all @impl instances
-        if (!this.hasImplAnnotation(decl)) continue;
-
         // Find the object literal initializer
         let objLiteral: ts.ObjectLiteralExpression | undefined;
         let varDecl: ts.VariableDeclaration | undefined;
@@ -3077,6 +3037,15 @@ class MacroTransformer {
         }
 
         if (!objLiteral) continue;
+
+        // Accept an instance for source-based inlining if it is either explicitly
+        // `@impl`/`@instance`-annotated, OR carries a typeclass-shaped type
+        // annotation (`const x: Functor<F> = { ... }`). The latter lets instances
+        // be inlined from source WITHOUT an `@impl` tag — and therefore without
+        // triggering the `@impl` attribute macro's companion generation, which would
+        // change a transformed package's exports (PEP-052). Mirrors the scanner's
+        // type-annotation discovery used for resolution.
+        if (!this.hasImplAnnotation(decl) && !hasTypeclassTypeAnnotation(varDecl)) continue;
 
         // Extract brand from @impl annotation or infer from type annotation
         let brand = this.extractBrandFromImpl(decl);
@@ -5075,7 +5044,6 @@ class MacroTransformer {
           for (const stmt of genericExpansion.statements) {
             statements.push(this.setSourceMapRangeDeep(stmt, decorator));
           }
-          instanceRegistry.push(genericExpansion.registryEntry);
           continue;
         }
       } catch (error) {
@@ -5642,11 +5610,15 @@ class MacroTransformer {
    * to the companion call `Companion.method(receiver, ...args)` (e.g. a derived
    * `p.equals(q)` → `Point.Eq.equals(p, q)`).
    *
-   * Mirrors the operator-rewrite resolution (`getSyntaxForOperator` → `findInstance`):
-   * map the method name to the typeclass(es) declaring it, then look up an instance
-   * for the receiver's type. Ambiguity (two typeclasses with the same method, both
-   * with an instance for the type) is an error — the user should call the companion
-   * form to disambiguate.
+   * Maps the method name to the typeclass(es) declaring it, then looks up an
+   * instance for the receiver's type. Ambiguity (two typeclasses with the same
+   * method, both with an instance for the type) is an error — the user should call
+   * the companion form to disambiguate.
+   *
+   * NOTE (PEP-052): this method-sugar path is still registry-based
+   * (`getTypeclassesForMethod` → `findInstance`) and NOT yet import-scoped. It is
+   * migrated to activation + scope-based resolution in a later wave (see the
+   * "Deferred to a later wave" section of PEP-052).
    */
   private tryResolveTypeclassMethod(
     node: ts.CallExpression,
@@ -5654,33 +5626,23 @@ class MacroTransformer {
     methodName: string,
     typeName: string
   ): ts.Expression | undefined {
-    const candidates = getTypeclassesForMethod(methodName);
-    if (!candidates) return undefined;
+    const candidates = getTypeclassesDeclaringMethod(this.ctx.program, methodName);
+    if (candidates.length === 0) return undefined;
 
-    const sfn = this.ctx.sourceFile.fileName;
     const baseTypeName = stripTypeArguments(typeName);
+    const receiverType = this.ctx.typeChecker.getTypeAtLocation(receiver);
 
-    let matched: ReturnType<typeof findInstance>;
+    let matched: MethodSugarInstance | undefined;
     let matchedTc: string | undefined;
     for (const { typeclass } of candidates) {
-      // For instance-method sugar the instance is uniquely keyed by
-      // (typeclass, type), so the import-scope gate (which governs ambiguous
-      // cross-module imported instances) doesn't apply — a builtin typeclass like
-      // `Eq` is neither defined in-file nor imported, yet `@derive(Eq)` registers a
-      // concrete `Type.Eq` instance. Prefer the scoped match, then fall back to the
-      // unscoped registry (cross-module refs get an import injected below).
-      const inst =
-        findInstance(typeclass, typeName, sfn) ??
-        findInstance(typeclass, baseTypeName, sfn) ??
-        findInstance(typeclass, typeName) ??
-        findInstance(typeclass, baseTypeName);
-      // Never apply instance-method sugar for instances registered on a built-in
-      // type (Promise/Array/Map/…). Those types carry native methods (map,
-      // filter, then, …) that collide with typeclass method names; rewriting
-      // `someArray.map(fn)` into `parCombineArray.map(someArray, fn)` is always
-      // wrong. Checking the instance's registered forType is reliable even when
-      // the receiver's static type can't be resolved (e.g. a build context
-      // without full lib types). Native usage stays a plain method call.
+      // Resolve the instance purely from scope (PEP-052): an imported/local
+      // `@impl`/`@instance` value, or a `@derive(TC)` companion on the receiver's
+      // type. No process-global instance registry.
+      const inst = this.resolveMethodSugarInstance(receiverType, typeName, baseTypeName, typeclass);
+      // Never apply instance-method sugar for instances on a built-in receiver
+      // (Promise/Array/Map/…). Those carry native methods (map, then, …) that
+      // collide with typeclass method names; rewriting `arr.map(fn)` into a
+      // typeclass call is always wrong. Native usage stays a plain method call.
       if (inst && BUILTIN_METHOD_RECEIVER_NAMES.has(inst.forType)) {
         continue;
       }
@@ -5703,11 +5665,13 @@ class MacroTransformer {
 
     const factory = this.ctx.factory;
 
-    // Schedule an import for the companion's base type if it comes from another module
-    // (e.g. import `Point` for `Point.Eq`), mirroring the operator-rewrite path.
-    const importName = matched.companionPath
-      ? matched.companionPath.split(".")[0]
-      : matched.instanceName;
+    // The emitted reference: a companion path ("Point.Eq") or a bare instance name.
+    const instName = matched.companionPath ?? matched.instanceName;
+    if (!instName) return undefined;
+
+    // Schedule an import for the companion's base type / instance if it comes from
+    // another module (e.g. import `Point` for `Point.Eq`), mirroring the operator path.
+    const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
     if (matched.sourceModule && !this.isAlreadyImported(importName)) {
       const key = `${importName}::${matched.sourceModule}`;
       if (!this.pendingTypeRewriteImports.has(key)) {
@@ -5718,8 +5682,6 @@ class MacroTransformer {
       }
     }
 
-    // Build the companion reference: "Point.Eq" → Point.Eq, or a bare instance name.
-    const instName = matched.companionPath || matched.instanceName;
     const instanceRef = instName.includes(".")
       ? factory.createPropertyAccessExpression(
           factory.createIdentifier(instName.split(".")[0]),
@@ -5745,6 +5707,136 @@ class MacroTransformer {
     }
 
     return preserveSourceMap(rewritten, node);
+  }
+
+  /**
+   * Resolve a typeclass instance for instance-method sugar, purely from scope
+   * (PEP-052) — no process-global instance registry. Tries, in order:
+   *   1. an imported/local `@impl`/`@instance` value (via the scope resolver);
+   *   2. a `@derive(TC)` companion on the receiver's own type declaration, emitted
+   *      by convention as `<TypeName>.<TC>` (e.g. `Point.Eq`).
+   */
+  private resolveMethodSugarInstance(
+    receiverType: ts.Type,
+    typeName: string,
+    baseTypeName: string,
+    typeclass: string
+  ): MethodSugarInstance | undefined {
+    // Normalize the receiver's name for the builtin-receiver guard: the array
+    // shorthand stringifies as `number[]` / `readonly number[]`, which would slip
+    // past BUILTIN_METHOD_RECEIVER_NAMES — collapse it to "Array".
+    const guardName = /\[\]$/.test(typeName) ? "Array" : baseTypeName;
+
+    // 1. Scope-based @impl/@instance resolution.
+    try {
+      const r = resolveInstance(this.ctx, typeclass, receiverType);
+      if (r && r.kind === "resolved") {
+        return {
+          instanceName: r.exportName,
+          sourceModule: r.source !== "local-scope" ? r.importSpecifier : undefined,
+          forType: guardName,
+        };
+      }
+      if (r && r.kind === "ambiguous") {
+        // Two distinct in-scope instances for the same typeclass/type — surface it
+        // rather than silently falling through to a companion or no-op.
+        this.ctx.reportError(
+          this.ctx.sourceFile,
+          `Ambiguous ${typeclass} instance for '${typeName}': ` +
+            `${r.candidates.map((c) => c.exportName).join(", ")}. ` +
+            `Import exactly one to disambiguate.`
+        );
+        return undefined;
+      }
+    } catch {
+      // checker may throw on synthetic nodes — fall through to companion detection
+    }
+
+    // 2. Derived companion: the receiver's type is declared with `@derive(TC)`.
+    if (this.typeDerivesTypeclass(receiverType, typeclass)) {
+      return {
+        companionPath: companionPath(typeclass, baseTypeName),
+        sourceModule: this.moduleSpecifierForType(receiverType),
+        forType: guardName,
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Does the receiver's type declaration carry a `@derive(TC)` / `@deriving(TC)`
+   * (decorator or JSDoc tag) — meaning a `<Type>.<TC>` companion will exist?
+   */
+  private typeDerivesTypeclass(receiverType: ts.Type, typeclass: string): boolean {
+    const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;
+    const decls = sym?.getDeclarations();
+    if (!decls) return false;
+    for (const decl of decls) {
+      // Decorator form: `@derive(Eq) class P {}`
+      if (ts.canHaveDecorators(decl)) {
+        for (const dec of ts.getDecorators(decl) ?? []) {
+          if (this.deriveDecoratorNames(dec.expression, typeclass)) return true;
+        }
+      }
+      // JSDoc form: `/** @derive(Eq) */`
+      for (const tag of ts.getJSDocTags(decl)) {
+        const name = tag.tagName.text;
+        if (name !== "derive" && name !== "deriving") continue;
+        const comment =
+          typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+        if (comment && new RegExp(`\\b${typeclass}\\b`).test(comment)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Does a decorator expression `derive(Eq, ...)` name the given typeclass? */
+  private deriveDecoratorNames(expr: ts.Expression, typeclass: string): boolean {
+    if (!ts.isCallExpression(expr)) return false;
+    const callee = expr.expression;
+    if (!ts.isIdentifier(callee)) return false;
+    // Match the local text, but also resolve through an alias import
+    // (`import { derive as d }`) to the original `derive`/`deriving` export.
+    let calleeName: string | undefined = callee.text;
+    if (calleeName !== "derive" && calleeName !== "deriving") {
+      let sym = this.ctx.typeChecker.getSymbolAtLocation(callee);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) {
+        try {
+          sym = this.ctx.typeChecker.getAliasedSymbol(sym);
+        } catch {
+          /* ignore */
+        }
+      }
+      calleeName = sym?.getName();
+    }
+    if (calleeName !== "derive" && calleeName !== "deriving") return false;
+    return expr.arguments.some((a) => ts.isIdentifier(a) && a.text === typeclass);
+  }
+
+  /**
+   * The module specifier to import the companion's base type from for a derived
+   * companion `<Type>.<TC>`. Returns `undefined` when the type is declared in the
+   * current file (no import needed). Otherwise finds an existing import in this file
+   * that resolves to the type's declaration module and reuses its specifier — so the
+   * companion namespace value (e.g. `Point`) is imported even when only an unrelated
+   * binding from that module (or `import type`) was present.
+   */
+  private moduleSpecifierForType(receiverType: ts.Type): string | undefined {
+    const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;
+    const declFile = sym?.getDeclarations()?.[0]?.getSourceFile();
+    if (!declFile || declFile.fileName === this.ctx.sourceFile.fileName) return undefined;
+
+    const checker = this.ctx.typeChecker;
+    for (const stmt of this.ctx.sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+      const modSym = checker.getSymbolAtLocation(stmt.moduleSpecifier);
+      const modFile = modSym?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d));
+      if (modFile?.fileName === declFile.fileName) {
+        return stmt.moduleSpecifier.text;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -6452,135 +6544,6 @@ class MacroTransformer {
    * instance of that typeclass gets rewritten to a direct method call
    * (or inlined for zero-cost).
    */
-  /**
-   * Infer the result type of an identifier by looking at its initializer.
-   * If the variable was assigned from a binary expression that would be rewritten,
-   * returns the instance's forType instead of the TypeChecker's inferred type.
-   */
-  private inferIdentifierResultType(node: ts.Identifier): string | undefined {
-    const symbol = this.ctx.typeChecker.getSymbolAtLocation(node);
-    if (!symbol) return undefined;
-
-    const decls = symbol.getDeclarations();
-    if (!decls || decls.length === 0) return undefined;
-
-    for (const decl of decls) {
-      if (ts.isVariableDeclaration(decl) && decl.initializer) {
-        // Unwrap parentheses
-        let init: ts.Expression = decl.initializer;
-        while (ts.isParenthesizedExpression(init)) {
-          init = init.expression;
-        }
-
-        if (ts.isBinaryExpression(init)) {
-          const inferred = this.inferBinaryExprResultType(init);
-          if (inferred) return inferred;
-        }
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Get (or compute and cache) the set of base member names for a type alias.
-   * Returns null if the type alias is not found or is not a union.
-   */
-  private getUnionMembers(candidateBase: string): Set<string> | null {
-    if (this.unionMemberCache.has(candidateBase)) {
-      return this.unionMemberCache.get(candidateBase)!;
-    }
-
-    let result: Set<string> | null = null;
-    for (const sf of this.ctx.program.getSourceFiles()) {
-      for (const stmt of sf.statements) {
-        if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === candidateBase) {
-          const aliasType = this.ctx.typeChecker.getTypeAtLocation(stmt.type);
-          if (aliasType.isUnion?.()) {
-            result = new Set<string>();
-            for (const unionMember of aliasType.types) {
-              const memberName = this.ctx.typeChecker.typeToString(unionMember);
-              result.add(stripTypeArguments(memberName));
-            }
-          }
-          break;
-        }
-      }
-      if (result !== null) break;
-    }
-
-    this.unionMemberCache.set(candidateBase, result);
-    return result;
-  }
-
-  /**
-   * Infer the result type of a binary expression, accounting for potential typeclass rewriting.
-   * If the expression would be rewritten to a typeclass method call, returns the instance's forType.
-   */
-  private inferBinaryExprResultType(node: ts.BinaryExpression): string | undefined {
-    const opString = getOperatorString(node.operatorToken.kind);
-    if (!opString) return undefined;
-
-    const entries = getSyntaxForOperator(opString);
-    if (!entries || entries.length === 0) return undefined;
-
-    // Unwrap parenthesized expressions
-    let unwrappedLeft: ts.Expression = node.left;
-    while (ts.isParenthesizedExpression(unwrappedLeft)) {
-      unwrappedLeft = unwrappedLeft.expression;
-    }
-
-    // Get the type of the left operand, recursively inferring if it's also a binary expression
-    let leftTypeName: string;
-    if (ts.isBinaryExpression(unwrappedLeft)) {
-      const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-      leftTypeName =
-        inferred ??
-        this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-    } else {
-      leftTypeName = this.ctx.typeChecker.typeToString(
-        this.ctx.typeChecker.getTypeAtLocation(node.left)
-      );
-    }
-
-    const baseTypeName = stripTypeArguments(leftTypeName);
-    const typeArg = extractTypeArgumentsContent(leftTypeName) ?? "";
-
-    const currentFileName = this.ctx.sourceFile.fileName;
-    // Check if there's an instance for this type and operator
-    for (const entry of entries) {
-      let inst =
-        findInstance(entry.typeclass, leftTypeName, currentFileName) ??
-        findInstance(entry.typeclass, baseTypeName, currentFileName);
-
-      // Check union membership if no direct match
-      if (!inst) {
-        const candidateInstances = instanceRegistry.filter(
-          (i) => i.typeclassName === entry.typeclass
-        );
-        for (const candidate of candidateInstances) {
-          const candidateBase = stripTypeArguments(candidate.forType);
-          const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-          const members = this.getUnionMembers(candidateBase);
-          if (
-            members?.has(baseTypeName) &&
-            (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
-          ) {
-            inst = candidate;
-            break;
-          }
-        }
-      }
-
-      if (inst) {
-        // Found an instance - the result type is the instance's forType
-        return inst.forType;
-      }
-    }
-
-    return undefined;
-  }
-
   private tryRewriteTypeclassOperator(node: ts.BinaryExpression): ts.Expression | undefined {
     // Skip synthetic nodes (from macro-generated code like assert IIFE).
     // The type checker crashes on nodes whose symbols lack initialized links.
@@ -6595,44 +6558,60 @@ class MacroTransformer {
     const opString = getOperatorString(node.operatorToken.kind);
     if (!opString) return undefined;
 
-    const entries = getSyntaxForOperator(opString);
-    if (!entries || entries.length === 0) return undefined;
+    // PEP-052 activation gate: an operator only rewrites if the using file
+    // activated a typeclass that maps this operator token — either by importing a
+    // `@syntax-operators <TC>` marker module, or by defining the typeclass in this
+    // file ("you don't import what you define"). No activation → native operator,
+    // byte-for-byte unchanged.
+    const sfn = this.ctx.sourceFile.fileName;
+    const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
+    const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+    const activatedForOps =
+      definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
+    if (activatedForOps.size === 0) return undefined;
 
-    // Get the type of the left operand, inferring from nested binary expressions if needed.
-    // Wrap in try/catch: synthetic nodes from macro-generated code (e.g. assert IIFE)
-    // may crash TypeScript's checker in getTypeOfSymbol → getCheckFlags when their
-    // symbols lack initialized links.  Bail out and leave the expression untouched.
-    let unwrappedLeft: ts.Expression = node.left;
-    while (ts.isParenthesizedExpression(unwrappedLeft)) {
-      unwrappedLeft = unwrappedLeft.expression;
-    }
+    const candidates = getOperatorCandidates(this.ctx.program, activatedForOps, opString);
+    if (candidates.length === 0) return undefined;
 
-    let typeName: string;
-    try {
-      if (ts.isBinaryExpression(unwrappedLeft)) {
-        const inferred = this.inferBinaryExprResultType(unwrappedLeft);
-        typeName =
-          inferred ??
-          this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(unwrappedLeft));
-      } else if (ts.isIdentifier(unwrappedLeft)) {
-        // For variable references, check if the initializer is a binary expression we'd rewrite
-        const inferred = this.inferIdentifierResultType(unwrappedLeft);
-        typeName =
-          inferred ??
-          this.ctx.typeChecker.typeToString(this.ctx.typeChecker.getTypeAtLocation(node.left));
-      } else {
-        const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-        typeName = this.ctx.typeChecker.typeToString(leftType);
-      }
-    } catch {
-      // Type checker crashed on a synthetic node — skip operator rewriting
+    // Guard: don't rewrite comparisons with null or undefined literals.
+    // `x === undefined` / `x === null` must stay native — rewriting to
+    // Eq.equals(x, undefined) crashes at runtime.
+    if (isNullOrUndefinedExpression(node.right) || isNullOrUndefinedExpression(node.left)) {
       return undefined;
     }
-    const baseTypeName = stripTypeArguments(typeName);
-    const typeArg = extractTypeArgumentsContent(typeName) ?? "";
 
-    // Skip primitive types - native JS operators work correctly and we don't want to
-    // generate unnecessary method calls or require imports
+    // Resolve the operand type (used for the primitive skip, logging, and the
+    // scope-based instance search). Wrap in try/catch: synthetic nodes from
+    // macro-generated code may crash the checker.
+    //
+    // NOTE (PEP-052 wave 1, deferred): we use the checker's type of `node.left`
+    // directly. The legacy path additionally inferred result types through nested
+    // operator chains (`(a + b) === c`) and unannotated initializers, and matched
+    // instances declared on a union via member-type widening. Those are not yet
+    // ported to the scope-based resolver (`resolveInstance` requires exact
+    // bidirectional type match), so such cases currently fall through to native.
+    // Re-introducing them on top of the resolver is tracked for a later wave.
+    let leftType: ts.Type;
+    let rightType: ts.Type;
+    let typeName: string;
+    try {
+      leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
+      rightType = this.ctx.typeChecker.getTypeAtLocation(node.right);
+      typeName = this.ctx.typeChecker.typeToString(leftType);
+    } catch {
+      return undefined;
+    }
+
+    // Guard when either operand's *type* is null | undefined (e.g., `x == null`).
+    if (
+      (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
+      (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
+    ) {
+      return undefined;
+    }
+
+    // Skip primitive types — native JS operators are already correct and we don't
+    // want to generate unnecessary method calls or require imports.
     const PRIMITIVE_TYPES = new Set([
       "number",
       "string",
@@ -6643,90 +6622,50 @@ class MacroTransformer {
       "any",
       "unknown",
     ]);
-    if (PRIMITIVE_TYPES.has(baseTypeName)) {
+    if (PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) {
       return undefined;
     }
 
-    let matchedEntry: { typeclass: string; method: string } | undefined;
-    let matchedInstance:
-      | {
-          typeclassName: string;
-          forType: string;
-          instanceName: string;
-          companionPath?: string;
-          sourceModule?: string;
-        }
-      | undefined;
-
-    const sfn = this.ctx.sourceFile.fileName;
-    for (const entry of entries) {
-      // First try exact match
-      let inst =
-        findInstance(entry.typeclass, typeName, sfn) ??
-        findInstance(entry.typeclass, baseTypeName, sfn);
-
-      // If no exact match, try to find an instance via union membership
-      // e.g., Variable<number> → Expression<number> (if Expression is a union containing Variable)
-      if (!inst) {
-        const candidateInstances = instanceRegistry.filter(
-          (i) => i.typeclassName === entry.typeclass
+    // Search activated typeclasses for an instance for the operand type, resolved
+    // purely from scope (imports + companions) — no global registry. Two activated
+    // typeclasses both resolving an instance for this op/type is an ambiguity error
+    // (local coherence).
+    let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
+    for (const candidate of candidates) {
+      const result = resolveInstance(this.ctx, candidate.typeclass, leftType);
+      if (!result) continue;
+      if (result.kind === "ambiguous") {
+        this.ctx.reportError(
+          node,
+          `Ambiguous ${candidate.typeclass} instance for type '${typeName}': ` +
+            `${result.candidates.map((c) => c.exportName).join(", ")}. ` +
+            `Import exactly one instance to disambiguate.`
         );
-        for (const candidate of candidateInstances) {
-          const candidateBase = stripTypeArguments(candidate.forType);
-          const candidateArg = extractTypeArgumentsContent(candidate.forType) ?? "";
-          const members = this.getUnionMembers(candidateBase);
-          if (
-            members?.has(baseTypeName) &&
-            (candidateArg === typeArg || candidateArg === typeArg.split("<")[0] || !candidateArg)
-          ) {
-            inst = candidate;
-            break;
-          }
-        }
+        return undefined;
       }
-
-      if (inst) {
-        if (matchedEntry) {
-          this.ctx.reportError(
-            node,
-            `Ambiguous operator '${opString}' for type '${typeName}': ` +
-              `both ${matchedEntry.typeclass}.${matchedEntry.method} and ` +
-              `${entry.typeclass}.${entry.method} apply. ` +
-              `Use explicit method calls to disambiguate.`
-          );
-          return undefined;
-        }
-        matchedEntry = entry;
-        matchedInstance = inst;
+      if (matched) {
+        this.ctx.reportError(
+          node,
+          `Ambiguous operator '${opString}' for type '${typeName}': ` +
+            `both ${matched.typeclass}.${matched.method} and ` +
+            `${candidate.typeclass}.${candidate.method} apply. ` +
+            `Use explicit method calls to disambiguate.`
+        );
+        return undefined;
       }
+      matched = { typeclass: candidate.typeclass, method: candidate.method, resolved: result };
     }
 
-    if (!matchedEntry || !matchedInstance) {
-      return undefined;
-    }
-
-    // Guard: don't rewrite comparisons with null or undefined.
-    // `x === undefined` and `x === null` must stay as native checks —
-    // rewriting to Eq.equals(x, undefined) crashes at runtime.
-    if (isNullOrUndefinedExpression(node.right) || isNullOrUndefinedExpression(node.left)) {
-      return undefined;
-    }
-
-    // Also guard when either operand's *type* is null | undefined (e.g., `x == null`).
-    // getTypeAtLocation always returns a type; flags check is safe.
-    const rightType = this.ctx.typeChecker.getTypeAtLocation(node.right);
-    const leftType = this.ctx.typeChecker.getTypeAtLocation(node.left);
-    if (
-      (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
-      (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
-    ) {
+    // Operator activated but no instance for T → native fallback (PEP-052 decision:
+    // friendlier than a hard error since `===` is already valid TS).
+    if (!matched) {
       return undefined;
     }
 
     if (this.verbose) {
       console.log(
         `[typesugar] Rewriting operator: ${typeName} ${opString} → ` +
-          `${matchedEntry.typeclass}.${matchedEntry.method}()`
+          `${matched.typeclass}.${matched.method}()`
       );
     }
 
@@ -6734,43 +6673,23 @@ class MacroTransformer {
     const left = ts.visitNode(node.left, this.visit.bind(this)) as ts.Expression;
     const right = ts.visitNode(node.right, this.visit.bind(this)) as ts.Expression;
 
-    // Try zero-cost inlining if instance methods are available
-    const dictMethodMap = getInstanceMethods(
-      matchedInstance.companionPath || matchedInstance.instanceName
-    );
-    if (dictMethodMap) {
-      const dictMethod = dictMethodMap.methods.get(matchedEntry.method);
-      if (dictMethod && dictMethod.source) {
-        // TODO: Full inlining will be added in Step 6 (auto-specialization).
-        // For now, fall through to the method call below.
-      }
+    // Schedule an import if the instance comes from another module. Scope-resolved
+    // instances (explicit-import / module-scan) carry the original `importSpecifier`;
+    // local-scope instances are already in the file and need no import.
+    if (matched.resolved.importSpecifier && matched.resolved.source !== "local-scope") {
+      this.scheduleInstanceImport(matched.resolved.exportName, matched.resolved.importSpecifier);
     }
 
-    // If the instance comes from another module, schedule an import injection
-    // With companion paths, we import the base type (e.g., "Point" from "Point.Eq")
-    const importName = matchedInstance.companionPath
-      ? matchedInstance.companionPath.split(".")[0]
-      : matchedInstance.instanceName;
-    if (matchedInstance.sourceModule && !this.isAlreadyImported(importName)) {
-      const key = `${importName}::${matchedInstance.sourceModule}`;
-      if (!this.pendingTypeRewriteImports.has(key)) {
-        this.pendingTypeRewriteImports.set(key, {
-          name: importName,
-          module: matchedInstance.sourceModule,
-        });
-      }
-    }
-
-    // Emit instanceRef.method(left, right)
-    // Use companion path if available (e.g., Point.Eq.equals via namespace merging)
-    const instName = matchedInstance.companionPath || matchedInstance.instanceName;
+    // Emit instanceRef.method(left, right). The export name may be a companion
+    // member path (e.g. "Point.Eq") — emit a property access in that case.
+    const instName = matched.resolved.exportName;
     const instanceRef = instName.includes(".")
       ? factory.createPropertyAccessExpression(
           factory.createIdentifier(instName.split(".")[0]),
           instName.split(".")[1]
         )
       : factory.createIdentifier(instName);
-    const methodAccess = factory.createPropertyAccessExpression(instanceRef, matchedEntry.method);
+    const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
     const rewritten = factory.createCallExpression(methodAccess, undefined, [
       stripCommentsDeep(left),
       stripCommentsDeep(right),

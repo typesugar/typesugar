@@ -126,6 +126,7 @@ export function toString(z: Complex): string {
 /**
  * Numeric instance for Complex numbers.
  */
+/** @impl Numeric<Complex> */
 export const numericComplex: Numeric<Complex> = {
   add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }),
 
@@ -189,6 +190,7 @@ registerInstanceWithMeta({
 /**
  * Fractional instance for Complex numbers.
  */
+/** @impl Fractional<Complex> */
 export const fractionalComplex: Fractional<Complex> = {
   div: (a, b) => {
     const denom = b.re * b.re + b.im * b.im;
@@ -219,6 +221,7 @@ export const fractionalComplex: Fractional<Complex> = {
  * Floating instance for Complex numbers.
  * Implements transcendental functions for complex domain.
  */
+/** @impl Floating<Complex> */
 export const floatingComplex: Floating<Complex> = {
   pi: () => ({ re: Math.PI, im: 0 }),
 

@@ -14,12 +14,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import {
-  getTypeclasses,
-  getInstances,
   clearRegistries,
-  registerStandardTypeclasses,
-  registerTypeclassDef,
-  updateTypeclassSyntax,
   registerInstanceWithMeta,
   getInstanceMeta,
   getFlatMapMethodNames,
@@ -39,270 +34,20 @@ import {
 // Registry Setup
 // ============================================================================
 
-describe("typeclass registry", () => {
-  beforeEach(() => {
-    clearRegistries();
-  });
-
-  describe("clearRegistries", () => {
-    it("clears all typeclasses", () => {
-      registerStandardTypeclasses();
-      expect(getTypeclasses().size).toBeGreaterThan(0);
-      clearRegistries();
-      expect(getTypeclasses().size).toBe(0);
-    });
-
-    it("clears all instances", () => {
-      registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "number",
-        instanceName: "eqNumber",
-        derived: false,
-      });
-      expect(getInstances().size).toBe(1);
-      clearRegistries();
-      expect(getInstances().size).toBe(0);
-    });
-  });
-
-  describe("registerStandardTypeclasses", () => {
-    it("registers Eq, Ord, Semigroup, Monoid, Clone, Debug, and more", () => {
-      registerStandardTypeclasses();
-      const tcs = getTypeclasses();
-      expect(tcs.has("Eq")).toBe(true);
-      expect(tcs.has("Ord")).toBe(true);
-      expect(tcs.has("Semigroup")).toBe(true);
-      expect(tcs.has("Monoid")).toBe(true);
-      expect(tcs.has("Clone")).toBe(true);
-      expect(tcs.has("Debug")).toBe(true);
-    });
-
-    it("Eq has correct methods", () => {
-      registerStandardTypeclasses();
-      const eq = getTypeclasses().get("Eq")!;
-      expect(eq.methods.length).toBe(2);
-      const methodNames = eq.methods.map((m) => m.name);
-      expect(methodNames).toContain("equals");
-      expect(methodNames).toContain("notEquals");
-    });
-
-    it("Eq can derive products and sums", () => {
-      registerStandardTypeclasses();
-      const eq = getTypeclasses().get("Eq")!;
-      expect(eq.canDeriveProduct).toBe(true);
-      expect(eq.canDeriveSum).toBe(true);
-    });
-
-    it("Semigroup can derive products but not sums", () => {
-      registerStandardTypeclasses();
-      const sg = getTypeclasses().get("Semigroup")!;
-      expect(sg.canDeriveProduct).toBe(true);
-      expect(sg.canDeriveSum).toBe(false);
-    });
-
-    it("Eq has operator syntax", () => {
-      registerStandardTypeclasses();
-      const eq = getTypeclasses().get("Eq")!;
-      expect(eq.syntax).toBeDefined();
-      expect(eq.syntax!.get("===")).toBe("equals");
-      expect(eq.syntax!.get("!==")).toBe("notEquals");
-    });
-
-    it("Ord has comparison operator syntax", () => {
-      registerStandardTypeclasses();
-      const ord = getTypeclasses().get("Ord")!;
-      expect(ord.syntax!.get("<")).toBe("lessThan");
-      expect(ord.syntax!.get("<=")).toBe("lessThanOrEqual");
-      expect(ord.syntax!.get(">")).toBe("greaterThan");
-      expect(ord.syntax!.get(">=")).toBe("greaterThanOrEqual");
-    });
-  });
-
-  describe("getTypeclasses", () => {
-    it("returns a copy of the registry", () => {
-      registerStandardTypeclasses();
-      const tcs1 = getTypeclasses();
-      const tcs2 = getTypeclasses();
-      // Different map instances
-      expect(tcs1).not.toBe(tcs2);
-      // Same content
-      expect(tcs1.size).toBe(tcs2.size);
-    });
-
-    it("mutations to returned map don't affect registry", () => {
-      registerStandardTypeclasses();
-      const tcs = getTypeclasses();
-      tcs.delete("Eq");
-      // Original registry should still have Eq
-      expect(getTypeclasses().has("Eq")).toBe(true);
-    });
-  });
-
-  describe("registerTypeclassDef", () => {
-    it("registers a new typeclass", () => {
-      registerTypeclassDef({
-        name: "Pretty",
-        typeParam: "A",
-        methods: [
-          {
-            name: "prettyPrint",
-            params: [{ name: "a", typeString: "A" }],
-            returnType: "string",
-            isSelfMethod: true,
-          },
-        ],
-        canDeriveProduct: true,
-        canDeriveSum: false,
-      });
-
-      const tcs = getTypeclasses();
-      expect(tcs.has("Pretty")).toBe(true);
-      const pretty = tcs.get("Pretty")!;
-      expect(pretty.typeParam).toBe("A");
-      expect(pretty.methods[0].name).toBe("prettyPrint");
-    });
-
-    it("overwrites existing registration", () => {
-      registerTypeclassDef({
-        name: "Foo",
-        typeParam: "A",
-        methods: [],
-        canDeriveProduct: false,
-        canDeriveSum: false,
-      });
-      registerTypeclassDef({
-        name: "Foo",
-        typeParam: "B",
-        methods: [],
-        canDeriveProduct: true,
-        canDeriveSum: true,
-      });
-
-      const foo = getTypeclasses().get("Foo")!;
-      expect(foo.typeParam).toBe("B");
-      expect(foo.canDeriveProduct).toBe(true);
-    });
-  });
-
-  describe("updateTypeclassSyntax", () => {
-    it("adds syntax to existing typeclass", () => {
-      registerStandardTypeclasses();
-      const newSyntax = new Map([["==", "looseEquals"]]);
-      updateTypeclassSyntax("Eq", newSyntax);
-
-      const eq = getTypeclasses().get("Eq")!;
-      expect(eq.syntax!.get("==")).toBe("looseEquals");
-      // Existing syntax preserved
-      expect(eq.syntax!.get("===")).toBe("equals");
-    });
-
-    it("creates placeholder for unknown typeclass", () => {
-      const syntax = new Map([["@", "at"]]);
-      updateTypeclassSyntax("AtTypeclass", syntax);
-
-      const tc = getTypeclasses().get("AtTypeclass")!;
-      expect(tc).toBeDefined();
-      expect(tc.syntax!.get("@")).toBe("at");
-      expect(tc.methods).toEqual([]);
-      expect(tc.canDeriveProduct).toBe(false);
-    });
-  });
-});
-
 // ============================================================================
 // Instance Registry
 // ============================================================================
 
-describe("instance registry", () => {
+// PEP-052: the general instance registry is deleted; instance *resolution* is
+// scope-based (see instance-resolver). The only surviving registry is the focused
+// do-notation lookup (FlatMap/ParCombine), populated by registerInstanceWithMeta.
+describe("do-notation instance lookup", () => {
   beforeEach(() => {
     clearRegistries();
-    registerStandardTypeclasses();
   });
 
   describe("registerInstanceWithMeta", () => {
-    it("registers a new instance", () => {
-      registerInstanceWithMeta({
-        typeclassName: "Show",
-        forType: "number",
-        instanceName: "showNumber",
-        derived: false,
-      });
-
-      const instances = getInstances();
-      expect(instances.has("Show<number>")).toBe(true);
-      const inst = instances.get("Show<number>")!;
-      expect(inst.instanceName).toBe("showNumber");
-      expect(inst.derived).toBe(false);
-    });
-
-    it("updates existing instance (duplicate detection)", () => {
-      registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "Point",
-        instanceName: "eqPoint_v1",
-        derived: true,
-      });
-      registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "Point",
-        instanceName: "eqPoint_v2",
-        derived: false,
-      });
-
-      const instances = getInstances();
-      const inst = instances.get("Eq<Point>")!;
-      // Should have the updated instance
-      expect(inst.instanceName).toBe("eqPoint_v2");
-      expect(inst.derived).toBe(false);
-    });
-
-    it("auto-computes companionPath for primitives when instanceValue provided", () => {
-      registerInstanceWithMeta(
-        {
-          typeclassName: "Show",
-          forType: "number",
-          instanceName: "showNumber",
-          derived: false,
-        },
-        { show: (a: number) => String(a) }
-      );
-
-      const inst = getInstances().get("Show<number>")!;
-      expect(inst.companionPath).toBe("Show.number");
-    });
-
-    it("auto-computes companionPath for user types when instanceValue provided", () => {
-      registerInstanceWithMeta(
-        {
-          typeclassName: "Eq",
-          forType: "Point",
-          instanceName: "eqPoint",
-          derived: true,
-        },
-        { equals: () => true }
-      );
-
-      const inst = getInstances().get("Eq<Point>")!;
-      expect(inst.companionPath).toBe("Point.Eq");
-    });
-
-    it("does not override explicit companionPath", () => {
-      registerInstanceWithMeta(
-        {
-          typeclassName: "Eq",
-          forType: "Point",
-          instanceName: "eqPoint",
-          companionPath: "Custom.Path",
-          derived: false,
-        },
-        {}
-      );
-
-      const inst = getInstances().get("Eq<Point>")!;
-      expect(inst.companionPath).toBe("Custom.Path");
-    });
-
-    it("stores metadata", () => {
+    it("stores do-notation metadata", () => {
       registerInstanceWithMeta({
         typeclassName: "FlatMap",
         forType: "Promise",
@@ -319,45 +64,42 @@ describe("instance registry", () => {
       expect(meta!.methodNames!.map).toBe("then");
       expect(meta!.methodNames!.orElse).toBe("catch");
     });
-  });
 
-  describe("getInstances", () => {
-    it("returns a copy keyed by Typeclass<Type>", () => {
+    it("updates an existing instance (replace in place)", () => {
       registerInstanceWithMeta({
-        typeclassName: "Show",
-        forType: "number",
-        instanceName: "showNumber",
+        typeclassName: "FlatMap",
+        forType: "Promise",
+        instanceName: "v1",
         derived: false,
+        meta: { methodNames: { bind: "then" } },
       });
       registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "string",
-        instanceName: "eqString",
+        typeclassName: "FlatMap",
+        forType: "Promise",
+        instanceName: "v2",
         derived: false,
+        meta: { methodNames: { bind: "chain" } },
       });
 
-      const instances = getInstances();
-      expect(instances.size).toBe(2);
-      expect(instances.has("Show<number>")).toBe(true);
-      expect(instances.has("Eq<string>")).toBe(true);
+      expect(getInstanceMeta("FlatMap", "Promise")!.methodNames!.bind).toBe("chain");
     });
   });
 
   describe("getInstanceMeta", () => {
-    it("returns undefined for non-existent instance", () => {
+    it("returns undefined for a non-do-notation typeclass", () => {
       const meta = getInstanceMeta("Show", "UnknownType");
       expect(meta).toBeUndefined();
     });
 
-    it("returns undefined when instance has no metadata", () => {
+    it("returns undefined when a do-notation instance carries no metadata", () => {
       registerInstanceWithMeta({
-        typeclassName: "Eq",
-        forType: "Point",
-        instanceName: "eqPoint",
-        derived: true,
+        typeclassName: "FlatMap",
+        forType: "Array",
+        instanceName: "flatMapArray",
+        derived: false,
       });
-      const meta = getInstanceMeta("Eq", "Point");
-      expect(meta).toBeUndefined();
+      expect(hasFlatMapInstance("Array")).toBe(true);
+      expect(getInstanceMeta("FlatMap", "Array")).toBeUndefined();
     });
   });
 });
@@ -369,7 +111,6 @@ describe("instance registry", () => {
 describe("getFlatMapMethodNames", () => {
   beforeEach(() => {
     clearRegistries();
-    registerStandardTypeclasses();
   });
 
   it("returns defaults for unknown type", () => {
@@ -418,7 +159,6 @@ describe("getFlatMapMethodNames", () => {
 describe("hasFlatMapInstance / hasParCombineInstance", () => {
   beforeEach(() => {
     clearRegistries();
-    registerStandardTypeclasses();
   });
 
   it("hasFlatMapInstance returns false when no instance registered", () => {

@@ -13,14 +13,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { transformCode } from "@typesugar/transformer/pipeline";
 import {
   clearRegistries,
-  clearSyntaxRegistry,
   registerGenericDerivation,
   makePrimitiveChecker,
   resolveFieldInstance,
 } from "@typesugar/macros";
 
 beforeEach(() => {
-  clearSyntaxRegistry();
   clearRegistries();
 });
 

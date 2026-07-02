@@ -144,6 +144,7 @@ export function max<A>(compare: (x: A, y: A) => number): Semigroup<A> {
 /**
  * Semigroup for string concatenation
  */
+/** @impl Semigroup<string> */
 export const semigroupString: Semigroup<string> = {
   combine: (x, y) => x + y,
 };
@@ -158,6 +159,7 @@ registerInstanceWithMeta({
 /**
  * Monoid for string concatenation
  */
+/** @impl Monoid<string> */
 export const monoidString: Monoid<string> = {
   ...semigroupString,
   empty: "",
@@ -173,6 +175,7 @@ registerInstanceWithMeta({
 /**
  * Semigroup for number addition
  */
+/** @impl Semigroup<number> */
 export const semigroupSum: Semigroup<number> = {
   combine: (x, y) => x + y,
 };
@@ -187,6 +190,7 @@ registerInstanceWithMeta({
 /**
  * Monoid for number addition
  */
+/** @impl Monoid<number> */
 export const monoidSum: Monoid<number> = {
   ...semigroupSum,
   empty: 0,
@@ -202,6 +206,7 @@ registerInstanceWithMeta({
 /**
  * Semigroup for number multiplication
  */
+/** @impl SemigroupProduct<number> */
 export const semigroupProduct: Semigroup<number> = {
   combine: (x, y) => x * y,
 };
@@ -216,6 +221,7 @@ registerInstanceWithMeta({
 /**
  * Monoid for number multiplication
  */
+/** @impl MonoidProduct<number> */
 export const monoidProduct: Monoid<number> = {
   ...semigroupProduct,
   empty: 1,
@@ -231,6 +237,7 @@ registerInstanceWithMeta({
 /**
  * Semigroup for boolean AND
  */
+/** @impl SemigroupAll<boolean> */
 export const semigroupAll: Semigroup<boolean> = {
   combine: (x, y) => x && y,
 };
@@ -245,6 +252,7 @@ registerInstanceWithMeta({
 /**
  * Monoid for boolean AND
  */
+/** @impl MonoidAll<boolean> */
 export const monoidAll: Monoid<boolean> = {
   ...semigroupAll,
   empty: true,
@@ -260,6 +268,7 @@ registerInstanceWithMeta({
 /**
  * Semigroup for boolean OR
  */
+/** @impl SemigroupAny<boolean> */
 export const semigroupAny: Semigroup<boolean> = {
   combine: (x, y) => x || y,
 };
@@ -274,6 +283,7 @@ registerInstanceWithMeta({
 /**
  * Monoid for boolean OR
  */
+/** @impl MonoidAny<boolean> */
 export const monoidAny: Monoid<boolean> = {
   ...semigroupAny,
   empty: false,

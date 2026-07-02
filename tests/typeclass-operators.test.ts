@@ -9,18 +9,9 @@
  * 5. TypeclassInfo.syntax field
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import {
-  typeclassRegistry,
-  updateTypeclassSyntax,
-  getSyntaxForOperator,
-  clearSyntaxRegistry,
-  type TypeclassInfo,
-  type TypeclassMethod,
-  type SyntaxEntry,
-} from "@typesugar/macros";
-import { getOperatorString } from "@typesugar/macros";
+import { type TypeclassInfo, type TypeclassMethod, getOperatorString } from "@typesugar/macros";
 
 // ============================================================================
 // getOperatorString — SyntaxKind to string
@@ -98,60 +89,10 @@ describe("getOperatorString", () => {
   });
 });
 
-// ============================================================================
-// Syntax Registry
-// ============================================================================
-
-describe("syntax registry", () => {
-  beforeEach(() => {
-    clearSyntaxRegistry();
-  });
-
-  it("should start empty", () => {
-    expect(getSyntaxForOperator("+")).toBeUndefined();
-  });
-
-  it("should register and retrieve operator mappings", () => {
-    const syntax = new Map<string, string>([["+" as string, "concat"]]);
-    updateTypeclassSyntax("Semigroup", syntax);
-
-    const entries = getSyntaxForOperator("+");
-    expect(entries).toBeDefined();
-    expect(entries).toHaveLength(1);
-    expect(entries![0]).toEqual({ typeclass: "Semigroup", method: "concat" });
-  });
-
-  it("should support multiple typeclasses for the same operator", () => {
-    updateTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
-    updateTypeclassSyntax("Num", new Map<string, string>([["+" as string, "add"]]));
-
-    const entries = getSyntaxForOperator("+");
-    expect(entries).toHaveLength(2);
-    expect(entries!.map((e) => e.typeclass)).toContain("Semigroup");
-    expect(entries!.map((e) => e.typeclass)).toContain("Num");
-  });
-
-  it("should support multiple operators for one typeclass", () => {
-    updateTypeclassSyntax(
-      "Eq",
-      new Map<string, string>([
-        ["===" as string, "eq"],
-        ["!==" as string, "neq"],
-      ])
-    );
-
-    expect(getSyntaxForOperator("===")).toHaveLength(1);
-    expect(getSyntaxForOperator("!==")).toHaveLength(1);
-    expect(getSyntaxForOperator("===")![0].method).toBe("eq");
-    expect(getSyntaxForOperator("!==")![0].method).toBe("neq");
-  });
-
-  it("should clear all entries", () => {
-    updateTypeclassSyntax("Semigroup", new Map<string, string>([["+" as string, "concat"]]));
-    clearSyntaxRegistry();
-    expect(getSyntaxForOperator("+")).toBeUndefined();
-  });
-});
+// Operator→typeclass syntax resolution is now scope-based via the op-index
+// (getOperatorCandidates / getOpMapForTypeclass), not the global typeclassRegistry;
+// the old getSyntaxForOperator mechanism was deleted (PEP-052). The op-index path is
+// covered by the operator-rewrite integration tests.
 
 // ============================================================================
 // TypeclassMethod.operatorSymbol field

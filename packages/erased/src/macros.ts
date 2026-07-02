@@ -20,7 +20,7 @@
 
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
-import { findInstance } from "@typesugar/macros";
+import { resolveInstance } from "@typesugar/macros";
 
 /**
  * Maps capability names to their corresponding typeclass info.
@@ -203,12 +203,13 @@ export const erasedMacro = defineExpressionMacro({
         continue;
       }
 
-      // Look up the typeclass instance
-      const instance = findInstance(mapping.typeclass, typeName, ctx.sourceFile.fileName);
-      if (!instance) {
+      // Resolve the typeclass instance from scope (PEP-052: registry-free).
+      const resolved = resolveInstance(ctx, mapping.typeclass, valueType);
+      if (!resolved || resolved.kind !== "resolved") {
         missingInstances.push(`${mapping.typeclass}<${typeName}>`);
         continue;
       }
+      const instanceName = resolved.exportName;
 
       // Generate vtable method entries
       for (const method of mapping.methods) {
@@ -253,7 +254,7 @@ export const erasedMacro = defineExpressionMacro({
 
         const instanceCall = factory.createCallExpression(
           factory.createPropertyAccessExpression(
-            factory.createIdentifier(instance.instanceName),
+            factory.createIdentifier(instanceName),
             factory.createIdentifier(method.tcMethod)
           ),
           undefined,

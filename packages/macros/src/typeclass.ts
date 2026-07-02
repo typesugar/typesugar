@@ -87,7 +87,10 @@ import { globalResolutionScope } from "@typesugar/core";
 import { TS9001, TS9005, TS9008, TS9101, TS9203, TS9305 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
-import { resolveInstance } from "./instance-resolver.js";
+import { resolveInstance, hasInstanceInScopeByName } from "./instance-resolver.js";
+// Circular by design (typeclass-index seeds from this module's STANDARD_TYPECLASS_DEFS);
+// only referenced inside macro `expand` bodies, so the binding is resolved at call time.
+import { getTypeclassesDeclaringMethod, getTypeclassDef } from "./typeclass-index.js";
 
 // ============================================================================
 // Ambient Derivation Context
@@ -301,20 +304,23 @@ function normalizeTypeNameForLookup(typeName: string): string {
 }
 
 /**
- * Check if a type has a primitive/instance for a typeclass.
+ * Check if a type already has an instance for a typeclass — a primitive (built-in
+ * companion instance) or an `@impl`/`@instance` value visible in the file's scope.
+ * Registry-free (PEP-052 Phase C): scope-based, so it can't see instances registered
+ * by an unrelated file's compilation.
  */
-function hasPrimitiveOrInstance(typeName: string, typeclassName: string): boolean {
-  // Check instance registry
-  if (instanceRegistry.some((i) => i.typeclassName === typeclassName && i.forType === typeName)) {
+function hasPrimitiveOrInstance(
+  ctx: MacroContext,
+  typeName: string,
+  typeclassName: string
+): boolean {
+  // Hardcoded primitives — always have built-in/companion instances.
+  const primitives = ["number", "string", "boolean", "bigint", "null", "undefined"];
+  if (primitives.includes(typeName.toLowerCase())) {
     return true;
   }
-  // Check via coverage hook
-  if (onPrimitiveRegistered) {
-    // Primitives are registered there
-  }
-  // Hardcoded primitives as fallback
-  const primitives = ["number", "string", "boolean", "bigint", "null", "undefined"];
-  return primitives.includes(typeName.toLowerCase());
+  // A user instance for this typeclass + type visible in scope (local or imported).
+  return hasInstanceInScopeByName(ctx, typeclassName, typeName);
 }
 
 /**
@@ -507,7 +513,7 @@ function buildTransitiveDerivationPlan(
     }
 
     // Already has instance?
-    if (hasPrimitiveOrInstance(typeName, typeclassName)) {
+    if (hasPrimitiveOrInstance(ctx, typeName, typeclassName)) {
       visited.add(typeName);
       return true;
     }
@@ -595,12 +601,15 @@ function executeTransitiveDerivation(
   plan: { types: TransitiveTypeInfo[]; errors: string[]; cycles: string[][] }
 ): ts.Statement[] {
   const statements: ts.Statement[] = [];
+  // Types generated in this pass — the scanner can't see instances we emit as new
+  // AST until a re-scan, so track them locally to avoid double-generating a type
+  // that appears more than once in the plan (registry-free dedup, PEP-052 Phase C).
+  const generated = new Set<string>();
 
   for (const typeInfo of plan.types) {
     if (
-      instanceRegistry.some(
-        (i) => i.typeclassName === typeclassName && i.forType === typeInfo.typeName
-      )
+      generated.has(typeInfo.typeName) ||
+      hasPrimitiveOrInstance(ctx, typeInfo.typeName, typeclassName)
     ) {
       continue;
     }
@@ -608,7 +617,7 @@ function executeTransitiveDerivation(
     const expansion = tryExpandGenericDerive(ctx, typeclassName, typeInfo.typeName, typeInfo.node);
     if (expansion) {
       statements.push(...expansion.statements);
-      instanceRegistry.push(expansion.registryEntry);
+      generated.add(typeInfo.typeName);
     }
 
     notifyPrimitiveRegistered(typeInfo.typeName, typeclassName);
@@ -715,17 +724,73 @@ interface InstanceMeta {
   [key: string]: unknown;
 }
 
-/** Global compile-time registry of typeclasses and instances.
- * Uses globalThis backing to share across ESM/CJS module instances.
- * Without this, `import` (ESM transformer) and `require` (CJS test/runtime)
- * create separate registries and instances registered via CJS are invisible
- * to the ESM transformer's operator overloading pass. */
+/** globalThis backing shares registries across ESM/CJS module instances (the ESM
+ * transformer `import`s this module while CJS tests `require` it). */
 const _g = globalThis as any;
-if (!_g.__typesugar_typeclassRegistry)
-  _g.__typesugar_typeclassRegistry = new Map<string, TypeclassInfo>();
-if (!_g.__typesugar_instanceRegistry) _g.__typesugar_instanceRegistry = [];
-const typeclassRegistry: Map<string, TypeclassInfo> = _g.__typesugar_typeclassRegistry;
-const instanceRegistry: InstanceInfo[] = _g.__typesugar_instanceRegistry;
+
+/**
+ * Focused do-notation instance lookup (PEP-052 Phase B).
+ *
+ * The `let:`/`yield:`/`par:` comprehension macros resolve FlatMap/ParCombine by the
+ * comprehension effect's *type-constructor name* (`Option`, `Array`, `Effect`…) —
+ * genuine HKT resolution by brand/name, not the concrete-type matching used for
+ * Eq/Ord operators (which is scope-based). This focused map is populated whenever
+ * {@link registerInstanceWithMeta} or the `@instance`/`@impl` macro registers a
+ * FlatMap or ParCombine instance (via side-effect imports like
+ * `import "@typesugar/effect"`). It is the only surviving instance registry — general
+ * instance resolution is scope-based (see instance-resolver).
+ *
+ * Keyed by `"<typeclass>:<typeConstructorName>"`, e.g. `"FlatMap:Option"`. The value
+ * is the instance's `meta` (or `undefined` when it has none) — presence of the key,
+ * not the value, signals that an instance exists.
+ */
+if (!_g.__typesugar_doNotationRegistry)
+  _g.__typesugar_doNotationRegistry = new Map<string, InstanceMeta | undefined>();
+const doNotationRegistry: Map<string, InstanceMeta | undefined> = _g.__typesugar_doNotationRegistry;
+
+/** The typeclasses whose instances the do-notation macros resolve by name. */
+const DO_NOTATION_TYPECLASSES: ReadonlySet<string> = new Set(["FlatMap", "ParCombine"]);
+
+function isDoNotationTypeclass(tcName: string): boolean {
+  return DO_NOTATION_TYPECLASSES.has(tcName);
+}
+
+function doNotationKey(tcName: string, forType: string): string {
+  return `${tcName}:${forType}`;
+}
+
+/**
+ * Mirror a FlatMap/ParCombine registration into the focused do-notation lookup.
+ * MUST be called at every site that adds an instance to `instanceRegistry`
+ * (`registerInstanceWithMeta` and the `@instance`/`@impl` attribute macro) so a
+ * user-defined monad is visible to `let:`/`yield:`/`par:` — no-op for other
+ * typeclasses.
+ */
+function mirrorDoNotationInstance(info: InstanceInfo): void {
+  if (isDoNotationTypeclass(info.typeclassName)) {
+    doNotationRegistry.set(doNotationKey(info.typeclassName, info.forType), info.meta);
+  }
+}
+
+/**
+ * Look up a do-notation (FlatMap/ParCombine) instance. `present` reports key presence
+ * (independent of whether the instance carries metadata); `meta` is the method-name
+ * overrides, if any.
+ *
+ * NOT scope-gated on the typeclass being imported: the do-notation macros
+ * (`let:`/`yield:`/`par:`) self-activate via their own import, and resolve FlatMap/
+ * ParCombine by the comprehension effect's type-constructor name — a user never
+ * imports `FlatMap` to use `let:`. (`sourceFileName` is accepted for call-site
+ * compatibility but not consulted.)
+ */
+function lookupDoNotationInstance(
+  tcName: string,
+  forType: string,
+  _sourceFileName?: string
+): { present: boolean; meta: InstanceMeta | undefined } {
+  const key = doNotationKey(tcName, forType);
+  return { present: doNotationRegistry.has(key), meta: doNotationRegistry.get(key) };
+}
 
 // ============================================================================
 // Operator Syntax Lookup — operator → typeclass method mappings
@@ -737,63 +802,27 @@ interface SyntaxEntry {
 }
 
 /**
- * Get all syntax entries for a given operator.
- *
- * This function queries the typeclassRegistry directly, looking up
- * typeclasses that have the given operator in their syntax map.
- * Multiple typeclasses may map the same operator — ambiguity
- * is resolved at the call site by checking which typeclass has an instance
- * for the operand type.
- */
-function getSyntaxForOperator(op: string): SyntaxEntry[] | undefined {
-  const entries: SyntaxEntry[] = [];
-
-  for (const [tcName, tcInfo] of typeclassRegistry) {
-    if (tcInfo.syntax) {
-      const method = tcInfo.syntax.get(op);
-      if (method) {
-        entries.push({ typeclass: tcName, method });
-      }
-    }
-  }
-
-  return entries.length > 0 ? entries : undefined;
-}
-
-/**
  * Get all typeclasses that declare a method with the given name.
  *
- * This is the method-name analogue of {@link getSyntaxForOperator}: it powers
+ * This is the method-name analogue of operator lookup: it powers
  * the instance-method sugar (`x.method(args)` → `Companion.method(x, args)`) by
  * mapping a called method name back to the typeclass(es) that define it.
  * Multiple typeclasses may declare the same method name — ambiguity is resolved
  * at the call site by checking which one has an instance for the receiver type.
  */
 function getTypeclassesForMethod(methodName: string): SyntaxEntry[] | undefined {
+  // Registry-free (PEP-052): the SFINAE diagnostic filter that calls this runs at
+  // check-time (`noEmit`), where no transformer has populated user typeclasses — so
+  // the static standard definitions are the authoritative method→typeclass source.
   const entries: SyntaxEntry[] = [];
 
-  for (const [tcName, tcInfo] of typeclassRegistry) {
-    if (tcInfo.methods.some((m) => m.name === methodName)) {
-      entries.push({ typeclass: tcName, method: methodName });
+  for (const def of STANDARD_TYPECLASS_DEFS) {
+    if (def.methods.some((m) => m.name === methodName)) {
+      entries.push({ typeclass: def.name, method: methodName });
     }
   }
 
   return entries.length > 0 ? entries : undefined;
-}
-
-/**
- * Clear syntax mappings from all typeclasses.
- * For testing only - clears syntax while keeping typeclass definitions.
- */
-function clearSyntaxRegistry(): void {
-  for (const tc of typeclassRegistry.values()) {
-    if (tc.syntax) {
-      tc.syntax.clear();
-    }
-    for (const method of tc.methods) {
-      delete method.operatorSymbol;
-    }
-  }
 }
 
 // ============================================================================
@@ -1174,9 +1203,34 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
   },
 ];
 
-// Register standard typeclasses on module load (transform time, not runtime)
-for (const def of STANDARD_TYPECLASS_DEFS) {
-  typeclassRegistry.set(def.name, def);
+/**
+ * Static op/method metadata for the standard typeclasses, derived from the
+ * built-in definitions. This is plain immutable data (NOT the mutable
+ * `typeclassRegistry`); the typeclass index consumes it as a built-in fallback so
+ * standard typeclass operators/methods resolve even when the typeclass interface
+ * isn't present in the program's source (e.g. code/tests that don't import std).
+ */
+export function getStandardTypeclassOpInfos(): Array<{
+  name: string;
+  opToMethod: Map<string, string>;
+  methodNames: Set<string>;
+  def: TypeclassInfo;
+}> {
+  return STANDARD_TYPECLASS_DEFS.map((def) => ({
+    name: def.name,
+    opToMethod: new Map(def.syntax),
+    methodNames: new Set(def.methods.map((m) => m.name)),
+    // Full definition for the op-index's definition store (HKT expansion, public API).
+    // Std defs carry no fullSignatureText — HKT expansion uses the template fallback.
+    def: {
+      name: def.name,
+      typeParam: def.typeParam,
+      methods: def.methods,
+      canDeriveProduct: def.canDeriveProduct,
+      canDeriveSum: def.canDeriveSum,
+      syntax: def.syntax,
+    },
+  }));
 }
 
 /**
@@ -1208,45 +1262,12 @@ export function extractOpFromJSDoc(member: ts.Node): string | undefined {
 }
 
 /**
- * Get a copy of the typeclass registry.
- * Returns a new Map so mutations don't affect the internal registry.
- */
-export function getTypeclasses(): Map<string, TypeclassInfo> {
-  return new Map(typeclassRegistry);
-}
-
-/**
- * Get a copy of the instance registry as a Map keyed by "Typeclass<Type>".
- * Returns a new Map so mutations don't affect the internal registry.
- */
-export function getInstances(): Map<string, InstanceInfo> {
-  const map = new Map<string, InstanceInfo>();
-  for (const inst of instanceRegistry) {
-    map.set(`${inst.typeclassName}<${inst.forType}>`, inst);
-  }
-  return map;
-}
-
-/**
- * Re-register standard typeclass definitions.
- * Called to restore standard typeclasses after clearRegistries().
- */
-export function registerStandardTypeclasses(): void {
-  for (const def of STANDARD_TYPECLASS_DEFS) {
-    typeclassRegistry.set(def.name, def);
-  }
-}
-
-/**
- * Clear all typeclass-related registries.
- * Useful for testing to ensure clean state between tests.
- *
- * Note: This DOES clear standard typeclasses. Call registerStandardTypeclasses()
- * if you need them restored.
+ * Clear the do-notation instance lookup. Retained for test isolation; typeclass
+ * definitions are no longer a mutable registry (PEP-052) so there is nothing else
+ * to clear.
  */
 export function clearRegistries(): void {
-  typeclassRegistry.clear();
-  instanceRegistry.length = 0;
+  doNotationRegistry.clear();
 }
 
 // ============================================================================
@@ -1598,30 +1619,6 @@ function getBaseType(field: DeriveFieldInfo): string {
   return "object";
 }
 
-/**
- * Find a registered instance for a given typeclass and type.
- *
- * When sourceFileName is provided, the instance is only returned if the
- * typeclass is in scope for that file (import-scoped resolution).
- */
-function findInstance(
-  tcName: string,
-  typeName: string,
-  sourceFileName?: string
-): InstanceInfo | undefined {
-  if (sourceFileName && !globalResolutionScope.isTypeclassInScope(sourceFileName, tcName)) {
-    return undefined;
-  }
-  return instanceRegistry.find((i) => i.typeclassName === tcName && i.forType === typeName);
-}
-
-/**
- * Get the typeclass info for a given name.
- */
-function getTypeclass(name: string): TypeclassInfo | undefined {
-  return typeclassRegistry.get(name);
-}
-
 // ============================================================================
 // @typeclass - Attribute Macro
 // ============================================================================
@@ -1643,6 +1640,91 @@ function getTypeclass(name: string): TypeclassInfo | undefined {
 //   // + registers typeclass metadata for derivation
 // ============================================================================
 
+/**
+ * Extract a {@link TypeclassInfo} from a `@typeclass` interface declaration.
+ *
+ * Pure (no macro context): shared by the `@typeclass` attribute macro and the
+ * per-program op-index (`typeclass-index.ts`), which re-derives definitions directly
+ * from the interface AST rather than a process-global registry (PEP-052 Phase C).
+ * Returns `undefined` when the interface has no type parameter.
+ */
+export function buildTypeclassInfoFromInterface(
+  iface: ts.InterfaceDeclaration
+): TypeclassInfo | undefined {
+  const typeParams = iface.typeParameters;
+  if (!typeParams || typeParams.length === 0) return undefined;
+  const typeParam = typeParams[0].name.text;
+
+  // Extract methods from the interface (handles both MethodSignature and PropertySignature).
+  const methods: TypeclassMethod[] = [];
+  const memberTexts: string[] = [];
+
+  for (const member of iface.members) {
+    // Capture raw source text of each member for HKT expansion.
+    const sourceFile = member.getSourceFile();
+    if (sourceFile) {
+      memberTexts.push(member.getText(sourceFile));
+    }
+
+    if (ts.isMethodSignature(member) && member.name) {
+      const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
+
+      const params: Array<{ name: string; typeString: string }> = [];
+      let isSelfMethod = false;
+
+      for (let i = 0; i < member.parameters.length; i++) {
+        const param = member.parameters[i];
+        const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
+        const paramType = param.type ? param.type.getText() : "unknown";
+
+        // Check if this parameter uses the typeclass's type param.
+        if (i === 0 && paramType === typeParam) {
+          isSelfMethod = true;
+        }
+
+        params.push({ name: paramName, typeString: paramType });
+      }
+
+      const operatorSymbol = extractOpFromJSDoc(member);
+      const returnType = member.type ? member.type.getText() : "void";
+
+      methods.push({ name: methodName, params, returnType, isSelfMethod, operatorSymbol });
+    } else if (ts.isPropertySignature(member) && member.name) {
+      const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
+      methods.push({
+        name: methodName,
+        params: [],
+        returnType: member.type ? member.type.getText() : "unknown",
+        isSelfMethod: false,
+      });
+    }
+  }
+
+  // Full interface body text for HKT expansion.
+  const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
+
+  // Syntax map from @op JSDoc tags on methods.
+  const syntax = new Map<string, string>();
+  for (const method of methods) {
+    if (method.operatorSymbol) {
+      syntax.set(method.operatorSymbol, method.name);
+    }
+  }
+
+  const isExported = iface.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+
+  return {
+    name: iface.name.text,
+    typeParam,
+    methods,
+    canDeriveProduct: true,
+    canDeriveSum: true,
+    fullSignatureText,
+    syntax: syntax.size > 0 ? syntax : undefined,
+    isExported,
+  };
+}
+
 export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
   module: "@typesugar/typeclass",
@@ -1661,10 +1743,8 @@ export const typeclassAttribute = defineAttributeMacro({
       return target;
     }
 
-    const tcName = target.name.text;
-    const typeParams = target.typeParameters;
-
-    if (!typeParams || typeParams.length === 0) {
+    const tcInfo = buildTypeclassInfoFromInterface(target);
+    if (!tcInfo) {
       ctx.reportError(
         target,
         "@typeclass interface must have at least one type parameter (e.g., interface Show<A>)"
@@ -1672,88 +1752,10 @@ export const typeclassAttribute = defineAttributeMacro({
       return target;
     }
 
-    const typeParam = typeParams[0].name.text;
-
-    // Extract methods from the interface (handles both MethodSignature and PropertySignature)
-    const methods: TypeclassMethod[] = [];
-    const memberTexts: string[] = [];
-
-    for (const member of target.members) {
-      // Capture raw source text of each member for HKT expansion
-      const sourceFile = member.getSourceFile();
-      if (sourceFile) {
-        const memberText = member.getText(sourceFile);
-        memberTexts.push(memberText);
-      }
-
-      if (ts.isMethodSignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        const params: Array<{ name: string; typeString: string }> = [];
-        let isSelfMethod = false;
-
-        for (let i = 0; i < member.parameters.length; i++) {
-          const param = member.parameters[i];
-          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
-          const paramType = param.type ? param.type.getText() : "unknown";
-
-          // Check if this parameter uses the typeclass's type param
-          if (i === 0 && paramType === typeParam) {
-            isSelfMethod = true;
-          }
-
-          params.push({ name: paramName, typeString: paramType });
-        }
-
-        const operatorSymbol = extractOpFromJSDoc(member);
-        const returnType = member.type ? member.type.getText() : "void";
-
-        methods.push({
-          name: methodName,
-          params,
-          returnType,
-          isSelfMethod,
-          operatorSymbol,
-        });
-      } else if (ts.isPropertySignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        methods.push({
-          name: methodName,
-          params: [],
-          returnType: member.type ? member.type.getText() : "unknown",
-          isSelfMethod: false,
-        });
-      }
-    }
-
-    // Build the full interface body text for HKT expansion
-    const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
-
-    // Build syntax map from @op JSDoc tags or Op<> annotations on methods
-    const syntax = new Map<string, string>();
-    for (const method of methods) {
-      if (method.operatorSymbol) {
-        syntax.set(method.operatorSymbol, method.name);
-      }
-    }
-
-    const isExported =
-      target.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-
-    // Register the typeclass
-    const tcInfo: TypeclassInfo = {
-      name: tcName,
-      typeParam,
-      methods,
-      canDeriveProduct: true,
-      canDeriveSum: true,
-      fullSignatureText,
-      syntax: syntax.size > 0 ? syntax : undefined,
-      isExported,
-    };
-    typeclassRegistry.set(tcName, tcInfo);
-
+    const tcName = tcInfo.name;
+    const isExported = tcInfo.isExported ?? false;
+    // No registry write (PEP-052): the op-index re-derives this definition from the
+    // interface AST per program. We only mark the typeclass as in-scope for this file.
     globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
 
     const statements: ts.Statement[] = [];
@@ -1972,8 +1974,10 @@ export const implAttribute = defineAttributeMacro({
       }
     }
 
-    // Register in our compile-time registry
-    instanceRegistry.push({
+    // Keep the do-notation lookup in sync so a user-defined @impl/@instance
+    // FlatMap/ParCombine monad is visible to let:/yield:/par: (PEP-052). General
+    // instance resolution is scope-based, so there is no registry to push to.
+    mirrorDoNotationInstance({
       typeclassName: tcName,
       forType: typeName,
       instanceName: varName,
@@ -2157,7 +2161,7 @@ function generateHKTExpandedType(
   const expansionWithFixedArgs =
     fixedArgs.length > 0 ? `${expansion}<${fixedArgs.join(", ")}, $1>` : `${expansion}<$1>`;
 
-  const tcInfo = typeclassRegistry.get(typeclassName);
+  const tcInfo = getTypeclassDef(ctx.program, typeclassName);
   let signature: string | undefined;
 
   if (tcInfo?.fullSignatureText) {
@@ -2584,11 +2588,17 @@ export const summonMacro = defineExpressionMacro({
     // Build resolution trace for detailed error messages
     const attempts: ResolutionAttempt[] = [];
 
-    // 1. Check for explicit instance in the compile-time registry
-    const explicitInstance = findInstance(tcName, typeName, ctx.sourceFile.fileName);
-    if (explicitInstance) {
-      const cPath = explicitInstance.companionPath || instanceVarName(tcName, typeName);
-      return ctx.parseExpression(cPath);
+    // 1. Resolve an explicit instance from scope (PEP-052): an imported/local
+    //    `@impl`/`@instance` value for this typeclass + concrete type. Registry-free
+    //    — the file brings the instance into scope by importing (or defining) it.
+    try {
+      const forType = ctx.typeChecker.getTypeFromTypeNode(innerType);
+      const scopeResult = resolveInstance(ctx, tcName, forType);
+      if (scopeResult && scopeResult.kind === "resolved") {
+        return ctx.parseExpression(scopeResult.exportName);
+      }
+    } catch {
+      // checker may throw on unusual type nodes — fall through to auto-derivation
     }
     attempts.push({
       step: "explicit-instance",
@@ -2708,24 +2718,22 @@ export const extendMacro = defineExpressionMacro({
     const valueType = ctx.typeChecker.getTypeAtLocation(value);
     const typeName = ctx.typeChecker.typeToString(valueType);
 
-    // Find which typeclass provides this method
-    for (const [tcName, tcInfo] of typeclassRegistry) {
-      const method = tcInfo.methods.find((m) => m.name === methodName);
-      if (method) {
-        // Found it! Generate the call
-        const grandParent = parent.parent;
-        if (grandParent && ts.isCallExpression(grandParent)) {
-          const extraArgs = Array.from(grandParent.arguments)
-            .map((a) => a.getText())
-            .join(", ");
-          const allArgs = extraArgs ? `${value.getText()}, ${extraArgs}` : value.getText();
-          const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
-          return ctx.parseExpression(code);
-        }
-
-        const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${value.getText()})`;
+    // Find which typeclass provides this method (op-index, scope-based; PEP-052).
+    for (const candidate of getTypeclassesDeclaringMethod(ctx.program, methodName)) {
+      const tcName = candidate.typeclass;
+      // Found it! Generate the call
+      const grandParent = parent.parent;
+      if (grandParent && ts.isCallExpression(grandParent)) {
+        const extraArgs = Array.from(grandParent.arguments)
+          .map((a) => a.getText())
+          .join(", ");
+        const allArgs = extraArgs ? `${value.getText()}, ${extraArgs}` : value.getText();
+        const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
         return ctx.parseExpression(code);
       }
+
+      const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${value.getText()})`;
+      return ctx.parseExpression(code);
     }
 
     // Check standalone extensions (Scala 3-style concrete type extensions)
@@ -2852,19 +2860,17 @@ export const implMacro = defineExpressionMacro({
 
     const instanceName = varDecl.name.text;
 
-    // Register idempotently using registerInstanceWithMeta
-    const existingInstance = findInstance(typeclassName, forType);
-    if (!existingInstance) {
-      registerInstanceWithMeta({
-        typeclassName,
-        forType,
-        instanceName,
-        derived: false,
-      });
+    // registerInstanceWithMeta is idempotent (replaces in place), so no dedup guard
+    // is needed.
+    registerInstanceWithMeta({
+      typeclassName,
+      forType,
+      instanceName,
+      derived: false,
+    });
 
-      // Notify coverage system
-      notifyPrimitiveRegistered(forType, typeclassName);
-    }
+    // Notify coverage system
+    notifyPrimitiveRegistered(forType, typeclassName);
 
     // Extract and register methods for specialization (if object literal)
     if (ts.isObjectLiteralExpression(objectLiteralArg)) {
@@ -2933,95 +2939,16 @@ export const typeclassMacro = defineExpressionMacro({
       return ctx.factory.createVoidZero();
     }
 
-    const typeParams = targetInterface.typeParameters;
-    if (!typeParams || typeParams.length === 0) {
+    // Validate + mark in-scope. No registry write (PEP-052): the op-index re-derives
+    // the definition from the interface AST per program.
+    if (!buildTypeclassInfoFromInterface(targetInterface)) {
       ctx.reportError(
         targetInterface,
         `Interface ${tcName} must have at least one type parameter (e.g., interface ${tcName}<A>)`
       );
       return ctx.factory.createVoidZero();
     }
-
-    const typeParam = typeParams[0].name.text;
-
-    // Extract methods from the interface (same logic as typeclassAttribute)
-    const methods: TypeclassMethod[] = [];
-    const memberTexts: string[] = [];
-
-    for (const member of targetInterface.members) {
-      // Capture raw source text of each member for HKT expansion
-      try {
-        const memberText = member.getText(sourceFile);
-        memberTexts.push(memberText);
-      } catch {
-        // Node may not have real position (synthetic) - skip
-      }
-
-      if (ts.isMethodSignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        const params: Array<{ name: string; typeString: string }> = [];
-        let isSelfMethod = false;
-
-        for (let i = 0; i < member.parameters.length; i++) {
-          const param = member.parameters[i];
-          const paramName = ts.isIdentifier(param.name) ? param.name.text : param.name.getText();
-          const paramType = param.type ? param.type.getText() : "unknown";
-
-          // Check if this parameter uses the typeclass's type param
-          if (i === 0 && paramType === typeParam) {
-            isSelfMethod = true;
-          }
-
-          params.push({ name: paramName, typeString: paramType });
-        }
-
-        const operatorSymbol = extractOpFromJSDoc(member);
-        const returnType = member.type ? member.type.getText() : "void";
-
-        methods.push({
-          name: methodName,
-          params,
-          returnType,
-          isSelfMethod,
-          operatorSymbol,
-        });
-      } else if (ts.isPropertySignature(member) && member.name) {
-        const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
-
-        methods.push({
-          name: methodName,
-          params: [],
-          returnType: member.type ? member.type.getText() : "unknown",
-          isSelfMethod: false,
-        });
-      }
-    }
-
-    // Build the full interface body text for HKT expansion
-    const fullSignatureText = memberTexts.length > 0 ? `{ ${memberTexts.join("; ")} }` : undefined;
-
-    // Build syntax map from @op JSDoc tags or Op<> annotations on methods
-    const syntax = new Map<string, string>();
-    for (const method of methods) {
-      if (method.operatorSymbol) {
-        syntax.set(method.operatorSymbol, method.name);
-      }
-    }
-
-    // Register the typeclass
-    const tcInfo: TypeclassInfo = {
-      name: tcName,
-      typeParam,
-      methods,
-      canDeriveProduct: true,
-      canDeriveSum: true,
-      fullSignatureText,
-      syntax: syntax.size > 0 ? syntax : undefined,
-    };
-    typeclassRegistry.set(tcName, tcInfo);
     globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
-
     return ctx.factory.createVoidZero();
   },
 });
@@ -3190,50 +3117,6 @@ const monoidString: Monoid<string> = /*#__PURE__*/ {
 // registries for FlatMap and ParCombine instances.
 
 /**
- * Register a typeclass programmatically (without @typeclass decorator).
- * Used to register FlatMap, ParCombine, and similar HKT typeclasses
- * that are defined as plain interfaces.
- */
-export function registerTypeclassDef(info: TypeclassInfo): void {
-  typeclassRegistry.set(info.name, info);
-  // syntax is stored directly in typeclassRegistry as part of TypeclassInfo
-}
-
-/**
- * Update or create a minimal typeclass registration with operator syntax.
- * Used by the transformer for pre-scanning typeclass definitions in imports.
- *
- * If the typeclass already exists, only updates the syntax field.
- * If it doesn't exist, creates a minimal placeholder entry.
- *
- * @param tcName - Typeclass name
- * @param syntax - Operator to method name mappings
- */
-export function updateTypeclassSyntax(tcName: string, syntax: Map<string, string>): void {
-  const existing = typeclassRegistry.get(tcName);
-  if (existing) {
-    // Merge new syntax into existing
-    if (!existing.syntax) {
-      existing.syntax = syntax;
-    } else {
-      for (const [op, method] of syntax) {
-        existing.syntax.set(op, method);
-      }
-    }
-  } else {
-    // Create minimal placeholder - will be fully registered when @typeclass is processed
-    typeclassRegistry.set(tcName, {
-      name: tcName,
-      typeParam: "A",
-      methods: [],
-      canDeriveProduct: false,
-      canDeriveSum: false,
-      syntax,
-    });
-  }
-}
-
-/**
  * Register a typeclass instance with optional metadata.
  * Used by comprehension macros to register FlatMap/ParCombine instances
  * for standard types (Promise, Array, etc.).
@@ -3248,15 +3131,10 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
     info.companionPath = companionPath(info.typeclassName, info.forType);
   }
 
-  // Check for existing instance and update if found
-  const existingIndex = instanceRegistry.findIndex(
-    (i) => i.typeclassName === info.typeclassName && i.forType === info.forType
-  );
-  if (existingIndex >= 0) {
-    instanceRegistry[existingIndex] = info;
-  } else {
-    instanceRegistry.push(info);
-  }
+  // PEP-052: general instance resolution is scope-based (no registry). This call
+  // survives only to (1) populate the focused do-notation lookup for FlatMap/ParCombine
+  // and (2) attach the value to its typeclass companion, below.
+  mirrorDoNotationInstance(info);
 
   // Attach to typeclass companion if available (populated by @typeclass macro)
   if (instanceValue !== undefined) {
@@ -3270,14 +3148,19 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
 /**
  * Get instance metadata for a typeclass+type combination.
  * Returns undefined if no instance is found or if it has no metadata.
+ *
+ * Only the do-notation typeclasses (FlatMap/ParCombine) carry instance metadata,
+ * served from the focused do-notation lookup (PEP-052); other typeclasses have none.
  */
 export function getInstanceMeta(
   typeclassName: string,
   forType: string,
   sourceFileName?: string
 ): InstanceMeta | undefined {
-  const instance = findInstance(typeclassName, forType, sourceFileName);
-  return instance?.meta;
+  if (isDoNotationTypeclass(typeclassName)) {
+    return lookupDoNotationInstance(typeclassName, forType, sourceFileName).meta;
+  }
+  return undefined;
 }
 
 /**
@@ -3295,8 +3178,7 @@ export function getFlatMapMethodNames(
   map: string;
   orElse?: string;
 } {
-  const instance = findInstance("FlatMap", forType, sourceFileName);
-  const meta = instance?.meta;
+  const meta = lookupDoNotationInstance("FlatMap", forType, sourceFileName).meta;
   const methodNames = meta?.methodNames;
 
   // Defaults
@@ -3370,7 +3252,7 @@ export function getParCombineBuilderFromRegistry(forType: string): ParCombineBui
  * Used by let:/yield: macro to validate type support.
  */
 export function hasFlatMapInstance(forType: string, sourceFileName?: string): boolean {
-  return findInstance("FlatMap", forType, sourceFileName) !== undefined;
+  return lookupDoNotationInstance("FlatMap", forType, sourceFileName).present;
 }
 
 /**
@@ -3378,65 +3260,12 @@ export function hasFlatMapInstance(forType: string, sourceFileName?: string): bo
  * Used by par:/yield: macro to validate type support.
  */
 export function hasParCombineInstance(forType: string, sourceFileName?: string): boolean {
-  return findInstance("ParCombine", forType, sourceFileName) !== undefined;
+  return lookupDoNotationInstance("ParCombine", forType, sourceFileName).present;
 }
 
-// ============================================================================
-// Register FlatMap and ParCombine typeclasses
-// ============================================================================
-
-// Register FlatMap typeclass definition
-registerTypeclassDef({
-  name: "FlatMap",
-  typeParam: "F",
-  methods: [
-    {
-      name: "map",
-      params: [
-        { name: "fa", typeString: "F" },
-        { name: "f", typeString: "(a: A) => B" },
-      ],
-      returnType: "F",
-      isSelfMethod: true,
-    },
-    {
-      name: "flatMap",
-      params: [
-        { name: "fa", typeString: "F" },
-        { name: "f", typeString: "(a: A) => F" },
-      ],
-      returnType: "F",
-      isSelfMethod: true,
-    },
-  ],
-  canDeriveProduct: false,
-  canDeriveSum: false,
-});
-
-// Register ParCombine typeclass definition
-registerTypeclassDef({
-  name: "ParCombine",
-  typeParam: "F",
-  methods: [
-    {
-      name: "all",
-      params: [{ name: "effects", typeString: "readonly F[]" }],
-      returnType: "F",
-      isSelfMethod: false,
-    },
-    {
-      name: "map",
-      params: [
-        { name: "combined", typeString: "F" },
-        { name: "f", typeString: "(results: unknown[]) => unknown" },
-      ],
-      returnType: "F",
-      isSelfMethod: false,
-    },
-  ],
-  canDeriveProduct: false,
-  canDeriveSum: false,
-});
+// FlatMap/ParCombine are not registered as typeclass definitions: the do-notation
+// macros resolve their INSTANCES via the focused do-notation lookup, and neither
+// needs op-index operator/method metadata (PEP-052 Phase C).
 
 // ============================================================================
 // Register all macros with the global registry
@@ -3669,15 +3498,9 @@ export function tryExpandGenericDerive(
 export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, SyntaxEntry };
 
 export {
-  typeclassRegistry,
-  instanceRegistry,
-  findInstance,
-  getTypeclass,
   instanceVarName,
   companionPath,
-  getSyntaxForOperator,
   getTypeclassesForMethod,
-  clearSyntaxRegistry, // deprecated, no-op
   // Comprehension typeclass support (exported via export function declarations above)
   parCombineBuilderRegistry,
 };
