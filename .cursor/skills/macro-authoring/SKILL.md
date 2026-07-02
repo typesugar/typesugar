@@ -205,7 +205,7 @@ Source: `packages/macros/src/typeclass.ts`, `packages/macros/src/specialize.ts`,
 
 **Key functions:**
 - `inlineMethod(ctx, method, callArgs)` — inlines a method body
-- `registerInstanceMethods(dictName, brand, methods)` — registers methods for inlining
+- `registerInstanceMethodsFromAST(dictName, brand, methods)` — AST-based registration used by `@impl`/`@instance` (the string-source `registerInstanceMethods` was removed in PEP-053)
 - `findInstance(typeclassName, typeName)` — looks up a registered instance
 - `getTypeclass(name)` — retrieves typeclass metadata
 - `extractMetaFromTypeChecker(ctx, typeName)` — Mirror-style metadata for auto-derivation

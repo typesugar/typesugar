@@ -5,7 +5,7 @@
  * Covers:
  * - SpecializationCache: key computation, name generation, caching, hoisting
  * - Result algebras: registration, lookup, built-in algebras
- * - Instance method registry: register, lookup, deprecation, AST methods
+ * - Instance method registry: AST registration, lookup
  * - Inline failure classification: all failure reasons
  * - getInlineFailureHelp: help text for each reason
  */
