@@ -320,10 +320,12 @@ Deferred (the registry stays populated for the above until migrated — nothing 
    - REMAINING: std collections (`flatmap`/`par-combine`, dynamic `forType`), effect,
      sql; per-package `/syntax/*` markers for the method typeclasses; empty prelude.
 3. **Inlining/specialization registry.** The separate `instanceMethodRegistry` and
-   its 30 static source-string builtins. With the `@impl` additions above,
-   `tryExtractInstanceFromSource` already covers fp/math/fusion instances by symbol —
-   so the builtins/registry can be retired once every inlined instance has `@impl`
-   source in-program. (Verify the full specialization suite when removing.)
+   its 30 static source-string builtins. **MOVED → [PEP-053](PEP-053-always-on-specialization.md)**
+   (always-on specialization: builtin-table deletion + explicit-`specialize` surface
+   removal + pipeline unification). Note the caveat found while scoping it:
+   `tryExtractInstanceFromSource` does NOT yet follow import aliases, so cross-package
+   instances (all the builtins) are not actually reachable from source today — that
+   capability work is PEP-053 Wave 2.
 4. **Second operator path in `transformer-core`** (playground) — **DONE**: migrated to
    the gated, scope-based model (`scanImportsForScope` wired into its transform; the
    registry-based inference helpers removed). The playground is now import-scoped for
@@ -419,10 +421,12 @@ bounded, non-redesign follow-up:
     deleted; instance resolution is scope-based and typeclass definitions/syntax are per-program
     (op-index). The only surviving instance store is the focused do-notation lookup. Full suite
     7233/0 green.**
-- **Phase D — inlining registry.** Replace `instanceMethodRegistry` + its 30 static
-  source-string builtins with `tryExtractInstanceFromSource` (already covers annotated/
-  `@impl` instances); handle function-form instances (`effectFunctor<R,E>()`) which aren't
-  object-literal consts.
+- **Phase D — inlining registry. MOVED → [PEP-053](PEP-053-always-on-specialization.md).**
+  Replacing `instanceMethodRegistry`'s 30 static source-string builtins with
+  `tryExtractInstanceFromSource` grew into a standalone program: PEP-053 also deletes the
+  explicit `specialize()`/`specialize$`/`mono()`/`inlineCall()`/`fn.specialize()` surface
+  (specialization becomes an always-on optimization with only the `@no-specialize` opt-out)
+  and unifies the duplicated specialization pipeline. Tracked there, not here.
 - **Phase E — `@syntax-methods` gating + docs sweep.** Gate method sugar on the activation
   marker (the breaking flip; activation state already tracked) and update the guides/
   getting-started/type-safety docs to the import-scoped model.
@@ -441,3 +445,12 @@ path + `@syntax-methods`/labels). Concrete-type operator resolution (Eq/Ord) is 
 migrated in Wave 1; the HKT method-sugar migration + the registry/inlining deletion it
 unblocks is Wave 2. Attempting the deletion before that would break method sugar,
 zero-cost inlining, and the playground — hence it is deferred, not partially done.
+
+**Post-Phase-C update (2026-07-02):** this gate applied to the general
+`instanceRegistry` (deleted in Phase C) more than to the inlining builtins:
+`transformer-core/src/rewriting.ts`'s `getInstanceMethods` import turned out to be
+dead — method sugar does not read `instanceMethodRegistry`. The builtins serve only
+zero-cost _inlining_ coverage, so their deletion is gated on source-extraction
+capability (import-alias/function-form handling), not on HKT scope resolution.
+That work — and the gate verification via the benchmark suite — is
+[PEP-053](PEP-053-always-on-specialization.md).
