@@ -194,7 +194,7 @@ export {
   effectEitherFunctor,
   effectEitherMonad,
   effectEitherMonadError,
-  // All instances for specialize()
+  // All typeclass instances (auto-specialization candidates)
   effectInstances,
 } from "./instances.js";
 

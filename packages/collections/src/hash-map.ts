@@ -2,7 +2,7 @@
  * HashMap<K, V> — A map backed by hash bucketing using Eq<K> + Hash<K>.
  *
  * API mirrors native Map<K, V> for drop-in usage.
- * With specialize(), HashMap<string, V> compiles to equivalent of native Map<string, V>.
+ * Auto-specialization compiles HashMap<string, V> to the equivalent of native Map<string, V>.
  */
 
 import type { Eq, Hash } from "@typesugar/std";

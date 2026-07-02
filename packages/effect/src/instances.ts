@@ -35,8 +35,8 @@
  * // Generic code works with Effect
  * const flattenEffect = flatten(effectMonad<never, never>());
  *
- * // With specialize(), the dictionary is eliminated:
- * const optimized = specialize(flattenEffect);
+ * // Passing a known instance auto-specializes the call — the dictionary
+ * // is eliminated at compile time (PEP-053); no annotation needed.
  * ```
  *
  * @module
@@ -307,12 +307,12 @@ export function effectEitherMonadError<E>(): MonadError<EffectEitherF<E>, E> {
 }
 
 // ============================================================================
-// Instance Registration for specialize()
+// Instance Bundle
 // ============================================================================
 
 /**
- * All Effect typeclass instances for use with specialize().
- * These are the concrete instance objects that can be inlined.
+ * All Effect typeclass instances, bundled for convenience.
+ * These are the concrete instance objects auto-specialization can inline.
  */
 export const effectInstances = {
   /** Functor<EffectF<E, R>> */

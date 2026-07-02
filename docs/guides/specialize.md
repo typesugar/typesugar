@@ -61,8 +61,10 @@ showNumber)` specializes on both at once.
   (`eitherFunctor<E>()`), members that reference other instances
   (`map: optionFunctor.map`, shorthand `{ map }`), and companion paths
   (`Point.Numeric`).
-- The built-in std/fp/effect instances (Array/Option/Either/Promise functors
-  and monads, FlatMap instances, etc.).
+- The std/fp/effect instances (Array/Option/Either/Promise functors and
+  monads, FlatMap instances, etc.) are recognized the same way — from their
+  source declarations, with no special-casing (the compiler's former
+  hard-coded builtin table was removed in PEP-053).
 - Primitive instances (`eqNumber`, `ordString`, ...) inline to native
   operators (`a === b`, `a < b`) rather than function calls.
 
