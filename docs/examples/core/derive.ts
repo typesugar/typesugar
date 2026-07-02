@@ -2,6 +2,9 @@
 //! Auto-generate typeclass instances + operator overloading
 
 import { derive, Eq, Clone, Debug, summon } from "typesugar";
+// Opt this file into Eq's operator syntax (PEP-052) — without this import,
+// === stays the native, unrewritten operator.
+import "@typesugar/std/syntax/eq/ops";
 
 // @derive() generates typeclass instances at compile time.
 // With Eq derived, === is rewritten to use structural equality!

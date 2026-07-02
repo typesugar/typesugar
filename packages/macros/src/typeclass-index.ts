@@ -200,9 +200,12 @@ export function getMethodCandidates(
 /**
  * Find EVERY `@typeclass` in the program that declares a method with the given
  * name. This is the registry-free replacement for `getTypeclassesForMethod`
- * (which scanned the global `typeclassRegistry`). Unscoped — used by the
- * instance-method-sugar path, which resolves the concrete instance from scope and
- * is not yet gated on `@syntax-methods` activation.
+ * (which scanned the global `typeclassRegistry`). Unscoped by design — used by
+ * the `extend()` macro, a NAMED trigger that self-activates via its own explicit
+ * import (PEP-052's two-trigger-class rule), so it needs no separate
+ * `@syntax-methods` gate. Instance-method sugar (`p.equals(q)`) is a distinct,
+ * syntactic-trigger path and uses the scoped `getMethodCandidates` instead
+ * (Phase E).
  */
 export function getTypeclassesDeclaringMethod(
   program: ts.Program,

@@ -52,7 +52,7 @@ import {
   type ResolvedInstance,
   // Generic typeclass op/method index (PEP-052)
   getOperatorCandidates,
-  getTypeclassesDeclaringMethod,
+  getMethodCandidates,
 } from "@typesugar/macros";
 
 import {
@@ -5615,10 +5615,14 @@ class MacroTransformer {
    * method, both with an instance for the type) is an error — the user should call
    * the companion form to disambiguate.
    *
-   * NOTE (PEP-052): this method-sugar path is still registry-based
-   * (`getTypeclassesForMethod` → `findInstance`) and NOT yet import-scoped. It is
-   * migrated to activation + scope-based resolution in a later wave (see the
-   * "Deferred to a later wave" section of PEP-052).
+   * PEP-052 Phase E: gated on activation, mirroring `tryRewriteTypeclassOperator`.
+   * Method sugar only rewrites if the using file activated the declaring
+   * typeclass's method syntax — either by importing a `@syntax-methods <TC>`
+   * (or `@syntax-operators <TC>`, tier 3 ⊇ tier 2) marker module, or by defining
+   * the typeclass in this file ("you don't import what you define"). No
+   * activation → the call stays a plain, unrewritten method call (which will be
+   * a native/TS compile error if the type has no such method — same as today
+   * without typesugar).
    */
   private tryResolveTypeclassMethod(
     node: ts.CallExpression,
@@ -5626,7 +5630,14 @@ class MacroTransformer {
     methodName: string,
     typeName: string
   ): ts.Expression | undefined {
-    const candidates = getTypeclassesDeclaringMethod(this.ctx.program, methodName);
+    const sfn = this.ctx.sourceFile.fileName;
+    const activatedMethods = globalResolutionScope.getActivatedMethodSyntax(sfn);
+    const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+    const activatedForMethods =
+      definedTcs.size === 0 ? activatedMethods : new Set([...activatedMethods, ...definedTcs]);
+    if (activatedForMethods.size === 0) return undefined;
+
+    const candidates = getMethodCandidates(this.ctx.program, activatedForMethods, methodName);
     if (candidates.length === 0) return undefined;
 
     const baseTypeName = stripTypeArguments(typeName);

@@ -362,23 +362,36 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 When the transformer encounters `value.method(args)`, it resolves the method through:
 
 1. **Native property check** — If `method` is a real property on the type, skip rewriting (unless an import-scoped extension forces it)
-2. **Typeclass extensions** via `findExtensionMethod()`:
-   - Exact type name match (e.g., `Point`)
-   - Base type name without generics (e.g., `Array` from `Array<number>`)
-   - Search all registered typeclasses for the method name
-3. **Standalone extensions**:
+2. **Standalone extensions**:
    - Pre-registered entries in `standaloneExtensionRegistry` (`findStandaloneExtension()`)
    - Import-scoped resolution via `resolveExtensionFromImports()`
+3. **Typeclass instance-method sugar** (`tryResolveTypeclassMethod`, PEP-052 Phase E)
+   — gated on activation, same rule as operators below: the using file must have
+   activated the declaring typeclass's method syntax, either by importing its
+   `@syntax-methods <TC>` (or `@syntax-operators <TC>`, which implies methods)
+   marker module, or by declaring the typeclass itself ("you don't import what
+   you define"). No activation → the call is left unrewritten. Once activated,
+   candidates come from the registry-free op-index (`getMethodCandidates`,
+   scoped to the activated typeclass set), and the instance is resolved purely
+   from scope (an imported/local `@impl`/`@instance` value, or a `@derive(TC)`
+   companion on the receiver's type) — no process-global instance registry.
 
 ### Operator Overloading
 
 Standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) are overloaded through the typeclass system via `@op` JSDoc tags on typeclass method signatures — there is no wrapper function or lexical preprocessor. (The earlier `.sts` preprocessor and its custom-operator dispatch machinery were removed in [PEP-047](peps/PEP-047-remove-sts.md).)
 
-When the transformer encounters a binary expression `a op b`:
+Resolution is import-scoped (PEP-052): a typeclass's operator syntax only fires
+in files that activated it. When the transformer encounters a binary expression
+`a op b`:
 
-1. It resolves a typeclass method annotated with `@op {operator}` for the operand type via `typeclassRegistry.syntax`.
-2. If an `@instance` exists for that type, `a op b` rewrites directly to the corresponding method call (e.g. `Point.Semigroup.combine(a, b)`).
-3. Otherwise the expression is left as-is (native semantics).
+1. Collect the typeclasses the using file activated — imported `@syntax-operators <TC>`
+   markers, plus any typeclass the file declares itself.
+2. Among those, find the ones whose declaration maps `@op {operator}`
+   (`getOperatorCandidates`, the registry-free op-index — no `typeclassRegistry`).
+3. If an instance is resolvable **from scope** for the operand type, `a op b`
+   rewrites directly to the corresponding method call (e.g. `Point.Semigroup.combine(a, b)`).
+4. Otherwise (nothing activated, no `@op` mapping, or no instance in scope) the
+   expression is left as-is — native semantics, byte-for-byte unchanged.
 
 ### HKT Conventions
 

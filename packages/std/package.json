@@ -67,6 +67,91 @@
       "types": "./dist/syntax/ord/ops.d.ts",
       "import": "./dist/syntax/ord/ops.js",
       "require": "./dist/syntax/ord/ops.cjs"
+    },
+    "./syntax/semigroup": {
+      "types": "./dist/syntax/semigroup.d.ts",
+      "import": "./dist/syntax/semigroup.js",
+      "require": "./dist/syntax/semigroup.cjs"
+    },
+    "./syntax/semigroup/ops": {
+      "types": "./dist/syntax/semigroup/ops.d.ts",
+      "import": "./dist/syntax/semigroup/ops.js",
+      "require": "./dist/syntax/semigroup/ops.cjs"
+    },
+    "./syntax/monoid": {
+      "types": "./dist/syntax/monoid.d.ts",
+      "import": "./dist/syntax/monoid.js",
+      "require": "./dist/syntax/monoid.cjs"
+    },
+    "./syntax/monoid/ops": {
+      "types": "./dist/syntax/monoid/ops.d.ts",
+      "import": "./dist/syntax/monoid/ops.js",
+      "require": "./dist/syntax/monoid/ops.cjs"
+    },
+    "./syntax/group": {
+      "types": "./dist/syntax/group.d.ts",
+      "import": "./dist/syntax/group.js",
+      "require": "./dist/syntax/group.cjs"
+    },
+    "./syntax/group/ops": {
+      "types": "./dist/syntax/group/ops.d.ts",
+      "import": "./dist/syntax/group/ops.js",
+      "require": "./dist/syntax/group/ops.cjs"
+    },
+    "./syntax/numeric": {
+      "types": "./dist/syntax/numeric.d.ts",
+      "import": "./dist/syntax/numeric.js",
+      "require": "./dist/syntax/numeric.cjs"
+    },
+    "./syntax/numeric/ops": {
+      "types": "./dist/syntax/numeric/ops.d.ts",
+      "import": "./dist/syntax/numeric/ops.js",
+      "require": "./dist/syntax/numeric/ops.cjs"
+    },
+    "./syntax/integral": {
+      "types": "./dist/syntax/integral.d.ts",
+      "import": "./dist/syntax/integral.js",
+      "require": "./dist/syntax/integral.cjs"
+    },
+    "./syntax/integral/ops": {
+      "types": "./dist/syntax/integral/ops.d.ts",
+      "import": "./dist/syntax/integral/ops.js",
+      "require": "./dist/syntax/integral/ops.cjs"
+    },
+    "./syntax/fractional": {
+      "types": "./dist/syntax/fractional.d.ts",
+      "import": "./dist/syntax/fractional.js",
+      "require": "./dist/syntax/fractional.cjs"
+    },
+    "./syntax/fractional/ops": {
+      "types": "./dist/syntax/fractional/ops.d.ts",
+      "import": "./dist/syntax/fractional/ops.js",
+      "require": "./dist/syntax/fractional/ops.cjs"
+    },
+    "./syntax/clone": {
+      "types": "./dist/syntax/clone.d.ts",
+      "import": "./dist/syntax/clone.js",
+      "require": "./dist/syntax/clone.cjs"
+    },
+    "./syntax/debug": {
+      "types": "./dist/syntax/debug.d.ts",
+      "import": "./dist/syntax/debug.js",
+      "require": "./dist/syntax/debug.cjs"
+    },
+    "./syntax/default": {
+      "types": "./dist/syntax/default.d.ts",
+      "import": "./dist/syntax/default.js",
+      "require": "./dist/syntax/default.cjs"
+    },
+    "./syntax/json": {
+      "types": "./dist/syntax/json.d.ts",
+      "import": "./dist/syntax/json.js",
+      "require": "./dist/syntax/json.cjs"
+    },
+    "./syntax/type-guard": {
+      "types": "./dist/syntax/type-guard.d.ts",
+      "import": "./dist/syntax/type-guard.js",
+      "require": "./dist/syntax/type-guard.cjs"
     }
   },
   "scripts": {

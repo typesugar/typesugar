@@ -162,7 +162,10 @@ class P { constructor(public x: number) {} }
   it("rewrites instance-method sugar `p.equals(q)` to the companion call", () => {
     // `equals` resolves to Eq via the op-index's static standard-typeclass seed
     // (no per-test registration needed — the seed is immutable, not a cleared registry).
+    // Method sugar is import-scoped (PEP-052 Phase E): activate Eq's method
+    // syntax so `.equals()` rewrites instead of being left as a native call.
     const code = `
+import "@typesugar/std/syntax/eq";
 @derive(Eq)
 class P { constructor(public x: number) {} }
 const p1 = new P(1);
